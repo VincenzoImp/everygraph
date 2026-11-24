@@ -34,8 +34,8 @@ Details, methods and caveats are in [docs/FINDINGS.md](docs/FINDINGS.md).
 |---|---|
 | Text edge list → graph | 35 M edges in 0.42 s; 117 M in 0.89 s; 1.8 B in 21 s (52 s with an 8 GB budget) |
 | PageRank on 1.8 B edges | 3.4 s/iteration in RAM; 3.7 s/iteration under a 2 GB memory limit |
-| Kernels vs NetworKit (117 M edges) | PageRank 0.37 s vs 3.42 s; components 13 ms vs 302 ms (reference measured on a shared machine) |
-| Communities (Leiden, 35 M edges) | 0.76 s at modularity 0.750; 2.0 s at 0.765 with three iterations (best reference: 0.770 in 6.0 s) |
+| Kernels vs NetworKit (117 M edges) | PageRank 0.37 s vs 2.79 s; components 13 ms vs 247 ms; triangles 1.46 s vs 24.0 s |
+| Communities (Leiden, 35 M edges) | 0.76 s at modularity 0.750 (GVE-Leiden: 1.02 s at 0.722); 2.0 s at 0.765 with three iterations (NetworKit: 6.0 s at 0.769) |
 | Determinism | identical partition, layout and map file at 1–32 threads; costs 2.4–3× for Leiden |
 | Storage | 16–17 bits/edge on social graphs, scanning faster than raw arrays at high thread counts |
 | Shortest path between two nodes | 0.3–1.5 ms in RAM (Neo4j 6.4 ms; embedded engines 0.3–4.8 s on the same graph) |

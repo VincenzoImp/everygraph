@@ -84,7 +84,7 @@ separate TypeScript package.
 
 | # | Decision | Evidence | Status |
 |---|---|---|---|
-| D1 | **Rust core, no C/C++ dependencies in the core.** | Lab kernels beat NetworKit 8–10× on orkut; same code runs in the browser. | validated |
+| D1 | **Rust core, no C/C++ dependencies in the core.** | Lab kernels are 4–19× faster than NetworKit on orkut (idle machine); the same code runs in the browser. | validated |
 | D2 | **Core is portable by construction:** I/O behind a chunked, positional, re-readable `ByteSource`; builders are two-pass; arrays are segmentable (≤ 2 GiB chunks); allocations are fallible and pre-estimated; parallelism behind a facade. | wasm32 has a 4 GiB memory and a 2 GiB single-allocation limit; two-pass build halves peak memory. | validated |
 | D3 | **Dense u32 node ids by default**, u64 offsets on disk, a u64-id build for n ≥ 2^32 later. | u64 targets cost +70–85% on PageRank. | validated |
 | D4 | **Compressed adjacency is the default storage:** delta + Stream VByte in node-aligned ~64K-edge blocks, Elias–Fano offsets, 4 KiB-aligned sections; own codec (~400 lines). Raw CSR is an in-RAM decode cache the planner may build. | 16–17 bits/edge vs 33 raw; scans faster than raw at 32 threads on twitter; 5.2× faster than raw under an 8 GB cap; raw PageRank 2× faster on orkut. | validated |

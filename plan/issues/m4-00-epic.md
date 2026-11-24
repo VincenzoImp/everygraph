@@ -7,7 +7,7 @@ Tracking issue for milestone M4.
 
 **Goal.** Production community detection — deterministic by default, with a fast mode — that works beyond RAM, meets quality gates on six graph families, and produces the hierarchy the map is built on.
 
-**Lab baseline (idle machine, 16 threads).** Leiden async: lj 0.76 s (Q 0.7497), orkut 1.43 s (Q 0.6689). Leiden deterministic: 2.30 s (0.7480), 3.48 s (0.6760), identical hash at 1–32 threads. Three iterations: lj 0.7647–0.7651, orkut 0.6905–0.6922 (best reference: 0.7704, 0.6911). GVE binaries on the same machine: 1.7–2.5 s at Q 0.65–0.72. Friendster in RAM: 154.5 s, Q 0.6033, 23.6 GB anonymous.
+**Lab baseline (idle machine, 16 threads).** Leiden async: lj 0.76 s (Q 0.7497), orkut 1.43 s (Q 0.6689). Leiden deterministic: 2.30 s (0.7480), 3.48 s (0.6760), identical hash at 1–32 threads. Three iterations: lj 0.7647–0.7651, orkut 0.6905–0.6922 (best reference: 0.7704, 0.6911). GVE-Leiden on the same idle machine: lj 1.02 s (Q 0.7223), orkut 1.45 s (Q 0.6636); NetworKit ParallelLeiden: 6.0 s (0.7688), 9.4 s (0.6720). Friendster in RAM: 154.5 s, Q 0.6033, 23.6 GB anonymous.
 
 **Exit criteria**
 - [ ] {{#m4-01-leiden-production}}, {{#m4-02-weights-resolution}}, {{#m4-03-parallel-aggregation}}

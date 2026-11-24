@@ -7,7 +7,7 @@ Tracking issue for milestone M3.
 
 **Goal.** A planner, a memory accountant and one edge-map framework that run every kernel in three regimes (mmap warm, mmap under pressure, semi-external streams) with identical results, at any thread count, inside the memory budget.
 
-**Lab baseline (idle machine, orkut).** PageRank 20 iterations 3.57 s at 1 thread → 0.37 s at 16; WCC 81 → 13 ms; BFS 99 → 22 ms; k-core 1.35 → 0.28 s; triangles 1.46 s at 32 threads. NetworKit 11.3 on the same machine: PageRank 3.42 s, parallel components 302 ms. Friendster PageRank: 3.4 s/iteration in RAM, 3.7 s/iteration under 8 GB and 2 GB limits.
+**Lab baseline (idle machine, orkut).** PageRank 20 iterations 3.57 s at 1 thread → 0.37 s at 16; WCC 81 → 13 ms; BFS 99 → 22 ms; k-core 1.35 → 0.28 s; triangles 1.46 s at 32 threads. NetworKit 11.3 on the same idle machine: PageRank 2.79 s, parallel components 247 ms, k-core 1.23 s, triangles 24.0 s. Friendster PageRank: 3.4 s/iteration in RAM, 3.7 s/iteration under 8 GB and 2 GB limits.
 
 **Exit criteria**
 - [ ] Framework and planner ({{#m3-01-edge-map}}, {{#m3-02-planner}}, {{#m3-03-semi-external}})

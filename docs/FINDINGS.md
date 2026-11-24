@@ -235,9 +235,9 @@ numbers, hashes and level sizes are not affected. Modularity computed by one com
   above it (orkut). Each extra iteration costs roughly one more run.
 - Leiden had 0 disconnected communities in every run only thanks to an explicit
   split-last step (it fired: +27 communities on lj, +476 on Friendster).
-- vs GVE on this machine (single noisy runs): 2.3–3.4× faster except parity on orkut
-  Leiden, with 2–3 points more modularity. The published 400M+ edges/s was not reproduced
-  by any implementation on lj here.
+- vs GVE (shared-machine runs suggested 2.3–3.4× faster; **the idle re-run below corrects
+  this to 1.0–1.3× for Leiden and 2.2–2.6× for Louvain**), with 0.5–2.7 points more
+  modularity. The published 400M+ edges/s was not reproduced by any implementation on lj.
 - Aggregation is the scaling bottleneck: 35–40% of time at 16 threads, 58–69% on Friendster.
 
 **Determinism (bit-identical output for any thread count):** hashed sub-rounds with frozen
@@ -320,17 +320,6 @@ Heavily shared machine; 32T rows are official runs under the lock, 6T rows are n
 Not done: per-list Elias–Fano, SIMD prefix sums, orderings on twitter, io_uring streaming,
 cold scans at 32 threads.
 
-## A — baselines (preliminary, shared machine; idle re-run pending)
-
-| tool on lj | time | modularity |
-|---|---|---|
-| largegraph 0.1 (full pipeline) | 36 s, 2.3 GB RSS | 0.666 after 5 passes |
-| NetworKit ParallelLeiden (6 threads) | 9.0 s | 0.768 |
-| NetworKit PLM / PLM+refine (6 threads) | 13.9 s / 19.2 s | 0.737 / 0.748 |
-| GVE-Leiden (32 threads) | 2.1 s | 0.723 |
-| DuckDB 2.0.1 CSV → sorted adjacency Parquet (6 threads) | 5.1 s | – |
-| NetworKit PageRank 20 it. (6 threads) | 4.5 s | – |
-
 ---
 
 ## Idle-machine re-runs (2026-11-24, nothing else running)
@@ -382,5 +371,47 @@ threads on orkut), and SMT adds nothing. Leaving RAM costs ~10% for PageRank.
   32 threads.
 - Natural (id) order, 16 threads: Leiden lj 0.55 s Q 0.7302; orkut 0.88 s Q 0.6475 —
   faster, 2–4.5 points worse.
-- GVE binaries, 32 threads, same idle machine: 2.0–2.5 s, Q 0.715–0.719 on lj;
-  1.7–2.5 s, Q 0.651–0.659 on orkut.
+- GVE timings printed during this script were taken while it still shared the machine;
+  the clean GVE numbers are in the baseline table below.
+
+**A — reference tools on the same idle machine** (pinned: NetworKit 11.3, python-igraph 1.0.0,
+scipy 1.18.1, rustworkx 0.18.1, DuckDB 2.0.1, GVE from puzzlef, largegraph 0.1). Graphs were
+built from the same CSR arrays; modularity computed by one routine. GVE times exclude loading.
+
+| tool (threads) | task | lj | orkut |
+|---|---|---|---|
+| NetworKit (32) | build graph from arrays | 7.8 s | 29.0 s |
+| NetworKit (32) | PageRank, 20 iterations | 1.40 s | 2.79 s |
+| NetworKit (32) | parallel components | 0.17 s | 0.25 s |
+| NetworKit (32) | k-core | 0.26 s | 1.23 s |
+| NetworKit (32) | BFS from the hub (sequential in NetworKit) | 0.85 s | 1.38 s |
+| NetworKit (32) | triangles | 4.8 s | 24.0 s |
+| NetworKit (32) | PLM | 4.9 s, Q 0.7485 | 6.6 s, Q 0.6731 |
+| NetworKit (32) | PLM + refine | 7.6 s, Q 0.7635 | 10.0 s, Q 0.6864 |
+| NetworKit (32) | ParallelLeiden | 6.0 s, Q 0.7688 | 9.4 s, Q 0.6720 (0.6882 at 1 thread) |
+| igraph (1) | PageRank / components | 11.1 s / 1.04 s | 32.0 s / 1.71 s |
+| igraph (1) | multilevel (Louvain) | 146 s, Q 0.7493 | 460 s, Q 0.6746 |
+| igraph (1) | Leiden, 2 iterations | 41.9 s, Q 0.7695 | 126 s, Q 0.6924 |
+| scipy (1) | PageRank 20 it. / components | 3.3 s / 1.45 s | 7.8 s / 3.70 s |
+| rustworkx (1) | build / components / k-core | 10.5 s / 3.7 s / 16.2 s | – |
+| GVE-Louvain (32) | communities | 0.82 s, Q 0.7218 | 1.70 s, Q 0.6606 |
+| GVE-Leiden (32) | communities | 1.02 s, Q 0.7223 | 1.45 s, Q 0.6636 |
+| DuckDB (32) | CSV → relabeled, symmetric, sorted adjacency in Parquet | 1.91 s | 5.37 s |
+| largegraph 0.1 | full pipeline (prepare, 5 passes, report) | 31.8 s, Q 0.666 | 70.5 s, Q 0.633 |
+
+Peak RSS: NetworKit 2.2 / 6.7 GB before community detection (up to 10 GB during it);
+igraph 7.1 / 23.6 GB; largegraph 2.4 / 4.1 GB.
+
+**What the comparison says (lab prototype, idle machine)**
+
+- Ingest: 0.42 s / 0.89 s against DuckDB's 1.91 s / 5.37 s (4.5–6×). DuckDB runs general SQL
+  and writes compressed Parquet, so this bounds the gain rather than declaring a winner.
+- Kernels on orkut against NetworKit at its best thread count: PageRank 0.37 vs 2.79 s (7.5×),
+  components 13 vs 247 ms (19×), k-core 0.28 vs 1.23 s (4.4×), triangles 1.46 vs 24.0 s (16×).
+- Communities against GVE: Leiden 0.76 vs 1.02 s on lj (+2.7 modularity points) and
+  1.24–1.43 vs 1.45 s on orkut (+0.5); Louvain 0.38 vs 0.82 s and 0.65 vs 1.70 s.
+- Communities against the quality leaders: three-iteration Leiden reaches Q 0.7647 in 2.0 s on
+  lj (NetworKit ParallelLeiden 0.7688 in 6.0 s; igraph Leiden 0.7695 in 41.9 s) and Q 0.6922 in
+  3.6 s on orkut (igraph 0.6924 in 126 s; NetworKit 0.6720–0.6882).
+- The old prototype is 40–90× slower end to end than the new ingest + Leiden path and 8–11
+  modularity points behind.
