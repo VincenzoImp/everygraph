@@ -136,8 +136,56 @@ Round 1 offered three directions. **Decided: the system of B with the mark of A.
 
 ![](screens/b-01-identity-overview.png)
 
-Round 2 — variants descended from that choice, each shown applied to a landing page, a
-terminal, a notebook card and the viewer — is in preparation (`brand2/`).
+### Round 2 — five systems descended from "B's system + A's mark"
+
+![](screens/c-01-systems-overview.png)
+
+Each system is shown applied where it will live: a landing page, a terminal, a notebook
+error card and the viewer around a map. These are the images to judge by.
+
+| System | In context | Other theme | Everything |
+|---|---|---|---|
+| **1 · Datum** — B unchanged, the reference | [light](screens/c-21-system-1-context.png) | [dark](screens/c-31-system-1-dark.png) | [full](screens/c-11-system-1.png) |
+| **2 · Vernier** — a calmer instrument: warm paper, ink-blue accent, soft corners | [light](screens/c-22-system-2-context.png) | [dark](screens/c-32-system-2-dark.png) | [full](screens/c-12-system-2.png) |
+| **3 · Blueprint** — dark-first drafting sheet: ink blue, cyan lines, one yellow highlight | [dark](screens/c-23-system-3-context.png) | [light](screens/c-33-system-3-light.png) | [full](screens/c-13-system-3.png) |
+| **4 · Survey** — hairlines, a serif for headlines, muted sea blue | [light](screens/c-24-system-4-context.png) | [dark](screens/c-34-system-4-dark.png) | [full](screens/c-14-system-4.png) |
+| **5 · Plate** — black on white, colour only for data | [light](screens/c-25-system-5-context.png) | [dark](screens/c-35-system-5-dark.png) | [full](screens/c-15-system-5.png) |
+
+**Vernier, applied**
+
+![](screens/c-22-system-2-context.png)
+
+**Blueprint, applied**
+
+![](screens/c-23-system-3-context.png)
+
+What was measured: in Datum the orange accent is too close to the error red and, for some
+colour-blind users, to the warning amber; the other systems fix this. Every data palette
+keeps its ten colours distinguishable for the two common forms of colour blindness, none
+by a wide margin. Heavy versions of the mark read as a target or an eye; thin and medium
+weights read as nested contours.
+
+> **I0 — which system?**
+> ★ **Vernier**: keeps the instrument feel, fixes the measured colour problem, works in
+> light and dark, and the dark map sits well in it.
+> **Blueprint**: the most distinctive and the best home for the map, but it is dark-first
+> and weakest on white (notebooks, papers).
+> **A hybrid**: Vernier for documentation and notebooks, Blueprint's dark sheet for the
+> viewer. **Survey**, **Datum unchanged**.
+
+> **I0b — the mark.** ★ Two rings and a dot at medium weight ("Nest"), and the same
+> inside a square for small sizes and icons ("Seal"). Alternative: three rings
+> ("Strata"), which closes up below 32 px.
+
+> **I0c — numbers.** ★ Monospace for every number (the instrument look you liked in B).
+> Alternative: monospace only in tables and code.
+
+> **I0d — fonts.** ★ Ship one open-licence family so it looks the same everywhere (Inter
+> with JetBrains Mono, or IBM Plex Sans with Plex Mono). Alternative: whatever fonts the
+> reader's system has, accepting differences.
+
+> **I0e — "Plate" (black and white, colour only for data) as the style of exported
+> figures**, whichever system wins? ★ Yes.
 
 The landing page in the three round-1 directions:
 [A](screens/b-05-landing-A.png) · [B](screens/b-06-landing-B.png) ·

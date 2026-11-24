@@ -1,0 +1,2480 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Everygraph — visual identity, round 2: five systems (mockup)</title>
+<meta name="viewport" content="width=1440">
+<style>
+/* ===== Everygraph identity, round 2: five systems descended from "B + A's mark" =====
+   Colour custom properties are generated at load time from tokens.json and palettes.json.
+   This file holds structure: type, shape, rules and the component language of each system. */
+*{box-sizing:border-box}
+html{background:#e6e6e2}
+body{margin:0;background:#e6e6e2;color:#1b1b1b;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif}
+.page{width:1440px;margin:0 auto;padding:26px 24px 90px}
+.mock-tag{position:fixed;right:10px;bottom:10px;z-index:99;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;background:rgba(20,20,20,.72);color:#fff;padding:5px 8px;border-radius:3px;pointer-events:none}
+
+/* ---------- page scaffolding (neutral, not part of any system) ---------- */
+.intro h1{font-size:22px;margin:0 0 4px;font-weight:650;letter-spacing:-.01em}
+.intro p{margin:0;color:#55554f;max-width:1080px;font-size:13.5px}
+.intro code,.meta code{background:#d9d9d4;padding:1px 5px;border-radius:3px;font:12px ui-monospace,Menlo,Consolas,monospace}
+.meta{display:flex;align-items:baseline;gap:12px;margin:26px 2px 8px;font-size:12px;color:#66665f}
+.meta b{font-size:13px;color:#1b1b1b;font-weight:650}
+.meta .r{margin-left:auto}
+.sys{margin:44px 0 0}
+.sys>.sys-title{display:flex;align-items:baseline;gap:14px;margin:0 2px 10px;border-top:2px solid #1b1b1b;padding-top:10px}
+.sys>.sys-title .n{font:700 13px ui-monospace,Menlo,monospace;background:#1b1b1b;color:#fff;padding:3px 7px;border-radius:2px}
+.sys>.sys-title h2{margin:0;font-size:22px;font-weight:650;letter-spacing:-.01em}
+.sys>.sys-title span{color:#66665f;font-size:13.5px}
+.sys>.sys-title a{margin-left:auto;font:12px ui-monospace,Menlo,monospace;color:#55554f}
+.card{border-radius:5px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.14)}
+.two{display:grid;grid-template-columns:1fr 1fr}
+.pane{padding:22px 26px 26px;min-width:0}
+body.only .ov,body.only .sys{display:none}
+body.only .sys.show{display:block;margin-top:18px}
+body.part .sys [data-part]{display:none}
+body.part .sys [data-part].keep{display:block}
+body.part .sys .two[data-part].keep,body.part .sys .type[data-part].keep,body.part .sys .comps[data-part].keep{display:grid}
+body.part .sys .meta[data-part].keep{display:flex}
+body.part .sys .sys-headcard{display:none}
+
+/* ---------- tokens shared by all systems ---------- */
+.eg{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  --ctl-h:36px;--bw:1px;--rule:1px;--num-size:1em;--mark-ring:var(--ink);--mark-dot:var(--accent);--mark-sq:var(--ink);--mark-on-sq:var(--bg);--mark-sq-dot:var(--accent)}
+.eg[data-sys="1"]{
+  --font-display:Inter,"IBM Plex Sans",system-ui,-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;--font-body:var(--font-display);
+  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,"Noto Sans Mono","DejaVu Sans Mono",monospace;--font-num:var(--font-mono);--num-size:.92em;
+  --r:0px;--display-w:700;--display-track:-.035em}
+.eg[data-sys="2"]{
+  --font-display:"Source Sans 3","Source Sans Pro","Noto Sans","Segoe UI",system-ui,sans-serif;--font-body:var(--font-display);
+  --font-mono:"Source Code Pro","Noto Sans Mono",ui-monospace,Menlo,Consolas,"DejaVu Sans Mono",monospace;--font-num:var(--font-mono);--num-size:.93em;
+  --r:3px;--display-w:700;--display-track:-.02em}
+.eg[data-sys="3"]{
+  --font-display:"IBM Plex Sans",Roboto,"Segoe UI",system-ui,sans-serif;--font-body:var(--font-display);
+  --font-mono:"IBM Plex Mono","Roboto Mono","PT Mono","DejaVu Sans Mono",ui-monospace,monospace;--font-num:var(--font-mono);--num-size:.93em;
+  --r:2px;--display-w:500;--display-track:-.015em;--mark-ring:var(--accent);--mark-dot:var(--hl);--mark-sq:#0f2640;--mark-on-sq:#5ec8f2;--mark-sq-dot:#ffd166}
+.eg[data-sys="3"][data-theme="light"]{--mark-ring:var(--ink)}
+.eg[data-sys="4"]{
+  --font-display:"Source Serif 4","Source Serif Pro",Charter,"Bitstream Charter","Iowan Old Style","PT Serif",Georgia,serif;
+  --font-body:Inter,system-ui,-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  --font-mono:"JetBrains Mono","Noto Sans Mono",ui-monospace,Menlo,Consolas,"DejaVu Sans Mono",monospace;--font-num:var(--font-body);
+  --r:1px;--display-w:600;--display-track:-.012em}
+.eg[data-sys="5"]{
+  --font-display:Arimo,"Liberation Sans",Arial,Helvetica,sans-serif;--font-body:var(--font-display);
+  --font-mono:Cousine,"Liberation Mono","Courier New",monospace;--font-num:var(--font-body);
+  --r:0px;--bw:1.5px;--rule:1.5px;--display-w:700;--display-track:-.025em;--mark-dot:var(--ink);--mark-sq-dot:var(--bg);
+  --hatch:repeating-linear-gradient(135deg,var(--ink) 0 1px,transparent 1px 5px)}
+
+.eg h1,.eg h2,.eg h3,.eg .display{font-family:var(--font-display);font-weight:var(--display-w);letter-spacing:var(--display-track);line-height:1.1;margin:0}
+.eg a{color:var(--accent-ink);text-underline-offset:3px}
+.eg p{margin:0}
+.eg .num{font-family:var(--font-num);font-size:var(--num-size);font-variant-numeric:tabular-nums lining-nums}
+.eg code,.eg .mono{font-family:var(--font-mono);font-size:.92em}
+.eg svg.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+
+/* labels: the small text above things */
+.eg .lbl{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.eg[data-sys="1"] .lbl{font-family:var(--font-mono);font-weight:500}
+.eg[data-sys="2"] .lbl{font-size:12.5px;letter-spacing:0;text-transform:none;color:var(--ink2);font-weight:700}
+.eg[data-sys="3"] .lbl{display:flex;align-items:center;gap:8px;font:400 11.5px/1.4 var(--font-mono);letter-spacing:.02em;text-transform:lowercase;color:var(--muted)}
+.eg[data-sys="3"] .lbl::after{content:"";flex:1;border-top:1px solid var(--line)}
+.eg[data-sys="4"] .lbl{font:italic 400 14px/1.3 var(--font-display);letter-spacing:0;text-transform:none;color:var(--ink2)}
+.eg[data-sys="5"] .lbl{font-size:12px;letter-spacing:0;text-transform:none;color:var(--ink);font-weight:700}
+
+/* ---------- buttons ---------- */
+.eg .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:var(--ctl-h);padding:0 16px;font:600 14px/1 var(--font-body);border-radius:var(--r);
+  border:var(--bw) solid var(--accent);background:var(--accent);color:var(--on-accent);white-space:nowrap;text-decoration:none;cursor:pointer}
+.eg .btn.sec{background:transparent;color:var(--ink);border-color:var(--line-strong)}
+.eg .btn.quiet{background:transparent;border-color:transparent;color:var(--accent-ink);padding:0 6px}
+.eg .btn.sm{height:28px;padding:0 10px;font-size:12.5px}
+.eg .btn[disabled]{background:var(--surface2);border-color:var(--line);color:var(--muted);cursor:default}
+.eg[data-sys="1"] .btn{font:500 12px/1 var(--font-mono);text-transform:uppercase;letter-spacing:.07em;background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.eg[data-sys="1"] .btn.accent{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.eg[data-sys="1"] .btn.sec{background:transparent;color:var(--ink);border-color:var(--ink)}
+.eg[data-sys="1"] .btn.quiet{background:transparent;border-color:transparent;color:var(--ink);text-decoration:underline;text-underline-offset:4px}
+.eg[data-sys="1"] .btn.sm{font-size:11px}
+.eg[data-sys="1"] .btn[disabled]{background:var(--surface2);border-color:var(--line);color:var(--muted)}
+.eg[data-sys="2"] .btn{font-weight:700}
+.eg[data-sys="2"] .btn.sec{background:var(--surface);border-color:var(--line-strong)}
+.eg[data-sys="2"] .btn[disabled]{background:var(--surface2);border-color:var(--line);color:var(--muted)}
+.eg[data-sys="3"] .btn{font:500 13px/1 var(--font-body);letter-spacing:.01em}
+.eg[data-sys="3"] .btn.sec{border-color:var(--accent);color:var(--accent-ink)}
+.eg[data-sys="3"] .btn.quiet{text-decoration:underline dashed;text-underline-offset:5px;text-decoration-thickness:1px}
+.eg[data-sys="3"] .btn[disabled]{background:transparent;border:1px dashed var(--line-strong);color:var(--muted)}
+.eg[data-sys="4"] .btn{font:500 13.5px/1 var(--font-body)}
+.eg[data-sys="4"] .btn.sec{border-color:var(--ink)}
+.eg[data-sys="4"] .btn.quiet{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
+.eg[data-sys="4"] .btn[disabled]{background:transparent;border-color:var(--line);color:var(--muted)}
+.eg[data-sys="5"] .btn{font:700 13px/1 var(--font-body)}
+.eg[data-sys="5"] .btn.sec{border-color:var(--ink)}
+.eg[data-sys="5"] .btn.quiet{color:var(--ink);text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:4px}
+.eg[data-sys="5"] .btn[disabled]{background:var(--hatch);border-color:var(--ink);color:var(--ink)}
+.eg[data-sys="5"] .btn[disabled] span{background:var(--bg);padding:2px 5px}
+
+/* ---------- fields ---------- */
+.eg .field{display:flex;align-items:center;gap:8px;height:var(--ctl-h);padding:0 11px;border:var(--bw) solid var(--line-strong);border-radius:var(--r);background:var(--surface);color:var(--ink);font:14px/1 var(--font-body);min-width:0;white-space:nowrap}
+.eg .field .ph{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.eg .field svg{color:var(--muted)}
+.eg .field .chev{margin-left:auto;color:var(--ink2)}
+.eg .field kbd{margin-left:auto;font:11px/1 var(--font-mono);border:1px solid var(--line);padding:3px 5px;border-radius:var(--r);color:var(--muted)}
+.eg .field .k{color:var(--muted)}
+.eg .field.focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.eg .field .caret{width:1px;height:16px;background:var(--ink);margin-left:-6px}
+.eg[data-sys="1"] .field{font:13px/1 var(--font-mono)}
+.eg[data-sys="1"] .field.focus{border-color:var(--ink);box-shadow:0 0 0 2px var(--accent)}
+.eg[data-sys="3"] .field{font-size:13px;background:var(--surface)}
+.eg[data-sys="3"] .field .val{font-family:var(--font-mono);font-size:12.5px}
+.eg[data-sys="4"] .field{border-width:0 0 1px;border-radius:0;background:transparent;padding:0 2px}
+.eg[data-sys="4"] .field.boxed{border-width:1px;padding:0 10px;background:var(--surface)}
+.eg[data-sys="4"] .field.focus{border-color:var(--accent);box-shadow:0 1px 0 var(--accent)}
+.eg[data-sys="5"] .field{border-color:var(--ink)}
+.eg[data-sys="5"] .field.focus{box-shadow:none;outline:3px solid var(--ink);outline-offset:2px}
+
+.eg .toggle{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;white-space:nowrap}
+.eg .toggle i{position:relative;width:32px;height:18px;border-radius:9px;background:var(--line-strong);flex:none}
+.eg .toggle i::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--surface)}
+.eg .toggle.on i{background:var(--accent)}
+.eg .toggle.on i::after{left:16px;background:var(--on-accent)}
+.eg[data-sys="1"] .toggle{font:12px var(--font-mono);text-transform:uppercase;letter-spacing:.06em}
+.eg[data-sys="1"] .toggle i{border-radius:0;background:var(--bg);border:1px solid var(--ink)}
+.eg[data-sys="1"] .toggle i::after{border-radius:0;background:var(--ink);top:2px;left:2px;width:12px;height:12px}
+.eg[data-sys="1"] .toggle.on i{background:var(--accent)}
+.eg[data-sys="1"] .toggle.on i::after{left:16px;background:var(--on-accent)}
+.eg[data-sys="2"] .toggle i{border-radius:4px}
+.eg[data-sys="2"] .toggle i::after{border-radius:2.5px;background:#fff}
+.eg[data-sys="3"] .toggle i{border-radius:2px;background:transparent;border:1px solid var(--line-strong)}
+.eg[data-sys="3"] .toggle i::after{border-radius:1px;background:var(--muted);top:2px;left:2px;width:12px;height:12px}
+.eg[data-sys="3"] .toggle.on i{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.eg[data-sys="3"] .toggle.on i::after{left:16px;background:var(--accent)}
+.eg[data-sys="4"] .toggle i{height:1px;width:30px;background:var(--ink);border-radius:0;margin:9px 0}
+.eg[data-sys="4"] .toggle i::after{top:-6px;left:0;width:13px;height:13px;background:var(--bg);border:1px solid var(--ink);box-sizing:border-box}
+.eg[data-sys="4"] .toggle.on i{background:var(--accent)}
+.eg[data-sys="4"] .toggle.on i::after{left:17px;background:var(--accent);border-color:var(--accent)}
+.eg[data-sys="5"] .toggle i{width:16px;height:16px;border-radius:0;background:var(--bg);border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .toggle i::after{display:none}
+.eg[data-sys="5"] .toggle.on i{background:var(--ink)}
+.eg[data-sys="5"] .toggle.on i::before{content:"";position:absolute;left:4px;top:.5px;width:4px;height:9px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}
+
+.eg .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);font-size:13.5px}
+.eg .tabs span{padding:8px 13px 9px;color:var(--ink2);margin-bottom:-1px;white-space:nowrap}
+.eg .tabs .on{color:var(--ink);font-weight:600;border-bottom:2px solid var(--accent)}
+.eg[data-sys="1"] .tabs{gap:0;border-bottom:1px solid var(--ink);font:500 11.5px var(--font-mono);text-transform:uppercase;letter-spacing:.07em}
+.eg[data-sys="1"] .tabs .on{background:var(--ink);color:var(--bg);border-bottom:0;font-weight:500}
+.eg[data-sys="2"] .tabs .on{font-weight:700}
+.eg[data-sys="3"] .tabs{font:12.5px var(--font-mono);gap:0;border-bottom-color:var(--line-strong)}
+.eg[data-sys="3"] .tabs span{text-transform:lowercase}
+.eg[data-sys="3"] .tabs .on{font-weight:400;color:var(--accent-ink);border:1px solid var(--line-strong);border-bottom:1px solid var(--bg);border-top:2px solid var(--accent);background:var(--bg)}
+.eg[data-sys="4"] .tabs{border-bottom-color:var(--ink);gap:10px}
+.eg[data-sys="4"] .tabs span{padding-left:2px;padding-right:2px}
+.eg[data-sys="4"] .tabs .on{font-weight:500;border-bottom:3px solid var(--ink)}
+.eg[data-sys="5"] .tabs{border-bottom:1.5px solid var(--ink);gap:14px}
+.eg[data-sys="5"] .tabs span{padding-left:0;padding-right:0;color:var(--ink)}
+.eg[data-sys="5"] .tabs .on{font-weight:700;border-bottom:4px solid var(--ink)}
+
+/* ---------- table of exact numbers ---------- */
+.eg table.nt{border-collapse:collapse;width:100%;font-size:13.5px}
+.eg table.nt th{font-weight:600;color:var(--ink2);text-align:right;padding:6px 10px;border-bottom:1px solid var(--line-strong);white-space:nowrap;font-size:12.5px}
+.eg table.nt td{text-align:right;padding:6px 10px;border-bottom:1px solid var(--line);font-family:var(--font-num);font-size:var(--num-size);font-variant-numeric:tabular-nums lining-nums;white-space:nowrap}
+.eg table.nt th:first-child,.eg table.nt td:first-child{text-align:left}
+.eg table.nt td.dim{color:var(--muted);font-family:var(--font-body);font-size:12.5px}
+.eg table.nt tr.sel td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.eg table.nt .sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:0}
+.eg[data-sys="1"] table.nt th{font:500 11px var(--font-mono);text-transform:uppercase;letter-spacing:.06em;border-bottom:2px solid var(--ink);border-top:2px solid var(--ink);padding:7px 10px}
+.eg[data-sys="1"] table.nt .sw{border-radius:0}
+.eg[data-sys="1"] table.nt tr.sel td{background:transparent;box-shadow:inset 0 -2px 0 var(--accent)}
+.eg[data-sys="2"] table.nt th{font-weight:700;border-bottom-color:var(--line-strong)}
+.eg[data-sys="3"] table.nt th{font:400 11.5px var(--font-mono);text-transform:lowercase;color:var(--muted);border-bottom:1px solid var(--line-strong)}
+.eg[data-sys="3"] table.nt td{border-bottom:1px dashed var(--line)}
+.eg[data-sys="3"] table.nt tr.sel td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.eg[data-sys="3"] table.nt tr.sel td:first-child{box-shadow:inset 2px 0 0 var(--hl)}
+.eg[data-sys="4"] table.nt{border-top:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+.eg[data-sys="4"] table.nt th{font:italic 400 13.5px var(--font-display);color:var(--ink);border-bottom:1px solid var(--ink)}
+.eg[data-sys="4"] table.nt tr:last-child td{border-bottom:0}
+.eg[data-sys="4"] table.nt tr.sel td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.eg[data-sys="5"] table.nt{border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink)}
+.eg[data-sys="5"] table.nt th{font-weight:700;color:var(--ink);border-bottom:1px solid var(--ink)}
+.eg[data-sys="5"] table.nt td{border-bottom:0;padding-top:5px;padding-bottom:5px}
+.eg[data-sys="5"] table.nt tr.sel td{background:var(--ink);color:var(--bg)}
+.eg[data-sys="5"] table.nt .sw{outline:1.5px solid var(--bg)}
+
+/* ---------- code ---------- */
+.eg pre{margin:0}
+.eg pre.code{font:12.5px/1.65 var(--font-mono);background:var(--surface2);color:var(--ink);padding:13px 16px;border-radius:var(--r);overflow:hidden;white-space:pre;tab-size:4}
+.eg pre.code .k{color:var(--accent-ink)}.eg pre.code .s{color:var(--ink2)}.eg pre.code .c{color:var(--muted);font-style:italic}
+.eg[data-sys="1"] pre.code{border-left:3px solid var(--ink)}
+.eg[data-sys="1"] pre.code .k{font-weight:700}
+.eg[data-sys="2"] pre.code{border:1px solid var(--line)}
+.eg[data-sys="2"] pre.code .s{color:var(--ok)}
+.eg[data-sys="3"] pre.code{background:var(--surface);border:1px solid var(--line);counter-reset:ln;padding-left:0}
+.eg[data-sys="3"] pre.code .ln{display:block}
+.eg[data-sys="3"] pre.code .ln::before{counter-increment:ln;content:counter(ln);display:inline-block;width:34px;margin-right:14px;text-align:right;color:var(--muted);border-right:1px solid var(--line);padding-right:8px;opacity:.75}
+.eg[data-sys="3"] pre.code .k{color:var(--accent-ink)}
+.eg[data-sys="3"] pre.code .s{color:var(--hl-ink,var(--hl))}
+.eg[data-sys="4"] pre.code{background:transparent;border-top:1px solid var(--ink);border-bottom:1px solid var(--line-strong);border-radius:0;padding:12px 2px}
+.eg[data-sys="4"] pre.code .s{color:var(--ok)}
+.eg[data-sys="5"] pre.code{background:var(--bg);border:1.5px solid var(--ink)}
+.eg[data-sys="5"] pre.code .k{color:var(--ink);font-weight:700}
+.eg[data-sys="5"] pre.code .s{color:var(--ink)}
+
+/* ---------- callouts ---------- */
+.eg .co{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:var(--r);font-size:13.5px;color:var(--ink2);background:color-mix(in srgb,var(--st) 9%,var(--surface));border-left:3px solid var(--st)}
+.eg .co.info{--st:var(--info)}.eg .co.warn{--st:var(--warn)}.eg .co.err{--st:var(--err)}.eg .co.ok{--st:var(--ok)}
+.eg .co svg.ic{color:var(--st);margin-top:2px}
+.eg .co b{color:var(--ink)}
+.eg .co .tag{display:none}
+.eg[data-sys="1"] .co{padding:0;background:transparent;border:1px solid var(--ink);gap:0;align-items:stretch}
+.eg[data-sys="1"] .co svg.ic{display:none}
+.eg[data-sys="1"] .co .tag{display:flex;align-items:center;justify-content:center;flex:none;width:78px;font:500 11px/1 var(--font-mono);text-transform:uppercase;letter-spacing:.07em;background:var(--st);color:#fff}
+.eg[data-sys="1"] .co.info .tag{background:var(--accent);color:var(--on-accent)}
+.eg[data-sys="1"] .co .body{padding:10px 12px}
+.eg[data-sys="3"] .co{background:transparent;border:1px solid color-mix(in srgb,var(--st) 55%,var(--line));border-left:1px solid color-mix(in srgb,var(--st) 55%,var(--line));position:relative;padding:14px 14px 11px}
+.eg[data-sys="3"] .co svg.ic{display:none}
+.eg[data-sys="3"] .co .tag{display:block;position:absolute;top:-8px;left:10px;background:var(--bg);padding:0 6px;font:11.5px/1.3 var(--font-mono);text-transform:lowercase;color:var(--st)}
+.eg[data-sys="4"] .co{background:transparent;border-left:0;border-top:1px solid var(--st);border-bottom:1px solid var(--line);border-radius:0;padding:10px 2px}
+.eg[data-sys="4"] .co b:first-of-type{font:italic 600 14.5px var(--font-display);color:var(--st)}
+.eg[data-sys="4"] .co.info b:first-of-type{color:var(--ink)}
+.eg[data-sys="5"] .co{background:var(--bg);border:1px solid var(--ink);padding:10px 12px;color:var(--ink)}
+.eg[data-sys="5"] .co.warn{border:1.5px dashed var(--ink)}
+.eg[data-sys="5"] .co.err{border:1.5px solid var(--ink);border-left:10px solid var(--ink)}
+.eg[data-sys="5"] .co.err b:first-of-type{background:var(--ink);color:var(--bg);padding:1px 5px}
+
+/* ---------- tooltip ---------- */
+.eg .tip{display:inline-block;background:var(--tip-bg,var(--ink));color:var(--tip-fg,var(--bg));border-radius:var(--r);padding:9px 12px 10px;font-size:12.5px;line-height:1.45;position:relative;min-width:210px}
+.eg .tip b{display:block;font-size:13px;margin-bottom:3px}
+.eg .tip dl{display:grid;grid-template-columns:1fr auto;gap:1px 18px;margin:0}
+.eg .tip dt{opacity:.72}.eg .tip dd{margin:0;text-align:right;font-family:var(--font-num);font-size:var(--num-size);font-variant-numeric:tabular-nums}
+.eg .tip::after{content:"";position:absolute;left:18px;bottom:-5px;width:10px;height:10px;background:inherit;transform:rotate(45deg)}
+.eg .tip.noarrow::after{display:none}
+.eg[data-sys="1"] .tip b{font:500 11px var(--font-mono);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid currentColor;padding-bottom:5px;margin-bottom:5px}
+.eg[data-sys="3"] .tip{background:var(--surface2);color:var(--ink);border:1px solid var(--line-strong)}
+.eg[data-sys="3"] .tip b{font:400 12px var(--font-mono);color:var(--hl-ink,var(--hl))}
+.eg[data-sys="3"] .tip::after{border:solid var(--line-strong);border-width:0 1px 1px 0;bottom:-6px}
+.eg[data-sys="4"] .tip{background:var(--surface);color:var(--ink);border:1px solid var(--ink);box-shadow:3px 3px 0 color-mix(in srgb,var(--ink) 14%,transparent)}
+.eg[data-sys="4"] .tip b{font:600 14.5px var(--font-display)}
+.eg[data-sys="4"] .tip::after{border:solid var(--ink);border-width:0 1px 1px 0;bottom:-6px}
+.eg[data-sys="5"] .tip b{font-weight:700}
+
+/* ---------- progress with phases ---------- */
+.eg .prog-top{display:flex;align-items:baseline;gap:12px;font-size:13.5px;margin-bottom:8px}
+.eg .prog-top b{font-weight:600}.eg .prog-top .eta{margin-left:auto;color:var(--muted);font-size:12.5px}
+.eg .prog-bar{display:flex;gap:3px;height:8px}
+.eg .prog-bar i{position:relative;background:var(--surface2);border-radius:calc(var(--r)/1.5);overflow:hidden}
+.eg .prog-bar i.done{background:var(--ink)}
+.eg .prog-bar i b{position:absolute;inset:0 auto 0 0;background:var(--accent)}
+.eg .prog-lbl{display:flex;gap:3px;margin-top:6px;font-size:12px;color:var(--ink2)}
+.eg .prog-lbl span{min-width:0;white-space:nowrap}
+.eg .prog-lbl em{display:block;font-style:normal;color:var(--muted);font-family:var(--font-num);font-size:11.5px;font-variant-numeric:tabular-nums}
+.eg .prog-lbl .cur{color:var(--ink);font-weight:600}
+.eg .prog-lbl .todo{color:var(--muted)}
+.eg[data-sys="1"] .prog-top b{font:500 12px var(--font-mono);text-transform:uppercase;letter-spacing:.06em}
+.eg[data-sys="1"] .prog-bar{height:10px;gap:2px}
+.eg[data-sys="1"] .prog-lbl{font:11px var(--font-mono);text-transform:uppercase;letter-spacing:.05em}
+.eg[data-sys="2"] .prog-top b{font-weight:700}
+.eg[data-sys="2"] .prog-bar{height:8px}
+.eg[data-sys="2"] .prog-bar i.done{background:color-mix(in srgb,var(--accent) 55%,var(--ink))}
+.eg[data-sys="2"] .prog-ticks{height:7px;margin-top:3px;background:repeating-linear-gradient(90deg,var(--line-strong) 0 1px,transparent 1px 8px);-webkit-mask:linear-gradient(#000 0 0) top/100% 4px no-repeat,repeating-linear-gradient(90deg,#000 0 1px,transparent 1px 40px);mask:linear-gradient(#000 0 0) top/100% 4px no-repeat,repeating-linear-gradient(90deg,#000 0 1px,transparent 1px 40px)}
+.eg[data-sys="3"] .prog-bar{height:12px;gap:0}
+.eg[data-sys="3"] .prog-bar i{background:transparent;border:1px solid var(--line-strong);border-left-width:0;border-radius:0}
+.eg[data-sys="3"] .prog-bar i:first-child{border-left-width:1px}
+.eg[data-sys="3"] .prog-bar i.done{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+.eg[data-sys="3"] .prog-bar i b{background:var(--accent);border-right:2px solid var(--hl)}
+.eg[data-sys="3"] .prog-lbl{font:11.5px var(--font-mono);gap:0}
+.eg[data-sys="3"] .prog-lbl span{border-left:1px solid var(--line-strong);padding:3px 0 0 6px}
+.eg[data-sys="4"] .prog-bar{height:7px;gap:0;border:1px solid var(--ink)}
+.eg[data-sys="4"] .prog-bar i{background:var(--bg);border-radius:0;border-left:1px solid var(--ink)}
+.eg[data-sys="4"] .prog-bar i:first-child{border-left:0}
+.eg[data-sys="4"] .prog-bar i.done{background:var(--ink)}
+.eg[data-sys="4"] .prog-bar i.done+i.done{background:color-mix(in srgb,var(--ink) 55%,var(--bg))}
+.eg[data-sys="4"] .prog-lbl{gap:0}
+.eg[data-sys="4"] .prog-lbl .cur{font-weight:500;color:var(--accent-ink)}
+.eg[data-sys="5"] .prog-bar{height:12px;gap:0;border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .prog-bar i{background:var(--bg);border-left:1.5px solid var(--ink)}
+.eg[data-sys="5"] .prog-bar i:first-child{border-left:0}
+.eg[data-sys="5"] .prog-bar i.done{background:var(--ink)}
+.eg[data-sys="5"] .prog-bar i.done+i.done{box-shadow:inset 1.5px 0 0 var(--bg)}
+.eg[data-sys="5"] .prog-bar i.cur{background:var(--hatch)}
+.eg[data-sys="5"] .prog-bar i b{background:var(--ink)}
+.eg[data-sys="5"] .prog-lbl{gap:0}
+.eg[data-sys="5"] .prog-lbl .cur{font-weight:700}
+
+/* ---------- legend ---------- */
+.eg .legend{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:12px 14px;font-size:12.5px}
+.eg .legend .row{display:flex;align-items:center;gap:8px;padding:2px 0}
+.eg .legend .row .num{margin-left:auto;color:var(--ink2)}
+.eg .legend .sw{width:11px;height:11px;border-radius:50%;flex:none;border:1.5px solid var(--c);background:color-mix(in srgb,var(--c) 30%,transparent)}
+.eg .legend .ramp{display:flex;height:8px;margin:6px 0 3px}
+.eg .legend .ramp i{flex:1}
+.eg .legend .ends{display:flex;justify-content:space-between;color:var(--muted);font-size:11.5px}
+.eg .legend .lbl{margin-bottom:5px}
+.eg .legend .lbl+.row{margin-top:0}
+.eg .legend hr{border:0;border-top:1px solid var(--line);margin:9px 0}
+.eg[data-sys="1"] .legend{border-color:var(--ink)}
+.eg[data-sys="1"] .legend .sw{border-radius:0;background:var(--c)}
+.eg[data-sys="3"] .legend{background:transparent;border-color:var(--line-strong)}
+.eg[data-sys="4"] .legend{border-color:var(--ink)}
+.eg[data-sys="5"] .legend{border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .legend .sw{border-radius:0;background:var(--c);border-color:var(--c)}
+.eg[data-theme="dark"] .ramp.flip{flex-direction:row-reverse}
+
+/* ---------- empty state ---------- */
+.eg .empty{border:1px dashed var(--line-strong);border-radius:var(--r);padding:22px 20px;display:flex;gap:18px;align-items:center;position:relative;overflow:hidden}
+.eg .empty h3{font-size:17px;margin-bottom:4px}
+.eg .empty p{color:var(--ink2);font-size:13.5px;margin-bottom:12px}
+.eg .empty .acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.eg .empty .acts code{color:var(--ink2);font-size:12px}
+.eg .empty .art{flex:none;opacity:.9}
+.eg[data-sys="1"] .empty{border:1px solid var(--ink)}
+.eg[data-sys="3"] .empty{border:1px solid var(--line);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:20px 20px;background-position:-1px -1px}
+.eg[data-sys="4"] .empty{border:1px solid var(--line-strong)}
+.eg[data-sys="5"] .empty{border:1.5px dashed var(--ink)}
+
+/* ---------- motifs ---------- */
+/* Blueprint: corner ticks around a frame */
+.eg[data-sys="3"] .ticks{position:relative}
+.eg[data-sys="3"] .ticks::before{content:"";position:absolute;inset:-7px;pointer-events:none;--t:var(--line-strong);
+  background:linear-gradient(var(--t),var(--t)) left top/12px 1px no-repeat,linear-gradient(var(--t),var(--t)) left top/1px 12px no-repeat,
+  linear-gradient(var(--t),var(--t)) right top/12px 1px no-repeat,linear-gradient(var(--t),var(--t)) right top/1px 12px no-repeat,
+  linear-gradient(var(--t),var(--t)) left bottom/12px 1px no-repeat,linear-gradient(var(--t),var(--t)) left bottom/1px 12px no-repeat,
+  linear-gradient(var(--t),var(--t)) right bottom/12px 1px no-repeat,linear-gradient(var(--t),var(--t)) right bottom/1px 12px no-repeat}
+.eg[data-sys="3"]{--grid:color-mix(in srgb,var(--line) 38%,transparent)}
+/* Blueprint: a dimension line with a centred figure */
+.eg .dimline{display:none}
+.eg[data-sys="3"] .dimline{display:flex;align-items:center;gap:8px;font:11.5px var(--font-mono);color:var(--muted);height:16px;margin-top:10px;border-left:1px solid var(--line-strong);border-right:1px solid var(--line-strong)}
+.eg[data-sys="3"] .dimline::before,.eg[data-sys="3"] .dimline::after{content:"";flex:1;height:7px;background:linear-gradient(var(--line-strong),var(--line-strong)) center/100% 1px no-repeat}
+.eg[data-sys="3"] .dimline::before{-webkit-mask:none;clip-path:polygon(0 50%,7px 0,7px 43%,100% 43%,100% 57%,7px 57%,7px 100%);background:var(--line-strong)}
+.eg[data-sys="3"] .dimline::after{clip-path:polygon(100% 50%,calc(100% - 7px) 0,calc(100% - 7px) 43%,0 43%,0 57%,calc(100% - 7px) 57%,calc(100% - 7px) 100%);background:var(--line-strong)}
+
+/* =================================================================== */
+/* ---------- overview strip ---------- */
+.ov{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:8px}
+.ov .card{display:flex;flex-direction:column}
+.ov .eg.top{padding:16px 16px 14px;flex:1;display:flex;flex-direction:column;gap:13px}
+.ov .eg.alt{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ov .hd{display:flex;align-items:baseline;gap:8px}
+.ov .hd i{font:700 11px/1 ui-monospace,Menlo,monospace;font-style:normal;border:1px solid currentColor;padding:3px 5px;border-radius:2px}
+.ov .hd span{font-size:12px;color:var(--muted)}
+.ov .lock{height:44px;display:flex;align-items:center}
+.ov .acc{display:flex;gap:5px;align-items:center;font-size:11.5px;color:var(--muted)}
+.ov .acc i{width:30px;height:18px;border-radius:var(--r);border:1px solid color-mix(in srgb,var(--ink) 18%,transparent)}
+.ov .acc i.st{width:11px;height:11px;border-radius:50%;border:0;margin-left:1px}
+.ov .acc .sp{flex:1}
+.ov .bigno{font-size:22px;line-height:1.15;font-weight:600}
+.ov .bigno small{display:block;font:12.5px var(--font-body);color:var(--muted);font-weight:400;margin-top:2px}
+.ov .eg[data-sys="4"] .bigno,.ov .eg[data-sys="5"] .bigno{font-weight:600;letter-spacing:-.01em}
+.ov .why{font-size:12.5px;color:var(--ink2);line-height:1.45;min-height:72px}
+.ov .rowb{display:flex;gap:6px;align-items:center;flex-wrap:nowrap}
+.ov .rowb .btn{padding:0 12px}
+.ov .rowb .btn.quiet{padding:0 4px;font-size:12.5px}
+.ov .eg[data-sys="1"] .rowb .btn.quiet{font-size:10.5px}
+.ov .dots{display:flex;gap:3px}
+.ov .dots i{flex:1;height:8px;background:var(--c)}
+
+/* ---------- section head ---------- */
+.sys-head{padding:22px 26px;display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:30px;align-items:start}
+.sys-head h3{font-size:30px}
+.sys-head .tagline{color:var(--muted);font-size:14px;margin-top:6px}
+.sys-head p{color:var(--ink2);font-size:13.5px}
+.sys-head .lbl{margin-bottom:6px}
+.sys-head .lk{display:flex;align-items:center;gap:18px}
+
+/* ---------- identity block ---------- */
+.vars{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-top:10px;border-top:1px solid var(--line)}
+.var{padding:14px 12px 12px 0;border-bottom:1px solid var(--line)}
+.var+.var{padding-left:14px;border-left:1px solid var(--line)}
+.var .sizes{display:flex;align-items:flex-end;gap:16px;height:66px}
+.var .cap{margin-top:10px;font-size:12px;color:var(--ink2);line-height:1.4}
+.var .cap b{color:var(--ink);font-weight:600}
+.var .cap .fav{color:var(--accent-ink);font-weight:600}
+.var .px{display:flex;gap:16px;font:10.5px var(--font-mono);color:var(--muted);margin-top:4px}
+.var .px span{text-align:center}
+.locks{display:grid;grid-template-columns:1.25fr .75fr;gap:20px;align-items:center;margin-top:20px}
+.locks .h{display:flex;align-items:center;min-height:64px}
+.locks .st{display:flex;flex-direction:column;align-items:center;gap:8px}
+.idrow{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-top:18px}
+.btab{display:inline-flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--line);border-bottom:0;border-radius:8px 8px 0 0;padding:7px 12px 7px 10px;font:12px system-ui,sans-serif;color:var(--ink2);white-space:nowrap}
+.btab .x{margin-left:10px;color:var(--muted)}
+.btab.off{background:transparent;border-color:transparent;color:var(--muted)}
+.btabs{display:flex;align-items:flex-end;border-bottom:1px solid var(--line);padding:0 6px}
+.minis{display:flex;gap:14px;align-items:center;font-size:11.5px;color:var(--muted)}
+
+/* ---------- colour block ---------- */
+.csec{margin-top:22px}
+.csec:first-child{margin-top:0}
+.csec>.lbl{margin-bottom:8px}
+.sw-row{display:grid;grid-template-columns:repeat(9,1fr);gap:6px}
+.swt{font-size:10.5px;color:var(--ink2);line-height:1.3;min-width:0}
+.swt i{display:block;height:34px;border-radius:var(--r);border:1px solid color-mix(in srgb,var(--ink) 16%,transparent);margin-bottom:4px}
+.swt code{display:block;color:var(--muted);font-size:10px}
+.status-row{display:grid;grid-template-columns:270px 1fr;gap:20px;align-items:start}
+.sts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.sts .swt i{height:26px;display:flex;align-items:center;justify-content:center;color:var(--bg)}
+.proof{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;gap:12px;align-items:center}
+.proof .co{flex:1;padding-top:8px;padding-bottom:8px}
+.eg[data-sys="1"] .proof .co .body{padding:7px 10px}
+.eg[data-sys="3"] .proof .co{padding-top:11px}
+.note{font-size:11.5px;color:var(--muted);margin-top:7px;line-height:1.45}
+.note b{color:var(--ink2);font-weight:600}
+.data-row{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
+.data-row .swt i{height:26px;border:0;margin-bottom:3px}
+.data-row .swt code{font-size:9.5px;letter-spacing:-.02em}
+.cvd{display:grid;grid-template-columns:repeat(10,1fr);gap:4px;margin-top:3px}
+.cvd i{height:7px;display:block}
+.cvdlab{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:2px}
+.mapdemo{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);margin-top:10px;line-height:0}
+.eg[data-theme="dark"] .mapdemo{background:var(--map-bg)}
+.ramps{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.seq{display:flex;height:20px}
+.seq i{flex:1}
+.ends{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:3px}
+
+/* ---------- type block ---------- */
+.type{padding:22px 26px 24px;display:grid;grid-template-columns:1.2fr 1fr;gap:40px}
+.type .ln{display:grid;grid-template-columns:92px 1fr;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.type .ln>span:first-child{font:11px var(--font-mono);color:var(--muted)}
+.type .run h3{font-size:19px;margin-bottom:6px}
+.type .run p{color:var(--ink2);font-size:15px;margin-bottom:10px;line-height:1.55}
+.type .faces{margin-top:16px;font-size:12.5px;color:var(--ink2);border-top:1px solid var(--line);padding-top:12px}
+.type .faces div{display:grid;grid-template-columns:70px 1fr;gap:10px;padding:2px 0}
+.type .faces div>span:first-child{color:var(--muted)}
+.type .faces b{color:var(--ink);font-weight:600}
+
+/* ---------- components block ---------- */
+.comps{padding:22px 26px 28px;display:grid;grid-template-columns:7fr 5fr;gap:0 34px}
+.comps>div{min-width:0;display:flex;flex-direction:column;gap:24px}
+.comps>div>div{min-width:0}
+.comps .lbl{margin-bottom:9px}
+.comps .split{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c3{grid-column:span 3}.c12{grid-column:span 12}
+.rowf{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rowf+.rowf{margin-top:10px}
+.rowf .grow{flex:1}
+.stack>*+*{margin-top:9px}
+.tipwrap{padding:2px 0 10px}
+
+/* =================================================================== */
+/* ---------- in context ---------- */
+.ctx{padding:0}
+.ctx-cap{display:flex;gap:10px;align-items:baseline;font:12px system-ui,sans-serif;color:var(--muted);padding:14px 26px 8px}
+.ctx-cap b{font:700 11px ui-monospace,Menlo,monospace;border:1px solid currentColor;border-radius:2px;padding:1px 5px;color:var(--ink2)}
+
+/* (a) landing hero */
+.hero{margin:0 26px;border:1px solid var(--line);position:relative;overflow:hidden;background:var(--bg)}
+.hero nav{display:flex;align-items:center;gap:26px;padding:14px 28px;border-bottom:1px solid var(--line);font-size:13.5px;position:relative}
+.hero nav a{color:var(--ink);text-decoration:none}
+.hero nav .sp{flex:1}
+.hero nav .soon{font-size:11.5px;color:var(--muted);border:1px dashed var(--line-strong);padding:3px 8px;border-radius:var(--r)}
+.hero .grid{display:grid;grid-template-columns:540px 1fr;gap:44px;padding:38px 28px 30px;align-items:start;position:relative}
+.hero h1{font-size:50px;margin:12px 0 16px}
+.hero .lead{font-size:16.5px;line-height:1.5;color:var(--ink2);max-width:500px}
+.hero .install{display:flex;align-items:center;gap:10px;margin:22px 0 12px;height:42px;padding:0 6px 0 14px;background:var(--surface2);border-radius:var(--r);font:13.5px var(--font-mono);max-width:400px}
+.hero .install .p{color:var(--muted)}
+.hero .install .cp{margin-left:auto;font:11.5px var(--font-body);color:var(--ink2);border:1px solid var(--line-strong);border-radius:var(--r);padding:4px 8px;background:var(--bg)}
+.hero .cta{display:flex;gap:8px}
+.hero .fine{font-size:12px;color:var(--muted);margin-top:12px}
+.shot{position:relative;background:#090a10;line-height:0}
+.shot img{width:100%;display:block}
+.shot .hud{position:absolute;left:0;top:0;width:42.2%;height:11.2%;background:#090a10;display:flex;flex-direction:column;justify-content:center;padding:0 12px;font:11.5px/1.35 var(--font-body);color:#b8bcc4;overflow:hidden;white-space:nowrap}
+.shot .hud b{color:#f2f2ef;font-weight:600;font-size:12.5px}
+.shot-cap{display:flex;justify-content:space-between;gap:16px;font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}
+.shot-cap span:last-child{white-space:nowrap}
+.hero .ruler{display:none}
+.hero .contours{position:absolute;left:-150px;bottom:-230px;pointer-events:none;display:none;opacity:.8}
+
+.eg[data-sys="1"] .hero nav{border-bottom:1px solid var(--ink)}
+.eg[data-sys="1"] .hero h1 u{text-decoration:none;box-shadow:inset 0 -.14em 0 var(--accent)}
+.eg[data-sys="1"] .hero .install{border:1px solid var(--line)}
+.eg[data-sys="1"] .hero .install .cp{font:10.5px var(--font-mono);text-transform:uppercase;letter-spacing:.06em;border-color:var(--ink)}
+.eg[data-sys="1"] .shot-cap{font-size:11.5px}
+.eg[data-sys="2"] .hero h1{font-size:50px}
+.eg[data-sys="2"] .hero h1 u{text-decoration:none;color:var(--accent-ink)}
+.eg[data-sys="2"] .hero .install{background:var(--surface);border:1px solid var(--line)}
+.eg[data-sys="2"] .shot{border-radius:4px;overflow:hidden;box-shadow:0 0 0 1px var(--line-strong)}
+.eg[data-sys="2"] .hero .ruler{display:block;position:relative;height:22px;margin-top:8px}
+.eg[data-sys="2"] .ruler .t{position:absolute;inset:0 0 auto 0;height:9px;background:repeating-linear-gradient(90deg,var(--line-strong) 0 1px,transparent 1px 10%) top/100% 9px no-repeat,repeating-linear-gradient(90deg,var(--line-strong) 0 1px,transparent 1px 2%) top/100% 5px no-repeat;border-right:1px solid var(--line-strong)}
+.eg[data-sys="2"] .ruler .m{position:absolute;top:-3px;width:0;height:0;border:5px solid transparent;border-top:7px solid var(--accent);transform:translateX(-5px)}
+.eg[data-sys="2"] .ruler .n{position:absolute;top:10px;font:10.5px var(--font-mono);color:var(--muted);transform:translateX(-50%)}
+.eg[data-sys="3"] .hero{background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px;background-position:-1px -1px}
+.eg[data-sys="3"] .hero nav{background:var(--bg)}
+.eg[data-sys="3"] .hero h1{font-size:50px;font-weight:500}
+.eg[data-sys="3"] .hero h1 u{text-decoration:none;color:var(--accent-ink)}
+.eg[data-sys="3"] .hero .install{background:var(--surface);border:1px solid var(--line-strong)}
+.eg[data-sys="3"] .hero .install .p{color:var(--hl-ink,var(--hl))}
+.eg[data-sys="3"] .shot{border:1px solid var(--line-strong)}
+.eg[data-sys="3"] .shot-cap{font-size:12px}
+.eg[data-sys="4"] .hero nav{border-bottom:1px solid var(--ink)}
+.eg[data-sys="4"] .hero h1{font-size:54px;font-weight:600;line-height:1.04}
+.eg[data-sys="4"] .hero h1 u{text-decoration:none;font-style:italic;font-weight:400;color:var(--accent-ink)}
+.eg[data-sys="4"] .hero .install{background:transparent;border:1px solid var(--ink)}
+.eg[data-sys="4"] .hero .contours{display:block}
+.eg[data-sys="4"] .shot{padding:6px;background:var(--bg);border:1px solid var(--ink)}
+.eg[data-sys="4"] .shot .hud{left:6px;top:6px;width:calc(42.2% - 5px);height:calc(11.2% - 1px)}
+.eg[data-sys="4"] .shot-cap{font:italic 13.5px var(--font-display);color:var(--ink2)}
+.eg[data-sys="4"] .shot-cap span:last-child{font:12px var(--font-body);font-style:normal;color:var(--muted)}
+.eg[data-sys="5"] .hero{border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .hero nav{border-bottom:1.5px solid var(--ink)}
+.eg[data-sys="5"] .hero h1{font-size:54px;line-height:1.02;letter-spacing:-.035em}
+.eg[data-sys="5"] .hero h1 u{text-decoration:none}
+.eg[data-sys="5"] .hero .install{background:var(--bg);border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .hero .install .cp{border-color:var(--ink);color:var(--ink);font-weight:700}
+.eg[data-sys="5"] .shot{border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .shot-cap{color:var(--ink);font-size:12.5px}
+.eg[data-sys="5"] .shot-cap span:last-child{color:var(--muted)}
+
+/* (b) terminal and (c) notebook, side by side */
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;padding:0 26px}
+.pair .ctx-cap{padding-left:0;padding-right:0}
+.term{background:var(--term-bg);color:var(--term-ink);border-radius:calc(var(--r)*2);overflow:hidden;border:1px solid var(--term-line,transparent)}
+.term .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;font:11.5px var(--font-mono);color:var(--term-dim);border-bottom:1px solid color-mix(in srgb,var(--term-ink) 14%,transparent)}
+.term .bar i{width:9px;height:9px;border-radius:50%;border:1px solid var(--term-dim)}
+.term .bar span{margin-left:6px}
+.term pre{font:12px/1.5 var(--font-mono);padding:12px 16px 14px;white-space:pre;overflow:hidden}
+.term .b{display:inline-block;width:20ch;height:.95em;background:currentColor;vertical-align:-.12em}
+.term .p{color:var(--term-dim)}.term .d{color:var(--term-dim)}.term .ok{color:var(--term-ok)}.term .b{color:var(--term-accent)}.term .hd{font-weight:700}.term .nx{color:var(--term-accent)}
+.eg[data-sys="1"] .term{border-radius:0}
+.eg[data-sys="1"] .term .bar i{border-radius:0}
+.eg[data-sys="1"] .term .b{color:var(--term-ink)}
+.eg[data-sys="1"][data-theme="dark"] .term{--term-line:var(--line)}
+.eg[data-sys="2"] .term{border-radius:5px}
+.eg[data-sys="3"] .term{--term-line:var(--line-strong);border-radius:0}
+.eg[data-sys="3"] .term .bar i{border-radius:0;width:8px;height:8px}
+.eg[data-sys="3"] .term .hd{color:var(--hl)}
+.eg[data-sys="4"] .term{border-radius:0;--term-line:var(--ink);background:var(--term-bg)}
+.eg[data-sys="4"] .term .bar{border-bottom:1px solid var(--ink);font:italic 13px var(--font-display);color:var(--ink2)}
+.eg[data-sys="4"] .term .bar i{display:none}
+.eg[data-sys="4"] .term .bar span{margin-left:0}
+.eg[data-sys="4"] .term .b{color:var(--term-ink)}
+.eg[data-sys="5"] .term{border:1.5px solid var(--ink);border-radius:0}
+.eg[data-sys="5"] .term .bar{border-bottom:1.5px solid var(--ink);color:var(--ink);font:700 12px var(--font-body)}
+.eg[data-sys="5"] .term .bar i{display:none}
+.eg[data-sys="5"] .term .bar span{margin-left:0}
+.eg[data-sys="5"] .term .ok,.eg[data-sys="5"] .term .hd{font-weight:700}
+
+/* the notebook host imitates JupyterLab, not the system */
+.nbhost{--nb-bg:#ffffff;--nb-in:#f5f5f5;--nb-line:#e0e0e0;--nb-ink:#1c1c1c;--nb-dim:#757575;background:var(--nb-bg);border:1px solid var(--nb-line);padding:12px 14px 16px 8px;font:13px system-ui,sans-serif;color:var(--nb-ink)}
+.eg[data-theme="dark"] .nbhost{--nb-bg:#111111;--nb-in:#1e1e1e;--nb-line:#333;--nb-ink:#e6e6e6;--nb-dim:#8a8a8a}
+.nbhost .cell{display:grid;grid-template-columns:44px 1fr;gap:6px;align-items:start}
+.nbhost .pr{font:12px ui-monospace,Menlo,Consolas,"DejaVu Sans Mono",monospace;color:var(--nb-dim);text-align:right;padding-top:7px}
+.nbhost .in{background:var(--nb-in);border:1px solid var(--nb-line);padding:6px 9px;font:12.5px ui-monospace,Menlo,Consolas,"DejaVu Sans Mono",monospace;border-radius:2px}
+.nbhost .out{margin-top:8px}
+.ecard{border:1px solid var(--line-strong);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.ecard .hd{display:flex;align-items:baseline;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
+.ecard .hd svg.ic{color:var(--err);align-self:center}
+.ecard .hd b{color:var(--err);font-weight:700}
+.ecard .bd{padding:14px 14px 12px}
+.budget .track{position:relative;height:22px;display:flex;background:var(--surface2)}
+.budget .seg{height:100%;display:flex;align-items:center;font-size:11.5px;color:#fff;padding:0 8px;white-space:nowrap;overflow:hidden}
+.budget .seg.a{background:var(--err)}.budget .seg.b{background:color-mix(in srgb,var(--err) 55%,var(--surface))}
+.budget .mark{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--ink)}
+.budget .ax{position:relative;height:20px;font-size:11.5px;color:var(--ink2);margin-top:5px}
+.budget .ax span{position:absolute;white-space:nowrap}
+.ecard .sm{margin:8px 0 12px;font-size:13.5px}
+.ecard .sm span{color:var(--ink2)}
+.ways{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.way{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.way .t{font-weight:600;font-size:13.5px;display:flex;gap:8px;align-items:center;margin-bottom:7px}
+.way .t i{font:600 11px/1 var(--font-mono);font-style:normal;border:1px solid var(--line-strong);width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r)}
+.way code{display:inline-block;background:var(--surface2);padding:3px 7px;border-radius:var(--r);font-size:12px;white-space:nowrap}
+.way p{font-size:12px;color:var(--ink2);margin-top:7px}
+.ecard .ft{margin-top:12px;font-size:12px;color:var(--muted)}
+.ecard .ft code{color:var(--ink2)}
+.eg[data-sys="1"] .ecard{border-color:var(--ink);border-left:4px solid var(--err)}
+.eg[data-sys="1"] .ecard .hd{border-bottom-color:var(--ink)}
+.eg[data-sys="1"] .way{border-color:var(--ink)}
+.eg[data-sys="1"] .way .t i{border-color:var(--ink)}
+.eg[data-sys="2"] .ecard{border-color:var(--line-strong)}
+.eg[data-sys="2"] .ecard .hd{background:color-mix(in srgb,var(--err) 8%,var(--surface))}
+.eg[data-sys="2"] .way .t,.eg[data-sys="2"] .ecard .hd b{font-weight:700}
+.eg[data-sys="2"] .way .t i{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.eg[data-sys="2"] .budget .track,.eg[data-sys="2"] .budget .seg.a{border-radius:2px 0 0 2px}
+.eg[data-sys="3"] .ecard{background:var(--bg);border-color:color-mix(in srgb,var(--err) 60%,var(--line))}
+.eg[data-sys="3"] .ecard .hd b{font:500 13px var(--font-mono)}
+.eg[data-sys="3"] .budget .track{background:transparent;border:1px solid var(--line-strong)}
+.eg[data-sys="3"] .budget .seg{color:var(--on-accent)}
+.eg[data-sys="3"] .budget .mark{background:var(--hl)}
+.eg[data-sys="3"] .way{border-style:dashed;border-color:var(--line-strong)}
+.eg[data-sys="3"] .way .t i{border-color:var(--accent);color:var(--accent-ink)}
+.eg[data-sys="3"] .way code{background:var(--surface2)}
+.eg[data-sys="4"] .ecard{border:0;border-top:2px solid var(--err);border-bottom:1px solid var(--ink);background:var(--bg);border-radius:0}
+.eg[data-sys="4"] .ecard .hd{padding-left:2px;padding-right:2px}
+.eg[data-sys="4"] .ecard .hd b{font:italic 600 16px var(--font-display)}
+.eg[data-sys="4"] .ecard .bd{padding-left:2px;padding-right:2px}
+.eg[data-sys="4"] .way{border:0;border-top:1px solid var(--ink);border-radius:0;padding:9px 0 0}
+.eg[data-sys="4"] .way .t{font-weight:500}
+.eg[data-sys="4"] .way .t i{border:0;font:italic 15px var(--font-display);width:auto;color:var(--accent-ink)}
+.eg[data-sys="4"] .way .t i::after{content:"."}
+.eg[data-sys="5"] .ecard{border:1.5px solid var(--ink);border-left:10px solid var(--ink)}
+.eg[data-sys="5"] .ecard .hd{border-bottom:1.5px solid var(--ink)}
+.eg[data-sys="5"] .ecard .hd b{background:var(--ink);color:var(--bg);padding:1px 6px}
+.eg[data-sys="5"] .ecard .hd svg.ic{color:var(--ink)}
+.eg[data-sys="5"] .budget .track{background:var(--bg);border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .budget .seg.a{background:var(--ink);color:var(--bg)}
+.eg[data-sys="5"] .budget .seg.b{background:var(--hatch)}
+.eg[data-sys="5"] .budget .mark{background:var(--bg);outline:1.5px solid var(--ink);width:3px}
+.eg[data-sys="5"] .way{border:1px solid var(--ink)}
+.eg[data-sys="5"] .way .t{font-weight:700}
+.eg[data-sys="5"] .way .t i{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.eg[data-sys="5"] .way code{background:var(--bg);border:1px solid var(--line)}
+
+/* (d) map viewer chrome */
+.viewer{margin:0 26px 26px;border:1px solid var(--line-strong);display:grid;grid-template-columns:1fr 330px;grid-template-rows:auto 1fr auto;background:var(--surface)}
+.viewer .vbar{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);--ctl-h:32px}
+.viewer .vbar .file{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;margin-right:6px;white-space:nowrap}
+.viewer .vbar .field{font-size:13px}
+.viewer .vbar .search{flex:1;max-width:340px}
+.viewer .vbar .sp{flex:1}
+.viewer .zoom{display:flex;align-items:center;height:32px;border:var(--bw) solid var(--line-strong);border-radius:var(--r);font-size:13px}
+.viewer .zoom span{padding:0 9px;color:var(--ink2)}
+.viewer .zoom b{padding:0 8px;font-weight:400;border-left:1px solid var(--line);border-right:1px solid var(--line);height:100%;display:flex;align-items:center}
+.viewer .vmap{position:relative;overflow:hidden;background:#2a1418;aspect-ratio:1600/893;line-height:0}
+.viewer .vmap img{position:absolute;left:0;bottom:0;width:100%}
+.viewer .vmap .tip{position:absolute;left:44.7%;top:38.2%;min-width:20.4%;min-height:18.6%;line-height:1.45}
+.viewer .vmap .tag{position:absolute;right:8px;top:8px;font:11px/1.2 system-ui,sans-serif;background:rgba(10,10,12,.78);color:#ddd;padding:4px 7px;border-radius:2px}
+.viewer .vside{border-left:1px solid var(--line);padding:14px 16px;font-size:13px;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+.viewer .vside h4{font-family:var(--font-display);font-weight:var(--display-w);letter-spacing:var(--display-track);font-size:20px;margin:3px 0 2px;line-height:1.15}
+.viewer .vside .sub{color:var(--muted);font-size:12px}
+.viewer .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin:14px 0 12px}
+.viewer .kv div{min-width:0}
+.viewer .kv .num{display:block;font-size:17px;line-height:1.2;color:var(--ink)}
+.viewer .kv span{font-size:11.5px;color:var(--muted)}
+.viewer .shown{font-size:12px;color:var(--ink2);padding:9px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.viewer .shown .bar{height:4px;background:var(--surface2);margin-top:6px}
+.viewer .shown .bar i{display:block;height:100%;width:5.9%;background:var(--accent)}
+.viewer .vside .tabs{margin-top:12px;font-size:12px;gap:0}
+.viewer .vside .tabs span{padding:6px 7px 7px}
+.viewer .rank{margin:6px 0 0;padding:0;list-style:none}
+.viewer .rank li{display:grid;grid-template-columns:16px 78px 1fr auto;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.viewer .rank li>i{font-style:normal;color:var(--muted);font-size:11.5px}
+.viewer .rank li>em{height:5px;background:var(--surface2);font-style:normal;position:relative}
+.viewer .rank li>em b{position:absolute;inset:0 auto 0 0;background:var(--ink2)}
+.viewer .rank li.on{font-weight:600}
+.viewer .rank li.on>em b{background:var(--accent)}
+.viewer .vacts{display:flex;gap:6px;margin-top:auto;padding-top:12px;align-items:center}
+.viewer .vcap{grid-column:1/-1;display:flex;gap:18px;align-items:center;padding:7px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--ink2);white-space:nowrap}
+.viewer .vcap .sp{flex:1}
+.viewer .vcap b{color:var(--ink);font-weight:600}
+.viewer .vcap .m{color:var(--muted)}
+.eg[data-sys="1"] .viewer{border-color:var(--ink)}
+.eg[data-sys="1"] .viewer .vbar{border-bottom-color:var(--ink)}
+.eg[data-sys="1"] .viewer .vbar .file{font:500 12.5px var(--font-mono)}
+.eg[data-sys="1"] .viewer .vside{border-left-color:var(--ink)}
+.eg[data-sys="1"] .viewer .zoom{border-color:var(--ink);font-family:var(--font-mono);font-size:12px}
+.eg[data-sys="1"] .viewer .vcap{border-top-color:var(--ink);font:11.5px var(--font-mono)}
+.eg[data-sys="1"] .viewer .rank li.on>em b{background:var(--accent)}
+.eg[data-sys="2"] .viewer{border-radius:5px;overflow:hidden;background:var(--surface)}
+.eg[data-sys="2"] .viewer .vside{background:var(--surface)}
+.eg[data-sys="2"] .viewer .vbar .file,.eg[data-sys="2"] .viewer .vcap b{font-weight:700}
+.eg[data-sys="3"] .viewer{background:var(--bg)}
+.eg[data-sys="3"] .viewer .vbar .file{font:13px var(--font-mono);font-weight:400}
+.eg[data-sys="3"] .viewer .zoom{font-family:var(--font-mono);font-size:12px}
+.eg[data-sys="3"] .viewer .vside h4{font-size:19px}
+.eg[data-sys="3"] .viewer .kv{gap:0;border:1px solid var(--line)}
+.eg[data-sys="3"] .viewer .kv div{padding:8px 10px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.eg[data-sys="3"] .viewer .kv div:nth-child(2n){border-right:0}
+.eg[data-sys="3"] .viewer .kv div:nth-last-child(-n+2){border-bottom:0}
+.eg[data-sys="3"] .viewer .kv span{font:11px var(--font-mono)}
+.eg[data-sys="3"] .viewer .rank li.on>em b{background:var(--hl)}
+.eg[data-sys="3"] .viewer .vcap{font:11.5px var(--font-mono)}
+.eg[data-sys="4"] .viewer{border-color:var(--ink)}
+.eg[data-sys="4"] .viewer .vbar{border-bottom-color:var(--ink)}
+.eg[data-sys="4"] .viewer .vbar .file{font:600 16px var(--font-display)}
+.eg[data-sys="4"] .viewer .vside{border-left-color:var(--ink)}
+.eg[data-sys="4"] .viewer .vside h4{font-size:23px}
+.eg[data-sys="4"] .viewer .kv .num{font-size:18px}
+.eg[data-sys="4"] .viewer .kv span{font:italic 13px var(--font-display);color:var(--ink2)}
+.eg[data-sys="4"] .viewer .vcap{border-top-color:var(--ink)}
+.eg[data-sys="4"] .viewer .vcap .it{font:italic 13.5px var(--font-display)}
+.eg[data-sys="5"] .viewer{border:1.5px solid var(--ink)}
+.eg[data-sys="5"] .viewer .vbar{border-bottom:1.5px solid var(--ink)}
+.eg[data-sys="5"] .viewer .vbar .file{font-weight:700}
+.eg[data-sys="5"] .viewer .vside{border-left:1.5px solid var(--ink)}
+.eg[data-sys="5"] .viewer .zoom{border-color:var(--ink)}
+.eg[data-sys="5"] .viewer .zoom b{border-color:var(--ink)}
+.eg[data-sys="5"] .viewer .kv .num{font-weight:700;font-size:18px}
+.eg[data-sys="5"] .viewer .kv span{color:var(--ink)}
+.eg[data-sys="5"] .viewer .shown{border-color:var(--ink)}
+.eg[data-sys="5"] .viewer .shown .bar{background:var(--hatch);height:8px;border:1px solid var(--ink)}
+.eg[data-sys="5"] .viewer .shown .bar i{background:var(--ink)}
+.eg[data-sys="5"] .viewer .rank li>em{background:var(--hatch)}
+.eg[data-sys="5"] .viewer .rank li>em b{background:var(--ink)}
+.eg[data-sys="5"] .viewer .rank li.on{font-weight:700}
+.eg[data-sys="5"] .viewer .vcap{border-top:1.5px solid var(--ink);color:var(--ink)}
+
+.eg[data-sys="1"] .viewer .vside .tabs{font-size:10.5px;letter-spacing:.04em}
+.eg[data-sys="1"] .viewer .vside .tabs span{padding:6px 7px 7px}
+.eg[data-sys="3"] .viewer .vside .tabs{font-size:11.5px}
+.eg[data-sys="4"] .viewer .vside .tabs{gap:8px}
+.eg[data-sys="5"] .viewer .vside .tabs{gap:12px}
+.eg[data-sys="1"] .proof .co .tag{width:58px;font-size:10px}
+.proof .co{font-size:13px}
+
+</style></head>
+<body>
+<div class="mock-tag">Mockup · invented data</div>
+<div class="page" id="page"></div>
+<script>
+const TOKENS = {
+ "1": {
+  "name": "Datum",
+  "tag": "the baseline: B as chosen, A's mark",
+  "light": {
+   "bg": "#ffffff",
+   "surface": "#ffffff",
+   "surface2": "#f2f2ef",
+   "ink": "#0b0c0e",
+   "ink2": "#3c3f44",
+   "muted": "#74777c",
+   "line": "#d6d6d2",
+   "lineStrong": "#0b0c0e",
+   "accent": "#ff4f00",
+   "onAccent": "#0b0c0e",
+   "accentInk": "#c93d00",
+   "ok": "#2f8f5b",
+   "warn": "#b7791f",
+   "err": "#c0392b",
+   "info": "#1f5fbf",
+   "termBg": "#0b0c0e",
+   "termInk": "#f2f2ef",
+   "termDim": "#85888d",
+   "termOk": "#4fbf85",
+   "termAccent": "#ff5a14",
+   "mapBg": "#0b0c0e"
+  },
+  "dark": {
+   "bg": "#0b0c0e",
+   "surface": "#0b0c0e",
+   "surface2": "#17191c",
+   "ink": "#f2f2ef",
+   "ink2": "#c2c4c7",
+   "muted": "#85888d",
+   "line": "#2c3035",
+   "lineStrong": "#f2f2ef",
+   "accent": "#ff5a14",
+   "onAccent": "#0b0c0e",
+   "accentInk": "#ff7a40",
+   "ok": "#4fbf85",
+   "warn": "#d9a13f",
+   "err": "#e5604f",
+   "info": "#6aa3f0",
+   "termBg": "#17191c",
+   "termInk": "#f2f2ef",
+   "termDim": "#85888d",
+   "termOk": "#4fbf85",
+   "termAccent": "#ff5a14",
+   "mapBg": "#0b0c0e"
+  },
+  "seqHue": 45,
+  "div": [
+   255,
+   45
+  ],
+  "firstHue": 40
+ },
+ "2": {
+  "name": "Vernier",
+  "tag": "a calmer instrument",
+  "light": {
+   "bg": "#f6f3ec",
+   "surface": "#fdfbf7",
+   "surface2": "#ece8dd",
+   "ink": "#22201c",
+   "ink2": "#504b43",
+   "muted": "#736c60",
+   "line": "#dcd6c9",
+   "lineStrong": "#b0a898",
+   "accent": "#3346c7",
+   "onAccent": "#ffffff",
+   "accentInk": "#2c3db3",
+   "ok": "#2a7a4b",
+   "warn": "#9a5b00",
+   "err": "#c0362c",
+   "info": "#0b7285",
+   "termBg": "#22201c",
+   "termInk": "#ece8dd",
+   "termDim": "#9a9386",
+   "termOk": "#7cc79a",
+   "termAccent": "#9aa8ff",
+   "mapBg": "#1b1a17"
+  },
+  "dark": {
+   "bg": "#1b1a17",
+   "surface": "#24221f",
+   "surface2": "#2e2c28",
+   "ink": "#ece8dd",
+   "ink2": "#bdb7aa",
+   "muted": "#958e81",
+   "line": "#3b3833",
+   "lineStrong": "#6b665c",
+   "accent": "#93a0ff",
+   "onAccent": "#15142b",
+   "accentInk": "#a4afff",
+   "ok": "#74c595",
+   "warn": "#e0ad55",
+   "err": "#f08273",
+   "info": "#5fc4d2",
+   "termBg": "#131210",
+   "termInk": "#ece8dd",
+   "termDim": "#958e81",
+   "termOk": "#74c595",
+   "termAccent": "#93a0ff",
+   "mapBg": "#131210"
+  },
+  "seqHue": 272,
+  "div": [
+   272,
+   70
+  ],
+  "firstHue": 265
+ },
+ "3": {
+  "name": "Blueprint",
+  "tag": "dark-first drafting sheet",
+  "light": {
+   "bg": "#f3f6fa",
+   "surface": "#ffffff",
+   "surface2": "#e4ecf5",
+   "ink": "#0d2340",
+   "ink2": "#3a5271",
+   "muted": "#5b718c",
+   "line": "#c8d5e4",
+   "lineStrong": "#7e98b6",
+   "accent": "#0a6aa8",
+   "onAccent": "#ffffff",
+   "accentInk": "#095f98",
+   "hl": "#f2b61b",
+   "onHl": "#201600",
+   "ok": "#17794f",
+   "warn": "#b8500a",
+   "err": "#c62b47",
+   "info": "#0d2340",
+   "termBg": "#0a1626",
+   "termInk": "#e3ecf7",
+   "termDim": "#7089a6",
+   "termOk": "#5fd49b",
+   "termAccent": "#5ec8f2",
+   "mapBg": "#0a1626"
+  },
+  "dark": {
+   "bg": "#0a1626",
+   "surface": "#0f2036",
+   "surface2": "#162c49",
+   "ink": "#e3ecf7",
+   "ink2": "#a8bcd4",
+   "muted": "#7790ad",
+   "line": "#1e3a5c",
+   "lineStrong": "#40688f",
+   "accent": "#5ec8f2",
+   "onAccent": "#06131f",
+   "accentInk": "#7dd4f6",
+   "hl": "#ffd166",
+   "onHl": "#201600",
+   "ok": "#5fd49b",
+   "warn": "#ff8f3d",
+   "err": "#ff6f85",
+   "info": "#e3ecf7",
+   "termBg": "#060f1c",
+   "termInk": "#e3ecf7",
+   "termDim": "#7089a6",
+   "termOk": "#5fd49b",
+   "termAccent": "#5ec8f2",
+   "mapBg": "#060f1c"
+  },
+  "seqHue": 235,
+  "div": [
+   225,
+   70
+  ],
+  "firstHue": 225
+ },
+ "4": {
+  "name": "Survey",
+  "tag": "B's rigour, a little of A's cartography",
+  "light": {
+   "bg": "#faf9f5",
+   "surface": "#ffffff",
+   "surface2": "#f0efe8",
+   "ink": "#17212b",
+   "ink2": "#414c56",
+   "muted": "#6b757e",
+   "line": "#dad9d1",
+   "lineStrong": "#17212b",
+   "accent": "#2b668c",
+   "onAccent": "#ffffff",
+   "accentInk": "#245a7d",
+   "ok": "#4c7a2e",
+   "warn": "#94610c",
+   "err": "#b03a2c",
+   "info": "#17212b",
+   "termBg": "#f0efe8",
+   "termInk": "#17212b",
+   "termDim": "#6b757e",
+   "termOk": "#4c7a2e",
+   "termAccent": "#245a7d",
+   "mapBg": "#101a22"
+  },
+  "dark": {
+   "bg": "#101a22",
+   "surface": "#16232d",
+   "surface2": "#1e2f3b",
+   "ink": "#e9e6dc",
+   "ink2": "#b9bdbb",
+   "muted": "#8793a0",
+   "line": "#2b3c49",
+   "lineStrong": "#93a0aa",
+   "accent": "#7fb4d6",
+   "onAccent": "#0d161c",
+   "accentInk": "#93c2e0",
+   "ok": "#9cc47a",
+   "warn": "#dbb05f",
+   "err": "#e98877",
+   "info": "#e9e6dc",
+   "termBg": "#0b141b",
+   "termInk": "#e9e6dc",
+   "termDim": "#8793a0",
+   "termOk": "#9cc47a",
+   "termAccent": "#93c2e0",
+   "mapBg": "#0b141b"
+  },
+  "seqHue": 220,
+  "div": [
+   220,
+   45
+  ],
+  "firstHue": 220
+ },
+ "5": {
+  "name": "Plate",
+  "tag": "high-contrast print: colour only for data",
+  "light": {
+   "bg": "#ffffff",
+   "surface": "#ffffff",
+   "surface2": "#f1f1f1",
+   "ink": "#000000",
+   "ink2": "#2e2e2e",
+   "muted": "#666666",
+   "line": "#c4c4c4",
+   "lineStrong": "#000000",
+   "accent": "#000000",
+   "onAccent": "#ffffff",
+   "accentInk": "#000000",
+   "ok": "#000000",
+   "warn": "#000000",
+   "err": "#000000",
+   "info": "#000000",
+   "termBg": "#ffffff",
+   "termInk": "#000000",
+   "termDim": "#666666",
+   "termOk": "#000000",
+   "termAccent": "#000000",
+   "mapBg": "#000000"
+  },
+  "dark": {
+   "bg": "#000000",
+   "surface": "#000000",
+   "surface2": "#1c1c1c",
+   "ink": "#ffffff",
+   "ink2": "#d6d6d6",
+   "muted": "#9c9c9c",
+   "line": "#4a4a4a",
+   "lineStrong": "#ffffff",
+   "accent": "#ffffff",
+   "onAccent": "#000000",
+   "accentInk": "#ffffff",
+   "ok": "#ffffff",
+   "warn": "#ffffff",
+   "err": "#ffffff",
+   "info": "#ffffff",
+   "termBg": "#000000",
+   "termInk": "#ffffff",
+   "termDim": "#9c9c9c",
+   "termOk": "#ffffff",
+   "termAccent": "#ffffff",
+   "mapBg": "#000000"
+  },
+  "seqHue": 255,
+  "div": [
+   255,
+   28
+  ],
+  "firstHue": 250
+ }
+};
+const PAL = {
+ "1": {
+  "cat": {
+   "light": [
+    "#9e3101",
+    "#02beff",
+    "#7e218c",
+    "#eea10d",
+    "#0959c9",
+    "#6fcc7f",
+    "#a071fc",
+    "#578b1a",
+    "#f786c9",
+    "#e21880"
+   ],
+   "dark": [
+    "#a73f33",
+    "#d5d204",
+    "#3749e5",
+    "#0fefc0",
+    "#9926a2",
+    "#fd976b",
+    "#8585e6",
+    "#7c9624",
+    "#fc93ef",
+    "#f23798"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 9.1,
+    "cvdPair": [
+     "#eea10d",
+     "#6fcc7f"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.6,
+    "deutan": 9.1,
+    "normal": 18.1,
+    "tritan": 3.9,
+    "minContrast": 1.98,
+    "below3": 4
+   },
+   "dark": {
+    "cvd": 9.1,
+    "cvdPair": [
+     "#d5d204",
+     "#fd976b"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.1,
+    "deutan": 9.1,
+    "normal": 18.1,
+    "tritan": 6.1,
+    "minContrast": 2.94,
+    "below3": 1
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#524700",
+     "#9dbcff",
+     "#00468f",
+     "#bca500",
+     "#0067cd",
+     "#cebe7a",
+     "#2f8dff",
+     "#918000",
+     "#8fa0cb",
+     "#505f82"
+    ],
+    "deutan": [
+     "#6d6000",
+     "#80a8fe",
+     "#30508a",
+     "#ceb818",
+     "#0057c7",
+     "#c0b584",
+     "#3f8af9",
+     "#8a7c27",
+     "#acb3c6",
+     "#86847c"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#5b5331",
+     "#e4c900",
+     "#0067ea",
+     "#e7debe",
+     "#0053a5",
+     "#b2a467",
+     "#6193ea",
+     "#9f8d0a",
+     "#90aff2",
+     "#5e709a"
+    ],
+    "deutan": [
+     "#756a30",
+     "#e7ce28",
+     "#0056e2",
+     "#cfccc3",
+     "#40619f",
+     "#caba6a",
+     "#5c8ce4",
+     "#9c8c2e",
+     "#acbdec",
+     "#929294"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 31.1,
+     "protan": 7.5,
+     "deutan": 14.8
+    },
+    "warn": {
+     "normal": 14.2,
+     "protan": 3,
+     "deutan": 5.8
+    },
+    "err": {
+     "normal": 13.8,
+     "protan": 11.5,
+     "deutan": 13.9
+    },
+    "info": {
+     "normal": 39.9,
+     "protan": 26.8,
+     "deutan": 36.8
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 30.3,
+     "protan": 19,
+     "deutan": 10.7
+    },
+    "warn": {
+     "normal": 15.2,
+     "protan": 13.4,
+     "deutan": 5.7
+    },
+    "err": {
+     "normal": 5.9,
+     "protan": 5.8,
+     "deutan": 5.9
+    },
+    "info": {
+     "normal": 32.5,
+     "protan": 28.2,
+     "deutan": 27.4
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 19.6,
+    "ink2": 10.6,
+    "muted": 4.5,
+    "accentInk": 5.1,
+    "onAccent": 5.9,
+    "ok": 4,
+    "warn": 3.6,
+    "err": 5.4,
+    "info": 6.1
+   },
+   "dark": {
+    "ink": 17.4,
+    "ink2": 11.2,
+    "muted": 5.5,
+    "accentInk": 7.6,
+    "onAccent": 6.3,
+    "ok": 8.5,
+    "warn": 8.5,
+    "err": 5.7,
+    "info": 7.6
+   }
+  },
+  "seq": [
+   "#ffe9dc",
+   "#ffcdb0",
+   "#ffab80",
+   "#ff8550",
+   "#f55e1f",
+   "#c6440d",
+   "#8f2f06"
+  ],
+  "div": {
+   "light": [
+    "#0b4c92",
+    "#4682cc",
+    "#98bdee",
+    "#e9e8e5",
+    "#e7ab90",
+    "#be6438",
+    "#803100"
+   ],
+   "dark": [
+    "#a7ceff",
+    "#5894e0",
+    "#345f95",
+    "#36383a",
+    "#8b492a",
+    "#d2764a",
+    "#ffb797"
+   ]
+  }
+ },
+ "2": {
+  "cat": {
+   "light": [
+    "#00378c",
+    "#f87985",
+    "#493c00",
+    "#ae95ff",
+    "#7d51ba",
+    "#007679",
+    "#ab9100",
+    "#710057",
+    "#b03f30",
+    "#00b8b9"
+   ],
+   "dark": [
+    "#d0ceff",
+    "#0b7917",
+    "#0075ae",
+    "#fb7d8a",
+    "#ffc955",
+    "#a483f1",
+    "#ac9200",
+    "#5cffc3",
+    "#a94576",
+    "#00bbc2"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 10,
+    "cvdPair": [
+     "#ae95ff",
+     "#00b8b9"
+    ],
+    "cvdKind": "deutan",
+    "protan": 10.1,
+    "deutan": 10,
+    "normal": 19.8,
+    "tritan": 11,
+    "minContrast": 2.21,
+    "below3": 4
+   },
+   "dark": {
+    "cvd": 10.1,
+    "cvdPair": [
+     "#a483f1",
+     "#00bbc2"
+    ],
+    "cvdKind": "deutan",
+    "protan": 10.3,
+    "deutan": 10.1,
+    "normal": 20.2,
+    "tritan": 6,
+    "minContrast": 3.12,
+    "below3": 0
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#00438f",
+     "#949185",
+     "#443b00",
+     "#74a7ff",
+     "#2467bd",
+     "#6d7079",
+     "#a28e00",
+     "#112f59",
+     "#5e552e",
+     "#abaeb9"
+    ],
+    "deutan": [
+     "#00378a",
+     "#b4aa82",
+     "#473f04",
+     "#78a3fc",
+     "#3467b8",
+     "#5e657a",
+     "#a89615",
+     "#384055",
+     "#7a6e2c",
+     "#959fba"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#c2d4ff",
+     "#7c6d00",
+     "#5976b0",
+     "#97948a",
+     "#e0c947",
+     "#5f97f5",
+     "#a38f00",
+     "#faeec0",
+     "#535d78",
+     "#acb2c3"
+    ],
+    "deutan": [
+     "#c1d1fe",
+     "#716523",
+     "#4368ad",
+     "#b7ad87",
+     "#edd75a",
+     "#6594ee",
+     "#a99715",
+     "#e4dec7",
+     "#6e6f74",
+     "#96a2c3"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 27,
+     "protan": 24.7,
+     "deutan": 24.1
+    },
+    "warn": {
+     "normal": 31.8,
+     "protan": 28.5,
+     "deutan": 31.2
+    },
+    "err": {
+     "normal": 33.2,
+     "protan": 25.3,
+     "deutan": 30.3
+    },
+    "info": {
+     "normal": 17.1,
+     "protan": 15.3,
+     "deutan": 14.4
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 21.3,
+     "protan": 18.9,
+     "deutan": 17.9
+    },
+    "warn": {
+     "normal": 25.9,
+     "protan": 24.9,
+     "deutan": 26.7
+    },
+    "err": {
+     "normal": 22.9,
+     "protan": 19.7,
+     "deutan": 21.7
+    },
+    "info": {
+     "normal": 14,
+     "protan": 11.4,
+     "deutan": 9.7
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 14.7,
+    "ink2": 7.8,
+    "muted": 4.7,
+    "accentInk": 7.8,
+    "onAccent": 7.4,
+    "ok": 4.8,
+    "warn": 4.9,
+    "err": 5,
+    "info": 5
+   },
+   "dark": {
+    "ink": 14.2,
+    "ink2": 8.7,
+    "muted": 5.4,
+    "accentInk": 8.4,
+    "onAccent": 7.5,
+    "ok": 8.4,
+    "warn": 8.5,
+    "err": 6.8,
+    "info": 8.5
+   }
+  },
+  "seq": [
+   "#e9eeff",
+   "#cad6ff",
+   "#a3b7ff",
+   "#7c93f8",
+   "#5c71d2",
+   "#4252a5",
+   "#2a3577"
+  ],
+  "div": {
+   "light": [
+    "#364493",
+    "#6679cd",
+    "#a8b8ef",
+    "#e9e8e5",
+    "#dcb282",
+    "#b17000",
+    "#6c4300"
+   ],
+   "dark": [
+    "#b8c8ff",
+    "#778ce1",
+    "#4a5996",
+    "#36383a",
+    "#81520a",
+    "#c48225",
+    "#f9be78"
+   ]
+  }
+ },
+ "3": {
+  "cat": {
+   "light": [
+    "#007e9d",
+    "#ff6f03",
+    "#6d005c",
+    "#002ca1",
+    "#094d00",
+    "#b18fd3",
+    "#8f6600",
+    "#7f44cb",
+    "#00b468",
+    "#cd3274"
+   ],
+   "dark": [
+    "#62e5ff",
+    "#ad3bb3",
+    "#9a6a00",
+    "#c6ff54",
+    "#aa93ff",
+    "#b5b200",
+    "#00a29c",
+    "#ffb1b6",
+    "#116deb",
+    "#f94e6c"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 10.2,
+    "cvdPair": [
+     "#8f6600",
+     "#cd3274"
+    ],
+    "cvdKind": "deutan",
+    "protan": 10.2,
+    "deutan": 10.2,
+    "normal": 20.2,
+    "tritan": 6,
+    "minContrast": 2.5,
+    "below3": 3
+   },
+   "dark": {
+    "cvd": 10.1,
+    "cvdPair": [
+     "#9a6a00",
+     "#f94e6c"
+    ],
+    "cvdKind": "protan",
+    "protan": 10.1,
+    "deutan": 10.3,
+    "normal": 20.1,
+    "tritan": 6.1,
+    "minContrast": 3.51,
+    "below3": 0
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#6c7b9f",
+     "#998600",
+     "#042f5e",
+     "#0042a4",
+     "#4f4500",
+     "#829cd6",
+     "#766700",
+     "#0065cf",
+     "#b3a463",
+     "#555e76"
+    ],
+    "deutan": [
+     "#5a6e9d",
+     "#bca700",
+     "#323e5a",
+     "#00349f",
+     "#48400a",
+     "#899dd1",
+     "#807108",
+     "#0064c8",
+     "#a2986d",
+     "#7f7c70"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#d1deff",
+     "#2464b6",
+     "#7c6c00",
+     "#ffef3a",
+     "#70a5ff",
+     "#c2aa00",
+     "#98999c",
+     "#bfbdb6",
+     "#007cef",
+     "#7a776c"
+    ],
+    "deutan": [
+     "#bacdff",
+     "#5472b0",
+     "#877808",
+     "#ffec62",
+     "#73a1fc",
+     "#c4af1f",
+     "#858b9d",
+     "#d1cbb5",
+     "#006ae9",
+     "#a69a68"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 16.2,
+     "protan": 15.5,
+     "deutan": 15.6
+    },
+    "warn": {
+     "normal": 27.8,
+     "protan": 20.9,
+     "deutan": 24.9
+    },
+    "err": {
+     "normal": 29.1,
+     "protan": 15.5,
+     "deutan": 20.3
+    },
+    "info": {
+     "normal": 26,
+     "protan": 27.4,
+     "deutan": 25.2
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 13.9,
+     "protan": 13.3,
+     "deutan": 13
+    },
+    "warn": {
+     "normal": 27.9,
+     "protan": 23.5,
+     "deutan": 22.9
+    },
+    "err": {
+     "normal": 28.5,
+     "protan": 20.1,
+     "deutan": 15.2
+    },
+    "info": {
+     "normal": 18.2,
+     "protan": 13.2,
+     "deutan": 17.7
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 14.5,
+    "ink2": 7.4,
+    "muted": 4.6,
+    "accentInk": 6.2,
+    "onAccent": 5.8,
+    "ok": 5,
+    "warn": 4.6,
+    "err": 5,
+    "info": 14.5
+   },
+   "dark": {
+    "ink": 15.2,
+    "ink2": 9.4,
+    "muted": 5.5,
+    "accentInk": 10.9,
+    "onAccent": 9.8,
+    "ok": 9.8,
+    "warn": 8,
+    "err": 6.8,
+    "info": 15.2
+   }
+  },
+  "seq": [
+   "#ddf2ff",
+   "#abe0ff",
+   "#64c7fc",
+   "#00a8e8",
+   "#0084b8",
+   "#00628a",
+   "#00435f"
+  ],
+  "div": {
+   "light": [
+    "#00566e",
+    "#008db3",
+    "#80c6e1",
+    "#e9e8e5",
+    "#dcb282",
+    "#b17000",
+    "#6c4300"
+   ],
+   "dark": [
+    "#76d9ff",
+    "#00a1cb",
+    "#006884",
+    "#36383a",
+    "#81520a",
+    "#c48225",
+    "#f9be78"
+   ]
+  },
+  "hl": {
+   "light": {
+    "vsWarn": 27.2,
+    "vsWarnCvd": 25.5
+   },
+   "dark": {
+    "vsWarn": 15.1,
+    "vsWarnCvd": 11.8
+   }
+  }
+ },
+ "4": {
+  "cat": {
+   "light": [
+    "#09beb6",
+    "#6e1e4e",
+    "#8061b1",
+    "#9d9225",
+    "#a84e39",
+    "#014687",
+    "#007e73",
+    "#474700",
+    "#a2a0f6",
+    "#f08a83"
+   ],
+   "dark": [
+    "#76f5fb",
+    "#a05a01",
+    "#5f9de4",
+    "#f2dd78",
+    "#d59543",
+    "#655bad",
+    "#c56ea0",
+    "#51c293",
+    "#007c64",
+    "#ddadff"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 9.1,
+    "cvdPair": [
+     "#09beb6",
+     "#f08a83"
+    ],
+    "cvdKind": "protan",
+    "protan": 9.1,
+    "deutan": 9.2,
+    "normal": 18.2,
+    "tritan": 9.3,
+    "minContrast": 2.2,
+    "below3": 3
+   },
+   "dark": {
+    "cvd": 9,
+    "cvdPair": [
+     "#5f9de4",
+     "#ddadff"
+    ],
+    "cvdKind": "protan",
+    "protan": 9,
+    "deutan": 9.1,
+    "normal": 18,
+    "tritan": 6.2,
+    "minContrast": 3.06,
+    "below3": 0
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#b2b3b6",
+     "#29354f",
+     "#4a70b4",
+     "#a08d0e",
+     "#655d37",
+     "#214c89",
+     "#777673",
+     "#4e4300",
+     "#85abf9",
+     "#a09a82"
+    ],
+    "deutan": [
+     "#9da4b7",
+     "#40434c",
+     "#5170af",
+     "#a3922d",
+     "#7c7037",
+     "#004186",
+     "#696b74",
+     "#4f4506",
+     "#83a6f4",
+     "#b9ae81"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#e6ebfc",
+     "#706100",
+     "#7fa1e7",
+     "#eed86f",
+     "#ab993a",
+     "#3b68b0",
+     "#7582a2",
+     "#bfb590",
+     "#777363",
+     "#9fbdff"
+    ],
+    "deutan": [
+     "#d0dbfc",
+     "#807202",
+     "#6e94e3",
+     "#f4e07c",
+     "#baa845",
+     "#3a64ab",
+     "#8b909e",
+     "#afaa96",
+     "#6a6966",
+     "#a9c1fd"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 16.8,
+     "protan": 16.4,
+     "deutan": 16.6
+    },
+    "warn": {
+     "normal": 20.1,
+     "protan": 17,
+     "deutan": 19.7
+    },
+    "err": {
+     "normal": 23.6,
+     "protan": 14.6,
+     "deutan": 17.5
+    },
+    "info": {
+     "normal": 25.4,
+     "protan": 26.8,
+     "deutan": 24.7
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 15,
+     "protan": 14.7,
+     "deutan": 14.8
+    },
+    "warn": {
+     "normal": 18.5,
+     "protan": 16.7,
+     "deutan": 18.5
+    },
+    "err": {
+     "normal": 19.3,
+     "protan": 14,
+     "deutan": 13.8
+    },
+    "info": {
+     "normal": 19.9,
+     "protan": 16.9,
+     "deutan": 20.4
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 15.5,
+    "ink2": 8.3,
+    "muted": 4.5,
+    "accentInk": 7,
+    "onAccent": 6.2,
+    "ok": 4.8,
+    "warn": 5,
+    "err": 5.7,
+    "info": 15.5
+   },
+   "dark": {
+    "ink": 14.1,
+    "ink2": 9.3,
+    "muted": 5.6,
+    "accentInk": 9.2,
+    "onAccent": 8.2,
+    "ok": 8.9,
+    "warn": 8.7,
+    "err": 6.9,
+    "info": 14.1
+   }
+  },
+  "seq": [
+   "#dff2f9",
+   "#b8dfec",
+   "#85c6db",
+   "#53a8c2",
+   "#2d869f",
+   "#10657a",
+   "#004555"
+  ],
+  "div": {
+   "light": [
+    "#00566a",
+    "#008fad",
+    "#7ec7de",
+    "#e9e8e5",
+    "#e7ab90",
+    "#be6438",
+    "#803100"
+   ],
+   "dark": [
+    "#6edbfc",
+    "#00a2c5",
+    "#006880",
+    "#36383a",
+    "#8b492a",
+    "#d2764a",
+    "#ffb797"
+   ]
+  }
+ },
+ "5": {
+  "cat": {
+   "light": [
+    "#5ea1ff",
+    "#005e27",
+    "#ff7600",
+    "#5525d4",
+    "#b02a6e",
+    "#0072a5",
+    "#00a97c",
+    "#f672bd",
+    "#986c00",
+    "#b245f3"
+   ],
+   "dark": [
+    "#5ea1ff",
+    "#005e27",
+    "#ff7600",
+    "#5525d4",
+    "#b02a6e",
+    "#0072a5",
+    "#00a97c",
+    "#f672bd",
+    "#986c00",
+    "#b245f3"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 9.6,
+    "cvdPair": [
+     "#5ea1ff",
+     "#b245f3"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.6,
+    "deutan": 9.6,
+    "normal": 19.1,
+    "tritan": 6,
+    "minContrast": 2.61,
+    "below3": 3
+   },
+   "dark": {
+    "cvd": 9.6,
+    "cvdPair": [
+     "#5ea1ff",
+     "#b245f3"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.6,
+    "deutan": 9.6,
+    "normal": 19.1,
+    "tritan": 6,
+    "minContrast": 2.6,
+    "below3": 2
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#78a8ff",
+     "#5f5522",
+     "#9e8b00",
+     "#0055d9",
+     "#445270",
+     "#5972a7",
+     "#a59c7a",
+     "#7f92bf",
+     "#7d6d00",
+     "#0078f8"
+    ],
+    "deutan": [
+     "#6199fd",
+     "#554e2b",
+     "#bfaa00",
+     "#004ad1",
+     "#6a6a6b",
+     "#4565a4",
+     "#948f7f",
+     "#a3a9ba",
+     "#887809",
+     "#1a7eef"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#78a8ff",
+     "#5f5522",
+     "#9e8b00",
+     "#0055d9",
+     "#445270",
+     "#5972a7",
+     "#a59c7a",
+     "#7f92bf",
+     "#7d6d00",
+     "#0078f8"
+    ],
+    "deutan": [
+     "#6199fd",
+     "#554e2b",
+     "#bfaa00",
+     "#004ad1",
+     "#6a6a6b",
+     "#4565a4",
+     "#948f7f",
+     "#a3a9ba",
+     "#887809",
+     "#1a7eef"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "warn": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "err": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "info": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "warn": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "err": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "info": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 21,
+    "ink2": 13.6,
+    "muted": 5.7,
+    "accentInk": 21,
+    "onAccent": 21,
+    "ok": 21,
+    "warn": 21,
+    "err": 21,
+    "info": 21
+   },
+   "dark": {
+    "ink": 21,
+    "ink2": 14.4,
+    "muted": 7.6,
+    "accentInk": 21,
+    "onAccent": 21,
+    "ok": 21,
+    "warn": 21,
+    "err": 21,
+    "info": 21
+   }
+  },
+  "seq": [
+   "#e4f0ff",
+   "#bedaff",
+   "#8bbeff",
+   "#569df6",
+   "#337bd0",
+   "#1a5aa4",
+   "#063c76"
+  ],
+  "div": {
+   "light": [
+    "#0b4c92",
+    "#4682cc",
+    "#98bdee",
+    "#e9e8e5",
+    "#eaa79e",
+    "#c25e53",
+    "#862721"
+   ],
+   "dark": [
+    "#a7ceff",
+    "#5894e0",
+    "#345f95",
+    "#36383a",
+    "#8d453d",
+    "#d67064",
+    "#ffb5ab"
+   ]
+  }
+ }
+};
+// ===== Everygraph identity, round 2 — page script (inlined by build.py) =====
+// TOKENS (src/tokens.json) and PAL (src/palettes.json, written by tools/palette.mjs) are defined above.
+'use strict';
+const IDS = Object.keys(TOKENS);
+const OPT = (() => { const o = {}; location.hash.replace(/^#/, '').split('&').forEach(kv => { const [k, v] = kv.split('='); if (k) o[k] = decodeURIComponent(v || ''); }); return o; })();
+window.addEventListener('hashchange', () => location.reload());
+
+const SYS = {
+  1: { primary: 'light', fav: 'seal',
+       why: 'Direction B exactly as chosen in round 1 — black, white, one signal orange, square corners, uppercase monospace labels — with A\'s nested contours redrawn in B\'s weight. Everything else on this page is measured against it.',
+       mistake: 'Keeping it unchanged. Black plus one orange is the most common look in developer tools; the orange sits ΔE 13.8 from the error red and ΔE 3 from the warning amber for a protanope; on the dark page a red light enough to read as text ends up ΔE 5.9 from the orange; and uppercase monospace is tiring past a few words.',
+       mark: 'Heavy rings, orange dot. The square "seal" carries B\'s square into the favicon.',
+       split: 'Monospace; "every" regular, "graph" bold.',
+       faces: [['Text', 'Inter', 'SIL OFL 1.1', '--font-body'], ['Numbers, code, labels', 'JetBrains Mono', 'SIL OFL 1.1', '--font-mono']] },
+  2: { primary: 'light', fav: 'nest',
+       why: 'The same instrument, at room temperature: warm paper and soft black instead of pure white and black, an ink-blue accent that cannot be mistaken for an error, 3 px corners, labels in sentence case. Monospace is kept for what it is good at: numbers and code.',
+       mistake: 'If the project wants to look sharp and a little severe — this one is polite. On a cold, blue-tinted laptop screen the paper tone can read as "slightly dirty white", and an ink-blue accent is common too (less than orange-on-black, but not rare).',
+       mark: 'Medium rings in soft black, the dot in ink blue.',
+       split: 'Sans; "every" regular and lighter in tone, "graph" bold.',
+       faces: [['Text', 'Source Sans 3', 'SIL OFL 1.1', '--font-body'], ['Numbers, code', 'Source Code Pro', 'SIL OFL 1.1', '--font-mono']] },
+  3: { primary: 'dark', fav: 'nest',
+       why: 'Dark first, because the map is dark: deep ink-blue sheets, drawing-line cyan, and one warm highlight reserved for "the thing you selected". Grid, corner ticks and dimension lines are borrowed from technical drawings and used only around figures.',
+       mistake: 'If most people will meet Everygraph in a white notebook or a printed paper: the system is at its best dark, and its light theme, though usable, is the least distinctive of the five. The drafting motifs become kitsch quickly if a second designer adds more of them.',
+       mark: 'Thin drawing-line rings in cyan, the dot in the warm highlight.',
+       split: 'Monospace, one weight; "graph" takes the accent colour.',
+       faces: [['Text', 'IBM Plex Sans', 'SIL OFL 1.1', '--font-body'], ['Numbers, code, labels', 'IBM Plex Mono', 'SIL OFL 1.1', '--font-mono']] },
+  4: { primary: 'light', fav: 'nest',
+       why: 'B\'s discipline with an atlas\'s manners: blue-black ink on near-white, a muted sea blue for the one action on screen, hairline rules instead of boxes, and a serif for large headlines and italic captions only. Contour lines appear once per page, quietly.',
+       mistake: 'If "instrument" matters more than "reference work": numbers are set in the text face (tabular) rather than monospace, and hairlines with a serif can look like a journal, not a tool. It needs the proposed serif to be shipped; on fallback fonts the headlines change character from machine to machine.',
+       mark: 'Hairline rings in ink, the dot in sea blue. Needs a heavier cut below 24 px.',
+       split: 'Serif; "every" in italic, "graph" in semibold roman.',
+       faces: [['Headlines, captions', 'Source Serif 4', 'SIL OFL 1.1', '--font-display'], ['Text, numbers', 'Inter', 'SIL OFL 1.1', '--font-body'], ['Code', 'JetBrains Mono', 'SIL OFL 1.1', '--font-mono']] },
+  5: { primary: 'light', fav: 'seal',
+       why: 'As if every screen were a figure in a paper: pure black on white, no colour anywhere in the interface, so that every colour you see is data. States are told apart by weight, rule and hatching, the way a black-and-white plot does it.',
+       mistake: 'As the everyday interface. Without colour an error does not jump out — it has to be read — and the page is harsh over a long session. It is a strong option for exported figures, the paper and the documentation of methods, less so for the viewer.',
+       mark: 'One colour only: black rings, black dot. Survives a photocopier.',
+       split: 'Bold grotesque, one weight, no split.',
+       faces: [['Text, numbers', 'Arimo', 'Apache 2.0, metric-compatible with Arial', '--font-body'], ['Code', 'Cousine', 'Apache 2.0', '--font-mono']] },
+};
+const VAR_NAMES = { nest: 'Nest', strata: 'Strata', seal: 'Seal' };
+const VAR_DESC = {
+  nest: 'two rings and a dot, drifting down-left — A\'s mark',
+  strata: 'three rings and a dot, drifting up-right; thinner rings',
+  seal: 'the nest cut out of a square',
+};
+
+// ---------- colour custom properties from the token files ----------
+(function injectTokens() {
+  const kebab = k => k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+  let css = '';
+  for (const id of IDS) for (const th of ['light', 'dark']) {
+    const t = TOKENS[id][th], p = PAL[id];
+    const v = Object.entries(t).map(([k, x]) => `--${kebab(k)}:${x}`);
+    if (!t.hl) v.push('--hl:var(--accent)', '--on-hl:var(--on-accent)');
+    if (id === '3' && th === 'light') v.push('--hl-ink:#8a5a00');
+    p.cat[th].forEach((c, i) => v.push(`--c${i + 1}:${c}`));
+    p.seq.forEach((c, i) => v.push(`--s${i + 1}:${c}`));
+    p.div[th].forEach((c, i) => v.push(`--d${i + 1}:${c}`));
+    css += `.eg[data-sys="${id}"][data-theme="${th}"]{${v.join(';')}}\n`;
+  }
+  const s = document.createElement('style'); s.textContent = css; document.head.appendChild(s);
+})();
+
+// ---------- icons ----------
+const IC = {
+  search: '<svg class="ic" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>',
+  chev: '<svg class="ic chev" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg>',
+  info: '<svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4M8 4.8v.2"/></svg>',
+  warn: '<svg class="ic" viewBox="0 0 16 16"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.2M8 11.6v.1"/></svg>',
+  err: '<svg class="ic" viewBox="0 0 16 16"><path d="M5.3 1.7h5.4l3.6 3.6v5.4l-3.6 3.6H5.3l-3.6-3.6V5.3z"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/></svg>',
+  ok: '<svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3"/><path d="M5 8.2l2.1 2.1L11 6.2"/></svg>',
+};
+
+// ---------- the mark ----------
+// Drawn in a 64-unit box. Three variations; each has a large (>=48 px), medium and small (<24 px) cut,
+// because rings that work at 64 px close up at 16. Colours come from the surrounding .eg scope.
+const MARK_W = { // ring weight per system: [nest L, M, S], [strata L, M, S], [seal L, M, S]
+  1: { nest: [5, 5.6, 7.6], strata: [3.6, 4.2, 6.6], seal: [4.4, 4.8, 6.4], rx: 0 },
+  2: { nest: [3.8, 4.6, 7.2], strata: [2.8, 3.6, 6.2], seal: [3.6, 4.2, 6.2], rx: 7 },
+  3: { nest: [2.4, 3.6, 6.6], strata: [1.8, 3.1, 6], seal: [2.4, 3.4, 5.8], rx: 0 },
+  4: { nest: [2, 3.3, 6.2], strata: [1.6, 3, 5.8], seal: [2, 3.2, 5.6], rx: 1.5 },
+  5: { nest: [6.4, 6.8, 8.2], strata: [4.2, 4.6, 7], seal: [5, 5.4, 6.8], rx: 0 },
+};
+function nestGeom(R, w, cx, cy, small) { // R: outer edge radius
+  const u = [-0.75, 0.66], ro = R - w / 2, e0 = ro - w / 2;
+  if (small) { const rd = e0 * 0.44, off = e0 - rd - Math.max(4.6, w * 0.62); return { rings: [[cx, cy, ro]], dot: [cx + u[0] * off, cy + u[1] * off, rd] }; }
+  const g = w < 3.5 ? 2 : Math.max(1.3, w * 0.25), ri = e0 * (w < 3.5 ? 0.6 : 0.56), o1 = e0 - ri - w / 2 - g, e1 = ri - w / 2;
+  const rd = e1 * 0.5, o2 = e1 - rd - (w < 3.5 ? 2.2 : Math.max(1.6, w * 0.3));
+  return { rings: [[cx, cy, ro], [cx + u[0] * o1, cy + u[1] * o1, ri]], dot: [cx + u[0] * (o1 + o2), cy + u[1] * (o1 + o2), rd] };
+}
+function strataGeom(R, w, small) {
+  const u = [0.77, -0.64], ro = R - w / 2, e0 = ro - w / 2, c = 32;
+  if (small) { const r2 = e0 * 0.5, o = e0 - r2 - w / 2 - Math.max(2.6, w * 0.4); return { rings: [[c, c, ro], [c + u[0] * o, c + u[1] * o, r2]], dot: null }; }
+  const g = w < 3 ? 1.8 : Math.max(1.3, w * 0.3), r2 = e0 * 0.66, o1 = e0 - r2 - w / 2 - g, e1 = r2 - w / 2;
+  const r3 = e1 * 0.6, o2 = e1 - r3 - w / 2 - g, e2 = r3 - w / 2, rd = e2 * 0.44, o3 = e2 - rd - g;
+  return { rings: [[c, c, ro], [c + u[0] * o1, c + u[1] * o1, r2], [c + u[0] * (o1 + o2), c + u[1] * (o1 + o2), r3]], dot: [c + u[0] * (o1 + o2 + o3), c + u[1] * (o1 + o2 + o3), rd] };
+}
+function egMark(sys, variant, px) {
+  const cls = px >= 48 ? 0 : px >= 24 ? 1 : 2, W = MARK_W[sys], w = W[variant][cls], f = n => +n.toFixed(2);
+  const a = `width="${px}" height="${px}" viewBox="0 0 64 64" role="img" aria-label="Everygraph mark"`;
+  const ring = (r, col) => `<circle cx="${f(r[0])}" cy="${f(r[1])}" r="${f(r[2])}" fill="none" stroke="${col}" stroke-width="${w}"/>`;
+  const dot = (d, col) => d ? `<circle cx="${f(d[0])}" cy="${f(d[1])}" r="${f(d[2])}" fill="${col}"/>` : '';
+  if (variant === 'seal') {
+    const g = nestGeom(cls === 2 ? 24.5 : 24, w, 32, 32, cls === 2);
+    const border = sys == 3 ? ' stroke="var(--line-strong)" stroke-width="1" vector-effect="non-scaling-stroke"' : '';
+    return `<svg ${a}><rect x="${border ? .5 : 0}" y="${border ? .5 : 0}" width="${border ? 63 : 64}" height="${border ? 63 : 64}" rx="${W.rx}" fill="var(--mark-sq)"${border}/>${g.rings.map(r => ring(r, 'var(--mark-on-sq)')).join('')}${dot(g.dot, 'var(--mark-sq-dot)')}</svg>`;
+  }
+  const g = variant === 'nest' ? nestGeom(31, w, 32, 32, cls === 2) : strataGeom(31, w, cls === 2);
+  return `<svg ${a}>${g.rings.map(r => ring(r, 'var(--mark-ring)')).join('')}${dot(g.dot, 'var(--mark-dot)')}</svg>`;
+}
+// Wordmark as live SVG text (a mockup: the chosen wordmark would be drawn outlines).
+function egWordmark(sys, h) {
+  const fs = h * 0.8, y = h * 0.74; let t;
+  if (sys == 1) t = `<text x="0" y="${y}" font-size="${fs * 0.86}" style="font-family:var(--font-mono);fill:var(--ink);letter-spacing:-0.04em"><tspan font-weight="400">every</tspan><tspan font-weight="700">graph</tspan></text>`;
+  else if (sys == 2) t = `<text x="0" y="${y}" font-size="${fs}" style="font-family:var(--font-display);letter-spacing:-0.02em"><tspan font-weight="400" style="fill:var(--ink2)">every</tspan><tspan font-weight="700" style="fill:var(--ink)">graph</tspan></text>`;
+  else if (sys == 3) t = `<text x="0" y="${y}" font-size="${fs * 0.8}" style="font-family:var(--font-mono);letter-spacing:0.01em" font-weight="400"><tspan style="fill:var(--ink)">every</tspan><tspan style="fill:var(--accent-ink)">graph</tspan></text>`;
+  else if (sys == 4) t = `<text x="0" y="${y}" font-size="${fs * 1.04}" style="font-family:var(--font-display);fill:var(--ink);letter-spacing:-0.01em"><tspan font-style="italic" font-weight="400">every</tspan><tspan font-weight="700" dx="${fs * 0.03}">graph</tspan></text>`;
+  else t = `<text x="0" y="${y}" font-size="${fs}" style="font-family:var(--font-display);fill:var(--ink);letter-spacing:-0.045em" font-weight="700">everygraph</text>`;
+  return `<svg class="eg-wm" height="${h}" role="img" aria-label="everygraph" style="overflow:visible">${t}</svg>`;
+}
+function egLockup(sys, h, variant) {
+  return `<span style="display:inline-flex;align-items:center;gap:${Math.round(h * 0.3)}px;line-height:0">${egMark(sys, variant || SYS[sys].fav, Math.round(h * 0.95))}${egWordmark(sys, h)}</span>`;
+}
+function fitWordmarks(root) {
+  (root || document).querySelectorAll('svg.eg-wm').forEach(s => {
+    const b = s.querySelector('text').getBBox(), h = +s.getAttribute('height');
+    s.setAttribute('width', Math.ceil(b.width + 1)); s.setAttribute('viewBox', `${b.x} 0 ${Math.ceil(b.width + 1)} ${h}`);
+  });
+}
+
+// ---------- small generators ----------
+function rng(seed) { let s = seed >>> 0; return () => { s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+// A tiny fake map: twelve communities with their sub-communities, coloured by the data palette.
+const MINIMAP = (() => {
+  const R = rng(5), W = 640, H = 150, radii = [60, 50, 43, 38, 34, 31, 28, 26, 24, 22, 20, 18], top = [];
+  for (const r of radii) for (let k = 0; k < 4000; k++) {
+    const x = r + 3 + R() * (W - 2 * r - 6), y = r + 3 + R() * (H - 2 * r - 6);
+    if (top.every(c => Math.hypot(c.x - x, c.y - y) > c.r + r + 4)) { top.push({ x, y, r }); break; }
+  }
+  top.sort((a, b) => a.x - b.x);
+  let s = '';
+  top.forEach((c, i) => {
+    const col = `var(--c${i % 10 + 1})`, kids = [];
+    const n = 2 + Math.floor(R() * 5);
+    for (let j = 0; j < n; j++) for (let k = 0; k < 200; k++) {
+      const r = c.r * (0.14 + R() * 0.34), a = R() * 6.283, d = R() * (c.r - r - 3), x = c.x + Math.cos(a) * d, y = c.y + Math.sin(a) * d;
+      if (kids.every(q => Math.hypot(q.x - x, q.y - y) > q.r + r + 2)) { kids.push({ x, y, r }); break; }
+    }
+    s += `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="${c.r}" fill="${col}" fill-opacity=".07" stroke="${col}" stroke-width="1.4"/>`;
+    kids.forEach(q => { s += `<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${q.r.toFixed(1)}" fill="${col}" fill-opacity=".1" stroke="${col}" stroke-width="1.1"/>`;
+      if (q.r > 9) s += `<circle cx="${(q.x - q.r * .25).toFixed(1)}" cy="${(q.y + q.r * .2).toFixed(1)}" r="${(q.r * .38).toFixed(1)}" fill="none" stroke="${col}" stroke-width="1"/>`; });
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Fake map coloured with the data palette">${s}</svg>`;
+})();
+// Contour lines (Survey's motif): nested, slightly irregular closed curves.
+function contours(size, n, seed, stroke) {
+  const R = rng(seed), ph = [R() * 6.28, R() * 6.28, R() * 6.28]; let s = '';
+  for (let k = 0; k < n; k++) {
+    const t = k / n, r = size * 0.48 * (1 - t * 0.86), cx = size / 2 + t * size * 0.13, cy = size / 2 - t * size * 0.09, pts = [];
+    for (let i = 0; i <= 96; i++) { const a = i / 96 * 6.2832, rr = r * (1 + 0.09 * Math.sin(a + ph[0]) + 0.06 * Math.sin(2 * a + ph[1] + t * 2) + 0.035 * Math.sin(3 * a + ph[2] - t * 3)); pts.push(`${(cx + Math.cos(a) * rr).toFixed(1)} ${(cy + Math.sin(a) * rr).toFixed(1)}`); }
+    s += `<path d="M${pts.join('L')}Z" fill="none" stroke="${stroke}" stroke-width="${k % 4 === 0 ? 1.2 : 0.7}" vector-effect="non-scaling-stroke"/>`;
+  }
+  return `<svg class="contours" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">${s}</svg>`;
+}
+// Which family of a CSS font stack is actually installed here (so the page can say what you are looking at).
+function renderedFont(el, prop) {
+  const stack = getComputedStyle(el).getPropertyValue(prop).split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+  const c = document.createElement('canvas').getContext('2d'), probe = 'mmmmmmmmlli 0123456789 WgQ@ fi';
+  const w = f => { c.font = '72px ' + f; return c.measureText(probe).width; };
+  const base = [w('monospace'), w('serif'), w('sans-serif')];
+  for (const f of stack) {
+    const generic = /^(system-ui|ui-[a-z-]+|-apple-system|BlinkMacSystemFont)$/.test(f), q = generic ? f : `"${f}"`;
+    if (/^(serif|sans-serif|monospace)$/.test(f)) return { name: 'the browser\'s generic ' + f, first: false };
+    if (w(q + ',monospace') !== base[0] || w(q + ',serif') !== base[1] || w(q + ',sans-serif') !== base[2]) return { name: generic ? 'the system default (' + f + ')' : f, first: f === stack[0] };
+  }
+  return { name: 'the browser default', first: false };
+}
+
+// ---------- invented content ----------
+const ROWS = [['0', '31,204,118', '412,880,341', '96,412,077', '14.69 %'], ['1', '22,870,455', '268,114,902', '71,330,518', '10.77 %'], ['2', '18,441,002', '201,557,310', '58,902,144', '8.68 %'], ['3', '9,112,876', '97,340,221', '30,118,406', '4.29 %']];
+const numTable = () => `<table class="nt"><thead><tr><th>Community</th><th>Addresses</th><th>Transfers inside</th><th>Transfers out</th><th>Share</th></tr></thead><tbody>${ROWS.map((r, i) => `<tr${i === 1 ? ' class="sel"' : ''}><td><i class="sw" style="background:var(--c${i + 1})"></i>${r[0]}</td>${r.slice(1).map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}<tr><td class="dim" colspan="5">… 31,956 more · sorted by addresses, largest first</td></tr></tbody></table>`;
+const codeBlock = sys => { const L = [`<span class="k">import</span> everygraph <span class="k">as</span> eg`, `eg.config(memory=<span class="s">"8GB"</span>)            <span class="c"># a hard limit</span>`, `g = eg.read(<span class="s">"transfers.parquet"</span>)   <span class="c"># 1.83 B edges</span>`, `comm = g.communities(seed=0)`]; return `<pre class="code">${sys == 3 ? L.map(l => `<span class="ln">${l}</span>`).join('') : L.join('\n')}</pre>`; };
+const callout = (kind, tag, title, text) => `<div class="co ${kind}">${IC[kind]}<span class="tag">${tag}</span><div class="body"><b>${title}</b> ${text}</div></div>`;
+const tooltip = (cls = '') => `<div class="tip ${cls}"><b>Community 301832</b><dl><dt>nodes</dt><dd>20,064</dd><dt>edges inside</dt><dd>124,356</dd><dt>edges leaving</dt><dd>885,331</dd><dt>level</dt><dd>0 of 6</dd></dl></div>`;
+const progress = sys => `<div class="prog"><div class="prog-top"><b>Building transfers.eg</b><span class="num">1,270 of 2,048 parts</span><span class="eta">about 22 s left</span></div>
+<div class="prog-bar"><i class="done" style="flex:10"></i><i class="done" style="flex:5"></i><i class="cur" style="flex:7"><b style="width:62%"></b></i><i class="todo" style="flex:4"></i></div>${sys == 2 ? '<div class="prog-ticks"></div>' : ''}
+<div class="prog-lbl"><span style="flex:10">reading<em>1 min 41 s</em></span><span style="flex:5">identifiers<em>38 s</em></span><span class="cur" style="flex:7">building<em>62 %</em></span><span class="todo" style="flex:4">checking<em>~12 s</em></span></div></div>`;
+const legend = () => `<div class="legend"><span class="lbl">Colour · community</span>${[['Community 0', '31.2 M'], ['Community 1', '22.9 M'], ['Community 2', '18.4 M'], ['Community 3', '9.1 M']].map((r, i) => `<div class="row"><i class="sw" style="--c:var(--c${i + 1})"></i>${r[0]}<span class="num">${r[1]}</span></div>`).join('')}<div class="row" style="color:var(--muted)"><i class="sw" style="--c:var(--muted)"></i>31,956 more</div><hr><span class="lbl">Shade · transfers inside</span><div class="ramp flip">${[1, 2, 3, 4, 5, 6, 7].map(i => `<i style="background:var(--s${i})"></i>`).join('')}</div><div class="ends"><span class="num">10³</span><span class="num">10⁸</span></div></div>`;
+const emptyState = sys => `<div class="empty"><div class="art">${sys == 4 ? contours(92, 7, 3, 'var(--line-strong)').replace('class="contours"', '') : `<svg width="84" height="84" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="var(--line-strong)" stroke-width="1.2" stroke-dasharray="${sys == 5 ? '0' : '3 3'}"><circle cx="32" cy="32" r="29"/><circle cx="25" cy="38" r="17"/></g><circle cx="20" cy="42" r="5" fill="var(--line-strong)"/></svg>`}</div><div><h3>No graph open yet</h3><p>Drop a CSV, Parquet or edge-list file here. You will see what was read before anything is computed.</p><div class="acts"><span class="btn sm">Choose a file</span><span class="btn sm sec">Open a sample map</span><code>everygraph open transfers.eg</code></div></div></div>`;
+
+const TERM = `<span class="p">$</span> everygraph ingest transfers.parquet --source from --target to \\
+      --weight value --time block_time
+<span class="hd">transfers.parquet</span> · 38.2 GB · 1,830,402,118 rows
+
+  <span class="d">ids</span>       hex addresses (20 bytes) · ~212.4 M distinct
+  <span class="d">edges</span>     directed · duplicates kept as events · 4,201 self-loops dropped
+  <span class="d">columns</span>   value → weight · block_time → time · ignored: gas, nonce, input
+
+  <span class="d">machine</span>   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
+  <span class="d">budget</span>    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  <span class="d">plan</span>      build on disk — the graph is 4.6× the memory budget
+  <span class="d">estimate</span>  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+
+  reading       <span class="b"></span>  1,830,402,118 rows      <span class="d">1 min 41 s</span>
+  identifiers   <span class="b"></span>  212,418,907 addresses        <span class="d">38 s</span>
+  building      <span class="b"></span>  2,048 parts                  <span class="d">59 s</span>
+  checking      <span class="b"></span>  sorted · symmetric counts    <span class="d">12 s</span>
+
+<span class="ok">✓ transfers.eg</span> · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 3 min 30 s
+  <span class="d">next:</span> <span class="nx">everygraph map transfers.eg</span>`;
+
+// ---------- blocks ----------
+const pane = (sys, th, inner, cls = 'pane') => `<div class="eg ${cls}" data-sys="${sys}" data-theme="${th}">${inner}</div>`;
+const themes = sys => SYS[sys].primary === 'dark' ? ['dark', 'light'] : ['light', 'dark'];
+
+function overviewCard(sys) {
+  const s = SYS[sys], t = TOKENS[sys], th = s.primary, alt = th === 'light' ? 'dark' : 'light', k = t[th];
+  const acc = `<div class="acc"><i style="background:${k.accent}"></i>${k.hl ? `<i style="background:${k.hl}"></i>` : ''}<span>${sys == 5 ? 'no accent' : 'accent' + (k.hl ? ' + highlight' : '')}</span><span class="sp"></span>${sys == 5 ? '<span>status by shape</span>' : ['ok', 'warn', 'err', 'info'].map(x => `<i class="st" style="background:${k[x]}"></i>`).join('')}</div>`;
+  return `<a class="card" href="#only=${sys}" style="text-decoration:none">
+  <div class="eg top" data-sys="${sys}" data-theme="${th}">
+    <div class="hd"><i>${sys}</i><b style="color:var(--ink)">${t.name}</b><span>${th}-first</span></div>
+    <div class="lock">${egLockup(sys, 34)}</div>
+    <div class="why">${t.tag.charAt(0).toUpperCase() + t.tag.slice(1)}. ${s.short}</div>
+    ${acc}
+    <div class="dots">${PAL[sys].cat[th].map(c => `<i style="--c:${c}"></i>`).join('')}</div>
+    <div class="bigno"><span class="num">1,830,397,917</span><small>edges, exactly</small></div>
+    <div class="rowb"><span class="btn ${sys == 1 ? 'accent' : ''}">Open a graph</span><span class="btn quiet">Explain plan</span></div>
+  </div>
+  <div class="eg alt" data-sys="${sys}" data-theme="${alt}">${egLockup(sys, 22)}<span class="btn sm ${sys == 1 ? 'accent' : ''}">Run</span></div></a>`;
+}
+SYS[1].short = 'The reference point: square, black, one orange, uppercase mono labels.';
+SYS[2].short = 'Warm paper, soft black, ink-blue accent, sentence-case labels, 3 px corners.';
+SYS[3].short = 'Ink-blue sheets, cyan lines, one warm highlight, drafting motifs. The map looks native.';
+SYS[4].short = 'Hairlines, a serif for headlines and captions, a muted sea blue, contour lines.';
+SYS[5].short = 'Black on white, no accent at all. Every colour on screen is data.';
+
+function headCard(sys, th) {
+  const s = SYS[sys], t = TOKENS[sys];
+  return `<div class="card sys-headcard">${pane(sys, th, `
+    <div><div class="lk">${egLockup(sys, 46)}</div><p class="tagline">${t.tag}</p></div>
+    <div><span class="lbl">Rationale</span><p>${s.why}</p></div>
+    <div><span class="lbl">Where this would be a mistake</span><p>${s.mistake}</p></div>`, 'sys-head')}</div>`;
+}
+function identityPane(sys, th) {
+  const s = SYS[sys];
+  const v = ['nest', 'strata', 'seal'].map(k => `<div class="var"><div class="sizes">${[64, 32, 16].map(px => egMark(sys, k, px)).join('')}</div>
+     <div class="cap"><b>${VAR_NAMES[k]}</b>${s.fav === k ? ' <span class="fav">· favourite</span>' : ''}<br>${VAR_DESC[k]}</div></div>`).join('');
+  return pane(sys, th, `<div class="csec"><span class="lbl">Mark · three variations at 64, 32 and 16 px · on ${th}</span><div class="vars">${v}</div></div>
+   <div class="locks"><div class="h">${egLockup(sys, 50)}</div><div class="st">${egMark(sys, s.fav, 54)}${egWordmark(sys, 26)}</div></div>
+   <div class="idrow"><div class="minis"><span>Small lockup</span>${egLockup(sys, 20)}</div>
+     <div class="btabs"><span class="btab">${egMark(sys, s.fav, 16)} transfers — everygraph <span class="x">×</span></span><span class="btab off">docs.everygraph.dev</span></div></div>`);
+}
+function colourPane(sys, th) {
+  const t = TOKENS[sys][th], p = PAL[sys], sep = p.sep[th], st = p.status[th];
+  const sw = (name, hex) => `<div class="swt"><i style="background:${hex}"></i>${name}<code>${hex}</code></div>`;
+  const surf = [['page', t.bg], ['surface', t.surface], ['inset', t.surface2], ['rule', t.line], ['muted', t.muted], ['text 2', t.ink2], ['text', t.ink], ['accent', t.accent], t.hl ? ['highlight', t.hl] : ['accent text', t.accentInk]];
+  const status = [['ok', 'success'], ['warn', 'warning'], ['err', 'error'], ['info', 'info']].map(([k, n]) => `<div class="swt"><i style="background:${t[k]}">${IC[k]}</i>${n}<code>${t[k]}</code></div>`).join('');
+  const closest = Object.entries(st).sort((a, b) => Math.min(a[1].normal, a[1].protan, a[1].deutan) - Math.min(b[1].normal, b[1].protan, b[1].deutan))[0];
+  const nm = { ok: 'success', warn: 'warning', err: 'error', info: 'info' };
+  const proofNote = sys == 5
+    ? `<b>No colour here by design.</b> Accent and status are the same black; they differ by shape — a heavy left bar and an inverted word for errors, a dashed rule for warnings, a plain hairline for notes. Whether that is enough is the question this system asks.`
+    : `<b>Accent vs error: ΔE ${st.err.normal}</b> with normal vision, ${st.err.protan} protanopia, ${st.err.deutan} deuteranopia. Closest status to the accent: ${nm[closest[0]]}, ΔE ${Math.min(closest[1].normal, closest[1].protan, closest[1].deutan)} at worst.${sys == 1 ? ` <b>This is the weakness round 2 is meant to fix.</b> ${th === 'dark' ? 'Round 1 used one red for both themes (3.6:1 on this page); the status colours here are lightened to be legible, which moves the red next to the orange.' : 'B defined no info colour; the blue is added here.'}` : ''}${sys == 3 ? ` Info is drawn in the text colour, not a hue. Highlight vs warning: ΔE ${p.hl[th].vsWarn}.` : ''}${sys == 4 ? ' Info is drawn in the text colour, not a hue.' : ''}`;
+  const worst = `<b>Worst of all 45 pairs: ΔE ${sep.cvd}</b> under protanopia and deuteranopia (target ≥ 8), ${sep.normal} with normal vision, ${sep.tritan} under tritanopia. ${sep.below3 ? `${sep.below3} of the 10 fall below 3:1 against this surface: fills with labels, not hairlines.` : 'All 10 reach 3:1 against this surface, so they hold as thin outlines.'}${sys == 1 ? ' Round 1\'s palette, unchanged.' : ''}${sys == 5 ? ' One palette for both surfaces, so a figure prints as it looks on screen.' : ''}`;
+  return pane(sys, th, `
+   <div class="csec"><span class="lbl">Surfaces, text and accent · ${th}</span><div class="sw-row">${surf.map(x => sw(x[0], x[1])).join('')}</div></div>
+   <div class="csec"><span class="lbl">Status, next to the accent</span><div class="status-row"><div><div class="sts">${status}</div></div>
+     <div class="proof"><span class="btn ${sys == 1 ? 'accent' : ''}">Run</span>${callout('err', 'Error', 'Not enough memory.', 'Nothing was changed.')}</div></div>
+     <p class="note">${proofNote}</p></div>
+   <div class="csec"><span class="lbl">Data palette · 10 categories, fixed order</span><div class="data-row">${p.cat[th].map(c => `<div class="swt"><i style="background:${c}"></i><code>${c}</code></div>`).join('')}</div>
+     <div class="cvd">${p.sim[th].protan.map(c => `<i style="background:${c}"></i>`).join('')}</div><div class="cvd">${p.sim[th].deutan.map(c => `<i style="background:${c}"></i>`).join('')}</div>
+     <div class="cvdlab"><span>thin strips: the same ten as seen with protanopia (upper) and deuteranopia (lower), simulated</span></div>
+     <div class="mapdemo">${MINIMAP}</div><p class="note">${worst}</p></div>
+   <div class="csec ramps"><div><span class="lbl">Sequential · low to high</span><div class="seq ramp flip">${p.seq.map(c => `<i style="background:${c}"></i>`).join('')}</div><div class="ends"><span>10³</span><span>10⁸</span></div></div>
+     <div><span class="lbl">Diverging · around a neutral middle</span><div class="seq">${p.div[th].map(c => `<i style="background:${c}"></i>`).join('')}</div><div class="ends"><span>fewer than expected</span><span>more</span></div></div></div>`);
+}
+function typeBlock(sys, th) {
+  const s = SYS[sys];
+  return `<div class="card eg type" data-part="type" data-sys="${sys}" data-theme="${th}"><div>
+    <div class="ln"><span>Display 44</span><span class="display" style="font-size:44px">Every graph, every size</span></div>
+    <div class="ln"><span>Title 28</span><span class="display" style="font-size:28px">Never run out of memory</span></div>
+    <div class="ln"><span>Heading 19</span><span class="display" style="font-size:19px">What the plan says before it runs</span></div>
+    <div class="ln"><span>Body 15</span><span style="font-size:15px">You set a budget; the engine plans first and stays inside it.</span></div>
+    <div class="ln"><span>Small 13</span><span style="font-size:13px;color:var(--ink2)">Invented example: 212.4 M addresses and 1.83 B transfers.</span></div>
+    <div class="ln"><span>Label</span><span><span class="lbl" style="display:inline-flex;min-width:300px">Largest communities</span></span></div>
+    <div class="ln"><span>Numbers 15</span><span class="num" style="font-size:calc(15px*var(--num-size) / 1em)">1,830,397,917 · 212,418,907 · 0.603 · 9.3 GB</span></div>
+    <div class="ln"><span>Code 13</span><code style="font-size:13px">g.explain("communities")</code></div></div>
+   <div class="run"><h3>See it and trust it</h3>
+    <p>A zoomable map of the whole graph, with exact numbers at every level. The largest community holds <span class="num">31,204,118</span> addresses, <span class="num">14.69 %</span> of the graph; open it and it splits into <span class="num">1,206</span> smaller ones.</p>
+    <p style="font-size:14px"><a href="#">How the map is built</a> · <a href="#">What "exact" means here</a></p>
+    <div class="faces">${s.faces.map(f => `<div data-face="${f[3]}"><span>${f[0]}</span><span>proposed <b>${f[1]}</b> (${f[2]}) — <span class="seen"></span></span></div>`).join('')}
+      <div><span>Rule</span><span>${s.typeRule}</span></div></div></div></div>`;
+}
+SYS[1].typeRule = 'Labels, buttons and table heads in uppercase monospace; every number in monospace.';
+SYS[2].typeRule = 'Everything in sentence case. Monospace only for numbers and code. Two weights: regular and bold.';
+SYS[3].typeRule = 'Headlines in medium weight, never bold. Labels in lowercase monospace with a leader line. Numbers in monospace.';
+SYS[4].typeRule = 'Serif for headlines of 19 px and up and for italic captions and labels; nothing else. Numbers in the text face with tabular figures; monospace only for code.';
+SYS[5].typeRule = 'One family, two weights. Bold does the work colour does elsewhere. Numbers in the text face with tabular figures.';
+
+function compsBlock(sys, th) {
+  const box = sys == 4 ? 'boxed' : '';
+  return `<div class="card eg comps" data-part="components" data-sys="${sys}" data-theme="${th}">
+   <div>
+    <div><span class="lbl">Text input, search, select</span>
+     <div class="rowf"><div class="field grow"><span class="k">Memory budget</span><span class="val">8 GB</span></div><div class="field grow focus"><span class="val">transfers.parquet</span><span class="caret"></span></div><div class="field select ${box}" style="width:200px"><span class="k">Colour:</span> community ${IC.chev}</div></div>
+     <div class="rowf"><div class="field grow">${IC.search}<span class="ph">Find an address or a community, e.g. 0x7a3f…</span><kbd>/</kbd></div><div class="field select ${box}" style="width:200px"><span class="k">Size:</span> addresses ${IC.chev}</div></div></div>
+    <div><span class="lbl">Progress with phases</span>${progress(sys)}</div>
+    <div><span class="lbl">Table of exact numbers</span>${numTable()}</div>
+    <div class="stack"><span class="lbl">Callouts</span>
+     ${callout('info', 'Note', 'This step streams edges from disk:', 'about one sequential read per pass.')}
+     ${callout('warn', 'Warning', '4,201 self-loops were dropped.', 'Keep them with <code>--keep-loops</code>.')}
+     ${callout('err', 'Error', 'Not enough memory for this step.', 'The budget is 4.0 GB; 5.6 GB is the smallest that works.')}</div>
+   </div>
+   <div>
+    <div><span class="lbl">Buttons · primary, secondary, quiet, disabled</span><div class="rowf"><span class="btn">Open a graph</span>${sys == 1 ? '<span class="btn accent">Run</span>' : ''}<span class="btn sec">Explain plan</span><span class="btn quiet">Cancel</span><span class="btn" disabled><span>Export</span></span></div></div>
+    <div><span class="lbl">Toggle and tabs</span><div class="rowf" style="gap:18px"><span class="toggle on"><i></i>Draw edges</span><span class="toggle"><i></i>Labels</span></div>
+     <div class="tabs" style="margin-top:12px"><span class="on">Communities</span><span>Top nodes</span><span>Neighbours</span><span>Plan</span></div></div>
+    <div><span class="lbl">Code</span>${codeBlock(sys)}</div>
+    <div class="split"><div><span class="lbl">Tooltip</span><div class="tipwrap">${tooltip()}</div></div><div><span class="lbl">Legend</span>${legend()}</div></div>
+    <div><span class="lbl">Empty state</span>${emptyState(sys)}</div>
+   </div>
+  </div>`;
+}
+
+function hero(sys) {
+  return `<div class="ctx-cap"><b>a</b> Landing page, first screen. The picture is a real screenshot from the lab prototype.</div>
+  <div class="hero">
+   <nav>${egLockup(sys, 24)}<span class="soon">design mockup — nothing to install yet</span><span class="sp"></span><a>Docs</a><a>Gallery of maps</a><a>Measurements</a><a>Roadmap</a><a>GitHub</a></nav>
+   ${sys == 4 ? contours(520, 13, 9, 'var(--line)') : ''}
+   <div class="grid"><div>
+     <span class="lbl">Open-source graph engine · one machine</span>
+     <h1>Every graph, every size, <u>every machine.</u></h1>
+     <p class="lead">One engine to load, measure, query and map a graph — from a thousand edges to billions — on a single computer, inside the memory you give it.</p>
+     <div class="install"><span class="p">$</span> pip install everygraph<span class="cp">Copy</span></div>
+     <div class="cta"><span class="btn">Get started in 5 minutes</span><span class="btn sec">Open a sample map</span></div>
+     <p class="fine">Also: <code>cargo add everygraph</code> · a single binary for the command line · Apache-2.0 or MIT</p></div>
+    <div><div class="shot ticks"><img src="../../../docs/img/map-overview-orkut.png" alt="Map of com-Orkut from the lab prototype"><div class="hud"><b>com-Orkut</b><span><span class="num">3,072,441</span> nodes · <span class="num">117,185,083</span> edges</span></div></div>
+     <div class="dimline"><span>3,072,441 nodes · 117,185,083 edges · zoom 1.9</span></div>
+     <div class="ruler"><div class="t"></div><i class="m" style="left:21.1%"></i>${[0, 3, 6, 9].map(n => `<span class="n" style="left:${n / 9 * 100}%">${n}</span>`).join('')}<span class="n" style="left:21.1%;color:var(--accent-ink);top:10px">zoom 1.9</span></div>
+     <div class="shot-cap"><span>${sys == 5 ? '<b>Figure 1 | </b>' : sys == 4 ? 'Plate 1. ' : ''}Every circle is a community; the number on it is exact. Zoom in until the circles are single nodes.</span><span>Drag · scroll · click</span></div></div>
+   </div></div>`;
+}
+function termAndNotebook(sys) {
+  const title = { 1: 'bash — 96×24', 2: 'Terminal', 3: 'tty · ingest', 4: 'At the command line', 5: 'Terminal' }[sys];
+  return `<div class="pair"><div><div class="ctx-cap"><b>b</b> Command line: plan, estimate, progress (wording from the CLI preview).</div>
+    <div class="term"><div class="bar"><i></i><i></i><i></i><span>${title}</span></div><pre>${TERM}</pre></div></div>
+   <div><div class="ctx-cap"><b>c</b> Notebook output inside JupyterLab, which keeps its own look: “does not fit”, with two ways out.</div>
+    <div class="nbhost"><div class="cell"><div class="pr">[3]:</div><div class="in">comm = g.communities()</div></div>
+     <div class="cell out"><div class="pr"></div><div class="eg" data-sys="${sys}" data-theme="${document.currentTheme}" style="background:transparent">
+      <div class="ecard"><div class="hd">${IC.err}<b>InsufficientBudget</b><span>communities() does not fit in the 4.0 GB budget. Nothing was run.</span></div>
+      <div class="bd"><div class="budget"><div class="track"><div class="seg a" style="width:85%">5.1 GB · per-address state, must stay in memory</div><div class="seg b" style="width:8.3%"></div><div class="mark" style="left:66.7%"></div></div>
+        <div class="ax"><span style="left:66.7%;transform:translateX(-100%);padding-right:6px">budget 4.0 GB</span><span style="right:0">+ 0.5 GB buffers</span></div></div>
+       <p class="sm"><b>Smallest budget that works: 5.6 GB.</b> <span>24 bytes for each of <span class="num">212,418,907</span> addresses; the edges can stay on disk.</span></p>
+       <div class="ways"><div class="way"><div class="t"><i>1</i>Raise the budget</div><code>eg.config(memory="6GB")</code><p>This machine has 16 GB; 11.2 GB are free right now.</p></div>
+        <div class="way"><div class="t"><i>2</i>Work on part of the graph</div><code>g.since("2023-01-01").communities()</code><p><span class="num">96,118,340</span> addresses: needs 2.8 GB, fits as it is.</p></div></div>
+       <p class="ft">Full plan: <code>g.explain("communities")</code> · Python traceback (1 frame) ▸</p></div></div></div></div>
+     <div class="cell" style="margin-top:10px"><div class="pr">[4]:</div><div class="in">eg.config(memory="6GB")</div></div></div></div></div>`;
+}
+function viewer(sys) {
+  const rank = [['c 4411', 1204, 1], ['c 4407', 1118, 0], ['c 4420', 902, 0], ['c 4396', 627, 0], ['c 4402', 617, 0], ['c 4431', 609, 0]];
+  return `<div class="ctx-cap"><b>d</b> Map viewer: the chrome is the mockup; the map is a real lab screenshot (soc-LiveJournal), so its labels and colours are the prototype's.</div>
+  <div class="viewer">
+   <div class="vbar"><span class="file">${egMark(sys, SYS[sys].fav, 22)} livejournal.eg</span>
+     <div class="field search">${IC.search}<span class="ph">Find a node or a community</span><kbd>/</kbd></div>
+     <div class="field select ${sys == 4 ? 'boxed' : ''}"><span class="k">Colour:</span> community ${IC.chev}</div><div class="field select ${sys == 4 ? 'boxed' : ''}"><span class="k">Size:</span> nodes ${IC.chev}</div>
+     <span class="toggle on"><i></i>Edges</span><span class="sp"></span>
+     <div class="zoom"><span>−</span><b class="num">6.6</b><span>+</span></div><span class="btn sec sm" style="height:32px">Share</span></div>
+   <div class="vmap"><img src="../../../docs/img/map-region-lj.png" alt="A region of soc-LiveJournal from the lab prototype">${tooltip('noarrow')}<span class="tag">lab prototype screenshot</span></div>
+   <aside class="vside"><span class="lbl">Selected</span><h4>Community 301832</h4><span class="sub">level 0 of 6 · inside continent 0 · 0.50 % of all nodes</span>
+     <div class="kv"><div><b class="num">20,064</b><span>nodes</span></div><div><b class="num">124,356</b><span>edges inside</span></div><div><b class="num">885,331</b><span>edges leaving</span></div><div><b class="num">1,134,043</b><span>sum of degrees</span></div></div>
+     <div class="shown">Edges drawn at this zoom: <span class="num">52,022</span> of <span class="num">883,457</span> by weight. 57 regions (<span class="num">1,143</span> nodes) are folded.<div class="bar"><i></i></div></div>
+     <div class="tabs"><span class="on">Sub-communities</span><span>Top nodes</span><span>Neighbours</span></div>
+     <ol class="rank">${rank.map((r, i) => `<li${r[2] ? ' class="on"' : ''}><i class="num">${i + 1}</i><span>${r[0]}</span><em><b style="width:${r[1] / 1204 * 100}%"></b></em><span class="num">${r[1].toLocaleString('en-US')}</span></li>`).join('')}</ol>
+     <div class="vacts"><span class="btn sm">Fly to</span><span class="btn sm sec">Open as table</span><span class="btn sm quiet">Copy link</span></div></aside>
+   <div class="vcap"><b>soc-LiveJournal</b><span><span class="num">3,997,962</span> nodes · <span class="num">34,681,189</span> edges</span><span class="m">zoom 6.6 of 10 · 35 tiles · 1,863 KB</span><span class="sp"></span><span class="it">Every circle is a community; every number is exact.</span></div>
+  </div>`;
+}
+
+function section(sys, th) {
+  const t = TOKENS[sys], [a, b] = themes(sys), alt = SYS[sys].primary === 'light' ? 'dark' : 'light';
+  document.currentTheme = th;
+  const meta = (part, title, note = '') => `<div class="meta" data-part="${part}"><b>${title}</b><span>${note}</span></div>`;
+  return `<section class="sys" id="s${sys}">
+   <div class="sys-title"><span class="n">${sys}</span><h2>${t.name}</h2><span>${t.tag}</span><a href="#only=${sys}">#only=${sys}</a><a href="#only=${sys}&theme=${alt}" style="margin-left:14px">#only=${sys}&amp;theme=${alt}</a></div>
+   ${headCard(sys, th)}
+   ${meta('identity', 'Mark and wordmark', 'drawn SVG marks; the wordmark is live text in the fonts on this machine')}
+   <div class="card two" data-part="identity">${identityPane(sys, a)}${identityPane(sys, b)}</div>
+   ${meta('colour', 'Colour', 'all ΔE figures are OKLab × 100, computed by tools/palette.mjs (Machado 2009 simulation, severity 1.0)')}
+   <div class="card two" data-part="colour">${colourPane(sys, a)}${colourPane(sys, b)}</div>
+   ${meta('type', 'Type', `shown in the ${th} theme`)}
+   ${typeBlock(sys, th)}
+   ${meta('components', 'Components', `shown in the ${th} theme`)}
+   ${compsBlock(sys, th)}
+   ${meta('context', 'In context', `shown in the ${th} theme — the place to judge the system`)}
+   <div class="card eg ctx" data-part="context" data-sys="${sys}" data-theme="${th}">${hero(sys)}${termAndNotebook(sys)}${viewer(sys)}</div>
+  </section>`;
+}
+
+// ---------- page ----------
+(function main() {
+  const only = OPT.only && IDS.includes(OPT.only) ? OPT.only : null;
+  const page = document.getElementById('page');
+  let html = `<header class="intro ov-intro"><h1>Everygraph — visual identity, round 2: five systems descended from “B's system + A's mark”</h1>
+    <p>Design mockup; nothing here is final and every figure about a graph is invented. Marks are drawn SVG; wordmarks and all text use fonts installed on the machine showing this page, so they differ slightly elsewhere.
+    Show one system with <code>#only=1</code> … <code>#only=5</code>, force a theme with <code>&amp;theme=light|dark</code>, and one block with <code>&amp;part=identity|colour|type|components|context</code>.</p></header>`;
+  html += `<div class="ov">${IDS.map(overviewCard).join('')}</div>`;
+  for (const id of IDS) if (!only || only === id) html += section(id, OPT.theme === 'dark' || OPT.theme === 'light' ? OPT.theme : SYS[id].primary);
+  page.innerHTML = html;
+  if (only) { document.body.classList.add('only'); document.querySelector('#s' + only).classList.add('show'); document.querySelector('.ov-intro').style.display = 'none'; }
+  if (OPT.part) { document.body.classList.add('part'); const keep = OPT.part.split(','); document.querySelectorAll('[data-part]').forEach(e => { if (keep.includes(e.dataset.part)) e.classList.add('keep'); }); }
+  fitWordmarks();
+  document.querySelectorAll('[data-face]').forEach(e => { const r = renderedFont(e, e.dataset.face); e.querySelector('.seen').innerHTML = r.first ? 'installed here, so this is the real thing' : `not installed here: you are looking at the fallback, <b>${r.name}</b>`; });
+})();
+
+</script>
+</body></html>

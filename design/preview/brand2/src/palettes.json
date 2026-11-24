@@ -1,0 +1,1067 @@
+{
+ "1": {
+  "cat": {
+   "light": [
+    "#9e3101",
+    "#02beff",
+    "#7e218c",
+    "#eea10d",
+    "#0959c9",
+    "#6fcc7f",
+    "#a071fc",
+    "#578b1a",
+    "#f786c9",
+    "#e21880"
+   ],
+   "dark": [
+    "#a73f33",
+    "#d5d204",
+    "#3749e5",
+    "#0fefc0",
+    "#9926a2",
+    "#fd976b",
+    "#8585e6",
+    "#7c9624",
+    "#fc93ef",
+    "#f23798"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 9.1,
+    "cvdPair": [
+     "#eea10d",
+     "#6fcc7f"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.6,
+    "deutan": 9.1,
+    "normal": 18.1,
+    "tritan": 3.9,
+    "minContrast": 1.98,
+    "below3": 4
+   },
+   "dark": {
+    "cvd": 9.1,
+    "cvdPair": [
+     "#d5d204",
+     "#fd976b"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.1,
+    "deutan": 9.1,
+    "normal": 18.1,
+    "tritan": 6.1,
+    "minContrast": 2.94,
+    "below3": 1
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#524700",
+     "#9dbcff",
+     "#00468f",
+     "#bca500",
+     "#0067cd",
+     "#cebe7a",
+     "#2f8dff",
+     "#918000",
+     "#8fa0cb",
+     "#505f82"
+    ],
+    "deutan": [
+     "#6d6000",
+     "#80a8fe",
+     "#30508a",
+     "#ceb818",
+     "#0057c7",
+     "#c0b584",
+     "#3f8af9",
+     "#8a7c27",
+     "#acb3c6",
+     "#86847c"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#5b5331",
+     "#e4c900",
+     "#0067ea",
+     "#e7debe",
+     "#0053a5",
+     "#b2a467",
+     "#6193ea",
+     "#9f8d0a",
+     "#90aff2",
+     "#5e709a"
+    ],
+    "deutan": [
+     "#756a30",
+     "#e7ce28",
+     "#0056e2",
+     "#cfccc3",
+     "#40619f",
+     "#caba6a",
+     "#5c8ce4",
+     "#9c8c2e",
+     "#acbdec",
+     "#929294"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 31.1,
+     "protan": 7.5,
+     "deutan": 14.8
+    },
+    "warn": {
+     "normal": 14.2,
+     "protan": 3,
+     "deutan": 5.8
+    },
+    "err": {
+     "normal": 13.8,
+     "protan": 11.5,
+     "deutan": 13.9
+    },
+    "info": {
+     "normal": 39.9,
+     "protan": 26.8,
+     "deutan": 36.8
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 30.3,
+     "protan": 19,
+     "deutan": 10.7
+    },
+    "warn": {
+     "normal": 15.2,
+     "protan": 13.4,
+     "deutan": 5.7
+    },
+    "err": {
+     "normal": 5.9,
+     "protan": 5.8,
+     "deutan": 5.9
+    },
+    "info": {
+     "normal": 32.5,
+     "protan": 28.2,
+     "deutan": 27.4
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 19.6,
+    "ink2": 10.6,
+    "muted": 4.5,
+    "accentInk": 5.1,
+    "onAccent": 5.9,
+    "ok": 4,
+    "warn": 3.6,
+    "err": 5.4,
+    "info": 6.1
+   },
+   "dark": {
+    "ink": 17.4,
+    "ink2": 11.2,
+    "muted": 5.5,
+    "accentInk": 7.6,
+    "onAccent": 6.3,
+    "ok": 8.5,
+    "warn": 8.5,
+    "err": 5.7,
+    "info": 7.6
+   }
+  },
+  "seq": [
+   "#ffe9dc",
+   "#ffcdb0",
+   "#ffab80",
+   "#ff8550",
+   "#f55e1f",
+   "#c6440d",
+   "#8f2f06"
+  ],
+  "div": {
+   "light": [
+    "#0b4c92",
+    "#4682cc",
+    "#98bdee",
+    "#e9e8e5",
+    "#e7ab90",
+    "#be6438",
+    "#803100"
+   ],
+   "dark": [
+    "#a7ceff",
+    "#5894e0",
+    "#345f95",
+    "#36383a",
+    "#8b492a",
+    "#d2764a",
+    "#ffb797"
+   ]
+  }
+ },
+ "2": {
+  "cat": {
+   "light": [
+    "#00378c",
+    "#f87985",
+    "#493c00",
+    "#ae95ff",
+    "#7d51ba",
+    "#007679",
+    "#ab9100",
+    "#710057",
+    "#b03f30",
+    "#00b8b9"
+   ],
+   "dark": [
+    "#d0ceff",
+    "#0b7917",
+    "#0075ae",
+    "#fb7d8a",
+    "#ffc955",
+    "#a483f1",
+    "#ac9200",
+    "#5cffc3",
+    "#a94576",
+    "#00bbc2"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 10,
+    "cvdPair": [
+     "#ae95ff",
+     "#00b8b9"
+    ],
+    "cvdKind": "deutan",
+    "protan": 10.1,
+    "deutan": 10,
+    "normal": 19.8,
+    "tritan": 11,
+    "minContrast": 2.21,
+    "below3": 4
+   },
+   "dark": {
+    "cvd": 10.1,
+    "cvdPair": [
+     "#a483f1",
+     "#00bbc2"
+    ],
+    "cvdKind": "deutan",
+    "protan": 10.3,
+    "deutan": 10.1,
+    "normal": 20.2,
+    "tritan": 6,
+    "minContrast": 3.12,
+    "below3": 0
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#00438f",
+     "#949185",
+     "#443b00",
+     "#74a7ff",
+     "#2467bd",
+     "#6d7079",
+     "#a28e00",
+     "#112f59",
+     "#5e552e",
+     "#abaeb9"
+    ],
+    "deutan": [
+     "#00378a",
+     "#b4aa82",
+     "#473f04",
+     "#78a3fc",
+     "#3467b8",
+     "#5e657a",
+     "#a89615",
+     "#384055",
+     "#7a6e2c",
+     "#959fba"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#c2d4ff",
+     "#7c6d00",
+     "#5976b0",
+     "#97948a",
+     "#e0c947",
+     "#5f97f5",
+     "#a38f00",
+     "#faeec0",
+     "#535d78",
+     "#acb2c3"
+    ],
+    "deutan": [
+     "#c1d1fe",
+     "#716523",
+     "#4368ad",
+     "#b7ad87",
+     "#edd75a",
+     "#6594ee",
+     "#a99715",
+     "#e4dec7",
+     "#6e6f74",
+     "#96a2c3"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 27,
+     "protan": 24.7,
+     "deutan": 24.1
+    },
+    "warn": {
+     "normal": 31.8,
+     "protan": 28.5,
+     "deutan": 31.2
+    },
+    "err": {
+     "normal": 33.2,
+     "protan": 25.3,
+     "deutan": 30.3
+    },
+    "info": {
+     "normal": 17.1,
+     "protan": 15.3,
+     "deutan": 14.4
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 21.3,
+     "protan": 18.9,
+     "deutan": 17.9
+    },
+    "warn": {
+     "normal": 25.9,
+     "protan": 24.9,
+     "deutan": 26.7
+    },
+    "err": {
+     "normal": 22.9,
+     "protan": 19.7,
+     "deutan": 21.7
+    },
+    "info": {
+     "normal": 14,
+     "protan": 11.4,
+     "deutan": 9.7
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 14.7,
+    "ink2": 7.8,
+    "muted": 4.7,
+    "accentInk": 7.8,
+    "onAccent": 7.4,
+    "ok": 4.8,
+    "warn": 4.9,
+    "err": 5,
+    "info": 5
+   },
+   "dark": {
+    "ink": 14.2,
+    "ink2": 8.7,
+    "muted": 5.4,
+    "accentInk": 8.4,
+    "onAccent": 7.5,
+    "ok": 8.4,
+    "warn": 8.5,
+    "err": 6.8,
+    "info": 8.5
+   }
+  },
+  "seq": [
+   "#e9eeff",
+   "#cad6ff",
+   "#a3b7ff",
+   "#7c93f8",
+   "#5c71d2",
+   "#4252a5",
+   "#2a3577"
+  ],
+  "div": {
+   "light": [
+    "#364493",
+    "#6679cd",
+    "#a8b8ef",
+    "#e9e8e5",
+    "#dcb282",
+    "#b17000",
+    "#6c4300"
+   ],
+   "dark": [
+    "#b8c8ff",
+    "#778ce1",
+    "#4a5996",
+    "#36383a",
+    "#81520a",
+    "#c48225",
+    "#f9be78"
+   ]
+  }
+ },
+ "3": {
+  "cat": {
+   "light": [
+    "#007e9d",
+    "#ff6f03",
+    "#6d005c",
+    "#002ca1",
+    "#094d00",
+    "#b18fd3",
+    "#8f6600",
+    "#7f44cb",
+    "#00b468",
+    "#cd3274"
+   ],
+   "dark": [
+    "#62e5ff",
+    "#ad3bb3",
+    "#9a6a00",
+    "#c6ff54",
+    "#aa93ff",
+    "#b5b200",
+    "#00a29c",
+    "#ffb1b6",
+    "#116deb",
+    "#f94e6c"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 10.2,
+    "cvdPair": [
+     "#8f6600",
+     "#cd3274"
+    ],
+    "cvdKind": "deutan",
+    "protan": 10.2,
+    "deutan": 10.2,
+    "normal": 20.2,
+    "tritan": 6,
+    "minContrast": 2.5,
+    "below3": 3
+   },
+   "dark": {
+    "cvd": 10.1,
+    "cvdPair": [
+     "#9a6a00",
+     "#f94e6c"
+    ],
+    "cvdKind": "protan",
+    "protan": 10.1,
+    "deutan": 10.3,
+    "normal": 20.1,
+    "tritan": 6.1,
+    "minContrast": 3.51,
+    "below3": 0
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#6c7b9f",
+     "#998600",
+     "#042f5e",
+     "#0042a4",
+     "#4f4500",
+     "#829cd6",
+     "#766700",
+     "#0065cf",
+     "#b3a463",
+     "#555e76"
+    ],
+    "deutan": [
+     "#5a6e9d",
+     "#bca700",
+     "#323e5a",
+     "#00349f",
+     "#48400a",
+     "#899dd1",
+     "#807108",
+     "#0064c8",
+     "#a2986d",
+     "#7f7c70"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#d1deff",
+     "#2464b6",
+     "#7c6c00",
+     "#ffef3a",
+     "#70a5ff",
+     "#c2aa00",
+     "#98999c",
+     "#bfbdb6",
+     "#007cef",
+     "#7a776c"
+    ],
+    "deutan": [
+     "#bacdff",
+     "#5472b0",
+     "#877808",
+     "#ffec62",
+     "#73a1fc",
+     "#c4af1f",
+     "#858b9d",
+     "#d1cbb5",
+     "#006ae9",
+     "#a69a68"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 16.2,
+     "protan": 15.5,
+     "deutan": 15.6
+    },
+    "warn": {
+     "normal": 27.8,
+     "protan": 20.9,
+     "deutan": 24.9
+    },
+    "err": {
+     "normal": 29.1,
+     "protan": 15.5,
+     "deutan": 20.3
+    },
+    "info": {
+     "normal": 26,
+     "protan": 27.4,
+     "deutan": 25.2
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 13.9,
+     "protan": 13.3,
+     "deutan": 13
+    },
+    "warn": {
+     "normal": 27.9,
+     "protan": 23.5,
+     "deutan": 22.9
+    },
+    "err": {
+     "normal": 28.5,
+     "protan": 20.1,
+     "deutan": 15.2
+    },
+    "info": {
+     "normal": 18.2,
+     "protan": 13.2,
+     "deutan": 17.7
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 14.5,
+    "ink2": 7.4,
+    "muted": 4.6,
+    "accentInk": 6.2,
+    "onAccent": 5.8,
+    "ok": 5,
+    "warn": 4.6,
+    "err": 5,
+    "info": 14.5
+   },
+   "dark": {
+    "ink": 15.2,
+    "ink2": 9.4,
+    "muted": 5.5,
+    "accentInk": 10.9,
+    "onAccent": 9.8,
+    "ok": 9.8,
+    "warn": 8,
+    "err": 6.8,
+    "info": 15.2
+   }
+  },
+  "seq": [
+   "#ddf2ff",
+   "#abe0ff",
+   "#64c7fc",
+   "#00a8e8",
+   "#0084b8",
+   "#00628a",
+   "#00435f"
+  ],
+  "div": {
+   "light": [
+    "#00566e",
+    "#008db3",
+    "#80c6e1",
+    "#e9e8e5",
+    "#dcb282",
+    "#b17000",
+    "#6c4300"
+   ],
+   "dark": [
+    "#76d9ff",
+    "#00a1cb",
+    "#006884",
+    "#36383a",
+    "#81520a",
+    "#c48225",
+    "#f9be78"
+   ]
+  },
+  "hl": {
+   "light": {
+    "vsWarn": 27.2,
+    "vsWarnCvd": 25.5
+   },
+   "dark": {
+    "vsWarn": 15.1,
+    "vsWarnCvd": 11.8
+   }
+  }
+ },
+ "4": {
+  "cat": {
+   "light": [
+    "#09beb6",
+    "#6e1e4e",
+    "#8061b1",
+    "#9d9225",
+    "#a84e39",
+    "#014687",
+    "#007e73",
+    "#474700",
+    "#a2a0f6",
+    "#f08a83"
+   ],
+   "dark": [
+    "#76f5fb",
+    "#a05a01",
+    "#5f9de4",
+    "#f2dd78",
+    "#d59543",
+    "#655bad",
+    "#c56ea0",
+    "#51c293",
+    "#007c64",
+    "#ddadff"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 9.1,
+    "cvdPair": [
+     "#09beb6",
+     "#f08a83"
+    ],
+    "cvdKind": "protan",
+    "protan": 9.1,
+    "deutan": 9.2,
+    "normal": 18.2,
+    "tritan": 9.3,
+    "minContrast": 2.2,
+    "below3": 3
+   },
+   "dark": {
+    "cvd": 9,
+    "cvdPair": [
+     "#5f9de4",
+     "#ddadff"
+    ],
+    "cvdKind": "protan",
+    "protan": 9,
+    "deutan": 9.1,
+    "normal": 18,
+    "tritan": 6.2,
+    "minContrast": 3.06,
+    "below3": 0
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#b2b3b6",
+     "#29354f",
+     "#4a70b4",
+     "#a08d0e",
+     "#655d37",
+     "#214c89",
+     "#777673",
+     "#4e4300",
+     "#85abf9",
+     "#a09a82"
+    ],
+    "deutan": [
+     "#9da4b7",
+     "#40434c",
+     "#5170af",
+     "#a3922d",
+     "#7c7037",
+     "#004186",
+     "#696b74",
+     "#4f4506",
+     "#83a6f4",
+     "#b9ae81"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#e6ebfc",
+     "#706100",
+     "#7fa1e7",
+     "#eed86f",
+     "#ab993a",
+     "#3b68b0",
+     "#7582a2",
+     "#bfb590",
+     "#777363",
+     "#9fbdff"
+    ],
+    "deutan": [
+     "#d0dbfc",
+     "#807202",
+     "#6e94e3",
+     "#f4e07c",
+     "#baa845",
+     "#3a64ab",
+     "#8b909e",
+     "#afaa96",
+     "#6a6966",
+     "#a9c1fd"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 16.8,
+     "protan": 16.4,
+     "deutan": 16.6
+    },
+    "warn": {
+     "normal": 20.1,
+     "protan": 17,
+     "deutan": 19.7
+    },
+    "err": {
+     "normal": 23.6,
+     "protan": 14.6,
+     "deutan": 17.5
+    },
+    "info": {
+     "normal": 25.4,
+     "protan": 26.8,
+     "deutan": 24.7
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 15,
+     "protan": 14.7,
+     "deutan": 14.8
+    },
+    "warn": {
+     "normal": 18.5,
+     "protan": 16.7,
+     "deutan": 18.5
+    },
+    "err": {
+     "normal": 19.3,
+     "protan": 14,
+     "deutan": 13.8
+    },
+    "info": {
+     "normal": 19.9,
+     "protan": 16.9,
+     "deutan": 20.4
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 15.5,
+    "ink2": 8.3,
+    "muted": 4.5,
+    "accentInk": 7,
+    "onAccent": 6.2,
+    "ok": 4.8,
+    "warn": 5,
+    "err": 5.7,
+    "info": 15.5
+   },
+   "dark": {
+    "ink": 14.1,
+    "ink2": 9.3,
+    "muted": 5.6,
+    "accentInk": 9.2,
+    "onAccent": 8.2,
+    "ok": 8.9,
+    "warn": 8.7,
+    "err": 6.9,
+    "info": 14.1
+   }
+  },
+  "seq": [
+   "#dff2f9",
+   "#b8dfec",
+   "#85c6db",
+   "#53a8c2",
+   "#2d869f",
+   "#10657a",
+   "#004555"
+  ],
+  "div": {
+   "light": [
+    "#00566a",
+    "#008fad",
+    "#7ec7de",
+    "#e9e8e5",
+    "#e7ab90",
+    "#be6438",
+    "#803100"
+   ],
+   "dark": [
+    "#6edbfc",
+    "#00a2c5",
+    "#006880",
+    "#36383a",
+    "#8b492a",
+    "#d2764a",
+    "#ffb797"
+   ]
+  }
+ },
+ "5": {
+  "cat": {
+   "light": [
+    "#5ea1ff",
+    "#005e27",
+    "#ff7600",
+    "#5525d4",
+    "#b02a6e",
+    "#0072a5",
+    "#00a97c",
+    "#f672bd",
+    "#986c00",
+    "#b245f3"
+   ],
+   "dark": [
+    "#5ea1ff",
+    "#005e27",
+    "#ff7600",
+    "#5525d4",
+    "#b02a6e",
+    "#0072a5",
+    "#00a97c",
+    "#f672bd",
+    "#986c00",
+    "#b245f3"
+   ]
+  },
+  "sep": {
+   "light": {
+    "cvd": 9.6,
+    "cvdPair": [
+     "#5ea1ff",
+     "#b245f3"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.6,
+    "deutan": 9.6,
+    "normal": 19.1,
+    "tritan": 6,
+    "minContrast": 2.61,
+    "below3": 3
+   },
+   "dark": {
+    "cvd": 9.6,
+    "cvdPair": [
+     "#5ea1ff",
+     "#b245f3"
+    ],
+    "cvdKind": "deutan",
+    "protan": 9.6,
+    "deutan": 9.6,
+    "normal": 19.1,
+    "tritan": 6,
+    "minContrast": 2.6,
+    "below3": 2
+   }
+  },
+  "sim": {
+   "light": {
+    "protan": [
+     "#78a8ff",
+     "#5f5522",
+     "#9e8b00",
+     "#0055d9",
+     "#445270",
+     "#5972a7",
+     "#a59c7a",
+     "#7f92bf",
+     "#7d6d00",
+     "#0078f8"
+    ],
+    "deutan": [
+     "#6199fd",
+     "#554e2b",
+     "#bfaa00",
+     "#004ad1",
+     "#6a6a6b",
+     "#4565a4",
+     "#948f7f",
+     "#a3a9ba",
+     "#887809",
+     "#1a7eef"
+    ]
+   },
+   "dark": {
+    "protan": [
+     "#78a8ff",
+     "#5f5522",
+     "#9e8b00",
+     "#0055d9",
+     "#445270",
+     "#5972a7",
+     "#a59c7a",
+     "#7f92bf",
+     "#7d6d00",
+     "#0078f8"
+    ],
+    "deutan": [
+     "#6199fd",
+     "#554e2b",
+     "#bfaa00",
+     "#004ad1",
+     "#6a6a6b",
+     "#4565a4",
+     "#948f7f",
+     "#a3a9ba",
+     "#887809",
+     "#1a7eef"
+    ]
+   }
+  },
+  "status": {
+   "light": {
+    "ok": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "warn": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "err": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "info": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    }
+   },
+   "dark": {
+    "ok": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "warn": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "err": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    },
+    "info": {
+     "normal": 0,
+     "protan": 0,
+     "deutan": 0
+    }
+   }
+  },
+  "text": {
+   "light": {
+    "ink": 21,
+    "ink2": 13.6,
+    "muted": 5.7,
+    "accentInk": 21,
+    "onAccent": 21,
+    "ok": 21,
+    "warn": 21,
+    "err": 21,
+    "info": 21
+   },
+   "dark": {
+    "ink": 21,
+    "ink2": 14.4,
+    "muted": 7.6,
+    "accentInk": 21,
+    "onAccent": 21,
+    "ok": 21,
+    "warn": 21,
+    "err": 21,
+    "info": 21
+   }
+  },
+  "seq": [
+   "#e4f0ff",
+   "#bedaff",
+   "#8bbeff",
+   "#569df6",
+   "#337bd0",
+   "#1a5aa4",
+   "#063c76"
+  ],
+  "div": {
+   "light": [
+    "#0b4c92",
+    "#4682cc",
+    "#98bdee",
+    "#e9e8e5",
+    "#eaa79e",
+    "#c25e53",
+    "#862721"
+   ],
+   "dark": [
+    "#a7ceff",
+    "#5894e0",
+    "#345f95",
+    "#36383a",
+    "#8d453d",
+    "#d67064",
+    "#ffb5ab"
+   ]
+  }
+ }
+}
