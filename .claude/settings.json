@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo *)",
+      "Bash(rustup *)",
+      "Bash(rustc *)",
+      "Bash(git *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr *)",
+      "Bash(gh run *)",
+      "Bash(gh workflow *)",
+      "Bash(gh project *)",
+      "Bash(gh api repos/VincenzoImp/everygraph/*)",
+      "Bash(uv *)",
+      "Bash(python3 *)",
+      "Bash(maturin *)",
+      "Bash(node *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(hyperfine *)",
+      "Bash(systemd-run --user *)",
+      "Bash(taskset *)"
+    ],
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git push * --force*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh repo edit * --visibility*)",
+      "Bash(gh release create*)",
+      "Bash(cargo publish*)",
+      "Bash(cargo yank*)",
+      "Bash(maturin publish*)",
+      "Bash(maturin upload*)",
+      "Bash(npm publish*)",
+      "Bash(uv publish*)",
+      "Bash(twine upload*)",
+      "Bash(pkill *)",
+      "Bash(killall *)"
+    ]
+  },
+  "env": {
+    "EVERYGRAPH_DATA": "/home/tux/graphlab/data",
+    "EVERYGRAPH_SCRATCH": "/home/tux/graphlab/scratch"
+  }
+}
