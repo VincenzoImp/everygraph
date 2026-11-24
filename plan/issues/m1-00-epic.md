@@ -9,6 +9,7 @@ Tracking issue for milestone M1.
 
 **Ordered by risk to the product**
 1. {{#m1-01-e2e-tracer}} — does the whole pipeline hold together on 1.8 B edges under 16 GiB?
+1. {{#m1-13-compressed-end-to-end}} — what do the headline numbers become on the default (compressed) storage?
 2. {{#m1-02-ooc-aggregation}} — out-of-core Leiden
 3. {{#m1-03-louvain-collapse}} — unexplained quality collapse at scale
 4. {{#m1-05-hierarchy-shaping}} — hierarchy the map can use

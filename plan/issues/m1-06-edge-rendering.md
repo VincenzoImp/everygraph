@@ -20,4 +20,6 @@ labels: type:experiment, area:viewer, P0, risk:high, size:L, lab-evidence
 - Cost: bytes per tile, frame time on integrated GPU
 - Honesty: every view states the edge weight shown vs omitted
 
+**Done when.** One approach is chosen with screenshots on lj and orkut, task-success numbers from the evaluation, and measured bytes per tile and frame time; rejected candidates are recorded with the reason.
+
 **Decision it feeds.** Tile content model ({{#m5-02-tile-format}}) and viewer scope ({{#m5-07-edge-strategy}}).

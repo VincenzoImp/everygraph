@@ -7,9 +7,9 @@ labels: type:infra, area:launch, P2, risk:low, size:S
 
 **Scope**
 - [ ] No telemetry in the engine or viewer; say so in the README
-- [ ] Issue templates (bug with `eg doctor` output, performance report with `eg-bench` spec, dataset that broke something), discussions enabled
+- [ ] Issue templates (bug with `everygraph doctor` output, performance report with `everygraph-bench` spec, dataset that broke something), discussions enabled
 - [ ] Public signals tracked monthly: downloads, stars, public `.egmap` files found in the wild, citations, questions asked
-- [ ] A "send us your worst graph" call: anonymized structure-only export (`eg export --topology-only`) so users can share a failing case without sharing data
+- [ ] A "send us your worst graph" call: anonymized structure-only export (`everygraph export --topology-only`) so users can share a failing case without sharing data
 - [ ] Office hours / a chat channel for early adopters
 
 **Acceptance**

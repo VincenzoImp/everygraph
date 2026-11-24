@@ -12,8 +12,10 @@ Tracking issue for milestone M5.
 **Exit criteria**
 - [ ] {{#m5-01-layout}}, {{#m5-02-tile-format}}, {{#m5-03-tile-builder}}, {{#m5-04-search-index}}
 - [ ] {{#m5-05-viewer-core}}, {{#m5-06-viewer-ux}}, {{#m5-07-edge-strategy}}
-- [ ] {{#m5-08-live-mode}}, {{#m5-09-static-export}}, {{#m5-10-jupyter-widget}}
-- [ ] {{#m5-11-perf-accessibility}}, {{#m5-12-honest-map}}; optional {{#m5-13-attribute-overlays}}
+- [ ] {{#m5-09-static-export}}, {{#m5-11-perf-accessibility}}, {{#m5-12-honest-map}}
+
+**Scope note.** M5 is the static map and depends only on M4. Three map features need other milestones and are tracked there: the Jupyter widget {{#m5-10-jupyter-widget}} in M6 (needs the Python API), live mode {{#m5-08-live-mode}} and attribute/time overlays {{#m5-13-attribute-overlays}} in M7 (need queries and views).
+
 - [ ] A 1 B-edge graph opens from a static URL: first view < 250 KB, exact numbers at every level, no artificial region presented as a community
 
 **Blocked by M1 results:** {{#m1-05-hierarchy-shaping}}, {{#m1-06-edge-rendering}}, {{#m1-07-layout-area}}, {{#m1-12-viewer-no-gpu}}; legal check {{#m0-10-patent-check}}.

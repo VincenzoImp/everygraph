@@ -11,7 +11,7 @@ labels: type:infra, area:python, P0, risk:low, size:M, lab-evidence
 - [ ] Runtime CPU-feature dispatch (AVX2/AVX-512/NEON) instead of `target-cpu=native`
 - [ ] Wheel size budget ≤ 5 MB; no bundled system libraries beyond what the kernels need
 - [ ] sdist that builds with a stock Rust toolchain; conda-forge recipe (after v0.1)
-- [ ] Release automation with trusted publishing to PyPI; the viewer assets ship inside the wheel for the widget and `eg open`
+- [ ] Release automation with trusted publishing to PyPI; the viewer assets ship inside the wheel for the widget and `everygraph open`
 
 **Acceptance**
 - `pip install everygraph` in clean containers for every target, followed by a smoke test (ingest + PageRank + map export)

@@ -14,7 +14,8 @@ labels: type:feature, area:engine, P0, risk:medium, size:M, lab-evidence
 
 **Acceptance**
 - Friendster PageRank under `MemoryMax=2G` within 1.35× of the in-RAM time, anonymous peak ≤ 1.6 GB
-- Twitter-sym under an 8 GB cap: compressed stream ≥ 4× faster than raw mmap on repeated scans (lab: 5.2×)
+- Twitter-sym under an 8 GB cap: repeated scans of the compressed form (4.8 GB, stays resident) ≥ 4× faster than of raw arrays (10 GB, re-read from disk every pass); lab: 5.2×
+- Stated plainly in the docs: out of core, each pass costs about one sequential read of the graph, so kernels that are cheap in RAM slow down by the ratio of read time to compute time (WCC on Friendster: 0.34 s in RAM, 3.6 s streamed)
 
 **Pointers.** `lab/b1-core/crates/glab-core/src/extmem.rs`, FINDINGS § B1 and § C "cold".
 

@@ -3,9 +3,10 @@ title: Past the memory-bandwidth ceiling: blocked PageRank and locality
 milestone: M1 · De-risking lab, round 2
 labels: type:experiment, area:engine, P1, risk:medium, size:M, lab-evidence
 ---
-**Question.** Friendster PageRank is flat from 8 threads up (≈ 3.4–3.8 s/iteration) while orkut, whose state fits in L3, is 11× cheaper per edge. Is this the memory-bandwidth limit of a dual-channel desktop, and how much can cache-aware techniques recover?
+**Question.** On Friendster, PageRank costs 3.4 s/iteration at 32 threads — about 11× more per edge than on orkut, whose state fits in L3 — and it looked flat from 8 threads up. That flatness was only observed while the machine was loaded (4.8, 5.5, 4.1 s at 8, 16, 32 threads); no idle scaling curve exists for Friendster. Is this the memory-bandwidth limit of a dual-channel desktop, and how much can cache-aware techniques recover?
 
 **Method**
+- [ ] First, an idle-machine scaling curve at 1, 2, 4, 8, 16, 32 threads
 - [ ] Confirm with hardware counters (`perf stat`: LLC misses, memory bandwidth) at 4, 8, 16 threads
 - [ ] Propagation blocking / cache-blocked pull PageRank (bin contributions by destination range)
 - [ ] Node orderings on Friendster and twitter: original, degree-sorted, hub-clustered, BFS, Leiden-hierarchy order ({{#m1-09-hierarchy-order}})

@@ -13,5 +13,5 @@ labels: type:infra, area:launch, P0, risk:low, size:M
 - [ ] Make the repository public only after {{#m0-09-name-trademark}} and {{#m0-10-patent-check}} are closed
 
 **Acceptance**
-- `pip install everygraph==0.1.0` and `cargo install eg-cli` work on all supported platforms on release day
+- `pip install everygraph==0.1.0` and `cargo install everygraph-cli` work on all supported platforms on release day
 - Every claim in the launch post links to a reproducible result

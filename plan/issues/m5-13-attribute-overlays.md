@@ -1,6 +1,6 @@
 ---
 title: Attribute overlays, filters and a time slider on the map
-milestone: M5 · The map
+milestone: M7 · Queries and views
 labels: type:feature, area:viewer, P2, risk:medium, size:L
 ---
 **Why.** "Where are the exchanges", "show only edges above 10 ETH", "how did this look in March" are the questions an investigator asks of a map.

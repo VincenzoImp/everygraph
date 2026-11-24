@@ -10,7 +10,7 @@ labels: type:feature, area:format, P1, risk:low, size:M
 - [ ] Store artifacts as sections of the `.eg` file or in a sidecar cache directory (decide; large temporary results should not bloat the graph file)
 - [ ] Lookup-before-compute in the planner; `explain()` shows reuse
 - [ ] Invalidation rules on engine upgrade (algorithm version numbers, not the whole engine version)
-- [ ] `eg info` lists artifacts with size, age and provenance; `eg compact` drops unreferenced ones
+- [ ] `everygraph info` lists artifacts with size, age and provenance; `everygraph compact` drops unreferenced ones
 
 **Acceptance**
 - Re-running an identical PageRank call returns from cache in milliseconds

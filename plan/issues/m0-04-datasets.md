@@ -14,7 +14,7 @@ labels: type:infra, area:bench, P0, risk:low, size:S
 - [ ] No dataset is redistributed in the repository; terms are recorded per dataset
 
 **Acceptance**
-- `eg-bench fetch tier1` produces verified files from a clean machine
+- `everygraph-bench fetch tier1` produces verified files from a clean machine
 - Each family in {{#m1-10-graph-families}} has at least one registered dataset
 
 **Depends on** {{#m0-01-workspace}}

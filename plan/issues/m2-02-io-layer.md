@@ -23,4 +23,4 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 **Acceptance**
 - Sequential scan through the O_DIRECT backend reaches ≥ 80% of the device's sequential bandwidth on the lab NVMe
 - All backends pass one conformance test-suite
-- `eg-core` still builds for wasm32 (backends live in `eg-io`)
+- `everygraph-core` still builds for wasm32 (backends live in `everygraph-io`)

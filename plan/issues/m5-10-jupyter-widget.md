@@ -1,6 +1,6 @@
 ---
 title: Jupyter widget
-milestone: M5 · The map
+milestone: M6 · Python and interop
 labels: type:feature, area:viewer, P1, risk:low, size:S
 ---
 **Why.** The primary persona lives in notebooks; a map one line away from the analysis is the shortest path to the "first map" metric.

@@ -13,6 +13,8 @@ labels: type:infra, area:foundations, P0, risk:medium, size:L
 - [ ] Golden files for the real tier-1 datasets (triangle counts, core numbers, component counts)
 - [ ] Semantics table: where NetworkX and igraph disagree with each other, write down which one we follow and why
 
+**What exists at the end of M0.** No production kernel exists yet, so in M0 the oracle is the harness: generators, reference runners, invariant checkers and golden files, exercised against the lab prototype binaries in `lab/`. Production kernels are plugged in as they appear (M2–M4), first through a Rust test API and then through the minimal Python binding built in M2.
+
 **Acceptance**
 - Oracle suite runs in CI in < 10 minutes
 - A seeded bug (off-by-one in the last list of a block) is caught by at least two independent checks

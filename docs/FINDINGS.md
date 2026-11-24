@@ -141,7 +141,7 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   (163 MB), forward lookup 0.56 µs, batch mapping 132 M/s unverified. Front-coded sorted
   blocks give prefix search (3 µs) at 18 B/key for URL-like keys. Ingest bottleneck is
   the first dedupe pass: 15 M keys/s (≈4 min per 3.6B endpoints, extrapolated).
-- **Point queries on mmapped CSR, warm, single thread (p50):** degree/neighbors
+- **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50):** degree/neighbors
   0.1–0.6 µs; common neighbors 0.4–0.8 µs; 3-hop with 10k budget 56–115 µs;
   bidirectional BFS 0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter). p99 tails on hubs:
   up to 15 ms (2-hop) and 113 ms (path).
@@ -199,7 +199,10 @@ triangles 57.5 s.
 | 8 GB | 5.12 / 5.17 | 1.47 GB / 7.96 GB |
 | 2 GB | 4.26 / – | 1.35 GB |
 
-- Going out-of-core costs 0–35% for sequential kernels. Semi-external does not beat mmap
+- Going out-of-core costs 0–35% for PageRank, whose per-iteration cost in RAM happens to
+  be close to the time needed to read the adjacency from this NVMe. It is **not** a general
+  figure: a kernel that is cheap in RAM pays for the read (WCC: 0.34–0.55 s in RAM,
+  2.8–6.1 s cold or streamed). Semi-external does not beat mmap
   on speed; it wins on a fixed, small, predictable RSS. WCC at 8 GB: 5.6–6.1 s.
 - The only OOM was anonymous O(n) state (WCC at 1 GB). **Planner rule: choose the regime
   by the size of the O(n) state, not by graph size**, and account memory explicitly
@@ -349,7 +352,9 @@ These supersede the shared-machine timings above where they overlap.
 | Friendster BFS | 0.34 s |
 
 Scaling on an idle machine is better than the shared runs suggested (PageRank 9.7× at 16
-threads on orkut), and SMT adds nothing. Leaving RAM costs ~10% for PageRank.
+threads on orkut). SMT adds nothing for PageRank, WCC, BFS and k-core, but helps triangle
+counting (2.51 s at 16 threads → 1.46 s at 32) and community detection on orkut. Leaving
+RAM costs ~10% for PageRank and ~10× for WCC (I/O-bound). Ingest timings exclude `fsync`.
 
 **B2 — community detection (wall seconds, best of N)**
 
@@ -385,7 +390,7 @@ built from the same CSR arrays; modularity computed by one routine. GVE times ex
 | NetworKit (32) | parallel components | 0.17 s | 0.25 s |
 | NetworKit (32) | k-core | 0.26 s | 1.23 s |
 | NetworKit (32) | BFS from the hub (sequential in NetworKit) | 0.85 s | 1.38 s |
-| NetworKit (32) | triangles | 4.8 s | 24.0 s |
+| NetworKit (32) | local clustering coefficient, non-turbo (not a plain triangle count) | 4.8 s | 24.0 s |
 | NetworKit (32) | PLM | 4.9 s, Q 0.7485 | 6.6 s, Q 0.6731 |
 | NetworKit (32) | PLM + refine | 7.6 s, Q 0.7635 | 10.0 s, Q 0.6864 |
 | NetworKit (32) | ParallelLeiden | 6.0 s, Q 0.7688 | 9.4 s, Q 0.6720 (0.6882 at 1 thread) |
@@ -406,8 +411,10 @@ igraph 7.1 / 23.6 GB; largegraph 2.4 / 4.1 GB.
 
 - Ingest: 0.42 s / 0.89 s against DuckDB's 1.91 s / 5.37 s (4.5–6×). DuckDB runs general SQL
   and writes compressed Parquet, so this bounds the gain rather than declaring a winner.
-- Kernels on orkut against NetworKit at its best thread count: PageRank 0.37 vs 2.79 s (7.5×),
-  components 13 vs 247 ms (19×), k-core 0.28 vs 1.23 s (4.4×), triangles 1.46 vs 24.0 s (16×).
+- Kernels on orkut against NetworKit at its best thread count: PageRank in f64 0.43 vs 2.79 s
+  (6.5×; 0.37 s in f32), components 13 vs 247 ms (19×), k-core 0.28 vs 1.23 s (4.4×).
+  Triangle counting has no like-for-like reference here: the NetworKit row is its local
+  clustering coefficient in non-turbo mode. All lab kernels ran on uncompressed arrays.
 - Communities against GVE: Leiden 0.76 vs 1.02 s on lj (+2.7 modularity points) and
   1.24–1.43 vs 1.45 s on orkut (+0.5); Louvain 0.38 vs 0.82 s and 0.65 vs 1.70 s.
 - Communities against the quality leaders: three-iteration Leiden reaches Q 0.7647 in 2.0 s on

@@ -13,6 +13,7 @@ Tracking issue for milestone M7.
 - [ ] {{#m7-01-point-queries}}, {{#m7-02-shortest-paths}}, {{#m7-03-ooc-queries}}
 - [ ] {{#m7-04-views}}, {{#m7-05-temporal}}
 - [ ] {{#m7-06-duckdb-arrow}}; optional {{#m7-07-distance-index}}
+- [ ] On the map: live mode {{#m5-08-live-mode}}; optional overlays {{#m5-13-attribute-overlays}} (both need the viewer from M5)
 - [ ] Neighbours < 1.5 µs p99 in RAM and < 0.3 ms p50 cold; shortest path p50 < 2 ms in RAM on twitter-2010
 
 **Not in v0.1:** a query language (see {{#m9-03-gql-subset}}).

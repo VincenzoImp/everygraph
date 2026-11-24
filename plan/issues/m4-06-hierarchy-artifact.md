@@ -8,7 +8,7 @@ labels: type:feature, area:community, P0, risk:low, size:M, lab-evidence
 **Scope**
 - [ ] Per level k: parent map, node count, degree volume, internal edge count (or weight), cut weight; quotient graph in the standard adjacency format with f64 weights
 - [ ] Stored as a derived artifact with provenance ({{#m2-12-artifact-cache}})
-- [ ] Conservation checks run on write and in `eg verify`
+- [ ] Conservation checks run on write and in `everygraph verify`
 - [ ] API: membership at any level as a column, community table as Arrow, `subgraph(community)` as a view, ancestors/descendants of a community
 - [ ] Per-community summary statistics of node properties (counts by category, top-k by PageRank) for map labels
 

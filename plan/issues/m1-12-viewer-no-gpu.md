@@ -11,4 +11,6 @@ labels: type:experiment, area:viewer, P1, risk:medium, size:S, lab-evidence
 - [ ] Check Firefox and Safari (WebGL2 behaviour, range requests, worker support); the lab only ran headless Chromium
 - [ ] Decide the minimum supported configuration and the fallback message
 
+**Done when.** Frame-time tables for the three hardware classes and three browsers, the per-frame caps that hold 30 fps on integrated graphics, and a stated minimum supported configuration.
+
 **Feeds.** Performance budgets in {{#m5-11-perf-accessibility}}.

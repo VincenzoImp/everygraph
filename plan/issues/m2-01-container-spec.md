@@ -17,7 +17,7 @@ labels: type:spec, area:format, P0, risk:medium, size:L
 - [ ] `compact` to reclaim replaced sections
 - [ ] Versioning and forward-compatibility rules (unknown section kinds are skipped; feature flags that readers must understand)
 - [ ] Provenance record: input fingerprints, parameters, engine version, timestamps
-- [ ] Reader/writer in `eg-format` over `ByteSource`; a minimal independent reader in Python (≈ 100 lines) to prove the spec is sufficient
+- [ ] Reader/writer in `everygraph-format` over `ByteSource`; a minimal independent reader in Python (≈ 100 lines) to prove the spec is sufficient
 - [ ] Written spec in `docs/spec/eg-container.md`
 
 **Acceptance**

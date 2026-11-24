@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Publish the plan to GitHub: labels, milestones and issues. Idempotent (matches by exact title).
+"""Publish the plan to GitHub: labels, milestones and issues. Idempotent: re-running updates title,
+body, labels and milestone of issues already published (matched through published.json, else by title).
 
 usage: publish.py OWNER/REPO [--dry-run]
 
@@ -81,10 +82,12 @@ for m in milestones:
     if m["title"] not in ms:
         ms[m["title"]] = gh(f"repos/{repo}/milestones", "-f", f"title={m['title']}", "-f", f"description={m['description']}")["number"]
 existing = {i["title"]: i["number"] for i in paged(f"repos/{repo}/issues?state=all") if "pull_request" not in i}
+known = json.loads((here / "published.json").read_text()) if (here / "published.json").exists() else {}
 numbers = {}
 for i in issues:
-    if i["title"] in existing:
-        numbers[i["slug"]] = existing[i["title"]]
+    # published.json (slug -> number) survives title edits; fall back to the exact title
+    if i["slug"] in known or i["title"] in existing:
+        numbers[i["slug"]] = known.get(i["slug"], existing.get(i["title"]))
         continue
     payload = {"title": i["title"], "body": i["body"], "labels": i["labels"], "milestone": ms[i["milestone"]]}
     numbers[i["slug"]] = gh(f"repos/{repo}/issues", "--input", "-", inp=json.dumps(payload))["number"]
@@ -92,8 +95,8 @@ for i in issues:
     time.sleep(1.2)   # stay clear of secondary rate limits
 for i in issues:
     body = re.sub(r"\{\{#([^}]+)\}\}", lambda m: f"#{numbers[m.group(1)]}", i["body"])
-    if body != i["body"] or i["title"] in existing:
-        gh(f"repos/{repo}/issues/{numbers[i['slug']]}", "-X", "PATCH", "--input", "-", inp=json.dumps({"body": body}))
-        time.sleep(0.5)
+    payload = {"title": i["title"], "body": body, "labels": i["labels"], "milestone": ms[i["milestone"]]}
+    gh(f"repos/{repo}/issues/{numbers[i['slug']]}", "-X", "PATCH", "--input", "-", inp=json.dumps(payload))
+    time.sleep(0.5)
 (here / "published.json").write_text(json.dumps(numbers, indent=1))
 print("done:", len(numbers), "issues")

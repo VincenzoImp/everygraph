@@ -6,7 +6,7 @@ labels: type:docs, area:bench, P0, risk:medium, size:M, lab-evidence
 **Why.** The adoption pattern shared by DuckDB, Polars and Ruff is one reproducible 10–100× claim with open code. Ours must survive hostile review: the first lab's numbers came from a shared machine and single runs.
 
 **Scope**
-- [ ] Report generated from `eg-bench` result files ({{#m3-12-perf-tracking}}): ingest, kernels, communities (speed *and* quality), out-of-core under cgroup limits, point queries, map build and transfer sizes
+- [ ] Report generated from `everygraph-bench` result files ({{#m3-12-perf-tracking}}): ingest, kernels, communities (speed *and* quality), out-of-core under cgroup limits, point queries, map build and transfer sizes
 - [ ] Hardware: the lab workstation plus one 16 GB laptop and one cloud instance type, so "laptop" claims are measured on a laptop
 - [ ] Comparisons with pinned versions and per-tool notes on what is included; invite maintainers of compared tools to review before publication
 - [ ] One-command reproduction kit with dataset fetchers

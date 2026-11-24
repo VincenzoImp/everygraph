@@ -12,6 +12,8 @@ labels: type:feature, area:query, P0, risk:low, size:M, lab-evidence
 - [ ] Property projection on returned edges (weights, timestamps)
 - [ ] Concurrency: read-only queries from many threads (lab warm throughput at 32 threads: 34–72 M neighbour queries/s)
 
+**Caveat on the baseline.** The lab latencies were measured on *uncompressed* arrays. Decoding a list from the default compressed format costs 0.3–0.4 µs against ~0.1 µs raw, and more for hub lists, so these targets need either the raw hot tier or re-measurement ({{#m1-13-compressed-end-to-end}}).
+
 **Acceptance**
 - In RAM, single thread: neighbours p99 < 1.5 µs; common neighbours p50 < 1.3 µs; 3-hop with a 10k budget p50 < 0.15 ms on orkut and twitter
 - A 2-hop query on a hub returns within its time budget with `truncated = true` instead of running for 15 ms+

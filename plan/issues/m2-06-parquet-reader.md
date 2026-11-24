@@ -11,7 +11,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:M
 - [ ] Node tables: an optional table of node ids with property columns, including isolates
 - [ ] Use dictionary pages to map each distinct key once ({{#m2-07-id-mapping}})
 - [ ] Multi-file datasets (globs, hive-style directories)
-- [ ] Keep `arrow`/`parquet` out of `eg-core`; check their wasm32 story for the browser tier and record it
+- [ ] Keep `arrow`/`parquet` out of `everygraph-core`; check their wasm32 story for the browser tier and record it
 
 **Acceptance**
 - Friendster as Parquet (integer ids) → `.eg` no slower than from plain text

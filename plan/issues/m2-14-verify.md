@@ -1,5 +1,5 @@
 ---
-title: Verification and integrity: `eg verify`
+title: Verification and integrity: `everygraph verify`
 milestone: M2 · Format and ingest
 labels: type:feature, area:format, P1, risk:low, size:S, lab-evidence
 ---

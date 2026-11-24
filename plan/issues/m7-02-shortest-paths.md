@@ -5,6 +5,8 @@ labels: type:feature, area:query, P0, risk:medium, size:M, lab-evidence
 ---
 **Why.** "How are these two connected?" is the investigator's core question and the weakest point of embedded engines today (0.3–4.8 s on lj; Neo4j 6.4 ms). The lab's bidirectional BFS answers in 0.3–1.5 ms in RAM.
 
+**Caveat.** The 0.3–1.5 ms figure is an in-process kernel on uncompressed arrays; the Neo4j and embedded-engine figures were measured through their query interfaces. Report both levels (kernel and end-to-end API call) in our own benchmarks.
+
 **Scope**
 - [ ] Bidirectional BFS for unweighted paths; on directed graphs the target side expands in-edges ({{#m2-11-in-adjacency}})
 - [ ] Weighted: bidirectional Dijkstra on a per-entry weight column

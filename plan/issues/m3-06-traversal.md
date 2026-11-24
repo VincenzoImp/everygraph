@@ -14,6 +14,6 @@ labels: type:feature, area:algorithms, P0, risk:medium, size:M, lab-evidence
 **Acceptance**
 - Distances equal NetworkX on the oracle graphs
 - orkut BFS ≤ 30 ms at 16 threads; a road graph completes without per-level fork-join overhead dominating
-- Under a memory limit below the adjacency size, BFS on Friendster completes within 3× of in-RAM
+- Under a memory limit below the adjacency size, BFS on Friendster completes in at most the time of three sequential reads of the graph file (in RAM it takes 0.34 s, so a ratio to in-RAM time is not a meaningful target)
 
 **Depends on** {{#m3-01-edge-map}}
