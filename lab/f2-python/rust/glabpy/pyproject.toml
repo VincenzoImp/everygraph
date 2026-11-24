@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "glabpy"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+[project.entry-points."networkx.backends"]
+glab = "glabpy.nx_backend.interface:BackendInterface"
+
+[project.entry-points."networkx.backend_info"]
+glab = "glabpy.nx_backend:get_info"
+
+[tool.maturin]
+python-source = "python"
+module-name = "glabpy._glab"
+features = []

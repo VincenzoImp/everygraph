@@ -1,0 +1,19 @@
+---
+title: Map file format (.egmap): tile content model on PMTiles v3
+milestone: M5 · The map
+labels: type:spec, area:map, P0, risk:medium, size:M, lab-evidence
+---
+**Why.** A published, stable map format is how other tools can read our maps and how maps outlive the engine. The lab proved a real PMTiles v3 file with a custom payload (`tile_type = 0`) works and is opened by the official Python reader; the official JS client was not tested.
+
+**Scope**
+- [ ] Tile content model for semantic zoom: at zoom z a tile holds the entities visible there — regions (typed: community / subcommunity / aggregate) with exact node count, internal edges, volume and cut; individual nodes with id, degree and tree path when zoomed in — chosen by importance with a per-tile budget
+- [ ] Edge content per the outcome of {{#m1-06-edge-rendering}}; every tile states edge weight shown vs omitted and entities omitted
+- [ ] Payload encoding: compact binary with a schema version (compare a custom layout with Arrow IPC for size and decode cost in JS)
+- [ ] Sections beyond tiles: search index ({{#m5-04-search-index}}), per-node adjacency for on-demand ego edges, legend/metadata (graph name, counts, provenance, colour assignments), optional attribute summaries
+- [ ] Where non-tile sections live: PMTiles metadata is JSON-only, so define an appended region that standard PMTiles readers ignore, and test with the official readers
+- [ ] Budgets: median tile ≤ 8 KB gzip, max ≤ 32 KB (lab: 4–6 KB median, ≤ 22 KB max)
+- [ ] Spec in `docs/spec/egmap.md` with a reference reader in TypeScript and one in Python
+
+**Acceptance**
+- The official PMTiles JS and Python clients open an `.egmap` file and fetch tiles
+- A third party could implement a reader from the spec alone (validated by the independent Python reader)

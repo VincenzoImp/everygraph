@@ -1,0 +1,12 @@
+[package]
+name = "glabcore"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+memmap2 = "0.9"
+rayon = "1.10"
+
+[[bin]]
+name = "glab-native"
+path = "src/main.rs"

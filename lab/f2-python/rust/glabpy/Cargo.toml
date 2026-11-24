@@ -1,0 +1,22 @@
+[package]
+name = "glabpy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "_glab"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+abi3 = ["pyo3/abi3-py310"]
+
+[dependencies]
+glabcore = { path = "../glabcore" }
+pyo3 = { version = "0.30", features = ["extension-module"] }
+numpy = "0.30"
+rayon = "1.10"
+arrow-array = "60"
+arrow-buffer = "60"
+arrow-data = { version = "60", features = ["ffi"] }
+arrow-schema = { version = "60", features = ["ffi"] }

@@ -1,0 +1,37 @@
+/* tslint:disable */
+/* eslint-disable */
+export const ga_alloc: (a: number) => number;
+export const ga_alloc_typed: (a: number, b: number) => number;
+export const ga_build_csr: () => number;
+export const ga_cc: () => number;
+export const ga_cc_largest: () => number;
+export const ga_entries: () => number;
+export const ga_free: (a: number, b: number) => void;
+export const ga_gen: (a: number, b: number, c: number) => number;
+export const ga_gen2: (a: number, b: number, c: number) => number;
+export const ga_load_csr: (a: number, b: number, c: number, d: number) => void;
+export const ga_mem_bytes: () => number;
+export const ga_pagerank: (a: number) => number;
+export const ga_parse_owned: (a: number, b: number) => number;
+export const ga_pr_sum: () => number;
+export const ga_reset: () => void;
+export const ga_stream_begin: (a: number) => void;
+export const ga_stream_end: () => number;
+export const ga_stream_push: (a: number, b: number) => void;
+export const ga_threads: () => number;
+export const ga_tp_begin: () => void;
+export const ga_tp_finish: () => number;
+export const ga_tp_next_pass: () => number;
+export const ga_tp_push: (a: number, b: number) => void;
+export const __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
+export const initThreadPool: (a: number) => any;
+export const wbg_rayon_poolbuilder_build: (a: number) => void;
+export const wbg_rayon_poolbuilder_mainJS: (a: number) => any;
+export const wbg_rayon_poolbuilder_numThreads: (a: number) => number;
+export const wbg_rayon_poolbuilder_receiver: (a: number) => number;
+export const wbg_rayon_start_worker: (a: number) => void;
+export const memory: WebAssembly.Memory;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_thread_destroy: (a?: number, b?: number, c?: number) => void;
+export const __wbindgen_start: (a: number) => void;

@@ -1,0 +1,20 @@
+---
+title: Leiden beyond RAM
+milestone: M4 · Communities and hierarchy
+labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
+---
+**Why.** This is the largest open technical risk (DESIGN § 5.1). Today Leiden on Friendster needs 23.6 GB of anonymous memory; the only run that fit 16 GiB was Louvain with a poor partition.
+
+**Scope.** Productionize the outcome of {{#m1-02-ooc-aggregation}}:
+- [ ] Level 0 over the streaming source with O(n) state reserved through the accountant
+- [ ] Sequential bucket aggregation; level-1 graph written to disk and processed through the same streaming source
+- [ ] Planner integration: per-level regime choice, preflight estimate of state + level-1 size (22–44% of the input entries in the lab)
+- [ ] Visiting order: block-permuted order reads the edge array in runs of 64 consecutive nodes; raise the block to ~1k nodes for streamed levels (no quality loss measured up to 1,024) and schedule blocks to follow disk order within a pass
+- [ ] Included in the no-OOM matrix ({{#m3-10-no-oom-ci}})
+
+**Acceptance**
+- Friendster under `MemoryMax=16G`: completes, Q ≥ 0.60, 0 disconnected, ≤ 2.5× the in-RAM time
+- orkut with a limit of 50% of its edge array: ≤ 3× the in-RAM time (lab: 5.6× at 100%, OOM below)
+- Deterministic mode works out of core with the same hash as in RAM
+
+**Depends on** {{#m1-02-ooc-aggregation}}, {{#m3-03-semi-external}}, {{#m4-03-parallel-aggregation}}

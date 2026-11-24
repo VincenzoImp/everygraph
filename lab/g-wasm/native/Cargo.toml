@@ -1,0 +1,8 @@
+[package]
+name = "gnative"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+graphcore = { path = "../core", features = ["parallel"] }
+rayon = "1.12"

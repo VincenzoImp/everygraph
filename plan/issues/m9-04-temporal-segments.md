@@ -1,0 +1,19 @@
+---
+title: Temporal segments and incremental appends
+milestone: M9 · After v0.1
+labels: type:feature, area:format, P1, risk:high, size:XL, lab-evidence
+---
+**Why.** v0.1 graphs are immutable snapshots. Real datasets grow daily (new blocks, new messages). The design from {{#m7-05-temporal}}: append-only, time-partitioned adjacency segments, LSM-style — "as of T" is a union of whole segments with only boundary segments filtered, and appending is writing a new segment.
+
+**Scope**
+- [ ] Segment format and manifest inside `.eg`; merge/compaction policy
+- [ ] Id dictionary growth (new keys get new dense ids; MPHF rebuilt or layered)
+- [ ] Kernels over multi-segment sources through the edge-map framework
+- [ ] Incremental maintenance where cheap (degrees, components by union-find); recompute otherwise, with the artifact cache keyed by segment set
+- [ ] Incremental community update and map stability across updates (research: dynamic Leiden variants)
+- [ ] Time-respecting path queries
+
+**Acceptance**
+- Appending 1% new edges to a 1 B-edge graph takes time proportional to the new data, and "as of" queries at 100 time points do not rescan the whole graph
+
+**Depends on** {{#m7-05-temporal}}

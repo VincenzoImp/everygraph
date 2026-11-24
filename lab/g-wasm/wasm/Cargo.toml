@@ -1,0 +1,17 @@
+[package]
+name = "gwasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+threads = ["graphcore/parallel", "dep:wasm-bindgen", "dep:wasm-bindgen-rayon", "dep:rayon"]
+
+[dependencies]
+graphcore = { path = "../core" }
+wasm-bindgen = { version = "=0.2.130", optional = true }
+wasm-bindgen-rayon = { version = "1.3", optional = true, features = ["no-bundler"] }
+rayon = { version = "1.12", optional = true }

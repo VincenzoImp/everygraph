@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>graphcore wasm bench</title>
+<input type="file" id="f">
+<script type="module">
+// Each call spawns a fresh dedicated module worker (fresh wasm instance + thread pool).
+window.runInWorker = (msg, transfer = []) => new Promise((ok) => {
+  const w = new Worker('./worker.js', { type: 'module' });
+  w.onmessage = (e) => { ok(e.data); w.terminate(); };
+  w.onerror = (e) => { ok({ ok: false, error: 'worker error: ' + e.message }); w.terminate(); };
+  w.postMessage(msg, transfer);
+});
+window.info = () => ({ isolated: crossOriginIsolated, hc: navigator.hardwareConcurrency, ua: navigator.userAgent, mem: navigator.deviceMemory });
+window.fileInput = () => document.getElementById('f').files[0];
+window.ready = true;
+</script>

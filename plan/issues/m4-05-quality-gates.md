@@ -1,0 +1,19 @@
+---
+title: Quality gates against reference implementations
+milestone: M4 · Communities and hierarchy
+labels: type:infra, area:community, P0, risk:medium, size:M, lab-evidence
+---
+**Why.** Speed without quality is the trap the old prototype fell into (lj: Q 0.666 against 0.75–0.77 from everyone else). Quality must be a CI gate, measured with one common routine.
+
+**Scope**
+- [ ] One evaluation routine (modularity at γ, number of communities, disconnected communities, size distribution) applied to our output and to every reference partition — as `b2 eval` did in the lab
+- [ ] References with pinned versions: NetworKit ParallelLeiden and PLM, igraph multilevel and Leiden, leidenalg, GVE
+- [ ] Graph families from {{#m1-10-graph-families}}: social, web, road, bipartite, weighted, directed
+- [ ] Planted-partition benchmarks (LFR, degree-corrected SBM) with NMI/ARI against ground truth, across mixing levels — modularity alone is not evidence of correct communities
+- [ ] Gates: quality mode within 1% of the best reference modularity per graph; default mode within 3%; NMI on LFR within 0.02 of leidenalg
+- [ ] Track quality drift with thread count in `fast` mode (seen on orkut: 0.6836 at 1 thread → 0.6743 at 32)
+
+**Acceptance**
+- Nightly job produces the quality table; a regression beyond the gates fails the build
+
+**Depends on** {{#m4-01-leiden-production}}, {{#m0-03-bench-harness}}

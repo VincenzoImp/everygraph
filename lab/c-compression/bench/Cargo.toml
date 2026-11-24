@@ -1,0 +1,25 @@
+[package]
+name = "glc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+webgraph = "0.7"
+dsi-bitstream = "*"
+rayon = "1"
+memmap2 = "0.9"
+
+bitpacking = "0.9"
+zstd = "0.13"
+lz4_flex = "0.11"
+anyhow = "1"
+serde_json = "1"
+libc = "0.2"
+rand = "0.8"
+lender = "*"
+sux = "0.15"
+mem_dbg = "0.4"
+[profile.release]
+debug = 1
+codegen-units = 1
+lto = "thin"

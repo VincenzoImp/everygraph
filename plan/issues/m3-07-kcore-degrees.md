@@ -1,0 +1,16 @@
+---
+title: k-core decomposition and degree statistics
+milestone: M3 · Engine and kernels
+labels: type:feature, area:algorithms, P1, risk:low, size:S, lab-evidence
+---
+**Scope**
+- [ ] Degree columns (in, out, total, weighted), exact histogram, quantiles, isolates — computed at ingest and stored
+- [ ] k-core with PKC-style peeling and task-local stacks (the lab's first level-synchronous version scaled *negatively*: 1.39 s at 8 threads, 1.93 s at 32; PKC: 0.28 s at 8)
+- [ ] Core-number column, shell sizes, k-core subgraph as a view
+- [ ] Note: k-core does not scale past 8 threads in the prototype (0.28 → 0.30 → 0.37 s at 8/16/32); investigate or cap threads
+
+**Acceptance**
+- Core numbers equal NetworkX on oracle graphs; max core 360 (lj), 253 (orkut), 304 (Friendster)
+- orkut ≤ 0.3 s; Friendster ≤ 10 s
+
+**Depends on** {{#m3-01-edge-map}}
