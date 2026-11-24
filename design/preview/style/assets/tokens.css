@@ -1,0 +1,136 @@
+/* Everygraph design tokens — the "Vernier" system.
+   This file is the single source of truth for the style preview. Pages must use these
+   variables and never hard-code a colour, size or radius.
+
+   Character: a calm measuring instrument. Warm paper and soft black, one ink-blue accent,
+   exact numbers in monospace, hairlines instead of boxes, almost no shadow, no gradients. */
+
+:root {
+  /* ---- type ---- */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* size / line-height. UI is set at 14; long-form reading at 16. */
+  --text-xs: 12px;   --lh-xs: 16px;
+  --text-sm: 13px;   --lh-sm: 18px;
+  --text-md: 14px;   --lh-md: 20px;
+  --text-lg: 16px;   --lh-lg: 24px;
+  --text-xl: 20px;   --lh-xl: 28px;
+  --text-2xl: 24px;  --lh-2xl: 32px;
+  --text-3xl: 32px;  --lh-3xl: 40px;
+  --text-4xl: 44px;  --lh-4xl: 48px;
+  --text-5xl: 60px;  --lh-5xl: 64px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --tracking-tight: -0.02em;   /* headings ≥ 24px */
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;     /* the rare overline */
+
+  /* ---- space: a 4px grid ---- */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+
+  /* ---- shape ---- */
+  --radius-xs: 2px;   /* tags, key caps */
+  --radius-sm: 3px;   /* controls: buttons, inputs */
+  --radius-md: 6px;   /* cards, popovers, dialogs */
+  --radius-round: 999px; /* only for dots, avatars, toggles */
+  --border: 1px;
+  --border-strong: 1.5px;
+
+  /* control heights */
+  --control-sm: 28px; --control-md: 32px; --control-lg: 40px;
+
+  /* ---- motion ---- */
+  --dur-fast: 120ms;   /* hover, press */
+  --dur-base: 190ms;   /* panels, fades between map levels */
+  --dur-slow: 320ms;   /* fly-to on the map */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- layout ---- */
+  --content: 720px;    /* long-form text column */
+  --page: 1200px;      /* marketing/docs page width */
+  --panel: 360px;      /* viewer inspection panel */
+  --topbar: 52px;
+}
+
+/* ================= light (default) ================= */
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f3ec;            /* page: warm paper */
+  --surface: #fdfbf7;       /* cards, panels, inputs */
+  --surface-2: #ece8dd;     /* wells, table header, code */
+  --ink: #22201c;           /* primary text */
+  --ink-2: #504b43;         /* secondary text */
+  --muted: #736c60;         /* captions, placeholders — still ≥ 4.5:1 on --bg */
+  --line: #dcd6c9;          /* hairlines */
+  --line-strong: #b0a898;   /* control borders */
+
+  --accent: #3346c7;        /* the one accent: ink blue */
+  --accent-ink: #2c3db3;    /* accent used as text/link */
+  --accent-soft: #e4e6f7;   /* selected rows, focus halo fill */
+  --on-accent: #ffffff;
+
+  --ok: #2a7a4b;    --ok-soft: #dfeee3;
+  --warn: #9a5b00;  --warn-soft: #f5e8cf;
+  --err: #c0362c;   --err-soft: #f7ddd8;
+  --info: #0b7285;  --info-soft: #d9ecef;
+
+  --focus: #3346c7;
+  --shadow-pop: 0 8px 24px rgba(34, 32, 28, 0.12), 0 0 0 1px var(--line);
+  --scrim: rgba(34, 32, 28, 0.32);
+
+  /* terminal and map keep their own surfaces in the light theme */
+  --term-bg: #22201c; --term-ink: #ece8dd; --term-dim: #9a9386;
+  --term-ok: #7cc79a; --term-warn: #e0ad55; --term-err: #f08273; --term-accent: #9aa8ff;
+  --map-bg: #f1ede4;        /* light map canvas */
+  --map-ink: #22201c;
+
+  /* categorical data palette, light surfaces (fills carry a label; see data page) */
+  --d1: #3346c7; --d2: #c2571a; --d3: #1f8a70; --d4: #a23b72; --d5: #7a6a00;
+  --d6: #5f43b2; --d7: #b8323c; --d8: #2f7fb8; --d9: #4d7a1f; --d10: #6b6258;
+  /* sequential (light → dark) and diverging */
+  --s1: #eef0fb; --s2: #cfd4f3; --s3: #a9b1ea; --s4: #7f8ade; --s5: #5665d2; --s6: #3346c7; --s7: #24328f;
+  --v1: #b8323c; --v2: #dc8a7f; --v3: #f1d3cb; --v4: #ece8dd; --v5: #c7cdf0; --v6: #7f8ade; --v7: #3346c7;
+}
+
+/* ================= dark ================= */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b1a17;
+  --surface: #24221f;
+  --surface-2: #2e2c28;
+  --ink: #ece8dd;
+  --ink-2: #bdb7aa;
+  --muted: #958e81;
+  --line: #3b3833;
+  --line-strong: #6b665c;
+
+  --accent: #93a0ff;
+  --accent-ink: #a4afff;
+  --accent-soft: #2b2d4a;
+  --on-accent: #15142b;
+
+  --ok: #74c595;    --ok-soft: #1f3327;
+  --warn: #e0ad55;  --warn-soft: #3a2f18;
+  --err: #f08273;   --err-soft: #40231f;
+  --info: #5fc4d2;  --info-soft: #18343a;
+
+  --focus: #93a0ff;
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--line);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --term-bg: #131210; --term-ink: #ece8dd; --term-dim: #958e81;
+  --term-ok: #74c595; --term-warn: #e0ad55; --term-err: #f08273; --term-accent: #93a0ff;
+  --map-bg: #131210;        /* dark map canvas: the viewer's default */
+  --map-ink: #ece8dd;
+
+  /* categorical data palette, dark surfaces (thin outlines and small marks) */
+  --d1: #93a0ff; --d2: #f0975a; --d3: #4fc9a8; --d4: #e07db0; --d5: #d6c545;
+  --d6: #b79bff; --d7: #f47a80; --d8: #6cbcf0; --d9: #9fd166; --d10: #b3aa9c;
+  --s1: #23243a; --s2: #2f3260; --s3: #414690; --s4: #5a63bd; --s5: #7884e3; --s6: #93a0ff; --s7: #c5ccff;
+  --v1: #f47a80; --v2: #b5606a; --v3: #5a3a3f; --v4: #2e2c28; --v5: #3b3f6e; --v6: #6b76cf; --v7: #93a0ff;
+}
