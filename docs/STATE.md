@@ -36,7 +36,7 @@ Nothing.
   regenerated when needed.
 - Toolchain: Rust stable 1.100 + nightly (miri, rust-src), targets wasm32-unknown-unknown and
   i686-unknown-linux-gnu, cargo-deny, cargo-nextest, cargo-fuzz, hyperfine, maturin (uv
-  tool), node 26, uv. `perf` 6.12 is installed, but `kernel.perf_event_paranoid` is 3, so unprivileged counters are denied until the owner lowers it to 2 (needed for #22).
+  tool), node 26, uv. `perf` 6.12 with `kernel.perf_event_paranoid=2` (persistent): user-space hardware counters work without privileges.
 
 ## Open questions for the owner
 
