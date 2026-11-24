@@ -16,7 +16,11 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-Nothing.
+- **#119 design previews** — branch `m0-13-design-previews`, draft PR #120. Viewer mockup,
+  identity rounds 1 and 2, API, CLI and choices are published at `design/preview/`.
+  Waiting for the owner's answers; decided so far: identity = B's system with A's mark
+  (`design/DECISIONS.md`). After the answers: align names in the mockups with `api.md`,
+  record decisions, merge. The 38 MB of screenshots can be pruned once decisions are made.
 
 ## Next actions
 
@@ -62,6 +66,8 @@ Nothing.
 
 ## Journal
 
+- **2026-11-24 (later)** — Owner delegated every decision and asked for previews of all
+  matters of taste. Added #119; produced the previews with three subagents.
 - **2026-11-24** — Project conceived as a rethink of `largegraph`. Feasibility lab (8
   experiments), design baseline, 117-issue plan published. Full review of the plan found
   ten errors; fixed, one issue added (#118), three issues moved between milestones.
