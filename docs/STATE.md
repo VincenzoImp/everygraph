@@ -9,9 +9,10 @@ Updated at the end of every session. Read this first.
   board `users/VincenzoImp/projects/7`. Source of truth: `plan/issues/*.md`.
 - **Evidence:** first feasibility lab done; results in `docs/FINDINGS.md`, raw result
   files in `lab/*/results`, prototypes in `lab/`.
-- **Owner's standing instructions:** full autonomy on this repository and this machine;
-  keep the machine clean; coordinate subagents; the items in CLAUDE.md § 8 stay with the
-  owner.
+- **Owner's standing instructions:** every decision is delegated (2026-11-24); the owner
+  helps where hands are needed (2FA, credentials, payments). Keep the machine clean;
+  coordinate subagents. Safeguards Claude keeps: CLAUDE.md § 8. The owner wants to see
+  previews of everything that is a matter of taste before it is built (`design/preview/`).
 
 ## In flight
 
@@ -40,7 +41,7 @@ Nothing.
 
 ## Open questions for the owner
 
-- None blocking. Reserved decisions are listed in CLAUDE.md § 8.
+- Answers to the design previews (`design/preview/README.md`, issue #119).
 
 ## Lessons (append, never delete)
 
