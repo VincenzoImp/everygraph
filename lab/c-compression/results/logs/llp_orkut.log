@@ -1,0 +1,1307 @@
+2026-11-24 12:03:53.760 6ms INFO [ThreadId(1)] webgraph_cli::run::llp - Using workdir: /home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q
+2026-11-24 12:03:53.760 6ms INFO [ThreadId(1)] webgraph_cli::run::llp - Loading graph bv7 in THP memory...
+2026-11-24 12:03:53.829 75ms INFO [ThreadId(1)] webgraph_cli::run::llp - Loading DCF in THP memory...
+2026-11-24 12:03:53.839 84ms INFO [ThreadId(1)] webgraph_cli - Using 6 threads
+2026-11-24 12:03:53.854 99ms INFO [ThreadId(9)] webgraph_algo::llp - Starting Layered Label Propagation...
+2026-11-24 12:03:53.854 99ms INFO [ThreadId(9)] webgraph_algo::llp - Running 6 threads; stopping criterion: (((min gain: 0.001) || (min avg gain improvement: 0.1)) || (max updates: 100))
+2026-11-24 12:03:53.854 99ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.0009765625 (1/11)...
+2026-11-24 12:03:53.875 120ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:03.886 10s131ms INFO [ThreadId(10)] webgraph_algo::llp - 2,722,408 nodes, 10s, 271941.95 nodes/s, 3.68 μs/node; 88.61% done, 1s to end [271941.95 nodes/s, 3.68 μs/node]
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 10s [3,072,441 nodes, 291272.62 nodes/s, 3.43 μs/node]
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 10s, 5.68 updates/m, 10.57 s/update
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 3005731
+2026-11-24 12:04:04.423 10s669ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:10.135 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:10.135 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 537879.31 nodes/s, 1.86 μs/node]
+2026-11-24 12:04:10.135 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 16s, 7.37 updates/m, 8.14 s/update
+2026-11-24 12:04:10.135 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.24333523123515105
+2026-11-24 12:04:10.135 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7566647687648489
+2026-11-24 12:04:10.135 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.975666476876485
+2026-11-24 12:04:10.135 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1259149
+2026-11-24 12:04:10.136 16s381ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 603769.42 nodes/s, 1.66 μs/node]
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 21s, 8.42 updates/m, 7.12 s/update
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.038657783968408695
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8411336337439312
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9597798402508781
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 417493
+2026-11-24 12:04:15.224 21s470ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 556348.82 nodes/s, 1.80 μs/node]
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 26s, 8.92 updates/m, 6.72 s/update
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.019741442345471715
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4893281425131739
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9087126545021953
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 220542
+2026-11-24 12:04:20.747 26s992ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 911527.06 nodes/s, 1.10 μs/node]
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 30s, 9.91 updates/m, 6.05 s/update
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.012656140912150417
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.35890495280586837
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8446031497827823
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 135440
+2026-11-24 12:04:24.118 30s363ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1027131.34 nodes/s, 973.59 ns/node]
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 33s, 10.83 updates/m, 5.54 s/update
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.010431329667719877
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.17578907029192678
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.762182056811975
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 88742
+2026-11-24 12:04:27.109 33s354ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1235556.92 nodes/s, 809.35 ns/node]
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 35s, 11.75 updates/m, 5.11 s/update
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.005658318933525743
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4575649400636227
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7079385508183373
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 66631
+2026-11-24 12:04:29.596 35s841ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1430076.95 nodes/s, 699.26 ns/node]
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 37s, 12.67 updates/m, 4.74 s/update
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.00471281208557819
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.16710031001352557
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6246485818196899
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 59946
+2026-11-24 12:04:31.744 37s990ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2021798.05 nodes/s, 494.61 ns/node]
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 39s, 13.70 updates/m, 4.38 s/update
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0032577413525152394
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.30874787847273893
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5555233696669638
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 41779
+2026-11-24 12:04:33.264 39s509ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1472829.01 nodes/s, 678.97 ns/node]
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 41s, 14.46 updates/m, 4.15 s/update
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0032275986986838316
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.009252623388328609
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.45644863200579655
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 38937
+2026-11-24 12:04:35.350 41s595ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 10 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2033118.88 nodes/s, 491.86 ns/node]
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - 11 updates, 43s, 15.35 updates/m, 3.91 s/update
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.002320523958001798
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.28103702639734174
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.3845523346455307
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 29407
+2026-11-24 12:04:36.861 43s107ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 11 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1440719.84 nodes/s, 694.10 ns/node]
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - 12 updates, 45s, 15.95 updates/m, 3.76 s/update
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0021698811575156067
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.06491758034504826
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.31537761580355056
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 29724
+2026-11-24 12:04:38.994 45s239ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 12 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1495229.81 nodes/s, 668.79 ns/node]
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - 13 updates, 47s, 16.53 updates/m, 3.63 s/update
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0017619249783562396
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.18800853574232346
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.25006510600338977
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 24567
+2026-11-24 12:04:41.049 47s294ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 13 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:42.700 48s945ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:42.700 48s945ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1860882.54 nodes/s, 537.38 ns/node]
+2026-11-24 12:04:42.700 48s946ms INFO [ThreadId(9)] webgraph_algo::llp - 14 updates, 48s, 17.20 updates/m, 3.49 s/update
+2026-11-24 12:04:42.700 48s946ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.001723129921380946
+2026-11-24 12:04:42.700 48s946ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.02201856347566328
+2026-11-24 12:04:42.700 48s946ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.20333414809963873
+2026-11-24 12:04:42.700 48s946ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 22898
+2026-11-24 12:04:42.700 48s946ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 14 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2022007.29 nodes/s, 494.56 ns/node]
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - 15 updates, 50s, 17.87 updates/m, 3.36 s/update
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0014188837429961862
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.1765660120050215
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.18510025401955404
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 17920
+2026-11-24 12:04:44.220 50s465ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 15 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:45.483 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:45.483 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2431353.29 nodes/s, 411.29 ns/node]
+2026-11-24 12:04:45.483 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - 16 updates, 51s, 18.59 updates/m, 3.23 s/update
+2026-11-24 12:04:45.484 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0011496188230748433
+2026-11-24 12:04:45.484 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.18977236242960224
+2026-11-24 12:04:45.484 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.18649858323332164
+2026-11-24 12:04:45.484 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 17174
+2026-11-24 12:04:45.484 51s729ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 16 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2963070.51 nodes/s, 337.49 ns/node]
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - 17 updates, 52s, 19.37 updates/m, 3.10 s/update
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0012143085642244754
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.05627060017737773
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.13511502920922158
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 16039
+2026-11-24 12:04:46.520 52s766ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 17 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 762ms [3,072,441 nodes, 4030478.97 nodes/s, 248.11 ns/node]
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - 18 updates, 53s, 20.21 updates/m, 2.97 s/update
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0011161267546417398
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.0808540864120809
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.1264904068490771
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 13260
+2026-11-24 12:04:47.283 53s528ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 18 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 813ms [3,072,441 nodes, 3775518.27 nodes/s, 264.86 ns/node]
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - 19 updates, 54s, 21.02 updates/m, 2.85 s/update
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.001034217781709685
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.07338680180491351
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.1029542991822946
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 12796
+2026-11-24 12:04:48.097 54s342ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 19 (for gamma=0.0009765625, 1/11)...
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 764ms [3,072,441 nodes, 4018359.62 nodes/s, 248.86 ns/node]
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - 20 updates, 55s, 21.82 updates/m, 2.75 s/update
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0008274451013678954
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.19993146897935735
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.12202218374139746
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 12095
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:48.861 55s107ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 55s [20 updates, 21.82 updates/m, 2.75 s/update]
+2026-11-24 12:04:48.911 55s156ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:04:50.281 56s527ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:50.281 56s527ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2241506.38 nodes/s, 446.13 ns/node]
+2026-11-24 12:04:50.281 56s527ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1725336929
+2026-11-24 12:04:50.301 56s547ms INFO [ThreadId(9)] webgraph_algo::llp - 1 gamma, 56s, 1.06 gammas/m, 56.45 s/gamma; 9.09% done, 4m 42s to end; res/vir/avail/free/total mem 524.52MB/1.77GB/47.62GB/1.80GB/66.51GB
+2026-11-24 12:04:50.301 56s547ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.001953125 (2/11)...
+2026-11-24 12:04:50.305 56s550ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 8s [3,072,441 nodes, 365422.06 nodes/s, 2.74 μs/node]
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 8s, 7.13 updates/m, 8.41 s/update
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 3003396
+2026-11-24 12:04:58.713 1m4s958ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 513996.09 nodes/s, 1.95 μs/node]
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 14s, 8.34 updates/m, 7.19 s/update
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.24426007411156295
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7557399258884371
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9755739925888436
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1248756
+2026-11-24 12:05:04.690 1m10s936ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 724837.77 nodes/s, 1.38 μs/node]
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 18s, 9.66 updates/m, 6.21 s/update
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.034537093281526474
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8586052452200925
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9614345171108528
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 405379
+2026-11-24 12:05:08.929 1m15s175ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 673993.27 nodes/s, 1.48 μs/node]
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 23s, 10.35 updates/m, 5.80 s/update
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.017100685063317703
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5048603273030889
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9119205498411619
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 206289
+2026-11-24 12:05:13.488 1m19s733ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 889224.17 nodes/s, 1.12 μs/node]
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 26s, 11.26 updates/m, 5.33 s/update
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.010511597748794416
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.3853113071275367
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8504516805539156
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 123469
+2026-11-24 12:05:16.943 1m23s189ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1156978.48 nodes/s, 864.32 ns/node]
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 29s, 12.29 updates/m, 4.88 s/update
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.007136191986301975
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.3211125314303022
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7825629336969457
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 78392
+2026-11-24 12:05:19.599 1m25s844ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1098699.68 nodes/s, 910.17 ns/node]
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 32s, 13.09 updates/m, 4.58 s/update
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.005146716342490171
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.27878673214378646
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7104416069113244
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 58295
+2026-11-24 12:05:22.395 1m28s641ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1094252.16 nodes/s, 913.87 ns/node]
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 34s, 13.75 updates/m, 4.36 s/update
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.004153787892437233
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.19292465019988297
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6297340719313127
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 52524
+2026-11-24 12:05:25.203 1m31s449ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1726802.72 nodes/s, 579.10 ns/node]
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 36s, 14.72 updates/m, 4.08 s/update
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.003441086643546455
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.1715786331286649
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5468919352441792
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 36508
+2026-11-24 12:05:26.983 1m33s228ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1858751.06 nodes/s, 538.00 ns/node]
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 38s, 15.65 updates/m, 3.83 s/update
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0029658651293901646
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.13810216463091363
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.4607021517072705
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 34243
+2026-11-24 12:05:28.636 1m34s881ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 10 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1829703.51 nodes/s, 546.54 ns/node]
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - 11 updates, 40s, 16.49 updates/m, 3.64 s/update
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.002762783145132431
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.06847310157339864
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.36754946186461035
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 26773
+2026-11-24 12:05:30.315 1m36s560ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 11 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:32.777 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:32.778 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1247673.96 nodes/s, 801.49 ns/node]
+2026-11-24 12:05:32.778 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - 12 updates, 42s, 16.95 updates/m, 3.54 s/update
+2026-11-24 12:05:32.778 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0033826873890209917
+2026-11-24 12:05:32.778 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.22437672858281701
+2026-11-24 12:05:32.778 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.26953779641748493
+2026-11-24 12:05:32.778 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 27821
+2026-11-24 12:05:32.778 1m39s23ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 12 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1524574.86 nodes/s, 655.92 ns/node]
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - 13 updates, 44s, 17.53 updates/m, 3.42 s/update
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0023973544376043603
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.29128702658562955
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.2128059745540387
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 21173
+2026-11-24 12:05:34.793 1m41s38ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 13 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2597843.39 nodes/s, 384.93 ns/node]
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - 14 updates, 45s, 18.39 updates/m, 3.26 s/update
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.002276711396688454
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.05032340609445426
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.1673522824331752
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 19537
+2026-11-24 12:05:35.976 1m42s221ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 14 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:36.859 1m43s104ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:36.859 1m43s104ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 883ms [3,072,441 nodes, 3477610.15 nodes/s, 287.55 ns/node]
+2026-11-24 12:05:36.859 1m43s104ms INFO [ThreadId(9)] webgraph_algo::llp - 15 updates, 46s, 19.33 updates/m, 3.10 s/update
+2026-11-24 12:05:36.859 1m43s104ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0016439198369106029
+2026-11-24 12:05:36.859 1m43s105ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.27794105159673105
+2026-11-24 12:05:36.859 1m43s105ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.15661525688009464
+2026-11-24 12:05:36.859 1m43s105ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 14540
+2026-11-24 12:05:36.859 1m43s105ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 15 (for gamma=0.001953125, 2/11)...
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 871ms [3,072,441 nodes, 3524711.46 nodes/s, 283.71 ns/node]
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - 16 updates, 47s, 20.24 updates/m, 2.96 s/update
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0007122305884735853
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5667485892669372
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.18117886266375818
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 12498
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:37.731 1m43s976ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 47s [16 updates, 20.24 updates/m, 2.96 s/update]
+2026-11-24 12:05:37.780 1m44s25ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:05:39.050 1m45s295ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:39.050 1m45s295ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2418697.97 nodes/s, 413.45 ns/node]
+2026-11-24 12:05:39.050 1m45s295ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1720197782
+2026-11-24 12:05:39.064 1m45s309ms INFO [ThreadId(9)] webgraph_algo::llp - 2 gammas, 1m 45s, 1.14 gammas/m, 52.61 s/gamma; 18.18% done, 5m 15s to end; res/vir/avail/free/total mem 524.65MB/1.77GB/46.41GB/4.97GB/66.51GB
+2026-11-24 12:05:39.064 1m45s309ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.00390625 (3/11)...
+2026-11-24 12:05:39.066 1m45s311ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 7s [3,072,441 nodes, 422820.73 nodes/s, 2.37 μs/node]
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 7s, 8.25 updates/m, 7.27 s/update
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2998105
+2026-11-24 12:05:46.332 1m52s578ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 628546.09 nodes/s, 1.59 μs/node]
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 12s, 9.87 updates/m, 6.08 s/update
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.2383636156769014
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7616363843230987
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9761636384323099
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1240012
+2026-11-24 12:05:51.221 1m57s466ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 877749.65 nodes/s, 1.14 μs/node]
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 15s, 11.50 updates/m, 5.22 s/update
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.03325093099219477
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8605033285060336
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9622139712829133
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 405806
+2026-11-24 12:05:54.721 2m966ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 844502.15 nodes/s, 1.18 μs/node]
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 19s, 12.44 updates/m, 4.82 s/update
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.015601648188941943
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5307906358289869
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.915293034865812
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 203160
+2026-11-24 12:05:58.359 2m4s605ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 960647.00 nodes/s, 1.04 μs/node]
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 22s, 13.34 updates/m, 4.50 s/update
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.008864502315030503
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.43182270182752613
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8584753050485645
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 119453
+2026-11-24 12:06:01.558 2m7s803ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1194656.83 nodes/s, 837.06 ns/node]
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 25s, 14.36 updates/m, 4.18 s/update
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0051426726730089125
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.41985770997102884
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8004610760456673
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 73867
+2026-11-24 12:06:04.129 2m10s375ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1461432.72 nodes/s, 684.26 ns/node]
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 27s, 15.46 updates/m, 3.88 s/update
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0036773088749776518
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.28494207024338863
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7289552830700063
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 53047
+2026-11-24 12:06:06.232 2m12s477ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1656846.96 nodes/s, 603.56 ns/node]
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 29s, 16.54 updates/m, 3.63 s/update
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.003078874234552585
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.16273711585587264
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6452289946555936
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 46646
+2026-11-24 12:06:08.086 2m14s332ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2095864.50 nodes/s, 477.13 ns/node]
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 30s, 17.71 updates/m, 3.39 s/update
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.002212687703103557
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.2813322225793677
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5733622169135303
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 30905
+2026-11-24 12:06:09.552 2m15s798ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1812372.38 nodes/s, 551.76 ns/node]
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 32s, 18.64 updates/m, 3.22 s/update
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0018736086813756548
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.15324305425130869
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.48868652233866117
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 27650
+2026-11-24 12:06:11.248 2m17s493ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 10 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2109766.89 nodes/s, 473.99 ns/node]
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - 11 updates, 33s, 19.62 updates/m, 3.06 s/update
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0012647320311571378
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.32497535705879793
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.42118405804454107
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 20215
+2026-11-24 12:06:12.704 2m18s949ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 11 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2095842.84 nodes/s, 477.14 ns/node]
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - 12 updates, 35s, 20.51 updates/m, 2.93 s/update
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.001304178276734212
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.03118940977638061
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.341901478634593
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 18977
+2026-11-24 12:06:14.170 2m20s415ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 12 (for gamma=0.00390625, 3/11)...
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2277103.81 nodes/s, 439.15 ns/node]
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - 13 updates, 36s, 21.40 updates/m, 2.80 s/update
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0009699399809619261
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.2562826737225303
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.2814794131562427
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 14452
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:15.519 2m21s765ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 36s [13 updates, 21.40 updates/m, 2.80 s/update]
+2026-11-24 12:06:15.578 2m21s824ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:06:16.941 2m23s186ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:16.941 2m23s186ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2255278.68 nodes/s, 443.40 ns/node]
+2026-11-24 12:06:16.941 2m23s186ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1723637275
+2026-11-24 12:06:16.954 2m23s199ms INFO [ThreadId(9)] webgraph_algo::llp - 3 gammas, 2m 23s, 1.26 gammas/m, 47.70 s/gamma; 27.27% done, 4m 46s to end; res/vir/avail/free/total mem 524.44MB/1.77GB/42.59GB/463.14MB/66.51GB
+2026-11-24 12:06:16.954 2m23s199ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.0078125 (4/11)...
+2026-11-24 12:06:16.957 2m23s202ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 8s [3,072,441 nodes, 359037.20 nodes/s, 2.79 μs/node]
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 8s, 7.01 updates/m, 8.56 s/update
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2990867
+2026-11-24 12:06:25.514 2m31s760ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 520581.42 nodes/s, 1.92 μs/node]
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 14s, 8.30 updates/m, 7.23 s/update
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.22815269725249213
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7718473027475079
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9771847302747508
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1222365
+2026-11-24 12:06:31.416 2m37s662ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 732121.95 nodes/s, 1.37 μs/node]
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 18s, 9.65 updates/m, 6.22 s/update
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.030057213967532113
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8682583448300487
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9640105647577556
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 405283
+2026-11-24 12:06:35.613 2m41s858ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 809086.45 nodes/s, 1.24 μs/node]
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 22s, 10.69 updates/m, 5.61 s/update
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.012889756961453887
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5711592905657378
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9211264938143294
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 200215
+2026-11-24 12:06:39.410 2m45s656ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 683401.37 nodes/s, 1.46 μs/node]
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 26s, 11.13 updates/m, 5.39 s/update
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.006909922188147219
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4639214526068286
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8675186390750124
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 115742
+2026-11-24 12:06:43.906 2m50s152ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 853111.51 nodes/s, 1.17 μs/node]
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 30s, 11.78 updates/m, 5.09 s/update
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0040618285543388335
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4121744871011427
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8087360877851266
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 70491
+2026-11-24 12:06:47.508 2m53s753ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:49.598 2m55s843ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:49.598 2m55s843ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1469912.88 nodes/s, 680.31 ns/node]
+2026-11-24 12:06:49.598 2m55s844ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 32s, 12.87 updates/m, 4.66 s/update
+2026-11-24 12:06:49.598 2m55s844ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.002819718364074567
+2026-11-24 12:06:49.598 2m55s844ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.305800743100653
+2026-11-24 12:06:49.598 2m55s844ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7393161620951918
+2026-11-24 12:06:49.598 2m55s844ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 49775
+2026-11-24 12:06:49.598 2m55s844ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1542898.85 nodes/s, 648.13 ns/node]
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 34s, 13.86 updates/m, 4.33 s/update
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0024166439175081957
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.14294847730250557
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6536110098254424
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 41854
+2026-11-24 12:06:51.590 2m57s835ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1592822.42 nodes/s, 627.82 ns/node]
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 36s, 14.77 updates/m, 4.06 s/update
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.00130253436215441
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4610151902323059
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.599712528848673
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 25941
+2026-11-24 12:06:53.519 2m59s764ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.0078125, 4/11)...
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1681142.44 nodes/s, 594.83 ns/node]
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 38s, 15.63 updates/m, 3.84 s/update
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0009024404385945407
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.30716573411399933
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5304291022600729
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 21732
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:55.346 3m1s592ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 38s [10 updates, 15.63 updates/m, 3.84 s/update]
+2026-11-24 12:06:55.400 3m1s645ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:06:56.960 3m3s205ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:06:56.960 3m3s205ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1969659.59 nodes/s, 507.70 ns/node]
+2026-11-24 12:06:56.960 3m3s205ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1731079224
+2026-11-24 12:06:56.984 3m3s229ms INFO [ThreadId(9)] webgraph_algo::llp - 4 gammas, 3m 3s, 1.31 gammas/m, 45.78 s/gamma; 36.36% done, 4m 16s to end; res/vir/avail/free/total mem 524.89MB/1.77GB/44.54GB/3.03GB/66.51GB
+2026-11-24 12:06:56.984 3m3s229ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.015625 (5/11)...
+2026-11-24 12:06:56.988 3m3s233ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.015625, 5/11)...
+2026-11-24 12:07:07.498 3m13s744ms INFO [ThreadId(8)] webgraph_algo::llp - 2,128,381 nodes, 10s, 202503.22 nodes/s, 4.94 μs/node; 69.27% done, 4s to end [202503.22 nodes/s, 4.94 μs/node]
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 12s [3,072,441 nodes, 245378.07 nodes/s, 4.08 μs/node]
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 12s, 4.79 updates/m, 12.53 s/update
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2981385
+2026-11-24 12:07:09.509 3m15s755ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.015625, 5/11)...
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 599587.39 nodes/s, 1.67 μs/node]
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 17s, 6.80 updates/m, 8.82 s/update
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.2234790214794692
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7765209785205308
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.977652097852053
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1204250
+2026-11-24 12:07:14.634 3m20s879ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.015625, 5/11)...
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 651183.84 nodes/s, 1.54 μs/node]
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 22s, 8.05 updates/m, 7.46 s/update
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.027962932736177296
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8748744622602251
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9651395440780755
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 405471
+2026-11-24 12:07:19.352 3m25s597ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.015625, 5/11)...
+2026-11-24 12:07:32.060 3m38s306ms INFO [ThreadId(10)] webgraph_algo::llp - 1,803,035 nodes, 12s, 141875.97 nodes/s, 7.05 μs/node; 58.68% done, 8s to end [141875.97 nodes/s, 7.05 μs/node]
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 21s [3,072,441 nodes, 145025.17 nodes/s, 6.90 μs/node]
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 43s, 5.51 updates/m, 10.89 s/update
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.011744119397736563
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5800111701966617
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9231406610977417
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 200360
+2026-11-24 12:07:40.538 3m46s783ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.015625, 5/11)...
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 9s [3,072,441 nodes, 317060.06 nodes/s, 3.15 μs/node]
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 53s, 5.63 updates/m, 10.65 s/update
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.006099426973185944
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4806399043966223
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8712046515374039
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 115551
+2026-11-24 12:07:50.228 3m56s473ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.015625, 5/11)...
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 623392.21 nodes/s, 1.60 μs/node]
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 58s, 6.19 updates/m, 9.70 s/update
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0032566973225558035
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.46606503580209
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.817811155117613
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 69468
+2026-11-24 12:07:55.157 4m1s402ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.015625, 5/11)...
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1283271.85 nodes/s, 779.26 ns/node]
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 1m 0s, 6.93 updates/m, 8.65 s/update
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0021575360004783698
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.3375079760911983
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7515619527267329
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 49776
+2026-11-24 12:07:57.551 4m3s796ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.015625, 5/11)...
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 997855.52 nodes/s, 1.00 μs/node]
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 1m 3s, 7.54 updates/m, 7.96 s/update
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0016576820775139015
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.23167813786358163
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.674729766513091
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 43613
+2026-11-24 12:08:00.630 4m6s875ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.015625, 5/11)...
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1147425.01 nodes/s, 871.52 ns/node]
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 1m 6s, 8.14 updates/m, 7.37 s/update
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0011547516274350595
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.30339379118649146
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6050691456317401
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 28557
+2026-11-24 12:08:03.308 4m9s553ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.015625, 5/11)...
+2026-11-24 12:08:05.862 4m12s107ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1202866.30 nodes/s, 831.35 ns/node]
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 1m 8s, 8.71 updates/m, 6.89 s/update
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0009488968203983037
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.17826760503815142
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5228959061355553
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 24715
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:05.862 4m12s108ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1m 8s [10 updates, 8.71 updates/m, 6.89 s/update]
+2026-11-24 12:08:05.986 4m12s232ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:08:07.398 4m13s643ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:07.398 4m13s643ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2176991.53 nodes/s, 459.35 ns/node]
+2026-11-24 12:08:07.398 4m13s643ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1743408015
+2026-11-24 12:08:07.413 4m13s658ms INFO [ThreadId(9)] webgraph_algo::llp - 5 gammas, 4m 13s, 1.18 gammas/m, 50.71 s/gamma; 45.45% done, 4m 13s to end; res/vir/avail/free/total mem 523.50MB/1.77GB/48.41GB/7.37GB/66.51GB
+2026-11-24 12:08:07.413 4m13s658ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.03125 (6/11)...
+2026-11-24 12:08:07.415 4m13s661ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 9s [3,072,441 nodes, 320480.89 nodes/s, 3.12 μs/node]
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 9s, 6.26 updates/m, 9.59 s/update
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2968855
+2026-11-24 12:08:17.002 4m23s248ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 551368.51 nodes/s, 1.81 μs/node]
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 15s, 7.91 updates/m, 7.58 s/update
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.21734966237482084
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7826503376251792
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9782650337625179
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1186540
+2026-11-24 12:08:22.575 4m28s820ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 723162.14 nodes/s, 1.38 μs/node]
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 19s, 9.27 updates/m, 6.47 s/update
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.027796544463695987
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8721113980119248
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9654761735637104
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 417168
+2026-11-24 12:08:26.823 4m33s69ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 672592.15 nodes/s, 1.49 μs/node]
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 23s, 10.01 updates/m, 5.99 s/update
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.011534468169839779
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5850394934915558
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9239801229128659
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 213823
+2026-11-24 12:08:31.391 4m37s637ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 881099.68 nodes/s, 1.13 μs/node]
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 27s, 10.92 updates/m, 5.49 s/update
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.005390967430024603
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5326210666460675
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8772422295774728
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 124944
+2026-11-24 12:08:34.879 4m41s124ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1156675.79 nodes/s, 864.55 ns/node]
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 30s, 11.95 updates/m, 5.02 s/update
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0028569166486262123
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.47005492321937953
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8242477218994108
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 76397
+2026-11-24 12:08:37.535 4m43s780ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:39.969 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:39.970 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1261997.24 nodes/s, 792.39 ns/node]
+2026-11-24 12:08:39.970 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 32s, 12.90 updates/m, 4.65 s/update
+2026-11-24 12:08:39.970 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0020016792076433146
+2026-11-24 12:08:39.970 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.29935680531462144
+2026-11-24 12:08:39.970 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7541834024308729
+2026-11-24 12:08:39.970 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 55830
+2026-11-24 12:08:39.970 4m46s215ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1371386.12 nodes/s, 729.19 ns/node]
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 34s, 13.79 updates/m, 4.35 s/update
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0016223186095791569
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.18952117632814874
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6731355200636877
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 49431
+2026-11-24 12:08:42.210 4m48s455ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.03125, 6/11)...
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1963219.88 nodes/s, 509.37 ns/node]
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 36s, 14.85 updates/m, 4.04 s/update
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0009990638933008364
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.3841752862836222
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.61155304869205
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 32959
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:43.775 4m50s20ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 36s [9 updates, 14.85 updates/m, 4.04 s/update]
+2026-11-24 12:08:45.909 4m52s155ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:08:47.146 4m53s391ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:47.146 4m53s391ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2484587.15 nodes/s, 402.48 ns/node]
+2026-11-24 12:08:47.146 4m53s391ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1765804204
+2026-11-24 12:08:47.158 4m53s404ms INFO [ThreadId(9)] webgraph_algo::llp - 6 gammas, 4m 53s, 1.23 gammas/m, 48.88 s/gamma; 54.55% done, 3m 29s to end; res/vir/avail/free/total mem 523.36MB/1.77GB/46.55GB/523.50MB/66.51GB
+2026-11-24 12:08:47.158 4m53s404ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.0625 (7/11)...
+2026-11-24 12:08:47.160 4m53s405ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.0625, 7/11)...
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 565296.03 nodes/s, 1.77 μs/node]
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 5s, 11.04 updates/m, 5.44 s/update
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2952796
+2026-11-24 12:08:52.595 4m58s841ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 9s [3,072,441 nodes, 312688.00 nodes/s, 3.20 μs/node]
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 15s, 7.86 updates/m, 7.63 s/update
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.20956436945167226
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7904356305483278
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9790435630548326
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1178451
+2026-11-24 12:09:02.421 5m8s667ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 750535.00 nodes/s, 1.33 μs/node]
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 19s, 9.30 updates/m, 6.45 s/update
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.027213676465617728
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.870141682305906
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9660577312854233
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 438578
+2026-11-24 12:09:06.515 5m12s760ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:10.054 5m16s299ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:10.054 5m16s300ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 868124.36 nodes/s, 1.15 μs/node]
+2026-11-24 12:09:10.054 5m16s300ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 22s, 10.48 updates/m, 5.72 s/update
+2026-11-24 12:09:10.054 5m16s300ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.010172493237847835
+2026-11-24 12:09:10.054 5m16s300ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.6261992292478397
+2026-11-24 12:09:10.054 5m16s300ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9286776542102073
+2026-11-24 12:09:10.054 5m16s300ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 233393
+2026-11-24 12:09:10.054 5m16s300ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 853792.09 nodes/s, 1.17 μs/node]
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 26s, 11.32 updates/m, 5.30 s/update
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.004817488363083281
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5264200967802753
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8813196638882349
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 141519
+2026-11-24 12:09:13.653 5m19s898ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 874594.91 nodes/s, 1.14 μs/node]
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 30s, 12.00 updates/m, 5.00 s/update
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0025538799064757298
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4698731550560094
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8283069793938358
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 89969
+2026-11-24 12:09:17.166 5m23s411ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 660886.14 nodes/s, 1.51 μs/node]
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 34s, 12.12 updates/m, 4.95 s/update
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0017410009382809069
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.31829177485348914
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7601361568791848
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 66962
+2026-11-24 12:09:21.815 5m28s60ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 558887.14 nodes/s, 1.79 μs/node]
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 40s, 11.95 updates/m, 5.02 s/update
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.001320176659252225
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.24171398749745115
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6843075556289299
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 60752
+2026-11-24 12:09:27.312 5m33s558ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.0625, 7/11)...
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 996291.47 nodes/s, 1.00 μs/node]
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 43s, 12.49 updates/m, 4.80 s/update
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0007726341746893178
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.41474940548717654
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6257824961776476
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 41570
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:30.396 5m36s642ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 43s [9 updates, 12.49 updates/m, 4.80 s/update]
+2026-11-24 12:09:30.469 5m36s714ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:09:32.081 5m38s327ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:32.081 5m38s327ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1905179.94 nodes/s, 524.88 ns/node]
+2026-11-24 12:09:32.081 5m38s327ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1804577588
+2026-11-24 12:09:32.102 5m38s347ms INFO [ThreadId(9)] webgraph_algo::llp - 7 gammas, 5m 38s, 1.24 gammas/m, 48.32 s/gamma; 63.64% done, 2m 49s to end; res/vir/avail/free/total mem 516.79MB/1.77GB/45.90GB/578.87MB/66.51GB
+2026-11-24 12:09:32.102 5m38s347ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.125 (8/11)...
+2026-11-24 12:09:32.105 5m38s351ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.125, 8/11)...
+2026-11-24 12:09:42.796 5m49s42ms INFO [ThreadId(12)] webgraph_algo::llp - 802,089 nodes, 10s, 75025.04 nodes/s, 13.33 μs/node; 26.11% done, 30s to end [75025.04 nodes/s, 13.33 μs/node]
+2026-11-24 12:09:52.813 5m59s58ms INFO [ThreadId(8)] webgraph_algo::llp - 3,027,471 nodes, 20s, 146203.40 nodes/s, 6.84 μs/node; 98.54% done, 307ms to end [222172.33 nodes/s, 4.50 μs/node]
+2026-11-24 12:09:53.162 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:09:53.162 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 21s [3,072,441 nodes, 145910.87 nodes/s, 6.85 μs/node]
+2026-11-24 12:09:53.162 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 21s, 2.85 updates/m, 21.06 s/update
+2026-11-24 12:09:53.162 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:09:53.162 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:09:53.162 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:09:53.162 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2931498
+2026-11-24 12:09:53.163 5m59s408ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 9s [3,072,441 nodes, 324105.14 nodes/s, 3.09 μs/node]
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 30s, 3.93 updates/m, 15.27 s/update
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.2090166433710924
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7909833566289076
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9790983356628908
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1190358
+2026-11-24 12:10:02.642 6m8s888ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:12.687 6m18s932ms INFO [ThreadId(12)] webgraph_algo::llp - 2,421,866 nodes, 10s, 241107.97 nodes/s, 4.15 μs/node; 78.83% done, 2s to end [241107.97 nodes/s, 4.15 μs/node]
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 11s [3,072,441 nodes, 263270.53 nodes/s, 3.80 μs/node]
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 42s, 4.26 updates/m, 14.07 s/update
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.03032662624069857
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8549080793204775
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9645891435949385
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 481812
+2026-11-24 12:10:14.313 6m20s558ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 8s [3,072,441 nodes, 381834.40 nodes/s, 2.62 μs/node]
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 50s, 4.78 updates/m, 12.56 s/update
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.011706217117177422
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.6139954037660943
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9259886839715479
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 274530
+2026-11-24 12:10:22.359 6m28s605ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:28.348 6m34s593ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:28.348 6m34s593ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 513035.67 nodes/s, 1.95 μs/node]
+2026-11-24 12:10:28.348 6m34s594ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 56s, 5.33 updates/m, 11.25 s/update
+2026-11-24 12:10:28.348 6m34s594ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.005685208025089389
+2026-11-24 12:10:28.348 6m34s594ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5143428514795739
+2026-11-24 12:10:28.348 6m34s594ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8774229691195053
+2026-11-24 12:10:28.348 6m34s594ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 176342
+2026-11-24 12:10:28.348 6m34s594ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 551741.43 nodes/s, 1.81 μs/node]
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 1m 1s, 5.82 updates/m, 10.30 s/update
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.003076539946640955
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.4588518251110816
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8233081516306134
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 119347
+2026-11-24 12:10:33.917 6m40s162ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 624076.17 nodes/s, 1.60 μs/node]
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 1m 6s, 6.29 updates/m, 9.53 s/update
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0020343735085749017
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.33874627215678355
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7571827788462919
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 92558
+2026-11-24 12:10:38.840 6m45s85ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 680180.62 nodes/s, 1.47 μs/node]
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 1m 11s, 6.74 updates/m, 8.91 s/update
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0016168915263772518
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.20521402802285807
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6777041816485777
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 86683
+2026-11-24 12:10:43.357 6m49s603ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1068557.71 nodes/s, 935.84 ns/node]
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 1m 14s, 7.28 updates/m, 8.24 s/update
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0010183302938908641
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.37019257180937926
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6147234388295157
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 63566
+2026-11-24 12:10:46.233 6m52s478ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.125, 8/11)...
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 1018142.55 nodes/s, 982.18 ns/node]
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 1m 17s, 7.78 updates/m, 7.71 s/update
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0008444964527739247
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.1707047724690094
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5317939160764167
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 62063
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:49.250 6m55s496ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1m 17s [10 updates, 7.78 updates/m, 7.71 s/update]
+2026-11-24 12:10:49.315 6m55s560ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:10:50.864 6m57s109ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:50.864 6m57s109ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 1983593.29 nodes/s, 504.14 ns/node]
+2026-11-24 12:10:50.864 6m57s109ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1854855292
+2026-11-24 12:10:50.881 6m57s126ms INFO [ThreadId(9)] webgraph_algo::llp - 8 gammas, 6m 57s, 1.15 gammas/m, 52.13 s/gamma; 72.73% done, 2m 19s to end; res/vir/avail/free/total mem 517.03MB/1.77GB/46.52GB/6.27GB/66.51GB
+2026-11-24 12:10:50.881 6m57s126ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.25 (9/11)...
+2026-11-24 12:10:50.884 6m57s129ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.25, 9/11)...
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 8s [3,072,441 nodes, 383755.83 nodes/s, 2.61 μs/node]
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 8s, 7.49 updates/m, 8.01 s/update
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2905660
+2026-11-24 12:10:58.890 7m5s135ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 588896.41 nodes/s, 1.70 μs/node]
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 13s, 9.07 updates/m, 6.61 s/update
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.21976743254852113
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7802325674514788
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9780232567451479
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1233063
+2026-11-24 12:11:04.107 7m10s353ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 684677.58 nodes/s, 1.46 μs/node]
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 17s, 10.16 updates/m, 5.90 s/update
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.03786632242599574
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.8276982081153654
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9607930775566844
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 556343
+2026-11-24 12:11:08.595 7m14s840ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 701990.68 nodes/s, 1.42 μs/node]
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 22s, 10.86 updates/m, 5.52 s/update
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.015714813035791184
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5849923618406958
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.919292313740754
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 344993
+2026-11-24 12:11:12.972 7m19s217ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 796025.47 nodes/s, 1.26 μs/node]
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 25s, 11.56 updates/m, 5.19 s/update
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.008226190537761842
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.47653271349609266
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8669455850903633
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 238388
+2026-11-24 12:11:16.831 7m23s77ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:20.256 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:20.257 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 897031.67 nodes/s, 1.11 μs/node]
+2026-11-24 12:11:20.257 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 29s, 12.25 updates/m, 4.90 s/update
+2026-11-24 12:11:20.257 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.004873231097783767
+2026-11-24 12:11:20.257 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.40759564522442226
+2026-11-24 12:11:20.257 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8077051496128055
+2026-11-24 12:11:20.257 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 172365
+2026-11-24 12:11:20.257 7m26s502ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 902505.98 nodes/s, 1.11 μs/node]
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 32s, 12.81 updates/m, 4.68 s/update
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0035493479266665226
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.2716643525728373
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7348715848700892
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 143211
+2026-11-24 12:11:23.661 7m29s906ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 871619.27 nodes/s, 1.15 μs/node]
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 36s, 13.22 updates/m, 4.54 s/update
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0032766260719309906
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.07683717132562627
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6425553020026518
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 140815
+2026-11-24 12:11:27.186 7m33s431ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 975703.84 nodes/s, 1.02 μs/node]
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 39s, 13.69 updates/m, 4.38 s/update
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0023026410502791916
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.29725241766077
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5722805437687288
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 109582
+2026-11-24 12:11:30.335 7m36s580ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:33.413 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:33.414 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 998034.95 nodes/s, 1.00 μs/node]
+2026-11-24 12:11:33.414 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 42s, 14.11 updates/m, 4.25 s/update
+2026-11-24 12:11:33.414 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0021906452541452367
+2026-11-24 12:11:33.414 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.048637974260198134
+2026-11-24 12:11:33.414 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.47714434119474863
+2026-11-24 12:11:33.414 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 110934
+2026-11-24 12:11:33.414 7m39s659ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 10 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1231905.53 nodes/s, 811.75 ns/node]
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - 11 updates, 45s, 14.66 updates/m, 4.09 s/update
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.001728050242938531
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.21116838079162423
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.3982611792739111
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 91208
+2026-11-24 12:11:35.908 7m42s153ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 11 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1194799.49 nodes/s, 836.96 ns/node]
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - 12 updates, 47s, 15.13 updates/m, 3.97 s/update
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0018156792342517273
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.05070974739958039
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.31516694778880516
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 98564
+2026-11-24 12:11:38.479 7m44s725ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 12 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 985798.60 nodes/s, 1.01 μs/node]
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - 13 updates, 50s, 15.38 updates/m, 3.90 s/update
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0014914438574850444
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.17857525197742646
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.25025465217501125
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 85536
+2026-11-24 12:11:41.596 7m47s841ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 13 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1096537.39 nodes/s, 911.96 ns/node]
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - 14 updates, 53s, 15.70 updates/m, 3.82 s/update
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0014560626848138176
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.023722765354968534
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.19412769252643852
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 84213
+2026-11-24 12:11:44.398 7m50s643ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 14 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1272748.14 nodes/s, 785.70 ns/node]
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - 15 updates, 55s, 16.09 updates/m, 3.73 s/update
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.001213800383753098
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.16638177984191452
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.16311259916102072
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 71325
+2026-11-24 12:11:46.812 7m53s57ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 15 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1250328.58 nodes/s, 799.79 ns/node]
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - 16 updates, 58s, 16.44 updates/m, 3.65 s/update
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0012171216096329895
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.002736220818799078
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.12207941255669859
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 74216
+2026-11-24 12:11:49.269 7m55s515ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 16 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1224205.94 nodes/s, 816.86 ns/node]
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - 17 updates, 1m 0s, 16.75 updates/m, 3.58 s/update
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0011533220700386665
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.052418377169033345
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.1001548150163182
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 70652
+2026-11-24 12:11:51.779 7m58s25ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 17 (for gamma=0.25, 9/11)...
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1451348.78 nodes/s, 689.01 ns/node]
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - 18 updates, 1m 3s, 17.14 updates/m, 3.50 s/update
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0009533215402884114
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.17341255746848744
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.1098123536306043
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 59623
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:53.896 8m142ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1m 3s [18 updates, 17.14 updates/m, 3.50 s/update]
+2026-11-24 12:11:53.946 8m192ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:11:55.318 8m1s563ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:11:55.318 8m1s563ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2240394.39 nodes/s, 446.35 ns/node]
+2026-11-24 12:11:55.318 8m1s563ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1913422630
+2026-11-24 12:11:55.329 8m1s575ms INFO [ThreadId(9)] webgraph_algo::llp - 9 gammas, 8m 1s, 1.12 gammas/m, 53.50 s/gamma; 81.82% done, 1m 36s to end; res/vir/avail/free/total mem 521.62MB/1.77GB/56.69GB/21.91GB/66.51GB
+2026-11-24 12:11:55.330 8m1s575ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=0.5 (10/11)...
+2026-11-24 12:11:55.332 8m1s577ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 7s [3,072,441 nodes, 389561.74 nodes/s, 2.57 μs/node]
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 7s, 7.61 updates/m, 7.89 s/update
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2879176
+2026-11-24 12:12:03.219 8m9s464ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 8s [3,072,441 nodes, 352622.04 nodes/s, 2.84 μs/node]
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 16s, 7.23 updates/m, 8.30 s/update
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.24554990227931564
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7544500977206844
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9754450097720685
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1349307
+2026-11-24 12:12:11.932 8m18s177ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 720258.61 nodes/s, 1.39 μs/node]
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 20s, 8.63 updates/m, 6.96 s/update
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.05586027126202861
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7725094950415132
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9526959592762199
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 709661
+2026-11-24 12:12:16.198 8m22s443ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 883485.85 nodes/s, 1.13 μs/node]
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 24s, 9.86 updates/m, 6.09 s/update
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.02779802090058027
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.5023650928906935
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9029324685652892
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 495112
+2026-11-24 12:12:19.675 8m25s921ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 997265.36 nodes/s, 1.00 μs/node]
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 27s, 10.94 updates/m, 5.49 s/update
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.01721435891855235
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.38073437025896295
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8410059055911855
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 379401
+2026-11-24 12:12:22.756 8m29s2ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 2s [3,072,441 nodes, 1054611.65 nodes/s, 948.22 ns/node]
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 30s, 11.87 updates/m, 5.06 s/update
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.012286810210498548
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.28624642551999185
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7696305481431845
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 304437
+2026-11-24 12:12:25.670 8m31s915ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 1013739.87 nodes/s, 986.45 ns/node]
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 33s, 12.59 updates/m, 4.77 s/update
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.01020834094892839
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.16916264074740858
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.6865468122179255
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 274776
+2026-11-24 12:12:28.701 8m34s946ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 719001.66 nodes/s, 1.39 μs/node]
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 37s, 12.75 updates/m, 4.71 s/update
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.010050036654672781
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.015507347868531666
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5880975470047786
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 277255
+2026-11-24 12:12:32.974 8m39s219ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 611265.99 nodes/s, 1.64 μs/node]
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 42s, 12.66 updates/m, 4.74 s/update
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.008091998082518646
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.19482899808566786
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5075804468133454
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 234828
+2026-11-24 12:12:38.000 8m44s246ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 634470.36 nodes/s, 1.58 μs/node]
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 47s, 12.63 updates/m, 4.75 s/update
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.008228490210384543
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.016867543278435076
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.40589369248550183
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 243057
+2026-11-24 12:12:42.843 8m49s88ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 10 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 760633.67 nodes/s, 1.31 μs/node]
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - 11 updates, 51s, 12.80 updates/m, 4.69 s/update
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.0070215310663362
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.14668051042038469
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.32056174352754035
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 214032
+2026-11-24 12:12:46.882 8m53s128ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 11 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 733636.08 nodes/s, 1.36 μs/node]
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - 12 updates, 55s, 12.92 updates/m, 4.65 s/update
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.007535952151728136
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.07326337810541926
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.23779039594492998
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 230998
+2026-11-24 12:12:51.070 8m57s316ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 12 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 761620.68 nodes/s, 1.31 μs/node]
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - 13 updates, 59s, 13.05 updates/m, 4.60 s/update
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.006772487047319384
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.1013097069935184
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.17067041714013054
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 211119
+2026-11-24 12:12:55.104 9m1s350ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 13 (for gamma=0.5, 10/11)...
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 841557.56 nodes/s, 1.19 μs/node]
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - 14 updates, 1m 3s, 13.24 updates/m, 4.53 s/update
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.006805409836357554
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.004861255371643789
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.1199477823138968
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 215253
+2026-11-24 12:12:58.755 9m5s1ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 14 (for gamma=0.5, 10/11)...
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 3s [3,072,441 nodes, 952012.90 nodes/s, 1.05 μs/node]
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - 15 updates, 1m 6s, 13.50 updates/m, 4.44 s/update
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.005996128381168655
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.11891737230362737
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.0937660825183632
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 192212
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:01.983 9m8s228ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1m 6s [15 updates, 13.50 updates/m, 4.44 s/update]
+2026-11-24 12:13:02.031 9m8s276ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:13:03.376 9m9s621ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:03.376 9m9s621ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2285005.91 nodes/s, 437.64 ns/node]
+2026-11-24 12:13:03.376 9m9s621ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 1983982105
+2026-11-24 12:13:03.390 9m9s635ms INFO [ThreadId(9)] webgraph_algo::llp - 10 gammas, 9m 9s, 1.09 gammas/m, 54.95 s/gamma; 90.91% done, 49s to end; res/vir/avail/free/total mem 522.44MB/1.77GB/57.69GB/10.08GB/66.51GB
+2026-11-24 12:13:03.390 9m9s635ms INFO [ThreadId(9)] webgraph_algo::llp - Starting iterations with gamma=1 (11/11)...
+2026-11-24 12:13:03.392 9m9s637ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 0 (for gamma=1, 11/11)...
+2026-11-24 12:13:09.694 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:09.695 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 6s [3,072,441 nodes, 487480.01 nodes/s, 2.05 μs/node]
+2026-11-24 12:13:09.695 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - 1 update, 6s, 9.52 updates/m, 6.30 s/update
+2026-11-24 12:13:09.695 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 1
+2026-11-24 12:13:09.695 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 1
+2026-11-24 12:13:09.695 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 1
+2026-11-24 12:13:09.695 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 2914482
+2026-11-24 12:13:09.695 9m15s940ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 1 (for gamma=1, 11/11)...
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 577539.59 nodes/s, 1.73 μs/node]
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - 2 updates, 11s, 10.32 updates/m, 5.81 s/update
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.2983992567330244
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.7016007432669755
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9701600743266976
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1694457
+2026-11-24 12:13:15.014 9m21s260ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 2 (for gamma=1, 11/11)...
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 7s [3,072,441 nodes, 414178.27 nodes/s, 2.41 μs/node]
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - 3 updates, 19s, 9.45 updates/m, 6.35 s/update
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.10377161467199152
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.6522390309945202
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.9353839774261496
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 1091171
+2026-11-24 12:13:22.433 9m28s678ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 3 (for gamma=1, 11/11)...
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(11)] webgraph_algo::llp - 3,072,441 nodes, 10s, 306786.45 nodes/s, 3.26 μs/node; 100.00% done, 0ms to end [306786.45 nodes/s, 3.26 μs/node]
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 10s [3,072,441 nodes, 306785.00 nodes/s, 3.26 μs/node]
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - 4 updates, 29s, 8.26 updates/m, 7.26 s/update
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.06499720671487262
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.3736513889629618
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.8727491163224459
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 854667
+2026-11-24 12:13:32.448 9m38s693ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 4 (for gamma=1, 11/11)...
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 560540.76 nodes/s, 1.78 μs/node]
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - 5 updates, 34s, 8.69 updates/m, 6.91 s/update
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.047488354213271515
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.26937853773329523
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7996869700957754
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 721493
+2026-11-24 12:13:37.929 9m44s174ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 5 (for gamma=1, 11/11)...
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 555659.93 nodes/s, 1.80 μs/node]
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - 6 updates, 40s, 8.98 updates/m, 6.68 s/update
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.038346793719352346
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.19250110148825475
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.7189370802446009
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 635580
+2026-11-24 12:13:43.458 9m49s704ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 6 (for gamma=1, 11/11)...
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 530813.81 nodes/s, 1.88 μs/node]
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - 7 updates, 45s, 9.16 updates/m, 6.55 s/update
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.03463431998764163
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.09681314581034065
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.628618394825635
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 608876
+2026-11-24 12:13:49.247 9m55s492ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 7 (for gamma=1, 11/11)...
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 545211.73 nodes/s, 1.83 μs/node]
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - 8 updates, 51s, 9.32 updates/m, 6.44 s/update
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.033511694160993206
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.032413681777179564
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.5318597630033528
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 609428
+2026-11-24 12:13:54.882 10m1s127ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 8 (for gamma=1, 11/11)...
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 585949.45 nodes/s, 1.71 μs/node]
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - 9 updates, 56s, 9.52 updates/m, 6.30 s/update
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.029364683189577884
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.12374817433856693
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.4442345804372095
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 557756
+2026-11-24 12:14:00.126 10m6s371ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 9 (for gamma=1, 11/11)...
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 4s [3,072,441 nodes, 662512.33 nodes/s, 1.51 μs/node]
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - 10 updates, 1m 1s, 9.78 updates/m, 6.14 s/update
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.029184080348599196
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.006150341885615422
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.344849614625771
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 571076
+2026-11-24 12:14:04.763 10m11s9ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 10 (for gamma=1, 11/11)...
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 573846.89 nodes/s, 1.74 μs/node]
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - 11 updates, 1m 6s, 9.89 updates/m, 6.07 s/update
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.026282561722979682
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.09942128005958506
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.25479174263172955
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 529284
+2026-11-24 12:14:10.117 10m16s363ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 11 (for gamma=1, 11/11)...
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 6s [3,072,441 nodes, 498040.43 nodes/s, 2.01 μs/node]
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - 12 updates, 1m 12s, 9.88 updates/m, 6.07 s/update
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.02658168469299708
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: -0.011381043186359793
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.18349356398639602
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 550046
+2026-11-24 12:14:16.287 10m22s532ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 12 (for gamma=1, 11/11)...
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 5s [3,072,441 nodes, 527693.35 nodes/s, 1.90 μs/node]
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - 13 updates, 1m 18s, 9.91 updates/m, 6.06 s/update
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.024722055754996853
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.06995903229903805
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.12526556411684778
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 526494
+2026-11-24 12:14:22.109 10m28s354ms INFO [ThreadId(9)] webgraph_algo::llp - Starting update 13 (for gamma=1, 11/11)...
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 7s [3,072,441 nodes, 421834.72 nodes/s, 2.37 μs/node]
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - 14 updates, 1m 26s, 9.77 updates/m, 6.14 s/update
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Gain: 0.024323208382980206
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Gain improvement: 0.016133260759920092
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Average gain improvement: 0.08951375129654357
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Modified: 530606
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:29.393 10m35s638ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1m 26s [14 updates, 9.77 updates/m, 6.14 s/update]
+2026-11-24 12:14:29.448 10m35s694ms INFO [ThreadId(9)] webgraph_algo::llp - Computing log-gap cost...
+2026-11-24 12:14:30.933 10m37s178ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:30.933 10m37s178ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 1s [3,072,441 nodes, 2069492.73 nodes/s, 483.21 ns/node]
+2026-11-24 12:14:30.933 10m37s178ms INFO [ThreadId(9)] webgraph_algo::llp - Log-gap cost: 2081765858
+2026-11-24 12:14:30.950 10m37s195ms INFO [ThreadId(9)] webgraph_algo::llp - 11 gammas, 10m 37s, 1.04 gammas/m, 57.92 s/gamma; 100.00% done, 0ms to end; res/vir/avail/free/total mem 522.27MB/1.77GB/54.42GB/1.94GB/66.51GB
+2026-11-24 12:14:30.950 10m37s195ms INFO [ThreadId(9)] webgraph_algo::llp - Completed.
+2026-11-24 12:14:30.963 10m37s208ms INFO [ThreadId(9)] webgraph_algo::llp - Elapsed: 10m 37s [11 gammas, 1.04 gammas/m, 57.92 s/gamma]; res/vir/avail/free/total mem 522.27MB/1.77GB/54.37GB/1.89GB/66.51GB
+2026-11-24 12:14:31.074 10m37s320ms INFO [ThreadId(9)] webgraph_cli::run::llp - Elapsed: 637.314221241
+2026-11-24 12:14:31.076 10m37s321ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_5.bin" with gamma 0.03125 and num_nodes 3072441, and cost 1765804204 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_5.gap"
+2026-11-24 12:14:31.076 10m37s321ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_8.bin" with gamma 0.25 and num_nodes 3072441, and cost 1913422630 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_8.gap"
+2026-11-24 12:14:31.076 10m37s321ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_4.bin" with gamma 0.015625 and num_nodes 3072441, and cost 1743408015 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_4.gap"
+2026-11-24 12:14:31.076 10m37s322ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_3.bin" with gamma 0.0078125 and num_nodes 3072441, and cost 1731079224 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_3.gap"
+2026-11-24 12:14:31.076 10m37s322ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_10.bin" with gamma 1 and num_nodes 3072441, and cost 2081765858 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_10.gap"
+2026-11-24 12:14:31.076 10m37s322ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_9.bin" with gamma 0.5 and num_nodes 3072441, and cost 1983982105 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_9.gap"
+2026-11-24 12:14:31.077 10m37s322ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_2.bin" with gamma 0.00390625 and num_nodes 3072441, and cost 1723637275 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_2.gap"
+2026-11-24 12:14:31.077 10m37s322ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_7.bin" with gamma 0.125 and num_nodes 3072441, and cost 1854855292 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_7.gap"
+2026-11-24 12:14:31.077 10m37s323ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_0.bin" with gamma 0.0009765625 and num_nodes 3072441, and cost 1725336929 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_0.gap"
+2026-11-24 12:14:31.078 10m37s323ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin" with gamma 0.001953125 and num_nodes 3072441, and cost 1720197782 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.gap"
+2026-11-24 12:14:31.078 10m37s323ms INFO [ThreadId(9)] webgraph_algo::llp - Found labels from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_6.bin" with gamma 0.0625 and num_nodes 3072441, and cost 1804577588 from "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_6.gap"
+2026-11-24 12:14:31.078 10m37s324ms INFO [ThreadId(9)] webgraph_algo::llp - Best gamma: 0.001953125	with log-gap cost 1720197782
+2026-11-24 12:14:31.078 10m37s324ms INFO [ThreadId(9)] webgraph_algo::llp - Worst gamma: 1	with log-gap cost 2081765858
+2026-11-24 12:14:31.121 10m37s366ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 0 with gamma 1 cost 2081765858 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_10.bin"...
+2026-11-24 12:14:31.492 10m37s738ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:31.768 10m38s13ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 1378381
+2026-11-24 12:14:31.769 10m38s15ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 1 with gamma 0.5 cost 1983982105 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_9.bin"...
+2026-11-24 12:14:32.099 10m38s344ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:32.321 10m38s566ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 1720778
+2026-11-24 12:14:32.321 10m38s567ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 2 with gamma 0.25 cost 1913422630 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_8.bin"...
+2026-11-24 12:14:32.669 10m38s914ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:32.859 10m39s105ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 1858978
+2026-11-24 12:14:32.860 10m39s105ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 3 with gamma 0.125 cost 1854855292 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_7.bin"...
+2026-11-24 12:14:33.120 10m39s365ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:33.280 10m39s526ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 1944671
+2026-11-24 12:14:33.281 10m39s526ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 4 with gamma 0.0625 cost 1804577588 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_6.bin"...
+2026-11-24 12:14:33.557 10m39s802ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:33.767 10m40s12ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 2001726
+2026-11-24 12:14:33.767 10m40s12ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 5 with gamma 0.03125 cost 1765804204 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_5.bin"...
+2026-11-24 12:14:34.039 10m40s284ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:34.257 10m40s503ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 2043031
+2026-11-24 12:14:34.258 10m40s503ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 6 with gamma 0.015625 cost 1743408015 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_4.bin"...
+2026-11-24 12:14:34.488 10m40s734ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:34.647 10m40s892ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 2074968
+2026-11-24 12:14:34.647 10m40s892ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 7 with gamma 0.0078125 cost 1731079224 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_3.bin"...
+2026-11-24 12:14:34.840 10m41s85ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:35.018 10m41s264ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 2098823
+2026-11-24 12:14:35.019 10m41s264ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 8 with gamma 0.0009765625 cost 1725336929 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_0.bin"...
+2026-11-24 12:14:35.196 10m41s442ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:35.371 10m41s617ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 2128519
+2026-11-24 12:14:35.372 10m41s617ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 9 with gamma 0.00390625 cost 1723637275 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_2.bin"...
+2026-11-24 12:14:35.580 10m41s825ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:35.744 10m41s990ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 2142851
+2026-11-24 12:14:35.745 10m41s990ms INFO [ThreadId(9)] webgraph_algo::llp - Starting step 10 with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:35.906 10m42s151ms INFO [ThreadId(9)] webgraph_algo::llp - Recombining with gamma 0.001953125 cost 1720197782 and labels "/home/tux/graphlab/exp/c-compression/enc/orkut/../../ord/orkut/llpwork/.tmpoCdd1q/labels_1.bin"...
+2026-11-24 12:14:36.062 10m42s307ms INFO [ThreadId(9)] webgraph_algo::llp - Number of labels: 2142851
+2026-11-24 12:14:36.066 10m42s311ms INFO [ThreadId(9)] webgraph_cli::run::llp - Combined labels...
+2026-11-24 12:14:36.157 10m42s403ms INFO [ThreadId(9)] webgraph_cli::run::llp - Saving permutation...
+2026-11-24 12:14:36.158 10m42s403ms INFO [ThreadId(9)] webgraph_cli - Storing in Java format at ../../ord/orkut/llp.perm.tmp
+2026-11-24 12:14:36.201 10m42s447ms INFO [ThreadId(1)] webgraph_cli - The command took 10 minutes 42.447 seconds (642.446987554s)
+EXIT 0

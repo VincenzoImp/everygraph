@@ -1,0 +1,66 @@
+[
+ {
+  "algo": "bfs",
+  "cmd": "run",
+  "entries": 3612134270,
+  "entries_per_s_best": 3071271166.311808,
+  "graph": "fr-a",
+  "ids": "u32",
+  "label": "dev6",
+  "load": "Mmap",
+  "load_seconds": 3.2852e-05,
+  "loadavg_1m_at_end": 33.85,
+  "n": 65608366,
+  "order": "orig",
+  "peak_rss_gb": 14.239208221435547,
+  "reorder_seconds": 0.0,
+  "result": {
+   "bottom_up_steps": 3,
+   "depth_sum": 231601321,
+   "entries_examined": 526761026,
+   "fraction_examined": 0.14583096491593045,
+   "max_depth": 21,
+   "mteps_of_all_entries": 0,
+   "reached": 65608366,
+   "source": 40553568,
+   "source_degree": 5214,
+   "top_down_steps": 19
+  },
+  "rss_anon_gb": 0.030315399169921875,
+  "seconds_all": [
+   5.318643278,
+   1.176103989
+  ],
+  "seconds_best": 1.176103989,
+  "thp": "default",
+  "threads": 6
+ },
+ {
+  "algo": "kcore",
+  "cmd": "run",
+  "entries": 3612134270,
+  "entries_per_s_best": 147614652.04922488,
+  "graph": "fr-a",
+  "ids": "u32",
+  "label": "dev6",
+  "load": "Mmap",
+  "load_seconds": 3.0357e-05,
+  "loadavg_1m_at_end": 34.87,
+  "n": 65608366,
+  "order": "orig",
+  "peak_rss_gb": 15.089454650878906,
+  "reorder_seconds": 0.0,
+  "result": {
+   "coreness_sum": 1815384276,
+   "max_core": 304,
+   "peel_rounds": 306
+  },
+  "rss_anon_gb": 0.1689453125,
+  "seconds_all": [
+   24.470025298
+  ],
+  "seconds_best": 24.470025298,
+  "thp": "default",
+  "threads": 6
+ }
+]

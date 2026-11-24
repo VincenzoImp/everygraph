@@ -1,0 +1,10 @@
+order rand done 59.321498ms
+perm done 1.519179285s
+csr2bv ord/orkut/rand.bv7 bits=4688381013 bits/arc=20.004 5.370200541s
+perm done 1.337088062s
+csr2bv ord/orkut/deg.bv7 bits=4159284620 bits/arc=17.747 10.204211661s
+perm done 1.231148495s
+csr2bv ord/orkut/bfs.bv7 bits=3510470655 bits/arc=14.978 4.060552942s
+perm done 838.701349ms
+csr2bv ord/orkut/lp.bv7 bits=3477639191 bits/arc=14.838 4.417701336s
+EXIT 0

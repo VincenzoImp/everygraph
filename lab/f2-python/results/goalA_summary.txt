@@ -1,0 +1,580 @@
+/home/tux/graphlab/exp/f2-python/results/goalA_duckpgq_lj.json {
+"engine": "DuckDB+DuckPGQ",
+"version": "duckdb 1.3.2, duckpgq community",
+"graph": "lj",
+"load_s": 1.2173101010266691,
+"disk_mb": 209.465344,
+"threads": 3,
+"storage": "on-disk DuckDB tables; edges stored both directions (69.4M rows, sorted by src); PGQ patterns directed ->",
+"neighbors_sql": [
+0.484,
+3.05,
+"to=0 err=0 n=200"
+],
+"neighbors": [
+1.936,
+3.014,
+"to=0 err=0 n=5"
+],
+"neighbors_note": "PGQ MATCH (first KP inputs); neighbors_sql = plain SQL point lookup",
+"hop2_sql": [
+4.706,
+23.853,
+"to=0 err=0 n=200"
+],
+"hop2": [
+10000.0,
+10000.0,
+"to=5 err=0 n=5"
+],
+"hop2_note": "PGQ ->{1,2} (first KP inputs); hop2_sql = 2 self-joins",
+"hop3": [
+10000.0,
+10000.0,
+"to=5 err=0 n=5"
+],
+"hop3_note": "PGQ ANY SHORTEST ->{1,3} (first KP inputs)",
+"hop3_sql": [
+100.558,
+114.32,
+"to=0 err=0 n=50"
+],
+"partial": false,
+"last_stage": "merged runs 1+3 + separate degree_dist run",
+"quick": false,
+"peak_rss_mb": 4652.8203125,
+"degree_dist_s": 2.6572571161668748,
+"pagerank_s": 7.000708079896867,
+"pagerank_out": [
+[
+3997962,
+0.0001875608713736541
+]
+],
+"pagerank_note": "duckpgq pagerank(g,nodes,edges) table function, from run 1 (independent of the run-1 PGQ parameter bug); process RSS reached 2.3 GB",
+"wcc_s": null,
+"wcc_err": "process OOM-killed (cgroup MemoryMax=6G) inside weakly_connected_component in run 1",
+"sp": [
+-1,
+-1,
+"to=0 err=0 n=5"
+],
+"sp_note": "ANY SHORTEST ->* point-to-point: process OOM-killed (>6 GB) on the first pair in run 3",
+"hop2_pgq_run2": "30/30 timed out at 10 s (interrupt took ~14 s each), RSS 4.5 GB"
+}
+check None
+/home/tux/graphlab/exp/f2-python/results/goalA_duckpgq_lj_quick.json {
+"engine": "DuckDB+DuckPGQ",
+"version": "duckdb 1.3.2, duckpgq community",
+"graph": "lj",
+"load_s": 0.9928765660151839,
+"disk_mb": 209.465344,
+"threads": 3,
+"storage": "on-disk DuckDB tables; edges stored both directions (69.4M rows, sorted by src); PGQ patterns directed ->",
+"neighbors_sql": [
+0.455,
+0.486,
+"to=0 err=0 n=50"
+],
+"neighbors": [
+2.892,
+3.617,
+"to=0 err=0 n=2"
+],
+"neighbors_note": "PGQ MATCH (first KP inputs); neighbors_sql = plain SQL point lookup",
+"hop2_sql": [
+5.264,
+15.436,
+"to=0 err=0 n=50"
+],
+"hop2": [
+10000.0,
+10000.0,
+"to=2 err=0 n=2"
+],
+"hop2_note": "PGQ ->{1,2} (first KP inputs); hop2_sql = 2 self-joins",
+"hop3": [
+10000.0,
+10000.0,
+"to=2 err=0 n=2"
+],
+"hop3_note": "PGQ ANY SHORTEST ->{1,3} (first KP inputs)",
+"hop3_sql": [
+110.742,
+135.576,
+"to=0 err=0 n=15"
+],
+"pagerank_s": 20.009487693896517,
+"pagerank_out": [
+[
+3997962,
+0.0001875618799777723
+]
+],
+"degree_dist_s": 0.4581970900762826,
+"degree_dist_out": [
+[
+75,
+3827
+],
+[
+135,
+779
+],
+[
+62,
+5858
+]
+],
+"sp": {
+"n": 0,
+"oom": true
+},
+"sp_note": "ANY SHORTEST ->* point-to-point was OOM-killed (>6 GB cgroup) on the first lj pair; skipped (DUCKPGQ_OOM_STAGES=1 to retry)",
+"wcc_s": null,
+"wcc_err": "weakly_connected_component OOM-killed (>6 GB cgroup) on lj; skipped",
+"quick": true,
+"peak_rss_mb": 4508.51953125
+}
+check {'neighbors_sql': {'checked': 50, 'mismatches': 0}, 'neighbors': {'checked': 2, 'mismatches': 0}, 'hop2_sql': {'checked': 50, 'mismatches': 0}, 'hop2': {'checked': 0, 'mismatches': 0}, 'hop3': {'checked': 0, 'mismatches': 0}, 'hop3_sql': {'checked': 15, 'mismatches': 0}}
+/home/tux/graphlab/exp/f2-python/results/goalA_duckpgq_lj_run1_paramsbug.json {
+"engine": "DuckDB+DuckPGQ",
+"version": "duckdb 1.3.2, duckpgq community",
+"graph": "lj",
+"load_s": 2.519238382112235,
+"disk_mb": 209.465344,
+"threads": 3,
+"storage": "on-disk DuckDB tables; edges stored both directions (69.4M rows, sorted by src); PGQ patterns directed ->",
+"neighbors_sql": [
+0.564,
+0.916,
+"to=0 err=0 n=200"
+],
+"neighbors": [
+-1,
+-1,
+"to=0 err=30 n=30"
+],
+"neighbors_note": "PGQ MATCH (first 30 inputs); neighbors_sql = plain SQL point lookup",
+"hop2_sql": [
+3.187,
+27.701,
+"to=0 err=0 n=200"
+],
+"hop2": [
+-1,
+-1,
+"to=0 err=30 n=30"
+],
+"hop2_note": "PGQ ->{1,2} (first 30 inputs); hop2_sql = 2 self-joins",
+"hop3": [
+-1,
+-1,
+"to=0 err=15 n=15"
+],
+"hop3_note": "PGQ ANY SHORTEST ->{1,3} (first 15 inputs)",
+"hop3_sql": [
+97.145,
+130.876,
+"to=0 err=0 n=50"
+],
+"sp": [
+-1,
+-1,
+"to=0 err=20 n=20"
+],
+"sp_note": "first 20 pairs",
+"pagerank_s": 7.000708079896867,
+"pagerank_out": [
+[
+3997962,
+0.0001875608713736541
+]
+],
+"partial": true,
+"last_stage": "before_wcc",
+"quick": false,
+"peak_rss_mb": 2282.296875
+}
+check None
+/home/tux/graphlab/exp/f2-python/results/goalA_duckpgq_lj_run2_partial.json {
+"engine": "DuckDB+DuckPGQ",
+"version": "duckdb 1.3.2, duckpgq community",
+"graph": "lj",
+"load_s": 1.090854979120195,
+"disk_mb": 209.727488,
+"threads": 3,
+"storage": "on-disk DuckDB tables; edges stored both directions (69.4M rows, sorted by src); PGQ patterns directed ->",
+"neighbors_sql": [
+0.446,
+0.518,
+"to=0 err=0 n=200"
+],
+"neighbors": [
+1.787,
+3.251,
+"to=0 err=0 n=30"
+],
+"neighbors_note": "PGQ MATCH (first 30 inputs); neighbors_sql = plain SQL point lookup",
+"hop2_sql": [
+3.382,
+15.632,
+"to=0 err=0 n=200"
+],
+"hop2": [
+10000.0,
+10000.0,
+"to=30 err=0 n=30"
+],
+"hop2_note": "PGQ ->{1,2} (first 30 inputs); hop2_sql = 2 self-joins",
+"partial": true,
+"last_stage": "hop2",
+"quick": false,
+"peak_rss_mb": 4558.33203125
+}
+check None
+/home/tux/graphlab/exp/f2-python/results/goalA_gfql_lj.json {
+"engine": "GFQL (pygraphistry)",
+"version": "graphistry 0.62.2, polars 2.1.0",
+"graph": "lj",
+"load_s": 0.22707454697228968,
+"disk_mb": null,
+"threads": 3,
+"storage": "in-memory polars edge frame, each edge once, e_undirected(); engine='polars'",
+"neighbors": [
+267.824,
+278.841,
+"to=0 err=0 n=30"
+],
+"hop2": [
+1206.453,
+1659.164,
+"to=0 err=0 n=30"
+],
+"hop3": [
+1305.566,
+1891.874,
+"to=0 err=0 n=30"
+],
+"sp": null,
+"sp_note": "GFQL has no shortest-path operator (would need a client-side BFS loop of hop() calls)",
+"inputs_note": "first 30 inputs per query type (each query is a full scan of the edge frame per hop)",
+"degree_frame_type": "pandas",
+"degree_dist_s": 4.575138253858313,
+"pagerank_s": null,
+"pagerank_note": "PageRank only via compute_igraph/compute_cugraph plugins (not GFQL-native); not run",
+"quick": false,
+"peak_rss_mb": 2748.59375
+}
+check {'hop2': {'checked': 30, 'mismatches': 0}, 'hop3': {'checked': 30, 'mismatches': 0}, 'neighbors': {'checked': 30, 'mismatches': 0}}
+/home/tux/graphlab/exp/f2-python/results/goalA_gfql_lj_quick.json {
+"engine": "GFQL (pygraphistry)",
+"version": "graphistry 0.62.2, polars 2.1.0",
+"graph": "lj",
+"load_s": 0.17705285688862205,
+"disk_mb": null,
+"threads": 3,
+"storage": "in-memory polars edge frame, each edge once, e_undirected(); engine='polars'",
+"neighbors": [
+246.02,
+268.581,
+"to=0 err=0 n=10"
+],
+"hop2": [
+780.775,
+912.409,
+"to=0 err=0 n=10"
+],
+"hop3": [
+989.276,
+1320.947,
+"to=0 err=0 n=10"
+],
+"sp": null,
+"sp_note": "GFQL has no shortest-path operator (would need a client-side BFS loop of hop() calls)",
+"inputs_note": "first 10 inputs per query type (each query is a full scan of the edge frame per hop)",
+"degree_frame_type": "pandas",
+"degree_dist_s": 4.222190583124757,
+"pagerank_s": null,
+"pagerank_note": "PageRank only via compute_igraph/compute_cugraph plugins (not GFQL-native); not run",
+"quick": true,
+"peak_rss_mb": 2773.40234375
+}
+check {'hop2': {'checked': 10, 'mismatches': 0}, 'hop3': {'checked': 10, 'mismatches': 0}, 'neighbors': {'checked': 10, 'mismatches': 0}}
+/home/tux/graphlab/exp/f2-python/results/goalA_igraph_lj.json {
+"engine": "python-igraph",
+"version": "1.0.0",
+"graph": "lj",
+"load_s": 7.912978230975568,
+"storage": "in-memory, undirected edge list (each edge once); loaded via Read_Edgelist from text (numpy 2D constructor OOMs >6GB)",
+"disk_mb": null,
+"neighbors": [
+0.001,
+0.001,
+"to=0 err=0 n=200"
+],
+"hop2": [
+0.482,
+0.546,
+"to=0 err=0 n=200"
+],
+"hop3": [
+0.58,
+1.72,
+"to=0 err=0 n=50"
+],
+"sp": [
+290.89,
+912.69,
+"to=0 err=0 n=50"
+],
+"pagerank_s": 8.320980024058372,
+"wcc_s": 1.0953020460437983,
+"n_components": 1,
+"degree_dist_s": 0.10409209597855806,
+"sp_full_bfs": [
+969.114,
+1051.504,
+"to=0 err=0 n=10"
+],
+"quick": false,
+"peak_rss_mb": 3285.41796875
+}
+check None
+/home/tux/graphlab/exp/f2-python/results/goalA_igraph_lj_quick.json {
+"engine": "python-igraph",
+"version": "1.0.0",
+"graph": "lj",
+"load_s": 7.399651611922309,
+"storage": "in-memory, undirected edge list (each edge once); loaded via Read_Edgelist from text (numpy 2D constructor OOMs >6GB)",
+"disk_mb": null,
+"neighbors": [
+0.001,
+0.002,
+"to=0 err=0 n=50"
+],
+"hop2": [
+0.529,
+0.646,
+"to=0 err=0 n=50"
+],
+"hop3": [
+0.638,
+0.878,
+"to=0 err=0 n=15"
+],
+"sp": [
+313.04,
+968.802,
+"to=0 err=0 n=15"
+],
+"pagerank_s": 9.649959015892819,
+"wcc_s": 1.2513372639659792,
+"n_components": 1,
+"degree_dist_s": 0.10028713289648294,
+"sp_full_bfs": [
+1067.364,
+1185.128,
+"to=0 err=0 n=10"
+],
+"quick": true,
+"peak_rss_mb": 3285.2890625
+}
+check None
+/home/tux/graphlab/exp/f2-python/results/goalA_ladybug_lj.json {
+"engine": "LadybugDB",
+"version": "0.22.3",
+"graph": "lj",
+"load_s": 12.102525549009442,
+"disk_mb": 664.764416,
+"storage": "on-disk, rel table E stored once (src<dst), queried with undirected pattern -[:E]-; COPY FROM parquet",
+"threads": 3,
+"neighbors": [
+0.09,
+0.468,
+"to=0 err=0 n=200"
+],
+"hop2": [
+0.641,
+13.848,
+"to=0 err=0 n=200"
+],
+"hop2_note": "SHORTEST 1..2 (BFS semantics); WALK variant below",
+"hop2_walk": [
+1.333,
+31.206,
+"to=0 err=0 n=200"
+],
+"hop3": [
+17.93,
+73.866,
+"to=0 err=0 n=50"
+],
+"sp": [
+2549.685,
+6737.472,
+"to=0 err=0 n=50"
+],
+"degree_dist_s": 2.988565993960947,
+"degree_dist_nodes": 3997962,
+"pagerank_s": null,
+"pagerank_note": "algo extension (page_rank/wcc) installs but fails to load: needs libnetworkit.so from a patched NetworKit (undefined symbol NetworKit::ParallelCoreDecomposition with pip networkit 11.2/11.3)",
+"quick": false,
+"peak_rss_mb": 2735.7578125
+}
+check {'neighbors': {'checked': 200, 'mismatches': 0}, 'hop2': {'checked': 200, 'mismatches': 0}, 'hop2_walk': {'checked': 200, 'mismatches': 0}, 'hop3': {'checked': 50, 'mismatches': 0}, 'sp': {'checked': 50, 'mismatches': 0}}
+/home/tux/graphlab/exp/f2-python/results/goalA_ladybug_lj_quick.json {
+"engine": "LadybugDB",
+"version": "0.22.3",
+"graph": "lj",
+"load_s": 11.411144274985418,
+"disk_mb": 662.745088,
+"storage": "on-disk, rel table E stored once (src<dst), queried with undirected pattern -[:E]-; COPY FROM parquet",
+"threads": 3,
+"neighbors": [
+0.575,
+3.017,
+"to=0 err=0 n=50"
+],
+"hop2": [
+0.655,
+17.642,
+"to=0 err=0 n=50"
+],
+"hop2_note": "SHORTEST 1..2 (BFS semantics); WALK variant below",
+"hop2_walk": [
+0.854,
+25.532,
+"to=0 err=0 n=50"
+],
+"hop3": [
+19.612,
+37.687,
+"to=0 err=0 n=15"
+],
+"sp": [
+2473.593,
+3452.138,
+"to=0 err=0 n=15"
+],
+"degree_dist_s": 1.4851656248793006,
+"degree_dist_nodes": 3997962,
+"pagerank_s": null,
+"pagerank_note": "algo extension (page_rank/wcc) installs but fails to load: needs libnetworkit.so from a patched NetworKit (undefined symbol NetworKit::ParallelCoreDecomposition with pip networkit 11.2/11.3)",
+"quick": true,
+"peak_rss_mb": 2719.0390625
+}
+check {'neighbors': {'checked': 50, 'mismatches': 0}, 'hop2': {'checked': 50, 'mismatches': 0}, 'hop2_walk': {'checked': 50, 'mismatches': 0}, 'hop3': {'checked': 15, 'mismatches': 0}, 'sp': {'checked': 15, 'mismatches': 0}}
+/home/tux/graphlab/exp/f2-python/results/goalA_neo4j_lj.json {
+"engine": "Neo4j Community",
+"version": "5.26.0",
+"graph": "lj",
+"load_s": 45.7,
+"index_s": 5.33188134804368,
+"disk_mb": 1406.0,
+"storage": "neo4j-admin import (offline, 3 threads), each edge once, undirected pattern (a)--(b); heap 3g pagecache 1g; queries over bolt (client-server, localhost)",
+"threads": 3,
+"neighbors": [
+2.581,
+5.703,
+"to=0 err=0 n=200"
+],
+"hop2": [
+11.428,
+76.234,
+"to=0 err=0 n=200"
+],
+"hop3": [
+24.891,
+263.473,
+"to=0 err=0 n=50"
+],
+"sp": [
+6.38,
+15.553,
+"to=0 err=0 n=50"
+],
+"gds_project_s": 5.011481842957437,
+"pagerank_s": 9.988865046063438,
+"pagerank_note": "GDS 2.13.2 pageRank.stats, 20 iterations fixed, concurrency 3 (excludes projection), iters=[[20]]",
+"wcc_s": 0.4789639508817345,
+"n_components": 1,
+"server_peak_rss_mb": 4743.5625,
+"quick": false,
+"peak_rss_mb": 135.48046875
+}
+check {'neighbors': {'checked': 200, 'mismatches': 0}, 'hop2': {'checked': 200, 'mismatches': 0}, 'hop3': {'checked': 50, 'mismatches': 0}, 'sp': {'checked': 50, 'mismatches': 0}}
+/home/tux/graphlab/exp/f2-python/results/goalA_rustworkx_lj.json {
+"engine": "rustworkx",
+"version": "0.18.1",
+"graph": "lj",
+"load_s": 3.552734932862222,
+"disk_mb": null,
+"storage": "in-memory petgraph StableGraph, undirected, each edge once; read_edge_list from text",
+"neighbors": [
+0.002,
+0.009,
+"to=0 err=0 n=200"
+],
+"hop2": [
+0.035,
+0.714,
+"to=0 err=0 n=200"
+],
+"hop2_note": "python BFS loop over native neighbors()",
+"hop3": [
+0.737,
+18.651,
+"to=0 err=0 n=50"
+],
+"sp": [
+4785.302,
+6922.463,
+"to=0 err=0 n=50"
+],
+"sp_note": "native Dijkstra(weight=1) with target early-exit",
+"wcc_s": 4.796532901003957,
+"n_components": 1,
+"pagerank_s": null,
+"pagerank_note": "rustworkx.pagerank is PyDiGraph-only; not run",
+"quick": false,
+"peak_rss_mb": 1561.12890625
+}
+check {'neighbors': {'checked': 200, 'mismatches': 0}, 'hop2': {'checked': 200, 'mismatches': 0}, 'hop3': {'checked': 50, 'mismatches': 0}, 'sp': {'checked': 50, 'mismatches': 0}}
+/home/tux/graphlab/exp/f2-python/results/goalA_rustworkx_lj_quick.json {
+"engine": "rustworkx",
+"version": "0.18.1",
+"graph": "lj",
+"load_s": 3.2210976250935346,
+"disk_mb": null,
+"storage": "in-memory petgraph StableGraph, undirected, each edge once; read_edge_list from text",
+"neighbors": [
+0.002,
+0.005,
+"to=0 err=0 n=50"
+],
+"hop2": [
+0.042,
+0.256,
+"to=0 err=0 n=50"
+],
+"hop2_note": "python BFS loop over native neighbors()",
+"hop3": [
+0.339,
+3.695,
+"to=0 err=0 n=15"
+],
+"sp": [
+4679.782,
+6248.385,
+"to=0 err=0 n=15"
+],
+"sp_note": "native Dijkstra(weight=1) with target early-exit",
+"wcc_s": 4.85322866984643,
+"n_components": 1,
+"pagerank_s": null,
+"pagerank_note": "rustworkx.pagerank is PyDiGraph-only; not run",
+"quick": true,
+"peak_rss_mb": 1449.796875
+}
+check {'neighbors': {'checked': 50, 'mismatches': 0}, 'hop2': {'checked': 50, 'mismatches': 0}, 'hop3': {'checked': 15, 'mismatches': 0}, 'sp': {'checked': 15, 'mismatches': 0}}

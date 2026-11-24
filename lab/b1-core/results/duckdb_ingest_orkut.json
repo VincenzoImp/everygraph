@@ -1,0 +1,32 @@
+{
+ "dataset": "orkut",
+ "seconds": 12.573349490063265,
+ "stage_seconds": {
+  "read_csv": 3.647757861064747,
+  "ids": 0.959047440905124,
+  "relabel_sym_dedup_sort_write": 7.942559830844402
+ },
+ "n": 3072441,
+ "entries": 234370166,
+ "expected_n": 3072441,
+ "expected_entries": 234370166,
+ "counts_match": true,
+ "threads": 32,
+ "cpu_affinity_count": 32,
+ "memory_limit": "6GB",
+ "duckdb_version": "2.0.1",
+ "output_kind": "parquet file (src UINTEGER, dst UINTEGER; default snappy; rows ordered by src,dst) written by COPY; intermediates (raw, ids) are tables in an on-disk DuckDB file",
+ "output_bytes": 941218966,
+ "workdb_bytes": 353906688,
+ "peak_rss_gb": 5.8496856689453125,
+ "loadavg_start": [
+  14.85009765625,
+  7.626953125,
+  3.55322265625
+ ],
+ "loadavg_end": [
+  16.439453125,
+  8.1875,
+  3.7783203125
+ ]
+}

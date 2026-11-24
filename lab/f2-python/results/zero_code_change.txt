@@ -1,0 +1,3 @@
+nx.config path 0.37739930115640163
+maxdiff vs nx 5.082197683525802e-21
+weighted graph -> fell back to nx, maxdiff 0.0

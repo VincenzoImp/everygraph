@@ -1,0 +1,74 @@
+{
+ "csr": "/home/tux/graphlab/data/csr/lj",
+ "threads": 32,
+ "python": "3.13.5",
+ "zero_copy": {
+  "offsets_view_writeable": false,
+  "neighbors_view_is_into_mmap": true,
+  "pagerank_numpy_ptr_equals_rust_vec_ptr": true,
+  "pyarrow_from_capsule_same_buffer": true,
+  "numpy_from_pyarrow_same_buffer": true,
+  "polars_series_same_buffer": true,
+  "pyarrow_recordbatch_same_buffers": true,
+  "polars_df_same_buffers": true,
+  "pandas_arrowdtype_same_buffers": true,
+  "pandas_numpy_df_copy_false_same_buffer": true,
+  "table_wrap_times_s": {
+   "pagerank+ids_compute": 1.0470424839295447,
+   "pa.record_batch": 0.0002340481150895357,
+   "pl.from_arrow": 0.0023724669590592384,
+   "to_pandas(ArrowDtype)": 0.009049824206158519
+  },
+  "top5_by_pagerank_polars": [
+   {
+    "node": 9766,
+    "pagerank": 0.00018756350744586004
+   },
+   {
+    "node": 9765,
+    "pagerank": 0.00017314799785564592
+   },
+   {
+    "node": 447075,
+    "pagerank": 7.551521148280166e-05
+   },
+   {
+    "node": 4435,
+    "pagerank": 7.087771633607796e-05
+   },
+   {
+    "node": 2806,
+    "pagerank": 6.467959116915286e-05
+   }
+  ]
+ },
+ "call_overhead": {
+  "python_for_loop_empty_ns": 4.050370771437883,
+  "g.noop(v)_ns": 40.05856113508344,
+  "g.degree_of(v)_ns": 191.68530474416912,
+  "g.neighbors(v)_zero_copy_numpy_view_ns": 237.5459100585431,
+  "g.neighbors_list(v)_copy_to_pylist_ns": 727.1535194013268,
+  "numpy_slice_tg[off[v]:off[v+1]]_ns": 418.7281255144626,
+  "neighbors_batch_200k_nodes_ns_per_node": 170.89446540921926,
+  "neighbors_batch_total_entries": 3478567
+ },
+ "gil": {
+  "pagerank_in_thread_s": 0.9058920920360833,
+  "main_thread_loop_iters_during": 8451831,
+  "main_thread_iters_per_s_during": 9329843.007022683,
+  "main_thread_iters_per_s_idle": 17093114,
+  "released": true
+ },
+ "parallel": {
+  "py_pagerank20_t1_s": 6.56254251813516,
+  "py_wcc_t1_s": 0.34220913192257285,
+  "py_pagerank20_t32_s": 0.5649643971119076,
+  "py_wcc_t32_s": 0.04216720093972981,
+  "native_pagerank20_t1_s": 5.258,
+  "native_wcc_t1_s": 0.196,
+  "n_components": 1,
+  "native_pagerank20_t32_s": 0.4448,
+  "native_wcc_t32_s": 0.0254
+ },
+ "peak_rss_mb": 1131.51171875
+}

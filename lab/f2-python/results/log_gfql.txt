@@ -1,0 +1,53 @@
+{
+ "engine": "GFQL (pygraphistry)",
+ "version": "graphistry 0.62.2, polars 2.1.0",
+ "graph": "lj",
+ "load_s": 0.17705285688862205,
+ "disk_mb": null,
+ "threads": 3,
+ "storage": "in-memory polars edge frame, each edge once, e_undirected(); engine='polars'",
+ "neighbors": {
+  "n": 10,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 246.02023896295577,
+  "p90_ms": 268.58114590868354
+ },
+ "hop2": {
+  "n": 10,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 780.775481951423,
+  "p90_ms": 912.408968899399
+ },
+ "hop3": {
+  "n": 10,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 989.2755504697561,
+  "p90_ms": 1320.947039173916
+ },
+ "sp": null,
+ "sp_note": "GFQL has no shortest-path operator (would need a client-side BFS loop of hop() calls)",
+ "inputs_note": "first 10 inputs per query type (each query is a full scan of the edge frame per hop)",
+ "degree_frame_type": "pandas",
+ "degree_dist_s": 4.222190583124757,
+ "pagerank_s": null,
+ "pagerank_note": "PageRank only via compute_igraph/compute_cugraph plugins (not GFQL-native); not run",
+ "check": {
+  "hop2": {
+   "checked": 10,
+   "mismatches": 0
+  },
+  "hop3": {
+   "checked": 10,
+   "mismatches": 0
+  },
+  "neighbors": {
+   "checked": 10,
+   "mismatches": 0
+  }
+ },
+ "quick": true,
+ "peak_rss_mb": 2773.40234375
+}

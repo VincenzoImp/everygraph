@@ -1,0 +1,89 @@
+{
+  "cold": {
+    "bidir_bfs_path": {
+      "avg_major_faults": 293.15,
+      "max_resident_fraction_after_evict": 0.0,
+      "max_us": 134227.018,
+      "mean_us": 49307.35575,
+      "n": 40,
+      "p50_us": 45186.207,
+      "p95_us": 95195.189,
+      "p99_us": 134227.018
+    },
+    "common_neighbors": {
+      "avg_major_faults": 3.533333333333333,
+      "max_resident_fraction_after_evict": 0.0,
+      "max_us": 754.581,
+      "mean_us": 449.4613566666665,
+      "n": 300,
+      "p50_us": 499.003,
+      "p95_us": 654.784,
+      "p99_us": 689.218
+    },
+    "degree": {
+      "avg_major_faults": 1.0,
+      "max_resident_fraction_after_evict": 0.0,
+      "max_us": 396.311,
+      "mean_us": 188.17028666666658,
+      "n": 300,
+      "p50_us": 175.458,
+      "p95_us": 255.307,
+      "p99_us": 321.902
+    },
+    "khop3_budget10k": {
+      "avg_major_faults": 77.21,
+      "max_resident_fraction_after_evict": 0.0,
+      "max_us": 998516.942,
+      "mean_us": 71402.37388,
+      "n": 100,
+      "p50_us": 12614.095,
+      "p95_us": 390694.511,
+      "p99_us": 651105.779
+    },
+    "neighbors": {
+      "avg_major_faults": 2.0,
+      "max_resident_fraction_after_evict": 0.0,
+      "max_us": 757.687,
+      "mean_us": 361.2660066666667,
+      "n": 300,
+      "p50_us": 339.936,
+      "p95_us": 464.378,
+      "p99_us": 558.464
+    },
+    "two_hop_size": {
+      "avg_major_faults": 18.94,
+      "max_resident_fraction_after_evict": 0.0,
+      "max_us": 18228.632,
+      "mean_us": 3080.6416299999996,
+      "n": 100,
+      "p50_us": 1261.289,
+      "p95_us": 11146.941,
+      "p99_us": 17837.492
+    }
+  },
+  "entries": 69362378,
+  "graph": "lj",
+  "madv_random": false,
+  "n": 3997962,
+  "prefetch": false,
+  "threads_tput": 32,
+  "tput_cold": {
+    "bidir_bfs_path": {
+      "qps": 4063.466759059065,
+      "queries": 400,
+      "threads": 32
+    },
+    "neighbors": {
+      "qps": 83768.39145505444,
+      "queries": 3000,
+      "threads": 32
+    },
+    "two_hop_size": {
+      "qps": 16961.392055368768,
+      "queries": 1000,
+      "threads": 32
+    }
+  },
+  "tput_warm": {},
+  "warm": {}
+}

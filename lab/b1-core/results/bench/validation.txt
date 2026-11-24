@@ -1,0 +1,10 @@
+lj plain identical_to_reference=1
+lj budget0.25GB identical_to_reference=1
+lj pigz-pipe identical_to_reference=1
+lj gz-inprocess identical_to_reference=1
+orkut plain identical_to_reference=1
+orkut budget0.25GB identical_to_reference=1
+orkut pigz-pipe identical_to_reference=1
+orkut gz-inprocess identical_to_reference=1
+friendster budget8GB identical_to_reference=1
+{"cmd":"verify","content_hash":"c370f7979399e256","entries":3612134270,"graph":"/home/tux/graphlab/exp/b1-core/tmp/bench/friendster","ids_strictly_increasing":true,"loadavg_1m_at_end":20.06,"m_undirected":1806067135,"max_degree":5214,"n":65608366,"ok":true,"pair_hash":"43873fa3880fec9d","symmetric":true,"violations":0}

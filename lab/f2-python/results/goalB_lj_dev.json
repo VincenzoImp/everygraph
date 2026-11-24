@@ -1,0 +1,75 @@
+{
+ "csr": "/home/tux/graphlab/data/csr/lj",
+ "threads": 3,
+ "python": "3.13.5",
+ "zero_copy": {
+  "offsets_view_writeable": false,
+  "neighbors_view_is_into_mmap": true,
+  "pagerank_numpy_ptr_equals_rust_vec_ptr": true,
+  "pyarrow_from_capsule_same_buffer": true,
+  "numpy_from_pyarrow_same_buffer": true,
+  "polars_series_same_buffer": true,
+  "pyarrow_recordbatch_same_buffers": true,
+  "polars_df_same_buffers": true,
+  "pandas_arrowdtype_same_buffers": true,
+  "pandas_numpy_df_copy_false_same_buffer": true,
+  "table_wrap_times_s": {
+   "pagerank+ids_compute": 1.0848124318290502,
+   "pa.record_batch": 0.0005300610791891813,
+   "pl.from_arrow": 0.0014486080035567284,
+   "to_pandas(ArrowDtype)": 0.004420865094289184
+  },
+  "top5_by_pagerank_polars": [
+   {
+    "node": 9766,
+    "pagerank": 0.00018756350744586004
+   },
+   {
+    "node": 9765,
+    "pagerank": 0.00017314799785564592
+   },
+   {
+    "node": 447075,
+    "pagerank": 7.551521148280166e-05
+   },
+   {
+    "node": 4435,
+    "pagerank": 7.087771633607796e-05
+   },
+   {
+    "node": 2806,
+    "pagerank": 6.467959116915286e-05
+   }
+  ]
+ },
+ "call_overhead": {
+  "python_for_loop_empty_ns": 3.7703500129282475,
+  "g.noop(v)_ns": 28.302459977567196,
+  "g.degree_of(v)_ns": 34.03262002393603,
+  "g.neighbors(v)_zero_copy_numpy_view_ns": 61.67289102450014,
+  "g.neighbors_list(v)_copy_to_pylist_ns": 322.9073458351195,
+  "numpy_slice_tg[off[v]:off[v+1]]_ns": 233.72407536953688,
+  "dict_of_dict_adj[v]_ns(baseline nx-like)": null,
+  "neighbors_batch_200k_nodes_ns_per_node": 78.91041459515691,
+  "neighbors_batch_total_entries": 3478567
+ },
+ "gil": {
+  "pagerank_in_thread_s": 2.6028115849476308,
+  "main_thread_loop_iters_during": 32113140,
+  "main_thread_iters_per_s_during": 12337865.785489088,
+  "main_thread_iters_per_s_idle": 21352182,
+  "released": true
+ },
+ "parallel": {
+  "py_pagerank20_t1_s": 3.856568553019315,
+  "py_wcc_t1_s": 0.152354832040146,
+  "py_pagerank20_t3_s": 1.3342791970353574,
+  "py_wcc_t3_s": 0.09582594805397093,
+  "native_pagerank20_t1_s": 4.1169,
+  "native_wcc_t1_s": 0.1775,
+  "n_components": 1,
+  "native_pagerank20_t3_s": 1.0703,
+  "native_wcc_t3_s": 0.0616
+ },
+ "peak_rss_mb": 975.8125
+}

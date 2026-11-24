@@ -1,0 +1,47 @@
+{
+  "avg_key_bytes": 42.0,
+  "batch": {
+    "extrapolated_s_for_3.6e9_endpoint_lookups": 61.33153824,
+    "mlookups_per_s": 58.69737011833343,
+    "queries": 5000000,
+    "s": 0.085182692,
+    "threads": 32
+  },
+  "build": {
+    "build_s": 9.096535206,
+    "peak_extra_rss_mb": 3200.00390625,
+    "rss_after_mb_minus_keys": 3200.00390625,
+    "threads": 1
+  },
+  "disk_bytes": 0,
+  "disk_bytes_per_key": 0.0,
+  "files": {},
+  "fwd_cold": null,
+  "fwd_semicold_last2000_of_6000": null,
+  "fwd_warm": {
+    "max_us": 12.172,
+    "mean_us": 0.6224811200000554,
+    "n": 200000,
+    "p50_us": 0.581,
+    "p95_us": 0.972,
+    "p99_us": 1.263
+  },
+  "fwd_warm_loop_ns": 214.96095,
+  "gen_s": 1.69256709,
+  "ingest_map": null,
+  "kind": "eth",
+  "method": "hash",
+  "n": 65000000,
+  "note": "latency per op incl ~20-30ns Instant overhead; cold = madvise+fadvise DONTNEED before each op, MADV_RANDOM",
+  "prefix": null,
+  "resident_after_warm": [],
+  "rev_cold": null,
+  "rev_warm": {
+    "max_us": 1701.271,
+    "mean_us": 0.4099169500000756,
+    "n": 200000,
+    "p50_us": 0.36,
+    "p95_us": 0.651,
+    "p99_us": 0.812
+  }
+}

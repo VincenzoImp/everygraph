@@ -1,0 +1,91 @@
+{
+  "avg_key_bytes": 42.67197,
+  "batch": {
+    "extrapolated_s_for_3.6e9_endpoint_lookups": 1213.2065167199999,
+    "mlookups_per_s": 2.9673431113219584,
+    "queries": 5000000,
+    "s": 1.685009051,
+    "threads": 4
+  },
+  "build": {
+    "build_s": 1.703028626,
+    "peak_extra_rss_mb": 39.21875,
+    "rss_after_mb_minus_keys": 0.04296875,
+    "sort_s": 0.851014709,
+    "threads": "sort 4, encode 1"
+  },
+  "disk_bytes": 73734644,
+  "disk_bytes_per_key": 18.433661,
+  "files": {
+    "fc.bin": 39734644,
+    "fc.blk.u64": 2000000,
+    "id2rank.u32": 16000000,
+    "rank2id.u32": 16000000
+  },
+  "fwd_cold": {
+    "max_resident_fraction_after_evict": 0.0,
+    "max_us": 4212.316,
+    "mean_us": 795.4633999999999,
+    "n": 300,
+    "p50_us": 792.812,
+    "p95_us": 1017.182,
+    "p99_us": 1123.961
+  },
+  "fwd_semicold_last2000_of_6000": {
+    "max_us": 373.758,
+    "mean_us": 41.5119325,
+    "n": 2000,
+    "p50_us": 3.316,
+    "p95_us": 149.72,
+    "p99_us": 196.217
+  },
+  "fwd_warm": {
+    "max_us": 182.842,
+    "mean_us": 1.420345065000198,
+    "n": 200000,
+    "p50_us": 1.402,
+    "p95_us": 1.934,
+    "p99_us": 2.234
+  },
+  "fwd_warm_loop_ns": 1421.411055,
+  "gen_s": 0.096905163,
+  "ingest_map": null,
+  "kind": "user",
+  "method": "fc",
+  "n": 4000000,
+  "note": "latency per op incl ~20-30ns Instant overhead; cold = madvise+fadvise DONTNEED before each op, MADV_RANDOM",
+  "prefix": {
+    "avg_hits": 49.735,
+    "lat": {
+      "max_us": 2.745,
+      "mean_us": 1.501679999999999,
+      "n": 200,
+      "p50_us": 1.473,
+      "p95_us": 2.154,
+      "p99_us": 2.645
+    },
+    "limit": 100
+  },
+  "resident_after_warm": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rev_cold": {
+    "max_us": 248.154,
+    "mean_us": 152.76822666666675,
+    "n": 300,
+    "p50_us": 150.351,
+    "p95_us": 179.286,
+    "p99_us": 199.223
+  },
+  "rev_warm": {
+    "max_us": 156.252,
+    "mean_us": 0.37687317000003184,
+    "n": 200000,
+    "p50_us": 0.351,
+    "p95_us": 0.621,
+    "p99_us": 0.752
+  }
+}

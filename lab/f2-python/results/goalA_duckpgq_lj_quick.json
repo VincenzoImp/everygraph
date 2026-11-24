@@ -1,0 +1,111 @@
+{
+ "engine": "DuckDB+DuckPGQ",
+ "version": "duckdb 1.3.2, duckpgq community",
+ "graph": "lj",
+ "load_s": 0.9928765660151839,
+ "disk_mb": 209.465344,
+ "threads": 3,
+ "storage": "on-disk DuckDB tables; edges stored both directions (69.4M rows, sorted by src); PGQ patterns directed ->",
+ "neighbors_sql": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.4547454882413149,
+  "p90_ms": 0.4860998596996069
+ },
+ "neighbors": {
+  "n": 2,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 2.8923575300723314,
+  "p90_ms": 3.6169581580907106
+ },
+ "neighbors_note": "PGQ MATCH (first KP inputs); neighbors_sql = plain SQL point lookup",
+ "hop2_sql": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 5.263965460471809,
+  "p90_ms": 15.435928013175726
+ },
+ "hop2": {
+  "n": 2,
+  "timeouts": 2,
+  "errors": 0,
+  "median_ms": 10000.0,
+  "p90_ms": 10000.0
+ },
+ "hop2_note": "PGQ ->{1,2} (first KP inputs); hop2_sql = 2 self-joins",
+ "hop3": {
+  "n": 2,
+  "timeouts": 2,
+  "errors": 0,
+  "median_ms": 10000.0,
+  "p90_ms": 10000.0
+ },
+ "hop3_note": "PGQ ANY SHORTEST ->{1,3} (first KP inputs)",
+ "hop3_sql": {
+  "n": 15,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 110.74212705716491,
+  "p90_ms": 135.5762060265988
+ },
+ "pagerank_s": 20.009487693896517,
+ "pagerank_out": [
+  [
+   3997962,
+   0.0001875618799777723
+  ]
+ ],
+ "degree_dist_s": 0.4581970900762826,
+ "degree_dist_out": [
+  [
+   75,
+   3827
+  ],
+  [
+   135,
+   779
+  ],
+  [
+   62,
+   5858
+  ]
+ ],
+ "sp": {
+  "n": 0,
+  "oom": true
+ },
+ "sp_note": "ANY SHORTEST ->* point-to-point was OOM-killed (>6 GB cgroup) on the first lj pair; skipped (DUCKPGQ_OOM_STAGES=1 to retry)",
+ "wcc_s": null,
+ "wcc_err": "weakly_connected_component OOM-killed (>6 GB cgroup) on lj; skipped",
+ "check": {
+  "neighbors_sql": {
+   "checked": 50,
+   "mismatches": 0
+  },
+  "neighbors": {
+   "checked": 2,
+   "mismatches": 0
+  },
+  "hop2_sql": {
+   "checked": 50,
+   "mismatches": 0
+  },
+  "hop2": {
+   "checked": 0,
+   "mismatches": 0
+  },
+  "hop3": {
+   "checked": 0,
+   "mismatches": 0
+  },
+  "hop3_sql": {
+   "checked": 15,
+   "mismatches": 0
+  }
+ },
+ "quick": true,
+ "peak_rss_mb": 4508.51953125
+}

@@ -1,0 +1,14 @@
+{
+  "arcs": 117185083,
+  "csc_extra_bytes": 493319868,
+  "csc_extra_bytes_per_arc": 4.209749699968212,
+  "csr_bytes": 493319868,
+  "graph": "work/csr/orkut",
+  "load_warm_s": 0.053419854,
+  "n": 3072441,
+  "note": "CSC (in-adjacency) doubles topology bytes: (n+1)*8 + 4*m extra; transpose = count+prefix+scatter+sort",
+  "orient_s": 0.078529695,
+  "threads": 32,
+  "transpose_csc_s": 0.50992636,
+  "write_s": 0.0
+}

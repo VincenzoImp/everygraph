@@ -1,0 +1,5 @@
+2026-11-24 14:50:51 OMP_NUM_THREADS=1
+2026-11-24 14:50:51 Loading graph data/lj.mtx ...
+2026-11-24 14:50:54 order: 3997962 size: 69362378 [directed] {}
+{001 threads} -> {0002835.4ms, 0000000.1ms mark, 0000151.4ms init, 0002635.8ms first, 0002126.2ms move, 0000536.1ms aggr, 0011 iters, 0004 passes, 0.710124774 modularity} louvainStaticOmp
+

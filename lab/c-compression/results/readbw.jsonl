@@ -1,0 +1,6 @@
+{"GBps":7.26012864206541,"bytes":937480664,"file":"enc/orkut/raw.bin","secs":0.12912728,"threads":6}
+{"GBps":5.530730487401621,"bytes":937480664,"file":"enc/orkut/raw.bin","secs":0.16950395,"threads":32}
+{"GBps":7.4594780571622445,"bytes":4796043869,"file":"enc/twsym/svb.bin","secs":0.642946307,"threads":6}
+{"GBps":5.792907974322786,"bytes":4796043869,"file":"enc/twsym/svb.bin","secs":0.827916461,"threads":32}
+{"GBps":5.544639652380652,"bytes":937480664,"file":"enc/orkut/raw.bin","secs":0.169078736,"threads":32}
+{"GBps":5.582140900588054,"bytes":9620104368,"file":"enc/twsym/raw.bin","secs":1.7233718279999999,"threads":32}

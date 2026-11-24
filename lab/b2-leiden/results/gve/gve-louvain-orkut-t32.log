@@ -1,0 +1,5 @@
+2026-11-24 13:44:52 OMP_NUM_THREADS=32
+2026-11-24 13:44:52 Loading graph /home/tux/graphlab/exp/a-baselines/data/orkut.mtx ...
+2026-11-24 13:45:11 order: 3072441 size: 234370166 [directed] {}
+{032 threads} -> {0002520.4ms, 0000008.6ms mark, 0000079.9ms init, 0002110.9ms first, 0000726.1ms move, 0001478.7ms aggr, 0008 iters, 0004 passes, 0.659367346 modularity} louvainStaticOmp
+

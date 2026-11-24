@@ -1,0 +1,10 @@
+orkut bv7: bvs bv7 bpe=15.41 cold=240M rewarm=287M
+orkut bv0: bvs bv0 bpe=15.87 cold=280M rewarm=477M
+twsym svb: svb svb bpe=16.11 cold=1766M rewarm=4210M
+twsym bp: bp bp bpe=17.07 cold=1535M rewarm=2599M
+twsym bv7: bvs bv7 bpe=13.92 cold=207M rewarm=219M
+twsym bv0: bvs bv0 bpe=14.37 cold=478M rewarm=526M
+twsym8g bv7: bvs bv7 bpe=13.92 cold=194M rewarm=211M
+twsym8g bv0: bvs bv0 bpe=14.37 cold=500M rewarm=536M
+twsym8g svb: svb svb bpe=16.11 cold=2670M rewarm=6437M
+DEV2 DONE

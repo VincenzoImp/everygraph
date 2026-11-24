@@ -1,0 +1,6 @@
+2026-11-24 14:51:14 OMP_NUM_THREADS=1
+2026-11-24 14:51:14 Loading graph data/lj.mtx ...
+2026-11-24 14:51:17 order: 3997962 size: 69362378 [directed] {}
+{0002867.1ms, 0000000.1ms mark, 0000152.2ms init, 0002666.1ms firstpass, 0002152.9ms locmove, 0000000.0ms refine, 0000538.6ms aggr, 3.334e+05 aff, 0011 iters, 004 passes, 0.710124774 modularity, 33/8049 disconnected} louvainStaticOmp
+{0004436.0ms, 0000000.1ms mark, 0000152.3ms init, 0004035.2ms firstpass, 0002289.2ms locmove, 0001276.1ms refine, 0000683.9ms aggr, 2.263e+06 aff, 0019 iters, 005 passes, 0.712397524 modularity, 0/7374 disconnected} leidenStaticOmp
+

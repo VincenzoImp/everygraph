@@ -1,0 +1,6 @@
+2026-11-24 13:40:18 OMP_NUM_THREADS=32
+2026-11-24 13:40:18 Loading graph /home/tux/graphlab/exp/a-baselines/data/lj.mtx ...
+2026-11-24 13:40:26 order: 3997962 size: 69362378 [directed] {}
+{0002032.8ms, 0000011.9ms mark, 0000068.5ms init, 0001273.1ms firstpass, 0000665.3ms locmove, 0000000.0ms refine, 0000931.0ms aggr, 3.764e+05 aff, 0027 iters, 004 passes, 0.719425680 modularity, 53/7838 disconnected} louvainStaticOmp
+{0002346.5ms, 0000007.6ms mark, 0000047.1ms init, 0000988.0ms firstpass, 0000671.0ms locmove, 0000387.9ms refine, 0000794.2ms aggr, 2.284e+06 aff, 0039 iters, 006 passes, 0.727589169 modularity, 0/4507 disconnected} leidenStaticOmp
+

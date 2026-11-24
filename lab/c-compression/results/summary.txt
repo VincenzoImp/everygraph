@@ -1,0 +1,26 @@
+== warm bake-off (32 threads unless noted; machine shared/noisy)
+graph        codec                     bits/e scan1T Me/s scan32T Me/s  PR it s  PR Me/s rand ns/list  ns/edge
+orkut        raw u32 CSR                32.84        4715        12734    0.026     8868          113      1.5
+orkut        delta+LEB128               16.29         425         6484    0.078     2992          538      7.1
+orkut        delta+StreamVByte          16.66        1757         9773    0.051     4640          369      4.8
+orkut        delta+BP128/BP32           17.94         966         6191    0.053     4408          424      5.6
+orkut        zstd-3 64KiB chunks        23.07         372         3667    0.105     2242        39254    521.6
+orkut        lz4 64KiB chunks           29.90        1224        10484    0.044     5379        10140    134.7
+orkut        BV w7 r3 (default)         15.41          94         1079    0.177     1325         1713     22.5
+orkut        BV w0 (no refs)            15.87         127         1663    0.240      976         1150     15.1
+orkut        BV w7 r3 dyn-dispatch      15.41         102         1243    0.223     1051         2186     28.7
+uk-2005      raw u32 CSR                34.70        3843        12347    0.128     7317           94      4.0
+uk-2005      delta+LEB128                9.49        1261        21338    0.095     9813          271     11.4
+uk-2005      delta+StreamVByte          11.43        1400        21744    0.084    11087          273     11.5
+uk-2005      delta+BP128/BP32           10.09        1302        21317    0.089    10575          258     10.9
+uk-2005      zstd-3 64KiB chunks         2.77         849        15615    0.110     8547        17392    707.7
+uk-2005      lz4 64KiB chunks            3.87         992        20392    0.110     8535        13658    555.7
+uk-2005      BV w7 r3 (default)          2.11         282         4221    0.276     3397          768     32.3
+uk-2005      BV w0 (no refs)             3.57         237         2998    0.363     2580          474     19.9
+twitter-sym  raw u32 CSR                33.11        5055        13623    0.833     2887           93      1.3
+twitter-sym  delta+LEB128               15.38         504        11080    0.881     2729          383      5.3
+twitter-sym  delta+StreamVByte          16.11        1756        21688    0.854     2815          300      4.1
+twitter-sym  delta+BP128/BP32           17.07        1025        21582    0.859     2800          334      4.6
+twitter-sym  BV w7 r3 (default)         13.92         120          990    2.922      823         1416     19.4
+twitter-sym  BV w0 (no refs)            14.37         136         2692    1.405     1712          693      9.5
+twitter-dir  BV (LAW file)              14.44         119          698    2.406      610         1015     20.2

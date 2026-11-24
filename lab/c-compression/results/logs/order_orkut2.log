@@ -1,0 +1,6 @@
+csr2bv ord/orkut/rand.bv7 bits=4688381013 bits/arc=20.004 6.186800034s
+csr2bv ord/orkut/deg.bv7 bits=4159284620 bits/arc=17.747 15.463762447s
+csr2bv ord/orkut/bfs.bv7 bits=3510470655 bits/arc=14.978 5.820996464s
+csr2bv ord/orkut/lp.bv7 bits=3477639191 bits/arc=14.838 4.182052984s
+perm done 1.555388474s
+csr2bv ord/orkut/llp.bv7 bits=2653899069 bits/arc=11.324 5.325337985s

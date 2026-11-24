@@ -1,0 +1,4 @@
+Random:      19.037515398083087 ns/arc
+Random:      16.020317572536857 ns/arc
+Random:       15.83730948145864 ns/arc
+2026-11-24 11:31:06.111 1s964ms INFO [ThreadId(1)] webgraph_cli - The command took 1.965 seconds (1.964676257s)

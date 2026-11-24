@@ -1,0 +1,84 @@
+{
+  "avg_key_bytes": 20.0,
+  "batch": {
+    "extrapolated_s_for_3.6e9_endpoint_lookups": 70.81306758,
+    "mlookups_per_s": 50.838074426488504,
+    "queries": 20000000,
+    "s": 0.393405931,
+    "threads": 32
+  },
+  "build": {
+    "build_s": 19.420199581,
+    "extra_disk_bytes": 163064993,
+    "mphf_bits_per_key": 2.609039888,
+    "mphf_build_s": 10.763040551,
+    "mphf_bytes": 163064993,
+    "peak_extra_rss_mb": 9614.51953125,
+    "rss_after_mb_minus_keys": 1317.78515625,
+    "threads": 32
+  },
+  "disk_bytes": 16163065001,
+  "disk_bytes_per_key": 32.326130002,
+  "files": {
+    "pool_id.bin": 10000000000,
+    "pool_id.off.u64": 4000000008,
+    "slot2id.u32": 2000000000
+  },
+  "fwd_cold": {
+    "max_us": 2395.649,
+    "mean_us": 276.6205733333333,
+    "n": 300,
+    "p50_us": 267.47,
+    "p95_us": 316.131,
+    "p99_us": 360.143
+  },
+  "fwd_semicold_last2000_of_6000": {
+    "max_us": 408.594,
+    "mean_us": 202.64995049999968,
+    "n": 2000,
+    "p50_us": 199.884,
+    "p95_us": 240.289,
+    "p99_us": 287.998
+  },
+  "fwd_warm": {
+    "max_us": 11.853,
+    "mean_us": 0.589911175000059,
+    "n": 200000,
+    "p50_us": 0.561,
+    "p95_us": 0.831,
+    "p99_us": 0.922
+  },
+  "fwd_warm_loop_ns": 642.3590499999999,
+  "gen_s": 0.696790203,
+  "ingest_map": {
+    "mlookups_per_s_id_is_slot": 132.27073462312865,
+    "mlookups_per_s_noverify_slot2id": 133.4701624949177,
+    "threads": 32
+  },
+  "kind": "ethbin",
+  "method": "mphf",
+  "n": 500000000,
+  "note": "latency per op incl ~20-30ns Instant overhead; cold = madvise+fadvise DONTNEED before each op, MADV_RANDOM",
+  "prefix": null,
+  "resident_after_warm": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rev_cold": {
+    "max_us": 1904.02,
+    "mean_us": 69.45526666666666,
+    "n": 300,
+    "p50_us": 62.938,
+    "p95_us": 75.502,
+    "p99_us": 102.422
+  },
+  "rev_warm": {
+    "max_us": 16.911,
+    "mean_us": 0.3395480350001314,
+    "n": 200000,
+    "p50_us": 0.31,
+    "p95_us": 0.571,
+    "p99_us": 0.651
+  }
+}

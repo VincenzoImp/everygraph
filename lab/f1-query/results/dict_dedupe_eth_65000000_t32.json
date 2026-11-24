@@ -1,0 +1,11 @@
+{
+  "distinct": 41087151,
+  "kind": "eth",
+  "method": "dedupe",
+  "mkeys_per_s": 15.224797888465753,
+  "n_stream": 65000000,
+  "note": "pass-1 of ingest: hash-partitioned (256 shards) parallel dedupe + dense id assignment, all in RAM",
+  "peak_extra_rss_mb": 1503.62109375,
+  "s": 4.2693506,
+  "threads": 32
+}

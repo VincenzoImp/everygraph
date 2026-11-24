@@ -1,0 +1,6 @@
+2026-11-24 15:11:59 OMP_NUM_THREADS=1
+2026-11-24 15:11:59 Loading graph data/orkut.mtx ...
+2026-11-24 15:12:10 order: 3072441 size: 234370166 [directed] {}
+{0005886.0ms, 0000000.1ms mark, 0000411.7ms init, 0005471.7ms firstpass, 0004457.2ms locmove, 0000000.0ms refine, 0001006.6ms aggr, 9.666e+05 aff, 0006 iters, 003 passes, 0.647657717 modularity, 8/50 disconnected} louvainStaticOmp
+{0008961.6ms, 0000000.1ms mark, 0000409.4ms init, 0008373.9ms firstpass, 0004523.5ms locmove, 0002871.4ms refine, 0001132.1ms aggr, 2.718e+06 aff, 0015 iters, 005 passes, 0.649160645 modularity, 0/45 disconnected} leidenStaticOmp
+

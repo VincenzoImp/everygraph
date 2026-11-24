@@ -1,0 +1,65 @@
+Received notification from DBMS server: <GqlStatusObject gql_status='01N03', status_description='warn: procedure field deprecated. The field `schema` of procedure gds.graph.drop() is deprecated.', position=<SummaryInputPosition line=1, column=1, offset=0>, raw_classification='DEPRECATION', classification=<NotificationClassification.DEPRECATION: 'DEPRECATION'>, raw_severity='WARNING', severity=<NotificationSeverity.WARNING: 'WARNING'>, diagnostic_record={'_classification': 'DEPRECATION', '_severity': 'WARNING', '_position': {'offset': 0, 'line': 1, 'column': 1}, 'OPERATION': '', 'OPERATION_CODE': '0', 'CURRENT_SCHEMA': '/'}> for query: "CALL gds.graph.drop('g', false)"
+{
+ "engine": "Neo4j Community",
+ "version": "5.26.0",
+ "graph": "lj",
+ "load_s": 45.7,
+ "index_s": 5.33188134804368,
+ "disk_mb": 1406.0,
+ "storage": "neo4j-admin import (offline, 3 threads), each edge once, undirected pattern (a)--(b); heap 3g pagecache 1g; queries over bolt (client-server, localhost)",
+ "threads": 3,
+ "neighbors": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 2.580960397608578,
+  "p90_ms": 5.702601978555322
+ },
+ "hop2": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 11.427868506871164,
+  "p90_ms": 76.23372180387378
+ },
+ "hop3": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 24.891296518035233,
+  "p90_ms": 263.4726210962981
+ },
+ "sp": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 6.380439503118396,
+  "p90_ms": 15.553210861980915
+ },
+ "gds_project_s": 5.011481842957437,
+ "pagerank_s": 9.988865046063438,
+ "pagerank_note": "GDS 2.13.2 pageRank.stats, 20 iterations fixed, concurrency 3 (excludes projection), iters=[[20]]",
+ "wcc_s": 0.4789639508817345,
+ "n_components": 1,
+ "server_peak_rss_mb": 4743.5625,
+ "check": {
+  "neighbors": {
+   "checked": 200,
+   "mismatches": 0
+  },
+  "hop2": {
+   "checked": 200,
+   "mismatches": 0
+  },
+  "hop3": {
+   "checked": 50,
+   "mismatches": 0
+  },
+  "sp": {
+   "checked": 50,
+   "mismatches": 0
+  }
+ },
+ "quick": false,
+ "peak_rss_mb": 135.48046875
+}

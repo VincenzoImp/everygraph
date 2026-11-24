@@ -1,0 +1,68 @@
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "build_from_arrays", "seconds": 7.824, "peak_rss_mb": 2155}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "pagerank_20it", "seconds": 1.396, "peak_rss_mb": 2155, "iterations": 20}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "components", "seconds": 0.508, "peak_rss_mb": 2155, "components": 1}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "parallel_components", "seconds": 0.169, "peak_rss_mb": 2155, "components": 1}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "kcore", "seconds": 0.26, "peak_rss_mb": 2155, "max_core": 360}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "bfs_hub", "seconds": 0.851, "peak_rss_mb": 2155}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "triangles", "seconds": 4.795, "peak_rss_mb": 2155}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "plm", "seconds": 4.884, "peak_rss_mb": 3503, "modularity": 0.74854, "communities": 3005}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "plm_refine", "seconds": 7.576, "peak_rss_mb": 3545, "modularity": 0.763496, "communities": 2482}
+{"tool": "networkit", "graph": "lj", "threads": 32, "task": "parallel_leiden", "seconds": 6.025, "peak_rss_mb": 4793, "modularity": 0.768787, "communities": 2369}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "build_from_arrays", "seconds": 7.818, "peak_rss_mb": 2155}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "pagerank_20it", "seconds": 7.202, "peak_rss_mb": 2155, "iterations": 20}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "components", "seconds": 0.51, "peak_rss_mb": 2155, "components": 1}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "parallel_components", "seconds": 0.758, "peak_rss_mb": 2155, "components": 1}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "kcore", "seconds": 1.403, "peak_rss_mb": 2155, "max_core": 360}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "bfs_hub", "seconds": 0.826, "peak_rss_mb": 2155}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "triangles", "seconds": 17.199, "peak_rss_mb": 2155}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "plm", "seconds": 24.816, "peak_rss_mb": 2890, "modularity": 0.716335, "communities": 7681}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "plm_refine", "seconds": 45.721, "peak_rss_mb": 2904, "modularity": 0.72334, "communities": 7660}
+{"tool": "networkit", "graph": "lj", "threads": 1, "task": "parallel_leiden", "seconds": 26.931, "peak_rss_mb": 3016, "modularity": 0.768633, "communities": 2040}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "build_from_arrays", "seconds": 6.648, "peak_rss_mb": 7074}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "pagerank_default", "seconds": 11.136, "peak_rss_mb": 7074}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "components", "seconds": 1.036, "peak_rss_mb": 7074, "components": 1}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "kcore", "seconds": 1.446, "peak_rss_mb": 7074, "max_core": 360}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "bfs_hub", "seconds": 1.05, "peak_rss_mb": 7074}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "triangles", "seconds": 6.437, "peak_rss_mb": 7074}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "multilevel", "seconds": 146.317, "peak_rss_mb": 7074, "modularity": 0.74931, "communities": 1578}
+{"tool": "igraph", "graph": "lj", "threads": 1, "task": "leiden_modularity_2it", "seconds": 41.852, "peak_rss_mb": 7074, "modularity": 0.769479, "communities": 2186}
+{"tool": "scipy", "graph": "lj", "threads": 1, "task": "build_from_arrays", "seconds": 0.047, "peak_rss_mb": 1220}
+{"tool": "scipy", "graph": "lj", "threads": 1, "task": "components", "seconds": 1.449, "peak_rss_mb": 1765, "components": 1}
+{"tool": "scipy", "graph": "lj", "threads": 1, "task": "bfs_hub", "seconds": 1.47, "peak_rss_mb": 2854}
+{"tool": "scipy", "graph": "lj", "threads": 1, "task": "pagerank_20it", "seconds": 3.296, "peak_rss_mb": 2854}
+{"tool": "duckdb", "version": "2.0.1", "graph": "lj", "threads": 32, "task": "ingest_csv_to_sorted_adjacency_parquet", "seconds": 1.91, "steps": {"read_csv": 0.29, "ids": 0.31, "relabel_sym_dedup_sort": 1.32}, "entries": 69362378, "parquet_mb": 190, "peak_rss_mb": 3799}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "build_from_arrays", "seconds": 29.009, "peak_rss_mb": 6668}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "pagerank_20it", "seconds": 2.786, "peak_rss_mb": 6668, "iterations": 20}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "components", "seconds": 0.891, "peak_rss_mb": 6668, "components": 1}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "parallel_components", "seconds": 0.247, "peak_rss_mb": 6668, "components": 1}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "kcore", "seconds": 1.225, "peak_rss_mb": 6668, "max_core": 253}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "bfs_hub", "seconds": 1.38, "peak_rss_mb": 6668}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "triangles", "seconds": 24.045, "peak_rss_mb": 6668}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "plm", "seconds": 6.634, "peak_rss_mb": 8755, "modularity": 0.673083, "communities": 20}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "plm_refine", "seconds": 10.023, "peak_rss_mb": 8759, "modularity": 0.686418, "communities": 18}
+{"tool": "networkit", "graph": "orkut", "threads": 32, "task": "parallel_leiden", "seconds": 9.36, "peak_rss_mb": 10062, "modularity": 0.671957, "communities": 34}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "build_from_arrays", "seconds": 29.81, "peak_rss_mb": 6668}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "pagerank_20it", "seconds": 17.742, "peak_rss_mb": 6668, "iterations": 20}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "components", "seconds": 0.89, "peak_rss_mb": 6668, "components": 1}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "parallel_components", "seconds": 1.663, "peak_rss_mb": 6668, "components": 1}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "kcore", "seconds": 2.634, "peak_rss_mb": 6668, "max_core": 253}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "bfs_hub", "seconds": 1.393, "peak_rss_mb": 6668}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "triangles", "seconds": 145.742, "peak_rss_mb": 6668}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "plm", "seconds": 44.243, "peak_rss_mb": 8739, "modularity": 0.659357, "communities": 42}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "plm_refine", "seconds": 84.721, "peak_rss_mb": 8739, "modularity": 0.661864, "communities": 42}
+{"tool": "networkit", "graph": "orkut", "threads": 1, "task": "parallel_leiden", "seconds": 50.957, "peak_rss_mb": 8965, "modularity": 0.688197, "communities": 35}
+{"tool": "igraph", "graph": "orkut", "threads": 1, "task": "build_from_arrays", "seconds": 30.188, "peak_rss_mb": 23628}
+{"tool": "igraph", "graph": "orkut", "threads": 1, "task": "pagerank_default", "seconds": 32.029, "peak_rss_mb": 23628}
+{"tool": "igraph", "graph": "orkut", "threads": 1, "task": "components", "seconds": 1.713, "peak_rss_mb": 23628, "components": 1}
+{"tool": "igraph", "graph": "orkut", "threads": 1, "task": "kcore", "seconds": 4.002, "peak_rss_mb": 23628, "max_core": 253}
+{"tool": "igraph", "graph": "orkut", "threads": 1, "task": "bfs_hub", "seconds": 1.829, "peak_rss_mb": 23628}
+{"tool": "igraph", "graph": "orkut", "threads": 1, "task": "multilevel", "seconds": 459.854, "peak_rss_mb": 23628, "modularity": 0.674583, "communities": 37}
+{"tool": "igraph", "graph": "orkut", "threads": 1, "task": "leiden_modularity_2it", "seconds": 126.471, "peak_rss_mb": 23628, "modularity": 0.692422, "communities": 34}
+{"tool": "scipy", "graph": "orkut", "threads": 1, "task": "build_from_arrays", "seconds": 0.142, "peak_rss_mb": 3713}
+{"tool": "scipy", "graph": "orkut", "threads": 1, "task": "components", "seconds": 3.696, "peak_rss_mb": 5501, "components": 1}
+{"tool": "scipy", "graph": "orkut", "threads": 1, "task": "bfs_hub", "seconds": 3.837, "peak_rss_mb": 9101}
+{"tool": "scipy", "graph": "orkut", "threads": 1, "task": "pagerank_20it", "seconds": 7.772, "peak_rss_mb": 9101}
+{"tool": "duckdb", "version": "2.0.1", "graph": "orkut", "threads": 32, "task": "ingest_csv_to_sorted_adjacency_parquet", "seconds": 5.37, "steps": {"read_csv": 0.76, "ids": 0.48, "relabel_sym_dedup_sort": 4.14}, "entries": 234370166, "parquet_mb": 644, "peak_rss_mb": 8425}
+{"tool": "rustworkx", "graph": "lj", "threads": 1, "task": "build_from_arrays", "seconds": 10.494, "peak_rss_mb": 6211}
+{"tool": "rustworkx", "graph": "lj", "threads": 1, "task": "components", "seconds": 3.693, "peak_rss_mb": 6211, "components": 1}
+{"tool": "rustworkx", "graph": "lj", "threads": 1, "task": "kcore", "seconds": 16.248, "peak_rss_mb": 6211}

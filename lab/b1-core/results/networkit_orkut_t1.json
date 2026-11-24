@@ -1,0 +1,76 @@
+{
+ "dataset": "orkut",
+ "n": 3072441,
+ "m_undirected": 117185083,
+ "threads": 1,
+ "nk_max_threads": 1,
+ "cpu_affinity_count": 1,
+ "pagerank_seconds_best": 18.30221602600068,
+ "pagerank_seconds_all": [
+  18.30221602600068,
+  18.74706482887268,
+  22.574052272131667
+ ],
+ "pagerank_iterations": [
+  20,
+  20,
+  20
+ ],
+ "pagerank_settings": {
+  "damp": 0.85,
+  "tol": 1e-300,
+  "maxIterations": 20,
+  "norm": "L2_NORM (library default; only used for the tol stop test, which is disabled by tol=1e-300)",
+  "normalized": false,
+  "distributeSinks": "default (NoSinkHandling)"
+ },
+ "cc_seconds_best": 0.8945770051795989,
+ "cc_seconds_all": [
+  0.9143069079145789,
+  0.8945770051795989,
+  0.9212012961506844
+ ],
+ "parallel_cc_seconds_best": 1.67042790283449,
+ "parallel_cc_seconds_all": [
+  1.7557172540109605,
+  1.67042790283449,
+  1.9845237049739808
+ ],
+ "n_components": 1,
+ "n_components_parallel": 1,
+ "build_seconds": 35.47507444699295,
+ "build_seconds_numpy_half": 1.0373777740169317,
+ "build_seconds_graphfromcoo": 34.43551054596901,
+ "rss_after_build_gb": 2.8017616271972656,
+ "peak_rss_gb": 4.547515869140625,
+ "networkit_version": "11.3",
+ "numpy_version": "2.5.5",
+ "top5": [
+  [
+   42395,
+   0.00011153794581929051
+  ],
+  [
+   43607,
+   9.99647945728131e-05
+  ],
+  [
+   43030,
+   8.82778137273399e-05
+  ],
+  [
+   43295,
+   8.701088623286529e-05
+  ],
+  [
+   119081,
+   8.578161514815733e-05
+  ]
+ ],
+ "pr_sum": 1.0,
+ "loadavg_at_end": [
+  5.43994140625,
+  4.62060546875,
+  2.25048828125
+ ]
+}

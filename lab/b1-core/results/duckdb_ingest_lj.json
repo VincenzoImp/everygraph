@@ -1,0 +1,32 @@
+{
+ "dataset": "lj",
+ "seconds": 3.6013045818544924,
+ "stage_seconds": {
+  "read_csv": 1.1285897139459848,
+  "ids": 0.49086406687274575,
+  "relabel_sym_dedup_sort_write": 1.9549481740687042
+ },
+ "n": 3997962,
+ "entries": 69362378,
+ "expected_n": 3997962,
+ "expected_entries": 69362378,
+ "counts_match": true,
+ "threads": 32,
+ "cpu_affinity_count": 32,
+ "memory_limit": "6GB",
+ "duckdb_version": "2.0.1",
+ "output_kind": "parquet file (src UINTEGER, dst UINTEGER; default snappy; rows ordered by src,dst) written by COPY; intermediates (raw, ids) are tables in an on-disk DuckDB file",
+ "output_bytes": 284041199,
+ "workdb_bytes": 113782784,
+ "peak_rss_gb": 2.660480499267578,
+ "loadavg_start": [
+  12.83447265625,
+  7.11376953125,
+  3.3671875
+ ],
+ "loadavg_end": [
+  14.85009765625,
+  7.626953125,
+  3.55322265625
+ ]
+}

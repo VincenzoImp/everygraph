@@ -1,0 +1,4 @@
+Sequential:   8.307950664142076 ns/arc
+Sequential:   8.614975738371873 ns/arc
+Sequential:    9.29908002272421 ns/arc
+2026-11-24 11:31:04.144 38s598ms INFO [ThreadId(1)] webgraph_cli - The command took 38.599 seconds (38.598680302s)

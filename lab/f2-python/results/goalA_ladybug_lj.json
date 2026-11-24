@@ -1,0 +1,73 @@
+{
+ "engine": "LadybugDB",
+ "version": "0.22.3",
+ "graph": "lj",
+ "load_s": 12.102525549009442,
+ "disk_mb": 664.764416,
+ "storage": "on-disk, rel table E stored once (src<dst), queried with undirected pattern -[:E]-; COPY FROM parquet",
+ "threads": 3,
+ "neighbors": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.0898480648174882,
+  "p90_ms": 0.46802498400211334
+ },
+ "hop2": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.6411739159375429,
+  "p90_ms": 13.848044909536839
+ },
+ "hop2_note": "SHORTEST 1..2 (BFS semantics); WALK variant below",
+ "hop2_walk": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 1.332601998001337,
+  "p90_ms": 31.206094892695546
+ },
+ "hop3": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 17.929647932760417,
+  "p90_ms": 73.86602903716266
+ },
+ "sp": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 2549.685140606016,
+  "p90_ms": 6737.47207201086
+ },
+ "degree_dist_s": 2.988565993960947,
+ "degree_dist_nodes": 3997962,
+ "pagerank_s": null,
+ "pagerank_note": "algo extension (page_rank/wcc) installs but fails to load: needs libnetworkit.so from a patched NetworKit (undefined symbol NetworKit::ParallelCoreDecomposition with pip networkit 11.2/11.3)",
+ "check": {
+  "neighbors": {
+   "checked": 200,
+   "mismatches": 0
+  },
+  "hop2": {
+   "checked": 200,
+   "mismatches": 0
+  },
+  "hop2_walk": {
+   "checked": 200,
+   "mismatches": 0
+  },
+  "hop3": {
+   "checked": 50,
+   "mismatches": 0
+  },
+  "sp": {
+   "checked": 50,
+   "mismatches": 0
+  }
+ },
+ "quick": false,
+ "peak_rss_mb": 2735.7578125
+}

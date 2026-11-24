@@ -1,0 +1,90 @@
+{
+  "avg_key_bytes": 20.0,
+  "batch": {
+    "extrapolated_s_for_3.6e9_endpoint_lookups": 865.84817664,
+    "mlookups_per_s": 4.157772802583146,
+    "queries": 5000000,
+    "s": 1.202566912,
+    "threads": 4
+  },
+  "build": {
+    "build_s": 7.982682424,
+    "fst_build_s": 7.182084152,
+    "peak_extra_rss_mb": 61.578125,
+    "rss_after_mb_minus_keys": 22.63671875,
+    "sort_s": 0.80059697,
+    "threads": "sort 4, fst 1"
+  },
+  "disk_bytes": 280745190,
+  "disk_bytes_per_key": 70.1862975,
+  "files": {
+    "fst.map": 168745182,
+    "pool_id.bin": 80000000,
+    "pool_id.off.u64": 32000008
+  },
+  "fwd_cold": {
+    "max_resident_fraction_after_evict": 0.0,
+    "max_us": 1080.24,
+    "mean_us": 431.79614000000015,
+    "n": 300,
+    "p50_us": 408.885,
+    "p95_us": 688.898,
+    "p99_us": 851.562
+  },
+  "fwd_semicold_last2000_of_6000": {
+    "max_us": 465.521,
+    "mean_us": 133.64167900000004,
+    "n": 2000,
+    "p50_us": 119.384,
+    "p95_us": 298.518,
+    "p99_us": 387.144
+  },
+  "fwd_warm": {
+    "max_us": 10.49,
+    "mean_us": 0.7919696999998805,
+    "n": 200000,
+    "p50_us": 0.762,
+    "p95_us": 1.092,
+    "p99_us": 1.283
+  },
+  "fwd_warm_loop_ns": 787.922115,
+  "gen_s": 0.018743385,
+  "ingest_map": null,
+  "kind": "ethbin",
+  "method": "fst",
+  "n": 4000000,
+  "note": "latency per op incl ~20-30ns Instant overhead; cold = madvise+fadvise DONTNEED before each op, MADV_RANDOM",
+  "prefix": {
+    "avg_hits": 1.0,
+    "lat": {
+      "max_us": 5.0,
+      "mean_us": 1.5445250000000001,
+      "n": 200,
+      "p50_us": 1.462,
+      "p95_us": 1.964,
+      "p99_us": 3.717
+    },
+    "limit": 100
+  },
+  "resident_after_warm": [
+    0.13425409000436914,
+    0.7193323776366988,
+    1.0
+  ],
+  "rev_cold": {
+    "max_us": 524.36,
+    "mean_us": 218.73965000000007,
+    "n": 300,
+    "p50_us": 186.96,
+    "p95_us": 370.353,
+    "p99_us": 425.906
+  },
+  "rev_warm": {
+    "max_us": 18399.552,
+    "mean_us": 21.399548904999932,
+    "n": 200000,
+    "p50_us": 0.24,
+    "p95_us": 127.989,
+    "p99_us": 349.704
+  }
+}

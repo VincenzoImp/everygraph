@@ -1,0 +1,77 @@
+{
+ "engine": "DuckDB+DuckPGQ",
+ "version": "duckdb 1.3.2, duckpgq community",
+ "graph": "lj",
+ "load_s": 1.2173101010266691,
+ "disk_mb": 209.465344,
+ "threads": 3,
+ "storage": "on-disk DuckDB tables; edges stored both directions (69.4M rows, sorted by src); PGQ patterns directed ->",
+ "neighbors_sql": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.48421043902635574,
+  "p90_ms": 3.0502420850098133
+ },
+ "neighbors": {
+  "n": 5,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 1.9361998420208693,
+  "p90_ms": 3.0144359916448593
+ },
+ "neighbors_note": "PGQ MATCH (first KP inputs); neighbors_sql = plain SQL point lookup",
+ "hop2_sql": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 4.705877974629402,
+  "p90_ms": 23.852575104683638
+ },
+ "hop2": {
+  "n": 5,
+  "timeouts": 5,
+  "errors": 0,
+  "median_ms": 10000.0,
+  "p90_ms": 10000.0
+ },
+ "hop2_note": "PGQ ->{1,2} (first KP inputs); hop2_sql = 2 self-joins",
+ "hop3": {
+  "n": 5,
+  "timeouts": 5,
+  "errors": 0,
+  "median_ms": 10000.0,
+  "p90_ms": 10000.0
+ },
+ "hop3_note": "PGQ ANY SHORTEST ->{1,3} (first KP inputs)",
+ "hop3_sql": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 100.55752703920007,
+  "p90_ms": 114.32046280242503
+ },
+ "partial": false,
+ "last_stage": "merged runs 1+3 + separate degree_dist run",
+ "quick": false,
+ "peak_rss_mb": 4652.8203125,
+ "degree_dist_s": 2.6572571161668748,
+ "pagerank_s": 7.000708079896867,
+ "pagerank_out": [
+  [
+   3997962,
+   0.0001875608713736541
+  ]
+ ],
+ "pagerank_note": "duckpgq pagerank(g,nodes,edges) table function, from run 1 (independent of the run-1 PGQ parameter bug); process RSS reached 2.3 GB",
+ "wcc_s": null,
+ "wcc_err": "process OOM-killed (cgroup MemoryMax=6G) inside weakly_connected_component in run 1",
+ "sp": {
+  "n": 5,
+  "timeouts": 0,
+  "errors": 0,
+  "oom": true
+ },
+ "sp_note": "ANY SHORTEST ->* point-to-point: process OOM-killed (>6 GB) on the first pair in run 3",
+ "hop2_pgq_run2": "30/30 timed out at 10 s (interrupt took ~14 s each), RSS 4.5 GB"
+}

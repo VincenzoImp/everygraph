@@ -1,0 +1,1 @@
+{"layout":"out/lj-hcl","edges":34681189,"edge_len_mean":0.098427,"edge_len_p50":0.006095,"edge_len_p90":0.429536,"frac_lt_0.001":0.3484,"frac_lt_0.01":0.5324,"frac_lt_0.05":0.7096,"random_pair_mean":0.4356,"random_pair_p50":0.4270,"mean_ratio":0.2260,"median_ratio":0.01427}

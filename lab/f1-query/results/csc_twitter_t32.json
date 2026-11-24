@@ -1,0 +1,14 @@
+{
+  "arcs": 1468365182,
+  "csc_extra_bytes": 6206678576,
+  "csc_extra_bytes_per_arc": 4.226931183117634,
+  "csr_bytes": 6206678576,
+  "graph": "/home/tux/graphlab/data/csr/twitter-dir",
+  "load_warm_s": 0.00041179,
+  "n": 41652230,
+  "note": "CSC (in-adjacency) doubles topology bytes: (n+1)*8 + 4*m extra; transpose = count+prefix+scatter+sort",
+  "orient_s": 9.1e-8,
+  "threads": 32,
+  "transpose_csc_s": 12.288780416,
+  "write_s": 7.477285312
+}

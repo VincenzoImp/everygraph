@@ -1,0 +1,91 @@
+== warm bake-off (32 threads unless noted; machine shared/noisy)
+graph        codec                     bits/e scan1T Me/s scan32T Me/s  PR it s  PR Me/s rand ns/list  ns/edge
+orkut        raw u32 CSR                32.84        4149         5750    0.098     2398          155      2.0
+orkut        delta+LEB128               16.29         417         1665    0.240      978          579      7.6
+orkut        delta+StreamVByte          16.66        1758         5383    0.118     1979          498      6.5
+orkut        delta+BP128/BP32           17.94         934         3373    0.196     1195          637      8.3
+orkut        zstd-3 64KiB chunks        23.07         373         1379    0.231     1014        41251    548.1
+orkut        lz4 64KiB chunks           29.90        1106         3947    0.114     2050        11763    156.3
+orkut        delta+LEB128+zstd3 (64K-edge chunks)   14.92         286         1327    0.221     1059        77055   1023.9
+orkut        BV w7 r3 (default)         15.41         103          417    0.681      344         2255     29.6
+orkut        BV w0 (no refs)            15.87         125          501    0.533      440         1241     16.3
+orkut        BV w7 r3 dyn-dispatch      15.41          57          399    1.064      220         2392     31.4
+uk-2005      raw u32 CSR                34.70        3581         8824    0.187     5005           95      4.0
+uk-2005      delta+LEB128                9.49        1286         4936    0.311     3011          690     29.0
+uk-2005      delta+StreamVByte          11.43        1451         5428    0.294     3183          356     15.0
+uk-2005      delta+BP128/BP32           10.09        1254         4727    0.302     3102          283     11.9
+uk-2005      zstd-3 64KiB chunks         2.77         696         3398    0.423     2214        21839    888.6
+uk-2005      lz4 64KiB chunks            3.87         936         4250    0.351     2665        13149    535.0
+uk-2005      delta+LEB128+zstd3 (64K-edge chunks)    2.37         688         2963    0.401     2333        43838   1783.7
+uk-2005      BV w7 r3 (default)          2.11         229         1055    1.018      920          952     40.0
+uk-2005      BV w0 (no refs)             3.57         240          944    1.150      814          611     25.7
+twitter-sym  delta+StreamVByte          16.11         702         6163    7.277      331          889     10.7
+twitter-sym  delta+BP128/BP32           17.07         520         3175    9.519      253         2519     30.4
+twitter-sym  delta+LEB128               15.38         349         2002    9.099      264         2372     28.6
+twitter-sym  delta+LEB128+zstd3 (64K-edge chunks)   13.46         242         1203    8.259      291       104158   2075.1
+twitter-sym  BV w0 (no refs)            14.37          88          526    7.161      336         1404     16.9
+twitter-sym  BV w7 r3 (default)         13.92          94          183   13.371      180         2851     34.4
+
+== cold scan (cold.jsonl; 32 threads; after posix_fadvise DONTNEED)
+graph        codec                     bits/e     GB  cold Me/s  cold s rescan Me/s resident pages before
+orkut        raw u32 CSR                32.84   0.96       1008    0.23        9038                     0
+orkut        delta+LEB128               16.29   0.48        857    0.27        2007                     0
+orkut        delta+StreamVByte          16.66   0.49       1243    0.19        6761                     0
+orkut        delta+BP128/BP32           17.94   0.53       1002    0.23        3994                     0
+orkut        zstd-3 64KiB chunks        23.07   0.68        618    0.38        1566                     0
+orkut        lz4 64KiB chunks           29.90   0.88        749    0.31        5736                     0
+orkut        delta+LEB128+zstd3 (64K-edge chunks)   14.92   0.44       1101    0.21        1374                     0
+orkut        BV w7 r3 (default)         15.41   0.45        240    0.98         287                     0
+orkut        BV w0 (no refs)            15.87   0.46        280    0.84         477                     0
+twitter-sym  delta+LEB128               15.38   4.62        877    2.74        1276                     0
+twitter-sym  delta+StreamVByte          16.11   4.84       1766    1.36        4210                     0
+twitter-sym  delta+BP128/BP32           17.07   5.13       1535    1.57        2599                     0
+twitter-sym  zstd-3 64KiB chunks        23.23   6.98        751    3.20        1503                     0
+twitter-sym  lz4 64KiB chunks           29.05   8.73        568    4.24        5526                     0
+twitter-sym  delta+LEB128+zstd3 (64K-edge chunks)   13.46   4.05       1184    2.03        1320                     0
+twitter-sym  BV w7 r3 (default)         13.92   4.18        207   11.64         219                     0
+twitter-sym  BV w0 (no refs)            14.37   4.32        478    5.03         526                     0
+
+== cold scan (cold8g.jsonl; 32 threads; after posix_fadvise DONTNEED)
+graph        codec                     bits/e     GB  cold Me/s  cold s rescan Me/s resident pages before
+twitter-sym  raw u32 CSR                33.11   9.95        946    2.54        1232                     0
+twitter-sym  delta+LEB128               15.38   4.62       1626    1.48        2181                     0
+twitter-sym  delta+StreamVByte          16.11   4.84       2670    0.90        6437                     0
+twitter-sym  delta+BP128/BP32           17.07   5.13       1572    1.53        3585                     0
+twitter-sym  delta+LEB128+zstd3 (64K-edge chunks)   13.46   4.05       1020    2.36        1223                     0
+twitter-sym  BV w7 r3 (default)         13.92   4.18        194   12.40         211                     0
+twitter-sym  BV w0 (no refs)            14.37   4.32        500    4.81         536                     0
+
+== node ordering (orkut)
+order    codec                     bits/e  scan1T   scanP    PR s  rand ns
+orig     raw u32 CSR                32.84    5044    9400   0.053      125
+rand     raw u32 CSR                32.84    4929    9558   0.057      113
+deg      raw u32 CSR                32.84    6876   10286   0.052      112
+bfs      raw u32 CSR                32.84    5542   11705   0.043       97
+lp       raw u32 CSR                32.84    5542   11977   0.045       98
+llp      raw u32 CSR                32.84    5521   11959   0.036      101
+orig     delta+LEB128               16.29     384    1966   0.177      828
+rand     delta+LEB128               19.94     433    1951   0.174      421
+deg      delta+LEB128               18.18     518    2268   0.167      440
+bfs      delta+LEB128               16.17     433    2019   0.164      383
+lp       delta+LEB128               15.88     439    2054   0.158      355
+llp      delta+LEB128               13.37     508    2366   0.132      355
+orig     delta+StreamVByte          16.66    1813    6762   0.076      259
+rand     delta+StreamVByte          19.32    1790    6707   0.085      274
+deg      delta+StreamVByte          18.07    2286    7977   0.084      254
+bfs      delta+StreamVByte          16.53    1846    6781   0.083      292
+lp       delta+StreamVByte          16.25    1822    6745   0.081      311
+llp      delta+StreamVByte          14.28    1851    6823   0.071      342
+orig     delta+BP128/BP32           17.94     920    4037   0.122      334
+rand     delta+BP128/BP32           18.15    1067    3708   0.114      320
+deg      delta+BP128/BP32           17.29    1335    5072   0.104      300
+bfs      delta+BP128/BP32           17.34     941    4030   0.111      316
+lp       delta+BP128/BP32           16.96     928    4041   0.106      311
+llp      delta+BP128/BP32           16.71     954    4121   0.097      353
+orig     zstd-3 64KiB chunks        23.07     385    1556   0.190    40028
+rand     zstd-3 64KiB chunks        26.38     468    2032   0.145    31735
+deg      zstd-3 64KiB chunks        24.92     511    2077   0.145    32406
+bfs      zstd-3 64KiB chunks        22.91     388    1583   0.174    38376
+lp       zstd-3 64KiB chunks        22.83     387    1564   0.175    38856
+llp      zstd-3 64KiB chunks        18.90     363    1437   0.190    42619
+orig     BV w7 r3 (default)         15.41     110     429   0.575     1560

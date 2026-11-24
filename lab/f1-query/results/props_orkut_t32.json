@@ -1,0 +1,404 @@
+{
+  "columns": {
+    "breakeven_bytes_per_edge_of_props": "duplication costs 2*m*P, indirection 2*m*4 + m*P: indirection wins when P > 4 bytes/edge",
+    "bytes_duplicated_per_entry": {
+      "total": 2109331494,
+      "ts_u32": 937480664,
+      "ty_u8": 234370166,
+      "w_f32": 937480664
+    },
+    "bytes_indirect": {
+      "eid_u32": 937480664,
+      "total": 1992146411,
+      "ts_u32": 468740332,
+      "ty_u8": 117185083,
+      "w_f32": 468740332
+    },
+    "duplicate_gather_s": 0.624816568,
+    "gen_per_edge_s": 0.139765723,
+    "layout": "raw little-endian columnar files (same bytes as an Arrow primitive values buffer), mmapped",
+    "write_s": 5.533943059
+  },
+  "edge_id_build_s": 2.570352505,
+  "entries": 234370166,
+  "filtered": [
+    {
+      "actual_sel_time": 0.010005855438102134,
+      "actual_sel_weight": 0.009984419262646253,
+      "mask_build_s": {
+        "edgeid_bitset_time": 0.013487992,
+        "entry_bitset_time": 0.028825782,
+        "entry_bitset_type_and_time": 0.056889779,
+        "entry_bitset_weight": 0.024234548,
+        "node_bitset": 0.000652119,
+        "roaring_from_bitset": 0.002439041
+      },
+      "mask_bytes": {
+        "edgeid_bitset": 14648136,
+        "entry_bitset": 29296272,
+        "node_bitset": 384056,
+        "roaring_entries": 4718772
+      },
+      "selectivity": 0.01,
+      "views": {
+        "edgeid_bitset_via_eid": {
+          "bfs_overhead_vs_unfiltered": 0.8194501595197758,
+          "bfs_reached": 650017,
+          "bfs_s": 0.13445433,
+          "degree_pass_s": 0.043349671,
+          "pr_iter_s": 0.086991128,
+          "pr_overhead_vs_unfiltered": 1.6034711945545137
+        },
+        "entry_bitset": {
+          "bfs_overhead_vs_unfiltered": 0.4516091593500768,
+          "bfs_reached": 650017,
+          "bfs_s": 0.074099451,
+          "degree_pass_s": 0.019177441,
+          "pr_iter_s": 0.05575616,
+          "pr_overhead_vs_unfiltered": 1.02773005172404
+        },
+        "materialized_csr": {
+          "bfs_overhead_vs_unfiltered": 0.10997918218716435,
+          "bfs_reached": 650017,
+          "bfs_s": 0.018045243,
+          "build_s": 0.047262518,
+          "bytes": 33959832,
+          "pr_iter_s": 0.004861671,
+          "pr_overhead_vs_unfiltered": 0.08961315464148294
+        },
+        "node_bitset": {
+          "bfs_overhead_vs_unfiltered": 0.012344367687518959,
+          "bfs_reached": 5618,
+          "bfs_s": 0.002025448,
+          "degree_pass_s": 0.003054922,
+          "pr_iter_s": 0.004632332,
+          "pr_overhead_vs_unfiltered": 0.08538584446925553
+        },
+        "predicate_dup_column": {
+          "bfs_overhead_vs_unfiltered": 0.5408080350896943,
+          "bfs_reached": 650017,
+          "bfs_s": 0.088735088,
+          "degree_pass_s": 0.022914709,
+          "pr_iter_s": 0.060455358,
+          "pr_overhead_vs_unfiltered": 1.1143484092938853
+        },
+        "predicate_via_eid": {
+          "bfs_overhead_vs_unfiltered": 1.5453159506684582,
+          "bfs_reached": 650017,
+          "bfs_s": 0.253553457,
+          "degree_pass_s": 0.203169773,
+          "pr_iter_s": 0.225201291,
+          "pr_overhead_vs_unfiltered": 4.151041507301626
+        },
+        "roaring_entries": {
+          "bfs_overhead_vs_unfiltered": 0.3603544289071594,
+          "bfs_reached": 650017,
+          "bfs_s": 0.059126492,
+          "pr_iter_s": 0.032178391,
+          "pr_overhead_vs_unfiltered": 0.5931308656626709
+        }
+      }
+    },
+    {
+      "actual_sel_time": 0.1000064999740624,
+      "actual_sel_weight": 0.09999899048584537,
+      "mask_build_s": {
+        "edgeid_bitset_time": 0.011887009,
+        "entry_bitset_time": 0.021961286,
+        "entry_bitset_type_and_time": 0.046414953,
+        "entry_bitset_weight": 0.021448808,
+        "node_bitset": 0.00047055,
+        "roaring_from_bitset": 0.003279813
+      },
+      "mask_bytes": {
+        "edgeid_bitset": 14648136,
+        "entry_bitset": 29296272,
+        "node_bitset": 384056,
+        "roaring_entries": 29325994
+      },
+      "selectivity": 0.1,
+      "views": {
+        "edgeid_bitset_via_eid": {
+          "bfs_overhead_vs_unfiltered": 1.7329958932638159,
+          "bfs_reached": 2692785,
+          "bfs_s": 0.284347741,
+          "degree_pass_s": 0.04556373,
+          "pr_iter_s": 0.108208803,
+          "pr_overhead_vs_unfiltered": 1.9945677518714788
+        },
+        "entry_bitset": {
+          "bfs_overhead_vs_unfiltered": 1.0758471379066616,
+          "bfs_reached": 2692785,
+          "bfs_s": 0.176523617,
+          "degree_pass_s": 0.01192048,
+          "pr_iter_s": 0.053241308,
+          "pr_overhead_vs_unfiltered": 0.9813748332865023
+        },
+        "materialized_csr": {
+          "bfs_overhead_vs_unfiltered": 0.5968041400323976,
+          "bfs_reached": 2692785,
+          "bfs_s": 0.097922857,
+          "build_s": 0.069342664,
+          "bytes": 118333696,
+          "pr_iter_s": 0.009436596,
+          "pr_overhead_vs_unfiltered": 0.17394083981355368
+        },
+        "node_bitset": {
+          "bfs_overhead_vs_unfiltered": 0.13675837760700174,
+          "bfs_reached": 268430,
+          "bfs_s": 0.022439139,
+          "degree_pass_s": 0.011386352,
+          "pr_iter_s": 0.018917494,
+          "pr_overhead_vs_unfiltered": 0.3486982799229577
+        },
+        "predicate_dup_column": {
+          "bfs_overhead_vs_unfiltered": 1.5866641898879803,
+          "bfs_reached": 2692785,
+          "bfs_s": 0.260337823,
+          "degree_pass_s": 0.02549357,
+          "pr_iter_s": 0.077136851,
+          "pr_overhead_vs_unfiltered": 1.4218314150052582
+        },
+        "predicate_via_eid": {
+          "bfs_overhead_vs_unfiltered": 3.309288512472269,
+          "bfs_reached": 2692785,
+          "bfs_s": 0.54298381,
+          "degree_pass_s": 0.196291491,
+          "pr_iter_s": 0.228348143,
+          "pr_overhead_vs_unfiltered": 4.20904611824915
+        },
+        "roaring_entries": {
+          "bfs_overhead_vs_unfiltered": 1.206238242381175,
+          "bfs_reached": 2692785,
+          "bfs_s": 0.197918022,
+          "pr_iter_s": 0.075816911,
+          "pr_overhead_vs_unfiltered": 1.3975015112874873
+        }
+      }
+    },
+    {
+      "actual_sel_time": 0.4999826983098182,
+      "actual_sel_weight": 0.4999969407369025,
+      "mask_build_s": {
+        "edgeid_bitset_time": 0.013035946,
+        "entry_bitset_time": 0.02452515,
+        "entry_bitset_type_and_time": 0.057121793,
+        "entry_bitset_weight": 0.023910481,
+        "node_bitset": 0.000707452,
+        "roaring_from_bitset": 0.003089487
+      },
+      "mask_bytes": {
+        "edgeid_bitset": 14648136,
+        "entry_bitset": 29296272,
+        "node_bitset": 384056,
+        "roaring_entries": 29331408
+      },
+      "selectivity": 0.5,
+      "views": {
+        "edgeid_bitset_via_eid": {
+          "bfs_overhead_vs_unfiltered": 2.879683486796666,
+          "bfs_reached": 3017792,
+          "bfs_s": 0.472494769,
+          "degree_pass_s": 0.053837411,
+          "pr_iter_s": 0.230593682,
+          "pr_overhead_vs_unfiltered": 4.250437202438203
+        },
+        "entry_bitset": {
+          "bfs_overhead_vs_unfiltered": 1.3878806255407312,
+          "bfs_reached": 3017792,
+          "bfs_s": 0.227721671,
+          "degree_pass_s": 0.014581175,
+          "pr_iter_s": 0.077072669,
+          "pr_overhead_vs_unfiltered": 1.4206483749576695
+        },
+        "materialized_csr": {
+          "bfs_overhead_vs_unfiltered": 0.8912152688956927,
+          "bfs_reached": 3017792,
+          "bfs_s": 0.146229457,
+          "build_s": 0.134873252,
+          "bytes": 493303648,
+          "pr_iter_s": 0.043896943,
+          "pr_overhead_vs_unfiltered": 0.8091340490435002
+        },
+        "node_bitset": {
+          "bfs_overhead_vs_unfiltered": 0.8556269906451486,
+          "bfs_reached": 1507911,
+          "bfs_s": 0.140390178,
+          "degree_pass_s": 0.04086838,
+          "pr_iter_s": 0.06060694,
+          "pr_overhead_vs_unfiltered": 1.1171424571031396
+        },
+        "predicate_dup_column": {
+          "bfs_overhead_vs_unfiltered": 1.7737497592314166,
+          "bfs_reached": 3017792,
+          "bfs_s": 0.291034583,
+          "degree_pass_s": 0.035222533,
+          "pr_iter_s": 0.116776572,
+          "pr_overhead_vs_unfiltered": 2.152493865820675
+        },
+        "predicate_via_eid": {
+          "bfs_overhead_vs_unfiltered": 3.7414687838000877,
+          "bfs_reached": 3017792,
+          "bfs_s": 0.613895394,
+          "degree_pass_s": 0.260332261,
+          "pr_iter_s": 0.332956452,
+          "pr_overhead_vs_unfiltered": 6.137247465317068
+        },
+        "roaring_entries": {
+          "bfs_overhead_vs_unfiltered": 2.0296876043325445,
+          "bfs_reached": 3017792,
+          "bfs_s": 0.333028536,
+          "pr_iter_s": 0.08958194,
+          "pr_overhead_vs_unfiltered": 1.6512265520032199
+        }
+      }
+    },
+    {
+      "actual_sel_time": 0.8999762367365478,
+      "actual_sel_weight": 0.8999425549751925,
+      "mask_build_s": {
+        "edgeid_bitset_time": 0.015534228,
+        "entry_bitset_time": 0.027890263,
+        "entry_bitset_type_and_time": 0.070300746,
+        "entry_bitset_weight": 0.028212064,
+        "node_bitset": 0.00082904,
+        "roaring_from_bitset": 0.003656628
+      },
+      "mask_bytes": {
+        "edgeid_bitset": 14648136,
+        "entry_bitset": 29296272,
+        "node_bitset": 384056,
+        "roaring_entries": 29331408
+      },
+      "selectivity": 0.9,
+      "views": {
+        "edgeid_bitset_via_eid": {
+          "bfs_overhead_vs_unfiltered": 1.9376360368397811,
+          "bfs_reached": 3065356,
+          "bfs_s": 0.317924833,
+          "degree_pass_s": 0.053682771,
+          "pr_iter_s": 0.12847129,
+          "pr_overhead_vs_unfiltered": 2.368057727016246
+        },
+        "entry_bitset": {
+          "bfs_overhead_vs_unfiltered": 1.4040508581259252,
+          "bfs_reached": 3065356,
+          "bfs_s": 0.230374862,
+          "degree_pass_s": 0.028668768,
+          "pr_iter_s": 0.049196774,
+          "pr_overhead_vs_unfiltered": 0.9068236242896912
+        },
+        "materialized_csr": {
+          "bfs_overhead_vs_unfiltered": 0.7125475555281648,
+          "bfs_reached": 3065356,
+          "bfs_s": 0.116913888,
+          "build_s": 0.110749151,
+          "bytes": 868289856,
+          "pr_iter_s": 0.037312843,
+          "pr_overhead_vs_unfiltered": 0.6877720787507782
+        },
+        "node_bitset": {
+          "bfs_overhead_vs_unfiltered": 0.9156592619849608,
+          "bfs_reached": 2757734,
+          "bfs_s": 0.150240196,
+          "degree_pass_s": 0.043793119,
+          "pr_iter_s": 0.060802164,
+          "pr_overhead_vs_unfiltered": 1.120740939703408
+        },
+        "predicate_dup_column": {
+          "bfs_overhead_vs_unfiltered": 1.541280923968225,
+          "bfs_reached": 3065356,
+          "bfs_s": 0.252891395,
+          "degree_pass_s": 0.026653079,
+          "pr_iter_s": 0.087057741,
+          "pr_overhead_vs_unfiltered": 1.6046990442115827
+        },
+        "predicate_via_eid": {
+          "bfs_overhead_vs_unfiltered": 3.45086122565708,
+          "bfs_reached": 3065356,
+          "bfs_s": 0.566212879,
+          "degree_pass_s": 0.23355127,
+          "pr_iter_s": 0.242879142,
+          "pr_overhead_vs_unfiltered": 4.476889964630822
+        },
+        "roaring_entries": {
+          "bfs_overhead_vs_unfiltered": 1.4229758965203017,
+          "bfs_reached": 3065356,
+          "bfs_s": 0.233480058,
+          "pr_iter_s": 0.102936482,
+          "pr_overhead_vs_unfiltered": 1.8973852569859675
+        }
+      }
+    }
+  ],
+  "graph": "work/csr/orkut",
+  "m_undirected": 117185083,
+  "n": 3072441,
+  "temporal": {
+    "build_time_sorted_layout_s": 0.307759332,
+    "has_edge_ns": {
+      "nbr_sorted_bsearch": 177.99092499999998,
+      "time_sorted_linear": 146.12529
+    },
+    "windows": [
+      {
+        "pr_iter_window_s": {
+          "nbr_sorted_scan": 0.065695185,
+          "time_sorted_subrange": 0.045377141
+        },
+        "roaring_window_mask_bytes": {
+          "nbr_sorted": 4711416,
+          "time_sorted": 4244390
+        },
+        "selectivity": 0.01,
+        "window_degree_all_nodes_s": {
+          "nbr_sorted_scan": 0.03334375,
+          "time_sorted_bsearch": 0.030572137
+        }
+      },
+      {
+        "pr_iter_window_s": {
+          "nbr_sorted_scan": 0.072994182,
+          "time_sorted_subrange": 0.070740259
+        },
+        "roaring_window_mask_bytes": {
+          "nbr_sorted": 29325772,
+          "time_sorted": 10874012
+        },
+        "selectivity": 0.1,
+        "window_degree_all_nodes_s": {
+          "nbr_sorted_scan": 0.033793871,
+          "time_sorted_bsearch": 0.039830549
+        }
+      },
+      {
+        "pr_iter_window_s": {
+          "nbr_sorted_scan": 0.070488096,
+          "time_sorted_subrange": 0.08161393
+        },
+        "roaring_window_mask_bytes": {
+          "nbr_sorted": 29331408,
+          "time_sorted": 11979102
+        },
+        "selectivity": 0.5,
+        "window_degree_all_nodes_s": {
+          "nbr_sorted_scan": 0.033408821,
+          "time_sorted_bsearch": 0.032664139
+        }
+      }
+    ]
+  },
+  "threads": 32,
+  "unfiltered": {
+    "bfs_reached": 3072441,
+    "bfs_s_med": 0.201199379,
+    "bfs_s_min": 0.164078716,
+    "pr_iter_s_med": 0.054968166,
+    "pr_iter_s_min": 0.054251756
+  },
+  "weighted_pr_iter": {
+    "duplicated_s": 0.117472646,
+    "indirect_eid_s": 0.246759112,
+    "slowdown": 2.100566560831532
+  }
+}

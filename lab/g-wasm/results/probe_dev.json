@@ -1,0 +1,95 @@
+{
+ "webgpu": [
+  {
+   "label": "headless-shell default",
+   "navigator_gpu": true,
+   "adapter": null,
+   "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+  },
+  {
+   "label": "headless-shell --enable-unsafe-webgpu --enable-features=Vulkan",
+   "navigator_gpu": true,
+   "adapter": {
+    "vendor": "nvidia",
+    "architecture": "lovelace",
+    "device": "",
+    "description": ""
+   },
+   "limits": {
+    "maxBufferSize": 4294967292,
+    "maxStorageBufferBindingSize": 2147483644,
+    "maxComputeWorkgroupsPerDimension": 65535
+   },
+   "features": [
+    "depth32float-stencil8",
+    "chromium-experimental-subgroup-matrix",
+    "rg11b10ufloat-renderable",
+    "texture-formats-tier1",
+    "bgra8unorm-storage",
+    "chromium-experimental-multi-draw-indirect",
+    "texture-compression-bc",
+    "dual-source-blending",
+    "chromium-experimental-sampling-resource-table",
+    "core-features-and-limits",
+    "chromium-experimental-timestamp-query-inside-passes",
+    "float32-filterable",
+    "indirect-first-instance",
+    "float32-blendable",
+    "atomic-vec2u-min-max",
+    "subgroup-size-control",
+    "texture-compression-unaligned",
+    "depth-clip-control",
+    "texture-compression-bc-sliced-3d",
+    "timestamp-query",
+    "texture-formats-tier2",
+    "shader-f16",
+    "clip-distances",
+    "primitive-index",
+    "texture-component-swizzle",
+    "subgroups"
+   ],
+   "compute_GBps": 23546.962733150798,
+   "check": 0,
+   "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+  },
+  {
+   "label": "chromium new-headless --enable-unsafe-webgpu --enable-features=Vulkan",
+   "navigator_gpu": true,
+   "adapter": null,
+   "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36"
+  }
+ ],
+ "info": {
+  "isolated": true,
+  "hc": 4,
+  "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+  "mem": 32
+ },
+ "opfs": {
+  "estimate_before": {
+   "quota": 10737418240,
+   "usage": 0,
+   "usageDetails": {}
+  },
+  "persisted": false,
+  "write_MBps": 409610156.5018359,
+  "size": 0,
+  "seq_read_MBps": null,
+  "rand64k_MBps": 605.6018167644626,
+  "rand64k_iops": 9689.629068231401,
+  "estimate_after": {
+   "quota": 10737418404,
+   "usage": 164,
+   "usageDetails": {
+    "fileSystem": 164
+   }
+  },
+  "ok": true
+ },
+ "file": {
+  "size": 501553897,
+  "stream_MBps": 873.8176981141391,
+  "slice16M_MBps": 1502.7775610911185,
+  "readersync16M_MBps": 1534.4017894751848
+ }
+}

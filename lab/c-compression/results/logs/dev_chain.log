@@ -1,0 +1,57 @@
+orkut raw: raw raw bpe=32.84 cold=1008M rewarm=9038M
+orkut varint: varint varint bpe=16.29 cold=857M rewarm=2007M
+orkut svb: svb svb bpe=16.66 cold=1243M rewarm=6761M
+orkut bp: bp bp bpe=17.94 cold=1002M rewarm=3994M
+orkut zstd3: zstd3 zstd3 bpe=23.07 cold=618M rewarm=1566M
+orkut lz4: lz4 lz4 bpe=29.90 cold=749M rewarm=5736M
+orkut vzstd3: vzstd3 vzstd3 bpe=14.92 cold=1101M rewarm=1374M
+orkut bv7: bvs bv7 bpe=15.41 cold=422M rewarm=313M
+orkut bv0: bvs bv0 bpe=15.87 cold=360M rewarm=405M
+twsym varint: varint varint bpe=15.38 cold=877M rewarm=1276M
+twsym svb: svb svb bpe=16.11 cold=110M rewarm=6214M
+twsym bp: bp bp bpe=17.07 cold=69M rewarm=3469M
+twsym zstd3: zstd3 zstd3 bpe=23.23 cold=751M rewarm=1503M
+twsym lz4: lz4 lz4 bpe=29.05 cold=568M rewarm=5526M
+twsym vzstd3: vzstd3 vzstd3 bpe=13.46 cold=1184M rewarm=1320M
+twsym bv7: bvs bv7 bpe=13.92 cold=91M rewarm=198M
+twsym bv0: bvs bv0 bpe=14.37 cold=531M rewarm=476M
+twsym8g raw: raw raw bpe=33.11 cold=946M rewarm=1232M
+twsym8g varint: varint varint bpe=15.38 cold=1626M rewarm=2181M
+twsym8g svb: svb svb bpe=16.11 cold=1991M rewarm=6437M
+twsym8g bp: bp bp bpe=17.07 cold=1572M rewarm=3585M
+twsym8g vzstd3: vzstd3 vzstd3 bpe=13.46 cold=1020M rewarm=1223M
+twsym8g bv7: bvs bv7 bpe=13.92 cold=202M rewarm=201M
+twsym8g bv0: bvs bv0 bpe=14.37 cold=520M rewarm=387M
+orig raw raw bpe=32.84 scan1=5044M scanP=9400M prE/s=4432M rand=125ns/list 1.6ns/e par=35ns/list
+rand raw rand.raw bpe=32.84 scan1=4929M scanP=9558M prE/s=4086M rand=113ns/list 1.5ns/e par=29ns/list
+deg raw deg.raw bpe=32.84 scan1=6876M scanP=10286M prE/s=4547M rand=112ns/list 1.5ns/e par=33ns/list
+bfs raw bfs.raw bpe=32.84 scan1=5542M scanP=11705M prE/s=5476M rand=97ns/list 1.3ns/e par=30ns/list
+lp raw lp.raw bpe=32.84 scan1=5542M scanP=11977M prE/s=5248M rand=98ns/list 1.3ns/e par=28ns/list
+llp raw llp.raw bpe=32.84 scan1=5521M scanP=11959M prE/s=6530M rand=101ns/list 1.3ns/e par=29ns/list
+orig varint varint bpe=16.29 scan1=384M scanP=1966M prE/s=1325M rand=828ns/list 10.9ns/e par=273ns/list
+rand varint rand.varint bpe=19.94 scan1=433M scanP=1951M prE/s=1347M rand=421ns/list 5.5ns/e par=87ns/list
+deg varint deg.varint bpe=18.18 scan1=518M scanP=2268M prE/s=1407M rand=440ns/list 5.8ns/e par=74ns/list
+bfs varint bfs.varint bpe=16.17 scan1=433M scanP=2019M prE/s=1425M rand=383ns/list 5.0ns/e par=65ns/list
+lp varint lp.varint bpe=15.88 scan1=439M scanP=2054M prE/s=1484M rand=355ns/list 4.7ns/e par=64ns/list
+llp varint llp.varint bpe=13.37 scan1=508M scanP=2366M prE/s=1771M rand=355ns/list 4.6ns/e par=62ns/list
+orig svb svb bpe=16.66 scan1=1813M scanP=6762M prE/s=3086M rand=259ns/list 3.4ns/e par=44ns/list
+rand svb rand.svb bpe=19.32 scan1=1790M scanP=6707M prE/s=2747M rand=274ns/list 3.6ns/e par=46ns/list
+deg svb deg.svb bpe=18.07 scan1=2286M scanP=7977M prE/s=2799M rand=254ns/list 3.3ns/e par=44ns/list
+bfs svb bfs.svb bpe=16.53 scan1=1846M scanP=6781M prE/s=2829M rand=292ns/list 3.8ns/e par=50ns/list
+lp svb lp.svb bpe=16.25 scan1=1822M scanP=6745M prE/s=2909M rand=311ns/list 4.1ns/e par=46ns/list
+llp svb llp.svb bpe=14.28 scan1=1851M scanP=6823M prE/s=3289M rand=342ns/list 4.4ns/e par=51ns/list
+orig bp bp bpe=17.94 scan1=920M scanP=4037M prE/s=1923M rand=334ns/list 4.4ns/e par=61ns/list
+rand bp rand.bp bpe=18.15 scan1=1067M scanP=3708M prE/s=2051M rand=320ns/list 4.2ns/e par=55ns/list
+deg bp deg.bp bpe=17.29 scan1=1335M scanP=5072M prE/s=2259M rand=300ns/list 3.9ns/e par=51ns/list
+bfs bp bfs.bp bpe=17.34 scan1=941M scanP=4030M prE/s=2118M rand=316ns/list 4.1ns/e par=59ns/list
+lp bp lp.bp bpe=16.96 scan1=928M scanP=4041M prE/s=2212M rand=311ns/list 4.1ns/e par=74ns/list
+llp bp llp.bp bpe=16.71 scan1=954M scanP=4121M prE/s=2413M rand=353ns/list 4.5ns/e par=58ns/list
+orig zstd3 zstd3 bpe=23.07 scan1=385M scanP=1556M prE/s=1236M rand=40028ns/list 526.2ns/e par=10238ns/list
+rand zstd3 rand.zstd3 bpe=26.38 scan1=468M scanP=2032M prE/s=1611M rand=31735ns/list 414.1ns/e par=7513ns/list
+deg zstd3 deg.zstd3 bpe=24.92 scan1=511M scanP=2077M prE/s=1620M rand=32406ns/list 425.2ns/e par=7953ns/list
+bfs zstd3 bfs.zstd3 bpe=22.91 scan1=388M scanP=1583M prE/s=1348M rand=38376ns/list 497.3ns/e par=9707ns/list
+lp zstd3 lp.zstd3 bpe=22.83 scan1=387M scanP=1564M prE/s=1342M rand=38856ns/list 510.7ns/e par=9985ns/list
+llp zstd3 llp.zstd3 bpe=18.90 scan1=363M scanP=1437M prE/s=1234M rand=42619ns/list 548.8ns/e par=10832ns/list
+orig bvs bv7 bpe=15.41 scan1=110M scanP=429M prE/s=407M rand=1560ns/list 20.5ns/e par=326ns/list
+twsym bv7: bvs bv7 bpe=13.92 scan1=94M scanP=183M prE/s=180M rand=2851ns/list 34.4ns/e par=707ns/list
+DEV DONE

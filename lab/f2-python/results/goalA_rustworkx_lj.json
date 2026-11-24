@@ -1,0 +1,62 @@
+{
+ "engine": "rustworkx",
+ "version": "0.18.1",
+ "graph": "lj",
+ "load_s": 3.552734932862222,
+ "disk_mb": null,
+ "storage": "in-memory petgraph StableGraph, undirected, each edge once; read_edge_list from text",
+ "neighbors": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.0017780112102627754,
+  "p90_ms": 0.008646165952086449
+ },
+ "hop2": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.03476988058537245,
+  "p90_ms": 0.7141958922147751
+ },
+ "hop2_note": "python BFS loop over native neighbors()",
+ "hop3": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.7372240070253611,
+  "p90_ms": 18.651237012818456
+ },
+ "sp": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 4785.302322008647,
+  "p90_ms": 6922.46284103021
+ },
+ "sp_note": "native Dijkstra(weight=1) with target early-exit",
+ "wcc_s": 4.796532901003957,
+ "n_components": 1,
+ "pagerank_s": null,
+ "pagerank_note": "rustworkx.pagerank is PyDiGraph-only; not run",
+ "check": {
+  "neighbors": {
+   "checked": 200,
+   "mismatches": 0
+  },
+  "hop2": {
+   "checked": 200,
+   "mismatches": 0
+  },
+  "hop3": {
+   "checked": 50,
+   "mismatches": 0
+  },
+  "sp": {
+   "checked": 50,
+   "mismatches": 0
+  }
+ },
+ "quick": false,
+ "peak_rss_mb": 1561.12890625
+}

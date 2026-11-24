@@ -1,0 +1,49 @@
+{
+ "engine": "python-igraph",
+ "version": "1.0.0",
+ "graph": "lj",
+ "load_s": 7.912978230975568,
+ "storage": "in-memory, undirected edge list (each edge once); loaded via Read_Edgelist from text (numpy 2D constructor OOMs >6GB)",
+ "disk_mb": null,
+ "neighbors": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.0005508773028850555,
+  "p90_ms": 0.001451931893825531
+ },
+ "hop2": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.482231960631907,
+  "p90_ms": 0.5464330315589905
+ },
+ "hop3": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.5795690231025219,
+  "p90_ms": 1.720448024570942
+ },
+ "sp": {
+  "n": 50,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 290.89031845796853,
+  "p90_ms": 912.6897708047181
+ },
+ "pagerank_s": 8.320980024058372,
+ "wcc_s": 1.0953020460437983,
+ "n_components": 1,
+ "degree_dist_s": 0.10409209597855806,
+ "sp_full_bfs": {
+  "n": 10,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 969.1141735529527,
+  "p90_ms": 1051.5042759943753
+ },
+ "quick": false,
+ "peak_rss_mb": 3285.41796875
+}

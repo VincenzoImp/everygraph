@@ -1,0 +1,43 @@
+{
+ "engine": "DuckDB+DuckPGQ",
+ "version": "duckdb 1.3.2, duckpgq community",
+ "graph": "lj",
+ "load_s": 1.090854979120195,
+ "disk_mb": 209.727488,
+ "threads": 3,
+ "storage": "on-disk DuckDB tables; edges stored both directions (69.4M rows, sorted by src); PGQ patterns directed ->",
+ "neighbors_sql": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 0.44550804886966944,
+  "p90_ms": 0.5184700712561607
+ },
+ "neighbors": {
+  "n": 30,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 1.7868404975160956,
+  "p90_ms": 3.250868059694767
+ },
+ "neighbors_note": "PGQ MATCH (first 30 inputs); neighbors_sql = plain SQL point lookup",
+ "hop2_sql": {
+  "n": 200,
+  "timeouts": 0,
+  "errors": 0,
+  "median_ms": 3.3818429801613092,
+  "p90_ms": 15.631556045264006
+ },
+ "hop2": {
+  "n": 30,
+  "timeouts": 30,
+  "errors": 0,
+  "median_ms": 10000.0,
+  "p90_ms": 10000.0
+ },
+ "hop2_note": "PGQ ->{1,2} (first 30 inputs); hop2_sql = 2 self-joins",
+ "partial": true,
+ "last_stage": "hop2",
+ "quick": false,
+ "peak_rss_mb": 4558.33203125
+}

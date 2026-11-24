@@ -1,0 +1,127 @@
+{
+ "graph": "lj",
+ "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 4090/PCIe/SSE2, OpenGL ES 3.2)",
+ "config": "angle-gl-egl",
+ "tried": [
+  [
+   "angle-gl-egl",
+   "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 4090/PCIe/SSE2, OpenGL ES 3.2)"
+  ]
+ ],
+ "viewport": [
+  1600,
+  1000
+ ],
+ "interactions": [
+  {
+   "name": "initial load (header+root dir+metadata+overview tiles)",
+   "bytes": 152179,
+   "requests": 18,
+   "tiles": 16
+  },
+  {
+   "name": "zoom to z=4.2 (2-continent)",
+   "bytes": 664619,
+   "requests": 94,
+   "tiles": 94
+  },
+  {
+   "name": "zoom to z=6.6 (3-region)",
+   "bytes": 1090955,
+   "requests": 122,
+   "tiles": 122
+  },
+  {
+   "name": "zoom to z=8.6 (4-communities)",
+   "bytes": 1855675,
+   "requests": 145,
+   "tiles": 143
+  },
+  {
+   "name": "zoom to z=10.6 (5-nodes-edges)",
+   "bytes": 1048224,
+   "requests": 146,
+   "tiles": 144
+  },
+  {
+   "name": "pan 800 px at node level",
+   "bytes": 0,
+   "requests": 0,
+   "tiles": 0
+  },
+  {
+   "name": "wheel zoom-out to overview",
+   "bytes": 133399,
+   "requests": 18,
+   "tiles": 18
+  },
+  {
+   "name": "search + fly-to node (cold index)",
+   "bytes": 56171,
+   "requests": 3,
+   "tiles": 1
+  }
+ ],
+ "frames": {
+  "fly-to 2-continent": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.7,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "fly-to 3-region": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "fly-to 4-communities": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "fly-to 5-nodes-edges": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "wheel zoom-out 12 levels": {
+   "n": 249,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "search fly-to": {
+   "n": 164,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  }
+ },
+ "search": {
+  "id": 5072,
+  "text": "found · 2 req, 47.3 KiB",
+  "total_bytes_incl_tiles": 56171,
+  "requests": 3
+ },
+ "total": {
+  "bytes": 5001222,
+  "requests": 546,
+  "tiles": 538
+ },
+ "context_lost": false
+}

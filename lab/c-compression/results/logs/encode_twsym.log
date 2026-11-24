@@ -1,0 +1,34 @@
+encode varint: 4576242783 bytes data, 15.222 bits/edge (data only) in 4.53s
+encode svb: 4796043869 bytes data, 15.953 bits/edge (data only) in 4.71s
+encode bp: 5082582428 bytes data, 16.907 bits/edge (data only) in 2.72s
+encode zstd3: 6938910655 bytes data, 23.081 bits/edge (data only) in 10.50s
+encode lz4: 8689299315 bytes data, 28.904 bits/edge (data only) in 4.97s
+csr2bv enc/twsym/bv7 bits=32983491465 bits/arc=13.714 83.879384439s
+csr2bv enc/twsym/bv0 bits=34071176350 bits/arc=14.167 18.048503024s
+total 49198060
+drwxrwxr-x 2 tux tux       4096 Nov 24 12:56 .
+drwxrwxr-x 5 tux tux       4096 Nov 24 12:52 ..
+-rw-rw-r-- 1 tux tux 5082582428 Nov 24 12:52 bp.bin
+-rw-rw-r-- 1 tux tux  333217848 Nov 24 12:52 bp.idx
+-rw-rw-r-- 1 tux tux   61914616 Nov 24 12:56 bv0.ef
+-rw-rw-r-- 1 tux tux 4258897048 Nov 24 12:55 bv0.graph
+-rw-rw-r-- 1 tux tux   84535792 Nov 24 12:56 bv0.offsets
+-rw-rw-r-- 1 tux tux        312 Nov 24 12:55 bv0.properties
+-rw-rw-r-- 1 tux tux   61645824 Nov 24 12:54 bv7.ef
+-rw-rw-r-- 1 tux tux 4122936440 Nov 24 12:54 bv7.graph
+-rw-rw-r-- 1 tux tux   82313176 Nov 24 12:54 bv7.offsets
+-rw-rw-r-- 1 tux tux        313 Nov 24 12:54 bv7.properties
+-rw-rw-r-- 1 tux tux 8689299315 Nov 24 12:53 lz4.bin
+-rw-rw-r-- 1 tux tux    1976224 Nov 24 12:53 lz4.chk
+-rw-rw-r-- 1 tux tux  333217848 Nov 24 12:53 lz4.idx
+-rw-rw-r-- 1 tux tux 9620104368 Nov 24 12:52 raw.bin
+-rw-rw-r-- 1 tux tux  333217848 Nov 24 12:52 raw.idx
+-rw-rw-r-- 1 tux tux 4796043869 Nov 24 12:52 svb.bin
+-rw-rw-r-- 1 tux tux  333217848 Nov 24 12:52 svb.idx
+-rw-rw-r-- 1 tux tux         29 Nov 24 12:53 truth.txt
+-rw-rw-r-- 1 tux tux 4576242783 Nov 24 12:52 varint.bin
+-rw-rw-r-- 1 tux tux  333217848 Nov 24 12:52 varint.idx
+-rw-rw-r-- 1 tux tux 6938910655 Nov 24 12:52 zstd3.bin
+-rw-rw-r-- 1 tux tux    1976224 Nov 24 12:52 zstd3.chk
+-rw-rw-r-- 1 tux tux  333217848 Nov 24 12:52 zstd3.idx
+EXIT 0

@@ -1,0 +1,6 @@
+2026-11-24 13:49:29 OMP_NUM_THREADS=32
+2026-11-24 13:49:29 Loading graph /home/tux/graphlab/exp/a-baselines/data/orkut.mtx ...
+2026-11-24 13:49:39 order: 3072441 size: 234370166 [directed] {}
+{0001708.1ms, 0000000.1ms mark, 0000055.1ms init, 0001650.8ms firstpass, 0000527.6ms locmove, 0000000.0ms refine, 0001100.0ms aggr, 9.915e+05 aff, 0008 iters, 004 passes, 0.650507944 modularity, 14/40 disconnected} louvainStaticOmp
+{0001548.1ms, 0000000.1ms mark, 0000055.0ms init, 0001341.2ms firstpass, 0000571.5ms locmove, 0000394.6ms refine, 0000452.7ms aggr, 2.729e+06 aff, 0014 iters, 005 passes, 0.656659641 modularity, 0/44 disconnected} leidenStaticOmp
+

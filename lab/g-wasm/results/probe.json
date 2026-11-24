@@ -1,0 +1,131 @@
+{
+ "webgpu": [
+  {
+   "label": "headless-shell default",
+   "navigator_gpu": true,
+   "adapter": null,
+   "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+  },
+  {
+   "label": "headless-shell --enable-unsafe-webgpu --enable-features=Vulkan",
+   "navigator_gpu": true,
+   "adapter": {
+    "vendor": "nvidia",
+    "architecture": "lovelace",
+    "device": "",
+    "description": ""
+   },
+   "limits": {
+    "maxBufferSize": 4294967292,
+    "maxStorageBufferBindingSize": 2147483644,
+    "maxComputeWorkgroupsPerDimension": 65535
+   },
+   "features": [
+    "depth32float-stencil8",
+    "chromium-experimental-subgroup-matrix",
+    "rg11b10ufloat-renderable",
+    "texture-formats-tier1",
+    "bgra8unorm-storage",
+    "chromium-experimental-multi-draw-indirect",
+    "texture-compression-bc",
+    "dual-source-blending",
+    "chromium-experimental-sampling-resource-table",
+    "core-features-and-limits",
+    "chromium-experimental-timestamp-query-inside-passes",
+    "float32-filterable",
+    "indirect-first-instance",
+    "float32-blendable",
+    "atomic-vec2u-min-max",
+    "subgroup-size-control",
+    "texture-compression-unaligned",
+    "depth-clip-control",
+    "texture-compression-bc-sliced-3d",
+    "timestamp-query",
+    "texture-formats-tier2",
+    "shader-f16",
+    "clip-distances",
+    "primitive-index",
+    "texture-component-swizzle",
+    "subgroups"
+   ],
+   "compute_GBps": 1754.480082703234,
+   "check_x0_after_101_passes": 2.535301200456459e+30,
+   "check_ok": true,
+   "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+  },
+  {
+   "label": "chromium new-headless --enable-unsafe-webgpu --enable-features=Vulkan",
+   "navigator_gpu": true,
+   "adapter": null,
+   "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.0.0 Safari/537.36"
+  }
+ ],
+ "opfs_ephemeral_256MB": {
+  "estimate_before": {
+   "quota": 10737418240,
+   "usage": 0,
+   "usageDetails": {}
+  },
+  "persisted": false,
+  "bytes_written": 268435456,
+  "write_MBps": 1008.8471168058737,
+  "size": 268435456,
+  "bytes_read": 268435456,
+  "seq_read_MBps": 1407.2506393298097,
+  "rand64k_MBps": 641.6602961539837,
+  "rand64k_iops": 10266.56473846374,
+  "estimate_after": {
+   "quota": 11005853860,
+   "usage": 268435620,
+   "usageDetails": {
+    "fileSystem": 268435620
+   }
+  },
+  "ok": true
+ },
+ "opfs_ephemeral_2GB": {
+  "estimate_before": {
+   "quota": 10737418240,
+   "usage": 0,
+   "usageDetails": {}
+  },
+  "persisted": false,
+  "ok": false,
+  "error": "QuotaExceededError: Failed to execute 'write' on 'FileSystemSyncAccessHandle': No space available for this operation"
+ },
+ "info": {
+  "isolated": true,
+  "hc": 32,
+  "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36",
+  "mem": 32
+ },
+ "opfs_persistent_2GB": {
+  "estimate_before": {
+   "quota": 10737418240,
+   "usage": 0,
+   "usageDetails": {}
+  },
+  "persisted": false,
+  "bytes_written": 2147483648,
+  "write_MBps": 816.3834770043351,
+  "size": 2147483648,
+  "bytes_read": 2147483648,
+  "seq_read_MBps": 11120.160730861988,
+  "rand64k_MBps": 21964.822018740335,
+  "rand64k_iops": 351437.15229984536,
+  "estimate_after": {
+   "quota": 12884902052,
+   "usage": 2147483812,
+   "usageDetails": {
+    "fileSystem": 2147483812
+   }
+  },
+  "ok": true
+ },
+ "file": {
+  "size": 501553897,
+  "stream_MBps": 892.0534685188908,
+  "slice16M_MBps": 2782.13796324976,
+  "readersync16M_MBps": 2999.9941651449117
+ }
+}
