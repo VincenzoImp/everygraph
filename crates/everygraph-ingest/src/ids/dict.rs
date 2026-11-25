@@ -621,6 +621,10 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                         size(Sec::RecordOffsets, 8 * (n + 1))?;
                         size(Sec::IdToSlot, 4 * n)?;
                         self.offsets_cover(Sec::RecordOffsets, Sec::Records, n)?;
+                        // Every record holds its id: at least 4 bytes each.
+                        if self.need(Sec::Records)?.len() < 4 * n {
+                            return Err(DictionaryError::Corrupt("ids.records is too short"));
+                        }
                         absent(&[Sec::SlotToId, Sec::Keys, Sec::KeyOffsets])?;
                     }
                 }
@@ -1212,6 +1216,11 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                                     let (a, b) = read_offsets(offsets, slot, records.len(), 4)?;
                                     rec.resize(index(b - a), 0);
                                     records.read_at(a, &mut rec)?;
+                                    if rec.len() < 4 {
+                                        return Err(DictionaryError::Corrupt(
+                                            "a record shorter than its id",
+                                        ));
+                                    }
                                     let old = self.checked_id(as_u32(&rec[..4]))?;
                                     rec[..4].copy_from_slice(
                                         &permutation[index(u64::from(old))].to_le_bytes(),
@@ -1270,7 +1279,8 @@ fn read_offsets(
     source.read_at(i * 8, &mut b)?;
     let a = u64::from_le_bytes(b[..8].try_into().expect("eight bytes"));
     let c = u64::from_le_bytes(b[8..].try_into().expect("eight bytes"));
-    if c < a || c > data_len || c - a > widen(MAX_KEY_BYTES + extra) {
+    // `extra` is the id stored in each record: a record is at least that long.
+    if c < a || c > data_len || c - a > widen(MAX_KEY_BYTES + extra) || c - a < widen(extra) {
         return Err(DictionaryError::Corrupt("an offset is out of its section"));
     }
     Ok((a, c))

@@ -83,9 +83,10 @@ Decision: the same construction — skewed buckets (`PtrHash`'s cubic function),
 pilot per bucket, 3.5 keys per bucket, load factor about 0.99, the slots past `n`
 remapped into the holes below it — written in safe Rust in `everygraph-ingest`
 (module `ids`), with parts of about 2^15 keys solved independently and deterministically
-(each part is a function of its keys only, which makes the result independent of threads
-and budget), and a stored form specified in the module's documentation for readers. The
-key hash is XXH3-128, a published algorithm.
+(each part is a function of its keys only: the ids are independent of threads and
+budget, and so are the stored bytes, except that a budget too small for the bitmap of
+dense integers gives the hashed form, with the same ids), and a stored form specified in
+the module's documentation for readers. The key hash is XXH3-128, a published algorithm.
 
 Dense integers: integer keys in sorted order are kept as a rank bitmap when every key is
 in `0..2^32` (from the column's zero) and the largest key `m` satisfies `m + 1 ≤ 64 · n`,

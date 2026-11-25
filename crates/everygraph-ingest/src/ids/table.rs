@@ -20,7 +20,6 @@ pub(crate) struct Credit<'a> {
 }
 
 impl<'a> Credit<'a> {
-    #[cfg(test)]
     pub(crate) fn new(
         accountant: &'a dyn everygraph_core::MemoryAccountant,
         purpose: &'static str,

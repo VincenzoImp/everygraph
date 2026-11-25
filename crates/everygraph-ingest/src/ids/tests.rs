@@ -764,6 +764,18 @@ fn fill_u32(bytes: &mut [u8], value: u32) {
 /// Every look-up of every key and every id, which must end in a value or an error,
 /// never an abort, and never in an id at or above `len`.
 fn probe<S: ByteSource>(dict: &Dictionary<'_, S>, keys: &[In]) -> Result<(), DictionaryError> {
+    probe_lookups(dict, keys)?;
+    // Renumbering reads every section too; then the renumbered dictionary is probed.
+    let budget = Budget::new(1 << 28);
+    let perm: Vec<u32> = (0..dict.len()).rev().collect();
+    let renumbered = dict.renumber(&perm, &MemoryScratch, &budget)?;
+    probe_lookups(&renumbered, keys)
+}
+
+fn probe_lookups<S: ByteSource>(
+    dict: &Dictionary<'_, S>,
+    keys: &[In],
+) -> Result<(), DictionaryError> {
     for k in keys {
         for id in [dict.lookup(k.key())?, dict.id_of_member(k.key())?]
             .into_iter()
@@ -843,6 +855,25 @@ fn hostile_sections_are_refused_without_aborting() {
         let k = b.get_mut("ids.keys").unwrap();
         k.truncate(k.len() / 2);
     });
+    // A record shorter than its id (two equal offsets): refused by the look-up and by
+    // `renumber` (the second review of PR #158 made `renumber` panic with it).
+    refused(&slot, &keys, &|b| {
+        let o = b.get_mut("ids.record_offsets").unwrap();
+        let first: [u8; 8] = o[0..8].try_into().unwrap();
+        o[8..16].copy_from_slice(&first);
+    });
+    {
+        let mut bytes: Sections = section_bytes(&slot).into_iter().collect();
+        let o = bytes.get_mut("ids.record_offsets").unwrap();
+        let first: [u8; 8] = o[0..8].try_into().unwrap();
+        o[8..16].copy_from_slice(&first);
+        let opened = open_bytes(&bytes, &budget).unwrap();
+        let perm: Vec<u32> = (0..opened.len()).collect();
+        assert!(matches!(
+            opened.renumber(&perm, &MemoryScratch, &budget),
+            Err(DictionaryError::Corrupt(_))
+        ));
+    }
     // M2: ids of u32::MAX.
     refused(&split, &keys, &|b| {
         fill_u32(b.get_mut("ids.slot_to_id").unwrap(), u32::MAX);
@@ -1027,6 +1058,142 @@ fn ids_do_not_depend_on_the_thread_count() {
     assert!(digests.windows(2).all(|w| w[0] == w[1]), "{digests:?}");
 }
 
+/// A thread that holds a worker and asks for another (a reader that would nest a
+/// parallel call) never waits for itself: it gets one more from the budget, or a
+/// `Budget` error.
+#[test]
+fn a_thread_holding_a_worker_is_not_made_to_wait_for_itself() {
+    let budget = Budget::new(4 << 20);
+    let options = BuildOptions::default();
+    let c = Collector::new(
+        ColumnType::Utf8,
+        KeyKind::Bytes,
+        &options,
+        &budget,
+        &MemoryScratch,
+    )
+    .unwrap();
+    let first = c.worker().unwrap();
+    // One worker at this budget: the second comes from what is left of the budget.
+    let second = c.worker().unwrap();
+    let mut held = vec![first, second];
+    let refused = loop {
+        match c.worker() {
+            Ok(w) => held.push(w),
+            Err(e) => break e,
+        }
+    };
+    assert!(matches!(refused, DictionaryError::Budget(_)));
+    drop(held);
+    // Back on another thread, nothing is held: a worker is idle again.
+    std::thread::scope(|s| {
+        s.spawn(|| drop(c.worker().unwrap()));
+    });
+}
+
+/// The input of the threshold tests.
+fn threshold_input() -> Vec<In> {
+    addresses(60_000, 80_000)
+}
+
+/// Whether the threshold input builds under `budget` (bytes), in this process.
+fn builds_under(budget: u64, layout: Layout) -> bool {
+    let source = Keys {
+        column: ColumnType::Utf8,
+        keys: threshold_input(),
+        chunk: 97,
+    };
+    let budget = Budget::new(budget);
+    let options = BuildOptions::default().with_layout(layout);
+    match build_dictionary(&source, &options, &budget, &MemoryScratch) {
+        Ok(_) => true,
+        Err(DictionaryError::Budget(_)) => false,
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// One build under `EVERYGRAPH_PROBE_BUDGET`, for [`success_at_the_threshold_does_not_depend_on_threads_or_runs`].
+#[test]
+#[ignore = "run by success_at_the_threshold_does_not_depend_on_threads_or_runs in a child process"]
+fn threshold_probe() {
+    let budget: u64 = std::env::var("EVERYGRAPH_PROBE_BUDGET")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let layout = if std::env::var("EVERYGRAPH_PROBE_SLOT").is_ok() {
+        Layout::SlotOrdered
+    } else {
+        Layout::Split
+    };
+    let ok = builds_under(budget, layout);
+    #[expect(
+        clippy::print_stdout,
+        reason = "the parent test reads the outcome from the output"
+    )]
+    {
+        println!("outcome={}", if ok { "ok" } else { "refused" });
+    }
+}
+
+/// Whether a build fits a budget is a function of the budget alone: just below the
+/// smallest budget that works, every run at 1, 16 and 128 threads is refused, and at
+/// it every run succeeds (the second review of PR #158 found the outcome there
+/// varying from run to run).
+#[test]
+fn success_at_the_threshold_does_not_depend_on_threads_or_runs() {
+    for layout in [Layout::Split, Layout::SlotOrdered] {
+        // The smallest budget that works, to 1 KiB, in this process.
+        let (mut lo, mut hi) = (1_u64 << 20, 64_u64 << 20);
+        assert!(!builds_under(lo, layout) && builds_under(hi, layout));
+        while hi - lo > 1024 {
+            let mid = lo + (hi - lo) / 2;
+            if builds_under(mid, layout) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        let exe = std::env::current_exe().unwrap();
+        for threads in ["1", "16", "128"] {
+            for _ in 0..3 {
+                for (budget, expected) in [(lo, "refused"), (hi, "ok")] {
+                    let mut command = std::process::Command::new(&exe);
+                    command
+                        .args([
+                            "--exact",
+                            "ids::tests::threshold_probe",
+                            "--ignored",
+                            "--nocapture",
+                            "--test-threads",
+                            "1",
+                        ])
+                        .env("RAYON_NUM_THREADS", threads)
+                        .env("EVERYGRAPH_PROBE_BUDGET", budget.to_string());
+                    if layout == Layout::SlotOrdered {
+                        command.env("EVERYGRAPH_PROBE_SLOT", "1");
+                    }
+                    let out = command.output().unwrap();
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    assert!(
+                        out.status.success(),
+                        "{stdout}\n{}",
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                    let outcome = stdout
+                        .lines()
+                        .find_map(|l| l.find("outcome=").map(|at| &l[at + 8..]))
+                        .unwrap_or_else(|| panic!("no outcome in {stdout}"));
+                    assert_eq!(
+                        outcome.trim(),
+                        expected,
+                        "{layout:?}, {threads} threads, budget {budget}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
     /// Small random inputs of every shape, both layouts: ids as the reference says.
@@ -1052,28 +1219,52 @@ proptest! {
     /// error — no panic, no abort — and an id found is always below `len`.
     #[test]
     fn opening_and_looking_up_damaged_sections_never_panics(
-        case in 0_usize..4,
-        edits in proptest::collection::vec((0_usize..14, any::<u32>(), any::<u8>()), 1..8),
+        case in 0_usize..8,
+        edits in proptest::collection::vec((0_usize..14, any::<u32>(), any::<u8>(), 0_u8..3), 1..8),
     ) {
         let budget = Budget::new(1 << 28);
         let utf8 = ColumnType::Utf8;
         let ints: Vec<In> = (0..120).map(|i| In::UInt(i % 40)).collect();
         let keys = users(40, 120);
-        let (column, input, options) = match case {
+        let slot = BuildOptions::default().with_layout(Layout::SlotOrdered);
+        let (column, input, options) = match case % 4 {
             0 => (utf8, keys, BuildOptions::default()),
-            1 => (utf8, keys, BuildOptions::default().with_layout(Layout::SlotOrdered)),
-            2 => (utf8, addresses(40, 120), BuildOptions::default()),
+            1 => (utf8, keys, slot),
+            2 => (utf8, addresses(40, 120), slot),
             _ => (ColumnType::UInt { bits: 64 }, ints, BuildOptions::default()),
         };
-        let dict = build(column, &input, options, &budget, &MemoryScratch);
+        let built = build(column, &input, options, &budget, &MemoryScratch);
+        // Cases 4 to 7: the same, renumbered.
+        let dict = if case >= 4 {
+            let perm: Vec<u32> = (0..built.len()).map(|i| (i * 7 + 3) % built.len()).collect();
+            built.renumber(&perm, &MemoryScratch, &budget).unwrap()
+        } else {
+            built
+        };
         let mut bytes: Sections = section_bytes(&dict).into_iter().collect();
         let names: Vec<&'static str> = bytes.keys().copied().collect();
-        for (section, at, value) in edits {
+        for (section, at, value, mode) in edits {
             let name = names[section % names.len()];
             let b = bytes.get_mut(name).unwrap();
-            if !b.is_empty() {
-                let at = usize::try_from(at).unwrap() % b.len();
-                b[at] = value;
+            if b.is_empty() {
+                continue;
+            }
+            let at = usize::try_from(at).unwrap() % b.len();
+            match mode {
+                // A byte.
+                0 => b[at] = value,
+                // An aligned u32 set to a small value.
+                1 if b.len() >= 4 => {
+                    let at = (at / 4 * 4).min(b.len() - 4);
+                    b[at..at + 4].copy_from_slice(&u32::from(value % 8).to_le_bytes());
+                }
+                // A u64 copied onto its neighbour (two equal offsets).
+                _ if b.len() >= 16 => {
+                    let at = (at / 8 * 8).min(b.len() - 16);
+                    let word: [u8; 8] = b[at..at + 8].try_into().unwrap();
+                    b[at + 8..at + 16].copy_from_slice(&word);
+                }
+                _ => b[at] = value,
             }
         }
         if let Ok(d) = open_bytes(&bytes, &budget) {

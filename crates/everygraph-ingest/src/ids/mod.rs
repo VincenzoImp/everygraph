@@ -145,9 +145,10 @@
 //! | `ids.order` | hashed, renumbered | `n` `u32`: graph position of each id |
 //! | `ids.rank_to_id`, `ids.id_to_rank` | dense, renumbered | `n` `u32` each: the id of each rank and back (the rank is the graph position) |
 //!
-//! Every id, slot and rank stored is below `n`, and two consecutive offsets are at
-//! most [`MAX_KEY_BYTES`] apart (plus 4 in `ids.record_offsets`); [`Dictionary::open`]
-//! and every look-up check this, and refuse a section that breaks it with
+//! Every id, slot and rank stored is below `n`; two consecutive offsets are at most
+//! [`MAX_KEY_BYTES`] apart, and in `ids.record_offsets` at least 4 and at most
+//! `MAX_KEY_BYTES + 4` apart (every record holds its id); [`Dictionary::open`],
+//! every look-up and [`Dictionary::renumber`] check this, and refuse a section that breaks it with
 //! [`DictionaryError::Corrupt`] before allocating anything for it. The content of
 //! `ids.slot_to_id` is not otherwise verified when a dictionary is opened: a wrong id
 //! there makes [`Dictionary::lookup`] find nothing (it compares keys), and

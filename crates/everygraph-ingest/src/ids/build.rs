@@ -33,9 +33,12 @@ const SAMPLE_BITS: u32 = 10;
 /// The smallest table a worker can hold a key of [`MAX_KEY_BYTES`] in: 1,024 entries
 /// (40 KiB), 2,048 slots (8 KiB) and a 64 KiB arena.
 const TABLE_BASE: u64 = 112 << 10;
-/// What a worker needs to spill its table: the write buffer, the run index and one
-/// record.
-const FLUSH_BYTES: u64 = (WRITE_BUFFER + (FINE + 1) * 8 + MAX_KEY_BYTES + 64) as u64;
+/// What a worker needs to spill its table: the write buffers of the run and of its
+/// sample, the run index and one record.
+const FLUSH_BYTES: u64 = (2 * WRITE_BUFFER + (FINE + 1) * 8 + MAX_KEY_BYTES + 64) as u64;
+/// Runs are read through a window of this size (at least one record), so that the
+/// memory a reader holds does not depend on how the keys were spread over runs.
+const READ_WINDOW: usize = 256 << 10;
 /// Memory each worker holds for the whole pass, reserved when the collector is made:
 /// with it a worker can always spill and go on, however the rest of the budget is
 /// shared out.
@@ -130,6 +133,12 @@ pub trait KeySource: Sync {
 
     /// Calls `f` with the position and the key of every identifier of chunk `chunk`, in
     /// input order.
+    ///
+    /// It must not use [`everygraph_core::par`] itself: the chunk is already one task
+    /// of a parallel loop that holds a [`Worker`] while it runs, and a nested parallel
+    /// call would let this thread start another chunk meanwhile. (Should it happen,
+    /// [`Collector::worker`] does not wait for a worker the same thread holds: it asks
+    /// the budget for one more, or fails with [`DictionaryError::Budget`].)
     ///
     /// # Errors
     ///
@@ -365,8 +374,8 @@ struct Pool<'a> {
 /// each through a [`Worker`], spilling to the scratch whenever their tables reach the
 /// budget.
 ///
-/// At most `budget / 6 MiB` workers exist (1 to 1,024), their bases reserved when the
-/// collector is made, so whether a build fits a budget does not depend on the number
+/// At most `available budget / (32 × 312 KiB)` workers exist — one per 9.75 MiB, 1 to
+/// 1,024 — their bases reserved when the collector is made, so whether a build fits a budget does not depend on the number
 /// of threads: a thread that finds every worker in use waits for one (a native
 /// thread pool only; without threads there is one worker and no wait).
 pub struct Collector<'a, Sc: Scratch> {
@@ -378,9 +387,9 @@ pub struct Collector<'a, Sc: Scratch> {
     accountant: &'a dyn MemoryAccountant,
     scratch: &'a Sc,
     runs: Mutex<Vec<Run<Sc::Source>>>,
-    sample: Mutex<Sample>,
-    /// Memory of the sample, split off the workers' tables.
-    held: Mutex<Vec<Reservation<'a>>>,
+    /// The sampled records of each run, in the scratch: how many there are depends on
+    /// how duplicate keys spread over runs, so they are not held in memory.
+    sample_runs: Mutex<Vec<Sc::Source>>,
     pool: Mutex<Pool<'a>>,
     returned: Condvar,
     cap: u64,
@@ -429,10 +438,60 @@ struct Sample {
     arena: Vec<u8>,
 }
 
-/// Bytes a sample of `items` entries and `arena` key bytes may hold (twice, for the
-/// doubling of its vectors).
+/// Bytes a sample of `items` entries and `arena` key bytes holds.
 fn sample_bytes(items: usize, arena: usize) -> u64 {
-    2 * widen(items * std::mem::size_of::<(KeyHash, u64, usize, usize)>() + arena)
+    widen(items * std::mem::size_of::<(KeyHash, u64, usize, usize)>() + arena)
+}
+
+/// Calls `f` with the hash, position and key of every record of `source` in
+/// `start..start + len`, read through `window` (records of a run or of its sample).
+fn for_each_record(
+    source: &dyn ByteSource,
+    start: u64,
+    len: u64,
+    fixed: Option<usize>,
+    window: &mut [u8],
+    mut f: impl FnMut(KeyHash, u64, &[u8]) -> Result<(), DictionaryError>,
+) -> Result<(), DictionaryError> {
+    let truncated = || DictionaryError::Corrupt("truncated run");
+    let end = start + len;
+    let mut next = start;
+    let mut have = 0_usize;
+    let head = 24 + if fixed.is_none() { 4 } else { 0 };
+    let word = |b: &[u8]| u64::from_le_bytes(b.try_into().expect("eight bytes"));
+    loop {
+        let take = index((end - next).min(widen(window.len() - have)));
+        source.read_at(next, &mut window[have..have + take])?;
+        next += widen(take);
+        have += take;
+        let mut at = 0;
+        while have - at >= head {
+            let r = &window[at..have];
+            let key_len = match fixed {
+                Some(w) => w,
+                None => index(u64::from(u32::from_le_bytes(
+                    r[24..28].try_into().expect("four bytes"),
+                ))),
+            };
+            if key_len > MAX_KEY_BYTES {
+                return Err(truncated());
+            }
+            if r.len() < head + key_len {
+                break;
+            }
+            let hash = KeyHash {
+                hi: word(&r[0..8]),
+                lo: word(&r[8..16]),
+            };
+            f(hash, word(&r[16..24]), &r[head..head + key_len])?;
+            at += head + key_len;
+        }
+        window.copy_within(at..have, 0);
+        have -= at;
+        if next == end {
+            return if have == 0 { Ok(()) } else { Err(truncated()) };
+        }
+    }
 }
 
 impl<'a, Sc: Scratch> Collector<'a, Sc> {
@@ -468,8 +527,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             accountant,
             scratch,
             runs: Mutex::new(Vec::new()),
-            sample: Mutex::new(Sample::default()),
-            held: Mutex::new(Vec::new()),
+            sample_runs: Mutex::new(Vec::new()),
             pool: Mutex::new(Pool {
                 idle: Vec::new(),
                 created: 0,
@@ -482,38 +540,57 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
     }
 
     /// A worker for the calling thread: an idle one, a new one while fewer than the
-    /// collector's limit exist, or else the next one returned (this waits).
+    /// collector's limit exist, or else the next one returned (this waits). A thread
+    /// that already holds one of this collector's workers never waits — its own worker
+    /// could only come back through it — but gets one more, with a base asked of the
+    /// budget.
     ///
     /// # Errors
     ///
-    /// None today: every worker's memory was reserved by [`Collector::new`].
+    /// [`DictionaryError::Budget`] only in that nested case, when the budget cannot
+    /// give the extra base; otherwise every worker's memory was reserved by
+    /// [`Collector::new`].
     pub fn worker(&self) -> Result<Worker<'_, 'a, Sc>, DictionaryError> {
+        let me = std::ptr::from_ref(self).addr();
+        let nested = HOLDING.with(|h| h.borrow().contains(&me));
         let mut pool = lock(&self.pool);
-        loop {
+        let base = loop {
             if let Some(state) = pool.idle.pop() {
-                return Ok(Worker {
-                    collector: self,
-                    state: Some(state),
-                });
+                drop(pool);
+                return Ok(self.lend(state));
             }
             if pool.created < self.cap {
                 pool.created += 1;
-                let mut base = pool.bases.split_off(WORKER_BASE);
-                let flush = base.split_off(FLUSH_BYTES);
-                return Ok(Worker {
-                    collector: self,
-                    state: Some(WorkerState {
-                        table: Table::default(),
-                        credit: Credit::from_reservation(base),
-                        _flush: flush,
-                        invalid: InvalidKeys::default(),
-                    }),
-                });
+                break pool.bases.split_off(WORKER_BASE);
+            }
+            if nested {
+                drop(pool);
+                break Reservation::new(
+                    self.accountant,
+                    "id dictionary distinct keys",
+                    WORKER_BASE,
+                )?;
             }
             pool = self
                 .returned
                 .wait(pool)
                 .unwrap_or_else(PoisonError::into_inner);
+        };
+        let mut base = base;
+        let flush = base.split_off(FLUSH_BYTES);
+        Ok(self.lend(WorkerState {
+            table: Table::default(),
+            credit: Credit::from_reservation(base),
+            _flush: flush,
+            invalid: InvalidKeys::default(),
+        }))
+    }
+
+    fn lend(&self, state: WorkerState<'a>) -> Worker<'_, 'a, Sc> {
+        HOLDING.with(|h| h.borrow_mut().push(std::ptr::from_ref(self).addr()));
+        Worker {
+            collector: self,
+            state: Some(state),
         }
     }
 
@@ -527,15 +604,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         let mut spill = Spill::new(self.scratch, "id dictionary run")?;
         let mut starts = vec![0_u64; FINE + 1];
         let mut record = Vec::with_capacity(32 + MAX_FIXED_WIDTH);
-        let sampled = st
-            .table
-            .entries()
-            .iter()
-            .filter(|e| e.hash.lo.trailing_zeros() >= SAMPLE_BITS)
-            .map(|e| st.table.key(e).len())
-            .fold((0, 0), |(n, b), l| (n + 1, b + l));
-        let mut sample = Vec::with_capacity(sampled.0);
-        let mut sample_arena = Vec::with_capacity(sampled.1);
+        let mut sample = Spill::new(self.scratch, "id dictionary sample")?;
         let mut fine = 0;
         for e in st.table.entries() {
             while fine < e.hash.fine() {
@@ -554,8 +623,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             record.extend_from_slice(key);
             spill.write(&record)?;
             if e.hash.lo.trailing_zeros() >= SAMPLE_BITS {
-                sample.push((e.hash, e.pos, sample_arena.len(), key.len()));
-                sample_arena.extend_from_slice(key);
+                sample.write(&record)?;
             }
         }
         while fine < FINE {
@@ -567,24 +635,9 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             spill.write(&s.to_le_bytes())?;
         }
         let source = spill.seal(self.scratch)?;
-        // The sample outlives the table: its memory is taken and moved off the table's
-        // reservation, so that no other worker can take it meanwhile. (If the budget
-        // has nothing left, it is moved out of the table's own, which is freed next.)
-        let bytes = sample_bytes(sampled.0, sampled.1);
-        let _ = st.credit.require(bytes);
-        let kept = st.credit.split_off(bytes);
-        lock(&self.held).push(kept);
         lock(&self.runs).push(Run { source, index_at });
-        {
-            let mut s = lock(&self.sample);
-            let base = s.arena.len();
-            s.items.extend(
-                sample
-                    .into_iter()
-                    .map(|(h, p, off, len)| (h, p, off + base, len)),
-            );
-            s.arena.extend_from_slice(&sample_arena);
-        }
+        let sample = sample.seal(self.scratch)?;
+        lock(&self.sample_runs).push(sample);
         st.table = Table::default();
         st.credit.reset();
         Ok(())
@@ -603,16 +656,42 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             self.flush(&mut st)?;
             invalid.merge(&st.invalid);
         }
-        let mut sample = std::mem::take(&mut *lock(&self.sample));
-        let arena = std::mem::take(&mut sample.arena);
-        let key = |&(_, _, off, len): &(KeyHash, u64, usize, usize)| &arena[off..off + len];
-        // One entry per key (a key spilled twice was sampled twice), with its smallest
-        // position.
-        sample
-            .items
-            .sort_unstable_by(|a, b| (a.0, key(a), a.1).cmp(&(b.0, key(b), b.1)));
-        sample.items.dedup_by(|b, a| a.0 == b.0 && key(a) == key(b));
-        sample.arena = arena;
+        // One entry per sampled key (a key spilled twice was sampled twice), with its
+        // smallest position; then copied into arrays of exactly its size, so that the
+        // memory held from here on depends on the input only.
+        let fixed = self.kind.width();
+        let mut credit = Credit::new(self.accountant, "id dictionary sample", 0)?;
+        credit.require(widen(READ_WINDOW))?;
+        let mut window = vec![0_u8; READ_WINDOW];
+        let mut table = Table::default();
+        for run in std::mem::take(&mut *lock(&self.sample_runs)) {
+            for_each_record(&run, 0, run.len(), fixed, &mut window, |hash, pos, key| {
+                if table.insert(hash, pos, key, Some(&mut credit)) == Inserted::Full {
+                    return Err(refused(self.accountant));
+                }
+                Ok(())
+            })?;
+        }
+        drop(window);
+        let key_bytes: usize = table.entries().iter().map(|e| table.key(e).len()).sum();
+        let sample_memory = Reservation::new(
+            self.accountant,
+            "id dictionary sample",
+            sample_bytes(table.len(), key_bytes),
+        )?;
+        let mut sample = Sample {
+            items: Vec::with_capacity(table.len()),
+            arena: Vec::with_capacity(key_bytes),
+        };
+        for e in table.entries() {
+            let key = table.key(e);
+            sample
+                .items
+                .push((e.hash, e.pos, sample.arena.len(), key.len()));
+            sample.arena.extend_from_slice(key);
+        }
+        drop(table);
+        drop(credit);
         Ok(Distinct {
             column: self.column,
             kind: self.kind,
@@ -623,7 +702,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             scratch: self.scratch,
             runs: std::mem::take(&mut *lock(&self.runs)),
             sample,
-            _held: std::mem::take(&mut *lock(&self.held)),
+            _sample_memory: sample_memory,
             dense: self.dense,
             invalid,
         })
@@ -643,8 +722,20 @@ impl<Sc: Scratch> std::fmt::Debug for Worker<'_, '_, Sc> {
     }
 }
 
+thread_local! {
+    /// The collectors (by address) whose workers this thread holds.
+    static HOLDING: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 impl<Sc: Scratch> Drop for Worker<'_, '_, Sc> {
     fn drop(&mut self) {
+        let me = std::ptr::from_ref(self.collector).addr();
+        HOLDING.with(|h| {
+            let mut h = h.borrow_mut();
+            if let Some(at) = h.iter().position(|&c| c == me) {
+                h.swap_remove(at);
+            }
+        });
         if let Some(state) = self.state.take() {
             lock(&self.collector.pool).idle.push(state);
             self.collector.returned.notify_one();
@@ -741,7 +832,7 @@ pub struct Distinct<'a, Sc: Scratch> {
     scratch: &'a Sc,
     runs: Vec<Run<Sc::Source>>,
     sample: Sample,
-    _held: Vec<Reservation<'a>>,
+    _sample_memory: Reservation<'a>,
     dense: Option<DenseBits<'a>>,
     invalid: InvalidKeys,
 }
@@ -1092,46 +1183,26 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         // defers the task to a smaller round (`in_rounds`).
         let mut credit = Credit::from_reservation(grant);
         let mut table = Table::default();
-        let mut bytes = Vec::new();
+        credit.require(widen(READ_WINDOW))?;
+        let mut window = vec![0_u8; READ_WINDOW];
         for run in &self.runs {
             let (start, len) = run.span(a, b)?;
-            let len_usize = index(len);
-            if len_usize > bytes.capacity() {
-                // The old buffer (already counted) and the new one exist while it grows.
-                credit.require(widen(len_usize))?;
-                let old = widen(bytes.capacity());
-                bytes = Vec::with_capacity(len_usize);
-                credit.give(old);
-            }
-            bytes.resize(len_usize, 0);
-            run.source.read_at(start, &mut bytes)?;
-            let mut at = 0;
-            while at < bytes.len() {
-                let field = |at: &mut usize, n: usize| -> Result<&[u8], DictionaryError> {
-                    let f = bytes
-                        .get(*at..*at + n)
-                        .ok_or(DictionaryError::Corrupt("truncated run"))?;
-                    *at += n;
-                    Ok(f)
-                };
-                let word = |f: &[u8]| u64::from_le_bytes(f.try_into().expect("eight bytes"));
-                let hi = word(field(&mut at, 8)?);
-                let lo = word(field(&mut at, 8)?);
-                let pos = word(field(&mut at, 8)?);
-                let len = match fixed {
-                    Some(w) => w,
-                    None => index(u64::from(u32::from_le_bytes(
-                        field(&mut at, 4)?.try_into().expect("four bytes"),
-                    ))),
-                };
-                let key = field(&mut at, len)?;
-                if table.insert(KeyHash { hi, lo }, pos, key, Some(&mut credit)) == Inserted::Full {
-                    return Err(refused(self.accountant));
-                }
-            }
+            for_each_record(
+                &run.source,
+                start,
+                len,
+                fixed,
+                &mut window,
+                |hash, pos, key| {
+                    if table.insert(hash, pos, key, Some(&mut credit)) == Inserted::Full {
+                        return Err(refused(self.accountant));
+                    }
+                    Ok(())
+                },
+            )?;
         }
-        credit.give(widen(bytes.capacity()));
-        drop(bytes);
+        drop(window);
+        credit.give(widen(READ_WINDOW));
         // Everything else the task holds, now that its keys are known: the hashes by
         // part, the solver's working memory for the largest part, the solved parts,
         // and the records for phase C — each allocated at its exact size.
