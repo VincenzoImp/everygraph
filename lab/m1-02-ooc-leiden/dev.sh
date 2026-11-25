@@ -40,6 +40,8 @@ s["acct_peak_MiB"] = d["accountant"]["peak_bytes"] // 2**20
 s["budget_MiB"] = (d["budget_bytes"] or 0) // 2**20
 s["cg_peak_MiB"] = d["cgroup"]["memory_peak"] // 2**20
 s["majflt"] = d["cgroup"]["pgmajfault"]
+s["read_GB"] = round(d.get("read_bytes", 0) / 1e9, 2)
+s["write_GB"] = round(d.get("write_bytes", 0) / 1e9, 2)
 a = d["passes"][0]["seq_agg"]
 if a:
     s["agg0"] = {k: a[k] for k in ["emit_s", "process_s", "bucket_ram_bytes", "bucket_disk_bytes", "records", "mem_waits"]}

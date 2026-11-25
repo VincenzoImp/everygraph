@@ -59,12 +59,13 @@ pub struct AggStats {
     pub max_bucket_records: u64,
     pub mem_waits: u64,
     pub split_communities: usize,
+    pub demoted_bytes: u64,
 }
 impl AggStats {
     pub fn json(&self) -> String {
         format!(
-            "{{\"prep_s\":{:.4},\"emit_s\":{:.4},\"process_s\":{:.4},\"finish_s\":{:.4},\"records\":{},\"bucket_ram_bytes\":{},\"bucket_disk_bytes\":{},\"buckets\":{},\"bucket_buf_records\":{},\"out_bytes\":{},\"out_entries\":{},\"max_bucket_records\":{},\"mem_waits\":{},\"split_communities\":{}}}",
-            self.prep_s, self.emit_s, self.process_s, self.finish_s, self.records, self.ram_bytes, self.disk_bytes, self.buckets, self.bucket_buf_records, self.out_bytes, self.out_entries, self.max_bucket_records, self.mem_waits, self.split_communities
+            "{{\"prep_s\":{:.4},\"emit_s\":{:.4},\"process_s\":{:.4},\"finish_s\":{:.4},\"records\":{},\"bucket_ram_bytes\":{},\"bucket_disk_bytes\":{},\"buckets\":{},\"bucket_buf_records\":{},\"out_bytes\":{},\"out_entries\":{},\"max_bucket_records\":{},\"mem_waits\":{},\"split_communities\":{},\"demoted_bytes\":{}}}",
+            self.prep_s, self.emit_s, self.process_s, self.finish_s, self.records, self.ram_bytes, self.disk_bytes, self.buckets, self.bucket_buf_records, self.out_bytes, self.out_entries, self.max_bucket_records, self.mem_waits, self.split_communities, self.demoted_bytes
         )
     }
 }
@@ -76,6 +77,7 @@ struct Buckets {
     ram_recs: Vec<AtomicU64>,
     ram_bytes: AtomicU64,
     disk_bytes: AtomicU64,
+    demoted: AtomicU64,
     allow_ram: bool,
 }
 impl Buckets {
@@ -98,6 +100,36 @@ impl Buckets {
         self.disk_bytes.fetch_add(bytes.len() as u64, Relaxed);
         v.clear();
     }
+}
+
+/// Moves RAM chunks of buckets `from..` (latest first) to their files until `need` bytes are
+/// available. Returns whether anything was moved.
+fn demote(bk: &Buckets, from: usize, need: u64) -> bool {
+    let mut moved = false;
+    for b in (from..bk.ram.len()).rev() {
+        if crate::acct::acct().available() >= need {
+            break;
+        }
+        let chunks = std::mem::take(&mut *bk.ram[b].lock().unwrap());
+        for (v, r) in chunks {
+            let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * REC as usize) };
+            let off = bk.disk_len[b].fetch_add(bytes.len() as u64, Relaxed);
+            bk.files[b].write_all_at(bytes, off).expect("bucket write");
+            bk.disk_bytes.fetch_add(bytes.len() as u64, Relaxed);
+            bk.ram_recs[b].fetch_sub(v.len() as u64, Relaxed);
+            bk.demoted.fetch_add(bytes.len() as u64, Relaxed);
+            drop(v);
+            drop(r);
+            moved = true;
+        }
+    }
+    moved
+}
+
+/// Part of a split community that target `cv` goes to (a multiplicative hash: uniform).
+#[inline(always)]
+fn part_of(cv: u32, parts: usize) -> usize {
+    ((cv.wrapping_mul(0x9E37_79B1) as u64 * parts as u64) >> 32) as usize
 }
 
 struct EmitTls {
@@ -167,7 +199,7 @@ static SPILL_SEQ: AtomicUsize = AtomicUsize::new(0);
 /// Aggregates g by labels `lab` (labels in [0, n)). Returns (quotient graph, its index
 /// reservation, k', dmap, stats). The quotient graph is a weighted compressed store mapped from
 /// an unlinked file under `spill`.
-pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::ThreadPool, spill: &str) -> SeqOut {
+pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::ThreadPool, spill: &str, keep: Option<&str>) -> SeqOut {
     let t0 = Instant::now();
     let n = g.n;
     let nt = pool.current_num_threads();
@@ -226,15 +258,18 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     let r_writer = res("aggregation: output offsets and degrees", StoreWriter::ram_bytes(c_new));
     let avail = crate::acct::acct().available();
     let mut target = (avail / 4 / nt as u64 / 32).clamp(1 << 14, 1 << 26);
-    if total_ub / target > 2048 {
-        target = total_ub / 2048 + 1;
+    // at most 2048 buckets, and no more than the write-combining buffers (64 records minimum
+    // per thread and bucket) can have with an eighth of what is available
+    let nb_max = ((avail / 8) / (nt as u64 * 64 * REC)).clamp(1, 2048);
+    if total_ub / target > nb_max {
+        target = total_ub / nb_max + 1;
     }
     if nt > 1 && total_ub / target < (4 * nt) as u64 {
         target = (total_ub / (4 * nt) as u64).max(1 << 14);
     }
     // Buckets in community order. A community whose entry bound exceeds the target is split
-    // over p consecutive buckets by target range (part j: targets in [j C / p, (j+1) C / p));
-    // its partial lists are joined at commit time. bfirst[c] = first bucket of c, and
+    // over p consecutive buckets by a hash of the target (uniform whatever the neighbours are);
+    // its disjoint partial lists are joined and sorted at commit time. bfirst[c] = first bucket of c, and
     // bfirst[c + 1] - bfirst[c] = p for a split community (0 or 1 otherwise).
     let mut bkt: Vec<(usize, usize, u32, u32)> = Vec::new(); // (lo, hi, part, parts)
     let mut bfirst = vec![0u32; c_new + 1];
@@ -294,6 +329,7 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
         ram_recs: (0..nb).map(|_| AtomicU64::new(0)).collect(),
         ram_bytes: AtomicU64::new(0),
         disk_bytes: AtomicU64::new(0),
+        demoted: AtomicU64::new(0),
         allow_ram: true,
     };
     // headroom for step 4 (sort buffers of nt buckets), so that RAM chunks cannot starve it
@@ -301,7 +337,7 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     let headroom = (nt as u64 * max_bucket_ub * 24).min(avail / 2);
     let r_head = res("aggregation: headroom for bucket sorting", headroom);
     let avail = crate::acct::acct().available();
-    let cap = ((avail / 10) / (nt as u64 * nb as u64 * REC)).clamp(256, 8192) as usize;
+    let cap = ((avail / 10) / (nt as u64 * nb as u64 * REC)).clamp(64, 8192) as usize;
     let r_bufs = res("aggregation: write-combining buffers", nt as u64 * nb as u64 * cap as u64 * REC);
     st.buckets = nb;
     st.bucket_buf_records = cap;
@@ -343,7 +379,7 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                     let w = tab.vals[s as usize];
                     let cv = tab.keys[s as usize];
                     debug_assert!(w >= 1.0 && w <= u32::MAX as f64 && w.fract() == 0.0);
-                    let b = if parts > 1 { b0 + (cv as u64 * parts as u64 / c_new as u64) as usize } else { b0 };
+                    let b = if parts > 1 { b0 + part_of(cv, parts) } else { b0 };
                     let buf = &mut bufs[b];
                     if buf.capacity() == 0 {
                         buf.reserve_exact(cap);
@@ -378,7 +414,16 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     st.emit_s = t1.elapsed().as_secs_f64();
     // ---- 4. per-bucket sort / combine / encode, ordered commit
     let t2 = Instant::now();
-    let path = std::path::Path::new(spill).join(format!("quotient.{}.{seq}.adj", std::process::id()));
+    // the quotient graph: an unlinked spill file, or (--out-hier out of core) a store directory
+    // kept on disk for the map, never held in memory
+    let keep_dir = keep.map(|d| std::path::Path::new(d).join(format!("quot_{seq}")));
+    let path = match &keep_dir {
+        Some(d) => {
+            std::fs::create_dir_all(d).expect("quotient dir");
+            d.join("adj.bin")
+        }
+        None => std::path::Path::new(spill).join(format!("quotient.{}.{seq}.adj", std::process::id())),
+    };
     let writer = Mutex::new(StoreWriter::create(&path, c_new, true).expect("quotient file"));
     let next_take = Mutex::new(0usize);
     let in_flight = AtomicUsize::new(0);
@@ -396,7 +441,8 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
         let disk = bk.disk_len[b].load(Relaxed);
         let recs = bk.ram_recs[b].load(Relaxed) + disk / REC;
         // read buffer + pairs + counts + output (records ~5 B per entry + offsets/degrees)
-        (disk + recs * 8 + (nn + 1) * 4 + recs * 10 + nn * 16 + 4096, recs)
+        // (output measured at 2.7 B per record on Friendster's level 0)
+        (disk + recs * 8 + (nn + 1) * 4 + recs * 5 + nn * 16 + 4096, recs)
     };
     pool.broadcast(|_| {
         let mut tmp: Vec<u32> = Vec::new();
@@ -417,6 +463,10 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                     break (b, r);
                 }
                 let idle = in_flight.load(SeqCst) == 0;
+                if idle && demote(&bk, b + 1, need) {
+                    // RAM chunks of later buckets went to their files: try again
+                    continue;
+                }
                 if idle {
                     // nothing else holds memory of this phase: this bucket alone does not fit
                     *nx += 1;
@@ -540,6 +590,14 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                             asm.4.push(res);
                             if part + 1 == parts {
                                 let (mut t, mut w) = (std::mem::take(&mut asm.1), std::mem::take(&mut asm.2));
+                                // parts hold disjoint target sets: one sort makes the list
+                                let mut z: Vec<u64> = t.iter().zip(&w).map(|(&a, &b)| ((a as u64) << 32) | b as u64).collect();
+                                z.sort_unstable();
+                                for (i, &x) in z.iter().enumerate() {
+                                    t[i] = (x >> 32) as u32;
+                                    w[i] = x as u32;
+                                }
+                                drop(z);
                                 let sum = finish_list(c, &mut t, &mut w, asm.3, selfw[c].load(Relaxed));
                                 if !row_sum_ok(c, sum, f64::from_bits(knew_a[c].load(Relaxed))) {
                                     failed.store(true, Relaxed);
@@ -562,13 +620,17 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     });
     assert!(!failed.load(Relaxed), "aggregation invariant violated");
     st.mem_waits = waits.load(Relaxed);
+    st.demoted_bytes = bk.demoted.load(Relaxed);
     st.max_bucket_records = max_recs.load(Relaxed);
     st.process_s = t2.elapsed().as_secs_f64();
     drop(bk);
     let t3 = Instant::now();
     let w = writer.into_inner().unwrap();
     assert_eq!(commit.lock().unwrap().0, nb);
-    let comp = w.finish(false).expect("finish quotient");
+    let comp = match &keep_dir {
+        Some(d) => w.finish_dir(d, false).expect("finish quotient store"),
+        None => w.finish(false).expect("finish quotient"),
+    };
     drop(r_writer);
     let r_index = res("quotient graph: offsets index", comp.index_ram_bytes());
     let _ = crate::acct::file_backed("quotient graph: mapped records", comp.data_len as u64);

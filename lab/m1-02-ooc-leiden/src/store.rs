@@ -183,6 +183,8 @@ pub struct Comp {
     pub weighted: bool,
     /// m1-02: largest degree (0 = unknown)
     pub max_deg: usize,
+    /// m1-02: the largest degrees, descending (up to 64; empty = unknown, use max_deg)
+    pub top_degs: Vec<u32>,
 }
 unsafe impl Send for Comp {}
 unsafe impl Sync for Comp {}
@@ -259,7 +261,7 @@ impl Comp {
         let ef_s = t.elapsed().as_secs_f64();
         let data = Buf::Vec(data);
         let dp = data.as_ptr();
-        (Comp { n, entries, data, data_len: total, boff, chunks, eoff: None, dp, weighted: false, max_deg: 0 }, EncodeStats { encode_s, concat_s, ef_s })
+        (Comp { n, entries, data, data_len: total, boff, chunks, eoff: None, dp, weighted: false, max_deg: 0, top_degs: Vec::new() }, EncodeStats { encode_s, concat_s, ef_s })
     }
 
     pub fn from_raw(g: &Raw) -> (Comp, EncodeStats) {
@@ -312,7 +314,7 @@ impl Comp {
         let dp = data.as_ptr();
         let weighted = meta["weighted"].as_bool().unwrap_or(false);
         let max_deg = meta["max_deg"].as_u64().unwrap_or(0) as usize;
-        let mut c = Comp { n, entries, data, data_len, boff, chunks, eoff: None, dp, weighted, max_deg };
+        let mut c = Comp { n, entries, data, data_len, boff, chunks, eoff: None, dp, weighted, max_deg, top_degs: Vec::new() };
         if DEG_INDEX.load(Relaxed) {
             c.build_degree_index();
         }
@@ -753,6 +755,13 @@ impl StoreWriter {
         self.idx = Vec::new();
         let chunks = chunks_from_degrees(&self.deg);
         let max_deg = self.deg.iter().copied().max().unwrap_or(0) as usize;
+        let mut top_degs = self.deg.clone();
+        let k = 64.min(top_degs.len());
+        if k > 0 && k < top_degs.len() {
+            top_degs.select_nth_unstable_by(k - 1, |a, b| b.cmp(a));
+        }
+        top_degs.truncate(k);
+        top_degs.sort_unstable_by(|a, b| b.cmp(a));
         self.deg = Vec::new();
         let m = unsafe { memmap2::Mmap::map(&self.file)? };
         let data = Buf::Mmap(m, data_len + 64);
@@ -760,7 +769,7 @@ impl StoreWriter {
             std::fs::remove_file(&self.path)?;
         }
         let dp = data.as_ptr();
-        Ok(Comp { n: self.n, entries: self.entries as usize, data, data_len, boff, chunks, eoff: None, dp, weighted: self.weighted, max_deg })
+        Ok(Comp { n: self.n, entries: self.entries as usize, data, data_len, boff, chunks, eoff: None, dp, weighted: self.weighted, max_deg, top_degs })
     }
     /// For a store meant to be reopened with `Comp::open`: writes boff.ef, blocks.u32 and meta.json
     /// next to adj.bin (the writer's file must be `dir/adj.bin`).

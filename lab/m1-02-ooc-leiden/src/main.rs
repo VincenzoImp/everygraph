@@ -47,6 +47,7 @@ fn main() {
     match argv[1].as_str() {
         "encode" => encode(a, threads),
         "verify" => verify(a),
+        "shuffle" => shuffle(a),
         "evict" => {
             let d = get(a, "--store").expect("--store");
             for f in ["adj.bin", "boff.ef", "blocks.u32"] {
@@ -105,6 +106,51 @@ fn encode(a: &[String], threads: usize) {
                "data_bytes": c.data_len, "bits_per_edge_data": c.data_len as f64 * 8.0 / c.entries as f64, "max_deg": c.max_deg,
                "seconds": t.elapsed().as_secs_f64(), "fsync": fsync, "peak_rss_bytes": peak_rss()})
     );
+}
+
+/// Survey idea L1: a seeded random relabelling. New id of u = rank of splitmix64(seed ^ u).
+/// Writes a glab-csr-v0 directory (offsets.u64, targets.u32, sorted lists) and perm.u32
+/// (perm[u] = new id). In memory: for lj and orkut only.
+fn shuffle(a: &[String]) {
+    let g = Raw::load(Path::new(&get(a, "--graph").expect("--graph")), Mem::Heap).expect("load raw");
+    let out = PathBuf::from(get(a, "--out").expect("--out"));
+    let seed: u64 = get(a, "--seed").map(|s| s.parse().unwrap()).unwrap_or(1);
+    let n = g.n;
+    let mix = |x: u64| {
+        let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let mut keys: Vec<(u64, u32)> = (0..n as u32).map(|u| (mix(seed ^ u as u64), u)).collect();
+    keys.par_sort_unstable();
+    let mut perm = vec![0u32; n];
+    let mut inv = vec![0u32; n];
+    for (x, &(_, u)) in keys.iter().enumerate() {
+        perm[u as usize] = x as u32;
+        inv[x] = u;
+    }
+    drop(keys);
+    let mut off = vec![0u64; n + 1];
+    for x in 0..n {
+        off[x + 1] = off[x] + g.deg(inv[x] as usize) as u64;
+    }
+    let mut tgt = vec![0u32; g.targets.len()];
+    let tp = SyncPtr(tgt.as_mut_ptr());
+    (0..n).into_par_iter().for_each(|x| {
+        let s = unsafe { tp.slice_mut(off[x] as usize, off[x + 1] as usize) };
+        for (i, &v) in g.list(inv[x] as usize).iter().enumerate() {
+            s[i] = perm[v as usize];
+        }
+        s.sort_unstable();
+    });
+    std::fs::create_dir_all(&out).unwrap();
+    let w = |name: &str, b: &[u8]| std::fs::write(out.join(name), b).unwrap();
+    let bytes = |p: *const u8, len: usize| unsafe { std::slice::from_raw_parts(p, len) };
+    w("offsets.u64", bytes(off.as_ptr() as *const u8, off.len() * 8));
+    w("targets.u32", bytes(tgt.as_ptr() as *const u8, tgt.len() * 4));
+    w("perm.u32", bytes(perm.as_ptr() as *const u8, perm.len() * 4));
+    println!("{}", json!({"cmd": "shuffle", "n": n, "entries": tgt.len(), "seed": seed, "out": out.display().to_string()}));
 }
 
 fn verify(a: &[String]) {

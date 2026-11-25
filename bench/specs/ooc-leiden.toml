@@ -1,0 +1,174 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #16 (m1-02): out-of-core Leiden. Lab prototype lab/m1-02-ooc-leiden (`m102`), built by
+# this spec. Async Leiden, one iteration, 16 threads, f64 weights, level 0 in the compressed
+# store of lab/m1-13 (DESIGN D4).
+#
+#   in RAM       the reference: same binary without --ooc; level 0 mapped and pre-faulted, warm;
+#                member-order aggregation with b2's --lowmem (two passes, no O(m) temporary).
+#                M1-13's 82.0 s Friendster figure used the default (holey) aggregation and no
+#                memory limit at all; that aggregation is killed under 48 GiB (exploratory
+#                run, 2026-11-25) and this machine cannot grant more than ~55 GiB, so the
+#                reference under a hard limit is --lowmem (the tracer's and the 154.5 s run's
+#                aggregation too).
+#   out of core  --ooc: sequential aggregation into range-partitioned buckets (RAM while the
+#                accountant allows, else files), quotient graphs spilled as compressed stores;
+#                level 0 mapped without pre-fault from a private copy evicted before each
+#                repetition (cold), so everything it reads is charged to its own cgroup.
+#                The accountant's budget is 0.80 x the limit - 64 MiB (the program reads
+#                memory.max); the rest is left to the page cache.
+#   map-shaped   --cap 64 --max-passes 20 --min-ratio 3 --out-hier (the map's setting): the
+#                tracer (#15, bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl) saw b2
+#                killed at 56 GiB in RAM because it keeps every level's quotient graph in
+#                memory; out of core the quotient graphs are store directories on disk.
+#
+# Datasets: $EVERYGRAPH_DATA/store-m113/<graph>, written once by
+#   systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 \
+#     lab/m1-02-ooc-leiden/target/release/m102 encode --graph $EVERYGRAPH_DATA/csr/<graph> \
+#     --out $EVERYGRAPH_DATA/store-m113/<graph> --threads 16 --fsync
+# (byte-identical to m1-13's encoder: `m102 verify`; the harness checks a dataset exists before
+# its preparation steps, so this is not a [[prepare]] step).
+#
+# Repetitions: Friendster cases run 1-2 minutes each but write up to ~30 GB per repetition
+# (write-heavy: one warm-up, then 2 repetitions); orkut 3.
+# Wall time of the whole spec, estimated from exploratory runs: about 35 minutes (estimate).
+
+schema = 1
+name = "ooc-leiden"
+description = "Issue #16: Leiden out of core (sequential aggregation, spilled levels) against in RAM, Friendster and orkut"
+reference = "plan/issues/m1-02-ooc-aggregation.md; docs/FINDINGS.md § B2 and § M1-13"
+binaries = ["{m102}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+threads = [16]
+timeout = "20m"
+
+[gate]
+max_load = 1.0
+disturbed_above_cores = 0.5
+disturbed_above_io_mb_s = 50
+
+[vars]
+m102 = "{repo}/lab/m1-02-ooc-leiden/target/release/m102"
+run = "{m102} leiden run --config comp --algo leiden --threads {threads}"
+ooc = "--mem mmap-lazy --ooc --spill {case_work}/spill"
+
+[[prepare]]
+name = "build-m102"
+# target-cpu=native and fat LTO come from lab/m1-02-ooc-leiden/.cargo/config.toml and its manifest.
+cwd = "{repo}/lab/m1-02-ooc-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+
+# --- Friendster -------------------------------------------------------------------------
+
+[[benchmark]]
+name = "inram-friendster"
+group = "friendster"
+description = "in-RAM reference: level 0 mapped and pre-faulted (warm), member-order aggregation (--lowmem)"
+dataset_path = "store-m113/friendster"
+memory_limit = "48G"
+repetitions = 2
+command = ["sh", "-c", "exec {run} --store {dataset} --mem mmap --lowmem"]
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "in RAM, --lowmem aggregation", storage = "compressed level 0 (mmap, pre-faulted, warm); raw quotient graphs in heap", precision = "f64 weights", timing = "kernel only: excludes open and evaluation" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/level0_refine_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "upper_levels", json = "/upper_levels_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
+]
+
+[[benchmark]]
+name = "ooc-friendster"
+group = "friendster"
+description = "out of core under hard limits: sequential aggregation, spilled quotient graphs, cold level 0"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+warmup = 1
+repetitions = 2
+matrix = { limit = ["34G", "16G", "8G"] }
+memory_limit = "{limit}"
+command = ["sh", "-c", "exec {run} --store {dataset} {ooc}"]
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "out of core, limit {limit}", storage = "compressed level 0 (mmap, cold copy); quotient graphs as compressed stores on disk", precision = "f64 weights (integer)", timing = "kernel only: excludes open and evaluation; includes reading level 0 and all spill I/O" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/level0_refine_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "upper_levels", json = "/upper_levels_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
+  { name = "accountant_budget", json = "/budget_bytes", unit = "B" },
+  { name = "level0_bucket_disk", json = "/passes/0/seq_agg/bucket_disk_bytes", unit = "B" },
+  { name = "level0_bucket_ram", json = "/passes/0/seq_agg/bucket_ram_bytes", unit = "B" },
+  { name = "level1_store", json = "/passes/0/seq_agg/out_bytes", unit = "B" },
+  { name = "disk_read_machine", json = "/read_bytes", unit = "B" },
+  { name = "disk_write_machine", json = "/write_bytes", unit = "B" },
+]
+
+[[benchmark]]
+name = "ooc-friendster-map"
+group = "friendster"
+description = "map-shaped Leiden (fan-out cap 64, up to 20 passes, level compaction 3, hierarchy written) out of core"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+warmup = 1
+repetitions = 1
+matrix = { limit = ["16G"] }
+memory_limit = "{limit}"
+command = ["sh", "-c", "exec {run} --store {dataset} {ooc} --cap 64 --max-passes 20 --min-ratio 3 --out-hier {case_work}/hier"]
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration, map-shaped (cap 64, compaction 3)", mode = "out of core, limit {limit}", storage = "compressed level 0 (mmap, cold copy); every level's quotient graph kept as a store on disk", precision = "f64 weights (integer)", timing = "kernel only: excludes open, evaluation and writing the level maps" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "passes", json = "/n_passes" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
+]
+
+# --- orkut: limit = 50% of the raw edge array (targets.u32, 937,480,664 B -> 447 MiB) ---------
+
+[[benchmark]]
+name = "inram-orkut"
+group = "orkut"
+description = "in-RAM reference, warm, --lowmem aggregation"
+dataset_path = "store-m113/orkut"
+memory_limit = "8G"
+command = ["sh", "-c", "exec {run} --store {dataset} --mem mmap --lowmem"]
+conditions = { graph = "orkut", algorithm = "Leiden async, 1 iteration", mode = "in RAM, --lowmem aggregation", storage = "compressed level 0 (mmap, pre-faulted, warm)", precision = "f64 weights", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "disconnected", json = "/disconnected" },
+]
+
+[[benchmark]]
+name = "ooc-orkut"
+group = "orkut"
+description = "out of core under 50% of the raw edge array, cold level 0"
+dataset_path = "store-m113/orkut"
+cache = "cold"
+memory_limit = "447M"
+command = ["sh", "-c", "exec {run} --store {dataset} {ooc}"]
+conditions = { graph = "orkut", algorithm = "Leiden async, 1 iteration", mode = "out of core, limit 447 MiB = 50% of targets.u32", storage = "compressed level 0 (mmap, cold copy); quotient graphs spilled", precision = "f64 weights (integer)", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
+  { name = "disk_read_machine", json = "/read_bytes", unit = "B" },
+]

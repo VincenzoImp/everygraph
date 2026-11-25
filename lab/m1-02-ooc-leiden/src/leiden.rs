@@ -79,7 +79,40 @@ impl Tab {
             unsafe { *self.keys.get_unchecked_mut(i as usize) = NONE };
         }
         self.used.clear();
+        if self.keys.len() > TAB_KEEP {
+            // m1-02: a table grown for a huge list (a supernode of a giant community has
+            // millions of neighbours) is given back at once instead of staying with the thread
+            self.keys = vec![NONE; 1 << 16];
+            self.vals = vec![0.0; 1 << 16];
+            self.used = Vec::with_capacity(64);
+        }
     }
+}
+/// m1-02: tables up to this many slots (48 MiB) stay with their thread.
+const TAB_KEEP: usize = 1 << 22;
+
+/// m1-02: worst-case scratch of the threads while they visit one level: a hash table of
+/// next_pow2(2 deg) slots (12 B) plus its index list, and decode buffers of the compressed
+/// path (targets and weights, 4 B each), for the `nt` largest degrees at the same time.
+fn scratch_bytes(g: &Graph, nt: usize) -> u64 {
+    let top: Vec<u32> = match g.comp() {
+        Some(c) if !c.top_degs.is_empty() => c.top_degs.clone(),
+        Some(c) => vec![c.max_deg as u32; nt],
+        None => {
+            let mut d: Vec<u32> = (0..g.n).map(|u| g.deg(u) as u32).collect();
+            let k = nt.min(d.len());
+            if k > 0 && k < d.len() {
+                d.select_nth_unstable_by(k - 1, |a, b| b.cmp(a));
+            }
+            d.truncate(k);
+            d
+        }
+    };
+    let per = |d: u64| -> u64 { (2 * d).max(16).next_power_of_two() * 12 + d * 4 + (d + 16).next_power_of_two() * 8 };
+    let mut v: Vec<u64> = top.iter().map(|&d| per(d as u64)).collect();
+    v.resize(nt.max(v.len()), per(64));
+    v.sort_unstable_by(|a, b| b.cmp(a));
+    v[..nt].iter().sum()
 }
 
 pub struct Tls {
@@ -127,6 +160,10 @@ pub struct Opts {
     ooc: bool,
     spill: String,
     check_agg: bool,
+    order_window: usize,
+    trace_io: bool,
+    /// out of core with --out-hier: the quotient store of every level is kept here
+    hier_dir: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -144,6 +181,9 @@ pub struct PassStat {
     agg: String,
     acct_used: u64,
     anon_kb: u64,
+    io_lm_read: u64,
+    io_agg_read: u64,
+    io_agg_write: u64,
 }
 
 struct Cx<'a> {
@@ -177,16 +217,20 @@ fn tie_less(d: u32, best: u32, u: u32, hash: bool) -> bool {
 }
 /// Deterministic pseudo-random visiting order: blocks of `ob` consecutive vertex ids, block order permuted by a
 /// multiplicative bijection. Keeps cache/disk locality inside a block, breaks the id-order bias of local moving.
+/// m1-02 (survey idea L2): with `win` > 0 the permutation is applied inside consecutive windows
+/// of `win` blocks, and the windows are visited in disk order (a fixed function of the graph:
+/// never of the budget). win = 0: the whole graph is one window (ADR 0015's order).
 struct Order {
     ob: usize,
     nb: usize,
     n: usize,
     permute: bool,
+    win: usize,
 }
 impl Order {
     fn new(n: usize, o: &Opts) -> Order {
         let ob = o.order_block.max(1);
-        Order { ob, nb: n.div_ceil(ob), n, permute: o.permute }
+        Order { ob, nb: n.div_ceil(ob), n, permute: o.permute, win: o.order_window }
     }
     fn chunk(&self, vertices: usize) -> usize {
         (vertices / self.ob).max(1)
@@ -194,7 +238,15 @@ impl Order {
     #[inline(always)]
     fn block(&self, j: usize) -> std::ops::Range<usize> {
         const P: u64 = 2_654_435_761; // prime > any block count we handle (nb < 2^31)
-        let jj = if self.permute { ((j as u64 * P) % self.nb as u64) as usize } else { j };
+        let jj = if !self.permute {
+            j
+        } else if self.win == 0 || self.win >= self.nb {
+            ((j as u64 * P) % self.nb as u64) as usize
+        } else {
+            let w0 = j / self.win * self.win;
+            let sz = self.win.min(self.nb - w0) as u64;
+            w0 + (((j - w0) as u64 * P) % sz) as usize
+        };
         jj * self.ob..((jj + 1) * self.ob).min(self.n)
     }
 }
@@ -331,6 +383,11 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
     let mut iters = 0;
     let mut tot_moves = 0u64;
     let mut tot_scanned = 0u64;
+    // m1-02 trace (survey idea L3): per iteration, 64-node blocks with at least one active node
+    // and 4 KiB pages of the compressed store touched by the active nodes' records
+    let comp = if o.trace_io { cx.g.comp() } else { None };
+    let tb: Vec<AtomicU64> = if comp.is_some() { (0..ord.nb.div_ceil(64)).map(|_| AtomicU64::new(0)).collect() } else { Vec::new() };
+    let tp: Vec<AtomicU64> = comp.map(|c| (0..(c.data_len / 4096 + 1).div_ceil(64)).map(|_| AtomicU64::new(0)).collect()).unwrap_or_default();
     for _it in 0..o.max_iters {
         for t in tls {
             let mut t = t.lock().unwrap();
@@ -338,6 +395,8 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
             t.gain_fx = 0;
             t.processed = 0;
         }
+        let io0 = io_read_bytes();
+        let t_it = Instant::now();
         if !cx.det {
             par_for(pool, ord.nb, ord.chunk(o.chunk), |tid, r| {
                 let mut guard = tls[tid].lock().unwrap();
@@ -345,6 +404,14 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
                 for u in r.flat_map(|j| ord.block(j)) {
                     if cx.flag[u].load(Relaxed) == 0 {
                         continue;
+                    }
+                    if let Some(c) = comp {
+                        let b = u / ord.ob;
+                        tb[b / 64].fetch_or(1 << (b % 64), Relaxed);
+                        let (a, e) = (c.boff.get(u) as usize / 4096, c.boff.get(u + 1) as usize / 4096);
+                        for pg in a..=e {
+                            tp[pg / 64].fetch_or(1 << (pg % 64), Relaxed);
+                        }
                     }
                     cx.flag[u].store(0, Relaxed);
                     t.scanned += cx.g.deg(u) as u64;
@@ -467,8 +534,26 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
             processed += t.processed;
         }
         let g = if cx.det { gain_fx as f64 / (1u64 << 50) as f64 } else { gain };
+        let io = io_read_bytes() - io0;
+        let it_s = t_it.elapsed().as_secs_f64();
+        if let Some(c) = comp {
+            let cb: u64 = tb.iter().map(|x| x.swap(0, Relaxed).count_ones() as u64).sum();
+            let cp: u64 = tp.iter().map(|x| x.swap(0, Relaxed).count_ones() as u64).sum();
+            TRACE.lock().unwrap().push(format!(
+                "{{\"n\":{},\"iter\":{},\"processed\":{},\"active_blocks\":{},\"blocks\":{},\"touched_pages\":{},\"store_pages\":{},\"read_bytes\":{},\"s\":{:.4}}}",
+                n,
+                iters,
+                processed,
+                cb,
+                ord.nb,
+                cp,
+                c.data_len / 4096 + 1,
+                io,
+                it_s
+            ));
+        }
         if o.verbose {
-            eprintln!("    iter {} processed {} gain {:.6}", iters, processed, g);
+            eprintln!("    iter {} processed {} gain {:.6} read {:.2} GB {:.3}s", iters, processed, g, io as f64 / 1e9, it_s);
         }
         if g <= tol || processed == 0 {
             break;
@@ -833,6 +918,41 @@ fn check_agg_equal(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thread
     CHECKS.fetch_add(1, Relaxed);
 }
 static CHECKS: AtomicUsize = AtomicUsize::new(0);
+static TRACE: Mutex<Vec<String>> = Mutex::new(Vec::new());
+fn proc_io(key: &str) -> u64 {
+    std::fs::read_to_string("/proc/self/io").ok().and_then(|s| s.lines().find_map(|l| l.strip_prefix(key).and_then(|x| x.trim().parse().ok()))).unwrap_or(0)
+}
+/// Bytes read from / written to the machine's whole-disk devices (/proc/diskstats, 512-byte
+/// sectors). Machine-wide: meaningful only when nothing else uses the disk. Used instead of
+/// /proc/self/io, which does not count page faults on a mapped file.
+fn diskstats() -> (u64, u64) {
+    let s = std::fs::read_to_string("/proc/diskstats").unwrap_or_default();
+    let mut r = 0;
+    let mut w = 0;
+    for l in s.lines() {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        if f.len() < 10 {
+            continue;
+        }
+        let name = f[2];
+        let whole = (name.starts_with("nvme") && !name.contains('p')) || ((name.starts_with("sd") || name.starts_with("vd")) && !name.ends_with(|c: char| c.is_ascii_digit()));
+        if whole {
+            r += f[5].parse::<u64>().unwrap_or(0) * 512;
+            w += f[9].parse::<u64>().unwrap_or(0) * 512;
+        }
+    }
+    (r, w)
+}
+pub fn io_read_bytes() -> u64 {
+    diskstats().0
+}
+pub fn io_write_bytes() -> u64 {
+    diskstats().1
+}
+/// What /proc/self/io says (read() and write() traffic of this process; no mmap faults).
+pub fn proc_io_rw() -> (u64, u64) {
+    (proc_io("read_bytes:"), proc_io("write_bytes:"))
+}
 
 pub struct RunOut {
     levels: Vec<Vec<u32>>,
@@ -933,6 +1053,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         };
         let n = g.n;
         let mut st = PassStat { n, entries: g.entries(), ..Default::default() };
+        let io_p0 = io_read_bytes();
         let t0 = Instant::now();
         // init
         match &next_bound {
@@ -975,6 +1096,10 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             // auto: depends on the graph only (never on the thread count): sub-rounds of >= ~16k vertices
             (n / 16384).next_power_of_two().clamp(256, 1024)
         };
+        let _r_scratch = res("local moving and refinement: per-thread tables and decode buffers", scratch_bytes(g, pool.current_num_threads()));
+        for t in tls.iter() {
+            t.lock().unwrap().tab = Tab::new(); // m1-02: nothing grown on another level survives
+        }
         let (iters, moves, scanned) = local_move(&cx, pool, &tls, o, tol, sub, if pass == 0 { BUCKET_SHIFT.load(Relaxed) } else { 0 });
         st.iters = iters;
         st.moves = moves;
@@ -995,6 +1120,13 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             &comm[..n]
         };
         st.t_ref = t1.elapsed().as_secs_f64();
+        st.io_lm_read = io_read_bytes() - io_p0;
+        if o.ooc {
+            for t in tls.iter() {
+                t.lock().unwrap().tab = Tab::new(); // the aggregation's own tables come next
+            }
+        }
+        let (io_r2, io_w2) = (io_read_bytes(), io_write_bytes());
         let t2 = Instant::now();
         // count communities of lab
         let c_cnt = par_sum_u(pool, n, |u| {
@@ -1077,7 +1209,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         sample_anon();
         // m1-02: sequential aggregation out of core, member-order aggregation in RAM
         let (gq, kq, dm, mut agg_res) = if o.ooc {
-            let so = seqagg::aggregate_seq(g, kk, lab, pool, &o.spill);
+            let so = seqagg::aggregate_seq(g, kk, lab, pool, &o.spill, o.hier_dir.as_deref());
             st.agg = so.st.json();
             (so.g, so.knew, so.dmap, so.res)
         } else {
@@ -1119,6 +1251,8 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         }
         levels.push(dm);
         st.t_agg = t2.elapsed().as_secs_f64();
+        st.io_agg_read = io_read_bytes() - io_r2;
+        st.io_agg_write = io_write_bytes() - io_w2;
         st.acct_used = crate::acct::acct().used();
         st.anon_kb = rss_kb().1;
         if o.verbose {
@@ -1437,6 +1571,13 @@ fn write_hier(dir: &str, name: &str, g0: &Graph, out: &RunOut, q: f64, q_top: f6
 }
 
 pub fn main_leiden(args: Vec<String>) {
+    // m1-02: a fixed mmap threshold (glibc's dynamic one rises to 32 MiB after the first large
+    // free, after which the 50-100 KB bucket chunks come from the heap and freed ones stay in RSS:
+    // measured 8.5 GiB anonymous against 2.8 GiB reserved after Friendster's level 1).
+    unsafe {
+        libc::mallopt(libc::M_MMAP_THRESHOLD, 32 << 10);
+    }
+    let (disk_r0, disk_w0) = diskstats();
     let get = |k: &str| -> Option<String> { args.iter().position(|a| a == k).and_then(|i| args.get(i + 1).cloned()) };
     let has = |k: &str| args.iter().any(|a| a == k);
     let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("");
@@ -1551,7 +1692,7 @@ pub fn main_leiden(args: Vec<String>) {
         tol_drop: get("--tol-drop").map(|s| s.parse().unwrap()).unwrap_or(10.0),
         agg_tol: get("--agg-tol").map(|s| s.parse().unwrap()).unwrap_or(0.8),
         lowmem: has("--lowmem"),
-        keep_graphs: get("--out-hier").is_some(),
+        keep_graphs: get("--out-hier").is_some() && !ooc,
         split_last: !has("--no-split"),
         refine_iters: get("--refine-iters").map(|s| s.parse().unwrap()).unwrap_or(1),
         chunk: get("--chunk").map(|s| s.parse().unwrap()).unwrap_or(2048),
@@ -1565,8 +1706,10 @@ pub fn main_leiden(args: Vec<String>) {
         ooc,
         spill: get("--spill").unwrap_or_else(|| "spill".into()),
         check_agg: has("--check-agg"),
+        order_window: get("--order-window").map(|s| s.parse().unwrap()).unwrap_or(0),
+        trace_io: has("--trace-io"),
+        hier_dir: if ooc { get("--out-hier").map(|d| format!("{}.quot.{}", d.trim_end_matches('/'), std::process::id())) } else { None },
     };
-    assert!(!(o.ooc && o.keep_graphs), "--out-hier needs the quotient graphs as raw arrays: not with --ooc");
     BUCKET_SHIFT.store(get("--bucket-shift").map(|s| s.parse().unwrap()).unwrap_or(4), Relaxed);
     let repeat: usize = get("--repeat").map(|s| s.parse().unwrap()).unwrap_or(1);
     let mut times = Vec::new();
@@ -1608,7 +1751,7 @@ pub fn main_leiden(args: Vec<String>) {
         .iter()
         .map(|s| {
             format!(
-                "{{\"n\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2},\"seq_agg\":{},\"acct_used_bytes\":{},\"anon_kb\":{}}}",
+                "{{\"n\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2},\"seq_agg\":{},\"acct_used_bytes\":{},\"anon_kb\":{},\"lm_ref_read_bytes\":{},\"agg_read_bytes\":{},\"agg_write_bytes\":{}}}",
                 s.n,
                 s.entries,
                 s.iters,
@@ -1620,7 +1763,10 @@ pub fn main_leiden(args: Vec<String>) {
                 s.scanned as f64 / s.entries.max(1) as f64,
                 if s.agg.is_empty() { "null" } else { &s.agg },
                 s.acct_used,
-                s.anon_kb
+                s.anon_kb,
+                s.io_lm_read,
+                s.io_agg_read,
+                s.io_agg_write
             )
         })
         .collect();
@@ -1698,7 +1844,7 @@ pub fn main_leiden(args: Vec<String>) {
     sample_anon();
     let level0 = &out.stats[0];
     let json = format!(
-        "{},\"ooc\":{},\"budget_bytes\":{},\"cgroup_memory_max\":{},\"accountant\":{},\"eval_s\":{:.4},\"time_with_eval_s\":{:.4},\"level0_lm_s\":{:.4},\"level0_refine_s\":{:.4},\"level0_agg_s\":{:.4},\"upper_levels_s\":{:.4},\"check_agg_levels\":{},\"rss_anon_peak_sampled_kb\":{},\"status\":\"ok\"}}",
+        "{},\"ooc\":{},\"budget_bytes\":{},\"cgroup_memory_max\":{},\"accountant\":{},\"eval_s\":{:.4},\"time_with_eval_s\":{:.4},\"level0_lm_s\":{:.4},\"level0_refine_s\":{:.4},\"level0_agg_s\":{:.4},\"upper_levels_s\":{:.4},\"check_agg_levels\":{},\"rss_anon_peak_sampled_kb\":{},\"order_window\":{},\"permute\":{},\"read_bytes\":{},\"write_bytes\":{},\"trace\":[{}],\"status\":\"ok\"}}",
         &json[..json.len() - 1],
         o.ooc,
         if budget == u64::MAX { "null".to_string() } else { budget.to_string() },
@@ -1711,7 +1857,12 @@ pub fn main_leiden(args: Vec<String>) {
         level0.t_agg,
         out.stats[1..].iter().map(|s| s.t_lm + s.t_ref + s.t_agg).sum::<f64>(),
         CHECKS.load(Relaxed),
-        PEAK_ANON_KB.load(Relaxed)
+        PEAK_ANON_KB.load(Relaxed),
+        o.order_window,
+        o.permute,
+        io_read_bytes() - disk_r0,
+        io_write_bytes() - disk_w0,
+        TRACE.lock().unwrap().join(",")
     );
     println!("{}", json);
     if let Some(p) = get("--json") {
@@ -1723,7 +1874,15 @@ pub fn main_leiden(args: Vec<String>) {
         write_slice(&p, &memb).unwrap();
     }
     if let Some(dir) = get("--out-hier") {
-        let notes = get("--notes").unwrap_or_default();
+        let mut notes = get("--notes").unwrap_or_default();
+        if o.hier_dir.is_some() {
+            notes.push_str(" | out of core: no quot_k raw arrays, volume or internal-edge files; quotients/quot_p = weighted compressed store of the quotient graph built by aggregation pass p (before level compaction)");
+        }
         write_hier(&dir, &gname, &g0, &out, q0, e.modularity, &notes).unwrap();
+        if let Some(q) = &o.hier_dir {
+            if std::path::Path::new(q).exists() {
+                std::fs::rename(q, std::path::Path::new(&dir).join("quotients")).unwrap();
+            }
+        }
     }
 }
