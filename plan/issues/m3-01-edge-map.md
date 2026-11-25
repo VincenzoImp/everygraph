@@ -6,7 +6,7 @@ labels: type:feature, area:engine, P0, risk:high, size:XL, lab-evidence
 **Why.** Without a shared abstraction every kernel would be written three or four times (raw, compressed, streamed, wasm), and the regimes would drift apart. In the lab the PageRank loop body was already identical for in-memory slices and O_DIRECT streams. The browser adds a constraint: a kernel executed as one long call stays in V8's baseline compiler and runs 4.6× slower (lab, PageRank in Chromium), so kernels must be many short calls over chunks.
 
 **Scope**
-- [ ] `AdjacencySource` abstraction yielding node-range chunks: (node range, offsets, decoded targets, optional property slices), backed by raw CSR, compressed blocks (decode into a per-thread buffer), mmap, or sequential streams
+- [ ] `AdjacencySource` abstraction yielding node-range chunks: (node range, offsets, decoded targets, optional property slices), backed by raw CSR, compressed blocks (decode into a per-thread buffer), mmap, or sequential streams. Scan-shaped drivers decode a batch of consecutive lists (8,192 entries measured) before the kernel body runs, never list by list: list-by-list costs orkut PageRank 1.35× at 1 thread and 1.38× at 16 (#118)
 - [ ] `edge_map` / `vertex_map` drivers: pull over all nodes (scan-shaped), push/pull over a frontier (traversal-shaped), with per-thread state and a deterministic reduction order
 - [ ] Deterministic chunking: chunk boundaries depend on the graph only, never on the thread count, so floating-point reductions are reproducible ({{#m3-11-determinism-ci}})
 - [ ] Views: masks and node filters applied in the driver ({{#m7-04-views}})
@@ -19,6 +19,7 @@ labels: type:feature, area:engine, P0, risk:high, size:XL, lab-evidence
 **Acceptance**
 - PageRank, WCC and BFS written once run over all four sources with byte-identical results
 - Overhead vs `lab/b1-core` hand-written kernels ≤ 5% on orkut
+- orkut PageRank f32 at 16 threads on the compressed source ≤ 1.0× of the raw source (lab: 0.73×)
 - The same kernels compile to wasm32 and match native output
 
 **Decision input.** Whether a cache-blocked variant is needed from the start: {{#m1-08-memory-bandwidth}}.

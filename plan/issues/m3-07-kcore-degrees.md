@@ -11,6 +11,6 @@ labels: type:feature, area:algorithms, P1, risk:low, size:S, lab-evidence
 
 **Acceptance**
 - Core numbers equal NetworkX on oracle graphs; max core 360 (lj), 253 (orkut), 304 (Friendster)
-- orkut ≤ 0.3 s; Friendster ≤ 10 s
+- orkut ≤ 0.3 s (needs a stable measurement: #118 saw 0.22–0.36 s at 16 threads in every configuration); Friendster ≤ 10 s
 
 **Depends on** {{#m3-01-edge-map}}
