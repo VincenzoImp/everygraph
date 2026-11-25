@@ -3,7 +3,7 @@ title: Leiden beyond RAM
 milestone: M4 · Communities and hierarchy
 labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
 ---
-**Why.** This is the largest open technical risk (DESIGN § 5.1). Today Leiden on Friendster needs 23.6 GB of anonymous memory; the only run that fit 16 GiB was Louvain with a poor partition.
+**Why.** This is the largest open technical risk (DESIGN § 5.1). Today Leiden on Friendster needs 22.6 GiB of anonymous memory; the only run that fit 16 GiB was Louvain with a poor partition.
 
 **Scope.** Productionize the outcome of {{#m1-02-ooc-aggregation}}:
 - [ ] Level 0 over the streaming source with O(n) state reserved through the accountant

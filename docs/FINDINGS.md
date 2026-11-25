@@ -60,7 +60,9 @@ orderings were stable. Extrapolations are marked as such. Code and raw results a
   PageRank 20 it.: native 0.33 s (32t); Chromium threaded 0.52 s (16t) — 0.44 s with the
   optimizing tier forced.
 - **V8 tiering trap:** a kernel executed as one long call stays in the baseline compiler
-  (up to 9× slower: 25.3 s vs 5.5 s single-threaded). Kernels must be many short calls;
+  (4.6× slower: 25.3 s vs 5.5 s with the optimizing tier forced; lj, PageRank, 1 thread,
+  `lab/g-wasm/results/chromium.jsonl`. An earlier "up to 9×" compared 25.3 s with native
+  2.81 s, which mixes tiering with wasm-vs-native). Kernels must be many short calls;
   ship only the threaded build.
 - **Ceilings:** 4 GiB linear memory *and* no single allocation above 2 GiB. Two-pass build
   fits ~265M undirected edges; honest promise 10–50M "in seconds", ~100M defensible.
@@ -91,13 +93,18 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   per hop. Embedded engines are weakest at shortest path.
 - **Python binding (PyO3, abi3-py310, maturin):** zero-copy verified by buffer address for
   NumPy views into the mmap and for Arrow PyCapsule export into pyarrow / Polars / pandas
-  (4M-row result → table in 0.5–4.4 ms). GIL released; Python = native speed. One 525 KB
-  wheel for CPython 3.10–3.14 (free-threaded builds need separate wheels). Per-call cost
-  28–62 ns: the API must be bulk/columnar.
+  (4M-row result → table in 0.5–4.4 ms). GIL released; Python = native speed. One abi3
+  wheel for CPython 3.10–3.14 (about 525 KB — estimate, not in a result file; free-threaded
+  builds need separate wheels). Per-call cost 28–40 ns for an empty method call
+  (`lab/f2-python/results/goalB_lj_dev.json`, `goalB_lj_t32.json`): the API must be
+  bulk/columnar.
 - **NetworkX backend (~200 lines):** dispatch, fallback and zero-code-change routing work.
   On an existing `nx.Graph`, conversion dominates: lj PageRank 2.0× including conversion
-  (23.4 s to convert), 29–38× on the cached graph; CC 0.92× including conversion,
-  121–177× kernel-only. Semantic traps: PageRank `tol` scaled by N, default
+  (23.4 s to convert), 29–38× on the cached graph; CC 0.92× (slower) including conversion,
+  121× kernel-only (an earlier upper bound of 177× is not in the result file). With native
+  loading (graph read by the engine, not converted), kernel time only: PageRank 15.6× at
+  tol 1e-10 and 70× at the default tolerance, components 24–53×; with loading included,
+  9.0× and 5.9× (`lab/f2-python/results/goalC_lj_dev.json`, 3 threads). Semantic traps: PageRank `tol` scaled by N, default
   `weight="weight"`, arbitrary hashable labels, insertion order. Coverage needed for a
   credible claim: ~100–150 of 797 functions (2–3 months for ~60, 6–9 for ~150).
 
@@ -136,9 +143,10 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
 ## F1 — identifiers, point queries, properties, views
 
 - **ID dictionary (65M–500M keys).** FST is the wrong default: on random keys (Ethereum
-  addresses) it is 1.9× the raw key size and builds single-threaded (113–200 s for 65M).
-  Minimal perfect hash (`ptr_hash`): 500M keys built in 10.8 s at 32t, 2.61 bits/key
-  (163 MB), forward lookup 0.56 µs, batch mapping 132 M/s unverified. Front-coded sorted
+  addresses as 20-byte binary) it is 1.9× the raw key size (1.03× as 42-byte hex text)
+  and builds single-threaded (113–200 s for 65M). On URL-like keys it is the smallest form
+  measured (0.28× raw). Minimal perfect hash (`ptr_hash`): 500M keys, MPHF built in
+  10.8 s at 32t (whole dictionary with its key store 19.4 s), 2.61 bits/key (163 MB), forward lookup 0.56 µs, batch mapping 132 M/s unverified. Front-coded sorted
   blocks give prefix search (3 µs) at 18 B/key for URL-like keys. Ingest bottleneck is
   the first dedupe pass: 15 M keys/s (≈4 min per 3.6B endpoints, extrapolated).
 - **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50):** degree/neighbors
@@ -151,10 +159,14 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   Under a 3 GiB cgroup on Friendster (15 GB): neighbors 105 µs p50.
 - **Directed graphs:** CSC costs +4.23 B/arc (twitter +6.2 GB), built in 12.3 s at 32t.
 - **Properties:** duplicate small hot columns per CSR entry; edge-id indirection makes
-  kernels 1.7–2.1× slower. **Masks never beat the unfiltered scan**; a materialized
-  filtered CSR (47–135 ms to build on orkut) gives PageRank at 0.09× for 1–10%
-  selectivity. Planner rule: mask above ~20–30% selectivity, materialize below. Roaring
-  only below ~5% density.
+  weighted PageRank 1.7× (4 threads) to 2.1× (32 threads) slower — one kernel, orkut.
+  **Bitset masks never clearly beat the unfiltered scan** (0.91–2.09× per PageRank
+  iteration); a materialized filtered CSR (47–135 ms to build on orkut at 32 threads)
+  gives PageRank at 0.09× for 1% selectivity and 0.09–0.17× for 10% (4 / 32 threads), and
+  was faster per iteration than the mask at every selectivity measured (1–90%). The
+  mask/materialize crossover depends on the number of passes and on memory; it was not
+  measured (an earlier "mask above ~20–30%" was an estimate, not measured; #93 derives the
+  rule). Roaring only below ~5% density.
 - **Temporal:** time-sorted lists make window scans 2–4× faster but lose sorted-merge
   intersection; prefer neighbor-sorted canonical CSR plus time-partitioned segments.
 
@@ -232,9 +244,12 @@ numbers, hashes and level sizes are not affected. Modularity computed by one com
 | Leiden async, 3 iterations (dev cores) | Q 0.7652 | Q 0.6935 |
 
 - **Visiting order matters more than Louvain vs Leiden.** Processing in id order (what GVE
-  and PLM do) costs 3–4 modularity points and yields 3–4× more communities; a
-  block-permuted order (blocks of 64 ids) fixes it at 1.5–2× the time.
-- One iteration is 0.7–2.7% below the best reference; 3 iterations are within 0.7% (lj) or
+  and PLM do) costs 3–4 modularity points in these shared runs (6 dev threads: lj 4.2,
+  orkut 2.6) and yields 3–4× more communities; a block-permuted order (blocks of 64 ids)
+  fixes it at 1.5–2× the time. Idle, like for like (one iteration, 16 threads): 2.0–2.1
+  points and 1.38–1.63× the time (see the idle re-run below).
+- One iteration is 0.7–2.7% below the best reference in these shared runs (idle: 2.7% on
+  lj, 3.2–3.4% on orkut); 3 iterations are within 0.7% (lj) or
   above it (orkut). Each extra iteration costs roughly one more run.
 - Leiden had 0 disconnected communities in every run only thanks to an explicit
   split-last step (it fired: +27 communities on lj, +476 on Friendster).
@@ -261,16 +276,17 @@ fixed-point totals (designed, not implemented).
 
 **Hierarchy for the map:** Louvain is shallow with huge fan-out (orkut 3.07M → 9,042 → 115);
 Leiden's refined levels shrink 3.5–18× per level but remain heavy-tailed (parents with up
-to ~100k children). A fan-out cap (64) during coarsening plus level compaction (ratio ≥ 3)
+to ~100k children in these runs; the idle re-run has 102,821 on lj and 338,769 on orkut,
+`lab/b2-leiden/results/hier/`). A fan-out cap (64) during coarsening plus level compaction (ratio ≥ 3)
 bounds fan-out on all but the top 1–2 levels at a cost of 2–5 modularity points
-(lj 0.750 → 0.727, orkut 0.685 → 0.631). Structural limit: top levels are star-like
+(lj 0.750 → 0.727, orkut 0.685 → 0.631; idle re-run 0.749 → 0.726 and 0.680 → 0.630). Structural limit: top levels are star-like
 (giants with thousands of satellite communities). Not tested: recursive sub-clustering,
 nested resolution sweeps. Exact per-level aggregates verified independently.
 
 **Memory / out-of-core:** O(n) state is small (21–53 B/node); the dominant term for Leiden
 is the level-1 quotient graph (22–44% of input entries). Friendster: Leiden in RAM
-154.5 s, Q 0.6033, 31,960 communities, 23.6 GB anonymous peak (does **not** fit a 16 GiB
-limit). Louvain under a hard 16 GiB limit completes in 109.6 s with 3.97 GB anonymous, but
+154.5 s, Q 0.6033, 31,960 communities, 22.6 GiB anonymous peak (does **not** fit a 16 GiB
+limit). Louvain under a hard 16 GiB limit completes in 109.6 s with 3.8 GiB anonymous, but
 the partition is poor (Q 0.4647, undiagnosed). Scaled-down semi-external test (orkut,
 limit ≈ edge array): 5.6× slower; below it, 51× slower or OOM. **Semi-external community
 detection is not yet a product feature:** aggregation needs a sequential sort/bucket
@@ -299,7 +315,8 @@ Heavily shared machine; 32T rows are official runs under the lock, 6T rows are n
 | uk-2005 | varint + zstd blocks (6T) | 2.4 | 688 | – | – | 44 µs |
 
 - **Social graphs barely compress** (13.5–16.7 bits/edge whatever the codec); Stream VByte
-  decodes 7–20× faster than BV for ~1–2 bits more. **Web graphs need bit-level coding or
+  decodes 9.1–21.9× faster than BV for ~1–2 bits more (sequential scan, 1 and 32 threads;
+  5.0–5.2× on uk-2005). **Web graphs need bit-level coding or
   inter-list copying** (2.1–2.4 bits/edge); byte codecs stay ≥ 9.5.
 - At 32 threads Stream VByte scans **faster than raw** on twitter-sym (raw hits memory
   bandwidth at ~54 GB/s); PageRank on twitter is the same for raw and byte codecs
@@ -353,7 +370,9 @@ These supersede the shared-machine timings above where they overlap.
 
 Scaling on an idle machine is better than the shared runs suggested (PageRank 9.7× at 16
 threads on orkut). SMT adds nothing for PageRank, WCC, BFS and k-core, but helps triangle
-counting (2.51 s at 16 threads → 1.46 s at 32) and community detection on orkut. Leaving
+counting (2.51 s at 16 threads → 1.46 s at 32) and asynchronous community detection on
+orkut — not on lj (async Leiden 0.76 → 0.78 s), and deterministic community detection is
+slower at 32 threads on both graphs. Leaving
 RAM costs ~10% for PageRank and ~10× for WCC (I/O-bound). Ingest timings exclude `fsync`.
 
 **B2 — community detection (wall seconds, best of N)**
@@ -375,7 +394,9 @@ RAM costs ~10% for PageRank and ~10× for WCC (I/O-bound). Ingest timings exclud
   Q 0.6922; deterministic lj 5.06 s Q 0.7651, orkut 7.06 s Q 0.6905, same hash at 16 and
   32 threads.
 - Natural (id) order, 16 threads: Leiden lj 0.55 s Q 0.7302; orkut 0.88 s Q 0.6475 —
-  faster, 2–4.5 points worse.
+  block order costs 1.38–1.63× the time; id order is 2.0–2.1 points worse at one
+  iteration (3.5–4.5 points against three iterations). One iteration is 2.7% (lj) and
+  3.2–3.4% (orkut) below the best reference.
 - GVE timings printed during this script were taken while it still shared the machine;
   the clean GVE numbers are in the baseline table below.
 
@@ -404,8 +425,8 @@ built from the same CSR arrays; modularity computed by one routine. GVE times ex
 | DuckDB (32) | CSV → relabeled, symmetric, sorted adjacency in Parquet | 1.91 s | 5.37 s |
 | largegraph 0.1 | full pipeline (prepare, 5 passes, report) | 31.8 s, Q 0.666 | 70.5 s, Q 0.633 |
 
-Peak RSS: NetworKit 2.2 / 6.7 GB before community detection (up to 10 GB during it);
-igraph 7.1 / 23.6 GB; largegraph 2.4 / 4.1 GB.
+Peak RSS: NetworKit 2.1 / 6.5 GiB before community detection (up to 9.8 GiB during it);
+igraph 6.9 / 23.1 GiB; largegraph 2.3 / 4.0 GiB (`ru_maxrss`, recorded in MiB).
 
 **What the comparison says (lab prototype, idle machine)**
 

@@ -12,6 +12,7 @@ labels: type:feature, area:ingest, P0, risk:low, size:M, lab-evidence
 - [ ] Compressed streams: zstd (parallel frames when available), gzip with a clear note that inflate is the bottleneck (0.3–0.6 GB/s, 10–20× slower than parsing) and a suggestion to convert
 - [ ] Error policy: strict by default with line numbers; optional skip-and-count
 - [ ] Two-pass capability (the source is re-readable) for bounded-memory builds and the browser
+- [ ] The malformed-input corpus carries an index of the `file:line` of every bad row, against which the messages of `docs/ux-contract.md` M-6 are checked
 
 **Acceptance**
 - ≥ 5 GB/s parse rate at 16 threads on plain text from page cache on the lab machine

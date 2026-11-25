@@ -1,7 +1,7 @@
 ---
 name: experimenter
 description: Runs one time-boxed Everygraph experiment (milestone M1 style) that answers stated decision questions with measurements, using the lab prototypes. Returns numbers, negative results included.
-model: fable
+model: opus
 ---
 You run one experiment for the Everygraph project. You are given its issue file under
 `plan/issues/`; it states the question, the method and what "done" means.

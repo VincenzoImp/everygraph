@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The wasm toy check: a degree count over a generated graph, written against the public
+# pieces of everygraph-core, run natively and as wasm32 in Node; the two hashes must be
+# equal. `tools/check_wasm_toy.py` runs it. Not a member of the workspace (it has its
+# own `[workspace]` table); real kernels replace it in issue #m3-11 (determinism CI).
+
+[package]
+name = "everygraph-wasm-toy"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[lib]
+# `cdylib` is the .wasm module Node loads; `rlib` is what the native binary links.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The native run turns this on, so that the two runs also differ in threading: rayon
+# natively, the calling thread in wasm32.
+parallel = ["everygraph-core/parallel"]
+
+[dependencies]
+everygraph-core = { path = "../../crates/everygraph-core", default-features = false }
+
+[workspace]

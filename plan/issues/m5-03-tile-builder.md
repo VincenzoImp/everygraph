@@ -12,6 +12,7 @@ labels: type:feature, area:map, P0, risk:medium, size:L, lab-evidence
 - [ ] File size follows node count and budgets, not edge count (lab observation) — expose the size/detail trade-off as one "detail" parameter with a preflight size estimate
 - [ ] Deterministic output: identical file hash at any thread count (lab: same SHA-256 at 4 and 32 threads)
 - [ ] Incremental rebuild of subtrees when only part of the layout changed (stretch)
+- [ ] The pyramid is written as `NAME.egmap.partial` and renamed when complete; a stop removes the partial file (`docs/ux-contract.md` § 5.1, C-1, C-3)
 
 **Acceptance**
 - lj pyramid ≤ 10 s at 16 threads with peak memory ≤ 1 GB

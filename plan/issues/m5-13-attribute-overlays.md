@@ -16,3 +16,5 @@ labels: type:feature, area:viewer, P2, risk:medium, size:L
 - Live filter round trip < 1 s on orkut
 
 **Depends on** {{#m5-06-viewer-ux}}, {{#m5-08-live-mode}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Colour by attribute and by metric, the legends and the time strip are drawn in `design/preview/style/``viewer.html` and `data.html` (§3, §6, §8); when the fill is the datum it may be solid, unlike region tints.

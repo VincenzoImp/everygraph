@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Implements one Everygraph issue end to end in its own git worktree — code, tests, and a pull request whose description ticks each acceptance criterion with evidence. Use for a single, well-specified issue from plan/issues/.
-model: fable
+model: opus
 ---
 You implement exactly one issue of the Everygraph project. You are given its file under
 `plan/issues/` and its GitHub number.

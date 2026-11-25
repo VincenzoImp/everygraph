@@ -3,7 +3,7 @@ title: Property columns for nodes and edges
 milestone: M2 · Format and ingest
 labels: type:feature, area:format, P0, risk:medium, size:L, lab-evidence
 ---
-**Why.** Filters, weights, time windows and the map's attribute overlays all read properties. Lab result: reaching a property through an edge-id indirection makes kernels 1.7–2.1× slower and predicates 3.3–6.3× slower than a column aligned with the adjacency entries; storing every column twice (once per direction) wastes space once properties exceed 4 B/edge.
+**Why.** Filters, weights, time windows and the map's attribute overlays all read properties. Lab result: reaching a property through an edge-id indirection makes weighted PageRank 1.7× (4 threads) to 2.1× (32 threads) slower on orkut — one kernel, one graph — and predicates 3.3–6.3× slower than a column aligned with the adjacency entries; storing every column twice (once per direction) wastes space once properties exceed 4 B/edge.
 
 **Scope**
 - [ ] Hot columns (weight, timestamp, type) stored per adjacency entry, aligned with entry order

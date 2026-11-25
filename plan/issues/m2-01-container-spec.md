@@ -19,6 +19,7 @@ labels: type:spec, area:format, P0, risk:medium, size:L
 - [ ] Provenance record: input fingerprints, parameters, engine version, timestamps
 - [ ] Reader/writer in `everygraph-format` over `ByteSource`; a minimal independent reader in Python (≈ 100 lines) to prove the spec is sufficient
 - [ ] Written spec in `docs/spec/eg-container.md`
+- [ ] Appending a result never changes a section the file already held; checked with {{#m8-01-cli}} by the `kill -9` test of `map` (`docs/ux-contract.md` C-2, § 8)
 
 **Acceptance**
 - Round-trip and crash-injection tests (kill between every write step)

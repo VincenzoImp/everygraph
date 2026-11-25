@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "everygraph-ingest"
+description = "Ingest for Everygraph: edge-list and Parquet readers, the id dictionary and the graph build pipeline."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

@@ -12,7 +12,8 @@ and on GitHub is in English.
 
 1. Read `docs/STATE.md` (where we are, what is in flight, what was learned).
 2. Check reality against it: `git status`, `git log -5`, `gh pr list`, `gh run list -L 5`.
-3. Run `python3 plan/next.py` to see which issues are ready (all dependencies closed).
+3. Run `python3 plan/next.py` to see which issues are ready (all dependencies closed), and
+   `python3 plan/board.py sync` to bring the project board in line with GitHub.
 4. Only then pick work. If STATE.md and reality disagree, fix STATE.md first.
 
 Reference documents, in order of authority: `docs/DESIGN.md` (decisions),
@@ -22,7 +23,14 @@ GitHub issues are published from these files with `plan/publish.py`).
 ## 2. Unit of work
 
 - One issue → one branch (`m2-03-adjacency-codec`) → one pull request that says
-  `Closes #N`. No direct commits to `main` except documentation of state (`docs/STATE.md`).
+  `Closes #N`. Direct commits to `main` are for coordination only: `docs/STATE.md`, the plan
+  (`plan/`, republished with `plan/publish.py`) and records of decisions. Code and
+  specifications always go through a pull request.
+- When an issue starts, mark it on the board (`python3 plan/board.py doing N`); merging its
+  pull request closes it and `board.py sync` moves it to Done.
+- Anything a user sees or types is built to the approved design: read the issue's "Design
+  reference" paragraph, `design/DECISIONS.md` and the page it points to under
+  `design/preview/` before writing it. Departing from it is a decision change (§5).
 - The PR description copies the issue's acceptance criteria as a checklist. Each box is
   ticked only with evidence next to it: a test name, a benchmark result file, a command
   and its output. An issue is not closed on "looks right".
@@ -60,11 +68,40 @@ or answered in the PR before merge. Documentation-only PRs may skip this.
 
 ## 5. Changing a decision
 
-`docs/DESIGN.md` lists decisions D1…D23 with their evidence. To change one: write an ADR
+`docs/DESIGN.md` lists decisions D1…D25 with their evidence. To change one: write an ADR
 under `docs/adr/` (context, measurement, decision, consequences), update DESIGN.md in the
 same PR, and note it in STATE.md. Do not drift by implementing something different.
 
 ## 6. Subagents
+
+### Which model, which effort
+
+The owner wants development carried by Opus subagents wherever a detailed issue makes that
+possible, with the stronger and costlier model kept for what truly needs it. Choose by the
+issue's labels, and escalate on evidence rather than by default:
+
+| Work | Model, effort |
+|---|---|
+| `type:docs`, `type:infra`, `type:spec`, or `risk:low`: scaffolding, CI, datasets, readers, CLI, import/export, tutorials | Opus, medium |
+| `risk:medium` features: codec, ingest, kernels, planner, viewer, Python API | Opus, high |
+| `risk:high` features and all M1 experiments | Opus, high first |
+| Web research | Opus, medium |
+| Review (`reviewer`) | Opus, high; for `risk:high` code touching `unsafe`, parallel state or the on-disk formats, a second review by Fable, medium |
+| The short hard list — edge-map framework (#44), production Leiden (#57), out-of-core Leiden (#16, #60), map-hierarchy shaping (#19, #63) | Opus, high first; hand to Fable, high if the escalation rule fires |
+
+**Fable, where truly necessary.** The owner allows Fable at medium or high effort when the
+coordinator judges an issue cannot be done well otherwise — say so, with the reason, in
+`docs/STATE.md` before starting it. That is the exception; the rule below is the usual way in.
+
+**Escalation rule.** Re-run an issue with Fable at high effort when any of these happens:
+the pull request fails review twice on correctness; an acceptance criterion is missed
+after two attempts; the agent reports that the issue's design does not work and cannot
+propose a tested alternative. Record each escalation in `docs/STATE.md` with the reason,
+so the rule can be tuned. The coordinator itself runs on the session's model.
+
+An issue that needs escalation usually was underspecified: after it is done, improve the
+issue template or the neighbouring issues so the next one does not.
+
 
 - Use them for independent work in parallel: separate issues, experiments, reviews.
   Brief them with the issue file path, the acceptance criteria and the rules in this file.
@@ -86,6 +123,10 @@ same PR, and note it in STATE.md. Do not drift by implementing something differe
   the repository's ignored directories or the scratch directory.
 - **The host has a public IP.** Any server binds to `127.0.0.1` only.
 - No `sudo`. Hard memory limits: `systemd-run --user --scope -p MemoryMax=… -p MemorySwapMax=0`.
+- **Anything that loads a graph runs under a hard memory limit** (the `systemd-run` line
+  above; 8 GB unless the task says otherwise), and tools that load data take a limit of their
+  own. A reference run without one grew to 61 GB, pushed the host into swap and spoiled a
+  measurement in progress. Say the limit in every subagent brief.
 - **Never kill by name or pattern** (`pkill`, `killall`, `kill $(pgrep -f …)`): it has
   killed the calling shell and other experiments' processes here. Record PIDs and kill those.
 - **Never wrap a script that takes a lock in the same lock** (a nested `flock` deadlocked
@@ -98,7 +139,9 @@ same PR, and note it in STATE.md. Do not drift by implementing something differe
 
 On 2026-11-24 the owner delegated every decision of this project to Claude, and offered to
 help where Claude cannot act alone. So: decide, act, and report — do not queue routine or
-even major choices for approval.
+even major choices for approval. The owner's only role is what must be done by hand
+(below); everything else — product, design, plan, code, reviews, priorities — is Claude's
+to decide and to answer for.
 
 **What still needs the owner's hands** (not permission — presence): logins with 2FA,
 credentials and tokens for package registries, payments, signatures, messages sent from
@@ -116,10 +159,12 @@ irreversible mistake cheaper:
 - **Guard rails stay on.** `.claude/settings.json` denies publishing, visibility changes,
   force-pushes and repository deletion. They are lifted together with the owner when the
   moment comes, not edited away by Claude.
-- **Taste is the owner's.** For anything a user sees or types — viewer, API names, CLI
-  messages, visual identity, defaults — show a preview under `design/preview/`, record the
-  owner's answers in `design/DECISIONS.md`, and build to that. If the owner has not
-  answered, proceed with the recommended option and mark it "provisional" in DECISIONS.md.
+- **The approved design is the brief; new choices are Claude's.** The owner approved the
+  previews under `design/preview/` and then stated (2026-11-25) that the project is under
+  Claude's management and only Claude carries it forward. So: build to the approved design;
+  where it is silent, decide, record the choice and its reason in `design/DECISIONS.md`, and
+  mention it in the next report. Do not queue choices for the owner. Show a preview first
+  only when a choice would visibly change what the owner already approved.
 - **The three product promises** in `docs/DESIGN.md` § 2 change only with evidence and an
   ADR, and the change is reported prominently.
 - **Nothing outside the project.** The owner's other repositories, files and running
