@@ -11,10 +11,12 @@ labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
 - [ ] Target fan-out configurable (default range 8–64); report the achieved distribution
 - [ ] Deterministic; exact aggregates preserved through compaction (skipped levels are composed)
 - [ ] The uncapped partition remains available as the analysis result
+- [ ] Memory bounded by the accountant: shaping holds at most one level's quotient graph or one oversized community at a time. On Friendster the cap applied during coarsening shrinks levels slowly (level 1: 10.5 M communities against 1.16 M uncapped) and, with every level kept, the capped Leiden was killed at 56 GiB, while the plain solve needs 4.2 GiB ({{#m1-01-e2e-tracer}}, `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 10, 13–15)
 
 **Acceptance**
 - On lj, orkut and one non-social graph: ≥ 80% of internal tree nodes have fan-out in 4–64, no untyped derived regions, and top-level modularity loss vs the uncapped partition is reported
 - Layout quality metric (edge length ÷ random-pair distance) no worse than with the lab's capped hierarchy
+- Friendster: the map hierarchy builds under `MemoryMax=16G`, and no parent has a fan-out the layout cannot place (the plain Louvain hierarchy, fan-out up to 18.7 M, killed the lab layout even at 56 GiB; `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 20–21)
 
 **Depends on** {{#m1-05-hierarchy-shaping}}, {{#m4-06-hierarchy-artifact}}
 
