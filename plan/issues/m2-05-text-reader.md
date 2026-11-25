@@ -13,6 +13,7 @@ labels: type:feature, area:ingest, P0, risk:low, size:M, lab-evidence
 - [ ] Error policy: strict by default with line numbers; optional skip-and-count
 - [ ] Two-pass capability (the source is re-readable) for bounded-memory builds and the browser
 - [ ] The malformed-input corpus carries an index of the `file:line` of every bad row, against which the messages of `docs/ux-contract.md` M-6 are checked
+- [ ] Edge-type column: reading a column beyond source, target, weight and time needs a public option, which has no name yet and needs a preview before it is built (`docs/spec/graph-semantics.md` § 2.6, § 9 item 8)
 
 **Acceptance**
 - ≥ 5 GB/s parse rate at 16 threads on plain text from page cache on the lab machine
