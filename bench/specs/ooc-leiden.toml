@@ -29,9 +29,18 @@
 # (byte-identical to m1-13's encoder: `m102 verify`; the harness checks a dataset exists before
 # its preparation steps, so this is not a [[prepare]] step).
 #
-# Repetitions: Friendster cases run 1-2 minutes each but write up to ~30 GB per repetition
-# (write-heavy: one warm-up, then 2 repetitions); orkut 3.
-# Wall time of the whole spec, estimated from exploratory runs: about 35 minutes (estimate).
+# Repetitions: Friendster cases run 1.5-4.5 minutes each and write 25-40 GB per repetition
+# (write-heavy: one warm-up, then 2 repetitions; the floor and map-shaped cases 1); orkut 3.
+# Wall time of the whole spec, estimated from exploratory runs (2026-11-25, idle machine):
+# in RAM 3 x ~115 s; out of core 34G/16G 3 x ~105 s each, 8G 3 x ~190 s; floor 5G/4G
+# 2 x ~235 s and 2 x ~275 s; map-shaped 2 x ~210 s; L1 in RAM 3 x ~110 s, L1 8G 3 x ~130 s,
+# L1 4G 3 x ~150 s (estimate); orkut ~1 minute; cold copies (2 x 10.4 GB + 2 x 10.9 GB) ~3
+# minutes. Sum: about 70 minutes (estimate). Disk: ~45 GB for the copies, up to ~40 GB of
+# spill per running case (in {case_work}, emptied between repetitions), ~23 GB for the
+# map-shaped hierarchy.
+# Out-of-core runs read with page faults on a mapped file: the harness's read_bytes counts
+# them (counted at exit); the program's read_bytes/write_bytes are /proc/diskstats deltas,
+# machine-wide, valid only on an idle machine.
 
 schema = 1
 name = "ooc-leiden"
@@ -115,6 +124,31 @@ metric = [
 ]
 
 [[benchmark]]
+name = "ooc-friendster-floor"
+group = "friendster"
+description = "the smallest budgets (exploratory: 5 GiB within 2.5x, 4 GiB completes), one repetition after a warm-up"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+warmup = 1
+repetitions = 1
+matrix = { limit = ["5G", "4G"] }
+memory_limit = "{limit}"
+command = ["sh", "-c", "exec {run} --store {dataset} {ooc}"]
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "out of core, limit {limit}", storage = "compressed level 0 (mmap, cold copy); quotient graphs as compressed stores on disk", precision = "f64 weights (integer)", timing = "kernel only: excludes open and evaluation; includes reading level 0 and all spill I/O" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/level0_refine_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "upper_levels", json = "/upper_levels_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
+  { name = "accountant_budget", json = "/budget_bytes", unit = "B" },
+]
+
+[[benchmark]]
 name = "ooc-friendster-map"
 group = "friendster"
 description = "map-shaped Leiden (fan-out cap 64, up to 20 passes, level compaction 3, hierarchy written) out of core"
@@ -169,7 +203,7 @@ dataset_path = "store-m113/friendster-shuf1"
 cache = "cold"
 warmup = 1
 repetitions = 2
-matrix = { limit = ["8G"] }
+matrix = { limit = ["8G", "4G"] }
 memory_limit = "{limit}"
 command = ["sh", "-c", "exec {run} --store {dataset} {ooc} --natural"]
 conditions = { graph = "friendster relabelled (seed 1)", algorithm = "Leiden async, 1 iteration, id order", mode = "out of core, limit {limit}", storage = "compressed level 0 (mmap, cold copy); quotient graphs spilled", precision = "f64 weights (integer)", timing = "kernel only" }

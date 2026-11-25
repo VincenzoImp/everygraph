@@ -17,14 +17,20 @@
 //!    the weighted compressed record; blocks are committed to the output file in bucket order
 //!    (ordered commit, as ingest pass 3). Each bucket reserves its memory before it is taken;
 //!    the smallest uncommitted bucket always holds its reservation, so the pipeline cannot
-//!    deadlock on memory, and a bucket that cannot fit even alone refuses the run.
+//!    deadlock on memory. If a bucket cannot fit even alone, RAM chunks of later buckets are
+//!    moved to their files first; if it still does not fit, the run is refused (exit 3).
+//!    A community whose entry bound exceeds the bucket target is split over several buckets by
+//!    a hash of the target; the parts are joined and sorted at commit.
 //! 5. The output (the quotient graph) is mapped read-only from its unlinked file: file-backed
 //!    memory, evictable; the next level reads it through the compressed store's random access.
 //!
 //! Weights: integer and exact (u64 while combining, u32 in the record; asserted). The quotient
 //! graph equals `aggregate`'s as a set of (source, target, weight) triples; only the order of
-//! each list differs (sorted here, hash-insertion order there), which the algorithm does not
-//! see (see the README of this lab: decisions are order-independent with exact sums).
+//! each list differs (sorted here, hash-insertion order there). The algorithm does not see the
+//! order: every sum it forms over a list is a sum of integers (exact in f64 in any order),
+//! candidates are compared by value with a total tie-break order (`tie_less`), so the decision
+//! for a node is the same whatever the order of its list. Checked: `--check-agg` (every level
+//! equal to `aggregate`) and identical deterministic hashes on lj and orkut.
 use super::*;
 use crate::acct::{res, sz, try_res, Res};
 use crate::store::{encode_record, StoreWriter};

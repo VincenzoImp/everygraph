@@ -960,6 +960,45 @@ mod tests {
         }
         Raw::from_bufs(Buf::Vec(offsets), Buf::Vec(targets))
     }
+    /// m1-02: weighted records through the streaming writer (blocks placed in order, written
+    /// out of order), read back by random access; block table as edge_chunks.
+    #[test]
+    fn weighted_writer_roundtrip() {
+        let g = toy(5000, 0x1234_5678_9ABC_DEF1);
+        let wt = |v: usize, i: usize| -> u32 { 1 + ((v * 31 + i * 7) % 300) as u32 + if i % 97 == 0 { 1 << 20 } else { 0 } };
+        let dir = std::env::temp_dir().join(format!("m102-wtest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut w = StoreWriter::create(&dir.join("adj.bin"), g.n, true).unwrap();
+        let mut parts = Vec::new();
+        for &(lo, hi) in &g.chunks {
+            let (mut out, mut rel, mut deg, mut tmp) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            for v in lo..hi {
+                rel.push(out.len() as u32);
+                let l = g.list(v);
+                deg.push(l.len() as u32);
+                let ws: Vec<u32> = (0..l.len()).map(|i| wt(v, i)).collect();
+                encode_record(v, l, Some(&ws), &mut out, &mut tmp);
+            }
+            let off = w.place(lo, hi, out.len(), &rel, &deg);
+            parts.push((off, out));
+        }
+        for (off, out) in parts.iter().rev() {
+            w.write_at(*off, out);
+        }
+        let c = w.finish(false).unwrap();
+        assert_eq!(c.chunks, g.chunks);
+        assert_eq!(c.max_deg, (0..g.n).map(|v| g.deg(v)).max().unwrap());
+        let mut cur = c.cur();
+        for v in (0..g.n).rev() {
+            let (t, ws) = c.nbrs_w(v, &mut cur);
+            assert_eq!(t, g.list(v));
+            let want: Vec<u32> = (0..t.len()).map(|i| wt(v, i)).collect();
+            assert_eq!(ws, &want[..]);
+            assert_eq!(c.deg(v), g.deg(v));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn roundtrip_all_paths() {
         for dec in [0u8, 1, 2] {

@@ -89,11 +89,11 @@ impl Tab {
     }
 }
 /// m1-02: tables up to this many slots (48 MiB) stay with their thread.
-const TAB_KEEP: usize = 1 << 21; // = the table of a node of GIANT_DEG neighbours
+const TAB_KEEP: usize = 1 << 18; // = the table of a node of GIANT_DEG neighbours
 /// m1-02: a node with more neighbours than this is visited by at most GIANT_PERMITS threads at
 /// once, so the scratch to reserve is GIANT_PERMITS x the largest one, not threads x.
-pub const GIANT_DEG: usize = 1 << 20;
-const GIANT_PERMITS: usize = 2;
+pub const GIANT_DEG: usize = 1 << 17;
+const GIANT_PERMITS: usize = 1;
 static GIANTS: AtomicUsize = AtomicUsize::new(0);
 pub struct GiantGate(bool);
 impl Drop for GiantGate {
@@ -955,6 +955,16 @@ fn check_agg_equal(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thread
     eprintln!("    check-agg: equal to member-order aggregation ({} communities, {} entries, sum w = {}) in {:.2}s", gq.n, gq.entries(), wsum, t.elapsed().as_secs_f64());
     CHECKS.fetch_add(1, Relaxed);
 }
+/// m1-02: gives the pages of [p + from, p + len) back to the OS (anonymous memory reads as zero
+/// afterwards). Only whole pages inside the range; the caller never reads the range again
+/// before writing it.
+fn dontneed(p: *const u8, len: usize, from: usize) {
+    let a = (p as usize + from).next_multiple_of(4096);
+    let e = (p as usize + len) & !4095;
+    if e > a {
+        unsafe { libc::madvise(a as *mut libc::c_void, e - a, libc::MADV_DONTNEED) };
+    }
+}
 static CHECKS: AtomicUsize = AtomicUsize::new(0);
 static TRACE: Mutex<Vec<String>> = Mutex::new(Vec::new());
 fn proc_io(key: &str) -> u64 {
@@ -1020,7 +1030,16 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         }
         b as u64 * n0 as u64
     };
-    let _r_state = res("leiden state: per-node arrays", state_alloc);
+    // m1-02 (out of core, one iteration): the state follows the level. sigma, rsigma and flag
+    // are not needed during aggregation and are given back to the OS (MADV_DONTNEED) before it;
+    // after it, the tails beyond the next level's size of the other arrays are given back; level
+    // 0's strengths k are given back after level 0. Each part is reserved for the level's size.
+    let shrink_state = o.ooc && o.iterations == 1;
+    let tmp_per_node = 8 + 1 + if o.leiden { 8 } else { 0 }; // sigma, flag, rsigma
+    let keep_per_node = (state_alloc / n0.max(1) as u64) - 8 - tmp_per_node; // without k
+    let mut r_keep = res("leiden state: per-node arrays kept through aggregation", keep_per_node * n0 as u64);
+    let mut r_tmp: Option<Res> = None;
+    let mut r_k = Some(res("leiden state: level-0 strengths", 8 * n0 as u64));
     // state arrays sized for level 0, reused for coarser levels
     let mut comm_v = vec![0u32; n0];
     let mut sigma_v = vec![0u64; n0];
@@ -1091,6 +1110,8 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         };
         let n = g.n;
         let mut st = PassStat { n, entries: g.entries(), ..Default::default() };
+        r_tmp = None;
+        r_tmp = Some(res("leiden state: sigma, flag, rsigma of the level", tmp_per_node * n as u64));
         let io_p0 = io_read_bytes();
         let t0 = Instant::now();
         // init
@@ -1245,6 +1266,13 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             cur_cap = 0;
         }
         sample_anon();
+        if shrink_state {
+            // not read again before the next level writes them
+            dontneed(sigma.as_ptr() as *const u8, sigma.len() * 8, 0);
+            dontneed(flag.as_ptr() as *const u8, flag.len(), 0);
+            dontneed(rsigma.as_ptr() as *const u8, rsigma.len() * 8, 0);
+            r_tmp = None;
+        }
         // m1-02: sequential aggregation out of core, member-order aggregation in RAM
         let (gq, kq, dm, mut agg_res) = if o.ooc {
             let so = seqagg::aggregate_seq(g, kk, lab, pool, &o.spill, o.hier_dir.as_deref());
@@ -1286,6 +1314,21 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
                 }
             });
             next_bound = Some(nb);
+        }
+        if shrink_state {
+            // the next levels touch only the first gq.n entries (one iteration: no restart at level 0)
+            let m = gq.n;
+            dontneed(comm.as_ptr() as *const u8, comm.len() * 4, m * 4);
+            dontneed(size.as_ptr() as *const u8, size.len() * 4, m * 4);
+            dontneed(rcomm.as_ptr() as *const u8, rcomm.len() * 4, m * 4);
+            dontneed(tmp.as_ptr() as *const u8, tmp.len() * 4, m * 4);
+            dontneed(prop.as_ptr() as *const u8, prop.len() * 4, m * 4);
+            r_keep.shrink_to(keep_per_node * m as u64);
+            if pass == 0 {
+                // level 0's strengths are not read again (kk of the next level is k')
+                dontneed(k.as_ptr() as *const u8, k.len() * 8, 0);
+                r_k = None;
+            }
         }
         levels.push(dm);
         st.t_agg = t2.elapsed().as_secs_f64();
@@ -1902,6 +1945,8 @@ pub fn main_leiden(args: Vec<String>) {
         io_write_bytes() - disk_w0,
         TRACE.lock().unwrap().join(",")
     );
+    // m1-02: valid JSON for the harness (the lab printed NaN for values not computed)
+    let json = json.replace(":NaN", ":null").replace(":inf", ":null");
     println!("{}", json);
     if let Some(p) = get("--json") {
         use std::io::Write;
