@@ -10,53 +10,69 @@ and result formats.
 | `specs/*.toml` | Benchmark specs: what to run, on what, under which limits | yes |
 | `results/<spec>/<timestamp>-<revision>.jsonl` | Rows of **official** runs | yes: every number quoted in a document cites one of these files |
 | `exploratory/<spec>/…` | Rows of exploratory runs | no (ignored) |
-| `work/` | Default work directory: builds, decompressed inputs, cold-cache copies, logs | no (ignored) |
 | `runners/` | Comparison runners for other tools: a `uv`-locked Python project | yes (not `.venv/`) |
+
+The **work directory** holds builds, decompressed inputs, cold-cache copies and logs
+(after `headline`, about 80 GB). It is `--work`, else `$EVERYGRAPH_BENCH_WORK`, else
+`$EVERYGRAPH_SCRATCH/bench-work`, else `bench/work/` in the checkout (ignored by git).
+It must be on a disk: a work directory on tmpfs or ramfs is refused before anything is
+written, because what the harness puts there would sit in RAM outside every memory
+limit, and eviction cannot work there. `everygraph-bench clean` deletes it (only a
+directory the harness has marked as its own; `--spec NAME` for one spec's part,
+`--dry-run` to see the size).
 
 ## Running
 
 ```sh
 everygraph-bench check                       # every spec parses; list the cases
 everygraph-bench check headline --commands   # the expanded commands, for this machine
+everygraph-bench selftest                    # on an idle machine, before official runs
 everygraph-bench run headline --only kernels-orkut --repetitions 1   # exploratory
 everygraph-bench run headline --official     # an official run (see below)
 everygraph-bench report bench/results/headline/*.jsonl --json chart.json
 everygraph-bench report --compare A.jsonl B.jsonl --max-diff 0.05
+everygraph-bench clean
 ```
 
 `--data` (or `$EVERYGRAPH_DATA`) is the data root; on the lab machine
-`/home/tux/graphlab/data`. `--work` (or `$EVERYGRAPH_BENCH_WORK`) moves the work
-directory, which must be on a real disk, not tmpfs: the cold-cache protocol cannot
-evict tmpfs pages, and says so in the rows (`not_cold`). Progress goes to standard
-error, the report of the run to standard output. Exit status: 0, 1 (failure, or a row
-that did not complete), 2 (usage), 3 (an official run refused to start).
+`/home/tux/graphlab/data`. Progress goes to standard error, the report of the run to
+standard output. Exit status: 0; 1 (failure, a row that did not complete, a report
+with a reference off or unchecked, a comparison over the limit or not comparable, a
+failed self-test); 2 (usage); 3 (an official run refused to start).
 
 ## Protocol
 
 **Official and exploratory runs.** A run is exploratory unless `--official` is given.
-An official run:
+An official run, in this order:
 
-1. refuses a working tree with uncommitted changes to tracked files (`--allow-dirty`
-   overrides it and every row then says `dirty`);
-2. takes **the** lock, `/run/user/<uid>/everygraph-bench-official.lock`, without
-   waiting. It is the only lock in the harness and is taken in one place
-   (`harness::run::run`). A second official run, from another shell or nested in a
-   benchmark command, fails at once (exit 3) and names the holder — it never queues,
-   because a nested lock once deadlocked a lab run for half an hour. The lock is an
-   `flock`: the kernel releases it however the holder ends;
-3. refuses to start when the 1-minute load average is above 1.0 (`[gate] max_load`,
-   `--max-load`) or `MemAvailable` is below what the run needs (its largest memory
-   limit, or `[gate] min_mem_available`);
-4. writes its rows to `results/`, to be committed.
+1. takes **the** lock, `/run/user/<uid>/everygraph-bench-official.lock`, without
+   waiting, before any other check. It is the only lock in the harness and is taken in
+   one place (`harness::run::run`). A second official run, from another shell or
+   nested in a benchmark command, fails at once (exit 3) and names the holder — it
+   never queues, because a nested lock once deadlocked a lab run for half an hour. The
+   lock is an `flock`: the kernel releases it however the holder ends. (Builds with
+   the `test-hooks` feature, which only the crate's own tests enable, read another
+   path from `$EVERYGRAPH_BENCH_LOCK`; release builds never do.)
+2. refuses a working tree with uncommitted changes to tracked files (`--allow-dirty`
+   overrides it and every row then says `dirty`), and refuses a spec file that is not
+   tracked by git or differs from its version at `HEAD`, whatever `--allow-dirty` says;
+3. refuses `--max-load` above the spec's `[gate] max_load` (it may make the gate
+   stricter, never looser);
+4. refuses to start when the 1-minute load average is above the threshold (default
+   1.0) or `MemAvailable` is below what the run needs (its largest memory limit, or
+   `[gate] min_mem_available`). Every row records the gate as applied: the lock path,
+   both thresholds, the needed memory and the readings;
+5. writes its rows to `results/`, to be committed.
 
-Exploratory runs skip all four and go to `exploratory/`. Their rows record the same
+Exploratory runs skip all five and go to `exploratory/`. Their rows record the same
 readings; their report says not to quote them.
 
 **Every repetition.** Before each repetition the harness empties the case's work
 directory, writes back dirty pages (`sync`: an ingest leaves gigabytes whose write-back
 would otherwise run during the next repetition), and sleeps through a settle window
 (1 s, `[defaults] settle`) while it counts the cores other processes keep busy
-(`/proc/stat`). The command then runs as
+(`/proc/stat`, user and system time) and the machine's storage traffic
+(`/proc/diskstats`, physical devices only). The command then runs as
 
 ```
 systemd-run --user --scope -p MemoryMax=<limit> -p MemorySwapMax=0 \
@@ -64,7 +80,8 @@ systemd-run --user --scope -p MemoryMax=<limit> -p MemorySwapMax=0 \
 ```
 
 (`OOMPolicy=continue`: otherwise systemd stops the whole scope when the OOM killer
-ends one of its processes, and the OOM would go unrecorded.)
+ends one of its processes, and the OOM would go unrecorded.) A run shorter than 1 s
+gets a second settle window just after it, since nothing can be measured during it.
 
 **Every run is under a hard memory limit**: a spec whose benchmark has no
 `memory_limit` (its own or `[defaults]`) is an error, and the limit the kernel applied
@@ -77,16 +94,28 @@ and its own `/proc/self/io` (bytes the command and its descendants read from and
 to storage). Anonymous and file-backed peaks are kept apart because a memory-mapped
 graph counts as RSS but is reclaimable page cache (FINDINGS § B1): RSS alone misleads.
 They are sampled, so a spike shorter than the interval can be missed; `memory.peak` is
-not sampled. While the command runs, the machine's user time (`/proc/stat`) minus the
-scope's own gives the cores used by others (for runs of 1 s and more; shorter runs rely
-on the settle window). User time only: the kernel's work for the run — write-back,
-reclaim — is system time charged outside the scope and would count as someone else's;
-interrupt time is left out of both windows for the same reason.
+not sampled.
 
-**Disturbed rows.** In an official run, a repetition during which, or just before
-which, other processes kept more than 0.5 cores busy on average (`[gate]
-disturbed_above_cores`) is marked `disturbed`: kept in the results, left out of every
-summary, and listed at the end of the run. One busy core skewed lab timings by 10–40%.
+**Processes left behind.** When the command exits, any other process still in its
+scope (a backgrounded child, a daemon) is killed with SIGKILL, by the ids of
+`cgroup.procs`, until the scope is empty; the row lists them in `left_processes` and its
+status is `left_processes`, not `ok`: they would have disturbed what came next.
+
+**Others while it ran.** For runs of 1 s and more, the machine's user time minus the
+scope's own gives the cores others used, and the machine's storage traffic minus the
+run's own bytes gives their traffic. User time only, because the kernel's work for the
+run (write-back, reclaim) is system time charged outside the scope; interrupt time is
+left out of every window for the same reason. `everygraph-bench selftest` checks this
+accounting on the machine: a busy loop on every CPU must find others at ≤ 0.25 cores
+and its own cgroup at about threads × seconds, and a 1 GiB synced write must find
+others' traffic at ≤ 10 MB/s.
+
+**Disturbed rows.** In an official run, a repetition is marked `disturbed` when, in a
+settle window around it or while it ran, others kept more than 0.5 cores busy (`[gate]
+disturbed_above_cores`) or moved more than 50 MB/s to or from storage (`[gate]
+disturbed_above_io_mb_s`). The row says which reading crossed which threshold
+(`disturbance.reasons`); it is kept, left out of every summary, and listed at the end
+of the run. One busy core skewed lab timings by 10–40%.
 
 **Warm and cold cache.** A warm case runs once untimed first (`warmup`, default 1). A
 cold case (`cache = "cold"`) reads a private copy of its dataset, made once under
@@ -96,14 +125,23 @@ repetition the copy is synced and evicted with `posix_fadvise(POSIX_FADV_DONTNEE
 then `mincore(2)`, through util-linux `fincore`, must find at most 1% of it resident,
 or the repetition is not run and its row says `not_cold`. Private, because pages that
 another process maps cannot be evicted. There are at least two copies
-(`cold_copies`), and consecutive cold repetitions of a dataset — across cases too —
-take them in turn: reading the same blocks twice in a row measures the drive's own
-cache (FINDINGS § F1). There is no `sudo` and no `drop_caches`.
+(`cold_copies`), and consecutive cold repetitions of a dataset — across cases and
+across runs (the copies' directory keeps the index of the copy read last) — take them
+in turn: reading the same blocks twice in a row measures the drive's own cache
+(FINDINGS § F1). There is no `sudo` and no `drop_caches`. A cold dataset on tmpfs is
+refused.
+
+**What a row ran.** Every row records the spec's SHA-256 and path, the SHA-256 of each
+binary the spec declares (`binaries`) and of the program of an argument-list command,
+and a digest of its dataset's listing (relative path, size and modification time of
+every file): equal digests mean the same files, without hashing gigabytes.
 
 **Stop latency (ux-contract C-4).** `interrupt = { after = "1s" }` sends SIGINT (or
 `TERM`) to every process of the run's scope after the delay — what a terminal's Ctrl-C
-does — and records the time to the exit as `stop_seconds`. A reference with
-`max = 2.0` makes the report check the bound.
+does — and records the time to the exit as `stop_seconds`. The stop is clean only with
+exit status 128 + the signal (130 for INT, 143 for TERM, C-7; `expect_exit` to change
+it): any other ending makes the row `failed`. A reference with `max = 2.0` makes the
+report check the bound.
 
 **Estimates and actuals (ux-contract P-7, P-9).** A benchmark with `plan = {}` reads
 the `estimate` object (`seconds`, `peak_memory_bytes`, `scratch_bytes`,
@@ -126,6 +164,7 @@ schema = 1
 name = "demo"
 description = "what it measures"
 reference = "where the numbers it reproduces are published"   # optional
+binaries = ["{glab}"]      # hashed into every row (top-level keys come before tables)
 
 [defaults]                 # inherited by every benchmark
 memory_limit = "8G"        # required here or in each benchmark; systemd syntax, 1024-based
@@ -142,6 +181,7 @@ clean_work = true
 [gate]                     # official runs
 max_load = 1.0
 disturbed_above_cores = 0.5
+disturbed_above_io_mb_s = 50
 min_mem_available = "16G"  # default: the largest memory limit selected
 
 [vars]                     # placeholders for every command
@@ -165,7 +205,8 @@ command = ["{glab}", "run", "--graph", "{dataset}", "--algo", "{algo}", "--threa
 # or: shell = "…"  (run with sh -c)
 cwd = "{case_work}"        # the default
 env = { OMP_NUM_THREADS = "{threads}" }
-conditions = { graph = "orkut", precision = "f32" }   # printed with every number
+conditions = { graph = "orkut", precision = "integer" }   # printed with every number
+when = [{ match = { algo = "pr32" }, conditions = { precision = "f32" } }]
 metric = [
   { name = "seconds", json = "/seconds_best", unit = "s" },                # JSON pointer, last JSON line of stdout
   { name = "s_per_iter", json = "/iter_seconds", reduce = "median", unit = "s" },
@@ -174,9 +215,12 @@ metric = [
 ]
 primary = "seconds"        # default: the first metric
 reference = [{ match = { algo = "pr32", threads = 32 }, metric = "seconds", value = 0.38, tolerance = 0.10, source = "…" }]
-interrupt = { after = "1s", signal = "INT" }
+interrupt = { after = "1s", signal = "INT" }               # expect_exit defaults to 130
 plan = { estimate = "/estimate", actual = { seconds = "wall_seconds" } }
-runner = "networkit"       # for comparison runners
+runner = "networkit"       # a comparison runner: it must record what ran, below
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+# or record = { tool = "GVE-Leiden", … }  (literal templates, for tools that print no JSON)
+binaries = ["{repo}/bench/runners/run.py"]
 unavailable = "why it cannot run here"   # recorded as a skipped row, never dropped
 ```
 
@@ -194,23 +238,24 @@ Metrics the harness measures for every row: `wall_seconds`, `user_seconds`,
 One JSON object per line, one line per repetition, written as each finishes. Schema
 version 1 (`schema`); the fields, from `harness::row::Row`:
 
-- identity: `run_id`, `spec`, `spec_sha256`, `official`, `case`, `benchmark`, `group`,
-  `vars`, `runner`, `repetition`, `repetitions`, `started_at`;
-- outcome: `status` (`ok`, `failed`, `timeout`, `oom`, `not_cold`, `unavailable`,
-  `harness_error`) and `error`;
+- identity: `run_id`, `spec`, `spec_sha256`, `spec_path`, `official`, `case`,
+  `benchmark`, `group`, `vars`, `runner`, `repetition`, `repetitions`, `started_at`;
+- outcome: `status` (`ok`, `failed`, `timeout`, `oom`, `not_cold`, `left_processes`,
+  `unavailable`, `harness_error`) and `error`;
 - where: `machine` (CPU model, cores, threads, SMT, memory, kernel, governors, boost,
   transparent huge pages, and an `id` hashed from the hardware), `git` (`revision`,
-  `dirty`);
+  `dirty`), `gate` (official runs: lock path, thresholds, readings);
 - what: `command` (fully expanded), `wrapper` (the `systemd-run` and `measure`
-  prefix), `cwd`, `env`, `dataset` (name, path read, bytes), `conditions`, `threads`,
-  `memory_limit_bytes`, `cache` (mode, copy, resident bytes after eviction);
+  prefix), `binaries` (SHA-256 by path), `cwd`, `env`, `dataset` (name, path read,
+  bytes, listing digest), `conditions`, `threads`, `memory_limit_bytes`, `cache` (mode,
+  copy, resident bytes after eviction), `recorded` (what a runner says it ran);
 - the machine around it: `load_start`, `load_end`, `mem_available_start_bytes`,
-  `disturbance` (settle-window busy cores, others' cores during the run, threshold,
-  verdict);
+  `disturbance` (busy cores and storage traffic before, after, and of others during;
+  thresholds; reasons; verdict);
 - measured: `time` (wall, user, system), `io` (read, written), `memory` (limit and
   swap limit applied, `peak_bytes`, `anon_peak_bytes`, `file_peak_bytes`, samples),
   `oom` (`max_events`, `oom_events`, `oom_kills`), `exit` (code, signal, timed out),
-  `stop`;
+  `stop`, `left_processes`;
 - read from the output: `metrics`, `units`, `primary`, `references`;
 - plans: `estimate`, `actual`, `estimate_error`.
 
@@ -220,18 +265,25 @@ version 1 (`schema`); the fields, from `harness::row::Row`:
 machine, revision) and one table per group: for each case its conditions, threads,
 memory limit and cache state, how many repetitions count and why the others do not,
 then each metric as `median (min–max)`, and the reference check. Then the benchmarks
-not run (with their reasons), the rows that did not complete, and the estimate
-coverage. `--json FILE` writes the same numbers as chart-ready series (one per case and
-metric, with conditions and values). `--compare` puts the primary metric of each case
-side by side across runs, against the first, and exits 1 when a difference reaches
-`--max-diff`.
+not run (with their reasons), the rows that did not complete, the estimate coverage,
+and the verdict on the references: `k within, j off, m unchecked`. A reference whose
+case has no counted repetition (all disturbed or failed) is unchecked, never a pass;
+the report exits 1 if any reference is off or unchecked. `--json FILE` writes the same
+numbers as chart-ready series (one per case and metric, with conditions and values).
+`--compare` puts the primary metric of each case side by side across runs, against
+the first: only official runs of the same spec (same SHA-256) on the same machine are
+compared, each case needs at least two counted repetitions in every run, and the
+command exits 1 when a difference reaches `--max-diff` or a case is not comparable.
 
 ## Comparison runners
 
 `runners/run.py TOOL TASK --graph DIR …` runs one task of one tool and prints one JSON
-line naming exactly what it called (`algorithm`) and the tool's version. The
-environment is `runners/uv.lock`; the specs' preparation step runs
-`uv sync --frozen --project bench/runners` (it needs the network the first time).
+line naming exactly what it called (`algorithm`, `options`) and the tool's version;
+the specs store those fields in every row. `seconds` is the tool's call alone: loading
+is `load_seconds`, and turning the answer into a result (summing scores, modularity)
+happens after the clock stops. The environment is `runners/uv.lock`; the specs'
+preparation step runs `uv sync --frozen --project bench/runners` (it needs the network
+the first time). The F2 engines run on cores 0–2 (`taskset`), as the lab pinned them.
 
 | Tool | Spec | Version | Status |
 |---|---|---|---|
