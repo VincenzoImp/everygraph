@@ -57,14 +57,14 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The adjacency codec first, on its own: its SIMD decoder for the platform (NEON
+      # on arm64) is tested even when another crate's lints or tests fail.
+      - name: cargo test (format)
+        run: cargo test -p everygraph-format --release --locked
       # Clippy on each platform: it compiles code under that platform's `cfg`, which
       # the Linux lint runs never see.
       - name: cargo clippy (workspace)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # The adjacency codec first, on its own: its SIMD decoder for the platform (NEON
-      # on arm64) is tested even when another crate's tests fail.
-      - name: cargo test (format)
-        run: cargo test -p everygraph-format --release --locked
       - name: cargo test (workspace)
         run: cargo test --workspace --locked
       - name: cargo test (core, no default features)
