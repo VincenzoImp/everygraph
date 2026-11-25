@@ -16,7 +16,7 @@ Do not report a vulnerability in a public issue, pull request or discussion.
   an advisory is published.
 - **While the repository is private** (until 0.1), everyone who can read it is a
   collaborator invited by the owner. GitHub offers private vulnerability reporting for
-  public repositories only, so tell the repository owner directly, in a private message,
+  public repositories only, so write to the repository owner at vincenzo@imperati.dev,
   rather than in an issue.
 
 Please include what is affected (crate, command or file, and the commit), how to
