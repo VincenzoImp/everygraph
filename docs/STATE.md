@@ -61,6 +61,12 @@ serial 50223142 at every milestone.
   i686-unknown-linux-gnu, cargo-deny, cargo-nextest, cargo-fuzz, hyperfine, maturin (uv
   tool), node 26, uv. `perf` 6.12 with `kernel.perf_event_paranoid=2` (persistent): user-space hardware counters work without privileges.
 
+## Measurement queue (official runs, batched into one window)
+
+- #29 I/O layer: `everygraph-bench run io --official --only friendster` (~4 min), after the review fixes.
+- #31 arrays and accountant: `everygraph-bench run segvec --official` (~12 min, 40 GiB free), after review.
+- Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
+
 ## Needs the owner's hands (nothing here blocks development)
 
 Tell the owner when each becomes due, with everything prepared.
@@ -69,6 +75,7 @@ Tell the owner when each becomes due, with everything prepared.
   commits made by agents under the owner's account, then set the repository variable
   `DCO_ALL_PULL_REQUESTS=true`.
 - Accounts with 2FA on PyPI, crates.io and npm — at the first release.
+- GitHub Actions budget: the owner's Pro plan includes 3,000 private-repo minutes a month; on 2026-11-25 about 1,900 were left for November and Everygraph was using ~700 a day before the CI cuts. Recommended to the owner: a spending budget of 30–40 $/month on Actions with an alert (Settings → Billing and plans → Budgets and alerts). Fallback: a self-hosted runner on this machine.
 - A trademark and patent professional (#122) — before anything is public.
 
 ## Lessons (append, never delete)
