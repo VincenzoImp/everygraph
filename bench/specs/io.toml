@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #29 (m2-02), acceptance: "Sequential scan through the O_DIRECT backend reaches
+# >= 80% of the device's sequential bandwidth on the lab NVMe".
+#
+# One file read front to back, every byte summed as 64-bit words, by the example
+# crates/everygraph-io/examples/scan.rs:
+# - direct: `FileSource::open_direct` read through one `SegmentReader` per thread, 8 MiB
+#   segments handed out by a shared counter — the backend under test;
+# - raw: the same loop without the crate: `pread` on a file opened with O_DIRECT into one
+#   aligned 8 MiB buffer per thread — the device as plain code reaches it;
+# - dd: `dd iflag=direct`, one thread, 64 MiB requests — the device as a standard tool
+#   reaches it, independent of our code.
+# The device's sequential bandwidth is the best median of raw and dd; the criterion is
+# direct's best median against it. Every mode reads with O_DIRECT, which does not read
+# from the page cache, so the cache state of the input does not matter (warm, no
+# warm-up, no private copy). The input is read-only.
+#
+# Inputs: csr/friendster/targets.u32 (14.4 GB) for the record; csr/orkut/targets.u32
+# (0.94 GB) as the quick development check (`--only orkut`), too short to quote.
+#
+# Run: everygraph-bench run io --official --only friendster --data /home/tux/graphlab/data
+# (about 4 minutes, estimated: 11 cases x 3 repetitions of about 2-3 s each plus the
+# settle windows, and a release build of the example the first time.)
+
+schema = 1
+name = "io"
+description = "Sequential O_DIRECT scan through everygraph-io against raw O_DIRECT and dd (#29)"
+reference = "plan/issues/m2-02-io-layer.md, acceptance"
+binaries = ["{scan}"]
+
+[defaults]
+memory_limit = "2G"
+repetitions = 3
+warmup = 0
+threads = [1, 4, 8, 16, 32]
+timeout = "5m"
+
+[vars]
+scan = "{repo}/target/release/examples/scan"
+
+[[prepare]]
+name = "build-scan"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--locked", "-p", "everygraph-io", "--example", "scan"]
+needed_by = ["scan"]
+
+[[benchmark]]
+name = "scan"
+group = "sequential scan"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["friendster", "orkut"], mode = ["direct", "raw"] }
+command = ["{scan}", "{mode}", "{dataset}/targets.u32", "--threads", "{threads}", "--segment-mib", "8"]
+conditions = { graph = "{graph} targets.u32", io = "O_DIRECT", mode = "{mode}", segment = "8 MiB per read, one buffer per thread" }
+metric = [
+  { name = "gb_per_s", json = "/gb_per_s", unit = "GB/s" },
+  { name = "seconds", json = "/seconds", unit = "s" },
+]
+primary = "gb_per_s"
+
+[[benchmark]]
+name = "dd"
+group = "sequential scan"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["friendster", "orkut"] }
+threads = [1]
+command = ["dd", "if={dataset}/targets.u32", "of=/dev/null", "bs=64M", "iflag=direct"]
+conditions = { graph = "{graph} targets.u32", io = "O_DIRECT", mode = "dd", segment = "64 MiB per read, one thread" }
+metric = [
+  { name = "gb_per_s", regex = ', ([0-9.]+) GB/s', from = "stderr", unit = "GB/s" },
+  { name = "seconds", regex = 'copied, ([0-9.]+) s', from = "stderr", unit = "s" },
+]
+primary = "gb_per_s"
