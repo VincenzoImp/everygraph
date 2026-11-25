@@ -16,59 +16,17 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-As of 2026-11-25 evening — **M2 started in parallel** (rules for speed: CLAUDE.md §4, §6):
+As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
-- **#29 I/O layer** (`everygraph-io`), **#30 adjacency codec** (`everygraph-format`, Tier 2),
-  **#31 arrays and memory accountant** (core, Tier 2), **#32 text reader** and **#34 id
-  dictionary** (`everygraph-ingest`, #34 Tier 2), **#36 graph-semantics spec**
-  (`docs/spec/`). Each hands back official commands for a batched measurement window.
-
-
-- **Ingest and the drive** — merged (PR #137, ADR 0026). Was: doc agent (Opus medium), branch `ingest-drive-finding`: records
-  the harness's finding that Friendster ingest is bounded by the SSD's sustained write rate
-  (29 s sustained vs 18–20 s on a rested drive; the lab's 21 s was one rested run) and an ADR
-  on the wording of promise 1 ("about 100 M edges/s"). Report it prominently to the owner.
-- **#16 out-of-core Leiden** — official run done (PR #143): Friendster completes under 16 GiB at ≤ 1.13× any in-RAM reference, deterministic hash identical in RAM and out of core, map-shaped Leiden under 16 GiB in 164 s. The review (comment on the PR) found the in-RAM reference not like for like (different aggregation) and several numbers without files; the agent is adding a same-algorithm in-RAM reference (short window) and the fixes. The ADR 0015 amendment (seeded relabelling) is **not** adopted: experiment `m1-14-relabel-at-ingest` decides it.
-- **Measurement windows are serialized by the coordinator**: one official run at a time,
-  nothing else compiling meanwhile.
-
-Done today: **D8 amended in PR #158** (pending review): the identifier dictionary uses its own minimal perfect hash in safe Rust instead of the `ptr_hash` crate (licence of a non-optional dependency, wasm32 build, an unspecifiable on-disk image) — ADR 0008 and DESIGN D8 updated in that PR. **#142 harness defects** fixed (PR #144: a failed warm-up keeps its measurement; a timed-out run counts its orphaned children's I/O through a child subreaper; I/O marked unknown when it cannot be established). Open small points: a test that checks "not disturbed" can still be tripped by noise starting mid-run; a run whose descendant escaped its scope is still `ok` if it exits 0 (candidate follow-up). **#15 tracer** closed (PRs #138, #140, #141): the chain does **not** fit 16 GiB on Friendster — blockers: community detection with a map-shaped hierarchy (pass-0 aggregation; every level kept in memory), layout must not load the graph into the heap, tile builder (all tiles plus per-zoom state in RAM, one graph pass per zoom). Unlimited it completes in 455.5 s of stage time. The 16 GiB criterion is annotated, not changed, until #16 reports. Literature survey in `docs/research/memory-bounded-algorithms.md` (PR #139). **#4 benchmark harness** merged (PR #136) after a review and three official windows: 408 + 6 official rows, none disturbed; criteria amended with the measured causes (ingest references were single lab runs; the SSD write cache; k-core at 16 threads is high-variance). **M0: 10 of 14 closed**; left #8 (lab reproducibility) and #10 (trademark watch). **#6 correctness oracle** merged (PR #131) after an independent review and a fix round: three witnesses (Rust, NetworkX, igraph/scipy), 27 invariants each shown able to fail, seeded-bug matrix enforced by the command, sparse-id families, golden files for all 17 tier-1 datasets, CI job about 3 billed minutes; it found that the lab PageRank's bits follow the scan chunking (now a requirement in #44/#47). **#118** closed (PRs #133, #134): **D4 amended** — compressed adjacency stays the default, with five conditions (ADR 0004, DESIGN D4, FINDINGS § M1-13); public numbers in README and DESIGN restated on the default storage; the 2 GB PageRank target (1.35×) and the 8 GB ingest target (needs a budgeted encoder) have no margin and are annotated in DESIGN § 6. Follow-ups to schedule in an idle window: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min). **#7 ADRs** merged (PR #132): 25 ADRs under `docs/adr/` plus 0000 on overturned assumptions; DESIGN, FINDINGS and README corrected where they said more than the result files (13 statements, list in the PR); **D10 is open** (mask vs materialized view: the "~25%" rule was never measured, #93 derives it); **D14 is widened** (identical results across budgets and regimes; unmeasured so far); D4's ADR has a pending section for #118. To watch: with the default of one Leiden iteration the idle result is 2.7–3.4% below the best reference, while the §6 criterion (within 1%) is written for three iterations — #57 settles the default. Promise 1 restated by ADR 0026 (PR #137): about 100 M edges/s where the ingest's writes fit in memory or the drive's fast-write burst (harness: lj 90 M, orkut 150 M, Friendster rested 92–102 M edges/s), bounded by the drive's sustained write rate otherwise (Friendster 62 M at 32 GB, 49 M at 8 GB). **#12 API sketch and #13 UX contract** merged (PRs #125, #124) after two rounds of independent review and a joint alignment pass; their obligations are written into the issues that build them (commits "Plan: …" of 2026-11-25) and the choices are in `design/DECISIONS.md`. **#5 datasets** merged (PR #129) after an independent review and a fix round (17 tier-1 datasets, 75 MB, all usable by anyone; follow-up for real bipartite and co-occurrence graphs in `m3-13-dataset-gaps`). **#3 CI** merged (PR #127; all six Linux jobs green on `main`, run 45530945188; macOS, Windows and Linux arm64 run weekly; the threaded wasm job moved to #108). **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
-lands). **#2 workspace** merged (PR #123) after an independent review found the
-portability rule narrower than claimed; fixed (lint lists, `forbid` at the crate root,
-`tools/check_core_portability.py`). **#11 patent** closed. **#10 name**: the owner keeps
-"Everygraph" knowing a US application for the identical mark was filed 2026-11-17; watch
-serial 50223142 at every milestone.
-
-## Next actions
-
-1. Each returning PR gets an independent review (`reviewer`, Opus high) before merge; the
-   coordinator re-runs the checks it relies on.
-2. After #5 merges: #4 benchmark harness (Opus high), then #8 lab reproducibility.
-3. After #118 reports: record it in FINDINGS, update D4 and the public numbers, write the
-   ADRs (#7), then run the end-to-end tracer on Friendster under 16 GiB (#15).
-4. When #12 is merged, M2 can start: container spec (#29), I/O layer (#30), codec (#31 area —
-   check numbers with `plan/next.py`), arrays and accountant.
-
-## Machine
-
-- Datasets: `/home/tux/graphlab/data` — `raw/` (lj, orkut, friendster as .gz; twitter-2010
-  as BVGraph), `csr/` (lj, orkut, friendster, twitter-dir, twitter-dir-in, twitter-sym in
-  the lab's `glab-csr-v0` format), `hier/` (lab hierarchies for lj and orkut). 54 GB.
-- Lab working directories were deleted on 2026-11-24 after archiving sources and results
-  into `lab/`. The uk-2005 web graph and decompressed text inputs must be re-fetched or
-  regenerated when needed.
-- Toolchain: Rust stable 1.100 + nightly (miri, rust-src), targets wasm32-unknown-unknown and
-  i686-unknown-linux-gnu, cargo-deny, cargo-nextest, cargo-fuzz, hyperfine, maturin (uv
-  tool), node 26, uv. `perf` 6.12 with `kernel.perf_event_paranoid=2` (persistent): user-space hardware counters work without privileges.
+- **M2 closed with official numbers:** #29 I/O (direct 7.10 GB/s ≈ device), #30 codec (sizes 17.99 / 16.64 / 16.09 / 23.17 bits; twitter-sym scan 1.96 G/s at 1 thread, 25.5 at 16; random list 214 ns), #31 arrays and accountant (SegVec ≤ 1.02× Vec; no OOM in 8/8), #32 text reader (7.3–8.2 GB/s at 16 threads). Results under `bench/results/`.
+- **#34 id dictionary** (PR #158): second review found a `renumber` panic on a hostile file and a refusal threshold that varies with scheduling; author fixing. Then the official run (~20 min).
+- **#19 hierarchy shaping** (PR #162): review found rounds not independent per region; experimenter fixing and re-measuring; official run after.
+- **#44 edge-map framework** (hard list, Opus high) and **#28 .eg container** (Opus high): started.
 
 ## Measurement queue (official runs, batched into one window)
 
-- #29 I/O layer (merged, issue open): `everygraph-bench run io --official --only friendster` (~4 min).
-- #32 text reader (merged, issue open): `everygraph-bench run text-reader --official` (~3 min + build).
-- #31 arrays and accountant (PR #154, review fixes in progress): `everygraph-bench run segvec --official` (~12 min, 40 GiB free).
-- #34 id dictionary (PR #158, in review): `everygraph-bench run id-dictionary --official` (~20 min, ~45 GB disk).
-- #19 hierarchy shaping (PR #162, in review): prepare outside the window, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min, ≤ 24 GiB, ~85 GB disk; exact commands in the PR).
-- #30 adjacency codec (PR #157, in review): `everygraph-bench run codec --official` (~6 min + 1 min stores, gate ~24 GiB available).
+- #34 id dictionary (PR #158, after its fixes): `everygraph-bench run id-dictionary --official` (~20 min, ~45 GB disk).
+- #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
 ## Needs the owner's hands (nothing here blocks development)
