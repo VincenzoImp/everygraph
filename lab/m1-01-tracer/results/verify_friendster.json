@@ -1,0 +1,76 @@
+{
+ "graph": "friendster",
+ "identical_across_variants": {
+  "unl:sha256_pmtiles": true,
+  "unl:sha256_pos": true,
+  "unl:sha256_tnodes": true
+ },
+ "items": {
+  "csr.16G-b8": {
+   "bytes": 15498297344,
+   "identical_to_reference": true
+  },
+  "csr.16G-gz-b8": {
+   "bytes": 15498297344,
+   "identical_to_reference": true
+  },
+  "csr.56G-b32": {
+   "bytes": 15498301440,
+   "identical_to_reference": true
+  },
+  "hier.louvain-capped.56G": {
+   "bytes": 42536206336,
+   "communities": 52,
+   "levels": [
+    10511685,
+    1332441,
+    239714,
+    69440,
+    13413,
+    52
+   ],
+   "modularity": 0.575737
+  },
+  "hier.louvain-plain.16G": {
+   "bytes": 456810496,
+   "communities": 33306,
+   "levels": [
+    1156799,
+    159592,
+    33306
+   ],
+   "modularity": 0.603811
+  },
+  "layout.unl.16G-mmap": {
+   "bytes": 1993580544,
+   "sha256_pos": "ca02e6efe316b6490dac6c4500e261f8e0cafb2d1054dd7113e34b6f4111495f",
+   "sha256_tnodes": "981f59e5e3b97b28a4acd3d7cb17633fd15d818f840628767a30cbc0af8aa036",
+   "source": {
+    "csr": "/home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster/csr.16G-b8",
+    "hier": "/home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster/hier.louvain-capped.56G"
+   }
+  },
+  "layout.unl.56G-heap": {
+   "bytes": 1993584640,
+   "sha256_pos": "ca02e6efe316b6490dac6c4500e261f8e0cafb2d1054dd7113e34b6f4111495f",
+   "sha256_tnodes": "981f59e5e3b97b28a4acd3d7cb17633fd15d818f840628767a30cbc0af8aa036",
+   "source": {
+    "csr": "/home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster/csr.16G-b8",
+    "hier": "/home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster/hier.louvain-capped.56G"
+   }
+  },
+  "tiles.unl.56G-heap": {
+   "bytes": 6838583296,
+   "sha256_pmtiles": "d2a9b743c5622ee8f487cd4c0d154484d8d280555cdb8c34de27e97a116d0d9d",
+   "source": {
+    "csr": "/home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster/csr.16G-b8",
+    "layout": "/home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster/layout.unl.56G-heap"
+   }
+  },
+  "viewer.unl": {
+   "bytes": 6438912
+  }
+ },
+ "store": "/home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster",
+ "total_bytes": 100320100352
+}

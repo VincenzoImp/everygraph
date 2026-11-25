@@ -1,0 +1,5 @@
+    iter 1 processed 65608366 gain 0.052351
+    iter 2 processed 53914868 gain 0.022773
+    iter 3 processed 41842914 gain 0.005947
+pass 0 n 65608366 entries 3612134270 iters 3 moves 81865635 -> 10511627 comms  lm 37.144s ref 0.000s
+[tracer] tool exited with status 137 after 648.7 s
