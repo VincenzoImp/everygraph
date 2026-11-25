@@ -1,6 +1,6 @@
 # Everygraph — product and architecture
 
-Status: design baseline, 2026-11-24. Every decision below cites the measurement that
+Status: design baseline, 2026-11-24; D4 amended 2026-11-25 (ADR 0004, #118). Every decision below cites the measurement that
 supports it (see [FINDINGS.md](FINDINGS.md)); decisions without a measurement are marked
 **unvalidated**. Numbers are from one workstation (Ryzen 9 7950X, 61 GB RAM, NVMe).
 
@@ -20,12 +20,18 @@ file format, one map viewer.
 Three promises, each measurable:
 
 1. **Open anything fast.** A file becomes an analysis-ready graph at about 100 M edges/s
-   (lab: 35 M edges in 0.4 s, 1.8 B edges in 21 s).
+   (lab: 35 M edges in 0.4 s, 1.8 B edges in 21 s, to raw arrays; encoding to the default
+   compressed storage is a further 0.06 s and 3.4 s at 16 threads, measured separately).
 2. **Never run out of memory.** The user gives a memory budget; the engine plans before it
    starts and stays inside it. Out of core, a kernel costs about one sequential read of the
-   graph per pass. For iterative kernels that is close to their in-RAM cost (lab: PageRank
-   on 1.8 B edges at 3.4 s/iteration in RAM, 3.6 s/iteration under a 2 GB limit); for cheap
-   single-pass kernels it dominates (components: 0.34 s in RAM, 3.6 s out of core).
+   graph per pass. For iterative kernels that is close to their in-RAM cost (lab, Friendster,
+   1.8 B edges, PageRank f32, idle: 3.2 s/iteration in RAM on the default compressed storage
+   at 16 threads, 3.4 on raw arrays at 16 and 32 threads; 3.6 s/iteration under a 2 GB limit
+   with the raw-format streaming reader at 32 threads — on the default storage, through plain
+   mmap and without a streaming reader, 4.3 s/iteration at 16 threads); for cheap
+   single-pass kernels it dominates (components: 0.50 s in RAM on the default storage at
+   16 threads, 0.34–0.36 s on raw arrays at 16–32 threads; 3.6 s out of core, measured on
+   raw arrays only).
 3. **See it and trust it.** A zoomable map of the whole graph with exact numbers at every
    level, bit-identical across runs and thread counts, shareable as one static file.
 
@@ -89,7 +95,7 @@ TypeScript package.
 | [D1](adr/0001-rust-core.md) | **Rust core, no C/C++ dependencies in the core.** | Lab kernels are 4.4–19× faster than NetworKit on orkut (idle machine; lab at 8–16 threads, NetworKit at its faster 32; uncompressed arrays); the same code runs in the browser. | accepted |
 | [D2](adr/0002-portable-core.md) | **Core is portable by construction:** I/O behind a chunked, positional, re-readable `ByteSource`; builders are two-pass; arrays are segmentable (≤ 2 GiB chunks); allocations are fallible and pre-estimated; parallelism behind a facade. | wasm32 has a 4 GiB memory and a 2 GiB single-allocation limit; two-pass build halves peak memory (lj in Chromium: 850 MB → 438–505 MB). | accepted |
 | [D3](adr/0003-dense-u32-ids.md) | **Dense u32 node ids by default**, u64 offsets on disk, a u64-id build for n ≥ 2^32 later. | u64 targets cost +71% (f64) to +87% (f32) on PageRank (orkut, 32 threads, idle). | accepted |
-| [D4](adr/0004-compressed-adjacency-default.md) | **Compressed adjacency is the default storage:** delta + Stream VByte in node-aligned ~64K-edge blocks, Elias–Fano offsets, 4 KiB-aligned sections; own codec (~400 lines). Raw CSR is an in-RAM decode cache the planner may build. | Codec bench only, shared machine: 16–17 bits/edge vs 33 raw; scans faster than raw at 32 threads on twitter-sym; 5.2× faster than raw under an 8 GB cap (6 threads); one raw PageRank iteration 2× faster on orkut. Kernels, Leiden and point queries on the compressed form not yet measured. | accepted, partly validated (#118) |
+| [D4](adr/0004-compressed-adjacency-default.md) | **Compressed adjacency is the default storage:** per-node delta + Stream VByte records in node-aligned ~64K-edge blocks, 4 KiB-aligned sections; own codec (~400 lines). Conditions (amended 2026-11-25 by #118): per-node Elias–Fano byte offsets (not block offsets only); an Elias–Fano index of entry offsets in the format; sequential access decodes batches of lists in the edge-map framework; budgeted queries decode list prefixes; raw CSR is an in-RAM decode cache that the planner builds only for sessions of repeated traversals or point lookups that fit the budget and repay the decode. | End to end on an idle machine (#118; lj, orkut, twitter-sym, Friendster; same binary, raw vs compressed, graphs in RAM): 16.1–18.1 bits/edge, Friendster 23.2 (raw 32.8–35.7); compressed ÷ raw time at 16 threads PageRank 0.73–0.97, Leiden (one iteration, async and deterministic) 0.99–1.04, WCC 0.88–1.43, BFS 1.20–1.52 (1 thread: BFS 1.78–2.04, PageRank on lj 1.24–1.40); neighbour lookup +0.02–0.11 µs, 1 thread; under a cap the raw arrays exceed, PageRank 1.2–1.9× and Friendster WCC/BFS 5.4–8.8× faster compressed. The first lab's "raw PageRank 2× faster on orkut" (shared machine) is not reproduced. Not validated: web graphs, weighted or directed kernels, ingest writing the format, out-of-core streaming on it, point-query throughput at 16 threads. | accepted, partly validated (#46, #35, #24, #90) |
 | [D5](adr/0005-webgraph-optional.md) | **webgraph-rs is an optional feature** (BV import/export, LLP ordering, archival tier for web graphs), not the core codec. | BV: 2.1 bits/edge on web graphs but 5.0–21.9× slower sequential decode (9.1–21.9× on social graphs; 1 and 32 threads, shared machine); native deps make WASM unlikely (judged, not tried); 4 breaking releases in a year. | accepted |
 | [D6](adr/0006-in-adjacency.md) | **Directed graphs store out- and in-adjacency**; the in-adjacency is a derived artifact. | CSC built in 12.3 s for 1.47 B arcs (twitter-2010, 32 threads, shared machine); needed for in-neighbors and directed bidirectional BFS. | accepted |
 | [D7](adr/0007-eg-container.md) | **One `.eg` file per graph:** section table, content-hashed sections, derived artifacts appended, `compact` to reclaim space. Maps are exported as a separate standard PMTiles v3 file. | PMTiles v3 with custom payload works and is readable by the official reader. The `.eg` container itself is **unvalidated**. | accepted, partly validated (#28) |
@@ -106,7 +112,7 @@ TypeScript package.
 | [D18](adr/0018-data-tiles.md) | **Data tiles, not pixels,** in PMTiles v3; dependency-free WebGL2 viewer; static mode and live mode. | lj, sizes: first view 152 KB / 18 requests; tiles median 4–6 KB; search in 2 requests. Not measured: live mode, integrated GPUs, Firefox, Safari, graphs above 117 M edges. | accepted, partly validated (#26, #15) |
 | [D19](adr/0019-python-pyo3-arrow.md) | **Python via PyO3 abi3 + Arrow PyCapsule, bulk columnar API.** | Zero-copy verified; one abi3 wheel for CPython 3.10–3.14 (size 525 KB: estimate, not in a result file); per-call cost 28–40 ns (lj, shared machine). | accepted |
 | [D20](adr/0020-networkx-backend.md) | **NetworkX backend is an adoption channel, not the product.** | lj, 3 threads, shared machine: 0.92–2.0× on an existing `nx.Graph` including conversion (conversion dominates); with native loading, kernel time only, PageRank 15.6–70× and components 24–53×. | accepted |
-| [D21](adr/0021-queries-traversal-api.md) | **Queries v0.1: traversal API with budgets; no query language.** GQL/Cypher subset later, reusing an existing Rust parser. | Bidirectional BFS 0.3 ms on lj in-process, on raw arrays, single thread, vs 6.4 ms (Neo4j) and 0.3–4.8 s (embedded engines) through their query interfaces, 3 threads — different measurement levels. | accepted, partly validated (#118, #91) |
+| [D21](adr/0021-queries-traversal-api.md) | **Queries v0.1: traversal API with budgets; no query language.** GQL/Cypher subset later, reusing an existing Rust parser. | Bidirectional BFS 0.3 ms on lj in-process, on raw arrays, single thread, shared machine (idle, #118: 0.13 ms raw, 0.16 ms on the compressed default, p50), vs 6.4 ms (Neo4j) and 0.3–4.8 s (embedded engines) through their query interfaces, 3 threads, shared machine — different measurement levels. | accepted, partly validated (#91) |
 | [D22](adr/0022-browser-tier.md) | **Browser tier after v0.1:** wasm32 threaded build, ≤ ~100 M edges. | lj end to end in ~3 s in Chromium (threaded build, shared machine); ceiling at 265 M edges; Chromium and Node only. | accepted, partly validated (#108) |
 | [D23](adr/0023-licence-and-open-specs.md) | **Licence Apache-2.0 OR MIT; published format specs.** | Kùzu, Memgraph MAGE, CozoDB lessons. | accepted |
 | [D24](adr/0024-visual-system.md) | **One visual system ("Vernier") for viewer, docs, notebook, terminal and figures**: warm paper and soft black, one ink-blue accent, every number in monospace, the two-ring mark; values in `design/preview/style/assets/tokens.css`, rules in `design/preview/style/SPEC.md`. | Three rounds of previews; data palette and text contrast measured (worst categorical pair ΔE 15 normal vision, ~7.3 colour-blind; all text tokens ≥ 4.5:1). | accepted (approved by the owner, 2026-11-25) |
@@ -134,12 +140,14 @@ These are the reasons the first milestone after foundations is a second lab roun
 4. **Cost of determinism for Leiden** (2.4–3.0× at 16 threads on orkut and lj, idle
    machine; stops scaling at ~8 threads).
 5. **Memory-bandwidth ceiling** on graphs whose state exceeds the cache.
-6. **The pieces were never measured together.** Kernel, community and point-query numbers
-   were taken on uncompressed arrays; the compressed format that D4 makes the default was
-   measured for scans and one PageRank iteration only, on a shared machine (that iteration
-   2× slower than raw on orkut, equal on twitter-sym).
-   Ingest timings are from plain text without `fsync` (with it, lj took 0.68 s instead of
-   0.37 s in one run).
+6. **The pieces measured together — in RAM only.** *Answered for analytics in RAM on
+   2026-11-25 (#118, FINDINGS § M1-13):* kernels, Leiden and single-thread point queries
+   now have idle numbers on the default compressed storage, against raw arrays in the same
+   binary, on four social graphs; the default holds with the conditions written into D4.
+   Still not measured on the default storage: ingest writing it (timings are from plain
+   text to raw arrays without `fsync`; with it, lj took 0.68 s instead of 0.37 s in one
+   run) and an encoder under a budget; a streaming reader out of core; point-query
+   throughput at 16 threads; web graphs; weighted and directed kernels.
 7. **Evidence is narrow:** two social graphs for community quality; no weighted, directed
    or bipartite community runs; no string-id or Parquet ingest; no Firefox/Safari.
 8. **Non-technical:** a possible Uncharted patent on the tile-pyramid pipeline; trademark
@@ -158,3 +166,19 @@ These are the reasons the first milestone after foundations is a second lab roun
 | Leiden quality (3 iterations) | within 1% of the best reference on 6 graph families |
 | Map of a 1 B-edge graph from a static URL | first view < 250 KB; 60 fps on a discrete GPU, usable on integrated |
 | Any budgeted run | never OOM-killed |
+
+Measured against two of these targets on the default compressed storage (#118, 2026-11-25,
+idle machine, FINDINGS § M1-13; the targets are unchanged):
+
+- *Friendster PageRank under a 2 GB limit, within 1.35× of in-RAM:* through plain mmap of
+  the compressed store, 16 threads, 4.31 s/iteration against 3.19 in RAM — 1.35×, no margin
+  (arithmetic on a one-repetition, 5-iteration capped run that includes the initial degree
+  pass; raw arrays the same way: 1.32×). The lab's raw-format streaming reader gave 1.08×
+  (3.64 vs 3.37 s/iteration, 32 threads). The gap: no streaming reader for the compressed
+  format exists yet (#46).
+- *Friendster ingest, 8 GB budget, under 60 s:* the lab measured 52.4 s to raw arrays
+  (32 threads, no `fsync`). Encoding to the default format took 3.41 s at 16 threads plus
+  4.77 s to write it with `fsync`, measured separately, so 52.4 + 3.4 = 55.8 s by addition
+  before the write. The encoder measured holds input and output in RAM (about 14 GiB raw and
+  9.8 GiB compressed on Friendster), so it cannot run under 8 GB as it is. The gap: an
+  encoder that works under the budget, unmeasured (#35).

@@ -32,6 +32,14 @@ From 16 to 32 threads (FINDINGS "Idle-machine re-runs"; idle; uncompressed array
   machine; there is no idle scaling curve, and the memory-bandwidth explanation is not
   confirmed with counters.
 
+- Compressed scans pass the raw ceiling at 16 threads (#118, 2026-11-25; idle; FINDINGS
+  § M1-13; `lab/m1-13-compressed/results/scan.jsonl`, `lab/m1-13-compressed/results/perf.jsonl`):
+  a raw scan tops out at 12.4–13.7 G entries/s on lj, orkut, twitter-sym and Friendster
+  (49.6–54.9 GB/s of 4-byte targets, arithmetic), the compressed scan (default decoder,
+  8,192-entry batches) reaches 14.9–27.5; orkut PageRank f32 runs at IPC 0.49 raw and 1.97
+  compressed and takes 0.37 s vs 0.27 s. Consistent with a memory-bandwidth limit that
+  compression relieves; 16 → 32 threads was not measured on the compressed form.
+
 Evidence is two graphs for communities, one for the other kernels, one machine.
 
 ## Consequences
