@@ -1380,7 +1380,9 @@ fn main() {
         tol_drop: get("--tol-drop").map(|s| s.parse().unwrap()).unwrap_or(10.0),
         agg_tol: get("--agg-tol").map(|s| s.parse().unwrap()).unwrap_or(0.8),
         lowmem: has("--lowmem"),
-        keep_graphs: get("--out-hier").is_some(),
+        // --no-quot (issue #172): write the parent maps only, without keeping or writing the
+        // quotient graphs (gmap layout reads level_k.u32 alone).
+        keep_graphs: get("--out-hier").is_some() && !has("--no-quot"),
         split_last: !has("--no-split"),
         refine_iters: get("--refine-iters").map(|s| s.parse().unwrap()).unwrap_or(1),
         chunk: get("--chunk").map(|s| s.parse().unwrap()).unwrap_or(2048),

@@ -216,6 +216,9 @@ pub struct PassStat {
     acct_used: u64,
     anon_kb: u64,
     io_lm_read: u64,
+    /// issue #172: the same span from this process's /proc/self/io read_bytes (block-layer
+    /// reads it caused, page-fault reads of the mapped store included; not machine-wide)
+    io_lm_read_self: u64,
     io_agg_read: u64,
     io_agg_write: u64,
 }
@@ -1113,6 +1116,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         r_tmp = None;
         r_tmp = Some(res("leiden state: sigma, flag, rsigma of the level", tmp_per_node * n as u64));
         let io_p0 = io_read_bytes();
+        let io_p0_self = proc_io("read_bytes:");
         let t0 = Instant::now();
         // init
         match &next_bound {
@@ -1180,6 +1184,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         };
         st.t_ref = t1.elapsed().as_secs_f64();
         st.io_lm_read = io_read_bytes() - io_p0;
+        st.io_lm_read_self = proc_io("read_bytes:") - io_p0_self;
         if o.ooc {
             for t in tls.iter() {
                 t.lock().unwrap().tab = Tab::new(); // the aggregation's own tables come next
@@ -1840,7 +1845,7 @@ pub fn main_leiden(args: Vec<String>) {
         .iter()
         .map(|s| {
             format!(
-                "{{\"n\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2},\"seq_agg\":{},\"acct_used_bytes\":{},\"anon_kb\":{},\"lm_ref_read_bytes\":{},\"agg_read_bytes\":{},\"agg_write_bytes\":{}}}",
+                "{{\"n\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2},\"seq_agg\":{},\"acct_used_bytes\":{},\"anon_kb\":{},\"lm_ref_read_bytes\":{},\"lm_ref_read_self_bytes\":{},\"agg_read_bytes\":{},\"agg_write_bytes\":{}}}",
                 s.n,
                 s.entries,
                 s.iters,
@@ -1854,6 +1859,7 @@ pub fn main_leiden(args: Vec<String>) {
                 s.acct_used,
                 s.anon_kb,
                 s.io_lm_read,
+                s.io_lm_read_self,
                 s.io_agg_read,
                 s.io_agg_write
             )

@@ -47,6 +47,17 @@ impl<T: Plain> Arr<T> {
             let m = unsafe { memmap2::Mmap::map(&f) }.unwrap_or_else(|e| panic!("{path}: {e}"));
             assert_eq!(m.len() % std::mem::size_of::<T>(), 0, "{path}: length is not a multiple of the element size");
             assert_eq!(m.as_ptr() as usize % std::mem::align_of::<T>(), 0, "{path}: mapping is not aligned");
+            // Issue #172 (m1-15): `GMAP_MADV=random|sequential|normal` applies that advice
+            // to the whole mapping; unset or `none` means no madvise call, as in the tracer.
+            match std::env::var("GMAP_MADV").as_deref() {
+                Ok("none") => Ok(()),
+                Ok("random") => m.advise(memmap2::Advice::Random),
+                Ok("sequential") => m.advise(memmap2::Advice::Sequential),
+                Ok("normal") => m.advise(memmap2::Advice::Normal),
+                Ok(other) => panic!("GMAP_MADV={other}: expected random, sequential or normal"),
+                Err(_) => Ok(()),
+            }
+            .unwrap_or_else(|e| panic!("{path}: madvise: {e}"));
             Arr(Backing::Map(m))
         } else {
             Arr(Backing::Heap(read_vec(path)))
