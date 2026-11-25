@@ -1,0 +1,8 @@
+# started on Wed Nov 25 06:29:38 2026
+
+18697952590,,cycles:u,2843268481,83.00,,
+11097056434,,instructions:u,2841572848,83.00,0.59,insn per cycle
+3506672,,branch-misses:u,2844084143,83.00,,
+495986849,,L1-dcache-load-misses,2849784162,83.00,,
+216798595,,cache-misses:u,2846086874,83.00,,
+23348,,dTLB-load-misses,2840374997,83.00,,

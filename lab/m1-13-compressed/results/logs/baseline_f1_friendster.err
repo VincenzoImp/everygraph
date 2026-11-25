@@ -1,0 +1,16 @@
+friendster: n=65608366 m=3612134270 prefetch=false random=false
+warm-up 0.6s resident 1.000
+warm degree: {"max_us":7.614,"mean_us":0.12965300999993917,"n":100000,"p50_us":0.11,"p95_us":0.27,"p99_us":0.391}
+  tput 32t: 243908983 q/s
+warm neighbors: {"max_us":4.068,"mean_us":0.3299097099999533,"n":100000,"p50_us":0.301,"p95_us":0.561,"p99_us":0.621}
+  tput 32t: 81351360 q/s
+warm common_neighbors: {"max_us":29.044,"mean_us":0.8202215200000096,"n":100000,"p50_us":0.641,"p95_us":1.974,"p99_us":3.567}
+  tput 32t: 20349385 q/s
+warm two_hop_size: {"max_us":8329.043,"mean_us":95.64544900000003,"n":3000,"p50_us":14.627,"p95_us":406.831,"p99_us":1294.691}
+  tput 32t: 21484 q/s
+warm khop3_budget10k: {"max_us":493.693,"mean_us":45.341100999999945,"n":3000,"p50_us":42.82,"p95_us":72.626,"p99_us":114.454}
+  tput 32t: 62775 q/s
+warm bidir_bfs_path: {"max_us":85963.806,"mean_us":4882.167912999998,"n":1000,"p50_us":2141.504,"p95_us":18847.771,"p99_us":44328.615}
+  tput 32t: 705 q/s
+sink 107461328341773
+wrote "/home/tux/projects/everygraph/.claude/worktrees/agent-a4d868e363f96c22f/lab/m1-13-compressed/results/baseline_f1_friendster.json"

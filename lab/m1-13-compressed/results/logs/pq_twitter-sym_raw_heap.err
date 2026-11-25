@@ -1,0 +1,6 @@
+  degree: {"avg_result":54.31172,"batch_mean_us":0.0030211500000000002,"loadavg_1m_start":1.03,"max_us":4.568,"mean_us":0.09930923000010951,"n":100000,"p50_us":0.09,"p95_us":0.2,"p99_us":0.351,"result_digest":"6ad38bb3af1ec260"}
+  neighbors: {"avg_result":54.31172,"batch_mean_us":0.03950388,"loadavg_1m_start":1.03,"max_us":210.794,"mean_us":0.14657097999999608,"n":100000,"p50_us":0.11,"p95_us":0.34,"p99_us":0.441,"result_digest":"6ad38bb3af1ec260"}
+  common_neighbors: {"avg_result":4.50677,"batch_mean_us":37.35723309,"loadavg_1m_start":1.03,"max_us":4294.823,"mean_us":37.346904850000065,"n":100000,"p50_us":0.42,"p95_us":12.243,"p99_us":1397.233,"result_digest":"ad3bdf7bcb4a2de3"}
+  two_hop_size: {"avg_result":2808094.1255,"loadavg_1m_start":1.03,"max_us":350559.768,"mean_us":13199.542773800005,"n":10000,"p50_us":668.31,"p95_us":52093.896,"p99_us":88305.477,"result_digest":"1ea26a1b0e0b1771"}
+  khop3_budget10k: {"avg_result":9925.5858,"loadavg_1m_start":1.0,"max_us":199.403,"mean_us":47.769271199999935,"n":10000,"p50_us":34.816,"p95_us":116.287,"p99_us":147.505,"result_digest":"f54240e3eaafb36a"}
+  bidir_bfs_path: {"avg_result":1081731.5862,"loadavg_1m_start":1.0,"max_us":710520.844,"mean_us":29541.073060100014,"n":10000,"p50_us":2982.197,"p95_us":156991.071,"p99_us":289888.572,"result_digest":"3a3af7933ed83190"}
