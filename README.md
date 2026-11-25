@@ -41,7 +41,11 @@ Most of the parts have been published before. Prior art includes:
 
 What we claim is the combination, and what holds it together:
 
-- identical results at any thread count, memory budget and execution regime;
+- identical results at any thread count, memory budget and execution regime — new for
+  a graph engine as far as we read, though the idea exists elsewhere: sums independent of
+  how the work is decomposed in high-performance computing (Hallberg and Adcroft, 2014)
+  and "data independence" for floating-point aggregates in databases (Müller et al.,
+  2018);
 - a deterministic, budgeted build from text to graph;
 - a map of a 1.8 B-edge graph on one machine under a memory budget, with stated omissions
   (the aim: not yet run end to end, see below).
