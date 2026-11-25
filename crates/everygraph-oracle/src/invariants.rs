@@ -6,11 +6,13 @@
 //!
 //! | Invariant | Applies to |
 //! |---|---|
-//! | `offsets_monotone`, `targets_in_range`, `lists_sorted_unique`, `no_self_loops` | adjacency |
+//! | `offsets_monotone`, `targets_in_range`, `lists_sorted_unique` | adjacency |
+//! | `self_loop_exactly_where_kept` (a node lists itself, once, exactly when it has a kept loop) | adjacency |
 //! | `adjacency_symmetric` | adjacency of an undirected graph |
-//! | `entries_equal_m` (Σ list lengths = 2m undirected, m directed) | adjacency |
+//! | `entries_equal_m` (Σ list lengths = 2m + loops undirected, m + loops directed) | adjacency |
 //! | `degree_sum` (Σ degree = 2m + 2·loops, m of the undirected projection; out/in: m + loops) | degrees |
-//! | `pagerank_nonnegative`, `pagerank_sums_to_one` | PageRank |
+//! | `pagerank_nonnegative`, `pagerank_sums_to_one` (kept loops included) | PageRank |
+//! | `pagerank_fixed_point` (one step of the S1 equation, pushed along out-edges, moves the result by at most (1 + α) × its tolerance) | PageRank |
 //! | `labels_constant_along_edges`, `labels_are_smallest_ids` | weak components |
 //! | `labels_are_smallest_ids` | strong components |
 //! | `bfs_source_zero`, `bfs_levels_adjacent` (an edge changes the level by at most 1 forward), `bfs_has_parent` | BFS |
@@ -18,7 +20,11 @@
 //! | `core_bounded_by_degree`, `core_is_supported` (v has ≥ core(v) neighbours with core ≥ core(v)) | core numbers |
 //! | `triangles_sum_divisible_by_3`, `triangles_bounded_by_pairs` | triangles per node |
 //! | `clustering_in_unit_interval`, `transitivity_in_unit_interval`, `modularity_in_range` | coefficients |
-//! | `community_sizes_sum_to_n`, `quotient_weights_sum_to_m` | quotient graphs |
+//! | `modularity_equals_quotient_modularity` (modularity of the partition = modularity of its quotient graph, loops on the diagonal, under singletons) | modularity |
+//! | `community_sizes_sum_to_n`, `quotient_weights_sum_to_m` (m with kept loops) | quotient graphs |
+//! | `report_rows_add_up` (rows = rejected + dropped loops + dropped duplicates + merged + edges), `report_edges_add_up` (edges = pairs + repeated) | ingest report |
+
+use std::collections::BTreeMap;
 
 use crate::compare::tolerance;
 use crate::kernel::{Kernel, Output};
@@ -72,7 +78,14 @@ pub fn check(
         {
             degrees(&mut c, kernel, p, d);
         }
-        (Kernel::PageRank { .. }, Output::Reals(r)) if r.len() == n => pagerank(&mut c, p, r),
+        (Kernel::PageRank { damping, weighted }, Output::Reals(r)) if r.len() == n => {
+            pagerank(&mut c, p, r);
+            if r.iter().all(Option::is_some) {
+                let x: Vec<f64> = r.iter().flatten().copied().collect();
+                pagerank_fixed_point(&mut c, p, *damping, *weighted, &x);
+            }
+        }
+        (Kernel::IngestReport, Output::Counts(r)) => report(&mut c, r),
         (Kernel::Wcc, Output::Labels(l)) if l.len() == n => {
             labels_smallest(&mut c, l);
             for u in 0..n {
@@ -124,13 +137,27 @@ pub fn check(
                 || format!("{x}"),
             );
         }
-        (Kernel::Modularity { resolution }, Output::Real(q)) => {
+        (
+            Kernel::Modularity {
+                resolution,
+                weighted,
+            },
+            Output::Real(q),
+        ) => {
             // Q(γ) = Q(1) + (1 − γ) Σ_c (D_c / 2m)², with Q(1) ∈ [−1/2, 1] and the sum in
             // [0, 1]: so Q(γ) ∈ [−1/2 − max(0, γ − 1), 1] for γ ≥ 0.
             let low = -0.5 - (resolution - 1.0).max(0.0);
             c.require((low..=1.0).contains(q), "modularity_in_range", || {
                 format!("{q} outside [{low}, 1] at resolution {resolution}")
             });
+            if let Some(part) = partition.filter(|part| part.len() == n) {
+                let via = quotient_modularity(p, part, *resolution, *weighted);
+                c.require(
+                    tolerance("modularity").close(*q, via, p.n),
+                    "modularity_equals_quotient_modularity",
+                    || format!("{q} vs {via} on the quotient graph"),
+                );
+            }
         }
         (Kernel::Quotient, Output::Quotient { sizes, edges }) => {
             let total: u64 = sizes.iter().sum();
@@ -138,7 +165,7 @@ pub fn check(
                 format!("Σ sizes = {total}, n = {n}")
             });
             let w: f64 = edges.iter().map(|e| e.2).sum();
-            let m = p.undirected_m();
+            let m = p.undirected_m() + (0..n).map(|v| p.kept_loops(v)).sum::<u64>();
             // By value: an empty sum is -0.0.
             c.require(
                 w == crate::exact_f64(m),
@@ -175,6 +202,7 @@ fn output_len(o: &Output) -> usize {
         Output::Labels(x) => x.len(),
         Output::Csr { offsets, .. } => offsets.len().saturating_sub(1),
         Output::Quotient { sizes, .. } => sizes.len(),
+        Output::Counts(x) => x.len(),
         Output::Count(_) | Output::Real(_) => 1,
     }
 }
@@ -207,10 +235,11 @@ fn adjacency(c: &mut Checker, p: &Projection, offsets: &[u64], targets: &[u32]) 
         targets: targets.to_vec(),
         ..Adjacency::default()
     };
-    let expected = if p.directed { p.m() } else { 2 * p.m() };
+    let loops: u64 = (0..n).map(|v| p.kept_loops(v)).sum();
+    let expected = loops + if p.directed { p.m() } else { 2 * p.m() };
     c.require(to_u64(targets.len()) == expected, "entries_equal_m", || {
         format!(
-            "{} entries, expected {expected} (m = {})",
+            "{} entries, expected {expected} (m = {}, kept loops = {loops})",
             targets.len(),
             p.m()
         )
@@ -225,10 +254,19 @@ fn adjacency(c: &mut Checker, p: &Projection, offsets: &[u64], targets: &[u32]) 
             "lists_sorted_unique",
             || format!("node {u}: {list:?}"),
         );
+        let own = list
+            .iter()
+            .filter(|&&v| v == u32::try_from(u).unwrap_or(u32::MAX))
+            .count();
         c.require(
-            !list.contains(&u32::try_from(u).unwrap_or(u32::MAX)),
-            "no_self_loops",
-            || format!("node {u} lists itself"),
+            to_u64(own) == p.kept_loops(u),
+            "self_loop_exactly_where_kept",
+            || {
+                format!(
+                    "node {u} lists itself {own} times, kept loops: {}",
+                    p.kept_loops(u)
+                )
+            },
         );
         if !p.directed {
             for &v in list {
@@ -286,6 +324,113 @@ fn pagerank(c: &mut Checker, p: &Projection, r: &[Option<f64>]) {
     let tol = tolerance("pagerank_sum");
     c.require(tol.close(sum, 1.0, p.n), "pagerank_sums_to_one", || {
         format!("Σ = {sum:.17}")
+    });
+}
+
+/// One step of S1 (`docs/spec/graph-semantics.md` § 5.1), pushed along the out-lists
+/// (the reference pulls along the in-lists). If every value is within the PageRank
+/// tolerance `b(v)` of the fixed point, the step moves the vector by at most
+/// `(1 + α) Σ b(v)` in L1, because the step's linear part is α times a stochastic matrix.
+fn pagerank_fixed_point(c: &mut Checker, p: &Projection, damping: f64, weighted: bool, x: &[f64]) {
+    let n = p.len();
+    if n == 0 {
+        return;
+    }
+    let w = |e: usize| if weighted { p.out.weight_sum[e] } else { 1.0 };
+    let diag = |v: usize| {
+        let l = p.loop_pair_weight(v, weighted);
+        if p.directed { l } else { 2.0 * l }
+    };
+    let s: Vec<f64> = (0..n)
+        .map(|u| p.out.range(u).map(w).sum::<f64>() + diag(u))
+        .collect();
+    let nf = f64::from(p.n);
+    let dangling: f64 = (0..n).filter(|&u| s[u] == 0.0).map(|u| x[u]).sum();
+    let mut next = vec![(1.0 - damping) / nf + damping * dangling / nf; n];
+    for u in (0..n).filter(|&u| s[u] > 0.0) {
+        let share = damping * x[u] / s[u];
+        for e in p.out.range(u) {
+            next[ix(p.out.targets[e])] += share * w(e);
+        }
+        next[u] += share * diag(u);
+    }
+    let moved: f64 = x.iter().zip(&next).map(|(a, b)| (a - b).abs()).sum();
+    let tol = tolerance("pagerank");
+    let limit = (1.0 + damping) * x.iter().map(|&v| tol.bound(v, p.n)).sum::<f64>();
+    c.require(moved <= limit, "pagerank_fixed_point", || {
+        format!("one step moves the result by {moved:e} in L1, more than {limit:e}")
+    });
+}
+
+/// Modularity of the quotient graph of `partition` (community pairs and loops, kept input
+/// loops on the diagonal) under the singleton partition: `Σ_a [L(a)/W − γ (S(a)/2W)²]`.
+fn quotient_modularity(p: &Projection, partition: &[u32], resolution: f64, weighted: bool) -> f64 {
+    let sym = &p.undirected;
+    let mut edges: BTreeMap<(u32, u32), f64> = BTreeMap::new();
+    for u in 0..sym.n() {
+        let a = partition[u];
+        for e in sym.range(u) {
+            let v = ix(sym.targets[e]);
+            if v > u {
+                let b = partition[v];
+                let w = if weighted { sym.weight_sum[e] } else { 1.0 };
+                *edges.entry((a.min(b), a.max(b))).or_default() += w;
+            }
+        }
+        *edges.entry((a, a)).or_default() += p.loop_pair_weight(u, weighted);
+    }
+    let mut inside: BTreeMap<u32, f64> = BTreeMap::new();
+    let mut strength: BTreeMap<u32, f64> = BTreeMap::new();
+    let mut total = 0.0;
+    for (&(a, b), &w) in &edges {
+        total += w;
+        if a == b {
+            *inside.entry(a).or_default() += w;
+            *strength.entry(a).or_default() += 2.0 * w;
+        } else {
+            *strength.entry(a).or_default() += w;
+            *strength.entry(b).or_default() += w;
+        }
+    }
+    if total == 0.0 {
+        return 0.0;
+    }
+    strength
+        .iter()
+        .map(|(a, &s)| {
+            inside.get(a).copied().unwrap_or(0.0) / total - resolution * (s / (2.0 * total)).powi(2)
+        })
+        .sum()
+}
+
+/// The two identities of the ingest report (`docs/spec/graph-semantics.md` § 2.8).
+fn report(c: &mut Checker, r: &BTreeMap<String, u64>) {
+    let keys = [
+        "counts.rows",
+        "dropped.rejected",
+        "dropped.self_loops",
+        "dropped.duplicates",
+        "counts.merged",
+        "counts.edges",
+        "counts.repeated",
+        "counts.pairs",
+    ];
+    if let Some(k) = keys.iter().find(|k| !r.contains_key(**k)) {
+        c.fail("shape", format!("no {k} in the report"));
+        return;
+    }
+    let k = |name: &str| r[name];
+    let parts = k("dropped.rejected")
+        + k("dropped.self_loops")
+        + k("dropped.duplicates")
+        + k("counts.merged")
+        + k("counts.edges");
+    c.require(parts == k("counts.rows"), "report_rows_add_up", || {
+        format!("{} rows, the outcomes add up to {parts}", k("counts.rows"))
+    });
+    let edges = k("counts.pairs") + k("counts.repeated");
+    c.require(edges == k("counts.edges"), "report_edges_add_up", || {
+        format!("{} edges, pairs + repeated = {edges}", k("counts.edges"))
     });
 }
 
