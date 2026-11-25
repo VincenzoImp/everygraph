@@ -297,6 +297,19 @@ fn a_block_writer_assembles_the_file_from_parallel_writes() {
             if direct && cfg!(any(target_os = "linux", target_os = "macos")) {
                 assert!(writer.is_direct());
             }
+            // `fallocate` really allocated the blocks: no silent fall-back to a sparse
+            // `set_len` (the target directory is on a file system that supports it).
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let meta = fs::metadata(&path).unwrap();
+                assert_eq!(meta.len(), len as u64);
+                assert!(
+                    meta.blocks() * 512 >= len as u64,
+                    "{} blocks for {len} bytes",
+                    meta.blocks()
+                );
+            }
             // Pieces of 1, 2 and 3 blocks round-robin over 3 threads.
             let mut pieces = Vec::new();
             let mut start = 0;
@@ -429,5 +442,64 @@ fn spill_logs_read_back_per_shard_and_leave_nothing_behind() {
     }
     drop(sources);
     assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// The reviewer's case: a file is mapped and its slice borrowed, then this crate's sinks
+/// are pointed at it, under its own path and through a hard link. Each is refused
+/// before anything changes, so the borrowed bytes stay the same; once the map is gone,
+/// the same calls succeed. The other order is refused too: a file being written cannot
+/// be mapped.
+#[cfg(unix)]
+#[test]
+fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
+    use std::io::ErrorKind::ResourceBusy;
+
+    let dir = scratch("guard");
+    let path = dir.join("mapped");
+    let link = dir.join("hard-link");
+    write_file(&path, &[7; 3 * A]);
+    fs::hard_link(&path, &link).unwrap();
+
+    let map = MmapSource::open(&path).unwrap();
+    let bytes = map.as_slice().unwrap();
+    for target in [&path, &link] {
+        for direct in [false, true] {
+            let refused = BlockWriter::create(target, 2 * A as u64, direct).unwrap_err();
+            assert_eq!(refused.kind(), ResourceBusy);
+        }
+        assert_eq!(AppendSink::create(target).unwrap_err().kind(), ResourceBusy);
+        let file = File::options().write(true).open(target).unwrap();
+        assert_eq!(
+            AppendSink::from_file(file).unwrap_err().kind(),
+            ResourceBusy
+        );
+    }
+    assert_eq!(
+        fs::metadata(&path).unwrap().len(),
+        3 * A as u64,
+        "nothing was truncated"
+    );
+    assert!(
+        bytes.iter().all(|&b| b == 7),
+        "the borrowed bytes did not change"
+    );
+    // A second map of a mapped file is fine.
+    let again = MmapSource::open(&link).unwrap();
+    drop((map, again));
+
+    // The maps are gone: writers may open the file, and while they hold it, maps are
+    // refused.
+    let writer = BlockWriter::create(&path, A as u64, false).unwrap();
+    assert_eq!(MmapSource::open(&link).unwrap_err().kind(), ResourceBusy);
+    writer.write_at(0, &[9; A]).unwrap();
+    writer.finish().unwrap();
+    let mut sink = AppendSink::create(&link).unwrap();
+    assert_eq!(MmapSource::open(&path).unwrap_err().kind(), ResourceBusy);
+    sink.write_all(&[5; 10]).unwrap();
+    drop(sink);
+    let map = MmapSource::open(&path).unwrap();
+    assert_eq!(map.as_slice().unwrap(), &[5; 10]);
+    drop(map);
     fs::remove_dir_all(dir).unwrap();
 }

@@ -30,10 +30,12 @@ const ALIGN: u64 = SEGMENT_ALIGN as u64;
 
 /// A zero-filled heap buffer whose first byte is at a multiple of [`SEGMENT_ALIGN`].
 ///
-/// It is built from a `Vec<u8>` a little longer than asked, without `unsafe`. Alignment
-/// is a matter of speed only: should the allocator place it where alignment is
-/// impossible (`align_offset` is allowed to say so), the buffer still works
-/// and a direct-I/O backend falls back to an extra copy.
+/// It is built from a `Vec<u8>` a little longer than asked, without `unsafe`, using
+/// `align_offset`, which is allowed to report that alignment is impossible (no real
+/// allocator does). The buffer is then unaligned. For a buffer a caller reads into,
+/// that costs speed only: a direct-I/O backend copies through its own bounce buffer.
+/// The bounce buffers themselves are `AlignedBuf`s, though, and an unaligned one would
+/// make every direct read fail with an error.
 #[derive(Debug, Default)]
 pub struct AlignedBuf {
     raw: Vec<u8>,
@@ -203,6 +205,8 @@ impl SegmentReader {
         }
         let len = usize::try_from(range.end - range.start)
             .map_err(|_| ReadError::Backend("segment is larger than the address space".into()))?;
+        // TODO(#31 integration): this buffer (8 MiB per worker with the default segment
+        // size) is allocated outside the memory accountant.
         if self.buf.len() < len {
             let rounded = len.checked_next_multiple_of(SEGMENT_ALIGN).unwrap_or(len);
             // Drop the old buffer first, so that growing never holds both.

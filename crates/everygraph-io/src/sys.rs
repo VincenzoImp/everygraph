@@ -62,16 +62,29 @@ pub(crate) fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Res
 /// next read would start at an unaligned offset, which Windows refuses (error 87) where
 /// Linux returns 0. So a short read that is not a whole number of blocks ends the loop.
 pub(crate) fn read_up_to(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    read_up_to_with(buf, offset, |piece, at| {
+        #[cfg(unix)]
+        let result = std::os::unix::fs::FileExt::read_at(file, piece, at);
+        #[cfg(windows)]
+        let result = std::os::windows::fs::FileExt::seek_read(file, piece, at);
+        #[cfg(not(any(unix, windows)))]
+        let result: io::Result<usize> = {
+            let _ = (file, piece, at);
+            Err(io::ErrorKind::Unsupported.into())
+        };
+        result
+    })
+}
+
+/// The loop of [`read_up_to`], over any positional read (a test passes a fake one).
+fn read_up_to_with(
+    buf: &mut [u8],
+    offset: u64,
+    mut read: impl FnMut(&mut [u8], u64) -> io::Result<usize>,
+) -> io::Result<usize> {
     let mut done = 0;
     while done < buf.len() {
-        let at = offset + done as u64;
-        #[cfg(unix)]
-        let result = std::os::unix::fs::FileExt::read_at(file, &mut buf[done..], at);
-        #[cfg(windows)]
-        let result = std::os::windows::fs::FileExt::seek_read(file, &mut buf[done..], at);
-        #[cfg(not(any(unix, windows)))]
-        let result: io::Result<usize> = Err(io::ErrorKind::Unsupported.into());
-        match result {
+        match read(&mut buf[done..], offset + done as u64) {
             Ok(0) => break,
             Ok(n) => {
                 done += n;
@@ -220,15 +233,17 @@ pub(crate) fn fadvise(file: &File, range: Range<u64>, hint: AccessHint) {
 
 /// Maps all of `file` read-only.
 ///
-/// The map is only as stable as the file: if another process truncates the file while
-/// it is mapped, reading the lost pages raises `SIGBUS` (on Windows the truncation is
-/// refused instead). `ByteSource` requires a source that does not change; the backends
-/// document that the file must not be modified while they are open.
+/// Sound only under the invariant of `design/DECISIONS.md`, "Memory-mapped files are read
+/// through a safe constructor", which `MmapSource` documents: no writer, in this process
+/// or any other, modifies or truncates the file while it is mapped.
 pub(crate) fn map(file: &File) -> io::Result<Mmap> {
-    // SAFETY: the map is read-only and never handed out mutably, so no Rust reference
-    // into it can be written through by this process. Writes or truncation by other
-    // processes are outside what this function can prevent; the contract above makes
-    // them the caller's responsibility, as every memory-mapping API does.
+    // SAFETY: `Mmap::map` is sound while nothing modifies or truncates the file for the
+    // life of the map: the bytes are handed out as `&[u8]`, and a write by anyone (this
+    // process included) would change them under that borrow, a truncation would make
+    // reading them raise SIGBUS. That is not enforced against other processes or against
+    // `std::fs` writes in this one; it is the invariant accepted by the decision above.
+    // Inside the process the sinks of this crate refuse to write a mapped file (`claim`),
+    // and the caller (`MmapSource::from_file`) holds that claim before calling this.
     unsafe { Mmap::map(file) }
 }
 
@@ -257,5 +272,47 @@ pub(crate) fn create_temp(dir: &Path) -> io::Result<File> {
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A direct-I/O file the way Windows serves one: a read at an unaligned offset is an
+    /// error (os error 87 there), and a read reaching the end comes back short.
+    fn windows_like(len: u64) -> impl FnMut(&mut [u8], u64) -> io::Result<usize> {
+        move |piece, at| {
+            if at % everygraph_core::SEGMENT_ALIGN as u64 != 0 {
+                return Err(io::ErrorKind::InvalidInput.into());
+            }
+            let n = usize::try_from(len.saturating_sub(at))
+                .unwrap()
+                .min(piece.len());
+            piece[..n].fill(1);
+            Ok(n)
+        }
+    }
+
+    /// Pins the Windows fix on every platform: after a short read at the end of the
+    /// file, no further (unaligned) read is issued.
+    #[test]
+    fn a_short_read_at_the_end_ends_the_loop() {
+        let mut buf = vec![0_u8; 3 * 4096];
+        for (len, expected) in [(1, 1), (4095, 4095), (4096 + 10, 4096 + 10), (8192, 8192)] {
+            let got = read_up_to_with(&mut buf, 0, windows_like(len)).unwrap();
+            assert_eq!(got, expected, "file of {len} bytes");
+        }
+        // Whole blocks keep going, from aligned offsets, until the buffer is full.
+        let mut calls = Vec::new();
+        let mut inner = windows_like(1 << 20);
+        let got = read_up_to_with(&mut buf, 4096, |piece, at| {
+            calls.push(at);
+            let n = piece.len().min(4096);
+            inner(&mut piece[..n], at)
+        })
+        .unwrap();
+        assert_eq!(got, buf.len());
+        assert_eq!(calls, [4096, 8192, 12288]);
     }
 }

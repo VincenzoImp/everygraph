@@ -29,10 +29,12 @@
 //! `io_uring` source does the same with a submission queue. Both are planned, not built.
 //!
 //! Every `unsafe` block of the crate is in one private module (`sys`): the memory map
-//! and three calls into the C library.
+//! and three calls into the C library. The map is safe to offer under the invariant
+//! stated on [`MmapSource`], which the sinks enforce within the process.
 
 pub mod sink;
 
+mod claim;
 mod file;
 mod mmap;
 mod sys;

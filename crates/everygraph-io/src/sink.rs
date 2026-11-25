@@ -21,6 +21,7 @@ use std::sync::Mutex;
 
 use everygraph_core::{AlignedBuf, SEGMENT_ALIGN};
 
+use crate::claim::{Claim, Use};
 use crate::{FileSource, sys};
 
 /// Buffer of an [`AppendSink`]: 1 MiB.
@@ -31,10 +32,15 @@ const BOUNCE: usize = 1 << 20;
 
 /// A file written front to back through a 1 MiB buffer. It counts what was written, so
 /// that a format writer can record offsets as it goes.
+///
+/// It refuses a file that a live [`MmapSource`](crate::MmapSource) of this process maps
+/// (see there), and the file cannot be mapped until the sink is finished or dropped.
 #[derive(Debug)]
 pub struct AppendSink {
+    // Declared before the claim: the file is flushed and closed first.
     out: BufWriter<File>,
     position: u64,
+    claim: Claim,
 }
 
 impl AppendSink {
@@ -42,18 +48,31 @@ impl AppendSink {
     ///
     /// # Errors
     ///
-    /// The file cannot be created.
+    /// The file cannot be created, or a live `MmapSource` of this process maps it
+    /// ([`io::ErrorKind::ResourceBusy`]; nothing is truncated then).
     pub fn create(path: impl AsRef<Path>) -> io::Result<Self> {
-        Ok(Self::from_file(File::create(path)?))
+        let (file, claim) = open_claimed(OpenOptions::new().write(true), path.as_ref())?;
+        file.set_len(0)?;
+        Ok(Self::with_claim(file, claim))
     }
 
     /// Appends to `file` from its current position; [`position`](Self::position) counts
     /// from 0 regardless.
-    #[must_use]
-    pub fn from_file(file: File) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// The file's identity cannot be read, or a live `MmapSource` of this process maps
+    /// it ([`io::ErrorKind::ResourceBusy`]).
+    pub fn from_file(file: File) -> io::Result<Self> {
+        let claim = Claim::take(&file, Use::Write)?;
+        Ok(Self::with_claim(file, claim))
+    }
+
+    fn with_claim(file: File, claim: Claim) -> Self {
         Self {
             out: BufWriter::with_capacity(APPEND_BUFFER, file),
             position: 0,
+            claim,
         }
     }
 
@@ -64,15 +83,17 @@ impl AppendSink {
     }
 
     /// Flushes the buffer and returns the file, for the caller to `sync_all` if the
-    /// output must be durable.
+    /// output must be durable. From here on the file may be mapped; the caller must not
+    /// write through the returned handle while it is.
     ///
     /// # Errors
     ///
     /// The final write failed.
     pub fn finish(self) -> io::Result<File> {
-        self.out
-            .into_inner()
-            .map_err(io::IntoInnerError::into_error)
+        let Self { out, claim, .. } = self;
+        let file = out.into_inner().map_err(io::IntoInnerError::into_error);
+        drop(claim);
+        file
     }
 }
 
@@ -97,11 +118,16 @@ impl Write for AppendSink {
 /// ([`create`](Self::create) with `direct`) blocks bypass the page cache; a block
 /// whose bytes are aligned in memory ([`AlignedBuf`]) goes to the device without a copy.
 /// The rules are the same in both modes, so a caller can switch between them freely.
+///
+/// Like [`AppendSink`], it refuses a file that a live [`MmapSource`](crate::MmapSource)
+/// of this process maps, and holds the file against mapping until it is finished.
 #[derive(Debug)]
 pub struct BlockWriter {
+    // Declared before the claim: the file is closed first.
     file: File,
     len: u64,
     direct: bool,
+    claim: Claim,
 }
 
 impl BlockWriter {
@@ -111,17 +137,30 @@ impl BlockWriter {
     ///
     /// # Errors
     ///
-    /// The file cannot be created or preallocated (for example, the disk is full).
+    /// The file cannot be created or preallocated (for example, the disk is full), or a
+    /// live `MmapSource` of this process maps it ([`io::ErrorKind::ResourceBusy`];
+    /// nothing is truncated then).
     pub fn create(path: impl AsRef<Path>, len: u64, direct: bool) -> io::Result<Self> {
         let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(true);
-        let (file, direct) = if direct {
-            sys::open_uncached(&options, path.as_ref())?
+        options.read(true).write(true);
+        let (file, claim, direct) = if direct {
+            options.create(true).truncate(false);
+            let (file, direct) = sys::open_uncached(&options, path.as_ref())?;
+            let claim = Claim::take(&file, Use::Write)?;
+            (file, claim, direct)
         } else {
-            (options.open(path)?, false)
+            let (file, claim) = open_claimed(&mut options, path.as_ref())?;
+            (file, claim, false)
         };
+        // Truncate only once the claim is held: no map can exist from here on.
+        file.set_len(0)?;
         sys::preallocate(&file, len)?;
-        Ok(Self { file, len, direct })
+        Ok(Self {
+            file,
+            len,
+            direct,
+            claim,
+        })
     }
 
     /// Length of the file being written.
@@ -171,6 +210,8 @@ impl BlockWriter {
         if !self.direct || (aligned_in_memory && data.len() % SEGMENT_ALIGN == 0) {
             return sys::write_all_at(&self.file, data, offset);
         }
+        // TODO(#31 integration): up to 1 MiB allocated per call, outside the memory
+        // accountant.
         // Direct and not aligned in memory, or the last partial block: copy into an
         // aligned buffer, padding the last block with zeros (`finish` cuts it off).
         let mut bounce =
@@ -195,9 +236,21 @@ impl BlockWriter {
     ///
     /// The length cannot be set.
     pub fn finish(self) -> io::Result<File> {
-        self.file.set_len(self.len)?;
-        Ok(self.file)
+        let Self {
+            file, len, claim, ..
+        } = self;
+        file.set_len(len)?;
+        drop(claim);
+        Ok(file)
     }
+}
+
+/// Opens `path` with `options`, creating it if needed but not truncating it, and claims
+/// it for writing: a file that a live map holds is refused before anything changes.
+fn open_claimed(options: &mut OpenOptions, path: &Path) -> io::Result<(File, Claim)> {
+    let file = options.create(true).truncate(false).open(path)?;
+    let claim = Claim::take(&file, Use::Write)?;
+    Ok((file, claim))
 }
 
 /// Sharded temporary logs: append-only files that an out-of-core build spills into and
@@ -224,7 +277,7 @@ impl SpillLogs {
             .map(|_| {
                 Ok(Mutex::new(AppendSink::from_file(sys::create_temp(
                     dir.as_ref(),
-                )?)))
+                )?)?))
             })
             .collect::<io::Result<_>>()?;
         Ok(Self { shards })

@@ -170,6 +170,8 @@ impl FileSource {
     }
 }
 
+// TODO(#31 integration): 1 MiB per thread that ever bounced, kept until the thread
+// exits, outside the memory accountant.
 thread_local! {
     static BOUNCE_BUF: RefCell<Option<AlignedBuf>> = const { RefCell::new(None) };
 }
@@ -246,36 +248,49 @@ impl ByteSource for FileSource {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
     use super::*;
 
     /// Many threads entering with reads of mixed sizes never have more than the bound
-    /// in flight, and a read larger than the bound still goes, alone.
+    /// in flight, and a read larger than the bound still goes, alone. Under a deadline,
+    /// so that a cap that blocks for good fails the test instead of hanging it.
     #[test]
     fn reads_in_flight_stay_under_the_bound() {
-        let in_flight = InFlight::default();
-        let (now, peak) = (AtomicU64::new(0), AtomicU64::new(0));
-        let sizes = [8 << 20, 1 << 20, 4096, MAX_IN_FLIGHT, MAX_IN_FLIGHT + 1];
-        std::thread::scope(|s| {
-            for t in 0..16 {
-                let (in_flight, now, peak) = (&in_flight, &now, &peak);
-                s.spawn(move || {
-                    for i in 0..20 {
-                        let bytes = sizes[(t + i) % sizes.len()];
-                        let _slot = in_flight.enter(bytes);
-                        let current = now.fetch_add(bytes, Ordering::SeqCst) + bytes;
-                        peak.fetch_max(current, Ordering::SeqCst);
-                        assert!(
-                            current <= MAX_IN_FLIGHT || current == bytes,
-                            "{current} bytes in flight"
-                        );
-                        std::thread::sleep(Duration::from_micros(200));
-                        now.fetch_sub(bytes, Ordering::SeqCst);
+        let in_flight = Arc::new(InFlight::default());
+        let peak = Arc::new(AtomicU64::new(0));
+        let (done, finished) = mpsc::channel();
+        {
+            let (in_flight, peak) = (Arc::clone(&in_flight), Arc::clone(&peak));
+            std::thread::spawn(move || {
+                let now = AtomicU64::new(0);
+                let sizes = [8 << 20, 1 << 20, 4096, MAX_IN_FLIGHT, MAX_IN_FLIGHT + 1];
+                std::thread::scope(|s| {
+                    for t in 0..16 {
+                        let (in_flight, now, peak) = (&*in_flight, &now, &*peak);
+                        s.spawn(move || {
+                            for i in 0..20 {
+                                let bytes = sizes[(t + i) % sizes.len()];
+                                let _slot = in_flight.enter(bytes);
+                                let current = now.fetch_add(bytes, Ordering::SeqCst) + bytes;
+                                peak.fetch_max(current, Ordering::SeqCst);
+                                assert!(
+                                    current <= MAX_IN_FLIGHT || current == bytes,
+                                    "{current} bytes in flight"
+                                );
+                                std::thread::sleep(Duration::from_micros(200));
+                                now.fetch_sub(bytes, Ordering::SeqCst);
+                            }
+                        });
                     }
                 });
-            }
-        });
+                let _ = done.send(());
+            });
+        }
+        finished
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the readers did not finish: the cap blocks, or a reader panicked");
         assert_eq!(*in_flight.lock(), 0);
         assert!(peak.load(Ordering::SeqCst) > 8 << 20, "reads did overlap");
     }

@@ -10,6 +10,7 @@ use std::path::Path;
 use everygraph_core::{AccessHint, ByteSource, MemorySource, ReadError};
 use memmap2::Mmap;
 
+use crate::claim::{Claim, Use};
 use crate::sys;
 
 /// A file mapped read-only into memory: the engine's in-RAM mode.
@@ -22,13 +23,29 @@ use crate::sys;
 /// hints on to `madvise` — [`AccessHint::WillNeed`] on a whole frontier is what made
 /// cold 2-hop queries fast in the lab (FINDINGS § F1).
 ///
-/// The file must not be truncated or written while it is mapped: on Unix, touching a
-/// page that a truncation removed raises `SIGBUS` and ends the process. The engine's
-/// own files are written once and then only read; this backend is for those.
+/// # The file must not change while it is mapped
+///
+/// The constructors are safe under an invariant recorded in `design/DECISIONS.md`
+/// ("Memory-mapped files are read through a safe constructor"): Everygraph maps only
+/// files it wrote itself and does not write again, and **no writer anywhere — another
+/// process or this one — modifies or truncates a file while it is mapped**. Breaking it
+/// is undefined behaviour (bytes change under the `&[u8]` that
+/// [`as_slice`](ByteSource::as_slice) handed out) or ends the process with `SIGBUS` (a
+/// truncation removed the pages being read). That includes this crate's own sinks and
+/// `std::fs` writes on the same file, under any path or hard link.
+///
+/// Within the process the sinks are guarded: [`AppendSink`](crate::AppendSink) and
+/// [`BlockWriter`](crate::BlockWriter) refuse to open a file (by device and inode) that
+/// a live `MmapSource` maps, and mapping a file that one of them is writing is refused,
+/// both with [`io::ErrorKind::ResourceBusy`]. Writes through `std::fs` and writes by
+/// other processes are not guarded. On Windows there is no guard; the system refuses
+/// to truncate a mapped file but not to write it.
 #[derive(Debug)]
 pub struct MmapSource {
-    // `None` for an empty file, which cannot be mapped on every platform.
+    // `None` for an empty file, which cannot be mapped on every platform. Declared
+    // before the claim, so that the map is gone before the claim is released.
     map: Option<Mmap>,
+    _claim: Claim,
 }
 
 impl MmapSource {
@@ -37,7 +54,8 @@ impl MmapSource {
     /// # Errors
     ///
     /// The file cannot be opened or mapped (on a 32-bit target, a file larger than the
-    /// address space cannot be).
+    /// address space cannot be), or a sink of this process is writing it
+    /// ([`io::ErrorKind::ResourceBusy`]).
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         Self::from_file(&File::open(path)?)
     }
@@ -47,14 +65,16 @@ impl MmapSource {
     ///
     /// # Errors
     ///
-    /// The file cannot be mapped.
+    /// The file cannot be mapped, or a sink of this process is writing it
+    /// ([`io::ErrorKind::ResourceBusy`]).
     pub fn from_file(file: &File) -> io::Result<Self> {
+        let claim = Claim::take(file, Use::Map)?;
         let map = if file.metadata()?.len() == 0 {
             None
         } else {
             Some(sys::map(file)?)
         };
-        Ok(Self { map })
+        Ok(Self { map, _claim: claim })
     }
 
     fn bytes(&self) -> &[u8] {
