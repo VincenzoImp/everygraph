@@ -30,17 +30,17 @@ As of 2026-11-25, 03:45 (policy for models in CLAUDE.md § 6):
   final seeded-bug matrix; toy and lab adapter on the nightly tier; `run-nightly.sh`. The
   semantics questions Q1–Q13 are answered in `design/DECISIONS.md` ("Graph semantics").
   Then independent review (Opus high). Corpora kept in scratch `m0-05-oracle` (110 MB).
-- **#12 API sketch (PR #125), #13 UX contract (PR #124)** — first review applied by two
-  agents; second review by the same reviewer running (verification item by item and the two
-  documents against each other). Coordinator rulings to apply in the last fix round are in
-  the reviewer's brief (khop cut by discovery order; share hint through export with a reveal
-  choice; `OutputExists` in the contract's error enum; `duplicates` words; path tie rule in
-  #91). After merge: apply the amendments of the sketch's § 7 table to #34, #36, #50, #90,
-  #91, #94, #39, #98, #75, #84 and republish the plan.
+- **#7 ADRs** — PR #132 (`m0-06-adrs`, Opus medium): 25 ADRs plus one on overturned
+  assumptions. Writing them, the agent found 13 places where DESIGN/FINDINGS say more than
+  the result files support (and six untraced numbers); it is now correcting DESIGN,
+  FINDINGS, README and ROADMAP in the same PR. D10 (mask vs materialized view) becomes
+  **open**: the "~25%" threshold was never measured; #93 derives the rule. D4's ADR waits
+  for #118's numbers. To do on its report: read the old → new list, check a sample against
+  the files, see whether any correction weakens a promise or a §6 criterion, merge.
 - **#4 benchmark harness** — ready (its dependency #5 is merged) but not started: it would
   compile during the measurement window. Start it (Opus high) when #118 reports.
 
-Done today: **#5 datasets** merged (PR #129) after an independent review and a fix round (17 tier-1 datasets, 75 MB, all usable by anyone; follow-up for real bipartite and co-occurrence graphs in `m3-13-dataset-gaps`). **#3 CI** merged (PR #127; all six Linux jobs green on `main`, run 45530945188; macOS, Windows and Linux arm64 run weekly; the threaded wasm job moved to #108). **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
+Done today: **#12 API sketch and #13 UX contract** merged (PRs #125, #124) after two rounds of independent review and a joint alignment pass; their obligations are written into the issues that build them (commits "Plan: …" of 2026-11-25) and the choices are in `design/DECISIONS.md`. **#5 datasets** merged (PR #129) after an independent review and a fix round (17 tier-1 datasets, 75 MB, all usable by anyone; follow-up for real bipartite and co-occurrence graphs in `m3-13-dataset-gaps`). **#3 CI** merged (PR #127; all six Linux jobs green on `main`, run 45530945188; macOS, Windows and Linux arm64 run weekly; the threaded wasm job moved to #108). **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
 lands). **#2 workspace** merged (PR #123) after an independent review found the
 portability rule narrower than claimed; fixed (lint lists, `forbid` at the crate root,
 `tools/check_core_portability.py`). **#11 patent** closed. **#10 name**: the owner keeps
