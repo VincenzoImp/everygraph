@@ -14,8 +14,13 @@
 //!   aligned chunks that readers and kernels loop over.
 //! - [`par`]: the only place where work is split across threads. It runs on rayon with
 //!   the `parallel` feature and on the calling thread without it, with equal results.
-//! - [`MemoryAccountant`]: the interface through which large allocations are reserved
-//!   against the user's memory budget. The implementation arrives with issue #31.
+//! - Memory accounting: [`Budget`] (the accountant), [`Memory`] (the handle kernels
+//!   receive), [`Reservation`], and the containers that own both a buffer and its
+//!   reservation: [`SegVec`], an array in segments of at most
+//!   [`MAX_ALLOCATION_BYTES`], and [`ScratchPool`], per-thread scratch. Every large
+//!   allocation goes through them, and a request that does not fit the budget is
+//!   refused before anything is allocated (DESIGN D2, D11). [`MemoryProbe`] is the
+//!   interface through which the layers above read what the machine has.
 //!
 //! # The portability rule
 //!
@@ -56,11 +61,18 @@ mod byte_source;
 mod ids;
 mod memory;
 pub mod par;
+mod scratch;
+mod seg_vec;
 mod segment;
 
 pub use byte_source::{AccessHint, ByteSource, MemorySource, ReadError};
 pub use ids::{EdgeOffset, NodeId, NodeIdOverflow, OffsetOverflow};
-pub use memory::{InsufficientBudget, MemoryAccountant, MemoryKind};
+pub use memory::{
+    Budget, InsufficientBudget, Memory, MemoryAccountant, MemoryError, MemoryKind, MemoryProbe,
+    MemoryReport, PurposeUsage, Reservation, SystemMemory,
+};
+pub use scratch::ScratchPool;
+pub use seg_vec::{MAX_ALLOCATION_BYTES, SegVec};
 pub use segment::{AlignedBuf, DEFAULT_SEGMENT_SIZE, SEGMENT_ALIGN, SegmentReader, Segments};
 
 // Every conversion in this crate relies on these two facts: a `u32` always fits in a

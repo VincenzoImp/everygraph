@@ -57,7 +57,9 @@ def manifest(path):
 
 
 def unsafe_modules():
-    """Paths in the Module column of CONTRIBUTING.md's `unsafe` table."""
+    """Paths in the Module column of CONTRIBUTING.md's `unsafe` table: a repository path
+    (`crates/everygraph-io/tests/x.rs`), or a crate name followed by a path inside it
+    (`everygraph-io`, `src/sys.rs`)."""
     text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     section = text.split("## `unsafe`", 1)[-1].split("\n## ", 1)[0]
     paths = []
@@ -65,8 +67,14 @@ def unsafe_modules():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if not line.lstrip().startswith("|") or len(cells) < 2:
             continue
+        crate = None
         for token in re.findall(r"`([^`]+)`", cells[0]):
+            if re.fullmatch(r"everygraph-[a-z0-9-]+", token):
+                crate = token
+                continue
             if "/" in token:
+                if crate and not token.startswith("crates/"):
+                    token = f"crates/{crate}/{token}"
                 paths.append(token.rstrip("/") + ("/" if not token.endswith(".rs") else ""))
     return paths
 

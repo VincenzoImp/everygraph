@@ -4,4 +4,5 @@
 //! (`PageRank`, components, traversals, k-core, triangles, centrality). It must build
 //! for wasm32. Empty until issues #44 (edge-map framework) and #47–#52 (kernels).
 
-#![forbid(unsafe_code)]
+// `forbid`: the allocation rule in `clippy.toml` cannot be allowed away (issue #31).
+#![forbid(unsafe_code, clippy::disallowed_methods)]
