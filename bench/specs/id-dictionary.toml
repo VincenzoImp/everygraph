@@ -18,11 +18,7 @@
 # - "Bounded-memory build of a 500 M-key dictionary under a 4 GiB budget": `build-500m`,
 #   20-byte binary keys (the lab's ethbin), budget 4 GiB, scratch files in the case's
 #   work directory, under MemoryMax = budget + 1 GiB. Its page cache counts against the
-#   limit and is reclaimed under it; anon_peak_bytes is the anonymous memory. The
-#   benchmark fixes glibc's mmap and trim thresholds at start-up
-#   (`everygraph_io::limit_allocator_retention`): without it glibc kept up to 1 GiB of
-#   freed blocks above the ledger and the case was OOM-killed (run
-#   20261125T220117Z-c855fdd77cf9; issue m2-19-allocator-policy).
+#   limit and is reclaimed under it; anon_peak_bytes is the anonymous memory.
 # - The two layouts ("measure both"): every benchmark runs both, and `cold-65m` times a
 #   look-up with every section evicted before each (the hash function stays in memory).
 #
@@ -127,8 +123,9 @@ warmup = 0
 memory_limit = "5G"
 timeout = "60m"
 command = ["{bin}", "--keys", "ethbin", "--n", "500000000", "--budget", "4G", "--scratch", "dir:{case_work}/scratch", "--layout", "split", "--lookups", "10000"]
-env = { RAYON_NUM_THREADS = "{threads}" }
-conditions = { keys = "500 M distinct, 20 bytes, generated while read", budget = "4 GiB (accountant)", limit = "MemoryMax 5 GiB", scratch = "files in the work directory", layout = "split" }
+# Fixed glibc thresholds: a stopgap until the allocator policy, m2-19 (#167).
+env = { RAYON_NUM_THREADS = "{threads}", GLIBC_TUNABLES = "glibc.malloc.mmap_threshold=131072:glibc.malloc.trim_threshold=131072" }
+conditions = { keys = "500 M distinct, 20 bytes, generated while read", budget = "4 GiB (accountant)", limit = "MemoryMax 5 GiB", scratch = "files in the work directory", layout = "split", allocator = "glibc mmap and trim thresholds fixed at 128 KiB" }
 metric = [
   { name = "build_s", json = "/build_s", unit = "s" },
   { name = "distinct_s", json = "/distinct_s", unit = "s" },

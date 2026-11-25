@@ -275,10 +275,7 @@ mod bench {
     }
 
     /// Scratch files in a directory, deleted when their source is dropped. Writers have
-    /// no buffer of their own: the dictionary buffers what it writes in 64 KiB that it
-    /// reserves, and a buffer here would be heap the budget does not count (a 1 MiB one
-    /// per writer, with about 190 writers open, put the heap up to 114 MiB above the
-    /// ledger at 50 M keys).
+    /// no buffer of their own (see [`Scratch`]).
     struct DirScratch {
         dir: PathBuf,
         next: AtomicU64,
@@ -412,9 +409,6 @@ mod bench {
     }
 
     pub(crate) fn main() -> Result<(), BoxError> {
-        // Before any thread exists: glibc must not keep freed blocks that the budget no
-        // longer counts (a stopgap until issue m2-19-allocator-policy).
-        everygraph_io::limit_allocator_retention();
         let mut args = parse_args()?;
         let keys = match args.keys.strip_prefix("file:") {
             Some(path) => {

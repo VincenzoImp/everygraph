@@ -30,11 +30,10 @@
 //!
 //! **Memory:** [`ProcMemoryProbe`], the Linux implementation of
 //! `everygraph_core::MemoryProbe`: physical memory and the limits of the process's
-//! control group. [`limit_allocator_retention`], a stopgap for glibc until the
-//! allocator policy (issue `m2-19-allocator-policy`).
+//! control group.
 //!
 //! Every `unsafe` block of the crate is in one private module (`sys`): the memory map
-//! and five calls into the C library. The map is safe to offer under the invariant
+//! and three calls into the C library. The map is safe to offer under the invariant
 //! stated on [`MmapSource`], which the sinks enforce within the process.
 
 pub mod sink;
@@ -54,27 +53,6 @@ pub use file::FileSource;
 pub use memory_probe::ProcMemoryProbe;
 pub use mmap::MmapSource;
 pub use sink::{AppendSink, BlockWriter, SpillLogs};
-
-/// What [`limit_allocator_retention`] fixes glibc's mmap and trim thresholds at: 128 KiB,
-/// glibc's own default.
-pub const MALLOC_THRESHOLD_BYTES: i32 = 128 << 10;
-
-/// Stops glibc's `malloc` from keeping freed memory that the memory budget no longer
-/// counts. Call it once, at the start of a program, before it spawns threads; a no-op
-/// that returns false on any other C library or target.
-///
-/// glibc raises its mmap threshold, by default, to the size of each large block freed,
-/// up to 32 MiB: from then on, blocks below it come from per-thread arenas, and a freed
-/// one stays resident there instead of going back to the system. With 16 threads, the
-/// identifier dictionary's 500 M-key build under a 4 GiB budget then held up to 1 GiB
-/// of anonymous memory above its ledger and was killed at `MemoryMax=5G` (PR #158's
-/// benchmark). Fixing the mmap and trim thresholds (`mallopt`, which also turns that
-/// growth off) keeps every block of [`MALLOC_THRESHOLD_BYTES`] or more in its own map,
-/// returned when freed. The allocator policy proper — large buffers that never go
-/// through `malloc`, a cgroup monitor — is issue `m2-19-allocator-policy`.
-pub fn limit_allocator_retention() -> bool {
-    sys::pin_malloc_thresholds(MALLOC_THRESHOLD_BYTES)
-}
 
 /// The error for a read of `len` bytes at `offset` outside a source of `source_len`.
 fn check_bounds(offset: u64, len: usize, source_len: u64) -> Result<(), ReadError> {
