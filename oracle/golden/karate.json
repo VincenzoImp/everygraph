@@ -35,7 +35,7 @@
   "max_degree": {"value":17,"by":["scipy"]},
   "wcc_count": {"value":1,"by":["igraph","networkx","scipy"]},
   "largest_wcc": {"value":34,"by":["igraph","networkx","scipy"]},
-  "triangle_total": {"value":45,"by":["igraph","networkx","scipy"],"published":{"value":45,"source":"the triangle count of the 78-edge version, as listed in NetworkX's and igraph's documentation of the graph"}},
+  "triangle_total": {"value":45,"by":["igraph","networkx","scipy"]},
   "triangles_sha256": {"value":"8072492b5d89961c2d1df4477f3abaab9c867fe1fc3f19136831886f12cfa0ba","by":["igraph","networkx","scipy"]},
   "core_numbers_sha256": {"value":"68c5d6bd9a89767fc62c9ed86caa6cf1291345c59271bae9d97ef46cbfd09cfc","by":["igraph","networkx"]},
   "max_core": {"value":4,"by":["igraph","networkx"]},

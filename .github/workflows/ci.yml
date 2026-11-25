@@ -123,6 +123,41 @@ jobs:
       - name: cargo test (core, i686, no default features)
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
 
+  # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
+  # scipy, the in-process references, the toy kernel, the seeded bugs and the golden files
+  # that need no network. The oracle's Rust tests run in the `test` job (nextest), so the
+  # script skips them here. uv is pinned like every other tool; the Python interpreter
+  # and the packages are cached, written by main only.
+  oracle:
+    name: Correctness oracle (references, seeded bugs, golden files)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: oracle
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.11.28"
+          enable-cache: true
+          cache-python: true
+          cache-dependency-glob: oracle/uv.lock
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+      - name: oracle/run-ci.sh
+        env:
+          ORACLE_SKIP_RUST_TESTS: "1"
+          ORACLE_JOBS: "4"
+        run: oracle/run-ci.sh
+
   portability:
     name: wasm32 build, wasm toy in Node, portability canary
     runs-on: ubuntu-24.04

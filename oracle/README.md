@@ -43,7 +43,9 @@ CI run checks them against the three libraries (`check --plugin reference`).
 
 ```sh
 oracle/run-ci.sh          # what CI runs on every pull request (budget: 10 minutes)
-oracle/run-nightly.sh     # larger corpus, 2,000 proptest cases, SNAP golden files, lab prototype
+# Both under a memory limit on a shared machine:
+#   systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 oracle/run-ci.sh
+oracle/run-nightly.sh     # larger corpus, 2,000 proptest cases, all golden files, lab prototype
 ```
 
 Or step by step:
@@ -57,28 +59,29 @@ cd ..
 target/release/everygraph-oracle check --corpus /tmp/oracle/ci --plugin reference --require-python
 target/release/everygraph-oracle check --corpus /tmp/oracle/ci --plugin toy --require-python
 target/release/everygraph-oracle seeded-bugs --corpus /tmp/oracle/ci
-target/release/everygraph-oracle golden --dir oracle/golden
+target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT   # see Golden files
 ```
 
 **What runs where.**
 
-- **CI**, the whole of `run-ci.sh`:
-  - `cargo test -p everygraph-oracle`: unit tests, 6 properties at 96 cases each, the
-    seeded-bug tests on the CI corpus, and the karate golden file;
+- **CI**, job `oracle` of `.github/workflows/ci.yml`, which runs `run-ci.sh`:
   - the CI corpus through the Python references, the in-process references, the toy and
     the seeded bugs;
-  - the semantics probe and the golden check of whatever is cached.
+  - the semantics probe;
+  - the golden files of karate and of the nine generated tier-1 datasets.
 
-  It needs no network after `uv sync`.
-- **Nightly**, `run-nightly.sh`:
+  It needs no network after `uv sync`. The oracle's Rust tests (unit tests, 6 properties
+  at 96 cases each, the seeded-bug tests, the karate golden file) run in the `test` job
+  with the rest of the workspace; run locally, `run-ci.sh` runs them too.
+- **Nightly**, `run-nightly.sh` (not scheduled yet; run by hand or by the benchmark
+  machine):
   - the nightly corpus: 1,572 graphs, up to 20,000 nodes and 100,000 rows, hubs with 2^16
-    neighbours;
+    neighbours, with the same checks as CI plus the lab prototype through its adapter;
   - 2,000 cases per property;
-  - the download and checksum check of the SNAP sources, and their golden files;
-  - the lab prototype through its adapter.
+  - all 17 tier-1 datasets of the registry and the three extra SNAP graphs, fetched and
+    verified, with all 21 golden files checked.
 
-Measured runtimes are in the pull request that introduced the oracle (#6). They were
-taken on a loaded machine, so they are upper bounds, not benchmarks.
+Measured times and peaks are in the pull request that introduced the oracle (#6).
 
 **Memory.** Reference implementations are for small and medium graphs; large graphs are
 checked by invariants. `oracle-ref run` bounds memory twice:
@@ -177,28 +180,85 @@ bit.
 
 ## Golden files
 
-`golden/*.json` hold known answers on small public graphs: node and pair counts,
-self-loop and duplicate rows, components (weak and strong), triangles (total and per
-node) and core numbers (per node, maximum, histogram). Every value was computed by at
-least two of NetworkX, igraph and scipy, which agreed, and is stored with the library
-versions, the source's URL and SHA-256, and SNAP's published figure where SNAP gives one.
+`golden/*.json` hold known answers on real graphs: Zachary's karate club, **all 17 tier-1
+datasets of the registry** (`datasets/datasets.toml`, #5), and three small SNAP graphs the
+registry does not list. Each file is about 2–3 KB. Values are compact:
 
-| Graph | Source | n | m | Triangles (= published) | Notes |
-|---|---|---|---|---|---|
-| karate | vendored (`golden/karate.tsv`; the 78-edge Zachary graph, identical in NetworkX and igraph) | 34 | 78 | 45 | |
-| email-Eu-core | SNAP, directed | 1,005 | 24,929 | 105,461 (yes) | SNAP's 25,571 edges include 642 self-loops |
-| ca-GrQc | SNAP | 5,242 | 14,484 | 48,260 (yes) | SNAP's 14,496 edges include 12 self-loops |
-| ego-Facebook | SNAP | 4,039 | 88,234 | 1,612,010 (yes) | |
-| p2p-Gnutella08 | SNAP, directed | 6,301 | 20,777 | 2,383 (yes) | |
+- counts: nodes, rows, self-loop and duplicate rows, pairs or arcs (`m`), the maximum
+  degree;
+- components: weak and strong, count and largest;
+- triangles: the total, and the SHA-256 of the per-node counts;
+- core numbers: the SHA-256 of the per-node values, the maximum and the histogram;
+- three exact samples (first node, last node, node of largest degree): degree, core
+  number and triangles.
 
-The SNAP files (63–219 KB compressed) are not redistributed. `uv run oracle-ref golden
---fetch` downloads them into `oracle/.cache/` (ignored by git;
-`$EVERYGRAPH_ORACLE_CACHE` overrides it) and verifies their SHA-256. Checks of a file
-whose source is missing are skipped, not failed. **When the dataset registry (#5)
-lands**, the `DATASETS` list in `golden.py` moves into its `datasets.toml`, `--fetch`
-calls the registry's fetcher, and each golden file's `source` block gains the registry
-entry's name. The tier-1 graphs (lj and others) then get golden files too, with their
-published triangle counts as a third witness (m3-08).
+Per-node arrays are hashed as little-endian `u64` in node order. Each file carries:
+
+- its `parse` block, the few rules (separator, comment prefix, id columns, row filter,
+  integer or string ids) by which Rust and Python read the same rows from the same
+  bytes;
+- the SHA-256 of the file read and of the download;
+- the library versions;
+- SNAP's published figure where SNAP gives one (checked against the dataset pages on
+  2026-11-25).
+
+Node ids are the rank of the original id among those that appear in a row.
+
+**Witnesses depend on size,** so that every run stays within its memory limit:
+
+| Graph | Source | Kind | n | m | Triangles | = SNAP | Max core | Python witnesses |
+|---|---|---|---|---|---|---|---|---|
+| karate | vendored (`golden/karate.tsv`, identical in NetworkX and igraph) | u | 34 | 78 | 45 | – | 4 | NetworkX, igraph, scipy |
+| email-Eu-core | SNAP download | d | 1,005 | 24,929 | 105,461 | yes | 34 | all three |
+| ca-GrQc | SNAP download | u | 5,242 | 14,484 | 48,260 | yes | 43 | all three |
+| p2p-Gnutella08 | SNAP download | d | 6,301 | 20,777 | 2,383 | yes | 10 | all three |
+| ego-facebook | registry | u | 4,039 | 88,234 | 1,612,010 | yes | 115 | all three |
+| soc-epinions1 | registry | d | 75,879 | 508,837 | 1,624,481 | yes | 67 | all three |
+| soc-sign-bitcoin-otc | registry | d | 5,881 | 35,592 | 33,493 | – | 21 | all three |
+| college-msg | registry | d | 1,899 | 20,296 (from 59,835 messages) | 14,319 | – | 20 | all three |
+| wiki-clickstream-ptwiki-2024-01 | registry (string ids) | d | 288,605 | 983,234 | 529,749 | – | 19 | igraph, scipy |
+| com-youtube | registry | u | 1,134,890 | 2,987,624 | 3,056,386 | yes | 51 | igraph, scipy |
+| roadnet-ca | registry | u | 1,965,206 | 2,766,607 | 120,676 | yes | 3 | igraph, scipy |
+| web-google | registry | d | 875,713 | 5,105,039 | 13,391,903 | yes | 44 | igraph, scipy |
+| 9 generated `synth-*` | registry (made by `everygraph-bench`, no network) | u | 20–1,000 | 91–5,000 | 0–1,140 | – | 1–19 | all three |
+
+- **Up to 600,000 pairs**, NetworkX, igraph and scipy must agree on every value.
+- **Above that**, NetworkX is not run (its graph objects take several GB). igraph and
+  scipy must agree on counts, components and triangles. Core numbers have igraph as their
+  one Python witness; the Rust check (`everygraph-oracle golden`, in-process reference)
+  is the second.
+- **No kernel is skipped on any tier-1 graph.**
+
+Measured on this machine, under `MemoryMax=8G`:
+
+- writing all 21 files: 30 s, largest resident set 1.66 GB (web-google);
+- the Rust check of all 21: 13.8 s, 1.76 GB.
+
+The SNAP figures confirm every published triangle count, largest WCC and largest SCC.
+Where SNAP's edge count differs it is because SNAP counts self-loops as edges
+(email-Eu-core: 642, ca-GrQc: 12; recorded in each file's `notes`).
+
+**Where the sources are:**
+
+- The registry's datasets come from a data root filled by `everygraph-bench fetch tier1
+  --data ROOT` (about 72 MB). Pass `--data-root ROOT`, or set `$EVERYGRAPH_ORACLE_DATA`
+  (then `$EVERYGRAPH_DATA`).
+- The three extra SNAP graphs come from `uv run oracle-ref golden --fetch`, into
+  `oracle/.cache/`.
+- Karate is vendored.
+
+A golden file whose source is missing is skipped, not failed; `--require-all` fails it.
+CI checks karate and the nine generated datasets, which need no network. Nightly fetches
+tier 1 and checks all 21.
+
+Commands:
+
+```sh
+target/release/everygraph-bench fetch tier1 --data ROOT
+uv run oracle-ref golden --write --data-root ROOT     # recompute (after a library upgrade)
+uv run oracle-ref golden --check --data-root ROOT
+target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT --require-all
+```
 
 ## Plugging in a kernel (issue #45 onwards)
 

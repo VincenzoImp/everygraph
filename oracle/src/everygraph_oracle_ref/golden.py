@@ -68,8 +68,6 @@ EXTRA = [
         "source": {"kind": "vendored", "file": "karate.tsv"},
         "directed": False,
         "origin": "W. W. Zachary, An information flow model for conflict and fission in small groups, J. Anthropological Research 33 (1977); the 78-edge version shipped as networkx.karate_club_graph() and igraph.Graph.Famous('Zachary')",
-        "published": {"triangle_total": 45},
-        "published_source": "the triangle count of the 78-edge version, as listed in NetworkX's and igraph's documentation of the graph",
     },
     {
         "name": "email-Eu-core",
