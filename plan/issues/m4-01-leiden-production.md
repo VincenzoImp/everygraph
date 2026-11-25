@@ -15,6 +15,7 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 - [ ] Port onto the edge-map framework ({{#m3-01-edge-map}}) so level 0 runs over compressed and streamed sources
 - [ ] Safety: encapsulate the shared-state `unsafe`, Miri on small graphs, ThreadSanitizer in CI
 - [ ] Modes: `deterministic` (default) and `fast`; iterations 1 (default) and 3 ("quality"), plus convergence-based stopping
+- [ ] The default number of iterations is confirmed or changed with evidence: quality and time at 1, 2, 3 iterations and at convergence on the six graph families, recorded in FINDINGS; a change of default goes through an ADR (`design/DECISIONS.md`, 2026-11-25)
 - [ ] Apply the fixes from {{#m1-03-louvain-collapse}} and {{#m1-04-det-leiden-scaling}}
 - [ ] Seeds: the visiting-order permutation is seeded; same seed → same result
 - [ ] Louvain kept as an internal baseline, not a public default (17–94 disconnected communities per run)

@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Developer Certificate of Origin: every commit of a pull request must carry a
+# `Signed-off-by: Name <email>` trailer whose e-mail address is the commit author's
+# (see "Licensing and sign-off" in CONTRIBUTING.md).
+#
+# Which pull requests are checked:
+# - always, a pull request from a fork (that is, from anyone outside this repository);
+# - every pull request, once the repository variable DCO_ALL_PULL_REQUESTS is set to
+#   `true` (Settings > Secrets and variables > Actions > Variables).
+# Until then, branches pushed to this repository are not checked: their commits so far
+# are unsigned, and the job is skipped (a skipped job uses no Actions minutes).
+#
+# No third-party action and no checkout: the commit list comes from the GitHub API
+# through the `gh` command preinstalled on the runner.
+
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sign-off:
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository
+      || vars.DCO_ALL_PULL_REQUESTS == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Signed-off-by on every commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # One line per commit: sha, number of parents, author e-mail, then the
+          # e-mail addresses of its Signed-off-by trailers, tab-separated.
+          gh api --paginate "repos/$REPO/pulls/$PR/commits" --jq '.[] |
+            [ .sha[0:12],
+              (.parents | length | tostring),
+              (.commit.author.email | ascii_downcase),
+              ( [ .commit.message | split("\n")[]
+                  | capture("^Signed-off-by: .+ <(?<e>[^>]+)>\\s*$")?
+                  | .e | ascii_downcase ] | join(" ") )
+            ] | @tsv' > commits.tsv
+          failed=0
+          while IFS=$'\t' read -r sha parents author signers; do
+            if [ "$parents" -gt 1 ]; then
+              echo "skip  $sha (merge commit)"
+            elif printf ' %s ' "$signers" | grep -qiF " $author "; then
+              echo "ok    $sha signed off by $author"
+            else
+              echo "::error::commit $sha has no 'Signed-off-by:' line with its author's address <$author>"
+              failed=1
+            fi
+          done < commits.tsv
+          if [ "$failed" -ne 0 ]; then
+            echo "Add the sign-off with 'git commit --amend -s' (last commit) or"
+            echo "'git rebase --signoff origin/main' (all commits), then push again."
+            exit 1
+          fi

@@ -68,7 +68,7 @@ or answered in the PR before merge. Documentation-only PRs may skip this.
 
 ## 5. Changing a decision
 
-`docs/DESIGN.md` lists decisions D1…D23 with their evidence. To change one: write an ADR
+`docs/DESIGN.md` lists decisions D1…D25 with their evidence. To change one: write an ADR
 under `docs/adr/` (context, measurement, decision, consequences), update DESIGN.md in the
 same PR, and note it in STATE.md. Do not drift by implementing something different.
 
@@ -135,7 +135,9 @@ issue template or the neighbouring issues so the next one does not.
 
 On 2026-11-24 the owner delegated every decision of this project to Claude, and offered to
 help where Claude cannot act alone. So: decide, act, and report — do not queue routine or
-even major choices for approval.
+even major choices for approval. The owner's only role is what must be done by hand
+(below); everything else — product, design, plan, code, reviews, priorities — is Claude's
+to decide and to answer for.
 
 **What still needs the owner's hands** (not permission — presence): logins with 2FA,
 credentials and tokens for package registries, payments, signatures, messages sent from
@@ -153,10 +155,12 @@ irreversible mistake cheaper:
 - **Guard rails stay on.** `.claude/settings.json` denies publishing, visibility changes,
   force-pushes and repository deletion. They are lifted together with the owner when the
   moment comes, not edited away by Claude.
-- **Taste is the owner's.** For anything a user sees or types — viewer, API names, CLI
-  messages, visual identity, defaults — show a preview under `design/preview/`, record the
-  owner's answers in `design/DECISIONS.md`, and build to that. If the owner has not
-  answered, proceed with the recommended option and mark it "provisional" in DECISIONS.md.
+- **The approved design is the brief; new choices are Claude's.** The owner approved the
+  previews under `design/preview/` and then stated (2026-11-25) that the project is under
+  Claude's management and only Claude carries it forward. So: build to the approved design;
+  where it is silent, decide, record the choice and its reason in `design/DECISIONS.md`, and
+  mention it in the next report. Do not queue choices for the owner. Show a preview first
+  only when a choice would visibly change what the owner already approved.
 - **The three product promises** in `docs/DESIGN.md` § 2 change only with evidence and an
   ADR, and the change is reported prominently.
 - **Nothing outside the project.** The owner's other repositories, files and running
