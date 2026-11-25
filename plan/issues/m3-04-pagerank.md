@@ -15,6 +15,7 @@ labels: type:feature, area:algorithms, P0, risk:low, size:M, lab-evidence
 - Matches NetworkX/igraph within 1e-9 on the oracle graphs with equal parameters
 - orkut, 20 iterations, f64: ≤ 0.5 s at 16 threads; identical bytes at 1, 4, 16 threads
 - Runs in all three regimes
+- Identical bytes whichever regime the planner picks (in memory, edges on disk, state partitioned) and on a view run as a mask or materialized: tested by forcing each (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises")
 
 **Pointers.** `lab/b1-core` kernels; top-5 on orkut matched NetworKit to ~15 digits.
 

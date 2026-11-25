@@ -8,6 +8,7 @@ labels: type:infra, area:engine, P0, risk:medium, size:S, lab-evidence
 **Scope**
 - [ ] Canonical result hashing (FNV/BLAKE3 over output columns) exposed by every kernel
 - [ ] CI job: each kernel on tier-1 graphs at 1, 2, 3, 8 threads and oversubscribed (32 workers on 4 cores), plus native vs wasm32; all hashes must match
+- [ ] The same hashes under each execution regime (forced: in memory, edges on disk, state on disk) and under two memory budgets, and for a view run as a mask and materialized (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises"). Results cut short by `timeout` are exempt
 - [ ] Floating point: fixed chunking and reduction order; document where results are bit-identical vs tolerance-bounded across CPU architectures (x86 vs ARM FMA differences)
 - [ ] The `fast` (non-deterministic) modes are labelled as such in output provenance
 

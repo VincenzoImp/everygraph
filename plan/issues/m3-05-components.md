@@ -13,5 +13,6 @@ labels: type:feature, area:algorithms, P0, risk:low, size:M, lab-evidence
 - orkut WCC ≤ 20 ms at 16 threads; Friendster ≤ 0.5 s in RAM
 - Count, largest component and min-id label checksum equal scipy on the oracle graphs
 - SCC equals NetworkX on directed oracle graphs and runs on twitter-2010
+- Identical labels whichever regime the planner picks and on a view run as a mask or materialized: tested by forcing each (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises")
 
 **Depends on** {{#m3-01-edge-map}}, {{#m2-11-in-adjacency}}
