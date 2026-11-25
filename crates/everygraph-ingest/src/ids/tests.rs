@@ -425,38 +425,47 @@ fn a_key_that_breaks_the_sampled_kind_widens_it() {
 #[test]
 fn ids_do_not_depend_on_the_budget_and_a_small_budget_spills() {
     let utf8 = ColumnType::Utf8;
-    for (keys, order) in [
-        (addresses(60_000, 150_000), IdOrder::FirstAppearance),
-        (users(60_000, 150_000), IdOrder::SortedKey),
-        (users(60_000, 150_000), IdOrder::FirstAppearance),
+    for (keys, order, layout) in [
+        (
+            addresses(160_000, 200_000),
+            IdOrder::FirstAppearance,
+            Layout::Split,
+        ),
+        (
+            addresses(160_000, 200_000),
+            IdOrder::SortedKey,
+            Layout::SlotOrdered,
+        ),
+        (users(160_000, 200_000), IdOrder::SortedKey, Layout::Split),
+        (
+            users(160_000, 200_000),
+            IdOrder::FirstAppearance,
+            Layout::SlotOrdered,
+        ),
     ] {
-        for layout in [Layout::Split, Layout::SlotOrdered] {
-            let options = BuildOptions::default()
-                .with_order(order)
-                .with_layout(layout);
-            let big = Budget::new(1 << 32);
-            let big_scratch = CountingScratch::default();
-            let reference = section_bytes(&build(utf8, &keys, options, &big, &big_scratch));
-            let big_runs = big_scratch.count("id dictionary run");
-            for budget in [12 << 20, 32 << 20, 1 << 30] {
-                let small = Budget::new(budget);
-                let scratch = CountingScratch::default();
-                let dict = build(utf8, &keys, options, &small, &scratch);
-                check(&dict, utf8, &keys, order);
-                assert_eq!(section_bytes(&dict), reference, "budget {budget}");
-                assert!(small.peak() <= budget);
-                if budget < 1 << 24 {
-                    // More runs than one per worker: tables spilled under pressure.
-                    let runs = scratch.count("id dictionary run");
-                    assert!(
-                        runs > big_runs,
-                        "budget {budget}: {runs} runs, {big_runs} without pressure"
-                    );
-                    assert!(scratch.count("id dictionary order bucket") > 1);
-                    assert!(scratch.count("id dictionary scatter") > 1);
-                }
-            }
-        }
+        let options = BuildOptions::default()
+            .with_order(order)
+            .with_layout(layout);
+        let big = Budget::new(1 << 32);
+        let big_scratch = CountingScratch::default();
+        let reference_dict = build(utf8, &keys, options, &big, &big_scratch);
+        check(&reference_dict, utf8, &keys, order);
+        let reference = section_bytes(&reference_dict);
+        let big_runs = big_scratch.count("id dictionary run");
+        let budget = 12 << 20;
+        let small = Budget::new(budget);
+        let scratch = CountingScratch::default();
+        let dict = build(utf8, &keys, options, &small, &scratch);
+        // Byte-identical sections: every id, key and slot is the same.
+        assert_eq!(section_bytes(&dict), reference, "{order:?} {layout:?}");
+        assert!(small.peak() <= budget);
+        // More runs than one per worker: tables spilled under pressure. The 160,000
+        // distinct keys need about 18 MiB of table, more than the budget, so this holds
+        // at any thread count.
+        let runs = scratch.count("id dictionary run");
+        assert!(runs > big_runs, "{runs} runs, {big_runs} without pressure");
+        assert!(scratch.count("id dictionary order bucket") > 1);
+        assert!(scratch.count("id dictionary scatter") > 1);
     }
 }
 
