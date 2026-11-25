@@ -18,9 +18,10 @@ Updated at the end of every session. Read this first.
 
 As of 2026-11-25, six agents (Opus unless noted; policy in CLAUDE.md § 6):
 
-- **#3 CI** — `m0-02-ci` (Opus medium). Includes the portability canary and cost discipline
-  for Actions minutes on a private repository.
-- **#5 datasets** — `m0-04-datasets` (Opus medium). Registry and fetcher in `everygraph-bench`.
+- **#5 datasets** — PR #129 (`m0-04-datasets`), CI green on the branch; independent review
+  (Opus high) running. Open points for the coordinator after it: LiveJournal moves to
+  tier 2 (update `plan/issues/m0-04-datasets.md`), MovieLens 100K has terms that forbid
+  commercial use (replace it in tier 1 with a generated bipartite graph).
 - **#6 oracle** — `m0-05-oracle` (Opus high). Generators, reference runners, invariants,
   plug-in trait; proven against the lab kernels and seeded bugs.
 - **#12 API sketch (PR #125), #13 UX contract (PR #124)** — written by one specification
@@ -32,7 +33,7 @@ As of 2026-11-25, six agents (Opus unless noted; policy in CLAUDE.md § 6):
 - **#118 compressed storage end to end** (M1) — experimenter (Fable high, started before the
   policy). It has the machine for measurements; nothing else may benchmark until it reports.
 
-Done today: **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
+Done today: **#3 CI** merged (PR #127; all six Linux jobs green on `main`, run 45530945188; macOS, Windows and Linux arm64 run weekly; the threaded wasm job moved to #108). **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
 lands). **#2 workspace** merged (PR #123) after an independent review found the
 portability rule narrower than claimed; fixed (lint lists, `forbid` at the crate root,
 `tools/check_core_portability.py`). **#11 patent** closed. **#10 name**: the owner keeps
