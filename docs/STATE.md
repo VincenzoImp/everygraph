@@ -16,24 +16,26 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-- **#119 design previews** — branch `m0-13-design-previews`, draft PR #120. Published at
-  `design/preview/`: viewer mockup, identity rounds 1 and 2, API, CLI, choices, and the
-  detailed guide of the chosen style (`design/preview/style/`, entry `README.md` on GitHub
-  or `index.html` locally). Owner decided: identity = B's system with A's mark. Claude chose
-  the "Vernier" system and the spelling of the name (both provisional in
-  `design/DECISIONS.md`). **Waiting for the owner's reaction to the detailed style and to
-  the choice lists.** Afterwards: record answers, align names in the older mockups with
-  `api.md`, prune superseded screenshots (`design/preview/screens` is ~77 MB), merge.
-  The Playwright helper scripts live in `$EVERYGRAPH_SCRATCH/pw` (`shot.mjs`, `sections.mjs`).
+Started 2026-11-25, after the owner approved the design previews (#119 closed, PR #120 merged):
+
+- **#2 workspace** — implementer agent in its own worktree, branch `m0-01-workspace`.
+- **#118 compressed storage end to end** (M1) — experimenter agent, branch
+  `lab-m1-13-compressed-end-to-end`. It has the machine for measurements; nothing else may
+  benchmark until it reports.
+- **#10 name/trademark and #11 patent** — web research agent; findings to be recorded under
+  `docs/legal/` by the coordinator. A legal conclusion, if one is needed, is for a professional.
 
 ## Next actions
 
-1. M0, in dependency order (`python3 plan/next.py`): workspace (#2) → CI (#3) → benchmark
-   harness (#4), datasets (#5), oracle (#6) in parallel; ADRs (#7); API sketch (#12).
-2. Start the legal look-ups early, they have lead time: name/trademark (#10), patent (#11).
-   The research is ours; the conclusions are the owner's.
-3. In parallel with M0, the two M1 experiments that decide the most: the end-to-end tracer
-   on Friendster under 16 GiB (#15) and kernels on compressed storage (#118).
+1. Review and merge #2, then start #3 (CI), #4 (benchmark harness), #5 (datasets), #6 (oracle)
+   in parallel; write #12 (API sketch) and #13 (UX contract) from `design/preview/api.md`,
+   `cli.md` and `design/DECISIONS.md`; ratify the ADRs (#7).
+2. When #118 reports: record it in FINDINGS, update D4 and the public numbers, then run the
+   end-to-end tracer on Friendster under 16 GiB (#15).
+3. The design previews are settled (`design/DECISIONS.md`); the style lives in
+   `design/preview/style/`. Screenshots are on the branch `design-previews-archive`, which
+   still carries ~100 MB of superseded history: slimming it needs a branch deletion that the
+   permission classifier declined; harmless, revisit with the owner if repository size matters.
 
 ## Machine
 
@@ -49,7 +51,7 @@ Updated at the end of every session. Read this first.
 
 ## Open questions for the owner
 
-- Answers to the design previews (`design/preview/README.md`, issue #119).
+- None blocking.
 
 ## Lessons (append, never delete)
 
@@ -75,6 +77,8 @@ Updated at the end of every session. Read this first.
 
 ## Journal
 
+- **2026-11-25 (later)** — Owner approved the previews. #119 merged; M0 started (#2, #10, #11)
+  together with the M1 experiment #118.
 - **2026-11-25** — Detailed style guide built (nine pages, three subagents). Measurements
   overturned Claude's hand-picked data palette and five contrast values; tokens corrected.
 - **2026-11-24 (later)** — Owner delegated every decision and asked for previews of all
