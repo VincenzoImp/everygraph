@@ -75,6 +75,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "glab-oracle"
+version = "0.0.1"
+dependencies = [
+ "glab-core",
+ "rayon",
+ "serde_json",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"

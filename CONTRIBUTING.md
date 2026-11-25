@@ -68,6 +68,11 @@ under the default, stricter settings.
 | `everygraph-py` | Python bindings | #81, #82 | no |
 | `everygraph-wasm` | browser bindings | #108 | yes |
 | `everygraph-bench` | the `everygraph-bench` harness | #4 | no |
+| `everygraph-oracle` | the correctness oracle: generators, references, comparators, invariants, the `KernelUnderTest` trait (a development crate, `publish = false`, used by other crates' tests only; see `oracle/README.md`) | #6 | no |
+
+The oracle's reference implementations are Python (NetworkX, python-igraph, scipy) in
+`oracle/`, a `uv` project with a lock file. Python lives there and nowhere else: no engine
+crate may depend on it. `oracle/run-ci.sh` is the oracle's part of the checks below.
 
 A crate that has no content yet has no dependencies either. When a crate starts to use
 the core it adds the dependency with `default-features = false`: a library does not

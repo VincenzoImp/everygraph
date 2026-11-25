@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "everygraph-oracle"
+description = "Correctness oracle of Everygraph: graph generators, reference kernels, comparators, invariant checkers and the plug-in trait every kernel is tested through. A development crate; never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# A test tool: it is never published, whatever the workspace default becomes.
+publish = false
+
+[dependencies]
+# Strategies are part of the public API (other crates' tests build on them), so proptest
+# is a normal dependency of this development crate, not a dev-dependency.
+proptest = { version = "1.7", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[lints]
+workspace = true

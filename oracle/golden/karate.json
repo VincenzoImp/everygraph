@@ -1,0 +1,35 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 1,
+ "name": "karate",
+ "source": {
+  "file": "karate.tsv",
+  "vendored": true,
+  "sha256_of_file": "97a3d58cbaa9e5403fbe47ce495e1466a6af0a2f604999237cfd43f23e8fab0d",
+  "origin": "W. W. Zachary, An information flow model for conflict and fission in small groups, J. Anthropological Research 33 (1977); the 78-edge version shipped as networkx.karate_club_graph() and igraph.Graph.Famous('Zachary')",
+  "terms": "Published scientific data, redistributed by NetworkX (BSD) and igraph (GPL); 78 edges."
+ },
+ "directed": false,
+ "ids": "rank of the original id among the ids that appear in the file",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; triangles and core numbers on the undirected projection",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":34,"by":["edge list"]},
+  "m": {"value":78,"by":["igraph","networkx","scipy"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":0,"by":["edge list"]},
+  "wcc_count": {"value":1,"by":["igraph","networkx","scipy"]},
+  "largest_wcc": {"value":34,"by":["igraph","networkx","scipy"]},
+  "triangle_total": {"value":45,"by":["igraph","networkx","scipy"]},
+  "triangles": {"value":[18,12,11,10,2,3,3,6,5,0,2,0,1,6,1,1,1,1,1,1,1,1,1,4,1,1,1,1,1,4,3,3,13,15],"by":["igraph","networkx","scipy"]},
+  "core_numbers": {"value":[4,4,4,4,3,3,3,4,4,2,3,1,2,4,2,2,2,2,2,3,2,2,2,3,3,3,2,3,3,3,4,3,4,4],"by":["igraph","networkx"]},
+  "max_core": {"value":4,"by":["igraph","networkx"]},
+  "core_histogram": {"value":[0,1,11,12,10],"by":["igraph","networkx"]}
+ },
+ "notes": []
+}

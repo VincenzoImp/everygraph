@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/glab-core", "crates/glab-cli"]
+members = ["crates/glab-core", "crates/glab-cli", "crates/glab-oracle"]
 
 [profile.release]
 opt-level = 3
