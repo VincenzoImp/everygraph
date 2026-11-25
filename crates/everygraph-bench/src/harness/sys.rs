@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The system calls the harness needs beyond `std` — `flock`, `posix_fadvise`, `sync`
-//! and `kill` — through `rustix`'s safe wrappers. They exist on Linux only; elsewhere each
+//! The system calls the harness needs beyond `std` — `flock`, `posix_fadvise`, `sync`,
+//! `kill`, `prctl(PR_SET_CHILD_SUBREAPER)` and `waitpid(-1)` — through `rustix`'s safe wrappers. They exist on Linux only; elsewhere each
 //! returns an "unsupported" error, so that the rest of the crate (specs, rows, the
 //! report) builds and is tested on every platform.
 
@@ -17,6 +17,17 @@ pub enum Signal {
     Term,
     /// SIGKILL.
     Kill,
+}
+
+/// What one call of [`reap_one`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reaped {
+    /// A child that had ended was reaped (its counters are now the caller's).
+    One,
+    /// There are children, but none has ended yet.
+    Running,
+    /// There are no children left.
+    None,
 }
 
 #[cfg(target_os = "linux")]
@@ -67,6 +78,22 @@ mod imp {
         };
         Ok(kill_process(pid, sig)?)
     }
+
+    pub(super) fn become_subreaper() -> io::Result<()> {
+        Ok(rustix::process::set_child_subreaper(Some(
+            rustix::process::getpid(),
+        ))?)
+    }
+
+    pub(super) fn reap_one() -> io::Result<super::Reaped> {
+        use rustix::process::{WaitOptions, wait};
+        match wait(WaitOptions::NOHANG) {
+            Ok(Some(_)) => Ok(super::Reaped::One),
+            Ok(None) => Ok(super::Reaped::Running),
+            Err(rustix::io::Errno::CHILD) => Ok(super::Reaped::None),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -97,6 +124,14 @@ mod imp {
     }
 
     pub(super) fn memory_backed(_: &std::path::Path) -> io::Result<Option<&'static str>> {
+        unsupported()
+    }
+
+    pub(super) fn become_subreaper() -> io::Result<()> {
+        unsupported()
+    }
+
+    pub(super) fn reap_one() -> io::Result<super::Reaped> {
         unsupported()
     }
 }
@@ -150,4 +185,25 @@ pub fn sync_all() -> io::Result<()> {
 /// The process does not exist or is not ours.
 pub fn signal(pid: u32, sig: Signal) -> io::Result<()> {
     imp::signal(pid, sig)
+}
+
+/// `prctl(PR_SET_CHILD_SUBREAPER)`: the descendants of this process that lose their
+/// parent become its children instead of init's, so that it can reap them and their
+/// I/O counters add up in its own `/proc/self/io`. Not inherited by children.
+///
+/// # Errors
+///
+/// The call fails, or not on Linux.
+pub fn become_subreaper() -> io::Result<()> {
+    imp::become_subreaper()
+}
+
+/// `waitpid(-1, WNOHANG)`: reaps one ended child, if there is one. Only for a process
+/// that waits for no particular child at the same time (it could take that one).
+///
+/// # Errors
+///
+/// The call fails, or not on Linux.
+pub fn reap_one() -> io::Result<Reaped> {
+    imp::reap_one()
 }

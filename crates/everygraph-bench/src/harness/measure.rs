@@ -12,6 +12,15 @@
 //!
 //! The helper's own footprint (a few MiB, two idle threads) is inside the cgroup and in
 //! its numbers.
+//!
+//! The run's storage traffic is the helper's own `/proc/self/io`, which adds up the
+//! counters of every descendant once it is reaped. A descendant whose parent ends first
+//! (a timeout or a stop kills the whole scope at once; a command may also exit before
+//! its children) would be reaped by init and its traffic lost, so the helper makes
+//! itself a child subreaper (`PR_SET_CHILD_SUBREAPER`): orphans become its children,
+//! and it reaps every one of them before it reads the counters. When that cannot be
+//! done, [`Measurement::io_unknown`] says why and the traffic of others during the run
+//! is not computed from it.
 
 use std::collections::BTreeMap;
 use std::process::{Command, ExitStatus, Stdio};
@@ -68,7 +77,8 @@ pub struct Measurement {
     /// System CPU time of everything in the scope.
     pub system_seconds: f64,
     /// Bytes the command and its descendants read from storage (`/proc/self/io` of
-    /// the helper after reaping them).
+    /// the helper after reaping them all, orphans included). A lower bound when
+    /// [`Self::io_unknown`] is set.
     pub read_bytes: u64,
     /// Bytes they wrote to storage (or dirtied for it).
     pub write_bytes: u64,
@@ -95,8 +105,14 @@ pub struct Measurement {
     /// Cores used by other processes on the machine while it ran (see
     /// [`super::gate::others_cores`]).
     pub others_cores_during: Option<f64>,
-    /// Others' storage traffic while it ran, MB/s ([`super::gate::others_io`]).
+    /// Others' storage traffic while it ran, MB/s ([`super::gate::others_io`]);
+    /// `None` when the run's own traffic is unknown.
     pub others_io_mb_s_during: Option<f64>,
+    /// Why the run's own storage traffic could not be established (a descendant that
+    /// could not be reaped), if it could not. `read_bytes` and `write_bytes` are then a
+    /// lower bound.
+    #[serde(default)]
+    pub io_unknown: Option<String>,
     /// Processes still in the scope when the command exited (a backgrounded child, a
     /// daemon). They were killed with SIGKILL before the scope was read, and the row is
     /// not ok: they would have disturbed the next repetitions.
@@ -171,6 +187,35 @@ fn kill_leftovers(cg: &Cgroup, error: &mut Option<String>) -> Vec<u32> {
     left
 }
 
+/// How long [`reap_orphans`] waits for descendants that are still running once the
+/// scope is empty (they live in another cgroup, or are just ending).
+const REAP_WAIT: Duration = Duration::from_secs(5);
+
+/// After the command and everything left in the scope have ended: reaps every child the
+/// helper still has — the descendants orphaned during the run, reparented to it as a
+/// subreaper — so that their I/O counters join its own. Must not run while another
+/// thread waits for a particular child. `Err` says why the run's I/O is incomplete.
+fn reap_orphans() -> Result<(), String> {
+    let deadline = Instant::now() + REAP_WAIT;
+    loop {
+        match sys::reap_one() {
+            Ok(sys::Reaped::One) => {}
+            Ok(sys::Reaped::None) => return Ok(()),
+            Ok(sys::Reaped::Running) => {
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "descendants of the command outside its scope were still running \
+                         {} s after it ended; their storage traffic is not counted",
+                        REAP_WAIT.as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(format!("reaping the command's descendants: {e}")),
+        }
+    }
+}
+
 #[cfg(unix)]
 fn signal_of(status: ExitStatus) -> Option<i32> {
     std::os::unix::process::ExitStatusExt::signal(&status)
@@ -210,6 +255,13 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
     let Some((program, args)) = opts.argv.split_first() else {
         return Err("measure needs a command".into());
     };
+    // Before the command starts, so that every descendant it orphans comes back here.
+    if let Err(e) = sys::become_subreaper() {
+        m.io_unknown = Some(format!(
+            "cannot become a child subreaper ({e}): descendants orphaned during the run \
+             are reaped by init and their storage traffic is not counted"
+        ));
+    }
     let cpu0 = cg.cpu_stat()?;
     let io0 = host.self_io()?;
     let stat0 = host.cpu_times()?;
@@ -306,6 +358,11 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
     let stat1 = host.cpu_times()?;
     let disk1 = host.disk_bytes()?;
     m.left_processes = kill_leftovers(&cg, &mut m.error);
+    // The command has been waited for and the scope is empty: what is left to reap are
+    // orphans, and reaping them adds their I/O to ours.
+    if m.io_unknown.is_none() {
+        m.io_unknown = reap_orphans().err();
+    }
     stop.store(true, Ordering::Relaxed);
     let _ignored = sampler.join();
     sample(&cg, &peaks);
@@ -334,6 +391,11 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
     m.write_bytes = io1.write_bytes.saturating_sub(io0.write_bytes);
     m.others_cores_during =
         others_cores(stat0, stat1, Duration::from_secs_f64(m.user_seconds), wall);
-    m.others_io_mb_s_during = others_io(disk0, disk1, m.read_bytes + m.write_bytes, wall);
+    // Without the run's own traffic, the machine's would all be counted as others'.
+    m.others_io_mb_s_during = if m.io_unknown.is_some() {
+        None
+    } else {
+        others_io(disk0, disk1, m.read_bytes + m.write_bytes, wall)
+    };
     Ok(m)
 }

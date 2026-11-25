@@ -86,6 +86,16 @@ fn systemd_run_works() -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+/// Held by the tests that read or write hundreds of megabytes, so that one's storage
+/// traffic is not another's "others' traffic".
+static STORAGE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn storage() -> std::sync::MutexGuard<'static, ()> {
+    STORAGE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn alive(pid: u32) -> bool {
     Path::new(&format!("/proc/{pid}")).exists()
 }
@@ -536,6 +546,7 @@ fn an_exploratory_run_records_every_field() {
 /// reads copy 0 again, which the second repetition's eviction does not touch).
 #[test]
 fn a_cold_case_is_evicted_before_every_repetition() {
+    let _storage = storage();
     if !systemd_run_works() || Command::new("fincore").arg("--version").output().is_err() {
         eprintln!("skipped: needs systemd-run --user and util-linux fincore");
         return;
@@ -568,7 +579,7 @@ command = ["sh", "-c", "cat {{dataset}} > /dev/null"]
         assert_eq!(r.status, Status::Ok, "{:?}", r.error);
         assert_eq!(r.cache.resident_bytes, Some(0));
         assert!(
-            r.io.expect("io").read_bytes >= 8 << 20,
+            r.io.as_ref().expect("io").read_bytes >= 8 << 20,
             "read from storage: {:?}",
             r.io
         );
@@ -627,9 +638,181 @@ fn an_official_run_marks_a_disturbed_repetition() {
     );
 }
 
+/// #142: a warm-up that the OOM killer ends writes a row with its whole measurement —
+/// status `oom`, the anonymous peak it reached, the OOM events, the exit, I/O — marked
+/// as warm-up 1 (repetition 0, never counted), and the repetitions are skipped.
+#[test]
+fn a_failed_warm_up_writes_its_measurement() {
+    if !systemd_run_works() {
+        eprintln!("skipped: systemd-run --user --scope does not work here (no user session)");
+        return;
+    }
+    // 1 MiB of written memory every 5 ms, up to 256 MiB, under a 32 MiB limit: the
+    // sampler (every 20 ms) sees the anonymous memory grow before the kill.
+    let spec = r#"
+schema = 1
+name = "selftest"
+description = "a warm-up OOM-killed under a small limit"
+[defaults]
+memory_limit = "32M"
+settle = "100ms"
+[[benchmark]]
+name = "grow"
+warmup = 1
+repetitions = 2
+command = ["python3", "-c", "import time\nx = []\nfor _ in range(256):\n    x.append(b'1' * (1 << 20))\n    time.sleep(0.005)"]
+"#;
+    let (out, rows, dir) = exploratory("warmup-oom", spec, &[]);
+    let stderr = text(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert_eq!(rows.len(), 1, "one row, the repetitions skipped: {stderr}");
+    let r = &rows[0];
+    assert_eq!(r.status, Status::Oom, "{:?}", r.error);
+    assert_eq!((r.repetition, r.warmup), (0, Some(1)));
+    assert!(!r.counts());
+    let m = r.memory.as_ref().expect("the warm-up's memory is recorded");
+    assert_eq!(m.limit_bytes, Some(32 << 20));
+    assert!(m.anon_peak_bytes > 0, "anon peak {}", m.anon_peak_bytes);
+    assert!(m.peak_bytes >= 16 << 20, "peak {}", m.peak_bytes);
+    assert!(r.oom.expect("OOM events").oom_kills >= 1);
+    let exit = r.exit.expect("exit");
+    assert_eq!(exit.signal, Some(9), "{exit:?}");
+    assert!(r.time.expect("time").wall_seconds > 0.0);
+    let io = r.io.as_ref().expect("io");
+    assert!(io.unknown.is_none(), "{io:?}");
+    assert!(!r.command.is_empty() && !r.wrapper.is_empty());
+    let e = r.error.as_deref().unwrap_or("");
+    assert!(
+        e.contains("warm-up run 1 of 1 failed") && e.contains("OOM killer"),
+        "{e}"
+    );
+    assert!(!r.disturbance.disturbed);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// #142: a command that forks a child doing known reads and is cut by the timeout
+/// counts those reads as its own. The scope's SIGKILL orphans the child; the helper,
+/// a child subreaper, reaps it before reading `/proc/self/io`. Before, the child was
+/// reaped by init, `read_bytes` was near 0, and the 256 MiB were "others' storage
+/// traffic during" the run (above the 50 MB/s threshold over 3 s).
+#[test]
+fn a_timed_out_run_counts_the_reads_of_its_orphaned_children() {
+    use everygraph_bench::harness::cache::evict;
+    let _storage = storage();
+    if !systemd_run_works() {
+        eprintln!("skipped: systemd-run --user --scope does not work here (no user session)");
+        return;
+    }
+    let data = scratch("timeout-data");
+    let file = data.join("data.bin");
+    let size: u64 = 256 << 20;
+    std::fs::write(&file, vec![3u8; usize::try_from(size).expect("size")]).expect("data");
+    evict(&file).expect("evict");
+    // `sh` forks a subshell that reads the file and then sleeps; the timeout kills both.
+    let spec = format!(
+        r#"
+schema = 1
+name = "selftest"
+description = "a forking reader cut by the timeout"
+[defaults]
+memory_limit = "128M"
+settle = "100ms"
+[[benchmark]]
+name = "reader"
+warmup = 0
+repetitions = 1
+timeout = "3s"
+shell = "sh -c 'cat {} > /dev/null; exec sleep 60' & wait"
+"#,
+        file.display()
+    );
+    let (out, rows, dir) = exploratory("timeout-io", &spec, &[]);
+    let stderr = text(&out.stderr);
+    let _ = std::fs::remove_dir_all(&data);
+    assert_eq!(rows.len(), 1, "{stderr}");
+    let r = &rows[0];
+    assert_eq!(r.status, Status::Timeout, "{:?}", r.error);
+    assert!(r.exit.expect("exit").timed_out);
+    let io = r.io.as_ref().expect("io");
+    assert!(io.unknown.is_none(), "{io:?}");
+    assert!(
+        io.read_bytes >= size,
+        "the orphaned reader's {size} bytes are the run's own: {io:?}"
+    );
+    let d = &r.disturbance;
+    let others = d
+        .activity
+        .others_io_mb_s_during
+        .expect("computed, the I/O is known");
+    // Without the fix the reader's 256 MiB were others' traffic (~89 MB/s over the 3 s
+    // on the lab machine, above the 50 MB/s threshold). Checked when the machine's
+    // storage was quiet just before the run: other work (a build, another test binary)
+    // is others' traffic too, and an exploratory row records the reason either way.
+    let quiet = d
+        .activity
+        .settle_io_mb_s
+        .is_some_and(|v| v <= d.threshold_io_mb_s / 10.0);
+    if quiet {
+        assert!(
+            !d.reasons
+                .iter()
+                .any(|x| x.contains("storage traffic during")),
+            "others' traffic {others:.2} MB/s: {:?}",
+            d.reasons
+        );
+    } else {
+        eprintln!("not checked: storage was busy before the run: {d:?}");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// #142: when the run's own I/O cannot be established — here a descendant moved itself
+/// into a scope of its own and is still running when the helper reaps — the row says so,
+/// its byte counts are no metric, and others' traffic during the run is not computed
+/// (it would otherwise be all the machine's traffic).
+#[test]
+fn a_run_whose_own_io_is_unknown_says_so() {
+    if !systemd_run_works() {
+        eprintln!("skipped: systemd-run --user --scope does not work here (no user session)");
+        return;
+    }
+    let spec = r#"
+schema = 1
+name = "selftest"
+description = "a descendant that escapes the scope"
+[defaults]
+memory_limit = "64M"
+settle = "100ms"
+[[benchmark]]
+name = "escape"
+warmup = 0
+repetitions = 1
+shell = "systemd-run --user --scope --quiet --collect -p MemoryMax=16M -- sleep 20 & echo $! > {case_work}/pid; sleep 1"
+"#;
+    let (out, rows, dir) = exploratory("io-unknown", spec, &[]);
+    let stderr = text(&out.stderr);
+    // The escaped sleep, by its process id (systemd-run execs it in place).
+    if let Some(pid) = std::fs::read_to_string(dir.join("work/selftest/cases/escape/pid"))
+        .ok()
+        .and_then(|p| p.trim().parse::<u32>().ok())
+    {
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+    }
+    assert_eq!(rows.len(), 1, "{stderr}");
+    let r = &rows[0];
+    let io = r.io.as_ref().expect("io");
+    let why = io.unknown.as_deref().expect("the I/O is marked unknown");
+    assert!(why.contains("outside its scope"), "{why}");
+    assert_eq!(r.metric("read_bytes"), None);
+    assert_eq!(r.disturbance.activity.others_io_mb_s_during, None);
+    assert!(r.disturbance.activity.others_cores_during.is_some());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn eviction_empties_the_page_cache_of_a_private_file() {
     use everygraph_bench::harness::cache::{MAX_RESIDENT_FRACTION, evict, resident};
+    let _storage = storage();
     if Command::new("fincore").arg("--version").output().is_err() {
         eprintln!("skipped: util-linux fincore is not installed");
         return;

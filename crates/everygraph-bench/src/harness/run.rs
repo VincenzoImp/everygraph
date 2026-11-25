@@ -553,6 +553,7 @@ impl Runner<'_> {
             runner: case.runner.clone(),
             repetition,
             repetitions,
+            warmup: None,
             status: Status::Ok,
             error: None,
             started_at: rfc3339(unix_now()),
@@ -758,8 +759,23 @@ impl Runner<'_> {
             // Too short to see others while it ran: look just after it as well.
             (activity.after_busy_cores, activity.after_io_mb_s) = self.settle(case);
         }
+        self.record(row, case, &rep_name, data.as_deref(), exec, activity)
+    }
+
+    /// Fills a row from one execution: what ran, the disturbance verdict, the
+    /// measurement, the metrics, and the status. Shared by measured repetitions and by
+    /// failed warm-up runs, so that both record the same fields.
+    fn record(
+        &mut self,
+        mut row: Row,
+        case: &Case,
+        rep_name: &str,
+        data: Option<&Path>,
+        exec: Execution,
+        mut activity: Activity,
+    ) -> Result<Row, String> {
         let case_work = self.case_work(case);
-        let scope = self.case_scope(case, &rep_name, data.as_deref(), &case_work);
+        let scope = self.case_scope(case, rep_name, data, &case_work);
         row.conditions = self.conditions(case, &scope);
         row.binaries = self.binaries(case, &scope, &exec.command)?;
         row.command = exec.command;
@@ -785,6 +801,7 @@ impl Runner<'_> {
         row.io = Some(IoRecord {
             read_bytes: m.read_bytes,
             write_bytes: m.write_bytes,
+            unknown: m.io_unknown.clone(),
         });
         row.memory = Some(MemoryRecord {
             limit_bytes: m.memory_max_bytes,
@@ -875,6 +892,64 @@ impl Runner<'_> {
             row.error = Some(problems.join("; "));
         }
         Ok(row)
+    }
+
+    /// The warm-up runs of a case. The first that fails ends them, and its row is
+    /// returned — the whole measurement, `repetition` 0 and `warmup` set, so that it is
+    /// never counted — and the case's repetitions are skipped. `None`: all succeeded.
+    fn warmups(
+        &mut self,
+        case: &Case,
+        source: Option<&Path>,
+        reps: u32,
+    ) -> Result<Option<Row>, String> {
+        for w in 1..=case.warmup {
+            let rep_name = format!("warmup{w}");
+            let mut row = self.base_row(case, 0, reps);
+            row.warmup = Some(w);
+            row.load_start = self.ctx.host.loadavg().ok();
+            row.mem_available_start_bytes = self.ctx.host.mem_available().ok();
+            let exec = self.execute(case, &rep_name, source)?;
+            row.load_end = self.ctx.host.loadavg().ok();
+            let ok = exec.error.is_none()
+                && exec
+                    .measurement
+                    .as_ref()
+                    .is_some_and(|m| m.exit_code == Some(0) && !m.timed_out);
+            if ok {
+                continue;
+            }
+            if let Some(d) = source {
+                row.dataset = Some(DatasetRecord {
+                    name: case
+                        .dataset
+                        .as_ref()
+                        .map_or_else(String::new, |d| d.label().to_string()),
+                    path: d.display().to_string(),
+                    bytes: cache::size_of(d).unwrap_or(0),
+                    listing_sha256: self.listing(d),
+                });
+            }
+            // No settle windows around a warm-up: only the readings taken while it ran.
+            let mut row = self.record(row, case, &rep_name, source, exec, Activity::default())?;
+            if row.status == Status::Ok {
+                // What `record` accepts (a clean stop, say) a warm-up does not: it must
+                // exit 0.
+                row.status = Status::Failed;
+            }
+            let why = row.error.take().unwrap_or_else(|| {
+                row.exit.map_or_else(
+                    || "it ended without a status".into(),
+                    |e| format!("exit status {:?}, signal {:?}", e.code, e.signal),
+                )
+            });
+            row.error = Some(format!(
+                "warm-up run {w} of {} failed, so the case's repetitions were not run: {why}",
+                case.warmup
+            ));
+            return Ok(Some(row));
+        }
+        Ok(None)
     }
 
     fn plan_fields(&self, row: &mut Row, plan: &super::spec::PlanDef, stdout: &str) {
@@ -1211,27 +1286,7 @@ pub fn run(
             continue;
         }
         let source = sources.get(&case.id).map(PathBuf::as_path);
-        let mut warm_failed = None;
-        for w in 1..=case.warmup {
-            let exec = runner.execute(case, &format!("warmup{w}"), source)?;
-            let ok = exec.error.is_none()
-                && exec
-                    .measurement
-                    .as_ref()
-                    .is_some_and(|m| m.exit_code == Some(0) && !m.timed_out);
-            if !ok {
-                warm_failed = Some(format!(
-                    "the warm-up run failed ({}); standard error ends with: {}",
-                    exec.error.unwrap_or_else(|| "non-zero exit".into()),
-                    tail(&exec.stderr, 1200)
-                ));
-                break;
-            }
-        }
-        if let Some(reason) = warm_failed {
-            let mut row = runner.base_row(case, 0, reps);
-            row.status = Status::Failed;
-            row.error = Some(reason);
+        if let Some(row) = runner.warmups(case, source, reps)? {
             writer.write(&row)?;
             n += reps as usize;
             outcome.rows += 1;
