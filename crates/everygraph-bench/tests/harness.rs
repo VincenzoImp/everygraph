@@ -4,8 +4,8 @@
 //! shipped specs, a whole exploratory run under `systemd-run`, eviction, the report.
 //!
 //! The tests that need `systemd-run --user --scope` (a systemd user session) or a disk
-//! that is not tmpfs say so and return early where those are missing; CI runners have
-//! no user session. The harness runs on Linux only (cgroups v2, `systemd-run`).
+//! that is not tmpfs say so and return early where those are missing (GitHub's Linux
+//! runners have both). The harness runs on Linux only (cgroups v2, `systemd-run`).
 
 #![cfg(target_os = "linux")]
 #![forbid(unsafe_code)]
