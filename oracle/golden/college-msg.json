@@ -1,0 +1,51 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "college-msg",
+ "source": {
+  "kind": "registry",
+  "dataset": "college-msg",
+  "file": "CollegeMsg.txt.gz",
+  "sha256_of_download": "50ae2d98ed3bad9ddb18dbd495a89e5e10cfb8f7e86932827db29fc41b41f9fa",
+  "sha256_of_file": "50ae2d98ed3bad9ddb18dbd495a89e5e10cfb8f7e86932827db29fc41b41f9fa",
+  "page": "https://snap.stanford.edu/data/CollegeMsg.html",
+  "terms": "No licence stated by SNAP. SNAP asks that the dataset be cited."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": true,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "networkx, igraph, scipy",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":1899,"by":["edge list"]},
+  "rows": {"value":59835,"by":["edge list"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":39539,"by":["edge list"]},
+  "m": {"value":20296,"by":["igraph","networkx","scipy"]},
+  "max_degree": {"value":255,"by":["scipy"]},
+  "wcc_count": {"value":4,"by":["igraph","networkx","scipy"]},
+  "largest_wcc": {"value":1893,"by":["igraph","networkx","scipy"]},
+  "scc_count": {"value":601,"by":["igraph","networkx","scipy"]},
+  "largest_scc": {"value":1294,"by":["igraph","networkx","scipy"]},
+  "triangle_total": {"value":14319,"by":["igraph","networkx","scipy"]},
+  "triangles_sha256": {"value":"14c355ef63b950cb7a2f872a3b87f29b05158b6274b74fee9b2dc1f65bd4ad78","by":["igraph","networkx","scipy"]},
+  "core_numbers_sha256": {"value":"f575424ca2f0f188189cb3d450f15be3c1ecc835dffecac52058a0a13674f89e","by":["igraph","networkx"]},
+  "max_core": {"value":20,"by":["igraph","networkx"]},
+  "core_histogram": {"value":[0,401,228,141,118,100,75,54,64,59,44,57,39,32,63,54,29,53,55,32,201],"by":["igraph","networkx"]},
+  "samples": {"value":[[0,35,15,59],[102,255,20,531],[1898,26,17,3]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": []
+}

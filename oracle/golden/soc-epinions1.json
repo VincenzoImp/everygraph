@@ -1,0 +1,51 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "soc-epinions1",
+ "source": {
+  "kind": "registry",
+  "dataset": "soc-epinions1",
+  "file": "soc-Epinions1.txt.gz",
+  "sha256_of_download": "69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938",
+  "sha256_of_file": "69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938",
+  "page": "https://snap.stanford.edu/data/soc-Epinions1.html",
+  "terms": "No licence stated by SNAP. SNAP asks that the dataset be cited."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": true,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "networkx, igraph, scipy",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":75879,"by":["edge list"]},
+  "rows": {"value":508837,"by":["edge list"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":0,"by":["edge list"]},
+  "m": {"value":508837,"by":["igraph","networkx","scipy"]},
+  "max_degree": {"value":3044,"by":["scipy"]},
+  "wcc_count": {"value":2,"by":["igraph","networkx","scipy"]},
+  "largest_wcc": {"value":75877,"by":["igraph","networkx","scipy"],"published":{"value":75877,"source":"https://snap.stanford.edu/data/soc-Epinions1.html"}},
+  "scc_count": {"value":42176,"by":["igraph","networkx","scipy"]},
+  "largest_scc": {"value":32223,"by":["igraph","networkx","scipy"],"published":{"value":32223,"source":"https://snap.stanford.edu/data/soc-Epinions1.html"}},
+  "triangle_total": {"value":1624481,"by":["igraph","networkx","scipy"],"published":{"value":1624481,"source":"https://snap.stanford.edu/data/soc-Epinions1.html"}},
+  "triangles_sha256": {"value":"ae03251565c65124948fac73d404e3c467c7dcddb8035cecc91d4923ecf8f9eb","by":["igraph","networkx","scipy"]},
+  "core_numbers_sha256": {"value":"521617fe910fa101492266fd119028c01b71287bc5a2584fa309c18d4d9bcd54","by":["igraph","networkx"]},
+  "max_core": {"value":67,"by":["igraph","networkx"]},
+  "core_histogram": {"value":[0,38579,11981,5685,3408,2315,1711,1180,873,810,684,547,492,404,351,299,314,236,291,263,213,239,222,161,157,149,159,131,125,109,141,116,130,124,102,80,90,137,98,87,81,121,92,83,86,177,78,76,42,57,99,51,69,73,86,98,65,84,74,33,62,44,83,42,73,40,231,486],"by":["igraph","networkx"]},
+  "samples": {"value":[[0,682,67,12462],[18,3044,67,47203],[75878,1,1,0]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": []
+}

@@ -1,0 +1,49 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "roadnet-ca",
+ "source": {
+  "kind": "registry",
+  "dataset": "roadnet-ca",
+  "file": "roadNet-CA.txt.gz",
+  "sha256_of_download": "383f7b14424530a9e25c392969a9c19dace32ebcfd141f0967a1433498c2acdd",
+  "sha256_of_file": "383f7b14424530a9e25c392969a9c19dace32ebcfd141f0967a1433498c2acdd",
+  "page": "https://snap.stanford.edu/data/roadNet-CA.html",
+  "terms": "No licence stated by SNAP. SNAP asks that the dataset be cited."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": false,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "igraph, scipy (more than 600000 pairs: no NetworkX); core numbers have igraph as their only Python witness, the in-process Rust reference is the second",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":1965206,"by":["edge list"]},
+  "rows": {"value":5533214,"by":["edge list"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":2766607,"by":["edge list"]},
+  "m": {"value":2766607,"by":["igraph","scipy"]},
+  "max_degree": {"value":12,"by":["scipy"]},
+  "wcc_count": {"value":2638,"by":["igraph","scipy"]},
+  "largest_wcc": {"value":1957027,"by":["igraph","scipy"],"published":{"value":1957027,"source":"https://snap.stanford.edu/data/roadNet-CA.html"}},
+  "triangle_total": {"value":120676,"by":["igraph","scipy"],"published":{"value":120676,"source":"https://snap.stanford.edu/data/roadNet-CA.html"}},
+  "triangles_sha256": {"value":"cda6ef2cfba0a37ded18e7f7c9b5ade80c034e0dc4b077d557647d454f3f3576","by":["igraph","scipy"]},
+  "core_numbers_sha256": {"value":"4a7976a866f8e0bb23829a45556cc195bb01aa04241c64338dfef3c244c9876c","by":["igraph"]},
+  "max_core": {"value":3,"by":["igraph"]},
+  "core_histogram": {"value":[0,373411,1587227,4568],"by":["igraph"]},
+  "samples": {"value":[[0,3,2,0],[560701,12,2,6],[1965205,3,2,0]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": []
+}

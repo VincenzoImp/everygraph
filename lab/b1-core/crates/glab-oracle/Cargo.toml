@@ -1,0 +1,14 @@
+[package]
+name = "glab-oracle"
+version = "0.0.1"
+edition = "2021"
+description = "Adapter that runs the B1 prototype kernels under the Everygraph correctness oracle's external-kernel protocol (issue #6)."
+
+[[bin]]
+name = "glab-oracle"
+path = "src/main.rs"
+
+[dependencies]
+glab-core = { path = "../glab-core" }
+rayon = "1"
+serde_json = "1"

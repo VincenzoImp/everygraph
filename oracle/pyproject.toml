@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Reference runners of the correctness oracle (issue #6). Python lives here and nowhere
+# else in the engine: these libraries are test oracles, never dependencies of a shipped
+# artifact. python-igraph is GPL-2.0-or-later; that is fine for a test tool that is not
+# distributed with Everygraph, and it must never move into a shipped package.
+[project]
+name = "everygraph-oracle-ref"
+version = "0.0.0"
+description = "Reference implementations (NetworkX, python-igraph, scipy) for the Everygraph correctness oracle."
+requires-python = ">=3.12"
+license = "Apache-2.0 OR MIT"
+# Exact pins: a reference whose version drifts is a moving target. `uv.lock` pins the
+# transitive closure; these lines make the intent visible. Upgrading is its own pull
+# request, which re-runs `oracle-ref golden --check` and `oracle-ref probe --check` and
+# reports any change in SEMANTICS.md.
+dependencies = [
+    "networkx==3.7",
+    "igraph==1.0.0",
+    "scipy==1.18.1",
+    "numpy==2.5.5",
+]
+
+[project.scripts]
+oracle-ref = "everygraph_oracle_ref.cli:main"
+
+[dependency-groups]
+dev = ["pytest==9.2.0"]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

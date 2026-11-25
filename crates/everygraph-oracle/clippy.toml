@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Names of the reference libraries and algorithms are words in this crate's docs, not
+# code. ".." keeps clippy's default list.
+doc-valid-idents = ["NetworkX", "PageRank", "SplitMix64", "LEB128", ".."]
