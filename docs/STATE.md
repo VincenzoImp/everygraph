@@ -22,8 +22,13 @@ Started 2026-11-25, after the owner approved the design previews (#119 closed, P
 - **#118 compressed storage end to end** (M1) — experimenter agent, branch
   `lab-m1-13-compressed-end-to-end`. It has the machine for measurements; nothing else may
   benchmark until it reports.
-- **#10 name/trademark and #11 patent** — web research agent; findings to be recorded under
-  `docs/legal/` by the coordinator. A legal conclusion, if one is needed, is for a professional.
+- **#12 API sketch and #13 UX contract** — specification agent, two branches and PRs.
+- **#10 name** — research done (`docs/legal/name-check.md`). A US trademark application for
+  EVERYGRAPH (graph database analysis software) was filed 2026-11-17. The owner keeps the
+  name; remaining: reservations with the owner, watching serial 50223142 at every milestone,
+  professional advice before going public (#122).
+- **#11 patent** — closed: the Uncharted application was abandoned in 2019
+  (`docs/legal/patent-check.md`); design notes carried into the tile-format issue.
 
 ## Next actions
 
@@ -54,6 +59,10 @@ Started 2026-11-25, after the owner approved the design previews (#119 closed, P
 - None blocking.
 
 ## Lessons (append, never delete)
+
+- 2026-11-25 — The name was chosen after checking package registries only; a trademark
+  application for the identical name had been filed a week earlier. Screen trademark
+  registers (USPTO via TSDR, TMview through a headless browser) before proposing any name.
 
 - 2026-11-25 — A colour palette chosen by eye failed measurement (two pairs invisible to
   colour-blind readers, one colour equal to the accent). Measure palettes and contrast.

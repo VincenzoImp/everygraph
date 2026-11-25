@@ -40,11 +40,15 @@ same name and the same goods.
   (verified). The npm scope `@everygraph` could not be confirmed.
 - No company, paper, model or app store product with this name was found by web search.
 
-## Registries not checked
+## Other trademark registers
 
-EUIPO, TMview, WIPO Global Brand Database and the UK IPO could not be operated through
-automated fetching (JavaScript-only pages, captchas, access denied). **They have not been
-checked.** They need a person with a browser.
+**TMview** (the search tool of the European IP network, which aggregates the EUIPO, the
+national offices of EU states, the UK IPO, WIPO and others) was queried on 2026-11-25
+through an automated browser for names containing "everygraph": **one result only, the US
+application above.** No EU, UK, Italian or international record under that name appeared.
+TMview is not an official register and has no legal effect; close variants ("every
+graph", "evergraph") were not queried there. EUIPO eSearch, WIPO Global Brand Database and
+the UK IPO's own search were not operated directly.
 
 ## Similar names in the field
 
@@ -77,5 +81,20 @@ Trademarkia; EU/WIPO/UK not checked): `gigamap`, `vastgraph`, `widegraph`, `grap
 Also free on the package registries and GitHub, trademark index not yet looked at:
 `eachgraph`, `manygraph`, `graphsize`, `graphlode`, `vastmap`, `hugemap`, `graphwide`.
 
-**Status: awaiting the owner's choice.** Until then "Everygraph" is used as a working
-name only, and no public name is reserved.
+## Owner's decision (2026-11-25)
+
+Told of the US application, the owner asked to **keep "Everygraph"**. The project
+proceeds with the name, knowing the risk, and does the following:
+
+1. **Watch the US application** (serial 50223142). It has not been examined; an
+   intent-to-use application is registered only after the applicant shows real use in
+   commerce. Check its status at each milestone; if it is published for opposition, tell
+   the owner at once (the opposition window is short).
+2. **Professional opinion before anything public** (#122): whether to use the name in the
+   US, whether an EU filing is worthwhile, and its timing — a US applicant can claim
+   priority for an EU filing until about 2027-05-17.
+3. **Reserve what can be reserved honestly** (see issue #10): package names when there is
+   a first real release to publish under them (registries remove empty placeholder
+   packages); domains and handles by the owner.
+4. **Keep the rename cheap**: the name appears in the repository name, crate and package
+   names, the wordmark and the documentation; nothing else may depend on it.
