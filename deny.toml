@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Dependency policy, checked with `cargo deny check`: licences, banned crates, sources,
+# and security advisories (default settings; the advisory database needs the network).
+
+[graph]
+# Check what any feature combination on any target would pull in.
+all-features = true
+
+[licenses]
+# Everygraph is Apache-2.0 OR MIT (DESIGN D23); every dependency must be usable under
+# terms at least as permissive. Anything not listed here fails the check. Extending this
+# list is a licensing decision (issue #9), not a build fix.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+# The list is a policy, not an inventory: entries no dependency uses yet are expected.
+unused-allowed-license = "allow"
+
+[licenses.private]
+# Our own crates are `publish = false` for now; check their licence field all the same.
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    # Threads go through the facade in everygraph-core (`everygraph_core::par`), so that
+    # every crate above it also runs without them. A third-party crate that needs rayon
+    # is added to `wrappers` in the pull request that introduces it.
+    { crate = "rayon", wrappers = ["everygraph-core"], reason = "use everygraph_core::par; only everygraph-core depends on rayon" },
+    { crate = "rayon-core", wrappers = ["rayon"], reason = "use everygraph_core::par; only everygraph-core depends on rayon" },
+    # Memory maps are an I/O backend. Issue #29 allows memmap2 for everygraph-io alone,
+    # by adding `wrappers = ["everygraph-io"]` to its entry.
+    { crate = "memmap2", reason = "memory maps belong in everygraph-io, behind ByteSource (issue #29)" },
+    { crate = "memmap", reason = "unmaintained; memory maps belong in everygraph-io, through memmap2" },
+    { crate = "mmap-rs", reason = "memory maps belong in everygraph-io, through memmap2" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

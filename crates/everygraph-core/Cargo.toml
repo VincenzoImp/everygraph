@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "everygraph-core"
+description = "Portable foundations of Everygraph: id types, the ByteSource trait, the parallel facade and the memory accountant interface."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = ["parallel"]
+# Run the `par` facade on rayon's thread pool. Without it the same functions run on the
+# calling thread, with the same chunk boundaries and the same results.
+parallel = ["dep:rayon"]
+
+[dependencies]
+# Adding a dependency here is a portability decision: it must build for
+# wasm32-unknown-unknown and must not touch files, threads or the OS on its own.
+rayon = { workspace = true, optional = true }
+
+[lints]
+workspace = true
