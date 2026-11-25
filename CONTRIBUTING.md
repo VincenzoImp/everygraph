@@ -7,8 +7,9 @@ policy arrive with issue #9.
 
 ## Checks
 
-Every pull request passes these on current stable Rust. Until continuous integration
-exists (issue #3), run them yourself and paste the output in the pull request.
+Every pull request passes these on current stable Rust. Continuous integration runs
+all of them (see "CI" below); run them yourself before pushing, because a red run costs
+Actions minutes and a round trip.
 
 ```sh
 cargo fmt --all --check
@@ -20,8 +21,18 @@ python3 tools/check_core_portability.py
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
-cargo deny check
+cargo build -p everygraph-wasm --target wasm32-unknown-unknown
+cargo deny check                            # offline: cargo deny check bans licenses sources
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo build --workspace --release
+```
+
+And the three checks of the checks, each one command (what they do: "CI" below):
+
+```sh
+python3 tools/check_portability_canary.py   # the portability checks still catch each probe
+python3 tools/check_wasm_toy.py             # toy kernel: native and wasm32 in Node agree
+python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 
 The four clippy runs are not redundant: the core is linted once for each configuration
@@ -51,6 +62,53 @@ of rayon's dependencies, not because of this code: `crossbeam-epoch` keeps an in
 list that Miri's default aliasing model (Stacked Borrows) rejects, and rayon's global
 pool is still alive when the test process ends. The first two commands run our own code
 under the default, stricter settings.
+
+CI runs them on the nightly named in `tools/nightly-toolchain` (with the `miri` and
+`rust-src` components), not on whatever `nightly` is today, so that a Miri regression
+upstream does not turn every pull request red. To run exactly what CI runs, replace
+`+nightly` by `+$(cat tools/nightly-toolchain)`. Moving the pin is a pull request of its
+own.
+
+## CI
+
+GitHub Actions, two workflows under `.github/workflows/`. The repository is private and
+its Actions minutes are counted (macOS ten-fold, Windows two-fold), which is why the
+expensive platforms do not run on every push.
+
+| Workflow | When | Jobs (each step is a command from "Checks") |
+|---|---|---|
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
+
+A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
+are written by runs on `main` and read by every branch. Third-party actions are pinned
+to a commit, with the version in a comment; workflows get `contents: read` and nothing
+else.
+
+What the three scripts at the end of "Checks" are for:
+
+- **`tools/check_portability_canary.py`** breaks the portability rule on purpose. Each
+  file under `tools/canary/portability/` is a probe (direct `std::fs`, file access
+  through `Path`, clock reads, a DNS lookup, a thread, an inner `allow`, a
+  `cfg(not(clippy))` block, a platform `cfg`, `std::os`, an I/O dependency); the
+  script adds it to a scratch copy of the core under `target/portability-canary/`,
+  runs the check the probe names, and fails unless that check fails with the message
+  the probe expects. A check that has quietly stopped checking — `clippy.toml` moved,
+  a list entry deleted, an allow-list widened — is caught this way. A new way around the
+  rule gets a probe in the pull request that closes it.
+- **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
+  through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
+  as wasm32 in Node, and compares the hashes. Real kernels replace it with the
+  determinism CI (m3-11).
+- **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
+  ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
+  `tools/canary/tsan/`, a toy kernel on `par` with a deliberate data race, which must be
+  reported. Parallel kernels join it by having tests in their crate; the script then
+  needs their package added next to the core's.
+
+Not in CI yet: the threaded wasm32 build (issue #108; `ci.yml` holds a placeholder
+describing it), and tests run natively on a 32-bit target (i686 tests run under Miri
+only).
 
 ## Crates
 
