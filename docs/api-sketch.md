@@ -814,7 +814,7 @@ tables handed to other tools are plain values with no formatting.
 | `deterministic` | `--deterministic` / `--fast` | `bool` | `True` | `communities`, `map` | `True`: the result is repeatable as § 2.11 promises. `False` is the faster mode: the result is as good on average but not repeatable. It is labelled `fast` wherever the result is printed or stored, and is never returned in place of a deterministic one. Every other operation is always deterministic and does not take the parameter. |
 | `seed` | `--seed N` | `int` ≥ 0 | `0` | `communities`, `map` | Selects one of the equally valid answers of a randomized method. Same seed, same answer (when deterministic). |
 | `precision` | `--precision full\|low` | `"full"` or `"low"` | `"full"` | `pagerank` | `"low"` keeps the per-node state in 32 bits instead of 64, halving it, at a small cost in accuracy (#47). The result is labelled `precision low` and stored under its own key. It is never chosen by the planner: when `"full"` does not fit, the refusal offers `"low"` (§ 2.11). No other operation has a lower-precision variant in 0.1, and none takes the parameter. |
-| `weight` | `--weight NAME` / `--no-weight` | `bool` or column name | `True` | `pagerank`, `communities`, `degrees` (the `weighted` column), `to_scipy` | How much each pair of connected nodes counts. `True`: the sum over the pair's edges of the weight column declared when the graph was read (`eg.read(weight=…)`), if one was declared; otherwise the number of edges between the pair. A name: the sum of that numeric edge column. `False`: every connected pair counts 1. The result always says which was used: `meta["weight"]` is the column's name, `"edges"` or `None`, and the summary of communities prints it (`design/DECISIONS.md`, "Default weight"). Weights must be finite and not negative (§ 2.13). (`path` differs: § 3.7.) |
+| `weight` | `--weight NAME` / `--no-weight` | `bool` or column name | `True` | `pagerank`, `communities`, `degrees` (the `weighted` column), `to_scipy` | How much each pair of connected nodes counts. `True`: the sum over the pair's edges of the weight column declared when the graph was read (`eg.read(weight=…)`), if one was declared; otherwise the number of edges between the pair. A name: the sum of that numeric edge column. `False`: every connected pair counts 1. The result always says which was used: `meta["weight"]` is the column's name, `"edges"` or `None`, and the summary of communities prints it (`design/DECISIONS.md`, "Default weight"). Weights used by `pagerank` and `communities` must be finite and not negative (§ 2.13); the `weighted` column of `degrees` and `to_scipy` report sums as they are and never refuse (`docs/spec/graph-semantics.md` § 4.4). (`path` differs: § 3.7.) |
 | `limit` | `--limit N` | `int` ≥ 1 | per call (§ 3.2) † | `neighbors` (rows per node), `khop` (nodes returned), `path` (nodes visited), `common_neighbors`, `edges_between` (rows) | A count of nodes or rows a query returns (for `path`, the nodes its search visits), never memory or time. Reaching it ends the call with a partial result marked `truncated` (§ 2.5), not with an error. These five are the point queries that can be cut short (`docs/ux-contract.md` § 4.1). |
 | `timeout` | `--timeout SECONDS` | seconds | per call (§ 3.2) † | `khop`, `path` | The most time a traversal may take. Same outcome as `limit`; a result cut short by time is not repeatable (§ 2.11). |
 | `dry_run` | `--dry-run` | `bool` | `False` | everything that is planned | Plan only: return the `Plan` (§ 3.9), run nothing, write nothing. |
@@ -1088,8 +1088,8 @@ not only the same set of rows. Ties are broken by graph order (§ 2.2).
 |---|---|
 | An input file with no bytes | `InvalidInput`: there is no header and no row to read. |
 | A header and no rows; a Parquet file or a table with no rows | A graph with 0 nodes and 0 edges, summarized and written like any other. |
-| A graph or view with no nodes | Every whole-graph result is a table with its usual columns and no rows. `communities()` finds 0 communities, with modularity NaN (printed `—`). |
-| Nodes but no edges (a node filter that keeps none of the edges) | `pagerank()`: every node `1/n` — every node is dangling and its rank is spread evenly, so scores still sum to 1. `components()` and `communities()`: one per node, numbered in graph order; modularity NaN (printed `—`). Core number 0; triangles 0. |
+| A graph or view with no nodes | Every whole-graph result is a table with its usual columns and no rows. `communities()` finds 0 communities, with modularity 0 (`design/DECISIONS.md`, "Graph semantics": never NaN). |
+| Nodes but no edges (a node filter that keeps none of the edges) | `pagerank()`: every node `1/n` — every node is dangling and its rank is spread evenly, so scores still sum to 1. `components()` and `communities()`: one per node, numbered in graph order; modularity 0. Core number 0; triangles 0. |
 | `clustering` of a node with fewer than two neighbors | 0.0, as in NetworkX. |
 | A weight that is negative, NaN or infinite, in the column used by `pagerank`, `communities` or as a path cost | `InvalidInput` (exit status 3), naming the column: it is a property of the data. The column statistics that #36 stores when the graph is built — each numeric edge column's minimum, maximum and count of NaN — give the fast answer: a column with no bad value anywhere is accepted without reading anything. On the whole graph a column with bad values is refused before any work. When the operation runs on a view of such a graph, the check is made on the edges the view actually uses, during the pass, and the operation fails at the first bad one it meets, naming it; a view that leaves out every bad edge runs. Zero is allowed: a pair of weight 0 counts nothing for PageRank and communities, and costs nothing on a path. |
 | A null weight | Skipped in sums (a pair whose weights are all null weighs 0); a path does not use an edge whose cost is null. |
@@ -1102,7 +1102,7 @@ not only the same set of rows. Ties are broken by graph order (§ 2.2).
 | `khop(a, k=0)` | The node itself, at distance 0. |
 | An empty node set | `subgraph()`: an empty view. `avoid=`: no effect. `personalize=`: `ValueError`. `highlight()`: clears, like `None`. |
 | `top(n)` with `n` larger than the number of rows; `n=0` | All the rows; no rows. |
-| A self-loop kept with `self_loops="keep"` | The node is its own neighbor once: it counts 1 in `in_degree`, `out_degree` and `degree`. What each algorithm does with it is the table of `docs/spec/graph-model.md` (#36). |
+| A self-loop kept with `self_loops="keep"` | The node is its own neighbor once (`neighbors()`, `has_edge(a, a)`). It adds 1 to `in_degree` and `out_degree` and 2 to `degree` (`design/DECISIONS.md`, "Graph semantics"). What each algorithm does with it is the table of `docs/spec/graph-semantics.md` § 6 (#36). |
 | `a & b` with views of different graphs | `ValueError`. |
 | A node filter on a view (`v.filter(nodes="degree > 10")`) | Reads the degrees inside `v`, computed by a planned pass (§ 3.3). |
 
@@ -1205,7 +1205,7 @@ A graph is immutable. It is either backed by a `.eg` file — opening it is inst
 may be larger than memory — or held in memory. Nodes have identifiers; edges may carry a
 weight, a time and other columns; repeated edges between the same two nodes are separate
 events unless the graph was read with `duplicates="collapse"` or `"sum"`
-(`docs/spec/graph-model.md`, to be written by #36, defines what each algorithm does with
+(`docs/spec/graph-semantics.md`, written by #36, defines what each algorithm does with
 them).
 
 ```python
@@ -1499,7 +1499,7 @@ level.
 
 ```python
 class Communities:
-    modularity: float                 # NaN when there are no edges
+    modularity: float                 # 0 when there are no edges
     levels: int
     meta: Mapping[str, object]
 
@@ -2567,7 +2567,7 @@ or dropped silently: each line says what this document does about it.
 | Results "stored in transfers.eg" (`cli.md`) against #39, which has not decided between the file and a companion directory. | § 2.8 says "inside the graph file" as approved and notes #39 decides the mechanism; what the user sees is the same. Results on views are kept for the session only, as #39 asks ("large temporary results should not bloat the graph file"). |
 | `duckdb.sql("select … from pr")` on an Everygraph table (`api.md` Choice 4) relies on DuckDB accepting any Arrow-stream object by variable name. | Kept as approved; #95 must test it, and fall back to documenting `duckdb.from_arrow(pr)` if it does not hold. |
 | `docs/DESIGN.md` § 3 names no crate that a Rust user would depend on to get everything. | § 4 writes the functions under the crates that own them. A facade crate `everygraph` would be a small addition to #2. |
-| `docs/spec/graph-model.md` (#36) will define what each algorithm does on directed, weighted and repeated edges. | § 2.4 (`weight`), § 3.3 (which nodes a view keeps) and § 2.13 state the user-visible behaviour, settled by `design/DECISIONS.md`; #36 must follow them or change them here. |
+| `docs/spec/graph-semantics.md` (#36) defines what each algorithm does on directed, weighted and repeated edges. | § 2.4 (`weight`), § 3.3 (which nodes a view keeps) and § 2.13 state the user-visible behaviour, settled by `design/DECISIONS.md`; #36 must follow them or change them here. |
 | Scratch "in /tmp" in the previews' plans and stop blocks; `design/DECISIONS.md` puts it beside the output. | `61 GB scratch` and `.everygraph-7c1e` beside the output, as `docs/ux-contract.md` § 3.4 and § 5.4 have it. |
 | The previews' shared-map hint, `share it: upload transfers.egmap and viewer.html to any static host`, points at the working map, which is full. | The hint is the export command with `--reveal summary` (story 5, § 9 item 21). |
 

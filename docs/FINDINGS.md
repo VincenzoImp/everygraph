@@ -6,7 +6,7 @@ Samsung 990 PRO NVMe, RTX 4090 unused by the pipelines). Datasets: com-LiveJourn
 (65.6M / 1.806B), twitter-2010 (41.7M / 1.468B arcs, directed).
 
 **Read this first.** Eight experiments ran concurrently on the same machine. Unless a
-number is marked *idle re-run* or belongs to § M1-13 or § M1-01 (second-round experiments,
+number is marked *idle re-run* or belongs to § M1-13, § M1-01 or § M1-02 (second-round experiments,
 idle machine, 2026-11-25), it was taken under load (load average 20–40) and is
 pessimistic and noisy (±30% typical, more for 32-thread and cold-I/O runs). Relative
 orderings were stable. Extrapolations are marked as such. Code and raw results are in
@@ -343,6 +343,16 @@ diagnosed (#17). Scaled-down semi-external test (orkut,
 limit ≈ edge array): 5.6× slower; below it, 51× slower or OOM. **Semi-external community
 detection is not yet a product feature:** aggregation needs a sequential sort/bucket
 implementation and the level-1 graph must be budgeted or spilled.
+*Corrected 2026-11-25 by § M1-02 (#16, idle, Friendster, async, 1 iteration, 16 threads,
+f64 weights, compressed level 0):* the 22.6 GiB need (written "23.6 GB" earlier) is that
+of this lab's member-order aggregation, which holds the level-1 graph in memory. With
+sequential aggregation into budgeted buckets and spilled quotient graphs, the same Leiden
+runs under 16 GiB in 87.4 s, 1.17× the same algorithm in RAM (74.8 s), and under 8 GiB at
+2.34×; 0 disconnected communities
+(`bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl`,
+`…20261125T174959Z-b61036e59740.jsonl`). The orkut figures above are superseded by the
+same method: under 447 MiB (50% of the edge array) 3.10× the same algorithm in RAM, not
+5.6× or 51×. What remains is the production implementation (#60), not feasibility.
 
 Not done: twitter-sym, directed graphs, deterministic mode at 10^9 edges, quality on
 non-social graph families, Miri/TSan on the shared-memory code.
@@ -885,6 +895,12 @@ on lj (map-shaped Louvain, 8 threads), not on Friendster.
   memory reached the limit while the 15 GB mapped graph was being re-read: 1.80 TB read by
   Leiden, 2.72–2.74 TB by Louvain (rows 9, 11–12). Leiden's level-1 quotient graph alone is
   about 22 GB (arithmetic: 2.77 B entries × 8 B, from the 56 GiB warm-up log).
+  *Addressed in the lab, 2026-11-25 (§ M1-02, #16; Friendster, async, 1 iteration, 16
+  threads, compressed level 0, not b2's raw CSR at 32 threads):* with sequential
+  aggregation and quotient graphs spilled as compressed stores, Leiden completes under
+  16 GiB in 87.4 s (1.17× the same algorithm in RAM) and map-shaped Leiden under 16 GiB in
+  164.1 s (Q 0.5900, 27 top communities). The production code is #60; layout (#67) and
+  tiles (#69) remain the blockers of this chain.
 - **The partition that fits cannot be drawn.** Plain Louvain fits (4.2 GiB anonymous;
   aggregation 74.6 s of b2's 104.3 s, `b2_louvain_plain_16G.json`), but its hierarchy has a
   parent with 18,723,769 children, the largest community 19.8 M nodes and 62 disconnected
@@ -967,3 +983,84 @@ ingest under 16 GiB with a budget other than 8 GB; tiles under 16 GiB to complet
 deterministic or multi-iteration Leiden; the compressed default storage (the lab binaries
 read raw CSR); `fsync`; frame-time headroom (vsync-capped); a viewer without a GPU.
 Repetitions: 1 for the expected-OOM cases and for tiles, 2 for communities and layout.
+
+---
+
+## M1-02 — out-of-core Leiden (#16; 2026-11-25, idle machine)
+
+Code `lab/m1-02-ooc-leiden`; spec `bench/specs/ooc-leiden.toml`; official runs
+`bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl` (25 rows, revision
+e501e2c) and `…20261125T174959Z-b61036e59740.jsonl` (the same-algorithm in-RAM reference,
+6 rows, revision b61036e, which differs from e501e2c only by the review fixes), each with
+its `.program.jsonl` (per-pass phases, bytes read and written, accountant report, hashes);
+0 disturbed rows. Exploratory records in `lab/m1-02-ooc-leiden/results/`. Times below are
+medians of the counted repetitions (1–3 per case).
+
+**Setup.** Friendster, async Leiden, 1 iteration, 16 threads, f64 weights, level 0 in the
+D4 compressed store; kernel time only (no open, no evaluation). Out of core = cold private
+copy, mmap without pre-fault, sequential aggregation into range-partitioned buckets (RAM
+while the accountant allows, else files), quotient graphs as compressed stores on disk,
+every large allocation reserved in an accountant stub (budget 0.80 × limit − 64 MiB).
+Reference: the same algorithm in RAM (nothing spilled, warm, `--ooc --budget-gb 40` under
+48 GiB): 74.8 s (74.4–75.5, 3 repetitions), Q 0.6038 (0.6034–0.6055), anonymous peak
+29.0 GiB, 27.3 GB of buckets held in RAM. The member-order `--lowmem` aggregation takes
+100.1 s (2 repetitions); M1-13's default member-order aggregation took 82.0 s with no
+limit (`lab/m1-13-compressed/results/leiden_big.jsonl`) and is OOM-killed under 48 GiB
+(exit 137, `lab/m1-02-ooc-leiden/results/default_agg_oom.jsonl`, exploratory).
+
+**Results**, against the same-algorithm reference (in brackets: against `--lowmem` 100.1 s
+and against M1-13's 82.0 s):
+- 34 GiB: 77.1 s (1.03×; 0.77×, 0.94×);
+- 16 GiB: 87.4 s (1.17×; 0.87×, 1.07×), anonymous peak 8.9 GiB;
+- 8 GiB: 175.3 s (2.34×; 1.75×, 2.14×), anonymous peak 4.8 GiB;
+- 5 GiB: 215.8 s (2.88×; 2.16×, 2.63×), 1 repetition;
+- 4 GiB: 260.9 s (3.49×; 2.61×, 3.18×), anonymous peak 2.7 GiB, 1 repetition.
+
+0 disconnected communities in every row. Async Q 0.598–0.607 with block order, in RAM and
+out of core alike (two of the eight out-of-core block-order repetitions are below 0.60:
+0.5981 at 16 GiB, 0.5979 at 8 GiB). Deterministic Leiden gives the same partition in RAM
+(`--lowmem`, 107.3 s) and under 16 GiB (97.0 s): hash `2a12e5882874c38d`, Q 0.6055, 44,641
+communities. On lj and orkut, deterministic, the hashes in RAM and out of core at 0.25,
+0.3 and 0.6 GiB budgets are equal (`44ae14c7774277eb`, `ca792d246e7f461f`), with
+`--check-agg` confirming every level's quotient graph equal to the member-order aggregation
+(6 of 6 levels), and lj also at 1 and 4 threads (`results/determinism.jsonl`, exploratory).
+Map-shaped orkut gives the same hash and byte-identical level files in RAM and out of core
+(`results/map_identity.jsonl`, exploratory).
+
+**Costs.** Level-0 aggregation takes 1.62× its in-RAM time at 16 GiB (26.3 s against
+16.2 s) and 1.94–2.01× at 8–4 GiB, because 20–27 GB of buckets go to files and are read
+back (`bucket_disk_bytes`). Below 16 GiB, level-0 local moving with ADR 0015's
+block-permuted order re-reads the store (10.4 GB) 6.0×, 8.7× and 12.8× per sweep at 8, 5
+and 4 GiB (103.4, 121.0 and 150.2 s of local moving against 35.2 s; 406, 545 and 799 GB
+read). At 16 and 34 GiB level 0 reads about nothing: the store read by the strengths pass
+stays cached. **Smallest budget within 2.5× of the same algorithm in RAM: 8 GiB** (5 GiB
+only against `--lowmem`). The accountant's reservations exceed the measured anonymous peak
+(the gap is reserved headroom); no row exceeded its limit; demotion of RAM buckets to files
+and waits on memory occur in no official row (`demoted_bytes` and `mem_waits` 0), only in
+unit tests and one reviewer reproduction on lj.
+
+Map-shaped Leiden (cap 64, compaction 3), which b2 could not run at 56 GiB (§ M1-01), runs
+under 16 GiB in 164.1 s, Q 0.5900, 27 top communities, anonymous peak 10.9 GiB; no in-RAM
+reference exists. orkut under 447 MiB (50% of its raw edge array): 6.01 s, 3.10× the same
+algorithm in RAM (1.94 s) and 3.42× `--lowmem` (1.76 s); Q 0.6799; anonymous peak 0.23 GiB
+(the old lab: 5.6× near the edge-array size, 51× or OOM below it, § B2).
+
+**Survey ideas.** A seeded relabelling plus storage-order visits (L1) reads one store per
+sweep and runs Friendster in 95.4 s under 8 GiB and 107.2 s under 4 GiB (1.28× and 1.43×
+the block-order same-algorithm reference) with Q 0.611 (0.6097–0.6118); its own in-RAM run
+(`--lowmem`) takes 95.0 s. Its costs are compression (+5% on Friendster, +16% orkut, +26%
+lj; `results/stores.jsonl`) and, in exploratory runs (`results/orders.jsonl`), in-RAM time
+1.21–1.22× on lj and orkut and modularity −0.3 points on lj and −1.7 on orkut. Id order on
+Friendster's original ids is unstable (Q 0.558–0.612, 3 exploratory runs,
+`results/friendster_idorder.jsonl`). L1's comparison is confounded (ids and order change
+together; one graph, one seed; deterministic mode not measured); it is under study in
+`plan/issues/m1-14-relabel-at-ingest.md` (#146), and ADR 0015 is unchanged. Windowed permutation
+(L2) loses the quality of block order unless the window covers the graph; at level 0, L3
+finds no inactive blocks (`results/orders.jsonl`); never building level 1 (L4) would cost
+about 3× the spill path (arithmetic on official numbers, not measured). L5 not tested.
+
+**Not measured.** twitter-sym and other graph families; more than one iteration;
+deterministic mode below 16 GiB; a same-algorithm in-RAM reference for L1 or deterministic
+mode; thread counts other than 16 on Friendster; more than 2 async repetitions per budget;
+weighted inputs (exactness across budgets relies on integer weights); a disk budget (a full
+disk is refused with exit 5, not planned for).

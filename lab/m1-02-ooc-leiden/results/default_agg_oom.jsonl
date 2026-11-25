@@ -1,0 +1,1 @@
+{"case": "friendster in RAM, default (holey) aggregation, --mem mmap (pre-faulted), 16 threads, MemoryMax=48G MemorySwapMax=0", "exit_status": 137, "killed_by_oom": true, "completed": false, "stderr_tail": ""}
