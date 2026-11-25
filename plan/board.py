@@ -6,7 +6,7 @@ usage: plan/board.py todo|doing|done ISSUE [ISSUE ...]
 
 The board is user project 7 of VincenzoImp. Status options: Todo, In Progress, Done.
 """
-import json, subprocess, sys
+import json, subprocess, sys, time
 
 OWNER, NUMBER, REPO = "VincenzoImp", "7", "VincenzoImp/everygraph"
 PROJECT_ID = "PVT_kwHOA6w0f84BtBx7"
@@ -38,7 +38,11 @@ if cmd in OPTION:
     for n in map(int, sys.argv[2:]):
         if n not in board:
             gh("project", "item-add", NUMBER, "--owner", OWNER, "--url", f"https://github.com/{REPO}/issues/{n}")
-            board = items()
+            for _ in range(6):          # the new item can take a moment to appear in the list
+                board = items()
+                if n in board:
+                    break
+                time.sleep(2)
         if board[n][1] != cmd:
             set_status(board[n][0], cmd)
         print(f"#{n} -> {cmd}")
