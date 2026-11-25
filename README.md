@@ -71,7 +71,7 @@ the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBU
 
 ## Where to look
 
-- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 23 decisions with their evidence
+- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 25 decisions with their evidence (one ADR each under `docs/adr/`)
 - [docs/FINDINGS.md](docs/FINDINGS.md) — what the lab measured, including negative results
 - [docs/ROADMAP.md](docs/ROADMAP.md) — milestones and their exit criteria
 - [plan/](plan/) — every issue as a file, and the script that publishes them
