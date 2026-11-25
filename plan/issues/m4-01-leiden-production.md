@@ -22,6 +22,7 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 - [ ] Louvain kept as an internal baseline, not a public default (17–94 disconnected communities per run)
 - [ ] Outputs: membership column per level, community table (size, internal edges, volume, cut), modularity
 - [ ] Modularity with kept loops as `docs/spec/graph-semantics.md` § 5.5 (S5): `Q = Σ_c [L(c)/W − γ(S(c)/2W)²]`, L(c) counting each loop once, s(v) including the loop's 2w, Q = 0 when W = 0; the aggregation's quotient carries the input's kept loops on its diagonal with the internal edges (§ 5.5, S6)
+- [ ] The pass-stopping test leaves out vertices of strength 0: counting isolated vertices stopped the lab solve early on perturbed graphs (lj with a 1% edge drop: 9,559 communities instead of about 1,363; orkut 702 instead of 29) and flipped the map's super-level decision (#19, PR #162)
 
 **Acceptance (lab machine, idle, 16 threads)**
 - `fast`: lj ≤ 0.8 s, orkut ≤ 1.5 s, modularity ≥ lab values
