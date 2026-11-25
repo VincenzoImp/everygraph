@@ -37,4 +37,6 @@ labels: type:feature, area:ingest, P0, risk:medium, size:XL, lab-evidence
 
 **Pointers.** `lab/b1-core`, FINDINGS § B1 "Where the time goes".
 
-**Depends on** {{#m2-05-text-reader}}, {{#m2-07-id-mapping}}
+**Second research wave (2026-11-25, `docs/research/README.md` M1, R5).** The ranged writes of the build (list records by offset ranges) go through the safe helpers of {{#m2-28-par-scatter}}, not through a raw-pointer scatter copied from the lab. The drive rate behind the Friendster targets may be this host's, not the drive model's: the "~10 GB burst, then 1.4–1.6 GB/s" of ADR 0026 was measured on a drive mounted without `discard` and trimmed weekly, while a review of the same model empty reports a fast region of about 240 GB (`docs/research/sota-measurement.md` § 3.2). {{#m1-21-drive-state}} settles it; until then, report bytes written per edge next to every time (25.0 B/edge at 32 GB and 30.7 B/edge at 8 GB for the lab prototype, by arithmetic on ADR 0026's numbers).
+
+**Depends on** {{#m2-05-text-reader}}, {{#m2-07-id-mapping}}, {{#m2-28-par-scatter}}
