@@ -54,7 +54,9 @@ pub(super) struct Ends {
 /// (`docs/spec/eg-adjacency.md` § 5), so that a damaged byte is an error at its own
 /// node and every API agrees on the same bytes. Keeping the Elias–Fano iteration out of
 /// the decode loop leaves that loop its registers (lj scan, one thread, exploratory,
-/// binaries alternated: 1.13 → 1.27 G entries/s; PR of #30).
+/// binaries alternated: 1.13 → 1.27 G entries/s; PR of #30). Checking every record, not
+/// only the batch's end, costs the second sequence: lj 1.28 → 1.10 and orkut 2.37 →
+/// 2.17 G entries/s (exploratory, interleaved; `lab/m2-03-codec/results/record-check.jsonl`).
 #[inline(always)]
 pub(super) fn run(
     kernel: impl Fn(&[u8], u32, usize, usize, &mut [u32]) -> Result<usize, Corrupt>,
