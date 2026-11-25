@@ -61,6 +61,10 @@ jobs:
       # the Linux lint runs never see.
       - name: cargo clippy (workspace)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The adjacency codec first, on its own: its SIMD decoder for the platform (NEON
+      # on arm64) is tested even when another crate's tests fail.
+      - name: cargo test (format)
+        run: cargo test -p everygraph-format --release --locked
       - name: cargo test (workspace)
         run: cargo test --workspace --locked
       - name: cargo test (core, no default features)
