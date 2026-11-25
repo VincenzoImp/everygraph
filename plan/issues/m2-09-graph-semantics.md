@@ -18,8 +18,8 @@ labels: type:spec, area:ingest, P0, risk:medium, size:M
 - [ ] Settle the two cases the oracle ({{#m0-05-oracle}}, `oracle/SEMANTICS.md` Q2) leaves unchecked because the reference libraries disagree: PageRank, core numbers, clustering, transitivity and modularity on a graph with kept self-loops (whether a loop's +2 enters d(d−1) for clustering is undecided). Define them, add them to the kernel table, and turn the oracle's "not checked" into a check. The other answers are fixed (`design/DECISIONS.md`, 2026-11-25, "Graph semantics")
 - [ ] `duplicates="sum"` keeps one edge per pair with the summed weight, the count and the first and last time. The build records each numeric edge column's minimum, maximum and count of NaN, so that an operation on the whole graph can refuse a negative, NaN or infinite weight before any work and accept a clean column without reading it (`InvalidInput`, `docs/api-sketch.md` § 2.13)
 
-**Acceptance**
-- Spec in `docs/spec/graph-model.md`; every option covered by oracle tests
-- The ingest report sums exactly to the input row count
+**Acceptance** (amended 2026-11-25: the oracle and ingest parts are carried by their own issues)
+- `docs/spec/graph-semantics.md` merged: every kernel × graph-kind cell has a behaviour or a refusal; the open self-loop cases are decided (`design/DECISIONS.md`, "Graph semantics, the cases left to #36"); `docs/tools/check_graph_semantics.py` agrees with `docs/api-sketch.md` and `docs/ux-contract.md`
+- The oracle checks every option ({{#m2-16-oracle-semantics}}); the ingest report's identity (rows = rejected + dropped + merged + edges) is tested by {{#m2-08-csr-build}} and {{#m2-13-preflight-resume}}
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Defaults approved in `design/preview/choices.md` (A1–A4): repeated edges are kept as separate events and analysed once per pair with a weight; self-loops are dropped and counted; direction is taken from the caller, or inferred from column names (`from`/`to`, `source`/`target`) with a line in the summary; community detection ignores direction by default and says so.

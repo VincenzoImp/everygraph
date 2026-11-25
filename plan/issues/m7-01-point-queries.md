@@ -11,6 +11,7 @@ labels: type:feature, area:query, P0, risk:low, size:M, lab-evidence
 - [ ] Decoding straight from the compressed adjacency (random list decode 87–217 ns at 1 thread (#118)) with an optional raw hot tier
 - [ ] `khop` with `limit` decodes list prefixes and stops at the budget
 - [ ] Property projection on returned edges (weights, timestamps)
+- [ ] Kept loops and repeated pairs as `docs/spec/graph-semantics.md` § 6: `has_edge(a, a)` is true exactly when `a` has a kept loop; `neighbors(v)` lists `v` itself once when it has a kept loop, one row per distinct neighbour with `edges` (the multiplicity; the `edges` column under `sum`, 1 under `collapse`), the summed weight, `first`, `last`; `common_neighbors(a, b)` never lists `a` or `b`; `edges_between(A, B)` lists a loop at `v` when `v` is in both sets; reported sums never refuse (§ 4.4)
 - [ ] Concurrency: read-only queries from many threads (lab warm throughput: 77–155 M neighbour queries/s, idle, raw, 32 threads (`lab/m1-13-compressed/results/baseline_f1_*.json`))
 
 **Caveat on the baseline.** #118 ({{#m1-13-compressed-end-to-end}}) measured the default storage (idle, 1 thread): neighbours +0.02–0.11 µs per call (2.5–4.2× on timer-free means), bidirectional BFS p50 1.13–1.41×, 3-hop with a 10k budget up to 2.1× (twitter-sym) because whole hub lists are decoded. The acceptance targets are met without the raw tier: orkut neighbours p99 0.48 µs, common neighbours p50 0.52 µs, 3-hop p50 51 µs.

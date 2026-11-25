@@ -7,6 +7,7 @@ labels: type:feature, area:query, P1, risk:medium, size:L, lab-evidence
 
 **Scope (v0.1)**
 - [ ] Timestamp as a hot per-entry column; `g.window(t0, t1)` as a view, closed at both ends, a date meaning its whole day (`docs/api-sketch.md` § 2.3); `as_of` is not public in 0.1 (`g.window(None, t)`) ({{#m7-04-views}})
+- [ ] `window()` on a graph without a time column, or on a graph read with `duplicates="sum"` (the events' times are gone), is `Unsupported` (2), its way forward reading the input again with `duplicates="events"`; a start after the end is `ValueError` (2) (`docs/spec/graph-semantics.md` § 7, § 10 item 5)
 - [ ] Time-aware aggregates: edge counts and weight sums per time bucket for a node, a pair or a community
 - [ ] Temporal degree and activity series as Arrow tables
 
