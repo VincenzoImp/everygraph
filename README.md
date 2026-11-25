@@ -51,12 +51,28 @@ of the map's hierarchy and edges on dense graphs, and the cost of determinism. T
 "a billion edges to a map on a 16 GB laptop" has not been run end to end. These are the
 subject of the first work milestone. See [docs/DESIGN.md § 5](docs/DESIGN.md).
 
+## Building
+
+The Rust workspace is a skeleton: the crate layout, the coding rules, and the first
+pieces of the portable core (`crates/everygraph-core`). It needs Rust 1.85 or newer and
+nothing else.
+
+```sh
+cargo build --workspace
+cargo test --workspace
+cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
+```
+
+The full list of checks a change must pass, and the rules behind them (portability of
+the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Where to look
 
 - [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 23 decisions with their evidence
 - [docs/FINDINGS.md](docs/FINDINGS.md) — what the lab measured, including negative results
 - [docs/ROADMAP.md](docs/ROADMAP.md) — milestones and their exit criteria
 - [plan/](plan/) — every issue as a file, and the script that publishes them
+- [crates/](crates/) — the Rust workspace; rules in [CONTRIBUTING.md](CONTRIBUTING.md)
 - [lab/](lab/) — the prototypes behind the numbers (research code, not the product)
 
 ## Licence

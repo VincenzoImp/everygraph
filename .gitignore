@@ -1,8 +1,17 @@
+# Cargo build output. `target-*/` covers the per-configuration directories the lab
+# scripts use; the pattern is not `target*/`, which would also hide a source directory
+# named `targets`.
 target/
-**/target*/
+**/target-*/
 .venv*/
 node_modules/
 __pycache__/
 *.pyc
 .claude/settings.local.json
 .claude/worktrees/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
