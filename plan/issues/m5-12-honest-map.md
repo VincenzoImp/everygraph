@@ -10,6 +10,7 @@ labels: type:docs, area:map, P1, risk:low, size:S, lab-evidence
 - [ ] In the docs: "how to read an Everygraph map" with do/do-not examples; a section on community-detection limits (resolution limit, communities in random graphs)
 - [ ] Export captions with screenshots
 - [ ] A reviewer checklist for showcase maps before publication
+- [ ] A "questions to ask of this map" page, linked from the plan card (added 2026-11-25, `docs/research/README.md` H10): barriers to network exploration come before the tool — setting goals, choosing structures and visual mappings (AlKadi et al., VIS'22, abstract only) — so the page starts from the analyst's goal and says which view answers which question
 
 **Acceptance**
 - No screenshot can be exported without its caption

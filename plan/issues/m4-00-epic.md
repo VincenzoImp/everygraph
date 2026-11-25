@@ -11,9 +11,9 @@ Tracking issue for milestone M4.
 
 **Exit criteria**
 - [ ] {{#m4-01-leiden-production}}, {{#m4-02-weights-resolution}}, {{#m4-03-parallel-aggregation}}
-- [ ] Out-of-core: {{#m4-04-ooc-leiden}} — Friendster under 16 GiB with Q ≥ 0.60
+- [ ] Out-of-core: {{#m4-04-ooc-leiden}} — Friendster under 16 GiB with Q ≥ 0.60; the quality mode within 1% of the better of NetworKit PLM and GVE-Leiden run on this machine (DESIGN § 6, restated 2026-11-25; measured in {{#m4-01-leiden-production}})
 - [ ] {{#m4-05-quality-gates}} — within 1% of the best reference on six families
-- [ ] {{#m4-06-hierarchy-artifact}}, {{#m4-07-map-hierarchy}}
+- [ ] {{#m4-06-hierarchy-artifact}}, {{#m4-07-map-hierarchy}}, with {{#m4-10-per-region-jobs}} and {{#m4-11-labelled-binning}}
 - [ ] {{#m4-08-community-tools}}; optional {{#m4-09-label-propagation}}
 
 **Blocked by M1 results:** {{#m1-02-ooc-aggregation}}, {{#m1-03-louvain-collapse}}, {{#m1-04-det-leiden-scaling}}, {{#m1-05-hierarchy-shaping}}.

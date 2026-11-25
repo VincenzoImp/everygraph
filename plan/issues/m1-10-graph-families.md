@@ -6,7 +6,7 @@ labels: type:experiment, area:bench, P1, risk:medium, size:L
 **Question.** Every quality and layout conclusion so far rests on two undirected, unweighted social graphs. Do they hold elsewhere?
 
 **Scope**
-- [ ] Families: web (uk-2005), road (europe_osm — high diameter, degree ≈ 2), bipartite (user–item), weighted (e.g. a co-occurrence graph), directed social (twitter-2010), a transaction-style multigraph with timestamps
+- [ ] Families: web (uk-2005, and the Web Data Commons 2012 host graph: 101 M nodes, 2,043 M arcs, real web topology, Common Crawl terms of use; `docs/research/memory-bounded-algorithms.md` addendum item 18), road (europe_osm — high diameter, degree ≈ 2), bipartite (user–item), weighted (e.g. a co-occurrence graph), directed social (twitter-2010), a transaction-style multigraph with timestamps
 - [ ] Per family: ingest rate and bits/edge; kernel times and scaling (BFS on high-diameter graphs is a known weak spot for direction-optimizing BFS); Leiden modularity vs the best reference and number of iterations; hierarchy fan-out; a layout image
 - [ ] Directed graphs: decide the community objective (symmetrize vs directed modularity) and what PageRank/WCC/SCC mean in the API
 - [ ] Bipartite: does the map make sense, or does it need a projection?

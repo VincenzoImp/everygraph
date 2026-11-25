@@ -22,8 +22,18 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 - [ ] Louvain kept as an internal baseline, not a public default (17–94 disconnected communities per run)
 - [ ] Outputs: membership column per level, community table (size, internal edges, volume, cut), modularity
 - [ ] Modularity with kept loops as `docs/spec/graph-semantics.md` § 5.5 (S5): `Q = Σ_c [L(c)/W − γ(S(c)/2W)²]`, L(c) counting each loop once, s(v) including the loop's 2w, Q = 0 when W = 0; the aggregation's quotient carries the input's kept loops on its diagonal with the internal edges (§ 5.5, S6)
+- [ ] The pass-stopping test leaves out vertices of strength 0: counting isolated vertices stopped the lab solve early on perturbed graphs (lj with a 1% edge drop: 9,559 communities instead of about 1,363; orkut 702 instead of 29) and flipped the map's super-level decision (#19, PR #162)
+
+**Quality experiments before the quality mode is frozen** (added 2026-11-25, `docs/research/README.md` B6; `docs/research/sota-communities.md` § 3 D15, challenges 2, 3, 7, 8). Each is an interleaved A/B in one harness run, in the deterministic mode, with the hash checked at 1, 4 and 16 threads. Every Friendster run is under `systemd-run --user --scope -p MemoryMax=… -p MemorySwapMax=0` with the limit stated.
+- [ ] **Same-machine references.** NetworKit PLM and GVE-Leiden on lj, orkut and Friendster, same graph and preprocessing, pinned versions, run here. They are the reference of DESIGN § 6 (restated 2026-11-25). Published numbers for orientation only: on Friendster, sequential Louvain 0.622 and NetworKit PLM 0.627 (DSLM paper, mean of 10 seeds, their 2 × 14-core hosts)
+- [ ] **Friendster at 3 iterations and to convergence**, in RAM and under 16 GiB, deterministic and fast. Never run so far; our one-iteration results are 0.6038–0.6055
+- [ ] **Prolongation refinement** (a local-move pass on each finer level after projecting the coarse partition; PLMR, Louvain+), at 1 iteration, against 3 iterations; lj, orkut, Friendster; Q and time. Published: removing pLouvain's uncoarsening costs 0.0126 Q on average over 57 graphs, and keeping it costs 1.29× the time (Gilbert, Madduri 2026, GPU); NetworKit's PLMR "generally leads to a (sometimes significant) improvement". Out of core each level is re-read once more
+- [ ] **A refinement faithful to Traag et al. 2019** in the quality mode: a seeded randomized merge (a counter-based hash of seed, iteration and vertex chooses among positive-gain targets, Traag's θ) instead of the lab's greedy constrained merging (`lab/b2-leiden/src/main.rs` l. 471). Greedy refinement gives up Leiden's asymptotic guarantees at 3+ iterations. lj and orkut at 3 and 10 iterations, greedy against seeded
+- [ ] **Split disconnected communities every pass against last** (GSP-Louvain reports higher modularity for every pass, without an absolute number); lj, orkut, Friendster; Q, time, communities. Splits change the coarse levels, so hashes change once
+- [ ] Results recorded in FINDINGS; the quality mode's definition fixed from them
 
 **Acceptance (lab machine, idle, 16 threads)**
+- Friendster, quality mode (3 iterations) under 16 GiB: within 1% of the better of NetworKit PLM and GVE-Leiden run on this machine; the fast mode's gap to the same reference stated (DESIGN § 6)
 - `fast`: lj ≤ 0.8 s, orkut ≤ 1.5 s, modularity ≥ lab values
 - `deterministic`: identical hash at 1, 2, 4, 8, 16 threads on all tier-1/2 graphs; time ≤ 2× `fast` (stretch 1.5×, pending {{#m1-04-det-leiden-scaling}})
 - 0 disconnected communities on every run

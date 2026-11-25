@@ -140,6 +140,15 @@ network, not on this machine. So:
   duplicated helpers, and a **test audit** with `cargo-mutants` — a test that no mutation
   can make fail is rewritten or removed; prefer property and oracle tests that cover many
   cases to many hand-written ones. The pull-request CI stays under 15 minutes.
+- **Quality gates (the owner's main risks, 2026-11-26: bugs we never find, heavy code,
+  weak tests, performance).** A kernel or format is "done" only with: an independent oracle
+  or metamorphic relation that would catch a wrong answer (`m3-16-metamorphic-oracle`), a fuzz target replayed in
+  CI for anything that parses bytes (`m2-30-fuzz-ci`), fault injection for anything that writes
+  (`m2-29-fault-injection-io`), a mutation audit with no surviving mutant left unexplained (`m3-17-cargo-mutants`), and a
+  performance number from an interleaved A/B against the best known implementation, not
+  against our own previous code alone. Every review states lines added and asks whether
+  they are needed; every milestone report lists source and test lines per crate, and a crate
+  that grew more than its features justify gets a cleanup issue.
 
 - Use them for independent work in parallel: separate issues, experiments, reviews.
   Brief them with the issue file path, the acceptance criteria and the rules in this file.
