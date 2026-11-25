@@ -61,6 +61,12 @@ serial 50223142 at every milestone.
   i686-unknown-linux-gnu, cargo-deny, cargo-nextest, cargo-fuzz, hyperfine, maturin (uv
   tool), node 26, uv. `perf` 6.12 with `kernel.perf_event_paranoid=2` (persistent): user-space hardware counters work without privileges.
 
+## Measurement queue (official runs, batched into one window)
+
+- #29 I/O layer: `everygraph-bench run io --official --only friendster` (~4 min), after the review fixes.
+- #31 arrays and accountant: `everygraph-bench run segvec --official` (~12 min, 40 GiB free), after review.
+- Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
+
 ## Needs the owner's hands (nothing here blocks development)
 
 Tell the owner when each becomes due, with everything prepared.
@@ -69,6 +75,8 @@ Tell the owner when each becomes due, with everything prepared.
   commits made by agents under the owner's account, then set the repository variable
   `DCO_ALL_PULL_REQUESTS=true`.
 - Accounts with 2FA on PyPI, crates.io and npm — at the first release.
+- **Publication (owner's decision, 2026-11-25):** the owner runs `gh repo edit VincenzoImp/everygraph --visibility public --accept-visibility-change-consequences`. Then Claude enables private vulnerability reporting, sets `DCO_ALL_PULL_REQUESTS=true` after the owner authorizes sign-offs, and keeps CI on GitHub-hosted runners (free once public). GitHub Actions: no spending.
+- Package names: placeholders ready in `/home/tux/graphlab/name-reservation` (crates `everygraph`, `everygraph-cli`; PyPI `everygraph`; npm `everygraph`); publishing needs the owner's accounts with 2FA — all four names were free on 2026-11-25.
 - A trademark and patent professional (#122) — before anything is public.
 
 ## Lessons (append, never delete)

@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #29 (m2-02), acceptance: "Sequential scan through the O_DIRECT backend reaches
+# >= 80% of the device's sequential bandwidth on the lab NVMe".
+#
+# One file read front to back, every byte summed as 64-bit words:
+# - direct: crates/everygraph-io/examples/scan.rs through `FileSource::open_direct`, one
+#   `SegmentReader` per thread, 8 MiB segments handed out by a shared counter — the
+#   backend under test;
+# - raw: the same program and loop without the crate: `pread` on a file opened with
+#   O_DIRECT into one aligned 8 MiB buffer per thread, no in-flight bound;
+# - dd: `dd iflag=direct`, one thread, 64 MiB requests — a standard tool, independent
+#   of our code. Its rate is computed from the bytes and seconds dd prints (C locale),
+#   not from its rounded "GB/s", which turns into "MB/s" below 1 GB/s.
+# Every mode reads with O_DIRECT, which does not read from the page cache, so the cache
+# state of the input does not matter (warm, no warm-up, no private copy). Read-only.
+#
+# Order. The harness runs the repetitions of one case back to back, and the cases in
+# the order of the matrix (keys alphabetically, threads innermost). So repetitions are
+# not used: `batch` is the outermost key, and each batch runs every configuration once —
+# dd, then direct and raw at 1…32 threads — before the next batch repeats them. A drive
+# that heats up and slows down affects all modes alike, and the drive's temperature is
+# recorded before and after every run (metrics drive_temp_before_c, drive_temp_after_c).
+#
+# The result. For each (mode, threads), the median over the 3 batches (rows of the same
+# configuration across batches). The device's sequential bandwidth is the best of those
+# medians among raw and dd; the criterion is direct's best median against it. Quote both
+# configurations: "direct at T threads X GB/s = R of the device's Y GB/s (raw at T'
+# threads | dd)", with the temperature range.
+#
+# Inputs: csr/friendster/targets.u32 (14.4 GB) for the record; csr/orkut/targets.u32
+# (0.94 GB) as the quick development check (`--only orkut`), too short to quote.
+#
+# Run: everygraph-bench run io --official --only friendster --data /home/tux/graphlab/data
+# (about 4 minutes, estimated: 33 runs of 2-3 s plus the settle windows, and a release
+# build of the example the first time.)
+
+schema = 1
+name = "io"
+description = "Sequential O_DIRECT scan through everygraph-io against raw O_DIRECT and dd (#29)"
+reference = "plan/issues/m2-02-io-layer.md, acceptance"
+binaries = ["{scan}"]
+
+[defaults]
+memory_limit = "2G"
+repetitions = 1
+warmup = 0
+threads = [1, 4, 8, 16, 32]
+timeout = "5m"
+
+[vars]
+scan = "{repo}/target/release/examples/scan"
+temp = "cat /sys/class/nvme/nvme0/hwmon*/temp1_input 2>/dev/null | head -n 1"
+
+[[prepare]]
+name = "build-scan"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--locked", "-p", "everygraph-io", "--example", "scan"]
+needed_by = ["scan"]
+
+[[benchmark]]
+name = "scan"
+group = "sequential scan"
+dataset_path = "csr/{graph}"
+matrix = { batch = ["1", "2", "3"], graph = ["friendster", "orkut"], mode = ["dd", "direct", "raw"] }
+exclude = [
+  { mode = "dd", threads = 4 },
+  { mode = "dd", threads = 8 },
+  { mode = "dd", threads = 16 },
+  { mode = "dd", threads = 32 },
+]
+shell = """
+set -e
+before=$({temp})
+if [ {mode} = dd ]; then
+  LC_ALL=C dd if={dataset}/targets.u32 of=/dev/null bs=64M iflag=direct 2>&1 \\
+    | awk '/ copied, / {{ printf "{{\\"gb_per_s\\":%.4f,\\"seconds\\":%s}}\\n", $1 / $(NF-3) / 1e9, $(NF-3) }}'
+else
+  {scan} {mode} {dataset}/targets.u32 --threads {threads} --segment-mib 8
+fi
+echo "drive temperature before=$before after=$({temp})"
+"""
+conditions = { graph = "{graph} targets.u32", io = "O_DIRECT", mode = "{mode}", batch = "{batch} of 3", segment = "8 MiB per read and per thread (dd: 64 MiB, one thread)" }
+metric = [
+  { name = "gb_per_s", json = "/gb_per_s", unit = "GB/s" },
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "drive_temp_before_c", regex = 'drive temperature before=([0-9]+)', from = "stdout", scale = 0.001, unit = "°C", optional = true },
+  { name = "drive_temp_after_c", regex = 'after=([0-9]+)', from = "stdout", scale = 0.001, unit = "°C", optional = true },
+]
+primary = "gb_per_s"

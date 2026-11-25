@@ -210,7 +210,7 @@ pub fn read_rows(path: &Path, parse: &Parse, directed: bool, max_memory: u64) ->
         };
         let (a, b) = (a.trim(), b.trim());
         rows += 1;
-        if rows % 65_536 == 0 && estimate(rows, 0) > max_memory {
+        if rows.is_multiple_of(65_536) && estimate(rows, 0) > max_memory {
             return Err(refuse(rows, 0));
         }
         if integer {

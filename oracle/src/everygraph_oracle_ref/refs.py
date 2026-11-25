@@ -17,13 +17,15 @@ import numpy as np
 import scipy.sparse.csgraph as csg
 
 from .compare import canonical_labels
-from .graph import Projection, to_igraph, to_networkx, to_scipy
+from .graph import Projection, ingest_report, to_igraph, to_networkx, to_scipy
 
 # Library conventions mapped to Everygraph's, each with the SEMANTICS.md row it follows.
 ADJUSTMENTS = {
     "igraph.transitivity_local_undirected": "mode='zero': degree < 2 gives 0, not NaN (row 'clustering, degree < 2')",
     "igraph.transitivity_undirected": "NaN (no connected triple) mapped to 0 (row 'transitivity, no triple')",
     "igraph.modularity": "NaN (no edges) mapped to 0 (row 'modularity, no edges')",
+    "networkx.pagerank.loops": "an undirected kept loop is given weight 2w (2 unweighted), so that A[v][v] = 2w as in igraph and docs/spec/graph-semantics.md S1; NetworkX puts w on the diagonal (row 'PageRank, undirected, loops kept')",
+    "core_number.loops": "loops removed before core numbers: igraph counts them (a lone looped node is a 2-core), NetworkX refuses them; S2 ignores them (row 'core numbers, loops kept')",
     "networkx.pagerank": "tol = 1e-14 / n, so that NetworkX's stopping rule (L1 change < n * tol) means L1 change < 1e-14 whatever n; retried with 1e-12 / n and 1e-10 / n if rounding noise prevents convergence; max_iter = 20000",
 }
 
@@ -54,7 +56,7 @@ def _dist_reals(row) -> list:
     return [None if math.isinf(x) else float(x) for x in row]
 
 
-def _nx_pagerank(G, damping, weighted):
+def _nx_pagerank(G, damping, weight):
     """NetworkX PageRank as close to the fixed point as its stopping rule allows.
 
     NetworkX stops when the L1 change between iterates is below n * tol, so tol is scaled
@@ -66,7 +68,6 @@ def _nx_pagerank(G, damping, weighted):
     LAST_NX_TOL.pop("tol", None)
     if n == 0:
         return []
-    weight = "wsum" if weighted else None
     for bound in (1e-14, 1e-12, 1e-10):
         try:
             pr = nx.pagerank(G, alpha=damping, max_iter=20000, tol=bound / n, weight=weight)
@@ -128,7 +129,7 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
         A = to_scipy(p)
         rows = np.diff(A.indptr).astype(int).tolist() if n else []
         cols = np.bincount(A.indices, minlength=n).astype(int).tolist() if n else []
-        loop_set = set(p.loop_nodes) if loops else set()
+        loop_set = set(p.loops)
         loop = [1 if v in loop_set else 0 for v in range(n)]
         if k == "degree":
             Au = to_scipy(p, undirected=True)
@@ -142,8 +143,12 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
 
     if k == "pagerank":
         d, weighted = kernel["damping"], kernel["weighted"]
-        out["networkx"] = {"reals": _nx_pagerank(to_networkx(p), d, weighted)}
-        H = to_igraph(p)
+        G = to_networkx(p, loops=True)
+        for u, v, a in G.edges(data=True):
+            w = a["wsum"] if weighted else 1.0
+            a["pr"] = 2.0 * w if u == v and not p.directed else w
+        out["networkx"] = {"reals": _nx_pagerank(G, d, "pr")}
+        H = to_igraph(p, loops=True)  # igraph doubles an undirected loop itself
         if n:
             pr = H.pagerank(damping=d, directed=p.directed, weights="wsum" if weighted else None, implementation="prpack")
         else:
@@ -190,6 +195,10 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
         out["scipy"] = {"reals": _dist_reals(sc.tolist())}
         return out
 
+    if k == "ingest_report":
+        return {"python": {"counts": ingest_report(p)}}
+
+    # Loop-free: core numbers, triangles, clustering and transitivity ignore kept loops (S2-S4).
     Gu = to_networkx(p, undirected=True)
     Hu = to_igraph(p, undirected=True)
 
@@ -235,8 +244,12 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
         groups: dict[int, set[int]] = {}
         for v, c in enumerate(partition):
             groups.setdefault(c, set()).add(v)
-        out["networkx"] = {"real": float(nx.community.modularity(Gu, list(groups.values()), weight=None, resolution=gamma))}
-        q = Hu.modularity(partition, weights=None, resolution=gamma, directed=False)
+        # A kept loop is a pair inside its community, counted as both libraries do (S5).
+        weight = "wsum" if kernel.get("weighted") else None
+        Gm = to_networkx(p, undirected=True, loops=True)
+        Hm = to_igraph(p, undirected=True, loops=True)
+        out["networkx"] = {"real": float(nx.community.modularity(Gm, list(groups.values()), weight=weight, resolution=gamma))}
+        q = Hm.modularity(partition, weights=weight, resolution=gamma, directed=False)
         out["igraph"] = {"real": 0.0 if math.isnan(q) else float(q)}
         return out
 

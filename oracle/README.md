@@ -134,7 +134,8 @@ Python and by external kernels (`exchange.rs`, `graph.py`):
   - `format` (`"everygraph-oracle-graph"`) and `version` (1);
   - `name`, `n` (isolated nodes included), `directed`, `rows`;
   - `columns` (`src`, `dst`, then optional `weight` and `time`);
-  - `semantics` (`{"self_loops": "drop" | "keep"}`);
+  - `semantics` (`{"self_loops": "drop" | "keep", "duplicates": "events" | "collapse" |
+    "sum"}`; `duplicates` defaults to `events` when absent);
   - `partition` (file name or null);
   - `kernels`: the kernels to check, for example `{"kernel": "bfs", "source": 3}`;
   - `provenance`: the generator spec, which regenerates the graph exactly.
@@ -145,8 +146,6 @@ Python and by external kernels (`exchange.rs`, `graph.py`):
 - **`reference.json`** is written by `oracle-ref run`:
   - `libraries` with their versions;
   - `adjustments`, see SEMANTICS.md;
-  - `ingest`: the Python side's own count of rows, self-loop rows, duplicate rows, pairs
-    and isolates;
   - `results`: per kernel, each library's answer and whether they agree;
   - `disagreements` and `errors`.
 
@@ -160,6 +159,7 @@ Python and by external kernels (`exchange.rs`, `graph.py`):
 | `count` | a single count |
 | `real` | a single real |
 | `csr` | `offsets` and `targets` of an adjacency |
+| `counts` | named counts: the ingest report (`counts.rows`, `dropped.self_loops`, ...), compared exactly; the Python side's answer is under the name `python` |
 | `quotient` | community `sizes` and weighted `edges` |
 
 **External kernels** (`external.rs`) are programs run once per (graph, kernel,
@@ -170,14 +170,19 @@ They print one output as JSON. This is how the lab prototype is checked today
 ## Semantics
 
 Kernels run on the *analytic graph* (`projection.rs`, `graph.py`), the rules of
-`plan/issues/m2-09-graph-semantics.md` applied to the rows:
+`docs/spec/graph-semantics.md` applied to the rows:
 
-- self-loops are dropped and counted, unless the graph keeps them;
+- self-loops are dropped and counted, unless the graph keeps them; a kept loop is the
+  pair {v, v}, `A[v][v] = 2w` undirected and `w` directed for degrees, PageRank,
+  modularity and the quotient, ignored by core numbers, triangles, clustering,
+  transitivity, components and traversals;
 - a repeated pair is analysed once, with its multiplicity, summed weight and smallest
-  weight;
+  weight (`duplicates = events`); `collapse` keeps the pair's first row only; `sum`
+  analyses as `events`, except that a step's cost is the summed weight;
 - the undirected projection of a directed graph has {u, v} if either arc exists.
 
-The ingest counts add up to the rows (a property test checks it). Where NetworkX and
+The ingest report (`ingest_report` kernel) and its two identities are checked on every
+graph. Where NetworkX and
 igraph disagree, [`SEMANTICS.md`](SEMANTICS.md) records the case, what each does and what
 Everygraph does. It ends with the decisions (Q1–Q13, 2026-11-25) taken where no earlier rule applied.
 

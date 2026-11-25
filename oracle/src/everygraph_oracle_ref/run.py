@@ -96,23 +96,11 @@ def one(d: str) -> dict:
         if kernel["kernel"] == "pagerank":
             entry["networkx_tol"] = refs.LAST_NX_TOL.get("tol")
         results.append(entry)
-    pairs = len(p.arcs)
-    touched = {v for pair in p.undirected for v in pair}
-    if p.keep_loops:
-        touched.update(p.loop_nodes)
-    isolates = g.n - len(touched)
     doc = {
         "format": REFERENCE_FORMAT,
         "version": 1,
         "libraries": versions(),
         "adjustments": ADJUSTMENTS,
-        "ingest": {
-            "rows": len(g.src),
-            "self_loop_rows": p.self_loop_rows,
-            "duplicate_rows": p.duplicate_rows,
-            "pairs": pairs,
-            "isolates": isolates,
-        },
         "results": results,
         "disagreements": disagreements,
         "errors": errors,

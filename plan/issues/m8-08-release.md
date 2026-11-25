@@ -10,7 +10,7 @@ labels: type:infra, area:launch, P0, risk:low, size:M
 - [ ] README with a 30-second demo (animated map), quickstart, honest comparison table, links to benchmarks
 - [ ] Launch material: blog post with the method behind each claim, short demo video, posts for Hacker News / relevant subreddits / network-science and graph-database communities
 - [ ] Pre-launch review by 3–5 outside practitioners; fix what confuses them. The public names listed in `docs/api-sketch.md` § 2.10 are frozen only after this review (finding the reviewers needs the owner: messages from the owner's accounts)
-- [ ] Make the repository public only after {{#m0-09-name-trademark}} and {{#m8-10-legal-opinions}} are closed
+- [x] Repository made public during development by the owner's decision of 2026-11-25 (`design/DECISIONS.md`, "When the repository becomes public"); the legal opinions ({{#m8-10-legal-opinions}}) remain advisable before the first announced release
 
 **Acceptance**
 - `pip install everygraph==0.1.0` and `cargo install everygraph-cli` work on all supported platforms on release day

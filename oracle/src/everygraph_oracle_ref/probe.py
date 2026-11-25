@@ -99,25 +99,57 @@ def cases() -> list[dict]:
     row("loop-degree-dropped", "degree with the default semantics (loops dropped)", "triangle + loop at 0, undirected",
         lambda: "n/a (no drop option)", lambda: "n/a (no drop option)",
         _ours(3, LOOP, False, {"kernel": "degree"}))
-    row("loop-core", "core numbers with a self-loop", "triangle + loop at 0, undirected",
+    # From here on the Everygraph column keeps the loops (docs/spec/graph-semantics.md S1-S6).
+    row("loop-core", "core numbers with a kept self-loop", "triangle + loop at 0, undirected",
         lambda: _nodes(nx.core_number(nx.Graph(G))), lambda: H.coreness(),
-        _ours(3, LOOP, False, {"kernel": "core_number"}))
-    row("loop-pagerank", "PageRank with a self-loop", "triangle + loop at 0, undirected",
-        lambda: _nodes(nx.pagerank(nx.Graph(G))), lambda: H.pagerank(),
-        _ours(3, LOOP, False, {"kernel": "pagerank", "damping": 0.85, "weighted": False}))
+        _ours(3, LOOP, False, {"kernel": "core_number"}, keep_loops=True))
+    G1, H1 = _raw(2, [(0, 0)], False)
+    row("loop-core-lone", "core numbers of a lone node with a kept self-loop", "loop at 0, node 1 isolated",
+        lambda: _nodes(nx.core_number(nx.Graph(G1))), lambda: H1.coreness(),
+        _ours(2, [(0, 0)], False, {"kernel": "core_number"}, keep_loops=True))
+    E2 = [(0, 0), (1, 1), (0, 1)]
+    G2l, H2l = _raw(2, E2, False)
+    row("loop-core-pair", "core numbers of two linked nodes with a kept self-loop each", "edge 0-1, loops at 0 and 1",
+        lambda: _nodes(nx.core_number(nx.Graph(G2l))), lambda: H2l.coreness(),
+        _ours(2, E2, False, {"kernel": "core_number"}, keep_loops=True))
+    row("loop-pagerank", "PageRank with a kept self-loop", "triangle + loop at 0, undirected",
+        lambda: _nodes(nx.pagerank(nx.Graph(G), tol=1e-15, max_iter=10000)), lambda: H.pagerank(),
+        _ours(3, LOOP, False, {"kernel": "pagerank", "damping": 0.85, "weighted": False}, keep_loops=True))
+    W3 = [3.0, 1.0, 1.0, 1.0]
+    Gw3, Hw3 = _raw(3, LOOP, False, W3)
+    row("loop-pagerank-weighted", "weighted PageRank with a kept self-loop of weight 3", "triangle + loop at 0 of weight 3, undirected",
+        lambda: _nodes(nx.pagerank(nx.Graph(Gw3), tol=1e-15, max_iter=10000)), lambda: Hw3.pagerank(weights="weight"),
+        _ours(3, LOOP, False, {"kernel": "pagerank", "damping": 0.85, "weighted": True}, weights=W3, keep_loops=True))
     Gd, Hd = _raw(3, [(0, 0), (0, 1), (1, 2), (2, 0)], True)
-    row("loop-pagerank-directed", "PageRank with a self-loop, directed", "3-cycle + loop at 0, directed",
-        lambda: _nodes(nx.pagerank(nx.DiGraph(Gd))), lambda: Hd.pagerank(),
-        _ours(3, [(0, 0), (0, 1), (1, 2), (2, 0)], True, {"kernel": "pagerank", "damping": 0.85, "weighted": False}))
-    row("loop-triangles", "triangles with a self-loop", "triangle + loop at 0, undirected",
+    row("loop-pagerank-directed", "PageRank with a kept self-loop, directed", "3-cycle + loop at 0, directed",
+        lambda: _nodes(nx.pagerank(nx.DiGraph(Gd), tol=1e-15, max_iter=10000)), lambda: Hd.pagerank(),
+        _ours(3, [(0, 0), (0, 1), (1, 2), (2, 0)], True, {"kernel": "pagerank", "damping": 0.85, "weighted": False}, keep_loops=True))
+    row("loop-triangles", "triangles with a kept self-loop", "triangle + loop at 0, undirected",
         lambda: _nodes(nx.triangles(nx.Graph(G))), lambda: [sum(v in t for t in H.list_triangles()) for v in range(3)],
-        _ours(3, LOOP, False, {"kernel": "triangles"}))
-    row("loop-clustering", "clustering with a self-loop", "triangle + loop at 0, undirected",
+        _ours(3, LOOP, False, {"kernel": "triangles"}, keep_loops=True))
+    row("loop-clustering", "clustering with a kept self-loop", "triangle + loop at 0, undirected",
         lambda: _nodes(nx.clustering(nx.Graph(G))), lambda: H.transitivity_local_undirected(mode="zero"),
-        _ours(3, LOOP, False, {"kernel": "clustering"}))
-    row("loop-modularity", "modularity with a self-loop, partition {0,1} {2}", "triangle + loop at 0, undirected",
+        _ours(3, LOOP, False, {"kernel": "clustering"}, keep_loops=True))
+    row("loop-transitivity", "transitivity with a kept self-loop", "triangle + loop at 0, undirected",
+        lambda: nx.transitivity(nx.Graph(G)), lambda: H.transitivity_undirected(),
+        _ours(3, LOOP, False, {"kernel": "transitivity"}, keep_loops=True))
+    LP = LOOP + [(2, 3)]
+    Gp4, Hp4 = _raw(4, LP, False)
+    row("loop-clustering-pendant", "clustering with a kept self-loop and a pendant", "triangle + loop at 0 + pendant 2-3, undirected",
+        lambda: _nodes(nx.clustering(nx.Graph(Gp4))), lambda: Hp4.transitivity_local_undirected(mode="zero"),
+        _ours(4, LP, False, {"kernel": "clustering"}, keep_loops=True))
+    row("loop-transitivity-pendant", "transitivity with a kept self-loop and a pendant", "same",
+        lambda: nx.transitivity(nx.Graph(Gp4)), lambda: Hp4.transitivity_undirected(),
+        _ours(4, LP, False, {"kernel": "transitivity"}, keep_loops=True))
+    row("loop-modularity", "modularity with a kept self-loop, partition {0,1} {2}", "triangle + loop at 0, undirected",
         lambda: nx.community.modularity(nx.Graph(G), [{0, 1}, {2}]), lambda: H.modularity([0, 0, 1]),
-        _ours(3, LOOP, False, {"kernel": "modularity", "resolution": 1.0}, partition=[0, 0, 1]))
+        _ours(3, LOOP, False, {"kernel": "modularity", "resolution": 1.0}, partition=[0, 0, 1], keep_loops=True))
+    row("loop-modularity-weighted", "weighted modularity with a kept self-loop of weight 3, partition {0,1} {2}", "triangle + loop at 0 of weight 3, undirected",
+        lambda: nx.community.modularity(nx.Graph(Gw3), [{0, 1}, {2}], weight="weight"), lambda: Hw3.modularity([0, 0, 1], weights="weight"),
+        _ours(3, LOOP, False, {"kernel": "modularity", "resolution": 1.0, "weighted": True}, partition=[0, 0, 1], weights=W3, keep_loops=True))
+    row("loop-modularity-directed", "modularity of a directed graph with a kept self-loop, partition {0,1} {2}", "3-cycle + loop at 0, directed",
+        lambda: nx.community.modularity(nx.DiGraph(Gd), [{0, 1}, {2}]), lambda: Hd.modularity([0, 0, 1]),
+        _ours(3, [(0, 0), (0, 1), (1, 2), (2, 0)], True, {"kernel": "modularity", "resolution": 1.0}, partition=[0, 0, 1], keep_loops=True))
 
     G, H = _raw(4, MULTI, False)
     row("multi-degree", "degree with a repeated pair", "triangle + pendant 3, pair 0-1 twice, undirected",
