@@ -130,6 +130,24 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
     encoded
 }
 
+/// The tests above go through `Decoder::available()`; this makes sure a run with a SIMD
+/// feature compiled in (the Miri SSSE3 run, AArch64, wasm `simd128`) really tests it.
+#[test]
+fn a_simd_decoder_compiled_in_is_available() {
+    let names: Vec<_> = Decoder::available().iter().map(|d| d.name()).collect();
+    assert_eq!(names[0], "scalar");
+    if cfg!(all(target_arch = "x86_64", target_feature = "ssse3")) {
+        assert!(names.contains(&"ssse3"), "{names:?}");
+    }
+    if cfg!(target_arch = "aarch64") {
+        assert!(names.contains(&"neon"), "{names:?}");
+    }
+    if cfg!(all(target_arch = "wasm32", target_feature = "simd128")) {
+        assert!(names.contains(&"simd128"), "{names:?}");
+    }
+    assert_eq!(Decoder::best().name(), *names.last().unwrap());
+}
+
 #[test]
 fn the_oracle_corpus_round_trips_on_every_path() {
     let all = specs(Tier::Ci);
