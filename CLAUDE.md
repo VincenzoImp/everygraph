@@ -89,6 +89,10 @@ issue's labels, and escalate on evidence rather than by default:
 | Review (`reviewer`) | Opus, high; for `risk:high` code touching `unsafe`, parallel state or the on-disk formats, a second review by Fable, medium |
 | The short hard list — edge-map framework (#44), production Leiden (#57), out-of-core Leiden (#16, #60), map-hierarchy shaping (#19, #63) | Opus, high first; hand to Fable, high if the escalation rule fires |
 
+**Fable, where truly necessary.** The owner allows Fable at medium or high effort when the
+coordinator judges an issue cannot be done well otherwise — say so, with the reason, in
+`docs/STATE.md` before starting it. That is the exception; the rule below is the usual way in.
+
 **Escalation rule.** Re-run an issue with Fable at high effort when any of these happens:
 the pull request fails review twice on correctness; an acceptance criterion is missed
 after two attempts; the agent reports that the issue's design does not work and cannot
