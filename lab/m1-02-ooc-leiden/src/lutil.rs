@@ -399,6 +399,9 @@ impl Graph {
                         f(v, 1.0)
                     }
                 }
+                if cur.len_of_last() > crate::leiden::GIANT_DEG {
+                    cur.trim(); // m1-02: decode buffers grown for a giant list are given back
+                }
             });
             return;
         }

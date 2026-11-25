@@ -141,6 +141,18 @@ impl CompCur {
         let (buf, starts) = POOL.try_with(|p| p.borrow_mut().pop()).ok().flatten().unwrap_or_default();
         CompCur { buf, src: 0, last: usize::MAX, len: 0, starts, wbuf: Vec::new() }
     }
+    /// m1-02: length of the cached list.
+    #[inline(always)]
+    pub fn len_of_last(&self) -> usize {
+        self.len
+    }
+    /// m1-02: frees the decode buffers (and forgets the cached list).
+    pub fn trim(&mut self) {
+        self.buf = Vec::new();
+        self.wbuf = Vec::new();
+        self.last = usize::MAX;
+        self.len = 0;
+    }
     #[inline(always)]
     fn reserve(&mut self, k: usize) -> *mut u32 {
         if self.buf.len() < k + 4 {

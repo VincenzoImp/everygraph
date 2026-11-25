@@ -89,7 +89,34 @@ impl Tab {
     }
 }
 /// m1-02: tables up to this many slots (48 MiB) stay with their thread.
-const TAB_KEEP: usize = 1 << 22;
+const TAB_KEEP: usize = 1 << 21; // = the table of a node of GIANT_DEG neighbours
+/// m1-02: a node with more neighbours than this is visited by at most GIANT_PERMITS threads at
+/// once, so the scratch to reserve is GIANT_PERMITS x the largest one, not threads x.
+pub const GIANT_DEG: usize = 1 << 20;
+const GIANT_PERMITS: usize = 2;
+static GIANTS: AtomicUsize = AtomicUsize::new(0);
+pub struct GiantGate(bool);
+impl Drop for GiantGate {
+    fn drop(&mut self) {
+        if self.0 {
+            GIANTS.fetch_sub(1, SeqCst);
+        }
+    }
+}
+/// Takes a permit when `deg` is a giant's degree (waits for one); a no-op otherwise.
+#[inline(always)]
+pub fn giant_gate(deg: usize) -> GiantGate {
+    if deg <= GIANT_DEG {
+        return GiantGate(false);
+    }
+    loop {
+        if GIANTS.fetch_add(1, SeqCst) < GIANT_PERMITS {
+            return GiantGate(true);
+        }
+        GIANTS.fetch_sub(1, SeqCst);
+        std::thread::yield_now();
+    }
+}
 
 /// m1-02: worst-case scratch of the threads while they visit one level: a hash table of
 /// next_pow2(2 deg) slots (12 B) plus its index list, and decode buffers of the compressed
@@ -109,10 +136,17 @@ fn scratch_bytes(g: &Graph, nt: usize) -> u64 {
         }
     };
     let per = |d: u64| -> u64 { (2 * d).max(16).next_power_of_two() * 12 + d * 4 + (d + 16).next_power_of_two() * 8 };
-    let mut v: Vec<u64> = top.iter().map(|&d| per(d as u64)).collect();
-    v.resize(nt.max(v.len()), per(64));
-    v.sort_unstable_by(|a, b| b.cmp(a));
-    v[..nt].iter().sum()
+    let mut top = top;
+    top.sort_unstable_by(|a, b| b.cmp(a));
+    // at most GIANT_PERMITS threads on giants (their scratch is freed after each), the others on
+    // the largest non-giants (or holding a table kept from one: at most TAB_KEEP slots)
+    let giants: Vec<u64> = top.iter().filter(|&&d| d as usize > GIANT_DEG).take(GIANT_PERMITS.min(nt)).map(|&d| per(d as u64)).collect();
+    let mut rest: Vec<u64> = top.iter().filter(|&&d| d as usize <= GIANT_DEG).map(|&d| per(d as u64)).collect();
+    let others = nt - giants.len();
+    let fill = if top.iter().any(|&d| d as usize > GIANT_DEG) { per(GIANT_DEG as u64) } else { per(64) };
+    rest.resize(others.max(rest.len()), fill);
+    rest.sort_unstable_by(|a, b| b.cmp(a));
+    giants.iter().sum::<u64>() + rest[..others].iter().sum::<u64>()
 }
 
 pub struct Tls {
@@ -259,6 +293,7 @@ fn decide(cx: &Cx, u: usize, tab: &mut Tab) -> Option<(u32, u32, f64)> {
         return None;
     }
     let c = cx.comm[u].load(Relaxed);
+    let _gg = giant_gate(deg);
     tab.begin(deg);
     let uu = u as u32;
     g.for_edges(u, |v, w| {
@@ -304,6 +339,7 @@ fn decide(cx: &Cx, u: usize, tab: &mut Tab) -> Option<(u32, u32, f64)> {
 
 #[inline(always)]
 fn mark_neighbors(cx: &Cx, u: usize) {
+    let _gg = giant_gate(cx.g.deg(u));
     cx.g.for_edges(u, |v, _| {
         let f = &cx.flag[v as usize];
         if f.load(Relaxed) == 0 {
@@ -500,6 +536,7 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
                                 cx.size[d as usize].fetch_add(1, Relaxed);
                             }
                             cx.comm[u].store(d, Relaxed);
+                            let _gg = giant_gate(cx.g.deg(u));
                             cx.g.for_edges(u, |v, _| {
                                 let f = &cx.flag[v as usize];
                                 if f.load(Relaxed) == 0 && f.swap(1, Relaxed) == 0 {
@@ -597,6 +634,7 @@ fn refine(
             return None;
         }
         let b = bound[u].load(Relaxed);
+        let _gg = giant_gate(deg);
         tab.begin(deg);
         let uu = u as u32;
         g.for_edges(u, |v, w| {

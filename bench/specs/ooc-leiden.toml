@@ -136,6 +136,55 @@ metric = [
   { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
 ]
 
+# --- survey idea L1 (docs/research/memory-bounded-algorithms.md § 2): seeded relabelling + id order
+# store-m113/friendster-shuf1 = csr/friendster relabelled by `m102 shuffle --seed 1` (new id = rank
+# of splitmix64(1 ^ id)), then encoded. Visiting order: id order (--natural) on the relabelled ids,
+# a fixed function of the graph and the seed, never of the budget. Evidence for an ADR 0015
+# amendment, not part of the issue's success criterion (which is measured with ADR 0015's order).
+
+[[benchmark]]
+name = "l1-inram-friendster"
+group = "friendster-l1"
+description = "L1 in RAM: relabelled ids (seed 1), id order, --lowmem aggregation"
+dataset_path = "store-m113/friendster-shuf1"
+memory_limit = "48G"
+repetitions = 2
+command = ["sh", "-c", "exec {run} --store {dataset} --mem mmap --lowmem --natural"]
+conditions = { graph = "friendster relabelled (seed 1)", algorithm = "Leiden async, 1 iteration, id order", mode = "in RAM, --lowmem aggregation", storage = "compressed level 0 (mmap, pre-faulted, warm)", precision = "f64 weights", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "upper_levels", json = "/upper_levels_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+]
+
+[[benchmark]]
+name = "l1-ooc-friendster"
+group = "friendster-l1"
+description = "L1 out of core: relabelled ids (seed 1), id order, cold level 0"
+dataset_path = "store-m113/friendster-shuf1"
+cache = "cold"
+warmup = 1
+repetitions = 2
+matrix = { limit = ["8G"] }
+memory_limit = "{limit}"
+command = ["sh", "-c", "exec {run} --store {dataset} {ooc} --natural"]
+conditions = { graph = "friendster relabelled (seed 1)", algorithm = "Leiden async, 1 iteration, id order", mode = "out of core, limit {limit}", storage = "compressed level 0 (mmap, cold copy); quotient graphs spilled", precision = "f64 weights (integer)", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/level0_refine_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "upper_levels", json = "/upper_levels_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
+]
+
 # --- orkut: limit = 50% of the raw edge array (targets.u32, 937,480,664 B -> 447 MiB) ---------
 
 [[benchmark]]

@@ -359,6 +359,7 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                     continue;
                 }
                 let cu = dm[u];
+                let _gg = giant_gate(deg);
                 let mut own = 0f64;
                 t.tab.begin(deg);
                 g.for_edges(u, |v, w| {
