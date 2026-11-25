@@ -19,13 +19,14 @@ Updated at the end of every session. Read this first.
 As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
 - **M2 closed with official numbers:** #29 I/O (direct 7.10 GB/s ≈ device), #30 codec (sizes 17.99 / 16.64 / 16.09 / 23.17 bits; twitter-sym scan 1.96 G/s at 1 thread, 25.5 at 16; random list 214 ns), #31 arrays and accountant (SegVec ≤ 1.02× Vec; no OOM in 8/8), #32 text reader (7.3–8.2 GB/s at 16 threads). Results under `bench/results/`.
-- **#34 id dictionary** (PR #158): second review found a `renumber` panic on a hostile file and a refusal threshold that varies with scheduling; author fixing. Then the official run (~20 min).
+- **#34 id dictionary**: code merged (PR #158, both review rounds answered: short-record panic fixed, refusal threshold now independent of threads and runs, tested at 1/16/128 threads). Issue stays open until the official run is recorded; a detached script on main prepares the data and waits for an idle machine (log `/home/tux/graphlab/scratch/window-ids.log`).
+- **State-of-the-art review** (owner's request, 2026-11-25): six researchers read the literature of each area in full text (storage and ordering, I/O and memory, kernels and determinism, communities and hierarchy, maps, ingest/format/query) plus one verifying a list of out-of-core systems; PDFs kept in `/home/tux/graphlab/papers/`, reports to `docs/research/sota-*.md`. Then the coordinator cross-checks every decision and turns what survives an A/B test into ADRs and issues. Until then #35 (CSR build), layout and tiles stay unstarted, so the review can still change them.
 - **#19 hierarchy shaping** (PR #162): review found rounds not independent per region; experimenter fixing and re-measuring; official run after.
 - **#44 edge-map framework** (hard list, Opus high) and **#28 .eg container** (Opus high): started.
 
 ## Measurement queue (official runs, batched into one window)
 
-- #34 id dictionary (PR #158, after its fixes): `everygraph-bench run id-dictionary --official` (~20 min, ~45 GB disk).
+- #34 id dictionary (merged; script waiting for idle): `everygraph-bench run id-dictionary --official` (~20 min, ~45 GB disk).
 - #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
@@ -37,7 +38,7 @@ Tell the owner when each becomes due, with everything prepared.
   commits made by agents under the owner's account, then set the repository variable
   `DCO_ALL_PULL_REQUESTS=true`.
 - Accounts with 2FA on PyPI, crates.io and npm — at the first release.
-- **Publication (owner's decision, 2026-11-25):** the owner runs `gh repo edit VincenzoImp/everygraph --visibility public --accept-visibility-change-consequences`. Then Claude enables private vulnerability reporting, sets `DCO_ALL_PULL_REQUESTS=true` after the owner authorizes sign-offs, and keeps CI on GitHub-hosted runners (free once public). GitHub Actions: no spending.
+- **Publication (owner's decision, 2026-11-25; within hours, commit email exposure accepted; secrets scan of the whole history clean; the November private Actions quota is nearly spent, so CI may pause until then):** the owner runs `gh repo edit VincenzoImp/everygraph --visibility public --accept-visibility-change-consequences`. Then Claude enables private vulnerability reporting, sets `DCO_ALL_PULL_REQUESTS=true` after the owner authorizes sign-offs, and keeps CI on GitHub-hosted runners (free once public). GitHub Actions: no spending.
 - Package names: placeholders ready in `/home/tux/graphlab/name-reservation` (crates `everygraph`, `everygraph-cli`; PyPI `everygraph`; npm `everygraph`); publishing needs the owner's accounts with 2FA — all four names were free on 2026-11-25.
 - A trademark and patent professional (#122) — before anything is public.
 
