@@ -53,6 +53,37 @@ From the identifier experiment (FINDINGS § F1; shared machine):
 - String-id inputs with long shared prefixes turn out to dominate, and an FST built in
   parallel beats the MPHF plus key store on size by more than 2× at comparable build time.
 
+## Amendment (2026-11-25, #34): the hash function is implemented in the workspace
+
+The decision (typed keys, a minimal perfect hash, an id-ordered key store, no FST) stands;
+the crate it named does not. `ptr_hash` 2.1.5, checked in the pull request of #34:
+
+- **`cargo deny` fails.** `colored` (MPL-2.0, refused by `deny.toml`) is a dependency
+  that no feature removes, and with all features `rayon` comes in outside
+  `everygraph-core`, which `deny.toml` bans.
+- **The wasm32 build fails** even with `default-features = false`: `rand` 0.10 pulls
+  `getrandom` 0.4, which needs its `wasm_js` feature on `wasm32-unknown-unknown`. Without
+  default features the crate still brings 38 other crates on that target, among them
+  `tempfile`, `colored`, `rand` and three procedural-macro crates.
+- **Its stored form cannot be specified by us**: it is `epserde`'s zero-copy image of
+  the crate's internal structures (behind `unsafe`), tied to the crate's version.
+
+Decision: the same construction — skewed buckets (`PtrHash`'s cubic function), one 8-bit
+pilot per bucket, 3.5 keys per bucket, load factor about 0.99, the slots past `n`
+remapped into the holes below it — written in safe Rust in `everygraph-ingest`
+(module `ids`), with parts of about 2^15 keys solved independently (each part is a
+function of its keys only, which makes the result independent of threads and budget)
+and a stored form specified in the module's documentation. The key hash is XXH3-128,
+a published algorithm. Integers go through the rank bitmap when they are dense and
+ids are in sorted order; sparse integers, and integers in first-appearance order, go
+through the hash function as 8-byte keys.
+
+Evidence (exploratory, shared machine, not to be quoted as performance): 2.61 bits per
+key for the hash function at 2 M and 65 M keys, as the lab's `ptr_hash` (2.61,
+`lab/f1-query/results/dict_mphf_eth_65000000_t32.json`); 24.33 bytes per key for 20-byte
+keys in the split layout, the figure #34 expected. The official measurements are the
+spec `bench/specs/id-dictionary.toml`.
+
 ## Closed by
 
 #34 (dictionary with spilling dedupe), #25 (real-world inputs: string ids, Parquet,

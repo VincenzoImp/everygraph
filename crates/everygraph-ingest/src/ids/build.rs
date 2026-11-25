@@ -403,7 +403,7 @@ impl<Sc: Scratch> Worker<'_, '_, Sc> {
         let hash = KeyHash::of(norm, c.seed);
         if self
             .table
-            .insert(hash, position, norm, Some(&mut self.credit))?
+            .insert(hash, position, norm, Some(&mut self.credit))
             == Inserted::Done
         {
             return Ok(());
@@ -415,7 +415,7 @@ impl<Sc: Scratch> Worker<'_, '_, Sc> {
         if !was_empty
             && self
                 .table
-                .insert(hash, position, &norm, Some(&mut self.credit))?
+                .insert(hash, position, &norm, Some(&mut self.credit))
                 == Inserted::Done
         {
             return Ok(());
@@ -436,7 +436,7 @@ impl<Sc: Scratch> Worker<'_, '_, Sc> {
         }
         let c = self.collector;
         let fixed = c.kind.width().is_some();
-        self.table.sort_entries_by_key(|e| e.hash.fine());
+        self.table.group_entries_by(FINE, |e| e.hash.fine());
         let mut spill = Spill::new(c.scratch, "id dictionary run")?;
         let mut starts = vec![0_u64; FINE + 1];
         let mut record = Vec::with_capacity(32 + MAX_FIXED_WIDTH);
@@ -837,8 +837,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
                     ))),
                 };
                 let key = field(&mut at, len)?;
-                if table.insert(KeyHash { hi, lo }, pos, key, Some(&mut credit))? == Inserted::Full
-                {
+                if table.insert(KeyHash { hi, lo }, pos, key, Some(&mut credit)) == Inserted::Full {
                     return Err(refused(self.accountant));
                 }
             }

@@ -464,13 +464,32 @@ fn int_code(column: ColumnType, key: Key<'_>) -> Option<u64> {
     }
 }
 
-fn hex_value(c: u8) -> Option<u8> {
-    match c {
-        b'0'..=b'9' => Some(c - b'0'),
-        b'a'..=b'f' => Some(c - b'a' + 10),
-        b'A'..=b'F' => Some(c - b'A' + 10),
-        _ => None,
+/// The value of each byte as a hexadecimal digit, or `INVALID`.
+const HEX_VALUE: [u8; 256] = {
+    const fn digit(c: u8) -> u8 {
+        match c {
+            b'0'..=b'9' => c - b'0',
+            b'a'..=b'f' => c - b'a' + 10,
+            b'A'..=b'F' => c - b'A' + 10,
+            _ => INVALID,
+        }
     }
+    let mut t = [INVALID; 256];
+    let mut c: u8 = 0;
+    loop {
+        t[c as usize] = digit(c);
+        if c == u8::MAX {
+            break;
+        }
+        c += 1;
+    }
+    t
+};
+const INVALID: u8 = 0xFF;
+
+fn hex_value(c: u8) -> Option<u8> {
+    let v = HEX_VALUE[usize::from(c)];
+    (v != INVALID).then_some(v)
 }
 
 /// Parses `digits` hexadecimal digits after `prefix` (either case of `x` accepted when
@@ -485,14 +504,26 @@ fn parse_hex(text: &[u8], prefix: HexPrefix, digits: u8, out: &mut [u8]) -> bool
     if body.len() != usize::from(digits) {
         return false;
     }
-    out.fill(0);
-    let skip = usize::from(digits % 2);
-    for (i, &c) in body.iter().enumerate() {
-        let Some(v) = hex_value(c) else { return false };
-        let at = i + skip;
-        out[at / 2] |= if at % 2 == 0 { v << 4 } else { v };
+    // An odd count has a lone first digit, in the low nibble of the first byte.
+    let (lone, pairs) = body.split_at(usize::from(digits % 2));
+    let mut bad = 0_u8;
+    let mut at = 0;
+    if let [c] = lone {
+        let v = HEX_VALUE[usize::from(*c)];
+        bad |= v;
+        out[0] = v;
+        at = 1;
     }
-    true
+    for (pair, byte) in pairs.chunks_exact(2).zip(&mut out[at..]) {
+        let (h, l) = (
+            HEX_VALUE[usize::from(pair[0])],
+            HEX_VALUE[usize::from(pair[1])],
+        );
+        // A valid digit is below 16; INVALID sets the high bit.
+        bad |= h | l;
+        *byte = (h << 4) | (l & 0x0F);
+    }
+    bad < 0x10
 }
 
 fn parse_uuid(text: &[u8], out: &mut [u8]) -> bool {
@@ -557,7 +588,7 @@ fn base58_decode_into(text: &[u8], out: &mut [u8]) -> bool {
     }
 }
 
-fn base58_encode(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn base58_encode(bytes: &[u8]) -> Vec<u8> {
     let zeros = bytes.iter().take_while(|&&b| b == 0).count();
     // Little-endian base-58 digits.
     let mut digits: Vec<u8> = Vec::with_capacity(bytes.len() * 2);
@@ -709,6 +740,20 @@ mod tests {
         );
         assert!(!kind.accepts(ColumnType::Utf8, Key::from(&mixed[2..])));
         assert!(!kind.accepts(ColumnType::Utf8, Key::from("0x28c6…1d60")));
+        // A non-digit anywhere, in the lone first digit of an odd count, or in either
+        // half of a pair, is refused.
+        for at in [2, 3, 20, 41] {
+            let mut bad = lower.clone().into_bytes();
+            for c in [b'g', b'G', b' ', b'/', b':', b'@', b'`', 0xC3] {
+                bad[at] = c;
+                assert!(
+                    !kind.accepts(ColumnType::Utf8, Key::Bytes(&bad)),
+                    "{at} {c}"
+                );
+            }
+        }
+        assert!(!none.accepts(ColumnType::Utf8, Key::from("gbc")));
+        assert!(!none.accepts(ColumnType::Utf8, Key::from("abg")));
         let upper = KeyKind::Hex {
             prefix: HexPrefix::Upper,
             digits: 2,

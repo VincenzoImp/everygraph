@@ -153,7 +153,7 @@ impl Table {
         pos: u64,
         key: &[u8],
         credit: Option<&mut Credit<'_>>,
-    ) -> Result<Inserted, DictionaryError> {
+    ) -> Inserted {
         if self.slots.is_empty()
             || self.entries.len() == self.entries.capacity()
             || self.arena.len() + key.len() > self.arena.capacity()
@@ -161,10 +161,10 @@ impl Table {
             if let Some(found) = self.find(hash, key) {
                 let e = &mut self.entries[found];
                 e.pos = e.pos.min(pos);
-                return Ok(Inserted::Done);
+                return Inserted::Done;
             }
             if !self.grow(key.len(), credit) {
-                return Ok(Inserted::Full);
+                return Inserted::Full;
             }
         }
         let mask = self.slots.len() - 1;
@@ -178,7 +178,7 @@ impl Table {
             if e.hash == hash && self.key(e) == key {
                 let e = &mut self.entries[index(u64::from(slot))];
                 e.pos = e.pos.min(pos);
-                return Ok(Inserted::Done);
+                return Inserted::Done;
             }
             at = (at + 1) & mask;
         }
@@ -191,7 +191,7 @@ impl Table {
             len: u32::try_from(key.len()).expect("a key shorter than 4 GiB"),
         });
         self.arena.extend_from_slice(key);
-        Ok(Inserted::Done)
+        Inserted::Done
     }
 
     fn find(&self, hash: KeyHash, key: &[u8]) -> Option<usize> {
@@ -266,10 +266,36 @@ impl Table {
         self.slots.fill(EMPTY);
     }
 
-    /// Sorts the entries by `key`; the table can then only be read or cleared.
-    pub(crate) fn sort_entries_by_key<K: Ord>(&mut self, key: impl Fn(&Entry) -> K) {
-        self.entries.sort_unstable_by_key(key);
+    /// Groups the entries by `bucket` (below `buckets`) in place, in increasing order
+    /// of bucket (an American flag sort), and returns where each bucket starts. The
+    /// table can then only be read or dropped.
+    pub(crate) fn group_entries_by(
+        &mut self,
+        buckets: usize,
+        bucket: impl Fn(&Entry) -> usize,
+    ) -> Vec<usize> {
+        let mut starts = vec![0_usize; buckets + 1];
+        for e in &self.entries {
+            starts[bucket(e) + 1] += 1;
+        }
+        for b in 0..buckets {
+            starts[b + 1] += starts[b];
+        }
+        let mut next = starts.clone();
+        for b in 0..buckets {
+            while next[b] < starts[b + 1] {
+                let i = next[b];
+                let to = bucket(&self.entries[i]);
+                if to == b {
+                    next[b] += 1;
+                } else {
+                    self.entries.swap(i, next[to]);
+                    next[to] += 1;
+                }
+            }
+        }
         self.slots.fill(EMPTY);
+        starts
     }
 }
 
@@ -286,8 +312,7 @@ mod tests {
                 let key = (i % 1234).to_string();
                 let h = KeyHash::of(key.as_bytes(), 0);
                 assert_eq!(
-                    t.insert(h, 10_000 - i - round, key.as_bytes(), None)
-                        .unwrap(),
+                    t.insert(h, 10_000 - i - round, key.as_bytes(), None),
                     Inserted::Done
                 );
             }
@@ -305,12 +330,34 @@ mod tests {
     fn equal_hashes_of_different_keys_are_kept_apart() {
         let mut t = Table::default();
         let h = KeyHash { hi: 1, lo: 2 };
-        t.insert(h, 5, b"a", None).unwrap();
-        t.insert(h, 3, b"b", None).unwrap();
-        t.insert(h, 1, b"a", None).unwrap();
+        t.insert(h, 5, b"a", None);
+        t.insert(h, 3, b"b", None);
+        t.insert(h, 1, b"a", None);
         assert_eq!(t.len(), 2);
         assert_eq!(t.entries()[0].pos, 1);
         assert_eq!(t.entries()[1].pos, 3);
+    }
+
+    #[test]
+    fn grouping_puts_every_entry_in_its_bucket_in_order() {
+        let mut t = Table::default();
+        for i in 0..10_000_u64 {
+            let key = i.to_le_bytes();
+            t.insert(KeyHash::of(&key, 0), i, &key, None);
+        }
+        let mut before: Vec<u64> = t.entries().iter().map(|e| e.pos).collect();
+        let starts = t.group_entries_by(37, |e| usize::try_from(e.pos % 37).unwrap());
+        for b in 0..37 {
+            assert!(
+                t.entries()[starts[b]..starts[b + 1]]
+                    .iter()
+                    .all(|e| usize::try_from(e.pos % 37).unwrap() == b)
+            );
+        }
+        let mut after: Vec<u64> = t.entries().iter().map(|e| e.pos).collect();
+        before.sort_unstable();
+        after.sort_unstable();
+        assert_eq!(before, after);
     }
 
     #[test]
@@ -321,10 +368,7 @@ mod tests {
         let mut inserted = 0;
         for i in 0..100_000_u64 {
             let key = i.to_le_bytes();
-            match t
-                .insert(KeyHash::of(&key, 0), i, &key, Some(&mut r))
-                .unwrap()
-            {
+            match t.insert(KeyHash::of(&key, 0), i, &key, Some(&mut r)) {
                 Inserted::Done => inserted += 1,
                 Inserted::Full => break,
             }
@@ -337,8 +381,7 @@ mod tests {
         assert!(t.is_empty());
         let key = 7_u64.to_le_bytes();
         assert_eq!(
-            t.insert(KeyHash::of(&key, 0), 0, &key, Some(&mut r))
-                .unwrap(),
+            t.insert(KeyHash::of(&key, 0), 0, &key, Some(&mut r)),
             Inserted::Done
         );
     }

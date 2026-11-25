@@ -205,6 +205,9 @@ struct Solver {
     pilot_hashes: [u64; 256],
     /// Owner bucket of each slot, or `FREE`.
     taken: Vec<u32>,
+    /// One bit per slot, set when taken: what the search tests (a part's bitset is
+    /// 4 KiB, its owners 130 KiB).
+    used: Vec<u64>,
     pilots: Vec<u8>,
     recent: [u32; RECENT],
     recent_at: usize,
@@ -244,6 +247,7 @@ impl Solver {
             starts,
             pilot_hashes,
             taken: vec![FREE; index(u64::from(slots))],
+            used: vec![0; index(u64::from(slots)).div_ceil(64)],
             pilots: vec![0; nb],
             recent: [FREE; RECENT],
             recent_at: 0,
@@ -303,7 +307,7 @@ impl Solver {
     ) -> bool {
         // A pilot whose slots are all free and distinct.
         for p in 0_u8..=255 {
-            if self.fill_slots(b, p, buf) && buf.iter().all(|&s| self.taken[s] == FREE) {
+            if self.fill_slots(b, p, buf) && buf.iter().all(|&s| !self.is_used(s)) {
                 self.assign(b, p, buf);
                 return true;
             }
@@ -351,12 +355,17 @@ impl Solver {
             for i in 0..self.keys(owner).len() {
                 let s = self.slot_of(self.keys(owner)[i], pilot);
                 self.taken[s] = FREE;
+                self.used[s / 64] &= !(1 << (s % 64));
             }
             heap.push((self.size(owner), std::cmp::Reverse(owner)));
         }
         self.assign(b, p, buf);
         self.evictions += u64::try_from(owners.len()).expect("small");
         self.evictions <= self.max_evictions
+    }
+
+    fn is_used(&self, s: usize) -> bool {
+        self.used[s / 64] & (1 << (s % 64)) != 0
     }
 
     /// Computes the slots of bucket `b` under pilot `p` into `buf`; false if two of its
@@ -376,6 +385,7 @@ impl Solver {
     fn assign(&mut self, b: u32, p: u8, buf: &[usize]) {
         for &s in buf {
             self.taken[s] = b;
+            self.used[s / 64] |= 1 << (s % 64);
         }
         self.pilots[index(u64::from(b))] = p;
         self.recent[self.recent_at] = b;

@@ -307,6 +307,22 @@ fn every_kind_order_and_layout_matches_the_reference_and_survives_reopening() {
                 .collect(),
             KeyKind::Fixed { width: 5 },
         ),
+        (
+            utf8,
+            // Bitcoin-like: a version byte, 20 bytes and 4 more, in base58.
+            (0..3000)
+                .map(|i| {
+                    let a = splitmix(i) % 900;
+                    let mut b = vec![0_u8];
+                    for j in 0..3 {
+                        b.extend_from_slice(&splitmix(a * 3 + j).to_le_bytes());
+                    }
+                    b.truncate(25);
+                    In::Bytes(super::kind::base58_encode(&b))
+                })
+                .collect(),
+            KeyKind::Base58 { width: 25 },
+        ),
     ];
     for (column, keys, kind) in &cases {
         for order in [

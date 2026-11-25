@@ -245,6 +245,7 @@ version = "0.0.0"
 dependencies = [
  "everygraph-core",
  "proptest",
+ "rustix",
  "xxhash-rust",
 ]
 
