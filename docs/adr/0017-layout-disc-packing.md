@@ -33,7 +33,15 @@ From the map experiment (FINDINGS § E; shared machine; `lab/e-map/results/`):
   was replaced on 2026-11-25 by the estimate, labelled as such.
 - "Readable" is the experiment's visual judgment, not a metric.
 - **At 10^9 edges**: 2–4 minutes and about 20 GB of RAM — an extrapolation, not measured
-  (FINDINGS § E).
+  (FINDINGS § E). *Replaced 2026-11-25 by a measurement* (#15, FINDINGS § M1-01; idle;
+  Friendster, 1.8 B edges, 32 threads, capped Louvain hierarchy, 11.35 M tree nodes;
+  `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`):
+  69.6 s with 17.7 GiB anonymous, graph in the heap, 56 GiB limit (rows 22–23). Under
+  16 GiB it is killed with the graph in the heap and completes with the graph
+  memory-mapped, 405.1 s and 3.7 GiB anonymous, re-reading 733 GB with default readahead
+  (rows 18–19). On the
+  plain Louvain hierarchy (a parent with 18.7 M children) it is killed even with 56 GiB
+  (rows 20–21): memory for a parent with millions of children is not bounded (#67).
 
 ## Consequences
 

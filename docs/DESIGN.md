@@ -1,7 +1,8 @@
 # Everygraph — product and architecture
 
 Status: design baseline, 2026-11-24; D4 amended 2026-11-25 (ADR 0004, #118); promise 1
-restated 2026-11-25 with the harness's ingest measurements (ADR 0026). Every decision below cites the measurement that
+restated 2026-11-25 with the harness's ingest measurements (ADR 0026); § 5 and § 6 annotated
+2026-11-25 with the tracer bullet (#15). Every decision below cites the measurement that
 supports it (see [FINDINGS.md](FINDINGS.md)); decisions without a measurement are marked
 **unvalidated**. Numbers are from one workstation (Ryzen 9 7950X, 61 GB RAM, NVMe).
 
@@ -118,7 +119,7 @@ TypeScript package.
 | [D15](adr/0015-leiden-visiting-order.md) | **Leiden with block-permuted visiting order and an explicit connectivity guarantee**; 1 iteration = fast, 3 = quality. | Order matters more than Louvain vs Leiden: id order costs 2.0–2.1 modularity points at one iteration (idle, 16 threads; 2.6–4.2 in earlier shared runs), the two algorithms differ by ≤ 0.4; block order takes 1.38–1.63× the time; 3 iterations land within 0.74% of the best reference (lj, orkut). | accepted, partly validated: 2 social graphs (#24, #57) |
 | [D16](adr/0016-two-community-outputs.md) | **Two community outputs:** the partition (best modularity) and the map hierarchy (fan-out capped, levels compacted). | Natural hierarchies have parents with up to 102,821 (lj) and 338,769 (orkut) children; the cap costs 2.3–5.0 modularity points (idle, 16 threads). | accepted, partly validated; shaping still weak (#19) |
 | [D17](adr/0017-layout-disc-packing.md) | **Layout = hierarchy-constrained disc packing**, deterministic. | 3.3 s for 4 M nodes (lj, 32 threads, shared machine); median edge length ÷ random-pair distance 0.014 vs 0.244 for an embedding layout (a blob); node discs cover about 1–3% of the map (estimate, not measured). | accepted, partly validated (#21) |
-| [D18](adr/0018-data-tiles.md) | **Data tiles, not pixels,** in PMTiles v3; dependency-free WebGL2 viewer; static mode and live mode. | lj, sizes: first view 152 KB / 18 requests; tiles median 4–6 KB; search in 2 requests. Not measured: live mode, integrated GPUs, Firefox, Safari, graphs above 117 M edges. | accepted, partly validated (#26, #15) |
+| [D18](adr/0018-data-tiles.md) | **Data tiles, not pixels,** in PMTiles v3; dependency-free WebGL2 viewer; static mode and live mode. | lj, sizes: first view 152 KB / 18 requests; tiles median 4–6 KB; search in 2 requests. Not measured: live mode, integrated GPUs, Firefox, Safari. Above 117 M edges, only the Friendster tracer (#15, idle, RTX 4090): first view 163,184 B / 18 requests, 6.84 GB file, median tile 6.8 KB. | accepted, partly validated (#26, #15) |
 | [D19](adr/0019-python-pyo3-arrow.md) | **Python via PyO3 abi3 + Arrow PyCapsule, bulk columnar API.** | Zero-copy verified; one abi3 wheel for CPython 3.10–3.14 (size 525 KB: estimate, not in a result file); per-call cost 28–40 ns (lj, shared machine). | accepted |
 | [D20](adr/0020-networkx-backend.md) | **NetworkX backend is an adoption channel, not the product.** | lj, 3 threads, shared machine: 0.92–2.0× on an existing `nx.Graph` including conversion (conversion dominates); with native loading, kernel time only, PageRank 15.6–70× and components 24–53×. | accepted |
 | [D21](adr/0021-queries-traversal-api.md) | **Queries v0.1: traversal API with budgets; no query language.** GQL/Cypher subset later, reusing an existing Rust parser. | Bidirectional BFS 0.3 ms on lj in-process, on raw arrays, single thread, shared machine (idle, #118: 0.13 ms raw, 0.16 ms on the compressed default, p50), vs 6.4 ms (Neo4j) and 0.3–4.8 s (embedded engines) through their query interfaces, 3 threads, shared machine — different measurement levels. | accepted, partly validated (#91) |
@@ -143,6 +144,25 @@ These are the reasons the first milestone after foundations is a second lab roun
    memory (32 threads); Louvain fits in 3.8 GiB under a 16 GiB limit but returns a poor
    partition (Q 0.465 vs 0.603). The headline "1.8 B edges → map on a 16 GB laptop" has not been
    demonstrated end to end.
+   *Measured end to end on 2026-11-25 (#15, FINDINGS § M1-01; Friendster, lab binaries,
+   32 threads, idle, uncompressed CSR, `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`):
+   the chain does not complete under 16 GiB.* Three blockers, each with its owner:
+   - *Community detection with a map-shaped hierarchy.* Leiden and fan-out-capped Louvain
+     are killed in the first aggregation, after the local moves, while thrashing on the
+     mapped graph (1.8–2.7 TB read). With hierarchy output the prototype keeps every
+     level's quotient graph in memory, and capped coarsening shrinks slowly: capped Leiden
+     is killed even at 56 GiB, capped Louvain completes there at a 42.9 GiB anonymous peak
+     (28.3 GiB before writing the hierarchy). Plain Louvain fits (4.2 GiB, Q 0.6038; the
+     Q 0.465 above was not reproduced, #17) but has a parent with 18.7 M children, which the
+     layout cannot use even with 56 GiB. Owners: #16 and #60 (out-of-core aggregation),
+     #19 and #63 (shaping bounded in memory), #62 (quotient graphs streamed to disk).
+   - *The layout loads the graph into the heap.* Killed under 16 GiB that way; with the
+     graph memory-mapped it fits (3.7 GiB anonymous) at 5.8× the time, re-reading 733 GB.
+     Owner: #67.
+   - *The tile builder keeps every tile in RAM*, and each zoom level's working state:
+     29.1 GiB anonymous with 56 GiB; under 16 GiB (13.9 GiB anonymous, one pass over the
+     graph per zoom level), cut by the 60-minute timeout before the last zoom level.
+     Owner: #69.
 2. **Map hierarchy quality.** Top levels are star-shaped; derived regions carry no meaning.
 3. **Edges on the map.** Fog inside giant communities; 90% of edge weight undrawn on orkut
    at the deepest zoom.
@@ -198,3 +218,26 @@ idle machine, FINDINGS § M1-13) and, for the ingest, with the benchmark harness
   under 8 GB as it is. The gap: an encoder that works under the budget (#35, ADR 0004),
   and the build writing the default format directly, which changes the bytes written and
   so, on this drive, the time (ADR 0026).
+
+Measured against the 16 GiB criteria by the tracer bullet (#15, 2026-11-25, idle machine,
+lab binaries, Friendster, 32 threads, uncompressed CSR, FINDINGS § M1-01,
+`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`); the targets are unchanged:
+
+- *Friendster communities under a 16 GiB limit, modularity ≥ 0.60, no OOM:* met only by
+  plain Louvain, whose hierarchy the map cannot use: 115.1 s, 4.2 GiB anonymous, Q 0.6038,
+  62 disconnected communities, a parent with 18.7 M children (row 15). Under 16 GiB every
+  map-shaped community run was killed: Leiden at 460.5 s, fan-out-capped Louvain at 648 s
+  (rows 9, 11–12). With 56 GiB and hierarchy output the capped Louvain completes (42.9 GiB
+  anonymous peak, Q 0.5757) and the capped Leiden is killed. Blockers and owners:
+  out-of-core aggregation (#16, #60), hierarchy shaping bounded in memory (#19, #63), the
+  hierarchy's quotient graphs kept in memory (#62).
+- *The headline "1.8 B edges → map on a 16 GB laptop"* (§ 5, item 1) also needs the
+  layout never to load the graph into the heap (#67: killed in the heap; memory-mapped it
+  fits, at 5.8× the time, default readahead) and a tile builder that bounds what it holds
+  in RAM, tiles and per-zoom working state (#69: not finished in 60 minutes under 16 GiB).
+  With 56 GiB the chain completes in 455.5 s of stage time (sum of medians), with the
+  capped Louvain hierarchy.
+- *Map of a 1 B-edge graph from a static URL, first view < 250 KB:* 163,184 B in 18
+  requests on the Friendster map (RTX 4090, headless Chromium, row 31). Frames 16.67 ms
+  mean, none over 33 ms: vsync-capped, so 60 fps held on that GPU but the headroom is
+  unknown; integrated GPUs not measured (#26).
