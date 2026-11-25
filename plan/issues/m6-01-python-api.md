@@ -8,13 +8,14 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 **Scope**
 - [ ] `eg.read(path, …)` / `eg.open("graph.eg")` → `Graph`; `Graph.view(filter)` → `View`
 - [ ] Algorithms as methods returning Arrow-backed tables: `pagerank()`, `components()`, `communities()`, `kcore()`, `triangles()`, `bfs()`, …
-- [ ] Point queries with batch variants: `neighbors(ids)`, `degree(ids)`, `khop(id, k, budget=…)`, `path(a, b)` ({{#m7-01-point-queries}})
+- [ ] Point queries with batch variants: `neighbors(ids)`, `degree(ids)`, `khop(id, k, limit=…, timeout=…)`, `path(a, b)` ({{#m7-01-point-queries}})
 - [ ] `explain()` / preflight on every long operation; progress callbacks; cancellation on `KeyboardInterrupt`
-- [ ] Options: `threads`, `memory_budget`, `deterministic=True`, `seed`
+- [ ] Options: `threads`, `memory`, `deterministic=True`, `seed`
 - [ ] External ids in, external ids out by default; dense ids available for performance
 - [ ] Typed exceptions (`InsufficientBudget`, `InvalidInput`, …)
 - [ ] Type stubs, docstrings with examples, a consistent naming scheme from {{#m0-11-api-sketch}}
 - [ ] PyO3 with abi3-py310, `py.detach` around every kernel
+- [ ] No signal handler is installed: long calls poll Python's signal check so `Ctrl-C` arrives as a plain `KeyboardInterrupt` after a clean stop (`docs/ux-contract.md` C-6); a result cut short is reported with `warnings.warn(…, eg.TruncatedWarning)` (M-12); every event validates against the event schema of § 4.6
 
 **Acceptance**
 - The ten user stories from {{#m0-11-api-sketch}} run as written

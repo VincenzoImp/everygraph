@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The platforms that cost more Actions minutes than Linux x86_64 (the repository is
+# private: macOS minutes count ten-fold, Windows two-fold), run once a week and on
+# demand instead of on every push. Also the weekly security-advisory check of main, so
+# that a new advisory is noticed without waiting for a push.
+#
+# Run it on a branch: gh workflow run other-platforms.yml --ref <branch>
+
+name: Other platforms (weekly)
+
+on:
+  schedule:
+    # Mondays 04:17 UTC (off the hour, when scheduled runs are less often delayed).
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  platforms:
+    name: Build and test on ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+          - name: Windows x86_64
+            os: windows-2025
+          - name: Linux aarch64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup default stable
+          rustc --version --verbose
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Clippy on each platform: it compiles code under that platform's `cfg`, which
+      # the Linux lint runs never see.
+      - name: cargo clippy (workspace)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo test (workspace)
+        run: cargo test --workspace --locked
+      - name: cargo test (core, no default features)
+        run: cargo test -p everygraph-core --no-default-features --locked
+      - name: wasm32 build (core, no default features)
+        run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
+
+  advisories:
+    name: Security advisories (cargo deny)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny check advisories
+        run: cargo deny --locked check advisories

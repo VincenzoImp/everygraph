@@ -14,6 +14,7 @@ labels: type:feature, area:engine, P0, risk:high, size:XL, lab-evidence
 - [ ] Budget hooks: per-thread buffers reserved through the accountant ({{#m2-04-arrays-accountant}})
 - [ ] No fork-join per BFS level (a weakness noted in the lab kernels)
 - [ ] Zero-overhead check: the framework must not cost more than 5% vs the hand-written lab loops
+- [ ] A way for tests to run the same kernel at a chosen number of threads inside one process (a scoped pool behind `everygraph_core::par`), so the oracle's cross-configuration checks ({{#m0-05-oracle}}) and the determinism job ({{#m3-11-determinism-ci}}) need no environment variables or subprocesses; rayon stays a dependency of the core only
 
 **Acceptance**
 - PageRank, WCC and BFS written once run over all four sources with byte-identical results

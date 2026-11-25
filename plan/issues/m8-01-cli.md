@@ -9,11 +9,12 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 - [ ] Verbs: `everygraph ingest`, `everygraph info`, `everygraph run <algorithm>`, `everygraph query`, `everygraph map`, `everygraph open`, `everygraph export`, `everygraph verify`, `everygraph doctor`
 - [ ] Single static binary per platform, no runtime dependencies; also installed by the Python wheel
 - [ ] Global options: `--threads`, `--memory`, `--temp-dir`, `--deterministic/--fast`, `--seed`, `--json`
-- [ ] Preflight printed before long operations with `--dry-run` and `--yes` ({{#m0-12-ux-contract}})
+- [ ] Preflight printed before long operations, and with `--dry-run`; no `--yes`, since nothing asks ({{#m0-12-ux-contract}} S-4)
 - [ ] Progress with ETA on TTYs; quiet structured logs otherwise; meaningful exit codes
 - [ ] Error messages that say what to do next (smallest sufficient budget, how to convert gzip, …)
 - [ ] `everygraph doctor`: hardware probe, storage bandwidth probe, cgroup limits, recommended settings
 - [ ] Shell completions; man page
+- [ ] `--json` gives exactly one document on standard output in every outcome, a stop included (stop document, exit 130/143); exit statuses 0–6, 130, 143 as `docs/ux-contract.md` § 6.4; the tests § 8 assigns to this issue: interruption and `kill -9` of `everygraph map`, the C-4 work-between-checks test, the golden transcripts
 
 **Acceptance**
 - `everygraph ingest edges.csv && everygraph map && everygraph open` produces a browsable map of a 1 M-edge file in < 10 s on a laptop

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The ThreadSanitizer canary: a deliberately racy program built on the parallel facade
+# of everygraph-core. It is not a member of the workspace (it has its own `[workspace]`
+# table), so no normal build, test or lint compiles it. `tools/check_tsan.py` runs it
+# under ThreadSanitizer and requires the race to be reported. See CONTRIBUTING.md, "CI".
+
+[package]
+name = "everygraph-tsan-canary"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[dependencies]
+# Default features: the `parallel` facade on rayon, as in a shipped build.
+everygraph-core = { path = "../../../crates/everygraph-core" }
+
+[workspace]

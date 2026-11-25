@@ -13,6 +13,7 @@ labels: type:feature, area:wasm, P1, risk:medium, size:L, lab-evidence
 - OPFS can persist results (684–816 MB/s writes) but there is no mmap and the 4 GiB working set still applies
 
 **Scope**
+- [ ] CI job for the threaded wasm32 build (pinned nightly in `tools/nightly-toolchain`, `-Z build-std`, the linker flags of FINDINGS § G), replacing the placeholder comment in `.github/workflows/ci.yml`, with a run under SharedArrayBuffer (moved here from {{#m0-02-ci}})
 - [ ] `everygraph-wasm` bindings: ingest from a dropped `File` (two-pass streaming), kernels, communities, layout, in-memory tiles for the viewer
 - [ ] Static page (no server): drop a CSV/Parquet → map; export `.eg`/`.egmap`
 - [ ] Memory planner for the 4 GiB/2 GiB limits with a clear refusal message
