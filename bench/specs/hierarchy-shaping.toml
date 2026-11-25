@@ -265,7 +265,6 @@ metric = [
   { name = "post_seconds", json = "/split/post_s", unit = "s" },
   { name = "max_round_leiden_anon_peak", json = "/split/max_round_leiden_anon_peak_kb", scale = 1024, unit = "B" },
   { name = "max_upward_leiden_anon_peak", json = "/split/max_upward_leiden_anon_peak_kb", scale = 1024, unit = "B" },
-  { name = "super_level_built", json = "/split/upward_built" },
   { name = "driver_maxrss", json = "/driver_maxrss_kb", scale = 1024, unit = "B" },
   { name = "tree_nodes_before_post", json = "/tree_nodes_before_post" },
 ]
@@ -293,7 +292,6 @@ metric = [
   { name = "post_seconds", json = "/split/post_s", unit = "s" },
   { name = "max_round_leiden_anon_peak", json = "/split/max_round_leiden_anon_peak_kb", scale = 1024, unit = "B" },
   { name = "max_upward_leiden_anon_peak", json = "/split/max_upward_leiden_anon_peak_kb", scale = 1024, unit = "B" },
-  { name = "super_level_built", json = "/split/upward_built" },
   { name = "driver_maxrss", json = "/driver_maxrss_kb", scale = 1024, unit = "B" },
   { name = "tree_nodes_before_post", json = "/tree_nodes_before_post" },
 ]
