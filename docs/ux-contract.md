@@ -188,10 +188,13 @@ In a terminal the space between a number and its unit is an ordinary space.
 
   Free memory and free disk are read at that moment, not cached. The time spent planning
   is bounded: at most 1 s or 1 % of the estimated run, whichever is larger (*placeholder*).
-- **P-3** The plan is printed, without being asked, exactly when the operation is long
-  (§ 1). It is always printed for `--dry-run`, and returned for `dry_run=True` and
-  `explain`. It is always part of a refusal. A short operation prints no plan and no
-  progress: only its result.
+- **P-3** The plan block and the progress lines are printed, without being asked,
+  exactly when the operation is long (§ 1). A short operation prints neither: only its
+  result. Three things do not depend on length: an operation that reads a file always
+  prints its headline and summary (what it understood is worth four lines every time,
+  and it is where a guessed direction is stated); a plan is always printed for
+  `--dry-run`, and returned for `dry_run=True` and `explain`; a plan is always part of
+  a refusal.
 - **P-4** After the plan is printed the work starts at once (S-4).
 - **P-5** Before starting, the engine checks, in this order, and refuses on the first
   failure (§ 3.5):
@@ -257,8 +260,9 @@ The plan is at most four blocks, in this order, separated by one empty line.
 
 1. **Headline.** The file's name in bold, its size, its rows or its nodes and edges.
 2. **Summary** — only for an operation that reads an input the engine has not seen
-   (`ingest`, `eg.read`): `ids`, `edges`, `columns`.
-3. **Plan block** — always these four lines: `machine`, `budget`, `plan`, `estimate`.
+   (`ingest`, `eg.read`), and then always (P-3): `ids`, `edges`, `columns`.
+3. **Plan block** — when the operation is long, always these four lines: `machine`,
+   `budget`, `plan`, `estimate`.
 4. **Then** the progress lines (§ 4) for a run, or the two lines `phases` and `result`
    and a closing sentence for a dry run.
 
@@ -856,8 +860,12 @@ When the last phase finishes, the result block follows after one empty line:
   next: everygraph map transfers.eg
 ```
 
-- **G-11** The result line is `✓`, what was made (bold), its size, its exact counts and
-  the total time. It is the only place a total time appears.
+- **G-11** An operation that makes a file ends with the result block. Its first line
+  is `✓`, what was made (bold), its size, its exact counts and the total time; it is
+  the only place a total time appears. A graph kept in memory says `in memory` where
+  the size would be. An operation that returns a table or an object has no result
+  block: its last phase line is the record, and the result follows on its own channel
+  (§ 2.1).
 - **G-12** `dropped:` follows when rows of the input did not become edges, with the
   exact count of each kind. It is left out when nothing was dropped.
 - **G-13** At most two hints follow, each a label and something that can be run, the
@@ -1415,10 +1423,10 @@ The table is on standard output; the two messages under it are on standard error
   `"truncated"` in the JSON document. An approximate result carries its bound in the
   same way (`docs/api-sketch.md` § 2.5).
 
-Stable codes of the warnings in 0.1: `slow-gzip`, `cut-short`, `direction-guessed`
-(the caller did not say whether the graph is directed and no column names decide it;
-normally only the `edges` line of the summary says so, and the warning is used when
-there is no summary to carry it).
+Stable codes of the warnings in 0.1: `slow-gzip`, `cut-short`, `read-only` (a result
+could not be stored in the graph file and is kept for the session only). A direction
+that was guessed is not a warning: the `edges` line of the summary states it (§ 3.4),
+and the summary is always printed (P-3).
 
 ### 6.3 Notices
 
@@ -1503,7 +1511,7 @@ with it they need no real graph.
 | §§ 2.5, 2.6, N-1, N-2 | Unit tests of the formatters on a table of inputs and expected strings (every example in § 2.6 is a row). A property test: a value with basis `sampled` or `model` never renders without `~` or "about". | #98 |
 | P-1, P-5 | With the scratch and output directories on a file system that records writes, a refused operation performs none. Fault injection: each of the three checks of P-5 fails in turn and the matching refusal is produced. | #40, #45 |
 | P-2 | Planning an ingest reads no more than the sample: counted through the I/O layer's read counters (#29). | #40 |
-| P-3 | With a fake cost model, an operation estimated just under and just over `T_PLAN` prints nothing, respectively the plan. | #45 |
+| P-3 | With a fake cost model, an operation estimated just under and just over `T_PLAN` prints no plan block and no progress, respectively both. An ingest of a ten-line file prints its headline and summary. | #45, #40 |
 | P-6 – P-8, P-10 – P-12 | Golden transcripts of the plan for: ingest of a Parquet file, of a text file (sampled row count), an operation on a graph, an `explain`, a plan with a kept phase. | #40, #45 |
 | § 3.6, P-13 – P-15, M-5, G-15 – G-17 | **Schemas.** The plan and error schemas are kept as files beside the tests, identical to the ones in this document, together with an event schema written from the table of § 4.6. Every plan, error and event produced in the test suite is validated against them; the examples in this document are validated by `docs/tools/check_schemas.py`. A sequence check on recorded streams: `plan` first, exactly one final event, one final `phase` event per phase. | #45, #81, #98 |
 | P-9 | **Estimates against actuals.** The ingest report and each result's provenance record `estimate` and `actual` for time, peak memory, scratch and output size. The benchmark harness (#4) asserts each actual lies in the stated `[low, high]`, and for ingest on the tier-2 datasets within ±30 % of `value`; the four relative errors are stored with the run so the model can be tuned. | #40, #45 |
@@ -1554,9 +1562,10 @@ one behaviour, with one line of reasoning. None changes an answer recorded in
    terminals; the same measurement applies to the URL and the options under "Ways
    forward". *So the command emits six instructions and no blue.*
 6. **`map` and the single-phase algorithms print the four-line plan block when they are
-   long.** `cli.md` shows `everygraph map` going straight to its phases, but the decision
-   is that long operations print their plan. `T_PLAN` = 5 s is a placeholder. *The rule
-   has no exception to remember.*
+   long; reading a file always prints its summary.** `cli.md` shows `everygraph map`
+   going straight to its phases, but the decision is that long operations print their
+   plan. `T_PLAN` = 5 s is a placeholder. *The rule has no exception to remember, and
+   `choices.md` A4 needs the summary line to say when a direction was guessed.*
 7. **Standard output is for results, standard error for everything else** (§ 2.1), and
    `--json` moves the final message to standard output. The previews did not say.
    *It is what makes `everygraph run … | other-tool` and `> file` safe.*

@@ -46,6 +46,28 @@ def ascii_form(line):
     return out
 
 
+def ascii_lines(line):
+    """The ASCII rendering of one line, as the lines it occupies.
+
+    Rule W-3 of docs/ux-contract.md: a chain of identifiers joined by arrows
+    that no longer fits once the symbols are replaced wraps before an arrow,
+    never inside an identifier; continuation lines are indented two columns.
+    """
+    a = ascii_form(line)
+    if width(a) <= MAX or " → " not in line or line.startswith("$ "):
+        return [a]
+    out, current = [], ""
+    for i, piece in enumerate(a.split(" -> ")):
+        part = piece if i == 0 else "-> " + piece
+        joined = part if not current else current + " " + part
+        if current and width(joined) > MAX:
+            out.append(current)
+            current = "  " + part
+        else:
+            current = joined
+    return out + [current]
+
+
 def blocks(path):
     """Yield (first line number, language, lines) for each fenced block."""
     lang, start, body, fence = None, 0, [], None
@@ -75,8 +97,9 @@ def check(path):
             if w > MAX:
                 problems.append(f"{where}: {w} columns: {line}")
             if lang in SHOWN:
-                a = ascii_form(line)
-                wa = width(a)
+                rendered = ascii_lines(line)
+                a = "\n".join(rendered)
+                wa = max(width(r) for r in rendered)
                 widest_ascii = max(widest_ascii, wa)
                 if not a.isascii():
                     bad = sorted({c for c in a if ord(c) > 127})
