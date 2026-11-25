@@ -12,6 +12,9 @@ For blocks that show what a person sees (```console and ```text):
     built, must be pure ASCII and must also fit 80 columns;
   * a line that is redrawn in place (it contains a progress-bar cell) stops
     at column 78 in both renderings.
+For a document that numbers its rules (**P-3**) and has a "Test hooks"
+section:
+  * every rule is cited in that section, alone or inside a range (P-6 – P-8).
 
 Exit status 0 when every block passes, 1 otherwise. No third-party imports.
 """
@@ -26,9 +29,9 @@ MAX, MAX_REDRAWN = 80, 78
 # the ASCII rendering is measured separately.
 FALLBACK = {
     "✓": "ok", "✗": "error:", "█": "#", "░": ".", "·": "|", "—": "-",
-    "→": "->", "…": "...", "×": "x", "←": "<-", "▶": ">", "─": "-",
+    "→": "->", "…": "...", "×": "x", "±": "+/-", "▶": ">", "─": "-",
     "│": "|", "┌": "+", "┬": "+", "┐": "+", "├": "+", "┼": "+", "┤": "+",
-    "└": "+", "┴": "+", "┘": "+", "≤": "<=", "≥": ">=", "±": "+/-",
+    "└": "+", "┴": "+", "┘": "+",
 }
 SHOWN = {"console", "text"}          # blocks a person sees on a terminal
 FENCE = re.compile(r"^(\s*)(```+)\s*([A-Za-z0-9_-]*)\s*$")
@@ -86,6 +89,30 @@ def blocks(path):
         raise SystemExit(f"{path}:{start}: code block is not closed")
 
 
+RULE = re.compile(r"\*\*([A-Z])-(\d+)\*\*")
+CITED = re.compile(r"([A-Z])-(\d+)(?:\s*–\s*[A-Z]-(\d+))?")
+
+
+def rules_without_a_hook(path):
+    """Numbered rules that the "Test hooks" section never cites."""
+    text = open(path, encoding="utf-8").read()
+    defined = sorted({(a, int(n)) for a, n in RULE.findall(text)})
+    m = re.search(r"^## .*Test hooks.*$", text, re.M)
+    if not defined or not m:
+        return None
+    rest = text[m.end():]
+    end = re.search(r"^## ", rest, re.M)
+    hooks = rest[:end.start()] if end else rest
+    cited = set()
+    for line in hooks.splitlines():
+        if not line.startswith("|"):
+            continue
+        for a, first, last in CITED.findall(line.split("|")[1]):
+            for n in range(int(first), int(last or first) + 1):
+                cited.add((a, n))
+    return len(defined), [f"{a}-{n}" for a, n in defined if (a, n) not in cited]
+
+
 def check(path):
     problems, count, widest, widest_ascii = [], 0, 0, 0
     for start, lang, body in blocks(path):
@@ -129,6 +156,13 @@ def main(paths):
         problems, count, widest, widest_ascii = check(path)
         for p in problems:
             print(p)
+        coverage = rules_without_a_hook(path)
+        if coverage:
+            total, missing = coverage
+            for rule in missing:
+                problems.append(f"{path}: rule {rule} has no test hook")
+            print(f"    {path}: {total} numbered rules, "
+                  f"{len(missing)} without a test hook")
         state = "FAIL" if problems else "ok"
         print(f"{state}  {path}: {count} code blocks, widest line {widest} "
               f"columns, widest ASCII rendering {widest_ascii} columns, "

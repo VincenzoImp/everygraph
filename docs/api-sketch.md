@@ -544,9 +544,40 @@ transfers.parquet · 38.2 GB · 1,830,402,118 rows
   reopen later: eg.open("transfers.eg")
 ```
 
-On the command line it is the same, with `everygraph ingest …` typed twice, the words
-`run the same command again`, and exit status 130 after the `Ctrl-C`. The behaviour is
-identical in a notebook (`docs/ux-contract.md` § 5).
+```console
+$ everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time
+  reading      ████████████████  1,830,402,118 rows                 1 min 41 s
+  identifiers  █████████░░░░░░░  61% · 5.6 M/s · about 15 s left          23 s
+^C
+Stopped at your request, during identifiers.
+
+  kept      reading · 31 GB of scratch in /tmp/everygraph-7c1e
+  dropped   identifiers at 61% — that phase starts again from its beginning
+  written   nothing: there is no transfers.eg yet
+
+  continue:  run the same command again
+  discard:   rm -r /tmp/everygraph-7c1e
+$ echo $?
+130
+$ everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time
+transfers.parquet · 38.2 GB · 1,830,402,118 rows
+  Continuing the run stopped 6 min ago: the file has not changed since.
+
+  reading      ████████████████  1,830,402,118 rows                       kept
+  identifiers  ████████████████  212,418,907 addresses                    38 s
+  building     ████████████████  2,048 parts                              59 s
+  checking     ████████████████  sorted · symmetric counts                12 s
+
+✓ transfers.eg · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 1 min 49 s
+  dropped: 4,201 self-loops
+  next: everygraph map transfers.eg
+```
+
+(The first transcript is shown from the phase lines onward; the summary and plan of
+story 2 come before them.) The behaviour is identical in a notebook, where the last
+line reads `run the cell again` (`docs/ux-contract.md` § 5).
 
 Issues: #40 (checkpoints at phase boundaries, the manifest, stale scratch), #28 (a graph
 file that is never half-written), #81 (`KeyboardInterrupt`), #98.
@@ -583,8 +614,29 @@ Graph in memory · 5 nodes · 6 edges
 5 rows
 ```
 
-There is no command-line form of this story: a graph in memory lives inside a Python (or
-Rust) process. The nearest command is `everygraph ingest` on a small file, as in story 1.
+A graph in memory lives inside a Python (or Rust) process, so the command line has no
+`from_edges`. Its equivalent starts from a file, however small:
+
+```console
+$ printf 'a,b\n0,1\n0,2\n1,2\n2,3\n2,4\n3,4\n' > tiny.csv
+$ everygraph ingest tiny.csv
+tiny.csv · 28 B · 6 rows
+
+  ids       integers · 5 distinct
+  edges     undirected (the column names give no direction)
+            duplicates kept as events · self-loops dropped
+  columns   a → source · b → target
+
+✓ tiny.eg · 8.2 kB · 5 nodes · 6 edges · 4 ms
+  next: everygraph map tiny.eg
+$ everygraph run triangles tiny.eg
+node  triangles  clustering
+   0          1      1.0000
+   1          1      1.0000
+   2          2      0.3333
+   3          1      1.0000
+   4          1      1.0000
+```
 
 Issues: #84 (graphs from arrays and tables, kept in memory below a size), #51
 (triangles), #83 (arrays in without copying).
@@ -1790,7 +1842,7 @@ name is covered by the tests of its own issue only. ‡ and † as in § 3.
 | Name | Implemented by | Story |
 |---|---|---|
 | `eg.read` | #81; #32, #33, #34, #35, #36, #40 | 1, 2, 9 |
-| `eg.read` of a table | #83, #95 | — |
+| `eg.read` with a table as `data` | #83, #95 | — |
 | `eg.open` | #81; #28, #41 | 3 |
 | `eg.from_edges` ‡ | #84 | 10 |
 | `eg.from_scipy` ‡ | #84 | — |
@@ -1876,6 +1928,12 @@ name is covered by the tests of its own issue only. ‡ and † as in § 3.
 | `dry_run=`, `--dry-run` | #40, #45 | 8 |
 | `progress=` | #81 | — |
 | `direction=`, `max_hops=`, `avoid=`, `k=` | #90, #91 | 3 |
+| `source=`, `target=`, `time=`, `directed=` of `eg.read`; `--source`, `--target`, `--time`, `--directed`, `--undirected` | #32, #33, #36 | 2 |
+| `damping=`, `tol=`, `max_iter=`, `personalize=` | #47 | — |
+| `strong=`, `--strong` | #48 | — |
+| `method=`, `resolution=`, `objective=`, `iterations=`, `directed=` of `communities` | #57, #58, #65 | — |
+| `events=`, `max_edges=` | #85, #87 | 7 |
+| `ids=` | #81, #83 | — |
 | `reveal=`, `--reveal` | #75 | 5 |
 | `out=`, `--out` | #81, #98 | 1, 6, 7 |
 
