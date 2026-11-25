@@ -94,9 +94,11 @@ pub fn check(
             c.require(t.iter().all(Option::is_some), "shape", || {
                 "a node without a count".into()
             });
-            c.require(sum % 3 == 0, "triangles_sum_divisible_by_3", || {
-                format!("sum {sum}")
-            });
+            c.require(
+                sum.is_multiple_of(3),
+                "triangles_sum_divisible_by_3",
+                || format!("sum {sum}"),
+            );
             for (v, x) in t.iter().enumerate() {
                 let d = to_u64(p.undirected.degree(v));
                 let pairs = d * d.saturating_sub(1) / 2;
