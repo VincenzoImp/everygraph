@@ -35,7 +35,7 @@
 # in RAM 3 x ~115 s; out of core 34G/16G 3 x ~105 s each, 8G 3 x ~190 s; floor 5G/4G
 # 2 x ~235 s and 2 x ~275 s; map-shaped 2 x ~210 s; L1 in RAM 3 x ~110 s, L1 8G 3 x ~130 s,
 # L1 4G 3 x ~150 s (estimate); orkut ~1 minute; cold copies (2 x 10.4 GB + 2 x 10.9 GB) ~3
-# minutes. Sum: about 70 minutes (estimate). Disk: ~45 GB for the copies, up to ~40 GB of
+# minutes; deterministic in RAM and at 16G ~2 x 125 s each. Sum: about 80 minutes (estimate). Disk: ~45 GB for the copies, up to ~40 GB of
 # spill per running case (in {case_work}, emptied between repetitions), ~23 GB for the
 # map-shaped hierarchy.
 # Out-of-core runs read with page faults on a mapped file: the harness's read_bytes counts
@@ -121,6 +121,49 @@ metric = [
   { name = "level1_store", json = "/passes/0/seq_agg/out_bytes", unit = "B" },
   { name = "disk_read_machine", json = "/read_bytes", unit = "B" },
   { name = "disk_write_machine", json = "/write_bytes", unit = "B" },
+]
+
+# Deterministic mode: async Leiden's modularity varies from run to run (exploratory Friendster
+# runs, same configuration: 0.597-0.607), which straddles the issue's Q >= 0.60. The
+# deterministic mode gives one value and must give the same partition hash in RAM and out of
+# core (exploratory: 2a12e5882874c38d, Q 0.605513, both).
+
+[[benchmark]]
+name = "det-inram-friendster"
+group = "friendster-det"
+description = "deterministic Leiden in RAM (reference for the hash and the modularity)"
+dataset_path = "store-m113/friendster"
+memory_limit = "48G"
+repetitions = 1
+command = ["sh", "-c", "exec {run} --store {dataset} --mem mmap --lowmem --det"]
+conditions = { graph = "friendster", algorithm = "Leiden deterministic, 1 iteration", mode = "in RAM, --lowmem aggregation", storage = "compressed level 0 (mmap, pre-faulted, warm)", precision = "f64 weights", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]
+
+[[benchmark]]
+name = "det-ooc-friendster"
+group = "friendster-det"
+description = "deterministic Leiden out of core under 16 GiB: same hash as in RAM"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+warmup = 1
+repetitions = 1
+matrix = { limit = ["16G"] }
+memory_limit = "{limit}"
+command = ["sh", "-c", "exec {run} --store {dataset} {ooc} --det"]
+conditions = { graph = "friendster", algorithm = "Leiden deterministic, 1 iteration", mode = "out of core, limit {limit}", storage = "compressed level 0 (mmap, cold copy); quotient graphs spilled", precision = "f64 weights (integer)", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
 ]
 
 [[benchmark]]

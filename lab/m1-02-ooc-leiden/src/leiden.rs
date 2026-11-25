@@ -1925,7 +1925,7 @@ pub fn main_leiden(args: Vec<String>) {
     sample_anon();
     let level0 = &out.stats[0];
     let json = format!(
-        "{},\"ooc\":{},\"budget_bytes\":{},\"cgroup_memory_max\":{},\"accountant\":{},\"eval_s\":{:.4},\"time_with_eval_s\":{:.4},\"level0_lm_s\":{:.4},\"level0_refine_s\":{:.4},\"level0_agg_s\":{:.4},\"upper_levels_s\":{:.4},\"check_agg_levels\":{},\"rss_anon_peak_sampled_kb\":{},\"order_window\":{},\"permute\":{},\"read_bytes\":{},\"write_bytes\":{},\"trace\":[{}],\"status\":\"ok\"}}",
+        "{},\"ooc\":{},\"budget_bytes\":{},\"cgroup_memory_max\":{},\"accountant\":{},\"eval_s\":{:.4},\"time_with_eval_s\":{:.4},\"level0_lm_s\":{:.4},\"level0_refine_s\":{:.4},\"level0_agg_s\":{:.4},\"upper_levels_s\":{:.4},\"check_agg_levels\":{},\"rss_anon_peak_sampled_kb\":{},\"order_window\":{},\"permute\":{},\"read_bytes\":{},\"write_bytes\":{},\"trace\":[{}],\"hash_levels_low53\":{},\"status\":\"ok\"}}",
         &json[..json.len() - 1],
         o.ooc,
         if budget == u64::MAX { "null".to_string() } else { budget.to_string() },
@@ -1943,7 +1943,8 @@ pub fn main_leiden(args: Vec<String>) {
         o.permute,
         io_read_bytes() - disk_r0,
         io_write_bytes() - disk_w0,
-        TRACE.lock().unwrap().join(",")
+        TRACE.lock().unwrap().join(","),
+        h & ((1u64 << 53) - 1)
     );
     // m1-02: valid JSON for the harness (the lab printed NaN for values not computed)
     let json = json.replace(":NaN", ":null").replace(":inf", ":null");
