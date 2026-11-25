@@ -9,6 +9,7 @@ labels: type:feature, area:interop, P1, risk:low, size:M
 - [ ] Readers: GraphML, GEXF, Matrix Market, edge-list dialects (SNAP, KONECT), node/edge CSV pairs (Neo4j `neo4j-admin` export layout)
 - [ ] Writers: Parquet/CSV node and edge tables, GraphML, GEXF (with layout coordinates and community as attributes so Gephi opens our map as a starting layout), Matrix Market
 - [ ] Converters: `to_networkx()`, `to_igraph()`, `to_scipy()`, with a size guard and a clear error above it
+- [ ] Kept loops: `to_networkx()` and `to_igraph()` keep them as loop edges, one edge per pair with its `edges` and summed weight; `to_scipy()` puts w, not 2w, on the diagonal (the `networkx.to_scipy_sparse_array` convention, so the matrix round-trips) and never refuses a weight; above `max_edges` is `Unsupported` (2) (`docs/spec/graph-semantics.md` § 6, § 10 item 9)
 - [ ] Apache GraphAr as an interchange format: evaluate once it has a stable release (still incubating; last release 0.13.0)
 - [ ] Round-trip tests for properties and ids
 

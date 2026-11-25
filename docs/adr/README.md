@@ -82,7 +82,7 @@ A measurable condition.
 | [0008](0008-id-dictionary.md) | ID dictionary: typed keys and minimal perfect hash | accepted, partly validated | #34, #25 |
 | [0009](0009-property-columns.md) | Properties as Arrow-compatible columns | accepted, partly validated | #37 |
 | [0010](0010-views-mask-or-materialize.md) | Views: mask or materialize | open — needs experiment | #93 |
-| [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state | accepted, partly validated | #16 |
+| [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state (result of #16 added) | accepted, partly validated | #60, #46 |
 | [0012](0012-edge-map-framework.md) | One edge-map framework | accepted, partly validated | #44 |
 | [0013](0013-threads-per-kernel.md) | Thread count chosen per kernel | accepted, partly validated | #22 |
 | [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #18, #54, #60 |

@@ -43,6 +43,11 @@ All idle, 16 threads, async mode unless noted (FINDINGS § B2 and "Idle-machine 
   Friendster (FINDINGS § B2; shared).
 - **Narrowness**: two undirected, unweighted social graphs. No web, road, bipartite,
   weighted or directed graph (DESIGN § 5, item 7).
+- *Added 2026-11-25 (#16, FINDINGS § M1-02):* a seeded relabelling of ids at ingest with
+  storage-order visits (L1) was measured promising on Friendster (async, 1 iteration, 16
+  threads, idle: Q 0.611 against 0.605, and level-0 local moving at its in-RAM cost under
+  8 and 4 GiB; `bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl`) and is under
+  study in #146 (`plan/issues/m1-14-relabel-at-ingest.md`). The decision is unchanged.
 
 ## Consequences
 
