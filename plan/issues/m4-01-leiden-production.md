@@ -27,3 +27,5 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 - No data race reported by TSan
 
 **Pointers.** `lab/b2-leiden/src/main.rs`, FINDINGS § B2 and idle re-runs.
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Repeatable results are the default (`api.md` Choice 6, approved); the fast mode is opt-in and labelled in the output. The method is exposed as `g.communities()`, not `g.leiden()`.

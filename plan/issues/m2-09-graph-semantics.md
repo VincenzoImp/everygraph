@@ -18,3 +18,5 @@ labels: type:spec, area:ingest, P0, risk:medium, size:M
 **Acceptance**
 - Spec in `docs/spec/graph-model.md`; every option covered by oracle tests
 - The ingest report sums exactly to the input row count
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Defaults approved in `design/preview/choices.md` (A1–A4): repeated edges are kept as separate events and analysed once per pair with a weight; self-loops are dropped and counted; direction is taken from the caller, or inferred from column names (`from`/`to`, `source`/`target`) with a line in the summary; community detection ignores direction by default and says so.

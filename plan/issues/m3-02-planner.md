@@ -23,3 +23,5 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 - It never selects a plan that is then OOM-killed ({{#m3-10-no-oom-ci}})
 
 **Depends on** {{#m2-04-arrays-accountant}}, {{#m3-01-edge-map}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved defaults (`design/preview/choices.md` A5, `cli.md` Choice 4): all physical cores and half of free memory unless told otherwise; the plan is always shown before a long operation, in the form typeset in `design/preview/style/``terminal.html` ("From a file to a map") and `notebook.html` (the plan card).

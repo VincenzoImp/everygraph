@@ -18,3 +18,5 @@ labels: type:spec, area:foundations, P0, risk:medium, size:M
 - Each story maps to issues in M2–M7
 
 **Pointers.** FINDINGS § F2 (binding costs, NetworkX traps).
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Start from `design/preview/api.md`, which the owner approved with the recommended options: algorithms are methods on the graph (`g.pagerank()`), results are small Arrow-backed tables carrying the user's original identifiers, repeatable results by default, traversals take `limit=` and `timeout=` ("budget" means memory only), filters are short text expressions, short method names (`components`, `kcore`), the prepared `.eg` file is written next to the input above a size threshold, and long operations print their plan and start without asking (`dry_run=True` only plans). The sketch turns these into a specification; it does not reopen them.

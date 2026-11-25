@@ -17,3 +17,5 @@ labels: type:spec, area:map, P0, risk:medium, size:M, lab-evidence
 **Acceptance**
 - The official PMTiles JS and Python clients open an `.egmap` file and fetch tiles
 - A third party could implement a reader from the spec alone (validated by the independent Python reader)
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** What a tile must carry follows from the approved viewer (`design/preview/style/``viewer.html`, `data.html`): region kind (community / subdivision / aggregate), exact counts, the colour index of the top-level region from the five-colour assignment (computed once at build time by graph colouring of touching regions), label and count, shown-versus-omitted figures for the caption strip, and per-node adjacency for links drawn on selection. Links are not pre-drawn into tiles beyond what the selection needs.

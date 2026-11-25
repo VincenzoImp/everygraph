@@ -20,3 +20,5 @@ labels: type:feature, area:viewer, P0, risk:medium, size:L
 - Every number shown can be traced to a value in the file
 
 **Depends on** {{#m5-05-viewer-core}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved as shown in `design/preview/style/``viewer.html` and its 21 captured states: plan card before starting, breadcrumb and level indicator, inspection panel (kind, exact counts, ranked strongest connections with exact weights, actions), search with fly-to, path with an "avoid hubs" toggle off by default, time strip opened on demand, colour by region / attribute / metric with a legend, share dialog, compact density as a preference, and the caption strip always visible. Components and their states are in `components.html`.

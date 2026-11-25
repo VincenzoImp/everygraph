@@ -13,3 +13,5 @@ labels: type:docs, area:docs, P0, risk:low, size:M
 **Acceptance**
 - A reader can find how to do each of the ten user stories within two clicks
 - Format specs are sufficient to write an independent reader (validated by the Python readers from {{#m2-01-container-spec}} and {{#m5-02-tile-format}})
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The landing page, documentation page, API reference entry, search, 404, changelog and README header are designed in `design/preview/style/``web.html`: headline "Every graph, every size, every machine." in ink, no performance numbers until the released software is measured, and a "When to use something else" section that names the other tools.

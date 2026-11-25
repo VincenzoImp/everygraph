@@ -12,7 +12,8 @@ and on GitHub is in English.
 
 1. Read `docs/STATE.md` (where we are, what is in flight, what was learned).
 2. Check reality against it: `git status`, `git log -5`, `gh pr list`, `gh run list -L 5`.
-3. Run `python3 plan/next.py` to see which issues are ready (all dependencies closed).
+3. Run `python3 plan/next.py` to see which issues are ready (all dependencies closed), and
+   `python3 plan/board.py sync` to bring the project board in line with GitHub.
 4. Only then pick work. If STATE.md and reality disagree, fix STATE.md first.
 
 Reference documents, in order of authority: `docs/DESIGN.md` (decisions),
@@ -22,7 +23,14 @@ GitHub issues are published from these files with `plan/publish.py`).
 ## 2. Unit of work
 
 - One issue → one branch (`m2-03-adjacency-codec`) → one pull request that says
-  `Closes #N`. No direct commits to `main` except documentation of state (`docs/STATE.md`).
+  `Closes #N`. Direct commits to `main` are for coordination only: `docs/STATE.md`, the plan
+  (`plan/`, republished with `plan/publish.py`) and records of decisions. Code and
+  specifications always go through a pull request.
+- When an issue starts, mark it on the board (`python3 plan/board.py doing N`); merging its
+  pull request closes it and `board.py sync` moves it to Done.
+- Anything a user sees or types is built to the approved design: read the issue's "Design
+  reference" paragraph, `design/DECISIONS.md` and the page it points to under
+  `design/preview/` before writing it. Departing from it is a decision change (§5).
 - The PR description copies the issue's acceptance criteria as a checklist. Each box is
   ticked only with evidence next to it: a test name, a benchmark result file, a command
   and its output. An issue is not closed on "looks right".

@@ -12,7 +12,7 @@ on GitHub.
 | **M3 · Engine and kernels** | Planner, memory accountant, edge-map framework, core kernels | Identical results in every regime and thread count; never over budget |
 | **M4 · Communities and hierarchy** | Production Leiden, out-of-core, quality gates, map hierarchy | Friendster communities under 16 GiB at modularity ≥ 0.60 |
 | **M5 · The map** | Layout, tiles, `.egmap`, viewer, static and live modes, Jupyter widget | A 1 B-edge graph opens from a static URL, first view < 250 KB |
-| **M6 · Python and interop** | Python package, Arrow interop, import/export, NetworkX backend | `pip install` on three OSes; zero-copy into Polars/pandas/DuckDB |
+| **M6 · Python and interop** | Python package, Arrow interop, import/export, notebook widget | `pip install` on three OSes; zero-copy into Polars/pandas/DuckDB |
 | **M7 · Queries and views** | Point queries, shortest paths, filtered and temporal views | Neighbours < 1.5 µs p99 in RAM; path p50 < 2 ms on 10^9 arcs |
 | **M8 · CLI, docs and v0.1 launch** | CLI, docs, public benchmarks, three showcase maps, release | v0.1.0 published with reproducible benchmarks |
 | **M9 · After v0.1** | Browser tier, MCP server, query language, temporal segments, sustainability | Unscheduled |
@@ -47,15 +47,14 @@ Estimates given by the agents that built each prototype, for productionizing the
 | Community detection beyond the prototype | 3–4 weeks |
 | Map: layout, tiles, viewer | 6–10 weeks |
 | Dictionary, out-of-core queries, columns and views | ~3 months |
-| NetworkX backend, ~60 functions | 2–3 months |
-| **Sum of the above** | **about 13–16 months** |
+| **Sum of the above** | **about 11–13 months** |
 
 Not included in any of those estimates: M0 (foundations), M1 (the second lab round), the
 Python API and wheels, the CLI, documentation, the three showcase maps and the release.
-Adding them, **v0.1 is more plausibly 18–24 months for one full-time engineer**. Estimates
+Adding them, **v0.1 is more plausibly 16–21 months for one full-time engineer**. Estimates
 made right after a successful prototype tend to be optimistic, and none of these has been
-tested against real progress. The NetworkX backend (2–3 months) is the largest item that
-could be deferred to after v0.1.
+tested against real progress. The NetworkX backend (a further 2–3 months) was moved to
+after v0.1 by an approved design choice (2026-11-25) and is not counted here.
 
 ## The three risks that decide the plan
 

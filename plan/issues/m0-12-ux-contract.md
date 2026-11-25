@@ -13,3 +13,5 @@ labels: type:spec, area:foundations, P1, risk:low, size:S
 
 **Acceptance**
 - Spec merged; referenced by {{#m2-13-preflight-resume}} and {{#m3-02-planner}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Wording, layout and tone of plans, progress, refusals and warnings are shown in `design/preview/cli.md` and typeset in `design/preview/style/``terminal.html` and `notebook.html`: summary of what was understood, plan with estimates, one line per phase, a result line and a suggested next command; never asks before starting (`--dry-run` plans only); default memory budget is half of free RAM; errors state what, why with the arithmetic, and the ways out as copyable commands; output fits 80 columns and degrades to no-colour and ASCII.

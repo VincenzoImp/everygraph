@@ -15,3 +15,5 @@ labels: type:infra, area:launch, P0, risk:low, size:M
 **Acceptance**
 - `pip install everygraph==0.1.0` and `cargo install everygraph-cli` work on all supported platforms on release day
 - Every claim in the launch post links to a reproducible result
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved (`choices.md` D1, D4, D7): the repository becomes public at 0.1 with benchmarks and one showcase map; Apache-2.0 or MIT at the user's choice; no telemetry, stated in the README. The visual identity to ship is `design/preview/style/`.

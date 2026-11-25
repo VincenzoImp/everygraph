@@ -16,3 +16,5 @@ labels: type:infra, area:python, P0, risk:low, size:M, lab-evidence
 **Acceptance**
 - `pip install everygraph` in clean containers for every target, followed by a smoke test (ingest + PageRank + map export)
 - `uv run --with everygraph` works as a plain script (verified in the lab for 3.10, 3.12, 3.14)
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Platforms for 0.1 (`choices.md` D6, approved): Linux and macOS fully supported; Windows builds and passes tests but without the out-of-core performance work.

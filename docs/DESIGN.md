@@ -109,6 +109,16 @@ TypeScript package.
 | D21 | **Queries v0.1: traversal API with budgets; no query language.** GQL/Cypher subset later, reusing an existing Rust parser. | Bidirectional BFS 0.3 ms on lj in-process, on raw arrays, vs 6 ms (Neo4j) and 0.3–4.8 s (embedded engines) through their query interfaces — different measurement levels. | validated in prototype |
 | D22 | **Browser tier after v0.1:** wasm32 threaded build, ≤ ~100 M edges. | lj end to end in ~3 s in Chromium; ceilings at 265 M edges. | validated |
 | D23 | **Licence Apache-2.0 OR MIT; published format specs.** | Kùzu, Memgraph MAGE, CozoDB lessons. | decision |
+| D24 | **One visual system ("Vernier") for viewer, docs, notebook, terminal and figures**: warm paper and soft black, one ink-blue accent, every number in monospace, the two-ring mark; values in `design/preview/style/assets/tokens.css`, rules in `design/preview/style/SPEC.md`. | Three rounds of previews; data palette and text contrast measured (worst categorical pair ΔE 15 normal vision, ~7.3 colour-blind; all text tokens ≥ 4.5:1). | approved by the owner, 2026-11-25 |
+| D25 | **User-facing choices are fixed in `design/DECISIONS.md`**: API shape and names, CLI messages, graph-semantics defaults, map style (bubbles, dark canvas, links for the selection only, five reused region colours, artefact regions drawn as such). | Owner approved the previews in `design/preview/` as a whole. | accepted by default; each can be reopened when built |
+
+## 4b. How it looks and reads
+
+The design is not described here but shown: `design/preview/README.md` indexes the
+previews (viewer, API, command line, choices), `design/preview/style/` holds the full
+style guide, and `design/DECISIONS.md` records what was chosen. Issues that build
+something a user sees or types carry a "Design reference" paragraph pointing to the
+exact page.
 
 ## 5. What is not solved yet
 

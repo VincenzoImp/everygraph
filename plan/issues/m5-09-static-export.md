@@ -17,3 +17,5 @@ labels: type:feature, area:map, P1, risk:low, size:S
 - Documentation page with the three recipes verified
 
 **Depends on** {{#m5-03-tile-builder}}, {{#m5-05-viewer-core}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The page a recipient sees, the embed and the share image are in `design/preview/style/``export.html`. At export the user chooses what the map reveals (`choices.md` C3): full (ids and the links shown) or summary only (regions and counts).

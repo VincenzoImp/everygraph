@@ -20,3 +20,5 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 - Every command supports `--json` output validated against a schema
 
 **Depends on** M2–M5 features
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved in `design/preview/cli.md` and typeset in `design/preview/style/``terminal.html`: the command is `everygraph` with no short alias installed; verb-then-thing shape (`everygraph run pagerank FILE`, `everygraph query path FILE A B`); starts without asking; readable tables on a terminal and plain output when piped or with `--json`; restrained colour with automatic no-colour and ASCII fallbacks; the suggested next command in bold; English only for 0.1; `GB` means 10⁹ bytes.

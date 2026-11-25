@@ -13,6 +13,7 @@ Tracking issue for milestone M6.
 
 **Exit criteria**
 - [ ] {{#m6-01-python-api}}, {{#m6-02-wheels}}, {{#m6-03-arrow-interop}}, {{#m6-04-in-memory-constructors}}
-- [ ] {{#m6-05-import-export}}, {{#m6-06-networkx-backend}}, {{#m6-07-subgraph-bridge}}
+- [ ] {{#m6-05-import-export}}, {{#m6-07-subgraph-bridge}}
+- The NetworkX backend ({{#m6-06-networkx-backend}}) was moved to M9 by an approved design choice
 - [ ] {{#m6-08-tutorials}}
 - [ ] Map in the notebook: {{#m5-10-jupyter-widget}} (needs the viewer from M5)

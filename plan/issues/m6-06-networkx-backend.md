@@ -1,7 +1,7 @@
 ---
 title: NetworkX backend package
-milestone: M6 · Python and interop
-labels: type:feature, area:python, P1, risk:medium, size:L, lab-evidence
+milestone: M9 · After v0.1
+labels: type:feature, area:python, P2, risk:medium, size:L, lab-evidence
 ---
 **Why.** NetworkX dispatches to third-party backends; the only thriving one is GPU-only (nx-cugraph, 134 of 797 dispatchable functions). A CPU backend that runs anywhere is an unclaimed adoption channel — with an honest caveat the lab measured: on an existing `nx.Graph`, conversion dominates (lj: 23.4 s to convert; PageRank 2.0× including conversion, 29–38× on the cached graph; components 0.92× including conversion).
 
@@ -21,3 +21,5 @@ labels: type:feature, area:python, P1, risk:medium, size:L, lab-evidence
 **Estimate from the lab.** 2–3 engineer-months for ~60 functions; ongoing cost tracking NetworkX releases.
 
 **Depends on** {{#m6-01-python-api}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Deferred to after 0.1 by the approved choice D5 in `design/preview/choices.md`; it stays a separate optional package and is never advertised without the conversion caveat.

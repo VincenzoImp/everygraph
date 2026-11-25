@@ -22,3 +22,5 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 - No API returns a Python list or dict proportional to n or m
 
 **Pointers.** `lab/f2-python/rust/glabpy`.
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The approved shape of the API and of everything it prints is `design/preview/api.md`; how it renders in a notebook is `design/preview/style/``notebook.html`. Issue {{#m0-11-api-sketch}} turns it into the specification this issue implements.

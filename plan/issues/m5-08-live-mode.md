@@ -17,3 +17,5 @@ labels: type:feature, area:viewer, P1, risk:medium, size:M
 - Port scan confirms no listener on non-loopback interfaces by default
 
 **Depends on** {{#m5-05-viewer-core}}, {{#m7-01-point-queries}}, {{#m7-02-shortest-paths}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Same screens as the static viewer (`design/preview/style/``viewer.html`); live mode adds answers the file cannot hold (full neighbourhoods, arbitrary paths, filters). The server prints the line shown in `cli.md` ("Serving on http://127.0.0.1:… (this computer only)").
