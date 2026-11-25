@@ -11,6 +11,7 @@ labels: type:infra, area:engine, P0, risk:medium, size:M, lab-evidence
 - [ ] Record accountant peak vs cgroup anonymous peak; the gap is the "untracked memory" metric and must stay below the slack
 - [ ] Nightly job on a self-hosted runner for tier-2 graphs; a reduced matrix on tier-1 in regular CI
 - [ ] Same harness reused for ingest ({{#m2-08-csr-build}}) and communities ({{#m4-04-ooc-leiden}})
+- [ ] A counting `#[global_allocator]` in kernel tests asserts that heap bytes stay within `budget.used()` plus a fixed slack: it catches the growth a lint cannot (`push`, `extend`, `collect`, `clone`) and needs no cgroup (review of PR #154)
 
 **Acceptance**
 - Zero OOM kills and zero "untracked > slack" results across the matrix for two consecutive weeks of nightly runs

@@ -75,7 +75,7 @@ Tell the owner when each becomes due, with everything prepared.
   commits made by agents under the owner's account, then set the repository variable
   `DCO_ALL_PULL_REQUESTS=true`.
 - Accounts with 2FA on PyPI, crates.io and npm — at the first release.
-- GitHub Actions: **no spending** (owner, 2026-11-25). Linux CI moves to a self-hosted runner on this machine (label `everygraph-lab`, in `/home/tux/graphlab/ci-runner`, downloaded and checksum-verified; registering it needs the owner — the classifier refused it for Claude). GitHub-hosted runners only for macOS/Windows/ARM, monthly, inside the Pro plan's 3,000 included minutes.
+- **Publication (owner's decision, 2026-11-25):** the owner runs `gh repo edit VincenzoImp/everygraph --visibility public --accept-visibility-change-consequences`. Then Claude enables private vulnerability reporting, sets `DCO_ALL_PULL_REQUESTS=true` after the owner authorizes sign-offs, and keeps CI on GitHub-hosted runners (free once public). GitHub Actions: no spending.
 - Package names: placeholders ready in `/home/tux/graphlab/name-reservation` (crates `everygraph`, `everygraph-cli`; PyPI `everygraph`; npm `everygraph`); publishing needs the owner's accounts with 2FA — all four names were free on 2026-11-25.
 - A trademark and patent professional (#122) — before anything is public.
 

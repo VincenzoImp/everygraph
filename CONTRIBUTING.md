@@ -59,7 +59,7 @@ reason, and every crate inherits them with `[lints] workspace = true`.
 On the minimum supported toolchain (see "Rust version"):
 
 ```sh
-cargo +1.85 test --workspace --locked
+cargo +1.87 test --workspace --locked
 ```
 
 And these on nightly, because Miri is the way to *run* tests with a 32-bit `usize` on a
@@ -98,7 +98,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's and the codec's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
@@ -191,8 +191,7 @@ one: read what it does on a target without an OS, add it and its own dependencie
 `ALLOWED_DEPENDENCIES` in the same pull request, and say why in the description. The
 same list is what keeps C and C++ out of the core (DESIGN D1): everything on it is pure
 Rust. `deny.toml` adds two workspace-wide rules: rayon may be a direct dependency of
-`everygraph-core` only, and memory-mapping crates are banned until #29 allows one for
-`everygraph-io`.
+`everygraph-core` only, and memory maps come from memmap2 and only into `everygraph-io`.
 
 **Adding a `cfg` condition to `everygraph-core` needs a lint run that compiles it.**
 `#[cfg(not(clippy))]` hides code from every lint, and `#[cfg(windows)]` hides it from a
@@ -219,11 +218,12 @@ than memory (file lengths, byte offsets, memory budgets) are `u64` on every targ
 ## `unsafe`
 
 `unsafe` is allowed only in modules named in the table below. Every other crate root
-forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests/`, which
-Cargo compiles as a crate of its own.
+forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests/` and
+`examples/`, which Cargo compiles as crates of their own.
 
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
+| `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
 | `everygraph-format`, `adjacency::simd` | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly Linux aarch64 job, `simd128` is built and linted only |
 
 To add one, in a single pull request:
@@ -242,14 +242,16 @@ To add one, in a single pull request:
 
 Where we expect to need it, from the lab prototypes: SIMD in the adjacency codec (#30),
 disjoint parallel writes into shared arrays in the build pipeline and in Leiden (#35,
-#57), memory maps in `everygraph-io` (#29), and the generated glue of the Python and
+#57), and the generated glue of the Python and
 browser bindings (#81, #108). `everygraph-core` is expected to stay free of it.
 
 ## Rust version
 
-The minimum supported Rust version is **1.85**, recorded as `rust-version` in the
-workspace manifest: it is the first release with edition 2024 and the MSRV-aware
-dependency resolver, and the toolchain Debian 13 ships. Everything builds on stable. The
+The minimum supported Rust version is **1.87**, recorded as `rust-version` in the
+workspace manifest. It was 1.85 (the first release with edition 2024 and the MSRV-aware
+resolver, and Debian 13's toolchain) until 2026-11-25, when it was raised to 1.87 because
+the fix for RUSTSEC-2026-0344 in `ruzstd` (0.9.1, needed by the text reader, #32) requires
+it. Everything builds on stable. The
 one planned exception is the threaded browser build (#108), which needs a nightly
 toolchain pinned by that build's own script, not by a `rust-toolchain.toml` at the root,
 which would move the whole workspace to nightly.

@@ -3,11 +3,13 @@
 
 The projection is written here independently of the Rust one
 (crates/everygraph-oracle/src/projection.rs), with plain dictionaries, so that the
-two can disagree if either is wrong. Semantics (plan/issues/m2-09-graph-semantics.md):
-self-loops dropped unless the descriptor keeps them (a kept loop counts once per node);
-parallel rows analysed once per pair with multiplicity, summed weight (in row order)
-and smallest weight; undirected projection of a directed graph = pair {u, v} present if
-either arc is.
+two can disagree if either is wrong. Semantics (docs/spec/graph-semantics.md):
+self-loops dropped unless the descriptor keeps them (a kept loop is one pair {v, v} per
+node, with the multiplicity and summed weight of its rows); repeated rows analysed once
+per pair with multiplicity, summed weight (in row order) and smallest weight, except that
+`duplicates = collapse` keeps only a pair's first row and `duplicates = sum` makes a
+step's cost the summed weight; undirected projection of a directed graph = pair {u, v}
+present if either arc is.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ class Graph:
     keep_loops: bool
     kernels: list[dict]
     provenance: dict = field(default_factory=dict)
+    duplicates: str = "events"  # "events", "collapse" or "sum"
 
 
 def read_entry(d: Path) -> Graph:
@@ -71,6 +74,7 @@ def read_entry(d: Path) -> Graph:
         time=time,
         partition=partition,
         keep_loops=desc["semantics"]["self_loops"] == "keep",
+        duplicates=desc["semantics"].get("duplicates", "events"),
         kernels=desc["kernels"],
         provenance=desc.get("provenance") or {},
     )
@@ -89,10 +93,12 @@ class Projection:
     directed: bool
     arcs: dict[tuple[int, int], Agg]  # directed: (u, v); undirected: (min, max)
     undirected: dict[tuple[int, int], Agg]  # (min, max), both directions aggregated
-    loop_nodes: list[int]  # nodes with at least one loop row
+    loops: dict[int, Agg]  # kept loops only: node -> its loop rows aggregated
     keep_loops: bool
+    duplicates: str
+    rows: int
     self_loop_rows: int
-    duplicate_rows: int
+    duplicate_rows: int  # rows, loops excluded, repeating a pair already seen
 
 
 def _add(d: dict, key, w: float) -> bool:
@@ -109,31 +115,68 @@ def _add(d: dict, key, w: float) -> bool:
 def project(g: Graph) -> Projection:
     arcs: dict = {}
     und: dict = {}
-    loops: set[int] = set()
+    loops: dict = {}
+    collapse = g.duplicates == "collapse"
     self_loop_rows = duplicates = 0
     for i, (u, v) in enumerate(zip(g.src, g.dst)):
         w = g.weight[i] if g.weight is not None else 1.0
         if u == v:
-            loops.add(u)
             self_loop_rows += 1
+            if g.keep_loops and not (collapse and u in loops):
+                _add(loops, u, w)
             continue
         key = (u, v) if g.directed else (min(u, v), max(u, v))
-        if not _add(arcs, key, w):
+        if key in arcs:
             duplicates += 1
+            if collapse:
+                continue
+        _add(arcs, key, w)
         if g.directed:
             _add(und, (min(u, v), max(u, v)), w)
     if not g.directed:
         und = arcs
+    if g.duplicates == "sum":
+        # The events are gone: a step costs the stored sum (spec § 4.2).
+        for a in arcs.values():
+            a.wmin = a.wsum
+        for (u, v), a in und.items():
+            a.wmin = min(arcs[k].wsum for k in ((u, v), (v, u)) if k in arcs)
     return Projection(
         n=g.n,
         directed=g.directed,
         arcs=arcs,
         undirected=und,
-        loop_nodes=sorted(loops),
+        loops=loops,
         keep_loops=g.keep_loops,
+        duplicates=g.duplicates,
+        rows=len(g.src),
         self_loop_rows=self_loop_rows,
         duplicate_rows=duplicates,
     )
+
+
+def ingest_report(p: Projection) -> dict[str, int]:
+    """The ingest report of docs/spec/graph-semantics.md section 2.8."""
+    kept = len(p.loops)
+    loop_rows_kept = sum(a.mult for a in p.loops.values()) if p.duplicates == "events" else kept
+    loop_repeats = (p.self_loop_rows - kept) if p.keep_loops else 0
+    repeats = p.duplicate_rows + loop_repeats
+    pairs = len(p.arcs) + kept
+    repeated = repeats if p.duplicates == "events" else 0
+    touched = {v for pair in p.undirected for v in pair} | set(p.loops)
+    return {
+        "counts.rows": p.rows,
+        "dropped.rejected": 0,
+        "dropped.self_loops": 0 if p.keep_loops else p.self_loop_rows,
+        "dropped.duplicates": repeats if p.duplicates == "collapse" else 0,
+        "counts.merged": repeats if p.duplicates == "sum" else 0,
+        "counts.edges": pairs + repeated,
+        "counts.self_loops": loop_rows_kept,
+        "counts.repeated": repeated,
+        "counts.pairs": pairs,
+        "counts.nodes": p.n,
+        "counts.isolates": p.n - len(touched),
+    }
 
 
 def to_networkx(p: Projection, *, undirected: bool = False, loops: bool = False):
@@ -146,8 +189,8 @@ def to_networkx(p: Projection, *, undirected: bool = False, loops: bool = False)
     for (u, v), a in pairs.items():
         G.add_edge(u, v, mult=a.mult, wsum=a.wsum, wmin=a.wmin)
     if loops:
-        for v in p.loop_nodes:
-            G.add_edge(v, v, mult=1, wsum=1.0, wmin=1.0)
+        for v, a in p.loops.items():
+            G.add_edge(v, v, mult=a.mult, wsum=a.wsum, wmin=a.wmin)
     return G
 
 
@@ -159,8 +202,8 @@ def to_igraph(p: Projection, *, undirected: bool = False, loops: bool = False):
     edges = list(pairs.keys())
     aggs = list(pairs.values())
     if loops:
-        edges += [(v, v) for v in p.loop_nodes]
-        aggs += [Agg(1, 1.0, 1.0) for _ in p.loop_nodes]
+        edges += [(v, v) for v in p.loops]
+        aggs += list(p.loops.values())
     H = ig.Graph(n=p.n, edges=edges, directed=directed)
     H.es["mult"] = [a.mult for a in aggs]
     H.es["wsum"] = [a.wsum for a in aggs]

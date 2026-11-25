@@ -10,5 +10,16 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+everygraph-core = { path = "../everygraph-core", default-features = false }
+# Memory maps (D11: mmap warm is the only in-RAM mode). The one crate allowed to map
+# files (deny.toml).
+memmap2 = "0.9"
+
+[target.'cfg(unix)'.dependencies]
+# `O_DIRECT`, `fallocate`, `posix_fadvise`, `F_NOCACHE`: what std does not expose.
+# Used in `src/sys.rs` only.
+libc = "0.2"
+
 [lints]
 workspace = true
