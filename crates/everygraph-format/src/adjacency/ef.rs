@@ -182,6 +182,54 @@ impl EliasFano {
         a.zip(b).expect("Elias–Fano pair out of range")
     }
 
+    /// Calls `f` with values `i`, `i + 1`, … in order, until it returns `false` or the
+    /// values run out. One tight loop, for the batch decoder's first pass (cheaper than
+    /// an iterator per value when two sequences are walked).
+    #[inline(always)]
+    pub(crate) fn scan_from(&self, i: usize, mut f: impl FnMut(u64) -> bool) {
+        if i >= self.len {
+            return;
+        }
+        let p = self.select(i);
+        let mut word = p / 64;
+        let mut bits = self.high[word] & (u64::MAX << (p % 64));
+        let l = self.l;
+        let mask = low_mask(l);
+        // The low bits as a stream: `cur` holds the next `avail` of them, and a word is
+        // read only when it runs out (one bounds check per 64 bits, not per value).
+        let bit = i * usize_of(l);
+        let mut next = bit / 64 + 1;
+        let shift = u32::try_from(bit % 64).expect("below 64");
+        let mut cur = self.low[next - 1] >> shift;
+        let mut avail = 64 - shift;
+        for j in i..self.len {
+            while bits == 0 {
+                word += 1;
+                bits = self.high[word];
+            }
+            let one_at = word * 64 + usize_of(bits.trailing_zeros());
+            bits &= bits - 1;
+            let mut x = widen(one_at - j) << l;
+            if l > 0 {
+                if avail >= l {
+                    x |= cur & mask;
+                    cur = cur.checked_shr(l).unwrap_or(0);
+                    avail -= l;
+                } else {
+                    // `avail < l < 64`: the value straddles two words.
+                    let fresh = self.low[next];
+                    next += 1;
+                    x |= (cur | (fresh << avail)) & mask;
+                    cur = fresh >> (l - avail);
+                    avail = 64 - (l - avail);
+                }
+            }
+            if !f(x) {
+                return;
+            }
+        }
+    }
+
     /// The values from `i` on.
     pub(crate) fn iter_from(&self, i: usize) -> Iter<'_> {
         if i >= self.len {
@@ -368,6 +416,20 @@ mod tests {
                     }
                 }
                 prop_assert_eq!(ef.iter_from(values.len()).next(), None);
+                for start in [0, values.len() / 2, values.len()] {
+                    let mut all = Vec::new();
+                    ef.scan_from(start, |x| {
+                        all.push(x);
+                        true
+                    });
+                    prop_assert_eq!(&all[..], &values[start..]);
+                    let mut two = Vec::new();
+                    ef.scan_from(start, |x| {
+                        two.push(x);
+                        two.len() < 2
+                    });
+                    prop_assert_eq!(&two[..], &values[start..(start + 2).min(values.len())]);
+                }
             }
         }
 

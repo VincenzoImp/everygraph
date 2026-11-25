@@ -7,7 +7,7 @@ use std::ops::Range;
 
 use everygraph_core::{NodeId, par};
 
-use super::ef;
+use super::ef::EliasFano;
 use super::index::AdjacencyIndex;
 use super::simd::Decoder;
 use super::svb::Corrupt;
@@ -19,10 +19,10 @@ const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero")
 /// A run of consecutive lists to decode.
 pub(super) struct Job<'a> {
     data: &'a [u8],
-    /// Entry offsets, positioned at the first node.
-    entries: ef::Iter<'a>,
-    /// Byte offsets, positioned at the first node.
-    bytes: ef::Iter<'a>,
+    /// Entry offsets.
+    entries: &'a EliasFano,
+    /// Byte offsets.
+    bytes: &'a EliasFano,
     nodes: Range<u32>,
     /// Stop before a list that would take the output past this many entries, unless it
     /// is the first.
@@ -64,26 +64,46 @@ pub(super) fn run(
 ) -> Result<Done, DecodeError> {
     let Job {
         data,
-        mut entries,
-        mut bytes,
+        entries,
+        bytes,
         nodes,
         limit,
     } = job;
     ends.entries.clear();
     ends.bytes.clear();
-    let base = entries.next().unwrap_or(0);
-    let mut at = to_usize(bytes.next().unwrap_or(0));
-    let mut stop = nodes.end;
-    for v in nodes.clone() {
-        let end = to_usize(entries.next().expect("an entry offset per node") - base);
-        if v > nodes.start && end > limit {
-            stop = v;
-            break;
+    let first = to_usize(u64::from(nodes.start));
+    let count = nodes.len();
+    // Each sequence in a loop of its own, which keeps each loop in registers: the entry
+    // ends up to the budget (the first list always), then as many byte ends. Value
+    // `first` of each is where the run starts.
+    let (mut base, mut started) = (0, false);
+    entries.scan_from(first, |x| {
+        if !started {
+            (base, started) = (x, true);
+            return true;
+        }
+        let end = to_usize(x - base);
+        let lists = ends.entries.len();
+        if lists == count || (lists > 0 && end > limit) {
+            return false;
         }
         ends.entries.push(end);
-        ends.bytes
-            .push(to_usize(bytes.next().expect("a byte offset per node")));
-    }
+        true
+    });
+    let lists = ends.entries.len();
+    let (mut at, mut started) = (0, false);
+    bytes.scan_from(first, |x| {
+        if !started {
+            (at, started) = (to_usize(x), true);
+            return true;
+        }
+        if ends.bytes.len() == lists {
+            return false;
+        }
+        ends.bytes.push(to_usize(x));
+        true
+    });
+    let stop = nodes.start + u32::try_from(lists).expect("at most one list per node");
     let mut s = 0;
     let lists = ends.entries.iter().zip(&ends.bytes);
     for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
@@ -309,11 +329,10 @@ impl<'a> Adjacency<'a> {
         out: &mut [u32],
         ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
-        let start = to_usize(u64::from(nodes.start));
         let job = Job {
             data: self.data,
-            entries: self.index.entry_offsets().iter_from(start),
-            bytes: self.index.byte_offsets().iter_from(start),
+            entries: self.index.entry_offsets(),
+            bytes: self.index.byte_offsets(),
             nodes,
             limit,
         };
