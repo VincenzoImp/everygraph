@@ -114,6 +114,22 @@ keys in the split layout, the figure #34 expected; a single-thread solver speed 
 per thread at 32 threads, whole build). The official measurements are the spec
 `bench/specs/id-dictionary.toml`.
 
+## Rules for files built by appends (2026-11-25, ADR 0028; for #111, not built in 0.1)
+
+Segments do not exist yet; these rules are written now so that the dictionary and graph
+order of 0.1 do not have to change when they arrive.
+
+- **Graph order** in a file built by appends is the order of the base followed, for each
+  segment in turn, by its new identifiers in the order that segment's input first names
+  them. A fresh ingest of the concatenated inputs gives the same order only when ids are
+  assigned by first appearance. A sorted-key or rank-bitmap order (dense integers) cannot
+  place a new key between old ones without renumbering every id and every stored result.
+- **The dictionary of a segmented file is layered:** the base dictionary plus, per
+  segment, a dictionary of its new keys with ids from `n_{i−1}` (the node count before
+  it); a lookup probes the layers newest first; a merge may rebuild one dictionary for
+  the runs it merges. The minimal perfect hash is static, and rebuilding it on every
+  append would cost O(n) per append.
+
 ## Closed by
 
 #34 (dictionary with spilling dedupe), #25 (real-world inputs: string ids, Parquet,

@@ -13,6 +13,8 @@ labels: type:feature, area:format, P1, risk:high, size:XL, lab-evidence
 - [ ] Incremental community update and map stability across updates (research: dynamic Leiden variants)
 - [ ] Time-respecting path queries
 
+- [ ] The rules already written for segments (ADR 0028): `.events` per run; the reserved `sparse` index flag (`docs/spec/eg-adjacency.md` § 3); byte-identical merges (§ 4); pair sums exact across runs and `duplicates="sum"` with float weights not appendable (`docs/spec/graph-semantics.md` § 4.3); statistics per run and recomputed for the whole graph (§ 2.7); graph order and a layered dictionary (§ 2.3, ADR 0008); results that depend on the batches only (`design/DECISIONS.md`)
+
 **Acceptance**
 - Appending 1% new edges to a 1 B-edge graph takes time proportional to the new data, and "as of" queries at 100 time points do not rescan the whole graph
 
