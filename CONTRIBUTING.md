@@ -21,6 +21,7 @@ python3 tools/check_core_portability.py
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
+cargo build -p everygraph-ingest --target wasm32-unknown-unknown
 cargo build -p everygraph-wasm --target wasm32-unknown-unknown
 cargo deny check                            # offline: cargo deny check bans licenses sources
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
@@ -89,7 +90,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the four Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the three wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the four Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
