@@ -67,6 +67,7 @@ contains `unsafe`:
 cargo +nightly miri test -p everygraph-core --no-default-features
 cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core
+cargo +nightly miri test -p everygraph-io --test allocation_failure
 ```
 
 The third command runs the tests on rayon's thread pool. It needs the two flags because
@@ -89,7 +90,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the three wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the three wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the four Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
@@ -107,7 +108,9 @@ What the three scripts at the end of "Checks" are for:
   runs the check the probe names, and fails unless that check fails with the message
   the probe expects. A check that has quietly stopped checking — `clippy.toml` moved,
   a list entry deleted, an allow-list widened — is caught this way. A new way around the
-  rule gets a probe in the pull request that closes it.
+  rule gets a probe in the pull request that closes it. The probes under
+  `tools/canary/allocation/` do the same for the allocation rule (below) in each kernel
+  crate.
 - **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
   through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
   as wasm32 in Node, and compares the hashes. Real kernels replace it with the
@@ -125,8 +128,8 @@ describing it).
 
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
-| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant interface; later segmentable arrays | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks | #29 | no — the one crate for OS I/O |
+| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks; the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31 | no — the one crate for OS I/O |
 | `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
@@ -197,6 +200,30 @@ The rule is enforced for `everygraph-core` only. Clippy reads the `clippy.toml` 
 to the crate it checks, so the lists do not apply to `everygraph-io` or to any other
 crate (see "Crates").
 
+## The allocation rule
+
+Every large buffer is reserved against the user's memory budget before it is allocated
+(DESIGN D11; issue #31). Code that allocates takes a `Memory` handle and holds memory
+through the types of `everygraph-core` that own both the buffer and its reservation:
+`SegVec` for arrays (growth reserves first; segments of at most 1 GiB, for wasm32),
+`ScratchPool` for per-thread scratch (one buffer per chunk that can run at once, the
+plan's thread count), and a `Reservation` kept next to anything else (a hash table) —
+sized by the caller, so it is the last resort. A refusal is a typed error
+(`MemoryError::Budget` carrying `InsufficientBudget { needed, available }`), never an
+abort. A plan adds up the sizes first (`SegVec::<T>::bytes_for`, in `u64`) so that a
+kernel is refused before it allocates anything.
+
+In the kernel crates (`everygraph-kernels`, `everygraph-community`, `everygraph-map`,
+`everygraph-query`) a `clippy.toml` disallows the ways of sizing a buffer directly —
+`Vec::with_capacity`, `reserve`, `resize`, `vec![x; n]`, `HashMap::with_capacity` and
+the like — and each crate root forbids the lint, so it cannot be allowed locally. The
+four lists are identical; `tools/check_portability_canary.py` checks that each still
+catches every entry. What no lint sees: growth through `push`, `extend`, `collect` and
+`clone`. Small vectors use those; a large one is a review finding, and what catches it
+is a counting global allocator in the kernel tests that asserts heap bytes ≤
+`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` join the
+rule once their first pull requests (#30, #32–#35) are in.
+
 ## Integers
 
 Node ids are `u32`, edge offsets are `u64`, and `usize` is only an index into memory
@@ -215,6 +242,7 @@ forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
 | `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
+| `crates/everygraph-io/tests/allocation_failure.rs`, module `refusing` | A test that makes the allocator refuse, to reach every `MemoryError::AllocationFailed` path of `SegVec` and `ScratchPool`: replacing the global allocator is an `unsafe impl GlobalAlloc`. It is not in `everygraph-core` because the core forbids `unsafe` in every crate root, its tests included | `cargo +nightly miri test -p everygraph-io --test allocation_failure` |
 
 To add one, in a single pull request:
 
