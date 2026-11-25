@@ -1,0 +1,12 @@
+{
+  "rows": "exploratory-quality-capfix-stability.jsonl",
+  "spec": "bench/specs/hierarchy-shaping.toml",
+  "command": "everygraph-bench run hierarchy-shaping --skip-prepare --only quality --only capfix --only stability --data /home/tux/graphlab/data --work <scratch>/bench-work --out <this file>",
+  "official": false,
+  "date": "2026-11-25",
+  "machine_state": "shared with three builders (other agents compiling); exploratory: the harness did not gate on load",
+  "quotable": "the metrics (fan-out, leaf sizes, aggregate shares, modularity, conductance, ARI/NMI, cap-fix fan-out) are deterministic: same values on any run (checked: every quality row equals results/dev/<graph>.<variant>.json); wall time, CPU time and memory in these rows are NOT quotable",
+  "binaries": "two m102 hashes: rows 1-9 ran the binary of commit 996ea23, rows 10-36 the same source after a comment-only edit of leiden.rs (rebuilt during the run); behaviour identical (deterministic outputs equal to the lab records)",
+  "cases": 36,
+  "status": "all ok"
+}

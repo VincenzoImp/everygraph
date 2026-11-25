@@ -1263,8 +1263,10 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         st.comms = c_new;
         // m1-05 (#19): vertices of strength 0 (isolated) are singleton communities forever; they
         // are left out of the shrinkage test, else a graph with many of them stops aggregating
-        // early (lj with 1% of its edges dropped, 7,799 isolated nodes: 9,559 communities in 6
-        // passes instead of about 1,350 in 7). A graph without isolated vertices is unchanged.
+        // early (lj with 1% of its edges dropped, 7,799 isolated nodes: 6 passes instead of 7,
+        // 1,760 other communities instead of 1,688, Q 0.7450 instead of 0.7477, and 82 instead
+        // of 49 communities to cover 90% of the nodes; lab/m1-05-hierarchy-shaping/results/
+        // stopfix.jsonl). A graph without isolated vertices is unchanged.
         let iso = par_sum_u(pool, n, |u| (kk[u] == 0.0) as u64) as usize;
         let converged = (moves == 0 && !(iter > 0 && pass == 0)) || pass + 1 == o.max_passes || (cur_cap == 0 && ((c_new - iso) as f64) > o.agg_tol * ((n - iso) as f64));
         if o.verbose {
