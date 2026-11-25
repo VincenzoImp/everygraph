@@ -1,0 +1,11 @@
+z0: 1 tiles, 190 bubbles, 0 nodes, 600 edges, raw 0.0 MB gz 0.0 MB, shown weight 0.416, 95.85s
+z1: 4 tiles, 938 bubbles, 0 nodes, 2400 edges, raw 0.1 MB gz 0.0 MB, shown weight 0.195, 96.97s
+z2: 16 tiles, 2037 bubbles, 0 nodes, 9600 edges, raw 0.3 MB gz 0.1 MB, shown weight 0.230, 67.77s
+z3: 51 tiles, 7652 bubbles, 0 nodes, 30600 edges, raw 1.0 MB gz 0.5 MB, shown weight 0.146, 141.35s
+z4: 162 tiles, 16656 bubbles, 0 nodes, 96620 edges, raw 2.7 MB gz 1.2 MB, shown weight 0.152, 211.23s
+z5: 519 tiles, 72383 bubbles, 0 nodes, 299891 edges, raw 9.2 MB gz 4.4 MB, shown weight 0.102, 302.44s
+z6: 1652 tiles, 167374 bubbles, 0 nodes, 937884 edges, raw 26.2 MB gz 12.5 MB, shown weight 0.113, 286.60s
+z7: 5348 tiles, 675717 bubbles, 777 nodes, 2908818 edges, raw 88.3 MB gz 41.2 MB, shown weight 0.091, 279.91s
+z8: 18423 tiles, 1855323 bubbles, 292628 nodes, 8949067 edges, raw 272.5 MB gz 132.4 MB, shown weight 0.115, 278.50s
+z9: 58803 tiles, 6339888 bubbles, 14731927 nodes, 28012397 edges, raw 1373.8 MB gz 672.6 MB, shown weight 0.070, 305.59s
+z10: 184015 tiles, 11693505 bubbles, 45774308 nodes, 87777804 edges, raw 3931.2 MB gz 1686.9 MB, shown weight 0.033, 490.64s

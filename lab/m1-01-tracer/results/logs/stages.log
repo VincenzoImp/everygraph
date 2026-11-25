@@ -1,0 +1,37 @@
+2026-11-25T12:25:49Z launcher started (pid 3603956), waiting for 1-min load <= 0.9
+2026-11-25T12:26:09Z load 0.85 4.92 5.01; starting official run
+2026-11-25T12:26:09Z harness pid 3604216
+2026-11-25T12:27:59Z done   [1/32] ingest/budget=8/graph=friendster/limit=16G/t32 rep 1/3  seconds 59.07 s  wall 60.765 s  peak 16.0 GiB (anon 3.6 GiB)  ok
+2026-11-25T12:28:59Z done   [2/32] ingest/budget=8/graph=friendster/limit=16G/t32 rep 2/3  seconds 52.31 s  wall 54.011 s  peak 16.0 GiB (anon 3.6 GiB)  ok
+2026-11-25T12:29:49Z done   [3/32] ingest/budget=8/graph=friendster/limit=16G/t32 rep 3/3  seconds 51.94 s  wall 53.642 s  peak 16.0 GiB (anon 3.6 GiB)  ok
+2026-11-25T12:30:59Z done   [4/32] ingest/budget=32/graph=friendster/limit=56G/t32 rep 1/3  seconds 27.53 s  wall 29.224 s  peak 27.9 GiB (anon 13.2 GiB)  ok
+2026-11-25T12:31:39Z done   [5/32] ingest/budget=32/graph=friendster/limit=56G/t32 rep 2/3  seconds 32.56 s  wall 34.364 s  peak 28.0 GiB (anon 13.3 GiB)  ok
+2026-11-25T12:32:09Z done   [6/32] ingest/budget=32/graph=friendster/limit=56G/t32 rep 3/3  seconds 30.71 s  wall 32.443 s  peak 28.0 GiB (anon 13.2 GiB)  ok
+2026-11-25T12:33:59Z done   [7/32] ingest-gz/graph=friendster/t32 rep 1/2  seconds 105.00 s  wall 105.194 s  peak 16.0 GiB (anon 3.6 GiB)  ok
+2026-11-25T12:35:49Z done   [8/32] ingest-gz/graph=friendster/t32 rep 2/2  seconds 102.65 s  wall 104.462 s  peak 16.0 GiB (anon 3.6 GiB)  ok
+2026-11-25T12:43:29Z failed [9/32] communities-leiden-16g/graph=friendster/t32 rep 1/1  seconds 460.51 s  wall 462.209 s  peak 16.0 GiB (anon 15.9 GiB)  oom
+2026-11-25T12:45:29Z failed [11/32] communities-leiden/graph=friendster/t32: the warm-up run failed (non-zero exit); standard error ends with: 5 processed 630884 gain 0.000149
+2026-11-25T12:56:20Z failed [12/32] communities-louvain/graph=friendster/limit=16G/t32 rep 1/2  seconds 648.71 s  wall 649.017 s  peak 16.0 GiB (anon 15.9 GiB)  oom
+2026-11-25T13:07:10Z failed [13/32] communities-louvain/graph=friendster/limit=16G/t32 rep 2/2  seconds 648.16 s  wall 648.457 s  peak 16.0 GiB (anon 15.9 GiB)  oom
+2026-11-25T13:09:00Z done   [14/32] communities-louvain/graph=friendster/limit=56G/t32 rep 1/2  seconds 110.62 s  wall 110.915 s  peak 56.0 GiB (anon 42.9 GiB)  ok
+2026-11-25T13:11:00Z done   [15/32] communities-louvain/graph=friendster/limit=56G/t32 rep 2/2  seconds 110.79 s  wall 111.993 s  peak 56.0 GiB (anon 42.9 GiB)  ok
+2026-11-25T13:12:50Z done   [16/32] communities-louvain-plain-16g/graph=friendster/t32 rep 1/1  seconds 115.13 s  wall 115.436 s  peak 16.0 GiB (anon 4.2 GiB)  ok
+2026-11-25T13:13:20Z failed [17/32] layout-16g/chain=fit16/graph=friendster/load=heap/t32 rep 1/1  seconds 27.00 s  wall 28.603 s  peak 16.0 GiB (anon 15.9 GiB)  oom
+2026-11-25T13:14:40Z failed [18/32] layout-16g/chain=fit16/graph=friendster/load=mmap/t32 rep 1/1  seconds 74.14 s  wall 74.448 s  peak 16.0 GiB (anon 15.9 GiB)  oom
+2026-11-25T13:15:00Z failed [19/32] layout-16g/chain=unl/graph=friendster/load=heap/t32 rep 1/1  seconds 15.70 s  wall 18.757 s  peak 16.0 GiB (anon 15.9 GiB)  oom
+2026-11-25T13:21:50Z done   [20/32] layout-16g/chain=unl/graph=friendster/load=mmap/t32 rep 1/1  seconds 405.08 s  wall 405.374 s  peak 16.0 GiB (anon 3.7 GiB)  ok
+2026-11-25T13:23:20Z failed [21/32] layout/chain=fit16/graph=friendster/t32 rep 1/2  seconds 93.20 s  wall 94.529 s  peak 56.0 GiB (anon 55.8 GiB)  oom
+2026-11-25T13:24:50Z failed [22/32] layout/chain=fit16/graph=friendster/t32 rep 2/2  seconds 89.12 s  wall 89.429 s  peak 56.0 GiB (anon 55.8 GiB)  oom
+2026-11-25T13:26:00Z done   [23/32] layout/chain=unl/graph=friendster/t32 rep 1/2  seconds 69.50 s  wall 69.805 s  peak 33.3 GiB (anon 17.7 GiB)  ok
+2026-11-25T13:27:10Z done   [24/32] layout/chain=unl/graph=friendster/t32 rep 2/2  seconds 69.78 s  wall 71.199 s  peak 33.3 GiB (anon 17.7 GiB)  ok
+2026-11-25T13:27:20Z failed [25/32] tiles-16g/chain=fit16/graph=friendster/load=heap/t32 rep 1/1  wall 0.018 s  peak 8 MiB (anon 360 KiB)  failed
+2026-11-25T13:27:20Z failed [26/32] tiles-16g/chain=fit16/graph=friendster/load=mmap/t32 rep 1/1  wall 0.018 s  peak 8 MiB (anon 360 KiB)  failed
+2026-11-25T13:27:40Z failed [27/32] tiles-16g/chain=unl/graph=friendster/load=heap/t32 rep 1/1  seconds 13.16 s  wall 14.552 s  peak 16.0 GiB (anon 15.9 GiB)  oom
+2026-11-25T14:27:31Z failed [28/32] tiles-16g/chain=unl/graph=friendster/load=mmap/t32 rep 1/1  wall 3600.001 s  peak 16.0 GiB (anon 13.9 GiB)  timeout  DISTURBED (others' storage traffic during 3210.66 MB/s > 50.00)
+2026-11-25T14:27:41Z failed [29/32] tiles/chain=fit16/graph=friendster/t32: the warm-up run failed (non-zero exit); standard error ends with: no layout for chain fit16 in /home/tux/graphlab/scratch/m1-01-tracer/bench-work/tracer/store/friendster (looked for ['56G-heap', '16G-mmap'])
+2026-11-25T14:36:02Z done   [30/32] tiles/chain=unl/graph=friendster/t32 rep 1/1  seconds 244.52 s  wall 246.564 s  peak 51.7 GiB (anon 29.1 GiB)  ok
+2026-11-25T14:36:02Z failed [31/32] viewer/chain=fit16/graph=friendster/t1 rep 1/1  wall 0.017 s  peak 8 MiB (anon 356 KiB)  failed
+2026-11-25T14:36:22Z done   [32/32] viewer/chain=unl/graph=friendster/t1 rep 1/1  session 5 MiB  wall 19.035 s  peak 2.0 GiB (anon 1.9 GiB)  ok
+2026-11-25T14:36:22Z official run exited 1
+2026-11-25T14:37:12Z verify exited 0
+2026-11-25T14:37:12Z finished

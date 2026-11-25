@@ -3,6 +3,9 @@ name = "b2"
 version = "0.1.0"
 edition = "2021"
 
+# Standalone research package: not a member of the product workspace at the repository root.
+[workspace]
+
 [dependencies]
 rayon = "1"
 memmap2 = "0.9"

@@ -1,0 +1,40 @@
+    iter 1 processed 20931048 gain 0.033733
+    iter 2 processed 16679196 gain 0.003550
+    iter 3 processed 13050002 gain 0.000738
+pass 1 n 20931048 entries 2767164820 iters 3 moves 16571403 -> 4972156 comms  lm 21.125s ref 1.226s
+    iter 1 processed 4972156 gain 0.029857
+    iter 2 processed 4051022 gain 0.004311
+    iter 3 processed 3604268 gain 0.000796
+    iter 4 processed 3033263 gain 0.000248
+    iter 5 processed 2237254 gain 0.000090
+pass 2 n 4972156 entries 2034820929 iters 5 moves 3985377 -> 1134051 comms  lm 12.586s ref 0.235s
+    iter 1 processed 1134051 gain 0.030827
+    iter 2 processed 815952 gain 0.004219
+    iter 3 processed 719790 gain 0.000949
+    iter 4 processed 680675 gain 0.000335
+    iter 5 processed 630884 gain 0.000149
+    iter 6 processed 569475 gain 0.000083
+    iter 7 processed 502531 gain 0.000036
+    iter 8 processed 401145 gain 0.000017
+    iter 9 processed 316697 gain 0.000008
+pass 3 n 1134051 entries 1415066338 iters 9 moves 1046923 -> 320834 comms  lm 6.207s ref 0.128s
+    iter 1 processed 320834 gain 0.036479
+    iter 2 processed 185431 gain 0.004546
+    iter 3 processed 147873 gain 0.001104
+    iter 4 processed 138811 gain 0.000519
+    iter 5 processed 133018 gain 0.000239
+    iter 6 processed 127664 gain 0.000132
+    iter 7 processed 123065 gain 0.000048
+    iter 8 processed 116679 gain 0.000070
+    iter 9 processed 111417 gain 0.000043
+    iter 10 processed 105722 gain 0.000029
+    iter 11 processed 102737 gain 0.000022
+    iter 12 processed 96184 gain 0.000012
+    iter 13 processed 76024 gain 0.000007
+    iter 14 processed 63251 gain 0.000002
+    iter 15 processed 49630 gain 0.000007
+    iter 16 processed 47799 gain 0.000004
+    iter 17 processed 30045 gain 0.000001
+    iter 18 processed 6073 gain 0.000000
+pass 4 n 320834 entries 699615381 iters 18 moves 269019 -> 123523 comms  lm 3.975s ref 0.071s
+[tracer] tool exited with status 137 after 117.0 s

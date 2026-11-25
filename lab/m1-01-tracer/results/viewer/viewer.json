@@ -1,0 +1,135 @@
+{
+ "url": "http://127.0.0.1:8791/viewer/index.html?file=../out/map.pmtiles",
+ "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 4090/PCIe/SSE2, OpenGL ES 3.2)",
+ "config": "angle-gl-egl",
+ "tried": [
+  [
+   "angle-gl-egl",
+   "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 4090/PCIe/SSE2, OpenGL ES 3.2)"
+  ]
+ ],
+ "viewport": [
+  1600,
+  1000
+ ],
+ "zmax": 11,
+ "zooms": [
+  1.9,
+  4.52,
+  7.14,
+  9.37,
+  11.6
+ ],
+ "interactions": [
+  {
+   "name": "initial load (header+root dir+metadata+overview tiles)",
+   "bytes": 163184,
+   "requests": 18,
+   "tiles": 16
+  },
+  {
+   "name": "zoom to z=4.52 (2-continent)",
+   "bytes": 934822,
+   "requests": 111,
+   "tiles": 111
+  },
+  {
+   "name": "zoom to z=7.14 (3-region)",
+   "bytes": 1472692,
+   "requests": 165,
+   "tiles": 164
+  },
+  {
+   "name": "zoom to z=9.37 (4-communities)",
+   "bytes": 1471918,
+   "requests": 134,
+   "tiles": 132
+  },
+  {
+   "name": "zoom to z=11.6 (5-nodes-edges)",
+   "bytes": 983080,
+   "requests": 115,
+   "tiles": 113
+  },
+  {
+   "name": "pan 800 px at node level",
+   "bytes": 0,
+   "requests": 0,
+   "tiles": 0
+  },
+  {
+   "name": "wheel zoom-out to overview",
+   "bytes": 309406,
+   "requests": 32,
+   "tiles": 32
+  },
+  {
+   "name": "search + fly-to node (cold index)",
+   "bytes": 289056,
+   "requests": 2,
+   "tiles": 0
+  }
+ ],
+ "frames": {
+  "fly-to 2-continent": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "fly-to 3-region": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "fly-to 4-communities": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "fly-to 5-nodes-edges": {
+   "n": 114,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.7,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "wheel zoom-out": {
+   "n": 209,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  },
+  "search fly-to": {
+   "n": 165,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.7,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  }
+ },
+ "search": {
+  "id": 2365225,
+  "text": "found · 2 req, 282.3 KiB",
+  "total_bytes_incl_tiles": 289056,
+  "requests": 2
+ },
+ "total": {
+  "bytes": 5624158,
+  "requests": 577,
+  "tiles": 568
+ },
+ "context_lost": false
+}
