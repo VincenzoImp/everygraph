@@ -9,10 +9,13 @@
 //! minimum budget"). An optional one (bucket chunks kept in RAM) falls back to disk.
 //!
 //! Only anonymous memory is limited; file-backed memory (the mmapped level-0 store and the
-//! spilled quotient graphs) is recorded but not counted, as the interface documents. What is
-//! not reserved here: per-thread hash tables of the local-moving phase (O(max degree) each),
-//! thread stacks, small vectors, allocator slack. The run reports the accountant's peak next
-//! to the measured anonymous peak so the gap can be read.
+//! spilled quotient graphs) is recorded but not counted, as the interface documents. Also
+//! reserved: the per-thread hash tables and decode buffers of local moving and refinement
+//! (`scratch_bytes`, worst case of the largest degrees), the per-thread list buffers and the
+//! split-community assembly of the aggregation, the next level's initial labels. Not reserved:
+//! thread stacks, small vectors (O(threads) or O(buckets)), allocator slack, and the whole
+//! member-order aggregation that `--check-agg` runs for comparison (a test mode). The run
+//! reports the accountant's peak next to the measured anonymous peak so the gap can be read.
 use everygraph_core::{InsufficientBudget, MemoryAccountant, MemoryKind};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
@@ -115,6 +118,14 @@ pub fn init(budget: u64) {
 pub fn acct() -> &'static Stub {
     ACCT.get_or_init(|| Stub::new(u64::MAX))
 }
+/// Tests that use the global accountant hold this lock.
+#[cfg(test)]
+pub static TEST_LOCK: Mutex<()> = Mutex::new(());
+/// Tests: change the budget of the global accountant (hold TEST_LOCK).
+#[cfg(test)]
+pub fn set_budget_for_tests(b: u64) {
+    acct().budget.store(b, Relaxed);
+}
 
 /// A reservation, given back when dropped.
 #[must_use]
@@ -132,6 +143,17 @@ impl Res {
         if bytes < self.bytes {
             acct().release(self.purpose, self.kind, self.bytes - bytes);
             self.bytes = bytes;
+        }
+    }
+    /// Makes the reservation exactly `bytes`: gives back the excess, or reserves the shortfall
+    /// (mandatory: refuses the run if it does not fit).
+    pub fn fit(&mut self, bytes: u64) {
+        if bytes < self.bytes {
+            self.shrink_to(bytes);
+        } else if bytes > self.bytes {
+            let more = res(self.purpose, bytes - self.bytes);
+            self.bytes = bytes;
+            std::mem::forget(more); // now part of this reservation
         }
     }
     pub fn empty(purpose: &'static str) -> Res {

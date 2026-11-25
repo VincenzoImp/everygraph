@@ -93,6 +93,50 @@ metric = [
   { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
 ]
 
+# The in-RAM reference of the same algorithm (review of PR #143, M1): the sequential aggregation
+# with a budget large enough that no bucket goes to disk (40 GiB; Friendster's level-0 buckets
+# are ~27 GB), level 0 mapped and pre-faulted (warm). Quotient graphs are still written as
+# compressed stores (that is how this implementation holds levels) but stay in the page cache.
+[[benchmark]]
+name = "seqagg-inram-friendster"
+group = "friendster"
+description = "in-RAM reference of the same algorithm: sequential aggregation, no bucket on disk (--ooc --budget-gb 40), level 0 mapped and pre-faulted, warm"
+dataset_path = "store-m113/friendster"
+memory_limit = "48G"
+repetitions = 3
+command = ["sh", "-c", "exec {run} --store {dataset} --mem mmap --ooc --budget-gb 40 --spill {case_work}/spill"]
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "in RAM, sequential aggregation, buckets in RAM", storage = "compressed level 0 (mmap, pre-faulted, warm); quotient graphs as compressed stores (page cache)", precision = "f64 weights (integer)", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/level0_refine_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "upper_levels", json = "/upper_levels_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "accountant_peak", json = "/accountant/peak_bytes", unit = "B" },
+  { name = "level0_bucket_disk", json = "/passes/0/seq_agg/bucket_disk_bytes", unit = "B" },
+  { name = "level0_bucket_ram", json = "/passes/0/seq_agg/bucket_ram_bytes", unit = "B" },
+]
+
+[[benchmark]]
+name = "seqagg-inram-orkut"
+group = "orkut"
+description = "in-RAM reference of the same algorithm on orkut: sequential aggregation, no bucket on disk, warm"
+dataset_path = "store-m113/orkut"
+memory_limit = "8G"
+command = ["sh", "-c", "exec {run} --store {dataset} --mem mmap --ooc --budget-gb 6 --spill {case_work}/spill"]
+conditions = { graph = "orkut", algorithm = "Leiden async, 1 iteration", mode = "in RAM, sequential aggregation, buckets in RAM", storage = "compressed level 0 (mmap, pre-faulted, warm)", precision = "f64 weights (integer)", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "level0_bucket_disk", json = "/passes/0/seq_agg/bucket_disk_bytes", unit = "B" },
+]
+
 [[benchmark]]
 name = "ooc-friendster"
 group = "friendster"

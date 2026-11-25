@@ -20,7 +20,9 @@
 //!    deadlock on memory. If a bucket cannot fit even alone, RAM chunks of later buckets are
 //!    moved to their files first; if it still does not fit, the run is refused (exit 3).
 //!    A community whose entry bound exceeds the bucket target is split over several buckets by
-//!    a hash of the target; the parts are joined and sorted at commit.
+//!    a hash of the target (even over distinct targets, not records: see `part_of`); the parts
+//!    are joined and sorted at commit. A broken invariant or an I/O error ends the run at once
+//!    (exit 4 / 5, one JSON status line): no thread is left waiting for a bucket.
 //! 5. The output (the quotient graph) is mapped read-only from its unlinked file: file-backed
 //!    memory, evictable; the next level reads it through the compressed store's random access.
 //!
@@ -38,7 +40,6 @@ use everygraph_core::MemoryAccountant;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::os::unix::fs::FileExt;
-use std::sync::atomic::AtomicBool;
 
 #[derive(Clone, Copy, Default)]
 #[repr(C)]
@@ -87,6 +88,14 @@ struct Buckets {
     allow_ram: bool,
 }
 impl Buckets {
+    /// Tests: write a buffer to the bucket's file whatever the budget.
+    #[cfg(test)]
+    fn allow_ram_off_flush(&self, b: usize, v: &mut Vec<Rec>) {
+        let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * REC as usize) };
+        let off = self.disk_len[b].fetch_add(bytes.len() as u64, Relaxed);
+        self.files[b].write_all_at(bytes, off).unwrap();
+        v.clear();
+    }
     fn flush(&self, b: usize, v: &mut Vec<Rec>, cap: usize) {
         if v.is_empty() {
             return;
@@ -102,7 +111,7 @@ impl Buckets {
         }
         let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * REC as usize) };
         let off = self.disk_len[b].fetch_add(bytes.len() as u64, Relaxed);
-        self.files[b].write_all_at(bytes, off).expect("bucket write");
+        self.files[b].write_all_at(bytes, off).unwrap_or_else(|e| io_failed("aggregation: bucket write", e));
         self.disk_bytes.fetch_add(bytes.len() as u64, Relaxed);
         v.clear();
     }
@@ -120,7 +129,8 @@ fn demote(bk: &Buckets, from: usize, need: u64) -> bool {
         for (v, r) in chunks {
             let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * REC as usize) };
             let off = bk.disk_len[b].fetch_add(bytes.len() as u64, Relaxed);
-            bk.files[b].write_all_at(bytes, off).expect("bucket write");
+            debug_assert_eq!(off % REC, 0);
+            bk.files[b].write_all_at(bytes, off).unwrap_or_else(|e| io_failed("aggregation: bucket write", e));
             bk.disk_bytes.fetch_add(bytes.len() as u64, Relaxed);
             bk.ram_recs[b].fetch_sub(v.len() as u64, Relaxed);
             bk.demoted.fetch_add(bytes.len() as u64, Relaxed);
@@ -132,7 +142,11 @@ fn demote(bk: &Buckets, from: usize, need: u64) -> bool {
     moved
 }
 
-/// Part of a split community that target `cv` goes to (a multiplicative hash: uniform).
+/// Part of a split community that target `cv` goes to (a multiplicative hash). It spreads the
+/// distinct targets evenly, not the records: a giant community whose members mostly link to one
+/// other community puts most of its records in one part. The result stays correct (`need_of`
+/// counts the real records), but such a part can make the run refuse (exit 3) at a budget where
+/// an even spread would have fit. Splitting by measured record counts is left to #60.
 #[inline(always)]
 fn part_of(cv: u32, parts: usize) -> usize {
     ((cv.wrapping_mul(0x9E37_79B1) as u64 * parts as u64) >> 32) as usize
@@ -164,7 +178,7 @@ fn combine(s: &[u64], tl: &mut Vec<u32>, wl: &mut Vec<u32>) -> u64 {
             j += 1;
         }
         tl.push(cv);
-        wl.push(u32::try_from(w).expect("quotient weight exceeds u32"));
+        wl.push(to_u32(w, "quotient weight"));
         sum += w;
     }
     sum
@@ -176,18 +190,39 @@ fn finish_list(c: usize, tl: &mut Vec<u32>, wl: &mut Vec<u32>, sum: u64, selfw: 
         let p = tl.partition_point(|&x| x < c as u32);
         debug_assert!(tl.get(p) != Some(&(c as u32)));
         tl.insert(p, c as u32);
-        wl.insert(p, u32::try_from(selfw).expect("self-loop weight exceeds u32"));
+        wl.insert(p, to_u32(selfw, "self-loop weight"));
     }
     sum + selfw
 }
 
-/// Invariant: the row sum of a community is its strength k' (exact integers).
-fn row_sum_ok(c: usize, sum: u64, kc: f64) -> bool {
-    if sum as f64 != kc {
-        eprintln!("invariant k_equals_row_sum violated: community {c}: row sum {sum}, k' {kc}");
-        return false;
+/// Ends the run at once on a broken invariant (exit 4, one JSON status line): no thread waits
+/// for a bucket that will never be committed (review of PR #143, S1).
+pub fn invariant_failed(msg: String) -> ! {
+    println!("{}", serde_json::json!({"status": "failed", "error": format!("invariant violated: {msg}")}));
+    eprintln!("invariant violated: {msg}");
+    std::process::exit(4)
+}
+/// Ends the run on an I/O error of the spill path (exit 5, one JSON status line), e.g. ENOSPC:
+/// a refusal with the reason instead of a panic. There is no disk budget (not implemented).
+pub fn io_failed(what: &str, e: std::io::Error) -> ! {
+    println!("{}", serde_json::json!({"status": "refused", "error": format!("{what}: {e}"), "purpose": what}));
+    eprintln!("{what}: {e}");
+    std::process::exit(5)
+}
+/// Test hook: M102_INJECT_ROW_FAULT=c makes community c's row-sum check fail.
+fn injected_fault() -> Option<usize> {
+    static F: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *F.get_or_init(|| std::env::var("M102_INJECT_ROW_FAULT").ok().and_then(|s| s.parse().ok()))
+}
+fn to_u32(w: u64, what: &str) -> u32 {
+    u32::try_from(w).unwrap_or_else(|_| invariant_failed(format!("{what} {w} exceeds u32")))
+}
+
+/// Invariant: the row sum of a community is its strength k' (exact integers). Aborts otherwise.
+fn check_row_sum(c: usize, sum: u64, kc: f64) {
+    if sum as f64 != kc || injected_fault() == Some(c) {
+        invariant_failed(format!("k_equals_row_sum: community {c}: row sum {sum}, k' {kc}"));
     }
-    true
 }
 
 fn raise_nofile() {
@@ -274,7 +309,8 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
         target = (total_ub / (4 * nt) as u64).max(1 << 14);
     }
     // Buckets in community order. A community whose entry bound exceeds the target is split
-    // over p consecutive buckets by a hash of the target (uniform whatever the neighbours are);
+    // over p consecutive buckets by a hash of the target (even over distinct targets, not over
+    // records: see part_of);
     // its disjoint partial lists are joined and sorted at commit time. bfirst[c] = first bucket of c, and
     // bfirst[c + 1] - bfirst[c] = p for a split community (0 or 1 otherwise).
     let mut bkt: Vec<(usize, usize, u32, u32)> = Vec::new(); // (lo, hi, part, parts)
@@ -319,13 +355,13 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     drop(ub_v);
     let bmap = bfirst;
     raise_nofile();
-    std::fs::create_dir_all(spill).expect("spill dir");
+    std::fs::create_dir_all(spill).unwrap_or_else(|e| io_failed("aggregation: spill directory", e));
     let seq = SPILL_SEQ.fetch_add(1, Relaxed);
     let mut files = Vec::with_capacity(nb);
     for b in 0..nb {
         let p = std::path::Path::new(spill).join(format!("bucket.{}.{seq}.{b:05}", std::process::id()));
-        let f = File::options().read(true).write(true).create(true).truncate(true).open(&p).expect("bucket file");
-        std::fs::remove_file(&p).expect("unlink bucket file");
+        let f = File::options().read(true).write(true).create(true).truncate(true).open(&p).unwrap_or_else(|e| io_failed("aggregation: bucket file", e));
+        std::fs::remove_file(&p).unwrap_or_else(|e| io_failed("aggregation: unlink bucket file", e));
         files.push(f);
     }
     let bk = Buckets {
@@ -391,7 +427,7 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                     if buf.capacity() == 0 {
                         buf.reserve_exact(cap);
                     }
-                    buf.push(Rec { cu, cv, w: w as u32 });
+                    buf.push(Rec { cu, cv, w: to_u32(w as u64, "combined per-node weight") });
                     if buf.len() >= cap {
                         bk.flush(b, buf, cap);
                     }
@@ -426,14 +462,14 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     let keep_dir = keep.map(|d| std::path::Path::new(d).join(format!("quot_{seq}")));
     let path = match &keep_dir {
         Some(d) => {
-            std::fs::create_dir_all(d).expect("quotient dir");
+            std::fs::create_dir_all(d).unwrap_or_else(|e| io_failed("aggregation: quotient directory", e));
             d.join("adj.bin")
         }
         None => std::path::Path::new(spill).join(format!("quotient.{}.{seq}.adj", std::process::id())),
     };
-    let writer = Mutex::new(StoreWriter::create(&path, c_new, true).expect("quotient file"));
+    let writer = Mutex::new(StoreWriter::create(&path, c_new, true).unwrap_or_else(|e| io_failed("aggregation: quotient file", e)));
     if keep_dir.is_none() {
-        writer.lock().unwrap().unlink_now().expect("unlink quotient file");
+        writer.lock().unwrap().unlink_now().unwrap_or_else(|e| io_failed("aggregation: unlink quotient file", e));
     }
     let next_take = Mutex::new(0usize);
     let in_flight = AtomicUsize::new(0);
@@ -444,20 +480,22 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     let wfile = writer.lock().unwrap().file_handle();
     let waits = AtomicU64::new(0);
     let max_recs = AtomicU64::new(0);
-    let failed = AtomicBool::new(false);
     let knew_a = as_atomic_u64(&mut knew_bits);
     let need_of = |b: usize| -> (u64, u64) {
         let nn = (bkt[b].1 - bkt[b].0) as u64;
         let disk = bk.disk_len[b].load(Relaxed);
         let recs = bk.ram_recs[b].load(Relaxed) + disk / REC;
-        // read buffer + pairs + counts + output (records ~5 B per entry + offsets/degrees)
-        // (output measured at 2.7 B per record on Friendster's level 0)
-        (disk + recs * 8 + (nn + 1) * 4 + recs * 5 + nn * 16 + 4096, recs)
+        // read buffer + pairs + counts and scatter positions + output (records ~5 B per entry +
+        // offsets/degrees; measured 2.7 B per record on Friendster's level 0; growth beyond it is
+        // reserved after encoding)
+        (disk + recs * 8 + 2 * (nn + 1) * 4 + recs * 5 + nn * 16 + 4096, recs)
     };
     pool.broadcast(|_| {
         let mut tmp: Vec<u32> = Vec::new();
         let mut tl: Vec<u32> = Vec::new();
         let mut wl: Vec<u32> = Vec::new();
+        // the per-thread list buffers, reserved as they grow
+        let mut r_tl = Res::empty("aggregation: per-thread list buffers");
         loop {
             // take the next bucket together with its reservation
             let (b, mut r) = loop {
@@ -487,9 +525,6 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                 waits.fetch_add(1, Relaxed);
                 std::thread::sleep(std::time::Duration::from_micros(500));
             };
-            if failed.load(Relaxed) {
-                return;
-            }
             let (lo, hi, part, parts) = bkt[b];
             let nn = hi - lo;
             let (_, recs) = need_of(b);
@@ -500,7 +535,8 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
             let mut disk: Vec<Rec> = vec![Rec::default(); dlen / REC as usize];
             if dlen > 0 {
                 let bytes = unsafe { std::slice::from_raw_parts_mut(disk.as_mut_ptr() as *mut u8, dlen) };
-                bk.files[b].read_exact_at(bytes, 0).expect("bucket read");
+                debug_assert_eq!(dlen as u64 % REC, 0);
+                bk.files[b].read_exact_at(bytes, 0).unwrap_or_else(|e| io_failed("aggregation: bucket read", e));
                 let _ = bk.files[b].set_len(0);
             }
             // counting sort by community
@@ -543,7 +579,7 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                 let (mut tl, mut wl) = (Vec::new(), Vec::new());
                 let sum = combine(s, &mut tl, &mut wl);
                 drop(pairs);
-                r.shrink_to((tl.capacity() * 8) as u64);
+                r.fit((tl.capacity() * 4 + wl.capacity() * 4) as u64);
                 Out::Part { c: lo, part, parts, tl, wl, sum, res: r }
             } else {
                 // combine and encode
@@ -558,16 +594,19 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                     wl.clear();
                     let sum = combine(s, &mut tl, &mut wl);
                     let sum = finish_list(c, &mut tl, &mut wl, sum, selfw[c].load(Relaxed));
-                    if !row_sum_ok(c, sum, f64::from_bits(knew_a[c].load(Relaxed))) {
-                        failed.store(true, Relaxed);
-                    }
+                    check_row_sum(c, sum, f64::from_bits(knew_a[c].load(Relaxed)));
                     rel.push(out.len() as u32);
                     degs.push(tl.len() as u32);
                     encode_record(c, &tl, Some(&wl), &mut out, &mut tmp);
+                    let held = ((tl.capacity() + wl.capacity() + tmp.capacity()) * 4) as u64;
+                    if held > r_tl.bytes() {
+                        r_tl.fit(held);
+                    }
                 }
                 drop(pairs);
                 assert!(out.len() < u32::MAX as usize, "bucket output larger than 4 GiB");
-                r.shrink_to((out.capacity() + rel.capacity() * 4 + degs.capacity() * 4) as u64);
+                // the reservation follows the output: shrinks, or grows if the estimate was short
+                r.fit((out.capacity() + rel.capacity() * 4 + degs.capacity() * 4) as u64);
                 Out::Block { lo, hi, bytes: out, rel, deg: degs, _res: r }
             };
             drop(cnt);
@@ -600,6 +639,8 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                             asm.4.push(res);
                             if part + 1 == parts {
                                 let (mut t, mut w) = (std::mem::take(&mut asm.1), std::mem::take(&mut asm.2));
+                                // sort keys (8 B) and the encoded record (at most ~9 B per entry)
+                                let mut r_asm = crate::acct::res("aggregation: split community assembly", (t.len() * 17 + 64) as u64);
                                 // parts hold disjoint target sets: one sort makes the list
                                 let mut z: Vec<u64> = t.iter().zip(&w).map(|(&a, &b)| ((a as u64) << 32) | b as u64).collect();
                                 z.sort_unstable();
@@ -609,11 +650,11 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                                 }
                                 drop(z);
                                 let sum = finish_list(c, &mut t, &mut w, asm.3, selfw[c].load(Relaxed));
-                                if !row_sum_ok(c, sum, f64::from_bits(knew_a[c].load(Relaxed))) {
-                                    failed.store(true, Relaxed);
-                                }
+                                check_row_sum(c, sum, f64::from_bits(knew_a[c].load(Relaxed)));
                                 let mut bytes = Vec::new();
                                 encode_record(c, &t, Some(&w), &mut bytes, &mut tmp);
+                                r_asm.fit(bytes.capacity() as u64);
+                                asm.4.push(r_asm);
                                 let off = writer.lock().unwrap().place(c, c + 1, bytes.len(), &[0], &[t.len() as u32]);
                                 ready.push((off, bytes, std::mem::take(&mut asm.4)));
                             }
@@ -622,13 +663,12 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
                 }
             }
             for (off, bytes, _) in &ready {
-                wfile.write_all_at(bytes, *off).expect("quotient write");
+                wfile.write_all_at(bytes, *off).unwrap_or_else(|e| io_failed("aggregation: quotient write", e));
             }
             drop(ready);
             in_flight.fetch_sub(1, SeqCst);
         }
     });
-    assert!(!failed.load(Relaxed), "aggregation invariant violated");
     st.mem_waits = waits.load(Relaxed);
     st.demoted_bytes = bk.demoted.load(Relaxed);
     st.max_bucket_records = max_recs.load(Relaxed);
@@ -638,12 +678,12 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     let w = writer.into_inner().unwrap();
     assert_eq!(commit.lock().unwrap().0, nb);
     let comp = match &keep_dir {
-        Some(d) => w.finish_dir(d, false).expect("finish quotient store"),
-        None => w.finish(false).expect("finish quotient"),
+        Some(d) => w.finish_dir(d, false).unwrap_or_else(|e| io_failed("aggregation: finish quotient store", e)),
+        None => w.finish(false).unwrap_or_else(|e| io_failed("aggregation: finish quotient", e)),
     };
     drop(r_writer);
     let r_index = res("quotient graph: offsets index", comp.index_ram_bytes());
-    let _ = crate::acct::file_backed("quotient graph: mapped records", comp.data_len as u64);
+    let r_file = crate::acct::file_backed("quotient graph: mapped records", comp.data_len as u64);
     st.out_bytes = comp.data_len as u64;
     st.out_entries = comp.entries as u64;
     drop(selfw_v);
@@ -654,7 +694,7 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
     drop(knew_bits);
     unsafe { libc::malloc_trim(0) };
     st.finish_s = t3.elapsed().as_secs_f64();
-    SeqOut { g: Graph::from_comp(comp), knew, dmap, res: vec![r_index, r_knew, r_dmap], st }
+    SeqOut { g: Graph::from_comp(comp), knew, dmap, res: vec![r_index, r_file, r_knew, r_dmap], st }
 }
 
 pub struct SeqOut {
@@ -664,4 +704,71 @@ pub struct SeqOut {
     /// reservations of g's index, knew and dmap: drop them with those
     pub res: Vec<Res>,
     pub st: AggStats,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Demotion: RAM chunks of later buckets go to their files (appended after what is there),
+    /// their reservations are released, and the records read back unchanged.
+    #[test]
+    fn demote_moves_ram_chunks_to_files_and_releases_them() {
+        let _l = crate::acct::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::acct::set_budget_for_tests(u64::MAX);
+        let dir = std::env::temp_dir().join(format!("m102-demote-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let nb = 3;
+        let files: Vec<File> = (0..nb)
+            .map(|b| {
+                let p = dir.join(format!("b{b}"));
+                let f = File::options().read(true).write(true).create(true).truncate(true).open(&p).unwrap();
+                std::fs::remove_file(&p).unwrap();
+                f
+            })
+            .collect();
+        let bk = Buckets {
+            files,
+            disk_len: (0..nb).map(|_| AtomicU64::new(0)).collect(),
+            ram: (0..nb).map(|_| Mutex::new(Vec::new())).collect(),
+            ram_recs: (0..nb).map(|_| AtomicU64::new(0)).collect(),
+            ram_bytes: AtomicU64::new(0),
+            disk_bytes: AtomicU64::new(0),
+            demoted: AtomicU64::new(0),
+            allow_ram: true,
+        };
+        let rec = |b: u32, i: u32| Rec { cu: b, cv: i, w: i + 1 };
+        // bucket 2: one record on disk first, then two RAM chunks
+        let mut v = vec![rec(2, 0)];
+        bk.allow_ram_off_flush(2, &mut v);
+        for (b, n) in [(1u32, 100u32), (2, 50), (2, 70)] {
+            let mut v: Vec<Rec> = (0..n).map(|i| rec(b, i + 1)).collect();
+            bk.flush(b as usize, &mut v, 0);
+        }
+        let used = crate::acct::acct().used();
+        assert!(used >= sz::<Rec>(220));
+        assert!(demote(&bk, 1, u64::MAX));
+        assert_eq!(crate::acct::acct().used(), used - sz::<Rec>(220), "chunk reservations not released");
+        assert_eq!(bk.ram_recs[1].load(Relaxed) + bk.ram_recs[2].load(Relaxed), 0);
+        assert_eq!(bk.demoted.load(Relaxed), 220 * REC);
+        let read = |b: usize| -> Vec<(u32, u32, u32)> {
+            let len = bk.disk_len[b].load(Relaxed) as usize;
+            let mut buf = vec![0u8; len];
+            bk.files[b].read_exact_at(&mut buf, 0).unwrap();
+            buf.chunks_exact(12).map(|c| (u32::from_le_bytes(c[0..4].try_into().unwrap()), u32::from_le_bytes(c[4..8].try_into().unwrap()), u32::from_le_bytes(c[8..12].try_into().unwrap()))).collect()
+        };
+        let b1 = read(1);
+        assert_eq!(b1.len(), 100);
+        assert!(b1.iter().enumerate().all(|(i, &(cu, cv, w))| cu == 1 && cv == i as u32 + 1 && w == cv + 1));
+        let mut b2 = read(2);
+        assert_eq!(b2.len(), 121);
+        assert_eq!(b2[0], (2, 0, 1), "the record already on disk must stay first");
+        b2.sort_unstable();
+        let mut want: Vec<(u32, u32, u32)> = vec![(2, 0, 1)];
+        want.extend((1..=50).map(|i| (2, i, i + 1)));
+        want.extend((1..=70).map(|i| (2, i, i + 1)));
+        want.sort_unstable();
+        assert_eq!(b2, want);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

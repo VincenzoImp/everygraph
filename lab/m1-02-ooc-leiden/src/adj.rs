@@ -20,6 +20,11 @@ impl<T> SyncPtr<T> {
     pub unsafe fn write(&self, i: usize, v: T) {
         self.0.add(i).write(v)
     }
+    /// # Safety: a <= b within the buffer, and no other live reference to [a, b).
+    // `mut_from_ref` (clippy, deny by default): intended. SyncPtr is a raw pointer shared by the
+    // threads of a parallel loop; each thread takes a disjoint range, which the caller guarantees
+    // (the function is `unsafe` for that reason). Inherited unchanged from lab/m1-13.
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub unsafe fn slice_mut(&self, a: usize, b: usize) -> &mut [T] {
         std::slice::from_raw_parts_mut(self.0.add(a), b - a)

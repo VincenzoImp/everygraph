@@ -1306,6 +1306,8 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
                     tmp[comm[u].load(Relaxed) as usize].fetch_min(dm[u], Relaxed);
                 }
             });
+            // m1-02: the next level's initial labels live with the next level's graph
+            agg_res.push(res("level state: initial labels of the next level", sz::<u32>(gq.n)));
             let mut nb = vec![0u32; gq.n];
             let np = SyncPtr(nb.as_mut_ptr());
             par_for(pool, n, 8192, |_, r| {
@@ -1673,7 +1675,13 @@ pub fn main_leiden(args: Vec<String>) {
         (b.parse::<f64>().unwrap() * 1073741824.0) as u64
     } else if ooc {
         let frac: f64 = get("--budget-frac").map(|s| s.parse().unwrap()).unwrap_or(0.80);
-        let lim = cg_max.expect("--ooc without --budget-gb needs a cgroup memory.max (run under systemd-run -p MemoryMax=...)");
+        // only the leaf cgroup is read: a limit set on a parent cgroup is not seen
+        let lim = cg_max.unwrap_or_else(|| {
+            let msg = "--ooc needs a budget: give --budget-gb, or run in a cgroup whose own memory.max is set (systemd-run --user --scope -p MemoryMax=...); a limit on a parent cgroup is not read";
+            println!("{}", serde_json::json!({"status": "refused", "error": msg}));
+            eprintln!("{msg}");
+            std::process::exit(2)
+        });
         ((lim as f64 * frac) as u64).saturating_sub(64 << 20)
     } else {
         u64::MAX
@@ -1968,5 +1976,127 @@ pub fn main_leiden(args: Vec<String>) {
                 std::fs::rename(q, std::path::Path::new(&dir).join("quotients")).unwrap();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! m1-02 (review of PR #143, S5): the sequential aggregation against the member-order one,
+    //! at budgets that force split communities, bucket files, waits and demotion.
+    use super::*;
+
+    fn test_opts() -> Opts {
+        Opts {
+            leiden: true,
+            det: true,
+            sub_rounds: 0,
+            gamma: 1.0,
+            cap: 0,
+            max_iters: 20,
+            max_passes: 10,
+            tol: 0.01,
+            tol_drop: 10.0,
+            agg_tol: 0.8,
+            lowmem: true,
+            keep_graphs: false,
+            split_last: true,
+            refine_iters: 1,
+            chunk: 2048,
+            verbose: false,
+            order_block: 64,
+            permute: true,
+            tie_hash: true,
+            indep: false,
+            iterations: 1,
+            cap_stall: 0.5,
+            ooc: true,
+            spill: String::new(),
+            check_agg: true,
+            order_window: 0,
+            trace_io: false,
+            hier_dir: None,
+        }
+    }
+
+    /// Symmetric graph without self-loops: every node has ~6 random neighbours, and the first
+    /// `giant` nodes also have ~12 among themselves (one dense community).
+    fn toy(n: usize, giant: usize, seed: u64) -> Graph {
+        let mut x = seed;
+        let mut rnd = |m: usize| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x % m as u64) as u32
+        };
+        let mut e: Vec<(u32, u32)> = Vec::new();
+        for u in 0..n as u32 {
+            for _ in 0..3 {
+                let v = rnd(n);
+                e.push((u, v));
+                e.push((v, u));
+            }
+            if (u as usize) < giant {
+                for _ in 0..6 {
+                    let v = rnd(giant);
+                    e.push((u, v));
+                    e.push((v, u));
+                }
+            }
+        }
+        e.retain(|&(a, b)| a != b);
+        e.sort_unstable();
+        e.dedup();
+        let mut off = vec![0u64; n + 1];
+        for &(a, _) in &e {
+            off[a as usize + 1] += 1;
+        }
+        for i in 0..n {
+            off[i + 1] += off[i];
+        }
+        let tgt: Vec<u32> = e.iter().map(|&(_, b)| b).collect();
+        Graph::from_vecs(n, off, tgt, None)
+    }
+
+    #[test]
+    fn seqagg_equals_member_order_aggregation_at_tiny_budgets() {
+        let _l = crate::acct::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        let tls = new_tls(4);
+        let o = test_opts();
+        let n = 40_000;
+        let g = toy(n, 8_000, 0x9E37_79B9_7F4A_7C15);
+        let k: Vec<f64> = (0..n).map(|u| g.deg(u) as f64).collect();
+        // one giant community (label 3), the rest in ~2,000 communities
+        let lab_v: Vec<u32> = (0..n).map(|u| if u < 8_000 { 3 } else { 10 + (u as u32).wrapping_mul(2_654_435_761) % 2_000 }).collect();
+        let lab: Vec<AtomicU32> = lab_v.iter().map(|&l| AtomicU32::new(l)).collect();
+        let spill = std::env::temp_dir().join(format!("m102-seqagg-test-{}", std::process::id()));
+        let spill_s = spill.to_str().unwrap().to_string();
+        let (mut splits, mut disk, mut waits, mut demoted) = (0usize, 0u64, 0u64, 0u64);
+        // unlimited, then budgets just above what the fixed arrays need
+        for budget in [u64::MAX, 3 << 20, 2 << 20, 1_400_000, 1_250_000] {
+            crate::acct::set_budget_for_tests(budget);
+            let so = seqagg::aggregate_seq(&g, &k, &lab, &pool, &spill_s, None);
+            check_agg_equal(&g, &k, &lab, &pool, &tls, &o, &so.g, &so.knew, &so.dmap);
+            splits += so.st.split_communities;
+            disk += so.st.disk_bytes;
+            waits += so.st.mem_waits;
+            demoted += so.st.demoted_bytes;
+            // a second, weighted level: aggregate the quotient graph again, in 50 communities
+            let lab2: Vec<AtomicU32> = (0..so.g.n).map(|c| AtomicU32::new((c as u32) % 50)).collect();
+            let so2 = seqagg::aggregate_seq(&so.g, &so.knew, &lab2, &pool, &spill_s, None);
+            check_agg_equal(&so.g, &so.knew, &lab2, &pool, &tls, &o, &so2.g, &so2.knew, &so2.dmap);
+            eprintln!("budget {budget}: {}", so.st.json());
+            drop(so2);
+            drop(so);
+            assert_eq!(crate::acct::acct().used(), 0, "reservations left after aggregation");
+        }
+        crate::acct::set_budget_for_tests(u64::MAX);
+        let _ = std::fs::remove_dir_all(&spill);
+        assert!(splits > 0, "no split community exercised");
+        assert!(disk > 0, "no bucket went to disk");
+        assert!(waits > 0, "no memory wait exercised");
+        // demotion is not reached on this graph (sorting headroom is reserved during emission);
+        // it has its own test: seqagg::tests::demote_moves_ram_chunks_to_files_and_releases_them
+        let _ = demoted;
     }
 }
