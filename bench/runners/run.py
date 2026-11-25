@@ -258,8 +258,10 @@ def duckdb(task, csr, args):
             con.execute(sql)
             steps[name] = round(time.perf_counter() - t, 3)
 
-        step("read", f"CREATE TABLE e AS SELECT column0::BIGINT s, column1::BIGINT t FROM read_csv('{args.input}', "
-                     "delim='\t', header=false, comment='#', columns={'column0': 'BIGINT', 'column1': 'BIGINT'})")
+        # SNAP text: '#' comment lines, then tab-separated pairs. The sniffer rejects it,
+        # so the dialect is given (auto_detect=false).
+        step("read", f"CREATE TABLE e AS SELECT s, t FROM read_csv('{args.input}', delim='\t', header=false, "
+                     "comment='#', auto_detect=false, columns={'s': 'BIGINT', 't': 'BIGINT'})")
         step("ids", "CREATE TABLE ids AS SELECT id, (row_number() OVER (ORDER BY id) - 1)::UINTEGER AS k "
                     "FROM (SELECT s id FROM e UNION SELECT t FROM e)")
         step("relabel_symmetrize_dedup_sort", f"""COPY (SELECT DISTINCT a, b FROM (
