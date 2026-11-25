@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use everygraph_core::ByteSource;
 use everygraph_format::container::{Container, Kind, Writer};
-use everygraph_io::{AppendSink, FileSink, FileSource, MmapSource, persist};
+use everygraph_io::{FileSink, FileSource, MmapSource, persist};
 use support::bytes;
 
 /// Set in the child process of the kill test, to the file it writes.
@@ -111,6 +111,8 @@ fn a_file_sink_writes_in_place_extends_with_zeros_and_truncates() {
     fs::remove_dir_all(dir).unwrap();
 }
 
+// The in-process guard identifies files by device and inode: Unix only (`src/claim.rs`).
+#[cfg(unix)]
 #[test]
 fn a_file_sink_holds_its_file_alone_in_the_process() {
     let dir = scratch("alone");
@@ -128,13 +130,15 @@ fn a_file_sink_holds_its_file_alone_in_the_process() {
             ErrorKind::ResourceBusy
         );
         assert_eq!(
-            AppendSink::create(target).unwrap_err().kind(),
+            everygraph_io::AppendSink::create(target)
+                .unwrap_err()
+                .kind(),
             ErrorKind::ResourceBusy
         );
     }
     drop(sink);
     // And the other way round: no FileSink on a file another sink writes.
-    let append = AppendSink::create(&path).unwrap();
+    let append = everygraph_io::AppendSink::create(&path).unwrap();
     assert_eq!(
         FileSink::open(&link).unwrap_err().kind(),
         ErrorKind::ResourceBusy
@@ -175,9 +179,12 @@ fn a_container_written_to_a_file_reads_back_through_every_source() {
     mapped.verify_all().unwrap();
     let section = mapped.section("base").unwrap();
     assert_eq!(section.as_slice().unwrap(), &bytes(0, 10_000)[..]);
-    // While the file is mapped, this process cannot commit to it.
-    let refused = FileSink::open(&path).unwrap_err();
-    assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
+    // While the file is mapped, this process cannot commit to it (the guard is Unix
+    // only, `src/claim.rs`).
+    if cfg!(unix) {
+        let refused = FileSink::open(&path).unwrap_err();
+        assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
+    }
     drop(mapped);
     FileSink::open(&path).unwrap();
     fs::remove_dir_all(dir).unwrap();
