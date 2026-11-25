@@ -81,7 +81,7 @@ NetworkX stops when the L1 change between two iterates is below `n · tol` (defa
 `tol = 1e-6`), so its default answer gets less accurate as the graph grows. For n > 2·10⁶
 the bound exceeds 2, the largest possible L1 change, and NetworkX stops after one
 iteration (`m3-04`). On a random directed graph with 3,000 nodes, the default answer is up
-to 8·10⁻⁶ away from igraph's PRPACK solution. With `tol = 1e-15` the gap is 8·10⁻¹⁵
+to 8·10⁻⁶ away from igraph's PRPACK solution. With `tol = 1e-15` the gap is about 8·10⁻¹⁵ (the probe records it as below 10⁻¹³, since the last digit varies between runs)
 (`pagerank-convergence` in the probe). igraph solves the linear system directly.
 
 A fixed `tol` is not enough either. On the nightly corpus's power-law graph with 20,000

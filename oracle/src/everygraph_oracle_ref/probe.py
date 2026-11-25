@@ -219,7 +219,7 @@ def cases() -> list[dict]:
         "question": "how far NetworkX's default stopping rule (L1 change < n * 1e-6) is from the fixed point",
         "graph": "random directed graph, n = 3000, about 9000 arcs, seed 7",
         "networkx": {"default_tol_max_abs_error_vs_prpack": _round(max(abs(default[v] - ref[v]) for v in range(n))),
-                     "tol_1e-15_max_abs_error_vs_prpack": float(f"{max(abs(tight[v] - ref[v]) for v in range(n)):.1e}")},
+                     "tol_1e-15_max_abs_error_vs_prpack_below_1e-13": max(abs(tight[v] - ref[v]) for v in range(n)) < 1e-13},
         "igraph": "PRPACK solves the linear system directly",
         "everygraph": "the oracle compares against the fixed point; tolerance in oracle/tolerances.json",
     })

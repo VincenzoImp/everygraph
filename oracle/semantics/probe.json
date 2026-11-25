@@ -553,7 +553,7 @@
    "graph": "random directed graph, n = 3000, about 9000 arcs, seed 7",
    "networkx": {
     "default_tol_max_abs_error_vs_prpack": 8e-06,
-    "tol_1e-15_max_abs_error_vs_prpack": 8e-15
+    "tol_1e-15_max_abs_error_vs_prpack_below_1e-13": true
    },
    "igraph": "PRPACK solves the linear system directly",
    "everygraph": "the oracle compares against the fixed point; tolerance in oracle/tolerances.json",
