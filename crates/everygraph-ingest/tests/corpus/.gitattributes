@@ -1,0 +1,2 @@
+# The corpus is bytes: its CRLF line ends and byte-order mark are what is tested.
+* -text

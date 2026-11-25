@@ -10,5 +10,18 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+everygraph-core = { path = "../everygraph-core", default-features = false }
+# gzip through zlib-rs, a pure-Rust zlib: no C (DESIGN D1), it builds for wasm32, and it
+# is the inflate the lab measured (FINDINGS § B1).
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+# A zstd decoder in pure Rust; the `zstd` crate wraps the C library. Held at 0.8.1:
+# 0.8.2 declares Rust 1.85 but calls `is_multiple_of`, stable only since 1.87.
+ruzstd = { version = "=0.8.1", default-features = false, features = ["std", "hash"] }
+
+[dev-dependencies]
+# The tests and the throughput example run the parallel facade on threads.
+everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
+
 [lints]
 workspace = true
