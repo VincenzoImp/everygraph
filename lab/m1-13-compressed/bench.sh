@@ -80,7 +80,11 @@ stage_build() {
   (cd "$LAB/b1-core" && CARGO_TARGET_DIR=$S/t-b1 nice -n 10 cargo build --release --offline -j 16 2>&1 | tail -1)
   (cd "$LAB/b2-leiden" && CARGO_TARGET_DIR=$S/t-b2 nice -n 10 cargo build --release --offline -j 16 2>&1 | tail -1)
   (cd "$LAB/f1-query" && CARGO_TARGET_DIR=$S/t-f1 nice -n 10 cargo build --release --offline -j 16 --bin pq 2>&1 | tail -1)
-  [ -x "$B" ] || { echo "build failed"; exit 1; }
+  # (b2-leiden and f1-query have no [workspace] table: inside a git worktree nested under another
+  #  checkout cargo may refuse to build them; binaries from an earlier build are then used.)
+  for x in "$B" "$S/t-b1/release/glab" "$S/t-b2/release/b2" "$S/t-f1/release/pq"; do
+    [ -x "$x" ] || { echo "build failed: $x missing"; exit 1; }
+  done
 }
 
 # 1. encode into the proposed default format: bits/edge, encode time; exactness check
@@ -125,7 +129,7 @@ stage_scan() {
   stage_start scan
   : > "$R/scan.jsonl"
   for g in $MAIN; do for t in 1 16; do
-    for cfg in "raw" "comp" "comp --batch 1" "comp --batch 1 --decoder lab" "comp-block"; do
+    for cfg in "raw" "comp" "comp --batch 1" "comp --batch 1 --decoder fused" "comp --batch 1 --decoder lab" "comp-block"; do
       gate; "$B" scan --graph "$DATA/$g" --store "$S/store/$g" --config $cfg --threads $t --reps 3 --json "$R/scan.jsonl" > /dev/null
     done
   done; done
@@ -245,8 +249,11 @@ stage_ablation() {
   : > "$R/ablation.jsonl"
   export OUT=ablation
   # (a) the lab C decoder (scalar prefix sum in a second pass) instead of the fused one
-  for t in 1 16; do k orkut comp $t pr32,pr64,bfs,kcore 3 --decoder lab --label decoder-lab; done
-  k twitter-sym comp 16 pr32,bfs 3 --decoder lab --label decoder-lab
+  #     and the fused one with a scalar loop for the last 1-3 values of a list ("fused"); default is "pad"
+  for dec in lab fused; do
+    for g in lj orkut; do for t in 1 16; do k $g comp $t pr32,pr64,wcc,bfs 3 --decoder $dec --label decoder-$dec; done; done
+    k twitter-sym comp 16 pr32,bfs 3 --decoder $dec --label decoder-$dec
+  done
   # (b) decode granularity for sequential scans: list by list (decode and kernel body
   #     interleaved), small batches, the default (8192 entries), a whole ~64K-entry block
   for g in lj orkut; do for t in 1 16; do
@@ -304,6 +311,10 @@ stage_capped() {
     cap $1 $2 comp mmap-lazy pr32,wcc,bfs 2 5
     cap $1 $2 decoded mmap-lazy pr32 1 5    # expected to be killed: the decoded copy is anonymous memory
   done
+  # Friendster PageRank under 2 GB (DESIGN section 6 target), through plain mmap: no streaming
+  # reader exists for the compressed format in this lab, so this is the naive out-of-core path
+  cap 2G friendster comp mmap-lazy pr32 1 5
+  cap 2G friendster raw mmap-lazy pr32 1 5
   for g in twitter-sym friendster; do   # warm everything again
     "$B" open --graph "$DATA/$g" --what raw --mem heap --threads 16 > /dev/null
     "$B" open --graph "$DATA/$g" --store "$S/store/$g" --what comp --mem heap --threads 16 > /dev/null

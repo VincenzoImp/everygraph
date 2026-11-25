@@ -137,6 +137,38 @@ pub unsafe fn decode_delta(d: *const u8, total: usize, k: usize, base: u32, out:
     p
 }
 
+/// As `decode_delta`, but without the scalar loop for the last 1-3 values: the last group is
+/// decoded with the same shuffle as the others, so the loop has no data-dependent branch.
+/// May write up to 3 values past out[k-1] (garbage): the caller's buffer needs that slack.
+/// The return value is the stream length only if k == total.
+///
+/// # Safety
+/// Same as `decode`, and out must have room for k rounded up to a multiple of 4.
+#[inline(always)]
+pub unsafe fn decode_delta_pad(d: *const u8, total: usize, k: usize, base: u32, out: *mut u32) -> usize {
+    use std::arch::x86_64::*;
+    let t = tables();
+    let nc = total.div_ceil(4);
+    let groups = k.div_ceil(4);
+    let mut p = nc;
+    let ones = _mm_set1_epi32(1);
+    let mut prev = _mm_set1_epi32(base as i32);
+    for g in 0..groups {
+        let c = *d.add(g) as usize;
+        let v = _mm_loadu_si128(d.add(p) as *const __m128i);
+        let s = _mm_loadu_si128(t.shuf.get_unchecked(c).as_ptr() as *const __m128i);
+        let mut x = _mm_add_epi32(_mm_shuffle_epi8(v, s), ones);
+        x = _mm_add_epi32(x, _mm_slli_si128(x, 4));
+        x = _mm_add_epi32(x, _mm_slli_si128(x, 8));
+        x = _mm_add_epi32(x, prev);
+        _mm_storeu_si128(out.add(g * 4) as *mut __m128i, x);
+        prev = _mm_shuffle_epi32(x, 0xFF);
+        p += *t.len.get_unchecked(c) as usize;
+    }
+    // the unused 2-bit fields of the last control byte are zero, i.e. counted as one byte each
+    p - (groups * 4 - k)
+}
+
 /// First value of a stream of `total` values (scalar peek; does not advance anything).
 ///
 /// # Safety

@@ -5,6 +5,9 @@ edition = "2021"
 description = "Experiment #118 (m1-13): kernels, Leiden and point queries on compressed adjacency"
 publish = false
 
+# Standalone research package: not a member of the product workspace at the repository root.
+[workspace]
+
 [[bin]]
 name = "m113"
 path = "src/main.rs"

@@ -18,9 +18,15 @@ use rayon::prelude::*;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
-/// true: shuffle + SIMD prefix sum in one pass; false: the lab C path (shuffle, then a scalar
-/// prefix-sum pass over the buffer). Set once at start-up.
-pub static FUSED: AtomicBool = AtomicBool::new(true);
+/// Decoder, set once at start-up:
+///   0 "lab"   the lab C path: shuffle, then a scalar prefix-sum pass over the buffer
+///   1 "fused" shuffle + SIMD prefix sum in one pass, scalar loop for the last 1-3 values
+///   2 "pad"   as fused, last group decoded with the shuffle too (no data-dependent branch);
+///             used wherever the output buffer has 3 values of slack (default)
+pub static DECODER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(2);
+pub fn decoder_name() -> &'static str {
+    ["lab", "fused", "pad"][DECODER.load(Relaxed) as usize]
+}
 /// Sequential access (`for_range`): how many entries to decode into the per-thread buffer before
 /// handing the lists to the kernel. 1 = list by list (decode and kernel body interleaved);
 /// usize::MAX = the whole work chunk (one ~64K-entry block). Default 8192 entries (32 KiB, L1-sized).
@@ -68,16 +74,22 @@ fn unzz(x: u64) -> i64 {
 }
 
 /// Decodes the first k of `deg` neighbors of v from the stream at `d` into out[..k].
-/// Returns the stream length in bytes if k == deg.
+/// Returns the stream length in bytes if k == deg. `SLACK`: out has room for k + 3 values.
 ///
-/// # Safety: valid padded stream, out has room for k values.
+/// # Safety: valid padded stream, out has room for k (+ 3 if SLACK) values.
 #[inline(always)]
-unsafe fn decode_list(d: *const u8, v: usize, deg: usize, k: usize, out: *mut u32) -> usize {
+unsafe fn decode_list_g<const SLACK: bool>(d: *const u8, v: usize, deg: usize, k: usize, out: *mut u32) -> usize {
     debug_assert!(k >= 1 && k <= deg);
-    if FUSED.load(Relaxed) {
+    let dec = DECODER.load(Relaxed);
+    if dec >= 1 {
         let v0 = svb::peek_first(d, deg);
         let x0 = (v as i64 + unzz(v0 as u64)) as u32;
-        svb::decode_delta(d, deg, k, x0.wrapping_sub(v0).wrapping_sub(1), out)
+        let base = x0.wrapping_sub(v0).wrapping_sub(1);
+        if SLACK && dec == 2 {
+            svb::decode_delta_pad(d, deg, k, base, out)
+        } else {
+            svb::decode_delta(d, deg, k, base, out)
+        }
     } else {
         let used = svb::decode(d, deg, k, out);
         let b = std::slice::from_raw_parts_mut(out, k);
@@ -89,6 +101,16 @@ unsafe fn decode_list(d: *const u8, v: usize, deg: usize, k: usize, out: *mut u3
         }
         used
     }
+}
+/// Into a scratch buffer (3 values of slack).
+#[inline(always)]
+unsafe fn decode_list(d: *const u8, v: usize, deg: usize, k: usize, out: *mut u32) -> usize {
+    decode_list_g::<true>(d, v, deg, k, out)
+}
+/// Into an exactly sized destination.
+#[inline(always)]
+unsafe fn decode_list_exact(d: *const u8, v: usize, deg: usize, k: usize, out: *mut u32) -> usize {
+    decode_list_g::<false>(d, v, deg, k, out)
 }
 
 /// Per-thread decode scratch with a one-list cache (`last`). Buffers are recycled through a
@@ -110,7 +132,7 @@ impl CompCur {
     }
     #[inline(always)]
     fn reserve(&mut self, k: usize) -> *mut u32 {
-        if self.buf.len() < k {
+        if self.buf.len() < k + 4 {
             self.buf.resize((k + 16).next_power_of_two(), 0);
         }
         self.buf.as_mut_ptr()
@@ -331,7 +353,7 @@ impl Comp {
                     let deg = get_varint(d, &mut pos);
                     c.starts.push(fill as u32);
                     if deg > 0 {
-                        if c.buf.len() < fill + deg {
+                        if c.buf.len() < fill + deg + 4 {
                             c.buf.resize((fill + deg + 16).next_power_of_two(), 0);
                         }
                         pos += decode_list(d.add(pos), v, deg, deg, c.buf.as_mut_ptr().add(fill));
@@ -378,7 +400,7 @@ impl Comp {
             for v in lo..hi {
                 let deg = get_varint(d, &mut pos);
                 if deg > 0 {
-                    pos += decode_list(d.add(pos), v, deg, deg, tp.get().add(off[v] as usize));
+                    pos += decode_list_exact(d.add(pos), v, deg, deg, tp.get().add(off[v] as usize));
                 }
             }
         });
@@ -683,8 +705,8 @@ mod tests {
     }
     #[test]
     fn roundtrip_all_paths() {
-        for fused in [true, false] {
-            FUSED.store(fused, Relaxed);
+        for dec in [0u8, 1, 2] {
+            DECODER.store(dec, Relaxed);
             let g = toy(3000, 0x9E3779B97F4A7C15);
             let (c, _) = Comp::from_raw(&g);
             let mut cur = c.cur();
@@ -747,6 +769,6 @@ mod tests {
                 c.for_range_deg(lo, hi, |v, d| assert_eq!(d, g.deg(v)));
             }
         }
-        FUSED.store(true, Relaxed);
+        DECODER.store(2, Relaxed);
     }
 }

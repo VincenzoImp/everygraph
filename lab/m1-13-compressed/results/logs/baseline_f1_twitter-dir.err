@@ -1,0 +1,16 @@
+twitter-dir: n=41652230 m=1468365182 prefetch=false random=false
+warm-up 4.8s resident 1.000
+warm degree: {"max_us":4.238,"mean_us":0.11941718999992056,"n":100000,"p50_us":0.11,"p95_us":0.24,"p99_us":0.381}
+  tput 32t: 228224918 q/s
+warm neighbors: {"max_us":105.597,"mean_us":0.26475982000002535,"n":100000,"p50_us":0.221,"p95_us":0.491,"p99_us":0.581}
+  tput 32t: 93072281 q/s
+warm common_neighbors: {"max_us":3925.88,"mean_us":3.9852338800000195,"n":100000,"p50_us":0.461,"p95_us":5.189,"p99_us":30.958}
+  tput 32t: 6320453 q/s
+warm two_hop_size: {"max_us":290969.667,"mean_us":656.3552670000001,"n":3000,"p50_us":6.172,"p95_us":4625.047,"p99_us":9238.924}
+  tput 32t: 14202 q/s
+warm khop3_budget10k: {"max_us":152.636,"mean_us":41.00970766666667,"n":3000,"p50_us":40.606,"p95_us":66.365,"p99_us":87.303}
+  tput 32t: 186966 q/s
+warm bidir_bfs_path: {"max_us":55252.609,"mean_us":3089.414088999999,"n":1000,"p50_us":547.824,"p95_us":15242.107,"p99_us":30151.519}
+  tput 32t: 1069 q/s
+sink 74203168896133
+wrote "/home/tux/projects/everygraph/.claude/worktrees/agent-a4d868e363f96c22f/lab/m1-13-compressed/results/baseline_f1_twitter-dir.json"

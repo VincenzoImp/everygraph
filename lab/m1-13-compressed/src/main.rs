@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::Instant;
-use store::{BlockView, Comp, FUSED};
+use store::{BlockView, Comp, DECODER};
 
 fn args_map(args: &[String]) -> HashMap<String, String> {
     let mut m = HashMap::new();
@@ -50,7 +50,7 @@ fn args_map(args: &[String]) -> HashMap<String, String> {
 
 fn emit(mut v: Value, a: &HashMap<String, String>) {
     v["loadavg_1m_end"] = json!(loadavg());
-    v["decoder"] = json!(if FUSED.load(Relaxed) { "fused" } else { "lab" });
+    v["decoder"] = json!(store::decoder_name());
     v["target_cpu"] = json!("native");
     let b = store::BATCH.load(Relaxed);
     if v["config"] == "comp-block" || v["config"] == "comp" {
@@ -82,7 +82,7 @@ fn main() {
     }
     if argv.iter().any(|a| a == "--decoder") {
         let i = argv.iter().position(|a| a == "--decoder").unwrap();
-        FUSED.store(argv[i + 1] != "lab", Relaxed);
+        DECODER.store(match argv[i + 1].as_str() { "lab" => 0, "fused" => 1, "pad" => 2, x => panic!("bad --decoder {x}") }, Relaxed);
     }
     if let Some(i) = argv.iter().position(|a| a == "--batch") {
         store::BATCH.store(argv[i + 1].parse().unwrap(), Relaxed);
@@ -175,8 +175,8 @@ fn cmd_verify(a: &HashMap<String, String>, threads: usize) {
     assert_eq!((c.n, c.entries), (g.n, g.entries()));
     assert_eq!(c.chunks, g.chunks, "blocks must equal the lab work partition");
     let mut res = json!({"cmd": "verify", "graph": a["graph"], "threads": threads, "n": g.n, "entries": g.entries()});
-    for fused in [true, false] {
-        FUSED.store(fused, Relaxed);
+    for dec in [2u8, 1, 0] {
+        DECODER.store(dec, Relaxed);
         let (r, _, _) = c.decode_to_raw();
         let ok_full = r.offsets[..] == g.offsets[..] && r.targets.par_chunks(1 << 20).zip(g.targets.par_chunks(1 << 20)).all(|(x, y)| x == y);
         drop(r);
@@ -205,11 +205,11 @@ fn cmd_verify(a: &HashMap<String, String>, threads: usize) {
                 ok
             });
         store::BATCH.store(8192, Relaxed);
-        let k = if fused { "fused" } else { "lab" };
+        let k = store::decoder_name();
         res[k] = json!({"full_decode_identical": ok_full, "sequential_paths_identical": ok_seq, "random_access_identical_2M_samples": ok_rand});
         assert!(ok_full && ok_seq && ok_rand, "verification failed ({k})");
     }
-    FUSED.store(true, Relaxed);
+    DECODER.store(2, Relaxed);
     let mut c = c;
     c.build_degree_index();
     let ok_deg = c.chunks.par_iter().all(|&(lo, hi)| {

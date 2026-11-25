@@ -55,7 +55,7 @@ out["encode"] = {g: {str(t): {k: r[k] for k in ("bits_per_edge", "bits_per_edge_
                                                "encode_seconds_best", "write_seconds", "data_bytes", "offsets_ef_bytes", "loadavg_1m_start")}
                      for t, r in e.items()} for g, e in enc.items()}
 ver = rows("verify.jsonl")
-print(f"exactness: {sum(1 for v in ver if v.get('ok'))}/{len(ver)} stores decode to the input arrays on every access path, both decoders")
+print(f"exactness: {sum(1 for v in ver if v.get('ok'))}/{len(ver)} stores decode to the input arrays on every access path, all three decoders")
 
 # ---------------------------------------------------------------- kernels
 kern = rows("kernels.jsonl") + rows("kernels_big.jsonl")
@@ -92,9 +92,17 @@ for (g, algo, t, cfg), r in K.items():
     for d in (res, rr):
         for k in ("forward_build_seconds", "variant", "forward_bytes", "forward_bits_per_undirected_edge"):
             d.pop(k, None)
-    if res != rr:
+    if "pr" in res:
+        # PageRank sums floats in parallel in a schedule-dependent order: compare the top-5 node
+        # ids exactly and the values to 1e-9 relative
+        p, q = res["pr"], rr["pr"]
+        same = ([i for i, _ in p["top5"]] == [i for i, _ in q["top5"]] and abs(p["sum"] - q["sum"]) < 1e-9
+                and all(abs(x - y) <= 1e-9 * abs(y) for (_, x), (_, y) in zip(p["top5"], q["top5"])))
+        if not same:
+            bad.append((g, algo, t, cfg))
+    elif res != rr:
         bad.append((g, algo, t, cfg))
-print("result check (same output in every configuration):", "all identical" if not bad else f"MISMATCH {bad}")
+print("result check (same output in every configuration; PageRank to 1e-9):", "all identical" if not bad else f"MISMATCH {bad}")
 out["kernel_result_mismatches"] = bad
 
 # ---------------------------------------------------------------- leiden
@@ -177,11 +185,11 @@ out["open"] = otab
 
 # ---------------------------------------------------------------- scan
 print("\n== 6. Scans (sum of all targets) and random access to one list")
-print("graph        config      decoder  T    G entries/s   random list ns   random degree ns")
+print("graph        config      decoder  batch  T    G entries/s   random list ns   random degree ns")
 stab = []
 for r in rows("scan.jsonl"):
-    print(f"{r['graph']:12s} {r['config']:11s} {r['decoder'] if r['config'] != 'raw' else '-':7s} {r['threads']:2d}   {r['edges_per_s'] / 1e9:8.2f}      {r['random_list_ns']:9.0f}      {r['random_degree_ns']:9.1f}")
-    stab.append({k: r[k] for k in ("graph", "config", "decoder", "threads", "edges_per_s", "random_list_ns", "random_degree_ns", "seconds_all", "loadavg_1m_start")})
+    print(f"{r['graph']:12s} {r['config']:11s} {r['decoder'] if r['config'] != 'raw' else '-':7s} {str(r.get('scan_batch_entries', '-')):>6s} {r['threads']:2d}   {r['edges_per_s'] / 1e9:8.2f}      {r['random_list_ns']:9.0f}      {r['random_degree_ns']:9.1f}")
+    stab.append({k: r.get(k) for k in ("graph", "config", "decoder", "scan_batch_entries", "threads", "edges_per_s", "random_list_ns", "random_degree_ns", "seconds_all", "loadavg_1m_start", "busy_cpus_before")})
 out["scan"] = stab
 
 # ---------------------------------------------------------------- ablations

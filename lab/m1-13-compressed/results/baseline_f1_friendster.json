@@ -1,0 +1,98 @@
+{
+  "cold": {},
+  "entries": 3612134270,
+  "graph": "friendster",
+  "madv_random": false,
+  "n": 65608366,
+  "prefetch": false,
+  "threads_tput": 32,
+  "tput_cold": {},
+  "tput_warm": {
+    "bidir_bfs_path": {
+      "qps": 701.6593441140838,
+      "queries": 4000,
+      "threads": 32
+    },
+    "common_neighbors": {
+      "qps": 20842256.424365018,
+      "queries": 400000,
+      "threads": 32
+    },
+    "degree": {
+      "qps": 225319235.10879257,
+      "queries": 400000,
+      "threads": 32
+    },
+    "khop3_budget10k": {
+      "qps": 60660.774480068794,
+      "queries": 12000,
+      "threads": 32
+    },
+    "neighbors": {
+      "qps": 79544496.39583887,
+      "queries": 400000,
+      "threads": 32
+    },
+    "two_hop_size": {
+      "qps": 21192.725870231206,
+      "queries": 12000,
+      "threads": 32
+    }
+  },
+  "warm": {
+    "bidir_bfs_path": {
+      "avg_result": 163358.373,
+      "max_us": 83025.372,
+      "mean_us": 4898.403018000001,
+      "n": 1000,
+      "p50_us": 2191.968,
+      "p95_us": 18271.549,
+      "p99_us": 44333.324
+    },
+    "common_neighbors": {
+      "avg_result": 2.82768,
+      "max_us": 24.967,
+      "mean_us": 0.829014669999987,
+      "n": 100000,
+      "p50_us": 0.651,
+      "p95_us": 2.004,
+      "p99_us": 3.616
+    },
+    "degree": {
+      "avg_result": 55.06811,
+      "max_us": 6.061,
+      "mean_us": 0.13372401999995298,
+      "n": 100000,
+      "p50_us": 0.11,
+      "p95_us": 0.28,
+      "p99_us": 0.41
+    },
+    "khop3_budget10k": {
+      "avg_result": 9267.866,
+      "max_us": 494.805,
+      "mean_us": 46.2135060000001,
+      "n": 3000,
+      "p50_us": 43.772,
+      "p95_us": 74.53,
+      "p99_us": 120.635
+    },
+    "neighbors": {
+      "avg_result": 55.06811,
+      "max_us": 17.373,
+      "mean_us": 0.3340787599999391,
+      "n": 100000,
+      "p50_us": 0.301,
+      "p95_us": 0.561,
+      "p99_us": 0.631
+    },
+    "two_hop_size": {
+      "avg_result": 16075.061,
+      "max_us": 8366.812,
+      "mean_us": 96.04289933333334,
+      "n": 3000,
+      "p50_us": 14.748,
+      "p95_us": 407.342,
+      "p99_us": 1282.026
+    }
+  }
+}

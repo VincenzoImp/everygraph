@@ -1513,7 +1513,7 @@ pub fn main_leiden(args: Vec<String>) {
         &json[..json.len() - 1],
         config,
         mem,
-        if crate::store::FUSED.load(Relaxed) { "fused" } else { "lab" },
+        crate::store::decoder_name(),
         loadavg_start,
         crate::adj::loadavg(),
         crate::adj::gb(crate::adj::anon_huge()),
