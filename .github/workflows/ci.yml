@@ -111,6 +111,7 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo fmt --manifest-path tools/wasm-toy/Cargo.toml --check
+          cargo fmt --manifest-path tools/wasm-codec/Cargo.toml --check
           cargo fmt --manifest-path tools/canary/tsan/Cargo.toml --check
           rustfmt --edition 2024 --check tools/canary/portability/*.rs
       - name: cargo clippy (workspace)
@@ -121,6 +122,8 @@ jobs:
         run: cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --all-targets --locked -- -D warnings
       - name: cargo clippy (core, i686, no default features)
         run: cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets --locked -- -D warnings
+      - name: cargo clippy (format, i686)
+        run: cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets --locked -- -D warnings
       - name: Portability checks of the core
         run: python3 tools/check_core_portability.py
       # The advisory database is fetched from the network on every run (the runner has
@@ -175,8 +178,20 @@ jobs:
         run: cargo build -p everygraph-ingest --target wasm32-unknown-unknown --locked
       - name: wasm32 build (everygraph-wasm)
         run: cargo build -p everygraph-wasm --target wasm32-unknown-unknown --locked
+      # The adjacency codec, without and with the simd128 decoder (a compile-time
+      # feature on wasm32); linted too, since clippy on Linux never compiles that code.
+      - name: wasm32 build and clippy (format)
+        run: cargo clippy -p everygraph-format --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: wasm32 build and clippy (format, simd128)
+        env:
+          RUSTFLAGS: -C target-feature=+simd128
+          CARGO_TARGET_DIR: target/wasm-simd128
+        run: cargo clippy -p everygraph-format --target wasm32-unknown-unknown --locked -- -D warnings
       - name: Toy kernel, native and wasm32 in Node, same hash
         run: python3 tools/check_wasm_toy.py
+      # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
+      - name: Adjacency codec, simd128 in Node against scalar, same as native
+        run: python3 tools/check_wasm_codec.py
       # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
       # fails if any probe is accepted.
       - name: Portability canary
@@ -201,6 +216,9 @@ jobs:
       - name: cargo test (core, i686, no default features)
         if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
+      - name: cargo test (format, i686)
+        if: needs.lint.outputs.core == 'true'
+        run: cargo test -p everygraph-format --target i686-unknown-linux-gnu --locked
 
   # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
   # scipy, the in-process references, the toy kernel, the seeded bugs and the golden files
@@ -317,6 +335,14 @@ jobs:
         run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked
       - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
         run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
+      # The adjacency codec: the scalar decoder, then the SSSE3 one (the only SIMD path
+      # Miri interprets on this runner; compiled in so that run-time detection finds it).
+      - name: Miri, adjacency codec (scalar)
+        run: cargo "+$NIGHTLY" miri test -p everygraph-format --locked
+      - name: Miri, adjacency codec (SSSE3)
+        env:
+          RUSTFLAGS: -C target-feature=+ssse3
+        run: cargo "+$NIGHTLY" miri test -p everygraph-format --locked --test adjacency
       - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
         if: ${{ !cancelled() }}
         run: python3 tools/check_tsan.py

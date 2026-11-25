@@ -238,6 +238,11 @@ dependencies = [
 [[package]]
 name = "everygraph-format"
 version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-oracle",
+ "proptest",
+]
 
 [[package]]
 name = "everygraph-ingest"
