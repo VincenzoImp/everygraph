@@ -1,0 +1,51 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "email-Eu-core",
+ "source": {
+  "kind": "download",
+  "file": "email-Eu-core.txt.gz",
+  "url": "https://snap.stanford.edu/data/email-Eu-core.txt.gz",
+  "sha256_of_download": "4b47acdb80197b085fe63c819c357ae488131ee904ed93d1b219a68b0f9e245f",
+  "sha256_of_file": "4b47acdb80197b085fe63c819c357ae488131ee904ed93d1b219a68b0f9e245f",
+  "page": "https://snap.stanford.edu/data/email-Eu-core.html",
+  "terms": "SNAP datasets, Stanford Network Analysis Project (https://snap.stanford.edu/data/); cite Leskovec and Krevl, SNAP Datasets, 2014."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": true,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "networkx, igraph, scipy",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":1005,"by":["edge list"],"published":{"value":1005,"source":"https://snap.stanford.edu/data/email-Eu-core.html"}},
+  "rows": {"value":25571,"by":["edge list"]},
+  "self_loop_rows": {"value":642,"by":["edge list"]},
+  "duplicate_rows": {"value":0,"by":["edge list"]},
+  "m": {"value":24929,"by":["igraph","networkx","scipy"],"published":{"value":25571,"source":"https://snap.stanford.edu/data/email-Eu-core.html"}},
+  "max_degree": {"value":345,"by":["scipy"]},
+  "wcc_count": {"value":20,"by":["igraph","networkx","scipy"]},
+  "largest_wcc": {"value":986,"by":["igraph","networkx","scipy"],"published":{"value":986,"source":"https://snap.stanford.edu/data/email-Eu-core.html"}},
+  "scc_count": {"value":203,"by":["igraph","networkx","scipy"]},
+  "largest_scc": {"value":803,"by":["igraph","networkx","scipy"],"published":{"value":803,"source":"https://snap.stanford.edu/data/email-Eu-core.html"}},
+  "triangle_total": {"value":105461,"by":["igraph","networkx","scipy"],"published":{"value":105461,"source":"https://snap.stanford.edu/data/email-Eu-core.html"}},
+  "triangles_sha256": {"value":"ca7f8cf34943f1079b3fa901cdf41a55b7f55adaae69633ba2d2f115ab92a743","by":["igraph","networkx","scipy"]},
+  "core_numbers_sha256": {"value":"eb36786e1e9a625eef5a1d1bf7cb3cabc6a69237e03199869c4b3a637a461d19","by":["igraph","networkx"]},
+  "max_core": {"value":34,"by":["igraph","networkx"]},
+  "core_histogram": {"value":[19,95,37,37,33,29,20,21,25,18,16,23,14,17,15,10,24,25,37,29,28,39,8,26,19,28,26,59,16,46,29,10,36,12,79],"by":["igraph","networkx"]},
+  "samples": {"value":[[0,42,27,238],[160,345,34,5549],[1004,1,1,0]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": ["m: computed 24929, published 25571; the difference is the self-loop rows, which SNAP counts as edges and Everygraph drops"]
+}

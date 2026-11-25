@@ -1,0 +1,49 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "ego-facebook",
+ "source": {
+  "kind": "registry",
+  "dataset": "ego-facebook",
+  "file": "facebook_combined.txt.gz",
+  "sha256_of_download": "125e84db872eeba443d270c70315c256b0af43a502fcfe51f50621166ad035d7",
+  "sha256_of_file": "125e84db872eeba443d270c70315c256b0af43a502fcfe51f50621166ad035d7",
+  "page": "https://snap.stanford.edu/data/ego-Facebook.html",
+  "terms": "No licence stated by SNAP. SNAP asks that the dataset be cited."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": false,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "networkx, igraph, scipy",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":4039,"by":["edge list"]},
+  "rows": {"value":88234,"by":["edge list"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":0,"by":["edge list"]},
+  "m": {"value":88234,"by":["igraph","networkx","scipy"]},
+  "max_degree": {"value":1045,"by":["scipy"]},
+  "wcc_count": {"value":1,"by":["igraph","networkx","scipy"]},
+  "largest_wcc": {"value":4039,"by":["igraph","networkx","scipy"],"published":{"value":4039,"source":"https://snap.stanford.edu/data/ego-Facebook.html"}},
+  "triangle_total": {"value":1612010,"by":["igraph","networkx","scipy"],"published":{"value":1612010,"source":"https://snap.stanford.edu/data/ego-Facebook.html"}},
+  "triangles_sha256": {"value":"87a466bfb94f17089b2098ef2050b6ca8b840d0c8abdd7f89e935bea74f5a812","by":["igraph","networkx","scipy"]},
+  "core_numbers_sha256": {"value":"4215eb6cbcd40b5be43aac4715ff84d97fb760f47f915e690bb6ebf27c2a2f5c","by":["igraph","networkx"]},
+  "max_core": {"value":115,"by":["igraph","networkx"]},
+  "core_histogram": {"value":[0,75,108,102,120,134,118,152,117,126,83,105,132,148,141,147,170,62,68,77,56,207,134,77,14,14,59,27,19,23,32,70,16,79,15,81,18,126,30,6,7,9,3,85,4,3,9,2,6,7,11,4,2,2,11,7,3,2,6,5,2,13,4,8,7,11,18,13,7,10,265,0,1,1,0,1,0,0,0,0,0,0,1,2,0,1,0,1,3,0,0,2,1,2,0,1,1,1,1,0,0,0,4,0,0,1,2,1,1,2,0,4,3,2,7,158],"by":["igraph","networkx"]},
+  "samples": {"value":[[0,347,21,2519],[107,1045,70,26750],[4038,9,5,20]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": []
+}

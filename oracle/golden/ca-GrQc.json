@@ -1,0 +1,49 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "ca-GrQc",
+ "source": {
+  "kind": "download",
+  "file": "ca-GrQc.txt.gz",
+  "url": "https://snap.stanford.edu/data/ca-GrQc.txt.gz",
+  "sha256_of_download": "a254442cdf5d684712578b630c2e0d7543518ab154ef2341cabb607572ce7230",
+  "sha256_of_file": "a254442cdf5d684712578b630c2e0d7543518ab154ef2341cabb607572ce7230",
+  "page": "https://snap.stanford.edu/data/ca-GrQc.html",
+  "terms": "SNAP datasets, Stanford Network Analysis Project (https://snap.stanford.edu/data/); cite Leskovec and Krevl, SNAP Datasets, 2014."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": false,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "networkx, igraph, scipy",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":5242,"by":["edge list"],"published":{"value":5242,"source":"https://snap.stanford.edu/data/ca-GrQc.html"}},
+  "rows": {"value":28980,"by":["edge list"]},
+  "self_loop_rows": {"value":12,"by":["edge list"]},
+  "duplicate_rows": {"value":14484,"by":["edge list"]},
+  "m": {"value":14484,"by":["igraph","networkx","scipy"],"published":{"value":14496,"source":"https://snap.stanford.edu/data/ca-GrQc.html"}},
+  "max_degree": {"value":81,"by":["scipy"]},
+  "wcc_count": {"value":355,"by":["igraph","networkx","scipy"]},
+  "largest_wcc": {"value":4158,"by":["igraph","networkx","scipy"],"published":{"value":4158,"source":"https://snap.stanford.edu/data/ca-GrQc.html"}},
+  "triangle_total": {"value":48260,"by":["igraph","networkx","scipy"],"published":{"value":48260,"source":"https://snap.stanford.edu/data/ca-GrQc.html"}},
+  "triangles_sha256": {"value":"c3a407ca4c903a7a583dd47d17a060aaf745c6f05e6fab2e52f03392a9d733da","by":["igraph","networkx","scipy"]},
+  "core_numbers_sha256": {"value":"2ec0c2568828e4188596dab04d9186c15750abbae4a40553b41c9de117708604","by":["igraph","networkx"]},
+  "max_core": {"value":43,"by":["igraph","networkx"]},
+  "core_histogram": {"value":[1,1321,1307,1028,668,349,113,50,45,39,5,38,5,14,15,16,0,35,0,2,21,22,0,24,0,1,0,0,0,0,0,8,0,34,35,0,0,0,0,0,0,0,2,44],"by":["igraph","networkx"]},
+  "samples": {"value":[[0,3,1,0],[4233,81,43,1179],[5241,7,6,18]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": ["m: computed 14484, published 14496; the difference is the self-loop rows, which SNAP counts as edges and Everygraph drops"]
+}

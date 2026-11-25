@@ -1,0 +1,51 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "p2p-Gnutella08",
+ "source": {
+  "kind": "download",
+  "file": "p2p-Gnutella08.txt.gz",
+  "url": "https://snap.stanford.edu/data/p2p-Gnutella08.txt.gz",
+  "sha256_of_download": "cb3019062be21e55b03f19a73e88edf34693bafb68ae581621cc7a037fa604a9",
+  "sha256_of_file": "cb3019062be21e55b03f19a73e88edf34693bafb68ae581621cc7a037fa604a9",
+  "page": "https://snap.stanford.edu/data/p2p-Gnutella08.html",
+  "terms": "SNAP datasets, Stanford Network Analysis Project (https://snap.stanford.edu/data/); cite Leskovec and Krevl, SNAP Datasets, 2014."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": true,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "networkx, igraph, scipy",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":6301,"by":["edge list"],"published":{"value":6301,"source":"https://snap.stanford.edu/data/p2p-Gnutella08.html"}},
+  "rows": {"value":20777,"by":["edge list"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":0,"by":["edge list"]},
+  "m": {"value":20777,"by":["igraph","networkx","scipy"],"published":{"value":20777,"source":"https://snap.stanford.edu/data/p2p-Gnutella08.html"}},
+  "max_degree": {"value":97,"by":["scipy"]},
+  "wcc_count": {"value":2,"by":["igraph","networkx","scipy"]},
+  "largest_wcc": {"value":6299,"by":["igraph","networkx","scipy"],"published":{"value":6299,"source":"https://snap.stanford.edu/data/p2p-Gnutella08.html"}},
+  "scc_count": {"value":4234,"by":["igraph","networkx","scipy"]},
+  "largest_scc": {"value":2068,"by":["igraph","networkx","scipy"],"published":{"value":2068,"source":"https://snap.stanford.edu/data/p2p-Gnutella08.html"}},
+  "triangle_total": {"value":2383,"by":["igraph","networkx","scipy"],"published":{"value":2383,"source":"https://snap.stanford.edu/data/p2p-Gnutella08.html"}},
+  "triangles_sha256": {"value":"f69144f40498e79e81f8a5f79ed96fc4be5e0423b5bc4b48a6a677d83c7b6f06","by":["igraph","networkx","scipy"]},
+  "core_numbers_sha256": {"value":"c6e21e53383042b040a04ac12837638bba8954f27261ac73c9982afa8793b008","by":["igraph","networkx"]},
+  "max_core": {"value":10,"by":["igraph","networkx"]},
+  "core_histogram": {"value":[0,1766,894,590,510,2090,13,40,26,104,268],"by":["igraph","networkx"]},
+  "samples": {"value":[[0,10,7,0],[123,97,10,185],[6300,1,1,0]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": []
+}

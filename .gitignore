@@ -4,6 +4,8 @@
 target/
 **/target-*/
 .venv*/
+# Downloads of the correctness oracle (golden-file sources), see oracle/README.md.
+oracle/.cache/
 node_modules/
 __pycache__/
 *.pyc

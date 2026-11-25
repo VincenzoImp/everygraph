@@ -1,0 +1,563 @@
+{
+ "format": "everygraph-oracle-semantics-probe",
+ "version": 1,
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0"
+ },
+ "rounding": "reals rounded to 6 decimals",
+ "cases": [
+  {
+   "id": "loop-degree",
+   "question": "degree of a node with a self-loop",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": [
+    4,
+    2,
+    2
+   ],
+   "igraph": [
+    4,
+    2,
+    2
+   ],
+   "everygraph": [
+    4,
+    2,
+    2
+   ],
+   "agree": true
+  },
+  {
+   "id": "loop-degree-dropped",
+   "question": "degree with the default semantics (loops dropped)",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": "n/a (no drop option)",
+   "igraph": "n/a (no drop option)",
+   "everygraph": [
+    2,
+    2,
+    2
+   ],
+   "agree": true
+  },
+  {
+   "id": "loop-core",
+   "question": "core numbers with a self-loop",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": "refuses: NetworkXNotImplemented: Input graph has self loops which is not permitted; Consider using G.re",
+   "igraph": [
+    2,
+    2,
+    2
+   ],
+   "everygraph": [
+    2,
+    2,
+    2
+   ],
+   "agree": false
+  },
+  {
+   "id": "loop-pagerank",
+   "question": "PageRank with a self-loop",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": [
+    0.416058,
+    0.291971,
+    0.291971
+   ],
+   "igraph": [
+    0.475,
+    0.2625,
+    0.2625
+   ],
+   "everygraph": [
+    0.333333,
+    0.333333,
+    0.333333
+   ],
+   "agree": false
+  },
+  {
+   "id": "loop-pagerank-directed",
+   "question": "PageRank with a self-loop, directed",
+   "graph": "3-cycle + loop at 0, directed",
+   "networkx": [
+    0.480056,
+    0.254024,
+    0.26592
+   ],
+   "igraph": [
+    0.480056,
+    0.254024,
+    0.26592
+   ],
+   "everygraph": [
+    0.333333,
+    0.333333,
+    0.333333
+   ],
+   "agree": true
+  },
+  {
+   "id": "loop-triangles",
+   "question": "triangles with a self-loop",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": [
+    1,
+    1,
+    1
+   ],
+   "igraph": [
+    1,
+    1,
+    1
+   ],
+   "everygraph": [
+    1,
+    1,
+    1
+   ],
+   "agree": true
+  },
+  {
+   "id": "loop-clustering",
+   "question": "clustering with a self-loop",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "igraph": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "everygraph": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "agree": true
+  },
+  {
+   "id": "loop-modularity",
+   "question": "modularity with a self-loop, partition {0,1} {2}",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": -0.125,
+   "igraph": -0.125,
+   "everygraph": -0.222222,
+   "agree": true
+  },
+  {
+   "id": "multi-degree",
+   "question": "degree with a repeated pair",
+   "graph": "triangle + pendant 3, pair 0-1 twice, undirected",
+   "networkx": [
+    3,
+    3,
+    3,
+    1
+   ],
+   "igraph": [
+    3,
+    3,
+    3,
+    1
+   ],
+   "everygraph": [
+    2,
+    2,
+    3,
+    1
+   ],
+   "agree": true
+  },
+  {
+   "id": "multi-core",
+   "question": "core numbers with a repeated pair",
+   "graph": "same",
+   "networkx": "refuses: NetworkXNotImplemented: not implemented for multigraph type",
+   "igraph": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "everygraph": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "agree": false
+  },
+  {
+   "id": "multi-triangles",
+   "question": "triangles with a repeated pair",
+   "graph": "same",
+   "networkx": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "igraph": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "everygraph": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "agree": true
+  },
+  {
+   "id": "multi-clustering",
+   "question": "clustering with a repeated pair",
+   "graph": "same",
+   "networkx": "refuses: NetworkXNotImplemented: not implemented for multigraph type",
+   "igraph": [
+    1.0,
+    1.0,
+    0.333333,
+    0.0
+   ],
+   "everygraph": [
+    1.0,
+    1.0,
+    0.333333,
+    0.0
+   ],
+   "agree": false
+  },
+  {
+   "id": "multi-transitivity",
+   "question": "transitivity with a repeated pair",
+   "graph": "same",
+   "networkx": "refuses: NetworkXNotImplemented: not implemented for multigraph type",
+   "igraph": 0.6,
+   "everygraph": 0.6,
+   "agree": false
+  },
+  {
+   "id": "multi-pagerank",
+   "question": "PageRank with a repeated pair",
+   "graph": "same",
+   "networkx": [
+    0.28575,
+    0.28575,
+    0.304676,
+    0.123825
+   ],
+   "igraph": [
+    0.28575,
+    0.28575,
+    0.304676,
+    0.123825
+   ],
+   "everygraph": [
+    0.245928,
+    0.245928,
+    0.366736,
+    0.141408
+   ],
+   "agree": true
+  },
+  {
+   "id": "multi-pagerank-weighted",
+   "question": "PageRank weighted by multiplicity",
+   "graph": "same",
+   "networkx": [
+    0.28575,
+    0.28575,
+    0.304676,
+    0.123825
+   ],
+   "igraph": [
+    0.28575,
+    0.28575,
+    0.304676,
+    0.123825
+   ],
+   "everygraph": [
+    0.28575,
+    0.28575,
+    0.304676,
+    0.123825
+   ],
+   "agree": true
+  },
+  {
+   "id": "multi-modularity",
+   "question": "modularity with a repeated pair, partition {0,1} {2,3}",
+   "graph": "same",
+   "networkx": 0.08,
+   "igraph": 0.08,
+   "everygraph": 0.0,
+   "agree": true
+  },
+  {
+   "id": "multi-sssp",
+   "question": "weighted distance from 0 with parallel weights 5 and 1 on 0-1",
+   "graph": "same, weights 5,1,1,1,1",
+   "networkx": [
+    0,
+    1.0,
+    1.0,
+    2.0
+   ],
+   "igraph": [
+    0.0,
+    1.0,
+    1.0,
+    2.0
+   ],
+   "everygraph": [
+    0.0,
+    1.0,
+    1.0,
+    2.0
+   ],
+   "agree": true
+  },
+  {
+   "id": "dir-degree",
+   "question": "degree of a directed graph",
+   "graph": "3-cycle 0-1-2 + arc 0->2 + arc 3->0",
+   "networkx": [
+    4,
+    2,
+    3,
+    1
+   ],
+   "igraph": [
+    4,
+    2,
+    3,
+    1
+   ],
+   "everygraph": [
+    3,
+    2,
+    2,
+    1
+   ],
+   "agree": true
+  },
+  {
+   "id": "dir-core",
+   "question": "core numbers of a directed graph",
+   "graph": "same",
+   "networkx": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "igraph": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "everygraph": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "agree": true
+  },
+  {
+   "id": "dir-core-reciprocal",
+   "question": "core numbers of a directed graph with reciprocal arcs",
+   "graph": "0->1 and 1->0 only",
+   "networkx": [
+    2,
+    2
+   ],
+   "igraph": [
+    2,
+    2
+   ],
+   "everygraph": [
+    1,
+    1
+   ],
+   "agree": true
+  },
+  {
+   "id": "dir-triangles",
+   "question": "triangles of a directed graph",
+   "graph": "same",
+   "networkx": "refuses: NetworkXNotImplemented: not implemented for directed type",
+   "igraph": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "everygraph": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "agree": false
+  },
+  {
+   "id": "dir-clustering",
+   "question": "clustering of a directed graph",
+   "graph": "same",
+   "networkx": [
+    0.2,
+    1.0,
+    0.5,
+    0
+   ],
+   "igraph": [
+    0.333333,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "everygraph": [
+    0.333333,
+    1.0,
+    1.0,
+    0.0
+   ],
+   "agree": false
+  },
+  {
+   "id": "dir-transitivity",
+   "question": "transitivity of a directed graph",
+   "graph": "same",
+   "networkx": 0.5,
+   "igraph": 0.6,
+   "everygraph": 0.6,
+   "agree": false
+  },
+  {
+   "id": "dir-modularity",
+   "question": "modularity of a directed graph, partition {0,1,2} {3,4,5}",
+   "graph": "two directed 3-cycles joined by 0->3",
+   "networkx": 0.367347,
+   "igraph": 0.367347,
+   "everygraph": 0.357143,
+   "agree": true
+  },
+  {
+   "id": "dir-bfs",
+   "question": "BFS distances from 2 on 0->1->2",
+   "graph": "directed path",
+   "networkx": [
+    null,
+    null,
+    0
+   ],
+   "igraph": [
+    null,
+    null,
+    0
+   ],
+   "everygraph": [
+    null,
+    null,
+    0
+   ],
+   "agree": true
+  },
+  {
+   "id": "dir-pagerank-dangling",
+   "question": "PageRank with dangling nodes",
+   "graph": "0->1->2, node 3 isolated",
+   "networkx": [
+    0.155703,
+    0.28805,
+    0.400545,
+    0.155703
+   ],
+   "igraph": [
+    0.155703,
+    0.28805,
+    0.400545,
+    0.155703
+   ],
+   "everygraph": [
+    0.155703,
+    0.28805,
+    0.400545,
+    0.155703
+   ],
+   "agree": true
+  },
+  {
+   "id": "lowdeg-clustering",
+   "question": "clustering where degree < 2",
+   "graph": "one edge + isolate",
+   "networkx": [
+    0,
+    0,
+    0
+   ],
+   "igraph": [
+    "NaN",
+    "NaN",
+    "NaN"
+   ],
+   "everygraph": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "agree": false
+  },
+  {
+   "id": "notriple-transitivity",
+   "question": "transitivity without any connected triple",
+   "graph": "one edge + isolate",
+   "networkx": 0,
+   "igraph": "NaN",
+   "everygraph": 0.0,
+   "agree": false
+  },
+  {
+   "id": "noedge-modularity",
+   "question": "modularity of a graph without edges",
+   "graph": "two isolated nodes, partition {0} {1}",
+   "networkx": 0,
+   "igraph": "NaN",
+   "everygraph": 0.0,
+   "agree": false
+  },
+  {
+   "id": "empty-pagerank",
+   "question": "PageRank of the empty graph",
+   "graph": "no nodes",
+   "networkx": [],
+   "igraph": [],
+   "everygraph": [],
+   "agree": true
+  },
+  {
+   "id": "pagerank-convergence",
+   "question": "how far NetworkX's default stopping rule (L1 change < n * 1e-6) is from the fixed point",
+   "graph": "random directed graph, n = 3000, about 9000 arcs, seed 7",
+   "networkx": {
+    "default_tol_max_abs_error_vs_prpack": 8e-06,
+    "tol_1e-15_max_abs_error_vs_prpack_below_1e-13": true
+   },
+   "igraph": "PRPACK solves the linear system directly",
+   "everygraph": "the oracle compares against the fixed point; tolerance in oracle/tolerances.json",
+   "agree": false
+  }
+ ]
+}
