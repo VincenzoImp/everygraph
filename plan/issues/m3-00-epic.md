@@ -16,4 +16,4 @@ Tracking issue for milestone M3.
 - [ ] Kernels: {{#m3-04-pagerank}}, {{#m3-05-components}}, {{#m3-06-traversal}}, {{#m3-07-kcore-degrees}}, {{#m3-08-triangles}}; optional {{#m3-09-centrality}}
 - [ ] Guarantees enforced in CI: {{#m3-10-no-oom-ci}}, {{#m3-11-determinism-ci}}
 - [ ] Performance tracked against references ({{#m3-12-perf-tracking}})
-- [ ] Friendster PageRank under a 2 GB limit within 1.35× of in-RAM; every kernel ≥ NetworKit speed at equal threads on orkut
+- [ ] Friendster PageRank under a 2 GB limit within 1.35× of in-RAM; every kernel the GAP Benchmark Suite implements (BFS, SSSP, PageRank, components, triangles) at least as fast as the GAP reference on this machine, at equal threads, on orkut and Friendster; every kernel reported against GBBS (WCC also against ConnectIt, k-core against Liu et al.); the reference runs are {{#m3-12-perf-tracking}}'s. Changed 2026-11-25 from "≥ NetworKit speed": NetworKit is not the best known for these kernels, and every cross-paper ratio in `docs/research/sota-kernels.md` is from 2–4-socket machines (challenge 2)

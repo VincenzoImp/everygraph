@@ -10,7 +10,10 @@ labels: type:experiment, area:community, P1, risk:medium, size:M, lab-evidence
 - [ ] Separate the two changes: block order on relabelled ids; storage order on relabelled ids; block order on original ids; id order on original ids
 - [ ] Leiden async and deterministic (the default, ADR 0014) at 1 and 3 iterations, in RAM and at 16, 8 and 4 GiB; Q, communities, time per phase, bytes read
 - [ ] The cost for the other kernels on relabelled graphs: compressed size (bits per entry, already lj +26%, orkut +16%, Friendster +5%, from the stores' `meta.json`), PageRank, WCC, BFS, k-core, point queries, in RAM and out of core
-- [ ] The alternative of a Leiden-only relabelled working copy (built when Leiden needs it), against relabelling the stored graph
+- [ ] The alternative of a Leiden-only relabelled working copy (built when Leiden needs it), against relabelling the stored graph. Preferred before measurement (2026-11-25, `docs/research/sota-storage.md` § 3 m1-14, challenge 5). A random relabelling is the literature's worst case for compression and locality: +4% (Flickr) to +64% (LiveJournal) BV bits on social graphs against the natural order, and 10× on URL-ordered web graphs (LLP Table 6, their data); up to 28.5% application slowdown (DBG paper). Ours: +26% bits on lj, +16% orkut, +5% Friendster
+- [ ] A fifth arm, a **seeded locality order**: BP order (seeded, {{#m1-09-hierarchy-order}}) with Leiden visiting in storage order, at 16, 8 and 4 GiB on Friendster and orkut. It measures the opposite of the decorrelation this issue found useful, so whether Leiden keeps its quality and its out-of-core speed is the question
+
+**Constraint (2026-11-25, `design/DECISIONS.md`, "Label propagation follows LDBC CDLP").** Whatever is chosen must keep id-dependent semantics on the original ids: CDLP labels and ties, min-label component outputs, BFS from a given source. Otherwise validation against LDBC Graphalytics fails ({{#m1-20-ldbc-graphalytics}}).
 
 **Decision it feeds.** A new ADR: relabel always at ingest, relabel only a working copy for community detection, or keep ADR 0015's order. Whatever is chosen, the visiting order stays a fixed function of the graph and the seed, never of the budget (`design/DECISIONS.md`, "What 'repeatable' promises").
 

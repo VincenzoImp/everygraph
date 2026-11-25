@@ -18,6 +18,8 @@ labels: type:feature, area:python, P2, risk:medium, size:L, lab-evidence
 - On a natively loaded lj: PageRank ≥ 25× and components ≥ 20× faster than NetworkX, loading excluded; with loading included, report the ratio (lab: 9.0× and 5.9×)
 - No claim of "N× faster NetworkX" without the conversion caveat next to it
 
+**Timing under review (2026-11-25).** Since NetworkX 3.5/3.6, dispatchable readers and constructors can return a backend graph, which may remove the conversion for scripts that load through them. That is the case ADR 0020 named as a reason to change its mind. {{#m1-19-networkx-dispatch}} measures it; if it fires, this issue's milestone is re-decided by ADR (`docs/research/sota-ingest-query.md` C3).
+
 **Estimate from the lab.** 2–3 engineer-months for ~60 functions; ongoing cost tracking NetworkX releases.
 
 **Depends on** {{#m6-01-python-api}}

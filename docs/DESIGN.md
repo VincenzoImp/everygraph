@@ -2,7 +2,8 @@
 
 Status: design baseline, 2026-11-24; D4 amended 2026-11-25 (ADR 0004, #118); promise 1
 restated 2026-11-25 with the harness's ingest measurements (ADR 0026); § 5 and § 6 annotated
-2026-11-25 with the tracer bullet (#15). Every decision below cites the measurement that
+2026-11-25 with the tracer bullet (#15); prior art in § 2 and two § 6 targets restated
+2026-11-25 from the literature review (`docs/research/README.md`). Every decision below cites the measurement that
 supports it (see [FINDINGS.md](FINDINGS.md)); decisions without a measurement are marked
 **unvalidated**. Numbers are from one workstation (Ryzen 9 7950X, 61 GB RAM, NVMe).
 
@@ -65,6 +66,36 @@ querying; NetworKit and GVE own in-RAM kernels. Everygraph wins on the combinati
 four things nobody else offers together: graphs above 10^8 edges on a workstation or
 laptop, a hierarchical map down to single nodes, a hard memory budget, and reproducible
 results. It does not try to beat Gephi at styling 10^4 nodes or Neo4j at Cypher.
+
+Most of the parts are prior art (checked 2026-11-25, `docs/research/README.md` A1):
+
+- a hierarchical map served as data tiles: Uncharted / Aperture Tiles, Langevin et al. 2015;
+- a fan-out cap of 64: ASK-GraphView 2006;
+- compressed adjacency faster than raw in parallel: Ligra+ 2015;
+- recursive sub-clustering of oversized communities: ASK-GraphView, hierarchical Infomap,
+  graspologic;
+- Elias–Fano offsets: webgraph-rs;
+- seeded relabelling of the node order: DSLM 2018;
+- planning and refusing before a run: Neo4j GDS memory estimation.
+
+What we can claim, because no work we read does it:
+
+- identical results across thread count, memory budget, execution regime and view
+  representation;
+- a deterministic, budgeted text → CSR build;
+- a map of a 1.8 B-edge graph on one machine, under a budget, byte-identical, with declared
+  omissions (the aim; not yet demonstrated end to end, § 5 item 1);
+- one seeded permutation for storage, layout and visiting order. The ordering itself is
+  not new (Rabbit Order, LLP); reusing the product's own hierarchy for all three is.
+
+Two more claims hold only in part:
+
+- the planner's raw decode-cache tier with its break-even rule (probably new as a planner
+  policy; the reasoning is standard);
+- a planned, typed refusal before work starts. Neo4j GDS also refuses before a run;
+  DuckDB and Velox fail mid-run.
+
+The map's super-level rule is our heuristic; no prior art was found for it.
 
 ## 3. Architecture
 
@@ -208,11 +239,24 @@ These are the reasons the first milestone after foundations is a second lab roun
 | 1 M-edge CSV → first map, laptop | < 10 s |
 | Friendster ingest, 8 GB budget | < 60 s |
 | Friendster PageRank under a 2 GB limit | within 1.35× of in-RAM |
-| Friendster communities under a 16 GiB limit | modularity ≥ 0.60, no OOM |
+| Friendster communities under a 16 GiB limit | no OOM; quality mode (3 iterations) within 1% of the modularity of the better of NetworKit PLM and GVE-Leiden, both run on this machine on the same graph with the same preprocessing; the fast mode's gap to that reference stated (restated 2026-11-25, see below) |
 | Same graph at 4 and 32 threads | identical partition, layout and map file |
-| Leiden quality (3 iterations) | within 1% of the best reference on 6 graph families |
+| Leiden quality (3 iterations) | within 1% of the best reference on 6 graph families; the reference is named per graph and run on this machine (lj: igraph Leiden, 0.7695 in one run, FINDINGS § A) |
 | Map of a 1 B-edge graph from a static URL | first view < 250 KB; 60 fps on a discrete GPU, usable on integrated |
 | Any budgeted run | never OOM-killed |
+
+*Two targets restated 2026-11-25 after the literature review (`docs/research/README.md`, A2 and
+A3; `docs/research/sota-communities.md` § 3).* The Friendster target was "modularity ≥ 0.60".
+That is not a quality claim. The DSLM paper (Hamann et al. 2018, mean of 10 seeds, their
+2 × 14-core hosts) reports sequential Louvain 0.622 and NetworKit PLM 0.627 on Friendster.
+The communities review gives Grappolo 0.626. Our one-iteration results are 0.6038–0.6055
+(FINDINGS § M1-01, § M1-02). Three iterations have never been run on Friendster; #57 must
+measure them, together with the same-machine references.
+
+The lj reference for the 1% gate is igraph's 0.7695 (one run of two iterations on this
+machine). Traag et al.'s 0.7739 is the best of 10 replications × 10 iterations on their
+machine, so it is not like for like. Against it, our three-iteration 0.7647 is 1.2% below.
+The paragraphs below were written against the earlier wording.
 
 Measured against two of these targets on the default compressed storage (#118, 2026-11-25,
 idle machine, FINDINGS § M1-13) and, for the ingest, with the benchmark harness (#4,

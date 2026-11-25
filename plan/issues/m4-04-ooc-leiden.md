@@ -28,7 +28,7 @@ labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
 - [ ] Kept self-loops of the input go on the quotient graph's diagonal (`docs/spec/graph-semantics.md` § 5.6); the lab's sequential aggregation treats a self-loop in its input as an invariant violation (its inputs never had one) — the production aggregation must accept them and count them as the spec says, with a test against the oracle (#147)
 
 **Acceptance**
-- Friendster under `MemoryMax=16G`: completes, Q ≥ 0.60, 0 disconnected, ≤ 2.5× the in-RAM time
+- Friendster under `MemoryMax=16G`: completes, Q ≥ 0.60, 0 disconnected, ≤ 2.5× the in-RAM time. Q ≥ 0.60 is a floor for one iteration, not the quality target: DESIGN § 6 (restated 2026-11-25) asks the quality mode under 16 GiB to come within 1% of the better of NetworKit PLM and GVE-Leiden run on this machine, measured by {{#m4-01-leiden-production}}
 - The same with the map hierarchy output on (fan-out-bounded levels for {{#m4-07-map-hierarchy}}): completes under `MemoryMax=16G`, with bytes read reported (the tracer's map-shaped runs were killed in pass-0 aggregation after 1.80–2.74 TB of reads, `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 9, 11–12)
 - orkut with a limit of 50% of its edge array: ≤ 3× the in-RAM time (lab: 5.6× at 100%, OOM below)
 - Deterministic mode works out of core with the same hash as in RAM
