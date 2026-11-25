@@ -4,33 +4,20 @@
 # Each step is a command of CONTRIBUTING.md ("Checks" and "CI"), so that anything that
 # fails here can be reproduced locally with the same command.
 #
-# Where: every job runs on the project's self-hosted runner (label `everygraph-lab`, the
-# lab machine), so this workflow uses none of the account's GitHub-hosted minutes. What
-# that machine cannot do (other platforms, the native i686 tests, which need
-# gcc-multilib and sudo) is in other-platforms.yml, monthly. Until a runner with the
-# label is online, runs queue.
-#
-# On a persistent machine shared with development and measurements:
-# - the target directory persists between runs (no cache upload/download): checkout does
-#   not clean, a step removes everything untracked except `target/` directories, and
-#   the lint job runs `cargo clean` when the target directory passes 40 GB;
-# - everything that runs tests or loads data runs under a hard memory limit
-#   (.github/scripts/limited.sh: a systemd user scope with MemoryMax and no swap, stopped
-#   afterwards by its unit name, so that no process outlives its step);
-# - toolchains are installed with rustup in the runner user's home, and chosen per step
-#   (RUSTUP_TOOLCHAIN, `+toolchain`), never by changing that user's default;
-# - nothing listens on a non-loopback address (the test servers bind 127.0.0.1).
-#
-# Load on that machine, so:
+# Cost: while the repository is private, Actions minutes are counted, each job rounded
+# up to a whole minute; once it is public, standard runners are free but the queue is
+# still shared by every agent's pull request. So:
+# - Linux x86_64 only here (macOS, Windows and Linux aarch64 are in other-platforms.yml);
 # - on a pull request, `lint` and `test` always run, and the expensive jobs only when
-#   the pull request changed what they check: the `lint` job's
-#   .github/scripts/ci_changes.py decides from `git diff` of the merge commit and
+#   the pull request changed what they check: the `lint` job's first step,
+#   .github/scripts/ci_changes.py, decides from `git diff` of the merge commit and
 #   exposes the flags. The label `full-ci` runs everything;
-# - every push to main runs everything, and so does the nightly run unless main's last
+# - every push to main runs everything, and so does a nightly run unless main's last
 #   commit already passed a full run (then only `lint`, for new advisories and a new
 #   stable toolchain);
+# - small checks share a job instead of paying a job's minimum each;
 # - superseded runs of a pull request are cancelled; documentation-only changes do not
-#   start the workflow.
+#   start the workflow; the caches are written by main only, read by every branch.
 
 name: CI
 
@@ -70,15 +57,12 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   RUST_BACKTRACE: "1"
-  RUSTUP_TOOLCHAIN: stable
-  # The memory limit of every step that runs tests or loads data (CLAUDE.md § 7).
-  LIMIT: .github/scripts/limited.sh 8G
 
 jobs:
   lint:
     name: Changes, format, lint, portability rule, dependency policy, docs
     if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
-    runs-on: [self-hosted, everygraph-lab]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -94,19 +78,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          clean: false
           # The merge commit and its parents: enough for `git diff HEAD^1 HEAD`.
           fetch-depth: 2
-      - name: Clean the work tree, keep the target directories, bound their size
-        run: |
-          git clean -ffdxq -e target/
-          rm -rf target/tmp
-          size_mb="$(du -sm target 2>/dev/null | cut -f1)"
-          echo "target: ${size_mb:-0} MB"
-          if [ "${size_mb:-0}" -gt 40000 ]; then
-            echo "over 40 GB: cargo clean"
-            cargo clean
-          fi
       - name: Already checked? (nightly run only)
         if: github.event_name == 'schedule'
         env:
@@ -126,7 +99,11 @@ jobs:
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt --target i686-unknown-linux-gnu
+          rustup default stable
           rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-deny@0.20.2
@@ -146,9 +123,9 @@ jobs:
         run: cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets --locked -- -D warnings
       - name: Portability checks of the core
         run: python3 tools/check_core_portability.py
-      # The advisory database is fetched from the network on every run: a newly
-      # published advisory against a dependency fails the next run, which is the point;
-      # the nightly run hears of one without a push.
+      # The advisory database is fetched from the network on every run (the runner has
+      # it): a newly published advisory against a dependency fails the next run, which
+      # is the point; the nightly run hears of one without a push.
       - name: cargo deny
         run: cargo deny --locked check
       - name: cargo doc
@@ -158,49 +135,46 @@ jobs:
 
   # Runs even when lint failed (its flags are set by then), because test results are the
   # feedback a red pull request needs most. The portability checks live here: their work
-  # is seconds. The native i686 tests need gcc-multilib, which this host does not have:
-  # they run in other-platforms.yml; Miri covers the 32-bit usize here.
+  # is seconds, and a job of their own cost a whole billed minute every run.
   test:
-    name: Tests, wasm32 builds, wasm toy, portability canary (release build when needed)
+    name: Tests, wasm32 builds, wasm toy, portability canary (release build, i686 when needed)
     needs: lint
     if: ${{ !cancelled() && needs.lint.outputs.test == 'true' }}
-    runs-on: [self-hosted, everygraph-lab]
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          clean: false
-      - name: Clean the work tree, keep the target directories
-        run: git clean -ffdxq -e target/ && rm -rf target/tmp
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup default stable
           rustc --version
           node --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152
-      # The oracle's own tests (its seeded-bug tests take ~90 s on two cores) run when
-      # the oracle job does: the oracle crate has no workspace dependency, so only its
-      # own files can break them, and those switch the oracle flag on. Built outside the
-      # memory limit (compilation is not data), run inside it.
+      # The oracle's own tests (its seeded-bug tests take ~90 s of the two cores) run
+      # when the oracle job does: the oracle crate has no workspace dependency, so only
+      # its own files can break them, and those switch the oracle flag on.
       - name: cargo nextest (workspace)
         env:
           EXCLUDE: ${{ needs.lint.outputs.oracle != 'true' && '--exclude everygraph-oracle' || '' }}
-        run: |
-          cargo test --workspace $EXCLUDE --no-run --locked
-          $LIMIT cargo nextest run --workspace $EXCLUDE --locked
+        run: cargo nextest run --workspace $EXCLUDE --locked
       - name: Doc tests (nextest does not run them)
-        run: $LIMIT cargo test --workspace --doc --locked
+        run: cargo test --workspace --doc --locked
       - name: cargo test (core, no default features)
-        run: $LIMIT cargo test -p everygraph-core --no-default-features --locked
+        run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
         run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
       - name: wasm32 build (everygraph-wasm)
         run: cargo build -p everygraph-wasm --target wasm32-unknown-unknown --locked
       - name: Toy kernel, native and wasm32 in Node, same hash
-        run: $LIMIT python3 tools/check_wasm_toy.py
+        run: python3 tools/check_wasm_toy.py
       # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
       # fails if any probe is accepted.
       - name: Portability canary
@@ -211,41 +185,61 @@ jobs:
       - name: Release build
         if: needs.lint.outputs.msrv == 'true'
         run: cargo build --workspace --release --locked
+      # Native tests with a 32-bit usize, with and without rayon (Miri covers the same
+      # tests without rayon, slowly). Linking for i686 needs the 32-bit C runtime.
+      - name: Install the i686 target and gcc-multilib
+        if: needs.lint.outputs.core == 'true'
+        run: |
+          rustup target add i686-unknown-linux-gnu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends gcc-multilib
+      - name: cargo test (core, i686)
+        if: needs.lint.outputs.core == 'true'
+        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --locked
+      - name: cargo test (core, i686, no default features)
+        if: needs.lint.outputs.core == 'true'
+        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
 
   # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
   # scipy, the in-process references, the toy kernel, the seeded bugs and the golden files
   # that need no network. The oracle's Rust tests run in the `test` job (nextest), so the
-  # script skips them here. uv is pinned like every other tool; its cache and Python
-  # interpreters stay in the runner user's home.
+  # script skips them here. uv is pinned like every other tool; the Python interpreter
+  # and the packages are cached, written by main only.
   oracle:
     name: Correctness oracle (references, seeded bugs, golden files)
     needs: lint
     if: needs.lint.outputs.oracle == 'true'
-    runs-on: [self-hosted, everygraph-lab]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          clean: false
-      - name: Clean the work tree, keep the target directories
-        run: git clean -ffdxq -e target/ && rm -rf target/tmp
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal
+          rustup default stable
           rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: oracle
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.11.28"
-          enable-cache: false
+          enable-cache: true
+          cache-python: true
+          cache-dependency-glob: oracle/uv.lock
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
       - name: oracle/run-ci.sh
         env:
           ORACLE_SKIP_RUST_TESTS: "1"
-          # 2 workers × 2 GiB of address space each, inside the job's 8 GB: an oversized
-          # case becomes a recorded MemoryError, not an OOM kill.
+          # The runner of a private repository has 2 vCPU and 7 GB: 2 workers × 2 GiB of
+          # address space each stays below it, so an oversized case becomes a recorded
+          # MemoryError, not an OOM kill.
           ORACLE_JOBS: "2"
           ORACLE_MEMORY_GIB: "2"
-        run: $LIMIT oracle/run-ci.sh
+        run: oracle/run-ci.sh
 
   # Placeholder, not a job: the threaded browser build arrives with issue #108. It needs
   # the nightly named in tools/nightly-toolchain with rust-src, `-Z build-std=panic_abort,std`,
@@ -261,52 +255,58 @@ jobs:
     name: Minimum supported Rust (1.85)
     needs: lint
     if: needs.lint.outputs.msrv == 'true'
-    runs-on: [self-hosted, everygraph-lab]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          clean: false
-      - name: Clean the work tree, keep the target directories
-        run: git clean -ffdxq -e target/ && rm -rf target/tmp
       - name: Install Rust 1.85
         run: rustup toolchain install 1.85 --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo +1.85 test
-        run: |
-          cargo +1.85 test --workspace --no-run --locked
-          $LIMIT cargo +1.85 test --workspace --locked
+        run: cargo +1.85 test --workspace --locked
 
-  # Miri and ThreadSanitizer share the pinned nightly and one job. On a pull request
-  # only when the core, a module of CONTRIBUTING.md's `unsafe` table or the nightly
-  # tooling changed. Miri's sysroots stay in the runner user's ~/.cache/miri.
+  # Miri and ThreadSanitizer share the pinned nightly and one job (ThreadSanitizer's
+  # 30 s of work cost a second billed job of 1–2 minutes). On a pull request only when
+  # the core, a module of CONTRIBUTING.md's `unsafe` table or the nightly tooling changed.
   sanitizers:
     name: Miri (no default features, i686, rayon under Tree Borrows) and ThreadSanitizer
     needs: lint
     if: needs.lint.outputs.core == 'true'
-    runs-on: [self-hosted, everygraph-lab]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          clean: false
-      - name: Clean the work tree, keep the target directories
-        run: git clean -ffdxq -e target/ && rm -rf target/tmp
       - name: Install the pinned nightly with Miri and rust-src
         run: |
           NIGHTLY="$(cat tools/nightly-toolchain)"
           echo "NIGHTLY=$NIGHTLY" >> "$GITHUB_ENV"
           rustup toolchain install "$NIGHTLY" --profile minimal --component miri,rust-src
           cargo "+$NIGHTLY" miri --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: sanitizers
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Cache the Miri sysroots
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/miri
+          key: miri-sysroot-${{ env.NIGHTLY }}
       - name: Miri, no default features
-        run: $LIMIT cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --locked
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --locked
       - name: Miri, no default features, i686 (the 32-bit usize run)
-        run: $LIMIT cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu --locked
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu --locked
       - name: Miri, default features (rayon), Tree Borrows
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: $LIMIT cargo "+$NIGHTLY" miri test -p everygraph-core --locked
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked
       - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
         if: ${{ !cancelled() }}
-        run: $LIMIT python3 tools/check_tsan.py
+        run: python3 tools/check_tsan.py
+

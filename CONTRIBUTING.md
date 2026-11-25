@@ -41,9 +41,8 @@ i686 runs also do what `cargo check --target i686-unknown-linux-gnu` would.
 
 On a Linux x86_64 machine with the 32-bit C runtime (`gcc-multilib` on Debian and
 Ubuntu), the core's tests also run natively with a 32-bit `usize`, with and without
-rayon. CI does this monthly, on a GitHub-hosted runner (`other-platforms.yml`); without
-`gcc-multilib` the link fails (`cannot open crtn.o`), and the Miri run on i686 below,
-which CI runs on every core change, is the local substitute:
+rayon. CI does this; without `gcc-multilib` the link fails (`cannot open crtn.o`), and
+the Miri run on i686 below is the local substitute:
 
 ```sh
 cargo test -p everygraph-core --target i686-unknown-linux-gnu
@@ -83,27 +82,26 @@ own.
 
 ## CI
 
-GitHub Actions, two workflows under `.github/workflows/`. The owner does not pay for
-Actions, and the repository is private: GitHub-hosted runners draw on the account's
-3,000 included minutes a month (shared with the owner's other repositories; each job
-rounded up to a whole minute, macOS ten-fold, Windows two-fold). So Linux x86_64 CI runs
-on a **self-hosted runner on the lab machine** (label `everygraph-lab`), and GitHub's
-runners only do what that machine cannot. While no runner with the label is online,
-`ci.yml` runs wait in the queue.
+GitHub Actions, two workflows under `.github/workflows/`, on GitHub-hosted runners.
+While the repository is private, Actions minutes are counted against the account's
+monthly quota, each job rounded up to a whole minute (macOS ten-fold, Windows two-fold);
+once it is public, standard runners are free. Either way the queue is shared by every
+agent's pull request, so on a pull request the expensive jobs run only when it changed
+what they check.
 
-| Workflow | Runs on | When | Jobs (each step is a command from "Checks") |
-|---|---|---|---|
-| `ci.yml` | self-hosted, `everygraph-lab` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the two wasm32 builds, the wasm toy, the portability canary; plus the release build when a manifest changed, and the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.85 test`. **sanitizers**: the three Miri commands, then `check_tsan.py` |
-| `other-platforms.yml` | GitHub-hosted | the 3rd of each month, 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm\|i686 -f packages="-p <crate>"`) | clippy and tests of `everygraph-core`, `-io` and `-ingest`, the core without default features and its wasm32 build, on macOS arm64, Windows x86_64 and Linux aarch64; the core's tests natively on i686 (needs `gcc-multilib`, so `sudo`, which the lab machine does not give CI) |
+| Workflow | When | Jobs (each step is a command from "Checks") |
+|---|---|---|
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the two wasm32 builds, the wasm toy, the portability canary; plus the release build when a manifest changed, the core's tests natively on i686 when the core did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.85 test`. **sanitizers**: the three Miri commands, then `check_tsan.py`. All on Linux x86_64 |
+| `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 
-Which jobs a pull request runs is decided by `.github/scripts/ci_changes.py` in the
-lint job, from `git diff` of GitHub's merge commit against its base (run it locally with
-`--base main` to see what your branch would run). It saves the shared machine's CPU:
+Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
+in the lint job, from `git diff` of GitHub's merge commit against its base (run it
+locally with `--base main` to see what your branch would run):
 
 | Job | Runs on a pull request when it changes |
 |---|---|
 | lint, test | always |
-| sanitizers (Miri, ThreadSanitizer) | `crates/everygraph-core/`, a module of the `unsafe` table below, `tools/nightly-toolchain`, `tools/check_tsan.py`, `tools/canary/tsan/` |
+| sanitizers (Miri, ThreadSanitizer), and the i686 tests in test | `crates/everygraph-core/`, a module of the `unsafe` table below, `tools/nightly-toolchain`, `tools/check_tsan.py`, `tools/canary/tsan/` |
 | oracle, and the oracle crate's tests in test | `crates/everygraph-oracle/`, `oracle/`, the kernel crates (`everygraph-kernels`, `-community`, `-map`), `datasets/`, `crates/everygraph-bench/src/datasets/` |
 | msrv, and the release build in test | any `Cargo.toml` (`rust-version`, dependencies, profiles), `Cargo.lock`, a `rust-toolchain` file |
 | everything | anything under `.github/`, or the pull request has the label **`full-ci`** |
@@ -118,44 +116,19 @@ behaviour under Miri, and anything a kernel change breaks in the oracle's Python
 through a crate not listed above. The coordinator adds `full-ci` to every Tier 2 pull
 request (CLAUDE.md § 4) before merging it. The test job runs even when lint fails, so
 that a red pull request still gets its test results; the conditional jobs wait for lint
-to pass. A new push to a pull request cancels the run it replaces.
+to pass.
+
+A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
+(and `astral-sh/setup-uv`'s cache of the oracle's Python packages) are written by runs on `main` and read by every branch. Third-party actions are pinned
+to a commit, with the version in a comment; workflows get `contents: read` and nothing
+else (the lint job also reads Actions runs, for the nightly check).
 
 **Push when the branch is ready for CI, not after every commit.** Every push to an open
-pull request starts a run on the shared machine, which takes its CPU from every other
-agent and queues behind their runs, even when the next push cancels it. Run the checks
-of the crates you touched locally ("Checks"), commit as often as you like, and push once
-the branch is ready to be checked — or push to a branch without a pull request, which
-starts nothing.
-
-How `ci.yml` behaves on a persistent, shared machine:
-
-- **Hard memory limits.** Every step that runs tests or loads data runs under
-  `.github/scripts/limited.sh 8G …`: a `systemd-run --user --scope` with `MemoryMax=8G`
-  and `MemorySwapMax=0`, stopped by its exact unit name when the step ends, so that no
-  process it started outlives it (the runner also kills what a job leaves behind). Test
-  binaries are built outside the limit, then run inside it. The oracle keeps its own
-  per-worker limits inside the job's. The runner's user therefore needs a systemd user
-  session (lingering enabled); without one the steps fail instead of running unlimited.
-- **Persistent build state, bounded.** Checkout does not clean; a step removes every
-  untracked file except the `target/` directories (and `target/tmp`, the tests'
-  scratch), so builds are incremental across runs without uploading caches. The lint
-  job runs `cargo clean` when `target/` passes 40 GB. Toolchains are installed with
-  `rustup` in the runner user's home and selected per step (`RUSTUP_TOOLCHAIN=stable`,
-  `+1.85`, `+$(cat tools/nightly-toolchain)`), never by changing that user's default;
-  Miri's sysroots, `uv`'s cache and its Python interpreters stay in that home too.
-  `cargo-deny` and `cargo-nextest` are installed by `taiki-e/install-action` into the
-  user's `~/.cargo/bin`. The runner needs `python3`, `node`, `systemd-run`, `fincore`
-  and `git` on its `PATH`.
-- **No listening sockets** on anything but `127.0.0.1` (the host has a public IP; the
-  dataset tests' HTTP server binds loopback).
-- **Measurements come first.** A CI job loads the machine, and the harness's idle gate
-  refuses an official run while one is running. Before a window of official
-  measurements (CLAUDE.md § 6, "Speed"), the coordinator stops the runner service and
-  starts it again afterwards; runs queued meanwhile wait.
-
-Third-party actions are pinned to a commit, with the version in a comment; workflows
-get `contents: read` and nothing else (the lint job also reads Actions runs, for the
-nightly check).
+pull request starts a run, which costs minutes while the repository is private and
+takes a place in the queue every agent shares, even when the next push cancels it. Run
+the checks of the crates you touched locally ("Checks"), commit as often as you like,
+and push once the branch is ready to be checked — or push to a branch without a pull
+request, which starts nothing.
 
 What the three scripts at the end of "Checks" are for:
 

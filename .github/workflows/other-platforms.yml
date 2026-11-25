@@ -1,40 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# What the self-hosted lab runner of ci.yml cannot check: macOS arm64, Windows x86_64,
-# Linux aarch64, and the core's native tests with a 32-bit usize (they link against
-# gcc-multilib, which needs sudo to install). These run on GitHub-hosted runners and
-# use the account's included minutes (macOS counts ten-fold, Windows two-fold), so: once
-# a month and by hand, and only the crates whose portability matters — the core, the
-# I/O layer and ingest (everything else is above them and platform-neutral code).
+# macOS arm64, Windows x86_64 and Linux aarch64: on pull requests that touch the crates
+# whose code depends on the platform (the core, I/O, the on-disk format, ingest), weekly
+# on main, and by hand. Also the weekly security-advisory check of main (ci.yml's
+# nightly lint job checks advisories too; this one runs whatever happens to ci.yml).
+#
+# While the repository is private these minutes count (macOS ten-fold, Windows
+# two-fold); once it is public, standard runners are free.
 #
 # Run it on a branch: gh workflow run other-platforms.yml --ref <branch>
-# Cheaper while fixing one platform's failure:
-#   gh workflow run other-platforms.yml --ref <branch> -f platform=macos -f packages="-p everygraph-io"
+# One platform and one crate, while fixing one failure:
+#   gh workflow run other-platforms.yml --ref <branch> -f platform=macos -f packages="-p everygraph-bench"
 
-name: Other platforms (monthly)
+name: Other platforms
 
 on:
+  pull_request:
+    paths:
+      - "crates/everygraph-core/**"
+      - "crates/everygraph-io/**"
+      - "crates/everygraph-format/**"
+      - "crates/everygraph-ingest/**"
+      - ".github/workflows/other-platforms.yml"
   schedule:
-    # The 3rd of each month, 04:17 UTC (off the hour, when scheduled runs are less
-    # often delayed).
-    - cron: "17 4 3 * *"
+    # Mondays 04:17 UTC (off the hour, when scheduled runs are less often delayed).
+    - cron: "17 4 * * 1"
   workflow_dispatch:
     inputs:
       platform:
         description: Which platforms
         type: choice
-        options: [all, macos, windows, linux-arm, i686]
+        options: [all, macos, windows, linux-arm]
         default: all
       packages:
         description: "What to lint and test, as cargo arguments"
         type: string
-        default: -p everygraph-core -p everygraph-io -p everygraph-ingest
+        default: --workspace
 
 permissions:
   contents: read
 
 concurrency:
-  # Per platform, so that a run by hand for macOS does not cancel one for Windows.
+  # Per platform, so that a run by hand for macOS does not cancel one for Windows; a new
+  # push to a pull request cancels the run it supersedes.
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: true
 
@@ -42,14 +50,10 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   RUST_BACKTRACE: "1"
-  PACKAGES: ${{ inputs.packages || '-p everygraph-core -p everygraph-io -p everygraph-ingest' }}
 
-# No cache: a monthly run would never find one (GitHub evicts caches unused for a week),
-# and uploading one costs minutes.
 jobs:
   platforms:
     name: Build and test on ${{ matrix.os }}
-    if: inputs.platform != 'i686'
     strategy:
       fail-fast: false
       matrix:
@@ -75,37 +79,35 @@ jobs:
           rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
           rustup default stable
           rustc --version --verbose
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Clippy on each platform: it compiles code under that platform's `cfg`, which
       # the Linux lint runs never see.
-      - name: cargo clippy (${{ env.PACKAGES }})
+      - name: cargo clippy (${{ inputs.packages || '--workspace' }})
+        env:
+          PACKAGES: ${{ inputs.packages || '--workspace' }}
         run: cargo clippy $PACKAGES --all-targets --locked -- -D warnings
-      - name: cargo test (${{ env.PACKAGES }})
+      - name: cargo test (${{ inputs.packages || '--workspace' }})
+        env:
+          PACKAGES: ${{ inputs.packages || '--workspace' }}
         run: cargo test $PACKAGES --locked
       - name: cargo test (core, no default features)
         run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
         run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
 
-  # Native tests with a 32-bit usize, with and without rayon (Miri covers the same tests
-  # without rayon on every core change, in ci.yml). Linking for i686 needs the 32-bit C
-  # runtime.
-  i686:
-    name: Core tests natively on i686
-    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'i686'
+  advisories:
+    name: Security advisories (cargo deny)
+    if: github.event_name == 'schedule' || inputs.platform == 'all'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install stable Rust, the i686 target and gcc-multilib
-        run: |
-          rustup toolchain install stable --profile minimal --target i686-unknown-linux-gnu
-          rustup default stable
-          rustc --version
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends gcc-multilib
-      - name: cargo test (core, i686)
-        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --locked
-      - name: cargo test (core, i686, no default features)
-        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny check advisories
+        run: cargo deny --locked check advisories
