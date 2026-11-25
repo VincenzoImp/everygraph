@@ -99,6 +99,7 @@ A measurable condition.
 | [0025](0025-user-facing-choices.md) | User-facing choices live in `design/DECISIONS.md` | accepted | — |
 | [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #35 |
 | [0027](0027-single-file-builds.md) | A graph is one file in every state; builds in progress use the job's scratch | accepted | — |
+| [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #35, #37 |
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of
 `docs/DESIGN.md` agree, that each ADR has the required sections and a known status, that

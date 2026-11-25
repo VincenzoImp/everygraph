@@ -253,6 +253,7 @@ G. PageRank
 2. Gauss–Seidel / cross-iteration reuse: LUMOS (ATC 2019), CLIP (ATC 2017)
    - Fewer passes, but the floating-point order changes, so the results are not identical across regimes.
    - Recommendation: NO as a substitute; at most a labelled variant used in every regime.
+   - *Note 2026-11-25 (coordinator, after the first research wave; `docs/research/README.md` A9).* This "no" holds for order-sensitive kernels only: PageRank sums, Leiden, LPA. LUMOS claims synchronous semantics (see the addendum). Monotone fixpoint kernels (min-label WCC, BFS depth, SSSP distances, k-core) have a unique answer, so order-free execution and skipping inactive lists are allowed for them.
 
 3. Personalized PageRank: FORA (KDD 2017; arXiv 1908.10583), PowerPush/SpeedPPR (arXiv 2101.03652)
    - Random access.
@@ -328,6 +329,7 @@ I. Out-of-core systems, and whether their lessons hold on a compressed adjacency
 9. CLIP, LUMOS, ACGraph (SIGMOD 2026; arXiv 2511.07886)
    - They get their I/O savings from asynchronous or reordered updates, which conflicts with D14.
    - Recommendation: NO. Say openly that we give these savings up.
+   - *Note 2026-11-25 (coordinator, after the first research wave; `docs/research/README.md` A9).* Narrowed: the conflict with D14 is real only for order-sensitive kernels (PageRank sums, Leiden, LPA). For monotone fixpoint kernels (min-label WCC, BFS depth, SSSP, k-core) the output is the unique fixpoint whatever the order. Asynchronous, on-demand and pruned execution is allowed for them. LUMOS is synchronous (addendum, "One correction to the survey above").
 
 =====================================================================
 2. IDEAS FOR THE OUT-OF-CORE LEIDEN LEVEL-0 BOTTLENECK

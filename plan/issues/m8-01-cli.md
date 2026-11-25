@@ -10,7 +10,7 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 - [ ] Single static binary per platform, no runtime dependencies; also installed by the Python wheel
 - [ ] Global options: `--threads`, `--memory`, `--temp-dir`, `--deterministic/--fast`, `--seed`, `--json`
 - [ ] Preflight printed before long operations, and with `--dry-run`; no `--yes`, since nothing asks ({{#m0-12-ux-contract}} S-4)
-- [ ] Progress with ETA on TTYs; quiet structured logs otherwise; meaningful exit codes
+- [ ] Progress with ETA on TTYs; quiet structured logs otherwise; meaningful exit codes. Progress takes the piped form (nothing redrawn, no bars, one line per finished phase) also under `TERM=dumb` and with `--progress=plain`, so a screen reader is not fed redrawn bars (`docs/ux-contract.md` S-10, added 2026-11-25, `docs/research/README.md` H6)
 - [ ] Error messages that say what to do next (smallest sufficient budget, how to convert gzip, …)
 - [ ] `everygraph doctor`: hardware probe, storage bandwidth probe, cgroup limits, recommended settings
 - [ ] Shell completions; man page

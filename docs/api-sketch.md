@@ -985,6 +985,22 @@ The exact text of a refusal, as an example of the pattern, is in story 8.
 - If the graph file cannot be written (a read-only medium), results are kept for the
   session and a warning says so once (`read-only`, `docs/ux-contract.md` § 6.2).
 
+**Approximate results** (decided 2026-11-25, `design/DECISIONS.md`, "Approximate
+results"). No operation in 0.1 is approximate; when the sampled methods of #52 arrive,
+these are the names § 2.5 left open:
+
+- `.approximate` is `True`, and `meta["approximate"]` holds `method`, `seed`, `samples`,
+  the kind of guarantee, `epsilon` and `delta` or the relative standard deviation, and
+  `runs`. The same keys are recorded in the result's provenance, so a stored approximate
+  result says what it is. The footer says it too, as it does for a result cut short.
+- The precision parameters — HyperLogLog registers, ε, δ, the sample schedule — are
+  parameters of the call, and so part of the key above. They are never derived from
+  `memory` or `threads`, which stay outside the key: otherwise two budgets would return
+  different results under one key.
+- Where no bound is proven (HyperBall's harmonic and closeness centrality), the result
+  says "no proven bound" and gives only an empirical spread over `runs` when more than
+  one run was asked for.
+
 ### 2.9 Threads and processes
 
 - `Graph`, `View`, every table, `Communities`, `Path` and `Plan` are immutable once

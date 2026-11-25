@@ -10,6 +10,8 @@ labels: type:feature, area:community, P1, risk:medium, size:M, lab-evidence
 - [ ] Choose per level between hash-based aggregation (small quotient) and sort/bucket aggregation (large quotient, sequential I/O — shared with {{#m4-04-ooc-leiden}})
 - [ ] Avoid the "holey CSR" O(m) temporary by default when the budget is tight (the two-pass `--lowmem` path cut lj's peak from 1.65 to 1.00 GB)
 - [ ] Write coarse graphs in the standard adjacency format so every level is a normal graph
+- [ ] Quotient weights summed as i64 fixed point ({{#m4-02-weights-resolution}}; `docs/research/README.md` N1), so hash and bucket aggregation may combine in any order and give the same bits; the cost measured first as an interleaved A/B on Friendster level-1 aggregation, f64 against i64 fixed point, 16 threads (`docs/research/sota-numerics.md` challenge 1). The report's expectation, unmeasured: no slower, since an i64 `fetch_add` replaces an f64 CAS loop (x86 has no atomic float add)
+- [ ] No `unsafe` scatter copied from the lab's `SyncPtr`: ranged writes and the member scatter go through the safe helpers of {{#m2-28-par-scatter}}; the lab's `fetch_add` member positions give a member order that depends on the schedule and must not reach results
 
 **Acceptance**
 - Aggregation ≤ 25% of total time at 16 threads on lj and orkut

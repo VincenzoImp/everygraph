@@ -16,4 +16,5 @@ Tracking issue for milestone M6.
 - [ ] {{#m6-05-import-export}}, {{#m6-07-subgraph-bridge}}
 - The NetworkX backend ({{#m6-06-networkx-backend}}) was moved to M9 by an approved design choice
 - [ ] {{#m6-08-tutorials}}
+- [ ] {{#m6-09-api-gaps}} — names for the API gaps the literature review found, before the 0.1 freeze
 - [ ] Map in the notebook: {{#m5-10-jupyter-widget}} (needs the viewer from M5)
