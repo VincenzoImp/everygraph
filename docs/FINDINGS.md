@@ -6,7 +6,8 @@ Samsung 990 PRO NVMe, RTX 4090 unused by the pipelines). Datasets: com-LiveJourn
 (65.6M / 1.806B), twitter-2010 (41.7M / 1.468B arcs, directed).
 
 **Read this first.** Eight experiments ran concurrently on the same machine. Unless a
-number is marked *idle re-run*, it was taken under load (load average 20–40) and is
+number is marked *idle re-run* or belongs to § M1-13 (second-round experiment, idle machine,
+2026-11-25), it was taken under load (load average 20–40) and is
 pessimistic and noisy (±30% typical, more for 32-thread and cold-I/O runs). Relative
 orderings were stable. Extrapolations are marked as such. Code and raw results are in
 `~/graphlab/exp/<experiment>/`.
@@ -149,10 +150,16 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   10.8 s at 32t (whole dictionary with its key store 19.4 s), 2.61 bits/key (163 MB), forward lookup 0.56 µs, batch mapping 132 M/s unverified. Front-coded sorted
   blocks give prefix search (3 µs) at 18 B/key for URL-like keys. Ingest bottleneck is
   the first dedupe pass: 15 M keys/s (≈4 min per 3.6B endpoints, extrapolated).
-- **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50):** degree/neighbors
-  0.1–0.6 µs; common neighbors 0.4–0.8 µs; 3-hop with 10k budget 56–115 µs;
-  bidirectional BFS 0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter). p99 tails on hubs:
-  up to 15 ms (2-hop) and 113 ms (path).
+- **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50), shared machine:**
+  degree/neighbors 0.1–0.6 µs; common neighbors 0.4–0.8 µs; 3-hop with 10k budget
+  56–115 µs; bidirectional BFS 0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter). p99 tails
+  on hubs: up to 15 ms (2-hop) and 113 ms (path).
+  *Corrected 2026-11-25:* the same `f1-query` binary re-run unchanged on the idle machine
+  (§ M1-13, `lab/m1-13-compressed/results/summary.txt` § 10, files `baseline_f1_*.json`;
+  lj, orkut, twitter-2010 directed, p50) is 1.5–2.8× faster on bidirectional BFS:
+  0.15 ms (lj), 0.40 ms (orkut), 0.53 ms (twitter); neighbors 0.14–0.22 µs, degree
+  0.10–0.11 µs, common neighbors 0.27–0.54 µs, 3-hop with 10k budget 40–53 µs. The
+  shared-machine figures above are kept for the record and are not to be quoted.
 - **Cold / out-of-core:** neighbors 0.1–0.25 ms (2 I/Os; pin offsets in RAM to make it 1);
   frontier prefetch is essential (orkut 2-hop 8.7 → 0.47 ms); shortest path 25 ms p50 on
   10^8-edge graphs but 0.8 s on Friendster — needs resident topology or a landmark index.
@@ -285,8 +292,11 @@ nested resolution sweeps. Exact per-level aggregates verified independently.
 
 **Memory / out-of-core:** O(n) state is small (21–53 B/node); the dominant term for Leiden
 is the level-1 quotient graph (22–44% of input entries). Friendster: Leiden in RAM
-154.5 s, Q 0.6033, 31,960 communities, 22.6 GiB anonymous peak (does **not** fit a 16 GiB
-limit). Louvain under a hard 16 GiB limit completes in 109.6 s with 3.8 GiB anonymous, but
+154.5 s (32 threads, shared machine), Q 0.6033, 31,960 communities, 22.6 GiB anonymous peak
+(does **not** fit a 16 GiB limit). *Added 2026-11-25:* on the idle machine, one async
+iteration at 16 threads takes 82.4 s on raw arrays and 82.0 s on the compressed default
+(one repetition each, Q 0.6050 / 0.6008; § M1-13, `leiden_big.jsonl`). The two times are
+not comparable with each other as a speed-up: different thread count and machine state. Louvain under a hard 16 GiB limit completes in 109.6 s with 3.8 GiB anonymous, but
 the partition is poor (Q 0.4647, undiagnosed). Scaled-down semi-external test (orkut,
 limit ≈ edge array): 5.6× slower; below it, 51× slower or OOM. **Semi-external community
 detection is not yet a product feature:** aggregation needs a sequential sort/bucket
@@ -314,13 +324,19 @@ Heavily shared machine; 32T rows are official runs under the lock, 6T rows are n
 | uk-2005 | BVGraph w7 | 2.1 | 282 | 4,221 | 0.28 s | 768 ns |
 | uk-2005 | varint + zstd blocks (6T) | 2.4 | 688 | – | – | 44 µs |
 
-- **Social graphs barely compress** (13.5–16.7 bits/edge whatever the codec); Stream VByte
+- **Social graphs barely compress** (13.5–16.7 bits/edge whatever the codec, on orkut and
+  twitter-sym; *corrected 2026-11-25:* with the same byte codec lj takes 18.1 and Friendster
+  23.2 bits/edge, so "16–17 bits/edge on social graphs" does not hold in general — § M1-13,
+  `lab/m1-13-compressed/results/encode.jsonl`); Stream VByte
   decodes 9.1–21.9× faster than BV for ~1–2 bits more (sequential scan, 1 and 32 threads;
   5.0–5.2× on uk-2005). **Web graphs need bit-level coding or
   inter-list copying** (2.1–2.4 bits/edge); byte codecs stay ≥ 9.5.
 - At 32 threads Stream VByte scans **faster than raw** on twitter-sym (raw hits memory
   bandwidth at ~54 GB/s); PageRank on twitter is the same for raw and byte codecs
-  (random gathers dominate). On orkut raw PageRank is 2× faster.
+  (random gathers dominate). On orkut raw PageRank is 2× faster. *Corrected 2026-11-25:*
+  not reproduced. With sequential access decoding batches of lists, orkut PageRank
+  (20 iterations, f32, idle) takes 0.27 s compressed vs 0.37 s raw at 16 threads (0.73×)
+  and 3.65 vs 3.66 s at 1 thread; decoding list by list costs 1.35× at 1 thread (§ M1-13).
 - **Cold from NVMe (6T):** raw ~1.0 G edges/s; Stream VByte 1.24–1.77 G edges/s; BV is
   decode-bound (0.2–0.5). **Under an 8 GB cap on twitter-sym** raw (10 GB) re-reads disk
   every pass (1.2 G e/s) while Stream VByte (4.8 GB) stays resident: 6.4 G e/s, 5.2× faster.
@@ -435,7 +451,9 @@ igraph 6.9 / 23.1 GiB; largegraph 2.3 / 4.0 GiB (`ru_maxrss`, recorded in MiB).
 - Kernels on orkut against NetworKit at its best thread count: PageRank in f64 0.43 vs 2.79 s
   (6.5×; 0.37 s in f32), components 13 vs 247 ms (19×), k-core 0.28 vs 1.23 s (4.4×).
   Triangle counting has no like-for-like reference here: the NetworKit row is its local
-  clustering coefficient in non-turbo mode. All lab kernels ran on uncompressed arrays.
+  clustering coefficient in non-turbo mode. All lab kernels ran on uncompressed arrays
+  (for the same kernels on the compressed default, see § M1-13: orkut, 16 threads, PageRank
+  f64 0.31 s, components 17 ms, k-core 0.22–0.36 s).
 - Communities against GVE: Leiden 0.76 vs 1.02 s on lj (+2.7 modularity points) and
   1.24–1.43 vs 1.45 s on orkut (+0.5); Louvain 0.38 vs 0.82 s and 0.65 vs 1.70 s.
 - Communities against the quality leaders: three-iteration Leiden reaches Q 0.7647 in 2.0 s on
@@ -443,3 +461,303 @@ igraph 6.9 / 23.1 GiB; largegraph 2.3 / 4.0 GiB (`ru_maxrss`, recorded in MiB).
   3.6 s on orkut (igraph 0.6924 in 126 s; NetworKit 0.6720–0.6882).
 - The old prototype is 40–90× slower end to end than the new ingest + Leiden path and 8–11
   modularity points behind.
+
+---
+
+## M1-13 — the default storage end to end (#118; 2026-11-25, idle machine)
+
+**Question.** D4 makes compressed adjacency the default storage, but every kernel,
+community and point-query number above was taken on uncompressed arrays, and the
+compressed form had been measured only for scans and one PageRank iteration, on a shared
+machine. What do the headline numbers become on the default format, and when should the
+planner decode it to raw arrays?
+
+**Setup.** Code and raw results: `lab/m1-13-compressed/` (`bench.sh`, `summarize.py`);
+every table below is in `results/summary.txt` (section numbers given), every row in
+`results/*.jsonl`, keyed by graph, algorithm, threads and configuration.
+
+- *Format measured:* per node `[degree LEB128][Stream VByte of zigzag(first − v), then
+  gaps − 1]` (byte-identical to lab C's Stream VByte records), node-aligned blocks of about
+  64K entries, Elias–Fano over the n + 1 per-node byte offsets. All six stores (lj, orkut,
+  twitter-sym, Friendster, twitter-2010 out and in) decode to the input arrays on every
+  access path with all three decoders (`verify.jsonl`); kernel outputs (PageRank to 1e-9),
+  query answers and deterministic-Leiden hashes are identical in every configuration.
+- *Like for like:* one binary (commit `5c4f94f`, `target-cpu=native`), the same kernels,
+  precision and thread count in three configurations: **A** raw arrays; **B** compressed,
+  decoded on the fly; **C** compressed on disk with a raw copy decoded into RAM at open.
+  Graph in anonymous memory unless a row says mmap; warm; kernel time only (open and decode
+  reported separately); best of 3 unless noted. 1 and 16 threads.
+- *Graphs:* lj, orkut, twitter-sym (2.41 B entries), Friendster (3.61 B entries);
+  twitter-2010 directed with in-adjacency for point queries.
+- *Idle evidence:* recorded run 03:40–06:33 (`results/logs/bench_run.log`). At the start
+  of each of the 13 stages (`stages.jsonl`) the 1-minute load average was 0.99–2.99 and
+  MemAvailable 58.8–59.5 GiB. Before every row, CPUs used by other processes over 0.5 s
+  (`busy_cpus_before`, gate 0.5) were at most 0.48 over 557 rows, and
+  `mem_available_gb_before` at least 57.3 GiB. The per-row load average reaches 24 from
+  the experiment's own previous run, which is why the gate counts foreign CPU only. The
+  `perf.jsonl` rows and the `baseline_f1_*.json` files were gated but do not carry the
+  gate values. Two earlier attempts were discarded whole (experimenter's report on PR 133;
+  their rows are not in the repository), one of them because a single-threaded job of
+  another session skewed these kernels by 10–42% (`bench.sh` says 10–40%).
+- *Baselines:* the lab prototypes re-run unchanged (summary § 10, `baseline_b1.jsonl`,
+  `baseline_b2.jsonl`, `baseline_f1_*.json`) reproduce the idle re-runs above within 5%
+  except orkut k-core at 16 threads (0.361 vs 0.30 s, +20%), orkut BFS at 16 threads
+  (19.3 vs 22 ms, −12%) and orkut PageRank f32 at 1 thread (3.75 vs 3.57 s, +5.1%); B2
+  within 7%; F1 is 1.5–2.8× faster than its shared-machine figures (corrected in § F1).
+  Configuration A agrees with the lab binaries within 3% for kernels and Leiden; for point
+  queries this harness is leaner (degree p50 0.02 vs 0.10 µs on lj, cause not isolated),
+  so every A/B comparison below is inside this harness.
+
+**Size and encode** (summary § 1, `encode.jsonl`; encode from an in-memory raw CSR, input
+and output held in RAM; write includes `fsync`):
+
+| graph | bits/edge (data + offsets) | raw | encode 16T | encode 1T | write + fsync |
+|---|---|---|---|---|---|
+| lj | 18.11 (17.69 + 0.41) | 35.7 | 0.064 s | 0.49 s | 0.11 s |
+| orkut | 16.66 (16.54 + 0.12) | 32.8 | 0.168 s | 1.35 s | 0.31 s |
+| twitter-sym | 16.11 (15.95 + 0.15) | 33.1 | 1.55 s | 14.7 s | 2.39 s |
+| Friendster | 23.19 (23.02 + 0.17) | 33.2 | 3.41 s | 74.7 s (not trusted) | 4.77 s |
+| twitter-2010 out / in | 16.54 / 15.94 | 33.8 | 0.93 / 0.99 s | – | 1.69 / 1.62 s |
+
+"Bits/edge" is per stored entry (each undirected edge is stored twice). Friendster's ids
+have no locality; it is the one social graph here above 18.1.
+
+**Open** (summary § 5, `open.jsonl`; 16 threads; seconds, best of 3 warm, 2 cold):
+
+| graph | A: read raw into RAM, warm / cold | B: open, warm heap / mmap / cold | C: open + decode, warm heap / mmap / cold | raw copy |
+|---|---|---|---|---|
+| lj | 0.024 / 0.058 | 0.012 / 0.010 / 0.029 | 0.038 / 0.034 / 0.055 | 0.29 GiB |
+| orkut | 0.073 / 0.174 | 0.032 / 0.021 / 0.074 | 0.098 / 0.086 / 0.140 | 0.90 GiB |
+| twitter-sym | 0.73 / 1.74 | 0.32 / 0.19 / 0.72 | 1.02 / 0.82 / 1.36 | 9.27 GiB |
+| Friendster | 1.04 / 2.55 | 0.70 / 0.41 / 1.53 | 1.68 / 1.47 / 2.55 | 13.95 GiB |
+
+The decode step alone at 16 threads, warm: 0.023–0.024 s (lj), 0.060–0.061 s (orkut),
+0.60–0.68 s (twitter-sym), 0.92–0.99 s (Friendster), 2.9–4.0 G entries/s; at 1 thread
+1.0–1.6 G entries/s. The raw copy costs 4 bytes per entry plus 8 per node of anonymous
+memory. Cold, opening Friendster as C costs the same as reading the raw files (2.55 s both).
+
+**Kernels** (summary § 2, `kernels.jsonl`, `kernels_big.jsonl`; seconds, A raw → B
+compressed, ratio B/A; f32 and f64 are the PageRank state precision):
+
+| kernel | T | lj | orkut | twitter-sym | Friendster |
+|---|---|---|---|---|---|
+| PageRank f32 ×20 | 1 | 1.40 → 1.95 (1.40) | 3.66 → 3.65 (1.00) | 94.9 → 105 (1.11; 1 rep) | not run |
+| | 16 | 0.152 → 0.144 (0.95) | 0.366 → 0.266 (0.73) | 15.4 → 14.8 (0.96) | 67.2 → 63.9 (0.95; 2 reps) |
+| PageRank f64 ×20 | 1 | 2.00 → 2.47 (1.24) | 4.32 → 4.11 (0.95) | 107 → 117 (1.09; 1 rep) | not run |
+| | 16 | 0.211 → 0.193 (0.91) | 0.421 → 0.311 (0.74) | 19.3 → 18.8 (0.97) | 75.5 → 72.8 (0.96; 2 reps) |
+| WCC (Afforest) | 1 | 0.059 → 0.056 (0.96) | 0.080 → 0.077 (0.96) | 1.99 → 2.48 (1.25) | 3.33 → 5.24 (1.57) |
+| | 16 | 0.0107 → 0.0094 (0.88) | 0.0120 → 0.0172 (1.43) | 0.209 → 0.209 (1.00) | 0.365 → 0.497 (1.36) |
+| BFS (direction-optimizing) | 1 | 0.073 → 0.136 (1.86) | 0.096 → 0.196 (2.04) | 1.11 → 1.97 (1.78) | 3.14 → 5.79 (1.85) |
+| | 16 | 0.0152 → 0.0181 (1.20) | 0.0190 → 0.0280 (1.48) | 0.187 → 0.284 (1.52) | 0.356 → 0.508 (1.43) |
+| k-core (PKC) | 1 | 0.569 → 0.580 (1.02) | 1.33 → 1.28 (0.96) | 16.1 → 16.7 (1.04) | not run |
+| | 16 | 0.111 → 0.121 (1.09) | 0.22–0.36 in A, B and C (not trusted) | 5.26 → 5.50 (1.05) | 8.74 → 7.65 (0.88) |
+| triangles, forward lists raw | 1 | 4.05 → 4.09 (1.01) | 33.1 → 33.5 (1.01) | not run | not run |
+| | 16 | 0.294 → 0.290 (0.98) | 2.39 → 2.39 (1.00) | 69.8 → 69.4 (0.99; 1 rep) | 75.8 → 67.5 (0.89; 1 rep) |
+| triangles, forward lists compressed | 16 | 0.324 → 0.328 (1.01) | 2.38 → 2.41 (1.01) | 78.2 → 78.4 (1.00; 1 rep) | 84.4 → 78.1 (0.92; 1 rep) |
+
+- Ranges over the four graphs at 16 threads: PageRank 0.73–0.97 (both precisions), WCC
+  0.88–1.43, BFS 1.20–1.52, k-core 0.88–1.09 (orkut excluded), triangles 0.89–1.01. At
+  1 thread: PageRank 0.95–1.11 on orkut and twitter-sym, 1.24–1.40 on lj; WCC 0.96–1.57;
+  BFS 1.78–2.04; triangles 1.00–1.03 (lj, orkut).
+- C (raw copy decoded at open) is within 0.97–1.03× of A wherever it was run, except lj WCC
+  at 1 thread (0.88×, faster), lj k-core at 16 threads (1.06×) and k-core on orkut at
+  16 threads (noise, below).
+- Triangle counting never reads the input at random: the lab kernel builds its own
+  degree-oriented forward adjacency, so B costs two sequential decode passes. Keeping the
+  forward lists compressed as well costs 1.00–1.12× with raw input and 1.01–1.16× with
+  compressed input, and stores them in 17.6–25.4 bits per undirected edge instead of 32
+  (`result.forward_bits_per_undirected_edge`). Counting without a derived adjacency is
+  2.1× slower on orkut (5.14–5.33 s vs 2.39 s; `ablation.jsonl`, label `tc-naive`) and
+  is not viable on twitter-sym (sum of degree² 2.5 × 10^14). At 32 threads orkut triangles
+  take 1.44 s in A and in B (label `smt`).
+
+**Leiden, 1 iteration** (summary § 3, `leiden.jsonl`, `leiden_big.jsonl`; seconds, graph
+in heap; Q is the modularity of the best run):
+
+| graph | mode | T | A raw | B compressed | B/A | Q (A / B) |
+|---|---|---|---|---|---|---|
+| lj | async | 1 / 16 | 5.97 / 0.764 | 6.54 / 0.792 | 1.09 / 1.04 | 0.7495 / 0.7495 (1T); 0.7496 / 0.7489 (16T) |
+| lj | det | 1 / 16 | 9.47 / 2.31 | 10.1 / 2.29 | 1.06 / 0.99 | 0.7480 both |
+| orkut | async | 1 / 16 | 14.3 / 1.41 | 15.4 / 1.47 | 1.07 / 1.04 | 0.6836 / 0.6836 (1T); 0.6813 / 0.6811 (16T) |
+| orkut | det | 1 / 16 | 15.6 / 3.48 | 16.6 / 3.50 | 1.06 / 1.00 | 0.6760 both |
+| twitter-sym | async | 16 | 29.1 (2 reps) | 29.2 (2 reps) | 1.01 | 0.4662 / 0.4626 |
+| twitter-sym | det | 16 | 59.1 (1 rep) | 60.0 (1 rep) | 1.02 | 0.4790 both |
+| Friendster | async | 16 | 82.4 (1 rep) | 82.0 (1 rep) | 0.995 | 0.6050 / 0.6008 |
+
+Deterministic hashes are identical across raw, compressed, decoded, heap and mmap on every
+graph run. C equals A (0.98–1.03×); the graph mmapped instead of in heap changes B by −4%
+to +5% (lj, orkut). Only level 0 is compressed; the quotient graphs are the kernel's own raw arrays.
+Leiden at 1 thread on twitter-sym and Friendster, and deterministic Leiden on Friendster,
+were not run.
+
+**Point queries** (summary § 4, `pq.jsonl`; warm, single thread, in-process, per-query
+timer inside, graph in heap; 100,000 inputs for degree, neighbours and common neighbours,
+10,000 for the rest; p50 in µs, A → B; in brackets the timer-free mean of the same queries
+timed as one batch, which is the figure to use below ~0.2 µs, where p50 moves in 10 ns
+steps):
+
+| query | lj | orkut | twitter-sym | Friendster | twitter-2010 directed |
+|---|---|---|---|---|---|
+| degree | 0.02 → 0.04 [0.002 → 0.012] | 0.02 → 0.04 [0.001 → 0.013] | 0.09 → 0.18 [0.003 → 0.041] | 0.09 → 0.19 [0.003 → 0.049] | 0.09 → 0.20 [0.004 → 0.041] |
+| neighbours | 0.03 → 0.06 [0.016 → 0.041] | 0.12 → 0.14 [0.045 → 0.116] | 0.11 → 0.19 [0.040 → 0.146] | 0.12 → 0.21 [0.046 → 0.159] | 0.11 → 0.17 [0.027 → 0.111] |
+| common neighbours | 0.22 → 0.20 | 0.46 → 0.52 | 0.42 → 0.66 | 0.50 → 0.71 | 0.34 → 0.52 |
+| 2-hop count | 1.84 → 1.82 | 32.4 → 32.5 | 668 → 753 | 14.1 → 16.2 | 4.44 → 5.99 |
+| 3-hop, 10k budget | 37.9 → 40.9 | 48.0 → 50.8 | 34.8 → 72.6 | 35.7 → 41.0 | 35.9 → 46.5 |
+| bidirectional BFS | 128 → 161 | 341 → 450 | 2,982 → 3,361 | 1,653 → 2,334 | 465 → 562 |
+
+- Neighbour lookups cost +0.02–0.11 µs per call on the batch means (2.5–4.2×); bidirectional
+  BFS p50 1.13–1.41×; 2-hop count p50 0.99–1.35×; 3-hop with a 10k budget p50 1.06–1.30×
+  except twitter-sym, 2.1× at p50 and 2.7× at p95 (twitter-2010 directed: 3.1× at p95).
+  The budgeted query stops after 10,000 nodes, but the compressed path decodes a hub's whole
+  list before it looks at the first neighbour; the format allows prefix decode, the query
+  does not use it (not fixed, not measured).
+- Tails are in summary § 4 (p95 / p99); for example twitter-sym common neighbours p99 is
+  1,397 → 1,556 µs.
+- With the graph mmapped (4 KiB pages) both sides are slower (neighbour batch means
+  +16–43%); bidirectional BFS p50 is then 1.09–1.50×. C equals A on lj and orkut, the only
+  graphs where it was run.
+- Idle, the shortest path between two nodes takes 0.13–0.14 ms on lj on raw arrays and
+  0.16–0.17 ms on the default storage (heap / mmap), 0.44–0.47 and 0.56–0.59 ms on
+  twitter-2010 directed.
+
+**Memory** (kernels at 16 threads; `rss_anon_gb` = anonymous memory at the end of the
+kernel, i.e. graph plus leftovers; `peak_rss_gb` = high-water mark, anonymous plus
+file-backed):
+
+| graph, kernel | A raw: anon / peak | B compressed: anon / peak | C decoded: anon / peak |
+|---|---|---|---|
+| orkut, PageRank f32 | 0.91 / 0.94 GiB | 0.46 / 0.50 | 0.90 / 1.35 |
+| twitter-sym, PageRank f32 | 9.27 / 9.74 | 4.77 / 5.24 | 9.27 / 13.79 |
+| Friendster, PageRank f32 | 13.95 / 14.68 | 9.76 / 10.50 | 13.98 / 23.71 (BFS row) |
+| Friendster, triangles (forward lists raw) | 13.95 / 21.41 | 9.76 / 17.23 | – |
+
+C's peak includes the compressed bytes held in the heap during decode; with the store
+mmapped they are file-backed and evictable. Leiden's sampled anonymous peak at 16 threads,
+graph in heap: twitter-sym 25.0 GiB (A) vs 21.0 (B); Friendster 37.0 vs 34.3. Subtracting
+the graph (arithmetic), Leiden's own memory on Friendster is 23.1–24.5 GiB in both: only the
+level-0 graph shrinks. **Compression does not bring Friendster Leiden under 16 GiB.**
+
+**Under a hard memory limit** (summary § 8, `capped.jsonl`; 16 threads, files evicted
+first, plain mmap without pre-fault, `MemorySwapMax=0`, best of 2 with the first repetition
+cold; PageRank f32 with 5 iterations including the initial degree pass):
+
+| case | A raw | B compressed | C decoded |
+|---|---|---|---|
+| twitter-sym, 8 GB: PageRank | 7.22 s | 3.84 s (1.9× faster) | killed (exit 137) |
+| twitter-sym, 8 GB: WCC / BFS | 0.275 / 0.193 s | 0.210 / 0.287 s | – |
+| Friendster, 12 GB: PageRank | 19.4 s | 16.3 s (1.2× faster) | killed (exit 137) |
+| Friendster, 12 GB: WCC / BFS | 2.63 / 4.59 s | 0.491 / 0.519 s (5.4× / 8.8× faster) | – |
+| Friendster, 2 GB: PageRank (1 rep) | 22.1 s (4.42 s/iter) | 21.6 s (4.31 s/iter) | – |
+
+- When the raw arrays do not fit and the compressed store does, compressed is faster for
+  PageRank (1.2–1.9×) and for WCC and BFS on Friendster (5.4–8.8×). BFS on twitter-sym is
+  the exception (1.5× slower compressed): it touches a small share of the entries, which
+  stay resident even for raw.
+- **Under 2 GB, plain mmap gives the format no gain on Friendster.** 4.31 s/iteration
+  against 3.19 in RAM on the same format is 1.35×; raw 4.42 against 3.36 is 1.32×
+  (arithmetic: a 5-iteration capped run that includes the initial degree pass, against
+  20 iterations in RAM). For comparison, the B1 raw-format streaming reader gave 3.64 against
+  3.37 s/iteration (1.08×, 32 threads, idle re-runs above). There is no streaming reader for
+  the compressed format yet.
+
+**Ablations that explain the result** (summary §§ 6, 7 and 9; `ablation.jsonl`,
+`scan.jsonl`, `perf.jsonl`):
+
+- *Batch vs list-by-list decode is the largest effect.* Decoding list by list, interleaved
+  with the kernel body, makes orkut PageRank f32 4.92 s at 1 thread and 0.367 s at 16;
+  decoding a batch of 8,192 entries first gives 3.65 and 0.266 (1.35× and 1.38×). On lj
+  (short lists) batching does not help at 1 thread (1.86 s list by list vs 1.95). perf,
+  orkut PageRank f32, 1 thread, whole process: raw 45 G instructions at IPC 0.71 (63 G
+  cycles); batched 125 G at IPC 2.08 (60 G cycles); list by list 117 G at IPC 1.40 (83 G
+  cycles). Raw waits on memory and the decode fits in the wait; interleaving costs cycles
+  without adding instructions, which is consistent with fewer overlapping cache misses
+  (not measured directly).
+- *Why 16-thread PageRank is faster compressed on orkut:* raw runs at IPC 0.49 and 309 G
+  cycles, compressed at 1.97 and 212 G. A raw scan tops out at 12.4–13.7 G entries/s on
+  the four graphs at 16 threads (49.6–54.9 GB/s of 4-byte targets, arithmetic); the
+  compressed scan with the default decoder and 8,192-entry batches reaches 14.9–27.5 (lj
+  14.9, Friendster 17.9, twitter-sym 26.4, orkut 27.5). At 1 thread the compressed scan is
+  2.2–2.5× slower. On twitter-sym PageRank the gathers dominate (IPC 0.13 raw vs 0.37,
+  cycles within 5%), so it is a tie.
+- *Per-node vs block offsets.* With a block directory only, random access to one list costs
+  10–33 µs instead of 87–217 ns (1 thread; raw 33–62 ns); orkut BFS at 16 threads takes
+  2.24 s instead of 0.028; bidirectional BFS p50 31.8 ms. Per-node offsets are required.
+- *Entry-offset index.* An Elias–Fano index of entry offsets (0.11–0.35 bits/edge,
+  `verify.jsonl` `degree_index.bits_per_edge`) makes degree a lookup without touching the
+  data: BFS at 16 threads becomes 1.01× of raw on orkut, 0.99× on twitter-sym, 1.07× on lj,
+  1.22× on Friendster; at 1 thread it stays 1.56–1.75× (lj, orkut). It did not measurably
+  improve bidirectional BFS p50 (one repetition, mixed sign). Keeping the degree in the
+  traversal state instead (`bfs-ds`): 1.15–1.25× at 16 threads on lj, orkut and
+  twitter-sym, no gain on Friendster (1.43×).
+- *BFS is instruction-bound:* orkut, 1 thread, 38.8 → 76.0 G instructions and 21.5 →
+  43.6 G cycles at about the same IPC. Likely causes (not separated): whole-list decode where
+  raw stops at the first hit, a degree lookup per discovered node (17–64 ns against 4–6 ns
+  raw), a header pass to find the source.
+- *WCC slowdown grows with graph size* (1 thread: 0.96× on lj and orkut, 1.25× twitter-sym,
+  1.57× Friendster), although perf on orkut shows 2.8× the instructions in fewer cycles.
+  Hypothesis, not tested: the per-node prefix decode reduces overlapping misses once the
+  label array leaves the cache. A batched prefix decode is written and unit-tested in the
+  lab but was not measured.
+- *Decoder:* lab C's decoder is 1.17–1.25× slower than the default on PageRank at 1 thread
+  (orkut f32 4.57 vs 3.65 s). On short-list graphs a per-list cost remains: lj PageRank at
+  1 thread is 1.24–1.40× with every decoder and batch size (one loop exit per list is the
+  likely cause, not proven).
+- k-core, triangles and Leiden at 1 thread on orkut / lj: +20–32% instructions, cycles
+  within −4% to +8%. perf counters are whole-process user space (graph loading included),
+  multiplexed.
+
+**The planner rule that follows.** Let R = raw bytes (4 per entry + 8 per node), Z =
+compressed bytes (0.49–0.70 R measured), S = the kernel's own state, M = the budget.
+
+1. **Z + S ≤ M: run on the compressed store, decoded on the fly, for every kernel.**
+   Scans (PageRank, k-core initialisation, the triangle build, WCC sampling) decode batches
+   and never decode to raw; heavy random access (k-core peeling, Leiden, triangles on
+   derived forward lists) runs on the fly at 0.88–1.09× of raw at 16 threads; a single
+   traversal (BFS 0.018–0.51 s at 16 threads compressed) is cheaper than decoding the whole
+   graph (0.02–0.99 s).
+2. **Build the raw decode cache only if all three hold:** R + S ≤ M with headroom; the
+   session repeats traversals or point lookups; the expected saving exceeds the decode time.
+   Break-even, arithmetic on measured values (16-thread warm decode time ÷ per-operation
+   difference B − A; BFS at 16 threads, queries at 1 thread):
+   - orkut (decode 0.060–0.061 s, +0.90 GiB): about 7 BFS runs; about 280 shortest-path
+     queries from the mean difference (560 from the p50 difference); about 0.85 M neighbour
+     lookups;
+   - twitter-sym (0.60–0.68 s, +9.27 GiB): 6–7 BFS runs; 400–460 shortest-path queries
+     (1,600–1,800 from p50); 5.6–6.4 M neighbour lookups;
+   - Friendster (0.92–0.99 s, +13.95 GiB): about 6 BFS runs; 900–970 shortest-path queries
+     (1,350–1,450 from p50); 8.2–8.7 M neighbour lookups.
+   These are not measured sessions; a session's total cost follows the mean, not the p50.
+   Never build it for PageRank, WCC, k-core, triangles or Leiden.
+3. **Z + S ≤ M < R + S: compressed only.** Raw through mmap is slower for scanning kernels
+   (PageRank 1.2–1.9×, WCC 1.3–5.4×) and decoding to raw is killed.
+4. **Z + S > M: out of core.** Plain mmap of the compressed store gains nothing on
+   Friendster under 2 GB; this regime needs a streaming reader for the format (#46).
+
+**Conditions on D4** (ADR 0004): per-node Elias–Fano offsets, not block offsets; batched
+sequential decode in the edge-map framework; prefix decode for budgeted queries; an
+Elias–Fano index of entry offsets in the format; the raw decode cache as a planner tier
+with the break-even above. Open format question: per-list framing costs short-list graphs
+1.24–1.40× on single-thread PageRank; a block-framed stream would remove the per-list branch
+but complicate random access (not tested).
+
+**Not measured, not trusted.**
+
+- *Not run* (time): PageRank, k-core and triangles at 1 thread on Friendster; triangles at
+  1 thread on twitter-sym; Leiden at 1 thread on twitter-sym and Friendster; deterministic
+  Leiden on Friendster; configuration C on the big graphs beyond the rows shown (and for
+  point queries beyond lj and orkut).
+- *Not measured:* point-query throughput at 16 threads (ADR 0004's criterion names 16
+  threads; this run measured single-thread latency, as the issue asked); a streaming or
+  semi-external reader on the compressed format; ingest writing the format directly, with
+  or without `fsync`; an encoder under a memory budget; weighted or directed kernels; web
+  graphs; prefix decode for budgeted queries; batched prefix decode for WCC.
+- *Not trusted:* k-core at 16 threads on orkut (0.22–0.36 s in A, B and C alike; the
+  ratio is meaningless); the one-repetition rows (Friendster and twitter-sym triangles,
+  twitter-sym PageRank at 1 thread, twitter-sym deterministic and Friendster Leiden,
+  Friendster under 2 GB); Friendster encode at 1 thread (74.7 s with `busy_cpus_before`
+  0.36; a discarded run gave 49.2 s); point-query p50 below ~0.2 µs (use the batch means);
+  the entry-offset-index point-query rows (one repetition, mixed sign).
+- *Machine state:* one foreign single-threaded job skewed these kernels by 10–42% in a
+  discarded attempt; 1-thread and bandwidth-bound runs are the most sensitive, which is why
+  the gate counts foreign CPU before every row.
+- Every "why" beyond the perf counters is inference.

@@ -9,7 +9,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:XL, lab-evidence
 - [ ] Partition by original-id range in pass 1 using sampled quantiles and relabel inside the per-bucket sort: removes the spill pass (22 GB of temp traffic on Friendster) and balances skewed buckets (lj's largest bucket was 10× the mean)
 - [ ] Temp storage: page-cache-backed files now; large sequential per-thread logs with an extent index if direct I/O is wanted (small appending O_DIRECT writes cost ~0.9 ms each on ext4)
 - [ ] Pack bucket entries to 6 bytes (−25% of the dominant temp volume)
-- [ ] Output through the aligned-block writer ({{#m2-02-io-layer}}); write directly in the compressed format ({{#m2-03-adjacency-codec}})
+- [ ] Output through the aligned-block writer ({{#m2-02-io-layer}}); write directly in the compressed format ({{#m2-03-adjacency-codec}}) with an encoder that runs under the budget — the #118 encoder holds input and output in RAM (Friendster about 14 GiB raw + 9.8 GiB compressed); encode 0.064 / 0.168 / 3.41 s at 16 threads (lj / orkut / Friendster) plus 4.77 s write with fsync on Friendster
 - [ ] Budget-driven: bucket count and buffer sizes derived from the memory accountant ({{#m2-04-arrays-accountant}})
 
 **Scope**
@@ -19,7 +19,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:XL, lab-evidence
 - [ ] Scaling work: the prototype scales only 3.4–4.9× from 1 to 32 threads on small graphs
 
 **Acceptance (lab machine, idle, plain text)**
-- lj ≤ 0.5 s; orkut ≤ 1.0 s; Friendster ≤ 25 s at a 32 GB budget and ≤ 60 s at 8 GB with peak RSS ≤ 4 GB
+- lj ≤ 0.5 s; orkut ≤ 1.0 s; Friendster ≤ 25 s at a 32 GB budget and ≤ 60 s at 8 GB with peak RSS ≤ 4 GB, writing the default format, fsync reported separately (by addition, 52.4 s build at 8 GB from FINDINGS "Idle-machine re-runs" + 3.4 s encode at 16 threads from #118 = 55.8 s before the write)
 - Output identical for budgets 0.25 GB … 32 GB and thread counts 1 … 32
 - Out-of-core NVMe traffic for Friendster at 8 GB reduced from 128 GB to ≤ 90 GB
 

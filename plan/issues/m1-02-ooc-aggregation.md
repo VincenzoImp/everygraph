@@ -12,7 +12,7 @@ labels: type:experiment, area:community, P0, risk:high, size:L, lab-evidence
 - [ ] Keep the level-1 graph on disk in the standard compressed format and run level 1 through the same streaming source; from level 2 on it normally fits in RAM
 - [ ] Budget every allocation through a memory-accountant stub
 - [ ] Measure on Friendster at 34 GiB, 16 GiB and 8 GiB limits: time per phase, anonymous peak, modularity, disconnected communities; and on orkut with a limit of 50% of the edge array
-- [ ] Compare against the in-RAM run (154.5 s, Q 0.6033, 31,960 communities)
+- [ ] Compare against the in-RAM run (154.5 s, Q 0.6033, 31,960 communities; 32 threads, shared machine. Idle, one async iteration at 16 threads: 82.4 s raw / 82.0 s compressed, Q 0.6050 / 0.6008, one repetition each, #118 — not comparable with 154.5 s as a speed-up). Re-run the in-RAM reference idle, in the same configuration as the out-of-core runs
 
 **Success.** Friendster under 16 GiB: completes, Q ≥ 0.60, 0 disconnected communities, ≤ 2.5× the in-RAM time. If not reachable, state the smallest budget at which it is and document the limit in the product.
 

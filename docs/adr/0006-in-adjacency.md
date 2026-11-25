@@ -21,9 +21,15 @@ and cached in the `.eg` file, its in-adjacency.
   32 threads, raw u32 arrays; `lab/f1-query/results/csc_twitter_t32.json`): the transpose
   took 12.3 s and adds 4.23 bytes per arc (6.2 GB).
 - **Use**: bidirectional BFS on twitter-2010 (which uses the in-adjacency) had a p50 of
-  1.5 ms warm, single thread (FINDINGS § F1; `lab/f1-query/results/pq_twitter-dir_warm.json`).
-- Not measured: the size and build time of a *compressed* in-adjacency; whether directed
-  community detection or SCC need it in practice (#24 decides the directed semantics).
+  1.5 ms warm, single thread (FINDINGS § F1; `lab/f1-query/results/pq_twitter-dir_warm.json`;
+  shared machine). Idle (#118, 2026-11-25, FINDINGS § M1-13,
+  `lab/m1-13-compressed/results/pq.jsonl`): 0.44–0.47 ms on raw arrays, 0.56–0.59 ms on the
+  compressed default (p50, heap / mmap).
+- Compressed in-adjacency (#118; `lab/m1-13-compressed/results/encode.jsonl`; idle):
+  15.94 bits per arc (the out-adjacency 16.54), encoded in 0.99 s at 16 threads from an
+  in-memory raw transpose. The transpose itself was not re-measured.
+- Not measured: building a compressed in-adjacency directly; whether directed community
+  detection or SCC need it in practice (#24 decides the directed semantics).
 
 ## Consequences
 

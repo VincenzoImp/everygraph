@@ -31,7 +31,14 @@ language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parse
   It shows where the cost lies, not a speed-up to quote.
 - **Reuse is possible**: Rust parsers exist (`ocg`, Grafeo's GQL parser); SQL/PGQ was
   reverted from PostgreSQL 19 (FINDINGS R8, web research).
-- Not measured: point queries on the compressed default (#118).
+- **Idle, on the compressed default** (#118, 2026-11-25; FINDINGS § M1-13 and its
+  correction of § F1; `lab/m1-13-compressed/results/pq.jsonl`; in-process, single thread,
+  warm, graph in heap): bidirectional BFS p50 0.13 ms (lj) and 0.47 ms (twitter-2010) on raw
+  arrays, 0.16 and 0.56 ms on the default storage; across lj, orkut, twitter-sym, Friendster
+  and twitter-2010 the default costs 1.13–1.41× at p50 for bidirectional BFS and 2.5–4.2×
+  (+0.02–0.11 µs per call, timer-free batch means) for neighbour lookups. The
+  shared-machine figures above are 1.5–2.8× pessimistic. Point-query throughput at
+  16 threads on the default was not measured (#90).
 
 ## Consequences
 
@@ -42,10 +49,12 @@ language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parse
 ## What would change our mind
 
 - #118 shows bidirectional BFS or neighbours on the default format more than 5× slower
-  than raw, so that #91's p50 < 2 ms on twitter-2010 needs a resident raw copy.
+  than raw, so that #91's p50 < 2 ms on twitter-2010 needs a resident raw copy. (Not
+  triggered on 2026-11-25: 1.13–1.41× and 2.5–4.2×, single thread; see Evidence.)
 - Feedback collected after release (#106) shows that most target users cannot express
   their questions with the traversal API.
 
 ## Closed by
 
-#118 (point queries on compressed adjacency), #91 (shortest paths at 10^9 arcs).
+#91 (shortest paths at 10^9 arcs). #118 (point queries on compressed adjacency) reported
+on 2026-11-25 (Evidence).

@@ -1,0 +1,5 @@
+# Like lab/b1-core and lab/c-compression: built for the host CPU (Zen 4: SSSE3, AVX2, BMI2, AVX-512).
+# The numbers are therefore host-tuned, not portable-binary numbers. The Stream VByte decoder
+# itself needs only SSSE3; the Elias-Fano select uses BMI2 (pdep) when available.
+[build]
+rustflags = ["-C", "target-cpu=native"]

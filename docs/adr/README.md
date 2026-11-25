@@ -72,7 +72,7 @@ A measurable condition.
 | [0001](0001-rust-core.md) | Rust core, no C/C++ dependencies in the core | accepted | — |
 | [0002](0002-portable-core.md) | A core portable by construction | accepted | — |
 | [0003](0003-dense-u32-ids.md) | Dense u32 node ids by default | accepted | — |
-| [0004](0004-compressed-adjacency-default.md) | Compressed adjacency is the default storage | accepted, partly validated | #118 |
+| [0004](0004-compressed-adjacency-default.md) | Compressed adjacency is the default storage (amended by #118: five conditions) | accepted, partly validated | #46, #35, #24, #90 |
 | [0005](0005-webgraph-optional.md) | webgraph-rs is an optional feature | accepted | — |
 | [0006](0006-in-adjacency.md) | Directed graphs store out- and in-adjacency | accepted | — |
 | [0007](0007-eg-container.md) | One `.eg` file per graph; maps as PMTiles | accepted, partly validated | #28 |
@@ -89,7 +89,7 @@ A measurable condition.
 | [0018](0018-data-tiles.md) | Data tiles in PMTiles v3 and a WebGL2 viewer | accepted, partly validated | #26, #15 |
 | [0019](0019-python-pyo3-arrow.md) | Python through PyO3 abi3 and Arrow PyCapsule | accepted | — |
 | [0020](0020-networkx-backend.md) | The NetworkX backend is an adoption channel | accepted | — |
-| [0021](0021-queries-traversal-api.md) | Queries in v0.1: a traversal API, no query language | accepted, partly validated | #118, #91 |
+| [0021](0021-queries-traversal-api.md) | Queries in v0.1: a traversal API, no query language | accepted, partly validated | #91 |
 | [0022](0022-browser-tier.md) | Browser tier after v0.1 | accepted, partly validated | #108 |
 | [0023](0023-licence-and-open-specs.md) | Apache-2.0 OR MIT; published format specs | accepted | — |
 | [0024](0024-visual-system.md) | One visual system, Vernier | accepted | — |
