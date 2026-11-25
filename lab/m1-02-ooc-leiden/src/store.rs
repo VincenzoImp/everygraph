@@ -745,6 +745,11 @@ impl StoreWriter {
         self.next_node = hi;
         base
     }
+    /// Unlinks the file now (it lives on through the open handle and, later, the mapping):
+    /// a run that ends early leaves nothing behind.
+    pub fn unlink_now(&self) -> std::io::Result<()> {
+        std::fs::remove_file(&self.path)
+    }
     /// A second handle of the file, for writing outside a lock on the writer.
     pub fn file_handle(&self) -> std::fs::File {
         self.file.try_clone().expect("dup")
@@ -777,7 +782,7 @@ impl StoreWriter {
         self.deg = Vec::new();
         let m = unsafe { memmap2::Mmap::map(&self.file)? };
         let data = Buf::Mmap(m, data_len + 64);
-        if !keep_file {
+        if !keep_file && self.path.exists() {
             std::fs::remove_file(&self.path)?;
         }
         let dp = data.as_ptr();

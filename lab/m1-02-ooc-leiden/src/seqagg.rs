@@ -432,6 +432,9 @@ pub fn aggregate_seq(g: &Graph, k: &[f64], lab: &[AtomicU32], pool: &rayon::Thre
         None => std::path::Path::new(spill).join(format!("quotient.{}.{seq}.adj", std::process::id())),
     };
     let writer = Mutex::new(StoreWriter::create(&path, c_new, true).expect("quotient file"));
+    if keep_dir.is_none() {
+        writer.lock().unwrap().unlink_now().expect("unlink quotient file");
+    }
     let next_take = Mutex::new(0usize);
     let in_flight = AtomicUsize::new(0);
     // (next bucket to commit, waiting outputs, assembler of a split community: c, targets,
