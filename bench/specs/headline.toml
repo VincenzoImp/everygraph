@@ -154,7 +154,13 @@ group = "ingest"
 description = "Friendster, 1.8 B edges from 31 GiB of text, at two RAM budgets"
 dataset_path = "raw/com-friendster.ungraph.txt.gz"
 memory_limit = "48G"
-warmup = 0
+# One untimed run first: each run writes 45-53 GB, and the drive (Samsung 990 PRO 2TB)
+# takes the first ~10 GB after an idle spell at ~5 GB/s, then ~1.5 GB/s sustained
+# (exploratory probe, 2026-11-25). Without the warm-up the first repetition measures a
+# rested drive and the others a busy one (17.7-19.5 s against 27-31 s for the 32 GB
+# budget in the first official runs); with it, every repetition measures the sustained
+# rate that back-to-back ingests meet.
+warmup = 1
 matrix = { budget = ["32", "8"] }
 command = ["sh", "-c", "exec {glab} ingest --input {inputs}/friendster.txt {ingest_out} --mem-gb {budget} --threads {threads} --direct-in --out-mmap"]
 conditions = { graph = "friendster", input = "plain text, O_DIRECT", budget = "{budget} GB (--mem-gb)", fsync = "no", precision = "n/a (integer CSR)" }

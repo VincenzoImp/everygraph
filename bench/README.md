@@ -131,6 +131,13 @@ in turn: reading the same blocks twice in a row measures the drive's own cache
 (FINDINGS § F1). There is no `sudo` and no `drop_caches`. A cold dataset on tmpfs is
 refused.
 
+**Write-heavy cases.** A solid-state drive writes its first gigabytes after an idle
+spell much faster than its sustained rate (on the lab machine: ~10 GB at ~5 GB/s after
+5 idle minutes, then ~1.5 GB/s). A case that writes tens of gigabytes per repetition
+therefore needs a warm-up run (`warmup = 1`), so that every measured repetition starts
+from the same, sustained drive state; otherwise the first repetition is faster than the
+others by a third (Friendster ingest, 2026-11-25).
+
 **What a row ran.** Every row records the spec's SHA-256 and path, the SHA-256 of each
 binary the spec declares (`binaries`) and of the program of an argument-list command,
 and a digest of its dataset's listing (relative path, size and modification time of
