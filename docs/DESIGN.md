@@ -161,7 +161,7 @@ These are the reasons the first milestone after foundations is a second lab roun
    deterministic mode below 16 GiB; other graph families (only Friendster at this scale,
    orkut scaled down at 3.10×); and whether a seeded relabelling at ingest, which kept
    Friendster at 1.28–1.43× under 8 and 4 GiB, should replace block-permuted order
-   (`plan/issues/m1-14-relabel-at-ingest.md`; ADR 0015 unchanged).
+   (#146, `plan/issues/m1-14-relabel-at-ingest.md`; ADR 0015 unchanged).
    The headline "1.8 B edges → map on a 16 GB laptop" has not been demonstrated end to
    end. *Measured end to end on 2026-11-25 (#15, FINDINGS § M1-01; Friendster, lab
    binaries, 32 threads, idle, uncompressed CSR,

@@ -47,7 +47,7 @@ All idle, 16 threads, async mode unless noted (FINDINGS § B2 and "Idle-machine 
   storage-order visits (L1) was measured promising on Friendster (async, 1 iteration, 16
   threads, idle: Q 0.611 against 0.605, and level-0 local moving at its in-RAM cost under
   8 and 4 GiB; `bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl`) and is under
-  study in `plan/issues/m1-14-relabel-at-ingest.md`. The decision is unchanged.
+  study in #146 (`plan/issues/m1-14-relabel-at-ingest.md`). The decision is unchanged.
 
 ## Consequences
 

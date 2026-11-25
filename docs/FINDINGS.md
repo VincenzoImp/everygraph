@@ -1054,7 +1054,7 @@ lj; `results/stores.jsonl`) and, in exploratory runs (`results/orders.jsonl`), i
 Friendster's original ids is unstable (Q 0.558–0.612, 3 exploratory runs,
 `results/friendster_idorder.jsonl`). L1's comparison is confounded (ids and order change
 together; one graph, one seed; deterministic mode not measured); it is under study in
-`plan/issues/m1-14-relabel-at-ingest.md`, and ADR 0015 is unchanged. Windowed permutation
+`plan/issues/m1-14-relabel-at-ingest.md` (#146), and ADR 0015 is unchanged. Windowed permutation
 (L2) loses the quality of block order unless the window covers the graph; at level 0, L3
 finds no inactive blocks (`results/orders.jsonl`); never building level 1 (L4) would cost
 about 3× the spill path (arithmetic on official numbers, not measured). L5 not tested.
