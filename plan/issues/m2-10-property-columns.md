@@ -9,10 +9,12 @@ labels: type:feature, area:format, P0, risk:medium, size:L, lab-evidence
 - [ ] Hot columns (weight, timestamp, type) stored per adjacency entry, aligned with entry order
 - [ ] Cold or wide columns stored once per edge behind a u32/u64 edge id; the in-adjacency also carries the edge id
 - [ ] Node property table aligned with dense node ids
-- [ ] Column types: integers, floats, bool, timestamp, fixed-width binary, dictionary-encoded strings, decimal128
+- [ ] Column types: integers, floats, bool, timestamp, fixed-width binary, dictionary-encoded strings, decimal128, decimal256 (exact 256-bit token amounts; `docs/spec/graph-semantics.md` § 2.6, § 9 item 7); a reported sum widens as § 4.3 says (integer → decimal128(38, 0), decimal128(p ≤ 26, s) → decimal128(38, s), otherwise decimal256(76, s); overflow is `InvalidInput`)
 - [ ] On-disk encoding compatible with Arrow buffers so columns can be exported zero-copy; evaluate Arrow IPC framing vs raw buffers + schema section
 - [ ] Policy for which columns are hot (user hint, or first use by a kernel promotes a column)
 - [ ] Null handling
+- [ ] Column statistics recorded by the build in the table of contents for every numeric edge column, over the stored values: `count`, `null_count`, `nan_count`, `min`, `max`, `sum` (exact, rounded once to f64), and per graph the largest pair multiplicity; a column is clean when `nan_count = 0`, `min ≥ 0` and `sum` is finite (`docs/spec/graph-semantics.md` § 2.7)
+- [ ] Edge-type column stored dictionary-encoded, `uint8` codes up to 256 values, `uint16` up to 65,536, otherwise plain text (`docs/spec/graph-semantics.md` § 2.6); reading it needs a public option, which belongs to the readers (#32, #33)
 
 **Acceptance**
 - Weighted PageRank on a per-entry weight column within 15% of the unweighted kernel on orkut
