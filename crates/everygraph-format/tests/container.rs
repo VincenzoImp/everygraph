@@ -371,6 +371,18 @@ fn unknown_required_features_and_versions_are_refused_unknown_optional_ones_kept
         Container::open(Mem::new(file)),
         Err(ContainerError::Corrupt(_))
     ));
+    // So do `seg/` names: a segment's section without the bit is damage, so that no
+    // reader, writer or `compact` ever meets one in a file it accepts.
+    let mut file = base_file();
+    patch_toc(&mut file, |toc| {
+        let end = toc.len();
+        assert_eq!(&toc[end - 9..], b"x.unknown");
+        toc[end - 9..].copy_from_slice(b"seg/known");
+    });
+    assert!(matches!(
+        Container::open(Mem::new(file)),
+        Err(ContainerError::Corrupt(_))
+    ));
 
     let mut file = base_file();
     patch_header(&mut file, 0, |b| b[40] = 1);
@@ -394,6 +406,18 @@ fn unknown_required_features_and_versions_are_refused_unknown_optional_ones_kept
     assert!(matches!(
         Container::open(Mem::new(file)),
         Err(ContainerError::UnsupportedVersion { major: 2, minor: 0 })
+    ));
+    // A foreign block refuses the file even beside a valid one: it may hold the newest
+    // commit, which an update would destroy.
+    let mut file = two_commits();
+    patch_header(&mut file, 1, |b| b[12] = 2);
+    assert!(matches!(
+        Container::open(Mem::new(file.clone())),
+        Err(ContainerError::UnsupportedVersion { major: 2, .. })
+    ));
+    assert!(matches!(
+        Writer::update(Mem::new(file)),
+        Err(ContainerError::UnsupportedVersion { major: 2, .. })
     ));
 
     let mut file = base_file();
@@ -650,6 +674,18 @@ fn on_a_tie_block_0_wins() {
     patch_header(&mut file, 0, |b| {
         b[24..32].copy_from_slice(&2u64.to_le_bytes());
     });
+    // If block 0's table is unusable, block 1 opens, flagged, and an update needs
+    // consent, although the generations are equal.
+    let mut broken = file.clone();
+    let toc = usize::try_from(u64::from_le_bytes(broken[48..56].try_into().unwrap())).unwrap();
+    broken[toc + 40] ^= 1;
+    let fallback = Container::open(Mem::new(broken.clone())).unwrap();
+    assert!(fallback.get("late").is_some());
+    assert_eq!(fallback.recovered_from(), Some(2));
+    assert!(matches!(
+        Writer::update(Mem::new(broken)),
+        Err(ContainerError::Recovered)
+    ));
     let opened = Container::open(Mem::new(file)).unwrap();
     assert_eq!(opened.generation(), 2);
     assert!(opened.get("late").is_none(), "block 1's table was used");

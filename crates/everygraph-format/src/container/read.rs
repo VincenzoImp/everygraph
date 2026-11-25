@@ -7,7 +7,10 @@ use std::ops::Range;
 use everygraph_core::{AccessHint, ByteSource, ReadError};
 
 use super::layout::{self, BLOCK_USIZE, Block, Header, KNOWN_REQUIRED, padded, small};
-use super::{Codec, ContainerError, Entry, HEADER_BYTES, Kind, MAX_PROVENANCE_BYTES, Provenance};
+use super::{
+    Codec, ContainerError, Entry, HEADER_BYTES, Kind, MAX_PROVENANCE_BYTES, Provenance,
+    SEGMENT_PREFIX,
+};
 
 /// Bytes read at a time when a section is hashed from a source that is not in memory.
 const HASH_CHUNK: usize = 1 << 20;
@@ -102,7 +105,8 @@ impl<S: ByteSource> Container<S> {
     /// [`ContainerError::NotAContainer`] or [`ContainerError::NotCommitted`] when no header
     /// block is valid; [`ContainerError::UnsupportedByteOrder`],
     /// [`ContainerError::UnsupportedVersion`] or [`ContainerError::UnsupportedFeatures`]
-    /// for a file this reader does not understand; [`ContainerError::Corrupt`] when the
+    /// for a file this reader does not understand (a foreign header block refuses the
+    /// file even when the other block is valid); [`ContainerError::Corrupt`] when the
     /// table of contents breaks the specification; [`ContainerError::Read`] when the
     /// source fails.
     pub fn open(source: S) -> Result<Self, ContainerError> {
@@ -120,16 +124,21 @@ impl<S: ByteSource> Container<S> {
         }
         // Newest first; on a tie, block 0.
         valid.sort_by_key(|h| (std::cmp::Reverse(h.generation), h.block));
+        // A foreign block (a later major version, another byte order) refuses the file
+        // even beside a valid one: it may hold the newest commit, and no tear can make
+        // one (spec § 2, § 7).
+        if let Some(e) = foreign {
+            return Err(e);
+        }
         let Some(newest) = valid.first().copied() else {
-            return Err(match (heads.error, foreign) {
-                (Some(e), _) => ContainerError::Read(e),
-                (None, Some(e)) => e,
-                (None, None) if any_magic => ContainerError::NotCommitted,
-                (None, None) => ContainerError::NotAContainer,
+            return Err(match heads.error {
+                Some(e) => ContainerError::Read(e),
+                None if any_magic => ContainerError::NotCommitted,
+                None => ContainerError::NotAContainer,
             });
         };
         let mut first_error = None;
-        for header in &valid {
+        for (position, header) in valid.iter().enumerate() {
             // A commit that needs a feature this reader lacks is refused, not skipped.
             let unknown = header.required & !KNOWN_REQUIRED;
             if unknown != 0 {
@@ -143,8 +152,9 @@ impl<S: ByteSource> Container<S> {
                         source,
                         header: *header,
                         entries,
-                        recovered_from: (header.generation != newest.generation)
-                            .then_some(newest.generation),
+                        // Whenever the block used is not the first in order, a tie
+                        // included: an update then needs consent.
+                        recovered_from: (position > 0).then_some(newest.generation),
                         unreadable_block: heads.unreadable,
                     });
                 }
@@ -175,7 +185,9 @@ impl<S: ByteSource> Container<S> {
     }
 
     /// The generation of a newer commit that could not be read, when the file was
-    /// opened at an older one (see [`open`](Self::open)); `None` normally.
+    /// opened from a block other than the first in order (see [`open`](Self::open));
+    /// `None` normally. On a tie whose block 0 is unusable it is the generation of
+    /// both blocks.
     #[must_use]
     pub fn recovered_from(&self) -> Option<u64> {
         self.recovered_from
@@ -372,11 +384,14 @@ fn read_toc<S: ByteSource>(source: &S, header: &Header) -> Result<Vec<Entry>, Co
         ));
     }
     let entries = layout::decode_toc(&toc, header.toc_offset)?;
-    // The segment manifest goes with required bit 0 (spec § 10); a file with the bit
-    // never gets here, so a manifest here is one without it.
-    if entries.iter().any(|e| e.kind == Kind::SEGMENTS) {
+    // The segment manifest and `seg/` names go with required bit 0 (spec § 4, § 10); a
+    // file with the bit never gets here, so one here is a file without it.
+    if entries
+        .iter()
+        .any(|e| e.kind == Kind::SEGMENTS || e.name.starts_with(SEGMENT_PREFIX))
+    {
         return Err(ContainerError::Corrupt(
-            "a segment manifest without the segments feature",
+            "a segment manifest or segment section without the segments feature",
         ));
     }
     Ok(entries)

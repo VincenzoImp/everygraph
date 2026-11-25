@@ -57,7 +57,7 @@ def entries(toc, toc_offset):  # § 4: [[name, kind, codec, offset, length, hash
         need(not out or out[-1][0].encode() < name.encode(), "names unsorted")
         out.append([name, kind, codec, offset, length, toc[32 + i * size + 24:32 + i * size + 56], prov])
     need(seen == names_len, "name area")
-    need(all(e[1] != 6 for e in out), "a segment manifest without the segments feature")
+    need(all(e[1] != 6 and not e[0].startswith("seg/") for e in out), "segments without the segments feature")
     spans = sorted((e[3], e[4]) for e in out)
     need(all(pad_end(*a) <= b[0] for a, b in zip(spans, spans[1:])), "sections overlap")
     for i, e in enumerate(out):
@@ -75,7 +75,7 @@ def open_container(f):  # § 7: two reads
     if not blocks:
         raise SystemExit("no valid header block")
     blocks.sort(key=lambda h: (-h[0], h[1]))  # newest first; block 0 on a tie
-    for generation, _, required, toc_offset, toc_len, toc_hash in blocks:
+    for position, (generation, _, required, toc_offset, toc_len, toc_hash) in enumerate(blocks):
         if required:  # § 10; bit 0 is `segments`, reserved
             raise SystemExit(f"needs unknown features {required:#x}" + (" (segments)" if required & 1 else ""))
         try:
@@ -83,7 +83,8 @@ def open_container(f):  # § 7: two reads
             f.seek(toc_offset)
             toc = f.read(toc_len)
             need(len(toc) == toc_len and blake3(toc) == toc_hash, "TOC hash")
-            return generation, blocks[0][0], (toc_offset, toc_len), entries(toc, toc_offset)
+            # recovered: the block used is not the first in order (a tie included)
+            return generation, position > 0, (toc_offset, toc_len), entries(toc, toc_offset)
         except (Bad, UnicodeDecodeError, struct.error) as e:
             print(f"warning: commit {generation} is unusable ({e})", file=sys.stderr)
     raise SystemExit("no usable table of contents")
@@ -157,7 +158,7 @@ def main(argv):
     if len(argv) < 3 or argv[1] not in ("list", "verify"):
         raise SystemExit(__doc__)
     with open(argv[2], "rb") as f:
-        generation, newest, (toc_offset, toc_len), found = open_container(f)
+        generation, recovered, (toc_offset, toc_len), found = open_container(f)
         if argv[1] == "verify":
             bad = [e[0] for e in found if not verify(f, e)]
             if not zeros(f, toc_offset + toc_len, pad_end(toc_offset, toc_len)):
@@ -167,7 +168,7 @@ def main(argv):
     keys = ("name", "kind", "codec", "offset", "length", "hash", "provenance")
     rows = [dict(zip(keys, e[:5] + [e[5].hex(), e[6]])) for e in found]
     if "--json" in argv:
-        print(json.dumps({"generation": generation, "recovered": newest != generation, "sections": rows}))
+        print(json.dumps({"generation": generation, "recovered": recovered, "sections": rows}))
     else:
         print(f"commit {generation}, {len(rows)} sections")
         for r in rows:

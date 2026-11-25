@@ -13,7 +13,9 @@ the same sections (name, kind, codec, offset, length, hash, provenance):
 - the newest table damaged (its hash fails): both fall back to commit 1;
 - both header blocks at the same generation: block 0 wins;
 - an unknown required feature bit on the *older* block only: commit 2 opens;
-- the reserved `segments` bit (0) on the newest block: both refuse the file;
+- the reserved `segments` bit (0) on the newest block, and a newest block of a later
+  major version: both refuse the file;
+- a `seg/` name in the newest table without the segments bit: both fall back;
 - the newest table re-hashed after breaking a rule (kind 0), and after giving a name
   bytes that are not UTF-8: both fall back to commit 1;
 
@@ -134,6 +136,21 @@ def main():
         print(rust, python.stdout + python.stderr)
         raise SystemExit("FAILED: a file with the segments bit was not refused by both readers")
     print("ok: required bit 0 (segments) on the newest block — both readers refuse the file")
+
+    # A foreign newest block (major version 2) refuses the file in both readers (§ 7).
+    path = fixture(sample, "foreign.eg", lambda d: patch_header(d, 1, lambda b: b.__setitem__(slice(12, 14), struct.pack("<H", 2))))
+    rust = json.loads(run([*SAMPLE, "list", path]).stdout)
+    python = python_reader("list", path, "--json", ok=(1,))
+    if "version 2" not in rust.get("error", "") or "version 2" not in python.stderr:
+        print(rust, python.stdout + python.stderr)
+        raise SystemExit("FAILED: a foreign newest block was not refused by both readers")
+    print("ok: a newest block of major version 2 — both readers refuse the file")
+
+    def seg_name(toc):  # "x.many-chunks" → "seg/manychunk": same length, same order
+        at = bytes(toc).rindex(b"x.many-chunks")
+        toc[at:at + 13] = b"seg/manychunk"
+    path = fixture(sample, "seg-name.eg", lambda d: patch_newest_toc(d, seg_name))
+    compare(path, 1, True, "a seg/ name without the segments bit: fall back")
 
     path = fixture(sample, "kind-zero.eg", lambda d: patch_newest_toc(d, lambda t: t.__setitem__(slice(32, 36), bytes(4))))
     compare(path, 1, True, "the newest table breaks a rule (kind 0): fall back")

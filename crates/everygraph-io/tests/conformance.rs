@@ -17,7 +17,10 @@ use everygraph_core::{
     AccessHint, AlignedBuf, ByteSource, MemorySource, ReadError, SEGMENT_ALIGN, SegmentReader,
     Segments,
 };
-use everygraph_io::{AppendSink, BlockWriter, FileSink, FileSource, MmapSource, SpillLogs};
+use everygraph_io::{AppendSink, BlockWriter, FileSource, MmapSource, SpillLogs};
+// Only the guard test uses it, and the guard is Unix only.
+#[cfg(unix)]
+use everygraph_io::FileSink;
 
 const A: usize = SEGMENT_ALIGN;
 

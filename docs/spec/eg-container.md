@@ -150,9 +150,11 @@ offset  size  field
   number as 8 lowercase hexadecimal digits + `/` + the name the section would have in an
   unsegmented file (`seg/0000002a/adjacency.out.index`). The base run keeps the names
   of an unsegmented file. Bytewise name order then groups a segment's sections and
-  orders segments by number. A 1.0 writer writes no such name (nor kind 6); a 1.0
-  reader treats them as ordinary names, since a file with segments also sets required
-  bit 0 and is refused first (§ 10).
+  orders segments by number. Such names go with required bit 0, as kind 6 does (§ 10):
+  a file with segments sets the bit and a 1.0 reader refuses it first, and a TOC that
+  holds a `seg/` name in a file *without* the bit breaks a rule (§ 7). So no 1.0 reader,
+  writer or compaction ever meets one in a file it accepts. A 1.0 writer writes no such
+  name (nor kind 6).
 - The **name area** is exactly the names, concatenated in entry order: entry `i`'s name
   offset is the sum of the lengths of the names before it, and the names length is the
   sum of all of them. A reader checks both. So what a reader holds of the names is at
@@ -230,13 +232,19 @@ key.
 
 **Graph identity.** A result's provenance record holds the parameter `graph`: the
 **graph identity**, as 64 lowercase hexadecimal digits — BLAKE3 of the concatenation, in
-name order, of the 32-byte hashes of the sections that define the graph (kinds 2 to 5:
-adjacency index and data, `.events`, dictionary; and the property columns once #37
-assigns their kind). For a segmented file (§ 13) it is BLAKE3 of the manifest's hash
-alone, since the manifest lists the hashes of every run's sections. A reader serves a
-stored result only for a graph with that identity: after an append the graph has a new
-identity, and results stored before it remain what they are, results as of the earlier
-graph, never served as results of the new one.
+name order, over every section that defines the graph, of `kind` (`u32`), the name's
+length in bytes (`u32`), the name, and the section's 32-byte hash. So two files whose
+graph sections differ in kind, name or content never share an identity. The kinds that
+define the graph are those 1.0 defines as such — 2 to 5 (adjacency index and data,
+`.events`, dictionary) and the property-column kinds #37 assigns before 1.0 is
+released. A kind added later that defines the graph is announced with a required
+feature bit (§ 10), so that a reader that does not know it refuses the file instead of
+computing an identity without it. For a segmented file (§ 13) the identity is BLAKE3 of
+the manifest's `(kind, name length, name, hash)` alone, since the manifest lists the
+hashes of every run's sections. A reader serves a stored result only for a graph with
+that identity: after an append the graph has a new identity, and results stored before
+it remain what they are, results as of the earlier graph, never served as results of
+the new one.
 
 **Other parameters.** No field beyond the key/value parameters is needed for what the
 measurement review asks a build to record (`docs/research/sota-measurement.md`, § 4,
@@ -263,7 +271,10 @@ Opening a file costs **two positional reads**, whatever its size:
    fails this read, read the 128 bytes of each block on their own, so that one
    unreadable sector does not hide the other block; a block that still cannot be read
    is *unreadable*.
-2. Take the valid block with the highest generation; on a tie, block 0. Refuse the file
+2. If either block is foreign, refuse the file, even when the other block is valid: a
+   foreign block cannot come from a tear (§ 2), it may hold the newest commit, and a
+   reader that opened the other block would let a writer destroy it.
+3. Take the valid block with the highest generation; on a tie, block 0. Refuse the file
    if *that block's* required features contain a bit the reader does not know (the
    other block's bits do not matter unless it is used). Read its TOC (TOC offset, TOC
    length), check the TOC hash, then check the TOC (below).
@@ -276,12 +287,13 @@ it had not performed, a bad sector, or a failing network can. A read error is tr
 like damage here because a reader cannot tell a bad sector from a passing failure; a
 caller that would rather retry than see the older commit checks what the reader said.
 If one block was unreadable and the other is used, the reader says so too: the
-unreadable block may have held a newer commit.
+unreadable block may have held a newer commit. A reader says it fell back whenever the
+block it used is not the first in the order of step 3 — on a tie whose block 0 is
+unusable as well — so that a writer needs consent before overwriting the other (§ 8).
 
-If no block is valid, the file is refused: with the read error when a block was
-unreadable; as unreadable by this version when a block is foreign; as "never completed"
-when a block has the magic (a first commit that did not finish); as "not an `.eg` file"
-otherwise.
+If no block is valid (and none is foreign), the file is refused: with the read error
+when a block was unreadable; as "never completed" when a block has the magic (a first
+commit that did not finish); as "not an `.eg` file" otherwise.
 
 A reader checks, before trusting a TOC: the magic; the entry size; the exact length;
 for every entry, kind ≠ 0, name length 1–1024, name offset equal to the sum of the
@@ -289,7 +301,8 @@ name lengths before it, valid UTF-8, offset a multiple of 4096 and at least 8192
 padded end at or before the TOC offset, no provenance reference on an entry of kind 1;
 the names length equal to the sum of all name lengths; names strictly increasing; no two
 sections overlapping (padding included); every provenance index naming another entry of
-kind 1. The TOC offset must be a multiple of 4096, at least 8192, and its length at
+kind 1; and, in a file without required bit 0, no entry of kind 6 and no name beginning
+with `seg/`. The TOC offset must be a multiple of 4096, at least 8192, and its length at
 least 32 and at most 16 MiB.
 
 **Length and padding.** A valid file is at least as long as its committed end (the TOC's
@@ -340,10 +353,15 @@ for a new file):
 **A failed write or sync.** If any write, length change or sync fails, the commit is not
 acknowledged and the writer is **poisoned**: it does nothing more, and the file must be
 opened again to go on. In particular a sync that returned an error is never retried and
-then trusted: after a failed `fsync`, Linux may already have dropped the dirty pages it
-could not write and report success on the next call (the "fsyncgate" behaviour; Rebello
-et al., *Can Applications Recover from fsync Failures?*, USENIX ATC 2020). Reopening
-reads what is really on the disk, which the rules above make one of the two commits.
+then trusted: after a failed `fsync`, Linux may mark the dirty pages it could not write
+clean, report success on the next call, and keep serving from the page cache bytes that
+never reached the disk (the "fsyncgate" behaviour; Rebello et al., *Can Applications
+Recover from fsync Failures?*, USENIX ATC 2020). So reopening is not "reading what is on
+the disk". The protocol is safe anyway: a commit rewrites, whole, every byte after the
+committed end it relies on (sections, padding, TOC and its padding, header block), and
+relies on bytes before the committed end only through syncs that succeeded. Whatever the
+page cache holds of a failed commit lies past the committed end of the commit the file
+reads as, and the next writer writes over it.
 
 When `g` is 2^64 − 1 there is no next generation: the writer refuses to commit and
 writes nothing (generations never wrap; a wrapped one would be a commit that is not the
@@ -418,8 +436,9 @@ from the TOC alone (`Container::reclaimable_bytes`).
 
 ## 10. Versions
 
-- **Major version.** A reader refuses a major version it does not know. A new major
-  version is needed when a reader of the previous one would misread the file.
+- **Major version.** A reader refuses a major version it does not know, in either
+  header block (§ 7). A new major version is needed when a reader of the previous one
+  would misread the file.
 - **Minor version.** A reader reads every minor version of its major. A new minor
   version may only add what an older reader can ignore: kinds, codecs, optional feature
   bits, longer TOC entries, meanings for reserved fields. A writer does not update a
@@ -440,6 +459,8 @@ from the TOC alone (`Container::reclaimable_bytes`).
   None are defined in 1.0.
 - **Unknown kinds** are listed and skipped — only kinds the reader does not know; the
   kinds 1.0 defines, 2–5 above all, are read by every reader that reads the graph (§ 5).
+  A kind added after 1.0 that defines the graph (and so enters its identity, § 6) is
+  announced with a required feature bit.
   **Unknown codecs** make a section unreadable but not unverifiable (§ 5).
 
 ## 11. Memory maps and concurrent use
