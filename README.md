@@ -28,6 +28,26 @@ machine.
 3. **See it and trust it** — a zoomable map of the whole graph, exact numbers at every
    level, identical results at any thread count, shareable as one static file.
 
+## What is new, and what is not
+
+Most of the parts have been published before. Prior art includes:
+
+- hierarchical graph maps served as data tiles (Uncharted's Aperture Tiles, 2015);
+- a fan-out cap of 64 (ASK-GraphView, 2006);
+- compressed adjacency that is faster than raw arrays in parallel (Ligra+, 2015);
+- recursive re-clustering of oversized communities, Elias–Fano offsets, and seeded node
+  relabelling;
+- estimating memory and refusing a run before it starts (Neo4j GDS).
+
+What we claim is the combination, and what holds it together:
+
+- identical results at any thread count, memory budget and execution regime;
+- a deterministic, budgeted build from text to graph;
+- a map of a 1.8 B-edge graph on one machine under a memory budget, with stated omissions
+  (the aim: not yet run end to end, see below).
+
+The literature reviews behind this are in [docs/research/](docs/research/README.md).
+
 ## What the feasibility lab measured
 
 One workstation (Ryzen 9 7950X, 61 GB RAM, NVMe). Rows marked † were measured while other

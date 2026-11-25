@@ -168,6 +168,14 @@ records of § 1; a reader refuses any other value. (The issue reserves the field
 archival block coding, varint + zstd, measured at 2.4 bits per entry on a web graph in
 FINDINGS § C; it is not specified yet.)
 
+An encoder is a deterministic function of its input. The codec byte it writes for a block,
+and every parameter of that codec, depend only on the lists of the block and on the
+encoder's fixed settings, never on random sampling, timing, the thread count or the memory
+budget. Equal input therefore gives equal bytes (DESIGN D7, D14). Adaptive formats that
+choose an encoding by sampling with a random generator, as BtrBlocks does
+(`docs/research/sota-ingest-query.md` § 3), are excluded; any sampling a future codec needs
+is seeded by position.
+
 Any valid directory may be written. The encoder of `everygraph-format` writes blocks
 greedily: a block closes before a list that would take it past 65,536 entries, or when it
 holds 65,536 nodes; a list longer than 65,536 entries therefore has a block of its own,

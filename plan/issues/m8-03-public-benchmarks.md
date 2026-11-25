@@ -11,6 +11,7 @@ labels: type:docs, area:bench, P0, risk:medium, size:M, lab-evidence
 - [ ] Comparisons with pinned versions and per-tool notes on what is included; invite maintainers of compared tools to review before publication
 - [ ] Default-storage numbers come from FINDINGS § M1-13 with their conditions; raw-array numbers are labelled as such
 - [ ] One-command reproduction kit with dataset fetchers
+- [ ] LDBC Graphalytics as one recognised workload (added 2026-11-25, {{#m1-20-ldbc-graphalytics}}): run by its rules (3 repetitions, timeouts by scale class), PageRank in f64, published with the sentence "These are not LDBC Benchmark Results" and how the runs differ; graph500-30 (447 M nodes, 17 B edges) as a public bigger-than-RAM case for the 61 GB machine
 - [ ] A "where we lose" section (e.g. Gephi on styling small graphs, Neo4j on Cypher, GPUs on raw throughput, BV on web-graph compression)
 - [ ] Comparison runners left unavailable by {{#m0-03-bench-harness}}: Neo4j + GDS (needs a server-lifecycle runner: download, import, start bound to 127.0.0.1, stop by PID) and DuckPGQ (needs a DuckDB release compatible with the extension, beside the pinned one); each recorded with tool, version, algorithm and options like the others
 
