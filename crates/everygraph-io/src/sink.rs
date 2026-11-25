@@ -192,9 +192,9 @@ impl BlockWriter {
         let align = SEGMENT_ALIGN as u64;
         let end = offset.checked_add(data.len() as u64);
         let ends_file = end == Some(self.len);
-        if offset % align != 0
+        if !offset.is_multiple_of(align)
             || end.is_none_or(|end| end > self.len)
-            || (data.len() % SEGMENT_ALIGN != 0 && !ends_file)
+            || (!data.len().is_multiple_of(SEGMENT_ALIGN) && !ends_file)
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -207,7 +207,7 @@ impl BlockWriter {
             ));
         }
         let aligned_in_memory = data.as_ptr().align_offset(SEGMENT_ALIGN) == 0;
-        if !self.direct || (aligned_in_memory && data.len() % SEGMENT_ALIGN == 0) {
+        if !self.direct || (aligned_in_memory && data.len().is_multiple_of(SEGMENT_ALIGN)) {
             return sys::write_all_at(&self.file, data, offset);
         }
         // TODO(#31 integration): up to 1 MiB allocated per call, outside the memory

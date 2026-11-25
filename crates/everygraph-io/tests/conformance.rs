@@ -179,7 +179,8 @@ fn check(name: &str, source: &(dyn ByteSource + Sync), expected: &[u8]) {
                 for _ in 0..200 {
                     let offset = rng.below(n);
                     let want = rng.below(n - offset).min(3 * A + 1);
-                    let got = read(source, offset as u64, want, rng.next() % 2 == 0).unwrap();
+                    let got =
+                        read(source, offset as u64, want, rng.next().is_multiple_of(2)).unwrap();
                     assert!(
                         got == expected[offset..offset + want],
                         "{name}: thread {t}, {want} at {offset}"
