@@ -41,10 +41,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "everygraph-format"
+version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+]
+
+[[package]]
+name = "everygraph-kernels"
+version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-format",
+]
+
+[[package]]
 name = "everygraph-wasm-toy"
 version = "0.0.0"
 dependencies = [
  "everygraph-core",
+ "everygraph-format",
+ "everygraph-kernels",
 ]
 
 [[package]]

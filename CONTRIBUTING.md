@@ -25,6 +25,7 @@ cargo build -p everygraph-ingest --target wasm32-unknown-unknown
 cargo build -p everygraph-wasm --target wasm32-unknown-unknown
 cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets -- -D warnings
 cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
+cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown -- -D warnings
 RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo deny check                            # offline: cargo deny check bans licenses sources
@@ -36,7 +37,7 @@ And the checks of the checks, each one command (what they do: "CI" below):
 
 ```sh
 python3 tools/check_portability_canary.py   # the portability checks still catch each probe
-python3 tools/check_wasm_toy.py             # toy kernel: native and wasm32 in Node agree
+python3 tools/check_wasm_toy.py             # toy kernel and the edge-map proof kernels: native and wasm32 in Node agree
 python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
@@ -75,6 +76,7 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p 
 cargo +nightly miri test -p everygraph-format
 RUSTFLAGS="-C target-feature=+ssse3" cargo +nightly miri test -p everygraph-format --test adjacency
 cargo +nightly miri test -p everygraph-io --test allocation_failure
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-kernels --lib
 ```
 
 The last two run the adjacency codec's tests on the scalar decoder, then on the SSSE3 one
@@ -104,7 +106,7 @@ what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm) and the codec's wasm32 clippy runs (with and without `simd128`), the wasm toy, the wasm codec check (`simd128` in Node against scalar), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two included), then `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map proof kernels), the wasm codec check (`simd128` in Node against scalar), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map proof kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two and the kernels' included), then `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 
 Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
@@ -157,9 +159,10 @@ What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is 
   `tools/canary/allocation/` do the same for the allocation rule (below) in each kernel
   crate.
 - **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
-  through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
-  as wasm32 in Node, and compares the hashes. Real kernels replace it with the
-  determinism CI (m3-11).
+  through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) and the edge-map
+  framework's proof kernels (PageRank, WCC, BFS over the raw and the compressed source)
+  natively with rayon and as wasm32 in Node, and compares the hashes. The determinism
+  CI (m3-11) replaces it.
 - **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
   ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
   `tools/canary/tsan/`, a toy kernel on `par` with a deliberate data race, which must be
@@ -177,7 +180,7 @@ describing it).
 | `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks; the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31 | no — the one crate for OS I/O |
 | `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
-| `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
+| `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes, enforced |
 | `everygraph-community` | Leiden and the map hierarchy | #57 | yes |
 | `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
@@ -288,6 +291,7 @@ forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests
 |---|---|---|
 | `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
 | `crates/everygraph-io/tests/allocation_failure.rs`, module `refusing` | A test that makes the allocator refuse, to reach every `MemoryError::AllocationFailed` path of `SegVec` and `ScratchPool`: replacing the global allocator is an `unsafe impl GlobalAlloc`. It is not in `everygraph-core` because the core forbids `unsafe` in every crate root, its tests included | `cargo +nightly miri test -p everygraph-io --test allocation_failure` |
+| `everygraph-kernels`, `src/edge_map/` (the brand and the unchecked indexing are in `node.rs`; the drivers turn checked lists into nodes; the sources' `unsafe impl Source`) | Kernels index per-node state with the targets of lists millions of times; the lists are checked once, when decoded or read, to name only nodes of the graph, and a `Node<'g>` carries that proof (a generative lifetime brand, as `GhostCell` does), so indexing with it needs no bounds check. Removing the checks took orkut WCC from 1.36× to 1.03× of the lab's hand-written loop at one thread and BFS from 1.16× to 0.99× (exploratory, interleaved; PR of #44) | `src/edge_map/node.rs` unit tests reach every block (`cargo +nightly miri test -p everygraph-kernels --lib`, Tree Borrows, rayon); the drivers' casts are reached by the doc test and by `tests/framework.rs` and `tests/oracle.rs` natively |
 | `everygraph-format`, `src/adjacency/` (the `unsafe` code is in `simd.rs`) | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly arm64 jobs (`cargo test (format)`); `simd128` by `tools/check_wasm_codec.py` in Node |
 
 To add one, in a single pull request:
@@ -309,6 +313,7 @@ To add one, in a single pull request:
    requires for `unsafe` code.
 
 Where we expect to need it, from the lab prototypes: SIMD in the adjacency codec (#30),
+unchecked indexing by checked node ids in the edge-map framework (#44),
 disjoint parallel writes into shared arrays in the build pipeline and in Leiden (#35,
 #57), and the generated glue of the Python and
 browser bindings (#81, #108). `everygraph-core` is expected to stay free of it.

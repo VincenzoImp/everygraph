@@ -52,6 +52,15 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
     for (v, &o) in offsets.iter().enumerate() {
         assert_eq!(index.entry_offset(id(v)).get(), o);
     }
+    // Degrees in one pass, from every start, to the end and cut short.
+    let n32 = id(n).get();
+    let degree = |v: u32| offsets[ix(v) + 1] - offsets[ix(v)];
+    for start in (0..=n32).step_by(if MIRI { 97 } else { 13 }) {
+        for end in [n32, (start + 5).min(n32)] {
+            let got: Vec<u64> = index.degrees(start..end).map(u64::from).collect();
+            assert_eq!(got, (start..end).map(degree).collect::<Vec<_>>(), "degrees {start}..{end}");
+        }
+    }
     for decoder in Decoder::available() {
         let adj = Adjacency::new(&index, &encoded.data)
             .unwrap()
