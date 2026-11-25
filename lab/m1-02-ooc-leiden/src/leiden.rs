@@ -1261,7 +1261,12 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         });
         let c_new = par_sum_u(pool, n, |u| flag[u].load(Relaxed) as u64) as usize;
         st.comms = c_new;
-        let converged = (moves == 0 && !(iter > 0 && pass == 0)) || pass + 1 == o.max_passes || (cur_cap == 0 && (c_new as f64) > o.agg_tol * (n as f64));
+        // m1-05 (#19): vertices of strength 0 (isolated) are singleton communities forever; they
+        // are left out of the shrinkage test, else a graph with many of them stops aggregating
+        // early (lj with 1% of its edges dropped, 7,799 isolated nodes: 9,559 communities in 6
+        // passes instead of about 1,350 in 7). A graph without isolated vertices is unchanged.
+        let iso = par_sum_u(pool, n, |u| (kk[u] == 0.0) as u64) as usize;
+        let converged = (moves == 0 && !(iter > 0 && pass == 0)) || pass + 1 == o.max_passes || (cur_cap == 0 && ((c_new - iso) as f64) > o.agg_tol * ((n - iso) as f64));
         if o.verbose {
             eprintln!(
                 "pass {} n {} entries {} iters {} moves {} -> {} comms  lm {:.3}s ref {:.3}s",

@@ -107,6 +107,10 @@ pub const F_DEAD: u8 = 4;
 /// communities shown as one (hatched), and a community cut into parts only to be drawn (dashed).
 pub const F_AGG: u8 = 8;
 pub const F_SUBDIV: u8 = 16;
+/// An aggregate inside an aggregate: the shaped tree splits a long tail of small communities
+/// into nested aggregates to bound fan-out, but the design draws one hatched area per parent
+/// ("+N smaller communities"), so the viewer does not draw these (their communities are drawn).
+pub const F_AGG_INNER: u8 = 32;
 
 /// Tree node of the map hierarchy (56 bytes on disk, little endian, repr(C)).
 #[repr(C)]

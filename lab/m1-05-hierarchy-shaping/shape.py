@@ -5,7 +5,7 @@
     shape.py build   --method M --store S --work W [...]            -> W/tree_<M>.npz
     shape.py metrics --tree W/tree_<M>.npz --store S --out R.json   fan-out, modularity, conductance, derived share
     shape.py export  --tree W/tree_<M>.npz --out HIERDIR            gmap hierarchy (levels by height, kinds)
-    shape.py compare --tree A.npz --tree B.npz [--perturbed]        agreement of the top levels (ARI, NMI)
+    shape.py compare --tree A.npz --tree B.npz [--mask DEG.u32]     agreement level by level (roles), ARI and NMI
 
 Methods (issue #19 candidates; F = target fan-out, default 64):
     capin     the cap during coarsening (lab baseline): m102 --cap F --max-passes 20 --min-ratio 3,
@@ -15,22 +15,31 @@ Methods (issue #19 candidates; F = target fan-out, default 64):
     capafter  T first, then a capped coarsening inside every community of T (cut graph with
               degree-restoring self-loops: the full graph's modularity, moves only inside T), then T
               as a level, then the post-pass
-    rec       T at depth 1; every community with more than F nodes is split again by Leiden on its
-              own subgraph with its own null model (local modularity, resolution 1): one m102 run per
-              round over the disjoint union of the regions (per-node resolution multipliers make the
-              runs independent); then the post-pass
-    nest      as rec, but with the full graph's null model and a resolution that grows per round
-              (gamma = beta^round): nested resolution levels; then the post-pass
+    rec       T; every region with more than 64 nodes is split again by Leiden on its own subgraph
+              with its own null model (local modularity, resolution 1). One m102 run per round, on
+              the cut graph of that round's active regions only (renumbered); per-node resolution
+              multipliers give each region its own null model. Super-communities above T when T
+              needs more than F-1 communities to cover 90% of the nodes (--up auto). Then the post-pass.
+    rec-up    rec with the super level always built (--up on)
+    nest      nested resolution levels: as rec, with full degrees (degree-restoring self-loops) and
+              the null model of the region's own volume, at gamma = beta^(k+1) for the k-th split
+              below T; an indivisible region above 384 nodes tries again one step finer
+    nest-up   nest with the super level always built
 
 The post-pass (satellite aggregates): every region with more than F children keeps its F-1
-largest children and puts the others into one aggregate ("N small communities"). Inside an
-aggregate, as in the design (design/preview/style/viewer.html, `expand` of an aggregate), the
-largest members are drawn one by one (F/2 of them) and the rest is split by size rank into at
-most F/2 smaller aggregates, recursively: at most F children everywhere, depth logarithmic.
+largest children and puts the others into one aggregate. Inside an aggregate the largest members
+(F/2) are direct children and the rest is split by size rank into at most F/2 smaller
+aggregates, recursively: at most F children everywhere, depth logarithmic. The drawing shows
+one hatched area per parent ("+N smaller communities", design/preview/style/viewer.html): the
+nested aggregates are not drawn (gmap flags them, the viewer and svgmap.py skip them).
+
+Roles (Tree.role): every region records the level of meaning it belongs to (super, T, T+1, ...),
+so that T is found as an antichain of the tree whatever the depths, and two trees are compared
+level by level (compare, metrics' by_role).
 
 Everything is a fixed function of the graph, T and the seed: m102 runs in deterministic mode, and
 every tie is broken by id. Kinds: 0 root, 1 found community, 2 aggregate, 3 subdivision (a split
-that needed a resolution above the method's own).
+that needed a resolution above the method's own: rec --retries only).
 """
 import argparse
 import json
@@ -83,38 +92,47 @@ def store_n(store):
 
 # ------------------------------------------------------------------------------------- tree
 class Tree:
-    """par[i], kind[i], nn[i] (graph nodes inside), ncomm[i] (found communities directly in an
-    aggregate subtree, for its label), gmul[i] (resolution multiplier of the split that made it).
-    leaf[u] = the tree leaf holding graph node u."""
+    """par[i], kind[i], nn[i] (graph nodes inside), ncomm[i] (communities inside an aggregate,
+    for its label), role[i]. leaf[u] = the tree leaf holding graph node u.
+
+    role: what level of meaning a region belongs to, so that trees can be compared level by
+    level whatever their depths: 0 root, 1 super-community (above T), 2 the partition T (for
+    capin: its own top partition), 2+k the k-th split below T (rec/nest round k; the k-th
+    natural or capped level below the top for the level-built trees), -1 aggregate (a drawing
+    aid: skipped). Roles only grow along a path from the root; when a one-child region is
+    removed its child keeps the smaller role (they hold the same nodes), so T is always found
+    as the deepest region of role <= 2 on a node's path (T is the antichain of role-2 regions)."""
 
     def __init__(self, n):
         self.par = np.array([-1], np.int64)
         self.kind = np.array([ROOT], np.uint8)
         self.nn = np.array([n], np.int64)
         self.ncomm = np.array([0], np.int64)
+        self.role = np.array([0], np.int16)
         self.leaf = np.zeros(n, np.int64)
 
     @property
     def size(self):
         return len(self.par)
 
-    def add(self, par, kind, nn, ncomm=None):
+    def add(self, par, kind, nn, role, ncomm=None):
         k = len(par)
         ids = np.arange(self.size, self.size + k, dtype=np.int64)
         self.par = np.concatenate([self.par, np.asarray(par, np.int64)])
         self.kind = np.concatenate([self.kind, np.broadcast_to(np.asarray(kind, np.uint8), (k,))])
         self.nn = np.concatenate([self.nn, np.asarray(nn, np.int64)])
         self.ncomm = np.concatenate([self.ncomm, np.zeros(k, np.int64) if ncomm is None else np.asarray(ncomm, np.int64)])
+        self.role = np.concatenate([self.role, np.broadcast_to(np.asarray(role, np.int16), (k,))])
         return ids
 
     def save(self, path, meta):
-        np.savez(path, par=self.par, kind=self.kind, nn=self.nn, ncomm=self.ncomm, leaf=self.leaf, meta=json.dumps(meta))
+        np.savez(path, par=self.par, kind=self.kind, nn=self.nn, ncomm=self.ncomm, role=self.role, leaf=self.leaf, meta=json.dumps(meta))
 
     @staticmethod
     def load(path):
         z = np.load(path)
         t = Tree.__new__(Tree)
-        for k in ["par", "kind", "nn", "ncomm", "leaf"]:
+        for k in ["par", "kind", "nn", "ncomm", "role", "leaf"]:
             setattr(t, k, z[k])
         return t, json.loads(str(z["meta"]))
 
@@ -160,18 +178,26 @@ class Tree:
             anc[bad] = self.par[anc[bad]]
         new = np.cumsum(keep) - 1
         self.par = np.where(np.arange(self.size) == 0, -1, new[anc])[keep]
-        self.kind, self.nn, self.ncomm = self.kind[keep], self.nn[keep], self.ncomm[keep]
+        self.kind, self.nn, self.ncomm, self.role = self.kind[keep], self.nn[keep], self.ncomm[keep], self.role[keep]
         # only empty nodes and one-child internal nodes are ever removed, never a leaf
         assert keep[self.leaf].all()
         self.leaf = new[self.leaf]
 
     def collapse_single(self):
-        """Remove every non-root node that has exactly one child (the child takes its place)."""
+        """Remove every non-root node that has exactly one child (the child takes its place and
+        the smaller of the two roles: both regions hold the same nodes)."""
         order, start = self.children_index()
         nch = np.diff(start)
         drop = (nch == 1)
         drop[0] = False
         if drop.any():
+            d = np.nonzero(drop)[0]
+            only = order[start[d]]
+            while True:  # down chains of one-child regions
+                r = np.minimum(self.role[only], self.role[d])
+                if (r == self.role[only]).all():
+                    break
+                self.role[only] = r
             self.compact(~drop)
 
 
@@ -187,9 +213,9 @@ def levels_to_tree(n, levels):
         nodes.append(np.bincount(levels[k], weights=nodes[k - 1], minlength=sizes[k]).astype(np.int64))
     ids = [None] * len(levels)
     top = len(levels) - 1
-    ids[top] = t.add(np.zeros(sizes[top], np.int64), COMM, nodes[top])
+    ids[top] = t.add(np.zeros(sizes[top], np.int64), COMM, nodes[top], 2)
     for k in range(top - 1, -1, -1):
-        ids[k] = t.add(ids[k + 1][levels[k + 1]], COMM, nodes[k])
+        ids[k] = t.add(ids[k + 1][levels[k + 1]], COMM, nodes[k], 2 + top - k)
     t.leaf = ids[0][levels[0]]
     alive = np.ones(t.size, bool)
     alive[1:] = t.nn[1:] > 0
@@ -237,7 +263,7 @@ def bound_fanout(t, F, kmax):
         ch = ch[rank]
         build(ch[F - 1:], int(p))
     if new_par:
-        t.add(np.array(new_par), AGG, np.array(new_nn), np.array(new_nc))
+        t.add(np.array(new_par), AGG, np.array(new_nn), -1, np.array(new_nc))
         keys = np.fromiter(reparent.keys(), np.int64)
         vals = np.fromiter(reparent.values(), np.int64)
         t.par[keys] = vals
@@ -273,8 +299,9 @@ def upward(a, n, T):
     all (--agg-tol 0.99): at low resolution the default (stop below 20% shrinkage) stops early
     on road networks (roadnet-ca, 1/128: 122 groups to cover 90% against 16). Returns (per-node group label or None, record)."""
     _, Tinv, Tcnt = np.unique(T, return_inverse=True, return_counts=True)
-    rec = {"cover90_T": cover(Tcnt), "tries": []}
-    if a.up == "off" or (a.up == "auto" and rec["cover90_T"] <= a.F - 1):
+    rec = {"cover90_T": cover(Tcnt), "tries": [], "mode": a.up}
+    rec["built"] = not (a.up == "off" or (a.up == "auto" and rec["cover90_T"] <= a.F - 1))
+    if not rec["built"]:
         return None, rec
     best = None
     for j in range(1, 17):
@@ -292,7 +319,8 @@ def upward(a, n, T):
         g_of_T[kt[o][first]] = kp[o][first]
         gsize = np.bincount(g_of_T, weights=Tcnt)
         c = cover(gsize[gsize > 0])
-        rec["tries"].append({"gamma": gamma, "groups": int((gsize > 0).sum()), "cover90": c, "leiden_s": d["time_s"]})
+        rec["tries"].append({"gamma": gamma, "groups": int((gsize > 0).sum()), "cover90": c, "leiden_s": d["time_s"], "wall_s": d["_wall_s"],
+                             "anon_peak_kb": d.get("rss_anon_peak_kb")})
         log("upward", rec["tries"][-1])
         del P, key, uk, ck, kt, kp, o, first
         best = None
@@ -305,117 +333,146 @@ def upward(a, n, T):
 
 def recursive(a, n):
     """rec / nest: rounds of Leiden on the cut graph of the regions that are still too large.
-    Memory: between rounds the driver keeps O(n) arrays only (cur, act_u: 9 B per node) and
-    frees everything else before each m102 call, so the m102 runs get the budget."""
+
+    Each round's cut graph holds the active regions only, renumbered (m102 cutgraph --labels),
+    so a region's split does not depend on how many other nodes are already finished: no
+    inactive vertex enters Leiden's stopping test or its scans. What still couples the regions
+    of one round is Leiden's own processing order and its global stopping rules (the total gain
+    of an iteration, the share of vertices merged in a pass); dev_independence.sh measures the
+    effect (a region alone against the same region in the union).
+
+    rec: each region with its own null model (local modularity of its induced subgraph, gamma 1:
+    multiplier m_active / e_region). nest: degree-restoring self-loops (full degrees) and the
+    null model of the region's own volume in the full graph (multiplier vol_active / vol_region),
+    at gamma = beta^k for the k-th split below T; an indivisible region above kmax stays active
+    at the next, higher gamma (at most --nest-stuck rounds).
+    Memory: during an m102 call the driver holds cur (8 B per node) and the active mask."""
     t = Tree(n)
     T = np.fromfile(os.path.join(a.work, "plain.memb.u32"), np.uint32).astype(np.int64)
+    tu = time.time()
     U, uprec = upward(a, n, T)
-    had_up = U is not None
+    uprec["seconds"] = time.time() - tu
     # round 0: the partition T under the root (under its super-community, if any)
     us, inv, cnt = np.unique(T, return_inverse=True, return_counts=True)
     rank = np.lexsort((us, -cnt))
     pos = np.empty_like(rank)
     pos[rank] = np.arange(len(rank))
     if U is None:
-        ids = t.add(np.zeros(len(us), np.int64), COMM, cnt[rank])
+        ids = t.add(np.zeros(len(us), np.int64), COMM, cnt[rank], 2)
     else:
         gu, ginv, gcnt = np.unique(U, return_inverse=True, return_counts=True)
         grank = np.lexsort((gu, -gcnt))
         gpos = np.empty_like(grank)
         gpos[grank] = np.arange(len(grank))
-        gids = t.add(np.zeros(len(gu), np.int64), COMM, gcnt[grank])
+        gids = t.add(np.zeros(len(gu), np.int64), COMM, gcnt[grank], 1)
         g_of_t = np.empty(len(us), np.int64)
         g_of_t[inv] = gids[gpos[ginv]]
-        ids = t.add(g_of_t[rank], COMM, cnt[rank])
+        ids = t.add(g_of_t[rank], COMM, cnt[rank], 2)
         del U, gu, ginv, gcnt, grank, gpos, g_of_t
     cur = ids[pos[inv]]
     del T, us, inv, cnt, rank, pos, ids
-    mult = np.ones(t.size, np.float64)  # resolution multiplier of a region's next split (retries)
-    tries = np.zeros(t.size, np.int64)
+    done = np.zeros(t.size, bool)  # finished leaf (indivisible)
+    stuck = np.zeros(t.size, np.int64)  # nest: consecutive rounds without a split
+    mult = np.ones(t.size, np.float64)  # rec --retries: resolution multiplier of a retried region
     rounds = []
     for r in range(1, a.max_rounds + 1):
-        m = len(mult)
-        if m < t.size:
-            mult = np.concatenate([mult, np.ones(t.size - m)])
-            tries = np.concatenate([tries, np.zeros(t.size - m, np.int64)])
+        grow = t.size - len(done)
+        if grow > 0:
+            done = np.concatenate([done, np.zeros(grow, bool)])
+            stuck = np.concatenate([stuck, np.zeros(grow, np.int64)])
+            mult = np.concatenate([mult, np.ones(grow)])
         isleaf_now = np.ones(t.size, bool)
         isleaf_now[np.unique(t.par[1:])] = False
-        active = isleaf_now & (t.nn > a.leaf_max)
+        active = isleaf_now & (t.nn > a.leaf_max) & ~done
         active[0] = False
-        active &= tries <= a.retries
         na = int(active.sum())
         if na == 0:
             break
         act_u = active[cur]
+        idx = np.nonzero(act_u)[0]  # the cut graph's node order (increasing original id)
         lab = np.where(act_u, cur, NONE).astype(np.uint32)
         lab_f = os.path.join(a.work, "round.lab.u32")
         lab.tofile(lab_f)
         del lab
         cut = os.path.join(a.work, "round.cut")
         stats = os.path.join(a.work, "round.stats")
+        deg_f = os.path.join(a.work, "round.deg.u32")
         cg = ["cutgraph", "--store", a.store, "--out", cut, "--labels", lab_f, "--threads", a.threads, "--out-stats", stats]
         if a.method == "nest":
-            cg.append("--selfloop")
+            cg += ["--selfloop", "--out-deg", deg_f]
         dc = m102(cg)
-        args = ["leiden", "run", "--store", cut] + leiden_args(a) + ["--out-memb", os.path.join(a.work, "round.memb.u32"), "--no-eval"]
+        reg = cur[idx]
         if a.method == "rec":
             e = np.fromfile(stats + ".internal.u64", np.uint64).astype(np.float64)
             e = np.concatenate([e, np.zeros(max(0, t.size - len(e)))])
-            mtot = e[active].sum()
-            gm = np.ones(n, np.float64)
-            ea = e[cur[act_u]]
-            assert (ea > 0).all(), "an active region without internal edges"
-            gm[act_u] = (mtot / ea) * mult[cur[act_u]]
-            gm.tofile(os.path.join(a.work, "round.gmul.f64"))
-            del gm, ea, e
-            args += ["--gmul", os.path.join(a.work, "round.gmul.f64")]
+            ea = e[reg]
+            if (ea <= 0).any():
+                bad = np.unique(reg[ea <= 0])[:5]
+                raise SystemExit(f"rec: region(s) {bad.tolist()} have no internal edge (a community of the input partition is not connected; "
+                                 "Leiden's are, Louvain's may not be). Split the input partition into connected components first.")
+            gm = (e[active].sum() / ea) * mult[reg]
             gamma = 1.0
+            del e, ea
         else:
-            gamma = a.beta ** r
-            args += ["--gamma", gamma]
+            deg = np.fromfile(deg_f, np.uint32)[idx].astype(np.float64)
+            vol = np.bincount(reg, weights=deg, minlength=t.size)
+            # gamma rises with the split depth k below T (role 2 + k): gamma = beta^(k+1), plus one
+            # step per round a region stayed indivisible; one run holds regions of several depths,
+            # so gamma goes into the multiplier
+            gm = (deg.sum() / vol[reg]) * a.beta ** (t.role[reg].astype(np.float64) - 1 + stuck[reg])
+            gamma = 1.0
+            del deg, vol
+        gm.tofile(os.path.join(a.work, "round.gmul.f64"))
+        del gm
+        args = ["leiden", "run", "--store", cut] + leiden_args(a) + ["--gmul", os.path.join(a.work, "round.gmul.f64"),
+                                                                    "--out-memb", os.path.join(a.work, "round.memb.u32"), "--no-eval"] + a.round_flags.split()
         dl = m102(args)
-        S = np.fromfile(os.path.join(a.work, "round.memb.u32"), np.uint32)
-        s = S[act_u].astype(np.int64)
-        reg = cur[act_u]
+        s = np.fromfile(os.path.join(a.work, "round.memb.u32"), np.uint32).astype(np.int64)
+        assert len(s) == len(idx)
         us, inv, cnt = np.unique(s, return_inverse=True, return_counts=True)
         sreg = np.zeros(len(us), np.int64)
         sreg[inv] = reg
-        assert (sreg[inv] == reg).all(), "a sub-community crosses two regions"
+        if not (sreg[inv] == reg).all():
+            raise SystemExit("a sub-community crosses two regions (the cut graph has an edge between regions)")
         nsub = np.bincount(sreg, minlength=t.size)
         split = nsub[sreg] > 1
         # children, ranked inside each region by (size desc, label)
         sel = np.nonzero(split)[0]
         o = np.lexsort((us[sel], -cnt[sel], sreg[sel]))
         sel = sel[o]
-        # rec: a split that needed a resolution above the region's own is a subdivision; nest's
-        # rising resolution is its schedule, so its splits are all found communities
-        kind = np.where(mult[sreg[sel]] > 1.0, SUBDIV, COMM).astype(np.uint8) if a.method == "rec" else np.full(len(sel), COMM, np.uint8)
+        # rec: a split that needed a resolution above the region's own is a subdivision
+        kind = np.where(mult[sreg[sel]] > 1.0, SUBDIV, COMM).astype(np.uint8)
         newid = np.full(len(us), -1, np.int64)
         if len(sel):
             before = t.size
-            ids = t.add(sreg[sel], COMM, cnt[sel])
+            ids = t.add(sreg[sel], COMM, cnt[sel], t.role[sreg[sel]] + 1)
             t.kind[before:] = kind
             newid[sel] = ids
         moved = newid[inv] >= 0
-        idx = np.nonzero(act_u)[0]
         cur[idx[moved]] = newid[inv][moved]
-        # indivisible regions: retry at a higher resolution while they are above kmax
+        # indivisible regions: leaves; above kmax, rec may retry at 4x (--retries, default 0:
+        # these are star-like regions where a higher resolution only peels off single nodes),
+        # nest keeps them at its next, higher gamma
         indiv = np.nonzero((nsub == 1) & active)[0]
         big = indiv[t.nn[indiv] > a.kmax]
-        small = indiv[t.nn[indiv] <= a.kmax]
-        tries[small] = a.retries + 1  # finished: a leaf community
-        tries[big] += 1
-        mult[big] *= 4.0
-        rounds.append({"round": r, "active_regions": na, "active_nodes": int(act_u.sum()), "cut_entries": dc["entries"],
-                       "cutgraph_s": dc["seconds"], "leiden_s": dl["time_s"], "leiden_wall_s": dl["_wall_s"], "gamma": gamma,
-                       "subcommunities": int(len(us)), "regions_split": int((nsub > 1).sum()), "indivisible": int(len(indiv)),
+        done[indiv[t.nn[indiv] <= a.kmax]] = True
+        if a.method == "rec":
+            stuck[big] += 1
+            mult[big] *= 4.0
+            done[big[stuck[big] > a.retries]] = True
+        else:
+            stuck[big] += 1  # the next attempt is one resolution step finer
+            done[big[stuck[big] > a.nest_stuck]] = True
+        rounds.append({"round": r, "active_regions": na, "active_nodes": int(len(idx)), "cut_entries": dc["entries"],
+                       "cutgraph_s": dc["seconds"], "cutgraph_wall_s": dc["_wall_s"], "leiden_s": dl["time_s"], "leiden_wall_s": dl["_wall_s"],
+                       "passes": dl.get("n_passes"), "subcommunities": int(len(us)), "regions_split": int((nsub > 1).sum()), "indivisible": int(len(indiv)),
                        "indivisible_above_kmax": int(len(big)), "leiden_anon_peak_kb": dl.get("rss_anon_peak_kb"),
                        "cutgraph_peak_rss_bytes": dc.get("peak_rss_bytes")})
         log(rounds[-1])
-        del S, s, reg, us, inv, cnt, sreg, nsub, split, sel, o, kind, newid, moved, idx, isleaf_now
+        del s, reg, us, inv, cnt, sreg, nsub, split, sel, o, kind, newid, moved, idx, isleaf_now, act_u
     t.leaf = cur
-    if had_up:
-        t.collapse_single()  # a super-community holding one community of T
+    if uprec["built"]:
+        t.collapse_single()  # a super-community holding one community of T (roles keep T)
     return t, rounds, uprec
 
 
@@ -456,9 +513,18 @@ def cmd_build(a):
         t, rounds, uprec = recursive(a, n)
         meta["rounds"] = rounds
         meta["upward"] = uprec
+        # the time split of the shaping (seconds; the rest of build_s is the driver's own work)
+        meta["split"] = {"rounds": len(rounds), "cutgraph_s": sum(r["cutgraph_wall_s"] for r in rounds),
+                         "leiden_s": sum(r["leiden_s"] for r in rounds), "leiden_wall_s": sum(r["leiden_wall_s"] for r in rounds),
+                         "upward_s": uprec["seconds"], "upward_built": uprec["built"], "cover90_T": uprec["cover90_T"],
+                         "max_round_leiden_anon_peak_kb": max([r["leiden_anon_peak_kb"] or 0 for r in rounds] or [0]),
+                         "max_upward_leiden_anon_peak_kb": max([x["anon_peak_kb"] or 0 for x in uprec["tries"]] or [0])}
     meta["tree_nodes_before_post"] = int(t.size)
+    tp = time.time()
     if post:
         meta["post"] = bound_fanout(t, a.F, a.kmax)
+    if "split" in meta:
+        meta["split"]["post_s"] = time.time() - tp
     meta["build_s"] = time.time() - t0
     # peak resident sizes (KiB): the driver itself, and the largest m102 it ran; the scope's
     # anonymous peak (both together) is what the harness records
@@ -489,18 +555,17 @@ def depth_memberships(t, max_depth=None):
     return {d: m for d, m in iter_depths(t, dep) if max_depth is None or d <= max_depth}, dep
 
 
-def resolve_aggregates(t, mem):
-    """The same memberships with every aggregate replaced, node by node, by the first
-    non-aggregate region below it on the node's path (the communities it stands for)."""
-    isagg = t.kind == AGG
-    res, below = {}, None
-    for d in sorted(mem, reverse=True):
-        m = mem[d]
-        if below is not None:
-            a = isagg[m]
-            m = np.where(a, below, m)
-        res[d] = below = m
-    return res
+def role_membership(t, R):
+    """node -> the deepest region of its path whose role is in 0..R (aggregates, role -1, are
+    skipped: they are resolved to the communities they hold). R = 2 gives T; R = 1 the super
+    level (the root where there is none); R = 2 + k the k-th split below T (a shallower leaf
+    where the path ends before)."""
+    cur = t.leaf.copy()
+    while True:
+        bad = (t.role[cur] > R) | (t.role[cur] < 0)
+        if not bad.any():
+            return cur
+        cur[bad] = t.par[cur[bad]]
 
 
 def dist(x):
@@ -541,59 +606,70 @@ def cmd_metrics(a):
         aggpath = aggpath | aggpath[np.maximum(t.par, 0)] & (t.par >= 0)
     res["share_nodes_under_derived"] = float(anyd[t.leaf].mean())
     res["share_nodes_under_aggregate"] = float(aggpath[t.leaf].mean())
-    # per depth: modularity, conductance, derived share, through m102 regionstats
-    # every depth as drawn, and again with aggregates resolved where the depth has one; one depth
-    # in memory at a time (deepest first: the resolved membership needs the one below)
+    # Per depth (what is drawn at that depth) and per role (super level, T, T+1, T+2, whatever
+    # their depths): modularity and conductance through m102 regionstats. A depth is measured as
+    # drawn (an aggregate counts as one region) and, where it has aggregates, with each aggregate
+    # resolved to the communities it holds; a role level never contains aggregates. One
+    # membership in memory at a time (deepest first: the resolved one needs the one below).
     isagg = t.kind == AGG
     dense, triples, below = {}, [], None
+
+    def emit(key, mm, name):
+        u, inv = np.unique(mm, return_inverse=True)
+        dense[key] = u
+        f = os.path.join(work, f"metrics.{name}.u32")
+        inv.astype(np.uint32).tofile(f)
+        triples.append((key, f, os.path.join(work, f"metrics.{name}")))
+
     for d, m in iter_depths(t, dep):
         r = m if below is None else np.where(isagg[m], below, m)
         below = r
         if d > a.max_depth:
             continue
-        for rv, mm in [(False, m)] + ([(True, r)] if isagg[m].any() else []):
-            u, inv = np.unique(mm, return_inverse=True)
-            dense[(d, rv)] = u
-            f = os.path.join(work, f"metrics.d{d}{'r' if rv else ''}.u32")
-            inv.astype(np.uint32).tofile(f)
-            triples.append(((d, rv), f, os.path.join(work, f"metrics.d{d}{'r' if rv else ''}")))
-            del u, inv
+        emit(("d", d, 0), m, f"d{d}")
+        if isagg[m].any():
+            emit(("d", d, 1), r, f"d{d}r")
         del m
     del below
+    for R in (1, 2, 3, 4):
+        if (t.role == R).any():
+            emit(("r", R, 0), role_membership(t, R), f"role{R}")
     triples.sort()
     jobs, files, outs = [x[0] for x in triples], [x[1] for x in triples], [x[2] for x in triples]
     p = subprocess.run([M102, "regionstats", "--store", a.store, "--memb", ",".join(files), "--out", ",".join(outs), "--threads", str(a.threads)], capture_output=True, text=True, check=True)
     lines = [json.loads(l) for l in p.stdout.splitlines() if l.startswith("{")]
-    m2 = None
-    per = {}
-    for f, o, (d, rv), js in zip(files, outs, jobs, lines):
-        if rv:
-            per[d]["modularity_aggregates_resolved"] = js["modularity"]
-            per[d]["regions_aggregates_resolved"] = js["regions"]
-            for x in (f, o + ".internal.u64", o + ".volume.u64"):
-                os.remove(x)
-            continue
+    per, per_role = {}, {}
+    for f, o, key, js in zip(files, outs, jobs, lines):
+        typ, d, rv = key
         it = np.fromfile(o + ".internal.u64", np.uint64).astype(np.float64)
         vo = np.fromfile(o + ".volume.u64", np.uint64).astype(np.float64)
+        for x in (f, o + ".internal.u64", o + ".volume.u64"):
+            os.remove(x)
+        if typ == "d" and rv:
+            per[d]["modularity_aggregates_resolved"] = js["modularity"]
+            per[d]["regions_aggregates_resolved"] = js["regions"]
+            continue
         m2 = vo.sum()
         cut = vo - 2 * it
         den = np.minimum(vo, m2 - vo)
         ok = den > 0
         phi = np.where(ok, cut / np.where(ok, den, 1), 0.0)
-        ids = dense[(d, rv)]
+        ids = dense[key]
         kinds = t.kind[ids]
         nn = t.nn[ids].astype(np.float64)
         comm = (kinds == COMM) | (kinds == SUBDIV)
-        per[d] = {"regions": int(len(ids)), "modularity": js["modularity"],
-                  "conductance_median": float(np.median(phi[ok])) if ok.any() else None,
-                  "conductance_node_weighted": float((phi * nn).sum() / nn.sum()),
-                  "conductance_node_weighted_communities": float((phi[comm] * nn[comm]).sum() / max(nn[comm].sum(), 1)),
-                  "share_nodes_in_aggregates": float(nn[kinds == AGG].sum() / n), "share_nodes_in_subdivisions": float(nn[kinds == SUBDIV].sum() / n),
-                  "share_nodes_in_leaves": float(nn[isleaf[ids]].sum() / n)}
-        os.remove(f)
-        os.remove(o + ".internal.u64")
-        os.remove(o + ".volume.u64")
+        row = {"regions": int(len(ids)), "modularity": js["modularity"],
+               "conductance_median": float(np.median(phi[ok])) if ok.any() else None,
+               "conductance_node_weighted": float((phi * nn).sum() / nn.sum()),
+               "conductance_node_weighted_communities": float((phi[comm] * nn[comm]).sum() / max(nn[comm].sum(), 1)),
+               "share_nodes_in_aggregates": float(nn[kinds == AGG].sum() / n), "share_nodes_in_subdivisions": float(nn[kinds == SUBDIV].sum() / n),
+               "share_nodes_in_leaves": float(nn[isleaf[ids]].sum() / n)}
+        if typ == "d":
+            per[d] = row
+        else:
+            per_role[d] = row
     res["by_depth"] = per
+    res["by_role"] = {{1: "super", 2: "T", 3: "T+1", 4: "T+2"}[k]: v for k, v in per_role.items()}
     res["modularity_max_over_depths"] = max(v["modularity"] for v in per.values())
     res["modularity_max_resolved"] = max(v.get("modularity_aggregates_resolved", v["modularity"]) for v in per.values())
     if a.plain_json:
@@ -601,13 +677,19 @@ def cmd_metrics(a):
     json.dump(res, open(a.out, "w"), indent=1)
     # one flat line for the benchmark harness (JSON pointers)
     qr = lambda d: per[d].get("modularity_aggregates_resolved", per[d]["modularity"]) if d in per else None
+    qd = lambda d: per[d]["modularity"] if d in per else None
+    rl = lambda R, k: per_role[R][k] if R in per_role else None
     fa, lf = res["fanout_all"], res["leaf_nodes"]
     print(json.dumps({"method": res["method"], "graph": a.graph, "tree_nodes": res["tree_nodes"], "depth_max": res["depth_max"],
                       "fanout_median": fa["median"], "fanout_p95": fa["p95"], "fanout_max": fa["max"], "share_parents_4_64": fa["share_parents_4_64"],
                       "share_parents_2_3": fa["share_parents_2_3"], "leaf_nodes_median": lf["median"], "leaf_nodes_max": lf["max"],
                       "nodes_in_leaves_over_kmax": res["leaf_over_kmax"]["nodes"], "share_nodes_under_aggregate": res["share_nodes_under_aggregate"],
                       "share_nodes_under_derived": res["share_nodes_under_derived"], "modularity_plain": res.get("plain_modularity"),
-                      "modularity_d1": qr(1), "modularity_d2": qr(2), "modularity_d3": qr(3), "modularity_best": res["modularity_max_resolved"],
+                      "modularity_d1_drawn": qd(1), "modularity_d1": qr(1), "modularity_d2_drawn": qd(2), "modularity_d2": qr(2),
+                      "modularity_super": rl(1, "modularity"), "modularity_T": rl(2, "modularity"), "modularity_T1": rl(3, "modularity"), "modularity_T2": rl(4, "modularity"),
+                      "conductance_T": rl(2, "conductance_node_weighted"), "conductance_T1": rl(3, "conductance_node_weighted"), "conductance_T2": rl(4, "conductance_node_weighted"),
+                      "regions_super": rl(1, "regions"), "regions_T": rl(2, "regions"), "regions_T1": rl(3, "regions"),
+                      "modularity_best": res["modularity_max_resolved"],
                       "conductance_d1": per[1]["conductance_node_weighted_communities"], "conductance_d2": per[2]["conductance_node_weighted_communities"] if 2 in per else None,
                       "regions_d1": per[1]["regions"]}))
 
@@ -683,13 +765,24 @@ def ari_nmi(x, y):
 
 
 def cmd_compare(a):
-    (ta, _), (tb, _) = Tree.load(a.tree[0]), Tree.load(a.tree[1])
-    ma, _ = depth_memberships(ta, a.max_depth)
-    mb, _ = depth_memberships(tb, a.max_depth)
-    out = {"a": a.tree[0], "b": a.tree[1], "by_depth": {}}
-    for d in range(1, min(a.max_depth, max(ma), max(mb)) + 1):
-        ari, nmi = ari_nmi(ma[d], mb[d])
-        out["by_depth"][d] = {"ari": ari, "nmi": nmi, "regions_a": int(len(np.unique(ma[d]))), "regions_b": int(len(np.unique(mb[d])))}
+    """Agreement of two trees level by level, levels matched by role (super, T, T+1, T+2), with
+    aggregates resolved (role levels never contain them). --mask: a u32 degree file (cutgraph
+    --out-deg of the perturbed graph); nodes of degree 0 there are left out."""
+    (ta, ma), (tb, mb) = Tree.load(a.tree[0]), Tree.load(a.tree[1])
+    keep = np.fromfile(a.mask, np.uint32) > 0 if a.mask else None
+    sup = lambda m: m.get("upward", {}).get("built")
+    out = {"a": a.tree[0], "b": a.tree[1], "nodes_compared": int(keep.sum()) if keep is not None else len(ta.leaf),
+           "nodes_left_out": int((~keep).sum()) if keep is not None else 0,
+           "super_built_a": sup(ma), "super_built_b": sup(mb),
+           "cover90_T_a": ma.get("upward", {}).get("cover90_T"), "cover90_T_b": mb.get("upward", {}).get("cover90_T"), "by_role": {}}
+    for R, name in ((1, "super"), (2, "T"), (3, "T+1"), (4, "T+2")):
+        if not ((ta.role == R).any() and (tb.role == R).any()):
+            continue
+        x, y = role_membership(ta, R), role_membership(tb, R)
+        if keep is not None:
+            x, y = x[keep], y[keep]
+        ari, nmi = ari_nmi(x, y)
+        out["by_role"][name] = {"ari": ari, "nmi": nmi, "regions_a": int(len(np.unique(x))), "regions_b": int(len(np.unique(y)))}
     if a.out:
         json.dump(out, open(a.out, "w"), indent=1)
     print(json.dumps(out))
@@ -701,14 +794,18 @@ def main():
     ap.add_argument("--store")
     ap.add_argument("--work")
     ap.add_argument("--graph", default="")
-    ap.add_argument("--method", choices=["capin", "capin+agg", "sat", "capafter", "rec", "nest"])
+    ap.add_argument("--method", choices=["capin", "capin+agg", "sat", "capafter", "rec", "nest", "rec-up", "nest-up"],
+                    help="rec-up / nest-up: rec / nest with --up on (tree file tree_rec-up.npz ...)")
     ap.add_argument("--threads", type=int, default=16)
     ap.add_argument("--ooc", action="store_true", help="m102 out of core (sequential aggregation, spilled levels)")
     ap.add_argument("--budget-gb", type=float, help="m102 --budget-gb (the driver's own arrays are outside it)")
     ap.add_argument("--F", type=int, default=64, help="target maximum fan-out")
     ap.add_argument("--leaf-max", type=int, default=64, help="rec/nest: regions above this many nodes are split again")
     ap.add_argument("--kmax", type=int, default=384, help="indivisible regions up to this size stay leaves (gmap's kmax)")
-    ap.add_argument("--retries", type=int, default=0, help="rec/nest: retries (resolution x4) for indivisible regions above kmax")
+    ap.add_argument("--retries", type=int, default=0, help="rec: retries (resolution x4) for indivisible regions above kmax")
+    ap.add_argument("--nest-stuck", type=int, default=8, help="nest: rounds an indivisible region above kmax stays active (gamma x beta each)")
+    ap.add_argument("--round-flags", default="", help="rec/nest: extra m102 flags for every round's Leiden run")
+    ap.add_argument("--mask", help="compare: degree file of the perturbed graph (degree-0 nodes are left out)")
     ap.add_argument("--max-rounds", type=int, default=40)
     ap.add_argument("--beta", type=float, default=2.0, help="nest: gamma = beta^round")
     ap.add_argument("--iterations", type=int, default=1, help="capin: Leiden iterations")
@@ -720,6 +817,8 @@ def main():
     ap.add_argument("--plain-json")
     ap.add_argument("--max-depth", type=int, default=12)
     a = ap.parse_args()
+    if a.method in ("rec-up", "nest-up"):
+        a.method, a.up, a.tag = a.method[:-3], "on", "-up"
     if a.tree and len(a.tree) == 1:
         a.tree = a.tree[0]
     {"solve": cmd_solve, "build": cmd_build, "metrics": cmd_metrics, "export": cmd_export, "compare": cmd_compare}[a.cmd](a)

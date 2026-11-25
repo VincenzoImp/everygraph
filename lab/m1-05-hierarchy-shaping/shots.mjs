@@ -20,7 +20,7 @@ for (const t of T) {
   const path = `${outPrefix}-${t.name}.png`;
   // no mouse move: a hover would draw the highlight ring
   await page.screenshot({ path });
-  shots.push({ ...t, path, renderer: await page.evaluate(() => window.__gm.renderer) });
+  shots.push({ ...t, path, renderer: await page.evaluate(() => window.__gm.renderer), drawing_aids: await page.evaluate(() => window.__gm.view.aids), drawing_aids_unlabelled: await page.evaluate(() => window.__gm.view.aidsUnlabelled), drawing_aids_not_drawn: await page.evaluate(() => window.__gm.view.aidsHidden) });
 }
 await browser.close();
 // the page asks for /favicon.ico, which the lab server does not have

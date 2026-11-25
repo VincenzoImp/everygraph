@@ -16,8 +16,8 @@
    "parents_over_F": 1,
    "aggregates": 97
   },
-  "build_s": 0.20929765701293945,
-  "driver_maxrss_kb": 236624,
+  "build_s": 0.14657068252563477,
+  "driver_maxrss_kb": 250336,
   "children_maxrss_kb": 0,
   "variant": "sat"
  },
@@ -287,6 +287,38 @@
    "share_nodes_in_aggregates": 0.0,
    "share_nodes_in_subdivisions": 0.0,
    "share_nodes_in_leaves": 1.0
+  }
+ },
+ "by_role": {
+  "T": {
+   "regions": 3027,
+   "modularity": 0.9923097455320994,
+   "conductance_median": 0.0,
+   "conductance_node_weighted": 0.004761902874740437,
+   "conductance_node_weighted_communities": 0.004761902874740437,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.0025529130279471975
+  },
+  "T+1": {
+   "regions": 3424,
+   "modularity": 0.9908602204568796,
+   "conductance_median": 0.0,
+   "conductance_node_weighted": 0.0075084954625475155,
+   "conductance_node_weighted_communities": 0.0075084954625475155,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.0025529130279471975
+  },
+  "T+2": {
+   "regions": 4905,
+   "modularity": 0.9851461297335886,
+   "conductance_median": 0.0,
+   "conductance_node_weighted": 0.014141309740909807,
+   "conductance_node_weighted_communities": 0.014141309740909807,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.0025529130279471975
   }
  },
  "modularity_max_over_depths": 0.9848072499091015,

@@ -640,6 +640,13 @@ fn build_tree(n: usize, h: &Hier) -> (Vec<TNode>, Vec<Vec<u32>>, Vec<u32>, Vec<u
             }
         }
     }
+    // m1-05: aggregates whose parent is an aggregate are drawn as part of it
+    for id in 1..ntn {
+        let p = tn[id].parent as usize;
+        if tn[id].flags & F_DEAD == 0 && tn[id].flags & F_AGG != 0 && tn[p].flags & F_AGG != 0 {
+            tn[id].flags |= F_AGG_INNER;
+        }
+    }
     // colour rank of each node's top-level community (0 = largest)
     let mut tops: Vec<u32> = (0..h.levels[top] as u32).collect();
     tops.sort_by_key(|&c| (std::cmp::Reverse(size[top][c as usize]), c));

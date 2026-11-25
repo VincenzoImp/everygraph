@@ -12,7 +12,7 @@
   "kmax": 384,
   "store": "/home/tux/graphlab/data/store-m105/roadnet-ca",
   "solve": {
-   "time_s": 1.853,
+   "time_s": 0.8685,
    "modularity": 0.99231,
    "communities": 3027,
    "level_sizes": [
@@ -21,7 +21,7 @@
     9287,
     3027
    ],
-   "rss_anon_peak_kb": 224100,
+   "rss_anon_peak_kb": 226636,
    "hash_levels": "0c74a1c0928f3e30"
   },
   "tree_nodes_before_post": 437937,
@@ -29,9 +29,9 @@
    "parents_over_F": 1,
    "aggregates": 97
   },
-  "build_s": 2.0256547927856445,
-  "driver_maxrss_kb": 126812,
-  "children_maxrss_kb": 277376,
+  "build_s": 1.0054881572723389,
+  "driver_maxrss_kb": 129456,
+  "children_maxrss_kb": 279772,
   "variant": "capin+agg"
  },
  "fanout_by_depth": {
@@ -205,6 +205,38 @@
    "share_nodes_in_aggregates": 0.0,
    "share_nodes_in_subdivisions": 0.0,
    "share_nodes_in_leaves": 1.0
+  }
+ },
+ "by_role": {
+  "T": {
+   "regions": 3027,
+   "modularity": 0.992309745532099,
+   "conductance_median": 0.0,
+   "conductance_node_weighted": 0.0047619028747404365,
+   "conductance_node_weighted_communities": 0.0047619028747404365,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.0030454822547865213
+  },
+  "T+1": {
+   "regions": 9287,
+   "modularity": 0.972811898675638,
+   "conductance_median": 0.022602321319486866,
+   "conductance_node_weighted": 0.026617848493405365,
+   "conductance_node_weighted_communities": 0.026617848493405365,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.0030454822547865213
+  },
+  "T+2": {
+   "regions": 55979,
+   "modularity": 0.9056931441354383,
+   "conductance_median": 0.09243697478991597,
+   "conductance_node_weighted": 0.09217621358701122,
+   "conductance_node_weighted_communities": 0.09217621358701122,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.0031523412812702587
   }
  },
  "modularity_max_over_depths": 0.9418283725842075,

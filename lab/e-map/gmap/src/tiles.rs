@@ -328,7 +328,7 @@ pub fn run() {
                 let w_shown: u64 = ev.iter().map(|e| (u32::MAX - e.0) as u64).sum();
                 // encode
                 let mut b: Vec<u8> = Vec::with_capacity(64 + (myctx.len() + bubs.len()) * 48 + nodes.len() * 36 + ev.len() * 20);
-                b.extend_from_slice(b"GMT0");
+                b.extend_from_slice(b"GMT1"); // m1-05: GMT1 = 48-byte bubble records (GMT0: 44)
                 b.extend_from_slice(&[z as u8, 0, 0, 0]);
                 for v in [tx, ty, nctx, bubs.len() as u32, nodes.len() as u32, ev.len() as u32, *om_b, *om_n] {
                     b.extend_from_slice(&v.to_le_bytes());

@@ -15,7 +15,7 @@ mkdir -p "$W" results/dev
 common="--store $ST --work $W --ooc --budget-gb ${BUDGET:-10} --threads 16"
 case $1 in
   solve) ./lim.sh $LIM $PY -I shape.py solve $common --no-hier ;;
-  rec|capin) ./lim.sh $LIM $PY -I shape.py build --method $1 $common ${EXTRA:-} --tag="${TAG:-}" > "$W/build_$1${TAG:-}.json" ;;
+  rec|rec-up|capin) ./lim.sh $LIM $PY -I shape.py build --method $1 $common ${EXTRA:-} --tag="${TAG:-}" > "$W/build_$1${TAG:-}.json" ;;
   metrics-*) m=${1#metrics-}; ./lim.sh ${MLIM:-24G} $PY -I shape.py metrics --tree "$W/tree_$m.npz" --store $ST --graph friendster --plain-json "$W/plain.json" --out results/dev/friendster.$m.json ;;
   export-*) m=${1#export-}; ./lim.sh 8G $PY -I shape.py export --tree "$W/tree_$m.npz" --graph friendster --out "$W/hier_$m" ;;
 esac

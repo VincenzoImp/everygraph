@@ -1,4 +1,0 @@
-{
-"plain": {"ari": 0.7615008367155718, "nmi": 0.784111969170376, "communities_a": 1363, "communities_b": 9693},
-"rec-up": {"a": "/home/tux/graphlab/scratch/m1-05-hierarchy-shaping/lj/tree_rec-up.npz", "b": "/home/tux/graphlab/scratch/m1-05-hierarchy-shaping/lj-drop1/tree_rec-up.npz", "by_depth": {"1": {"ari": 0.5748496136577913, "nmi": 0.7182410395135304, "regions_a": 64, "regions_b": 64}, "2": {"ari": 0.759556884089551, "nmi": 0.7740953521481243, "regions_a": 1263, "regions_b": 1125}, "3": {"ari": 0.537471798673492, "nmi": 0.819082149069235, "regions_a": 10967, "regions_b": 11988}, "4": {"ari": 0.39572357203301306, "nmi": 0.8808961775907025, "regions_a": 56628, "regions_b": 73218}}}
-}

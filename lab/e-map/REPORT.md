@@ -158,7 +158,7 @@ node viewer/serve.mjs . 8765 &                         # 127.0.0.1 only
 **Tile / container format — draft spec outline ("glab-map v0").**
 1. Container: PMTiles v3, `tile_type = 0`, gzip (evaluate zstd) tiles and directories, clustered.
 2. Metadata JSON: format/version, n, m, zmax, tile size, per-tile budgets, bubble pixel thresholds, colour table, search-section descriptor, hierarchy level names.
-3. Tile payload: fixed header (zoom, x, y, counts, omitted bubbles/nodes, total/shown/context edge weight); bubble records (44 B); node records (36 B); edge records (20 B, far endpoint inline). Next version: tile-local u16 coordinates and columnar layout (smaller; gain not measured).
+3. Tile payload: fixed header (zoom, x, y, counts, omitted bubbles/nodes, total/shown/context edge weight); bubble records (44 B in magic GMT0; 48 B in GMT1, since #19: plus the number of communities in an aggregate); node records (36 B); edge records (20 B, far endpoint inline). Next version: tile-local u16 coordinates and columnar layout (smaller; gain not measured).
 4. Semantic-zoom rules: visibility by on-screen radius, importance by size/degree, representative mapping, exactness guarantees and the meaning of every "omitted" field.
 5. Search section after tile data: sorted `(id, x, y[, zoom])` records + sparse top index; later a name/label index.
 6. Optional sections: per-node adjacency ranges, per-community property summaries.

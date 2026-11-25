@@ -12,7 +12,7 @@
   "kmax": 384,
   "store": "/home/tux/graphlab/data/store-m113/friendster",
   "solve": {
-   "time_s": 480.3473,
+   "time_s": 380.5184,
    "modularity": 0.5894,
    "communities": 33,
    "level_sizes": [
@@ -25,13 +25,13 @@
     99,
     33
    ],
-   "rss_anon_peak_kb": 8949672,
+   "rss_anon_peak_kb": 8965060,
    "hash_levels": "b5dedfd91d8aab35"
   },
   "tree_nodes_before_post": 6645513,
-  "build_s": 494.5549614429474,
-  "driver_maxrss_kb": 2237148,
-  "children_maxrss_kb": 26426464,
+  "build_s": 397.4454412460327,
+  "driver_maxrss_kb": 2257812,
+  "children_maxrss_kb": 26480712,
   "variant": "capin"
  },
  "fanout_by_depth": {
@@ -218,6 +218,38 @@
    "share_nodes_in_aggregates": 0.0,
    "share_nodes_in_subdivisions": 0.0,
    "share_nodes_in_leaves": 1.0
+  }
+ },
+ "by_role": {
+  "T": {
+   "regions": 33,
+   "modularity": 0.5893996791993897,
+   "conductance_median": 0.04948879348703814,
+   "conductance_node_weighted": 0.26160950082074047,
+   "conductance_node_weighted_communities": 0.26160950082074047,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 5.79194427735024e-07
+  },
+  "T+1": {
+   "regions": 99,
+   "modularity": 0.4837912459229866,
+   "conductance_median": 0.4987505049128133,
+   "conductance_node_weighted": 0.47600020445999447,
+   "conductance_node_weighted_communities": 0.47600020445999447,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 5.79194427735024e-07
+  },
+  "T+2": {
+   "regions": 329,
+   "modularity": 0.4034572161810558,
+   "conductance_median": 0.6512817273833866,
+   "conductance_node_weighted": 0.5630071735342088,
+   "conductance_node_weighted_communities": 0.5630071735342088,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 6.249203036088416e-07
   }
  },
  "modularity_max_over_depths": 0.5893996791993897,
