@@ -16,22 +16,21 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-As of 2026-11-25, 03:45 (policy for models in CLAUDE.md § 6):
+As of 2026-11-25, 09:15 (policy for models in CLAUDE.md § 6):
 
-- **#118 compressed storage end to end** (M1) — experimenter (Fable high, started before the
-  policy), branch `lab-m1-13-compressed-end-to-end`. **It owns the machine**: about 3.5 hours
-  of measurements; even one busy core skewed its timings by 10–40%, so nothing that compiles
-  or computes for more than a moment runs until it reports. Encode and verify stages are
-  done (bits per edge reported: lj 18.1, orkut 16.7, twitter-sym 16.1, Friendster 23.2 —
-  to be checked against its result files).
-- **#6 oracle** — draft PR #131 (`m0-05-oracle`), agent paused. To do when the machine is
-  free (resume the same agent): rebase on main; golden files for the tier-1 datasets through
-  the registry of #5; a CI job that runs `oracle/run-ci.sh` (with `uv`); time `run-ci.sh`;
-  final seeded-bug matrix; toy and lab adapter on the nightly tier; `run-nightly.sh`. The
-  semantics questions Q1–Q13 are answered in `design/DECISIONS.md` ("Graph semantics").
-  Then independent review (Opus high). Corpora kept in scratch `m0-05-oracle` (110 MB).
-- **#4 benchmark harness** — ready (its dependency #5 is merged) but not started: it would
-  compile during the measurement window. Start it (Opus high) when #118 reports.
+- **#118 compressed storage end to end** (M1) — the benchmark finished at 06:33 (all stages;
+  results in the agent's worktree, `lab/m1-13-compressed/results/`), then the agent was cut
+  off by a server error and the machine sat idle until 09:00. Resumed to validate the run,
+  commit, open a PR and report. To do on its report: check key numbers against the result
+  files, record them in FINDINGS, fill "Result of #118" in ADR 0004, update D4 and the
+  public numbers, then the tracer (#15).
+- **#6 oracle** — draft PR #131 (`m0-05-oracle`); agent resumed for the long runs, the
+  tier-1 golden files, the CI job and the semantics answers. Then independent review
+  (Opus high).
+- **#4 benchmark harness** — started (Opus high), branch `m0-03-bench-harness`. It builds
+  and tests with small runs only; the acceptance measurements need an idle window that the
+  coordinator schedules after #6's long runs (the agent hands back a draft with the exact
+  commands). Then #8 (lab reproducibility).
 
 Done today: **#7 ADRs** merged (PR #132): 25 ADRs under `docs/adr/` plus 0000 on overturned assumptions; DESIGN, FINDINGS and README corrected where they said more than the result files (13 statements, list in the PR); **D10 is open** (mask vs materialized view: the "~25%" rule was never measured, #93 derives it); **D14 is widened** (identical results across budgets and regimes; unmeasured so far); D4's ADR has a pending section for #118. To watch: with the default of one Leiden iteration the idle result is 2.7–3.4% below the best reference, while the §6 criterion (within 1%) is written for three iterations — #57 settles the default. Promise 1 ("about 100 M edges/s") holds with ample memory (83–132 M/s) and not under a tight budget (34 M/s for Friendster at 8 GB): say both wherever the number is quoted. **#12 API sketch and #13 UX contract** merged (PRs #125, #124) after two rounds of independent review and a joint alignment pass; their obligations are written into the issues that build them (commits "Plan: …" of 2026-11-25) and the choices are in `design/DECISIONS.md`. **#5 datasets** merged (PR #129) after an independent review and a fix round (17 tier-1 datasets, 75 MB, all usable by anyone; follow-up for real bipartite and co-occurrence graphs in `m3-13-dataset-gaps`). **#3 CI** merged (PR #127; all six Linux jobs green on `main`, run 45530945188; macOS, Windows and Linux arm64 run weekly; the threaded wasm job moved to #108). **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
 lands). **#2 workspace** merged (PR #123) after an independent review found the
@@ -102,6 +101,10 @@ Tell the owner when each becomes due, with everything prepared.
   discard its rows and restart. Cause of the damage: the brief said "no benchmarks" but set
   no memory limit. Now a rule (CLAUDE.md § 7): every data-loading run under `MemoryMax`,
   and the limit is stated in each brief.
+- 2026-11-25 — An agent that owned the machine died on a server error after its
+  benchmark had finished; nothing else was allowed to run and 2.5 hours were lost. When one
+  agent holds the machine, the coordinator schedules a fallback wake-up to check that the
+  holder is still alive, and long runs write a `done` line the coordinator can see.
 
 ## Journal
 
