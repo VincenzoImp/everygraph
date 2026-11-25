@@ -157,7 +157,7 @@ impl Error for ReadError {
 /// `Arc<[u8]>`, or anything else that derefs to a byte slice.
 #[derive(Clone, Debug, Default)]
 pub struct MemorySource<B = Vec<u8>> {
-    bytes: B,
+    pub(crate) bytes: B,
 }
 
 impl<B: AsRef<[u8]>> MemorySource<B> {

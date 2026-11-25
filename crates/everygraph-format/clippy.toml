@@ -16,7 +16,8 @@
 # `std` grows a new way to reach the file system, the clock or the network, add it here.
 # What the lint cannot see at all (code behind `cfg`, dependencies) is checked for the
 # core by `tools/check_core_portability.py`; for this crate only by the wasm32 builds
-# and by review (its one dependency is everygraph-core).
+# and by review (its dependencies are everygraph-core and blake3, the latter built
+# with its `pure` feature: Rust code only).
 
 disallowed-types = [
     # std::fs — files belong behind `ByteSource`, in everygraph-io.

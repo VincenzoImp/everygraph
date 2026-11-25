@@ -27,17 +27,20 @@ use crate::sys;
 ///
 /// The constructors are safe under an invariant recorded in `design/DECISIONS.md`
 /// ("Memory-mapped files are read through a safe constructor"): Everygraph maps only
-/// files it wrote itself and does not write again, and **no writer anywhere — another
-/// process or this one — modifies or truncates a file while it is mapped**. Breaking it
+/// files it wrote itself and does not write again — except the `.eg` container's
+/// commits, which write through [`FileSink`](crate::FileSink) and touch only a header
+/// block and bytes past the committed end (`docs/spec/eg-container.md` § 11) — and
+/// **no writer anywhere — another process or this one — modifies or truncates a file
+/// while it is mapped**. Breaking it
 /// is undefined behaviour (bytes change under the `&[u8]` that
 /// [`as_slice`](ByteSource::as_slice) handed out) or ends the process with `SIGBUS` (a
 /// truncation removed the pages being read). That includes this crate's own sinks and
 /// `std::fs` writes on the same file, under any path or hard link.
 ///
-/// Within the process the sinks are guarded: [`AppendSink`](crate::AppendSink) and
-/// [`BlockWriter`](crate::BlockWriter) refuse to open a file (by device and inode) that
-/// a live `MmapSource` maps, and mapping a file that one of them is writing is refused,
-/// both with [`io::ErrorKind::ResourceBusy`]. Writes through `std::fs` and writes by
+/// Within the process the sinks are guarded: [`AppendSink`](crate::AppendSink),
+/// [`BlockWriter`](crate::BlockWriter) and [`FileSink`](crate::FileSink) refuse to
+/// open a file (by device and inode) that a live `MmapSource` maps, and mapping a file
+/// that one of them is writing is refused, both with [`io::ErrorKind::ResourceBusy`]. Writes through `std::fs` and writes by
 /// other processes are not guarded. On Windows there is no guard; the system refuses
 /// to truncate a mapped file but not to write it.
 #[derive(Debug)]

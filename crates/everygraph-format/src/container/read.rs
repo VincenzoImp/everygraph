@@ -1,0 +1,460 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Opening a container and reading its sections (`docs/spec/eg-container.md` § 7).
+
+use std::ops::Range;
+
+use everygraph_core::{AccessHint, ByteSource, ReadError};
+
+use super::layout::{self, BLOCK_USIZE, Block, Header, KNOWN_REQUIRED, padded, small};
+use super::{Codec, ContainerError, Entry, HEADER_BYTES, Kind, MAX_PROVENANCE_BYTES, Provenance};
+
+/// Bytes read at a time when a section is hashed from a source that is not in memory.
+const HASH_CHUNK: usize = 1 << 20;
+
+/// An opened `.eg` container: the committed table of contents of a [`ByteSource`].
+///
+/// Opening reads the two header blocks (one read of their first 4,224 bytes) and the
+/// table of contents they point to (one read), and nothing else; sections are read
+/// when asked for. The
+/// source must not change while the container is open (the `ByteSource` contract): a
+/// writer commits to the file by appending, so a container opened before a commit
+/// keeps reading the state it opened.
+#[derive(Debug)]
+pub struct Container<S> {
+    source: S,
+    header: Header,
+    entries: Vec<Entry>,
+    recovered_from: Option<u64>,
+}
+
+impl<S: ByteSource> Container<S> {
+    /// Opens the container held by `source`.
+    ///
+    /// The newest valid header block is used. If the table of contents it points to
+    /// cannot be used (its hash does not match, or it lies outside the source) and the
+    /// other block is valid, that older commit is opened instead, and
+    /// [`recovered_from`](Self::recovered_from) says so: the protocol of
+    /// [`Writer::commit`](super::Writer::commit) never leaves such a file, but a disk
+    /// that acknowledged a sync it had not done can.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::NotAContainer`] or [`ContainerError::NotCommitted`] when no header
+    /// block is valid; [`ContainerError::UnsupportedByteOrder`],
+    /// [`ContainerError::UnsupportedVersion`] or [`ContainerError::UnsupportedFeatures`]
+    /// for a file this reader does not understand; [`ContainerError::Corrupt`] when the
+    /// table of contents breaks the specification; [`ContainerError::Read`] when the
+    /// source fails.
+    pub fn open(source: S) -> Result<Self, ContainerError> {
+        let mut head = [0u8; BLOCK_USIZE + layout::HEADER_USED];
+        let head_len = small(source.len()).min(head.len());
+        // One read covers what both blocks use.
+        source.read_at(0, &mut head[..head_len])?;
+        let blocks = [
+            layout::decode_header(&head[..head_len.min(layout::HEADER_USED)], 0),
+            layout::decode_header(head.get(BLOCK_USIZE..head_len).unwrap_or(&[]), 1),
+        ];
+        let mut valid: Vec<Header> = Vec::with_capacity(2);
+        let mut foreign = None;
+        let mut any_magic = false;
+        for block in blocks {
+            match block {
+                Block::Valid(h) => valid.push(h),
+                Block::Foreign(e) => foreign = Some(e),
+                Block::Torn => any_magic = true,
+                Block::Absent => {}
+            }
+        }
+        // Newest first; on a tie, block 0.
+        valid.sort_by_key(|h| (std::cmp::Reverse(h.generation), h.block));
+        let Some(newest) = valid.first().copied() else {
+            return Err(match foreign {
+                Some(e) => e,
+                None if any_magic => ContainerError::NotCommitted,
+                None => ContainerError::NotAContainer,
+            });
+        };
+        let mut first_error = None;
+        for header in &valid {
+            // A commit that needs a feature this reader lacks is refused, not skipped.
+            let unknown = header.required & !KNOWN_REQUIRED;
+            if unknown != 0 {
+                return Err(ContainerError::UnsupportedFeatures { required: unknown });
+            }
+            match read_toc(&source, header) {
+                Ok(entries) => {
+                    return Ok(Self {
+                        source,
+                        header: *header,
+                        entries,
+                        recovered_from: (header.generation != newest.generation)
+                            .then_some(newest.generation),
+                    });
+                }
+                Err(e @ ContainerError::Read(ReadError::Backend(_))) => return Err(e),
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
+            }
+        }
+        Err(first_error.unwrap_or(ContainerError::NotCommitted))
+    }
+
+    /// The number of commits that led to this state (1 for a file written once).
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.header.generation
+    }
+
+    /// The format version of the file: major ([`MAJOR`](super::MAJOR)) and minor.
+    #[must_use]
+    pub fn version(&self) -> (u16, u16) {
+        (super::MAJOR, self.header.minor)
+    }
+
+    /// The optional feature bits of the file (none are defined in 1.0).
+    #[must_use]
+    pub fn optional_features(&self) -> u64 {
+        self.header.optional
+    }
+
+    /// The generation of a newer commit that could not be read, when the file was
+    /// opened at an older one (see [`open`](Self::open)); `None` normally.
+    #[must_use]
+    pub fn recovered_from(&self) -> Option<u64> {
+        self.recovered_from
+    }
+
+    /// Every section, in increasing byte order of name, unknown kinds included.
+    #[must_use]
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    /// The section named `name`.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&Entry> {
+        self.entries
+            .binary_search_by(|e| e.name.as_str().cmp(name))
+            .ok()
+            .map(|i| &self.entries[i])
+    }
+
+    fn entry(&self, name: &str) -> Result<&Entry, ContainerError> {
+        self.get(name)
+            .ok_or_else(|| ContainerError::NoSuchSection(name.to_owned()))
+    }
+
+    /// The content of section `name`, as a byte source of its own.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::NoSuchSection`], or [`ContainerError::UnsupportedCodec`] when
+    /// its codec is not [`Codec::NONE`].
+    pub fn section(&self, name: &str) -> Result<Section<'_, S>, ContainerError> {
+        let entry = self.entry(name)?;
+        if entry.codec != Codec::NONE {
+            return Err(ContainerError::UnsupportedCodec {
+                name: entry.name.clone(),
+                codec: entry.codec,
+            });
+        }
+        Ok(Section {
+            source: &self.source,
+            offset: entry.offset,
+            len: entry.len,
+        })
+    }
+
+    /// Checks section `name` against its hash, and that its padding is zero. Reads the
+    /// whole section (in 1 MiB pieces unless the source is in memory).
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::Damaged`] when it does not match; [`ContainerError::NoSuchSection`];
+    /// [`ContainerError::Read`] when the source fails or is too short.
+    pub fn verify(&self, name: &str) -> Result<(), ContainerError> {
+        let entry = self.entry(name)?;
+        let damaged = || ContainerError::Damaged {
+            name: entry.name.clone(),
+        };
+        if hash_range(&self.source, entry.offset, entry.len)? != entry.hash {
+            return Err(damaged());
+        }
+        let end = entry.offset + entry.len;
+        let mut pad = vec![0u8; small(padded(entry.offset, entry.len) - end)];
+        self.source.read_at(end, &mut pad)?;
+        if pad.iter().any(|&b| b != 0) {
+            return Err(damaged());
+        }
+        Ok(())
+    }
+
+    /// [`verify`](Self::verify) for every section, in offset order.
+    ///
+    /// # Errors
+    ///
+    /// The first section that fails.
+    pub fn verify_all(&self) -> Result<(), ContainerError> {
+        let mut by_offset: Vec<&Entry> = self.entries.iter().collect();
+        by_offset.sort_by_key(|e| e.offset);
+        by_offset.iter().try_for_each(|e| self.verify(&e.name))
+    }
+
+    /// The provenance record of section `name`, if it has one.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::NoSuchSection`]; [`ContainerError::InvalidProvenance`] or
+    /// [`ContainerError::TooLarge`] for a record that cannot be decoded;
+    /// [`ContainerError::Read`].
+    pub fn provenance(&self, name: &str) -> Result<Option<Provenance>, ContainerError> {
+        match &self.entry(name)?.provenance {
+            None => Ok(None),
+            Some(record) => self.read_provenance(record).map(Some),
+        }
+    }
+
+    /// Decodes the provenance record stored in section `name`.
+    ///
+    /// # Errors
+    ///
+    /// As [`provenance`](Self::provenance), and [`ContainerError::NotProvenance`] when the
+    /// section is not a provenance record.
+    pub fn read_provenance(&self, name: &str) -> Result<Provenance, ContainerError> {
+        let entry = self.entry(name)?;
+        if entry.kind != Kind::PROVENANCE {
+            return Err(ContainerError::NotProvenance(name.to_owned()));
+        }
+        if entry.len > MAX_PROVENANCE_BYTES {
+            return Err(ContainerError::TooLarge(
+                "a provenance record exceeds 16 MiB",
+            ));
+        }
+        let section = self.section(name)?;
+        let mut bytes = vec![0u8; small(entry.len)];
+        section.read_at(0, &mut bytes)?;
+        if *blake3::hash(&bytes).as_bytes() != entry.hash {
+            return Err(ContainerError::Damaged {
+                name: name.to_owned(),
+            });
+        }
+        Provenance::decode(&bytes)
+    }
+
+    /// The end of the committed part of the file: the end of the TOC's padding. A
+    /// writer appends from here; anything after it is left over from a write that was
+    /// never committed.
+    #[must_use]
+    pub fn committed_len(&self) -> u64 {
+        padded(self.header.toc_offset, self.header.toc_len)
+    }
+
+    /// Bytes of the file that the committed state uses: the header, each section and
+    /// the TOC with their padding.
+    #[must_use]
+    pub fn live_bytes(&self) -> u64 {
+        let sections: u64 = self
+            .entries
+            .iter()
+            .map(|e| padded(e.offset, e.len) - e.offset)
+            .sum();
+        HEADER_BYTES + sections + (self.committed_len() - self.header.toc_offset)
+    }
+
+    /// Bytes that [`compact`](super::compact) would reclaim: replaced and removed
+    /// sections, older tables of contents, and anything after the committed end.
+    #[must_use]
+    pub fn reclaimable_bytes(&self) -> u64 {
+        self.source.len().saturating_sub(self.live_bytes())
+    }
+
+    /// The source.
+    #[must_use]
+    pub fn source(&self) -> &S {
+        &self.source
+    }
+
+    /// Gives the source back.
+    #[must_use]
+    pub fn into_source(self) -> S {
+        self.source
+    }
+
+    pub(crate) fn header(&self) -> &Header {
+        &self.header
+    }
+}
+
+/// Reads and decodes the table of contents `header` points to.
+fn read_toc<S: ByteSource>(source: &S, header: &Header) -> Result<Vec<Entry>, ContainerError> {
+    layout::check_toc_pointer(header)?;
+    let mut toc = vec![0u8; small(header.toc_len)];
+    source.read_at(header.toc_offset, &mut toc)?;
+    if *blake3::hash(&toc).as_bytes() != header.toc_hash {
+        return Err(ContainerError::Corrupt(
+            "the table of contents does not match its hash",
+        ));
+    }
+    layout::decode_toc(&toc, header.toc_offset)
+}
+
+/// BLAKE3 of `len` bytes of `source` at `offset`.
+pub(crate) fn hash_range<S: ByteSource + ?Sized>(
+    source: &S,
+    offset: u64,
+    len: u64,
+) -> Result<[u8; 32], ContainerError> {
+    let mut hasher = blake3::Hasher::new();
+    if let Some(all) = source.as_slice() {
+        let range = usize::try_from(offset)
+            .ok()
+            .zip(usize::try_from(offset.saturating_add(len)).ok())
+            .and_then(|(start, end)| all.get(start..end))
+            .ok_or(ReadError::OutOfBounds {
+                offset,
+                len,
+                source_len: source.len(),
+            })?;
+        hasher.update(range);
+    } else {
+        let mut buf = vec![0u8; HASH_CHUNK];
+        let mut at = 0;
+        while at < len {
+            let n = small((len - at).min(HASH_CHUNK as u64));
+            source.read_at(offset + at, &mut buf[..n])?;
+            hasher.update(&buf[..n]);
+            at += n as u64;
+        }
+    }
+    Ok(*hasher.finalize().as_bytes())
+}
+
+/// The content of one section: a [`ByteSource`] of its own, positioned at the
+/// section's first byte. Zero-copy when the container's source is in memory or mapped.
+#[derive(Debug)]
+pub struct Section<'a, S> {
+    source: &'a S,
+    offset: u64,
+    len: u64,
+}
+
+impl<S> Section<'_, S> {
+    /// Where the section starts in the file.
+    #[must_use]
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+}
+
+impl<S: ByteSource> ByteSource for Section<'_, S> {
+    fn len(&self) -> u64 {
+        self.len
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        let out_of_bounds = || ReadError::OutOfBounds {
+            offset,
+            len: buf.len() as u64,
+            source_len: self.len,
+        };
+        match offset.checked_add(buf.len() as u64) {
+            Some(end) if end <= self.len => self.source.read_at(self.offset + offset, buf),
+            _ => Err(out_of_bounds()),
+        }
+    }
+
+    fn as_slice(&self) -> Option<&[u8]> {
+        let all = self.source.as_slice()?;
+        let start = usize::try_from(self.offset).ok()?;
+        let end = usize::try_from(self.offset + self.len).ok()?;
+        all.get(start..end)
+    }
+
+    fn advise(&self, range: Range<u64>, hint: AccessHint) {
+        let start = range.start.min(self.len);
+        let end = range.end.min(self.len);
+        self.source
+            .advise(self.offset + start..self.offset + end, hint);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+    use crate::container::layout::{encode_header, encode_toc, pad_end};
+    use crate::container::{Codec, MINOR};
+
+    /// A file of `len` bytes that holds `pieces` and zeros elsewhere, without the
+    /// zeros in memory; it counts the reads made through it.
+    struct Sparse {
+        len: u64,
+        pieces: Vec<(u64, Vec<u8>)>,
+        reads: Cell<usize>,
+    }
+
+    impl ByteSource for Sparse {
+        fn len(&self) -> u64 {
+            self.len
+        }
+
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+            self.reads.set(self.reads.get() + 1);
+            let end = offset + buf.len() as u64;
+            assert!(end <= self.len);
+            buf.fill(0);
+            for (at, bytes) in &self.pieces {
+                let (lo, hi) = (offset.max(*at), end.min(at + bytes.len() as u64));
+                if lo < hi {
+                    let (lo, hi) = (small(lo), small(hi));
+                    buf[lo - small(offset)..hi - small(offset)]
+                        .copy_from_slice(&bytes[lo - small(*at)..hi - small(*at)]);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn opening_a_15_gb_file_costs_one_header_read_and_one_table_read() {
+        let gb15 = 15_000_000_000;
+        let entries: Vec<Entry> = ["adjacency.out.data", "adjacency.out.index", "ids.keys"]
+            .iter()
+            .enumerate()
+            .map(|(i, name)| Entry {
+                name: (*name).to_owned(),
+                kind: Kind::ID_DICTIONARY,
+                codec: Codec::NONE,
+                offset: HEADER_BYTES + i as u64 * pad_end(0, gb15).unwrap(),
+                len: gb15 / 3,
+                hash: [0; 32],
+                provenance: None,
+            })
+            .collect();
+        let last = entries.last().unwrap();
+        let toc_offset = pad_end(last.offset, last.len).unwrap();
+        let toc = encode_toc(entries.iter()).unwrap();
+        let header = encode_header(&Header {
+            block: 0,
+            minor: MINOR,
+            generation: 1,
+            required: 0,
+            optional: 0,
+            toc_offset,
+            toc_len: toc.len() as u64,
+            toc_hash: *blake3::hash(&toc).as_bytes(),
+        });
+        let source = Sparse {
+            len: pad_end(toc_offset, toc.len() as u64).unwrap(),
+            pieces: vec![(0, header.to_vec()), (toc_offset, toc)],
+            reads: Cell::new(0),
+        };
+        assert!(source.len() > 15_000_000_000);
+        let file = Container::open(&source).unwrap();
+        assert_eq!(file.entries(), &entries[..]);
+        assert_eq!(source.reads.get(), 2);
+    }
+}

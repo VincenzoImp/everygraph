@@ -17,7 +17,7 @@ use everygraph_core::{
     AccessHint, AlignedBuf, ByteSource, MemorySource, ReadError, SEGMENT_ALIGN, SegmentReader,
     Segments,
 };
-use everygraph_io::{AppendSink, BlockWriter, FileSource, MmapSource, SpillLogs};
+use everygraph_io::{AppendSink, BlockWriter, FileSink, FileSource, MmapSource, SpillLogs};
 
 const A: usize = SEGMENT_ALIGN;
 
@@ -470,6 +470,8 @@ fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
             assert_eq!(refused.kind(), ResourceBusy);
         }
         assert_eq!(AppendSink::create(target).unwrap_err().kind(), ResourceBusy);
+        assert_eq!(FileSink::create(target).unwrap_err().kind(), ResourceBusy);
+        assert_eq!(FileSink::open(target).unwrap_err().kind(), ResourceBusy);
         let file = File::options().write(true).open(target).unwrap();
         assert_eq!(
             AppendSink::from_file(file).unwrap_err().kind(),
@@ -502,5 +504,9 @@ fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
     let map = MmapSource::open(&path).unwrap();
     assert_eq!(map.as_slice().unwrap(), &[5; 10]);
     drop(map);
+    let sink = FileSink::open(&link).unwrap();
+    assert_eq!(MmapSource::open(&path).unwrap_err().kind(), ResourceBusy);
+    drop(sink.into_file());
+    MmapSource::open(&path).unwrap();
     fs::remove_dir_all(dir).unwrap();
 }

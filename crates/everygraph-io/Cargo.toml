@@ -21,5 +21,10 @@ memmap2 = "0.9"
 # Used in `src/sys.rs` only.
 libc = "0.2"
 
+[dev-dependencies]
+# The container's crash test with a real `kill -9` lives here, where processes and
+# files are allowed (tests/container.rs).
+everygraph-format = { path = "../everygraph-format" }
+
 [lints]
 workspace = true

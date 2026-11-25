@@ -38,6 +38,7 @@ And the checks of the checks, each one command (what they do: "CI" below):
 python3 tools/check_portability_canary.py   # the portability checks still catch each probe
 python3 tools/check_wasm_toy.py             # toy kernel: native and wasm32 in Node agree
 python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
+python3 tools/check_container_python.py     # .eg container: the Python reader reads what Rust wrote
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 
@@ -104,7 +105,7 @@ what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm) and the codec's wasm32 clippy runs (with and without `simd128`), the wasm toy, the wasm codec check (`simd128` in Node against scalar), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two included), then `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm) and the codec's wasm32 clippy runs (with and without `simd128`), the wasm toy, the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two included), then `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 
 Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
@@ -143,7 +144,7 @@ the checks of the crates you touched locally ("Checks"), commit as often as you 
 and push once the branch is ready to be checked — or push to a branch without a pull
 request, which starts nothing.
 
-What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is the wasm toy's pattern applied to the codec):
+What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is the wasm toy's pattern applied to the codec; `tools/check_container_python.py` has `everygraph-io`'s example `container_sample` write a container and requires `tools/eg_container.py`, a reader in Python written from `docs/spec/eg-container.md` alone, to list the same sections, verify their hashes, report a damaged one and fall back past a damaged table of contents):
 
 - **`tools/check_portability_canary.py`** breaks the portability rule on purpose. Each
   file under `tools/canary/portability/` is a probe (direct `std::fs`, file access
@@ -173,8 +174,8 @@ describing it).
 
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
-| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks; the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31 | no — the one crate for OS I/O |
+| `everygraph-core` | id types, `ByteSource` and its writable counterpart `ByteSink`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31, #28 | no — the one crate for OS I/O |
 | `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
