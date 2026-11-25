@@ -3,6 +3,9 @@
 
 Checks:
   1. ADR 0000 and one ADR per decision D1..D25 exist, named NNNN-<slug>.md, one per number.
+     ADRs numbered above 25 record decisions that are not a D-row (for example the wording
+     of a product promise in DESIGN.md section 2): their header names what they decide in
+     DESIGN.md, as a decision D1..D25, a promise 1..3, or a section.
   2. Each ADR has a status from the vocabulary of docs/adr/README.md and the required
      sections; an ADR whose status is not `accepted` has a "Closed by" section citing #N.
   3. Each decision row D1..D25 of the table in docs/DESIGN.md links to its ADR.
@@ -28,6 +31,7 @@ SECTIONS = ("Context", "Decision", "Evidence", "Consequences", "What would chang
 NAME = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 STATUS_LINE = re.compile(r"^- \*\*Status:\*\* (.+?)\s*$", re.M)
 ISSUE_REF = re.compile(r"(?<![\w/&#])#(\d+)\b")
+DECISION_LINE = re.compile(r"^- \*\*Decision:\*\* (?:D(\d+)\b|promise [1-3]\b|§ ?\d).*$", re.M)
 LAB_PATH = re.compile(r"(?<![\w/.-])lab/[A-Za-z0-9_.*/-]+")
 
 
@@ -59,8 +63,8 @@ def check(root):
     expected = set(range(0, N_DECISIONS + 1))
     for num in sorted(expected - files.keys()):
         errors.append(f"ADR {num:04d}: missing")
-    for num in sorted(files.keys() - expected):
-        errors.append(f"ADR {num:04d}: no decision D{num} in DESIGN.md")
+    # ADRs above the D-rows are not tied to a decision row; they must say what they decide.
+    extra = sorted(files.keys() - expected)
 
     statuses = {}
     issue_refs, lab_paths = [], []
@@ -79,8 +83,16 @@ def check(root):
         for s in SECTIONS:
             if s not in present:
                 errors.append(f"{p.name}: missing section '## {s}'")
-        if num >= 1 and not re.search(rf"^- \*\*Decision:\*\* D{num}\b", text, re.M):
+        if 1 <= num <= N_DECISIONS and not re.search(rf"^- \*\*Decision:\*\* D{num}\b", text, re.M):
             errors.append(f"{p.name}: header does not name decision D{num}")
+        if num in extra:
+            m = DECISION_LINE.search(text)
+            if not m or "DESIGN.md" not in m.group(0):
+                errors.append(f"{p.name}: not a decision D1..D{N_DECISIONS}, so the header must "
+                              f"name what it decides in DESIGN.md (a D-row, promise 1..3 or a "
+                              f"section)")
+            elif m.group(1) and not 1 <= int(m.group(1)) <= N_DECISIONS:
+                errors.append(f"{p.name}: header names D{m.group(1)}, which DESIGN.md does not have")
         if status and status != "accepted" and not SUPERSEDED.match(status):
             if not ISSUE_REF.search(section_body(text, "Closed by")):
                 errors.append(f"{p.name}: status '{status}' but no '## Closed by' citing #N")

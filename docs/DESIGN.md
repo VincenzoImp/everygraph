@@ -1,6 +1,7 @@
 # Everygraph — product and architecture
 
-Status: design baseline, 2026-11-24; D4 amended 2026-11-25 (ADR 0004, #118). Every decision below cites the measurement that
+Status: design baseline, 2026-11-24; D4 amended 2026-11-25 (ADR 0004, #118); promise 1
+restated 2026-11-25 with the harness's ingest measurements (ADR 0026). Every decision below cites the measurement that
 supports it (see [FINDINGS.md](FINDINGS.md)); decisions without a measurement are marked
 **unvalidated**. Numbers are from one workstation (Ryzen 9 7950X, 61 GB RAM, NVMe).
 
@@ -20,8 +21,16 @@ file format, one map viewer.
 Three promises, each measurable:
 
 1. **Open anything fast.** A file becomes an analysis-ready graph at about 100 M edges/s
-   (lab: 35 M edges in 0.4 s, 1.8 B edges in 21 s, to raw arrays; encoding to the default
-   compressed storage is a further 0.06 s and 3.4 s at 16 threads, measured separately).
+   while what the ingest writes fits in memory or in the drive's fast-write burst. A graph
+   whose ingest writes more is bounded by the drive's sustained write rate, not by the
+   CPU: about 60 M edges/s for Friendster on the lab machine (ADR 0026). Measured with the
+   lab prototype through the benchmark harness (idle machine, text to raw arrays, 32
+   threads, no `fsync`; `bench/results/headline/`, 2026-11-25): lj 35 M edges in 0.386 s
+   and orkut 117 M in 0.781 s (90 M and 150 M edges/s, median of 6); Friendster 1.8 B
+   edges in 29.06 s with a 32 GB budget and 36.97 s with 8 GB when ingests run back to back
+   (62 M and 49 M edges/s, median of 3 after a warm-up), 17.7–19.5 s on a rested drive
+   (92–102 M edges/s). Encoding to the default compressed storage is a further 0.06 s,
+   0.17 s and 3.4 s at 16 threads, measured separately.
 2. **Never run out of memory.** The user gives a memory budget; the engine plans before it
    starts and stays inside it. Out of core, a kernel costs about one sequential read of the
    graph per pass. For iterative kernels that is close to their in-RAM cost (lab, Friendster,
@@ -168,7 +177,8 @@ These are the reasons the first milestone after foundations is a second lab roun
 | Any budgeted run | never OOM-killed |
 
 Measured against two of these targets on the default compressed storage (#118, 2026-11-25,
-idle machine, FINDINGS § M1-13; the targets are unchanged):
+idle machine, FINDINGS § M1-13) and, for the ingest, with the benchmark harness (#4,
+2026-11-25, idle machine, FINDINGS "Idle-machine re-runs"); the targets are unchanged:
 
 - *Friendster PageRank under a 2 GB limit, within 1.35× of in-RAM:* through plain mmap of
   the compressed store, 16 threads, 4.31 s/iteration against 3.19 in RAM — 1.35×, no margin
@@ -176,9 +186,15 @@ idle machine, FINDINGS § M1-13; the targets are unchanged):
   pass; raw arrays the same way: 1.32×). The lab's raw-format streaming reader gave 1.08×
   (3.64 vs 3.37 s/iteration, 32 threads). The gap: no streaming reader for the compressed
   format exists yet (#46).
-- *Friendster ingest, 8 GB budget, under 60 s:* the lab measured 52.4 s to raw arrays
-  (32 threads, no `fsync`). Encoding to the default format took 3.41 s at 16 threads plus
-  4.77 s to write it with `fsync`, measured separately, so 52.4 + 3.4 = 55.8 s by addition
-  before the write. The encoder measured holds input and output in RAM (about 14 GiB raw and
-  9.8 GiB compressed on Friendster), so it cannot run under 8 GB as it is. The gap: an
-  encoder that works under the budget, unmeasured (#35).
+- *Friendster ingest, 8 GB budget, under 60 s:* the ingest itself to raw arrays took
+  36.97 s (35.06–37.14, median of 3) at the drive's sustained write rate (benchmark
+  harness, idle machine, 32 threads, no `fsync`, one untimed warm-up repetition first;
+  `bench/results/headline/20261125T114658Z-0ffe756ac9ac.jsonl`, rows 4–6; ADR 0026). The
+  lab's single run, 52.4 s, is superseded. Encoding to the default format took 3.41 s at
+  16 threads plus 4.77 s to write it with `fsync`, measured separately (#118), so
+  36.97 + 3.41 = 40.4 s by addition before the write and 45.2 s with it. What remains
+  unmeasured is the part that decides the target: the encoder measured holds input and
+  output in RAM (about 14 GiB raw and 9.8 GiB compressed on Friendster), so it cannot run
+  under 8 GB as it is. The gap: an encoder that works under the budget (#35, ADR 0004),
+  and the build writing the default format directly, which changes the bytes written and
+  so, on this drive, the time (ADR 0026).
