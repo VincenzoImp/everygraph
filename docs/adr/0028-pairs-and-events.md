@@ -32,7 +32,12 @@ choice between the two ways out sharper, because an append adds events to old pa
 holds each neighbour once, coded exactly as in revision 1 of `eg-adjacency.md`. When some
 pair has more than one event, the section `<name>.events` (container kind 5) holds an
 Elias–Fano sequence of the per-entry event offsets, `len = entries + 1`, `U = events`
-(`eg-adjacency.md` § 3.1). The multiplicity of entry `e` is `ev[e + 1] − ev[e]`; the events
+(`eg-adjacency.md` § 3.1), and index flag bit 1, `events`, is set exactly when that section
+exists. Entry `e` has `ev[e + 1] − ev[e]` stored events, which is the pair's multiplicity
+except under `duplicates="sum"`, where the multiplicity is the `edges` column, so that
+`"sum"` and `"events"` give the same pair results (`graph-semantics.md` § 2.4, § 2.5).
+Lists stay in increasing internal id of the neighbour, which is graph order until a
+renumbering; results listed "in graph order" are sorted by graph position. The events
 of a pair are ordered by (time, input order), nulls of time last, identically at both ends
 of an undirected pair. **Per-event columns** (a time; each row's weight under
 `duplicates="events"`) are indexed by event offset; **per-pair columns** (aggregates over a
@@ -42,38 +47,64 @@ pair's events, among them the pair sum that weighted kernels read; the `edges` c
 
 Hot columns (D9) stay aligned with an adjacency and duplicated across its two ends and
 across out- and in-adjacency, as ADR 0009 measured — but per event or per pair, as the
-column is, instead of "per adjacency entry". Wide or cold columns stay behind an edge id.
+column is, instead of "per adjacency entry". Wide or cold columns stay behind an edge id,
+which is itself a per-event column (indexed by event offset, `num_edges` values) and is
+`u64` when the graph has 2^32 events or more.
 
 Adopted with it, from `docs/research/sota-dynamic.md` § 0.3–0.4 (reservations and rules;
 segments themselves are not built, #111 builds them):
 
 - **A1.** Flag bit 0 of the adjacency index, `sparse`, is reserved for segments
   (`eg-adjacency.md` § 3).
+- **Index flag bit 1, `events`** (added by the review of this decision): the section's
+  presence is part of the index, so a lost `.events` section is an error rather than
+  another valid graph, and the bit is the must-understand signal — revision-1 readers
+  refuse every flag. With it, cross-section checks (`eg-adjacency.md` § 5): out and in
+  both have `.events` or neither, with equal `events`; names and kind 5 agree; per-event
+  columns have `events` rows.
 - **A2.** Blocks are the unit of I/O and of encoding; the order of result-bearing
-  reductions is fixed by node ranges that depend on the node count only (#44, #47), not by
-  the blocks of a file (`eg-adjacency.md` § 4). Revision 1 said blocks "make the chunking of
+  reductions is fixed by reduction blocks of node ranges that are a function of the
+  graph — never of the file's blocks, the scan's chunk size, the thread count, the budget
+  or the storage format (#44, #47; `eg-adjacency.md` § 4). Revision 1 said blocks "make the chunking of
   scans a property of the file", which contradicted "any valid directory may be written"
   as soon as two writers exist.
 - **A3.** A merged run is byte-identical to the run an encoder writes for the same pairs
   and events (`eg-adjacency.md` § 4).
-- **S1.** A pair's sum is exact over its events in every run; `duplicates="sum"` with a
-  floating-point weight makes a graph that cannot be appended (`Unsupported`)
-  (`graph-semantics.md` § 4.3).
-- **S2.** Column statistics are recorded per run and for the whole graph; `sum` and the
-  largest multiplicity are recomputed, not combined (`graph-semantics.md` § 2.7).
+- **S1.** A pair's sum is exact over its events in every run: the newest run that touches
+  a pair stores that pair's aggregates over all runs, recomputed from exact stored
+  values, and supersedes older values; `duplicates="sum"` with a floating-point weight
+  makes a graph that cannot be appended (`Unsupported`), and so does an append that would
+  overflow a pair sum's stored type (`graph-semantics.md` § 4.3).
+- **S2.** Column statistics are recorded per run and for the whole graph; the whole
+  graph's are updated exactly and incrementally (exact accumulators per run; the largest
+  multiplicity from the pairs a run touches; under `"sum"`, `min` and `max` of pair sums
+  recomputed from the per-pair column when a superseded value was an extreme), never by
+  rescanning older runs (`graph-semantics.md` § 2.7).
 - **S3.** Graph order after appends: the base, then each segment's new identifiers in
   the order its input first names them (`graph-semantics.md` § 2.3; ADR 0008).
-- **S4.** For a file built by appends, results depend on its batches, not on how they are
-  stored (`design/DECISIONS.md`, "What 'repeatable' promises, for files built by appends").
-- **S5.** The dictionary of a segmented file is layered (ADR 0008, as a rule for #111).
+- **S4.** For a file built by appends, results depend on its batches, not on how its runs
+  are merged or compacted (`design/DECISIONS.md`, "What 'repeatable' promises, for files
+  built by appends"). A renumbering is not covered: a renumbered file may reduce over
+  other node ranges.
+- **S5.** The dictionary of a segmented file is layered, and a merge that rebuilds it
+  keeps every id (ADR 0008, as a rule for #111).
 
-**Versions.** The index and data keep version 1: their bytes do not change, and no
-version-1 file can hold a repeated neighbour, because the only writer has always refused
-one. The specification is revision 2 (`eg-adjacency.md` § 6). The `.events` section is
-new and versioned on its own. Kind 5 is not announced with a required feature of the
-container: no graph reader exists yet, so every graph reader is written knowing it. Kind 6
-is reserved for the segment manifest; both are reserved in the container specification
-by pull request 170, not here.
+**Versions.** The index and data keep version 1. Revision 1's own text already required
+strictly increasing lists, so an equal neighbour was never a valid version-1 list,
+whoever wrote it, and revision 2 reads every valid revision-1 file as before. What it adds
+is a defined flag (bit 1), which revision-1 readers refuse, and a section. The
+specification is revision 2 (`eg-adjacency.md` § 6). The `.events` section is new and
+versioned on its own.
+
+**Container kinds.** Kind 5 is the `.events` section and kind 6 the segment manifest
+(reserved, not in 1.0), in `eg-container.md` (pull request 170) §§ 5, 10, not here. Kind 5
+is not announced with a required feature of the container: required bits protect readers
+older than a feature, and kind 5 is defined in 1.0, before any graph reader exists, so
+the graph kinds of 1.0 (2–5) are not optional for a reader that reads the graph (only
+container-level tools — list, verify, copy, compact — treat them as opaque). Inside the
+adjacency, index flag bit 1 carries the same signal. Kind 6 is announced by the
+container's required feature bit 0, `segments`: a 1.0 reader that skipped the manifest
+would read the base run, an older graph, and nothing would tell it so.
 
 ## Evidence
 
@@ -90,9 +121,13 @@ format, and the earlier measurement that still carries D9.
   `r = events / entries`: `1 + r` bits per entry for `r < 2`, between `2 + ⌊log2 r⌋` and
   `3 + ⌊log2 r⌋` for `r ≥ 2`.
 - **Cost of (B), the same arithmetic.** An equal neighbour is a zero word: 1 data byte and
-  2 control bits, so `10 (r − 1)` bits per entry against (A)'s `1 + r` (for `r < 2`).
-  (B) is smaller only while `r < 11/9`, fewer than about one repeated event per 4.5
-  pairs — and every kernel would pay for it in time (below).
+  2 control bits, so `10 (r − 1)` bits per entry. For the structure alone, against (A)'s
+  `1 + r` (for `r < 2`), (B) is smaller only while `r < 11/9`, fewer than about one
+  repeated event per 4.5 pairs. That leaves out the per-pair columns (A) also stores and
+  (B) need not: with a `float64` pair sum (64 bits per entry per adjacency), (A) costs
+  `65 + r` bits per entry against (B)'s `10 (r − 1)`, and (B) is smaller up to
+  `r < 75/9 ≈ 8.3`. So the decision does not rest on space: it rests on kernel time (every
+  scan under (B) decodes, deduplicates and sums every event) and on appends (below).
 - **Kernels on pairs** keep the bits per entry and the times of ADR 0004 (#118: social
   graphs, no repeated pairs, where (A) and revision 1 are the same bytes). Under (B), a
   graph with `r` events per pair makes every scan decode `r` times the entries, and every
@@ -120,7 +155,8 @@ format, and the earlier measurement that still carries D9.
 ## Consequences
 
 - **#35 (build)** groups each pair's events, writes each list with each neighbour once,
-  and writes `<name>.events` (out, and in on a directed graph) when some pair repeats;
+  and writes `<name>.events` (out, and in on a directed graph) when some pair repeats,
+  setting index flag bit 1;
   per-event columns are carried in event order, per-pair aggregates computed from each
   pair's range. The streaming `.events` writer is #35's; `encode` of #30 keeps refusing
   equal neighbours, which is now correct. A graph with repeated pairs becomes writable.

@@ -2,10 +2,11 @@
 
 Status: specification for 0.1, written by #30 (`plan/issues/m2-03-adjacency-codec.md`).
 **Revision 2, 2026-11-25 (ADR 0028):** an adjacency stores pairs, and the events of a pair
-are found through a third byte string, the `.events` section (§ 3.1); flag bit 0 is
-reserved (§ 3); the block rule no longer fixes the order of reductions (§ 4); merged runs
-are byte-identical to encoded ones (§ 4). The bytes of the index and the data are those of
-revision 1, and their version field stays 1 (§ 6). Implemented by
+are found through a third byte string, the `.events` section (§ 3.1), announced by index
+flag bit 1 (§ 3); flag bit 0 is reserved (§ 3); the block rule no longer fixes the order of
+reductions (§ 4); merged runs are byte-identical to encoded ones (§ 4). For a graph without
+repeated pairs the index and the data are byte for byte those of revision 1; their version
+field stays 1 (§ 6). Implemented by
 `crates/everygraph-format/src/adjacency/` (the `.events` section by #35). The decision it
 implements is DESIGN D4 with the conditions of ADR 0004; the measurements behind it are
 FINDINGS § C and § M1-13 and the pull request of #30.
@@ -83,7 +84,8 @@ they are not part of the format.
 offset  size  field
 0       8     magic          "EGADJIDX"
 8       4     version        1
-12      4     flags          0 (bit 0 is reserved, below; no flag is defined in version 1)
+12      4     flags          bit 1 `events` (§ 3.1); bit 0 reserved (below); every
+                             other bit 0
 16      8     nodes          n, at most 2^32 − 1
 24      8     entries        Σ d_v
 32      8     data_bytes     length of the data
@@ -107,6 +109,11 @@ The degree of `v` is `entry[v + 1] − entry[v]` (distinct neighbours: the numbe
 pairs); its record is `data[byte[v] .. byte[v + 1])`. The entry offset of `v` also indexes
 the per-pair edge columns (§ 3.1, #37).
 
+**Flag bit 1, `events`,** is set exactly when the adjacency has a `.events` section
+(§ 3.1). It makes the presence of the section part of the index, so that a lost section is
+an error and not another valid graph, and it is the signal that a reader must understand
+the section: a reader of revision 1 refuses the bit, as it refuses every flag (§ 6).
+
 **Flag bit 0, `sparse`, is reserved for segments** (ADR 0028; issue #111): the index then
 holds, after the block codecs, an Elias–Fano sequence of the node ids that have a list
 (`len = present`, `U = nodes`), and the offset sequences run over present nodes only, so
@@ -118,7 +125,10 @@ and a reader refuses it as it refuses every flag (§ 6).
 
 An adjacency stores **pairs**: the list of `v` holds each neighbour once, whatever the
 number of events (input rows stored as edges, `docs/spec/graph-semantics.md` § 1) of the
-pair. When the graph has more than one event for some pair, the section `<name>.events`
+pair, in increasing internal id of the neighbour (§ 1) — which is graph order until a
+renumbering (`plan/issues/m2-07-id-mapping.md`, `m2-24-bp-ordering.md`). When the graph
+has more than one event for some pair, the index sets flag bit 1 and the section
+`<name>.events`
 (container kind 5; `<name>` is the adjacency's name, so `adjacency.out.events` beside
 `adjacency.out.index` and `adjacency.out.data`) holds, for each entry in entry order, the
 number of events of the entries before it, then `events`:
@@ -135,17 +145,21 @@ offset  size  field
 ```
 
 The low part is followed directly by the high part; the section has no other content,
-and its length is determined by the header and must be exactly that. The
-**multiplicity** of entry `e` is `ev[e + 1] − ev[e] ≥ 1`, and its events are the **event
-offsets** `ev[e] … ev[e + 1] − 1`, in the storage order of `docs/spec/graph-semantics.md`
-§ 2.5. **Per-event columns** (a time, the weight of each row under `duplicates="events"`)
-are indexed by event offset; **per-pair columns** (aggregates over a pair's events, the
-`edges` column of `duplicates="sum"`) by entry offset.
+and its length is determined by the header and must be exactly that. Entry `e` has
+`ev[e + 1] − ev[e] ≥ 1` **stored events**, at the **event offsets** `ev[e] … ev[e + 1] − 1`,
+in the storage order of `docs/spec/graph-semantics.md` § 2.5. **Per-event columns** (a
+time, the weight of each row under `duplicates="events"`, the edge id that reaches a wide
+or cold column, DESIGN D9) are indexed by event offset; **per-pair columns** (aggregates
+over a pair's events, the `edges` column of `duplicates="sum"`) by entry offset.
 
-A graph whose every pair has one event — any graph read with `duplicates="collapse"` or
-`"sum"`, and any input without a repeated pair — has **no `.events` section**: its event
-offsets are its entry offsets, and a per-event column is then also a per-pair one. A
-writer never writes a `.events` section in which every multiplicity is 1.
+A graph whose every pair has one stored event — any graph read with
+`duplicates="collapse"` or `"sum"`, and any input without a repeated pair — has **no
+`.events` section** and flag bit 1 clear: its event offsets are its entry offsets, and a
+per-event column is then also a per-pair one. A writer never writes a `.events` section
+in which every entry has one event. The number of stored events is the multiplicity of
+the pair (`graph-semantics.md` § 1) except under `"sum"`, where the multiplicity is the
+`edges` column (`graph-semantics.md` § 2.4); a reader of this format alone cannot tell
+the two apart, and the graph layer must.
 
 `events` counts the events *of this adjacency*: on an undirected graph each event of a
 pair `{u, v}` with `u ≠ v` lies in the ranges of both entries (in the list of `u` and in
@@ -158,10 +172,11 @@ offsets.
 
 Blocks are node-aligned runs of lists: block `i` holds the lists of nodes
 `start[i] … start[i+1] − 1`. Blocks are the unit of I/O and of encoding. The order of
-result-bearing reductions is not taken from them: it is fixed by node ranges that depend
-on the node count only (the reduction blocks of the edge-map framework, #44, and of
-PageRank, #47), so re-encoding, merging segments or compacting never changes a result
-(DESIGN D14).
+result-bearing reductions is not taken from them: it is fixed by reduction blocks of node
+ranges that are a function of the graph, never of the file's blocks, the scan's chunk
+size, the thread count, the memory budget or the storage format (raw or compressed) — the
+reduction blocks of the edge-map framework (#44) and of PageRank (#47). So re-encoding,
+merging segments or compacting never changes a result (DESIGN D14).
 
 The codec byte of a block says how its records are coded. Version 1 defines only 0, the
 records of § 1; a reader refuses any other value. (The issue reserves the field for an
@@ -198,12 +213,23 @@ decrease, a degree below 2^32, and a record length `r` that fits the degree `d`:
 when `d = 0`, else `⌈d/4⌉ + d ≤ r ≤ ⌈d/4⌉ + 4d`. Then the data length must equal
 `data_bytes`.
 
-The events (when the section exists): the magic, version and flags; the exact length;
-`entries` equal to the index's; `events ≥ entries`; the number of set bits of the high
-part and every padding bit zero; a sequence that starts at 0, ends at `events` and
-**strictly increases** (every entry has at least one event). A `.events` section whose
-multiplicities are all 1 is refused (`events = entries`), so that a graph has one stored
-form.
+The events, when flag bit 1 is set (and a `.events` section without the flag is an
+error). On opening: the magic, version and flags; `entries` equal to the index's;
+`events > entries` (a section in which every entry has one event is refused, so that a
+graph has one stored form); the exact length, computed with checked arithmetic (`events`
+is any `u64` and `l` can reach 63, so `len·l` and `U >> l` are computed in 128 bits or
+refused on overflow). At the first use of the section, before any value read from it is
+returned, not at opening: the number of set bits of the high part, every padding bit
+zero, and a sequence that starts at 0, ends at `events` and **strictly increases** (every
+entry has at least one event). These read the whole section, `O(entries)` bits; a kernel
+that takes multiplicities from a per-pair column never pays them.
+
+Across sections (the graph layer, when it opens a graph): a section named `<adj>.events`
+has container kind 5, and a section of kind 5 is named `<adj>.events` for an adjacency
+`<adj>` of the file; on a directed graph, the out- and in-adjacency both have a `.events`
+section or neither has, and their `events` are equal (each event lies once in each);
+every per-event column has `events` rows, or `entries` rows when there is no `.events`
+section.
 
 Decoding: every read stays inside the data, and a record whose words do not end exactly
 where the next byte offset says is an error. A reader is not required to detect a list
@@ -224,14 +250,17 @@ never guesses. Node ids wider than 32 bits (DESIGN D3, a later build) are a new 
 words are 32-bit here. The `.events` section has its own version field, under the same
 rule.
 
-**Revision 2 keeps version 1** for the index and the data. Their bytes are unchanged; what
-revision 2 adds is a meaning (a list holds pairs) and a third section. No file could have
-held an adjacency with a repeated neighbour: the only writer, `encode` of
-`everygraph-format`, refuses a list that is not strictly increasing
-(`EncodeError::NotIncreasing`), and it is the only writer of the format so far (the lab
-prototypes wrote stores of their own, and on graphs without repeated pairs). So no
-version-1 file can be misread under revision 2, which is the test of the rule above.
-Reserving flag bit 0 needs no version either: every reader refuses it already.
+**Revision 2 keeps version 1** for the index and the data. Revision 1's own text already
+required every list to be strictly increasing (§ 1: `x_0 < x_1 < …`,
+`w_j = x_j − x_{j−1} − 1`), so an equal neighbour was never a valid version-1 list,
+whoever wrote it; a crafted word that wraps to an equal neighbour was invalid under
+revision 1 too, and is left to the section hash (§ 5). Revision 2 therefore reads every
+valid revision-1 file as revision 1 did, which is the test of the rule above. What it adds
+is a defined flag — the path this section allows — and a section: bit 1 is set only on an
+adjacency with a `.events` section, and a revision-1 reader refuses it, which is right,
+since it would take every multiplicity as 1. For a graph without repeated pairs the
+index and the data are byte for byte those of revision 1. Reserving flag bit 0 needs no
+version either: every reader refuses it already.
 
 ## 7. Sizes measured
 
@@ -243,7 +272,9 @@ repeated pair, so they have no `.events` section.
 
 The `.events` section, on an adjacency with `r = events / entries > 1`, takes `1 + r` bits
 per entry when `r < 2`, and between `2 + ⌊log2 r⌋` and `3 + ⌊log2 r⌋` bits per entry
-otherwise (arithmetic from § 2, not measured; #35 measures it on a temporal graph).
+otherwise (arithmetic from § 2, not measured; #35 measures it on a temporal graph). That
+is the structure alone: the per-pair columns a graph with repeated pairs also stores (a
+`float64` pair sum is 64 bits per entry) come on top (ADR 0028 compares both).
 
 ## 8. Decided here
 

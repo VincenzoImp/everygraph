@@ -54,7 +54,9 @@ becomes: hot columns are aligned with an adjacency and duplicated across its end
 event** (indexed by event offset: a time, each row's weight) or **per pair** (indexed by
 entry offset: the aggregates kernels read, such as a pair's summed weight). On a graph
 without repeated pairs the two are the same, and so is the measurement above. Wide or
-cold columns stay behind an edge id. #37 builds both.
+cold columns stay behind an edge id; the edge id is itself a per-event column (indexed by
+event offset, one value per event), and since a graph can have 2^32 events or more it is
+`u64` there, not always `u32`. #37 builds both.
 
 ## Closed by
 

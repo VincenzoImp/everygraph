@@ -127,21 +127,30 @@ Minimum and maximum of a weight per pair are not offered in 0.1 (`docs/api-sketc
 
 ### 2.5 The event model and storage order
 
-The adjacency stores one entry per pair, in graph order of the neighbour; the events of a
-pair are stored, in **(time, input order)** order with nulls of time last, in the event
-columns, at the event offsets the adjacency's `.events` section gives
-(`docs/spec/eg-adjacency.md` § 3.1). For an undirected graph each pair appears in the
-lists of both ends, with the same events in the same order at both; a loop appears once,
-in its node's list. The events of a pair are therefore contiguous, and the analytic graph
-is the adjacency itself — the pair's neighbour and its multiplicity `ev[e + 1] − ev[e]`
-(1 when there is no `.events` section) — with aggregates over each pair's events (§ 4)
+The adjacency stores one entry per pair, in increasing internal id of the neighbour —
+which is graph order until a renumbering (`plan/issues/m2-07-id-mapping.md`,
+`m2-24-bp-ordering.md`); the events of a pair are stored, in **(time, input order)** order
+with nulls of time last, in the event columns, at the event offsets the adjacency's
+`.events` section gives (`docs/spec/eg-adjacency.md` § 3.1). For an undirected graph each
+pair appears in the lists of both ends, with the same events in the same order at both; a
+loop appears once, in its node's list. The events of a pair are therefore contiguous, and
+the analytic graph is the adjacency itself — the pair's neighbour and its multiplicity:
+the stored events `ev[e + 1] − ev[e]`, 1 when there is no `.events` section, except under
+`"sum"`, where the multiplicity is the `edges` column (§ 2.4), so that `"sum"` and
+`"events"` give the same pair results — with aggregates over each pair's events (§ 4)
 computed by the build from the event range and stored as per-pair columns. Kernels read
 pairs, multiplicities and per-pair columns, never per-event columns; time windows,
-`edges()` and event counts read the events through the event offsets. Which aggregates are stored per pair
-and which are computed from the events when asked is #37's; the pair sum of a weight
-column (§ 4.3), which every weighted kernel reads, is stored. On a directed graph the in-adjacency (#38) is ordered the same way and has its
-own `.events` section. Storage order is fixed by the input and the options, never by
-threads, budget or regime (`docs/api-sketch.md` § 2.11).
+`edges()` and event counts read the events through the event offsets. Which aggregates
+are stored per pair and which are computed from the events when asked is #37's; the pair
+sum of a weight column (§ 4.3), which every weighted kernel reads, is stored. On a
+directed graph the in-adjacency (#38) is ordered the same way and has its own `.events`
+section. Storage order is fixed by the input and the options, never by threads, budget or
+regime (`docs/api-sketch.md` § 2.11).
+
+Results that list nodes or neighbours "in graph order" (`docs/api-sketch.md` § 2.12:
+`neighbors()`, the position in a parent's list that orders `khop()`, the `bfs()` parent)
+are ordered by graph position, not by storage order; the two differ only after a
+renumbering.
 
 ### 2.6 Column types
 
@@ -172,10 +181,20 @@ stored values (after `sum` where it applies), in the file's table of contents (#
 and, per graph, the largest multiplicity of a pair.
 
 **Files built by appends** (segments, #111; not in 0.1). Column statistics are recorded
-per run and for the whole graph; `sum` and the largest multiplicity of the whole graph are
-recomputed over all runs, not combined from the runs' values (a pair split across runs
-has a multiplicity that is not the largest of the runs' maxima, and an exact `sum` is not
-a sum of rounded ones).
+per run and for the whole graph. The whole graph's are kept exact and updated
+incrementally, from what each append writes, never by a rescan of older runs:
+
+- `count`, `null_count`, `nan_count`, and `min` and `max` of a per-event column: combined
+  from the run's values;
+- `sum`: each run records its exact accumulator (not its `float64` rounding), and the whole
+  graph's exact sum is the exact sum of those, rounded once (§ 4.3);
+- the largest multiplicity: the larger of the recorded one and the multiplicities, over
+  all runs, of the pairs the run touches (a pair split across runs has a multiplicity
+  that is not the largest of the runs' maxima);
+- under `"sum"`, `min` and `max` of the stored pair sums: updated from the values the
+  append writes; when a value it supersedes (§ 4.3) was the recorded `min` or `max`, both
+  are recomputed at that commit from the per-pair column (one column, not the events),
+  and a merge always recomputes them.
 
 A column is **clean** — usable as a weight or a cost by every operation — when
 `nan_count = 0`, `min ≥ 0` (or there is no value) and `sum` is finite. Since every value is
@@ -278,15 +297,22 @@ loop never shortens a path and is never a step.
   the events, the direction they were read from, the threads or the regime, and an
   integer or decimal column loses precision only in that one rounding. (A sum of integers
   below 2⁵³ is exact in `float64` already; floating-point columns need an exact
-  accumulator, which costs little because a pair's events are contiguous (§ 2.5).) The oracle's
-  references sum in row order in `float64`; they agree within the tolerances of
+  accumulator, which costs little because a pair's events are contiguous, § 2.5.) The
+  oracle's references sum in row order in `float64`; they agree within the tolerances of
   `oracle/tolerances.json`, and `math.fsum` in the Python reference would make them
   agree exactly (§ 8).
 - **Across runs** (a file built by appends, #111; not in 0.1). A pair's sum is the exact
-  sum of its events **in every run**. A run never stores a rounded partial sum of a pair
-  that a later run may extend; `duplicates="sum"` with a floating-point weight makes a
-  graph that cannot be appended (`Unsupported`, exit status 2), integer and decimal sums
-  can (they merge exactly; `round(round(a) + b)` need not equal `round(a + b)`).
+  sum of its events **in every run**. The newest run that touches a pair stores that
+  pair's aggregates over the events of all runs, recomputed from exact stored values (the
+  older runs' events under `"events"`, the exact stored sum under `"sum"`), and they
+  supersede the values older runs stored; a reader takes a pair's aggregates from the
+  newest run that has the pair. A float `"sum"` graph has no exact stored values to
+  recompute from (`round(round(a) + b)` need not equal `round(a + b)`), so
+  `duplicates="sum"` with a floating-point weight makes a graph that cannot be appended
+  (`Unsupported`, exit status 2); integer and decimal sums can. An append that would make
+  a pair sum overflow its stored type (§ 4.3's widening is fixed when the file is built)
+  is refused with `Unsupported` (2), naming the column, and the file is left unchanged;
+  the way forward is a new file built from all the batches.
 - Results that report a sum keep exact types (`docs/api-sketch.md` § 3.4): the
   `weighted` column of `degrees()`, the weight column of `neighbors()`, `edges_between()`
   and `p.edges()`, and the column stored by `"sum"` are `float64` for a floating-point

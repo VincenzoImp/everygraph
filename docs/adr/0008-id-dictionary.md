@@ -127,7 +127,8 @@ order of 0.1 do not have to change when they arrive.
 - **The dictionary of a segmented file is layered:** the base dictionary plus, per
   segment, a dictionary of its new keys with ids from `n_{i−1}` (the node count before
   it); a lookup probes the layers newest first; a merge may rebuild one dictionary for
-  the runs it merges. The minimal perfect hash is static, and rebuilding it on every
+  the runs it merges, and the rebuilt dictionary keeps every id (otherwise stored results
+  and the promise that merging never changes a result would break). The minimal perfect hash is static, and rebuilding it on every
   append would cost O(n) per append.
 
 ## Closed by
