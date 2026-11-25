@@ -186,6 +186,7 @@ name = "everygraph-bench"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "everygraph-bench",
  "md-5",
  "regex-lite",
  "rustix",

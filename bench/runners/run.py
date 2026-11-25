@@ -11,8 +11,12 @@ One process runs one task of one tool on a graph in the lab's glab-csr-v0 format
 
 `algorithm` names exactly what was called, with the options that change what is
 computed: a "triangle count" baseline once turned out to be a clustering coefficient
-in a slow mode (CLAUDE.md § 3). `seconds` times the task alone, in process; loading
-and conversion are in `load_seconds`. The harness measures the whole process around it.
+in a slow mode (CLAUDE.md § 3). `seconds` times the tool's call alone, in process:
+loading and conversion are in `load_seconds`, and turning the tool's answer into
+`result` (summing scores, computing modularity) is after the clock stops. The harness
+measures the whole process around it and stores `tool`, `version`, `algorithm` and
+`options` in every row. Thread counts come from the environment the spec sets
+(OMP_NUM_THREADS before any import) and from `--threads`.
 
 Also `python run.py convert mtx --graph DIR --out FILE`: MatrixMarket for GVE.
 """
@@ -110,34 +114,38 @@ def networkit(task, csr, args):
     def pagerank():
         a = nk.centrality.PageRank(g, damp=0.85, tol=1e-30)
         a.maxIterations = args.iterations
-        a.run()
-        return {"iterations": a.numberOfIterations()}
+        return run_then(a)
 
-    def triangles():
-        # Per-edge triangle counts; each triangle is counted on its three edges.
-        a = nk.sparsification.TriangleEdgeScore(g)
-        a.run()
-        return {"triangles": int(sum(a.scores()) // 3)}
-
-    def partition(algo):
-        def run():
-            a = algo()
-            a.run()
-            return modularity(csr, a.getPartition().getVector())
-        return run
+    def partition(make):
+        # Timed: building and running the algorithm. Not timed: modularity.
+        return (lambda: run_then(make()),
+                lambda a: modularity(csr, a.getPartition().getVector()))
 
     tasks = {
-        "pagerank": (f"networkit.centrality.PageRank(damp=0.85, tol=1e-30), maxIterations={args.iterations}, float64", pagerank),
+        "pagerank": (f"networkit.centrality.PageRank(damp=0.85, tol=1e-30), maxIterations={args.iterations}, float64",
+                     pagerank, lambda a: {"iterations": a.numberOfIterations()}),
         "components": ("networkit.components.ConnectedComponents (sequential)",
-                       lambda: {"components": run_count(nk.components.ConnectedComponents(g))}),
+                       lambda: run_then(nk.components.ConnectedComponents(g)),
+                       lambda a: {"components": a.numberOfComponents()}),
         "parallel_components": ("networkit.components.ParallelConnectedComponents",
-                                lambda: {"components": run_count(nk.components.ParallelConnectedComponents(g))}),
-        "kcore": ("networkit.centrality.CoreDecomposition", lambda: {"max_core": run_then(nk.centrality.CoreDecomposition(g)).maxCoreNumber()}),
+                                lambda: run_then(nk.components.ParallelConnectedComponents(g)),
+                                lambda a: {"components": a.numberOfComponents()}),
+        "kcore": ("networkit.centrality.CoreDecomposition",
+                  lambda: run_then(nk.centrality.CoreDecomposition(g)),
+                  lambda a: {"max_core": a.maxCoreNumber()}),
         "bfs": ("networkit.distance.BFS(source = highest-degree node, storePaths=False)",
-                lambda: {"source": csr.hub(), "done": bool(run_then(nk.distance.BFS(g, csr.hub(), storePaths=False)))}),
-        "triangles": ("networkit.sparsification.TriangleEdgeScore, summed / 3 (an exact triangle count)", triangles),
-        "plm": ("networkit.community.PLM(refine=False) (parallel Louvain)", partition(lambda: nk.community.PLM(g, refine=False))),
-        "leiden": ("networkit.community.ParallelLeiden (defaults)", partition(lambda: nk.community.ParallelLeiden(g))),
+                lambda: run_then(nk.distance.BFS(g, csr.hub(), storePaths=False)),
+                lambda a: {"source": csr.hub()}),
+        # Per-edge triangle counts; each triangle is on three edges. Only run() is timed:
+        # scores() copies 117 M floats into a Python list on orkut.
+        "triangles": ("networkit.sparsification.TriangleEdgeScore.run(), scores summed / 3 after the clock "
+                      "(an exact triangle count)",
+                      lambda: run_then(nk.sparsification.TriangleEdgeScore(g)),
+                      lambda a: {"triangles": int(sum(a.scores()) // 3)}),
+        "plm": ("networkit.community.PLM(refine=False) (parallel Louvain)",
+                *partition(lambda: nk.community.PLM(g, refine=False))),
+        "leiden": ("networkit.community.ParallelLeiden (defaults)",
+                   *partition(lambda: nk.community.ParallelLeiden(g))),
     }
     return nk.__version__, load, tasks, "networkit.GraphFromCoo, undirected, unweighted, from the CSR"
 
@@ -145,11 +153,6 @@ def networkit(task, csr, args):
 def run_then(a):
     a.run()
     return a
-
-
-def run_count(a):
-    a.run()
-    return a.numberOfComponents()
 
 
 def need_edges(args):
@@ -184,15 +187,18 @@ def igraph(task, csr, args):
     tasks = {
         # Not 20 power iterations: PRPACK solves the linear system exactly.
         "pagerank": ("igraph.Graph.pagerank(damping=0.85), PRPACK (exact solve, not iterations), float64",
-                     lambda: {"max": max(g.pagerank(damping=0.85))}),
-        "components": ("igraph.Graph.connected_components", lambda: {"components": len(g.connected_components())}),
-        "kcore": ("igraph.Graph.coreness", lambda: {"max_core": int(max(g.coreness()))}),
+                     lambda: g.pagerank(damping=0.85), lambda pr: {"max": max(pr)}),
+        "components": ("igraph.Graph.connected_components", lambda: g.connected_components(),
+                       lambda c: {"components": len(c)}),
+        "kcore": ("igraph.Graph.coreness", lambda: g.coreness(), lambda c: {"max_core": int(max(c))}),
         "bfs": ("igraph.Graph.bfs(source = highest-degree node)", lambda: {"reached": len(g.bfs(csr.hub())[0])}),
         # No triangles task: igraph's Python API lists them (a tuple each, 177 M on lj)
         # rather than counting, and transitivity is a different quantity.
-        "multilevel": ("igraph.Graph.community_multilevel (Louvain)", lambda: modularity(csr, g.community_multilevel().membership)),
+        "multilevel": ("igraph.Graph.community_multilevel (Louvain)", lambda: g.community_multilevel(),
+                       lambda c: modularity(csr, c.membership)),
         "leiden": ("igraph.Graph.community_leiden(objective_function='modularity', n_iterations=2)",
-                   lambda: modularity(csr, g.community_leiden(objective_function="modularity", n_iterations=2).membership)),
+                   lambda: g.community_leiden(objective_function="modularity", n_iterations=2),
+                   lambda c: modularity(csr, c.membership)),
         "queries": ("neighbors(), neighborhood_size(order=2), get_shortest_path() on the lab's seed-42 query set", queries),
     }
     return ig.__version__, load, tasks, "igraph.Graph.Read_Edgelist(text, each edge once), undirected"
@@ -413,17 +419,20 @@ def main():
             p.error("convert mtx|edges --graph DIR --out FILE")
         convert(csr, args.task, args.out)
         return
-    os.environ["OMP_NUM_THREADS"] = str(args.threads)
     version, load, tasks, storage = TOOLS[args.tool](args.task, csr, args)
     if args.task not in tasks:
         p.error(f"{args.tool} has no task {args.task!r}; it has: {', '.join(sorted(tasks))}")
-    algorithm, fn = tasks[args.task]
+    # (algorithm, call) or (algorithm, call, summarize): only the call is timed.
+    algorithm, call, *summarize = tasks[args.task]
     t = time.perf_counter()
-    result = fn()
+    answer = call()
     seconds = time.perf_counter() - t
+    result = summarize[0](answer) if summarize else answer
     print(json.dumps({
         "tool": args.tool, "version": version, "task": args.task, "algorithm": algorithm,
-        "options": {"threads": args.threads, "iterations": args.iterations, "storage": storage},
+        "options": {"threads": args.threads, "iterations": args.iterations, "storage": storage,
+                    "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS"),
+                    "affinity": sorted(os.sched_getaffinity(0))},
         "graph": csr.name if csr else args.input, "threads": args.threads,
         "load_seconds": load, "seconds": seconds, "result": result,
     }), flush=True)

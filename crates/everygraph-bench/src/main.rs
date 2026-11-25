@@ -31,7 +31,7 @@ use everygraph_bench::harness::run::{
 use everygraph_bench::harness::spec::{Interrupt, Program, Spec, StopSignal};
 use everygraph_bench::harness::template::Scope;
 use everygraph_bench::harness::units::human_size;
-use everygraph_bench::harness::{lock, report, row};
+use everygraph_bench::harness::{cache, lock, report, row, selftest, units};
 
 /// `println!` that ignores a closed standard output (`everygraph-bench list | head`)
 /// instead of panicking.
@@ -98,9 +98,55 @@ enum Cmd {
     Check(CheckArgs),
     /// Markdown tables (and chart-ready JSON) from result files.
     Report(ReportArgs),
+    /// Check, on this machine, that the harness does not see its own load as others':
+    /// a busy loop on every CPU and a 1 GiB write, each 3 times. Run it first in an
+    /// idle window.
+    Selftest(SelftestArgs),
+    /// Delete the work directory (builds, inputs, cold-cache copies, logs).
+    Clean(CleanArgs),
     /// Runs inside the systemd-run scope of one repetition (used by `run`).
     #[command(hide = true)]
     Measure(MeasureArgs),
+    /// The load of the self-test.
+    #[command(hide = true)]
+    Burn(BurnArgs),
+}
+
+#[derive(Args, Debug)]
+struct SelftestArgs {
+    /// Seconds of each busy-loop repetition.
+    #[arg(long, value_name = "S", default_value_t = 10)]
+    seconds: u32,
+    /// Busy threads (default: every logical CPU).
+    #[arg(long, value_name = "N")]
+    threads: Option<u32>,
+    #[command(flatten)]
+    place: Where,
+}
+
+#[derive(Args, Debug)]
+struct CleanArgs {
+    /// Only this spec's part of the work directory (its cases, logs and prepared files
+    /// under work/<spec>); shared inputs and cold-cache copies stay.
+    #[arg(long, value_name = "SPEC")]
+    spec: Option<String>,
+    /// Say what would be deleted, and delete nothing.
+    #[arg(long)]
+    dry_run: bool,
+    #[command(flatten)]
+    place: Where,
+}
+
+#[derive(Args, Debug)]
+struct BurnArgs {
+    #[arg(long)]
+    threads: u32,
+    #[arg(long)]
+    seconds: u64,
+    #[arg(long, default_value_t = 0)]
+    write_mib: u64,
+    #[arg(long)]
+    dir: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -280,6 +326,17 @@ fn dispatch(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Check(args) => check(registry()?, root, &args),
         Cmd::Report(args) => report_files(&args),
         Cmd::Measure(args) => measure_command(&args),
+        Cmd::Selftest(args) => selftest(registry()?, root, &args),
+        Cmd::Clean(args) => clean(registry()?, root, &args),
+        Cmd::Burn(args) => {
+            selftest::burn(
+                args.threads,
+                args.seconds,
+                args.write_mib,
+                args.dir.as_deref(),
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -464,6 +521,11 @@ fn context(registry: Registry, data: DataRoot, place: &Where) -> Result<Context,
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from)
         })
+        .or_else(|| {
+            std::env::var_os("EVERYGRAPH_SCRATCH")
+                .filter(|v| !v.is_empty())
+                .map(|s| PathBuf::from(s).join("bench-work"))
+        })
         .unwrap_or_else(|| repo.join("bench").join("work"));
     let work = std::path::absolute(&work).map_err(|e| format!("{}: {e}", work.display()))?;
     let data = DataRoot::new(std::path::absolute(data.path()).map_err(|e| e.to_string())?);
@@ -635,6 +697,68 @@ fn report_files(args: &ReportArgs) -> Result<ExitCode, String> {
         });
     }
     out!("{}", report::markdown(&rows).trim_end());
+    // A reference off, or one no counted repetition could check, fails the report.
+    Ok(if report::verdict(&rows).passed() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+fn selftest(registry: Registry, data: DataRoot, args: &SelftestArgs) -> Result<ExitCode, String> {
+    let ctx = context(registry, data, &args.place)?;
+    let threads = args.threads.unwrap_or_else(|| {
+        std::thread::available_parallelism()
+            .map_or(1, |n| u32::try_from(n.get()).unwrap_or(u32::MAX))
+    });
+    let spec = Spec::parse(&selftest::spec_text(&ctx.exe, threads, args.seconds))?;
+    let out_file = ctx.work.join("selftest").join(format!(
+        "{}.jsonl",
+        units::compact_timestamp(units::unix_now())
+    ));
+    let opts = RunOptions {
+        out: Some(out_file.clone()),
+        lock_path: lock::default_path(),
+        ..RunOptions::default()
+    };
+    let mut stderr = std::io::stderr();
+    run::run(&spec, &ctx, &opts, &mut stderr).map_err(|e| e.to_string())?;
+    let rows = row::read_rows(&out_file)?;
+    let (text, ok) = selftest::evaluate(&rows);
+    out!("{}", text.trim_end());
+    out!("rows: {}", out_file.display());
+    Ok(if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+fn clean(registry: Registry, data: DataRoot, args: &CleanArgs) -> Result<ExitCode, String> {
+    let ctx = context(registry, data, &args.place)?;
+    if !ctx.work.join(run::WORK_MARKER).exists() {
+        return Err(format!(
+            "{} has no {} file, so it is not a work directory of everygraph-bench (or nothing \
+             ran there yet): nothing deleted",
+            ctx.work.display(),
+            run::WORK_MARKER
+        ));
+    }
+    let target = match &args.spec {
+        Some(name) => ctx.work.join(name),
+        None => ctx.work.clone(),
+    };
+    if !target.exists() {
+        out!("{}: nothing there", target.display());
+        return Ok(ExitCode::SUCCESS);
+    }
+    let size = cache::size_of(&target).unwrap_or(0);
+    if args.dry_run {
+        out!("would delete {} ({})", target.display(), human_size(size));
+        return Ok(ExitCode::SUCCESS);
+    }
+    std::fs::remove_dir_all(&target).map_err(|e| format!("deleting {}: {e}", target.display()))?;
+    out!("deleted {} ({})", target.display(), human_size(size));
     Ok(ExitCode::SUCCESS)
 }
 
@@ -649,6 +773,8 @@ fn measure_command(args: &MeasureArgs) -> Result<ExitCode, String> {
                     "TERM" => StopSignal::Term,
                     other => return Err(format!("--interrupt-signal {other}: use INT or TERM")),
                 },
+                // Judged by `run`, not here.
+                expect_exit: 0,
             })
         })
         .transpose()?;

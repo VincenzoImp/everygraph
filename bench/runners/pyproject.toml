@@ -6,7 +6,7 @@
 #
 # Versions are the ones the lab measured where it recorded them (docs/FINDINGS.md § F2:
 # python-igraph 1.0, rustworkx 0.18, LadybugDB 0.22.3, graphistry 0.62.2 with polars 2.1;
-# § B1: DuckDB 2.0.1). The lab did not record NetworKit's version; 11.3 is current.
+# § B1: DuckDB 2.0.1; § A: NetworKit 11.3, pinned by the idle re-run of the baselines).
 # Changing a version changes what a baseline measures: say so in the pull request.
 
 [project]

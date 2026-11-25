@@ -15,10 +15,9 @@
 //!    not measured and its row says `not_cold`.
 //! 3. **Rotate.** A solid-state drive keeps a cache of its own: reading the same blocks twice
 //!    in a row measures that cache, not the flash (FINDINGS § F1). Each dataset has at
-//!    least two copies, and consecutive cold repetitions of it — across cases too —
-//!    take them in turn.
+//!    least two copies, and consecutive cold repetitions of it — across cases and across
+//!    runs (the last copy read is kept in the copies' directory) — take them in turn.
 
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -120,6 +119,43 @@ fn copy_file(from: &Path, to: &Path) -> Result<(), String> {
 pub struct Copies {
     /// The dataset path inside each copy, in rotation order.
     pub paths: Vec<PathBuf>,
+    /// Their directory, which keeps the index of the copy read last.
+    pub dir: PathBuf,
+}
+
+const LAST_COPY: &str = "last-copy-read";
+
+impl Copies {
+    /// The next copy to read, among the first `n`, and its index: never the one read
+    /// last, in this run or the previous one.
+    ///
+    /// # Errors
+    ///
+    /// The record of the last copy cannot be written.
+    pub fn next(&self, n: u32) -> Result<(u32, PathBuf), String> {
+        let n = n.clamp(1, u32::try_from(self.paths.len()).unwrap_or(u32::MAX));
+        let record = self.dir.join(LAST_COPY);
+        let last: Option<u32> = std::fs::read_to_string(&record)
+            .ok()
+            .and_then(|t| t.trim().parse().ok());
+        let k = last.map_or(0, |l| (l + 1) % n);
+        std::fs::write(&record, format!("{k}\n"))
+            .map_err(|e| format!("writing {}: {e}", record.display()))?;
+        Ok((k, self.paths[k as usize].clone()))
+    }
+}
+
+/// SHA-256 of what [`prepare_copies`] compares: the relative path, size and modification
+/// time of every file under `source`. Rows record it, so that two rows can be seen to
+/// have read the same files without hashing gigabytes.
+///
+/// # Errors
+///
+/// As [`files_under`].
+pub fn listing_sha256(source: &Path) -> Result<String, String> {
+    Ok(crate::datasets::hex(
+        &<sha2::Sha256 as sha2::Digest>::digest(listing(source)?.as_bytes()),
+    ))
 }
 
 /// Makes (or reuses) `n` copies of `source` under `dir`: `dir/0/<name>`, `dir/1/<name>`…
@@ -165,7 +201,10 @@ pub fn prepare_copies(
         evict(&target)?;
         paths.push(target);
     }
-    Ok(Copies { paths })
+    Ok(Copies {
+        paths,
+        dir: dir.to_path_buf(),
+    })
 }
 
 /// Syncs and drops every file under `path` from the page cache.
@@ -227,23 +266,6 @@ pub fn resident(path: &Path) -> Result<(u64, u64), String> {
     parse_fincore(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// Which copy of each dataset the next cold repetition reads.
-#[derive(Debug, Default)]
-pub struct Rotation {
-    next: BTreeMap<PathBuf, u32>,
-}
-
-impl Rotation {
-    /// The copy index for the next cold read of `source`, out of `n`; never the one
-    /// read last.
-    pub fn next(&mut self, source: &Path, n: u32) -> u32 {
-        let slot = self.next.entry(source.to_path_buf()).or_insert(0);
-        let k = *slot % n.max(1);
-        *slot = k + 1;
-        k
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,14 +283,22 @@ mod tests {
     }
 
     #[test]
-    fn rotation_never_repeats_a_copy_in_a_row() {
-        let mut r = Rotation::default();
-        let a = Path::new("/a");
-        let picks: Vec<u32> = (0..5).map(|_| r.next(a, 2)).collect();
-        assert_eq!(picks, [0, 1, 0, 1, 0]);
-        // Another dataset has its own rotation.
-        assert_eq!(r.next(Path::new("/b"), 3), 0);
-        assert_eq!(r.next(a, 2), 1);
+    fn rotation_never_repeats_a_copy_in_a_row_across_runs() {
+        let dir = TempDir::new("rotation");
+        let copies = |n: usize| Copies {
+            paths: (0..n).map(|k| dir.path().join(k.to_string())).collect(),
+            dir: dir.path().to_path_buf(),
+        };
+        let run = copies(2);
+        let picks: Vec<u32> = (0..3).map(|_| run.next(2).expect("next").0).collect();
+        assert_eq!(picks, [0, 1, 0]);
+        // A new run (a new `Copies`) goes on from the copy read last.
+        let again = copies(2);
+        assert_eq!(again.next(2).expect("next").0, 1);
+        // Fewer copies asked for than exist: still never the same twice in a row.
+        let three = copies(3);
+        assert_eq!(three.next(3).expect("next").0, 2);
+        assert_eq!(three.next(3).expect("next").0, 0);
     }
 
     #[cfg(target_os = "linux")] // copies are evicted after copying: posix_fadvise

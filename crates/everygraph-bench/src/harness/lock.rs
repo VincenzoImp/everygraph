@@ -18,8 +18,9 @@ use std::path::{Path, PathBuf};
 
 use super::sys;
 
-/// Environment variable naming another lock file. For tests only: two official runs
-/// that name different files do not exclude each other.
+/// Environment variable naming another lock file, honoured only in builds with the
+/// `test-hooks` feature (which only the crate's own tests enable): two official runs
+/// that name different files would not exclude each other.
 pub const LOCK_ENV: &str = "EVERYGRAPH_BENCH_LOCK";
 
 /// A held official-run lock; released when dropped.
@@ -58,11 +59,12 @@ impl std::fmt::Display for LockError {
     }
 }
 
-/// The lock file: `$EVERYGRAPH_BENCH_LOCK` if set, else
-/// `/run/user/<uid>/everygraph-bench-official.lock`, else the same name in the
-/// temporary directory with the uid in it.
+/// The lock file: `/run/user/<uid>/everygraph-bench-official.lock`, else the same name
+/// in the temporary directory with the uid in it. (Test builds: `$EVERYGRAPH_BENCH_LOCK`
+/// first.)
 #[must_use]
 pub fn default_path() -> PathBuf {
+    #[cfg(any(test, feature = "test-hooks"))]
     if let Some(p) = std::env::var_os(LOCK_ENV).filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }

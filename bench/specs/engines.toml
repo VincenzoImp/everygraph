@@ -2,7 +2,10 @@
 #
 # The query-engine bar of FINDINGS § F2: embedded engines answering point queries on lj
 # (neighbors, 2-hop count, shortest path) on the lab's seed-42 query set, plus igraph's
-# PageRank. As in the lab: 3 threads, warm, a 6 GiB limit. Runners: bench/runners/run.py.
+# PageRank. As in the lab: 3 cores (taskset -c 0-2, as lab/f2-python/scripts/engines/
+# run_all.sh pinned them; the thread pools size themselves from the affinity, and
+# OMP_NUM_THREADS, POLARS_MAX_THREADS and RAYON_NUM_THREADS say 3 as well), warm, a
+# 6 GiB limit. Runners: bench/runners/run.py.
 #
 # Medians are per query, in milliseconds, measured inside the runner; the harness
 # repeats the whole process. `load_seconds` is each engine's own load path (text edge
@@ -15,6 +18,8 @@ schema = 1
 name = "engines"
 description = "Embedded graph engines on lj point queries, as FINDINGS § F2"
 reference = "docs/FINDINGS.md § F2; lab/f2-python/results/goalA_*"
+# Every row records the SHA-256 of the interpreter and of the runner.
+binaries = ["{py}", "{repo}/bench/runners/run.py"]
 
 [defaults]
 memory_limit = "6G"
@@ -44,8 +49,11 @@ name = "queries"
 group = "queries"
 dataset_path = "csr/lj"
 matrix = { engine = ["igraph", "rustworkx", "ladybug", "gfql"] }
-command = ["sh", "-c", "exec {run} {engine} queries --graph {dataset} --edges {edges} --threads {threads} --work {case_work}"]
-conditions = { graph = "lj", engine = "{engine}", queries = "seed 42: 200 nodes, 50 pairs (GFQL: first 30 nodes)", cache = "warm" }
+runner = "f2-engines"
+env = { OMP_NUM_THREADS = "{threads}", POLARS_MAX_THREADS = "{threads}", RAYON_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec taskset -c 0-2 {run} {engine} queries --graph {dataset} --edges {edges} --threads {threads} --work {case_work}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "lj", engine = "{engine}", queries = "seed 42: 200 nodes, 50 pairs (GFQL: first 30 nodes)", cache = "warm", cores = "0-2 (taskset)", precision = "n/a (integer answers)" }
 metric = [
   { name = "load_seconds", json = "/load_seconds", unit = "s" },
   { name = "neighbors_ms", json = "/result/neighbors/median_ms", unit = "ms" },
@@ -61,8 +69,10 @@ group = "queries"
 runner = "igraph"
 dataset_path = "csr/lj"
 threads = [1]
-command = ["sh", "-c", "exec {run} igraph pagerank --graph {dataset} --edges {edges} --threads {threads}"]
-conditions = { graph = "lj", engine = "igraph", task = "PageRank, PRPACK exact solve" }
+env = { OMP_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec taskset -c 0 {run} igraph pagerank --graph {dataset} --edges {edges} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "lj", engine = "igraph", task = "PageRank, PRPACK exact solve", cores = "0 (taskset)", precision = "f64" }
 metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
 
 [[benchmark]]

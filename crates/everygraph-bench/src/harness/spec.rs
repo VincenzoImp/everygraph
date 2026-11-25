@@ -142,6 +142,10 @@ pub struct SpecFile {
     /// Untimed steps run once before the benchmarks (builds, decompression).
     #[serde(default)]
     pub prepare: Vec<PrepareDef>,
+    /// Files the commands run (templates): their SHA-256 goes into every row, so that a
+    /// row names the binary that produced it, not only the revision.
+    #[serde(default)]
+    pub binaries: Vec<String>,
     /// The benchmarks.
     #[serde(default, rename = "benchmark")]
     pub benchmarks: Vec<BenchmarkDef>,
@@ -181,8 +185,11 @@ pub struct GateDef {
     /// An official run refuses to start above this 1-minute load average (default 1.0).
     pub max_load: Option<f64>,
     /// A repetition is disturbed when other processes used more than this many cores
-    /// on average, in the settle window before it or while it ran (default 0.5).
+    /// on average, in a settle window around it or while it ran (default 0.5).
     pub disturbed_above_cores: Option<f64>,
+    /// … or moved more than this many MB/s to or from storage (default 50: background
+    /// services stay far below it, a copy or another ingest far above).
+    pub disturbed_above_io_mb_s: Option<f64>,
     /// An official run refuses to start with less `MemAvailable` than this (default:
     /// the largest memory limit of the cases selected).
     pub min_mem_available: Option<String>,
@@ -273,11 +280,42 @@ pub struct BenchmarkDef {
     /// Send a signal after a delay and measure how long the command takes to stop
     /// (ux-contract C-4).
     pub interrupt: Option<InterruptDef>,
-    /// The comparison runner this benchmark uses, for the report (`networkit`).
+    /// The comparison runner this benchmark uses (`networkit`). A runner benchmark must
+    /// record what ran: `tool`, `version`, `algorithm` and `options`, through `record`
+    /// or `record_json`.
     pub runner: Option<String>,
+    /// Text fields stored in every row (templates): what ran, for tools that do not
+    /// print it themselves.
+    #[serde(default)]
+    pub record: BTreeMap<String, String>,
+    /// Text fields stored in every row, read through JSON pointers from the last JSON
+    /// object on standard output (an object or array is stored as its JSON text).
+    #[serde(default)]
+    pub record_json: BTreeMap<String, String>,
+    /// Further files the command runs (templates), hashed into every row.
+    #[serde(default)]
+    pub binaries: Vec<String>,
+    /// Conditions for some cases only: `{ match = { algo = "pr32" }, conditions = { precision = "f32" } }`.
+    #[serde(default)]
+    pub when: Vec<WhenDef>,
     /// Set when the benchmark cannot run on this machine: the reason. It is recorded
     /// as a skipped row, never silently dropped.
     pub unavailable: Option<String>,
+}
+
+/// Fields that the runner of a comparison benchmark must record (CLAUDE.md § 3: "check
+/// what a reference tool actually ran").
+pub const RUNNER_FIELDS: [&str; 4] = ["tool", "version", "algorithm", "options"];
+
+/// Conditions that apply to the cases matching some matrix values (and `threads`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WhenDef {
+    /// Matrix values and `threads` to match.
+    #[serde(rename = "match")]
+    pub matches: BTreeMap<String, Scalar>,
+    /// Conditions set (or replaced) for those cases.
+    pub conditions: BTreeMap<String, Scalar>,
 }
 
 /// A number read from the output.
@@ -345,6 +383,9 @@ pub struct InterruptDef {
     pub after: String,
     /// `INT` (default) or `TERM`.
     pub signal: Option<String>,
+    /// The exit status a clean stop gives (default 128 + the signal number: 130 for
+    /// INT, 143 for TERM, ux-contract C-7). Any other ending is not ok.
+    pub expect_exit: Option<i32>,
 }
 
 /// The four quantities of an estimate (ux-contract § 3.3).
@@ -410,6 +451,8 @@ pub struct Interrupt {
     pub after: Duration,
     /// The signal.
     pub signal: StopSignal,
+    /// The exit status of a clean stop.
+    pub expect_exit: i32,
 }
 
 /// A resolved [`ReferenceDef`] that applies to one case.
@@ -480,6 +523,12 @@ pub struct Case {
     pub interrupt: Option<Interrupt>,
     /// Comparison runner.
     pub runner: Option<String>,
+    /// Text fields recorded literally (templates).
+    pub record: BTreeMap<String, String>,
+    /// Text fields read through JSON pointers from the output.
+    pub record_json: BTreeMap<String, String>,
+    /// Files the command runs, the spec's and the benchmark's (templates).
+    pub binaries: Vec<String>,
     /// Why it cannot run, if so.
     pub unavailable: Option<String>,
 }
@@ -516,6 +565,8 @@ pub struct Gate {
     pub max_load: f64,
     /// Disturbed above this many busy cores of others.
     pub disturbed_above_cores: f64,
+    /// Disturbed above this many MB/s of others' storage traffic.
+    pub disturbed_above_io_mb_s: f64,
     /// Refuse an official run below this `MemAvailable`; `None`: the largest limit.
     pub min_mem_available: Option<u64>,
 }
@@ -539,6 +590,8 @@ pub struct Spec {
     pub cases: Vec<Case>,
     /// SHA-256 of the file's bytes, recorded in every row.
     pub sha256: String,
+    /// The file it was read from (`None` when parsed from text).
+    pub path: Option<std::path::PathBuf>,
 }
 
 impl Spec {
@@ -550,7 +603,8 @@ impl Spec {
     pub fn load(path: &Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("reading {}: {e}", path.display()))?;
-        let spec = Self::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut spec = Self::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        spec.path = Some(path.to_path_buf());
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         if spec.name != stem {
             return Err(format!(
@@ -656,6 +710,7 @@ fn resolve(file: SpecFile, sha256: String) -> Result<Spec, String> {
     let gate = Gate {
         max_load: file.gate.max_load.unwrap_or(1.0),
         disturbed_above_cores: file.gate.disturbed_above_cores.unwrap_or(0.5),
+        disturbed_above_io_mb_s: file.gate.disturbed_above_io_mb_s.unwrap_or(50.0),
         min_mem_available: file
             .gate
             .min_mem_available
@@ -664,7 +719,10 @@ fn resolve(file: SpecFile, sha256: String) -> Result<Spec, String> {
             .transpose()
             .map_err(|e| format!("[gate] min_mem_available: {e}"))?,
     };
-    if !(gate.max_load >= 0.0 && gate.disturbed_above_cores >= 0.0) {
+    if !(gate.max_load >= 0.0
+        && gate.disturbed_above_cores >= 0.0
+        && gate.disturbed_above_io_mb_s >= 0.0)
+    {
         return Err("[gate] thresholds must be non-negative numbers".into());
     }
 
@@ -692,7 +750,10 @@ fn resolve(file: SpecFile, sha256: String) -> Result<Spec, String> {
         if !names.insert(b.name.clone()) {
             return Err(format!("benchmark {:?} appears twice", b.name));
         }
-        cases.extend(expand_benchmark(b, d).map_err(|e| format!("benchmark {:?}: {e}", b.name))?);
+        cases.extend(
+            expand_benchmark(b, d, &file.binaries)
+                .map_err(|e| format!("benchmark {:?}: {e}", b.name))?,
+        );
     }
     for p in &prepare {
         if let Some(n) = p.needed_by.iter().find(|n| !names.contains(*n)) {
@@ -714,12 +775,17 @@ fn resolve(file: SpecFile, sha256: String) -> Result<Spec, String> {
         prepare,
         cases,
         sha256,
+        path: None,
     };
     check_templates(&spec)?;
     Ok(spec)
 }
 
-fn expand_benchmark(b: &BenchmarkDef, d: &Defaults) -> Result<Vec<Case>, String> {
+fn expand_benchmark(
+    b: &BenchmarkDef,
+    d: &Defaults,
+    spec_binaries: &[String],
+) -> Result<Vec<Case>, String> {
     // May name matrix variables (`memory_limit = "{limit}"`); parsed per case below.
     let limit_template = limit_text("it", b.memory_limit.as_ref(), d.memory_limit.as_ref())?;
     let program = program("it", b.command.clone(), b.shell.clone())?;
@@ -881,19 +947,55 @@ fn expand_benchmark(b: &BenchmarkDef, d: &Defaults) -> Result<Vec<Case>, String>
         .interrupt
         .as_ref()
         .map(|i| -> Result<Interrupt, String> {
+            let (signal, number) = match i.signal.as_deref().unwrap_or("INT") {
+                "INT" => (StopSignal::Int, 2),
+                "TERM" => (StopSignal::Term, 15),
+                other => return Err(format!("interrupt.signal = {other:?}: use INT or TERM")),
+            };
             Ok(Interrupt {
                 after: parse_duration(&i.after).map_err(|e| format!("interrupt.after: {e}"))?,
-                signal: match i.signal.as_deref().unwrap_or("INT") {
-                    "INT" => StopSignal::Int,
-                    "TERM" => StopSignal::Term,
-                    other => return Err(format!("interrupt.signal = {other:?}: use INT or TERM")),
-                },
+                signal,
+                expect_exit: i.expect_exit.unwrap_or(128 + number),
             })
         })
         .transpose()?;
     if let Some(i) = interrupt {
         if i.after >= timeout {
             return Err("interrupt.after must be shorter than the timeout".into());
+        }
+    }
+
+    if b.runner.is_some() {
+        let missing: Vec<&str> = RUNNER_FIELDS
+            .iter()
+            .copied()
+            .filter(|f| !b.record.contains_key(*f) && !b.record_json.contains_key(*f))
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!(
+                "a runner benchmark must record what ran: add {} to record_json (read from \
+                 the runner's JSON line) or to record",
+                missing.join(", ")
+            ));
+        }
+    }
+    if let Some(k) = b.record.keys().find(|k| b.record_json.contains_key(*k)) {
+        return Err(format!("{k} is in both record and record_json"));
+    }
+    if let Some((k, p)) = b
+        .record_json
+        .iter()
+        .find(|(_, p)| !(p.is_empty() || p.starts_with('/')))
+    {
+        return Err(format!(
+            "record_json.{k} = {p:?} is not a JSON pointer (it starts with '/')"
+        ));
+    }
+    for w in &b.when {
+        if let Some(k) = w.matches.keys().find(|k| !known_key(k)) {
+            return Err(format!(
+                "a when entry matches on {k}, which is neither threads nor a matrix key"
+            ));
         }
     }
 
@@ -976,8 +1078,17 @@ fn expand_benchmark(b: &BenchmarkDef, d: &Defaults) -> Result<Vec<Case>, String>
                 conditions: b
                     .conditions
                     .iter()
+                    .chain(
+                        b.when
+                            .iter()
+                            .filter(|w| matches(&w.matches))
+                            .flat_map(|w| w.conditions.iter()),
+                    )
                     .map(|(k, v)| (k.clone(), v.0.clone()))
                     .collect(),
+                record: b.record.clone(),
+                record_json: b.record_json.clone(),
+                binaries: spec_binaries.iter().chain(&b.binaries).cloned().collect(),
                 metrics: b.metric.clone(),
                 primary: primary.clone(),
                 references: b
@@ -1049,6 +1160,8 @@ fn check_templates(spec: &Spec) -> Result<(), String> {
             .iter()
             .chain(c.env.values())
             .chain(c.conditions.values())
+            .chain(c.record.values())
+            .chain(&c.binaries)
         {
             scope.expand(t).map_err(what)?;
         }

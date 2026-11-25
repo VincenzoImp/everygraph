@@ -121,6 +121,21 @@ pub fn parse_proc_io(text: &str) -> Result<IoCounters, String> {
     }
 }
 
+/// Per device of `/proc/diskstats`: name, sectors read, sectors written (512 bytes each,
+/// whatever the device's own sector size).
+#[must_use]
+pub fn parse_diskstats(text: &str) -> Vec<(String, u64, u64)> {
+    text.lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            // major minor name reads merged sectors_read ms writes merged sectors_written …
+            let read = f.get(5)?.parse().ok()?;
+            let written = f.get(9)?.parse().ok()?;
+            Some(((*f.get(2)?).to_string(), read, written))
+        })
+        .collect()
+}
+
 /// The cgroup v2 path of a process, from `/proc/<pid>/cgroup` (the `0::` line).
 #[must_use]
 pub fn parse_proc_cgroup(text: &str) -> Option<String> {
@@ -276,6 +291,22 @@ impl Host {
     /// The file is missing or malformed.
     pub fn cpu_times(&self) -> Result<CpuTimes, String> {
         parse_proc_stat(&self.read("proc/stat")?)
+    }
+
+    /// Bytes read and written by the machine's physical block devices since boot: the
+    /// devices of `/sys/block` with a `device` link (disks, not partitions, loop,
+    /// device-mapper or md devices, which would count the same bytes twice).
+    ///
+    /// # Errors
+    ///
+    /// `/proc/diskstats` is missing.
+    pub fn disk_bytes(&self) -> Result<u64, String> {
+        let text = self.read("proc/diskstats")?;
+        Ok(parse_diskstats(&text)
+            .into_iter()
+            .filter(|(name, _, _)| self.path(&format!("sys/block/{name}/device")).exists())
+            .map(|(_, r, w)| r.saturating_add(w).saturating_mul(512))
+            .fold(0u64, u64::saturating_add))
     }
 
     /// I/O counters of this process (including waited-for children).
@@ -490,6 +521,15 @@ mod tests {
             "MemTotal: 64000000 kB\nMemAvailable: 60000000 kB\n",
         );
         put("proc/stat", "cpu  10 0 5 100 1 0 0 0 0 0\n");
+        // A disk, its partition, a loop device: only the disk counts.
+        put(
+            "proc/diskstats",
+            " 259 0 nvme0n1 100 0 2000 50 10 0 400 5 0 0 0 0 0 0 0 0 0\n \
+             259 1 nvme0n1p1 100 0 2000 50 10 0 400 5 0 0 0 0 0 0 0 0 0\n \
+             7 0 loop0 5 0 99 1 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+        );
+        put("sys/block/nvme0n1/device/model", "test\n");
+        put("sys/block/loop0/size", "0\n");
         let cg = format!("sys/fs/cgroup/{scope}");
         put(&format!("{cg}/memory.max"), "1073741824\n");
         put(&format!("{cg}/memory.swap.max"), "0\n");
@@ -512,6 +552,7 @@ mod tests {
         assert_eq!(host.loadavg().expect("loadavg").one, 0.20);
         assert_eq!(host.mem_available(), Ok(60_000_000 * 1024));
         assert_eq!(host.cpu_times().expect("stat").busy, 15);
+        assert_eq!(host.disk_bytes(), Ok((2000 + 400) * 512));
         assert_eq!(
             host.self_io(),
             Ok(IoCounters {

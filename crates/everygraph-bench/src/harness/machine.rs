@@ -160,6 +160,37 @@ impl GitInfo {
         })
     }
 
+    /// Checks that `relative` (a path in the repository) is tracked and equal to its
+    /// version at `HEAD`, so that the revision of a row names the spec that ran.
+    ///
+    /// # Errors
+    ///
+    /// Untracked, changed, or `git` failing; the message says to commit.
+    pub fn file_at_head(repo: &Path, relative: &str) -> Result<(), String> {
+        let status = |args: &[&str]| -> Result<bool, String> {
+            Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(args)
+                .output()
+                .map(|o| o.status.success())
+                .map_err(|e| format!("running git: {e}"))
+        };
+        if !status(&["ls-files", "--error-unmatch", "--", relative])? {
+            return Err(format!(
+                "the spec {relative} is not tracked by git, so no revision names it: an \
+                 official run reads a committed spec (commit it first)"
+            ));
+        }
+        if !status(&["diff", "--quiet", "HEAD", "--", relative])? {
+            return Err(format!(
+                "the spec {relative} differs from its version at HEAD: an official run reads \
+                 a committed spec (commit the change first)"
+            ));
+        }
+        Ok(())
+    }
+
     /// The first 12 digits.
     #[must_use]
     pub fn short(&self) -> &str {

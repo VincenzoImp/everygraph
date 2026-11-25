@@ -43,6 +43,18 @@ mod imp {
         Ok(())
     }
 
+    pub(super) fn memory_backed(path: &std::path::Path) -> io::Result<Option<&'static str>> {
+        // statfs(2) f_type values from linux/magic.h.
+        const TMPFS_MAGIC: u64 = 0x0102_1994;
+        const RAMFS_MAGIC: u64 = 0x8584_58f6;
+        let f_type = u64::try_from(rustix::fs::statfs(path)?.f_type).unwrap_or(0);
+        Ok(match f_type {
+            TMPFS_MAGIC => Some("tmpfs"),
+            RAMFS_MAGIC => Some("ramfs"),
+            _ => None,
+        })
+    }
+
     pub(super) fn signal(pid: u32, sig: Signal) -> io::Result<()> {
         let pid = i32::try_from(pid)
             .ok()
@@ -83,6 +95,21 @@ mod imp {
     pub(super) fn sync_all() -> io::Result<()> {
         unsupported()
     }
+
+    pub(super) fn memory_backed(_: &std::path::Path) -> io::Result<Option<&'static str>> {
+        unsupported()
+    }
+}
+
+/// Whether `path` lives on a file system whose pages are memory (`tmpfs`, `ramfs`):
+/// the name of that file system, or `None`. Eviction cannot work there, and data written
+/// there stays in RAM outside every memory limit.
+///
+/// # Errors
+///
+/// `statfs` fails (the path does not exist), or not on Linux.
+pub fn memory_backed(path: &std::path::Path) -> io::Result<Option<&'static str>> {
+    imp::memory_backed(path)
 }
 
 /// Takes an exclusive `flock` on `file` without waiting: `Ok(false)` when another open

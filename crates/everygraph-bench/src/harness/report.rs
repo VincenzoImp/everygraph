@@ -252,17 +252,88 @@ fn unit_of(cases: &[CaseRows<'_>], metric: &str) -> Option<String> {
         })
 }
 
-/// The reference check of one case: `(text, within)` per reference.
+/// The outcome of one reference check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Check {
+    /// Within the tolerance, or under the bound.
+    Within,
+    /// Outside it.
+    Off,
+    /// No counted repetition to compare: never a pass.
+    Unchecked,
+}
+
+/// Counts of reference checks over some runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Verdict {
+    /// Checks within their tolerance or bound.
+    pub within: usize,
+    /// Checks outside.
+    pub off: usize,
+    /// References with no counted repetition to compare.
+    pub unchecked: usize,
+}
+
+impl Verdict {
+    /// Every reference was checked and met.
+    #[must_use]
+    pub fn passed(&self) -> bool {
+        self.off == 0 && self.unchecked == 0
+    }
+
+    /// `k within, j off, m unchecked`.
+    #[must_use]
+    pub fn line(&self) -> String {
+        format!(
+            "{} within, {} off, {} unchecked",
+            self.within, self.off, self.unchecked
+        )
+    }
+}
+
+/// The reference checks of all cases of `rows`.
 #[must_use]
-pub fn reference_checks(case: &CaseRows<'_>) -> Vec<(String, bool)> {
+pub fn verdict(rows: &[Row]) -> Verdict {
+    let mut v = Verdict::default();
+    for run in group(rows) {
+        for c in run.cases() {
+            for (_, check) in reference_checks(c) {
+                match check {
+                    Check::Within => v.within += 1,
+                    Check::Off => v.off += 1,
+                    Check::Unchecked => v.unchecked += 1,
+                }
+            }
+        }
+    }
+    v
+}
+
+/// The reference checks of one case: text and outcome per reference.
+#[must_use]
+pub fn reference_checks(case: &CaseRows<'_>) -> Vec<(String, Check)> {
     let first = case.first();
     first
         .references
         .iter()
-        .filter_map(|r| {
-            let s = case.stats(&r.metric)?;
+        .map(|r| {
             let unit = first.unit(&r.metric);
-            Some(if let Some(v) = r.value {
+            let Some(s) = case.stats(&r.metric) else {
+                let what = r.value.map_or_else(
+                    || {
+                        format!(
+                            "at most {}",
+                            format_value(r.max.unwrap_or(f64::INFINITY), unit)
+                        )
+                    },
+                    |v| format_value(v, unit),
+                );
+                return (
+                    format!("{what} ({}): UNCHECKED, no counted repetition", r.source),
+                    Check::Unchecked,
+                );
+            };
+            if let Some(v) = r.value {
                 let diff = (s.median - v) / v;
                 let ok = diff.abs() <= r.tolerance;
                 (
@@ -277,7 +348,7 @@ pub fn reference_checks(case: &CaseRows<'_>) -> Vec<(String, bool)> {
                             format!("OFF by more than {:.0}%", r.tolerance * 100.0)
                         }
                     ),
-                    ok,
+                    if ok { Check::Within } else { Check::Off },
                 )
             } else {
                 let bound = r.max.unwrap_or(f64::INFINITY);
@@ -290,9 +361,9 @@ pub fn reference_checks(case: &CaseRows<'_>) -> Vec<(String, bool)> {
                         format_value(s.max, unit),
                         if ok { "met" } else { "MISSED" }
                     ),
-                    ok,
+                    if ok { Check::Within } else { Check::Off },
                 )
-            })
+            }
         })
         .collect()
 }
@@ -452,6 +523,18 @@ pub fn markdown(rows: &[Row]) -> String {
             let _ = writeln!(out);
         }
         coverage_section(&mut out, &run);
+        let run_rows: Vec<Row> = run
+            .cases()
+            .flat_map(|c| c.rows.iter().map(|r| (*r).clone()))
+            .collect();
+        let v = verdict(&run_rows);
+        if v.within + v.off + v.unchecked > 0 {
+            let _ = writeln!(
+                out,
+                "**References: {}.** A reference with no counted repetition (all disturbed or failed) is unchecked, never a pass.\n",
+                v.line()
+            );
+        }
     }
     out
 }
@@ -577,6 +660,29 @@ pub fn compare(rows: &[Row], max_diff: f64) -> (String, bool) {
     if runs.len() < 2 {
         return ("compare needs rows of at least two runs\n".into(), false);
     }
+    let first = runs[0].any();
+    for run in &runs {
+        let r = run.any();
+        let problem = if !r.official {
+            Some("is exploratory: only official runs are compared".to_string())
+        } else if r.spec_sha256 != first.spec_sha256 {
+            Some(format!(
+                "ran another version of the spec (SHA-256 {} against {})",
+                &r.spec_sha256[..12],
+                &first.spec_sha256[..12]
+            ))
+        } else if r.machine.id != first.machine.id {
+            Some(format!(
+                "ran on another machine ({} against {})",
+                r.machine.id, first.machine.id
+            ))
+        } else {
+            None
+        };
+        if let Some(p) = problem {
+            return (format!("not comparable: run {} {p}\n", run.run_id), false);
+        }
+    }
     let ids: Vec<&str> = runs.iter().map(|r| r.run_id.as_str()).collect();
     let _ = writeln!(out, "## Run-to-run comparison against {}\n", ids[0]);
     let _ = writeln!(
@@ -601,12 +707,14 @@ pub fn compare(rows: &[Row], max_diff: f64) -> (String, bool) {
             continue;
         }
         let unit = f.unit(&f.primary);
+        // At least two counted repetitions in every run, or the median says little.
         let medians: Vec<Option<f64>> = runs
             .iter()
             .map(|run| {
                 run.cases()
                     .find(|c| c.first().case == f.case)
                     .and_then(|c| c.stats(&f.primary))
+                    .filter(|s| s.values.len() >= 2)
                     .map(|s| s.median)
             })
             .collect();
@@ -636,7 +744,7 @@ pub fn compare(rows: &[Row], max_diff: f64) -> (String, bool) {
                     within += usize::from(ok);
                     format!("{:+.1}%{}", d * 100.0, if ok { "" } else { " OVER" })
                 }
-                None => "not comparable".into(),
+                None => "not comparable (fewer than 2 counted repetitions)".into(),
             },
         );
         let _ = writeln!(out, "| {} |", cells.join(" | "));
@@ -652,8 +760,7 @@ pub fn compare(rows: &[Row], max_diff: f64) -> (String, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::harness::gate::classify;
-    use crate::harness::row::tests::sample_row;
+    use crate::harness::row::tests::{busy, sample_row};
     use crate::harness::row::{EstimateValue, ReferenceRecord, estimate_errors};
 
     fn run_of(values: &[f64]) -> Vec<Row> {
@@ -667,7 +774,7 @@ mod tests {
     #[test]
     fn medians_exclude_disturbed_and_failed_rows_and_say_so() {
         let mut rows = run_of(&[0.40, 0.38, 0.39, 0.90, 0.10]);
-        rows[3].disturbance = classify(Some(1.5), None, 0.5);
+        rows[3].disturbance = busy();
         rows[4].status = Status::Oom;
         rows[4].error = Some("the OOM killer ended 1 process".into());
         rows[0].references.push(ReferenceRecord {
@@ -730,7 +837,7 @@ mod tests {
         let runs = group(&rows);
         let checks = reference_checks(&runs[0].groups[0].1[0]);
         assert_eq!(checks.len(), 1);
-        assert!(!checks[0].1);
+        assert_eq!(checks[0].1, Check::Off);
         assert!(
             checks[0].0.contains("largest 2.40 s, MISSED"),
             "{}",
@@ -771,7 +878,7 @@ mod tests {
         }
         // A disturbed row does not count for wall time, and an exploratory run's wall
         // time never counts.
-        rows[2].disturbance = classify(Some(2.0), None, 0.5);
+        rows[2].disturbance = busy();
         let runs = group(&rows);
         let cov = coverage(&runs[0]);
         let get = |q: &str| cov.iter().find(|c| c.0 == q).cloned().expect("present");
@@ -809,6 +916,94 @@ mod tests {
             md.contains("OVER") && md.contains("0 of 1 cases within 2%"),
             "{md}"
         );
+    }
+
+    fn with_reference(mut rows: Vec<Row>, value: f64) -> Vec<Row> {
+        for r in &mut rows {
+            r.references.push(ReferenceRecord {
+                metric: "seconds".into(),
+                value: Some(value),
+                max: None,
+                tolerance: 0.10,
+                source: "test".into(),
+            });
+        }
+        rows
+    }
+
+    #[test]
+    fn the_verdict_counts_unchecked_cases_as_not_passed() {
+        let within = with_reference(run_of(&[1.0, 1.01]), 1.0);
+        let mut off = with_reference(run_of(&[2.0, 2.1]), 1.0);
+        let mut unchecked = with_reference(run_of(&[1.0, 1.0]), 1.0);
+        for r in &mut off {
+            r.case = "slow".into();
+        }
+        for r in &mut unchecked {
+            r.case = "all-disturbed".into();
+            r.disturbance = busy();
+        }
+        let v = verdict(&within);
+        assert!(v.passed());
+        assert_eq!(v.line(), "1 within, 0 off, 0 unchecked");
+        let rows: Vec<Row> = within.into_iter().chain(off).chain(unchecked).collect();
+        let v = verdict(&rows);
+        assert_eq!(
+            v,
+            Verdict {
+                within: 1,
+                off: 1,
+                unchecked: 1
+            }
+        );
+        assert!(!v.passed());
+        let md = markdown(&rows);
+        assert!(
+            md.contains("**References: 1 within, 1 off, 1 unchecked.**"),
+            "{md}"
+        );
+        assert!(md.contains("UNCHECKED, no counted repetition"), "{md}");
+    }
+
+    #[test]
+    fn compare_needs_official_runs_of_one_spec_on_one_machine_and_two_repetitions() {
+        let second = |rows: Vec<Row>| -> Vec<Row> {
+            rows.into_iter()
+                .map(|mut r| {
+                    r.run_id = "20261126T000000Z-5e4aad8d2f1c".into();
+                    r
+                })
+                .collect()
+        };
+        let a = run_of(&[1.0, 1.0]);
+        let ok: Vec<Row> = a
+            .iter()
+            .cloned()
+            .chain(second(run_of(&[1.01, 1.0])))
+            .collect();
+        assert!(compare(&ok, 0.05).1);
+
+        let mut b = second(run_of(&[1.0, 1.0]));
+        b.iter_mut().for_each(|r| r.official = false);
+        let (md, pass) = compare(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
+        assert!(!pass && md.contains("exploratory"), "{md}");
+
+        let mut b = second(run_of(&[1.0, 1.0]));
+        b.iter_mut().for_each(|r| r.spec_sha256 = "f".repeat(64));
+        let (md, pass) = compare(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
+        assert!(!pass && md.contains("another version of the spec"), "{md}");
+
+        let mut b = second(run_of(&[1.0, 1.0]));
+        b.iter_mut()
+            .for_each(|r| r.machine.id = "ffffffffffffffff".into());
+        let (md, pass) = compare(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
+        assert!(!pass && md.contains("another machine"), "{md}");
+
+        // One counted repetition is not enough.
+        let mut b = second(run_of(&[1.0, 1.0]));
+        b[1].status = Status::Failed;
+        let (md, pass) = compare(&a.into_iter().chain(b).collect::<Vec<_>>(), 0.05);
+        assert!(!pass && md.contains("fewer than 2 counted"), "{md}");
     }
 
     #[test]

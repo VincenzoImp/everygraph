@@ -235,7 +235,7 @@ environment is `runners/uv.lock`; the specs' preparation step runs
 
 | Tool | Spec | Version | Status |
 |---|---|---|---|
-| NetworKit | `baselines` | 11.3 | runs (version the lab used not recorded) |
+| NetworKit | `baselines` | 11.3 (FINDINGS § A) | runs |
 | python-igraph | `baselines`, `engines` | 1.0.0 | runs |
 | GVE-Louvain, GVE-Leiden | `baselines` | commits of 2025-04-08, pinned in the spec | built by the spec from source |
 | DuckDB (ingest) | `baselines` | 2.0.1 | runs |

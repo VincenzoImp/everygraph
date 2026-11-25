@@ -38,6 +38,8 @@ pub enum Status {
     Unavailable,
     /// The harness itself failed around the run (see `error`).
     HarnessError,
+    /// The command exited but left processes in its scope; they were killed.
+    LeftProcesses,
 }
 
 impl Status {
@@ -52,6 +54,7 @@ impl Status {
             Status::NotCold => "not_cold",
             Status::Unavailable => "unavailable",
             Status::HarnessError => "harness_error",
+            Status::LeftProcesses => "left_processes",
         }
     }
 }
@@ -65,6 +68,28 @@ pub struct DatasetRecord {
     pub path: String,
     /// Total size of its files.
     pub bytes: u64,
+    /// SHA-256 of its listing (relative path, size and modification time of each file):
+    /// equal listings mean the same files, without reading gigabytes.
+    pub listing_sha256: String,
+}
+
+/// The idle gate of an official run, as applied.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GateRecord {
+    /// The lock file taken.
+    pub lock_path: String,
+    /// The load threshold applied (the spec's, or a lower `--max-load`).
+    pub max_load: f64,
+    /// The spec's own load threshold.
+    pub spec_max_load: f64,
+    /// The `MemAvailable` the run needed.
+    pub min_mem_available_bytes: u64,
+    /// Thresholds of the disturbance check.
+    pub disturbed_above_cores: f64,
+    /// MB/s of others' storage traffic.
+    pub disturbed_above_io_mb_s: f64,
+    /// What the gate read at the start of the run.
+    pub readings: super::gate::StartReadings,
 }
 
 /// The page-cache state a row started from.
@@ -239,6 +264,8 @@ pub struct Row {
     pub spec: String,
     /// SHA-256 of the spec file.
     pub spec_sha256: String,
+    /// The spec file, relative to the repository when inside it.
+    pub spec_path: Option<String>,
     /// Official (lock, idle gate) or exploratory.
     pub official: bool,
     /// Case id.
@@ -267,6 +294,10 @@ pub struct Row {
     pub git: GitInfo,
     /// The measured command, fully expanded.
     pub command: Vec<String>,
+    /// SHA-256 of each file the spec declares the commands run (`binaries`), by path.
+    pub binaries: BTreeMap<String, String>,
+    /// The idle gate of an official run.
+    pub gate: Option<GateRecord>,
     /// The `systemd-run` wrapper around it.
     pub wrapper: Vec<String>,
     /// Working directory.
@@ -303,6 +334,11 @@ pub struct Row {
     pub exit: Option<ExitRecord>,
     /// The interrupt and how long the stop took (C-4).
     pub stop: Option<StopRecord>,
+    /// Processes the command left in its scope (killed; the row is not ok).
+    pub left_processes: Vec<u32>,
+    /// Text fields that say what ran (`tool`, `version`, `algorithm`, `options` for a
+    /// comparison runner), from the spec's `record` and `record_json`.
+    pub recorded: BTreeMap<String, String>,
     /// Metrics read from the output.
     pub metrics: BTreeMap<String, f64>,
     /// Units of the metrics, where the spec gives one.
@@ -434,7 +470,42 @@ pub fn read_rows(path: &Path) -> Result<Vec<Row>, String> {
 pub(crate) mod tests {
     use super::*;
     use crate::datasets::test_support::TempDir;
-    use crate::harness::gate::classify;
+    use crate::harness::gate::{Activity, Disturbance, classify};
+    use crate::harness::spec::Gate;
+
+    /// The gate of the tests: 0.5 cores, 50 MB/s.
+    pub(crate) fn test_gate() -> Gate {
+        Gate {
+            max_load: 1.0,
+            disturbed_above_cores: 0.5,
+            disturbed_above_io_mb_s: 50.0,
+            min_mem_available: None,
+        }
+    }
+
+    /// An undisturbed reading.
+    pub(crate) fn quiet() -> Disturbance {
+        classify(
+            Activity {
+                settle_busy_cores: Some(0.05),
+                ..Activity::default()
+            },
+            &test_gate(),
+            true,
+        )
+    }
+
+    /// A disturbed one (official run).
+    pub(crate) fn busy() -> Disturbance {
+        classify(
+            Activity {
+                settle_busy_cores: Some(1.5),
+                ..Activity::default()
+            },
+            &test_gate(),
+            true,
+        )
+    }
 
     /// A complete row with made-up numbers, for the tests of this module and the report.
     pub(crate) fn sample_row(case: &str, rep: u32, primary_value: f64) -> Row {
@@ -443,6 +514,7 @@ pub(crate) mod tests {
             run_id: "20261125T090642Z-5e4aad8d2f1c".into(),
             spec: "demo".into(),
             spec_sha256: "0".repeat(64),
+            spec_path: Some("bench/specs/demo.toml".into()),
             official: true,
             case: case.into(),
             benchmark: case.split('/').next().unwrap_or(case).into(),
@@ -471,6 +543,25 @@ pub(crate) mod tests {
                 dirty: false,
             },
             command: vec!["glab".into(), "run".into()],
+            binaries: [("lab/glab".to_string(), "1".repeat(64))]
+                .into_iter()
+                .collect(),
+            gate: Some(GateRecord {
+                lock_path: "/run/user/1000/everygraph-bench-official.lock".into(),
+                max_load: 1.0,
+                spec_max_load: 1.0,
+                min_mem_available_bytes: 8 << 30,
+                disturbed_above_cores: 0.5,
+                disturbed_above_io_mb_s: 50.0,
+                readings: crate::harness::gate::StartReadings {
+                    load: LoadAvg {
+                        one: 0.1,
+                        five: 0.1,
+                        fifteen: 0.1,
+                    },
+                    mem_available: 60 << 30,
+                },
+            }),
             wrapper: vec!["systemd-run".into()],
             cwd: None,
             env: BTreeMap::new(),
@@ -478,6 +569,7 @@ pub(crate) mod tests {
                 name: "csr/orkut".into(),
                 path: "/data/csr/orkut".into(),
                 bytes: 1 << 30,
+                listing_sha256: "2".repeat(64),
             }),
             conditions: [("graph", "orkut"), ("precision", "f32")]
                 .into_iter()
@@ -501,7 +593,7 @@ pub(crate) mod tests {
                 fifteen: 0.2,
             }),
             mem_available_start_bytes: Some(60 << 30),
-            disturbance: classify(Some(0.05), None, 0.5),
+            disturbance: quiet(),
             time: Some(TimeRecord {
                 wall_seconds: primary_value + 0.5,
                 user_seconds: 10.0,
@@ -531,6 +623,8 @@ pub(crate) mod tests {
                 timed_out: false,
             }),
             stop: None,
+            left_processes: vec![],
+            recorded: BTreeMap::new(),
             metrics: [("seconds".to_string(), primary_value)]
                 .into_iter()
                 .collect(),
@@ -592,6 +686,15 @@ pub(crate) mod tests {
             "/exit/code",
             "/metrics/seconds",
             "/disturbance/disturbed",
+            "/disturbance/settle_io_mb_s",
+            "/gate/lock_path",
+            "/gate/max_load",
+            "/gate/readings/load/one",
+            "/binaries",
+            "/recorded",
+            "/left_processes",
+            "/dataset/listing_sha256",
+            "/spec_path",
             "/estimate",
             "/actual",
             "/estimate_error",

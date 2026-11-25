@@ -18,6 +18,7 @@ pub mod procfs;
 pub mod report;
 pub mod row;
 pub mod run;
+pub mod selftest;
 pub mod spec;
 pub mod sys;
 pub mod template;

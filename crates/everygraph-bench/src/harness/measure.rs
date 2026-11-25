@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use super::gate::others_cores;
+use super::gate::{others_cores, others_io};
 use super::procfs::{Cgroup, Host};
 use super::spec::{Interrupt, StopSignal};
 use super::sys::{self, Signal};
@@ -95,6 +95,12 @@ pub struct Measurement {
     /// Cores used by other processes on the machine while it ran (see
     /// [`super::gate::others_cores`]).
     pub others_cores_during: Option<f64>,
+    /// Others' storage traffic while it ran, MB/s ([`super::gate::others_io`]).
+    pub others_io_mb_s_during: Option<f64>,
+    /// Processes still in the scope when the command exited (a backgrounded child, a
+    /// daemon). They were killed with SIGKILL before the scope was read, and the row is
+    /// not ok: they would have disturbed the next repetitions.
+    pub left_processes: Vec<u32>,
     /// What went wrong in the helper itself, if anything.
     pub error: Option<String>,
 }
@@ -127,6 +133,42 @@ fn signal_scope(cg: &Cgroup, sig: Signal) {
             let _ignored = sys::signal(pid, sig);
         }
     }
+}
+
+/// After the command's exit: the processes it left in the scope, killed (SIGKILL, by
+/// the ids in `cgroup.procs`) until the scope holds the helper alone, for up to 10 s.
+fn kill_leftovers(cg: &Cgroup, error: &mut Option<String>) -> Vec<u32> {
+    let me = std::process::id();
+    let others = |cg: &Cgroup| -> Vec<u32> {
+        cg.procs()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| *p != me)
+            .collect()
+    };
+    let left = others(cg);
+    if left.is_empty() {
+        return left;
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        signal_scope(cg, Signal::Kill);
+        std::thread::sleep(Duration::from_millis(20));
+        let still = others(cg);
+        if still.is_empty() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            error.get_or_insert_with(|| {
+                format!(
+                    "processes {still:?} survived SIGKILL for 10 s in {}",
+                    cg.dir().display()
+                )
+            });
+            break;
+        }
+    }
+    left
 }
 
 #[cfg(unix)]
@@ -171,6 +213,7 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
     let cpu0 = cg.cpu_stat()?;
     let io0 = host.self_io()?;
     let stat0 = host.cpu_times()?;
+    let disk0 = host.disk_bytes()?;
 
     let peaks = Arc::new(Mutex::new(Peaks::default()));
     let stop = Arc::new(AtomicBool::new(false));
@@ -259,6 +302,10 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
         }
     };
     let wall = end - start;
+    // Machine-wide readings at the command's exit, before anything else is done.
+    let stat1 = host.cpu_times()?;
+    let disk1 = host.disk_bytes()?;
+    m.left_processes = kill_leftovers(&cg, &mut m.error);
     stop.store(true, Ordering::Relaxed);
     let _ignored = sampler.join();
     sample(&cg, &peaks);
@@ -285,8 +332,8 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
     let io1 = host.self_io()?;
     m.read_bytes = io1.read_bytes.saturating_sub(io0.read_bytes);
     m.write_bytes = io1.write_bytes.saturating_sub(io0.write_bytes);
-    let stat1 = host.cpu_times()?;
     m.others_cores_during =
         others_cores(stat0, stat1, Duration::from_secs_f64(m.user_seconds), wall);
+    m.others_io_mb_s_during = others_io(disk0, disk1, m.read_bytes + m.write_bytes, wall);
     Ok(m)
 }

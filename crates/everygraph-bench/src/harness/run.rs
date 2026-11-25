@@ -2,14 +2,19 @@
 
 //! `everygraph-bench run`: the order of a run, and one repetition.
 //!
-//! 1. Select the cases and find their datasets.
-//! 2. Official runs: refuse a dirty tree, take the lock (fail fast), pass the idle gate.
-//! 3. Check that `systemd-run --user --scope` works (and `fincore`, for cold cases).
-//! 4. Preparation steps, then the private copies of cold cases.
-//! 5. Each case: warm-up runs, then each repetition: clean work directory, eviction
+//! 1. Select the cases.
+//! 2. Official runs: take the lock (fail fast, before anything else), then refuse a
+//!    dirty tree, a spec file that is untracked or changed, and a `--max-load` above the
+//!    spec's.
+//! 3. Find the datasets; refuse a work directory (or, for cold cases, a dataset) on a
+//!    memory-backed file system.
+//! 4. Official runs: the idle gate (load, `MemAvailable`).
+//! 5. Check that `systemd-run --user --scope` works (and `fincore`, for cold cases).
+//! 6. Preparation steps, then the private copies of cold cases.
+//! 7. Each case: warm-up runs, then each repetition: clean work directory, eviction
 //!    (cold), settle window, eviction check, the command under
 //!    `systemd-run --scope -p MemoryMax=… -p MemorySwapMax=0 everygraph-bench measure …`,
-//!    metrics, one row appended to the results file.
+//!    a settle window after short runs, metrics, one row appended to the results file.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -20,16 +25,19 @@ use std::time::Instant;
 
 use crate::datasets::{DataRoot, Registry};
 
-use super::cache::{self, Copies, MAX_RESIDENT_FRACTION, Rotation};
+use super::cache::{self, Copies, MAX_RESIDENT_FRACTION};
 use super::extract::{extract, last_json_object};
-use super::gate::{self, StartReadings, busy_cores, classify};
+use super::gate::{
+    self, Activity, MIN_DURING_WINDOW, StartReadings, busy_cores, classify, io_mb_s,
+};
 use super::lock::{LockError, OfficialLock};
 use super::machine::{Fingerprint, GitInfo};
 use super::measure::Measurement;
 use super::procfs::Host;
 use super::row::{
-    CacheRecord, DatasetRecord, ExitRecord, IoRecord, MemoryRecord, OomRecord, ROW_SCHEMA,
-    ReferenceRecord, Row, RowWriter, Status, TimeRecord, estimate_errors, parse_estimate,
+    CacheRecord, DatasetRecord, ExitRecord, GateRecord, IoRecord, MemoryRecord, OomRecord,
+    ROW_SCHEMA, ReferenceRecord, Row, RowWriter, Status, TimeRecord, estimate_errors,
+    parse_estimate,
 };
 use super::spec::{CacheMode, Case, DatasetRef, PLAN_QUANTITIES, Prepare, Program, Spec};
 use super::template::Scope;
@@ -208,7 +216,11 @@ fn preflight(cold: bool) -> Result<(), String> {
         ));
     }
     if cold && Command::new("fincore").arg("--version").output().is_err() {
-        return Err("cold-cache cases need util-linux fincore (mincore) to check eviction".into());
+        return Err(
+            "cold-cache cases check eviction with fincore (mincore), which is missing: \
+             install util-linux (Debian and Ubuntu: apt install util-linux)"
+                .into(),
+        );
     }
     Ok(())
 }
@@ -217,6 +229,75 @@ fn program_argv(scope: &Scope, p: &Program) -> Result<Vec<String>, String> {
     match p {
         Program::Argv(a) => a.iter().map(|x| scope.expand(x)).collect(),
         Program::Shell(s) => Ok(vec!["sh".into(), "-c".into(), scope.expand(s)?]),
+    }
+}
+
+/// The file a program name runs: itself when it names a directory, else the first match
+/// on `PATH`.
+fn find_program(program: &str) -> Option<PathBuf> {
+    if program.contains('/') {
+        return Some(PathBuf::from(program));
+    }
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|d| d.join(program))
+            .find(|p| p.is_file())
+    })
+}
+
+/// The text fields a case records: its `record` templates, and its `record_json`
+/// pointers into the last JSON object of standard output. The second value lists what
+/// could not be read.
+fn recorded_fields(
+    case: &Case,
+    scope: &Scope,
+    stdout: &str,
+) -> (BTreeMap<String, String>, Vec<String>) {
+    let mut out = BTreeMap::new();
+    let mut errors = Vec::new();
+    for (k, t) in &case.record {
+        match scope.expand(t) {
+            Ok(v) => {
+                out.insert(k.clone(), v);
+            }
+            Err(e) => errors.push(format!("record.{k}: {e}")),
+        }
+    }
+    if !case.record_json.is_empty() {
+        let doc = last_json_object(stdout);
+        for (k, pointer) in &case.record_json {
+            match doc.as_ref().and_then(|d| d.pointer(pointer)) {
+                Some(serde_json::Value::String(v)) => {
+                    out.insert(k.clone(), v.clone());
+                }
+                Some(v) => {
+                    out.insert(k.clone(), v.to_string());
+                }
+                None => errors.push(format!(
+                    "record_json.{k}: the command printed nothing at {pointer:?} (a runner \
+                     must say what it ran)"
+                )),
+            }
+        }
+    }
+    (out, errors)
+}
+
+/// Refuses a directory on a memory-backed file system: copies and outputs there would sit
+/// in RAM outside every memory limit, and eviction cannot work.
+fn refuse_memory_backed(what: &str, path: &Path, fix: &str) -> Result<(), String> {
+    match super::sys::memory_backed(path) {
+        Ok(Some(fs)) => Err(format!(
+            "{what} {} is on {fs}, a file system held in memory: what the harness writes \
+             there stays in RAM outside every memory limit, and cold-cache eviction cannot \
+             work. {fix}",
+            path.display()
+        )),
+        Ok(None) => Ok(()),
+        Err(e) => Err(format!(
+            "checking the file system of {}: {e}",
+            path.display()
+        )),
     }
 }
 
@@ -230,7 +311,14 @@ struct Runner<'a> {
     run_id: String,
     log: &'a mut dyn Write,
     copies: BTreeMap<PathBuf, Copies>,
-    rotation: Rotation,
+    /// The gate as applied (official runs).
+    gate: Option<GateRecord>,
+    /// The spec file relative to the repository.
+    spec_path: Option<String>,
+    /// SHA-256 by (path, size, modification time) of the binaries hashed so far.
+    hashes: BTreeMap<(PathBuf, u64, u128), String>,
+    /// Listing digests of the datasets, by path.
+    listings: BTreeMap<PathBuf, String>,
 }
 
 /// One execution of a case's command.
@@ -456,6 +544,7 @@ impl Runner<'_> {
             run_id: self.run_id.clone(),
             spec: self.spec.name.clone(),
             spec_sha256: self.spec.sha256.clone(),
+            spec_path: self.spec_path.clone(),
             official: self.opts.official,
             case: case.id.clone(),
             benchmark: case.benchmark.clone(),
@@ -470,6 +559,8 @@ impl Runner<'_> {
             machine: self.machine.clone(),
             git: self.git.clone(),
             command: Vec::new(),
+            binaries: BTreeMap::new(),
+            gate: self.gate.clone(),
             wrapper: Vec::new(),
             cwd: None,
             env: BTreeMap::new(),
@@ -485,13 +576,15 @@ impl Runner<'_> {
             load_start: None,
             load_end: None,
             mem_available_start_bytes: None,
-            disturbance: classify(None, None, self.spec.gate.disturbed_above_cores),
+            disturbance: classify(Activity::default(), &self.spec.gate, self.opts.official),
             time: None,
             io: None,
             memory: None,
             oom: None,
             exit: None,
             stop: None,
+            left_processes: Vec::new(),
+            recorded: BTreeMap::new(),
             metrics: BTreeMap::new(),
             units: case
                 .metrics
@@ -524,31 +617,76 @@ impl Runner<'_> {
     }
 
     /// Settle window: write back what earlier runs left dirty (an ingest leaves
-    /// gigabytes), then measure busy cores while nothing of ours runs.
-    fn settle(&self, case: &Case) -> Option<f64> {
+    /// gigabytes), then measure busy cores and storage traffic while nothing of ours
+    /// runs.
+    fn settle(&self, case: &Case) -> (Option<f64>, Option<f64>) {
         let _ignored = super::sys::sync_all();
-        let before = self.ctx.host.cpu_times().ok()?;
+        let host = &self.ctx.host;
+        let (cpu0, disk0) = (host.cpu_times().ok(), host.disk_bytes().ok());
         let t = Instant::now();
         std::thread::sleep(case.settle);
-        let after = self.ctx.host.cpu_times().ok()?;
-        Some(busy_cores(before, after, t.elapsed()))
+        let elapsed = t.elapsed();
+        let cores = cpu0
+            .zip(host.cpu_times().ok())
+            .map(|(a, b)| busy_cores(a, b, elapsed));
+        let io = disk0
+            .zip(host.disk_bytes().ok())
+            .map(|(a, b)| io_mb_s(a, b, elapsed));
+        (cores, io)
     }
 
-    fn cold_copy(&mut self, case: &Case, source: &Path) -> Option<(u32, PathBuf)> {
-        let copies = self.copies.get(source)?;
-        let n = u32::try_from(copies.paths.len())
-            .unwrap_or(u32::MAX)
-            .min(case.cold_copies);
-        let k = self.rotation.next(source, n);
-        Some((k, copies.paths[k as usize].clone()))
+    /// SHA-256 of a file, cached by path, size and modification time.
+    fn hash(&mut self, path: &Path) -> Result<String, String> {
+        let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos());
+        let key = (path.to_path_buf(), meta.len(), mtime);
+        if let Some(h) = self.hashes.get(&key) {
+            return Ok(h.clone());
+        }
+        let h = crate::datasets::hash_file(path, false)
+            .map_err(|e| e.to_string())?
+            .sha256;
+        self.hashes.insert(key, h.clone());
+        Ok(h)
     }
 
-    /// The readings are recorded in every run; only an official run marks a row
-    /// disturbed, since only it claims an idle machine.
-    fn disturbance(&self, settle: Option<f64>, during: Option<f64>) -> gate::Disturbance {
-        let mut d = classify(settle, during, self.spec.gate.disturbed_above_cores);
-        d.disturbed &= self.opts.official;
-        d
+    /// The binaries a case runs: the declared ones, and the program itself when the
+    /// command is an argument list (found on `PATH` if it has no directory).
+    fn binaries(
+        &mut self,
+        case: &Case,
+        scope: &Scope,
+        argv: &[String],
+    ) -> Result<BTreeMap<String, String>, String> {
+        let mut files: Vec<PathBuf> = case
+            .binaries
+            .iter()
+            .map(|b| scope.expand(b).map(PathBuf::from))
+            .collect::<Result<_, _>>()?;
+        if let (Program::Argv(_), Some(first)) = (&case.program, argv.first()) {
+            files.extend(find_program(first));
+        }
+        let mut out = BTreeMap::new();
+        for f in files {
+            let h = self
+                .hash(&f)
+                .map_err(|e| format!("hashing a binary of the case: {e}"))?;
+            out.insert(f.display().to_string(), h);
+        }
+        Ok(out)
+    }
+
+    fn listing(&mut self, source: &Path) -> String {
+        if let Some(l) = self.listings.get(source) {
+            return l.clone();
+        }
+        let l = cache::listing_sha256(source).unwrap_or_default();
+        self.listings.insert(source.to_path_buf(), l.clone());
+        l
     }
 
     fn repetition(
@@ -564,15 +702,18 @@ impl Runner<'_> {
         let mut data = source.map(Path::to_path_buf);
         if case.cache == CacheMode::Cold {
             let src = source.ok_or("a cold case without a dataset")?;
-            let (k, copy) = self
-                .cold_copy(case, src)
+            let copies = self
+                .copies
+                .get(src)
                 .ok_or_else(|| format!("no cold copies of {}", src.display()))?;
+            let (k, copy) = copies.next(case.cold_copies)?;
             cache::evict(&copy)?;
             row.cache.copy = Some(k);
             data = Some(copy);
         }
-        let settle = self.settle(case);
-        if let Some(d) = &data {
+        let mut activity = Activity::default();
+        (activity.settle_busy_cores, activity.settle_io_mb_s) = self.settle(case);
+        if let (Some(d), Some(src)) = (&data, source) {
             row.dataset = Some(DatasetRecord {
                 name: case
                     .dataset
@@ -580,6 +721,7 @@ impl Runner<'_> {
                     .map_or_else(String::new, |d| d.label().to_string()),
                 path: d.display().to_string(),
                 bytes: cache::size_of(d).unwrap_or(0),
+                listing_sha256: self.listing(src),
             });
         }
         if case.cache == CacheMode::Cold {
@@ -608,11 +750,18 @@ impl Runner<'_> {
         row.mem_available_start_bytes = self.ctx.host.mem_available().ok();
         let exec = self.execute(case, &rep_name, data.as_deref())?;
         row.load_end = self.ctx.host.loadavg().ok();
+        let short = exec
+            .measurement
+            .as_ref()
+            .is_none_or(|m| m.wall_seconds < MIN_DURING_WINDOW.as_secs_f64());
+        if short {
+            // Too short to see others while it ran: look just after it as well.
+            (activity.after_busy_cores, activity.after_io_mb_s) = self.settle(case);
+        }
         let case_work = self.case_work(case);
-        row.conditions = self.conditions(
-            case,
-            &self.case_scope(case, &rep_name, data.as_deref(), &case_work),
-        );
+        let scope = self.case_scope(case, &rep_name, data.as_deref(), &case_work);
+        row.conditions = self.conditions(case, &scope);
+        row.binaries = self.binaries(case, &scope, &exec.command)?;
         row.command = exec.command;
         row.wrapper = exec.wrapper;
         row.cwd = Some(exec.cwd.display().to_string());
@@ -621,10 +770,13 @@ impl Runner<'_> {
         let Some(m) = exec.measurement else {
             row.status = Status::HarnessError;
             row.error = exec.error;
-            row.disturbance = self.disturbance(settle, None);
+            row.disturbance = classify(activity, &self.spec.gate, self.opts.official);
             return Ok(row);
         };
-        row.disturbance = self.disturbance(settle, m.others_cores_during);
+        activity.others_cores_during = m.others_cores_during;
+        activity.others_io_mb_s_during = m.others_io_mb_s_during;
+        row.disturbance = classify(activity, &self.spec.gate, self.opts.official);
+        row.left_processes.clone_from(&m.left_processes);
         row.time = Some(TimeRecord {
             wall_seconds: m.wall_seconds,
             user_seconds: m.user_seconds,
@@ -656,12 +808,23 @@ impl Runner<'_> {
         });
         row.stop = m.stop.clone();
 
-        let (metrics, metric_errors) = extract(&case.metrics, &exec.stdout, &exec.stderr);
+        let (metrics, mut metric_errors) = extract(&case.metrics, &exec.stdout, &exec.stderr);
         row.metrics = metrics;
+        let (recorded, record_errors) = recorded_fields(case, &scope, &exec.stdout);
+        row.recorded = recorded;
+        metric_errors.extend(record_errors);
         if let Some(plan) = &case.plan {
             self.plan_fields(&mut row, plan, &exec.stdout);
         }
-        let interrupted = m.stop.as_ref().is_some_and(|s| s.stop_seconds.is_some());
+        // A stopped run must end the way a clean stop does (C-7: 128 + the signal).
+        let expected_stop = case.interrupt.zip(m.stop.as_ref()).and_then(|(i, s)| {
+            s.stop_seconds?;
+            Some(i.expect_exit)
+        });
+        let clean_exit = match expected_stop {
+            Some(code) => m.exit_code == Some(code) || m.signal == Some(code - 128),
+            None => m.exit_code == Some(0),
+        };
         let mut problems: Vec<String> = Vec::new();
         row.status = if exec.error.is_some() {
             problems.extend(exec.error.clone());
@@ -679,11 +842,23 @@ impl Runner<'_> {
                 case.timeout.as_secs()
             ));
             Status::Timeout
-        } else if m.exit_code != Some(0) && !interrupted {
-            problems.push(match (m.exit_code, m.signal) {
+        } else if !m.left_processes.is_empty() {
+            problems.push(format!(
+                "the command left processes {:?} running in its scope; they were killed",
+                m.left_processes
+            ));
+            Status::LeftProcesses
+        } else if !clean_exit {
+            let ending = match (m.exit_code, m.signal) {
                 (Some(c), _) => format!("exit status {c}"),
                 (None, Some(s)) => format!("killed by signal {s}"),
                 (None, None) => "ended without a status".into(),
+            };
+            problems.push(match expected_stop {
+                Some(code) => {
+                    format!("{ending} after the interrupt; a clean stop exits with {code}")
+                }
+                None => ending,
             });
             Status::Failed
         } else if !metric_errors.is_empty() {
@@ -751,11 +926,8 @@ impl Runner<'_> {
         line.push_str(&format!("  {}", row.status.as_str()));
         if row.disturbance.disturbed {
             line.push_str(&format!(
-                "  DISTURBED (others: {:.2} cores before, {} during)",
-                row.disturbance.settle_busy_cores.unwrap_or(0.0),
-                row.disturbance
-                    .others_cores_during
-                    .map_or_else(|| "n/a".into(), |c| format!("{c:.2} cores"))
+                "  DISTURBED ({})",
+                row.disturbance.reasons.join("; ")
             ));
         }
         if let Some(e) = &row.error {
@@ -763,6 +935,22 @@ impl Runner<'_> {
         }
         say!(self.log, "{line}");
     }
+}
+
+/// The file that marks a directory as a work directory of the harness, so that `clean`
+/// never deletes anything else.
+pub const WORK_MARKER: &str = ".everygraph-bench-work";
+
+fn mark_work_dir(work: &Path) -> Result<(), String> {
+    let marker = work.join(WORK_MARKER);
+    if !marker.exists() {
+        std::fs::write(
+            &marker,
+            "Work directory of everygraph-bench; `everygraph-bench clean` deletes it.\n",
+        )
+        .map_err(|e| format!("writing {}: {e}", marker.display()))?;
+    }
+    Ok(())
 }
 
 /// Runs a spec.
@@ -818,6 +1006,39 @@ pub fn run(
                 .into(),
         ));
     }
+    let spec_path = spec
+        .path
+        .as_deref()
+        .map(|p| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()));
+    let spec_rel = spec_path
+        .as_deref()
+        .and_then(|p| p.strip_prefix(&ctx.repo).ok())
+        .map(|p| p.display().to_string());
+    if opts.official {
+        match (&spec_path, &spec_rel) {
+            (Some(_), Some(rel)) => {
+                GitInfo::file_at_head(&ctx.repo, rel).map_err(RunError::Refused)?;
+            }
+            _ => {
+                return Err(RunError::Refused(format!(
+                    "an official run reads its spec from the repository, committed: {} is \
+                     outside {}",
+                    spec_path
+                        .as_deref()
+                        .map_or_else(|| "this spec".into(), |p| p.display().to_string()),
+                    ctx.repo.display()
+                )));
+            }
+        }
+        if let Some(m) = opts.max_load.filter(|m| *m > spec.gate.max_load) {
+            return Err(RunError::Refused(format!(
+                "--max-load {m} is above the spec's {}: an official run may make the gate \
+                 stricter, not looser (change [gate] max_load in the spec, committed, if \
+                 the threshold is wrong)",
+                spec.gate.max_load
+            )));
+        }
+    }
     let mut sources: BTreeMap<String, PathBuf> = BTreeMap::new();
     for c in &cases {
         if let (Some(d), None) = (&c.dataset, &c.unavailable) {
@@ -835,6 +1056,23 @@ pub fn run(
         }
     }
     let active: Vec<&&Case> = cases.iter().filter(|c| c.unavailable.is_none()).collect();
+    std::fs::create_dir_all(&ctx.work)
+        .map_err(|e| format!("creating the work directory {}: {e}", ctx.work.display()))?;
+    refuse_memory_backed(
+        "the work directory",
+        &ctx.work,
+        "Point --work or $EVERYGRAPH_BENCH_WORK at a directory on disk (or set \
+         $EVERYGRAPH_SCRATCH, whose bench-work subdirectory is the default).",
+    )?;
+    mark_work_dir(&ctx.work)?;
+    for c in active.iter().filter(|c| c.cache == CacheMode::Cold) {
+        refuse_memory_backed(
+            &format!("the dataset of {}", c.id),
+            &sources[&c.id],
+            "Cold-cache cases need their data on disk.",
+        )?;
+    }
+    let mut gate_record = None;
     if opts.official {
         let readings = StartReadings {
             load: ctx.host.loadavg()?,
@@ -849,6 +1087,15 @@ pub fn run(
             readings.load.one,
             human_size(readings.mem_available)
         );
+        gate_record = Some(GateRecord {
+            lock_path: opts.lock_path.display().to_string(),
+            max_load,
+            spec_max_load: spec.gate.max_load,
+            min_mem_available_bytes: spec.gate.min_mem_available.unwrap_or(need),
+            disturbed_above_cores: spec.gate.disturbed_above_cores,
+            disturbed_above_io_mb_s: spec.gate.disturbed_above_io_mb_s,
+            readings,
+        });
     }
     let any_cold = active.iter().any(|c| c.cache == CacheMode::Cold);
     preflight(any_cold)?;
@@ -862,7 +1109,10 @@ pub fn run(
         run_id,
         log,
         copies: BTreeMap::new(),
-        rotation: Rotation::default(),
+        gate: gate_record,
+        spec_path: spec_rel,
+        hashes: BTreeMap::new(),
+        listings: BTreeMap::new(),
     };
     say!(
         runner.log,

@@ -41,6 +41,15 @@ serde_json = "1"
 # Metrics read from text output; no Unicode tables, no dependencies.
 regex-lite = "0.1"
 
+[features]
+# Hooks for the crate's own tests (the lock file named by EVERYGRAPH_BENCH_LOCK). Enabled
+# through the dev-dependency below, so `cargo test` builds the binary with them and
+# `cargo build` never does.
+test-hooks = []
+
+[dev-dependencies]
+everygraph-bench = { path = ".", features = ["test-hooks"] }
+
 [lints]
 workspace = true
 
