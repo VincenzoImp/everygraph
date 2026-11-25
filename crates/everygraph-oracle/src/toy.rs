@@ -64,6 +64,88 @@ impl Bug {
         }
     }
 
+    /// What must catch the bug: checks that must fire, and the least number of
+    /// independent families (cross-config, invariant, reference) among the checks that
+    /// do fire. When the Python references are loaded, a bug that the in-process
+    /// reference catches must be caught by NetworkX and igraph too. Enforced by
+    /// `everygraph-oracle seeded-bugs` and by `tests/seeded_bugs.rs`.
+    #[must_use]
+    pub const fn required(&self) -> (&'static [&'static str], usize) {
+        match self {
+            // The acceptance criterion of #6: at least two independent checks; we ask for three.
+            Self::OffByOneLastListOfChunk => (
+                &["invariant:degree_sum", "reference:rust", "cross-config"],
+                3,
+            ),
+            Self::DropsKeptSelfLoop => (&["invariant:degree_sum", "reference:rust"], 2),
+            Self::UnsymmetrizedEdge => (
+                &[
+                    "invariant:adjacency_symmetric",
+                    "invariant:degree_sum",
+                    "reference:rust",
+                ],
+                2,
+            ),
+            // A few ulps, far inside every tolerance: only bit identity can see it.
+            Self::ThreadDependentFloatSum => (&["cross-config"], 1),
+            Self::OffsetOverflow { .. } => (
+                &[
+                    "invariant:offsets_monotone",
+                    "invariant:degree_sum",
+                    "reference:rust",
+                ],
+                2,
+            ),
+        }
+    }
+
+    /// Checks `report` against [`Bug::required`]; `with_python` adds the NetworkX and
+    /// igraph requirement.
+    ///
+    /// # Errors
+    ///
+    /// What is missing.
+    pub fn verify(&self, report: &crate::plugin::Report, with_python: bool) -> Result<(), String> {
+        let fired: std::collections::BTreeSet<String> = report
+            .findings
+            .iter()
+            .map(|f| f.check.to_string())
+            .collect();
+        let families: std::collections::BTreeSet<&str> = report
+            .findings
+            .iter()
+            .map(|f| f.check.family())
+            .filter(|&f| f != "run")
+            .collect();
+        let (checks, min_families) = self.required();
+        let mut missing: Vec<String> = checks
+            .iter()
+            .filter(|c| !fired.contains(**c))
+            .map(|c| (*c).to_owned())
+            .collect();
+        if with_python && checks.contains(&"reference:rust") {
+            for lib in ["reference:networkx", "reference:igraph"] {
+                if !fired.contains(lib) {
+                    missing.push(lib.to_owned());
+                }
+            }
+        }
+        if families.len() < min_families {
+            missing.push(format!(
+                "{min_families} independent families (got {families:?})"
+            ));
+        }
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "{}: not caught by {}",
+                self.name(),
+                missing.join(", ")
+            ))
+        }
+    }
+
     /// Parses [`Bug::name`].
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
@@ -340,9 +422,7 @@ impl KernelUnderTest for Toy {
                 Kernel::PageRank { weighted, .. } => {
                     !weighted && g.semantics.self_loops == SelfLoops::Drop
                 }
-                Kernel::Quotient => {
-                    g.partition.is_some() && g.semantics.self_loops == SelfLoops::Drop
-                }
+                Kernel::Quotient => g.partition.is_some(),
                 _ => false,
             }
     }

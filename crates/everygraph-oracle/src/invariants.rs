@@ -124,9 +124,12 @@ pub fn check(
                 || format!("{x}"),
             );
         }
-        (Kernel::Modularity { .. }, Output::Real(q)) => {
-            c.require((-0.5..=1.0).contains(q), "modularity_in_range", || {
-                format!("{q}")
+        (Kernel::Modularity { resolution }, Output::Real(q)) => {
+            // Q(γ) = Q(1) + (1 − γ) Σ_c (D_c / 2m)², with Q(1) ∈ [−1/2, 1] and the sum in
+            // [0, 1]: so Q(γ) ∈ [−1/2 − max(0, γ − 1), 1] for γ ≥ 0.
+            let low = -0.5 - (resolution - 1.0).max(0.0);
+            c.require((low..=1.0).contains(q), "modularity_in_range", || {
+                format!("{q} outside [{low}, 1] at resolution {resolution}")
             });
         }
         (Kernel::Quotient, Output::Quotient { sizes, edges }) => {

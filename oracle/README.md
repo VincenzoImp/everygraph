@@ -36,8 +36,18 @@ reference knows nothing of configurations. A finding names the check that fired,
 graph (reproducible from its name), the kernel and the configuration.
 
 The in-process references are textbook sequential code, so property-based tests can
-compare against something without leaving Rust. They are never the only witness: every
-CI run checks them against the three libraries (`check --plugin reference`).
+compare against something without leaving Rust. They are checked against the three
+libraries on every CI run (`check --plugin reference`).
+
+**Two kernels have no Python witness.** Adjacency (the CSR itself) and Quotient are
+checked by the in-process reference and the invariants only (`plugin::python_computes`).
+Graphs with more than 2^20 nodes, the sparse-id families, are not run through Python at
+all: their per-node answers would make `reference.json` hundreds of MB. They are checked
+by the in-process references, the invariants and cross-configuration identity.
+
+References and invariants run on **every distinct result** of a kernel, not only on the
+first configuration's. A bug confined to one configuration (say, compressed storage) is
+then seen by every family, not only by cross-configuration identity.
 
 ## Running it
 
@@ -52,7 +62,7 @@ Or step by step:
 
 ```sh
 cargo build -p everygraph-oracle --release
-target/release/everygraph-oracle corpus --tier ci --out /tmp/oracle/ci   # 288 graphs
+target/release/everygraph-oracle corpus --tier ci --out /tmp/oracle/ci   # 289 graphs
 cd oracle && uv sync --locked
 uv run oracle-ref run /tmp/oracle/ci                                     # reference.json per graph
 cd ..
@@ -75,8 +85,9 @@ target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT   #
   with the rest of the workspace; run locally, `run-ci.sh` runs them too.
 - **Nightly**, `run-nightly.sh` (not scheduled yet; run by hand or by the benchmark
   machine):
-  - the nightly corpus: 1,572 graphs, up to 20,000 nodes and 100,000 rows, hubs with 2^16
-    neighbours, with the same checks as CI plus the lab prototype through its adapter;
+  - the nightly corpus: 1,576 graphs, up to 100,000 rows, hubs with 2^16 neighbours, and
+    sparse ids up to n = 2^24. It gets the same checks as CI, plus the lab prototype
+    through its adapter;
   - 2,000 cases per property;
   - all 17 tier-1 datasets of the registry and the three extra SNAP graphs, fetched and
     verified, with all 21 golden files checked.
@@ -99,6 +110,14 @@ is not a unit test under a hard limit as well:
 ```sh
 systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 uv run oracle-ref run DIR --jobs 2
 ```
+
+The Rust commands that load graphs (`golden`, `check`, `seeded-bugs`) take
+`--max-memory` (GiB, default 4) as well. The crate forbids `unsafe`, so they cannot set
+RLIMIT_AS; instead they refuse a source whose estimate exceeds the limit, before loading
+it. The estimate is 400 bytes per row plus 160 per node
+(`everygraph_oracle::golden::estimate`), calibrated on web-google's measured 1.76 GB.
+`tests/golden.rs` reads registry data only from `$EVERYGRAPH_ORACLE_DATA`, an explicit
+opt-in, never from `$EVERYGRAPH_DATA`.
 
 This is a lesson learned the hard way. The first version computed scipy's triangle
 counts as `diag(A³)/2`. On the nightly tier's star with 2^16 leaves, `A @ A` has 2^32
@@ -259,6 +278,21 @@ uv run oracle-ref golden --write --data-root ROOT     # recompute (after a libra
 uv run oracle-ref golden --check --data-root ROOT
 target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT --require-all
 ```
+
+**Golden checks of a future kernel (design note, for #45).** Today the golden files are
+checked against the in-process references only. A `KernelUnderTest` will be checked the
+same way:
+
+1. Read the source with the file's `parse` block (`golden::read_rows`); ids then are
+   ranks, the convention every value uses.
+2. Build the engine graph from those rows, so that node `i` of the engine is rank `i`.
+   An engine that renumbers internally maps its output back to ranks before hashing.
+3. Run the kernel and compute each value as `golden::compute` does: counts and the
+   SHA-256 of the per-node arrays as little-endian `u64` in rank order.
+4. Compare with the file.
+
+A `golden::check_kernel(plugin, roots)` helper next to `check_dir` will do this; it is
+not built yet.
 
 ## Plugging in a kernel (issue #45 onwards)
 

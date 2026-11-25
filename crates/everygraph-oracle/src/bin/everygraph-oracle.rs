@@ -30,7 +30,11 @@ const USAGE: &str = "usage:
         [--threads 1,4] [--chunks 64,65536] [--regimes in_memory,mmap]
         [--require-python] [--max-findings N] [--show N]
   everygraph-oracle seeded-bugs [--corpus DIR]
-  everygraph-oracle golden --dir DIR [--data-root ROOT] [--cache DIR] [--only NAME]... [--require-all]";
+  everygraph-oracle golden --dir DIR [--data-root ROOT] [--cache DIR] [--only NAME]... [--require-all]
+        [--max-memory GIB]
+
+Commands that load graphs refuse one whose estimated memory exceeds --max-memory
+(GiB, default 4).";
 
 struct Args {
     rest: Vec<String>,
@@ -112,6 +116,19 @@ fn main() -> ExitCode {
     }
 }
 
+fn gib(s: &str) -> Result<u64, String> {
+    let g: f64 = s.parse().map_err(|_| format!("bad --max-memory {s}"))?;
+    if !(g > 0.0 && g < 1e6) {
+        return Err(format!("bad --max-memory {s}"));
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "0 < g < 1e6 GiB"
+    )]
+    Ok((g * f64::from(1u32 << 30)) as u64)
+}
+
 fn tier(s: &str) -> Result<Tier, String> {
     match s {
         "ci" => Ok(Tier::Ci),
@@ -139,10 +156,27 @@ fn cmd_corpus(a: &mut Args) -> Result<bool, String> {
     Ok(true)
 }
 
-fn load_corpus(dir: &Path) -> Result<Vec<Prepared>, String> {
+fn load_corpus(dir: &Path, max_memory: u64) -> Result<Vec<Prepared>, String> {
     let dirs = exchange::list_corpus(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     if dirs.is_empty() {
         return Err(format!("no graphs under {}", dir.display()));
+    }
+    // Refuse, before loading anything, a graph whose estimated memory exceeds the limit.
+    for d in &dirs {
+        let text = std::fs::read_to_string(d.join("graph.json"))
+            .map_err(|e| format!("{}: {e}", d.display()))?;
+        let desc: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", d.display()))?;
+        let field = |k: &str| desc.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0);
+        let need = everygraph_oracle::golden::estimate(field("rows"), field("n"));
+        if need > max_memory {
+            return Err(format!(
+                "{}: refused, estimated {:.1} GiB > limit {:.1} GiB (--max-memory)",
+                d.display(),
+                need as f64 / f64::from(1u32 << 30),
+                max_memory as f64 / f64::from(1u32 << 30)
+            ));
+        }
     }
     dirs.iter()
         .map(|d| Prepared::load(d).map_err(|e| format!("{}: {e}", d.display())))
@@ -196,6 +230,11 @@ fn cmd_check(a: &mut Args) -> Result<bool, String> {
         .value("--max-findings")
         .map_or(Ok(0), |s| s.parse().map_err(|_| "bad --max-findings"))?;
     let require_python = a.flag("--require-python");
+    let max_memory = a
+        .value("--max-memory")
+        .map_or(Ok(everygraph_oracle::golden::DEFAULT_MAX_MEMORY), |m| {
+            gib(&m)
+        })?;
     let plugin: Box<dyn KernelUnderTest> = match which.as_str() {
         "reference" => Box::new(RustReference),
         "toy" => Box::new(Toy::default()),
@@ -233,7 +272,7 @@ fn cmd_check(a: &mut Args) -> Result<bool, String> {
         other => return Err(format!("unknown plug-in {other}")),
     };
     a.finish()?;
-    let graphs = load_corpus(&dir)?;
+    let graphs = load_corpus(&dir, max_memory)?;
     if require_python {
         let missing = graphs.iter().filter(|g| g.references.is_none()).count();
         if missing > 0 {
@@ -254,9 +293,14 @@ fn cmd_check(a: &mut Args) -> Result<bool, String> {
 
 fn cmd_seeded_bugs(a: &mut Args) -> Result<bool, String> {
     let dir = a.value("--corpus");
+    let max_memory = a
+        .value("--max-memory")
+        .map_or(Ok(everygraph_oracle::golden::DEFAULT_MAX_MEMORY), |m| {
+            gib(&m)
+        })?;
     a.finish()?;
     let graphs = match dir {
-        Some(d) => load_corpus(Path::new(&d))?,
+        Some(d) => load_corpus(Path::new(&d), max_memory)?,
         None => corpus::entries(Tier::Ci)
             .into_iter()
             .map(Prepared::new)
@@ -270,7 +314,9 @@ fn cmd_seeded_bugs(a: &mut Args) -> Result<bool, String> {
         clean.findings.len(),
         t.elapsed().as_secs_f64()
     );
+    let with_python = graphs.iter().all(|g| g.references.is_some());
     let mut all_caught = clean.findings.is_empty();
+    let mut failures = Vec::new();
     println!("\n| seeded bug | checks that fired (number of findings) | families |");
     println!("|---|---|---|");
     for bug in Bug::ALL {
@@ -285,8 +331,24 @@ fn cmd_seeded_bugs(a: &mut Args) -> Result<bool, String> {
             cells.join(", "),
             fams.join(", ")
         );
-        all_caught &= !fired.is_empty();
+        if let Err(e) = bug.verify(&report, with_python) {
+            failures.push(e);
+        }
     }
+    println!(
+        "\nrequired checks per bug (Bug::required{}): {}",
+        if with_python {
+            ", with NetworkX and igraph"
+        } else {
+            ""
+        },
+        if failures.is_empty() {
+            "all met".to_owned()
+        } else {
+            failures.join("; ")
+        }
+    );
+    all_caught &= failures.is_empty();
     Ok(all_caught)
 }
 
@@ -298,6 +360,9 @@ fn cmd_golden(a: &mut Args) -> Result<bool, String> {
     }
     if let Some(c) = a.value("--cache") {
         roots.cache = PathBuf::from(c);
+    }
+    if let Some(m) = a.value("--max-memory") {
+        roots.max_memory = gib(&m)?;
     }
     let only = a.values("--only");
     let require = a.flag("--require-all");

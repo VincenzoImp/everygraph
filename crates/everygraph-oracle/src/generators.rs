@@ -115,6 +115,16 @@ pub enum Family {
         /// Number of cliques.
         copies: u32,
     },
+    /// Adversarial for id widths and variable-length codes: `n` ids (millions), few
+    /// edges. For every `k` in 7, 14, 21, 28 and every gap `2^k - 1`, `2^k`, `2^k + 1` that
+    /// fits below `n`, one hub lists two neighbours exactly that gap apart; node 1 also
+    /// lists node `n - 1`, and `extra` random pairs are spread over all ids. No partition.
+    SparseIds {
+        /// Nodes (ids), most of them isolated.
+        n: u32,
+        /// Random pairs added.
+        extra: u32,
+    },
     /// Disjoint union; node ids are concatenated in order. The partition is the parts.
     Union {
         /// The parts.
@@ -338,6 +348,30 @@ fn skeleton(f: &Family, rng: &mut SplitMix64) -> Skeleton {
             partition = Some((0..k * copies).map(|v| v / k).collect());
             k * copies
         }
+        Family::SparseIds { n, extra } => {
+            const BASE: u64 = 64; // above the hub ids
+            let mut hub = 2u32;
+            for k in [7u32, 14, 21, 28] {
+                for gap in [(1u64 << k) - 1, 1u64 << k, (1u64 << k) + 1] {
+                    if BASE + gap < u64::from(n) {
+                        let far = u32::try_from(BASE + gap).expect("below n");
+                        let base = u32::try_from(BASE).expect("small");
+                        pairs.extend([(hub, base), (hub, far)]);
+                        hub += 1;
+                    }
+                }
+            }
+            if n > 2 {
+                pairs.push((1, n - 1));
+            }
+            for _ in 0..extra {
+                let (u, v) = (rng.below_u32(n.max(1)), rng.below_u32(n.max(1)));
+                if u != v {
+                    pairs.push((u, v));
+                }
+            }
+            n
+        }
         Family::Union { ref parts } => {
             let mut base = 0u32;
             let mut labels = Vec::new();
@@ -401,6 +435,7 @@ pub fn generate(spec: &GraphSpec) -> Graph {
         }
     }
     let n = s.n + d.isolates;
+    let sparse = matches!(spec.family, Family::SparseIds { .. });
     let mut partition = s.partition.unwrap_or_else(|| default_partition(s.n));
     partition.extend(std::iter::repeat_n(0, ix(d.isolates)));
     if n > 0 {
@@ -468,7 +503,7 @@ pub fn generate(spec: &GraphSpec) -> Graph {
         dst: rows.iter().map(|r| r.1).collect(),
         weight,
         time,
-        partition: Some(partition),
+        partition: (!sparse).then_some(partition),
         semantics: spec.semantics,
         provenance: serde_json::json!({ "generator": "everygraph-oracle", "spec": spec }),
     }

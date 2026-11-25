@@ -10,7 +10,8 @@
 //! 1. it runs under each of the plug-in's [`Config`]s;
 //! 2. **cross-configuration identity**: every result must equal the first one bit for bit
 //!    (DESIGN D14: same input, same output, whatever the threads, storage or regime);
-//! 3. **in-process reference**: the first result is compared with [`crate::reference`];
+//! 3. **in-process reference**: every distinct result is compared with
+//!    [`crate::reference`];
 //! 4. **Python references**: and with each library's answer in `reference.json`
 //!    (NetworkX, python-igraph, scipy), when the corpus has been through `oracle-ref run`;
 //! 5. **invariants**: and checked against [`crate::invariants`], which need no reference.
@@ -381,7 +382,11 @@ fn check_one(
         check,
         detail,
     };
-    let mut first: Option<(Config, Output)> = None;
+    // Every distinct result, in configuration order; the first is the baseline of the
+    // cross-configuration check. References and invariants run on each distinct result, so
+    // a bug that shows in only one configuration is seen by every family, not only by
+    // cross-configuration identity; identical results are not checked twice.
+    let mut distinct: Vec<(Config, Output)> = Vec::new();
     for config in configs {
         report.runs += 1;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -407,59 +412,65 @@ fn check_one(
                 continue;
             }
         };
-        match &first {
-            None => first = Some((*config, out)),
-            Some((c0, o0)) => {
-                if let Err(e) = identical(&out, o0) {
-                    report.findings.push(finding(
-                        Some(*config),
-                        Check::CrossConfig,
-                        format!("vs ({c0}): {e}"),
-                    ));
-                }
+        if let Some((c0, o0)) = distinct.first() {
+            if let Err(e) = identical(&out, o0) {
+                report.findings.push(finding(
+                    Some(*config),
+                    Check::CrossConfig,
+                    format!("vs ({c0}): {e}"),
+                ));
             }
         }
+        if !distinct.iter().any(|(_, o)| identical(&out, o).is_ok()) {
+            distinct.push((*config, out));
+        }
     }
-    let Some((config, out)) = first else { return };
+    if distinct.is_empty() {
+        return;
+    }
     let p = case.projection;
-    if !options.skip_rust_reference {
-        if let Some(want) = reference::compute(g, p, kernel) {
-            if let Err(e) = compare(kernel, g.n, &out, &want) {
-                report
-                    .findings
-                    .push(finding(Some(config), Check::RustReference, e));
-            }
-        }
-    }
+    let want = if options.skip_rust_reference {
+        None
+    } else {
+        reference::compute(g, p, kernel)
+    };
     let python = prepared
         .references
         .as_ref()
-        .and_then(|r| r.results.iter().find(|(k, _)| k == kernel).map(|(_, v)| v));
-    match python {
-        Some(values) if !values.is_empty() => {
-            for (lib, want) in values {
-                report.python_comparisons += 1;
-                if let Err(e) = compare(kernel, g.n, &out, want) {
-                    report.findings.push(finding(
-                        Some(config),
-                        Check::PythonReference(lib.clone()),
-                        e,
-                    ));
-                }
-            }
-        }
-        _ => {
-            if python_computes(kernel) && prepared.references.is_some() {
-                report.python_missing += 1;
-            }
-        }
+        .and_then(|r| r.results.iter().find(|(k, _)| k == kernel).map(|(_, v)| v))
+        .filter(|values| !values.is_empty());
+    if python.is_none()
+        && python_computes(kernel)
+        && prepared.references.is_some()
+        && g.n <= crate::corpus::PYTHON_MAX_NODES
+    {
+        report.python_missing += 1;
     }
-    for v in invariants::check(kernel, p, g.partition.as_deref(), &out) {
-        report.findings.push(finding(
-            Some(config),
-            Check::Invariant(v.invariant.to_owned()),
-            v.detail,
-        ));
+    for (config, out) in &distinct {
+        if let Some(want) = &want {
+            if let Err(e) = compare(kernel, g.n, out, want) {
+                report
+                    .findings
+                    .push(finding(Some(*config), Check::RustReference, e));
+            }
+        }
+        for (lib, want) in python.into_iter().flatten() {
+            report.python_comparisons += 1;
+            if let Err(e) = compare(kernel, g.n, out, want) {
+                report.findings.push(finding(
+                    Some(*config),
+                    Check::PythonReference(lib.clone()),
+                    e,
+                ));
+            }
+        }
+        for v in invariants::check(kernel, p, g.partition.as_deref(), out) {
+            report.findings.push(finding(
+                Some(*config),
+                Check::Invariant(v.invariant.to_owned()),
+                v.detail,
+            ));
+        }
     }
 }
 

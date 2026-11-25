@@ -113,6 +113,19 @@ listed in `ADJUSTMENTS` in `src/everygraph_oracle_ref/refs.py` and copied into e
   with igraph and the in-process reference then decides whether that answer is close enough
   within `max_iter`.
 
+## Kept self-loops: what is checked
+
+On graphs whose semantics keep self-loops, the oracle checks every kernel except:
+
+- **PageRank and core numbers.** Left to #36 by the decisions (Q2).
+- **Clustering, transitivity and modularity.** Undecided, also assigned to #36. Does a
+  loop's +2 enter d(d − 1)? Is a loop an internal edge of its community? NetworkX and
+  igraph count it in modularity (−0.125 in the probe), but no decision has been taken.
+
+Checked with kept loops: adjacency, the three degrees (Q1), weak and strong components,
+BFS, weighted distances (a loop never shortens a path), triangles and the quotient graph
+(a loop is not a pair).
+
 ## Decisions (2026-11-25, `design/DECISIONS.md`)
 
 1. **Q1. Kept self-loops in degrees.** +2 to the undirected degree (and to `degree` of a
@@ -133,8 +146,8 @@ listed in `ADJUSTMENTS` in `src/everygraph_oracle_ref/refs.py` and copied into e
    degree in the undirected projection), *not* in + out as NetworkX and igraph define it.
    The oracle had proposed in + out; the decision changed it. `degree_out` and
    `degree_in` count distinct out- and in-neighbours.
-9. **Q11. Component labels.** A component's internal label is its smallest node id (the
-   API then numbers components by size).
+9. **Q11. Component labels.** A component's internal label is its earliest node (with
+   dense ids, its smallest node id; the API then numbers components by size).
 10. **Q12. Traversals.** They follow out-edges unless `direction=` says otherwise; an
     unreachable node has no value.
 11. **Q13. PageRank.** The fixed point, whatever the iteration count.

@@ -29,6 +29,9 @@ ADJUSTMENTS = {
 
 LIBS = ("networkx", "igraph", "scipy")
 
+# The tolerance NetworkX's PageRank last converged with (recorded in reference.json).
+LAST_NX_TOL: dict[str, float] = {}
+
 
 def _labels_from_sets(n: int, comps) -> list[int]:
     lab = [0] * n
@@ -60,12 +63,14 @@ def _nx_pagerank(G, damping, weighted):
     in-process reference then decides whether the answer is close enough.
     """
     n = G.number_of_nodes()
+    LAST_NX_TOL.pop("tol", None)
     if n == 0:
         return []
     weight = "wsum" if weighted else None
     for bound in (1e-14, 1e-12, 1e-10):
         try:
             pr = nx.pagerank(G, alpha=damping, max_iter=20000, tol=bound / n, weight=weight)
+            LAST_NX_TOL["tol"] = bound / n
             return [pr[v] for v in range(n)]
         except nx.PowerIterationFailedConvergence:
             continue

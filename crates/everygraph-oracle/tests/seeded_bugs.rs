@@ -72,87 +72,44 @@ fn the_toy_without_a_bug_passes_every_check() {
     assert!(report.findings.is_empty(), "{shown:#?}");
 }
 
-fn caught(bug: Bug, required: &[&str], min_families: usize) {
+fn caught(bug: Bug) {
     let (g, with_python) = graphs();
     let report = run(&Toy { bug: Some(bug) }, g, Options::default());
-    let fired = checks(&report);
     println!(
         "{}: {:?} (families {:?})",
         bug.name(),
-        fired,
+        checks(&report),
         families(&report)
     );
-    for check in required {
-        assert!(
-            fired.contains(*check),
-            "{} not caught by {check}; fired: {fired:?}",
-            bug.name()
-        );
+    if let Err(e) = bug.verify(&report, *with_python) {
+        panic!("{e}");
     }
-    if *with_python && fired.contains("reference:rust") {
-        for lib in ["reference:networkx", "reference:igraph"] {
-            assert!(
-                fired.contains(lib),
-                "{}: Rust reference fired but {lib} did not",
-                bug.name()
-            );
-        }
-    }
-    assert!(
-        families(&report).len() >= min_families,
-        "{}: caught by {:?}, need {min_families} independent families",
-        bug.name(),
-        families(&report)
-    );
 }
 
 #[test]
 fn off_by_one_in_the_last_list_of_a_chunk_is_caught_by_three_independent_checks() {
-    caught(
-        Bug::OffByOneLastListOfChunk,
-        &["invariant:degree_sum", "reference:rust", "cross-config"],
-        3,
-    );
+    assert_eq!(Bug::OffByOneLastListOfChunk.required().1, 3);
+    caught(Bug::OffByOneLastListOfChunk);
 }
 
 #[test]
 fn dropped_self_loop_is_caught() {
-    caught(
-        Bug::DropsKeptSelfLoop,
-        &["invariant:degree_sum", "reference:rust"],
-        2,
-    );
+    caught(Bug::DropsKeptSelfLoop);
 }
 
 #[test]
 fn unsymmetrized_edge_is_caught() {
-    caught(
-        Bug::UnsymmetrizedEdge,
-        &[
-            "invariant:adjacency_symmetric",
-            "invariant:degree_sum",
-            "reference:rust",
-        ],
-        2,
-    );
+    caught(Bug::UnsymmetrizedEdge);
 }
 
 #[test]
 fn thread_dependent_float_sum_is_caught_by_cross_config_identity() {
     // The drift is a few ulps, far inside every reference tolerance: only the bit-for-bit
     // comparison across configurations can see it, which is why that check exists.
-    caught(Bug::ThreadDependentFloatSum, &["cross-config"], 1);
+    caught(Bug::ThreadDependentFloatSum);
 }
 
 #[test]
 fn offset_overflow_is_caught() {
-    caught(
-        Bug::OffsetOverflow { bits: 8 },
-        &[
-            "invariant:offsets_monotone",
-            "invariant:degree_sum",
-            "reference:rust",
-        ],
-        2,
-    );
+    caught(Bug::OffsetOverflow { bits: 8 });
 }

@@ -85,7 +85,22 @@ struct Value {
     value: serde_json::Value,
 }
 
-/// Where the sources are.
+/// Bytes the in-process check needs per row and per node, measured: web-google (5.1 M
+/// rows, 876 k nodes) peaked at 1.76 GB, about 345 bytes per row; the estimate rounds up.
+pub const BYTES_PER_ROW: u64 = 400;
+/// See [`BYTES_PER_ROW`].
+pub const BYTES_PER_NODE: u64 = 160;
+/// Default memory limit of the golden check: 4 GiB.
+pub const DEFAULT_MAX_MEMORY: u64 = 4 << 30;
+
+/// The memory a graph of `rows` rows and `n` nodes is estimated to need in the
+/// in-process references (projection, components, triangles, core numbers).
+#[must_use]
+pub const fn estimate(rows: u64, n: u64) -> u64 {
+    rows * BYTES_PER_ROW + n * BYTES_PER_NODE
+}
+
+/// Where the sources are, and how much memory a check may take.
 #[derive(Clone, Debug)]
 pub struct Roots {
     /// The directory of the golden files (vendored sources live there).
@@ -94,11 +109,15 @@ pub struct Roots {
     pub cache: PathBuf,
     /// The data root of the dataset registry, if any.
     pub data: Option<PathBuf>,
+    /// A source whose estimated memory ([`estimate`]) exceeds this is refused.
+    pub max_memory: u64,
 }
 
 impl Roots {
     /// The defaults: cache `$EVERYGRAPH_ORACLE_CACHE` or `<golden>/../.cache`; data root
-    /// `$EVERYGRAPH_ORACLE_DATA`, else `$EVERYGRAPH_DATA`, else none.
+    /// `$EVERYGRAPH_ORACLE_DATA` only (an explicit opt-in: `$EVERYGRAPH_DATA` is never read,
+    /// so that a plain `cargo test` does not load every dataset on the machine); memory
+    /// limit [`DEFAULT_MAX_MEMORY`].
     #[must_use]
     pub fn from_env(golden: &Path) -> Self {
         let var = |k: &str| {
@@ -110,7 +129,8 @@ impl Roots {
             golden: golden.to_path_buf(),
             cache: var("EVERYGRAPH_ORACLE_CACHE")
                 .unwrap_or_else(|| golden.parent().unwrap_or(golden).join(".cache")),
-            data: var("EVERYGRAPH_ORACLE_DATA").or_else(|| var("EVERYGRAPH_DATA")),
+            data: var("EVERYGRAPH_ORACLE_DATA"),
+            max_memory: DEFAULT_MAX_MEMORY,
         }
     }
 }
@@ -145,12 +165,21 @@ fn open(path: &Path) -> io::Result<Box<dyn BufRead>> {
 /// # Errors
 ///
 /// I/O errors, and `InvalidData` for a row that does not follow `parse`.
-pub fn read_rows(path: &Path, parse: &Parse, directed: bool) -> io::Result<Graph> {
+pub fn read_rows(path: &Path, parse: &Parse, directed: bool, max_memory: u64) -> io::Result<Graph> {
     let whitespace = parse.separator == "whitespace";
     let sep = parse.separator.chars().next().unwrap_or(' ');
     let integer = parse.ids == "integer";
     let (mut ia, mut ib) = (Vec::new(), Vec::new());
     let (mut sa, mut sb) = (Vec::new(), Vec::new());
+    let mut rows = 0u64;
+    let refuse = |rows: u64, n: u64| {
+        bad(format!(
+            "skipped: refused, {} rows and {n} nodes need about {:.1} GiB, more than the limit of {:.1} GiB (--max-memory)",
+            rows,
+            estimate(rows, n) as f64 / f64::from(1u32 << 30),
+            max_memory as f64 / f64::from(1u32 << 30)
+        ))
+    };
     for (i, line) in open(path)?.lines().enumerate() {
         let line = line?;
         let line = line.trim_end_matches(['\r', '\n']);
@@ -180,6 +209,10 @@ pub fn read_rows(path: &Path, parse: &Parse, directed: bool) -> io::Result<Graph
             )));
         };
         let (a, b) = (a.trim(), b.trim());
+        rows += 1;
+        if rows % 65_536 == 0 && estimate(rows, 0) > max_memory {
+            return Err(refuse(rows, 0));
+        }
         if integer {
             let p = |s: &str| {
                 s.parse::<i64>().map_err(|_| {
@@ -200,6 +233,17 @@ pub fn read_rows(path: &Path, parse: &Parse, directed: bool) -> io::Result<Graph
     let name = path
         .file_name()
         .map_or_else(String::new, |f| f.to_string_lossy().into_owned());
+    let n_estimate = if integer {
+        let mut v: Vec<i64> = ia.iter().chain(&ib).copied().collect();
+        v.sort_unstable();
+        v.dedup();
+        to_u64(v.len())
+    } else {
+        to_u64(sa.len() + sb.len())
+    };
+    if estimate(rows, n_estimate) > max_memory {
+        return Err(refuse(rows, n_estimate));
+    }
     let mut g;
     if integer {
         let mut ids: Vec<i64> = ia.iter().chain(&ib).copied().collect();
@@ -358,7 +402,7 @@ fn check_file(roots: &Roots, path: &Path) -> GoldenResult {
     if !src.is_file() {
         return fail(name, format!("skipped: {} not available", src.display()));
     }
-    let g = match read_rows(&src, &f.parse, f.directed) {
+    let g = match read_rows(&src, &f.parse, f.directed, roots.max_memory) {
         Ok(g) => g,
         Err(e) => return fail(name, e.to_string()),
     };

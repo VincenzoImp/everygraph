@@ -284,6 +284,27 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
         };
         push(family, directed, decorations, loops, seed);
     }
+    // Sparse ids last, so that adding them did not rename the graphs above. Gaps cross
+    // 2^7, 2^14 and 2^21 (4-byte LEB128 codes); 2^28 would need n > 2^28, whose O(n)
+    // reference arrays do not fit the memory limit.
+    let sparse: &[(u32, bool)] = match tier {
+        Tier::Ci => &[(1 << 22, false)],
+        Tier::Nightly => &[
+            (1 << 22, false),
+            (1 << 22, true),
+            ((1 << 23) + 3, false),
+            (1 << 24, false),
+        ],
+    };
+    for (i, &(n, directed)) in sparse.iter().enumerate() {
+        push(
+            Family::SparseIds { n, extra: 32 },
+            directed,
+            Decorations::default(),
+            SelfLoops::Drop,
+            400 + i as u64,
+        );
+    }
     out
 }
 
@@ -307,36 +328,53 @@ pub fn kernels_for(g: &Graph, p: &Projection) -> Vec<Kernel> {
             }
         }
     }
-    k.extend([Kernel::Triangles, Kernel::TriangleTotal]);
-    if g.semantics.self_loops == SelfLoops::Keep {
+    if g.n > PYTHON_MAX_NODES {
+        // Sparse-id graphs (millions of ids, few edges) test id widths and codecs; the
+        // per-node kernels above are enough, and they are checked in Rust only.
         return k;
     }
-    k.push(Kernel::PageRank {
-        damping: 0.85,
-        weighted: false,
-    });
-    let multi = p.counts.duplicate_rows > 0;
-    if g.weight.is_some() || multi {
+    k.extend([Kernel::Triangles, Kernel::TriangleTotal]);
+    // With kept self-loops, design/DECISIONS.md leaves PageRank and core numbers to #36
+    // (Q2), and clustering, transitivity and modularity are undecided (also #36):
+    // oracle/SEMANTICS.md, "Kept self-loops". Everything else is checked.
+    let keep = g.semantics.self_loops == SelfLoops::Keep;
+    if !keep {
         k.push(Kernel::PageRank {
             damping: 0.85,
-            weighted: true,
-        });
-    }
-    if g.n % 5 == 1 {
-        k.push(Kernel::PageRank {
-            damping: 0.5,
             weighted: false,
         });
+        let multi = p.counts.duplicate_rows > 0;
+        if g.weight.is_some() || multi {
+            k.push(Kernel::PageRank {
+                damping: 0.85,
+                weighted: true,
+            });
+        }
+        if g.n % 5 == 1 {
+            k.push(Kernel::PageRank {
+                damping: 0.5,
+                weighted: false,
+            });
+        }
     }
     if g.weight.is_some() && g.n > 0 {
         k.push(Kernel::Sssp { source: 0 });
     }
-    k.extend([Kernel::CoreNumber, Kernel::Clustering, Kernel::Transitivity]);
+    if !keep {
+        k.extend([Kernel::CoreNumber, Kernel::Clustering, Kernel::Transitivity]);
+    }
     if g.partition.is_some() {
-        k.extend([Kernel::Modularity { resolution: 1.0 }, Kernel::Quotient]);
+        if !keep {
+            k.push(Kernel::Modularity { resolution: 1.0 });
+        }
+        k.push(Kernel::Quotient);
     }
     k
 }
+
+/// Graphs with more nodes than this are checked by the in-process references and the
+/// invariants only: their per-node answers would make `reference.json` hundreds of MB.
+pub const PYTHON_MAX_NODES: u32 = 1 << 20;
 
 /// Generates the graphs of a tier with their kernels.
 #[must_use]

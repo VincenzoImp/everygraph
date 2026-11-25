@@ -155,7 +155,11 @@ jobs:
       - name: oracle/run-ci.sh
         env:
           ORACLE_SKIP_RUST_TESTS: "1"
-          ORACLE_JOBS: "4"
+          # The runner of a private repository has 2 vCPU and 7 GB: 2 workers × 2 GiB of
+          # address space each stays below it, so an oversized case becomes a recorded
+          # MemoryError, not an OOM kill.
+          ORACLE_JOBS: "2"
+          ORACLE_MEMORY_GIB: "2"
         run: oracle/run-ci.sh
 
   portability:

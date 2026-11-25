@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--write", action="store_true", help="recompute and rewrite oracle/golden/*.json")
     mode.add_argument("--check", action="store_true", help="recompute and compare with oracle/golden/*.json")
     g.add_argument("--cache", type=Path, default=None, help="downloads of the non-registry graphs (default oracle/.cache)")
-    g.add_argument("--data-root", type=Path, default=None, help="data root of `everygraph-bench fetch tier1` (default $EVERYGRAPH_ORACLE_DATA, then $EVERYGRAPH_DATA)")
+    g.add_argument("--data-root", type=Path, default=None, help="data root of `everygraph-bench fetch tier1` (default $EVERYGRAPH_ORACLE_DATA; $EVERYGRAPH_DATA is never read)")
     g.add_argument("--max-memory-gib", type=float, default=6.0, help="address-space limit of the process (default 6 GiB)")
     g.add_argument("--only", nargs="*", default=None, help="only these graphs")
     p = sub.add_parser("probe", help="semantics probe: NetworkX vs igraph on tiny graphs")

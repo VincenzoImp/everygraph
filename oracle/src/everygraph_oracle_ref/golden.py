@@ -117,7 +117,8 @@ def default_cache() -> Path:
 
 
 def default_data_root() -> Path | None:
-    p = os.environ.get("EVERYGRAPH_ORACLE_DATA") or os.environ.get("EVERYGRAPH_DATA")
+    # An explicit opt-in: $EVERYGRAPH_DATA is never read implicitly.
+    p = os.environ.get("EVERYGRAPH_ORACLE_DATA")
     return Path(p) if p else None
 
 

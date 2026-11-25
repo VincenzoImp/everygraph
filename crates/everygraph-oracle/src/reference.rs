@@ -68,6 +68,10 @@ pub fn compute(g: &Graph, p: &Projection, kernel: &Kernel) -> Option<Output> {
         }
         Kernel::Triangles => Output::Ints(triangles(&p.undirected).into_iter().map(Some).collect()),
         Kernel::TriangleTotal => Output::Count(triangles(&p.undirected).iter().sum::<u64>() / 3),
+        // Undecided with kept self-loops (#36): does the loop's +2 enter d(d - 1)?
+        Kernel::Clustering | Kernel::Transitivity | Kernel::Modularity { .. } if p.keep_loops => {
+            return None;
+        }
         Kernel::Clustering => {
             Output::Reals(clustering(&p.undirected).into_iter().map(Some).collect())
         }
