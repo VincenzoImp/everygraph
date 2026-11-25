@@ -10,11 +10,13 @@ labels: type:feature, area:community, P0, risk:low, size:M, lab-evidence
 - [ ] Each level's quotient graph is streamed to disk as community detection produces it, never all levels kept in memory, and written without a whole-level conversion copy of its weights. In the lab, `--out-hier` keeps every level (the capped Leiden was killed at 56 GiB, about 51.5 GiB of quotient graphs by arithmetic), and the capped Louvain's 42.9 GiB anonymous peak against b2's own 28.3 GiB before the write is most likely the writer's transient f64 copy of the level-1 weights (2.14 B entries, about 16 GiB as f64; inference from code and numbers by the review of the tracer's lab PR; `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 10, 13–14)
 - [ ] Stored as a derived artifact with provenance ({{#m2-12-artifact-cache}})
 - [ ] Conservation checks run on write and in `everygraph verify`
+- [ ] Each level's quotient graph carries a loop at every community of weight L(c), the input's kept loops included, so its total weight is W and its modularity under singletons equals that of the partition; `internal_edges` counts a kept loop's events (`docs/spec/graph-semantics.md` § 5.5, S6)
 - [ ] API: membership at any level as a column, community table as Arrow, `subgraph(community)` as a view, ancestors/descendants of a community
 - [ ] Per-community summary statistics of node properties (counts by category, top-k by PageRank) for map labels
 
 **Acceptance**
 - Invariants hold on every tier-1/2 graph and every level
+- On every oracle graph with kept loops, each level's modularity equals the modularity of the level below under the partition it represents (`docs/spec/graph-semantics.md` § 5.5)
 - Reading a community table of 1 M communities takes < 50 ms
 - Friendster map hierarchy: written with memory that does not grow with the number of levels, and its size on disk reported against the tracer's 42.5 GB (`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` row 14)
 

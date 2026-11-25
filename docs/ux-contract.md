@@ -1016,7 +1016,27 @@ When the last phase finishes, the result block follows after one empty line:
   that returns a table or an object has no result block: its last phase line is the
   record, and the result follows on its own channel (§ 2.1).
 - **G-12** `dropped:` follows when rows of the input did not become edges, with the
-  exact count of each kind. It is left out when nothing was dropped.
+  exact count of each kind. It is left out when nothing was dropped. The kinds, in
+  this order, joined by ` · `: `N self-loops` (`self_loops="drop"`, key
+  `dropped.self_loops`) and `N duplicates` (`duplicates="collapse"`, the repeated
+  rows dropped, key `dropped.duplicates`). Under `duplicates="sum"` the repeated rows
+  are not dropped but merged into their pair's edge: a line `merged:` follows
+  `dropped:` (or takes its place) with `N duplicates, summed into their pairs` (key
+  `counts.merged`), left out when it is 0. With the edges of the `✓` line the two
+  lines add up to the rows read (`docs/spec/graph-semantics.md` § 2.8).
+
+```console
+✓ transfers.eg · 8.1 GB · 212,418,907 nodes · 1,604,551,209 edges · 3 min 22 s
+  dropped: 4,201 self-loops · 225,846,708 duplicates
+  next: everygraph map transfers.eg
+```
+
+```console
+✓ transfers.eg · 8.4 GB · 212,418,907 nodes · 1,604,551,209 edges · 3 min 25 s
+  dropped: 4,201 self-loops
+  merged: 225,846,708 duplicates, summed into their pairs
+  next: everygraph map transfers.eg
+```
 - **G-13** At most two hints follow, each a label and something that can be run, the
   runnable part in bold: `next:` on the command line; in Python the hint is a call
   (`reopen later: eg.open("transfers.eg")`). A hint is never a sentence of advice.
@@ -1161,8 +1181,8 @@ and, by kind:
 | | `ways_forward` | array | ways, as in § 6.1 |
 | | `continuing` | string or null | what happens now |
 | `result` | `output` | object | `path`, `kind`, `bytes` |
-| | `counts` | object | exact counts: `nodes`, `edges`, `rows`, … |
-| | `dropped` | object | exact counts by kind: `self_loops`, … |
+| | `counts` | object | exact counts: `nodes`, `edges`, `rows`, `merged` (G-12), … |
+| | `dropped` | object | exact counts by kind: `self_loops`, `duplicates` (G-12) |
 | | `elapsed_seconds`, `peak_memory_bytes`, `scratch_bytes` | number | the actual figures |
 | | `estimate_error` | object | for each of the four estimates, `relative` (number or null) and `absolute` (P-9) |
 | | `next` | array | hints: `label`, `python`, `command` |
@@ -2295,7 +2315,7 @@ on an idle machine (`CLAUDE.md` § 3).
 | R-4 – R-7, R-10 | Unit tests of the fingerprint: changing `--memory`, `--threads`, `progress`, the input's bytes or a phase's algorithm version does not change it; changing any other parameter, the input's path or the output path does. Table-driven tests of R-7, one per row, each asserting the line printed and, for a changed input, that the old directory is gone. A scratch root holding a directory of another fingerprint with no live owner — another command's stopped job included — gives the `old-scratch` warning and leaves the directory in place. | #40 |
 | M-1 – M-4, M-6 – M-10, § 6.3 | Golden transcripts of every worked example in § 6, on each surface. The corpus of malformed inputs (#32) produces `file:line` locations that are checked against the corpus's own index. | #32, #98, #81 |
 | § 6.4, M-11 | A table-driven test: each exception class raised inside the command, and each usage error, yields its exit status. A query stopped at its limit exits with 0 and has a non-null `"truncated"` in its `--json` document. | #98 |
-| G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`; a graph kept in memory; an operation that returns a table (no result block). Every `✓` line ends with a duration. In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
+| G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`, with `duplicates` under `"collapse"` and with `merged:` under `"sum"`, whose counts add up to the rows read; a graph kept in memory; an operation that returns a table (no result block). Every `✓` line ends with a duration. In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
 | C-8, C-9, R-9 | **Clean-up tests.** After a successful run the scratch root holds no `.everygraph-*` directory. With a failure injected in each phase in turn (invalid row, disk full), the scratch is gone, or holds exactly the finished phases when the error's last line says they were kept. A scratch directory with an old modification time is still there after an unrelated run. | #40 |
 | S-5 | The same command under two locales (`LANG=C.UTF-8`, `LANG=it_IT.UTF-8`) prints identical bytes. | #98 |
 | T-7, T-8 | A vocabulary lint over the catalogue and over the public names: "budget" never appears in an entry about nodes or seconds, "limit" never in one about memory, "groups" never appears; a user's noun reaches a message only through the one function that derives it; no public name contains one. | #98, #81 |
@@ -2450,6 +2470,13 @@ and items 14 – 17 follow rows that settle a question this document had raised.
     graph held in memory, in the system temporary directory, where P-18 applies.
     *There is no file of the user's to put it beside, and the memory-backed case is
     already counted against the budget.*
+28. **The result block's words for repeated rows** (G-12): `dropped: … · N
+    duplicates` under `duplicates="collapse"` and a `merged: N duplicates, summed
+    into their pairs` line under `"sum"`, keys `dropped.duplicates` and
+    `counts.merged` of `docs/spec/graph-semantics.md` § 2.8 (its § 9, item 9). The
+    previews show only `dropped: N self-loops`. *Merged rows are not lost — their
+    weights and times are in the summed edge — so they are not called dropped; and
+    every row read is accounted for on the screen, as the report's identity says.*
 
 ## 10. Open points and obligations for other issues
 
