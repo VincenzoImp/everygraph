@@ -18,7 +18,7 @@ labels: type:infra, area:bench, P0, risk:medium, size:L
 - [ ] Command line through a parser crate (`clap` or `lexopt`) now that the tool gains subcommands beyond the dataset ones (review of PR #129)
 
 **Acceptance**
-- `everygraph-bench run headline` reproduces the ingest, kernel and semi-external results of the idle re-run (FINDINGS § "Idle-machine re-runs", files under `lab/b1-core/results/bench/`) within 10% on the lab machine; the two cells with no idle value (semi-external at 16 GiB; naive mmap under 8/16 GiB) are reported, not gated (the § B1 tables were measured on a shared machine; changed 2026-11-25)
+- `everygraph-bench run headline` reproduces the ingest, kernel and semi-external results of the idle re-run (FINDINGS § "Idle-machine re-runs", files under `lab/b1-core/results/bench/`) within 10% on the lab machine; naive mmap under 8/16 GiB is gated against the idle rows of `semiext.jsonl` (4.62 and 3.56 s/iteration); semi-external at 16 GiB, which has no idle value, is reported, not gated (the § B1 tables were measured on a shared machine; changed 2026-11-25)
 - Two consecutive idle runs of the same spec differ by < 5% for in-RAM kernels
 - Starting a second official run while one is active fails fast instead of queueing
 
