@@ -55,8 +55,12 @@ pub(crate) fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Res
     }
 }
 
-/// Reads into `buf` from `offset` until it is full or the file ends; returns the number
-/// of bytes read.
+/// Reads into `buf` from an aligned `offset` of a file opened for direct I/O, until
+/// `buf` is full or the file ends; returns the number of bytes read.
+///
+/// A direct read comes back short of a whole block only at the end of the file, and the
+/// next read would start at an unaligned offset, which Windows refuses (error 87) where
+/// Linux returns 0. So a short read that is not a whole number of blocks ends the loop.
 pub(crate) fn read_up_to(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
     let mut done = 0;
     while done < buf.len() {
@@ -69,7 +73,12 @@ pub(crate) fn read_up_to(file: &File, buf: &mut [u8], offset: u64) -> io::Result
         let result: io::Result<usize> = Err(io::ErrorKind::Unsupported.into());
         match result {
             Ok(0) => break,
-            Ok(n) => done += n,
+            Ok(n) => {
+                done += n;
+                if n % everygraph_core::SEGMENT_ALIGN != 0 {
+                    break;
+                }
+            }
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e),
         }
