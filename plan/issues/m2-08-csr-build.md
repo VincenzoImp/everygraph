@@ -19,7 +19,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:XL, lab-evidence
 - [ ] Scaling work: the prototype scales only 3.4–4.9× from 1 to 32 threads on small graphs
 
 **Acceptance (lab machine, idle, plain text)**
-- lj ≤ 0.5 s; orkut ≤ 1.0 s; Friendster ≤ 25 s at a 32 GB budget and ≤ 60 s at 8 GB with peak RSS ≤ 4 GB, writing the default format, fsync reported separately (by addition, 52.4 s build at 8 GB from FINDINGS "Idle-machine re-runs" + 3.4 s encode at 16 threads from #118 = 55.8 s before the write)
+- lj ≤ 0.5 s; orkut ≤ 1.0 s; Friendster ≤ 25 s at a 32 GB budget and ≤ 60 s at 8 GB with peak RSS ≤ 4 GB, writing the default format, measured under the harness's warm-up protocol (sustained drive write rate, ADR 0026), fsync reported separately and bytes written reported next to the time (baseline by addition: 36.97 s sustained build at 8 GB, `bench/results/headline/20261125T114658Z-0ffe756ac9ac.jsonl`, + 3.4 s encode at 16 threads from #118 = 40.4 s before the write; at 32 GB 29.06 + 3.4 = 32.5 s, so ≤ 25 s needs the temp-traffic reductions above)
 - Output identical for budgets 0.25 GB … 32 GB and thread counts 1 … 32
 - Out-of-core NVMe traffic for Friendster at 8 GB reduced from 128 GB to ≤ 90 GB
 
