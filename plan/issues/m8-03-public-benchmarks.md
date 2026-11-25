@@ -12,6 +12,7 @@ labels: type:docs, area:bench, P0, risk:medium, size:M, lab-evidence
 - [ ] Default-storage numbers come from FINDINGS § M1-13 with their conditions; raw-array numbers are labelled as such
 - [ ] One-command reproduction kit with dataset fetchers
 - [ ] A "where we lose" section (e.g. Gephi on styling small graphs, Neo4j on Cypher, GPUs on raw throughput, BV on web-graph compression)
+- [ ] Comparison runners left unavailable by {{#m0-03-bench-harness}}: Neo4j + GDS (needs a server-lifecycle runner: download, import, start bound to 127.0.0.1, stop by PID) and DuckPGQ (needs a DuckDB release compatible with the extension, beside the pinned one); each recorded with tool, version, algorithm and options like the others
 
 **Acceptance**
 - An outside person reproduces the headline table on their own machine within 20% using only the kit
