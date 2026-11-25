@@ -269,8 +269,15 @@ jobs:
         with:
           key: msrv
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      # nextest, so that the retries of .config/nextest.toml apply here too; it does not
+      # run doc tests, hence the second command.
       - name: cargo +1.87 test
-        run: cargo +1.87 test --workspace --locked
+        run: |
+          cargo +1.87 nextest run --workspace --locked
+          cargo +1.87 test --workspace --doc --locked
 
   # Miri and ThreadSanitizer share the pinned nightly and one job (ThreadSanitizer's
   # 30 s of work cost a second billed job of 1–2 minutes). On a pull request only when

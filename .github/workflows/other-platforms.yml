@@ -88,10 +88,17 @@ jobs:
         env:
           PACKAGES: ${{ inputs.packages || '--workspace' }}
         run: cargo clippy $PACKAGES --all-targets --locked -- -D warnings
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      # nextest, so that the retries of .config/nextest.toml apply here too; it does not
+      # run doc tests, hence the second command.
       - name: cargo test (${{ inputs.packages || '--workspace' }})
         env:
           PACKAGES: ${{ inputs.packages || '--workspace' }}
-        run: cargo test $PACKAGES --locked
+        run: |
+          cargo nextest run $PACKAGES --no-tests=warn --locked
+          cargo test $PACKAGES --doc --locked
       - name: cargo test (core, no default features)
         run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
