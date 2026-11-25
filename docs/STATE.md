@@ -61,7 +61,6 @@ serial 50223142 at every milestone.
 
 Tell the owner when each becomes due, with everything prepared.
 
-- Domains `everygraph.dev` and `everygraph.org` (appeared unregistered on 2026-11-25) — any time.
 - At publication: enable GitHub private vulnerability reporting; authorize `Signed-off-by` on
   commits made by agents under the owner's account, then set the repository variable
   `DCO_ALL_PULL_REQUESTS=true`.
