@@ -3,7 +3,7 @@ title: In-adjacency for directed graphs as a derived artifact
 milestone: M2 · Format and ingest
 labels: type:feature, area:format, P1, risk:low, size:S, lab-evidence
 ---
-**Why.** In-neighbors, SCC, pull-based PageRank on directed graphs and directed bidirectional BFS need the transpose. Lab: parallel transpose of twitter-2010 (1.47 B arcs) in 12.3 s at 32 threads; raw cost +4.23 B/arc.
+**Why.** In-neighbors, SCC, pull-based PageRank on directed graphs and directed bidirectional BFS need the transpose. Lab: parallel transpose of twitter-2010 (1.47 B arcs) in 12.3 s at 32 threads; raw cost +4.23 B/arc; compressed in-adjacency 15.94 bits/arc on twitter-2010, encoded in 0.99 s at 16 threads (#118).
 
 **Scope**
 - [ ] Parallel transpose (count, prefix, scatter, per-list sort) writing the standard compressed format

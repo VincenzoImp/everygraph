@@ -11,6 +11,7 @@ labels: type:infra, area:engine, P0, risk:medium, size:S, lab-evidence
 - [ ] The same hashes under each execution regime (forced: in memory, edges on disk, state on disk) and under two memory budgets, and for a view run as a mask and materialized (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises"). Results cut short by `timeout` are exempt
 - [ ] Floating point: fixed chunking and reduction order; make results bit-identical across the supported CPU architectures (no fused multiply-add or platform maths routines in result-bearing arithmetic; x86 vs ARM); an exception needs an ADR that narrows the promise of `docs/api-sketch.md` § 2.11
 - [ ] The `fast` (non-deterministic) modes are labelled as such in output provenance
+- [ ] A scheduled nightly workflow that runs `oracle/run-nightly.sh` (fetches tier 1, checks all golden files, nightly corpus, seeded bugs) and opens an issue when it fails; billed minutes stated (the script took 18 min on the lab machine)
 
 **Acceptance**
 - A PR that makes a reduction order depend on the thread count fails CI

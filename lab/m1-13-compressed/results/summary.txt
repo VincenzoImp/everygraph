@@ -1,0 +1,463 @@
+== 1. Encoding into the default format (delta + Stream VByte records, Elias-Fano byte offsets)
+graph           bits/edge  (data + offsets + blocks)   raw   encode 16T s  M entries/s   encode 1T s   write+fsync s
+lj               18.11     (17.69 + 0.41 + 0.000)      35.7     0.0639        1085         0.487        0.113
+orkut            16.66     (16.54 + 0.12 + 0.000)      32.8      0.168        1395          1.35        0.312
+twitter-sym      16.11     (15.95 + 0.15 + 0.000)      33.1       1.55        1553          14.7         2.39
+friendster       23.19     (23.02 + 0.17 + 0.000)      33.2       3.41        1059          74.7         4.77
+twitter-dir      16.54     (16.31 + 0.23 + 0.000)      33.8      0.929        1581             -         1.69
+twitter-dir-in   15.94     (15.71 + 0.23 + 0.000)      33.8      0.992        1480             -         1.62
+exactness: 6/6 stores decode to the input arrays on every access path, all three decoders
+
+== 2. Kernels: seconds (best of reps), heap memory, warm; B/A and C/A are slowdown factors against A
+graph        kernel                     T      A raw     B comp   B/A      C decoded   C/A
+lj           PageRank f32 x20            1       1.40       1.95   1.40x       1.39   1.00x
+lj           PageRank f32 x20           16      0.152      0.144   0.95x      0.147   0.97x
+lj           PageRank f64 x20            1       2.00       2.47   1.24x       1.99   1.00x
+lj           PageRank f64 x20           16      0.211      0.193   0.91x      0.212   1.01x
+lj           WCC (Afforest)              1     0.0590     0.0563   0.96x     0.0517   0.88x
+lj           WCC (Afforest)             16     0.0107     0.0094   0.88x     0.0104   0.98x
+lj           BFS (dir-opt)               1     0.0733      0.136   1.86x     0.0728   0.99x
+lj           BFS (dir-opt)              16     0.0152     0.0181   1.19x     0.0148   0.97x
+lj           BFS, degree in state        1     0.0744      0.127   1.71x     0.0745   1.00x
+lj           BFS, degree in state       16     0.0147     0.0171   1.16x     0.0149   1.01x
+lj           k-core (PKC)                1      0.569      0.580   1.02x      0.565   0.99x
+lj           k-core (PKC)               16      0.111      0.121   1.09x      0.117   1.06x
+lj           triangles, fwd raw          1       4.05       4.09   1.01x       4.00   0.99x
+lj           triangles, fwd raw         16      0.294      0.290   0.98x      0.290   0.99x
+lj           triangles, fwd compressed   1       4.35       4.47   1.03x       4.34   1.00x
+lj           triangles, fwd compressed  16      0.324      0.328   1.01x      0.320   0.99x
+orkut        PageRank f32 x20            1       3.66       3.65   1.00x       3.64   0.99x
+orkut        PageRank f32 x20           16      0.366      0.266   0.73x      0.367   1.00x
+orkut        PageRank f64 x20            1       4.32       4.11   0.95x       4.41   1.02x
+orkut        PageRank f64 x20           16      0.421      0.311   0.74x      0.424   1.01x
+orkut        WCC (Afforest)              1     0.0800     0.0768   0.96x     0.0802   1.00x
+orkut        WCC (Afforest)             16     0.0120     0.0172   1.43x     0.0119   0.99x
+orkut        BFS (dir-opt)               1     0.0959      0.196   2.04x     0.0960   1.00x
+orkut        BFS (dir-opt)              16     0.0190     0.0280   1.48x     0.0189   1.00x
+orkut        BFS, degree in state        1     0.0977      0.164   1.68x     0.0975   1.00x
+orkut        BFS, degree in state       16     0.0186     0.0232   1.25x     0.0190   1.02x
+orkut        k-core (PKC)                1       1.33       1.28   0.96x       1.31   0.99x
+orkut        k-core (PKC)               16      0.337      0.218   0.65x      0.226   0.67x
+orkut        triangles, fwd raw          1       33.1       33.5   1.01x       33.1   1.00x
+orkut        triangles, fwd raw         16       2.39       2.39   1.00x       2.41   1.01x
+orkut        triangles, fwd compressed   1       34.0       34.1   1.00x       33.7   0.99x
+orkut        triangles, fwd compressed  16       2.38       2.41   1.01x       2.40   1.01x
+twitter-sym  PageRank f32 x20            1       94.9        105   1.11x          -       -
+twitter-sym  PageRank f32 x20           16       15.4       14.8   0.96x       15.3   0.99x
+twitter-sym  PageRank f64 x20            1        107        117   1.09x          -       -
+twitter-sym  PageRank f64 x20           16       19.3       18.8   0.97x          -       -
+twitter-sym  WCC (Afforest)              1       1.99       2.48   1.25x          -       -
+twitter-sym  WCC (Afforest)             16      0.209      0.209   1.00x      0.211   1.01x
+twitter-sym  BFS (dir-opt)               1       1.11       1.97   1.78x          -       -
+twitter-sym  BFS (dir-opt)              16      0.187      0.284   1.52x      0.187   1.00x
+twitter-sym  BFS, degree in state        1       1.11       1.92   1.72x          -       -
+twitter-sym  BFS, degree in state       16      0.181      0.208   1.15x          -       -
+twitter-sym  k-core (PKC)                1       16.1       16.7   1.04x          -       -
+twitter-sym  k-core (PKC)               16       5.26       5.50   1.05x       5.22   0.99x
+twitter-sym  triangles, fwd raw         16       69.8       69.4   0.99x          -       -
+twitter-sym  triangles, fwd compressed  16       78.2       78.4   1.00x          -       -
+friendster   PageRank f32 x20           16       67.2       63.9   0.95x          -       -
+friendster   PageRank f64 x20           16       75.5       72.8   0.96x          -       -
+friendster   WCC (Afforest)              1       3.33       5.24   1.57x          -       -
+friendster   WCC (Afforest)             16      0.365      0.497   1.36x      0.363   1.00x
+friendster   BFS (dir-opt)               1       3.14       5.79   1.85x          -       -
+friendster   BFS (dir-opt)              16      0.356      0.508   1.43x      0.356   1.00x
+friendster   BFS, degree in state        1       3.17       5.68   1.79x          -       -
+friendster   BFS, degree in state       16      0.350      0.499   1.43x          -       -
+friendster   k-core (PKC)               16       8.74       7.65   0.88x          -       -
+friendster   triangles, fwd raw         16       75.8       67.5   0.89x          -       -
+friendster   triangles, fwd compressed  16       84.4       78.1   0.92x          -       -
+result check (same output in every configuration; PageRank to 1e-9): all identical
+
+== 3. Leiden, 1 iteration (seconds, best of repeats; modularity of the best run)
+graph        mode    T     A raw/heap   B comp/heap   B/A     C decoded   C/A     A raw/mmap   B comp/mmap    Q(A)    Q(B)   det hash equal
+lj           async   1       5.97         6.54     1.09x       5.96   1.00x       6.01         6.57    0.7495  0.7495   -
+lj           async  16      0.764        0.792     1.04x      0.764   1.00x      0.751        0.804    0.7496  0.7489   -
+lj           det     1       9.47         10.1     1.06x       9.29   0.98x       9.48         10.2    0.7480  0.7480   yes
+lj           det    16       2.31         2.29     0.99x       2.27   0.98x       2.25         2.30    0.7480  0.7480   yes
+orkut        async   1       14.3         15.4     1.07x       14.2   0.99x       14.4         15.4    0.6836  0.6836   -
+orkut        async  16       1.41         1.47     1.04x       1.45   1.03x       1.41         1.41    0.6813  0.6811   -
+orkut        det     1       15.6         16.6     1.06x       15.8   1.01x       16.2         16.9    0.6760  0.6760   yes
+orkut        det    16       3.48         3.50     1.00x       3.56   1.02x       3.44         3.66    0.6760  0.6760   yes
+twitter-sym  async  16       29.1         29.2     1.01x          -       -          -            -    0.4662  0.4626   -
+twitter-sym  det    16       59.1         60.0     1.02x          -       -          -            -    0.4790  0.4790   yes
+friendster   async  16       82.4         82.0     1.00x          -       -          -            -    0.6050  0.6008   -
+
+== 4. Point queries: warm, 1 thread, microseconds p50 / p95 / p99 (per-query timer inside); [batch mean without timers]
+lj           degree            A raw/mmap: 0.0200 / 0.0300 / 0.0310 [0.002]   A raw/heap: 0.0200 / 0.0900 / 0.111 [0.002]   B comp/mmap: 0.0500 / 0.0700 / 0.140 [0.013]   B comp/heap: 0.0400 / 0.0600 / 0.130 [0.012]   C decoded/heap: 0.0200 / 0.0210 / 0.0300 [0.001]
+lj           neighbors         A raw/mmap: 0.0500 / 0.200 / 0.371 [0.020]   A raw/heap: 0.0300 / 0.121 / 0.311 [0.016]   B comp/mmap: 0.0700 / 0.180 / 0.301 [0.048]   B comp/heap: 0.0600 / 0.161 / 0.281 [0.041]   C decoded/heap: 0.0300 / 0.130 / 0.251 [0.016]
+lj           common_neighbors  A raw/mmap: 0.241 / 0.671 / 1.29 [0.302]   A raw/heap: 0.220 / 0.651 / 1.26 [0.280]   B comp/mmap: 0.221 / 0.711 / 1.54 [0.308]   B comp/heap: 0.201 / 0.651 / 1.43 [0.279]   C decoded/heap: 0.231 / 0.681 / 1.34 [0.342]
+lj           two_hop_size      A raw/mmap: 1.98 / 29.9 / 98.1   A raw/heap: 1.84 / 28.6 / 96.7   B comp/mmap: 1.91 / 30.2 / 106   B comp/heap: 1.82 / 30.1 / 105   C decoded/heap: 1.98 / 30.1 / 101
+lj           khop3_budget10k   A raw/mmap: 38.8 / 79.2 / 104   A raw/heap: 37.9 / 75.9 / 98.8   B comp/mmap: 41.4 / 81.2 / 105   B comp/heap: 40.9 / 78.5 / 103   C decoded/heap: 38.2 / 76.7 / 99.0
+lj           bidir_bfs_path    A raw/mmap: 139 / 794 / 2045   A raw/heap: 128 / 795 / 1998   B comp/mmap: 166 / 982 / 2429   B comp/heap: 161 / 952 / 2363   C decoded/heap: 128 / 782 / 1880
+orkut        degree            A raw/mmap: 0.0200 / 0.0300 / 0.0310 [0.002]   A raw/heap: 0.0200 / 0.0210 / 0.0300 [0.001]   B comp/mmap: 0.0500 / 0.0700 / 0.140 [0.014]   B comp/heap: 0.0400 / 0.0600 / 0.131 [0.013]   C decoded/heap: 0.0200 / 0.0200 / 0.0300 [0.001]
+orkut        neighbors         A raw/mmap: 0.150 / 0.410 / 0.491 [0.060]   A raw/heap: 0.120 / 0.360 / 0.461 [0.045]   B comp/mmap: 0.141 / 0.351 / 0.491 [0.137]   B comp/heap: 0.140 / 0.341 / 0.481 [0.116]   C decoded/heap: 0.121 / 0.380 / 0.461 [0.054]
+orkut        common_neighbors  A raw/mmap: 0.521 / 1.44 / 5.08 [0.755]   A raw/heap: 0.461 / 1.36 / 4.88 [0.691]   B comp/mmap: 0.571 / 1.70 / 5.72 [0.843]   B comp/heap: 0.521 / 1.62 / 5.63 [0.803]   C decoded/heap: 0.461 / 1.38 / 4.99 [0.711]
+orkut        two_hop_size      A raw/mmap: 34.9 / 341 / 989   A raw/heap: 32.4 / 321 / 946   B comp/mmap: 34.0 / 343 / 1028   B comp/heap: 32.5 / 335 / 1001   C decoded/heap: 32.3 / 322 / 945
+orkut        khop3_budget10k   A raw/mmap: 50.0 / 83.2 / 97.0   A raw/heap: 48.0 / 79.4 / 91.8   B comp/mmap: 51.6 / 84.9 / 98.0   B comp/heap: 50.8 / 82.7 / 95.9   C decoded/heap: 48.0 / 79.6 / 92.0
+orkut        bidir_bfs_path    A raw/mmap: 355 / 4958 / 9676   A raw/heap: 341 / 4594 / 9194   B comp/mmap: 464 / 5766 / 11002   B comp/heap: 450 / 5568 / 10595   C decoded/heap: 339 / 4643 / 9096
+twitter-sym  degree            A raw/mmap: 0.101 / 0.201 / 0.370 [0.003]   A raw/heap: 0.0900 / 0.200 / 0.351 [0.003]   B comp/mmap: 0.271 / 0.511 / 0.602 [0.055]   B comp/heap: 0.180 / 0.400 / 0.461 [0.041]
+twitter-sym  neighbors         A raw/mmap: 0.210 / 0.461 / 0.561 [0.052]   A raw/heap: 0.110 / 0.340 / 0.441 [0.040]   B comp/mmap: 0.220 / 0.511 / 0.721 [0.171]   B comp/heap: 0.191 / 0.451 / 0.601 [0.146]
+twitter-sym  common_neighbors  A raw/mmap: 0.631 / 12.5 / 1397 [37.530]   A raw/heap: 0.420 / 12.2 / 1397 [37.357]   B comp/mmap: 0.811 / 14.7 / 1555 [42.189]   B comp/heap: 0.661 / 14.2 / 1556 [42.057]
+twitter-sym  two_hop_size      A raw/mmap: 692 / 52107 / 88260   A raw/heap: 668 / 52094 / 88305   B comp/mmap: 767 / 54170 / 92397   B comp/heap: 753 / 54122 / 92417
+twitter-sym  khop3_budget10k   A raw/mmap: 36.9 / 137 / 176   A raw/heap: 34.8 / 116 / 148   B comp/mmap: 74.8 / 313 / 452   B comp/heap: 72.6 / 312 / 452
+twitter-sym  bidir_bfs_path    A raw/mmap: 3208 / 160524 / 296226   A raw/heap: 2982 / 156991 / 289889   B comp/mmap: 3501 / 163004 / 298613   B comp/heap: 3361 / 164188 / 301828
+friendster   degree            A raw/mmap: 0.110 / 0.241 / 0.381 [0.006]   A raw/heap: 0.0900 / 0.220 / 0.361 [0.003]   B comp/mmap: 0.280 / 0.531 / 0.572 [0.065]   B comp/heap: 0.191 / 0.431 / 0.511 [0.049]
+friendster   neighbors         A raw/mmap: 0.241 / 0.501 / 0.591 [0.066]   A raw/heap: 0.121 / 0.351 / 0.451 [0.046]   B comp/mmap: 0.300 / 0.601 / 0.761 [0.218]   B comp/heap: 0.211 / 0.491 / 0.641 [0.159]
+friendster   common_neighbors  A raw/mmap: 0.611 / 1.90 / 3.43 [0.760]   A raw/heap: 0.501 / 1.77 / 3.29 [0.656]   B comp/mmap: 0.792 / 2.38 / 4.14 [0.975]   B comp/heap: 0.711 / 2.25 / 4.02 [0.910]
+friendster   two_hop_size      A raw/mmap: 15.6 / 402 / 1368   A raw/heap: 14.1 / 368 / 1311   B comp/mmap: 17.7 / 459 / 1529   B comp/heap: 16.2 / 424 / 1450
+friendster   khop3_budget10k   A raw/mmap: 39.1 / 64.8 / 98.6   A raw/heap: 35.7 / 57.4 / 86.1   B comp/mmap: 44.7 / 73.9 / 111   B comp/heap: 41.0 / 66.4 / 101
+friendster   bidir_bfs_path    A raw/mmap: 1652 / 16933 / 38319   A raw/heap: 1653 / 16695 / 38075   B comp/mmap: 2479 / 20200 / 43167   B comp/heap: 2334 / 19312 / 42391
+twitter-dir  degree            A raw/mmap: 0.110 / 0.250 / 0.381 [0.004]   A raw/heap: 0.0910 / 0.210 / 0.351 [0.004]   B comp/mmap: 0.270 / 0.521 / 0.631 [0.045]   B comp/heap: 0.201 / 0.451 / 0.541 [0.041]
+twitter-dir  neighbors         A raw/mmap: 0.150 / 0.400 / 0.501 [0.037]   A raw/heap: 0.110 / 0.311 / 0.401 [0.027]   B comp/mmap: 0.201 / 0.451 / 0.591 [0.129]   B comp/heap: 0.170 / 0.401 / 0.531 [0.111]
+twitter-dir  common_neighbors  A raw/mmap: 0.481 / 5.12 / 30.9 [3.910]   A raw/heap: 0.341 / 4.96 / 30.3 [3.798]   B comp/mmap: 0.611 / 5.99 / 34.6 [4.503]   B comp/heap: 0.521 / 5.80 / 34.0 [4.408]
+twitter-dir  two_hop_size      A raw/mmap: 5.81 / 3444 / 8596   A raw/heap: 4.44 / 3447 / 8579   B comp/mmap: 6.75 / 3723 / 9309   B comp/heap: 5.99 / 3703 / 9253
+twitter-dir  khop3_budget10k   A raw/mmap: 38.3 / 60.4 / 74.9   A raw/heap: 35.9 / 52.7 / 63.9   B comp/mmap: 48.7 / 173 / 326   B comp/heap: 46.5 / 162 / 323
+twitter-dir  bidir_bfs_path    A raw/mmap: 443 / 14635 / 27066   A raw/heap: 465 / 14811 / 32291   B comp/mmap: 587 / 15529 / 27172   B comp/heap: 562 / 15154 / 27286
+result check (same answers in every configuration): all identical
+
+== 5. Opening: seconds at 16 threads unless noted (best of reps); decode = configuration C
+lj           comp     mem=heap      T=16 warm  total  0.0124
+lj           comp     mem=heap      T=16 cold  total  0.0290
+lj           comp     mem=mmap      T=16 warm  total  0.0095
+lj           decoded  mem=heap      T=16 warm  total  0.0379  open 0.0129 + decode 0.0237 (2.93 G entries/s)  raw copy 0.29 GiB anon, peak RSS 0.44 GiB
+lj           decoded  mem=heap      T=16 cold  total  0.0550  open 0.0294 + decode 0.0243 (2.86 G entries/s)  raw copy 0.29 GiB anon, peak RSS 0.44 GiB
+lj           decoded  mem=mmap      T= 1 warm  total  0.0814  open 0.0092 + decode 0.0714 (0.97 G entries/s)  raw copy 0.29 GiB anon, peak RSS 0.44 GiB
+lj           decoded  mem=mmap      T=16 warm  total  0.0340  open 0.0091 + decode 0.0236 (2.94 G entries/s)  raw copy 0.29 GiB anon, peak RSS 0.44 GiB
+lj           decoded  mem=mmap-lazy T=16 cold  total  0.0475  open 0.0034 + decode 0.0428 (1.62 G entries/s)  raw copy 0.29 GiB anon, peak RSS 0.44 GiB
+lj           raw      mem=heap      T=16 warm  total  0.0235
+lj           raw      mem=heap      T=16 cold  total  0.0578
+orkut        comp     mem=heap      T=16 warm  total  0.0322
+orkut        comp     mem=heap      T=16 cold  total  0.0737
+orkut        comp     mem=mmap      T=16 warm  total  0.0214
+orkut        decoded  mem=heap      T=16 warm  total  0.0979  open 0.0315 + decode 0.0623 (3.76 G entries/s)  raw copy 0.90 GiB anon, peak RSS 1.35 GiB
+orkut        decoded  mem=heap      T=16 cold  total   0.140  open 0.0745 + decode 0.0620 (3.78 G entries/s)  raw copy 0.90 GiB anon, peak RSS 1.35 GiB
+orkut        decoded  mem=mmap      T= 1 warm  total   0.174  open 0.0209 + decode 0.149 (1.57 G entries/s)  raw copy 0.90 GiB anon, peak RSS 1.35 GiB
+orkut        decoded  mem=mmap      T=16 warm  total  0.0857  open 0.0216 + decode 0.0602 (3.89 G entries/s)  raw copy 0.90 GiB anon, peak RSS 1.35 GiB
+orkut        decoded  mem=mmap-lazy T=16 cold  total   0.133  open 0.0037 + decode 0.125 (1.87 G entries/s)  raw copy 0.90 GiB anon, peak RSS 1.35 GiB
+orkut        raw      mem=heap      T=16 warm  total  0.0732
+orkut        raw      mem=heap      T=16 cold  total   0.174
+twitter-sym  comp     mem=heap      T=16 warm  total   0.317
+twitter-sym  comp     mem=heap      T=16 cold  total   0.721
+twitter-sym  comp     mem=mmap      T=16 warm  total   0.193
+twitter-sym  decoded  mem=heap      T=16 warm  total    1.02  open 0.317 + decode 0.678 (3.55 G entries/s)  raw copy 9.27 GiB anon, peak RSS 13.79 GiB
+twitter-sym  decoded  mem=heap      T=16 cold  total    1.36  open 0.722 + decode 0.613 (3.92 G entries/s)  raw copy 9.27 GiB anon, peak RSS 13.79 GiB
+twitter-sym  decoded  mem=mmap      T= 1 warm  total    1.76  open 0.197 + decode 1.53 (1.57 G entries/s)  raw copy 9.27 GiB anon, peak RSS 13.79 GiB
+twitter-sym  decoded  mem=mmap      T=16 warm  total   0.817  open 0.194 + decode 0.597 (4.03 G entries/s)  raw copy 9.27 GiB anon, peak RSS 13.79 GiB
+twitter-sym  decoded  mem=mmap-lazy T=16 cold  total    1.27  open 0.0338 + decode 1.21 (1.99 G entries/s)  raw copy 9.27 GiB anon, peak RSS 13.79 GiB
+twitter-sym  raw      mem=heap      T=16 warm  total   0.734
+twitter-sym  raw      mem=heap      T=16 cold  total    1.74
+friendster   comp     mem=heap      T=16 warm  total   0.698
+friendster   comp     mem=heap      T=16 cold  total    1.53
+friendster   comp     mem=mmap      T=16 warm  total   0.412
+friendster   decoded  mem=heap      T=16 warm  total    1.68  open 0.700 + decode 0.920 (3.93 G entries/s)  raw copy 13.95 GiB anon, peak RSS 23.71 GiB
+friendster   decoded  mem=heap      T=16 cold  total    2.55  open 1.53 + decode 0.957 (3.78 G entries/s)  raw copy 13.95 GiB anon, peak RSS 23.71 GiB
+friendster   decoded  mem=mmap      T= 1 warm  total    3.13  open 0.428 + decode 2.64 (1.37 G entries/s)  raw copy 13.95 GiB anon, peak RSS 23.71 GiB
+friendster   decoded  mem=mmap      T=16 warm  total    1.47  open 0.427 + decode 0.985 (3.67 G entries/s)  raw copy 13.95 GiB anon, peak RSS 23.71 GiB
+friendster   decoded  mem=mmap-lazy T=16 cold  total    2.49  open 0.0447 + decode 2.39 (1.51 G entries/s)  raw copy 13.95 GiB anon, peak RSS 23.71 GiB
+friendster   raw      mem=heap      T=16 warm  total    1.04
+friendster   raw      mem=heap      T=16 cold  total    2.55
+
+== 6. Scans (sum of all targets) and random access to one list
+graph        config      decoder  batch  T    G entries/s   random list ns   random degree ns
+lj           raw         -            -  1       2.20             33            3.8
+lj           comp        pad       8192  1       1.02             87           19.1
+lj           comp        pad          1  1       1.36             86           17.4
+lj           comp        fused        1  1       1.30            104           17.2
+lj           comp        lab          1  1       1.12            115           18.6
+lj           comp-block  pad       8192  1       1.01          33049        32893.5
+lj           raw         -            - 16      12.39             33            4.1
+lj           comp        pad       8192 16      14.91             87           17.8
+lj           comp        pad          1 16      16.75             83           17.7
+lj           comp        fused        1 16      17.32             98           17.6
+lj           comp        lab          1 16      15.79            114           17.8
+lj           comp-block  pad       8192 16      14.79          33036        32984.7
+orkut        raw         -            -  1       5.63             62            4.8
+orkut        comp        pad       8192  1       2.23            168           23.7
+orkut        comp        pad          1  1       2.95            170           23.2
+orkut        comp        fused        1  1       2.85            177           22.8
+orkut        comp        lab          1  1       1.97            197           24.8
+orkut        comp-block  pad       8192  1       2.23          10039         9986.6
+orkut        raw         -            - 16      13.72             62            4.8
+orkut        comp        pad       8192 16      27.49            168           23.2
+orkut        comp        pad          1 16      26.96            176           23.0
+orkut        comp        fused        1 16      26.68            185           22.7
+orkut        comp        lab          1 16      27.18            214           23.7
+orkut        comp-block  pad       8192 16      26.22          10055         9993.2
+twitter-sym  raw         -            -  1       4.92             48            6.0
+twitter-sym  comp        pad       8192  1       2.06            186           36.5
+twitter-sym  comp        pad          1  1       2.60            187           37.6
+twitter-sym  comp        fused        1  1       2.54            223           37.7
+twitter-sym  comp        lab          1  1       1.85            267           37.4
+twitter-sym  comp-block  pad       8192  1       2.06          15141        15137.2
+twitter-sym  raw         -            - 16      13.67             55            5.7
+twitter-sym  comp        pad       8192 16      26.35            195           38.2
+twitter-sym  comp        pad          1 16      24.83            197           41.1
+twitter-sym  comp        fused        1 16      24.81            232           37.4
+twitter-sym  comp        lab          1 16      23.73            265           36.2
+twitter-sym  comp-block  pad       8192 16      26.78          15234        15096.3
+friendster   raw         -            -  1       4.70             54            5.8
+friendster   comp        pad       8192  1       1.86            217           44.3
+friendster   comp        pad          1  1       2.52            218           44.9
+friendster   comp        fused        1  1       2.44            278           44.4
+friendster   comp        lab          1  1       1.79            271           44.8
+friendster   comp-block  pad       8192  1       1.86          19210        19215.4
+friendster   raw         -            - 16      13.55             62            5.9
+friendster   comp        pad       8192 16      17.90            245           63.8
+friendster   comp        pad          1 16      19.69            234           50.6
+friendster   comp        fused        1 16      19.44            347           61.5
+friendster   comp        lab          1 16      19.81            342           61.7
+friendster   comp-block  pad       8192 16      20.40          19168        19113.1
+
+== 7. Ablations (seconds, best of reps)
+lj           pr32     T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False              2.38  vs A   1.71x  vs B   1.22x
+lj           pr64     T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False              2.89  vs A   1.45x  vs B   1.17x
+lj           wcc      T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False            0.0629  vs A   1.07x  vs B   1.12x
+lj           bfs      T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False             0.161  vs A   2.20x  vs B   1.18x
+lj           pr32     T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False             0.173  vs A   1.14x  vs B   1.20x
+lj           pr64     T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False             0.219  vs A   1.04x  vs B   1.14x
+lj           wcc      T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False            0.0097  vs A   0.90x  vs B   1.03x
+lj           bfs      T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False            0.0200  vs A   1.32x  vs B   1.10x
+orkut        pr32     T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False              4.57  vs A   1.25x  vs B   1.25x
+orkut        pr64     T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False              5.00  vs A   1.16x  vs B   1.22x
+orkut        wcc      T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False            0.0833  vs A   1.04x  vs B   1.08x
+orkut        bfs      T= 1 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False             0.224  vs A   2.33x  vs B   1.14x
+orkut        pr32     T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False             0.327  vs A   0.89x  vs B   1.23x
+orkut        pr64     T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False             0.367  vs A   0.87x  vs B   1.18x
+orkut        wcc      T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False            0.0183  vs A   1.52x  vs B   1.07x
+orkut        bfs      T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False            0.0266  vs A   1.40x  vs B   0.95x
+twitter-sym  pr32     T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False              15.4  vs A   1.00x  vs B   1.04x
+twitter-sym  bfs      T=16 decoder-lab comp mem=heap decoder=lab batch=8192 degidx=False             0.296  vs A   1.59x  vs B   1.04x
+lj           pr32     T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False          2.17  vs A   1.55x  vs B   1.11x
+lj           pr64     T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False          2.66  vs A   1.33x  vs B   1.08x
+lj           wcc      T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False        0.0646  vs A   1.09x  vs B   1.15x
+lj           bfs      T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False         0.152  vs A   2.08x  vs B   1.12x
+lj           pr32     T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False         0.161  vs A   1.06x  vs B   1.12x
+lj           pr64     T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False         0.207  vs A   0.98x  vs B   1.07x
+lj           wcc      T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False        0.0097  vs A   0.90x  vs B   1.03x
+lj           bfs      T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False        0.0196  vs A   1.29x  vs B   1.08x
+orkut        pr32     T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False          3.82  vs A   1.04x  vs B   1.05x
+orkut        pr64     T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False          4.21  vs A   0.97x  vs B   1.02x
+orkut        wcc      T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False        0.0834  vs A   1.04x  vs B   1.09x
+orkut        bfs      T= 1 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False         0.197  vs A   2.06x  vs B   1.01x
+orkut        pr32     T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False         0.275  vs A   0.75x  vs B   1.04x
+orkut        pr64     T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False         0.320  vs A   0.76x  vs B   1.03x
+orkut        wcc      T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False        0.0186  vs A   1.55x  vs B   1.08x
+orkut        bfs      T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False        0.0255  vs A   1.35x  vs B   0.91x
+twitter-sym  pr32     T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False          14.8  vs A   0.96x  vs B   1.00x
+twitter-sym  bfs      T=16 decoder-fused comp mem=heap decoder=fused batch=8192 degidx=False         0.285  vs A   1.53x  vs B   1.01x
+lj           pr32     T= 1 granularity comp mem=heap decoder=pad batch=1 degidx=False                 1.86  vs A   1.33x  vs B   0.95x
+lj           pr64     T= 1 granularity comp mem=heap decoder=pad batch=1 degidx=False                 2.56  vs A   1.28x  vs B   1.04x
+lj           pr32     T= 1 granularity comp mem=heap decoder=pad batch=256 degidx=False               2.17  vs A   1.55x  vs B   1.11x
+lj           pr64     T= 1 granularity comp mem=heap decoder=pad batch=256 degidx=False               2.70  vs A   1.35x  vs B   1.09x
+lj           pr32     T= 1 granularity comp mem=heap decoder=pad batch=1024 degidx=False              1.98  vs A   1.42x  vs B   1.02x
+lj           pr64     T= 1 granularity comp mem=heap decoder=pad batch=1024 degidx=False              2.48  vs A   1.24x  vs B   1.00x
+lj           pr32     T= 1 granularity comp mem=heap decoder=pad batch=65536 degidx=False             1.93  vs A   1.38x  vs B   0.99x
+lj           pr64     T= 1 granularity comp mem=heap decoder=pad batch=65536 degidx=False             2.49  vs A   1.25x  vs B   1.01x
+lj           tc       T= 1 granularity comp mem=heap decoder=pad batch=1 degidx=False                 4.04  vs A   1.00x  vs B   0.99x
+lj           pr32     T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                0.148  vs A   0.97x  vs B   1.03x
+lj           pr64     T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                0.208  vs A   0.99x  vs B   1.08x
+lj           pr32     T=16 granularity comp mem=heap decoder=pad batch=256 degidx=False              0.163  vs A   1.07x  vs B   1.13x
+lj           pr64     T=16 granularity comp mem=heap decoder=pad batch=256 degidx=False              0.213  vs A   1.01x  vs B   1.11x
+lj           pr32     T=16 granularity comp mem=heap decoder=pad batch=1024 degidx=False             0.147  vs A   0.97x  vs B   1.02x
+lj           pr64     T=16 granularity comp mem=heap decoder=pad batch=1024 degidx=False             0.203  vs A   0.96x  vs B   1.05x
+lj           pr32     T=16 granularity comp mem=heap decoder=pad batch=65536 degidx=False            0.146  vs A   0.96x  vs B   1.01x
+lj           pr64     T=16 granularity comp mem=heap decoder=pad batch=65536 degidx=False            0.200  vs A   0.95x  vs B   1.04x
+lj           tc       T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                0.295  vs A   1.00x  vs B   1.02x
+orkut        pr32     T= 1 granularity comp mem=heap decoder=pad batch=1 degidx=False                 4.92  vs A   1.34x  vs B   1.35x
+orkut        pr64     T= 1 granularity comp mem=heap decoder=pad batch=1 degidx=False                 5.30  vs A   1.23x  vs B   1.29x
+orkut        pr32     T= 1 granularity comp mem=heap decoder=pad batch=256 degidx=False               4.42  vs A   1.21x  vs B   1.21x
+orkut        pr64     T= 1 granularity comp mem=heap decoder=pad batch=256 degidx=False               4.84  vs A   1.12x  vs B   1.18x
+orkut        pr32     T= 1 granularity comp mem=heap decoder=pad batch=1024 degidx=False              3.81  vs A   1.04x  vs B   1.04x
+orkut        pr64     T= 1 granularity comp mem=heap decoder=pad batch=1024 degidx=False              4.19  vs A   0.97x  vs B   1.02x
+orkut        pr32     T= 1 granularity comp mem=heap decoder=pad batch=65536 degidx=False             3.61  vs A   0.99x  vs B   0.99x
+orkut        pr64     T= 1 granularity comp mem=heap decoder=pad batch=65536 degidx=False             4.02  vs A   0.93x  vs B   0.98x
+orkut        tc       T= 1 granularity comp mem=heap decoder=pad batch=1 degidx=False                 33.2  vs A   1.00x  vs B   0.99x
+orkut        pr32     T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                0.367  vs A   1.00x  vs B   1.38x
+orkut        pr64     T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                0.408  vs A   0.97x  vs B   1.31x
+orkut        pr32     T=16 granularity comp mem=heap decoder=pad batch=256 degidx=False              0.322  vs A   0.88x  vs B   1.21x
+orkut        pr64     T=16 granularity comp mem=heap decoder=pad batch=256 degidx=False              0.367  vs A   0.87x  vs B   1.18x
+orkut        pr32     T=16 granularity comp mem=heap decoder=pad batch=1024 degidx=False             0.281  vs A   0.77x  vs B   1.06x
+orkut        pr64     T=16 granularity comp mem=heap decoder=pad batch=1024 degidx=False             0.324  vs A   0.77x  vs B   1.04x
+orkut        pr32     T=16 granularity comp mem=heap decoder=pad batch=65536 degidx=False            0.270  vs A   0.74x  vs B   1.02x
+orkut        pr64     T=16 granularity comp mem=heap decoder=pad batch=65536 degidx=False            0.324  vs A   0.77x  vs B   1.04x
+orkut        tc       T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                 2.38  vs A   1.00x  vs B   0.99x
+twitter-sym  pr32     T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                 15.5  vs A   1.01x  vs B   1.05x
+twitter-sym  pr64     T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                 18.8  vs A   0.98x  vs B   1.00x
+friendster   pr32     T=16 granularity comp mem=heap decoder=pad batch=1 degidx=False                 65.5  vs A   0.97x  vs B   1.03x
+twitter-sym  pr32     T=16 granularity comp mem=heap decoder=pad batch=65536 degidx=False             15.3  vs A   0.99x  vs B   1.03x
+twitter-sym  pr64     T=16 granularity comp mem=heap decoder=pad batch=65536 degidx=False             19.0  vs A   0.99x  vs B   1.01x
+friendster   pr32     T=16 granularity comp mem=heap decoder=pad batch=65536 degidx=False             66.4  vs A   0.99x  vs B   1.04x
+orkut        wcc      T= 1 block-index-only comp-block mem=heap decoder=pad batch=8192 degidx=False    0.149  vs A   1.87x  vs B   1.95x
+orkut        wcc      T=16 block-index-only comp-block mem=heap decoder=pad batch=8192 degidx=False   0.0196  vs A   1.63x  vs B   1.14x
+twitter-sym  wcc      T=16 block-index-only comp-block mem=heap decoder=pad batch=8192 degidx=False    0.311  vs A   1.49x  vs B   1.49x
+friendster   wcc      T=16 block-index-only comp-block mem=heap decoder=pad batch=8192 degidx=False    0.549  vs A   1.51x  vs B   1.10x
+orkut        bfs      T=16 block-index-only comp-block mem=heap decoder=pad batch=8192 degidx=False     2.24  vs A 117.80x  vs B  79.78x
+orkut        kcore    T=16 block-index-only comp-block mem=heap decoder=pad batch=8192 degidx=False     2.91  vs A   8.63x  vs B  13.36x
+orkut        pq bidir_bfs_path    block-index-only comp-block: p50 31751 us  p99 503245 us
+orkut        pq common_neighbors  block-index-only comp-block: p50 19.6 us  p99 43.0 us
+orkut        pq degree            block-index-only comp-block: p50 9.93 us  p99 26.6 us
+orkut        pq neighbors         block-index-only comp-block: p50 9.60 us  p99 25.2 us
+orkut        pq two_hop_size      block-index-only comp-block: p50 433 us  p99 3467 us
+lj           wcc      T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0602  vs A   1.02x  vs B   1.07x
+lj           bfs      T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.128  vs A   1.75x  vs B   0.94x
+lj           bfs-ds   T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.123  vs A   1.66x  vs B   0.97x
+lj           pr32     T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True              1.92  vs A   1.38x  vs B   0.99x
+lj           kcore    T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.566  vs A   1.00x  vs B   0.98x
+lj           wcc      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0098  vs A   0.92x  vs B   1.05x
+lj           bfs      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0163  vs A   1.07x  vs B   0.90x
+lj           bfs-ds   T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0153  vs A   1.04x  vs B   0.89x
+lj           pr32     T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.140  vs A   0.92x  vs B   0.97x
+lj           kcore    T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.111  vs A   1.00x  vs B   0.92x
+orkut        wcc      T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0693  vs A   0.87x  vs B   0.90x
+orkut        bfs      T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.150  vs A   1.56x  vs B   0.76x
+orkut        bfs-ds   T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.142  vs A   1.46x  vs B   0.87x
+orkut        pr32     T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True              3.63  vs A   0.99x  vs B   1.00x
+orkut        kcore    T= 1 degree-index comp mem=heap decoder=pad batch=8192 degidx=True              1.26  vs A   0.95x  vs B   0.99x
+orkut        wcc      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0174  vs A   1.45x  vs B   1.01x
+orkut        bfs      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0192  vs A   1.01x  vs B   0.68x
+orkut        bfs-ds   T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True            0.0176  vs A   0.94x  vs B   0.76x
+orkut        pr32     T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.260  vs A   0.71x  vs B   0.98x
+orkut        kcore    T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.286  vs A   0.85x  vs B   1.32x
+twitter-sym  wcc      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.212  vs A   1.01x  vs B   1.02x
+twitter-sym  bfs      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.185  vs A   0.99x  vs B   0.65x
+twitter-sym  bfs-ds   T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.167  vs A   0.92x  vs B   0.80x
+friendster   wcc      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.501  vs A   1.38x  vs B   1.01x
+friendster   bfs      T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.433  vs A   1.22x  vs B   0.85x
+friendster   bfs-ds   T=16 degree-index comp mem=heap decoder=pad batch=8192 degidx=True             0.417  vs A   1.19x  vs B   0.84x
+orkut        pq bidir_bfs_path    degree-index comp: p50 410 us  p99 10396 us
+orkut        pq degree            degree-index comp: p50 0.0300 us  p99 0.120 us
+orkut        pq neighbors         degree-index comp: p50 0.200 us  p99 0.571 us
+twitter-sym  pq bidir_bfs_path    degree-index comp: p50 3780 us  p99 299371 us
+twitter-sym  pq degree            degree-index comp: p50 0.0910 us  p99 0.371 us
+twitter-sym  pq neighbors         degree-index comp: p50 0.271 us  p99 0.692 us
+friendster   pq bidir_bfs_path    degree-index comp: p50 2473 us  p99 40856 us
+friendster   pq degree            degree-index comp: p50 0.121 us  p99 0.451 us
+friendster   pq neighbors         degree-index comp: p50 0.311 us  p99 0.771 us
+twitter-dir  pq bidir_bfs_path    degree-index comp: p50 577 us  p99 29883 us
+twitter-dir  pq degree            degree-index comp: p50 0.110 us  p99 0.440 us
+twitter-dir  pq neighbors         degree-index comp: p50 0.270 us  p99 0.621 us
+orkut        pr32     T=16 mem-mmap raw mem=mmap decoder=pad batch=- degidx=-                        0.369  vs A   1.01x  vs B   1.39x
+orkut        bfs      T=16 mem-mmap raw mem=mmap decoder=pad batch=- degidx=-                       0.0191  vs A   1.01x  vs B   0.68x
+orkut        kcore    T=16 mem-mmap raw mem=mmap decoder=pad batch=- degidx=-                        0.355  vs A   1.05x  vs B   1.63x
+orkut        pr32     T=16 mem-mmap comp mem=mmap decoder=pad batch=8192 degidx=False                0.275  vs A   0.75x  vs B   1.03x
+orkut        bfs      T=16 mem-mmap comp mem=mmap decoder=pad batch=8192 degidx=False               0.0256  vs A   1.35x  vs B   0.91x
+orkut        kcore    T=16 mem-mmap comp mem=mmap decoder=pad batch=8192 degidx=False                0.324  vs A   0.96x  vs B   1.49x
+twitter-sym  pr32     T=16 mem-mmap raw mem=mmap decoder=pad batch=- degidx=-                         15.3  vs A   0.99x  vs B   1.04x
+twitter-sym  bfs      T=16 mem-mmap raw mem=mmap decoder=pad batch=- degidx=-                        0.192  vs A   1.03x  vs B   0.68x
+twitter-sym  kcore    T=16 mem-mmap raw mem=mmap decoder=pad batch=- degidx=-                         5.30  vs A   1.01x  vs B   0.96x
+twitter-sym  pr32     T=16 mem-mmap comp mem=mmap decoder=pad batch=8192 degidx=False                 14.8  vs A   0.96x  vs B   1.00x
+twitter-sym  bfs      T=16 mem-mmap comp mem=mmap decoder=pad batch=8192 degidx=False                0.287  vs A   1.54x  vs B   1.01x
+twitter-sym  kcore    T=16 mem-mmap comp mem=mmap decoder=pad batch=8192 degidx=False                 5.41  vs A   1.03x  vs B   0.98x
+lj           tc-naive T=16 tc-naive raw mem=heap decoder=pad batch=- degidx=-                        0.620  vs A       -  vs B       -  triangles 177820130  sum deg^2 8.581e+09
+lj           tc-naive T=16 tc-naive comp mem=heap decoder=pad batch=8192 degidx=False                0.534  vs A       -  vs B       -  triangles 177820130  sum deg^2 8.581e+09
+orkut        tc-naive T=16 tc-naive raw mem=heap decoder=pad batch=- degidx=-                         5.14  vs A       -  vs B       -  triangles 627584181  sum deg^2 9.149e+10
+orkut        tc-naive T=16 tc-naive comp mem=heap decoder=pad batch=8192 degidx=False                 5.33  vs A       -  vs B       -  triangles 627584181  sum deg^2 9.149e+10
+twitter-sym  degsq    T=16 tc-naive raw mem=heap decoder=pad batch=- degidx=-                       0.0067  vs A       -  vs B       -  sum deg^2 2.469e+14
+friendster   degsq    T=16 tc-naive raw mem=heap decoder=pad batch=- degidx=-                       0.0102  vs A       -  vs B       -  sum deg^2 1.445e+12
+orkut        tc       T=32 smt raw mem=heap decoder=pad batch=- degidx=-                              1.44  vs A       -  vs B       -
+orkut        tc-comp  T=32 smt raw mem=heap decoder=pad batch=- degidx=-                              1.41  vs A       -  vs B       -
+orkut        tc       T=32 smt comp mem=heap decoder=pad batch=8192 degidx=False                      1.44  vs A       -  vs B       -
+orkut        tc-comp  T=32 smt comp mem=heap decoder=pad batch=8192 degidx=False                      1.41  vs A       -  vs B       -
+
+== 8. Under a hard memory limit (16 threads, files evicted first, mmap without pre-fault)
+twitter-sym  MemoryMax=8G    raw      pr32      7.22 s  (reps [7.82, 7.22], iters 5)  anon 0.00 GiB peak RSS 7.96 GiB
+twitter-sym  MemoryMax=8G    raw      wcc      0.275 s  (reps [1.07, 0.27], iters -)  anon 0.00 GiB peak RSS 7.96 GiB
+twitter-sym  MemoryMax=8G    raw      bfs      0.193 s  (reps [0.23, 0.19], iters -)  anon 0.03 GiB peak RSS 7.96 GiB
+twitter-sym  MemoryMax=8G   raw      pr32,wcc,bfs   exit code 0
+twitter-sym  MemoryMax=8G    comp     pr32      3.84 s  (reps [4.49, 3.84], iters 5)  anon 0.28 GiB peak RSS 5.21 GiB
+twitter-sym  MemoryMax=8G    comp     wcc      0.210 s  (reps [0.21, 0.21], iters -)  anon 0.28 GiB peak RSS 5.21 GiB
+twitter-sym  MemoryMax=8G    comp     bfs      0.287 s  (reps [0.29, 0.29], iters -)  anon 0.20 GiB peak RSS 5.21 GiB
+twitter-sym  MemoryMax=8G   comp     pr32,wcc,bfs   exit code 0
+twitter-sym  MemoryMax=8G   decoded  pr32           exit code 137
+friendster   MemoryMax=12G   raw      pr32      19.4 s  (reps [19.63, 19.39], iters 5)  anon 0.00 GiB peak RSS 11.95 GiB
+friendster   MemoryMax=12G   raw      wcc       2.63 s  (reps [2.96, 2.63], iters -)  anon 0.00 GiB peak RSS 11.95 GiB
+friendster   MemoryMax=12G   raw      bfs       4.59 s  (reps [4.59, 4.9], iters -)  anon 0.03 GiB peak RSS 11.95 GiB
+friendster   MemoryMax=12G  raw      pr32,wcc,bfs   exit code 0
+friendster   MemoryMax=12G   comp     pr32      16.3 s  (reps [17.74, 16.29], iters 5)  anon 0.08 GiB peak RSS 10.49 GiB
+friendster   MemoryMax=12G   comp     wcc      0.491 s  (reps [0.49, 0.49], iters -)  anon 0.08 GiB peak RSS 10.49 GiB
+friendster   MemoryMax=12G   comp     bfs      0.519 s  (reps [0.53, 0.52], iters -)  anon 0.12 GiB peak RSS 10.49 GiB
+friendster   MemoryMax=12G  comp     pr32,wcc,bfs   exit code 0
+friendster   MemoryMax=12G  decoded  pr32           exit code 137
+friendster   MemoryMax=2G    comp     pr32      21.6 s  (reps [21.56], iters 5)  anon 0.08 GiB peak RSS 1.99 GiB
+friendster   MemoryMax=2G   comp     pr32           exit code 0
+friendster   MemoryMax=2G    raw      pr32      22.1 s  (reps [22.11], iters 5)  anon 0.00 GiB peak RSS 1.99 GiB
+friendster   MemoryMax=2G   raw      pr32           exit code 0
+
+== 9. perf stat, user space, whole process including graph load (billions of events; counters were multiplexed and scaled by perf)
+   cache-miss = perf's generic cache-misses event; perf reports L1d-miss and dTLB-miss without the :u suffix
+label                               cycles     instr   IPC   br-miss  L1d-miss cache-miss dTLB-miss  kernel s (best x reps)
+lj_leiden_1t_comp                    71.13     77.07  1.08     0.779     2.098      1.047    0.0070  6.45 x2
+lj_leiden_1t_raw                     65.71     63.98  0.97     0.714     2.034      1.033    0.0079  5.91 x2
+orkut_bfs_1t_comp                    43.55     76.01  1.75     0.385     2.126      0.351    0.0014  0.194 x40
+orkut_bfs_1t_comp_degindex           33.30     76.30  2.29     0.353     1.908      0.265    0.0004  0.148 x40
+orkut_bfs_1t_raw                     21.51     38.76  1.80     0.173     1.825      0.278    0.0004  0.0952 x40
+orkut_kcore_1t_comp                  35.40     30.68  0.87     0.440     1.419      0.738    0.0027  1.28 x5
+orkut_kcore_1t_raw                   36.73     23.31  0.63     0.438     1.370      0.731    0.0021  1.32 x5
+orkut_pr32_16t_comp                 211.64    417.16  1.97     2.902    46.247     22.402    0.0011  0.265 x10
+orkut_pr32_16t_comp_listbylist      304.50    390.78  1.28     1.836    41.973     22.591    0.0010  0.366 x10
+orkut_pr32_16t_raw                  309.31    151.02  0.49     1.638    40.958     23.244    0.0009  0.369 x10
+orkut_pr32_1t_comp                   60.29    125.14  2.08     0.868    13.816      6.687    0.0001  3.63 x3
+orkut_pr32_1t_comp_labdecoder        76.30    170.09  2.23     1.045    13.834      6.702    0.0001  4.60 x3
+orkut_pr32_1t_comp_listbylist        83.45    117.02  1.40     0.550    12.611      6.732    0.0001  4.91 x3
+orkut_pr32_1t_raw                    63.09     45.10  0.71     0.491    12.278      6.936    0.0001  3.71 x3
+orkut_tc_1t_fwdcomp                 190.83    297.54  1.56     0.555     1.432      0.713    0.0003  33.8 x1
+orkut_tc_1t_fwdraw                  186.84    234.07  1.25     0.229     1.573      0.701    0.0000  33.0 x1
+orkut_wcc_1t_comp                    17.73     30.94  1.74     0.051     0.696      0.097    0.0001  0.0764 x40
+orkut_wcc_1t_raw                     18.70     11.10  0.59     0.004     0.496      0.217    0.0000  0.0796 x40
+twitter_bfs_16t_comp                312.10    389.20  1.25     2.486     7.637      3.440    0.0017  0.282 x20
+twitter_bfs_16t_raw                 268.24    166.74  0.62     1.249     6.790      3.740    0.0016  0.186 x20
+twitter_pr32_16t_comp              2511.33    920.97  0.37     5.919    82.189     46.524    0.0072  14.8 x2
+twitter_pr32_16t_raw               2619.81    332.98  0.13     3.337    71.548     48.662    0.0013  15.4 x2
+
+== 10. The lab prototypes re-run unchanged (for comparison with docs/FINDINGS.md 'Idle-machine re-runs')
+b1-core  orkut       pr32   T= 1 load=Heap      3.75 s   this harness, A: 3.66
+b1-core  orkut       pr64   T= 1 load=Heap      4.33 s   this harness, A: 4.32
+b1-core  orkut       wcc    T= 1 load=Heap    0.0808 s   this harness, A: 0.0800
+b1-core  orkut       bfs    T= 1 load=Heap    0.0965 s   this harness, A: 0.0959
+b1-core  orkut       kcore  T= 1 load=Heap      1.32 s   this harness, A: 1.33
+b1-core  orkut       pr32   T=16 load=Heap     0.370 s   this harness, A: 0.366
+b1-core  orkut       pr64   T=16 load=Heap     0.430 s   this harness, A: 0.421
+b1-core  orkut       wcc    T=16 load=Heap    0.0126 s   this harness, A: 0.0120
+b1-core  orkut       bfs    T=16 load=Heap    0.0193 s   this harness, A: 0.0190
+b1-core  orkut       kcore  T=16 load=Heap     0.361 s   this harness, A: 0.337
+b1-core  orkut       kcore  T= 8 load=Heap     0.283 s   this harness, A: -
+b1-core  orkut       tc     T= 4 load=Heap      8.87 s   this harness, A: -
+b1-core  orkut       tc     T=16 load=Heap      2.41 s   this harness, A: 2.39
+b1-core  orkut       tc     T=32 load=Heap      1.45 s   this harness, A: -
+b1-core  orkut       pr32   T=32 load=Heap     0.386 s   this harness, A: -
+b1-core  friendster  wcc    T=32 load=Mmap     0.352 s   this harness, A: -
+b1-core  friendster  bfs    T=32 load=Mmap     0.342 s   this harness, A: -
+b1-core  friendster  pr32   T=32 load=Mmap      68.1 s (3.41 s/iter)   this harness, A: -
+b2-leiden lj         async T= 1     6.09 s  Q 0.7495   this harness, A mmap: 6.01  A heap: 5.97
+b2-leiden lj         det   T= 1     9.50 s  Q 0.7480   this harness, A mmap: 9.48  A heap: 9.47
+b2-leiden lj         async T=16    0.767 s  Q 0.7496   this harness, A mmap: 0.751  A heap: 0.764
+b2-leiden lj         det   T=16     2.24 s  Q 0.7480   this harness, A mmap: 2.25  A heap: 2.31
+b2-leiden orkut      async T= 1     14.5 s  Q 0.6836   this harness, A mmap: 14.4  A heap: 14.3
+b2-leiden orkut      det   T= 1     16.1 s  Q 0.6760   this harness, A mmap: 16.2  A heap: 15.6
+b2-leiden orkut      async T=16     1.40 s  Q 0.6781   this harness, A mmap: 1.41  A heap: 1.41
+b2-leiden orkut      det   T=16     3.46 s  Q 0.6760   this harness, A mmap: 3.44  A heap: 3.48
+f1-query friendster  bidir_bfs_path    p50 2142 / p95 18848 / p99 44329 us (n=1000)   this harness, A mmap p50: 1652
+f1-query friendster  common_neighbors  p50 0.641 / p95 1.97 / p99 3.57 us (n=100000)   this harness, A mmap p50: 0.611
+f1-query friendster  degree            p50 0.110 / p95 0.270 / p99 0.391 us (n=100000)   this harness, A mmap p50: 0.110
+f1-query friendster  khop3_budget10k   p50 42.8 / p95 72.6 / p99 114 us (n=3000)   this harness, A mmap p50: 39.1
+f1-query friendster  neighbors         p50 0.301 / p95 0.561 / p99 0.621 us (n=100000)   this harness, A mmap p50: 0.241
+f1-query friendster  two_hop_size      p50 14.6 / p95 407 / p99 1295 us (n=3000)   this harness, A mmap p50: 15.6
+f1-query lj          bidir_bfs_path    p50 152 / p95 1069 / p99 3054 us (n=1000)   this harness, A mmap p50: 139
+f1-query lj          common_neighbors  p50 0.271 / p95 0.741 / p99 1.42 us (n=100000)   this harness, A mmap p50: 0.241
+f1-query lj          degree            p50 0.100 / p95 0.171 / p99 0.361 us (n=100000)   this harness, A mmap p50: 0.0200
+f1-query lj          khop3_budget10k   p50 40.6 / p95 84.6 / p99 107 us (n=3000)   this harness, A mmap p50: 38.8
+f1-query lj          neighbors         p50 0.140 / p95 0.351 / p99 0.471 us (n=100000)   this harness, A mmap p50: 0.0500
+f1-query lj          two_hop_size      p50 2.10 / p95 32.7 / p99 132 us (n=3000)   this harness, A mmap p50: 1.98
+f1-query orkut       bidir_bfs_path    p50 403 / p95 5839 / p99 13840 us (n=1000)   this harness, A mmap p50: 355
+f1-query orkut       common_neighbors  p50 0.541 / p95 1.48 / p99 5.21 us (n=100000)   this harness, A mmap p50: 0.521
+f1-query orkut       degree            p50 0.100 / p95 0.160 / p99 0.361 us (n=100000)   this harness, A mmap p50: 0.0200
+f1-query orkut       khop3_budget10k   p50 53.1 / p95 88.1 / p99 105 us (n=3000)   this harness, A mmap p50: 50.0
+f1-query orkut       neighbors         p50 0.210 / p95 0.421 / p99 0.511 us (n=100000)   this harness, A mmap p50: 0.150
+f1-query orkut       two_hop_size      p50 37.4 / p95 368 / p99 1011 us (n=3000)   this harness, A mmap p50: 34.9
+f1-query twitter-dir bidir_bfs_path    p50 534 / p95 14646 / p99 27258 us (n=1000)   this harness, A mmap p50: 443
+f1-query twitter-dir common_neighbors  p50 0.480 / p95 5.21 / p99 31.2 us (n=100000)   this harness, A mmap p50: 0.481
+f1-query twitter-dir degree            p50 0.110 / p95 0.231 / p99 0.381 us (n=100000)   this harness, A mmap p50: 0.110
+f1-query twitter-dir khop3_budget10k   p50 39.8 / p95 63.6 / p99 84.0 us (n=3000)   this harness, A mmap p50: 38.3
+f1-query twitter-dir neighbors         p50 0.221 / p95 0.481 / p99 0.581 us (n=100000)   this harness, A mmap p50: 0.150
+f1-query twitter-dir two_hop_size      p50 6.06 / p95 4616 / p99 9174 us (n=3000)   this harness, A mmap p50: 5.81

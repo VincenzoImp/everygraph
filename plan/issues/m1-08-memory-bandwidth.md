@@ -10,7 +10,7 @@ labels: type:experiment, area:engine, P1, risk:medium, size:M, lab-evidence
 - [ ] Confirm with hardware counters (`perf stat`: LLC misses, memory bandwidth) at 4, 8, 16 threads
 - [ ] Propagation blocking / cache-blocked pull PageRank (bin contributions by destination range)
 - [ ] Node orderings on Friendster and twitter: original, degree-sorted, hub-clustered, BFS, Leiden-hierarchy order ({{#m1-09-hierarchy-order}})
-- [ ] f32 vs f64 state; compressed vs raw source (compressed scans beat raw at 32 threads on twitter)
+- [ ] f32 vs f64 state; compressed vs raw source (#118: at 16 threads compressed scans beat raw on all four graphs (14.9–27.5 vs 12.4–13.7 G entries/s); orkut PageRank IPC 0.49 raw vs 1.97 compressed; Friendster PageRank 3.19 vs 3.36 s/iteration)
 - [ ] Same questions for the Leiden local-moving phase
 
 **Success.** ≥ 1.5× on Friendster PageRank at 16 threads, or a documented explanation of why not.

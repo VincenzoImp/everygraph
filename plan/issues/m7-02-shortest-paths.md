@@ -3,16 +3,16 @@ title: Shortest paths between nodes
 milestone: M7 · Queries and views
 labels: type:feature, area:query, P0, risk:medium, size:M, lab-evidence
 ---
-**Why.** "How are these two connected?" is the investigator's core question and the weakest point of embedded engines today (0.3–4.8 s on lj; Neo4j 6.4 ms). The lab's bidirectional BFS answers in 0.3–1.5 ms in RAM.
+**Why.** "How are these two connected?" is the investigator's core question and the weakest point of embedded engines today (0.3–4.8 s on lj; Neo4j 6.4 ms). The lab's bidirectional BFS answers in 0.13–0.47 ms p50 in RAM on raw arrays and 0.16–0.56 ms on the default storage (#118, idle, single thread, lj and twitter-2010 directed).
 
-**Caveat.** The 0.3–1.5 ms figure is an in-process kernel on uncompressed arrays; the Neo4j and embedded-engine figures were measured through their query interfaces. Report both levels (kernel and end-to-end API call) in our own benchmarks.
+**Caveat.** The first lab's 0.3–1.5 ms came from a shared machine; idle (#118) 0.13–0.47 ms raw, 0.16–0.56 ms default storage, lj and twitter-2010, p50. These are in-process kernels; the Neo4j and embedded-engine figures were measured through their query interfaces. Report both levels (kernel and end-to-end API call) in our own benchmarks.
 
 **Scope**
 - [ ] Bidirectional BFS for unweighted paths; on directed graphs the target side expands in-edges ({{#m2-11-in-adjacency}})
 - [ ] Weighted: bidirectional Dijkstra on a per-entry weight column
 - [ ] Results: one shortest path, all shortest paths (bounded), k shortest (stretch); path as node ids with edge properties
 - [ ] Constraints: maximum hops, node/edge filters (a view), avoid-set; these are what make paths useful in investigations (e.g. "not through the exchange hub")
-- [ ] Budgets and timeouts — tails reach 113 ms p99 on twitter-2010 because of hubs
+- [ ] Budgets and timeouts — tails reach 113 ms p99 on twitter-2010 because of hubs (shared machine; idle, #118: 32.3 ms raw, 27.3 ms default storage, graph in heap)
 - [ ] Batch pairs API
 
 **Acceptance**

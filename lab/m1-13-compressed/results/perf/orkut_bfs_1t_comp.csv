@@ -1,0 +1,8 @@
+# started on Wed Nov 25 06:30:44 2026
+
+43554992136,,cycles:u,6614661677,83.00,,
+76008583285,,instructions:u,6606731502,83.00,1.75,insn per cycle
+384715075,,branch-misses:u,6608941890,83.00,,
+2126450337,,L1-dcache-load-misses,6597851268,83.00,,
+351236699,,cache-misses:u,6604739186,83.00,,
+1358662,,dTLB-load-misses,6601734522,83.00,,

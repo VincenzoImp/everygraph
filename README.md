@@ -28,21 +28,24 @@ machine.
 ## What the feasibility lab measured
 
 One workstation (Ryzen 9 7950X, 61 GB RAM, NVMe). Rows marked † were measured while other
-experiments shared the machine and are noisy; the rest are idle-machine runs. These are
-research prototypes working on uncompressed arrays, from plain text, without `fsync`.
-Details, methods and caveats are in [docs/FINDINGS.md](docs/FINDINGS.md).
+experiments shared the machine and are noisy; the rest are idle-machine runs. Unless a row
+is marked ‡, it was measured on the default storage — compressed adjacency, graph in RAM —
+with the same kernel on uncompressed arrays given next to it where the two differ; rows
+marked ‡ were measured on uncompressed arrays only and not re-measured. These are research
+prototypes, reading plain text, without `fsync`. Details, methods and caveats are in
+[docs/FINDINGS.md](docs/FINDINGS.md) (the default storage: § M1-13).
 
 | Question | Result |
 |---|---|
-| Text edge list → graph | 35 M edges in 0.42 s; 117 M in 0.89 s; 1.8 B in 21 s (52 s with an 8 GB budget) |
-| PageRank on 1.8 B edges | 3.4 s/iteration in RAM; 3.6 s/iteration under a 2 GB memory limit (f32, 32 threads). Cheap single-pass kernels do not get this: components take 0.34 s in RAM and 3.6 s out of core, bounded by reading the file |
-| Kernels vs NetworKit (117 M edges) | PageRank (f64, 20 iterations) 0.43 s vs 2.79 s; components 13 ms vs 247 ms; k-core 0.28 s vs 1.23 s |
-| Communities (Leiden, 35 M edges) | 0.76 s at modularity 0.750 (GVE-Leiden: 1.02 s at 0.722); 2.0 s at 0.765 with three iterations (NetworKit: 6.0 s at 0.769) |
-| Determinism | identical partition at 1–32 threads (layout and map file: † shared machine); costs 2.4–3.0× for Leiden at 16 threads |
-| Storage † | 16–17 bits/edge on social graphs (raw: 33); at 32 threads scans faster than raw arrays on twitter-2010, slower on Orkut |
-| Shortest path between two nodes † | 0.3 ms median on LiveJournal, in-process (Neo4j 6.4 ms and embedded engines 0.3–4.8 s on the same graph, measured through their query interfaces); 1.5 ms on twitter-2010 |
-| Map of a 4 M-node graph † | layout 3.3 s, tiles 8.5 s; first view 152 KB; search in 2 requests |
-| Same core in the browser † | 35 M edges end to end in ~3 s in Chromium |
+| Text edge list → graph ‡ | 35 M edges in 0.42 s; 117 M in 0.89 s; 1.8 B in 21 s (52 s with an 8 GB budget), to uncompressed arrays, 32 threads. Encoding them to the default storage took a further 0.06 s, 0.17 s and 3.4 s at 16 threads, measured separately from ingest |
+| PageRank on 1.8 B edges | 3.2 s/iteration in RAM on the default storage (uncompressed: 3.4), f32, 16 threads. Under a 2 GB memory limit: 3.6 s/iteration with the uncompressed-format streaming reader (32 threads) ‡; the default storage has no streaming reader yet and takes 4.3 s/iteration through plain mmap (16 threads). Cheap single-pass kernels do not get this: components take 0.50 s in RAM on the default storage (uncompressed: 0.36, 16 threads) and 3.6 s out of core ‡, bounded by reading the file |
+| Kernels vs NetworKit (117 M edges) | lab at 16 threads, NetworKit at 32: PageRank (f64, 20 iterations) 0.31 s (uncompressed: 0.42 s) vs 2.79 s; components 17 ms (uncompressed: 12 ms) vs 247 ms; k-core 0.22–0.36 s in either storage (run-to-run spread) vs 1.23 s |
+| Communities (Leiden, 35 M edges) | one iteration, 16 threads: 0.79 s at modularity 0.749 on the default storage (uncompressed: 0.76 s at 0.750); GVE-Leiden, 32 threads: 1.02 s at 0.722. Three iterations: 2.0 s at 0.765 ‡ (NetworKit: 6.0 s at 0.769) |
+| Determinism | identical partition at 1–32 threads ‡ and on uncompressed and compressed storage (layout and map file: † shared machine); costs 2.4–3.0× for Leiden at 16 threads ‡ |
+| Storage | 16.1–18.1 bits/edge on LiveJournal, Orkut and twitter-2010, 23.2 on Friendster (uncompressed: 32.8–35.7); at 16 threads scans run faster than uncompressed arrays on all four (14.9–27.5 vs 12.4–13.7 G entries/s), at 1 thread 2.2–2.5× slower |
+| Shortest path between two nodes | in-process, single thread, median: 0.16–0.17 ms on LiveJournal on the default storage (uncompressed: 0.13–0.14 ms); 0.56–0.59 ms on twitter-2010 (uncompressed: 0.44–0.47 ms). Neo4j 6.4 ms and embedded engines 0.3–4.8 s on LiveJournal, measured through their query interfaces at 3 threads † |
+| Map of a 4 M-node graph † ‡ | layout 3.3 s, tiles 8.5 s; first view 152 KB; search in 2 requests |
+| Same core in the browser † ‡ | 35 M edges end to end in ~3 s in Chromium |
 
 ## What is not solved yet
 
@@ -68,7 +71,7 @@ the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBU
 
 ## Where to look
 
-- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 23 decisions with their evidence
+- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 25 decisions with their evidence (one ADR each under `docs/adr/`)
 - [docs/FINDINGS.md](docs/FINDINGS.md) — what the lab measured, including negative results
 - [docs/ROADMAP.md](docs/ROADMAP.md) — milestones and their exit criteria
 - [plan/](plan/) — every issue as a file, and the script that publishes them
