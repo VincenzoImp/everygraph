@@ -16,11 +16,15 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-- **#119 design previews** — branch `m0-13-design-previews`, draft PR #120. Viewer mockup,
-  identity rounds 1 and 2, API, CLI and choices are published at `design/preview/`.
-  Waiting for the owner's answers; decided so far: identity = B's system with A's mark
-  (`design/DECISIONS.md`). After the answers: align names in the mockups with `api.md`,
-  record decisions, merge. The 38 MB of screenshots can be pruned once decisions are made.
+- **#119 design previews** — branch `m0-13-design-previews`, draft PR #120. Published at
+  `design/preview/`: viewer mockup, identity rounds 1 and 2, API, CLI, choices, and the
+  detailed guide of the chosen style (`design/preview/style/`, entry `README.md` on GitHub
+  or `index.html` locally). Owner decided: identity = B's system with A's mark. Claude chose
+  the "Vernier" system and the spelling of the name (both provisional in
+  `design/DECISIONS.md`). **Waiting for the owner's reaction to the detailed style and to
+  the choice lists.** Afterwards: record answers, align names in the older mockups with
+  `api.md`, prune superseded screenshots (`design/preview/screens` is ~77 MB), merge.
+  The Playwright helper scripts live in `$EVERYGRAPH_SCRATCH/pw` (`shot.mjs`, `sections.mjs`).
 
 ## Next actions
 
@@ -49,6 +53,11 @@ Updated at the end of every session. Read this first.
 
 ## Lessons (append, never delete)
 
+- 2026-11-25 — A colour palette chosen by eye failed measurement (two pairs invisible to
+  colour-blind readers, one colour equal to the accent). Measure palettes and contrast.
+- 2026-11-25 — Text that looked fine in Markdown broke when typeset (lines over 80 columns,
+  one word with two meanings). Typeset user-facing text before calling it done.
+
 - 2026-11-24 — Timings taken while eight experiments shared the machine were off by up to
   2–3× in comparisons (GVE) and hid real effects (SMT). Idle machine only.
 - 2026-11-24 — A baseline labelled "triangles" was NetworKit's local clustering
@@ -66,6 +75,8 @@ Updated at the end of every session. Read this first.
 
 ## Journal
 
+- **2026-11-25** — Detailed style guide built (nine pages, three subagents). Measurements
+  overturned Claude's hand-picked data palette and five contrast values; tokens corrected.
 - **2026-11-24 (later)** — Owner delegated every decision and asked for previews of all
   matters of taste. Added #119; produced the previews with three subagents.
 - **2026-11-24** — Project conceived as a rethink of `largegraph`. Feasibility lab (8

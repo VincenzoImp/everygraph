@@ -16,7 +16,8 @@ a:hover { text-decoration-thickness: 2px; }
 hr { border: 0; border-top: var(--border) solid var(--line); margin: var(--space-6) 0; }
 
 /* numbers are always monospace and tabular */
-.num, td.num, th.num, code, kbd, pre, samp { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.num, td.num, code, kbd, pre, samp { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+th.num { font-family: var(--font-sans); }   /* header words stay in the text face; only the figures are mono */
 .num { font-size: 0.95em; }
 .muted { color: var(--muted); } .ink2 { color: var(--ink-2); }
 .small { font-size: var(--text-sm); line-height: var(--lh-sm); } .xs { font-size: var(--text-xs); line-height: var(--lh-xs); }
@@ -65,7 +66,7 @@ hr { border: 0; border-top: var(--border) solid var(--line); margin: var(--space
 .btn.danger { border-color: var(--err); color: var(--err); }
 .btn.sm { height: var(--control-sm); padding: 0 var(--space-2); font-size: var(--text-sm); } .btn.lg { height: var(--control-lg); padding: 0 var(--space-4); font-size: var(--text-lg); }
 .btn[disabled], .btn.is-disabled { opacity: 0.45; cursor: not-allowed; }
-.btn.is-hover { background: var(--surface-2); } .btn.primary.is-hover { filter: brightness(0.92); }
+.btn.is-hover { background: var(--surface-2); } .btn.primary.is-hover { background: var(--accent); filter: brightness(0.92); }
 .btn.is-focus, .input.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .input, .select { height: var(--control-md); padding: 0 var(--space-3); font: var(--text-md)/1 var(--font-sans); color: var(--ink); background: var(--surface);
@@ -91,7 +92,7 @@ table.t tr:hover td { background: var(--surface-2); } table.t tr.is-selected td 
 code { font-size: 0.92em; padding: 1px 4px; border-radius: var(--radius-xs); background: var(--surface-2); }
 pre { font-size: var(--text-sm); line-height: 20px; padding: var(--space-4); background: var(--surface-2); border-radius: var(--radius-md); overflow-x: auto; }
 pre code { padding: 0; background: none; font-size: inherit; }
-.tok-k { color: var(--accent-ink); } .tok-s { color: var(--ok); } .tok-c { color: var(--muted); font-style: italic; } .tok-n { color: var(--warn); }
+.tok-k { color: var(--syn-keyword); } .tok-s { color: var(--syn-string); } .tok-c { color: var(--syn-comment); font-style: italic; } .tok-n { color: var(--syn-number); }
 
 .callout { display: grid; grid-template-columns: auto 1fr; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md);
   background: var(--info-soft); border: var(--border) solid transparent; }

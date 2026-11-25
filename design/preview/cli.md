@@ -22,14 +22,14 @@ transfers.parquet · 38.2 GB · 1,830,402,118 rows
   columns   value → weight · block_time → time · ignored: gas, nonce, input
 
   machine   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
-  budget    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  budget    8.0 GB memory (from --memory or the default; see Choice 4)
   plan      build on disk — the graph is 4.6× the memory budget
   estimate  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
 
-  reading       ████████████████████  1,830,402,118 rows      1 min 41 s
-  identifiers   ████████████████████  212,418,907 addresses        38 s
-  building      ████████████████████  2,048 parts                  59 s
-  checking      ████████████████████  sorted · symmetric counts    12 s
+  reading       ████████████████  1,830,402,118 rows          1 min 41 s
+  identifiers   ████████████████  212,418,907 addresses            38 s
+  building      ████████████████  2,048 parts                      59 s
+  checking      ████████████████  sorted · symmetric counts        12 s
 
 ✓ transfers.eg · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 3 min 30 s
   next: everygraph map transfers.eg
@@ -37,10 +37,10 @@ transfers.parquet · 38.2 GB · 1,830,402,118 rows
 
 ```console
 $ everygraph map transfers.eg
-  communities   ████████████████████  31,960 groups · modularity 0.603   2 min 11 s
-  hierarchy     ████████████████████  6 zoom levels                         18 s
-  layout        ████████████████████                                         41 s
-  tiles         ████████████████████  1,204,118 tiles                    1 min 02 s
+  communities   ████████████████  31,960 communities · modularity 0.603  2 min 11 s
+  hierarchy     ████████████████  6 zoom levels                              18 s
+  layout        ████████████████                                             41 s
+  tiles         ████████████████  1,204,118 tiles                         1 min 2 s
 
 ✓ transfers.egmap · 4.1 GB
   open it:   everygraph open transfers.eg
@@ -80,8 +80,10 @@ $ everygraph run communities transfers.eg --memory 4GB
   The budget is 4.0 GB. The edges stay on disk either way.
 
   Ways forward:
-    --memory 6GB            the smallest budget that works
-    --precision low         needs 3.4 GB; slightly lower quality
+    everygraph run communities transfers.eg --memory 6GB
+        the smallest budget that works
+    everygraph run communities transfers.eg --precision low
+        needs 3.4 GB; slightly lower quality
 
 Nothing was changed.
 ```
@@ -97,9 +99,10 @@ node                                         pagerank    rank
 0x21a31ee1afc51d94c2efccaa2092ad1028285549   0.00214466     4
 0x7a250d5630b4cf539739df2c5dacb4c659f2488d   0.00198203     5
 
-full result: transfers.eg (cached) · export with --out pagerank.parquet
+the full table is stored in transfers.eg · write it out with --out pagerank.parquet
 
-$ everygraph query path transfers.eg 0x4f3a…91bc 0x9e12…07aa --max-hops 5
+$ everygraph query path transfers.eg 0x4f3a8c…91bc 0x9e12d0…07aa --max-hops 5
+# (addresses shortened here; the command takes them in full)
 4 hops · 1.3 ms
 0x4f3a…91bc → 0x77e0…c1d4 → 0xb81c…5520 → 0x02fd…a9e3 → 0x9e12…07aa
 ```
@@ -128,7 +131,7 @@ transfers.eg · 9.3 GB · created 2026-11-24 from transfers.parquet
 
   computed so far
     degrees                           at ingest
-    communities (Leiden, repeatable)  31,960 groups · 2 min 11 s · 2026-11-24
+    communities (Leiden, repeatable)  31,960 communities · 2 min 11 s · 2026-11-24
     pagerank                          41 s · 2026-11-24
     map                               transfers.egmap · 4.1 GB
 

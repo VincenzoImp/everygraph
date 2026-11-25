@@ -65,18 +65,18 @@
   --surface-2: #ece8dd;     /* wells, table header, code */
   --ink: #22201c;           /* primary text */
   --ink-2: #504b43;         /* secondary text */
-  --muted: #736c60;         /* captions, placeholders — still ≥ 4.5:1 on --bg */
+  --muted: #6e675c;         /* captions, placeholders — ≥ 4.5:1 on --bg, --surface-2 and --accent-soft */
   --line: #dcd6c9;          /* hairlines */
-  --line-strong: #b0a898;   /* control borders */
+  --line-strong: #938c7f;   /* control borders — ≥ 3:1 against --surface and --bg */
 
   --accent: #3346c7;        /* the one accent: ink blue */
   --accent-ink: #2c3db3;    /* accent used as text/link */
   --accent-soft: #e4e6f7;   /* selected rows, focus halo fill */
   --on-accent: #ffffff;
 
-  --ok: #2a7a4b;    --ok-soft: #dfeee3;
-  --warn: #9a5b00;  --warn-soft: #f5e8cf;
-  --err: #c0362c;   --err-soft: #f7ddd8;
+  --ok: #297649;    --ok-soft: #dfeee3;
+  --warn: #985a00;  --warn-soft: #f5e8cf;
+  --err: #ba342b;   --err-soft: #f7ddd8;
   --info: #0b7285;  --info-soft: #d9ecef;
 
   --focus: #3346c7;
@@ -85,16 +85,23 @@
 
   /* terminal and map keep their own surfaces in the light theme */
   --term-bg: #22201c; --term-ink: #ece8dd; --term-dim: #9a9386;
-  --term-ok: #7cc79a; --term-warn: #e0ad55; --term-err: #f08273; --term-accent: #9aa8ff;
+  --term-ok: #74c595; --term-warn: #e0ad55; --term-err: #f08273; --term-accent: #93a0ff;
   --map-bg: #f1ede4;        /* light map canvas */
   --map-ink: #22201c;
 
-  /* categorical data palette, light surfaces (fills carry a label; see data page) */
-  --d1: #3346c7; --d2: #c2571a; --d3: #1f8a70; --d4: #a23b72; --d5: #7a6a00;
-  --d6: #5f43b2; --d7: #b8323c; --d8: #2f7fb8; --d9: #4d7a1f; --d10: #6b6258;
-  /* sequential (light → dark) and diverging */
-  --s1: #eef0fb; --s2: #cfd4f3; --s3: #a9b1ea; --s4: #7f8ade; --s5: #5665d2; --s6: #3346c7; --s7: #24328f;
-  --v1: #b8323c; --v2: #dc8a7f; --v3: #f1d3cb; --v4: #ece8dd; --v5: #c7cdf0; --v6: #7f8ade; --v7: #3346c7;
+  /* categorical data palette — measured (see data.html): worst pair ΔE 15.1 normal vision,
+     7.3 protan/deutan over all ten; d1–d5 (the region set) 16.0 / 14.0 / 11.6. All ten only
+     with labels; no data colour equals the accent or a status colour. */
+  --d1: #7861cb; --d2: #604100; --d3: #739400; --d4: #522e95; --d5: #c36f8b;
+  --d6: #0091bc; --d7: #007122; --d8: #005369; --d9: #8e1953; --d10: #766d5f;
+  /* sequential (even lightness steps) and diverging (symmetric arms, rust ↔ blue) */
+  --s1: #dde4f9; --s2: #b9c6ef; --s3: #97a8e4; --s4: #768ad8; --s5: #576bcb; --s6: #3d4cb8; --s7: #2a3590;
+  --v1: #8c3700; --v2: #c16d45; --v3: #e2ad96; --v4: #e8e4dc; --v5: #a7bae9; --v6: #6782ce; --v7: #324ca7;
+
+  /* syntax colours: their own hues, so code never borrows the accent or a status colour */
+  --syn-keyword: #5a3ea8; --syn-string: #1f6f5c; --syn-number: #8a4a12; --syn-comment: var(--muted);
+  /* figures for print: no chrome colours at all */
+  --print-paper: #ffffff; --print-ink: #000000;
 }
 
 /* ================= dark ================= */
@@ -105,9 +112,9 @@
   --surface-2: #2e2c28;
   --ink: #ece8dd;
   --ink-2: #bdb7aa;
-  --muted: #958e81;
+  --muted: #9c968a;
   --line: #3b3833;
-  --line-strong: #6b665c;
+  --line-strong: #79756b;
 
   --accent: #93a0ff;
   --accent-ink: #a4afff;
@@ -128,9 +135,13 @@
   --map-bg: #131210;        /* dark map canvas: the viewer's default */
   --map-ink: #ece8dd;
 
-  /* categorical data palette, dark surfaces (thin outlines and small marks) */
-  --d1: #93a0ff; --d2: #f0975a; --d3: #4fc9a8; --d4: #e07db0; --d5: #d6c545;
-  --d6: #b79bff; --d7: #f47a80; --d8: #6cbcf0; --d9: #9fd166; --d10: #b3aa9c;
-  --s1: #23243a; --s2: #2f3260; --s3: #414690; --s4: #5a63bd; --s5: #7884e3; --s6: #93a0ff; --s7: #c5ccff;
-  --v1: #f47a80; --v2: #b5606a; --v3: #5a3a3f; --v4: #2e2c28; --v5: #3b3f6e; --v6: #6b76cf; --v7: #93a0ff;
+  /* categorical data palette, dark surfaces — same hue per slot as the light set;
+     worst pair ΔE 15.0 normal, 7.3 protan, 7.7 deutan; d1–d5: 15.3 / 14.2 / 9.7 */
+  --d1: #9383dc; --d2: #f1b959; --d3: #6e8a25; --d4: #d9d0ff; --d5: #c26083;
+  --d6: #52c0eb; --d7: #a0eca6; --d8: #008bad; --d9: #fa94bb; --d10: #a69b89;
+  --s1: #222741; --s2: #343b6a; --s3: #475195; --s4: #5c69bc; --s5: #7483e0; --s6: #90a0f9; --s7: #b3c0ff;
+  --v1: #f2ab83; --v2: #c67544; --v3: #864d2b; --v4: #35332e; --v5: #4a5996; --v6: #7186db; --v7: #a7baff;
+
+  --syn-keyword: #b79bff; --syn-string: #6fcfb0; --syn-number: #e6a86a; --syn-comment: var(--muted);
+  --print-paper: #ffffff; --print-ink: #000000;
 }

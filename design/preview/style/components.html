@@ -1,0 +1,1292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everygraph style — Components</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+/* page-specific layout and the components that base.css does not define yet; every colour, size and radius comes from tokens.css */
+/* -- shared by index, foundations and components (kept inline: these pages own no file under assets/) -- */
+svg.i { flex: none; display: inline-block; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+svg.i .f { fill: currentColor; stroke: none; }
+svg.mk { flex: none; display: inline-block; vertical-align: middle; color: var(--ink); }
+.lockup { display: inline-flex; align-items: center; gap: calc(var(--t) * 0.5); font-size: var(--t); line-height: 1; color: var(--ink); white-space: nowrap; }
+.lockup b { font-weight: var(--weight-semibold); }
+.lockup.tight { letter-spacing: var(--tracking-tight); }
+.lockup.stacked { flex-direction: column; gap: calc(var(--t) * 0.6); }
+code, kbd, pre, samp, .num { font-variant-ligatures: none; }   /* proposed for base.css: see Foundations, "Code ligatures" */
+
+/* ---- page furniture ---- */
+.toc { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4) var(--space-5); margin-top: var(--space-5); font-size: var(--text-sm); line-height: var(--lh-sm); max-width: none; }
+.page > header { max-width: none; } .page > header > h1, .page > header > p { max-width: var(--content); }
+.toc b { display: block; font-weight: var(--weight-medium); margin-bottom: var(--space-1); }
+.toc a { text-decoration: none; } .toc a:hover { text-decoration: underline; }
+.toc span { color: var(--ink-2); }
+.section { scroll-margin-top: calc(var(--topbar) + var(--space-4)); }
+.comp { scroll-margin-top: calc(var(--topbar) + var(--space-4)); }
+.use { max-width: var(--content); margin-bottom: var(--space-3); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.use b { color: var(--ink); font-weight: var(--weight-medium); }
+.pair > [data-theme] { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); align-content: start; }
+.pair.stack { grid-template-columns: 1fr; }
+.sl { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); white-space: nowrap; }
+.sl .num { font-size: inherit; }
+.specs { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-5); align-items: flex-end; }
+.lab { display: grid; gap: var(--space-2); justify-items: start; align-content: end; }
+.lab.wide { width: 100%; min-width: 0; justify-items: stretch; grid-template-columns: minmax(0, 1fr); align-content: start; }
+.lab.wide > .sl { white-space: normal; }
+.matrix { display: grid; gap: var(--space-3) var(--space-3); align-items: center; justify-content: start; justify-items: start; }
+.col { display: grid; gap: var(--space-4); align-content: start; min-width: 0; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.stage { display: grid; place-items: center; padding: var(--space-5); border-radius: var(--radius-sm); background: linear-gradient(var(--scrim), var(--scrim)), var(--bg); }   /* a flat scrim over the page, not a visible gradient */
+.stage.plain { background: none; padding: 0; place-items: start; }
+
+/* ---- buttons: states base.css does not have ---- */
+.btn.primary.is-hover { background: var(--accent); }   /* base.css: .btn.is-hover overrides the primary fill; corrected here */
+.btn.is-active { background: var(--surface-2); border-color: var(--ink-2); }
+.btn.primary.is-active { background: var(--accent); border-color: var(--accent); filter: brightness(0.84); }
+.btn.quiet.is-hover, .btn.quiet.is-active { background: var(--accent-soft); border-color: transparent; }
+.btn.danger:hover, .btn.danger.is-hover, .btn.danger.is-active { background: var(--err-soft); border-color: var(--err); }
+.btn.is-loading { cursor: progress; }
+.btn.icon { width: var(--control-md); padding: 0; } .btn.icon.sm { width: var(--control-sm); } .btn.icon.lg { width: var(--control-lg); }
+.btn.bare { border-color: transparent; background: transparent; color: var(--ink-2); } .btn.bare:hover, .btn.bare.is-hover { background: var(--surface-2); color: var(--ink); }
+.btngroup { display: inline-flex; }
+.btngroup .btn { border-radius: 0; margin-left: -1px; position: relative; }
+.btngroup .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; } .btngroup .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.btngroup .btn.is-on { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); z-index: 1; }
+.split { display: inline-flex; gap: 1px; }
+.split .btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); } .split .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; width: var(--control-sm); padding: 0; }
+.split.plain { gap: 0; } .split.plain .btn:last-child { margin-left: -1px; }
+.spin { flex: none; display: inline-block; width: 16px; height: 16px; border-radius: var(--radius-round); border: 2px solid color-mix(in srgb, currentColor 28%, transparent); border-top-color: currentColor; animation: eg-spin 800ms linear infinite; }
+.spin.lg { width: 20px; height: 20px; } .spin.xl { width: 32px; height: 32px; border-width: 2.5px; }
+@keyframes eg-spin { to { transform: rotate(360deg); } }
+a.is-hover { text-decoration-thickness: 2px; }
+a.is-focus, .is-focus-ring { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
+a.plain { color: var(--ink-2); text-decoration: none; } a.plain:hover, a.plain.is-hover { color: var(--ink); text-decoration: underline; }
+
+/* ---- inputs ---- */
+.input.is-hover { border-color: var(--ink-2); }
+.input[disabled], .inbox.is-disabled, .select.is-disabled { background: var(--surface-2); color: var(--muted); border-color: var(--line); cursor: not-allowed; }
+.input.ro { background: var(--bg); border-color: var(--line); }
+textarea.input { display: block; width: 100%; height: auto; padding: var(--space-2) var(--space-3); line-height: var(--lh-md); resize: vertical; }
+.input.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.inbox { display: flex; align-items: center; gap: var(--space-2); height: var(--control-md); padding: 0 var(--space-2) 0 var(--space-3); background: var(--surface); border: var(--border) solid var(--line-strong); border-radius: var(--radius-sm); min-width: 0; }
+.inbox > input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; font: var(--text-md)/1 var(--font-sans); color: var(--ink); }
+.inbox > input::placeholder { color: var(--muted); }
+.inbox > svg.i { color: var(--muted); }
+.inbox.is-hover { border-color: var(--ink-2); }
+.inbox.is-focus, .inbox:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.inbox.is-invalid { border-color: var(--err); }
+.inbox.numeric > input { font-family: var(--font-mono); font-size: var(--text-sm); text-align: right; }
+.inbox .unit { align-self: stretch; display: flex; align-items: center; padding-left: var(--space-2); border-left: var(--border) solid var(--line); font: var(--text-sm)/1 var(--font-mono); color: var(--ink-2); }
+.inbox .clear { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--radius-xs); background: none; color: var(--ink-2); cursor: pointer; }
+.inbox.sm { height: var(--control-sm); }
+.select { display: inline-flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: 0 var(--space-2) 0 var(--space-3); cursor: pointer; white-space: nowrap; }
+.select .pre { color: var(--muted); margin-right: calc(-1 * var(--space-1)); }
+.select svg.i { color: var(--ink-2); }
+.select.is-hover, .select.is-open { border-color: var(--ink-2); }
+.select.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.field > .error { display: flex; align-items: flex-start; gap: var(--space-1); line-height: var(--lh-xs); } .field > .error svg.i { width: 14px; height: 14px; margin-top: 1px; }
+.field .num { font-size: inherit; }
+.field > label .opt { font-weight: var(--weight-regular); color: var(--muted); }
+
+.check { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 24px; cursor: pointer; white-space: nowrap; }
+.check .box { flex: none; display: grid; place-items: center; width: 16px; height: 16px; background: var(--surface); border: var(--border) solid var(--line-strong); border-radius: var(--radius-xs); color: var(--on-accent); }
+.check .box svg.i { width: 12px; height: 12px; stroke-width: 2; }
+.check.is-on .box, .check.is-mixed .box { background: var(--accent); border-color: var(--accent); }
+.check.radio .box { border-radius: var(--radius-round); }
+.check.radio.is-on .box::after { content: ""; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--on-accent); }
+.check.is-hover .box { border-color: var(--ink-2); }
+.check.is-focus .box { outline: 2px solid var(--focus); outline-offset: 2px; }
+.check.is-disabled { opacity: 0.45; cursor: not-allowed; }
+.check .aside { color: var(--muted); margin-left: calc(-1 * var(--space-1)); }
+.toggle { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 24px; cursor: pointer; }
+.toggle .track { flex: none; position: relative; width: 32px; height: 18px; background: var(--surface); border: var(--border) solid var(--line-strong); border-radius: var(--radius-round); transition: background var(--dur-fast) var(--ease); }
+.toggle .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: var(--radius-round); background: var(--ink-2); transition: left var(--dur-fast) var(--ease); }
+.toggle.is-on .track { background: var(--accent); border-color: var(--accent); } .toggle.is-on .track::after { left: 16px; background: var(--on-accent); }
+.toggle.is-hover .track { border-color: var(--ink-2); }
+.toggle.is-focus .track { outline: 2px solid var(--focus); outline-offset: 2px; }
+.toggle.is-disabled { opacity: 0.45; cursor: not-allowed; }
+
+.slider { position: relative; height: 24px; }
+.slider .rail { position: absolute; left: 0; right: 0; top: 10px; height: 4px; border-radius: var(--radius-xs); background: var(--line-strong); }
+.slider .fill { position: absolute; top: 10px; height: 4px; border-radius: var(--radius-xs); background: var(--accent); }
+.slider .knob { position: absolute; top: 4px; width: 16px; height: 16px; margin-left: -8px; border-radius: var(--radius-round); background: var(--surface); border: var(--border-strong) solid var(--accent); cursor: grab; }
+.slider .knob.is-hover { background: var(--accent-soft); }
+.slider .knob.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.slider.is-disabled { opacity: 0.45; }
+.sliderrow { display: grid; grid-template-columns: 1fr auto; gap: var(--space-3); align-items: center; }
+.sliderrow .num { min-width: 56px; text-align: right; }
+.timewin { display: grid; gap: var(--space-2); }
+.timewin .head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+.timewin .head b { font-weight: var(--weight-medium); }
+.hist { display: flex; align-items: flex-end; gap: 1px; height: 48px; }
+.hist i { flex: 1; background: var(--line-strong); } .hist i.in { background: var(--ink); }
+.timewin .slider { margin-top: -14px; }
+.timewin .axis { display: flex; justify-content: space-between; font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--muted); }
+
+.seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.seg button { display: inline-flex; align-items: center; gap: 6px; height: calc(var(--control-md) - 4px); padding: 0 var(--space-3); border: var(--border) solid transparent; border-radius: var(--radius-xs); background: none; font: var(--weight-medium) var(--text-sm)/1 var(--font-sans); color: var(--ink-2); cursor: pointer; }
+.seg button.is-on { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
+.seg button.is-hover { color: var(--ink); }
+.seg button.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.seg button[disabled] { color: var(--muted); opacity: 0.6; cursor: not-allowed; }
+.tabs { display: flex; gap: var(--space-4); border-bottom: var(--border) solid var(--line); }
+.tab { display: inline-flex; align-items: center; gap: 6px; height: var(--control-md); margin-bottom: -1px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: none; font: var(--text-sm)/1 var(--font-sans); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.tab.is-on { color: var(--ink); font-weight: var(--weight-semibold); border-bottom-color: var(--accent); }
+.tab.is-hover { color: var(--ink); border-bottom-color: var(--line-strong); }
+.tab.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
+.tab.is-disabled { color: var(--muted); opacity: 0.6; cursor: not-allowed; }
+.tab .num { font-size: var(--text-xs); color: var(--muted); font-weight: 400; }
+
+/* ---- small things ---- */
+.tag svg.i { width: 12px; height: 12px; }
+.tag .x { display: grid; place-items: center; width: 14px; height: 14px; margin-right: -3px; padding: 0; border: 0; border-radius: var(--radius-xs); background: none; color: inherit; cursor: pointer; }
+.tag.is-hover { border-color: var(--line-strong); }
+.tag.num { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 400; }
+.tag .dot { width: 6px; height: 6px; border-radius: var(--radius-round); background: currentColor; }
+.tip { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); background: var(--ink); color: var(--bg); border-radius: var(--radius-sm); font-size: var(--text-xs); line-height: var(--lh-xs); white-space: nowrap; }
+.tip kbd { background: none; color: inherit; border-color: color-mix(in srgb, currentColor 45%, transparent); border-bottom-width: 1px; }
+.tipdemo { display: grid; gap: 6px; justify-items: center; }
+.hovercard { width: 232px; padding: var(--space-3); }
+.hovercard h4 { margin-bottom: var(--space-2); }
+
+/* ---- menus and overlays ---- */
+.pop.menu { width: 248px; padding: var(--space-1); }
+.mi { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); height: var(--control-md); padding: 0 var(--space-2); border-radius: var(--radius-sm); cursor: default; white-space: nowrap; }
+.mi > svg.i { color: var(--ink-2); }
+.mi .k { display: inline-flex; gap: 3px; }
+.mi.is-hover { background: var(--surface-2); }
+.mi.is-focus { outline: 2px solid var(--focus); outline-offset: -2px; }
+.mi.is-disabled { color: var(--muted); } .mi.is-disabled > svg.i { color: var(--muted); }
+.mi.danger, .mi.danger > svg.i { color: var(--err); }
+.mi .num { color: var(--ink-2); font-size: var(--text-xs); }
+.mi mark { background: none; color: inherit; font-weight: var(--weight-semibold); text-decoration: underline; text-underline-offset: 3px; }
+.msep { height: 1px; margin: var(--space-1) calc(-1 * var(--space-1)); background: var(--line); }
+.mlabel { padding: var(--space-2) var(--space-2) var(--space-1); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); }
+.mfoot { padding: var(--space-2); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); border-top: var(--border) solid var(--line); margin: var(--space-1) calc(-1 * var(--space-1)) calc(-1 * var(--space-1)); }
+.anchor { display: grid; gap: var(--space-1); justify-items: start; }
+.dialog { width: 100%; max-width: 440px; background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--shadow-pop); }
+.dialog > header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-3) 0 var(--space-4); }
+.dialog > header h3 { font-size: var(--text-lg); line-height: var(--lh-lg); }
+.dialog > .body { display: grid; gap: var(--space-3); padding: var(--space-2) var(--space-4) var(--space-4); color: var(--ink-2); }
+.dialog > .body b { color: var(--ink); font-weight: var(--weight-medium); }
+.dialog > footer { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: var(--border) solid var(--line); }
+.linkrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); }
+.toast { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--shadow-pop); }
+.toast > svg.i { color: var(--info); } .toast.ok > svg.i { color: var(--ok); } .toast.warn > svg.i { color: var(--warn); } .toast.err > svg.i { color: var(--err); }
+.toast b { font-weight: var(--weight-medium); }
+.toast .t { font-size: var(--text-sm); line-height: var(--lh-sm); }
+.banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); background: var(--info-soft); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.banner > svg.i { color: var(--info); } .banner.warn { background: var(--warn-soft); } .banner.warn > svg.i { color: var(--warn); } .banner.err { background: var(--err-soft); } .banner.err > svg.i { color: var(--err); }
+.banner b { font-weight: var(--weight-medium); }
+.banner .btn.bare { color: var(--ink); }
+.window { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--bg); }
+.window .wtop { display: flex; align-items: center; gap: var(--space-2); height: 40px; padding: 0 var(--space-3); border-bottom: var(--border) solid var(--line); font-size: var(--text-sm); }
+.window .wbody { height: 28px; }
+.callout > div { min-width: 0; }
+.callout p + p, .callout p + pre { margin-top: var(--space-2); }
+.callout pre { background: var(--surface); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); }
+
+/* ---- progress and waiting ---- */
+.prog { display: grid; gap: var(--space-2); }
+.prog .head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.prog .head b { font-weight: var(--weight-medium); } .prog .head .num { color: var(--ink-2); font-size: var(--text-xs); }
+.prog .head .st { display: inline-flex; align-items: center; gap: var(--space-1); }
+.bar { position: relative; height: 6px; background: var(--surface-2); border-radius: 1px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--ink); }
+.bar.ok > i { background: var(--ok); } .bar.err > i { background: var(--err); } .bar.paused > i { background: var(--muted); }
+.bar.indet > i { position: absolute; left: 0; width: 28%; animation: eg-slide 1400ms linear infinite; }
+@keyframes eg-slide { from { left: -28%; } to { left: 100%; } }
+.phases { display: grid; grid-template-columns: auto minmax(40px, 1fr) auto auto; gap: var(--space-2) var(--space-3); align-items: center; font-size: var(--text-sm); line-height: var(--lh-sm); }
+.phases .ph { display: inline-flex; align-items: center; gap: var(--space-2); } .phases .ph svg.i { color: var(--ok); }
+.phases .num { font-size: var(--text-xs); color: var(--ink-2); text-align: right; white-space: nowrap; }
+.phases .wait { color: var(--muted); } .phases .wait .dash { width: 16px; text-align: center; }
+.phases .now { font-weight: var(--weight-medium); }
+.sk { display: block; height: 12px; border-radius: var(--radius-xs); background: var(--surface-2); }
+.sk.h { height: 20px; } .sk.big { height: 28px; }
+.skrow { display: grid; grid-template-columns: 1fr 80px 56px; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: var(--border) solid var(--line); }
+.empty { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2) var(--space-3); padding: var(--space-5); border: var(--border) dashed var(--line-strong); border-radius: var(--radius-md); }
+.empty > svg.i { color: var(--muted); margin-top: 2px; }
+.empty > div { display: grid; gap: var(--space-2); justify-items: start; }
+.empty p { color: var(--ink-2); font-size: var(--text-sm); line-height: var(--lh-sm); max-width: 420px; }
+.empty .row { margin-top: var(--space-1); gap: var(--space-2); }
+.empty.solid { border-style: solid; border-color: var(--line); }
+
+/* ---- navigation ---- */
+.pager { display: flex; align-items: center; gap: var(--space-1); }
+.pg { display: grid; place-items: center; min-width: var(--control-sm); height: var(--control-sm); padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: none; font: var(--text-sm)/1 var(--font-mono); color: var(--ink-2); cursor: pointer; }
+.pg.is-on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 500; }
+.pg.is-hover { background: var(--surface-2); color: var(--ink); }
+.pg[disabled] { opacity: 0.45; cursor: not-allowed; }
+.pager .sl { margin-left: var(--space-3); }
+.more { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-top: var(--space-2); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.more .num { font-size: inherit; }
+.crumbs { display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); line-height: var(--lh-sm); white-space: nowrap; }
+.crumbs a { color: var(--ink-2); text-decoration: none; padding: 2px var(--space-1); border-radius: var(--radius-xs); } .crumbs a:hover, .crumbs a.is-hover { color: var(--ink); background: var(--surface-2); }
+.crumbs > svg.i { color: var(--muted); width: 12px; height: 12px; }
+.crumbs [aria-current] { padding: 2px var(--space-1); font-weight: var(--weight-semibold); color: var(--ink); }
+.crumbs .num { color: var(--muted); font-size: var(--text-xs); margin-left: var(--space-1); font-weight: 400; }
+.crumbbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.level { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--ink-2); white-space: nowrap; } .level .num { font-size: inherit; }
+.level .pips { display: inline-flex; gap: 2px; } .level .pips i { width: 10px; height: 3px; background: var(--line-strong); } .level .pips i.on { background: var(--ink); }
+.acc { border-top: var(--border) solid var(--line); }
+.acc-h { display: flex; align-items: center; gap: var(--space-2); width: 100%; height: var(--control-lg); padding: 0 var(--space-2) 0 var(--space-1); border: 0; border-bottom: var(--border) solid var(--line); background: none; font: var(--weight-medium) var(--text-md)/1 var(--font-sans); color: var(--ink); text-align: left; cursor: pointer; }
+.acc-h > svg.i { color: var(--ink-2); } .acc-h .num { margin-left: auto; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.acc-h.is-hover { background: var(--surface-2); }
+.acc-h.is-focus { outline: 2px solid var(--focus); outline-offset: -2px; }
+.acc-h.is-open { border-bottom-color: transparent; }
+.acc-b { padding: 0 var(--space-1) var(--space-4) calc(16px + var(--space-2) + var(--space-1)); border-bottom: var(--border) solid var(--line); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+
+/* ---- data display ---- */
+table.t th.sortable { cursor: pointer; } table.t th .i { width: 12px; height: 12px; margin-left: var(--space-1); color: var(--muted); vertical-align: -1px; }
+table.t th.is-sorted { color: var(--ink); } table.t th.is-sorted .i { color: var(--ink); }
+table.t th.is-hover { background: var(--surface-2); color: var(--ink); }
+table.t tr.is-hover td { background: var(--surface-2); }
+table.t tr.is-selected td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+table.t td .aside { display: block; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); }
+table.t td.num { white-space: nowrap; }
+.tframe { border: var(--border) solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
+.tframe table.t tr:last-child td { border-bottom: 0; }
+.tscroll { max-height: 190px; overflow-y: auto; }
+.tscroll table.t th { position: sticky; top: 0; z-index: 1; background: var(--surface); border-bottom: 0; box-shadow: inset 0 calc(-1 * var(--border-strong)) 0 var(--line-strong); }
+.tfoot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); border-top: var(--border) solid var(--line); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.tfoot .num { font-size: inherit; color: var(--ink); }
+.tfoot .st { display: inline-flex; align-items: center; gap: var(--space-2); } .tfoot .st svg.i { color: var(--warn); }
+.kv { margin: 0; display: grid; }
+.kv > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-4); padding: var(--space-2) 0; border-bottom: var(--border) solid var(--line); align-items: baseline; }
+.kv > div:last-child { border-bottom: 0; }
+.kv dt { color: var(--ink-2); } .kv dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); text-align: right; white-space: nowrap; }
+.kv dd.txt { font-family: var(--font-sans); font-size: var(--text-md); }
+.kv .aside { grid-column: 1 / -1; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); }
+.kv .cp { display: inline-grid; place-items: center; width: 20px; height: 20px; margin: -2px 0 -2px 4px; vertical-align: -4px; border: 0; border-radius: var(--radius-xs); background: none; color: var(--ink-2); cursor: pointer; }
+.rank { list-style: none; padding: 0; display: grid; }
+.rank li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; column-gap: var(--space-2); align-items: baseline; padding: var(--space-2) var(--space-1) 6px; border-radius: var(--radius-sm); }
+.rank .r { font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--muted); }
+.rank .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank .v { font: var(--text-sm)/var(--lh-md) var(--font-mono); }
+.rank .rb { grid-column: 2 / 4; height: 2px; margin-top: var(--space-1); background: var(--line); }
+.rank .rb i { display: block; height: 100%; background: var(--ink-2); }
+.rank li.is-hover { background: var(--surface-2); }
+.rank li.is-selected { background: var(--accent-soft); } .rank li.is-selected .rb i { background: var(--accent); }
+.rank li.other .n { color: var(--ink-2); }
+.stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4) var(--space-5); }
+.stat { display: grid; gap: 2px; min-width: 0; }
+.stat .v { font: 500 var(--text-xl)/var(--lh-xl) var(--font-mono); letter-spacing: -0.01em; white-space: nowrap; }
+.stat .l { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.stat .s { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); } .stat .s .num { font-size: inherit; }
+.stat.big .v { font-size: var(--text-3xl); line-height: var(--lh-3xl); font-weight: 400; letter-spacing: -0.02em; }
+.stat.big .l { font-size: var(--text-sm); line-height: var(--lh-sm); }
+.legend { display: grid; gap: var(--space-1); }
+.legend h4 { font-size: var(--text-xs); line-height: var(--lh-xs); font-weight: var(--weight-medium); color: var(--ink-2); margin-bottom: var(--space-1); }
+.lgd { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; font-size: var(--text-sm); line-height: var(--lh-md); }
+.lgd .num { font-size: var(--text-xs); color: var(--ink-2); }
+.lgd .o { width: 12px; height: 12px; border-radius: var(--radius-round); border: var(--border-strong) solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+.lgd.other { color: var(--ink-2); }
+.ramp { display: grid; grid-template-columns: repeat(7, 1fr); height: 10px; }
+.ramp i:nth-child(1) { background: var(--s1); } .ramp i:nth-child(2) { background: var(--s2); } .ramp i:nth-child(3) { background: var(--s3); } .ramp i:nth-child(4) { background: var(--s4); }
+.ramp i:nth-child(5) { background: var(--s5); } .ramp i:nth-child(6) { background: var(--s6); } .ramp i:nth-child(7) { background: var(--s7); }
+.rampax { display: flex; justify-content: space-between; font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--ink-2); }
+.kinds svg { display: block; }
+.code { border-radius: var(--radius-md); background: var(--surface-2); overflow: hidden; }
+.code .hd { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-1) var(--space-1) var(--space-4); border-bottom: var(--border) solid var(--line); font: var(--text-xs)/1 var(--font-mono); color: var(--ink-2); }
+.code pre { border-radius: 0; }
+.code .btn.sm { font-size: var(--text-xs); }
+.code .btn.sm.done { color: var(--ok); }
+.diff { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); font: var(--text-sm)/22px var(--font-mono); font-variant-ligatures: none; }
+.diff .dh { padding: var(--space-2) var(--space-3); border-bottom: var(--border) solid var(--line); font: var(--text-xs)/var(--lh-xs) var(--font-sans); color: var(--ink-2); }
+.diff .ln { display: grid; grid-template-columns: 20px 92px minmax(0, 1fr); padding: 0 var(--space-3); white-space: nowrap; }
+.diff .ln > :first-child { color: var(--muted); user-select: none; }
+.diff .ln > :nth-child(2) { color: var(--ink-2); }
+.diff .del { background: var(--err-soft); } .diff .add { background: var(--ok-soft); }
+.diff .del > :first-child, .diff .add > :first-child { color: var(--ink); font-weight: 700; }
+.diff .del s { text-decoration: none; }
+.diff b { font-weight: 700; }
+.card h4 + p { margin-top: var(--space-1); color: var(--ink-2); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.card.is-hover { border-color: var(--line-strong); } .card.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.card.is-selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.card .cfoot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin: var(--space-3) calc(-1 * var(--space-4)) calc(-1 * var(--space-4)); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-top: var(--border) solid var(--line); font-size: var(--text-xs); color: var(--muted); }
+.card .cfoot .num { font-size: inherit; }
+.phead { display: grid; gap: var(--space-1); padding: var(--space-4) var(--space-4) var(--space-3); }
+.phead .top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); min-height: var(--control-sm); }
+.phead .kind { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); white-space: nowrap; } .phead .kind .num { font-size: inherit; }
+.phead .kind .o { width: 12px; height: 12px; border-radius: var(--radius-round); border: var(--border-strong) solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+.phead .acts { display: flex; gap: 2px; margin-right: calc(-1 * var(--space-1)); }
+.phead h3 { font-size: var(--text-xl); line-height: var(--lh-xl); }
+.phead .meta { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); } .phead .meta .num { font-size: inherit; }
+.panelbox { background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-md); }
+.strip { display: flex; align-items: baseline; gap: var(--space-3); min-height: 32px; padding: var(--space-2) var(--space-3); background: var(--surface); border: var(--border) solid var(--line); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.strip .si { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; row-gap: var(--space-1); overflow: hidden; margin-left: calc(-1 * var(--space-3)); }
+.strip .si > span { margin-left: -1px; padding: 0 var(--space-3); border-left: var(--border) solid var(--line-strong); }
+.strip > b, .strip > a { white-space: nowrap; }
+.strip b { color: var(--ink); font-weight: var(--weight-medium); } .strip .num { font-size: inherit; }
+
+.strip.onmap { background: var(--map-bg); }
+
+/* ---- assembled: the inspection panel ---- */
+.viewer { display: grid; grid-template-columns: minmax(0, 1fr) var(--panel); grid-template-rows: auto 1fr auto; border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--bg); }
+.viewer .map { position: relative; background: var(--map-bg); overflow: hidden; }
+.viewer .map > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.viewer .vtop { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-3); height: var(--topbar); padding: 0 var(--space-3); background: var(--surface); border-bottom: var(--border) solid var(--line); }
+.viewer .vtop .file { display: grid; gap: 1px; } .viewer .vtop .name { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--weight-medium); line-height: var(--lh-md); } .viewer .vtop .name .tag { height: 16px; }
+.viewer .vtop .counts { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); white-space: nowrap; } .viewer .vtop .counts .num { font-size: inherit; color: var(--ink); }
+.viewer .vtop .inbox { flex: 1; max-width: 340px; margin-left: auto; }
+.viewer .map .crumbbar { position: absolute; left: var(--space-3); top: var(--space-3); right: var(--space-3); gap: var(--space-2); }
+.viewer .map .chip { display: inline-flex; align-items: center; height: var(--control-sm); padding: 0 var(--space-2); background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-sm); }
+.viewer .zoom { position: absolute; right: var(--space-3); bottom: var(--space-3); display: grid; }
+.viewer .zoom .btn { border-radius: 0; margin-top: -1px; } .viewer .zoom .btn:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; margin-top: 0; } .viewer .zoom .btn:last-child { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.viewer .panel { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-left: var(--border) solid var(--line); }
+.viewer .panel .scroll { flex: 1; min-height: 0; overflow: hidden; }
+.viewer .panel section { padding: var(--space-3) var(--space-4) var(--space-4); border-top: var(--border) solid var(--line); }
+.viewer .panel section > h4 { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-2); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.viewer .panel section > h4 span { font-weight: 400; font-size: var(--text-xs); color: var(--muted); }
+.viewer .panel .pacts { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0 var(--space-4) var(--space-4); }
+.viewer .panel .tabs { margin: 0 calc(-1 * var(--space-4)) var(--space-2); padding: 0 var(--space-4); }
+.viewer .panel .pfoot { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: var(--border) solid var(--line); }
+.viewer .strip { grid-column: 1 / -1; border: 0; border-top: var(--border) solid var(--line); }
+.mapreg { fill-opacity: 0.12; stroke-width: 1.5; }
+.maplab { font: var(--weight-semibold) 12px/1 var(--font-sans); fill: var(--map-ink); paint-order: stroke; stroke: var(--map-bg); stroke-width: 3px; stroke-linejoin: round; text-anchor: middle; }
+.maplab.n { font: 400 11px/1 var(--font-mono); }
+.mapsel { fill: none; stroke: var(--map-ink); }
+.dim60 { opacity: 0.6; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <h1>Components</h1>
+    <p>Every piece the product is built from, with all of its states laid out side by side and in both themes. Each has one line on when to use it and one rule. The page ends with a real panel assembled from the parts above.</p>
+    <nav class="toc" aria-label="On this page">
+      <div><b><a href="#actions">1 · Actions</a></b><span>buttons, groups, split button, links</span></div>
+      <div><b><a href="#inputs">2 · Inputs</a></b><span>text, search, number, select, combobox, checks, sliders, tabs, fields</span></div>
+      <div><b><a href="#small">3 · Labels and hints</a></b><span>tags, status badges, key caps, tooltips</span></div>
+      <div><b><a href="#overlays">4 · Menus and messages</a></b><span>menu, dropdown, dialogs, toasts, banner, callouts</span></div>
+      <div><b><a href="#waiting">5 · Progress and empty</a></b><span>progress bars, spinner, skeleton, empty states</span></div>
+      <div><b><a href="#nav">6 · Finding your way</a></b><span>pagination, show more, breadcrumb, disclosure</span></div>
+      <div><b><a href="#data">7 · Showing data</a></b><span>table, key–value list, ranked list, stat block, legend, code, diff, card, panel header, caption strip</span></div>
+      <div><b><a href="#assembled">8 · Assembled</a></b><span>the viewer's inspection panel for a region</span></div>
+    </nav>
+  </header>
+
+  <!-- ============================== 1 ACTIONS ============================== -->
+  <section class="section" id="actions"><h2>1 · Actions</h2>
+    <p>Buttons do something; links go somewhere. A view has one primary button, and it names the thing it does.</p>
+
+    <div class="sub comp" id="c-buttons"><h3>Buttons</h3>
+      <p class="use"><b>Use</b> primary for the one main action of a view, default for everything else, quiet for the way out (cancel, dismiss), danger for what cannot be undone. <b>Rule:</b> one primary button per view; the label is a verb and its object, in sentence case.</p>
+      <div class="pair" data-dup>
+        <div class="matrix" style="grid-template-columns:52px repeat(4,auto)">
+          <span></span><span class="sl">primary</span><span class="sl">default</span><span class="sl">quiet</span><span class="sl">danger</span>
+          <span class="sl">default</span><button class="btn primary">Run</button><button class="btn">Open as table</button><button class="btn quiet">Cancel</button><button class="btn danger">Delete map</button>
+          <span class="sl">hover</span><button class="btn primary is-hover">Run</button><button class="btn is-hover">Open as table</button><button class="btn quiet is-hover">Cancel</button><button class="btn danger is-hover">Delete map</button>
+          <span class="sl">focus</span><button class="btn primary is-focus">Run</button><button class="btn is-focus">Open as table</button><button class="btn quiet is-focus">Cancel</button><button class="btn danger is-focus">Delete map</button>
+          <span class="sl">pressed</span><button class="btn primary is-active">Run</button><button class="btn is-active">Open as table</button><button class="btn quiet is-active">Cancel</button><button class="btn danger is-active">Delete map</button>
+          <span class="sl">disabled</span><button class="btn primary" disabled>Run</button><button class="btn" disabled>Open as table</button><button class="btn quiet" disabled>Cancel</button><button class="btn danger" disabled>Delete map</button>
+          <span class="sl">loading</span><button class="btn primary is-loading" aria-busy="true"><span class="spin"></span>Running</button><button class="btn is-loading" aria-busy="true"><span class="spin"></span>Opening</button><span class="sl">—</span><button class="btn danger is-loading" aria-busy="true"><span class="spin"></span>Deleting</button>
+        </div>
+        <div class="specs">
+          <div class="lab"><span class="sl">small · <span class="num">28</span></span><button class="btn sm">Copy link</button></div>
+          <div class="lab"><span class="sl">default · <span class="num">32</span></span><button class="btn">Copy link</button></div>
+          <div class="lab"><span class="sl">large · <span class="num">40</span></span><button class="btn lg">Copy link</button></div>
+          <div class="lab"><span class="sl">large primary</span><button class="btn primary lg">Open a graph</button></div>
+        </div>
+        <div class="specs">
+          <div class="lab"><span class="sl">icon before the label</span><div class="row"><button class="btn"><i data-i="download"></i>Export</button><button class="btn primary"><i data-i="zoom-in"></i>Zoom in</button></div></div>
+          <div class="lab"><span class="sl">opens a menu</span><button class="btn">Export<i data-i="chevron-down"></i></button></div>
+          <div class="lab"><span class="sl">icon only — always with a tooltip</span><div class="row" style="gap:var(--space-2)"><button class="btn icon" aria-label="Copy"><i data-i="copy"></i></button><button class="btn icon bare" aria-label="Pin"><i data-i="pin"></i></button><button class="btn icon bare is-hover" aria-label="More"><i data-i="more"></i></button><button class="btn icon sm bare" aria-label="Close"><i data-i="close"></i></button></div></div>
+        </div>
+        <div class="specs">
+          <div class="lab"><span class="sl">group — actions on one thing</span><div class="btngroup"><button class="btn icon" aria-label="Zoom out"><i data-i="minus"></i></button><button class="btn" style="font:var(--text-sm)/1 var(--font-mono)" tabindex="-1">2.4</button><button class="btn icon" aria-label="Zoom in"><i data-i="plus"></i></button></div></div>
+          <div class="lab"><span class="sl">group with one pressed</span><div class="btngroup"><button class="btn is-on" aria-pressed="true"><i data-i="node"></i>Nodes</button><button class="btn"><i data-i="edge"></i>Links</button><button class="btn"><i data-i="path"></i>Paths</button></div></div>
+          <div class="lab"><span class="sl">split — a default and its variants</span><div class="row"><div class="split"><button class="btn primary"><i data-i="download"></i>Export PNG</button><button class="btn primary" aria-label="Other formats"><i data-i="chevron-down"></i></button></div><div class="split plain"><button class="btn">Open as table</button><button class="btn" aria-label="Other ways to open"><i data-i="chevron-down"></i></button></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-links"><h3>Links</h3>
+      <p class="use"><b>Use</b> for going somewhere: another page, another view, the documentation. <b>Rule:</b> a link is underlined; colour alone never marks one. Visited links do not change colour.</p>
+      <div class="pair" data-dup>
+        <div class="specs">
+          <div class="lab"><span class="sl">default</span><a href="#c-links">About this map</a></div>
+          <div class="lab"><span class="sl">hover</span><a href="#c-links" class="is-hover">About this map</a></div>
+          <div class="lab"><span class="sl">focus</span><a href="#c-links" class="is-focus">About this map</a></div>
+          <div class="lab"><span class="sl">external</span><a href="#c-links">Source on GitHub<i data-i="external" style="margin-left:4px"></i></a></div>
+          <div class="lab"><span class="sl">plain, in navigation</span><a href="#c-links" class="plain">Measurements</a></div>
+          <div class="lab"><span class="sl">plain, hover</span><a href="#c-links" class="plain is-hover">Measurements</a></div>
+        </div>
+        <p style="max-width:440px">In a sentence: the estimate comes from <a href="#c-links">the plan</a>, which you can read with <code>g.explain()</code> before anything runs.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 2 INPUTS ============================== -->
+  <section class="section" id="inputs"><h2>2 · Inputs</h2>
+    <p>Every input has a visible label, keeps its border in every state, and says what is wrong in words under the field. Numbers are typed and shown in monospace.</p>
+
+    <div class="sub comp" id="c-text"><h3>Text input</h3>
+      <p class="use"><b>Use</b> for one line of free text: a name, a path, an address. <b>Rule:</b> the placeholder is an example, never the label.</p>
+      <div class="pair" data-dup>
+        <div class="matrix" style="grid-template-columns:repeat(3,minmax(0,1fr));justify-content:stretch;justify-items:stretch">
+          <div class="lab wide"><span class="sl">empty, with a placeholder</span><input class="input" placeholder="transfers.parquet" tabindex="-1"></div>
+          <div class="lab wide"><span class="sl">filled</span><input class="input" value="lending-2023.egmap" tabindex="-1"></div>
+          <div class="lab wide"><span class="sl">hover</span><input class="input is-hover" value="lending-2023.egmap" tabindex="-1"></div>
+          <div class="lab wide"><span class="sl">focus</span><input class="input is-focus" value="lending-2023.egmap" tabindex="-1"></div>
+          <div class="lab wide"><span class="sl">invalid</span><input class="input is-invalid" value="lending 2023/.egmap" tabindex="-1" aria-invalid="true"></div>
+          <div class="lab wide"><span class="sl">disabled</span><input class="input" value="lending-2023.egmap" disabled></div>
+          <div class="lab wide"><span class="sl">read-only</span><input class="input ro mono" value="transfers.eg" readonly tabindex="-1"></div>
+          <div class="lab wide"><span class="sl">small · <span class="num">28</span></span><input class="input" style="height:var(--control-sm);font-size:var(--text-sm);padding:0 var(--space-2)" value="Lending" tabindex="-1"></div>
+          <div class="lab wide"><span class="sl">an identifier, in mono</span><input class="input mono" value="0x7a25…488d" tabindex="-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-search"><h3>Search field, with its shortcut</h3>
+      <p class="use"><b>Use</b> for finding an address or a region on the map. <b>Rule:</b> the key that focuses the field is shown inside it until the field has focus.</p>
+      <div class="pair" data-dup>
+        <div class="matrix" style="grid-template-columns:repeat(2,minmax(0,1fr));justify-content:stretch;justify-items:stretch">
+          <div class="lab wide"><span class="sl">default</span><div class="inbox"><i data-i="search"></i><input placeholder="Search address or region" tabindex="-1"><kbd>/</kbd></div></div>
+          <div class="lab wide"><span class="sl">hover</span><div class="inbox is-hover"><i data-i="search"></i><input placeholder="Search address or region" tabindex="-1"><kbd>/</kbd></div></div>
+          <div class="lab wide"><span class="sl">focus, typing — can be cleared</span><div class="inbox is-focus"><i data-i="search"></i><input value="lend" tabindex="-1"><button class="clear" aria-label="Clear" tabindex="-1"><i data-i="close"></i></button></div></div>
+          <div class="lab wide"><span class="sl">searching</span><div class="inbox"><i data-i="search"></i><input value="0x7a25" tabindex="-1" style="font-family:var(--font-mono);font-size:var(--text-sm)"><span class="spin" style="color:var(--ink-2)"></span></div></div>
+          <div class="lab wide"><span class="sl">disabled — nothing is open</span><div class="inbox is-disabled"><i data-i="search"></i><input placeholder="Search address or region" disabled><kbd>/</kbd></div></div>
+          <div class="lab wide"><span class="sl">small, inside a panel</span><div class="inbox sm"><i data-i="filter"></i><input placeholder="Filter sub-communities" tabindex="-1" style="font-size:var(--text-sm)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-number"><h3>Number input with a unit, and textarea</h3>
+      <p class="use"><b>Use</b> the number input for a quantity with a fixed unit, such as the memory budget; the textarea for a note or a pasted list. <b>Rule:</b> the unit is part of the field, not of the label, and the error states the limit with its number.</p>
+      <div class="pair" data-dup>
+        <div class="matrix" style="grid-template-columns:repeat(4,minmax(0,1fr));justify-content:stretch;justify-items:stretch">
+          <div class="lab wide"><span class="sl">default</span><div class="inbox numeric"><input value="8" tabindex="-1" inputmode="decimal"><span class="unit">GB</span></div></div>
+          <div class="lab wide"><span class="sl">focus</span><div class="inbox numeric is-focus"><input value="6.0" tabindex="-1"><span class="unit">GB</span></div></div>
+          <div class="lab wide"><span class="sl">invalid</span><div class="inbox numeric is-invalid"><input value="1" tabindex="-1" aria-invalid="true"><span class="unit">GB</span></div></div>
+          <div class="lab wide"><span class="sl">disabled</span><div class="inbox numeric is-disabled"><input value="8" disabled><span class="unit">GB</span></div></div>
+        </div>
+        <div class="two">
+          <div class="lab wide"><span class="sl">textarea</span><textarea class="input" rows="3" tabindex="-1" placeholder="A note for whoever opens this map"></textarea></div>
+          <div class="lab wide"><span class="sl">textarea, focus, in mono for a pasted list</span><textarea class="input mono is-focus" rows="3" tabindex="-1">0x7a25…488d
+0x3fc9…7fad
+0x28c6…1d60</textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-field"><h3>Field: label, help and error</h3>
+      <p class="use"><b>Use</b> around every input in a form or a dialog. <b>Rule:</b> an error replaces the help text, carries an icon, and says what to do — one sentence of what, one of why.</p>
+      <div class="pair" data-dup>
+        <div class="two">
+          <div class="field"><label>Memory budget</label><div class="inbox numeric"><input value="8" tabindex="-1"><span class="unit">GB</span></div><span class="help">A hard limit. This machine has <span class="num">61&#8239;GB</span>; <span class="num">44&#8239;GB</span> are free now.</span></div>
+          <div class="field"><label>Memory budget</label><div class="inbox numeric is-invalid"><input value="4.0" tabindex="-1" aria-invalid="true"><span class="unit">GB</span></div><span class="error"><i data-i="error"></i><span>Too small for this step: it needs <span class="num">5.6&#8239;GB</span>.</span></span></div>
+          <div class="field"><label>Name of the map <span class="opt">— optional</span></label><input class="input" placeholder="Lending, 2023" tabindex="-1"><span class="help">Shown in the tab and in exported figures.</span></div>
+          <div class="field"><label>Column with the time of each transfer</label><button class="select is-disabled" disabled style="width:100%"><span>block_time</span><i data-i="chevron-down"></i></button><span class="help">Fixed when the graph was built. Rebuild to change it.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-select"><h3>Select and combobox</h3>
+      <p class="use"><b>Use</b> a select to choose one of a few known options; a combobox when the list is too long to scan and has to be searched. <b>Rule:</b> a list that was cut short says how many it shows and how many there are.</p>
+      <div class="pair" data-dup>
+        <div class="specs">
+          <div class="lab"><span class="sl">default</span><button class="select" tabindex="-1"><span class="pre">Colour:</span><span>community</span><i data-i="chevron-down"></i></button></div>
+          <div class="lab"><span class="sl">hover</span><button class="select is-hover" tabindex="-1"><span class="pre">Colour:</span><span>community</span><i data-i="chevron-down"></i></button></div>
+          <div class="lab"><span class="sl">focus</span><button class="select is-focus" tabindex="-1"><span class="pre">Colour:</span><span>community</span><i data-i="chevron-down"></i></button></div>
+          <div class="lab"><span class="sl">disabled</span><button class="select is-disabled" disabled><span class="pre">Colour:</span><span>community</span><i data-i="chevron-down"></i></button></div>
+        </div>
+        <div class="two">
+          <div class="lab wide"><span class="sl">combobox, open, second result active</span>
+            <div class="anchor" style="justify-items:stretch">
+              <div class="inbox is-focus"><i data-i="search"></i><input value="lend" tabindex="-1"><button class="clear" aria-label="Clear" tabindex="-1"><i data-i="close"></i></button></div>
+              <div class="pop menu" style="width:auto" role="listbox">
+                <div class="mlabel">Regions</div>
+                <div class="mi"><i data-i="community"></i><span><mark>Lend</mark>ing</span><span class="num">6,204,417</span></div>
+                <div class="mi is-hover" aria-selected="true"><i data-i="community"></i><span><mark>Lend</mark>ing pools</span><span class="num">2,220,679</span></div>
+                <div class="mi"><i data-i="community"></i><span>Peer-to-peer <mark>lend</mark>ing</span><span class="num">318,905</span></div>
+                <div class="mlabel">Addresses with a label</div>
+                <div class="mi"><i data-i="node"></i><span><mark>Lend</mark>ing pool v3</span><span class="num">0x8787…4fa2</span></div>
+                <div class="mfoot">Showing <span class="num">4</span> of <span class="num">37</span> matches. Keep typing to narrow, or press <kbd>Enter</kbd> to see all.</div>
+              </div>
+            </div>
+          </div>
+          <div class="lab wide"><span class="sl">combobox, nothing found</span>
+            <div class="anchor" style="justify-items:stretch">
+              <div class="inbox is-focus"><i data-i="search"></i><input value="0x7a2g" tabindex="-1" style="font-family:var(--font-mono);font-size:var(--text-sm)"><button class="clear" aria-label="Clear" tabindex="-1"><i data-i="close"></i></button></div>
+              <div class="pop" style="padding:var(--space-3)">
+                <p style="font-weight:var(--weight-medium)">Nothing matches <code>0x7a2g</code></p>
+                <p class="small ink2" style="margin-top:var(--space-1)">An address is <span class="num">0x</span> followed by <span class="num">40</span> characters from <span class="num">0–9</span> and <span class="num">a–f</span>; “g” is not one of them.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-checks"><h3>Checkbox, radio, toggle</h3>
+      <p class="use"><b>Use</b> a checkbox for options that add up, radios for one choice among a few, a toggle for something that takes effect at once. <b>Rule:</b> the whole row is clickable, and the label says what is on, not “enable”.</p>
+      <div class="pair" data-dup>
+        <div class="matrix" style="grid-template-columns:64px repeat(4,auto);gap:var(--space-2) var(--space-5);justify-content:space-between">
+          <span></span><span class="sl">default</span><span class="sl">hover</span><span class="sl">focus</span><span class="sl">disabled</span>
+          <span class="sl">off</span><span class="check"><span class="box"></span>Selection</span><span class="check is-hover"><span class="box"></span>Selection</span><span class="check is-focus"><span class="box"></span>Selection</span><span class="check is-disabled"><span class="box"></span>Selection</span>
+          <span class="sl">on</span><span class="check is-on"><span class="box"><i data-i="check"></i></span>Selection</span><span class="check is-on is-hover"><span class="box"><i data-i="check"></i></span>Selection</span><span class="check is-on is-focus"><span class="box"><i data-i="check"></i></span>Selection</span><span class="check is-on is-disabled"><span class="box"><i data-i="check"></i></span>Selection</span>
+          <span class="sl">mixed</span><span class="check is-mixed"><span class="box"><i data-i="minus"></i></span>Columns</span><span class="check is-mixed is-hover"><span class="box"><i data-i="minus"></i></span>Columns</span><span class="check is-mixed is-focus"><span class="box"><i data-i="minus"></i></span>Columns</span><span class="check is-mixed is-disabled"><span class="box"><i data-i="minus"></i></span>Columns</span>
+          <span class="sl">radio off</span><span class="check radio"><span class="box"></span>Cells</span><span class="check radio is-hover"><span class="box"></span>Cells</span><span class="check radio is-focus"><span class="box"></span>Cells</span><span class="check radio is-disabled"><span class="box"></span>Cells</span>
+          <span class="sl">radio on</span><span class="check radio is-on"><span class="box"></span>Bubbles</span><span class="check radio is-on is-hover"><span class="box"></span>Bubbles</span><span class="check radio is-on is-focus"><span class="box"></span>Bubbles</span><span class="check radio is-on is-disabled"><span class="box"></span>Bubbles</span>
+          <span class="sl">toggle off</span><span class="toggle"><span class="track"></span>Links</span><span class="toggle is-hover"><span class="track"></span>Links</span><span class="toggle is-focus"><span class="track"></span>Links</span><span class="toggle is-disabled"><span class="track"></span>Links</span>
+          <span class="sl">toggle on</span><span class="toggle is-on"><span class="track"></span>Links</span><span class="toggle is-on is-hover"><span class="track"></span>Links</span><span class="toggle is-on is-focus"><span class="track"></span>Links</span><span class="toggle is-on is-disabled"><span class="track"></span>Links</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-sliders"><h3>Slider and range slider</h3>
+      <p class="use"><b>Use</b> a slider for a rough setting that is judged by eye; the range slider for the time window of the map. <b>Rule:</b> the exact value is always printed next to the handle's track, and can be typed.</p>
+      <div class="pair" data-dup>
+        <div class="matrix" style="grid-template-columns:repeat(2,minmax(0,1fr));justify-content:stretch;justify-items:stretch;gap:var(--space-4) var(--space-5)">
+          <div class="lab wide"><span class="sl">default</span><div class="sliderrow"><div class="slider"><span class="rail"></span><span class="fill" style="left:0;width:55%"></span><span class="knob" style="left:55%"></span></div><span class="num">55&#8239;%</span></div></div>
+          <div class="lab wide"><span class="sl">hover</span><div class="sliderrow"><div class="slider"><span class="rail"></span><span class="fill" style="left:0;width:55%"></span><span class="knob is-hover" style="left:55%"></span></div><span class="num">55&#8239;%</span></div></div>
+          <div class="lab wide"><span class="sl">focus — arrow keys move it by one step</span><div class="sliderrow"><div class="slider"><span class="rail"></span><span class="fill" style="left:0;width:30%"></span><span class="knob is-focus" style="left:30%"></span></div><span class="num">30&#8239;%</span></div></div>
+          <div class="lab wide"><span class="sl">disabled</span><div class="sliderrow"><div class="slider is-disabled"><span class="rail"></span><span class="fill" style="left:0;width:55%"></span><span class="knob" style="left:55%"></span></div><span class="num muted">55&#8239;%</span></div></div>
+        </div>
+        <div class="lab wide"><span class="sl">range slider: the time window, with transfers per quarter above it</span>
+          <div class="timewin">
+            <div class="head"><b>Time window</b><span class="num small">2023-01-01 – 2023-12-31</span></div>
+            <div class="hist" data-hist></div>
+            <div class="slider"><span class="rail"></span><span class="fill" style="left:83.33%;width:11.11%"></span><span class="knob" style="left:83.33%"></span><span class="knob is-focus" style="left:94.44%"></span></div>
+            <div class="axis"><span>2015-07</span><span>2018</span><span>2021</span><span>2024-06</span></div>
+            <p class="small ink2"><span class="num">96,118,340</span> addresses and <span class="num">402,771,265</span> transfers fall inside the window. Bars outside it are dimmed, not removed.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-seg"><h3>Segmented control and tabs</h3>
+      <p class="use"><b>Use</b> a segmented control to switch how the same thing is shown (two to four options); tabs to switch between different content in one place. <b>Rule:</b> the selected tab is marked by weight and an underline, never by colour alone.</p>
+      <div class="pair" data-dup>
+        <div class="specs">
+          <div class="lab"><span class="sl">segmented, first selected</span><div class="seg"><button class="is-on" aria-pressed="true">Bubbles</button><button>Cells</button></div></div>
+          <div class="lab"><span class="sl">hover on the second</span><div class="seg"><button class="is-on">Bubbles</button><button class="is-hover">Cells</button></div></div>
+          <div class="lab"><span class="sl">focus</span><div class="seg"><button class="is-on is-focus">Bubbles</button><button>Cells</button></div></div>
+          <div class="lab"><span class="sl">three options, one unavailable</span><div class="seg"><button>Compact</button><button class="is-on">Comfortable</button><button disabled>Spacious</button></div></div>
+        </div>
+        <div class="lab wide"><span class="sl">tabs: selected · default · hover · focus · disabled</span>
+          <div class="tabs" role="tablist"><button class="tab is-on" role="tab" aria-selected="true">Sub-communities <span class="num">1,211</span></button><button class="tab" role="tab">Top addresses</button><button class="tab is-hover" role="tab">Neighbours <span class="num">38</span></button><button class="tab is-focus" role="tab">Plan</button><button class="tab is-disabled" role="tab" aria-disabled="true">History</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 3 LABELS AND HINTS ============================== -->
+  <section class="section" id="small"><h2>3 · Labels and hints</h2>
+    <p>The small pieces that name a state, a key or a control. They are quiet on purpose: a tag never competes with the number next to it.</p>
+
+    <div class="sub comp" id="c-tags"><h3>Tags and status badges</h3>
+      <p class="use"><b>Use</b> a tag to name a kind or a state in one or two words. <b>Rule:</b> a status tag always carries its word and, where there is room, its icon; the colour only repeats what the word says.</p>
+      <div class="pair" data-dup>
+        <div class="specs">
+          <div class="lab"><span class="sl">neutral</span><span class="tag">found community</span></div>
+          <div class="lab"><span class="sl">selected or active</span><span class="tag accent">selected</span></div>
+          <div class="lab"><span class="sl">a count</span><span class="tag num">1,312</span></div>
+          <div class="lab"><span class="sl">removable filter</span><span class="tag">since 2023-01-01<button class="x" aria-label="Remove filter" tabindex="-1"><i data-i="close"></i></button></span></div>
+          <div class="lab"><span class="sl">removable, hover</span><span class="tag is-hover">since 2023-01-01<button class="x" aria-label="Remove filter" tabindex="-1"><i data-i="close"></i></button></span></div>
+        </div>
+        <div class="specs">
+          <div class="lab"><span class="sl">done</span><span class="tag ok"><i data-i="success"></i>Done</span></div>
+          <div class="lab"><span class="sl">cut short</span><span class="tag warn"><i data-i="warning"></i>Cut short</span></div>
+          <div class="lab"><span class="sl">failed</span><span class="tag err"><i data-i="error"></i>Failed</span></div>
+          <div class="lab"><span class="sl">note</span><span class="tag info"><i data-i="info"></i>Estimate</span></div>
+          <div class="lab"><span class="sl">running</span><span class="tag"><span class="spin" style="width:10px;height:10px;border-width:1.5px"></span>Building</span></div>
+          <div class="lab"><span class="sl">word only, in a tight row</span><div class="row" style="gap:var(--space-1)"><span class="tag ok">exact</span><span class="tag warn">sampled</span><span class="tag">waiting</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-kbd"><h3>Key caps</h3>
+      <p class="use"><b>Use</b> wherever a key is named: in menus, tooltips, the search field, the documentation. <b>Rule:</b> one cap per key, in monospace; a combination is caps side by side, a sequence is caps joined by “then”.</p>
+      <div class="pair" data-dup>
+        <div class="specs">
+          <div class="lab"><span class="sl">one key</span><kbd>/</kbd></div>
+          <div class="lab"><span class="sl">named keys</span><div class="row" style="gap:var(--space-1)"><kbd>Esc</kbd><kbd>Enter</kbd><kbd>Tab</kbd><kbd>↑</kbd><kbd>↓</kbd></div></div>
+          <div class="lab"><span class="sl">combination</span><div class="row" style="gap:3px"><kbd>Ctrl</kbd><kbd>K</kbd></div></div>
+          <div class="lab"><span class="sl">sequence</span><div class="row" style="gap:var(--space-1)"><kbd>G</kbd><span class="small muted">then</span><kbd>C</kbd></div></div>
+          <div class="lab"><span class="sl">in a sentence</span><span>Press <kbd>F</kbd> to fit the map to the window.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-tip"><h3>Tooltip</h3>
+      <p class="use"><b>Use</b> the plain tooltip to name an icon-only control and its key; the hover card to show the exact figures of a region under the pointer. <b>Rule:</b> a tooltip never holds something that cannot be reached another way.</p>
+      <div class="pair" data-dup>
+        <div class="specs" style="align-items:flex-start">
+          <div class="lab"><span class="sl">names an icon button</span><div class="tipdemo"><button class="btn icon is-hover" aria-label="Fit to window"><i data-i="fit"></i></button><span class="tip" role="tooltip">Fit to window<kbd>F</kbd></span></div></div>
+          <div class="lab"><span class="sl">explains why something is off</span><div class="tipdemo" style="justify-items:start"><button class="btn" disabled><i data-i="path"></i>Find path to…</button><span class="tip" role="tooltip">Select a second address first</span></div></div>
+          <div class="lab"><span class="sl">hover card on the map</span>
+            <div class="pop hovercard" role="tooltip">
+              <h4>Lending</h4>
+              <dl class="kv">
+                <div><dt>Addresses</dt><dd>6,204,417</dd></div>
+                <div><dt>Transfers inside</dt><dd>71,930,254</dd></div>
+                <div><dt>Level</dt><dd>2 of 6</dd></div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 4 MENUS AND MESSAGES ============================== -->
+  <section class="section" id="overlays"><h2>4 · Menus and messages</h2>
+    <p>Things that float above the page, and things that speak. Floating layers are the only parts with a shadow. Messages say what happened, why, and what to do next.</p>
+
+    <div class="sub comp" id="c-menu"><h3>Popover menu and dropdown</h3>
+      <p class="use"><b>Use</b> a menu for the actions on one thing; a dropdown for the options of a select. <b>Rule:</b> every item that has a key shows it; the current option has a tick as well as its position.</p>
+      <div class="pair" data-dup>
+        <div class="two">
+          <div class="lab wide"><span class="sl">menu: hover, shortcuts, a checked item, disabled, destructive</span>
+            <div class="anchor">
+              <button class="btn icon is-active" aria-label="More" aria-expanded="true"><i data-i="more"></i></button>
+              <div class="pop menu" role="menu">
+                <div class="mi" role="menuitem"><i data-i="zoom-in"></i><span>Zoom to this region</span><span class="k"><kbd>Z</kbd></span></div>
+                <div class="mi is-hover" role="menuitem"><i data-i="table"></i><span>Open as table</span><span class="k"><kbd>T</kbd></span></div>
+                <div class="mi" role="menuitem"><i data-i="link"></i><span>Copy link</span><span class="k"><kbd>Ctrl</kbd><kbd>L</kbd></span></div>
+                <div class="mi is-disabled" role="menuitem" aria-disabled="true"><i data-i="path"></i><span>Find path to…</span><span class="k"><kbd>P</kbd></span></div>
+                <div class="msep"></div>
+                <div class="mi" role="menuitemcheckbox" aria-checked="true"><i data-i="check"></i><span>Show links</span><span class="k"><kbd>L</kbd></span></div>
+                <div class="mi" role="menuitemcheckbox" aria-checked="false"><span></span><span>Show labels of small regions</span><span></span></div>
+                <div class="msep"></div>
+                <div class="mi danger" role="menuitem"><i data-i="trash"></i><span>Delete this map…</span><span></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="lab wide"><span class="sl">dropdown of a select: current option ticked, another hovered</span>
+            <div class="anchor">
+              <button class="select is-open" aria-expanded="true" tabindex="-1"><span class="pre">Colour:</span><span>community</span><i data-i="chevron-up"></i></button>
+              <div class="pop menu" role="listbox" style="width:232px">
+                <div class="mlabel">Colour regions by</div>
+                <div class="mi" role="option" aria-selected="true"><i data-i="check"></i><span>Community</span><span></span></div>
+                <div class="mi is-hover" role="option"><span></span><span>Label</span><span class="num">7 labels</span></div>
+                <div class="mi" role="option"><span></span><span>Transfers inside</span><span class="num">low → high</span></div>
+                <div class="mi" role="option"><span></span><span>PageRank</span><span class="num">low → high</span></div>
+                <div class="mi is-focus" role="option"><span></span><span>Nothing</span><span></span></div>
+                <div class="mfoot">The legend under the map changes with this choice.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-dialog"><h3>Dialogs</h3>
+      <p class="use"><b>Use</b> a dialog only when a decision is needed before anything else can happen. <b>Rule:</b> the buttons repeat the action in words (“Delete transfers.eg”, never “OK”); a destructive dialog says what is lost and what is kept.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">confirm</span>
+          <div class="stage"><div class="dialog" role="dialog" aria-modal="true">
+            <header><h3>Find communities again?</h3><button class="btn icon sm bare" aria-label="Close" tabindex="-1"><i data-i="close"></i></button></header>
+            <div class="body"><p>This replaces the <span class="num">6</span> levels of the map with new ones. Links to regions of the current map will stop working.</p><p>It takes about <span class="num">2&#8239;min 10&#8239;s</span> and stays inside the <span class="num">8&#8239;GB</span> budget.</p></div>
+            <footer><button class="btn quiet" tabindex="-1">Cancel</button><button class="btn primary" tabindex="-1">Find communities</button></footer>
+          </div></div>
+        </div>
+        <div class="lab wide"><span class="sl">destructive confirm</span>
+          <div class="stage"><div class="dialog" role="alertdialog" aria-modal="true">
+            <header><h3>Delete transfers.eg?</h3><button class="btn icon sm bare" aria-label="Close" tabindex="-1"><i data-i="close"></i></button></header>
+            <div class="body"><p>The graph file (<span class="num">9.3&#8239;GB</span>) and its <span class="num">2</span> saved maps will be removed from this machine. <b>This cannot be undone.</b></p><p>The source file <code>transfers.parquet</code> is not touched; building the graph again takes about <span class="num">3&#8239;min 30&#8239;s</span>.</p></div>
+            <footer><button class="btn quiet" tabindex="-1">Keep it</button><button class="btn danger" tabindex="-1"><i data-i="trash"></i>Delete transfers.eg</button></footer>
+          </div></div>
+        </div>
+        <div class="lab wide"><span class="sl">share a link to the view</span>
+          <div class="stage"><div class="dialog" role="dialog" aria-modal="true">
+            <header><h3>Share this view</h3><button class="btn icon sm bare" aria-label="Close" tabindex="-1"><i data-i="close"></i></button></header>
+            <div class="body">
+              <div class="field"><label>Link</label><div class="linkrow"><input class="input ro mono" readonly tabindex="-1" value="http://127.0.0.1:7878/transfers#at=2.1&amp;z=2.4&amp;select=2.1"><button class="btn primary" tabindex="-1"><i data-i="copy"></i>Copy link</button></div></div>
+              <div class="col" style="gap:var(--space-1)">
+                <span class="check is-on is-disabled"><span class="box"><i data-i="check"></i></span>Position and zoom <span class="aside">— always included</span></span>
+                <span class="check is-on"><span class="box"><i data-i="check"></i></span>Selection <span class="aside">— Lending</span></span>
+                <span class="check is-on"><span class="box"><i data-i="check"></i></span>Colour and time window</span>
+              </div>
+              <p class="small">The link opens this exact view for anyone who can reach this machine. To send the map itself, export it as a <code>.egmap</code> file.</p>
+            </div>
+            <footer><button class="btn" tabindex="-1"><i data-i="export"></i>Export .egmap</button><button class="btn quiet" tabindex="-1">Done</button></footer>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-toast"><h3>Toast</h3>
+      <p class="use"><b>Use</b> to confirm something that just happened and needs no decision; it leaves by itself after <span class="num">6&#8239;s</span>, or stays if it reports a failure. <b>Rule:</b> one line, an icon, and at most one action; never the only place an error is shown.</p>
+      <div class="pair" data-dup>
+        <div class="col" style="gap:var(--space-3)">
+          <div class="toast ok" role="status"><i data-i="success"></i><span class="t"><b>Link copied.</b> It opens this view at zoom <span class="num">2.4</span>.</span><span></span><button class="btn icon sm bare" aria-label="Dismiss" tabindex="-1"><i data-i="close"></i></button></div>
+          <div class="toast" role="status"><i data-i="info"></i><span class="t"><b>Filter removed.</b> All <span class="num">212,418,907</span> addresses shown.</span><button class="btn sm quiet" tabindex="-1">Undo</button><button class="btn icon sm bare" aria-label="Dismiss" tabindex="-1"><i data-i="close"></i></button></div>
+          <div class="toast warn" role="status"><i data-i="warning"></i><span class="t"><b>Exported <span class="num">20</span> of <span class="num">1,312</span> rows</b> — the table was cut short.</span><button class="btn sm quiet" tabindex="-1">Export all</button><button class="btn icon sm bare" aria-label="Dismiss" tabindex="-1"><i data-i="close"></i></button></div>
+          <div class="toast err" role="alert"><i data-i="error"></i><span class="t"><b>Image not saved.</b> The folder is read-only.</span><button class="btn sm quiet" tabindex="-1">Choose a folder</button><button class="btn icon sm bare" aria-label="Dismiss" tabindex="-1"><i data-i="close"></i></button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-banner"><h3>Banner</h3>
+      <p class="use"><b>Use</b> for something that is true of the whole view for as long as it is open: a filter in force, a file that changed, a sample. <b>Rule:</b> it sits under the top bar, spans the full width, and goes away only when the condition does.</p>
+      <div class="pair" data-dup>
+        <div class="col" style="gap:var(--space-3)">
+          <div class="window"><div class="wtop"><span data-mark="nest" data-size="20"></span><b style="font-weight:var(--weight-medium)">transfers</b><span class="tag num">.eg</span></div>
+            <div class="banner" role="status"><i data-i="info"></i><span><b>Showing part of the graph.</b> <span class="num">96,118,340</span> of <span class="num">212,418,907</span> addresses, since <span class="num">2023-01-01</span>.</span><button class="btn sm" tabindex="-1">Show all</button><span></span></div>
+            <div class="wbody"></div></div>
+          <div class="window"><div class="wtop"><span data-mark="nest" data-size="20"></span><b style="font-weight:var(--weight-medium)">transfers</b><span class="tag num">.eg</span></div>
+            <div class="banner warn" role="status"><i data-i="warning"></i><span><b>The source file has changed since this graph was built.</b> The counts may be out of date.</span><button class="btn sm" tabindex="-1">Rebuild</button><button class="btn icon sm bare" aria-label="Dismiss" tabindex="-1"><i data-i="close"></i></button></div>
+            <div class="wbody"></div></div>
+          <div class="window"><div class="wtop"><span data-mark="nest" data-size="20"></span><b style="font-weight:var(--weight-medium)">transfers</b><span class="tag num">.eg</span></div>
+            <div class="banner err" role="alert"><i data-i="error"></i><span><b>The connection to the engine was lost.</b> The map is still here, but nothing new can be computed.</span><button class="btn sm" tabindex="-1">Reconnect</button><span></span></div>
+            <div class="wbody"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-callout"><h3>Callouts</h3>
+      <p class="use"><b>Use</b> inside a page or a panel for a message that belongs to the content next to it. <b>Rule:</b> one sentence of what, one of why with the arithmetic when there is one, then the ways out as commands that can be copied.</p>
+      <div class="pair" data-dup>
+        <div class="col" style="gap:var(--space-3)">
+          <div class="callout"><span class="ico"><i data-i="info"></i></span><div><b>This step reads the edges from disk.</b> About one pass over the file for each round; nothing but the per-address state is kept in memory.</div></div>
+          <div class="callout ok"><span class="ico"><i data-i="success"></i></span><div><b>transfers.eg is ready.</b> <span class="num">212,418,907</span> addresses and <span class="num">1,830,397,917</span> transfers in <span class="num">3&#8239;min 30&#8239;s</span>.</div></div>
+          <div class="callout warn"><span class="ico"><i data-i="warning"></i></span><div><b><span class="num">4,201</span> self-loops were dropped.</b> A transfer from an address to itself does not connect anything. Keep them with <code>--keep-loops</code>.</div></div>
+          <div class="callout err"><span class="ico"><i data-i="error"></i></span><div><p><b>Not enough memory for this step.</b> Nothing was run.</p><p>Finding communities needs <span class="num">24&#8239;bytes</span> for each of <span class="num">212,418,907</span> addresses, <span class="num">5.1&#8239;GB</span>, plus <span class="num">0.5&#8239;GB</span> of buffers. The budget is <span class="num">4.0&#8239;GB</span>.</p><pre><code><span class="tok-c"># raise the budget</span>
+eg.config(memory=<span class="tok-s">"6GB"</span>)
+<span class="tok-c"># or work on part of the graph</span>
+g.since(<span class="tok-s">"2023-01-01"</span>).communities()</code></pre></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 5 PROGRESS AND EMPTY ============================== -->
+  <section class="section" id="waiting"><h2>5 · Progress and empty</h2>
+    <p>What the product shows while it works and when it has nothing to show. Waiting always has words and, when it can, a number; an empty place always says what would fill it.</p>
+
+    <div class="sub comp" id="c-progress"><h3>Progress bar</h3>
+      <p class="use"><b>Use</b> determinate when the total is known, with the count and the time left; indeterminate only until the first count arrives; phases for a job with named steps, such as building a graph. <b>Rule:</b> the bar is ink, like any other measurement; it turns green or red only with the word that says so.</p>
+      <div class="pair" data-dup>
+        <div class="col">
+          <div class="prog"><div class="head"><b>Building transfers.eg</b><span class="num">1,270 of 2,048 parts · 62&#8239;% · about 22&#8239;s left</span></div><div class="bar" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><i style="width:62%"></i></div></div>
+          <div class="prog"><div class="head"><b>Reading transfers.parquet</b><span class="num">counting rows…</span></div><div class="bar indet" role="progressbar"><i></i></div></div>
+          <div class="prog"><div class="head"><span class="st"><i data-i="success" style="color:var(--ok)"></i><b>Done</b></span><span class="num">2,048 of 2,048 parts · 59&#8239;s</span></div><div class="bar ok"><i style="width:100%"></i></div></div>
+          <div class="prog"><div class="head"><span class="st"><i data-i="error" style="color:var(--err)"></i><b>Stopped: the disk is full</b></span><span class="num">1,412 of 2,048 parts · 61&#8239;GB needed, 38&#8239;GB free</span></div><div class="bar err"><i style="width:69%"></i></div></div>
+          <div class="prog"><div class="head"><span class="st"><i data-i="pause" style="color:var(--ink-2)"></i><b>Paused</b></span><span class="num">1,270 of 2,048 parts · 62&#8239;%</span></div><div class="bar paused"><i style="width:62%"></i></div></div>
+        </div>
+        <div class="lab wide"><span class="sl">phases, with names and times — as while building a graph</span>
+          <div class="phases" role="group" aria-label="Building transfers.eg">
+            <span class="ph"><i data-i="success"></i>Reading</span><div class="bar"><i style="width:100%"></i></div><span class="num">1,830,402,118 rows</span><span class="num">1&#8239;min 41&#8239;s</span>
+            <span class="ph"><i data-i="success"></i>Identifiers</span><div class="bar"><i style="width:100%"></i></div><span class="num">212,418,907 addresses</span><span class="num">38&#8239;s</span>
+            <span class="ph now"><span class="spin"></span>Building</span><div class="bar"><i style="width:62%"></i></div><span class="num">1,270 of 2,048 parts</span><span class="num">37&#8239;s</span>
+            <span class="ph wait"><span class="dash">–</span>Checking</span><div class="bar"></div><span class="num">waiting</span><span class="num">about 12&#8239;s</span>
+          </div>
+          <p class="small ink2" style="margin-top:var(--space-1)">Step <span class="num">3</span> of <span class="num">4</span> · <span class="num">2&#8239;min 56&#8239;s</span> so far · about <span class="num">34&#8239;s</span> left · peak memory <span class="num">5.9&#8239;GB</span> of <span class="num">8&#8239;GB</span></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-spinner"><h3>Spinner and skeleton</h3>
+      <p class="use"><b>Use</b> a spinner for a wait of a few seconds with no count to show; a skeleton where the shape of what is coming is known. <b>Rule:</b> a spinner always has words beside it, and a skeleton does not shimmer — the layout it holds must not move when the data arrives.</p>
+      <div class="pair" data-dup>
+        <div class="specs">
+          <div class="lab"><span class="sl"><span class="num">16</span> · inline</span><span class="row" style="gap:var(--space-2)"><span class="spin"></span>Looking for paths…</span></div>
+          <div class="lab"><span class="sl"><span class="num">20</span></span><span class="row" style="gap:var(--space-2)"><span class="spin lg"></span>Opening transfers.eg</span></div>
+          <div class="lab"><span class="sl"><span class="num">32</span> · a whole panel</span><span class="row" style="gap:var(--space-3)"><span class="spin xl"></span><span>Reading the region<br><span class="small muted">Usually under <span class="num">2&#8239;s</span></span></span></span></div>
+        </div>
+        <div class="two">
+          <div class="lab wide"><span class="sl">skeleton of a panel: stats, then a list</span>
+            <div class="panelbox" style="padding:var(--space-4)" aria-busy="true">
+              <span class="sk h" style="width:55%"></span>
+              <div class="col" style="gap:6px;margin-top:var(--space-4)"><span class="sk big" style="width:60%"></span><span class="sk" style="width:30%"></span></div>
+              <div style="margin-top:var(--space-3)"><div class="skrow"><span class="sk" style="width:60%"></span><span class="sk"></span><span class="sk"></span></div><div class="skrow"><span class="sk" style="width:75%"></span><span class="sk"></span><span class="sk"></span></div><div class="skrow" style="border:0"><span class="sk" style="width:45%"></span><span class="sk"></span><span class="sk"></span></div></div>
+            </div>
+          </div>
+          <div class="lab wide"><span class="sl">the same panel, loaded: nothing has moved</span>
+            <div class="panelbox" style="padding:var(--space-4)">
+              <h4 style="height:20px">Lending</h4>
+              <div class="stat" style="margin-top:var(--space-4)"><span class="v">6,204,417</span><span class="l">addresses</span></div>
+              <table class="t" style="margin-top:var(--space-3);font-size:var(--text-sm)"><tbody><tr><td>Lending pools</td><td class="num">2,220,679</td></tr><tr><td>Loopers</td><td class="num">1,319,709</td></tr><tr><td style="border:0">Borrowers</td><td class="num" style="border:0">899,938</td></tr></tbody></table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-empty"><h3>Empty states</h3>
+      <p class="use"><b>Use</b> wherever a view can have nothing in it. There are three kinds: nothing yet, nothing found, and something that cannot be shown. <b>Rule:</b> say which of the three it is, why, and give the next step as a button or a command.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">nothing yet — no file is open</span>
+          <div class="empty"><i data-i="file" data-size="20"></i><div><h4>No graph open yet</h4><p>Drop a CSV, Parquet or edge-list file here. You will see what was read, and what it will cost, before anything is computed.</p><div class="row"><button class="btn primary" tabindex="-1">Choose a file</button><button class="btn" tabindex="-1">Open a sample map</button></div><p>Or from a terminal: <code>everygraph ingest transfers.parquet</code></p></div></div>
+        </div>
+        <div class="lab wide"><span class="sl">nothing found — a search or a filter matched nothing</span>
+          <div class="empty solid"><i data-i="search" data-size="20"></i><div><h4>No transfers in this window</h4><p>Between <span class="num">2015-07-30</span> and <span class="num">2015-08-06</span> the file has no rows. The first transfer is on <span class="num">2015-08-07</span>.</p><div class="row"><button class="btn" tabindex="-1">Move the window to the first transfer</button><button class="btn quiet" tabindex="-1">Clear the window</button></div></div></div>
+        </div>
+        <div class="lab wide"><span class="sl">cannot be shown — the answer exists but drawing it would mislead</span>
+          <div class="empty solid"><i data-i="eye-off" data-size="20"></i><div><h4>Too many links to draw</h4><p><span class="num">883,457</span> links leave this region. Drawn together they would cover the map and show nothing. The <span class="num">200</span> strongest carry <span class="num">66.2&#8239;%</span> of the transfers.</p><div class="row"><button class="btn" tabindex="-1">Draw the <span class="num">200</span> strongest</button><button class="btn" tabindex="-1">Open all as a table</button></div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 6 FINDING YOUR WAY ============================== -->
+  <section class="section" id="nav"><h2>6 · Finding your way</h2>
+    <p>Where you are, how much there is, and how to get to the rest of it.</p>
+
+    <div class="sub comp" id="c-pager"><h3>Pagination and “show more”</h3>
+      <p class="use"><b>Use</b> “show more” inside a panel, where the list grows in place; pagination for a full table that is the whole page. <b>Rule:</b> both always state how many are shown and how many exist, with exact numbers.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">pagination: current · hover · disabled at the end</span>
+          <div class="pager"><button class="pg" disabled aria-label="Previous page"><i data-i="chevron-left"></i></button><button class="pg is-on" aria-current="page">1</button><button class="pg is-hover">2</button><button class="pg">3</button><span class="pg" style="cursor:default">…</span><button class="pg">66</button><button class="pg" aria-label="Next page"><i data-i="chevron-right"></i></button><span class="sl"><span class="num">1–20</span> of <span class="num">1,312</span> communities</span></div>
+        </div>
+        <div class="lab wide"><span class="sl">show more, at the foot of a list</span>
+          <div class="more"><span>Showing <span class="num">20</span> of <span class="num">1,312</span></span><span class="row" style="gap:var(--space-2)"><button class="btn sm" tabindex="-1">Show 20 more</button><button class="btn sm quiet" tabindex="-1">Open all as a table</button></span></div>
+        </div>
+        <div class="lab wide"><span class="sl">show more, loading and at the end</span>
+          <div class="col" style="gap:var(--space-2)">
+            <div class="more"><span>Showing <span class="num">20</span> of <span class="num">1,312</span></span><button class="btn sm is-loading" tabindex="-1" aria-busy="true"><span class="spin"></span>Loading 20 more</button></div>
+            <div class="more"><span>All <span class="num">38</span> neighbours shown</span><span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-crumbs"><h3>Breadcrumb</h3>
+      <p class="use"><b>Use</b> on the map and in the panel to show the path from the whole graph to the region in view. <b>Rule:</b> every step but the last is a link back up; the last is where you are, in bold; the level is given as a number, not left to be guessed from the trail.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">as on the map</span>
+          <div class="crumbbar"><nav class="crumbs" aria-label="Path"><a href="#c-crumbs">All</a><i data-i="chevron-right"></i><a href="#c-crumbs">DeFi protocols</a><i data-i="chevron-right"></i><span aria-current="location">Lending</span></nav><span class="level"><span class="pips"><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></span><span>Level <span class="num">2</span> of <span class="num">6</span></span></span></div>
+        </div>
+        <div class="lab wide"><span class="sl">hover on a step · focus on a step</span>
+          <div class="row" style="gap:var(--space-6)"><nav class="crumbs"><a href="#c-crumbs">All</a><i data-i="chevron-right"></i><a href="#c-crumbs" class="is-hover">DeFi protocols</a><i data-i="chevron-right"></i><span aria-current="location">Lending</span></nav>
+          <nav class="crumbs"><a href="#c-crumbs" class="is-focus-ring">All</a><i data-i="chevron-right"></i><a href="#c-crumbs">DeFi protocols</a><i data-i="chevron-right"></i><span aria-current="location">Lending</span></nav></div>
+        </div>
+        <div class="lab wide"><span class="sl">deep: the middle folds into a menu, the ends stay</span>
+          <nav class="crumbs"><a href="#c-crumbs">All</a><i data-i="chevron-right"></i><button class="btn icon sm bare" aria-label="3 more levels" tabindex="-1" style="width:24px;height:24px"><i data-i="more"></i></button><i data-i="chevron-right"></i><a href="#c-crumbs">Lending pools</a><i data-i="chevron-right"></i><span aria-current="location">Community 301832<span class="num">20,064</span></span></nav>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-acc"><h3>Disclosure</h3>
+      <p class="use"><b>Use</b> to keep detail one click away: what was left out, the full plan, a traceback. <b>Rule:</b> the heading says what is inside and how much; nothing needed to understand the result is hidden in one.</p>
+      <div class="pair" data-dup>
+        <div class="acc">
+          <button class="acc-h" aria-expanded="false" tabindex="-1"><i data-i="chevron-right"></i>What was left out<span class="num">3 things</span></button>
+          <button class="acc-h is-hover" aria-expanded="false" tabindex="-1"><i data-i="chevron-right"></i>Full plan<span class="num">7 steps</span></button>
+          <button class="acc-h is-open" aria-expanded="true" tabindex="-1"><i data-i="chevron-down"></i>Columns that were ignored<span class="num">3 columns</span></button>
+          <div class="acc-b"><code>gas</code>, <code>nonce</code> and <code>input</code> were read but not kept: they are not a source, a target, a weight or a time. Keep one with <code>--keep gas</code>.</div>
+          <button class="acc-h is-focus" aria-expanded="false" tabindex="-1"><i data-i="chevron-right"></i>Python traceback<span class="num">1 frame</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 7 SHOWING DATA ============================== -->
+  <section class="section" id="data"><h2>7 · Showing data</h2>
+    <p>The parts that carry numbers. Every figure is exact, in monospace, right-aligned in columns; anything cut short says so where it was cut.</p>
+
+    <div class="sub comp" id="c-table"><h3>Table of exact numbers</h3>
+      <p class="use"><b>Use</b> for anything with more than one figure per item. <b>Rule:</b> numbers are right-aligned and never rounded; the sorted column shows its direction with an arrow; a table that does not show everything says “showing <span class="num">20</span> of <span class="num">1,312</span>” in its foot.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">sorted column · header hover (Transfers inside) · row hover (row 3) · selected row (row 2)</span>
+          <div class="tframe">
+            <table class="t">
+              <thead><tr><th class="sortable">Community<i data-i="sort"></i></th><th class="num sortable is-sorted" aria-sort="descending">Addresses<i data-i="arrow-down"></i></th><th class="num sortable is-hover">Transfers inside<i data-i="sort"></i></th><th class="num">Share</th></tr></thead>
+              <tbody data-rows="8"></tbody>
+            </table>
+            <div class="tfoot"><span>Showing <span class="num">8</span> of <span class="num">1,312</span> · sorted by addresses, largest first</span><button class="btn sm" tabindex="-1">Show 20 more</button></div>
+          </div>
+        </div>
+        <div class="lab wide"><span class="sl">sticky header: the same table, scrolled inside a fixed frame</span>
+          <div class="tframe">
+            <div class="tscroll" data-scroll="333" tabindex="-1">
+              <table class="t">
+                <thead><tr><th class="sortable">Community<i data-i="sort"></i></th><th class="num sortable is-sorted" aria-sort="descending">Addresses<i data-i="arrow-down"></i></th><th class="num sortable">Transfers inside<i data-i="sort"></i></th><th class="num">Share</th></tr></thead>
+                <tbody data-rows="20"></tbody>
+              </table>
+            </div>
+            <div class="tfoot"><span class="st"><i data-i="warning"></i><span>Showing <span class="num">20</span> of <span class="num">1,312</span> · <span class="num" data-share="20"></span> of addresses</span></span><button class="btn sm" tabindex="-1">Open all as a table</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-kv"><h3>Key–value list and stat block</h3>
+      <p class="use"><b>Use</b> the stat block for the two to four figures a panel is about; the key–value list for everything else that is known about one thing. <b>Rule:</b> a share or a breakdown goes under its figure in small type, never in its place.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">stat block, as in the panel</span>
+          <div class="stats">
+            <div class="stat"><span class="v">22,870,455</span><span class="l">addresses</span><span class="s"><span class="num">10.77&#8239;%</span> of the graph</span></div>
+            <div class="stat"><span class="v">268,114,902</span><span class="l">transfers inside</span><span class="s"><span class="num">14.65&#8239;%</span> of all transfers</span></div>
+            <div class="stat"><span class="v">71,330,518</span><span class="l">transfers to or from outside</span></div>
+            <div class="stat"><span class="v">1,211</span><span class="l">sub-communities</span></div>
+          </div>
+        </div>
+        <div class="lab wide"><span class="sl">the one figure of a page</span>
+          <div class="stat big"><span class="v">212,418,907</span><span class="l">addresses in <code>transfers.eg</code></span></div>
+        </div>
+        <div class="lab wide"><span class="sl">key–value list, as in the inspection panel</span>
+          <dl class="kv">
+            <div><dt>Kind</dt><dd class="txt">found community</dd></div>
+            <div><dt>Level</dt><dd>1 of 6</dd></div>
+            <div><dt>Transfers to or from outside</dt><dd>71,330,518</dd><span class="aside"><span class="num">38,204,611</span> out · <span class="num">33,125,907</span> in</span></div>
+            <div><dt>Busiest address</dt><dd>0x7a25…488d<button class="cp" aria-label="Copy the full address" tabindex="-1"><i data-i="copy"></i></button></dd></div>
+            <div><dt>First transfer</dt><dd>2017-11-02</dd></div>
+            <div><dt>Last transfer</dt><dd>2024-06-30</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-rank"><h3>Ranked list with bars</h3>
+      <p class="use"><b>Use</b> for the top few of something, where the order and the rough proportion matter as much as the figure. <b>Rule:</b> the bar is a reading aid in ink; the exact value is always printed beside it, and the folded remainder is a row of its own.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide" style="max-width:328px"><span class="sl">default · hover (row 2) · selected (row 3) · folded remainder</span>
+            <ol class="rank">
+              <li><span class="r">1</span><span class="n">Lending</span><span class="v">6,204,417</span><span class="rb"><i style="width:100%"></i></span></li>
+              <li class="is-hover"><span class="r">2</span><span class="n">Decentralised exchanges</span><span class="v">5,881,902</span><span class="rb"><i style="width:94.8%"></i></span></li>
+              <li class="is-selected"><span class="r">3</span><span class="n">Liquid staking</span><span class="v">3,412,650</span><span class="rb"><i style="width:55%"></i></span></li>
+              <li><span class="r">4</span><span class="n">Yield aggregators</span><span class="v">2,207,331</span><span class="rb"><i style="width:35.6%"></i></span></li>
+              <li><span class="r">5</span><span class="n">Derivatives</span><span class="v">1,918,204</span><span class="rb"><i style="width:30.9%"></i></span></li>
+              <li class="other"><span class="r">+</span><span class="n">1,206 small communities, as one</span><span class="v">3,245,951</span><span class="rb"><i style="width:52.3%"></i></span></li>
+            </ol>
+          </div>
+          <div class="lab wide" style="max-width:328px"><span class="sl">addresses as items: identifiers in mono, cut in the middle; truncated foot</span>
+            <ol class="rank">
+              <li><span class="r">1</span><span class="n num">0x7a25…488d</span><span class="v">4,118,902</span><span class="rb"><i style="width:100%"></i></span></li>
+              <li><span class="r">2</span><span class="n">Lending pool v3 <span class="num muted">0x8787…4fa2</span></span><span class="v">3,602,417</span><span class="rb"><i style="width:87.5%"></i></span></li>
+              <li><span class="r">3</span><span class="n num">0x3fc9…7fad</span><span class="v">1,977,350</span><span class="rb"><i style="width:48%"></i></span></li>
+              <li><span class="r">4</span><span class="n num">0x28c6…1d60</span><span class="v">1,204,118</span><span class="rb"><i style="width:29.2%"></i></span></li>
+            </ol>
+            <div class="more"><span>Showing <span class="num">4</span> of <span class="num">22,870,455</span></span><button class="btn sm" tabindex="-1">Show 20 more</button></div>
+          </div>
+        
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-legend"><h3>Legend</h3>
+      <p class="use"><b>Use</b> under or beside every coloured view. <b>Rule:</b> each colour has a name and an exact count; what has no colour of its own is one row called by what it is (“<span class="num">1,206</span> small communities”), not “other”; a ramp states both ends in numbers.</p>
+      <div class="pair" data-dup>
+        <div class="legend" style="max-width:328px"><h4>Colour: community · addresses</h4>
+            <div class="lgd" style="--c:var(--d2)"><span class="o"></span><span>Lending</span><span class="num">6,204,417</span></div>
+            <div class="lgd" style="--c:var(--d3)"><span class="o"></span><span>Decentralised exchanges</span><span class="num">5,881,902</span></div>
+            <div class="lgd" style="--c:var(--d4)"><span class="o"></span><span>Liquid staking</span><span class="num">3,412,650</span></div>
+            <div class="lgd" style="--c:var(--d5)"><span class="o"></span><span>Yield aggregators</span><span class="num">2,207,331</span></div>
+            <div class="lgd" style="--c:var(--d6)"><span class="o"></span><span>Derivatives</span><span class="num">1,918,204</span></div>
+            <div class="lgd other"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><defs><pattern id="lgh__T__" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V3" stroke="var(--d10)" stroke-width="1"/></pattern></defs><circle cx="7" cy="7" r="5.25" fill="url(#lgh__T__)" stroke="var(--d10)" stroke-width="1.5"/></svg><span>1,206 small communities</span><span class="num">3,245,951</span></div>
+          </div>
+          <div class="two">
+            <div class="legend"><h4>Shade: transfers inside</h4>
+              <div class="ramp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="rampax"><span>12,124,356</span><span>412,880,341</span></div>
+              <span class="sl">7 steps, equal on a logarithmic scale</span>
+            </div>
+            <div class="legend kinds"><h4>Kinds of region</h4>
+              <div class="lgd"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.25" fill="none" stroke="var(--ink-2)" stroke-width="1.5"/></svg><span>Found community</span><span class="num">solid</span></div>
+              <div class="lgd"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.25" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-dasharray="2.5 2"/></svg><span>Split for readability</span><span class="num">dashed</span></div>
+              <div class="lgd"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><defs><pattern id="lgk__T__" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V3" stroke="var(--ink-2)" stroke-width="1"/></pattern></defs><circle cx="7" cy="7" r="5.25" fill="url(#lgk__T__)" stroke="var(--ink-2)" stroke-width="1.5"/></svg><span>Many small ones, as one</span><span class="num">hatched</span></div>
+            </div>
+          </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-code"><h3>Code block and plan diff</h3>
+      <p class="use"><b>Use</b> a code block for anything meant to be copied and run; the diff to show how a plan changes when a setting does. <b>Rule:</b> what is copied is exactly what is shown; in a diff every changed line carries a minus or a plus sign, so it reads without colour.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">code block: copy button default</span>
+          <div class="code"><div class="hd"><span>python</span><button class="btn sm bare" tabindex="-1"><i data-i="copy"></i>Copy</button></div>
+<pre><code><span class="tok-k">import</span> everygraph <span class="tok-k">as</span> eg
+
+eg.config(memory=<span class="tok-s">"8GB"</span>)              <span class="tok-c"># a hard limit</span>
+g = eg.read(<span class="tok-s">"transfers.parquet"</span>)     <span class="tok-c"># 1,830,397,917 transfers</span>
+comm = g.communities(seed=<span class="tok-n">0</span>)
+comm.top(<span class="tok-n">20</span>)</code></pre></div>
+        </div>
+        <div class="two">
+          <div class="lab wide"><span class="sl">a command · copy button hover</span>
+            <div class="code"><div class="hd"><span>shell</span><button class="btn sm bare is-hover" tabindex="-1"><i data-i="copy"></i>Copy</button></div><pre><code>everygraph map transfers.eg</code></pre></div>
+          </div>
+          <div class="lab wide"><span class="sl">just copied — for <span class="num">2&#8239;s</span></span>
+            <div class="code"><div class="hd"><span>shell</span><button class="btn sm bare done" tabindex="-1"><i data-i="check"></i>Copied</button></div><pre><code>everygraph map transfers.eg</code></pre></div>
+          </div>
+        </div>
+        <div class="lab wide"><span class="sl">inline diff of a plan: before and after raising the budget</span>
+          <div class="diff" role="group" aria-label="Plan for communities, before and after">
+            <div class="dh">Plan for <code>g.communities()</code> on <code>transfers.eg</code> · budget <span class="num">4.0&#8239;GB</span> → <span class="num">6.0&#8239;GB</span></div>
+            <div class="ln del"><span>−</span><span>budget</span><span><b>4.0&#8239;GB</b></span></div>
+            <div class="ln add"><span>+</span><span>budget</span><span><b>6.0&#8239;GB</b></span></div>
+            <div class="ln"><span> </span><span>state</span><span>5.1&#8239;GB · 24&#8239;bytes × 212,418,907 addresses</span></div>
+            <div class="ln"><span> </span><span>buffers</span><span>0.5&#8239;GB</span></div>
+            <div class="ln del"><span>−</span><span>result</span><span><b>does not fit</b> · short by 1.6&#8239;GB</span></div>
+            <div class="ln add"><span>+</span><span>result</span><span><b>fits</b> · 0.4&#8239;GB spare</span></div>
+            <div class="ln"><span> </span><span>edges</span><span>streamed from disk, 1 pass per round</span></div>
+            <div class="ln del"><span>−</span><span>estimate</span><span><b>—</b></span></div>
+            <div class="ln add"><span>+</span><span>estimate</span><span><b>about 2&#8239;min 10&#8239;s</b></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-card"><h3>Card</h3>
+      <p class="use"><b>Use</b> to group what belongs to one thing: a saved map, a sample, a way out of an error. <b>Rule:</b> flat, one hairline, no shadow; a card that can be clicked is one target, not a box of links.</p>
+      <div class="pair" data-dup>
+        <div class="two">
+          <div class="lab wide"><span class="sl">default</span><div class="card"><h4>Lending, 2023</h4><p>A saved map of <code>transfers.eg</code>, zoomed to one region and one year.</p><div class="cfoot"><span>saved <span class="num">2024-06-30</span></span><button class="btn sm bare" tabindex="-1">Open</button></div></div></div>
+          <div class="lab wide"><span class="sl">hover — the whole card is the target</span><div class="card is-hover"><h4>Lending, 2023</h4><p>A saved map of <code>transfers.eg</code>, zoomed to one region and one year.</p><div class="cfoot"><span>saved <span class="num">2024-06-30</span></span><button class="btn sm bare is-hover" tabindex="-1">Open</button></div></div></div>
+          <div class="lab wide"><span class="sl">focus</span><div class="card is-focus"><h4>Bridges, all time</h4><p>The <span class="num">7,405,310</span> addresses that move value between chains.</p></div></div>
+          <div class="lab wide"><span class="sl">selected</span><div class="card is-selected"><h4>Bridges, all time</h4><p>The <span class="num">7,405,310</span> addresses that move value between chains.</p></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub comp" id="c-phead"><h3>Side panel header and caption strip</h3>
+      <p class="use"><b>Use</b> the header at the top of the inspection panel; the caption strip under every map and every exported image. <b>Rule:</b> the header names the kind of thing before its name; the strip says what is on screen, what is left out and what position means, and it cannot be switched off.</p>
+      <div class="pair" data-dup>
+        <div class="lab wide"><span class="sl">panel header with actions: pin, more, close</span>
+          <div class="panelbox" style="width:var(--panel)">
+            <div class="phead">
+              <div class="top"><span class="kind" style="--c:var(--d2)"><span class="o"></span><span>Found community · level <span class="num">1</span> of <span class="num">6</span></span></span>
+                <span class="acts"><button class="btn icon sm bare" aria-label="Pin this panel" tabindex="-1"><i data-i="pin"></i></button><button class="btn icon sm bare" aria-label="More" tabindex="-1"><i data-i="more"></i></button><button class="btn icon sm bare" aria-label="Close" tabindex="-1"><i data-i="close"></i></button></span></div>
+              <h3>DeFi protocols</h3>
+              <span class="meta">named from <span class="num">3</span> labels in the file</span>
+            </div>
+          </div>
+        </div>
+        <div class="lab wide"><span class="sl">caption strip, on the page — in a narrow place it wraps; it is never cut</span>
+          <div class="strip"><b>transfers.eg</b><div class="si"><span><span class="num">6</span> of <span class="num">1,211</span> sub-regions on screen</span><span>links for the selection only</span><span>area = addresses</span><span>position groups related regions — <b>distance is not a measurement</b></span></div></div>
+        </div>
+        <div class="lab wide"><span class="sl">caption strip, on the map canvas, with something cut short</span>
+          <div data-theme="dark"><div class="strip onmap"><b>transfers.eg</b><div class="si"><span>level <span class="num">2</span> of <span class="num">6</span></span><span><span class="num">200</span> of <span class="num">883,457</span> links drawn, the strongest</span><span><span class="num">1,206</span> small communities shown as one</span></div><a href="#c-phead">About this map</a></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 8 ASSEMBLED ============================== -->
+  <section class="section" id="assembled"><h2>8 · Assembled: the inspection panel</h2>
+    <p>The viewer's panel for a selected region, at its real width of <span class="num">360&#8239;px</span>, in the viewer, once in each theme. Nothing here is new: panel header, buttons, stat block, tabs, ranked lists, “show more”, key–value list, tags and the caption strip, each as specified above.</p>
+    <div class="pair stack" data-dup>
+      <div class="viewer">
+        <div class="vtop">
+          <span data-mark="nest" data-size="24"></span>
+          <span class="file"><span class="name">transfers<span class="tag num">.eg</span></span><span class="counts"><span class="num">212,418,907</span> addresses · <span class="num">1,830,397,917</span> transfers</span></span>
+          <div class="inbox"><i data-i="search"></i><input placeholder="Search address or region" tabindex="-1"><kbd>/</kbd></div>
+          <button class="select" tabindex="-1"><span class="pre">Colour:</span><span>community</span><i data-i="chevron-down"></i></button>
+          <button class="btn bare" tabindex="-1"><i data-i="time"></i>Time</button>
+          <button class="btn" tabindex="-1"><i data-i="share"></i>Share</button>
+        </div>
+        <div class="map">
+          <svg viewBox="0 0 790 1000" preserveAspectRatio="xMidYMid slice" role="img" aria-label="The map: the region DeFi protocols is selected; the rest is dimmed">
+            <defs><pattern id="mh__T__" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V5" stroke="var(--d10)" stroke-width="1"/></pattern></defs>
+            <g class="dim60">
+              <circle class="mapreg" cx="190" cy="230" r="170" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="130" cy="180" r="62" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="255" cy="170" r="48" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="215" cy="300" r="58" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="110" cy="300" r="34" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="300" cy="262" r="26" style="fill:var(--d1);stroke:var(--d1)" stroke-dasharray="4 3"/>
+              <circle class="mapreg" cx="650" cy="200" r="95" style="fill:var(--d4);stroke:var(--d4)"/><circle class="mapreg" cx="622" cy="176" r="36" style="fill:var(--d4);stroke:var(--d4)"/><circle class="mapreg" cx="690" cy="226" r="30" style="fill:var(--d4);stroke:var(--d4)"/><circle class="mapreg" cx="640" cy="250" r="18" style="fill:var(--d4);stroke:var(--d4)"/>
+              <circle class="mapreg" cx="250" cy="800" r="140" style="fill:var(--d3);stroke:var(--d3)"/><circle class="mapreg" cx="200" cy="760" r="56" style="fill:var(--d3);stroke:var(--d3)"/><circle class="mapreg" cx="306" cy="800" r="44" style="fill:var(--d3);stroke:var(--d3)"/><circle class="mapreg" cx="232" cy="872" r="38" style="fill:var(--d3);stroke:var(--d3)"/><circle class="mapreg" cx="300" cy="720" r="22" style="fill:var(--d3);stroke:var(--d3)" stroke-dasharray="4 3"/>
+              <circle class="mapreg" cx="700" cy="800" r="80" style="fill:var(--d8);stroke:var(--d8)"/><circle class="mapreg" cx="676" cy="778" r="30" style="fill:var(--d8);stroke:var(--d8)"/><circle class="mapreg" cx="730" cy="826" r="24" style="fill:var(--d8);stroke:var(--d8)"/>
+              <circle class="mapreg" cx="60" cy="540" r="70" style="fill:var(--d5);stroke:var(--d5)"/><circle class="mapreg" cx="42" cy="520" r="26" style="fill:var(--d5);stroke:var(--d5)"/><circle class="mapreg" cx="86" cy="566" r="22" style="fill:var(--d5);stroke:var(--d5)"/>
+              <circle class="mapreg" cx="735" cy="480" r="55" style="fill:var(--d6);stroke:var(--d6)"/><circle class="mapreg" cx="722" cy="468" r="20" style="fill:var(--d6);stroke:var(--d6)"/>
+              <circle class="mapreg" cx="590" cy="890" r="48" style="fill:var(--d9);stroke:var(--d9)"/>
+              <text class="maplab" x="190" y="228">Exchanges</text><text class="maplab n" x="190" y="242">31,204,118</text><text class="maplab" x="650" y="130">NFT marketplaces</text><text class="maplab n" x="650" y="144">9,112,876</text><text class="maplab" x="250" y="690">Stablecoin transfers</text><text class="maplab n" x="250" y="704">18,441,082</text><text class="maplab" x="700" y="748">Bridges</text><text class="maplab n" x="700" y="762">7,405,310</text><text class="maplab" x="64" y="496">Mining pools</text><text class="maplab n" x="64" y="510">5,918,244</text><text class="maplab" x="735" y="502">Gambling</text><text class="maplab n" x="735" y="516">4,377,019</text><text class="maplab n" x="590" y="894">3,020,064</text>
+            </g>
+            <!-- links of the selection: ink at 55&#8239;%, width by weight -->
+            <g fill="none" stroke="var(--map-ink)" stroke-opacity="0.55" stroke-linecap="round">
+              <path d="M330 376 Q 270 300 215 262" stroke-width="9"/>
+              <path d="M348 676 Q 300 730 262 790" stroke-width="5.5"/>
+              <path d="M566 346 Q 596 270 640 214" stroke-width="2.5"/>
+              <path d="M596 672 Q 640 730 690 790" stroke-width="1.5"/>
+            </g>
+            <!-- the selected region and what is inside it -->
+            <circle class="mapreg" cx="470" cy="520" r="190" style="fill:var(--d2);stroke:var(--d2)"/>
+            <circle class="mapsel" cx="470" cy="520" r="194" stroke-width="1.5"/><circle class="mapsel" cx="470" cy="520" r="198.5" stroke-width="1.5"/>
+            <circle class="mapreg" cx="400" cy="450" r="72" style="fill:var(--d2);stroke:var(--d2)"/><circle class="mapreg" cx="545" cy="470" r="70" style="fill:var(--d2);stroke:var(--d2)"/><circle class="mapreg" cx="455" cy="600" r="54" style="fill:var(--d2);stroke:var(--d2)"/><circle class="mapreg" cx="560" cy="600" r="43" style="fill:var(--d2);stroke:var(--d2)"/><circle class="mapreg" cx="478" cy="372" r="36" style="fill:var(--d2);stroke:var(--d2)"/>
+            <circle cx="350" cy="560" r="46" fill="url(#mh__T__)" stroke="var(--d10)" stroke-width="1.5"/>
+            <text class="maplab" x="470" y="300">DeFi protocols</text><text class="maplab n" x="470" y="314">22,870,455</text><text class="maplab" x="400" y="448">Lending</text><text class="maplab n" x="400" y="462">6,204,417</text><text class="maplab" x="545" y="462">Decentralised</text><text class="maplab" x="545" y="476">exchanges</text><text class="maplab n" x="545" y="490">5,881,902</text><text class="maplab" x="455" y="598">Liquid staking</text><text class="maplab n" x="455" y="612">3,412,650</text><text class="maplab" x="560" y="598">Yield agg.</text><text class="maplab n" x="560" y="612">2,207,331</text><text class="maplab" x="478" y="370">Derivatives</text><text class="maplab n" x="478" y="384">1,918,204</text><text class="maplab" x="350" y="552">1,206 small</text><text class="maplab n" x="350" y="566">3,245,951</text>
+          </svg>
+          <div class="crumbbar"><nav class="crumbs chip" aria-label="Path"><a href="#assembled">All</a><i data-i="chevron-right"></i><span aria-current="location">DeFi protocols</span></nav><span class="level chip"><span class="pips"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></span><span>Level <span class="num">1</span> of <span class="num">6</span></span></span></div>
+          <div class="zoom"><button class="btn icon" aria-label="Zoom in" tabindex="-1"><i data-i="plus"></i></button><button class="btn icon" aria-label="Zoom out" tabindex="-1"><i data-i="minus"></i></button><button class="btn icon" aria-label="Fit to window" tabindex="-1"><i data-i="fit"></i></button></div>
+        </div>
+        <aside class="panel" aria-label="Selected region">
+          <div class="phead">
+            <div class="top"><span class="kind" style="--c:var(--d2)"><span class="o"></span><span>Found community · level <span class="num">1</span> of <span class="num">6</span></span></span>
+              <span class="acts"><button class="btn icon sm bare" aria-label="Pin this panel" tabindex="-1"><i data-i="pin"></i></button><button class="btn icon sm bare" aria-label="More" tabindex="-1"><i data-i="more"></i></button><button class="btn icon sm bare" aria-label="Close" tabindex="-1"><i data-i="close"></i></button></span></div>
+            <h3>DeFi protocols</h3>
+            <span class="meta">named from <span class="num">3</span> labels in the file</span>
+          </div>
+          <div class="pacts"><button class="btn sm primary" tabindex="-1"><i data-i="zoom-in"></i>Zoom in</button><button class="btn sm" tabindex="-1"><i data-i="table"></i>Table</button><button class="btn sm" tabindex="-1"><i data-i="share"></i>Connections</button></div>
+          <section><h4>Size <span>exact counts</span></h4>
+            <div class="stats">
+              <div class="stat"><span class="v">22,870,455</span><span class="l">addresses</span><span class="s"><span class="num">10.77&#8239;%</span> of the graph</span></div>
+              <div class="stat"><span class="v">268,114,902</span><span class="l">transfers inside</span><span class="s"><span class="num">14.65&#8239;%</span> of all transfers</span></div>
+            </div>
+          </section>
+          <section>
+            <div class="tabs" role="tablist"><button class="tab is-on" role="tab" aria-selected="true" tabindex="-1">Sub-communities <span class="num">1,211</span></button><button class="tab" role="tab" tabindex="-1">Top addresses</button><button class="tab" role="tab" tabindex="-1">Plan</button></div>
+            <ol class="rank">
+              <li><span class="r">1</span><span class="n">Lending</span><span class="v">6,204,417</span><span class="rb"><i style="width:100%"></i></span></li>
+              <li><span class="r">2</span><span class="n">Decentralised exchanges</span><span class="v">5,881,902</span><span class="rb"><i style="width:94.8%"></i></span></li>
+              <li><span class="r">3</span><span class="n">Liquid staking</span><span class="v">3,412,650</span><span class="rb"><i style="width:55%"></i></span></li>
+              <li><span class="r">4</span><span class="n">Yield aggregators</span><span class="v">2,207,331</span><span class="rb"><i style="width:35.6%"></i></span></li>
+              <li><span class="r">5</span><span class="n">Derivatives</span><span class="v">1,918,204</span><span class="rb"><i style="width:30.9%"></i></span></li>
+              <li class="other"><span class="r">+</span><span class="n">1,206 small communities, as one</span><span class="v">3,245,951</span><span class="rb"><i style="width:52.3%"></i></span></li>
+            </ol>
+            <div class="more"><span><span class="num">5</span> found · <span class="num">1,206</span> small ones folded</span><button class="btn sm quiet" tabindex="-1">Unfold</button></div>
+          </section>
+          <section><h4>Strongest connections <span>transfers, both directions</span></h4>
+            <ol class="rank">
+              <li><span class="r">1</span><span class="n">Exchanges</span><span class="v">31,907,264</span><span class="rb"><i style="width:100%"></i></span></li>
+              <li><span class="r">2</span><span class="n">Stablecoin transfers</span><span class="v">18,220,113</span><span class="rb"><i style="width:57.1%"></i></span></li>
+              <li><span class="r">3</span><span class="n">NFT marketplaces</span><span class="v">6,410,875</span><span class="rb"><i style="width:20.1%"></i></span></li>
+              <li><span class="r">4</span><span class="n">Bridges</span><span class="v">3,118,402</span><span class="rb"><i style="width:9.8%"></i></span></li>
+            </ol>
+            <div class="more"><span><span class="num">4</span> of <span class="num">38</span> · <span class="num">83.6&#8239;%</span> of the weight</span><button class="btn sm quiet" tabindex="-1">Show all 38</button></div>
+          </section>
+          <section><h4>Details</h4>
+            <dl class="kv">
+              <div><dt>To or from outside</dt><dd>71,330,518</dd><span class="aside"><span class="num">38,204,611</span> out · <span class="num">33,125,907</span> in</span></div>
+              <div><dt>Busiest address</dt><dd>0x7a25…488d<button class="cp" aria-label="Copy the full address" tabindex="-1"><i data-i="copy"></i></button></dd></div>
+              <div><dt>Active</dt><dd>2017-11-02 – 2024-06-30</dd></div>
+            </dl>
+          </section>
+        </aside>
+        <div class="strip"><div class="si"><span><span class="num">8</span> of <span class="num">1,312</span> regions on screen</span><span><span class="num">4</span> of <span class="num">38</span> links drawn, for the selection only</span><span>area = addresses</span><span>position groups related regions — <b>distance is not a measurement</b></span></div><a href="#assembled">About this map</a></div>
+      </div>
+    </div>
+  </section>
+</main>
+<script src="assets/shell.js" data-page="components"></script>
+<script>
+/* -- shared by index, foundations and components: icon set, mark, theme pairs -- */
+var EGIcons = {
+  'search': 'c:7,7,4.5|M10.5 10.5 14 14',
+  'zoom-in': 'c:7,7,4.5|M10.5 10.5 14 14|M7 5v4|M5 7h4',
+  'zoom-out': 'c:7,7,4.5|M10.5 10.5 14 14|M5 7h4',
+  'fit': 'M2 6V3.5A1.5 1.5 0 0 1 3.5 2H6|M10 2h2.5A1.5 1.5 0 0 1 14 3.5V6|M14 10v2.5a1.5 1.5 0 0 1-1.5 1.5H10|M6 14H3.5A1.5 1.5 0 0 1 2 12.5V10',
+  'layers': 'M8 2 2 5l6 3 6-3-6-3z|M2 8l6 3 6-3|M2 11l6 3 6-3',
+  'colour': 'M8 2c2.7 3 4.5 5.2 4.5 7.5a4.5 4.5 0 0 1-9 0C3.5 7.2 5.3 5 8 2z',
+  'time': 'c:8,8,6|M8 4.5V8l2.5 1.5',
+  'share': 'c:12,3.5,1.75|c:4,8,1.75|c:12,12.5,1.75|M5.55 7.15l4.9-2.8|M5.55 8.85l4.9 2.8',
+  'link': 'M6.75 9.25a3 3 0 0 0 4.25 0l2-2a3 3 0 0 0-4.25-4.25l-1 1|M9.25 6.75a3 3 0 0 0-4.25 0l-2 2a3 3 0 0 0 4.25 4.25l1-1',
+  'export': 'M9 2H3.5A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14H9|M6.5 8H14|M11.5 5.5 14 8l-2.5 2.5',
+  'download': 'M8 2v8.5|M4.5 7 8 10.5 11.5 7|M3 13.5h10',
+  'upload': 'M8 10.5V2|M4.5 5.5 8 2l3.5 3.5|M3 13.5h10',
+  'file': 'M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6L9 2z|M9 2v4h4',
+  'graph': 'c:4,4,1.75|c:12.5,6,1.75|c:6,12.5,1.75|M5.7 4.4l5.1 1.2|M4.4 5.7l1.2 5.1|M11.3 7.3 7.2 11.2',
+  'node': 'c:8,8,3|M10.1 5.9 13.5 2.5|M5.9 10.1 2.5 13.5',
+  'edge': 'c:3.75,12.25,1.75|c:12.25,3.75,1.75|M5 11l6-6',
+  'path': 'c:3.25,12.5,1.5|c:12.75,3.5,1.5|M4.75 12.5H9.5a2.25 2.25 0 0 0 0-4.5h-3a2.25 2.25 0 0 1 0-4.5h4.75',
+  'filter': 'M2 3h12L9.5 8.5V13l-3 1V8.5L2 3z',
+  'community': 'c:8,8,6|c:6.25,9.25,2.25|c:10.5,6,1.25',
+  'table': 'r:2,2.5,12,11,1.5|M2 6.25h12|M2 10h12|M6.5 6.25v7.25',
+  'code': 'M5.5 4.5 2 8l3.5 3.5|M10.5 4.5 14 8l-3.5 3.5',
+  'terminal': 'r:2,2.5,12,11,1.5|M5 6.5l2 1.75-2 1.75|M8.5 10.25H11',
+  'info': 'c:8,8,6|M8 7.5v3.25|d:8,5.25,0.9',
+  'warning': 'M8 2.25 14.5 13.5h-13L8 2.25z|M8 6.5v3.25|d:8,11.5,0.9',
+  'error': 'c:8,8,6|M6 6l4 4|M10 6l-4 4',
+  'success': 'c:8,8,6|M5.25 8.25l2 2 3.5-4',
+  'help': 'c:8,8,6|M6.25 6.5a1.75 1.75 0 1 1 2.6 1.55c-.5.3-.85.65-.85 1.2|d:8,11.25,0.9',
+  'close': 'M4 4l8 8|M12 4l-8 8',
+  'check': 'M3 8.5l3.25 3.25L13 4.5',
+  'plus': 'M8 3v10|M3 8h10',
+  'minus': 'M3 8h10',
+  'chevron-down': 'M4 6l4 4 4-4',
+  'chevron-up': 'M4 10l4-4 4 4',
+  'chevron-left': 'M10 4 6 8l4 4',
+  'chevron-right': 'M6 4l4 4-4 4',
+  'sort': 'M5 6l3-3 3 3|M5 10l3 3 3-3',
+  'arrow-up': 'M8 13V3|M4 7l4-4 4 4',
+  'arrow-down': 'M8 3v10|M4 9l4 4 4-4',
+  'arrow-right': 'M3 8h10|M9 4l4 4-4 4',
+  'more': 'd:3.5,8,1.1|d:8,8,1.1|d:12.5,8,1.1',
+  'menu': 'M2.5 4.5h11|M2.5 8h11|M2.5 11.5h11',
+  'settings': 'M2 4.75h6.5|M12.5 4.75H14|c:10.5,4.75,1.75|M2 11.25h1.5|M7.5 11.25H14|c:5.5,11.25,1.75',
+  'sun': 'c:8,8,2.75|M8 1.5V3|M8 13v1.5|M1.5 8H3|M13 8h1.5|M3.4 3.4l1.1 1.1|M11.5 11.5l1.1 1.1|M3.4 12.6l1.1-1.1|M11.5 4.5l1.1-1.1',
+  'moon': 'M13.5 9.6A6 6 0 0 1 6.4 2.5a6 6 0 1 0 7.1 7.1z',
+  'copy': 'r:5.5,5.5,8.5,8.5,1.5|M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2',
+  'external': 'M9.5 2.5h4v4|M13.5 2.5 7.5 8.5|M11.5 9.5V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V6A1.5 1.5 0 0 1 4 4.5h2.5',
+  'pin': 'M8 14.5s4.5-4 4.5-8a4.5 4.5 0 0 0-9 0c0 4 4.5 8 4.5 8z|c:8,6.5,1.5',
+  'eye': 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z|c:8,8,2',
+  'eye-off': 'M6.2 3.8A6 6 0 0 1 8 3.5c4 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.8 2.3|M10.9 11.7a6 6 0 0 1-2.9.8C4 12.5 1.5 8 1.5 8a11 11 0 0 1 2.9-3.2|M2.5 2.5l11 11',
+  'play': 'M5 3l8 5-8 5V3z',
+  'pause': 'M5.5 3v10|M10.5 3v10',
+  'refresh': 'M13.5 8a5.5 5.5 0 1 1-1.6-3.9|M13.5 2v3.5H10',
+  'trash': 'M2.5 4.5h11|M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5|M4 4.5l.6 8.1A1.5 1.5 0 0 0 6.1 14h3.8a1.5 1.5 0 0 0 1.5-1.4l.6-8.1'
+};
+function egIcon(name, size) {
+  var def = EGIcons[name]; if (!def) { throw new Error('unknown icon: ' + name); }
+  var ne = ' vector-effect="non-scaling-stroke"', s = size || 16;
+  var inner = def.split('|').map(function (part) {
+    var a;
+    if (part.indexOf('c:') === 0) { a = part.slice(2).split(','); return '<circle cx="' + a[0] + '" cy="' + a[1] + '" r="' + a[2] + '"' + ne + '/>'; }
+    if (part.indexOf('d:') === 0) { a = part.slice(2).split(','); return '<circle class="f" cx="' + a[0] + '" cy="' + a[1] + '" r="' + a[2] + '"/>'; }
+    if (part.indexOf('r:') === 0) { a = part.slice(2).split(','); return '<rect x="' + a[0] + '" y="' + a[1] + '" width="' + a[2] + '" height="' + a[3] + '" rx="' + a[4] + '"' + ne + '/>'; }
+    return '<path d="' + part + '"' + ne + '/>';
+  }).join('');
+  return '<svg class="i" width="' + s + '" height="' + s + '" viewBox="0 0 16 16" aria-hidden="true">' + inner + '</svg>';
+}
+/* The mark, to the geometry in SPEC.md (32-unit box). kind: nest | mono | rev (reversed, no square) | seal | seal-s (inner ring dropped) | seal-h (dropped ring, heavier cut). */
+function egMark(kind, size, ctxTheme) {
+  var a = '<svg class="mk" width="' + size + '" height="' + size + '" viewBox="0 0 32 32" role="img" aria-label="Everygraph mark">';
+  var ring = function (cx, cy, r, w, col) { return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="' + w + '"/>'; };
+  if (kind === 'nest' || kind === 'mono') {
+    return a + ring(16, 16, 13, 2.4, 'currentColor') + ring(18.5, 18, 7, 2.4, 'currentColor') +
+      '<circle cx="20" cy="19.2" r="2.6" fill="' + (kind === 'mono' ? 'currentColor' : 'var(--accent)') + '"/></svg>';
+  }
+  /* Seal: the square is an inverse surface, so the dot takes the accent of the opposite theme. */
+  var inv = ctxTheme === 'dark' ? 'light' : 'dark';
+  var sq = '<rect width="32" height="32" rx="3" fill="var(--ink)"/>';
+  var dot = function (cx, cy, r) { return '<circle data-theme="' + inv + '" cx="' + cx + '" cy="' + cy + '" r="' + r + '" style="fill:var(--accent)"/>'; };
+  if (kind === 'rev') { return a + ring(16, 16, 13, 2.4, 'var(--bg)') + ring(18.5, 18, 7, 2.4, 'var(--bg)') + dot(20, 19.2, 2.6) + '</svg>'; }
+  if (kind === 'seal-s') { return a + sq + ring(16, 16, 11.4, 2.4, 'var(--bg)') + dot(19.5, 18.8, 2.6) + '</svg>'; }
+  if (kind === 'seal-h') { return a + sq + ring(16, 16, 10.6, 3.6, 'var(--bg)') + dot(18.4, 17.9, 3.6) + '</svg>'; }
+  return a + sq + '<g transform="translate(16 16) scale(0.875) translate(-16 -16)">' + ring(16, 16, 13, 2.4, 'var(--bg)') + ring(18.5, 18, 7, 2.4, 'var(--bg)') + '</g>' + dot(19.5, 18.8, 2.275) + '</svg>';
+}
+function egHydrate(root) {
+  root = root || document;
+  /* [data-dup]: write a specimen once, show it in both themes inside a .pair */
+  Array.prototype.forEach.call(root.querySelectorAll('[data-dup]'), function (el) {
+    var html = el.innerHTML; el.removeAttribute('data-dup');
+    /* __T__ in an id is replaced per theme, so SVG patterns stay unique in the document */
+    el.innerHTML = '<div data-theme="light">' + html.replace(/__T__/g, 'l') + '</div><div data-theme="dark">' + html.replace(/__T__/g, 'd') + '</div>';
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('[data-mark]'), function (el) {
+    var t = el.closest('[data-theme]'); t = t ? t.getAttribute('data-theme') : 'light';
+    el.outerHTML = egMark(el.getAttribute('data-mark'), +(el.getAttribute('data-size') || 32), t);
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('[data-i]'), function (el) {
+    var st = el.getAttribute('style'), svg = egIcon(el.getAttribute('data-i'), +(el.getAttribute('data-size') || 16));
+    el.outerHTML = st ? svg.replace('<svg ', '<svg style="' + st + '" ') : svg;
+  });
+}
+</script>
+<script>
+(function () {
+  'use strict';
+  egHydrate();
+  var each = function (sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); };
+  var fmt = function (n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+  var TOTAL = 212418907;
+  var ROWS = [['Exchanges', 31204118, 412880341], ['DeFi protocols', 22870455, 268114902], ['Stablecoin transfers', 18441082, 201557310], ['NFT marketplaces', 9112876, 97340221],
+    ['Bridges', 7405310, 64118772], ['Mining pools', 5918244, 88402615], ['Gambling', 4377019, 51209480], ['Community 301832', 3020064, 12124356],
+    ['Payment processors', 2811430, 30417552], ['Community 118204', 2640917, 9880341], ['Token airdrops', 2377585, 14902116], ['Wallet services', 2150266, 21733408],
+    ['Layer-2 deposits', 1984003, 17250994], ['Community 77310', 1771548, 6204873], ['OTC desks', 1602917, 19118320], ['Game economies', 1455280, 11640227],
+    ['Community 240119', 1390662, 4871905], ['Privacy mixers', 1248035, 8312764], ['Donation funds', 1102774, 3604118], ['Community 9958', 1011906, 2977431]];
+  /* table rows: the first 8 or the first 20 of the 1,312 communities */
+  each('tbody[data-rows]', function (tb) {
+    var n = +tb.getAttribute('data-rows'), states = n === 8;
+    tb.innerHTML = ROWS.slice(0, n).map(function (r, i) {
+      var unnamed = r[0].indexOf('Community ') === 0;
+      return '<tr' + (states && i === 1 ? ' class="is-selected" aria-selected="true"' : states && i === 2 ? ' class="is-hover"' : '') + '><td>' + (unnamed ? '<span class="ink2">' + r[0] + '</span>' : r[0]) +
+        '</td><td class="num">' + fmt(r[1]) + '</td><td class="num">' + fmt(r[2]) + '</td><td class="num">' + (100 * r[1] / TOTAL).toFixed(2) + ' %</td></tr>';
+    }).join('');
+  });
+  each('[data-share]', function (el) {
+    var n = +el.getAttribute('data-share'), s = 0; ROWS.slice(0, n).forEach(function (r) { s += r[1]; });
+    el.textContent = (100 * s / TOTAL).toFixed(2) + ' %';
+  });
+  each('[data-scroll]', function (el) { el.scrollTop = +el.getAttribute('data-scroll'); });
+  /* transfers per quarter, 2015-Q3 to 2024-Q2 (36 quarters, invented); the window is the four quarters of 2023 */
+  var H = [1, 2, 2, 3, 4, 6, 9, 14, 22, 38, 61, 44, 31, 26, 24, 27, 30, 29, 33, 41, 58, 79, 96, 100, 88, 72, 61, 55, 49, 46, 52, 57, 61, 66, 71, 78];
+  each('[data-hist]', function (el) {
+    el.innerHTML = H.map(function (h, i) { return '<i' + (i >= 30 && i < 34 ? ' class="in"' : '') + ' style="height:' + h + '%"></i>'; }).join('');
+  });
+})();
+</script>
+</body>
+</html>

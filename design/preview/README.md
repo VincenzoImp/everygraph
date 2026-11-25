@@ -9,6 +9,7 @@ you disagree; silence means "go with ★" and it is recorded as provisional in
 
 | Preview | What it settles |
 |---|---|
+| **[0. The chosen style, in detail](style/README.md)** | **the whole look, everywhere it will be used — start here** |
 | [1. The map viewer](#1-the-map-viewer) | look, layout and interaction of the product's main screen |
 | [2. Visual identity](#2-visual-identity) | mark, colours, type |
 | [3. Python API](api.md) | how the code reads, what it prints |

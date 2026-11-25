@@ -1,0 +1,1392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everygraph style — Foundations</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+/* page-specific layout only; colours, sizes and radii come from tokens.css */
+/* -- shared by index, foundations and components (kept inline: these pages own no file under assets/) -- */
+svg.i { flex: none; display: inline-block; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+svg.i .f { fill: currentColor; stroke: none; }
+svg.mk { flex: none; display: inline-block; vertical-align: middle; color: var(--ink); }
+.lockup { display: inline-flex; align-items: center; gap: calc(var(--t) * 0.5); font-size: var(--t); line-height: 1; color: var(--ink); white-space: nowrap; }
+.lockup b { font-weight: var(--weight-semibold); }
+.lockup.tight { letter-spacing: var(--tracking-tight); }
+.lockup.stacked { flex-direction: column; gap: calc(var(--t) * 0.6); }
+
+/* ---- page furniture ---- */
+.toc { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin-top: var(--space-5); font-size: var(--text-sm); }
+.toc a { text-decoration: none; } .toc a:hover { text-decoration: underline; }
+.toc .num { color: var(--muted); margin-right: var(--space-1); }
+.section { scroll-margin-top: calc(var(--topbar) + var(--space-4)); }
+.sub > h3 + .note { margin-bottom: var(--space-4); }
+.spec > h4, .pair h4 { font-size: var(--text-sm); line-height: var(--lh-sm); font-weight: var(--weight-medium); color: var(--ink-2); margin-bottom: var(--space-3); }
+.pair h4:not(:first-child) { margin-top: var(--space-5); }
+.pair > [data-theme] { min-width: 0; }
+.cap { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); }
+.cap .num, .note .num { font-size: inherit; }
+.stack { display: grid; gap: var(--space-4); }
+.flag { color: var(--err); font-weight: var(--weight-medium); white-space: nowrap; }
+.pass { color: var(--ok); white-space: nowrap; }
+.verdict { display: inline-flex; align-items: center; gap: var(--space-1); }
+
+/* ---- 1 mark ---- */
+.dg text { font: var(--text-xs)/1 var(--font-mono); fill: var(--ink-2); }
+.dg .t-strong { fill: var(--ink); font-weight: 500; }
+.dg .ghost { fill: none; stroke: var(--surface-2); }
+.dg .edge { fill: none; stroke: var(--line-strong); stroke-width: 1; }
+.dg .mid { fill: none; stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 3; }
+.dg .dim { fill: none; stroke: var(--ink); stroke-width: 1; }
+.dg .gridline { stroke: var(--line); stroke-width: 1; }
+.dg .gridline.major { stroke: var(--line-strong); }
+.dg .dotfill { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+.dg .zone { fill: var(--surface-2); }
+.dg .dash { fill: none; stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 4 3; }
+.construct { display: grid; grid-template-columns: 580px 1fr; gap: var(--space-6); align-items: start; }
+.construct table.t { font-size: var(--text-sm); }
+.results { display: flex; gap: var(--space-6); align-items: flex-end; margin-top: var(--space-5); }
+.results figure { display: grid; gap: var(--space-2); justify-items: start; }
+.sizes { display: flex; align-items: flex-end; gap: var(--space-3); }
+.sizes figure { display: grid; gap: var(--space-2); justify-items: center; }
+.sizes figcaption { font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--muted); text-align: center; }
+.sizes figcaption.below { color: var(--err); }
+.tiles { display: grid; gap: var(--space-4); }
+.tiles.c7 { grid-template-columns: repeat(7, 1fr); } .tiles.c3 { grid-template-columns: repeat(3, 1fr); } .tiles.c4 { grid-template-columns: repeat(4, 1fr); }
+.tile { display: grid; gap: var(--space-2); align-content: start; }
+.tile .stage { position: relative; height: 112px; display: grid; place-items: center; background: var(--bg); border: var(--border) solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.tile .stage.ink { background: var(--ink); } .tile .stage.ink svg.mk { color: var(--bg); }
+.tile .stage.mid { background: var(--surface-2); }
+.tile .stage.tall { height: 160px; }
+.tile .stage > svg.busy { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tile .stage > .on { position: relative; }
+.tile .stage > svg.cross { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cross line { stroke: var(--err); stroke-width: 1.5; }
+.tile p { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.tile p b { font-weight: var(--weight-medium); color: var(--ink); }
+.tile p .verdict { display: inline; color: var(--err); font-weight: var(--weight-medium); } .tile p .verdict svg { margin-right: var(--space-1); } .tile p .verdict.yes { color: var(--ok); }
+.plate { background: var(--bg); padding: 26px; border-radius: var(--radius-sm); display: grid; }
+.px { display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: flex-end; }
+.px figure { display: grid; gap: var(--space-2); }
+.px canvas { image-rendering: pixelated; border: var(--border) solid var(--line); display: block; }
+.px figcaption { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); min-height: calc(var(--lh-xs) * 2); }
+.browser { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); }
+.browser .tabs { display: flex; align-items: flex-end; gap: var(--space-1); padding: var(--space-2) var(--space-2) 0; background: var(--surface-2); }
+.browser .tab { display: flex; align-items: center; gap: var(--space-2); height: var(--control-md); padding: 0 var(--space-3); min-width: 0; flex: 1; font-size: var(--text-xs); color: var(--ink-2); border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.browser .tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.browser .tab.on { background: var(--surface); color: var(--ink); }
+.browser .tab svg.i { color: var(--muted); }
+.browser .bar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: var(--border) solid var(--line); }
+.browser .url { flex: 1; height: var(--control-sm); display: flex; align-items: center; padding: 0 var(--space-3); border-radius: var(--radius-round); background: var(--surface-2); font: var(--text-xs)/1 var(--font-mono); color: var(--ink-2); }
+.browser .body { height: 40px; background: var(--bg); }
+.appicons { display: flex; gap: var(--space-5); align-items: flex-end; flex-wrap: wrap; }
+.appicons figure { display: grid; gap: var(--space-2); justify-items: center; }
+.appicons figcaption { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); text-align: center; }
+.masked { background: var(--ink); display: grid; place-items: center; }
+.masked.squircle { width: 96px; height: 96px; border-radius: 22px; }  /* platform mask, not ours: no token */
+.masked.circle { border-radius: var(--radius-round); }
+
+/* ---- 2 wordmark ---- */
+.lockups { display: flex; justify-content: space-between; gap: var(--space-4); align-items: flex-end; }
+.lockups figure { display: grid; gap: var(--space-4); justify-items: start; align-content: end; }
+.lockups figcaption, .minsizes figcaption { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); }
+.minsizes { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; gap: var(--space-3); align-items: end; white-space: nowrap; }
+.minsizes figure { display: grid; gap: var(--space-2); justify-items: start; }
+.tagline { display: grid; grid-template-columns: auto auto; column-gap: calc(var(--t) * 0.5); align-items: center; justify-content: start; }
+.tagline .lockup { display: contents; }
+.tagline .tg { grid-column: 2; font-size: max(var(--text-xs), calc(var(--t) * 0.5)); line-height: 1.3; color: var(--ink-2); margin-top: calc(var(--t) * 0.25); }
+.ruler { display: flex; margin: var(--space-3) 0 var(--space-7); font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--ink-2); }
+.ruler span { position: relative; height: 8px; border: var(--border) solid var(--ink-2); border-top: 0; margin-right: -1px; }
+.ruler span.gap em { top: 28px; }
+.ruler span.gap::after { content: ""; position: absolute; left: 50%; top: 8px; height: 18px; border-left: var(--border) solid var(--ink-2); }
+.ruler span em { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-style: normal; white-space: nowrap; }
+.ruler span.gap { background: var(--accent-soft); }
+.spell { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.spell table.t td:first-child { width: 150px; color: var(--ink-2); font-size: var(--text-sm); }
+.spell td .verdict { margin-right: var(--space-2); }
+.spell .yes svg.i { color: var(--ok); } .spell .no svg.i { color: var(--err); }
+.spell .no .w { text-decoration: underline wavy var(--err); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.spell .wm { font-size: var(--text-lg); } .spell .wm b { font-weight: var(--weight-semibold); }
+
+/* ---- 3 colour ---- */
+.swgroup + .swgroup { margin-top: var(--space-5); }
+.sws { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4) var(--space-3); }
+.sws.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } .sws.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); } .sws.c7 { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-3) var(--space-2); }
+.sw { display: grid; gap: 2px; align-content: start; min-width: 0; }
+.sw .swatch { display: flex; align-items: flex-end; padding: var(--space-1) var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-medium); margin-bottom: var(--space-1); }
+.sw .n { font: var(--weight-medium) var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--ink); white-space: nowrap; }
+.sw .h { font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--muted); }
+.sw .u { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); min-height: var(--lh-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw .r { display: flex; justify-content: space-between; gap: var(--space-1); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); border-top: var(--border) solid var(--line); padding-top: 2px; white-space: nowrap; }
+.sw .r .num { font-size: var(--text-xs); color: var(--ink); }
+.sw .r.bad .num { color: var(--err); font-weight: 500; }
+.sws.c5 .swatch, .sws.c7 .swatch { height: 40px; }
+.usage td, .usage th { text-align: center; white-space: normal; } .usage td:first-child, .usage th:first-child { text-align: left; white-space: nowrap; }
+.usage td:first-child .tk { display: block; margin: 2px 0 0 20px; } .usage td:first-child code { font-size: var(--text-xs); }
+.usage tr:hover td { background: none; }
+.usage td { font-size: var(--text-sm); vertical-align: middle; }
+.usage .y { color: var(--ink); font-weight: var(--weight-medium); } .usage .n { color: var(--muted); }
+.usage .chipdot { display: inline-block; width: 12px; height: 12px; border-radius: var(--radius-xs); vertical-align: -1px; margin-right: var(--space-2); border: var(--border) solid var(--line); }
+.cvd { display: grid; grid-template-columns: 92px repeat(5, minmax(0, 1fr)); gap: var(--space-2) var(--space-2); align-items: center; }
+.cvd .hd { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); font-weight: var(--weight-medium); }
+.cvd .rowh { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.cvd .cell { display: grid; gap: 2px; }
+.cvd .cell .swatch { height: 32px; }
+.cvd .cell .de { font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--ink-2); }
+.cvd .cell .de.bad { color: var(--err); font-weight: 500; }
+.confuse { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+
+/* ---- 4 type ---- */
+code, kbd, pre, samp, .num, .glyphs.mono { font-variant-ligatures: none; }   /* proposed for base.css: see "Code ligatures" */
+.lig-on, .lig-on code { font-variant-ligatures: normal; }
+.glyphs p { font-size: var(--text-lg); line-height: var(--lh-xl); white-space: pre-wrap; overflow-wrap: anywhere; }
+.glyphs .big { font-size: var(--text-3xl); line-height: var(--lh-3xl); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-tight); margin-bottom: var(--space-3); }
+.glyphs.mono p { font-family: var(--font-mono); font-size: 15px; }   /* matches Inter's x-height at 16 for the comparison */
+.glyphs.mono .big { font-size: var(--text-3xl); font-weight: 500; letter-spacing: 0; }
+.lig { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.lig .cap { display: block; margin-bottom: var(--space-2); }
+table.scale td { vertical-align: middle; }
+table.scale td:first-child, table.scale td.num { font: var(--text-sm)/var(--lh-sm) var(--font-mono); white-space: nowrap; }
+table.scale td.num { color: var(--ink-2); }
+table.scale .sample { white-space: nowrap; display: flex; align-items: baseline; gap: 0.6em; }
+table.scale .sample .num { font-size: 0.92em; color: var(--ink-2); }
+table.scale td:last-child { color: var(--ink-2); font-size: var(--text-sm); width: 280px; }
+table.scale tr:hover td { background: none; }
+.weights { display: grid; }
+.weights > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); padding: var(--space-2) 0; border-bottom: var(--border) solid var(--line); }
+.weights > div:last-child { border-bottom: 0; }
+.weights > div > span:first-child { font-size: var(--text-xl); line-height: var(--lh-xl); white-space: nowrap; }
+.weights.mono > div > span:first-child { font-family: var(--font-mono); font-size: var(--text-lg); }
+.numcols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.numcols .col { display: grid; justify-items: end; margin-top: var(--space-2); padding: var(--space-2) var(--space-3); line-height: var(--lh-lg); background: var(--bg); border-radius: var(--radius-sm); }
+.numcols .col.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.numcols .col.prop { font-variant-numeric: proportional-nums; }
+.hier { display: grid; gap: var(--space-4); }
+.hier > div { display: grid; grid-template-columns: 250px 1fr; align-items: baseline; gap: var(--space-4); }
+.hier > div + div { border-top: var(--border) solid var(--line); padding-top: var(--space-4); }
+.colrule { width: var(--content); max-width: 100%; height: 22px; margin-bottom: var(--space-4); border: var(--border) solid var(--ink-2); border-bottom: 0; text-align: center; }
+.colrule .num { position: relative; top: -9px; padding: 0 var(--space-2); background: var(--surface); font-size: var(--text-xs); color: var(--ink-2); }
+.prose { width: var(--content); max-width: 100%; font-size: var(--text-lg); line-height: var(--lh-lg); }
+.prose > * + * { margin-top: var(--space-4); }
+.prose > h3 { margin-top: var(--space-6); }
+.prose ul, .prose ol { padding-left: var(--space-5); }
+.prose li + li { margin-top: var(--space-1); }
+.prose li::marker { color: var(--muted); font-family: var(--font-mono); font-size: 0.85em; }
+.prose blockquote { margin-left: 0; margin-right: 0; padding-left: var(--space-4); border-left: 2px solid var(--ink); color: var(--ink-2); }
+.prose .num { font-size: 0.92em; }
+a.is-hover { text-decoration-thickness: 2px; }
+a.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
+table.states td { vertical-align: middle; }
+table.states td:first-child { color: var(--ink-2); font-size: var(--text-sm); white-space: nowrap; width: 104px; }
+table.states td.cap { width: 150px; }
+table.states tr:hover td { background: none; }
+.rules > div { display: grid; gap: var(--space-2); align-content: start; }
+.rules .verdict { color: var(--ink); font-weight: var(--weight-medium); font-size: var(--text-sm); }
+.rules .rule-do .verdict svg { color: var(--ok); } .rules .rule-dont .verdict svg { color: var(--err); }
+.rules .ex { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); align-items: center; min-height: 56px; padding: var(--space-3); background: var(--surface); border-radius: var(--radius-sm); }
+
+/* ---- 5 space ---- */
+.spacescale { display: grid; grid-template-columns: max-content max-content 96px 1fr; gap: var(--space-3) var(--space-5); align-items: center; }
+.spacescale .n, .spacescale .v { font: var(--text-sm)/var(--lh-sm) var(--font-mono); }
+.spacescale .v { text-align: right; color: var(--ink-2); }
+.spacescale .bar { height: 12px; background: var(--ink); border-radius: 1px; }
+.spacescale .u { color: var(--ink-2); font-size: var(--text-sm); }
+.heights { display: grid; gap: var(--space-4); }
+.hrow { display: flex; align-items: center; gap: var(--space-3); }
+.hrow .cap { min-width: 0; }
+.hdim { flex: none; display: flex; align-items: center; justify-content: center; width: 32px; border-top: var(--border) solid var(--ink-2); border-bottom: var(--border) solid var(--ink-2); font-size: var(--text-xs); color: var(--ink-2); }
+.input.sm { height: var(--control-sm); padding: 0 var(--space-2); font-size: var(--text-sm); }   /* missing in base.css */
+.input.lg { height: var(--control-lg); padding: 0 var(--space-4); font-size: var(--text-lg); }
+.wirebox { display: flex; gap: var(--space-5); align-items: flex-start; }
+.wire { flex: none; width: 288px; height: 180px; display: flex; flex-direction: column; background: var(--bg); border: var(--border) solid var(--ink-2); border-radius: var(--radius-xs); overflow: hidden; }
+.wire .w-top { flex: none; height: calc(var(--topbar) / 5); border-bottom: var(--border) solid var(--ink-2); background: var(--surface-2); }
+.wire .w-page { flex: 1; width: calc(var(--page) / 5); margin: 0 auto; border-left: var(--border) dashed var(--ink-2); border-right: var(--border) dashed var(--ink-2); }
+.wire .w-content { height: 100%; width: calc(var(--content) / 5); margin: 0 auto; background: var(--surface-2); }
+.wire .w-body { flex: 1; display: flex; }
+.wire .w-map { flex: 1; background: var(--map-bg); }
+.wire .w-panel { flex: none; width: calc(var(--panel) / 5); border-left: var(--border) solid var(--ink-2); background: var(--surface-2); }
+.wire .w-strip { flex: none; height: 8px; border-top: var(--border) solid var(--ink-2); }
+.wl { margin: 0; display: grid; gap: var(--space-3); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.wl dt { font: var(--weight-medium) var(--text-sm)/var(--lh-sm) var(--font-mono); white-space: nowrap; } .wl dd { margin: 0; color: var(--ink-2); }
+.g12wrap { position: relative; }
+.g12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--space-5); }
+.g12.overlay { position: absolute; inset: 0; } .g12.overlay i { background: var(--surface-2); }
+.g12.layout { position: relative; row-gap: var(--space-4); padding: var(--space-4) 0; }
+.blk { min-height: 44px; display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); padding: var(--space-2); border: var(--border-strong) solid var(--ink-2); border-radius: var(--radius-sm); font-size: var(--text-xs); line-height: var(--lh-xs); }
+.blk.tall { min-height: 120px; }
+.blk span { background: var(--surface); padding: 0 var(--space-1); border-radius: var(--radius-xs); }
+table.t.compact td, table.t.compact th { padding-top: var(--space-1); padding-bottom: var(--space-1); }   /* proposal: no density token exists */
+
+/* ---- 6 shape ---- */
+.radii { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-5); }
+.radii > div { display: grid; gap: var(--space-3); align-content: start; justify-items: start; }
+.radii .n { font: var(--weight-medium) var(--text-sm)/var(--lh-sm) var(--font-mono); }
+.radii .shape { border: var(--border) dashed var(--line-strong); background: var(--bg); }
+.radii .shape.used { border: var(--border-strong) solid var(--ink); background: var(--surface); }
+.lines { display: grid; gap: var(--space-4); }
+.lines > div { display: grid; grid-template-columns: 72px 150px 1fr; gap: var(--space-4); align-items: center; }
+.lines .ln { display: block; height: 0; } .lines .num { font-size: var(--text-xs); }
+.elev { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); padding: var(--space-3) var(--space-3) var(--space-5); }
+.elev > div { display: grid; gap: var(--space-4); align-content: start; }
+.pair.flat { border: 0; border-radius: 0; grid-template-columns: 1fr; gap: var(--space-3); overflow: visible; }
+.pair.flat > [data-theme] { border: var(--border) solid var(--line); border-radius: var(--radius-sm); padding: var(--space-4); }
+
+/* ---- 7 motion ---- */
+.mo { display: grid; gap: var(--space-3); align-content: start; } .mo > h4 { margin-bottom: 0; }
+.mo-stage { height: 120px; display: grid; place-items: center; position: relative; background: var(--bg); border: var(--border) solid var(--line); border-radius: var(--radius-sm); }
+.mo-stage.clip, .mo-stage.map { overflow: hidden; } .mo-stage.map { background: var(--map-bg); display: block; }
+.mo-foot { display: flex; justify-content: space-between; gap: var(--space-3); align-items: flex-start; }
+.mo-fast { transition: background var(--dur-fast) var(--ease); } .mo-fast.go { background: var(--surface-2); }
+.mo-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 60%; display: grid; align-content: start; gap: var(--space-1); padding: var(--space-3) var(--space-4); background: var(--surface); border-left: var(--border) solid var(--line);
+  opacity: 0; transform: translateX(var(--space-4)); transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease); }
+.mo-panel.go { opacity: 1; transform: none; } .mo-panel b { font-weight: var(--weight-semibold); }
+.rg { fill-opacity: 0.12; stroke-width: 1.5; } .rg.r1 { fill: var(--d2); stroke: var(--d2); } .rg.r2 { fill: var(--d3); stroke: var(--d3); } .rg.r3 { fill: var(--d6); stroke: var(--d6); }
+.mo-view { fill: none; stroke: var(--map-ink); stroke-width: 1.5; transform: translate(22px, 32px); transition: transform var(--dur-slow) var(--ease); }
+.mo-view.go { transform: translate(190px, 20px); }
+.easing { display: grid; grid-template-columns: 220px 1fr; gap: var(--space-6); align-items: start; }
+.race { display: grid; gap: var(--space-3); }
+.track { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: var(--space-3); }
+.lane { height: 16px; position: relative; border-bottom: var(--border) solid var(--line); }
+.runner { position: absolute; left: 0; top: 2px; width: 12px; height: 12px; border-radius: var(--radius-round); background: var(--ink); }
+.runner.go { left: calc(100% - 12px); }
+.runner.fast { transition: left var(--dur-fast) var(--ease); } .runner.base { transition: left var(--dur-base) var(--ease); }
+.runner.slow { transition: left var(--dur-slow) var(--ease); } .runner.lin { transition: left var(--dur-slow) linear; }
+ul.plain { list-style: none; padding: 0; display: grid; gap: var(--space-2); }
+ul.plain li { position: relative; padding-left: var(--space-4); color: var(--ink-2); }
+ul.plain li::before { content: ""; position: absolute; left: 0; top: 10px; width: 6px; height: 1px; background: var(--ink-2); }
+ul.plain b { color: var(--ink); font-weight: var(--weight-semibold); }
+
+/* ---- 8 icons ---- */
+.icon-construct { display: grid; grid-template-columns: 226px 1fr; gap: var(--space-6); align-items: start; }
+.icon-construct table.t td:first-child { color: var(--ink-2); font-size: var(--text-sm); white-space: nowrap; width: 140px; }
+.icon-construct table.t tr:hover td { background: none; }
+.iconset { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.ic { display: grid; grid-template-columns: 16px 20px minmax(0, 1fr); align-items: center; gap: var(--space-2); height: 36px; padding: 0 var(--space-2); background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-sm); }
+.ic .n { font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- 9 accessibility ---- */
+#contrast td { vertical-align: middle; } #contrast td:nth-child(2) { color: var(--ink-2); font-size: var(--text-sm); }
+#contrast td.bad { color: var(--err); font-weight: 500; }
+#contrast .pairchip { display: inline-flex; vertical-align: -3px; margin-right: var(--space-2); border: var(--border) solid var(--line-strong); border-radius: var(--radius-xs); overflow: hidden; }
+#contrast .pairchip i { display: block; width: 14px; height: 14px; }
+#contrast tr:hover td { background: none; }
+#contrast-summary ul.plain { margin-top: var(--space-2); gap: var(--space-1); } #contrast-summary ul.plain li { color: var(--ink); } #contrast-summary p { margin-top: var(--space-2); }
+.targets { display: flex; gap: var(--space-4); align-items: flex-end; }
+.targets > div { display: grid; gap: var(--space-2); justify-items: center; text-align: center; }
+.targets .tg { display: grid; place-items: center; border: var(--border) dashed var(--ink-2); border-radius: var(--radius-sm); }
+.targets .cb { width: 16px; height: 16px; border: var(--border) solid var(--line-strong); border-radius: var(--radius-xs); background: var(--surface); }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <h1>Foundations</h1>
+    <p>The mark, the name, every colour with its measured contrast, type, space, shape, motion and icons. Everything else in the style is built from what is on this page.</p>
+    <nav class="toc" aria-label="On this page">
+      <a href="#mark"><span class="num">1</span>Mark</a><a href="#wordmark"><span class="num">2</span>Wordmark and lockups</a><a href="#colour"><span class="num">3</span>Colour</a>
+      <a href="#type"><span class="num">4</span>Type</a><a href="#space"><span class="num">5</span>Space and layout</a><a href="#shape"><span class="num">6</span>Shape, borders, elevation</a>
+      <a href="#motion"><span class="num">7</span>Motion</a><a href="#icons"><span class="num">8</span>Icons</a><a href="#a11y"><span class="num">9</span>Accessibility summary</a>
+    </nav>
+  </header>
+
+  <!-- ============================== 1 MARK ============================== -->
+  <section class="section" id="mark"><h2>1 · Mark</h2>
+    <p>Two off-centre rings and a dot: a region, a sub-region, a node. The <b>Nest</b> is the mark; the <b>Seal</b> is the same drawing reversed out of a square, for small sizes and busy backgrounds.</p>
+
+    <div class="sub"><h3>Construction</h3>
+      <div class="spec"><div class="construct">
+        <svg class="dg" viewBox="-36 -34 580 400" width="580" height="400" role="img" aria-label="Construction of the Nest in a 32-unit box">
+          <g id="dg-grid"></g>
+          <rect x="0" y="0" width="320" height="320" class="edge"/>
+          <!-- stroke areas, ghosted -->
+          <circle cx="160" cy="160" r="130" class="ghost" stroke-width="24"/>
+          <circle cx="185" cy="180" r="70" class="ghost" stroke-width="24"/>
+          <circle cx="160" cy="160" r="142" class="edge"/><circle cx="160" cy="160" r="118" class="edge"/>
+          <circle cx="185" cy="180" r="82" class="edge"/><circle cx="185" cy="180" r="58" class="edge"/>
+          <circle cx="160" cy="160" r="130" class="mid"/><circle cx="185" cy="180" r="70" class="mid"/>
+          <circle cx="200" cy="192" r="26" class="dotfill"/>
+          <!-- radii -->
+          <path class="dim" d="M160 160 68.1 68.1"/><text x="122" y="102" class="t-strong">r 13</text>
+          <path class="dim" d="M185 180 185 110"/><text x="191" y="140" class="t-strong">r 7</text>
+          <path class="dim" d="M200 192 226 192"/>
+          <!-- stroke width tick across the outer band at 50 degrees -->
+          <path class="dim" d="M235.8 250.4 251.3 268.8"/>
+          <!-- centres -->
+          <g class="dim"><path d="M154 160h12M160 154v12"/><path d="M179 180h12M185 174v12"/><path d="M194 192h12M200 186v12"/></g>
+          <!-- leaders to the right-hand notes -->
+          <g class="dim"><path d="M252 68 344 68"/><path d="M245.6 145 344 145"/><path d="M226 192 344 192"/><path d="M251.3 268.8 344 268.8"/></g>
+          <text x="352" y="64" class="t-strong">outer ring</text><text x="352" y="80">centre (16, 16) · r 13</text>
+          <text x="352" y="141" class="t-strong">inner ring</text><text x="352" y="157">centre (18.5, 18) · r 7</text>
+          <text x="352" y="188" class="t-strong">dot</text><text x="352" y="204">centre (20, 19.2) · r 2.6</text>
+          <text x="352" y="265" class="t-strong">stroke 2.4</text><text x="352" y="281">both rings, centred on r</text>
+          <g id="dg-ruler"></g>
+        </svg>
+        <div>
+          <table class="t">
+            <thead><tr><th>Part</th><th class="num">cx</th><th class="num">cy</th><th class="num">r</th><th class="num">stroke</th><th>Colour</th></tr></thead>
+            <tbody>
+              <tr><td>Outer ring</td><td class="num">16</td><td class="num">16</td><td class="num">13</td><td class="num">2.4</td><td><code>--ink</code></td></tr>
+              <tr><td>Inner ring</td><td class="num">18.5</td><td class="num">18</td><td class="num">7</td><td class="num">2.4</td><td><code>--ink</code></td></tr>
+              <tr><td>Dot</td><td class="num">20</td><td class="num">19.2</td><td class="num">2.6</td><td class="num">—</td><td><code>--accent</code></td></tr>
+            </tbody>
+          </table>
+          <p class="note" style="margin-top:var(--space-3)">Units of a 32-unit box; the grid shows one unit per square, heavier every 4. The inner ring sits <span class="num">2.5</span> right and <span class="num">2</span> down from the centre, the dot a further <span class="num">1.5</span> and <span class="num">1.2</span>: the drift is always down and to the right. The stroke is the medium weight on purpose: thinner reads as fragile, heavier reads as a target.</p>
+          <div class="results">
+            <figure><span data-mark="nest" data-size="128"></span><figcaption class="cap">Nest, <span class="num">128&#8239;px</span></figcaption></figure>
+            <figure><span data-mark="seal" data-size="128"></span><figcaption class="cap">Seal, <span class="num">128&#8239;px</span> · square radius <span class="num">3/32</span>,<br>Nest at <span class="num">87.5&#8239;%</span> about the centre</figcaption></figure>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:var(--space-3)">SPEC.md fixes the Nest and the square's corner radius but not how large the Nest sits inside the Seal. Shown here at <span class="num">87.5&#8239;%</span> (a <span class="num">2.6</span>-unit margin to the square's edge); the dot of the Seal takes the accent of the opposite theme, because the square is an inverse surface. Both are proposals — see the open questions on the overview page.</p>
+    </div>
+
+    <div class="sub"><h3>Sizes</h3>
+      <p class="note">Minimum size: Nest <span class="num">20&#8239;px</span>, Seal <span class="num">12&#8239;px</span>. Below <span class="num">24&#8239;px</span> the Seal takes over. Sizes under the minimum are drawn anyway, marked in words, so the reason for the rule is visible.</p>
+      <div class="pair" data-dup>
+        <h4>Nest</h4>
+        <div class="sizes">
+          <figure><span data-mark="nest" data-size="128"></span><figcaption>128</figcaption></figure>
+          <figure><span data-mark="nest" data-size="64"></span><figcaption>64</figcaption></figure>
+          <figure><span data-mark="nest" data-size="32"></span><figcaption>32</figcaption></figure>
+          <figure><span data-mark="nest" data-size="24"></span><figcaption>24</figcaption></figure>
+          <figure><span data-mark="nest" data-size="20"></span><figcaption>20<br>minimum</figcaption></figure>
+          <figure><span data-mark="nest" data-size="16"></span><figcaption class="below">16<br>too small</figcaption></figure>
+          <figure><span data-mark="nest" data-size="12"></span><figcaption class="below">12<br>too small</figcaption></figure>
+        </div>
+        <h4>Seal</h4>
+        <div class="sizes">
+          <figure><span data-mark="seal" data-size="128"></span><figcaption>128</figcaption></figure>
+          <figure><span data-mark="seal" data-size="64"></span><figcaption>64</figcaption></figure>
+          <figure><span data-mark="seal" data-size="32"></span><figcaption>32</figcaption></figure>
+          <figure><span data-mark="seal" data-size="24"></span><figcaption>24</figcaption></figure>
+          <figure><span data-mark="seal" data-size="20"></span><figcaption>20</figcaption></figure>
+          <figure><span data-mark="seal-s" data-size="16"></span><figcaption>16<br>ring dropped</figcaption></figure>
+          <figure><span data-mark="seal-s" data-size="12"></span><figcaption>12<br>minimum</figcaption></figure>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>The Seal at 16 and 12&#8239;px, pixel by pixel</h3>
+      <p class="note">Each square below is one screen pixel of the real rasterised mark, enlarged eight times. Three cuts are compared: the full Seal; the inner ring dropped as SPEC.md allows; and a heavier small cut (ring <span class="num">3.6</span>, dot r <span class="num">3.6</span>) that is <b>not in the spec</b> and is shown because the spec geometry turns grey at these sizes.</p>
+      <div class="pair">
+        <div data-theme="light"><div class="px" id="px-light"></div></div>
+        <div data-theme="dark"><div class="px" id="px-dark"></div></div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Clear space and one colour</h3>
+      <div class="grid g2">
+        <div class="spec"><h4>Clear space: the radius of the outer ring (13&#8239;units) on every side</h4>
+          <svg class="dg" viewBox="0 0 480 232" width="100%" role="img" aria-label="Clear space diagram" style="max-width:480px;display:block">
+            <rect x="40" y="16" width="200" height="200" class="zone"/>
+            <rect x="40" y="16" width="200" height="200" class="dash"/>
+            <rect x="85" y="61" width="110" height="110" fill="var(--surface)" class="edge"/>
+            <g transform="translate(85 61) scale(3.4375)" style="color:var(--ink)">
+              <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="18.5" cy="18" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="20" cy="19.2" r="2.6" fill="var(--accent)"/>
+            </g>
+            <g class="dim"><path d="M40 116h45M40 111v10M85 111v10"/><path d="M195 116h45M195 111v10M240 111v10"/><path d="M140 16v45M135 16h10M135 61h10"/><path d="M140 171v45M135 171h10M135 216h10"/></g>
+            <text x="54" y="108">13</text><text x="209" y="108">13</text><text x="148" y="42">13</text><text x="148" y="198">13</text>
+            <text x="264" y="72" class="t-strong">mark box</text><text x="264" y="88">32 × 32 units</text>
+            <text x="264" y="124" class="t-strong">clear space</text><text x="264" y="140">13 units = 40.6 % of the</text><text x="264" y="156">mark's size, every side</text>
+            <text x="264" y="192">no text, edge or image</text><text x="264" y="208">inside the dashed line</text>
+          </svg>
+        </div>
+        <div class="spec"><h4>One-colour version: rings and dot in the same ink</h4>
+          <div class="tiles c3">
+            <div class="tile"><div class="stage"><span data-mark="mono" data-size="64"></span></div><p><b>Ink on paper.</b> Print, engraving, single-colour documents.</p></div>
+            <div class="tile"><div class="stage ink"><span data-mark="mono" data-size="64"></span></div><p><b>Paper on ink.</b> Dark covers, terminal splash.</p></div>
+            <div class="tile"><div class="stage mid"><span data-mark="mono" data-size="64"></span></div><p><b>On a flat mid-tone.</b> Only where ink reaches <span class="num">4.5:1</span>.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>On a busy background</h3>
+      <p class="note">The pattern is generated from the data palette on the map canvas — the busiest thing the mark will ever sit on is the product's own map.</p>
+      <div class="tiles c3">
+        <div class="tile"><div class="stage tall" data-theme="dark"><svg class="busy" data-busy="1"></svg><span class="on"><span data-mark="nest" data-size="64"></span></span><svg class="cross" preserveAspectRatio="none" viewBox="0 0 100 100"><line x1="0" y1="100" x2="100" y2="0" vector-effect="non-scaling-stroke"/></svg></div>
+          <p><span class="verdict"><span data-i="close"></span>Never.</span> The Nest straight on the picture: its rings are lost among the map's own rings.</p></div>
+        <div class="tile"><div class="stage tall" data-theme="dark"><svg class="busy" data-busy="1"></svg><span class="on" data-theme="light"><span data-mark="seal" data-size="64"></span></span></div>
+          <p><span class="verdict yes"><span data-i="check"></span>Use the Seal.</span> The square brings its own ground; keep the clear space free of labels where possible.</p></div>
+        <div class="tile"><div class="stage tall" data-theme="dark"><svg class="busy" data-busy="1"></svg><span class="on plate" data-theme="light"><span data-mark="nest" data-size="64"></span></span></div>
+          <p><span class="verdict yes"><span data-i="check"></span>Or a plate.</span> The Nest on a paper plate that includes its full clear space (<span class="num">26&#8239;px</span> at this size).</p></div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Never</h3>
+      <div class="spec"><div class="tiles c7" id="never"></div></div>
+    </div>
+
+    <div class="sub"><h3>Favicon, app icon, avatar</h3>
+      <div class="pair" data-dup>
+        <h4>Favicon in a browser tab, <span class="num">16&#8239;px</span></h4>
+        <div class="browser">
+          <div class="tabs">
+            <div class="tab on"><span data-mark="seal-s" data-size="16"></span><span>transfers.eg</span><i data-i="close"></i></div>
+            <div class="tab"><span data-mark="seal-h" data-size="16"></span><span>Docs</span><i data-i="close"></i></div>
+            <div class="tab"><span data-mark="seal" data-size="16"></span><span>Gallery of maps</span><i data-i="close"></i></div>
+          </div>
+          <div class="bar"><i data-i="chevron-left"></i><i data-i="chevron-right"></i><i data-i="refresh"></i><div class="url">127.0.0.1:7878/transfers</div></div>
+          <div class="body"></div>
+        </div>
+        <p class="cap" style="margin-top:var(--space-2)">Left to right: ring dropped (spec), heavier small cut (proposal), full Seal. The first tab is the recommended favicon until the small cut is decided.</p>
+        <h4>App icon and avatar</h4>
+        <div class="appicons">
+          <figure><span data-mark="seal" data-size="96"></span><figcaption>App icon<br><span class="num">96&#8239;px</span></figcaption></figure>
+          <figure><span data-mark="seal" data-size="48"></span><figcaption><span class="num">48&#8239;px</span></figcaption></figure>
+          <figure><div class="masked squircle"><span data-mark="rev" data-size="62"></span></div><figcaption>Under a platform<br>mask: Nest at <span class="num">65&#8239;%</span></figcaption></figure>
+          <figure><div class="masked circle" style="width:64px;height:64px"><span data-mark="rev" data-size="40"></span></div><figcaption>Avatar<br><span class="num">64&#8239;px</span></figcaption></figure>
+          <figure><div class="masked circle" style="width:32px;height:32px"><span data-mark="rev" data-size="20"></span></div><figcaption><span class="num">32&#8239;px</span></figcaption></figure>
+        </div>
+        <p class="cap" style="margin-top:var(--space-3)">A circle cuts the Seal's corners, so avatars use the reversed Nest at <span class="num">62.5&#8239;%</span> of the circle instead of the square.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 2 WORDMARK ============================== -->
+  <section class="section" id="wordmark"><h2>2 · Wordmark and lockups</h2>
+    <p>The wordmark is the name in lowercase Inter: “every” regular, “graph” semibold, no space. It is set as live text here; a release would ship drawn outlines with the same proportions.</p>
+
+    <div class="sub"><h3>Lockups</h3>
+      <div class="pair" data-dup>
+        <div class="lockups">
+          <figure><span class="lockup tight" style="--t:40px"><span data-mark="nest" data-size="55"></span><span>every<b>graph</b></span></span><figcaption>Horizontal — the default</figcaption></figure>
+          <figure><span class="lockup stacked tight" style="--t:28px"><span data-mark="nest" data-size="64"></span><span>every<b>graph</b></span></span><figcaption>Stacked — square spaces</figcaption></figure>
+          <figure><span data-mark="nest" data-size="64"></span><figcaption>Mark only</figcaption></figure>
+        </div>
+      </div>
+      <p class="note" style="margin-top:var(--space-3)">Horizontal is the default. Stacked is for square spaces and covers. The mark stands alone only where the name is already on screen, as in the viewer's top bar next to a file name.</p>
+    </div>
+
+    <div class="sub"><h3>Spacing rules</h3>
+      <div class="grid g2">
+        <div class="spec"><h4>Horizontal: everything follows the type size T</h4>
+          <span class="lockup tight" style="--t:48px"><span data-mark="nest" data-size="66"></span><span id="wm-probe">every<b>graph</b></span></span>
+          <div class="ruler" id="ruler-h"><span style="width:66px"><em>1.375 T</em></span><span class="gap" style="width:24px"><em>0.5 T</em></span><span id="ruler-wm"><em>wordmark, T = 48&#8239;px</em></span></div>
+          <p class="note" style="margin-top:var(--space-4)">Mark height <span class="num">1.375 T</span> (<span class="num">22&#8239;px</span> beside <span class="num">16&#8239;px</span> type). Gap <span class="num">0.5 T</span>. The wordmark is centred on the mark's centre line. From <span class="num">24&#8239;px</span> up the wordmark takes the heading tracking, <span class="num">−0.02&#8239;em</span>.</p>
+        </div>
+        <div class="spec"><h4>Stacked, and with a tagline</h4>
+          <div class="row" style="gap:var(--space-7);align-items:flex-end;flex-wrap:nowrap">
+            <span class="lockup stacked tight" style="--t:24px"><span data-mark="nest" data-size="54"></span><span>every<b>graph</b></span></span>
+            <div class="tagline" style="--t:32px"><span class="lockup tight" style="--t:32px"><span data-mark="nest" data-size="44"></span><span>every<b>graph</b></span></span><span class="tg">Every graph, every size, one machine</span></div>
+          </div>
+          <p class="note" style="margin-top:var(--space-4)">Stacked: mark <span class="num">2.25 T</span>, gap <span class="num">0.6 T</span>, centred. Tagline: half the wordmark's size and never under <span class="num">12&#8239;px</span>, in the secondary ink, aligned to the wordmark's left edge, sentence case, no full stop. The tagline wording here is a placeholder.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Minimum sizes</h3>
+      <div class="pair" data-dup>
+        <div class="minsizes">
+          <figure><span class="lockup" style="--t:16px"><span data-mark="nest" data-size="22"></span><span>every<b>graph</b></span></span><figcaption>Navigation<br><span class="num">T 16 · mark 22</span></figcaption></figure>
+          <figure><span class="lockup" style="--t:14.5px"><span data-mark="nest" data-size="20"></span><span>every<b>graph</b></span></span><figcaption>Smallest with the Nest<br><span class="num">T 14.5 · mark 20</span></figcaption></figure>
+          <figure><span class="lockup" style="--t:13px;gap:6px"><span data-mark="seal-s" data-size="16"></span><span>every<b>graph</b></span></span><figcaption>With the Seal<br><span class="num">T 13 · Seal 16</span></figcaption></figure>
+          <figure><span class="lockup stacked" style="--t:12px"><span data-mark="nest" data-size="27"></span><span>every<b>graph</b></span></span><figcaption>Smallest stacked<br><span class="num">T 12 · mark 27</span></figcaption></figure>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Spelling the name</h3>
+      <div class="spell">
+        <div class="spec yes"><h4>Correct</h4>
+          <table class="t"><tbody>
+            <tr><td>Running text</td><td><span class="verdict"><i data-i="check"></i></span>Everygraph loads the file once.</td></tr>
+            <tr><td>Wordmark</td><td><span class="verdict"><i data-i="check"></i></span><span class="wm">every<b>graph</b></span></td></tr>
+            <tr><td>Anything typed</td><td><span class="verdict"><i data-i="check"></i></span><code>pip install everygraph</code></td></tr>
+            <tr><td>Python alias</td><td><span class="verdict"><i data-i="check"></i></span><code>import everygraph as eg</code></td></tr>
+            <tr><td>File extensions</td><td><span class="verdict"><i data-i="check"></i></span><code>transfers.eg</code> · <code>lending.egmap</code></td></tr>
+            <tr><td>Crates, packages</td><td><span class="verdict"><i data-i="check"></i></span><code>everygraph-core</code> · <code>@everygraph/viewer</code></td></tr>
+            <tr><td>Parts of the product</td><td><span class="verdict"><i data-i="check"></i></span>the Everygraph viewer, an Everygraph map</td></tr>
+          </tbody></table>
+        </div>
+        <div class="spec no"><h4>Incorrect</h4>
+          <table class="t"><tbody>
+            <tr><td>Running text</td><td><span class="verdict"><i data-i="close"></i></span><span class="w">EveryGraph</span> · <span class="w">Every Graph</span> · <span class="w">everyGraph</span> · <span class="w">EVERYGRAPH</span></td></tr>
+            <tr><td>Wordmark</td><td><span class="verdict"><i data-i="close"></i></span><span class="wm w">Everygraph</span> · <span class="wm w">every <b>graph</b></span> · <span class="wm w"><b>everygraph</b></span></td></tr>
+            <tr><td>Anything typed</td><td><span class="verdict"><i data-i="close"></i></span><code class="w">pip install Everygraph</code></td></tr>
+            <tr><td>Python alias</td><td><span class="verdict"><i data-i="close"></i></span><span class="w">EG finds the communities</span> (in prose)</td></tr>
+            <tr><td>File extensions</td><td><span class="verdict"><i data-i="close"></i></span><code class="w">transfers.EG</code> · <code class="w">lending.EgMap</code></td></tr>
+            <tr><td>Crates, packages</td><td><span class="verdict"><i data-i="close"></i></span><code class="w">EveryGraph-Core</code> · <code class="w">every_graph</code></td></tr>
+            <tr><td>Parts of the product</td><td><span class="verdict"><i data-i="close"></i></span><span class="w">Everygraph Viewer™</span> · <span class="w">EveryMap</span> · <span class="w">Vernier</span> (internal name)</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 3 COLOUR ============================== -->
+  <section class="section" id="colour"><h2>3 · Colour</h2>
+    <p>Warm paper, soft black and one ink blue. Every token in <code>tokens.css</code> is below with its value and the measured contrast of the text or mark that sits on it. The ratios are computed on this page from the live tokens (WCAG 2 relative luminance), not typed in.</p>
+
+    <div class="sub"><h3>Every token</h3>
+      <p class="note">Under each swatch: the pair that matters and its ratio. Text needs <span class="num">4.5:1</span>; large text, icons and control borders need <span class="num">3:1</span>; hairlines and fills that carry no information have no requirement and show the ratio only. A ratio below its requirement is printed in the error colour with a cross, and is listed again, in words, in section 9.</p>
+      <div class="pair"><div data-theme="light" id="sw-light"></div><div data-theme="dark" id="sw-dark"></div></div>
+    </div>
+
+    <div class="sub"><h3>Where each colour is allowed</h3>
+      <div class="spec">
+        <table class="t usage">
+          <thead><tr><th>Colour</th><th>Text and numbers</th><th>Interactive, selected, focus</th><th>Borders and rules</th><th>Status messages</th><th>Maps and charts</th><th>Decoration</th></tr></thead>
+          <tbody>
+            <tr><td><span class="chipdot" style="background:var(--ink)"></span>Ink<span class="tk"><code>--ink</code> <code>--ink-2</code> <code>--muted</code></span></td><td class="y">yes</td><td class="y">labels of default buttons</td><td class="n">never</td><td class="y">the message text</td><td class="y">selection ring, links</td><td class="n">never</td></tr>
+            <tr><td><span class="chipdot" style="background:var(--surface)"></span>Paper<span class="tk"><code>--bg</code> <code>--surface</code> <code>--surface-2</code></span></td><td class="y">on ink fills only</td><td class="y">hover fill (<code>--surface-2</code>)</td><td class="n">never</td><td class="n">never</td><td class="y">label halo</td><td class="n">never</td></tr>
+            <tr><td><span class="chipdot" style="background:var(--line-strong)"></span>Lines<span class="tk"><code>--line</code> <code>--line-strong</code></span></td><td class="n">never</td><td class="y">control borders</td><td class="y">yes</td><td class="n">never</td><td class="y">axes, ticks</td><td class="n">never</td></tr>
+            <tr><td><span class="chipdot" style="background:var(--accent)"></span>Accent<span class="tk"><code>--accent</code> <code>--accent-ink</code> <code>--accent-soft</code></span></td><td class="y">links only</td><td class="y">yes — this is its meaning</td><td class="y">focus ring, selected tab</td><td class="n">never</td><td class="n">never (the mark's dot excepted)</td><td class="n">never</td></tr>
+            <tr><td><span class="chipdot" style="background:var(--err)"></span>Status<span class="tk"><code>--ok</code> <code>--warn</code> <code>--err</code> <code>--info</code></span></td><td class="y">with an icon or a word</td><td class="y">destructive button outline</td><td class="y">invalid field</td><td class="y">yes — with an icon or a word</td><td class="n">never</td><td class="n">never</td></tr>
+            <tr><td><span class="chipdot" style="background:var(--d3)"></span>Data<span class="tk"><code>--d1…10</code> <code>--s1…7</code> <code>--v1…7</code></span></td><td class="n">never</td><td class="n">never</td><td class="n">never</td><td class="n">never</td><td class="y">yes — and legends</td><td class="n">never</td></tr>
+          </tbody>
+        </table>
+        <p class="note" style="margin-top:var(--space-4)"><code>--d1</code> has the same value as <code>--accent</code> in both themes. On a map a blue region and a selected control can therefore share a hue; the map avoids the clash by showing selection as a double ring in ink, never in blue. Whether the first data colour should move away from the accent is an open question for the data palette.</p>
+      </div>
+    </div>
+
+    <div class="sub"><h3>The accent next to the status colours</h3>
+      <p class="note">The accent must never be mistaken for a status. Each column is one colour as seen with typical vision, with protanopia and with deuteranopia (Machado et al. 2009, severity <span class="num">1.0</span>, applied in linear RGB). The number is the distance from the accent in OKLab, ×100; anything under <span class="num">10</span> is flagged. Status colours are told apart from each other by their icon and word, not by hue; the line under each block gives the closest pair and shows why that rule exists.</p>
+      <div class="pair"><div data-theme="light" id="cvd-light"></div><div data-theme="dark" id="cvd-dark"></div></div>
+      <div class="pair" data-dup style="margin-top:var(--space-4)">
+        <h4>As they appear in use: never colour alone</h4>
+        <div class="confuse">
+          <button class="btn primary">Run</button>
+          <a href="#colour">A link</a>
+          <span class="tag ok"><i data-i="success"></i>Done</span>
+          <span class="tag warn"><i data-i="warning"></i>Cut short</span>
+          <span class="tag err"><i data-i="error"></i>Failed</span>
+          <span class="tag info"><i data-i="info"></i>Estimate</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 4 TYPE ============================== -->
+  <section class="section" id="type"><h2>4 · Type</h2>
+    <p>Inter for everything read; JetBrains Mono for every number, code, identifier, file name and key. Both are open fonts shipped with the product, so the page looks the same on every machine.</p>
+
+    <div class="sub"><h3>The two families</h3>
+      <div class="grid g2">
+        <div class="spec"><h4>Inter — variable, weights 400 · 500 · 600 in use</h4>
+          <div class="glyphs sans">
+            <p class="big">Every graph, every size</p>
+            <p>ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
+            <p>abcdefghijklmnopqrstuvwxyz</p>
+            <p>0123456789</p>
+            <p>àáâäãå æ ç èéêë ìíîï ñ òóôöõ ø ùúûü ß ž š č ł</p>
+            <p>. , : ; ! ? ‘ ’ “ ” ( ) [ ] { } / \ | @ # &amp; % *</p>
+            <p>+ − × ÷ = ≠ ≈ &lt; &gt; ≤ ≥ ± ° · • … – — → ← ↑ ↓ ‹ › € $ £</p>
+          </div>
+          <p class="cap" style="margin-top:var(--space-3)">Set with two OpenType features on: <code>cv11</code> (single-storey a) and <code>ss03</code> (round quotes and commas), as declared in <code>base.css</code>.</p>
+        </div>
+        <div class="spec"><h4>JetBrains Mono — weights 400 · 500 · 700</h4>
+          <div class="glyphs mono">
+            <p class="big">1,830,397,917</p>
+            <p>ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
+            <p>abcdefghijklmnopqrstuvwxyz</p>
+            <p>0123456789  0O o  1lI|  5S  8B</p>
+            <p>àáâäãå æ ç èéêë ìíîï ñ òóôöõ ø ùúûü ß</p>
+            <p>. , : ; ! ? ' " ` ( ) [ ] { } / \ | @ # &amp; % * _ ~ ^ $</p>
+            <p>+ - × = &lt; &gt; ≤ ≥ · … – — → ← ✓ ✗ █ ░ ─ │ ┌ ┘</p>
+          </div>
+          <p class="cap" style="margin-top:var(--space-3)">Zero is dotted, and <span class="num">1 l I |</span> are distinct: an address or an identifier can be read back without guessing.</p>
+        </div>
+      </div>
+      <div class="spec" style="margin-top:var(--space-4)"><h4>Code ligatures: a finding</h4>
+        <div class="lig">
+          <div><span class="cap">As <code>base.css</code> renders code today</span><pre class="lig-on"><code>if a != b and n &gt;= 2: f = lambda x -&gt; x  # 0x7a25…488d &lt;= limit</code></pre></div>
+          <div><span class="cap">With <code>font-variant-ligatures: none</code> — recommended</span><pre><code>if a != b and n &gt;= 2: f = lambda x -&gt; x  # 0x7a25…488d &lt;= limit</code></pre></div>
+        </div>
+        <p class="note" style="margin-top:var(--space-3)">JetBrains Mono joins <code>!=</code>, <code>&gt;=</code> and <code>-&gt;</code> into single glyphs by default. In an instrument that promises exact characters, what is shown should be what was typed and what will be copied; the rest of this page and the components page switch ligatures off in code. This needs one line in <code>base.css</code>.</p>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Scale</h3>
+      <div class="spec"><table class="t scale" id="scale"><thead><tr><th>Token</th><th class="num">Size / line</th><th>Sample</th><th>Used for</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="sub"><h3>Weights</h3>
+      <div class="grid g2">
+        <div class="spec"><h4>Inter</h4>
+          <div class="weights">
+            <div><span style="font-weight:var(--weight-regular)">Regular 400</span><span class="cap">body, values, descriptions</span></div>
+            <div><span style="font-weight:var(--weight-medium)">Medium 500</span><span class="cap">buttons, labels, table headers</span></div>
+            <div><span style="font-weight:var(--weight-semibold)">Semibold 600</span><span class="cap">headings, “graph” in the wordmark, region names</span></div>
+            <div><span style="font-weight:var(--weight-bold)">Bold 700</span><span class="cap">rare: not used in running UI</span></div>
+          </div>
+        </div>
+        <div class="spec"><h4>JetBrains Mono</h4>
+          <div class="weights mono">
+            <div><span style="font-weight:400">Regular 400 · 212,418,907</span><span class="cap">numbers, code, identifiers</span></div>
+            <div><span style="font-weight:500">Medium 500 · 212,418,907</span><span class="cap">the one number a panel is about</span></div>
+            <div><span style="font-weight:700">Bold 700 · 212,418,907</span><span class="cap">terminal emphasis only</span></div>
+            <div><span style="font-style:italic">Italic 400 · # a comment</span><span class="cap">comments in code</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Numerals</h3>
+      <div class="grid g3">
+        <div class="spec"><h4>Tabular: digits align in columns</h4>
+          <div class="numcols">
+            <div><span class="cap verdict pass"><i data-i="check"></i>JetBrains Mono</span>
+              <div class="col mono"><span>1,830,397,917</span><span>212,418,907</span><span>31,204,118</span><span>1,111,111</span><span>4,201</span><span>17</span></div></div>
+            <div><span class="cap verdict flag"><i data-i="close"></i>Inter, proportional</span>
+              <div class="col prop"><span>1,830,397,917</span><span>212,418,907</span><span>31,204,118</span><span>1,111,111</span><span>4,201</span><span>17</span></div></div>
+          </div>
+        </div>
+        <div class="spec"><h4>Exact in results, rounded only in prose</h4>
+          <table class="t"><tbody>
+            <tr><td>Addresses</td><td class="num">212,418,907</td></tr>
+            <tr><td>Transfers</td><td class="num">1,830,397,917</td></tr>
+            <tr><td>Self-loops dropped</td><td class="num">4,201</td></tr>
+            <tr><td>Share of addresses</td><td class="num">14.69&#8239;%</td></tr>
+          </tbody></table>
+          <p class="note" style="margin-top:var(--space-3)">In a sentence: “about <span class="num">212.4&#8239;M</span> addresses and <span class="num">1.83&#8239;B</span> transfers”. A rounded figure always says “about” or carries a unit prefix; a result table never rounds.</p>
+        </div>
+        <div class="spec"><h4>Units follow a space that never breaks</h4>
+          <table class="t"><tbody>
+            <tr><td>Size</td><td class="num">9.3&#8239;GB</td></tr>
+            <tr><td>Duration</td><td class="num">3&#8239;min 30&#8239;s</td></tr>
+            <tr><td>Share</td><td class="num">10.77&#8239;%</td></tr>
+            <tr><td>Ratio</td><td class="num">4.6×</td></tr>
+            <tr><td>Range</td><td class="num">2023-01-01 – 2023-12-31</td></tr>
+          </tbody></table>
+          <p class="note" style="margin-top:var(--space-3)">A narrow no-break space (U+202F) between number and unit, so the two never part at a line end — thin in Inter, one character wide in monospace; dates in ISO order; an en dash for ranges; the multiplication sign, not the letter x.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Headings</h3>
+      <div class="spec hier">
+        <div><span class="cap num">overline · 12 / 16 · 500 · +0.04&#8239;em</span><span class="overline">Open-source graph engine · one machine</span></div>
+        <div><span class="cap num">display · 60 / 64 · 600 · −0.02&#8239;em</span><span style="font-size:var(--text-5xl);line-height:var(--lh-5xl);font-weight:var(--weight-semibold);letter-spacing:var(--tracking-tight)">Every graph, every size</span></div>
+        <div><span class="cap num">h1 · 32 / 40 · 600 · −0.02&#8239;em</span><h1>Never run out of memory</h1></div>
+        <div><span class="cap num">h2 · 24 / 32 · 600 · −0.02&#8239;em</span><h2>What the plan says before it runs</h2></div>
+        <div><span class="cap num">panel title · 20 / 28 · 600</span><span style="font-size:var(--text-xl);line-height:var(--lh-xl);font-weight:var(--weight-semibold)">DeFi protocols</span></div>
+        <div><span class="cap num">h3 · 16 / 24 · 600</span><h3>Largest communities</h3></div>
+        <div><span class="cap num">h4 · 14 / 20 · 600</span><h4>Transfers inside</h4></div>
+        <div><span class="cap num">body · 14 / 20 · 400</span><span>You set a budget; the engine plans first and stays inside it.</span></div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Reading text</h3>
+      <p class="note">Long-form text is set at <span class="num">16/24</span> in a <span class="num">720&#8239;px</span> column — about 85 characters a line. The frame below is exactly that column.</p>
+      <div class="spec"><div class="colrule"><span class="num">--content · 720&#8239;px</span></div><div class="prose">
+        <h2>How the map is built</h2>
+        <p>Everygraph reads the file once, in order, and never holds all of it in memory. It first gives every address a number, then sorts the transfers by those numbers into <span class="num">2,048</span> parts on disk. Communities are found on that sorted form, level by level, until the regions are small enough to draw. You can read the <a href="#type">plan before it runs</a>, and <a href="#type" class="is-hover">change the budget</a> if the estimate does not suit the machine.</p>
+        <p>A region on the map is a community that was found, not drawn by hand. Its area is its number of addresses; its position only groups it with its neighbours. Distance on the map is not a measurement, and the caption under every view says so.</p>
+        <h3>What a count means</h3>
+        <p>Every number shown is exact unless it says “about”. When a result is cut short, it says so in place:</p>
+        <ul>
+          <li>a table shows <span class="num">20</span> of <span class="num">1,312</span> rows and offers the rest;</li>
+          <li>a map draws the <span class="num">200</span> strongest links and names how many it left out;</li>
+          <li>an estimate carries its unit and the word “about”.</li>
+        </ul>
+        <ol>
+          <li>Open a file with <code>everygraph ingest transfers.parquet</code>.</li>
+          <li>Read the plan. Press <kbd>Enter</kbd> to accept it.</li>
+          <li>Open the map with <code>everygraph map transfers.eg</code>.</li>
+        </ol>
+        <blockquote>The budget is a hard limit. A step that cannot fit says so before it starts, with the smallest budget that would work.</blockquote>
+        <p class="small muted">A caption or footnote is set at <span class="num">13/18</span> in the muted ink, and stays inside the same column.</p>
+      </div></div>
+    </div>
+
+    <div class="sub"><h3>Links, inline code, keys</h3>
+      <div class="pair" data-dup>
+        <table class="t states"><tbody>
+          <tr><td>Link</td><td><a href="#type">What “exact” means here</a></td><td class="cap">accent ink, 1&#8239;px underline</td></tr>
+          <tr><td>Link, hover</td><td><a href="#type" class="is-hover">What “exact” means here</a></td><td class="cap">underline thickens to 2&#8239;px; colour does not change</td></tr>
+          <tr><td>Link, focus</td><td><a href="#type" class="is-focus">What “exact” means here</a></td><td class="cap">the focus ring, as everywhere</td></tr>
+          <tr><td>External link</td><td><a href="#type">Source on GitHub<i data-i="external" style="margin-left:4px"></i></a></td><td class="cap">icon after the text; opens a new tab</td></tr>
+          <tr><td>Inline code</td><td>Call <code>g.communities()</code> on <code>transfers.eg</code></td><td class="cap">mono on the well colour</td></tr>
+          <tr><td>Keys</td><td>Press <kbd>/</kbd> to search, <kbd>Ctrl</kbd> <kbd>K</kbd> for commands</td><td class="cap">one cap per key</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="sub"><h3>The rules, as examples</h3>
+      <div class="grid g2 rules">
+        <div class="rule-do"><span class="verdict pass"><i data-i="check"></i>Sentence case</span><div class="ex"><button class="btn">Open as table</button><span>Strongest connections</span><span>Copy link to this view</span></div></div>
+        <div class="rule-dont"><span class="verdict flag"><i data-i="close"></i>Title case or capitals</span><div class="ex"><button class="btn">Open As Table</button><span>STRONGEST CONNECTIONS</span><span>Copy Link To This View</span></div></div>
+        <div class="rule-do"><span class="verdict pass"><i data-i="check"></i>Numbers in mono, exact, separated</span><div class="ex"><span>The region holds <span class="num">22,870,455</span> addresses, <span class="num">10.77&#8239;%</span> of the graph.</span></div></div>
+        <div class="rule-dont"><span class="verdict flag"><i data-i="close"></i>Numbers in the text face, rounded, unseparated</span><div class="ex"><span>The region holds 22870455 addresses, ~11% of the graph.</span></div></div>
+        <div class="rule-do"><span class="verdict pass"><i data-i="check"></i>One overline, in Inter, above a section</span><div class="ex"><span class="overline">Open-source graph engine · one machine</span></div></div>
+        <div class="rule-dont"><span class="verdict flag"><i data-i="close"></i>Capital labels in mono on every block</span><div class="ex"><span style="font:var(--text-xs)/var(--lh-xs) var(--font-mono);letter-spacing:var(--tracking-wide)">LARGEST SUB-REGIONS</span></div></div>
+        <div class="rule-do"><span class="verdict pass"><i data-i="check"></i>Two weights, plain words</span><div class="ex"><span><b style="font-weight:var(--weight-semibold)">Not enough memory for this step.</b> The budget is <span class="num">4.0&#8239;GB</span>; <span class="num">5.6&#8239;GB</span> is the smallest that works.</span></div></div>
+        <div class="rule-dont"><span class="verdict flag"><i data-i="close"></i>Bold, italics and exclamation for emphasis</span><div class="ex"><span><b>Oops!</b> <i>Simply</i> raise the budget and <b><i>blazing-fast</i></b> communities are yours!</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 5 SPACE ============================== -->
+  <section class="section" id="space"><h2>5 · Space and layout</h2>
+    <p>Every distance is a step of a 4&#8239;px scale. Generous spacing is where the friendliness of the style comes from; nothing is packed to save a row.</p>
+
+    <div class="sub"><h3>The scale, drawn to size</h3>
+      <div class="spec"><div class="spacescale" id="spacescale"></div></div>
+    </div>
+
+    <div class="sub"><h3>Control heights</h3>
+      <div class="pair" data-dup>
+        <div class="heights">
+          <div class="hrow"><span class="hdim" style="height:var(--control-sm)"><span class="num">28</span></span><button class="btn sm">Open as table</button><input class="input sm" value="transfers.eg" style="width:144px" readonly><span class="cap">small — inside panels, tables and toolbars</span></div>
+          <div class="hrow"><span class="hdim" style="height:var(--control-md)"><span class="num">32</span></span><button class="btn">Open as table</button><input class="input" value="transfers.eg" style="width:144px" readonly><span class="cap">default — everywhere else</span></div>
+          <div class="hrow"><span class="hdim" style="height:var(--control-lg)"><span class="num">40</span></span><button class="btn lg">Open as table</button><input class="input lg" value="transfers.eg" style="width:144px" readonly><span class="cap">large — one call to action on a page; touch</span></div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:var(--space-3)">Controls in one row share one height and sit on one baseline. A tag is <span class="num">20&#8239;px</span> high, a key cap <span class="num">20&#8239;px</span>, a table row <span class="num">37&#8239;px</span> (20 line, 8 above and below, 1 rule).</p>
+    </div>
+
+    <div class="sub"><h3>Page widths</h3>
+      <div class="grid g2">
+        <div class="spec"><h4>Docs and marketing page — drawn at 1 : 5</h4>
+          <div class="wirebox">
+            <div class="wire"><div class="w-top"></div><div class="w-page"><div class="w-content"></div></div></div>
+            <dl class="wl">
+              <div><dt>--topbar · 52&#8239;px</dt><dd>the strip across the top</dd></div>
+              <div><dt>--page · 1200&#8239;px</dt><dd>dashed: the widest a page grows</dd></div>
+              <div><dt>--content · 720&#8239;px</dt><dd>shaded: the long-form text column</dd></div>
+            </dl>
+          </div>
+        </div>
+        <div class="spec"><h4>Viewer at 1440 × 900 — drawn at 1 : 5</h4>
+          <div class="wirebox">
+            <div class="wire"><div class="w-top"></div><div class="w-body"><div class="w-map" data-theme="dark"></div><div class="w-panel"></div></div><div class="w-strip"></div></div>
+            <dl class="wl">
+              <div><dt>--topbar · 52&#8239;px</dt><dd>file name, search, colour, time, share</dd></div>
+              <div><dt>--panel · 360&#8239;px</dt><dd>shaded: the inspection panel, fixed width</dd></div>
+              <div><dt>map</dt><dd>dark canvas: all the remaining width</dd></div>
+              <div><dt>caption strip</dt><dd>one line under the map, always present</dd></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:var(--space-3)">The page has a <span class="num">24&#8239;px</span> margin on each side, so the usable width is <span class="num">1,152&#8239;px</span>. The panel never grows; the map takes what is left.</p>
+    </div>
+
+    <div class="sub"><h3>Twelve columns</h3>
+      <p class="note">Pages are laid out on 12 columns with <span class="num">24&#8239;px</span> gutters. At the full page width a column is <span class="num">74&#8239;px</span>. The overlay is drawn in the well colour over a sample landing layout.</p>
+      <div class="spec"><div class="g12wrap">
+        <div class="g12 overlay" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="g12 layout">
+          <div class="blk" style="grid-column:span 12"><span>navigation</span><span class="num">span 12</span></div>
+          <div class="blk tall" style="grid-column:span 7"><span>headline, lede, install command</span><span class="num">span 7</span></div>
+          <div class="blk tall" style="grid-column:span 5"><span>map figure</span><span class="num">span 5</span></div>
+          <div class="blk" style="grid-column:span 4"><span>card</span><span class="num">span 4</span></div>
+          <div class="blk" style="grid-column:span 4"><span>card</span><span class="num">span 4</span></div>
+          <div class="blk" style="grid-column:span 4"><span>card</span><span class="num">span 4</span></div>
+          <div class="blk" style="grid-column:3 / span 8"><span>reading column — 8 columns is 760&#8239;px, capped at 720</span><span class="num">3 / span 8</span></div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="sub"><h3>Density</h3>
+      <p class="note">Two densities, never mixed inside one view. Comfortable is the default; compact is for tables that are the whole point of the screen and for the notebook, where vertical room is scarce.</p>
+      <div class="grid g2">
+        <div class="spec"><h4>Comfortable — row <span class="num">37&#8239;px</span></h4>
+          <table class="t"><thead><tr><th>Community</th><th class="num">Addresses</th><th class="num">Share</th></tr></thead><tbody>
+            <tr><td>Exchanges</td><td class="num">31,204,118</td><td class="num">14.69&#8239;%</td></tr>
+            <tr><td>DeFi protocols</td><td class="num">22,870,455</td><td class="num">10.77&#8239;%</td></tr>
+            <tr><td>Stablecoin transfers</td><td class="num">18,441,082</td><td class="num">8.68&#8239;%</td></tr>
+            <tr><td>NFT marketplaces</td><td class="num">9,112,876</td><td class="num">4.29&#8239;%</td></tr>
+          </tbody></table>
+        </div>
+        <div class="spec"><h4>Compact — row <span class="num">29&#8239;px</span></h4>
+          <table class="t compact"><thead><tr><th>Community</th><th class="num">Addresses</th><th class="num">Share</th></tr></thead><tbody>
+            <tr><td>Exchanges</td><td class="num">31,204,118</td><td class="num">14.69&#8239;%</td></tr>
+            <tr><td>DeFi protocols</td><td class="num">22,870,455</td><td class="num">10.77&#8239;%</td></tr>
+            <tr><td>Stablecoin transfers</td><td class="num">18,441,082</td><td class="num">8.68&#8239;%</td></tr>
+            <tr><td>NFT marketplaces</td><td class="num">9,112,876</td><td class="num">4.29&#8239;%</td></tr>
+            <tr><td>Bridges</td><td class="num">7,405,310</td><td class="num">3.49&#8239;%</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 6 SHAPE ============================== -->
+  <section class="section" id="shape"><h2>6 · Shape, borders, elevation</h2>
+    <p>Small radii, thin lines, one shadow. Shapes stay square enough to feel like an instrument; nothing is pill-shaped unless it is a dot, an avatar or a toggle.</p>
+
+    <div class="sub"><h3>Radii, at the sizes they are used</h3>
+      <div class="spec"><div class="radii" id="radii"></div></div>
+    </div>
+
+    <div class="sub"><h3>Hairline and strong line</h3>
+      <div class="pair" data-dup>
+        <div class="lines">
+          <div><span class="ln" style="border-top:var(--border) solid var(--line)"></span><span class="num">1&#8239;px · --line</span><span class="cap">hairline: dividers, card edges, table rows. Decorative — it carries no information on its own.</span></div>
+          <div><span class="ln" style="border-top:var(--border) solid var(--line-strong)"></span><span class="num">1&#8239;px · --line-strong</span><span class="cap">control borders: buttons, inputs, key caps.</span></div>
+          <div><span class="ln" style="border-top:var(--border-strong) solid var(--line-strong)"></span><span class="num">1.5&#8239;px · --line-strong</span><span class="cap">the rule under a table header; the only heavy rule in chrome.</span></div>
+          <div><span class="ln" style="border-top:var(--border-strong) solid var(--d3)"></span><span class="num">1.5&#8239;px · data colour</span><span class="cap">a region outline on the map (data, not chrome).</span></div>
+          <div><span class="ln" style="border-top:2px solid var(--focus)"></span><span class="num">2&#8239;px · --focus</span><span class="cap">the focus ring and the selected tab.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>The one shadow</h3>
+      <p class="note">Only things that float above the page have a shadow: popovers, menus and dialogs. Cards, panels, tables and buttons are flat and separated by a hairline.</p>
+      <div class="pair" data-dup>
+        <div class="elev">
+          <div><div class="card">A card: flat, <span class="num">1&#8239;px</span> hairline, radius <span class="num">6</span>.</div><span class="cap">on the page</span></div>
+          <div><div class="pop" style="padding:var(--space-4)">A popover: <code>--shadow-pop</code>, radius <span class="num">6</span>.</div><span class="cap">above the page</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Focus ring</h3>
+      <div class="grid g2">
+        <div class="spec"><h4>Anatomy, enlarged six times</h4>
+          <svg class="dg" viewBox="0 0 520 272" width="100%" style="max-width:520px;display:block" role="img" aria-label="Focus ring anatomy">
+            <!-- the left half of a default button at 6x: border 6, offset 12, ring 12 -->
+            <clipPath id="fa-clip"><rect x="0" y="0" width="300" height="272"/></clipPath>
+            <g clip-path="url(#fa-clip)">
+              <rect x="22" y="22" width="400" height="228" rx="36" fill="none" stroke="var(--focus)" stroke-width="12"/>
+              <rect x="43" y="43" width="400" height="186" rx="16" fill="var(--surface)" stroke="var(--line-strong)" stroke-width="6"/>
+              <text x="118" y="166" style="font:500 84px/1 var(--font-sans);fill:var(--ink)">Open</text>
+            </g>
+            <g class="dim"><path d="M300 22H340"/><path d="M300 34H316V106H340"/><path d="M300 43H308V186H340"/></g>
+            <text x="348" y="26" class="t-strong">2 px outline</text><text x="348" y="42">--focus; follows the</text><text x="348" y="58">control's corners</text>
+            <text x="348" y="110" class="t-strong">2 px offset</text><text x="348" y="126">the page colour shows</text><text x="348" y="142">through the gap</text>
+            <text x="348" y="190" class="t-strong">1 px border</text><text x="348" y="206">unchanged by focus</text>
+          </svg>
+        </div>
+        <div class="spec"><h4>At real size, on every kind of control</h4>
+          <div class="pair flat" data-dup>
+            <div class="row" style="gap:var(--space-4)">
+              <button class="btn is-focus">Open</button>
+              <button class="btn primary is-focus">Run</button>
+              <input class="input is-focus" value="8&#8239;GB" size="6" readonly>
+              <a href="#shape" class="is-focus">A link</a>
+              <button class="btn sm is-focus" aria-label="Close" style="width:var(--control-sm);padding:0"><i data-i="close"></i></button>
+            </div>
+          </div>
+          <p class="note" style="margin-top:var(--space-3)">The ring is the same on every control and in both themes, and it is never removed. It shows for keyboard focus (<code>:focus-visible</code>), not on mouse press. The ring is <span class="num" id="focus-cr-l"></span> against the light page and <span class="num" id="focus-cr-d"></span> against the dark page.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 7 MOTION ============================== -->
+  <section class="section" id="motion"><h2>7 · Motion</h2>
+    <p>Three durations and one easing curve. Motion explains where something came from or went; it is never there to be noticed. Nothing bounces, overshoots or loops for attention.</p>
+
+    <div class="sub"><h3>The three durations</h3>
+      <div class="grid g3">
+        <div class="spec mo"><h4><span class="num">120&#8239;ms</span> · <code>--dur-fast</code> · hover and press</h4>
+          <div class="mo-stage"><button class="btn mo-fast go" tabindex="-1">Open as table</button></div>
+          <div class="mo-foot"><span class="cap">The fill of a control changes; nothing moves.</span><button class="btn sm" data-replay="fast"><i data-i="play"></i>Replay</button></div>
+        </div>
+        <div class="spec mo"><h4><span class="num">190&#8239;ms</span> · <code>--dur-base</code> · panels and fades</h4>
+          <div class="mo-stage clip"><div class="mo-panel go"><b>DeFi protocols</b><span class="num">22,870,455</span></div></div>
+          <div class="mo-foot"><span class="cap">A panel slides <span class="num">16&#8239;px</span> and fades in; map levels cross-fade.</span><button class="btn sm" data-replay="base"><i data-i="play"></i>Replay</button></div>
+        </div>
+        <div class="spec mo"><h4><span class="num">320&#8239;ms</span> · <code>--dur-slow</code> · flying across the map</h4>
+          <div class="mo-stage map" data-theme="dark"><svg viewBox="0 0 320 120" width="100%" height="120" preserveAspectRatio="xMidYMid slice"><circle cx="70" cy="64" r="38" class="rg r1"/><circle cx="238" cy="52" r="30" class="rg r2"/><circle cx="170" cy="96" r="16" class="rg r3"/><rect class="mo-view go" x="0" y="0" width="96" height="64" rx="2"/></svg></div>
+          <div class="mo-foot"><span class="cap">The view travels to a region; the only motion long enough to follow.</span><button class="btn sm" data-replay="slow"><i data-i="play"></i>Replay</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>The easing</h3>
+      <div class="spec"><div class="easing">
+        <svg class="dg" viewBox="-34 -14 220 196" width="220" height="196" role="img" aria-label="Easing curve cubic-bezier(0.2, 0, 0, 1)">
+          <rect x="0" y="0" width="160" height="160" class="edge"/>
+          <path class="mid" d="M0 160 160 0"/>
+          <path d="M0 160 C32 160 0 0 160 0" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+          <text x="-30" y="6">1</text><text x="-30" y="164">0</text><text x="0" y="178">0</text><text x="124" y="178">time 1</text><text x="-30" y="84">done</text>
+        </svg>
+        <div class="race">
+          <p class="note"><code>--ease: cubic-bezier(0.2, 0, 0, 1)</code> — a quick start and a long, soft landing. The dashed line is linear, for comparison. The same curve is used for every transition, in both directions.</p>
+          <div class="track"><span class="cap num">120&#8239;ms</span><div class="lane"><i class="runner fast go"></i></div></div>
+          <div class="track"><span class="cap num">190&#8239;ms</span><div class="lane"><i class="runner base go"></i></div></div>
+          <div class="track"><span class="cap num">320&#8239;ms</span><div class="lane"><i class="runner slow go"></i></div></div>
+          <div class="track"><span class="cap">linear, <span class="num">320&#8239;ms</span></span><div class="lane"><i class="runner lin go"></i></div></div>
+          <div><button class="btn sm" data-replay="race"><i data-i="play"></i>Replay all four</button></div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="sub"><h3>What never animates</h3>
+      <div class="grid g2">
+        <div class="spec"><ul class="plain">
+          <li><b>Numbers.</b> A count appears at its final value. No counting up, no rolling digits.</li>
+          <li><b>Results arriving.</b> Table rows, list items and tiles appear in place; they do not slide or stagger in.</li>
+          <li><b>Text and layout.</b> Nothing a person is reading moves while it is being read.</li>
+          <li><b>Status.</b> A warning does not pulse, shake or flash. It is there, with its icon and its words.</li>
+          <li><b>Anything, with a bounce.</b> No overshoot, no spring, no elastic settle.</li>
+          <li><b>Loading placeholders.</b> Skeletons are still; the progress bar or spinner is the only thing that moves.</li>
+        </ul></div>
+        <div class="stack">
+          <div class="callout"><span class="ico"><i data-i="info"></i></span><div><b>Reduced motion.</b> When the system asks for less motion, every transition and animation is switched off (<code>base.css</code> does this globally): panels appear, the map cuts to its destination, and the spinner stops. A stopped spinner says nothing, so every loading state also carries words — “Reading… <span class="num">1,270</span> of <span class="num">2,048</span> parts”.</div></div>
+          <div class="callout warn"><span class="ico"><i data-i="warning"></i></span><div><b>Two motions run longer than a token.</b> The spinner (one turn in <span class="num">800&#8239;ms</span>, linear) and the indeterminate progress bar are continuous, so they have no place on the three-step scale. They are the only exceptions and have no token yet.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 8 ICONS ============================== -->
+  <section class="section" id="icons"><h2>8 · Icons</h2>
+    <p>One set of line icons drawn for the product: a 16&#8239;px grid, a 1.5&#8239;px stroke, round caps and joins, no fills except small dots. They take the colour of the text they sit in.</p>
+
+    <div class="sub"><h3>Construction</h3>
+      <div class="spec"><div class="icon-construct">
+        <svg class="dg" id="icon-big" viewBox="-1 -1 226 226" width="226" height="226" role="img" aria-label="The search icon on its 16-unit grid"></svg>
+        <div>
+          <table class="t"><tbody>
+            <tr><td>Grid</td><td><span class="num">16×16</span> units, one unit per pixel at the base size</td></tr>
+            <tr><td>Live area</td><td><span class="num">13×13</span>, a <span class="num">1.5</span>-unit margin (shaded); round shapes may reach <span class="num">1.25</span></td></tr>
+            <tr><td>Stroke</td><td><span class="num">1.5&#8239;px</span> at every size — the stroke does not scale with the icon</td></tr>
+            <tr><td>Ends and corners</td><td>round caps, round joins; inner corner radius <span class="num">1.5</span></td></tr>
+            <tr><td>Fills</td><td>none, except dots (info, warning, more)</td></tr>
+            <tr><td>Sizes</td><td><span class="num">16&#8239;px</span> in controls and text; <span class="num">20&#8239;px</span> in empty states and standalone buttons</td></tr>
+            <tr><td>Colour</td><td><code>currentColor</code>; status icons take the status colour and always sit beside a word</td></tr>
+          </tbody></table>
+          <p class="note" style="margin-top:var(--space-3)">An icon never stands alone without a name: icon-only buttons carry a tooltip and an accessible label. The four status icons differ in outline as well as in mark — circle with “i”, triangle, circle with a cross, circle with a tick — so they are told apart without colour.</p>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="sub"><h3>The set</h3>
+      <p class="note"><span class="num" id="icon-count"></span> icons, each at <span class="num">16</span> and <span class="num">20&#8239;px</span>, with the name used in code.</p>
+      <div class="pair"><div data-theme="light"><div class="iconset" id="icons-light"></div></div><div data-theme="dark"><div class="iconset" id="icons-dark"></div></div></div>
+    </div>
+  </section>
+
+  <!-- ============================== 9 ACCESSIBILITY ============================== -->
+  <section class="section" id="a11y"><h2>9 · Accessibility summary</h2>
+    <p>What was measured, what passes, and what does not yet. The failures are small and all of the same kind; they are listed rather than hidden.</p>
+
+    <div class="sub"><h3>Contrast</h3>
+      <p class="note">Computed from the live tokens. “Text” needs <span class="num">4.5:1</span>; “large / graphic” (text from <span class="num">24&#8239;px</span>, or <span class="num">19&#8239;px</span> bold; icons; control borders) needs <span class="num">3:1</span>.</p>
+      <div class="spec"><table class="t" id="contrast"><thead><tr><th>Pair</th><th>Where it is used</th><th>Needs</th><th class="num">Light</th><th class="num">Dark</th><th>Result</th></tr></thead><tbody></tbody></table></div>
+      <div class="callout warn" style="margin-top:var(--space-4)"><span class="ico"><i data-i="warning"></i></span><div id="contrast-summary"></div></div>
+    </div>
+
+    <div class="sub"><h3>Focus, targets, colour</h3>
+      <div class="grid g3">
+        <div class="spec"><h4>Focus</h4>
+          <ul class="plain">
+            <li>Every interactive element shows the same ring: <span class="num">2&#8239;px</span>, offset <span class="num">2&#8239;px</span>.</li>
+            <li>Tab order follows reading order; a dialog traps focus and returns it on close.</li>
+            <li>The map is reachable by keyboard: arrow keys move between regions, <kbd>Enter</kbd> opens one, <kbd>Esc</kbd> goes up a level.</li>
+          </ul>
+        </div>
+        <div class="spec"><h4>Hit targets</h4>
+          <div class="targets">
+            <div><span class="tg" style="width:var(--control-md);height:var(--control-md)"><i data-i="close"></i></span><span class="cap"><span class="num">32×32</span><br>icon button</span></div>
+            <div><span class="tg" style="width:var(--control-sm);height:var(--control-sm)"><i data-i="close"></i></span><span class="cap"><span class="num">28×28</span><br>small</span></div>
+            <div><span class="tg" style="width:24px;height:24px"><span class="cb"></span></span><span class="cap"><span class="num">24×24</span><br>checkbox area</span></div>
+            <div><span class="tg" style="width:var(--control-lg);height:var(--control-lg)"><i data-i="plus" data-size="20"></i></span><span class="cap"><span class="num">40×40</span><br>touch</span></div>
+          </div>
+          <p class="note" style="margin-top:var(--space-3)">Nothing clickable is smaller than <span class="num">24×24&#8239;px</span> (WCAG 2.2, 2.5.8). A <span class="num">16&#8239;px</span> checkbox is clickable on its whole label row.</p>
+        </div>
+        <div class="spec"><h4>Never colour alone</h4>
+          <ul class="plain">
+            <li>Status: an icon and a word with every status colour.</li>
+            <li>Links: underlined, not only blue.</li>
+            <li>Selection on the map: a double ring, not a hue.</li>
+            <li>Kinds of region: solid, dashed and hatched outlines.</li>
+            <li>Sort direction: an arrow in the header.</li>
+            <li>Legends: every colour has its name and its exact count.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<script src="assets/shell.js" data-page="foundations"></script>
+<script>
+/* -- shared by index, foundations and components: icon set, mark, theme pairs -- */
+var EGIcons = {
+  'search': 'c:7,7,4.5|M10.5 10.5 14 14',
+  'zoom-in': 'c:7,7,4.5|M10.5 10.5 14 14|M7 5v4|M5 7h4',
+  'zoom-out': 'c:7,7,4.5|M10.5 10.5 14 14|M5 7h4',
+  'fit': 'M2 6V3.5A1.5 1.5 0 0 1 3.5 2H6|M10 2h2.5A1.5 1.5 0 0 1 14 3.5V6|M14 10v2.5a1.5 1.5 0 0 1-1.5 1.5H10|M6 14H3.5A1.5 1.5 0 0 1 2 12.5V10',
+  'layers': 'M8 2 2 5l6 3 6-3-6-3z|M2 8l6 3 6-3|M2 11l6 3 6-3',
+  'colour': 'M8 2c2.7 3 4.5 5.2 4.5 7.5a4.5 4.5 0 0 1-9 0C3.5 7.2 5.3 5 8 2z',
+  'time': 'c:8,8,6|M8 4.5V8l2.5 1.5',
+  'share': 'c:12,3.5,1.75|c:4,8,1.75|c:12,12.5,1.75|M5.55 7.15l4.9-2.8|M5.55 8.85l4.9 2.8',
+  'link': 'M6.75 9.25a3 3 0 0 0 4.25 0l2-2a3 3 0 0 0-4.25-4.25l-1 1|M9.25 6.75a3 3 0 0 0-4.25 0l-2 2a3 3 0 0 0 4.25 4.25l1-1',
+  'export': 'M9 2H3.5A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14H9|M6.5 8H14|M11.5 5.5 14 8l-2.5 2.5',
+  'download': 'M8 2v8.5|M4.5 7 8 10.5 11.5 7|M3 13.5h10',
+  'upload': 'M8 10.5V2|M4.5 5.5 8 2l3.5 3.5|M3 13.5h10',
+  'file': 'M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6L9 2z|M9 2v4h4',
+  'graph': 'c:4,4,1.75|c:12.5,6,1.75|c:6,12.5,1.75|M5.7 4.4l5.1 1.2|M4.4 5.7l1.2 5.1|M11.3 7.3 7.2 11.2',
+  'node': 'c:8,8,3|M10.1 5.9 13.5 2.5|M5.9 10.1 2.5 13.5',
+  'edge': 'c:3.75,12.25,1.75|c:12.25,3.75,1.75|M5 11l6-6',
+  'path': 'c:3.25,12.5,1.5|c:12.75,3.5,1.5|M4.75 12.5H9.5a2.25 2.25 0 0 0 0-4.5h-3a2.25 2.25 0 0 1 0-4.5h4.75',
+  'filter': 'M2 3h12L9.5 8.5V13l-3 1V8.5L2 3z',
+  'community': 'c:8,8,6|c:6.25,9.25,2.25|c:10.5,6,1.25',
+  'table': 'r:2,2.5,12,11,1.5|M2 6.25h12|M2 10h12|M6.5 6.25v7.25',
+  'code': 'M5.5 4.5 2 8l3.5 3.5|M10.5 4.5 14 8l-3.5 3.5',
+  'terminal': 'r:2,2.5,12,11,1.5|M5 6.5l2 1.75-2 1.75|M8.5 10.25H11',
+  'info': 'c:8,8,6|M8 7.5v3.25|d:8,5.25,0.9',
+  'warning': 'M8 2.25 14.5 13.5h-13L8 2.25z|M8 6.5v3.25|d:8,11.5,0.9',
+  'error': 'c:8,8,6|M6 6l4 4|M10 6l-4 4',
+  'success': 'c:8,8,6|M5.25 8.25l2 2 3.5-4',
+  'help': 'c:8,8,6|M6.25 6.5a1.75 1.75 0 1 1 2.6 1.55c-.5.3-.85.65-.85 1.2|d:8,11.25,0.9',
+  'close': 'M4 4l8 8|M12 4l-8 8',
+  'check': 'M3 8.5l3.25 3.25L13 4.5',
+  'plus': 'M8 3v10|M3 8h10',
+  'minus': 'M3 8h10',
+  'chevron-down': 'M4 6l4 4 4-4',
+  'chevron-up': 'M4 10l4-4 4 4',
+  'chevron-left': 'M10 4 6 8l4 4',
+  'chevron-right': 'M6 4l4 4-4 4',
+  'sort': 'M5 6l3-3 3 3|M5 10l3 3 3-3',
+  'arrow-up': 'M8 13V3|M4 7l4-4 4 4',
+  'arrow-down': 'M8 3v10|M4 9l4 4 4-4',
+  'arrow-right': 'M3 8h10|M9 4l4 4-4 4',
+  'more': 'd:3.5,8,1.1|d:8,8,1.1|d:12.5,8,1.1',
+  'menu': 'M2.5 4.5h11|M2.5 8h11|M2.5 11.5h11',
+  'settings': 'M2 4.75h6.5|M12.5 4.75H14|c:10.5,4.75,1.75|M2 11.25h1.5|M7.5 11.25H14|c:5.5,11.25,1.75',
+  'sun': 'c:8,8,2.75|M8 1.5V3|M8 13v1.5|M1.5 8H3|M13 8h1.5|M3.4 3.4l1.1 1.1|M11.5 11.5l1.1 1.1|M3.4 12.6l1.1-1.1|M11.5 4.5l1.1-1.1',
+  'moon': 'M13.5 9.6A6 6 0 0 1 6.4 2.5a6 6 0 1 0 7.1 7.1z',
+  'copy': 'r:5.5,5.5,8.5,8.5,1.5|M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2',
+  'external': 'M9.5 2.5h4v4|M13.5 2.5 7.5 8.5|M11.5 9.5V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V6A1.5 1.5 0 0 1 4 4.5h2.5',
+  'pin': 'M8 14.5s4.5-4 4.5-8a4.5 4.5 0 0 0-9 0c0 4 4.5 8 4.5 8z|c:8,6.5,1.5',
+  'eye': 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z|c:8,8,2',
+  'eye-off': 'M6.2 3.8A6 6 0 0 1 8 3.5c4 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.8 2.3|M10.9 11.7a6 6 0 0 1-2.9.8C4 12.5 1.5 8 1.5 8a11 11 0 0 1 2.9-3.2|M2.5 2.5l11 11',
+  'play': 'M5 3l8 5-8 5V3z',
+  'pause': 'M5.5 3v10|M10.5 3v10',
+  'refresh': 'M13.5 8a5.5 5.5 0 1 1-1.6-3.9|M13.5 2v3.5H10',
+  'trash': 'M2.5 4.5h11|M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5|M4 4.5l.6 8.1A1.5 1.5 0 0 0 6.1 14h3.8a1.5 1.5 0 0 0 1.5-1.4l.6-8.1'
+};
+function egIcon(name, size) {
+  var def = EGIcons[name]; if (!def) { throw new Error('unknown icon: ' + name); }
+  var ne = ' vector-effect="non-scaling-stroke"', s = size || 16;
+  var inner = def.split('|').map(function (part) {
+    var a;
+    if (part.indexOf('c:') === 0) { a = part.slice(2).split(','); return '<circle cx="' + a[0] + '" cy="' + a[1] + '" r="' + a[2] + '"' + ne + '/>'; }
+    if (part.indexOf('d:') === 0) { a = part.slice(2).split(','); return '<circle class="f" cx="' + a[0] + '" cy="' + a[1] + '" r="' + a[2] + '"/>'; }
+    if (part.indexOf('r:') === 0) { a = part.slice(2).split(','); return '<rect x="' + a[0] + '" y="' + a[1] + '" width="' + a[2] + '" height="' + a[3] + '" rx="' + a[4] + '"' + ne + '/>'; }
+    return '<path d="' + part + '"' + ne + '/>';
+  }).join('');
+  return '<svg class="i" width="' + s + '" height="' + s + '" viewBox="0 0 16 16" aria-hidden="true">' + inner + '</svg>';
+}
+/* The mark, to the geometry in SPEC.md (32-unit box). kind: nest | mono | rev (reversed, no square) | seal | seal-s (inner ring dropped) | seal-h (dropped ring, heavier cut). */
+function egMark(kind, size, ctxTheme) {
+  var a = '<svg class="mk" width="' + size + '" height="' + size + '" viewBox="0 0 32 32" role="img" aria-label="Everygraph mark">';
+  var ring = function (cx, cy, r, w, col) { return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="' + w + '"/>'; };
+  if (kind === 'nest' || kind === 'mono') {
+    return a + ring(16, 16, 13, 2.4, 'currentColor') + ring(18.5, 18, 7, 2.4, 'currentColor') +
+      '<circle cx="20" cy="19.2" r="2.6" fill="' + (kind === 'mono' ? 'currentColor' : 'var(--accent)') + '"/></svg>';
+  }
+  /* Seal: the square is an inverse surface, so the dot takes the accent of the opposite theme. */
+  var inv = ctxTheme === 'dark' ? 'light' : 'dark';
+  var sq = '<rect width="32" height="32" rx="3" fill="var(--ink)"/>';
+  var dot = function (cx, cy, r) { return '<circle data-theme="' + inv + '" cx="' + cx + '" cy="' + cy + '" r="' + r + '" style="fill:var(--accent)"/>'; };
+  if (kind === 'rev') { return a + ring(16, 16, 13, 2.4, 'var(--bg)') + ring(18.5, 18, 7, 2.4, 'var(--bg)') + dot(20, 19.2, 2.6) + '</svg>'; }
+  if (kind === 'seal-s') { return a + sq + ring(16, 16, 11.4, 2.4, 'var(--bg)') + dot(19.5, 18.8, 2.6) + '</svg>'; }
+  if (kind === 'seal-h') { return a + sq + ring(16, 16, 10.6, 3.6, 'var(--bg)') + dot(18.4, 17.9, 3.6) + '</svg>'; }
+  return a + sq + '<g transform="translate(16 16) scale(0.875) translate(-16 -16)">' + ring(16, 16, 13, 2.4, 'var(--bg)') + ring(18.5, 18, 7, 2.4, 'var(--bg)') + '</g>' + dot(19.5, 18.8, 2.275) + '</svg>';
+}
+function egHydrate(root) {
+  root = root || document;
+  /* [data-dup]: write a specimen once, show it in both themes inside a .pair */
+  Array.prototype.forEach.call(root.querySelectorAll('[data-dup]'), function (el) {
+    var html = el.innerHTML; el.removeAttribute('data-dup');
+    /* __T__ in an id is replaced per theme, so SVG patterns stay unique in the document */
+    el.innerHTML = '<div data-theme="light">' + html.replace(/__T__/g, 'l') + '</div><div data-theme="dark">' + html.replace(/__T__/g, 'd') + '</div>';
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('[data-mark]'), function (el) {
+    var t = el.closest('[data-theme]'); t = t ? t.getAttribute('data-theme') : 'light';
+    el.outerHTML = egMark(el.getAttribute('data-mark'), +(el.getAttribute('data-size') || 32), t);
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('[data-i]'), function (el) {
+    var st = el.getAttribute('style'), svg = egIcon(el.getAttribute('data-i'), +(el.getAttribute('data-size') || 16));
+    el.outerHTML = st ? svg.replace('<svg ', '<svg style="' + st + '" ') : svg;
+  });
+}
+</script>
+<script>
+(function () {
+  'use strict';
+  egHydrate();
+
+  /* ---------- live token access ---------- */
+  var probes = {};
+  ['light', 'dark'].forEach(function (t) {
+    var p = document.createElement('span'); p.setAttribute('data-theme', t); p.style.display = 'none'; document.body.appendChild(p); probes[t] = getComputedStyle(p);
+  });
+  function tok(theme, name) { return probes[theme].getPropertyValue('--' + name).trim(); }
+  function px(name) { return parseFloat(tok('light', name)); }
+
+  /* ---------- colour maths ---------- */
+  function rgb(hex) { return [1, 3, 5].map(function (i) { return parseInt(hex.slice(i, i + 2), 16); }); }
+  function toLin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function fromLin(v) { v = Math.min(1, Math.max(0, v)); return Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)); }
+  function hexOf(a) { return '#' + a.map(function (v) { return ('0' + v.toString(16)).slice(-2); }).join(''); }
+  function lum(hex) { var l = rgb(hex).map(toLin); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; }
+  function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+  /* Machado, Oliveira & Fernandes 2009, severity 1.0, applied to linear RGB */
+  var CVD = {
+    protanopia: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+    deuteranopia: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]]
+  };
+  function simulate(hex, kind) {
+    if (!kind) { return hex; }
+    var l = rgb(hex).map(toLin), m = CVD[kind];
+    return hexOf(m.map(function (r) { return fromLin(r[0] * l[0] + r[1] * l[1] + r[2] * l[2]); }));
+  }
+  function oklab(hex) {
+    var c = rgb(hex).map(toLin);
+    var l = Math.cbrt(0.4122214708 * c[0] + 0.5363325363 * c[1] + 0.0514459929 * c[2]);
+    var m = Math.cbrt(0.2119034982 * c[0] + 0.6806995451 * c[1] + 0.1073969566 * c[2]);
+    var s = Math.cbrt(0.0883024619 * c[0] + 0.2817188376 * c[1] + 0.6299787005 * c[2]);
+    return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+  }
+  function deltaE(a, b) { var x = oklab(a), y = oklab(b); return 100 * Math.sqrt(Math.pow(x[0] - y[0], 2) + Math.pow(x[1] - y[1], 2) + Math.pow(x[2] - y[2], 2)); }
+  var NEED = { text: 4.5, graphic: 3, none: 0 };
+  var cross = egIcon('close', 12);
+
+  /* ---------- 1 mark: grid, never row, busy pattern, pixel previews ---------- */
+  (function () {
+    var g = '', i;
+    for (i = 1; i < 32; i++) { g += '<path class="gridline' + (i % 4 === 0 ? ' major' : '') + '" d="M' + (i * 10) + ' 0V320M0 ' + (i * 10) + 'H320"/>'; }
+    document.getElementById('dg-grid').innerHTML = g;
+    var r = '';
+    for (i = 0; i <= 32; i += 4) {
+      r += '<path class="dim" d="M' + (i * 10) + ' -8v8M-8 ' + (i * 10) + 'h8"/><text x="' + (i * 10) + '" y="-14" text-anchor="middle">' + i + '</text><text x="-14" y="' + (i * 10 + 4) + '" text-anchor="end">' + i + '</text>';
+    }
+    document.getElementById('dg-ruler').innerHTML = r;
+  })();
+
+  (function () {
+    var ring = function (cx, cy, r, w, col) { return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + (col || 'currentColor') + '" stroke-width="' + (w || 2.4) + '"/>'; };
+    var dot = function (cx, cy, r, col) { return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + (col || 'var(--accent)') + '"/>'; };
+    var nest = ring(16, 16, 13) + ring(18.5, 18, 7) + dot(20, 19.2, 2.6);
+    var never = [
+      ['Rotated', 'The drift is always down and to the right.', '<g transform="rotate(140 16 16)">' + nest + '</g>'],
+      ['A third ring', 'A region, a sub-region, a node. No more.', ring(16, 16, 13) + ring(17.6, 17.3, 8.6) + ring(19.2, 18.6, 4.6) + dot(20.2, 19.4, 1.5)],
+      ['Rings in the accent', 'The accent belongs to the dot alone.', ring(16, 16, 13, 2.4, 'var(--accent)') + ring(18.5, 18, 7, 2.4, 'var(--accent)') + dot(20, 19.2, 2.6, 'currentColor')],
+      ['Dot outside', 'The node lives inside its sub-region.', ring(16, 16, 13) + ring(18.5, 18, 7) + dot(9.6, 11, 2.6)],
+      ['With effects', 'No shadow, glow, gradient or outline.', '<g style="filter:drop-shadow(0 2px 1.5px var(--line-strong))">' + nest + '</g>'],
+      ['Stretched', 'Scale it; never squeeze it.', '<g transform="translate(16 16) scale(1.22 0.78) translate(-16 -16)">' + nest + '</g>'],
+      ['Another weight', 'One stroke: 2.4 units.', ring(16, 16, 13, 1) + ring(18.5, 18, 7, 1) + dot(20, 19.2, 2.6)]
+    ];
+    document.getElementById('never').innerHTML = never.map(function (n) {
+      return '<div class="tile"><div class="stage"><svg class="mk" width="64" height="64" viewBox="0 0 32 32" style="overflow:visible" aria-hidden="true">' + n[2] + '</svg>' +
+        '<svg class="cross" preserveAspectRatio="none" viewBox="0 0 100 100"><line x1="0" y1="100" x2="100" y2="0" vector-effect="non-scaling-stroke"/></svg></div>' +
+        '<p><span class="verdict">' + cross + n[0] + '.</span> ' + n[1] + '</p></div>';
+    }).join('');
+  })();
+
+  (function () {
+    /* a busy, map-like ground generated from the data palette: seeded so every load is identical */
+    var seed = 20261125;
+    function rnd() { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
+    var s = '<rect width="400" height="160" fill="var(--map-bg)"/>', i, n, x, y, r, c, k;
+    for (i = 0; i < 46; i++) {
+      x = rnd() * 400; y = rnd() * 160; r = 8 + rnd() * rnd() * 46; c = 'var(--d' + (1 + Math.floor(rnd() * 10)) + ')';
+      s += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + c + '" fill-opacity="0.14" stroke="' + c + '" stroke-width="1.5"/>';
+      n = Math.floor(r / 6);
+      for (k = 0; k < n; k++) {
+        var a = rnd() * 6.283, d = rnd() * r * 0.6, rr = 2 + rnd() * r * 0.3;
+        s += '<circle cx="' + (x + Math.cos(a) * d).toFixed(1) + '" cy="' + (y + Math.sin(a) * d).toFixed(1) + '" r="' + rr.toFixed(1) + '" fill="none" stroke="' + c + '" stroke-width="1.2"/>';
+      }
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('svg[data-busy]'), function (el) {
+      el.setAttribute('viewBox', '0 0 400 160'); el.setAttribute('preserveAspectRatio', 'xMidYMid slice'); el.innerHTML = s;
+    });
+  })();
+
+  (function () {
+    /* rasterise the mark at its real pixel size, then enlarge the pixels eight times */
+    var jobs = [['seal', 16, 'Full Seal<br>16\u202fpx'], ['seal-s', 16, 'Ring dropped (spec)<br>16\u202fpx'], ['seal-h', 16, 'Heavier cut (proposal)<br>16\u202fpx'],
+                ['seal', 12, 'Full Seal<br>12\u202fpx'], ['seal-s', 12, 'Ring dropped<br>12\u202fpx'], ['seal-h', 12, 'Heavier cut<br>12\u202fpx'], ['nest', 16, 'Nest at 16\u202fpx:<br>why it stops at 20']];
+    ['light', 'dark'].forEach(function (theme) {
+      var host = document.getElementById('px-' + theme), inv = theme === 'dark' ? 'light' : 'dark';
+      jobs.forEach(function (j) {
+        var fig = document.createElement('figure'), cv = document.createElement('canvas'), z = 8;
+        cv.width = j[1]; cv.height = j[1]; cv.style.width = (j[1] * z) + 'px'; cv.style.height = (j[1] * z) + 'px';
+        var cap = document.createElement('figcaption'); cap.innerHTML = j[2];
+        fig.appendChild(cv); fig.appendChild(cap); host.appendChild(fig);
+        var svg = egMark(j[0], j[1], theme).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')
+          .replace(/var\(--accent\)/g, tok(j[0] === 'nest' ? theme : inv, 'accent')).replace(/var\(--ink\)/g, tok(theme, 'ink'))
+          .replace(/var\(--bg\)/g, tok(theme, 'bg')).replace(/currentColor/g, tok(theme, 'ink'));
+        var img = new Image();
+        img.onload = function () { var c = cv.getContext('2d'); c.fillStyle = tok(theme, 'bg'); c.fillRect(0, 0, j[1], j[1]); c.drawImage(img, 0, 0, j[1], j[1]); };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      });
+    });
+  })();
+
+  /* wordmark ruler: measure the live wordmark so the bracket matches it */
+  (function () {
+    var w = document.getElementById('wm-probe').getBoundingClientRect().width;
+    document.getElementById('ruler-wm').style.width = Math.round(w) + 'px';
+  })();
+
+  /* ---------- 3 colour: swatches ---------- */
+  var S3 = function (bg) { return [['ink on it', 'ink', bg, 'text'], ['ink-2 on it', 'ink-2', bg, 'text'], ['muted on it', 'muted', bg, 'text']]; };
+  var T3 = function (fg) { return [['on bg', fg, 'bg', 'text'], ['on surface', fg, 'surface', 'text'], ['on surface-2', fg, 'surface-2', 'text']]; };
+  var ST = function (n) { return [['on bg', n, 'bg', 'text'], ['on surface', n, 'surface', 'text'], ['on its soft', n, n + '-soft', 'text']]; };
+  var SO = function (n) { return [['ink on it', 'ink', n + '-soft', 'text'], [n + ' on it', n, n + '-soft', 'text']]; };
+  var TM = function (n) { return [['on term-bg', n, 'term-bg', 'text']]; };
+  var D = function (n) { return [['bg', n, 'bg', 'graphic'], ['map', n, 'map-bg', 'graphic']]; };
+  var R1 = function (n) { return [['bg', n, 'bg', 'none']]; };
+  var seq = function (p, k, f) { var a = [], i; for (i = 1; i <= k; i++) { a.push([p + i, '', f(p + i)]); } return a; };
+  var GROUPS = [
+    ['Surfaces', '', [['bg', 'page: warm paper', S3('bg')], ['surface', 'cards, panels, inputs', S3('surface')], ['surface-2', 'wells, code, hover', S3('surface-2')]]],
+    ['Text', '', [['ink', 'primary text', T3('ink')], ['ink-2', 'secondary text', T3('ink-2')], ['muted', 'captions, placeholders', T3('muted')]]],
+    ['Lines and focus', '', [['line', 'hairlines (decorative)', [['vs bg', 'line', 'bg', 'none'], ['vs surface', 'line', 'surface', 'none']]],
+      ['line-strong', 'control borders', [['vs bg', 'line-strong', 'bg', 'graphic'], ['vs surface', 'line-strong', 'surface', 'graphic']]],
+      ['focus', 'the focus ring', [['vs bg', 'focus', 'bg', 'graphic'], ['vs surface', 'focus', 'surface', 'graphic']]]]],
+    ['Accent', 'c4', [['accent', 'primary, selected', [['text on it', 'on-accent', 'accent', 'text'], ['vs bg', 'accent', 'bg', 'graphic']]],
+      ['accent-ink', 'links, quiet buttons', [['on bg', 'accent-ink', 'bg', 'text'], ['on soft', 'accent-ink', 'accent-soft', 'text']]],
+      ['accent-soft', 'selected row', [['ink on it', 'ink', 'accent-soft', 'text'], ['muted on it', 'muted', 'accent-soft', 'text']]],
+      ['on-accent', 'text on the accent', [['on accent', 'on-accent', 'accent', 'text']]]]],
+    ['Status', 'c4', [['ok', 'done', ST('ok')], ['warn', 'cut short, caution', ST('warn')], ['err', 'failed, delete', ST('err')], ['info', 'estimate, note', ST('info')],
+      ['ok-soft', 'tag and callout fill', SO('ok')], ['warn-soft', 'tag and callout fill', SO('warn')], ['err-soft', 'tag and callout fill', SO('err')], ['info-soft', 'tag and callout fill', SO('info')]]],
+    ['Terminal — its own surface in both themes', 'c4', [['term-bg', 'ground', [['ink on it', 'term-ink', 'term-bg', 'text']]], ['term-ink', 'output', TM('term-ink')], ['term-dim', 'secondary', TM('term-dim')], ['term-accent', 'next command', TM('term-accent')],
+      ['term-ok', 'done', TM('term-ok')], ['term-warn', 'caution', TM('term-warn')], ['term-err', 'failed', TM('term-err')]]],
+    ['Map canvas', 'c4', [['map-bg', 'the canvas', [['ink on it', 'map-ink', 'map-bg', 'text']]], ['map-ink', 'labels, selection', [['on map-bg', 'map-ink', 'map-bg', 'text']]]]],
+    ['Data — categorical, in fixed order', 'c5', seq('d', 10, D)],
+    ['Data — sequential, low to high', 'c7', seq('s', 7, R1)],
+    ['Data — diverging, around a neutral middle', 'c7', seq('v', 7, R1)]
+  ];
+  var failures = [];   /* collected for the summary in section 9 */
+  function ratioRow(theme, p) {
+    var c = contrast(tok(theme, p[1]), tok(theme, p[2])), need = NEED[p[3]], bad = need && c < need;
+    return '<div class="r' + (bad ? ' bad' : '') + '"><span>' + p[0] + '</span><span class="num">' + c.toFixed(2) + (bad ? cross : '') + '</span></div>';
+  }
+  ['light', 'dark'].forEach(function (theme) {
+    var html = GROUPS.map(function (g) {
+      return '<div class="swgroup"><h4>' + g[0] + '</h4><div class="sws ' + g[1] + '">' + g[2].map(function (t) {
+        var v = tok(theme, t[0]);
+        return '<div class="sw"><div class="swatch" style="background:var(--' + t[0] + ')"></div><div class="n">--' + t[0] + '</div><div class="h">' + v + '</div>' +
+          (g[1] === 'c5' || g[1] === 'c7' ? '' : '<div class="u">' + t[1] + '</div>') + t[2].map(function (p) { return ratioRow(theme, p); }).join('') + '</div>';
+      }).join('') + '</div></div>';
+    }).join('');
+    html += '<div class="swgroup"><h4>Floating layers — not plain colours</h4><div class="sws">' +
+      '<div class="sw"><div class="swatch" style="background:linear-gradient(var(--scrim),var(--scrim)),var(--bg)"></div><div class="n">--scrim</div><div class="h">' + tok(theme, 'scrim').replace(/\s+/g, '') + '</div><div class="u">over the page, behind a dialog</div></div>' +
+      '<div class="sw" style="grid-column:span 2"><div class="swatch" style="background:var(--surface);border:0;box-shadow:var(--shadow-pop);margin:0 var(--space-5) var(--space-5) 0"></div><div class="n">--shadow-pop</div><div class="h">' + (theme === 'dark' ? '0 12px 32px black 50 %' : '0 8px 24px ink 12 %') + ' + 1 px line</div><div class="u">the one shadow: popovers, menus, dialogs</div></div></div></div>';
+    document.getElementById('sw-' + theme).innerHTML = html;
+  });
+
+  /* ---------- 3 colour: accent against status, with simulated colour-vision deficiency ---------- */
+  ['light', 'dark'].forEach(function (theme) {
+    var cols = ['accent', 'ok', 'warn', 'err', 'info'], rows = [['Typical vision', ''], ['Protanopia', 'protanopia'], ['Deuteranopia', 'deuteranopia']];
+    var html = '<div class="cvd"><span></span>' + cols.map(function (c) { return '<span class="hd">' + c + '</span>'; }).join('');
+    var worst = { v: 1e9 }, worstPair = { v: 1e9 };
+    rows.forEach(function (r) {
+      var sim = cols.map(function (c) { return simulate(tok(theme, c), r[1]); });
+      html += '<span class="rowh">' + r[0] + '</span>' + sim.map(function (hex, i) {
+        var de = i ? deltaE(sim[0], hex) : null;
+        if (i && de < worst.v) { worst = { v: de, c: cols[i], r: r[0] }; }
+        return '<div class="cell"><div class="swatch" style="background:' + hex + '"></div><span class="de' + (i && de < 10 ? ' bad' : '') + '">' + (i ? 'ΔE ' + de.toFixed(1) + (de < 10 ? cross : '') : hex) + '</span></div>';
+      }).join('');
+      for (var a = 1; a < cols.length; a++) { for (var b = a + 1; b < cols.length; b++) { var d = deltaE(sim[a], sim[b]); if (d < worstPair.v) { worstPair = { v: d, a: cols[a], b: cols[b], r: r[0] }; } } }
+    });
+    html += '</div><p class="cap" style="margin-top:var(--space-3)">Closest status to the accent: <b>' + worst.c + '</b>, <span class="num">ΔE ' + worst.v.toFixed(1) + '</span> (' + worst.r.toLowerCase() + ')' + (worst.v < 10 ? ' — flagged' : ' — not flagged') +
+      '. Closest two status colours to each other: <b>' + worstPair.a + '</b> and <b>' + worstPair.b + '</b>, <span class="num">ΔE ' + worstPair.v.toFixed(1) + '</span> (' + worstPair.r.toLowerCase() + ').</p>';
+    document.getElementById('cvd-' + theme).innerHTML = html;
+  });
+
+  /* ---------- 4 type: scale ---------- */
+  (function () {
+    var rows = [['xs', 'captions, tags, the overline'], ['sm', 'secondary interface text, table headers, code blocks'], ['md', 'the interface: body, controls, tables'], ['lg', 'long-form reading, ledes, large buttons'],
+      ['xl', 'panel titles, figures in a stat block'], ['2xl', 'section headings'], ['3xl', 'page titles'], ['4xl', 'the largest figure on a page; landing sub-headline'], ['5xl', 'landing headline only']];
+    document.querySelector('#scale tbody').innerHTML = rows.map(function (r) {
+      var size = px('text-' + r[0]), lh = px('lh-' + r[0]), big = size >= 24;
+      return '<tr><td>--text-' + r[0] + '</td><td class="num">' + size + ' / ' + lh + '</td><td><span class="sample" style="font-size:var(--text-' + r[0] + ');line-height:var(--lh-' + r[0] + ')' +
+        (big ? ';font-weight:var(--weight-semibold);letter-spacing:var(--tracking-tight)' : '') + '">Every graph<span class="num" style="letter-spacing:0;font-weight:400">1,312</span></span></td><td>' + r[1] + '</td></tr>';
+    }).join('');
+  })();
+
+  /* ---------- 5 space, 6 shape ---------- */
+  (function () {
+    var uses = ['icon to label; inside a tag', 'inside controls; between closely related items', 'control padding; between controls in a row', 'card padding; between blocks in a panel',
+      'page margin, grid gutter, specimen padding', 'between sub-sections', 'top of a page; around an empty state', 'between sections', 'bottom of a page; landing bands'];
+    document.getElementById('spacescale').innerHTML = uses.map(function (u, i) {
+      var v = px('space-' + (i + 1));
+      return '<span class="n">--space-' + (i + 1) + '</span><span class="v">' + v + '\u202fpx</span><span class="bar" style="width:var(--space-' + (i + 1) + ')"></span><span class="u">' + u + '</span>';
+    }).join('');
+    var radii = [['xs', 'tags, key caps, checkboxes', 0], ['sm', 'controls: buttons, inputs, selects', 1], ['md', 'cards, popovers, dialogs, code blocks', 2], ['round', 'dots, avatars, toggles — nothing else', 0]];
+    var shapes = [[56, 20], [112, 32], [176, 96]];
+    document.getElementById('radii').innerHTML = radii.map(function (r) {
+      return '<div><span class="n">--radius-' + r[0] + ' · ' + (r[0] === 'round' ? 'full' : px('radius-' + r[0]) + '\u202fpx') + '</span>' + shapes.map(function (s, i) {
+        return '<span class="shape' + (i === r[2] ? ' used' : '') + '" style="width:' + s[0] + 'px;height:' + s[1] + 'px;border-radius:var(--radius-' + r[0] + ')"></span>';
+      }).join('') + '<span class="cap">' + r[1] + '</span></div>';
+    }).join('') ;
+    document.getElementById('radii').insertAdjacentHTML('afterend', '<p class="cap" style="margin-top:var(--space-4)">Each radius on a shape 20, 32 and 96\u202fpx high. The solid outline is the size the radius is meant for; the dashed ones show why it is not used elsewhere.</p>');
+    document.getElementById('focus-cr-l').textContent = contrast(tok('light', 'focus'), tok('light', 'bg')).toFixed(2) + ':1';
+    document.getElementById('focus-cr-d').textContent = contrast(tok('dark', 'focus'), tok('dark', 'bg')).toFixed(2) + ':1';
+  })();
+
+  /* ---------- 7 motion: replay ---------- */
+  function replay(els) {
+    els.forEach(function (el) { el.style.transition = 'none'; el.classList.remove('go'); });
+    void document.body.offsetWidth;
+    els.forEach(function (el) { el.style.transition = ''; });
+    requestAnimationFrame(function () { requestAnimationFrame(function () { els.forEach(function (el) { el.classList.add('go'); }); }); });
+  }
+  var targets = { fast: '.mo-fast', base: '.mo-panel', slow: '.mo-view', race: '.runner' };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-replay]'), function (b) {
+    b.addEventListener('click', function () { replay(Array.prototype.slice.call(document.querySelectorAll(targets[b.getAttribute('data-replay')]))); });
+  });
+
+  /* ---------- 8 icons ---------- */
+  (function () {
+    var names = Object.keys(EGIcons);
+    ['light', 'dark'].forEach(function (theme) {
+      document.getElementById('icons-' + theme).innerHTML = names.map(function (n) { return '<div class="ic">' + egIcon(n, 16) + egIcon(n, 20) + '<span class="n">' + n + '</span></div>'; }).join('');
+    });
+    var u = 14, s = '<rect x="0" y="0" width="224" height="224" class="zone"/><rect x="' + (1.5 * u) + '" y="' + (1.5 * u) + '" width="' + (13 * u) + '" height="' + (13 * u) + '" fill="var(--surface)"/>', i;
+    for (i = 0; i <= 16; i++) { s += '<path class="gridline' + (i % 4 === 0 ? ' major' : '') + '" d="M' + (i * u) + ' 0V224M0 ' + (i * u) + 'H224"/>'; }
+    s += '<g fill="none" stroke="var(--ink)" stroke-width="' + (1.5 * u) + '" stroke-linecap="round" stroke-linejoin="round"><circle cx="' + (7 * u) + '" cy="' + (7 * u) + '" r="' + (4.5 * u) + '"/><path d="M' + (10.5 * u) + ' ' + (10.5 * u) + 'L' + (14 * u) + ' ' + (14 * u) + '"/></g>';
+    s += '<g fill="none" stroke="var(--surface)" stroke-width="1" stroke-dasharray="3 3"><circle cx="' + (7 * u) + '" cy="' + (7 * u) + '" r="' + (4.5 * u) + '"/><path d="M' + (10.5 * u) + ' ' + (10.5 * u) + 'L' + (14 * u) + ' ' + (14 * u) + '"/></g>';
+    document.getElementById('icon-big').innerHTML = s;
+    document.getElementById('icon-count').textContent = names.length;
+  })();
+
+  /* ---------- 9 contrast table ---------- */
+  (function () {
+    var rows = [
+      ['ink', 'bg', 'body text on the page', 'text'], ['ink', 'surface', 'text in cards, panels, inputs', 'text'], ['ink', 'accent-soft', 'text in a selected row', 'text'],
+      ['ink-2', 'bg', 'secondary text', 'text'], ['ink-2', 'surface-2', 'secondary text in wells', 'text'],
+      ['muted', 'bg', 'captions', 'text'], ['muted', 'surface', 'placeholders in inputs', 'text'], ['muted', 'surface-2', 'comments in code blocks', 'text'], ['muted', 'accent-soft', 'caption in a selected row', 'text'],
+      ['accent-ink', 'bg', 'links', 'text'], ['accent-ink', 'surface-2', 'keywords in code blocks', 'text'], ['accent-ink', 'accent-soft', 'accent tag; quiet button, hover', 'text'],
+      ['on-accent', 'accent', 'label of the primary button', 'text'],
+      ['ok', 'bg', 'status text', 'text'], ['ok', 'ok-soft', 'tag “done”', 'text'], ['ok', 'surface-2', 'strings in code blocks', 'text'],
+      ['warn', 'bg', 'status text', 'text'], ['warn', 'warn-soft', 'tag “cut short”', 'text'], ['warn', 'surface-2', 'numbers in code blocks', 'text'],
+      ['err', 'bg', 'status text', 'text'], ['err', 'surface', 'error under a field; destructive button', 'text'], ['err', 'err-soft', 'tag “failed”', 'text'],
+      ['info', 'bg', 'status text', 'text'], ['info', 'info-soft', 'tag “estimate”', 'text'],
+      ['line-strong', 'surface', 'border of inputs and buttons', 'graphic'], ['line-strong', 'bg', 'border of controls on the page', 'graphic'],
+      ['focus', 'bg', 'focus ring; selected tab', 'graphic'], ['focus', 'surface', 'focus ring inside a panel', 'graphic'],
+      ['term-ink', 'term-bg', 'terminal output', 'text'], ['term-dim', 'term-bg', 'terminal secondary text', 'text'], ['term-ok', 'term-bg', 'terminal “done”', 'text'], ['term-warn', 'term-bg', 'terminal caution', 'text'],
+      ['term-err', 'term-bg', 'terminal failure', 'text'], ['term-accent', 'term-bg', 'terminal next command', 'text'],
+      ['map-ink', 'map-bg', 'labels and selection on the map', 'text']
+    ];
+    var fails = [];
+    function cell(theme, fg, bg, need) { var c = contrast(tok(theme, fg), tok(theme, bg)); return { c: c, bad: c < need }; }
+    var html = rows.map(function (r) {
+      var need = NEED[r[3]], l = cell('light', r[0], r[1], need), d = cell('dark', r[0], r[1], need);
+      if (l.bad) { fails.push(['<code>--' + r[0] + '</code> on <code>--' + r[1] + '</code>', 'light', l.c, need, r[2]]); }
+      if (d.bad) { fails.push(['<code>--' + r[0] + '</code> on <code>--' + r[1] + '</code>', 'dark', d.c, need, r[2]]); }
+      var res = !l.bad && !d.bad ? '<span class="verdict pass">' + egIcon('check') + 'passes</span>' : '<span class="verdict flag">' + egIcon('close') + 'fails in ' + (l.bad && d.bad ? 'both themes' : l.bad ? 'light' : 'dark') + '</span>';
+      return '<tr><td><span class="pairchip"><i style="background:var(--' + r[0] + ')"></i><i style="background:var(--' + r[1] + ')"></i></span><code>--' + r[0] + '</code> on <code>--' + r[1] + '</code></td><td>' + r[2] + '</td><td>' +
+        (r[3] === 'text' ? 'text' : 'large / graphic') + ' <span class="num">' + need + ':1</span></td><td class="num' + (l.bad ? ' bad' : '') + '">' + l.c.toFixed(2) + '</td><td class="num' + (d.bad ? ' bad' : '') + '">' + d.c.toFixed(2) + '</td><td>' + res + '</td></tr>';
+    }).join('');
+    /* the data palette, worst of ten, as marks */
+    [['bg', 'data marks on the page (worst of the ten)'], ['map-bg', 'region outlines on the map (worst of the ten)']].forEach(function (g) {
+      var w = { light: [9, ''], dark: [9, ''] };
+      ['light', 'dark'].forEach(function (t) { for (var i = 1; i <= 10; i++) { var c = contrast(tok(t, 'd' + i), tok(t, g[0])); if (c < w[t][0]) { w[t] = [c, 'd' + i]; } } });
+      var lb = w.light[0] < 3, db = w.dark[0] < 3;
+      html += '<tr><td><span class="pairchip"><i style="background:var(--' + w.light[1] + ')"></i><i style="background:var(--' + g[0] + ')"></i></span><code>--d1…10</code> on <code>--' + g[0] + '</code></td><td>' + g[1] + '</td><td>large / graphic <span class="num">3:1</span></td><td class="num' + (lb ? ' bad' : '') + '">' +
+        w.light[0].toFixed(2) + '</td><td class="num' + (db ? ' bad' : '') + '">' + w.dark[0].toFixed(2) + '</td><td>' + (lb || db ? '<span class="verdict flag">' + egIcon('close') + 'fails</span>' : '<span class="verdict pass">' + egIcon('check') + 'passes</span>') + '</td></tr>';
+    });
+    document.querySelector('#contrast tbody').innerHTML = html;
+    document.getElementById('contrast-summary').innerHTML = '<b>' + fails.length + ' measured failures out of ' + (rows.length * 2 + 4) + ' pairs.</b><ul class="plain">' +
+      fails.map(function (f) { return '<li>' + f[0] + ', ' + f[1] + ': <span class="num">' + f[2].toFixed(2) + '</span>, needs <span class="num">' + f[3] + '</span> — ' + f[4] + '</li>'; }).join('') +
+      '</ul><p>The text failures are all within <span class="num">0.4</span> of the requirement and share one cause: a text colour tuned for the page, used on a darker or tinted fill. Control borders are the larger gap. Nothing is corrected on this page, because the values belong to <code>tokens.css</code>; these pages show the tokens as they are.</p>';
+    window.EGContrastFailures = fails;
+  })();
+})();
+</script>
+</body>
+</html>

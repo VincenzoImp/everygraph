@@ -101,3 +101,39 @@ spacing, not through colour or rounded shapes.
 
 - Exported figures use white, black and data colours only, with the caption and a scale
   of counts included; no chrome, no accent.
+
+## Settled while building the detailed preview
+
+Each of these came out of a measurement or of seeing the rule applied; they refine the
+sections above and win where the two differ.
+
+- **Contrast is measured, not assumed.** Text tokens reach 4.5:1 on every surface they are
+  allowed on, control borders 3:1; `foundations.html` computes the table live from the
+  tokens. `--muted`, `--ok`, `--warn`, `--err` and `--line-strong` were adjusted to pass.
+- **The data palette is measured.** The first palette, chosen by eye, failed (two pairs
+  were indistinguishable to colour-blind readers, and one colour equalled the accent). The
+  ten colours now keep ΔE ≥ 15 for normal vision and about 7.3 for protanopia and
+  deuteranopia, which is why all ten are only ever used with labels. No data colour equals
+  the accent or a status colour. Syntax colours have their own tokens for the same reason.
+- **Regions use five colours, reused** for regions that do not touch (a graph colouring,
+  most-constrained region first). Children inherit their top-level region's colour.
+  "One hue per region" remains a setting for small graphs.
+- **Tint depends on what the region is doing:** 12% when it is a leaf on screen, 5% when
+  its children are showing, none when it covers the whole view (nested tints would cast
+  the canvas).
+- **A path dims the rest of the map** to 60%, like a selection.
+- **Smallest text on the map is 12 px.** Fewer labels, all legible.
+- **Monospace never uses ligatures** (`--`, `->`, `>=` stay as typed).
+- **Number and unit:** the digits in monospace, the unit in the text face after a narrow
+  no-break space (U+202F): `9.3 GB`. Column headers are words and stay in the text face.
+- **The small Seal** (16 px and below) is redrawn heavier — ring 3.6, dot r 3.6 — because
+  the full geometry rasterizes to grey.
+- **Terminal:** the suggested next command is bold, not blue (blue measured 2.2:1 on stock
+  terminals); lines stay within 80 columns; progress bars are 16 cells.
+- **Progress fills are ink, not accent** (progress is not an interaction).
+- **Toasts may carry the pop-up shadow**: they float above the page like a popover.
+- **Selection has two forms on purpose:** the accent-soft fill in lists and tables, an ink
+  double ring on the map, where every hue already means data.
+- **"Budget" means memory only.** Traversal limits are `limit=` (nodes) and `timeout=`.
+- **Figures for print** use `--print-paper` and `--print-ink`; at single-column width
+  (85 mm) regions carry letter keys and a legend instead of names.

@@ -27,7 +27,7 @@ plan       build on disk (graph is 4.6× the memory budget)
 estimate   3 min 40 s · peak memory 5.9 GB of 8.0 GB budget · 61 GB scratch · result 9.3 GB
            → transfers.eg
 
-[■■■■■■■■■■□□□□□□□□□□] reading 48% · 1.9 GB/s · 1 min 52 s left
+reading       ████████░░░░░░░░  48% of this phase · 1.9 GB/s · 1 min 52 s left
 ```
 
 Reopening later is instant: `g = eg.open("transfers.eg")`.
@@ -102,8 +102,8 @@ c
 ```text
 Communities of transfers.eg — Leiden, resolution 1.0, deterministic
   31,960 communities · modularity 0.6033 · 0 disconnected
-  levels   212.4 M nodes → 17.7 M → 1.55 M → 153 k → 31,960
-  largest  18,204,551 nodes (8.6%) · median 37 · 12,877 singletons
+  levels   212,418,907 nodes → 17,704,220 → 1,551,093 → 153,402 → 31,960
+  largest  18,204,551 nodes (8.57%) · median 37 · 12,877 singletons
   took     2 min 11 s
 ```
 
@@ -143,7 +143,7 @@ g.subgraph(c[0]).pagerank()    # any analysis inside one community
 
 ```python
 g.neighbors("0x28c6…1d60", direction="out", limit=5)
-g.khop("0x28c6…1d60", k=2, budget=10_000)        # stops at 10,000 nodes and says so
+g.khop("0x28c6…1d60", k=2, limit=10_000)         # stops at 10,000 nodes and says so
 p = g.path("0x4f3a…91bc", "0x9e12…07aa", max_hops=5, avoid=g.top("degree", 100))
 p
 ```
@@ -158,8 +158,9 @@ Path · 4 hops · found in 1.3 ms
 ```
 
 > **Choice 8 — when a question is too big to answer fully**
-> ★ **A.** Every such call takes a `budget` (nodes or seconds) with a sensible default and
-> returns a partial answer marked `truncated=True`.
+> ★ **A.** Every such call takes a `limit` (nodes) and a `timeout` (seconds) with sensible
+> defaults and returns a partial answer marked `truncated=True`. ("Budget" is kept for
+> memory only, so the word means one thing.)
 > **B.** No default limit; it runs as long as it takes unless you set one.
 
 ---
@@ -191,12 +192,12 @@ g.communities(memory="4GB")
 ```
 
 ```text
-InsufficientBudget: communities() needs 5.1 GB for per-node state on this graph
-(212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
+InsufficientBudget: communities() needs 5.1 GB for per-node state; the budget is 4.0 GB.
+  212,418,907 nodes × 24 bytes = 5.1 GB. The edges stay on disk either way.
 
-  • raise the budget:        g.communities(memory="6GB")     ← smallest that works
-  • or use less state:       g.communities(precision="low")  → needs 3.4 GB
-  The edges themselves stay on disk either way.
+  Ways forward:
+    g.communities(memory="6GB")       5.1 GB of state + buffers: the smallest that works
+    g.communities(precision="low")    needs 3.4 GB; slightly lower quality
 ```
 
 > **Choice 10 — tone of messages**
