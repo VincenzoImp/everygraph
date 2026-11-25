@@ -21,7 +21,22 @@ orderings were stable. Extrapolations are marked as such. Code and raw results a
    permissively licensed package. The closest map prior art: Uncharted Salt/Aperture-Tiles
    (Spark/HBase, 2.3M nodes / 9.9M edges, archived 2023, "patent pending" in 2015 — needs a
    patent check) and MSAGLJS tile pyramids (arXiv 2605.17498, May 2026: 32,768 nodes /
-   236,978 edges).
+   236,978 edges). *Note 2026-11-25:* the literature reviews (`docs/research/README.md`,
+   A1) found more prior art for the parts:
+   - Uncharted's pipeline (Langevin et al. 2015): Louvain hierarchy → recursive in-parent
+     layout → data-tile pyramid → web map;
+   - a fan-out cap of 64 and recursive re-clustering (ASK-GraphView 2006);
+   - compressed adjacency faster than raw in parallel (Ligra+ 2015);
+   - Elias–Fano offsets (webgraph-rs);
+   - seeded relabelling (DSLM 2018);
+   - refusal before a run (Neo4j GDS).
+
+   What remains ours is the combination. Within it, three properties were found nowhere
+   else:
+   - identity across threads, budgets, regimes and view representations;
+   - a deterministic, budgeted text → CSR build;
+   - a 1.8 B-edge map under a budget with declared omissions (an aim; not yet run end
+     to end, § M1-01).
 2. **The incumbent bar rose in 2026.** Gephi 0.11 claims up to 10M elements with a new
    OpenGL engine (vendor claim). DuckDB 2.0 recursive CTEs with `USING KEY` claim ~40× on
    reachability. Grafeo (Rust, Apache-2.0, embeddable, WASM, GQL) and LadybugDB (Kùzu fork,
@@ -29,7 +44,11 @@ orderings were stable. Extrapolations are marked as such. Code and raw results a
    reproducibility — not on drawing 10^6 points.
 3. **Determinism is feasible and a differentiator.** Recipes: Mt-KaHyPar synchronized move
    application (arXiv 2112.12704); LD-Leiden snapshot + per-thread buffers + serial commit
-   (arXiv 2502.18497).
+   (arXiv 2502.18497). *Note 2026-11-25 (`docs/research/sota-kernels.md`,
+   `sota-communities.md`):* LD-Leiden is repeatable only per thread count, not
+   deterministic. Deterministic sub-round local moving is itself prior art (Mt-KaHyPar-SDet
+   2022, DSLM 2018). What no work read offers is a Leiden, refinement included, that gives
+   identical bytes for any thread count, platform and memory budget.
 4. **Beyond-RAM is backed by literature.** ACGraph (SIGMOD'25): semi-external, 4 KB blocks,
    async io_uring. GBBS: compression lets 225B edges fit in 330 GB. Cologni & Vigna (WAW
    2026): new webgraph-rs codecs up to 15% smaller than BV, up to 54% faster random access
