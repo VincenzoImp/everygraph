@@ -14,11 +14,6 @@ on:
     # Mondays 04:17 UTC (off the hour, when scheduled runs are less often delayed).
     - cron: "17 4 * * 1"
   workflow_dispatch:
-  # TEMPORARY (PR for issue #3): `workflow_dispatch` only works once the workflow is on
-  # the default branch, so this runs it once on the pull request's branch. Removed in
-  # the next commit.
-  push:
-    branches: [m0-02-ci]
 
 permissions:
   contents: read
@@ -52,6 +47,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
@@ -77,6 +74,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-deny@0.20.2
