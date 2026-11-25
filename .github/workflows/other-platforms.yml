@@ -34,7 +34,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Per platform, so that a run by hand for macOS does not cancel one for Windows.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: true
 
 env:
