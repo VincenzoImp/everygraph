@@ -16,7 +16,13 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-As of 2026-11-25, 09:15 (policy for models in CLAUDE.md § 6):
+As of 2026-11-25 evening — **M2 started in parallel** (rules for speed: CLAUDE.md §4, §6):
+
+- **#29 I/O layer** (`everygraph-io`), **#30 adjacency codec** (`everygraph-format`, Tier 2),
+  **#31 arrays and memory accountant** (core, Tier 2), **#32 text reader** and **#34 id
+  dictionary** (`everygraph-ingest`, #34 Tier 2), **#36 graph-semantics spec**
+  (`docs/spec/`). Each hands back official commands for a batched measurement window.
+
 
 - **Ingest and the drive** — merged (PR #137, ADR 0026). Was: doc agent (Opus medium), branch `ingest-drive-finding`: records
   the harness's finding that Friendster ingest is bounded by the SSD's sustained write rate
