@@ -1,0 +1,4 @@
+{
+"plain": {"ari": 0.8627370567690882, "nmi": 0.8834549191261298, "communities_a": 29, "communities_b": 700},
+"rec-up": {"a": "/home/tux/graphlab/scratch/m1-05-hierarchy-shaping/orkut/tree_rec-up.npz", "b": "/home/tux/graphlab/scratch/m1-05-hierarchy-shaping/orkut-drop1/tree_rec-up.npz", "by_depth": {"1": {"ari": 0.9846637834610514, "nmi": 0.962432719036694, "regions_a": 9, "regions_b": 64}, "2": {"ari": 0.8627043358172981, "nmi": 0.88514779586514, "regions_a": 102, "regions_b": 187}, "3": {"ari": 0.6055332540255913, "nmi": 0.8336387835760861, "regions_a": 859, "regions_b": 1447}, "4": {"ari": 0.4778428603920332, "nmi": 0.8222783989185977, "regions_a": 5468, "regions_b": 6088}}}
+}

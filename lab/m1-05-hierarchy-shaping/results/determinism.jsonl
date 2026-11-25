@@ -1,0 +1,2 @@
+{"graph": "lj", "method": "rec", "tree_sha256_16": {"t4": "edb05249961693f2", "t16": "edb05249961693f2", "t16b": "edb05249961693f2"}, "identical": true, "threads": {"t4": 4, "t16": 16, "t16b": 16}}
+{"graph": "web-google", "method": "rec", "tree_sha256_16": {"t4": "a5fc2c25f7e47b0a", "t16": "a5fc2c25f7e47b0a", "t16b": "a5fc2c25f7e47b0a"}, "identical": true, "threads": {"t4": 4, "t16": 16, "t16b": 16}}

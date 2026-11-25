@@ -327,7 +327,7 @@ pub fn run() {
                 ev.truncate(edge_budget);
                 let w_shown: u64 = ev.iter().map(|e| (u32::MAX - e.0) as u64).sum();
                 // encode
-                let mut b: Vec<u8> = Vec::with_capacity(64 + (myctx.len() + bubs.len()) * 44 + nodes.len() * 36 + ev.len() * 20);
+                let mut b: Vec<u8> = Vec::with_capacity(64 + (myctx.len() + bubs.len()) * 48 + nodes.len() * 36 + ev.len() * 20);
                 b.extend_from_slice(b"GMT0");
                 b.extend_from_slice(&[z as u8, 0, 0, 0]);
                 for v in [tx, ty, nctx, bubs.len() as u32, nodes.len() as u32, ev.len() as u32, *om_b, *om_n] {
@@ -349,6 +349,8 @@ pub fn run() {
                     b.extend_from_slice(&tt.volume.to_le_bytes());
                     b.extend_from_slice(&[tt.level as u8, tt.flags]);
                     b.extend_from_slice(&topc.to_le_bytes());
+                    // m1-05: communities inside an aggregate (0 for every other region)
+                    b.extend_from_slice(&(if tt.flags & F_AGG != 0 { tt.comm } else { 0 }).to_le_bytes());
                 }
                 for &u in nodes.iter() {
                     let u = u as usize;

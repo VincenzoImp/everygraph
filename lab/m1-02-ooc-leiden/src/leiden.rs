@@ -198,6 +198,10 @@ pub struct Opts {
     trace_io: bool,
     /// out of core with --out-hier: the quotient store of every level is kept here
     hier_dir: Option<String>,
+    /// m1-05 (#19): per-node resolution multiplier of level 0 (empty = 1 everywhere), carried to
+    /// every supervertex by aggregation. Constant on each connected component, it turns one run
+    /// on a disjoint union of subgraphs into independent runs with their own null models.
+    gmul: Vec<f64>,
 }
 
 #[derive(Clone, Default)]
@@ -234,6 +238,7 @@ struct Cx<'a> {
     tie_hash: bool,
     want: &'a [AtomicU32],
     indep: bool,
+    gm: &'a [f64],
 }
 
 #[inline(always)]
@@ -302,7 +307,7 @@ fn decide(cx: &Cx, u: usize, tab: &mut Tab) -> Option<(u32, u32, f64)> {
         }
     });
     let ku = cx.k[u];
-    let f = cx.gamma * ku * cx.minv;
+    let f = cx.gamma * gmul_of(cx.gm, u) * ku * cx.minv;
     let mut kuc = 0.0;
     let mut best = NONE;
     let mut bestval = f64::NEG_INFINITY;
@@ -334,6 +339,15 @@ fn decide(cx: &Cx, u: usize, tab: &mut Tab) -> Option<(u32, u32, f64)> {
         Some((c, best, 2.0 * (bestval - stay) * cx.minv))
     } else {
         None
+    }
+}
+
+#[inline(always)]
+fn gmul_of(gm: &[f64], u: usize) -> f64 {
+    if gm.is_empty() {
+        1.0
+    } else {
+        gm[u]
     }
 }
 
@@ -620,10 +634,23 @@ fn refine(
     tls: &[Mutex<Tls>],
     o: &Opts,
     sub_rounds: usize,
+    gm: &[f64],
+    rsize: &[AtomicU32],
+    cap: u32,
 ) {
     let n = g.n;
     let ord = Order::new(n, o);
     let lb = sub_rounds.max(1).trailing_zeros();
+    // m1-05 (#19): the fan-out cap also bounds the refined communities. Without it, a later
+    // iteration (whose bound is the previous flat partition) refines into uncapped communities
+    // and the hierarchy's lower levels lose the cap (lj, cap 64, 2 iterations: 28,847 children).
+    if cap > 0 {
+        par_for(pool, n, 8192, |_, r| {
+            for u in r {
+                rsize[u].store(1, Relaxed)
+            }
+        });
+    }
     let pick = |u: usize, tab: &mut Tab| -> Option<u32> {
         let ku = k[u];
         if rcomm[u].load(Relaxed) != u as u32 || fload(&rsigma[u]) != ku {
@@ -642,12 +669,15 @@ fn refine(
                 tab.add(rcomm[v as usize].load(Relaxed), w)
             }
         });
-        let f = o.gamma * ku * minv;
+        let f = o.gamma * gmul_of(gm, u) * ku * minv;
         let mut best = NONE;
         let mut bestval = 0.0;
         for &s in &tab.used {
             let d = tab.keys[s as usize];
             if d == uu {
+                continue;
+            }
+            if cap > 0 && rsize[d as usize].load(Relaxed) >= cap {
                 continue;
             }
             let val = tab.vals[s as usize] - f * fload(&rsigma[d as usize]);
@@ -671,13 +701,25 @@ fn refine(
                 for u in r.flat_map(|j| ord.block(j)) {
                     if let Some(d) = pick(u, &mut t.tab) {
                         let ku = k[u];
+                        if cap > 0 {
+                            if rsize[d as usize].fetch_add(1, Relaxed) >= cap {
+                                rsize[d as usize].fetch_sub(1, Relaxed);
+                                continue;
+                            }
+                        }
                         if rsigma[u].compare_exchange(ku.to_bits(), 0f64.to_bits(), Relaxed, Relaxed).is_err() {
+                            if cap > 0 {
+                                rsize[d as usize].fetch_sub(1, Relaxed);
+                            }
                             continue;
                         }
                         let old = fadd(&rsigma[d as usize], ku);
                         if old == 0.0 {
                             fadd(&rsigma[d as usize], -ku);
                             fadd(&rsigma[u], ku);
+                            if cap > 0 {
+                                rsize[d as usize].fetch_sub(1, Relaxed);
+                            }
                         } else {
                             rcomm[u].store(d, Relaxed);
                         }
@@ -715,6 +757,11 @@ fn refine(
                         for &(u, d, _) in &t.moves {
                             if prop[d as usize].load(Relaxed) == NONE {
                                 let ku = k[u as usize];
+                                if cap > 0 {
+                                    // decided against the frozen sizes of the sub-round: as in local
+                                    // moving, concurrent joins of one sub-round may pass the cap
+                                    rsize[d as usize].fetch_add(1, Relaxed);
+                                }
                                 rcomm[u as usize].store(d, Relaxed);
                                 fadd(&rsigma[d as usize], ku);
                                 fadd(&rsigma[u as usize], -ku);
@@ -1092,11 +1139,15 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
     let mut split_extra = 0usize;
     let mut iter = 0;
     let mut cur_cap;
+    // m1-05: per-vertex resolution multiplier of the current level
+    let _r_gm = if o.gmul.is_empty() { None } else { Some(res("m1-05: resolution multipliers (level 0 and current level)", 2 * sz::<f64>(n0))) };
+    let mut gm_cur: Vec<f64> = Vec::new();
     // m1-02: reservations that live with `levels` and with `cur_owned`
     let mut levels_res: Vec<Res> = Vec::new();
     let mut cur_res: Vec<Res> = Vec::new();
     loop {
     cur_cap = o.cap;
+    gm_cur.clone_from(&o.gmul);
     owned.clear();
     levels.clear();
     levels_res.clear();
@@ -1148,7 +1199,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
                 });
             }
         }
-        let cx = Cx { g, k: kk, comm: &comm[..n], sigma: &sigma[..n], size, flag: &flag[..n], minv, gamma: o.gamma, cap: cur_cap, det: o.det, tie_hash: o.tie_hash, want: prop, indep: o.indep };
+        let cx = Cx { g, k: kk, comm: &comm[..n], sigma: &sigma[..n], size, flag: &flag[..n], minv, gamma: o.gamma, cap: cur_cap, det: o.det, tie_hash: o.tie_hash, want: prop, indep: o.indep, gm: &gm_cur };
         let sub = if o.sub_rounds > 0 {
             o.sub_rounds
         } else {
@@ -1173,7 +1224,8 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
                     rsigma[u].store(kk[u].to_bits(), Relaxed);
                 }
             });
-            refine(g, kk, &comm[..n], &rcomm[..n], &rsigma[..n], prop, minv, pool, &tls, o, sub);
+            // m1-05: `size` is not read again before the next level's init; refinement borrows it
+            refine(g, kk, &comm[..n], &rcomm[..n], &rsigma[..n], prop, minv, pool, &tls, o, sub, &gm_cur, if cur_cap > 0 { &size[..n] } else { &size[..0] }, cur_cap);
             &rcomm[..n]
         } else {
             &comm[..n]
@@ -1292,6 +1344,14 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             check_agg_equal(g, kk, lab, pool, &tls, o, &gq, &kq, &dm);
         }
         levels_res.push(agg_res.pop().unwrap()); // dmap lives in `levels`
+        if !gm_cur.is_empty() {
+            // m1-05: a supervertex inherits the multiplier of its members (all in one component)
+            let mut nx = vec![0f64; gq.n];
+            for u in 0..n {
+                nx[dm[u] as usize] = gm_cur[u];
+            }
+            gm_cur = nx;
+        }
         sample_anon();
         next_bound = None;
         if o.leiden {
@@ -1798,7 +1858,9 @@ pub fn main_leiden(args: Vec<String>) {
         order_window: get("--order-window").map(|s| s.parse().unwrap()).unwrap_or(0),
         trace_io: has("--trace-io"),
         hier_dir: if ooc { get("--out-hier").map(|d| format!("{}.quot.{}", d.trim_end_matches('/'), std::process::id())) } else { None },
+        gmul: get("--gmul").map(|p| read_vec::<f64>(&p)).unwrap_or_default(),
     };
+    assert!(o.gmul.is_empty() || o.gmul.len() == g0.n, "--gmul: one f64 per node");
     BUCKET_SHIFT.store(get("--bucket-shift").map(|s| s.parse().unwrap()).unwrap_or(4), Relaxed);
     let repeat: usize = get("--repeat").map(|s| s.parse().unwrap()).unwrap_or(1);
     let mut times = Vec::new();
@@ -2015,6 +2077,7 @@ mod tests {
             order_window: 0,
             trace_io: false,
             hier_dir: None,
+            gmul: Vec::new(),
         }
     }
 

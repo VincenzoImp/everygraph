@@ -1,0 +1,260 @@
+{
+ "tree": "/home/tux/graphlab/scratch/m1-05-hierarchy-shaping/orkut-drop1/tree_capafter.npz",
+ "method": "capafter",
+ "graph": "orkut-drop1",
+ "n": 3072441,
+ "tree_nodes": 1000757,
+ "depth_max": 9,
+ "meta": {
+  "method": "capafter",
+  "F": 64,
+  "leaf_max": 64,
+  "kmax": 384,
+  "store": "/home/tux/graphlab/scratch/m1-05-hierarchy-shaping/stores/orkut-drop1",
+  "solve": {
+   "cutgraph_s": 1.106850078,
+   "time_s": 13.375,
+   "level_sizes": [
+    835350,
+    150102,
+    27701,
+    6106,
+    704
+   ],
+   "rss_anon_peak_kb": 3490412
+  },
+  "tree_nodes_before_post": 1000568,
+  "post": {
+   "parents_over_F": 44,
+   "aggregates": 189
+  },
+  "build_s": 17.93412160873413,
+  "driver_maxrss_kb": 267596,
+  "children_maxrss_kb": 4485308,
+  "variant": "capafter"
+ },
+ "fanout_by_depth": {
+  "0": {
+   "count": 1,
+   "median": 64.0,
+   "p95": 64.0,
+   "max": 64,
+   "share_parents_4_64": 1.0,
+   "share_children_in_parents_4_64": 1.0,
+   "share_parents_2_3": 0.0
+  },
+  "1": {
+   "count": 32,
+   "median": 10.0,
+   "p95": 64.0,
+   "max": 64,
+   "share_parents_4_64": 0.78125,
+   "share_children_in_parents_4_64": 0.9772403982930299,
+   "share_parents_2_3": 0.21875
+  },
+  "2": {
+   "count": 597,
+   "median": 6.0,
+   "p95": 53.399999999999864,
+   "max": 64,
+   "share_parents_4_64": 0.7085427135678392,
+   "share_children_in_parents_4_64": 0.9483685460682585,
+   "share_parents_2_3": 0.2914572864321608
+  },
+  "3": {
+   "count": 6930,
+   "median": 3.0,
+   "p95": 30.0,
+   "max": 64,
+   "share_parents_4_64": 0.4670995670995671,
+   "share_children_in_parents_4_64": 0.8220081344234008,
+   "share_parents_2_3": 0.5329004329004329
+  },
+  "4": {
+   "count": 44937,
+   "median": 3.0,
+   "p95": 24.0,
+   "max": 64,
+   "share_parents_4_64": 0.417673631973652,
+   "share_children_in_parents_4_64": 0.7917757398193576,
+   "share_parents_2_3": 0.582326368026348
+  },
+  "5": {
+   "count": 48532,
+   "median": 3.0,
+   "p95": 22.0,
+   "max": 64,
+   "share_parents_4_64": 0.381171186021594,
+   "share_children_in_parents_4_64": 0.7578339593026515,
+   "share_parents_2_3": 0.618828813978406
+  },
+  "6": {
+   "count": 26697,
+   "median": 3.0,
+   "p95": 20.0,
+   "max": 64,
+   "share_parents_4_64": 0.4253286886166985,
+   "share_children_in_parents_4_64": 0.7712642112704373,
+   "share_parents_2_3": 0.5746713113833015
+  },
+  "7": {
+   "count": 37679,
+   "median": 3.0,
+   "p95": 21.0,
+   "max": 64,
+   "share_parents_4_64": 0.38047718888505533,
+   "share_children_in_parents_4_64": 0.7511531868836315,
+   "share_parents_2_3": 0.6195228111149447
+  },
+  "8": {
+   "count": 2,
+   "median": 2.5,
+   "p95": 2.95,
+   "max": 3,
+   "share_parents_4_64": 0.0,
+   "share_children_in_parents_4_64": 0.0,
+   "share_parents_2_3": 1.0
+  }
+ },
+ "fanout_all": {
+  "count": 165407,
+  "median": 3.0,
+  "p95": 22.0,
+  "max": 64,
+  "share_parents_4_64": 0.40291523333353485,
+  "share_children_in_parents_4_64": 0.7730585677228016,
+  "share_parents_2_3": 0.5970847666664651
+ },
+ "leaf_nodes": {
+  "count": 835350,
+  "median": 2.0,
+  "p95": 10.0,
+  "max": 65,
+  "share_parents_4_64": 0.22992996947387323,
+  "share_children_in_parents_4_64": 0.5455522172761007,
+  "share_parents_2_3": 0.6891913569162627
+ },
+ "leaf_over_kmax": {
+  "leaves": 0,
+  "nodes": 0
+ },
+ "kinds": {
+  "root": 1,
+  "community": 1000567,
+  "aggregate": 189,
+  "subdivision": 0
+ },
+ "share_nodes_under_derived": 0.4227596233743789,
+ "share_nodes_under_aggregate": 0.4227596233743789,
+ "by_depth": {
+  "1": {
+   "regions": 64,
+   "modularity": 0.6747164903963154,
+   "conductance_median": 0.2684903045678027,
+   "conductance_node_weighted": 0.16472151752131708,
+   "conductance_node_weighted_communities": 0.16475567582264786,
+   "share_nodes_in_aggregates": 0.00020732700806947962,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 1.0415171519973859e-05,
+   "modularity_aggregates_resolved": 0.6747164903963154,
+   "regions_aggregates_resolved": 700
+  },
+  "2": {
+   "regions": 735,
+   "modularity": 0.5787418946021744,
+   "conductance_median": 0.5794304263808299,
+   "conductance_node_weighted": 0.31531304542660343,
+   "conductance_node_weighted_communities": 0.2967774443065845,
+   "share_nodes_in_aggregates": 0.12312002085638096,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 4.9472064719875824e-05,
+   "modularity_aggregates_resolved": 0.5627996993192693,
+   "regions_aggregates_resolved": 2771
+  },
+  "3": {
+   "regions": 8137,
+   "modularity": 0.36322506037492747,
+   "conductance_median": 0.7952278676623419,
+   "conductance_node_weighted": 0.577018219706798,
+   "conductance_node_weighted_communities": 0.6620917586009043,
+   "share_nodes_in_aggregates": 0.39481506723806903,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.00040326242228898784,
+   "modularity_aggregates_resolved": 0.31511608977325384,
+   "regions_aggregates_resolved": 12397
+  },
+  "4": {
+   "regions": 49889,
+   "modularity": 0.2312754729908569,
+   "conductance_median": 0.8949399122717308,
+   "conductance_node_weighted": 0.7383249894361077,
+   "conductance_node_weighted_communities": 0.7567755295629639,
+   "share_nodes_in_aggregates": 0.25360486987382347,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.001969443839605057,
+   "modularity_aggregates_resolved": 0.229037893846816,
+   "regions_aggregates_resolved": 52751
+  },
+  "5": {
+   "regions": 293367,
+   "modularity": 0.15534756369140212,
+   "conductance_median": 0.9649122807017544,
+   "conductance_node_weighted": 0.8117994821550762,
+   "conductance_node_weighted_communities": 0.8117957040349782,
+   "share_nodes_in_aggregates": 2.1806765369945265e-05,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.30563223183130284,
+   "modularity_aggregates_resolved": 0.15534756373309017,
+   "regions_aggregates_resolved": 293389
+  },
+  "6": {
+   "regions": 530259,
+   "modularity": 0.11005321137168106,
+   "conductance_median": 0.9710144927536232,
+   "conductance_node_weighted": 0.8610756632941158,
+   "conductance_node_weighted_communities": 0.8610749215170317,
+   "share_nodes_in_aggregates": 5.8585339799852954e-06,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.606378446323298,
+   "modularity_aggregates_resolved": 0.11005318553830058,
+   "regions_aggregates_resolved": 530265
+  },
+  "7": {
+   "regions": 657753,
+   "modularity": 0.08346335485934302,
+   "conductance_median": 0.9693877551020408,
+   "conductance_node_weighted": 0.8953021466587919,
+   "conductance_node_weighted_communities": 0.8953020128910963,
+   "share_nodes_in_aggregates": 1.952844659995098e-06,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.748178402774862,
+   "modularity_aggregates_resolved": 0.0834633548597917,
+   "regions_aggregates_resolved": 657754
+  },
+  "8": {
+   "regions": 835347,
+   "modularity": 0.06300530410677137,
+   "conductance_median": 0.9701492537313433,
+   "conductance_node_weighted": 0.9213282975289706,
+   "conductance_node_weighted_communities": 0.9213281305304333,
+   "share_nodes_in_aggregates": 2.6037928799934647e-06,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 0.99999739620712,
+   "modularity_aggregates_resolved": 0.06300530412158688,
+   "regions_aggregates_resolved": 835350
+  },
+  "9": {
+   "regions": 835350,
+   "modularity": 0.06300530412158688,
+   "conductance_median": 0.9701492537313433,
+   "conductance_node_weighted": 0.921328305872687,
+   "conductance_node_weighted_communities": 0.921328305872687,
+   "share_nodes_in_aggregates": 0.0,
+   "share_nodes_in_subdivisions": 0.0,
+   "share_nodes_in_leaves": 1.0
+  }
+ },
+ "modularity_max_over_depths": 0.6747164903963154,
+ "modularity_max_resolved": 0.6747164903963154,
+ "plain_modularity": 0.674716
+}

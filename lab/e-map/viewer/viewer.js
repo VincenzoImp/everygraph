@@ -62,12 +62,24 @@ function parseTile(buf) {
   const dv = new DataView(buf); const u32 = o => dv.getUint32(o, true), f32 = o => dv.getFloat32(o, true), u64 = o => Number(dv.getBigUint64(o, true));
   const t = { z: dv.getUint8(4), x: u32(8), y: u32(12), nctx: u32(16), nbub: u32(20), nnode: u32(24), nedge: u32(28), omB: u32(32), omN: u32(36), omBN: u64(40), wTotal: u64(48), wShown: u64(56), wCtx: u64(64), bytes: buf.byteLength };
   let o = 72; t.bub = []; t.nodes = []; t.edges = [];
-  for (let i = 0; i < t.nctx + t.nbub; i++, o += 44)
-    t.bub.push({ id: u32(o), parent: u32(o + 4), x: f32(o + 8), y: f32(o + 12), r: f32(o + 16), nodes: u32(o + 20), internal: u64(o + 24), volume: u64(o + 32), level: dv.getInt8(o + 40), flags: dv.getUint8(o + 41), top: dv.getUint16(o + 42, true), ctx: i < t.nctx });
+  for (let i = 0; i < t.nctx + t.nbub; i++, o += 48)
+    t.bub.push({ id: u32(o), parent: u32(o + 4), x: f32(o + 8), y: f32(o + 12), r: f32(o + 16), nodes: u32(o + 20), internal: u64(o + 24), volume: u64(o + 32), level: dv.getInt8(o + 40), flags: dv.getUint8(o + 41), top: dv.getUint16(o + 42, true), count: u32(o + 44), ctx: i < t.nctx });
   for (let i = 0; i < t.nnode; i++, o += 36)
     t.nodes.push({ id: u32(o), x: f32(o + 4), y: f32(o + 8), r: f32(o + 12), deg: u32(o + 16), parent: u32(o + 20), top: dv.getUint16(o + 24, true), orig: u64(o + 28) });
   for (let i = 0; i < t.nedge; i++, o += 20) t.edges.push({ src: u32(o), dst: u32(o + 4), x: f32(o + 8), y: f32(o + 12), w: u32(o + 16) });
   return t;
+}
+// m1-05 (#19): the three kinds of area of design/preview/style/SPEC.md "The map": a found community
+// (solid outline), a subdivision made for readability (dashed), many small communities shown as one
+// (hatched); regions the layout derives (flag 1) are drawn like subdivisions and labelled as derived.
+const KIND = b => (b.flags & 8) ? 'aggregate' : (b.flags & 16) ? 'subdivision' : (b.flags & 1) ? 'derived' : 'community';
+const KALPHA = { community: 0.5, aggregate: 0.3, subdivision: 0.4, derived: 0.22 };
+function regionLabel(b) {
+  const k = KIND(b);
+  if (k === 'aggregate') return [fmt(b.count) + ' small communities', fmt(b.nodes) + ' nodes'];
+  if (k === 'subdivision') return ['part (drawing aid)', fmt(b.nodes) + ' nodes'];
+  if (k === 'derived') return ['derived group (layout)', fmt(b.nodes) + ' nodes'];
+  return [fmt(b.nodes) + ' nodes'];
 }
 function color(rank) {
   const h = ((rank * 0.618034) % 1) * 6, s = 0.55 + 0.15 * (rank % 3), c = s, x = c * (1 - Math.abs((h % 2) - 1)), m = 1 - c;
@@ -95,7 +107,12 @@ void main(){ float d = length(vUv); float aa = clamp(vR-d+0.5,0.,1.);
  if (vCol.a > 1.5) { float ring = clamp(1.8-abs(vR-d),0.,1.); if (ring<=0.) discard; o = vec4(1.,1.,1.,ring); return; }
  if (aa<=0.) discard;
  if (vCol.a > 0.9) { o = vec4(vCol.rgb*(0.75+0.25*clamp(1.-d/vR,0.,1.)), aa); }
- else { float ring = clamp(1.3-abs(vR-d-0.8),0.,1.); o = vec4(mix(vCol.rgb, vec3(1.), ring*0.35), max(ring*vCol.a*1.6, 0.03)*aa); } }`);
+ else {
+   float ring = clamp(1.3-abs(vR-d-0.8),0.,1.); float a = vCol.a; float fill = 0.03;
+   bool agg = abs(a-0.3) < 0.01, sub = abs(a-0.4) < 0.01 || abs(a-0.22) < 0.01;
+   if (sub) { float ang = atan(vUv.y, vUv.x) * vR; ring *= step(0.0, sin(ang * 0.6)); a = 0.5; }
+   if (agg) { float h = mod(gl_FragCoord.x + gl_FragCoord.y, 7.0); fill = h < 1.2 ? 0.16 : 0.02; a = 0.5; }
+   o = vec4(mix(vCol.rgb, vec3(1.), ring*0.35), max(ring*a*1.6, fill)*aa); } }`);
 const edgeP = prog(`#version 300 es
 layout(location=0) in vec2 corner; layout(location=1) in vec4 ab; layout(location=2) in vec2 wa;
 uniform vec2 uCenter; uniform float uScale; uniform vec2 uView; out float vA; out float vS;
@@ -144,7 +161,7 @@ function rebuild() {
   const bset = new Map(); const nb = [], nn = [], ne = [];
   for (const t of tiles) for (const b of t.bub) if (!bset.has(b.id)) bset.set(b.id, b);
   const bl = [...bset.values()].sort((a, b) => b.r - a.r);
-  for (const b of bl) { const c = color(b.top); nb.push(b.x, b.y, b.r, c[0], c[1], c[2], (b.flags & 1) ? 0.22 : 0.5); }
+  for (const b of bl) { const c = color(b.top); nb.push(b.x, b.y, b.r, c[0], c[1], c[2], KALPHA[KIND(b)]); }
   const agg = [];
   const tw = 1 / 2 ** tileZoom();
   for (const t of tiles) {
@@ -194,9 +211,10 @@ function frame(t) {
   for (const b of (view.bl || [])) {
     const rp = b.r * s; if (rp < 34 || rp > 900 || nl > 60) continue;
     const x = (b.x - view.cx) * s + W / 2, y = (b.y - view.cy) * s + H / 2 - rp + 13; if (x < 0 || x > W || y < 0 || y > H) continue;
-    if (boxes.some(q => Math.abs(q[0] - x) < 86 && Math.abs(q[1] - y) < 14)) continue; boxes.push([x, y]);
-    const txt = fmt(b.nodes) + ' nodes'; ctx2.fillStyle = '#090a10b0'; ctx2.fillRect(x - txt.length * 3.1 - 3, y - 10, txt.length * 6.2 + 6, 13);
-    ctx2.fillStyle = (b.flags & 1) ? '#9aa3b5' : '#ffffff'; ctx2.fillText(txt, x, y); nl++;
+    const lines = regionLabel(b), wpx = Math.max(...lines.map(l => l.length)) * 6.2;
+    if (boxes.some(q => Math.abs(q[0] - x) < (q[2] + wpx) / 2 + 4 && Math.abs(q[1] - y) < 14 * Math.max(q[3], lines.length))) continue; boxes.push([x, y, wpx, lines.length]);
+    ctx2.fillStyle = '#090a10b0'; ctx2.fillRect(x - wpx / 2 - 3, y - 10, wpx + 6, 13 * lines.length);
+    lines.forEach((txt, i) => { ctx2.fillStyle = KIND(b) === 'community' ? '#ffffff' : (i === 0 ? '#e8d9a8' : '#c8ccd8'); ctx2.fillText(txt, x, y + 13 * i); }); nl++;
   }
   document.getElementById('stat').textContent = `zoom ${view.zf.toFixed(2)} (tile z${tileZoom()}/${pm.maxZoom}) · ${drawn.length} tiles drawn · ${bubV.n} bubbles ${nodeV.n} nodes ${edgeV.n} edges\n${stats.requests} requests · ${(stats.bytes / 1024).toFixed(0)} KiB transferred`;
   requestAnimationFrame(frame);
@@ -217,7 +235,7 @@ cv.addEventListener('mousemove', ev => {
   const h = pick(ev.clientX, ev.clientY); if (!h) { tip.style.display = 'none'; setHi(null); hover = null; return; }
   const [e, t] = h; hover = e; setHi(e); let s;
   if (e.deg !== undefined) s = `node ${e.orig}  (dense #${e.id})\ndegree          ${fmt(e.deg)}\ncommunity       #${e.parent}\ncontinent       #${e.top}`;
-  else s = `${(e.flags & 1) ? 'derived region' : 'community'} #${e.id}${e.level >= 0 ? '  (hierarchy level ' + e.level + ')' : ''}\nnodes           ${fmt(e.nodes)}\ninternal edges  ${fmt(e.internal)}\nvolume (Σdeg)   ${fmt(e.volume)}\ncut edges       ${fmt(e.volume - 2 * e.internal)}\ncontinent       #${e.top}`;
+  else s = `${{ community: 'community', aggregate: 'aggregate of ' + fmt(e.count) + ' small communities (a drawing aid, not one community)', subdivision: 'part of a community (a drawing aid)', derived: 'derived group (made by the layout)' }[KIND(e)]} #${e.id}${e.level >= 0 ? '  (hierarchy level ' + e.level + ')' : ''}\nnodes           ${fmt(e.nodes)}\ninternal edges  ${fmt(e.internal)}\nvolume (Σdeg)   ${fmt(e.volume)}\ncut edges       ${fmt(e.volume - 2 * e.internal)}\ncontinent       #${e.top}`;
   s += `\n── tile ${t.z}/${t.x}/${t.y} (${fmt(t.bytes)} B) ──\nedge weight shown ${fmt(t.wShown)} of ${fmt(t.wTotal)}\nomitted: ${fmt(t.omB)} regions (${fmt(t.omBN)} nodes), ${fmt(t.omN)} nodes`;
   tip.textContent = s; tip.style.display = 'block'; tip.style.left = Math.min(ev.clientX + 14, cv.clientWidth - 330) + 'px'; tip.style.top = (ev.clientY + 14) + 'px';
 });
