@@ -74,6 +74,31 @@ same PR, and note it in STATE.md. Do not drift by implementing something differe
 
 ## 6. Subagents
 
+### Which model, which effort
+
+The owner wants development carried by Opus subagents wherever a detailed issue makes that
+possible, with the stronger and costlier model kept for what truly needs it. Choose by the
+issue's labels, and escalate on evidence rather than by default:
+
+| Work | Model, effort |
+|---|---|
+| `type:docs`, `type:infra`, `type:spec`, or `risk:low`: scaffolding, CI, datasets, readers, CLI, import/export, tutorials | Opus, medium |
+| `risk:medium` features: codec, ingest, kernels, planner, viewer, Python API | Opus, high |
+| `risk:high` features and all M1 experiments | Opus, high first |
+| Web research | Opus, medium |
+| Review (`reviewer`) | Opus, high; for `risk:high` code touching `unsafe`, parallel state or the on-disk formats, a second review by Fable, medium |
+| The short hard list — edge-map framework (#44), production Leiden (#57), out-of-core Leiden (#16, #60), map-hierarchy shaping (#19, #63) | Opus, high first; hand to Fable, high if the escalation rule fires |
+
+**Escalation rule.** Re-run an issue with Fable at high effort when any of these happens:
+the pull request fails review twice on correctness; an acceptance criterion is missed
+after two attempts; the agent reports that the issue's design does not work and cannot
+propose a tested alternative. Record each escalation in `docs/STATE.md` with the reason,
+so the rule can be tuned. The coordinator itself runs on the session's model.
+
+An issue that needs escalation usually was underspecified: after it is done, improve the
+issue template or the neighbouring issues so the next one does not.
+
+
 - Use them for independent work in parallel: separate issues, experiments, reviews.
   Brief them with the issue file path, the acceptance criteria and the rules in this file.
 - **Only one thing at a time may run benchmarks.** Development builds and tests can run in
