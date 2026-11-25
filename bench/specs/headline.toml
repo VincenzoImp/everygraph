@@ -19,16 +19,19 @@
 # - Friendster PageRank in RAM runs 10 iterations, not 20 (per-iteration time is the
 #   metric).
 #
-# References use the statistic the harness reports for the same quantity: the median
-# over the lab's repetitions where it ran several (ingest of lj and orkut: 3 runs), the
-# in-process best that `glab run` prints (kernels: the lab also ran one process, best of
-# 2 or 3 in it), and the median of the per-iteration times (semi-external). The harness
-# then takes the median over its own repetitions. Gated, as issue #4 says: ingest,
-# kernels, semi-external and naive mmap under 8/16 GiB (the idle rows of semiext.jsonl);
-# semi-external PageRank at 16 GiB has no idle value and is reported, not gated.
+# References, as issue #4 was amended on 2026-11-25:
+# - kernels, probes and semi-external: the lab's idle re-run, in the statistic the
+#   harness reports for the same quantity — the in-process best that `glab run` prints
+#   (the lab ran one process, best of 2 or 3 in it) and the median of the per-iteration
+#   times (semi-external). Naive mmap under 8/16 GiB is gated against the idle rows of
+#   semiext.jsonl; semi-external PageRank at 16 GiB has no idle value: reported only.
+# - ingest: the harness's own official idle measurements, each citing its result file
+#   (the lab's ingest figures were single runs, and its Friendster ones were taken on a
+#   rested drive; see the warm-up of ingest-friendster).
+# The harness takes the median over its own repetitions.
 #
-# Run (about 30 minutes, an estimate from the idle re-run's timings, plus 5 minutes of
-# preparation the first time): everygraph-bench run headline --official --data /home/tux/graphlab/data
+# Run (about 26 minutes measured on 2026-11-25, plus 2 minutes of preparation the first
+# time): everygraph-bench run headline --official --data /home/tux/graphlab/data
 
 schema = 1
 name = "headline"
@@ -171,9 +174,8 @@ metric = [
   { name = "temp_disk", json = "/temp_disk_gb", scale = 1e9, unit = "B", optional = true },
 ]
 reference = [
-  { match = { budget = "32" }, metric = "seconds", value = 21.1, source = "idle re-run, ingest.jsonl friendster-budget32GB" },
-  # High variance even idle: 33-45 s in shared runs, 52.4 s idle (FINDINGS).
-  { match = { budget = "8" }, metric = "seconds", value = 52.4, source = "idle re-run, ingest.jsonl friendster-budget8GB" },
+  { match = { budget = "32" }, metric = "seconds", value = 29.06, source = "harness, official idle re-take with a warm-up (sustained drive rate) bench/results/headline/20261125T114658Z-0ffe756ac9ac.jsonl, median of 3" },
+  { match = { budget = "8" }, metric = "seconds", value = 36.97, source = "harness, official idle re-take with a warm-up (sustained drive rate) bench/results/headline/20261125T114658Z-0ffe756ac9ac.jsonl, median of 3" },
 ]
 
 # --- kernels in RAM (orkut), thread scaling --------------------------------------------
