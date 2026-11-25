@@ -8,9 +8,9 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 **Scope**
 - [ ] `eg.read(path, …)` / `eg.open("graph.eg")` → `Graph`; `Graph.view(filter)` → `View`
 - [ ] Algorithms as methods returning Arrow-backed tables: `pagerank()`, `components()`, `communities()`, `kcore()`, `triangles()`, `bfs()`, …
-- [ ] Point queries with batch variants: `neighbors(ids)`, `degree(ids)`, `khop(id, k, budget=…)`, `path(a, b)` ({{#m7-01-point-queries}})
+- [ ] Point queries with batch variants: `neighbors(ids)`, `degree(ids)`, `khop(id, k, limit=…, timeout=…)`, `path(a, b)` ({{#m7-01-point-queries}})
 - [ ] `explain()` / preflight on every long operation; progress callbacks; cancellation on `KeyboardInterrupt`
-- [ ] Options: `threads`, `memory_budget`, `deterministic=True`, `seed`
+- [ ] Options: `threads`, `memory`, `deterministic=True`, `seed`
 - [ ] External ids in, external ids out by default; dense ids available for performance
 - [ ] Typed exceptions (`InsufficientBudget`, `InvalidInput`, …)
 - [ ] Type stubs, docstrings with examples, a consistent naming scheme from {{#m0-11-api-sketch}}
