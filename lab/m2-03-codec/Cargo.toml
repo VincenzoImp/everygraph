@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "m203"
+version = "0.0.1"
+edition = "2024"
+description = "Issue #30 (m2-03): measurements of the production adjacency codec, and the per-list vs block framing A/B"
+publish = false
+
+# Standalone research package: not a member of the product workspace at the repository root.
+[workspace]
+
+[[bin]]
+name = "m203"
+path = "src/main.rs"
+
+[dependencies]
+everygraph-core = { path = "../../crates/everygraph-core" }
+everygraph-format = { path = "../../crates/everygraph-format" }
+memmap2 = "0.9"
+rayon = "1"
+serde_json = "1"
+
+# The workspace's release profile, and no target-cpu=native: the codec is measured as it
+# ships (SIMD chosen at run time).
+[profile.release]
+lto = "fat"
+codegen-units = 1
+debug = 1

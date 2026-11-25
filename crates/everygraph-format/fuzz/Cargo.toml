@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Fuzzing of the adjacency decoder (issue #30). Not a member of the workspace: it needs
+# nightly and libFuzzer. Run: cargo +nightly fuzz run adjacency (from this crate's
+# directory, crates/everygraph-format).
+
+[package]
+name = "everygraph-format-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+everygraph-core = { path = "../../everygraph-core", default-features = false }
+everygraph-format = { path = ".." }
+
+# Its own workspace, so that the product workspace never builds it.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "adjacency"
+path = "fuzz_targets/adjacency.rs"
+test = false
+doc = false
+bench = false

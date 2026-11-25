@@ -445,7 +445,10 @@ fn ranged(
             state.done()
         )));
     }
-    File::open(part)
+    // Write access, which Windows needs to flush (see `fetch::place`).
+    OpenOptions::new()
+        .write(true)
+        .open(part)
         .and_then(|f| f.sync_all())
         .context(|| format!("syncing {}", part.display()))?;
     fs::remove_file(state_path).context(|| format!("removing {}", state_path.display()))

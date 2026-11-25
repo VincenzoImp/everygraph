@@ -3,7 +3,9 @@
 - **Status:** accepted, partly validated
 - **Decision:** D4 in [DESIGN.md](../DESIGN.md#4-decisions)
 - **Date:** 2026-11-25
-- **Amended:** 2026-11-25, with the result of #118 (conditions added to the decision)
+- **Amended:** 2026-11-25, with the result of #118 (conditions added to the decision);
+  2026-11-25, by #30 (no degree before each record: the degree comes from the entry-offset
+  index of condition 4)
 - **Validated:** four social graphs in RAM (lj, orkut, twitter-sym, Friendster; idle
   machine). Not validated: web graphs, weighted or directed kernels (#24); ingest writing
   the format under a budget (#35); out-of-core streaming on the format (#46).
@@ -17,9 +19,12 @@ been measured end to end until #118 (below).
 
 ## Decision
 
-Adjacency is stored compressed by default: per-node records (degree, then delta gaps coded
-with Stream VByte) in node-aligned blocks of about 64K entries, 4 KiB-aligned sections,
-with our own codec (about 400 lines). The decision holds under five conditions, each
+Adjacency is stored compressed by default: per-node records (the first neighbour relative
+to the node, then the gaps, coded with Stream VByte) in node-aligned blocks of about 64K
+entries, 4 KiB-aligned sections, with our own codec (about 400 lines). *Amended 2026-11-25
+by #30:* the records carry no degree; the degree is read from the Elias–Fano index of entry
+offsets (condition 4), which would otherwise store it twice — 0.47 bits per entry saved on
+lj, 0.12 on orkut (byte layout: `docs/spec/eg-adjacency.md`). The decision holds under five conditions, each
 measured by #118:
 
 1. **Per-node Elias–Fano byte offsets.** A block directory alone is not enough.
