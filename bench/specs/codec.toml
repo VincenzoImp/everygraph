@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The acceptance numbers of the adjacency codec (issue #30, plan/issues/m2-03-adjacency-codec.md),
+# measured with the production codec (crates/everygraph-format) through the lab tool
+# lab/m2-03-codec, built with the workspace's release profile and without
+# target-cpu=native (the SIMD decoder is chosen at run time, as it ships).
+#
+# - size: bits per stored entry, index (both Elias–Fano sequences, block directory)
+#   included, and encode time from a CSR in memory (input mmapped, output in the heap, no
+#   write to disk). Deterministic in bytes; the time is reported, not an acceptance number.
+# - scan: warm sequential decode of every list in batches of 8,192 entries, each entry
+#   summed, store in the heap; best of 7 passes after one untimed pass, inside the process.
+# - random: warm decode of 10^6 uniformly random lists, one thread, mean per list from one
+#   timer around the batch (the "timer-free batch mean" of FINDINGS § M1-13).
+#
+# Acceptance (#30): <= 17 bits/entry on orkut and twitter-sym, <= 18.5 on lj, <= 24 on
+# Friendster; scan >= 1.7 G entries/s at 1 thread and >= 10 G entries/s at 16 on twitter-sym;
+# random list <= 0.5 us on orkut.
+#
+# Run (about 6 minutes, an estimate from exploratory runs on lj and orkut scaled by entries;
+# the stores are prepared once under {work}/stores, about 1 minute more):
+#   everygraph-bench run codec --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "codec"
+description = "adjacency codec of #30: size, warm scan, random list decode"
+reference = "plan/issues/m2-03-adjacency-codec.md; docs/spec/eg-adjacency.md § 7"
+binaries = ["{m203}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+threads = [1]
+timeout = "10m"
+
+[vars]
+m203 = "{repo}/lab/m2-03-codec/target/release/m203"
+stores = "{work}/stores"
+
+[[prepare]]
+name = "build"
+cwd = "{repo}/lab/m2-03-codec"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+
+[[prepare]]
+name = "store-orkut"
+shell = "{m203} encode --graph {data}/csr/orkut --out {stores}/orkut.part > /dev/null && mv {stores}/orkut.part {stores}/orkut"
+creates = "{stores}/orkut"
+needed_by = ["scan-orkut", "random"]
+
+[[prepare]]
+name = "store-twitter-sym"
+memory_limit = "24G"
+shell = "{m203} encode --graph {data}/csr/twitter-sym --out {stores}/twitter-sym.part > /dev/null && mv {stores}/twitter-sym.part {stores}/twitter-sym"
+creates = "{stores}/twitter-sym"
+needed_by = ["scan-twitter-sym"]
+
+[[benchmark]]
+name = "size"
+group = "size"
+description = "encode a CSR: bits per entry with both indexes, and encode time"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym", "friendster"] }
+# Input mmapped (file-backed, reclaimable) plus the output in the heap: Friendster's
+# records are about 10.5 GB.
+memory_limit = "24G"
+threads = [16]
+# Size is the same every time; one repetition after the warm-up.
+repetitions = 1
+env = { RAYON_NUM_THREADS = "{threads}" }
+command = ["{m203}", "encode", "--graph", "{dataset}"]
+conditions = { graph = "{graph}", storage = "per-list Stream VByte records, Elias-Fano byte and entry offsets", input = "CSR mmapped, page cache warm", output = "heap, not written to disk" }
+metric = [
+  { name = "bits_per_entry", json = "/bits_per_entry", unit = "bits" },
+  { name = "bits_index", json = "/bits_index", unit = "bits" },
+  { name = "bits_data", json = "/bits_data", unit = "bits" },
+  { name = "encode_seconds", json = "/encode_s", unit = "s" },
+]
+primary = "bits_per_entry"
+reference = [
+  { match = { graph = "lj" }, metric = "bits_per_entry", value = 17.9859, tolerance = 0.001, source = "lab/m2-03-codec encode (exploratory; sizes do not depend on the machine), docs/spec/eg-adjacency.md § 7" },
+  { match = { graph = "orkut" }, metric = "bits_per_entry", value = 16.6437, tolerance = 0.001, source = "lab/m2-03-codec encode (exploratory; sizes do not depend on the machine), docs/spec/eg-adjacency.md § 7" },
+]
+
+[[benchmark]]
+name = "scan-twitter-sym"
+group = "scan"
+description = "warm sequential decode of every list of twitter-sym, batches of 8,192 entries"
+dataset_path = "csr/twitter-sym"
+threads = [1, 16]
+command = ["{m203}", "scan", "--store", "{stores}/twitter-sym", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
+conditions = { graph = "twitter-sym", storage = "compressed (default), store in the heap", decoder = "best at run time (SSSE3 here)", level = "in-process decode loop, best of 7" }
+metric = [
+  { name = "g_entries_per_s", json = "/g_entries_per_s_best", unit = "G entries/s" },
+  { name = "seconds", json = "/best_s", unit = "s" },
+]
+primary = "g_entries_per_s"
+
+[[benchmark]]
+name = "scan-orkut"
+group = "scan"
+description = "warm sequential decode of every list of orkut, batches of 8,192 entries"
+dataset_path = "csr/orkut"
+threads = [1, 16]
+command = ["{m203}", "scan", "--store", "{stores}/orkut", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
+conditions = { graph = "orkut", storage = "compressed (default), store in the heap", decoder = "best at run time (SSSE3 here)", level = "in-process decode loop, best of 7" }
+metric = [
+  { name = "g_entries_per_s", json = "/g_entries_per_s_best", unit = "G entries/s" },
+  { name = "seconds", json = "/best_s", unit = "s" },
+]
+primary = "g_entries_per_s"
+
+[[benchmark]]
+name = "random"
+group = "random"
+description = "warm decode of 10^6 uniformly random lists"
+dataset_path = "csr/orkut"
+command = ["{m203}", "random", "--store", "{stores}/orkut", "--queries", "1000000", "--reps", "5"]
+conditions = { graph = "orkut", storage = "compressed (default), store in the heap", decoder = "best at run time (SSSE3 here)", level = "in-process, mean over the batch, best of 5" }
+metric = [
+  { name = "ns_per_list", json = "/ns_per_list_best", unit = "ns" },
+]

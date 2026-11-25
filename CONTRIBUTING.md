@@ -22,6 +22,10 @@ cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
 cargo build -p everygraph-wasm --target wasm32-unknown-unknown
+cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets -- -D warnings
+cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
+RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
+  cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo deny check                            # offline: cargo deny check bans licenses sources
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo build --workspace --release
@@ -66,7 +70,13 @@ contains `unsafe`:
 cargo +nightly miri test -p everygraph-core --no-default-features
 cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core
+cargo +nightly miri test -p everygraph-format
+RUSTFLAGS="-C target-feature=+ssse3" cargo +nightly miri test -p everygraph-format --test adjacency
 ```
+
+The last two run the adjacency codec's tests on the scalar decoder, then on the SSSE3 one
+(compiled in, so that run-time detection finds it under Miri). Its tests run a sample under
+Miri (`cfg!(miri)`): the full corpus takes about 15 minutes there.
 
 The third command runs the tests on rayon's thread pool. It needs the two flags because
 of rayon's dependencies, not because of this code: `crossbeam-epoch` keeps an intrusive
@@ -126,7 +136,7 @@ describing it).
 |---|---|---|---|
 | `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant interface; later segmentable arrays | this skeleton, #31 | yes, enforced |
 | `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks | #29 | no — the one crate for OS I/O |
-| `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes |
+| `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
 | `everygraph-community` | Leiden and the map hierarchy | #57 | yes |
@@ -208,13 +218,13 @@ than memory (file lengths, byte offsets, memory budgets) are `u64` on every targ
 
 ## `unsafe`
 
-`unsafe` is allowed only in modules named in the table below. Today there are none, and
-every crate root forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file
-under `tests/`, which Cargo compiles as a crate of its own.
+`unsafe` is allowed only in modules named in the table below. Every other crate root
+forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests/`, which
+Cargo compiles as a crate of its own.
 
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
-| *(none yet)* | | |
+| `everygraph-format`, `adjacency::simd` | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly Linux aarch64 job, `simd128` is built and linted only |
 
 To add one, in a single pull request:
 

@@ -94,16 +94,13 @@ pub(crate) static GROUP_LEN: [u8; 256] = {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Corrupt;
 
-/// What every decoder does before its own loop, and the check it makes.
+/// What every decoder does before its own loop.
 ///
 /// `bytes` starts at the record and may run on past it (decoders read ahead within it,
 /// never beyond); the record has `total ≥ 1` words, of which the first `k`, with
 /// `1 ≤ k ≤ total`, are wanted. Returns the number of control bytes and the running
 /// value before the first word, chosen so that adding `w_0 + 1` to it gives `x_0`.
-///
-/// When the whole record is wanted (`k == total`), the unused fields of the last
-/// control byte must be zero; decoders that run the last group through the same
-/// shuffle as the others rely on it to count the data bytes.
+/// Unused fields of the last control byte are written as zero and never read.
 #[inline]
 pub(crate) fn prologue(
     bytes: &[u8],
@@ -113,9 +110,7 @@ pub(crate) fn prologue(
 ) -> Result<(usize, u32), Corrupt> {
     debug_assert!(1 <= k && k <= total);
     let groups = total.div_ceil(4);
-    let last = *bytes.get(groups - 1).ok_or(Corrupt)?;
-    let used = total - 4 * (groups - 1);
-    if k == total && used < 4 && last >> (2 * used) != 0 {
+    if bytes.len() < groups {
         return Err(Corrupt);
     }
     let w0 = read_word(bytes, groups, bytes[0] & 3)?;
@@ -198,6 +193,19 @@ mod tests {
             let (v32, x32) = (u32::try_from(v).unwrap(), u32::try_from(x).unwrap());
             assert_eq!(first_word(v32, x32), lab(v, x));
         }
+    }
+
+    /// The worked example of `docs/spec/eg-adjacency.md` § 1, byte for byte.
+    #[test]
+    fn the_example_of_the_specification() {
+        let list = [3, 4, 300];
+        assert_eq!(record_len(5, &list), Ok(5));
+        let mut rec = [0xaa; 5];
+        write_record(5, &list, &mut rec);
+        assert_eq!(rec, [0x10, 0x03, 0x00, 0x27, 0x01]);
+        let mut out = [0; 3];
+        assert_eq!(decode(&rec, 5, 3, 3, &mut out), Ok(5));
+        assert_eq!(out, list);
     }
 
     #[test]

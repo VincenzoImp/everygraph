@@ -18,11 +18,14 @@ use everygraph_oracle::projection::Projection;
 use everygraph_oracle::{Kernel, Output, ix, to_usize};
 use proptest::prelude::*;
 
+/// Miri interprets the tests about 1000 times slower: it runs a sample.
+const MIRI: bool = cfg!(miri);
+
 /// Few cases under Miri, and no failure file (Miri's isolation hides the file system).
 fn config() -> ProptestConfig {
     ProptestConfig {
-        cases: if cfg!(miri) { 2 } else { 256 },
-        failure_persistence: if cfg!(miri) {
+        cases: if MIRI { 2 } else { 256 },
+        failure_persistence: if MIRI {
             None
         } else {
             ProptestConfig::default().failure_persistence
@@ -64,19 +67,13 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                 want,
                 "{name} node {v}"
             );
-            for k in [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                7,
-                8,
-                9,
-                want.len().saturating_sub(1),
-                want.len() + 1,
-            ] {
+            let ks: &[usize] = if MIRI {
+                &[1, 5]
+            } else {
+                &[0, 1, 2, 3, 4, 5, 7, 8, 9]
+            };
+            let ends = [want.len().saturating_sub(1), want.len() + 1];
+            for &k in ks.iter().chain(&ends) {
                 let got = adj.neighbors_prefix(node, k, &mut buf).unwrap();
                 assert_eq!(
                     got,
@@ -90,11 +87,18 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
         let mut ranges: Vec<_> = (0..index.blocks()).map(|b| index.block_nodes(b)).collect();
         let n32 = id(n).get();
         ranges.push(0..n32);
-        ranges.extend((0..n32).step_by(7).map(|a| a..(a + 3).min(n32)));
+        if !MIRI {
+            ranges.extend((0..n32).step_by(7).map(|a| a..(a + 3).min(n32)));
+        }
         for r in ranges {
             // Whole ranges at once, and in batches of a few entries (at least one list
             // each, never more than the budget unless a single list is longer).
-            for budget in [usize::MAX, 0, 1, 5, 64] {
+            let budgets: &[usize] = if MIRI {
+                &[5]
+            } else {
+                &[usize::MAX, 0, 1, 5, 64]
+            };
+            for &budget in budgets {
                 let mut at = r.start;
                 let mut seen = Vec::new();
                 while at < r.end {
@@ -129,14 +133,14 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
 #[test]
 fn the_oracle_corpus_round_trips_on_every_path() {
     let all = specs(Tier::Ci);
-    // Under Miri a sample: one graph in 25 and no sparse-id graph (2 million nodes).
-    let step = if cfg!(miri) { 25 } else { 1 };
+    // Under Miri a sample: one graph in 40, none above 300 nodes.
+    let step = if MIRI { 40 } else { 1 };
     let mut checked = 0;
     for spec in all.iter().step_by(step) {
-        if cfg!(miri) && spec.name.contains("sparse") {
+        let g = generate(spec);
+        if MIRI && g.n > 300 {
             continue;
         }
-        let g = generate(spec);
         let p = Projection::new(&g);
         for adj in [&p.out, &p.inn] {
             round_trip(&adj.offsets, &adj.targets);
@@ -155,10 +159,7 @@ fn the_oracle_corpus_round_trips_on_every_path() {
         }
         checked += 1;
     }
-    assert!(
-        checked >= if cfg!(miri) { 5 } else { 280 },
-        "{checked} graphs"
-    );
+    assert!(checked >= if MIRI { 3 } else { 280 }, "{checked} graphs");
 }
 
 /// Lists whose first neighbour and gaps sit on every boundary of the codes: one, two,
@@ -191,7 +192,7 @@ fn ids_and_gaps_on_every_code_boundary() {
 /// first word of each the same, so the size changes by at most 4 bytes per list.
 #[test]
 fn record_size_does_not_depend_on_where_the_ids_are() {
-    let lists: Vec<Vec<u32>> = (0..64u32)
+    let lists: Vec<Vec<u32>> = (0..if MIRI { 12u32 } else { 64 })
         .map(|v| (0..v).map(|i| 3 * i + v).collect())
         .collect();
     let size = |shift: u32| {
@@ -223,17 +224,20 @@ fn arb_target() -> impl Strategy<Value = u32> {
 }
 
 fn arb_csr() -> impl Strategy<Value = (Vec<u64>, Vec<u32>)> {
-    proptest::collection::vec(proptest::collection::btree_set(arb_target(), 0..70), 0..24).prop_map(
-        |lists| {
-            let mut offsets = vec![0u64];
-            let mut targets = Vec::new();
-            for l in lists {
-                targets.extend(l);
-                offsets.push(targets.len() as u64);
-            }
-            (offsets, targets)
-        },
+    let (lists, longest) = if MIRI { (6, 12) } else { (24, 70) };
+    proptest::collection::vec(
+        proptest::collection::btree_set(arb_target(), 0..longest),
+        0..lists,
     )
+    .prop_map(|lists| {
+        let mut offsets = vec![0u64];
+        let mut targets = Vec::new();
+        for l in lists {
+            targets.extend(l);
+            offsets.push(targets.len() as u64);
+        }
+        (offsets, targets)
+    })
 }
 
 /// What every read of an adjacency returns, errors included.

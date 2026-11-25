@@ -41,9 +41,13 @@ pub(super) struct Done {
 
 /// Decodes the lists of `job.nodes` one after the other into `out`, until the next one
 /// would not fit in `job.limit` entries (the first list always does; `out` has room for
-/// what can be written); with `ENDS`, pushes the end of each list in `out` onto `ends`.
+/// what can be written), and leaves the end of each list in `out` in `ends`.
+///
+/// Two passes: the list ends from the entry offsets, then the records. Keeping the
+/// Elias–Fano iteration out of the decode loop leaves that loop its registers (lj scan,
+/// one thread, exploratory, binaries alternated: 1.13 → 1.27 G entries/s; PR of #30).
 #[inline(always)]
-pub(super) fn run<const ENDS: bool>(
+pub(super) fn run(
     kernel: impl Fn(&[u8], u32, usize, usize, &mut [u32]) -> Result<usize, Corrupt>,
     job: Job<'_>,
     out: &mut [u32],
@@ -56,35 +60,31 @@ pub(super) fn run<const ENDS: bool>(
         nodes,
         limit,
     } = job;
-    let mut prev = entries.next().unwrap_or(0);
-    let mut s = 0;
-    let first = nodes.start;
+    ends.clear();
+    let base = entries.next().unwrap_or(0);
+    let mut stop = nodes.end;
     for v in nodes.clone() {
-        let e = entries.next().expect("an entry offset per node");
-        let d = usize::try_from(e - prev).expect("degrees are below 2^32 (checked by parse)");
-        prev = e;
-        if v > first && s + d > limit {
-            return Ok(Done {
-                node: v,
-                at,
-                entries: s,
-            });
+        let end = to_usize(entries.next().expect("an entry offset per node") - base);
+        if v > nodes.start && end > limit {
+            stop = v;
+            break;
         }
-        if d > 0 {
+        ends.push(end);
+    }
+    let mut s = 0;
+    for (v, &end) in (nodes.start..).zip(ends.iter()) {
+        if end > s {
             let corrupt = |_| DecodeError {
                 first: v,
                 end: v + 1,
             };
             let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
-            at += kernel(rec, v, d, d, &mut out[s..]).map_err(corrupt)?;
-            s += d;
-        }
-        if ENDS {
-            ends.push(s);
+            at += kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
+            s = end;
         }
     }
     Ok(Done {
-        node: nodes.end,
+        node: stop,
         at,
         entries: s,
     })
@@ -277,7 +277,7 @@ impl<'a> Adjacency<'a> {
 
     /// Decodes from `nodes.start` into `out` while the lists fit in `limit` entries,
     /// checking that the records end where the index says; returns where it stopped.
-    fn decode_into<const ENDS: bool>(
+    fn decode_into(
         &self,
         nodes: Range<u32>,
         limit: usize,
@@ -292,7 +292,7 @@ impl<'a> Adjacency<'a> {
             nodes: nodes.clone(),
             limit,
         };
-        let done = self.decoder.run::<ENDS>(job, out, ends)?;
+        let done = self.decoder.run(job, out, ends)?;
         let end = self
             .index
             .byte_offsets()
@@ -348,7 +348,7 @@ impl<'a> Adjacency<'a> {
         let span = to_usize(ef.get(end) - first);
         let room = max_entries.max(to_usize(second - first)).min(span);
         grow(&mut batch.targets, room + 3);
-        match self.decode_into::<true>(nodes, max_entries, &mut batch.targets, &mut batch.ends) {
+        match self.decode_into(nodes, max_entries, &mut batch.targets, &mut batch.ends) {
             Ok(done) => {
                 batch.entries = done.entries;
                 Ok(done.node)
@@ -399,7 +399,7 @@ impl<'a> Adjacency<'a> {
         par::for_each_chunk_mut(&mut pieces, NonZeroUsize::MIN, |_, chunk| {
             for (nodes, out, result) in chunk.iter_mut() {
                 *result = self
-                    .decode_into::<false>(nodes.clone(), usize::MAX, out, &mut Vec::new())
+                    .decode_into(nodes.clone(), usize::MAX, out, &mut Vec::new())
                     .map(|_| ());
             }
         });

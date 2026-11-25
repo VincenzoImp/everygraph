@@ -123,22 +123,22 @@ impl Decoder {
     }
 
     /// Consecutive records; see [`decode::run`].
-    pub(super) fn run<const ENDS: bool>(
+    pub(super) fn run(
         self,
         job: Job<'_>,
         out: &mut [u32],
         ends: &mut Vec<usize>,
     ) -> Result<Done, DecodeError> {
         match self.0 {
-            Kind::Scalar => decode::run::<ENDS>(svb::decode, job, out, ends),
+            Kind::Scalar => decode::run(svb::decode, job, out, ends),
             #[cfg(target_arch = "x86_64")]
             // SAFETY: a decoder of this kind is only made after SSSE3 was detected.
-            Kind::Ssse3 => unsafe { x86::run::<ENDS>(job, out, ends) },
+            Kind::Ssse3 => unsafe { x86::run(job, out, ends) },
             #[cfg(target_arch = "aarch64")]
             // SAFETY: a decoder of this kind is only made after NEON was detected.
-            Kind::Neon => unsafe { neon::run::<ENDS>(job, out, ends) },
+            Kind::Neon => unsafe { neon::run(job, out, ends) },
             #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-            Kind::Simd128 => decode::run::<ENDS>(
+            Kind::Simd128 => decode::run(
                 // SAFETY: `simd128` is enabled at compile time.
                 |b, v, t, k, o| unsafe { decode_with::<wasm::Simd128>(b, v, t, k, o) },
                 job,
@@ -222,9 +222,14 @@ unsafe fn decode_with<L: Lanes>(
     // SAFETY: feature (caller).
     let acc = unsafe { L::first(prev) };
     if 4 * g >= k {
-        // The loop wrote every word. The unused fields of a last partial group are zero
-        // (checked by `svb::prologue` when `k == total`), each counted as one byte.
-        Ok(at - (4 * g - k))
+        // The loop wrote every word; the last group may have had unused fields, which
+        // its length counted. Count the used ones only (meaningful when `k == total`).
+        let c = bytes[g - 1];
+        let used = k - 4 * (g - 1);
+        let mask = u8::try_from((1u32 << (2 * used)) - 1).unwrap_or(u8::MAX);
+        Ok(at - usize::from(svb::GROUP_LEN[usize::from(c)])
+            + usize::from(svb::GROUP_LEN[usize::from(c & mask)])
+            - (4 - used))
     } else {
         svb::tail(bytes, 4 * g, at, acc, k, out)
     }
@@ -372,12 +377,12 @@ mod x86 {
     ///
     /// The CPU supports SSSE3.
     #[target_feature(enable = "ssse3")]
-    pub(super) unsafe fn run<const ENDS: bool>(
+    pub(super) unsafe fn run(
         job: Job<'_>,
         out: &mut [u32],
         ends: &mut Vec<usize>,
     ) -> Result<Done, DecodeError> {
-        decode::run::<ENDS>(
+        decode::run(
             // SAFETY: SSSE3 is available (this function's contract).
             |b, v, t, k, o| unsafe { decode_with::<Ssse3>(b, v, t, k, o) },
             job,
@@ -493,12 +498,12 @@ mod neon {
     ///
     /// The CPU supports NEON.
     #[target_feature(enable = "neon")]
-    pub(super) unsafe fn run<const ENDS: bool>(
+    pub(super) unsafe fn run(
         job: Job<'_>,
         out: &mut [u32],
         ends: &mut Vec<usize>,
     ) -> Result<Done, DecodeError> {
-        decode::run::<ENDS>(
+        decode::run(
             // SAFETY: NEON is available (this function's contract).
             |b, v, t, k, o| unsafe { decode_with::<Neon>(b, v, t, k, o) },
             job,
