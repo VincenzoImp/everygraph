@@ -23,13 +23,13 @@ As of 2026-11-25, six agents (Opus unless noted; policy in CLAUDE.md § 6):
 - **#5 datasets** — `m0-04-datasets` (Opus medium). Registry and fetcher in `everygraph-bench`.
 - **#6 oracle** — `m0-05-oracle` (Opus high). Generators, reference runners, invariants,
   plug-in trait; proven against the lab kernels and seeded bugs.
-- **#9 licence and governance** — `m0-08-licence-governance` (Opus medium).
 - **#12 API sketch, #13 UX contract** — one specification agent, two PRs (Fable high, started
   before the model policy).
 - **#118 compressed storage end to end** (M1) — experimenter (Fable high, started before the
   policy). It has the machine for measurements; nothing else may benchmark until it reports.
 
-Done today: **#2 workspace** merged (PR #123) after an independent review found the
+Done today: **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
+lands). **#2 workspace** merged (PR #123) after an independent review found the
 portability rule narrower than claimed; fixed (lint lists, `forbid` at the crate root,
 `tools/check_core_portability.py`). **#11 patent** closed. **#10 name**: the owner keeps
 "Everygraph" knowing a US application for the identical mark was filed 2026-11-17; watch
@@ -57,9 +57,17 @@ serial 50223142 at every milestone.
   i686-unknown-linux-gnu, cargo-deny, cargo-nextest, cargo-fuzz, hyperfine, maturin (uv
   tool), node 26, uv. `perf` 6.12 with `kernel.perf_event_paranoid=2` (persistent): user-space hardware counters work without privileges.
 
-## Open questions for the owner
+## Needs the owner's hands (nothing here blocks development)
 
-- None blocking.
+Tell the owner when each becomes due, with everything prepared.
+
+- Domains `everygraph.dev` and `everygraph.org` (appeared unregistered on 2026-11-25) — any time.
+- A contact address for `CODE_OF_CONDUCT.md` (placeholder in the file) — before the repository is public.
+- At publication: enable GitHub private vulnerability reporting; authorize `Signed-off-by` on
+  commits made by agents under the owner's account, then set the repository variable
+  `DCO_ALL_PULL_REQUESTS=true`.
+- Accounts with 2FA on PyPI, crates.io and npm — at the first release.
+- A trademark and patent professional (#122) — before anything is public.
 
 ## Lessons (append, never delete)
 
