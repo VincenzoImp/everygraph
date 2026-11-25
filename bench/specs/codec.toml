@@ -44,14 +44,14 @@ command = ["cargo", "build", "--release", "--offline", "--locked"]
 
 [[prepare]]
 name = "store-orkut"
-shell = "{m203} encode --graph {data}/csr/orkut --out {stores}/orkut.part > /dev/null && mv {stores}/orkut.part {stores}/orkut"
+shell = "{m203} encode --graph {data}/csr/orkut --out {stores}/orkut.part --verify > /dev/null && mv {stores}/orkut.part {stores}/orkut"
 creates = "{stores}/orkut"
 needed_by = ["scan-orkut", "random"]
 
 [[prepare]]
 name = "store-twitter-sym"
 memory_limit = "24G"
-shell = "{m203} encode --graph {data}/csr/twitter-sym --out {stores}/twitter-sym.part > /dev/null && mv {stores}/twitter-sym.part {stores}/twitter-sym"
+shell = "{m203} encode --graph {data}/csr/twitter-sym --out {stores}/twitter-sym.part --verify > /dev/null && mv {stores}/twitter-sym.part {stores}/twitter-sym"
 creates = "{stores}/twitter-sym"
 needed_by = ["scan-twitter-sym"]
 
@@ -68,7 +68,9 @@ threads = [16]
 # Size is the same every time; one repetition after the warm-up.
 repetitions = 1
 env = { RAYON_NUM_THREADS = "{threads}" }
-command = ["{m203}", "encode", "--graph", "{dataset}"]
+# --verify: every block decoded and compared with the input (an assertion: a difference
+# fails the row), without a second copy of the graph in memory.
+command = ["{m203}", "encode", "--graph", "{dataset}", "--verify"]
 conditions = { graph = "{graph}", storage = "per-list Stream VByte records, Elias-Fano byte and entry offsets", input = "CSR mmapped, page cache warm", output = "heap, not written to disk" }
 metric = [
   { name = "bits_per_entry", json = "/bits_per_entry", unit = "bits" },
@@ -76,6 +78,7 @@ metric = [
   { name = "bits_data", json = "/bits_data", unit = "bits" },
   { name = "encode_seconds", json = "/encode_s", unit = "s" },
 ]
+record_json = { decoder = "/verify/decoder" }
 primary = "bits_per_entry"
 reference = [
   { match = { graph = "lj" }, metric = "bits_per_entry", value = 17.9859, tolerance = 0.001, source = "lab/m2-03-codec encode (exploratory; sizes do not depend on the machine), docs/spec/eg-adjacency.md § 7" },
@@ -89,7 +92,8 @@ description = "warm sequential decode of every list of twitter-sym, batches of 8
 dataset_path = "csr/twitter-sym"
 threads = [1, 16]
 command = ["{m203}", "scan", "--store", "{stores}/twitter-sym", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
-conditions = { graph = "twitter-sym", storage = "compressed (default), store in the heap", decoder = "best at run time (SSSE3 here)", level = "in-process decode loop, best of 7" }
+conditions = { graph = "twitter-sym", storage = "compressed (default), store in the heap", level = "in-process decode loop, best of 7" }
+record_json = { decoder = "/decoder" }
 metric = [
   { name = "g_entries_per_s", json = "/g_entries_per_s_best", unit = "G entries/s" },
   { name = "seconds", json = "/best_s", unit = "s" },
@@ -103,7 +107,8 @@ description = "warm sequential decode of every list of orkut, batches of 8,192 e
 dataset_path = "csr/orkut"
 threads = [1, 16]
 command = ["{m203}", "scan", "--store", "{stores}/orkut", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
-conditions = { graph = "orkut", storage = "compressed (default), store in the heap", decoder = "best at run time (SSSE3 here)", level = "in-process decode loop, best of 7" }
+conditions = { graph = "orkut", storage = "compressed (default), store in the heap", level = "in-process decode loop, best of 7" }
+record_json = { decoder = "/decoder" }
 metric = [
   { name = "g_entries_per_s", json = "/g_entries_per_s_best", unit = "G entries/s" },
   { name = "seconds", json = "/best_s", unit = "s" },
@@ -116,7 +121,8 @@ group = "random"
 description = "warm decode of 10^6 uniformly random lists"
 dataset_path = "csr/orkut"
 command = ["{m203}", "random", "--store", "{stores}/orkut", "--queries", "1000000", "--reps", "5"]
-conditions = { graph = "orkut", storage = "compressed (default), store in the heap", decoder = "best at run time (SSSE3 here)", level = "in-process, mean over the batch, best of 5" }
+conditions = { graph = "orkut", storage = "compressed (default), store in the heap", level = "in-process, mean over the batch, best of 5" }
+record_json = { decoder = "/decoder" }
 metric = [
   { name = "ns_per_list", json = "/ns_per_list_best", unit = "ns" },
 ]

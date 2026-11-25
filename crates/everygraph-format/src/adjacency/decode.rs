@@ -19,10 +19,10 @@ const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero")
 /// A run of consecutive lists to decode.
 pub(super) struct Job<'a> {
     data: &'a [u8],
-    /// Byte offset of the first record.
-    at: usize,
     /// Entry offsets, positioned at the first node.
     entries: ef::Iter<'a>,
+    /// Byte offsets, positioned at the first node.
+    bytes: ef::Iter<'a>,
     nodes: Range<u32>,
     /// Stop before a list that would take the output past this many entries, unless it
     /// is the first.
@@ -33,35 +33,46 @@ pub(super) struct Job<'a> {
 pub(super) struct Done {
     /// The first node not decoded.
     node: u32,
-    /// The byte past the last record read, which the caller compares with the index.
-    at: usize,
     /// Entries written.
     entries: usize,
 }
 
+/// Where each list of a run ends: in the output (`entries`, relative to the run's first
+/// entry) and in the data (`bytes`, absolute). Reused from run to run.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Ends {
+    pub(super) entries: Vec<usize>,
+    pub(super) bytes: Vec<usize>,
+}
+
 /// Decodes the lists of `job.nodes` one after the other into `out`, until the next one
 /// would not fit in `job.limit` entries (the first list always does; `out` has room for
-/// what can be written), and leaves the end of each list in `out` in `ends`.
+/// what can be written), and leaves where each list ends in `ends`.
 ///
-/// Two passes: the list ends from the entry offsets, then the records. Keeping the
-/// Elias–Fano iteration out of the decode loop leaves that loop its registers (lj scan,
-/// one thread, exploratory, binaries alternated: 1.13 → 1.27 G entries/s; PR of #30).
+/// Two passes: where every list ends, in entries and in bytes, from the two Elias–Fano
+/// sequences; then the records, each checked to end exactly where the index says
+/// (`docs/spec/eg-adjacency.md` § 5), so that a damaged byte is an error at its own
+/// node and every API agrees on the same bytes. Keeping the Elias–Fano iteration out of
+/// the decode loop leaves that loop its registers (lj scan, one thread, exploratory,
+/// binaries alternated: 1.13 → 1.27 G entries/s; PR of #30).
 #[inline(always)]
 pub(super) fn run(
     kernel: impl Fn(&[u8], u32, usize, usize, &mut [u32]) -> Result<usize, Corrupt>,
     job: Job<'_>,
     out: &mut [u32],
-    ends: &mut Vec<usize>,
+    ends: &mut Ends,
 ) -> Result<Done, DecodeError> {
     let Job {
         data,
-        mut at,
         mut entries,
+        mut bytes,
         nodes,
         limit,
     } = job;
-    ends.clear();
+    ends.entries.clear();
+    ends.bytes.clear();
     let base = entries.next().unwrap_or(0);
+    let mut at = to_usize(bytes.next().unwrap_or(0));
     let mut stop = nodes.end;
     for v in nodes.clone() {
         let end = to_usize(entries.next().expect("an entry offset per node") - base);
@@ -69,23 +80,29 @@ pub(super) fn run(
             stop = v;
             break;
         }
-        ends.push(end);
+        ends.entries.push(end);
+        ends.bytes
+            .push(to_usize(bytes.next().expect("a byte offset per node")));
     }
     let mut s = 0;
-    for (v, &end) in (nodes.start..).zip(ends.iter()) {
+    let lists = ends.entries.iter().zip(&ends.bytes);
+    for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
         if end > s {
             let corrupt = |_| DecodeError {
                 first: v,
                 end: v + 1,
             };
             let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
-            at += kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
+            let used = kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
+            if at + used != record_end {
+                return Err(corrupt(Corrupt));
+            }
             s = end;
         }
+        at = record_end;
     }
     Ok(Done {
         node: stop,
-        at,
         entries: s,
     })
 }
@@ -110,7 +127,7 @@ pub struct Batch {
     entries: usize,
     /// At least `entries + 3`: the SIMD decoders' last group needs no scalar loop.
     targets: Vec<u32>,
-    ends: Vec<usize>,
+    ends: Ends,
 }
 
 impl Batch {
@@ -123,13 +140,13 @@ impl Batch {
     /// Number of lists.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.ends.len()
+        self.ends.entries.len()
     }
 
     /// Whether there are no lists.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.ends.is_empty()
+        self.ends.entries.is_empty()
     }
 
     /// List `i` of the batch, that of node `first() + i`.
@@ -139,8 +156,9 @@ impl Batch {
     /// If `i` is not below [`len`](Self::len).
     #[must_use]
     pub fn list(&self, i: usize) -> &[u32] {
-        let start = if i == 0 { 0 } else { self.ends[i - 1] };
-        &self.targets[start..self.ends[i]]
+        let ends = &self.ends.entries;
+        let start = if i == 0 { 0 } else { ends[i - 1] };
+        &self.targets[start..ends[i]]
     }
 
     /// All entries, list after list.
@@ -209,6 +227,13 @@ impl<'a> Adjacency<'a> {
     /// The neighbours of `v`, decoded into `buf` (which grows as needed and is never
     /// shrunk, so reusing it costs nothing).
     ///
+    /// # Untrusted input
+    ///
+    /// Every record is checked to end where the index says, but a damaged or hostile
+    /// file can still hold records that decode to lists that are not increasing or that
+    /// name targets `>= nodes()`. Code that indexes arrays with decoded targets checks
+    /// them first (#44).
+    ///
     /// # Errors
     ///
     /// [`DecodeError`] if the record of `v` is corrupt.
@@ -276,35 +301,23 @@ impl<'a> Adjacency<'a> {
     }
 
     /// Decodes from `nodes.start` into `out` while the lists fit in `limit` entries,
-    /// checking that the records end where the index says; returns where it stopped.
+    /// each record checked against the index; returns where it stopped.
     fn decode_into(
         &self,
         nodes: Range<u32>,
         limit: usize,
         out: &mut [u32],
-        ends: &mut Vec<usize>,
+        ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
         let start = to_usize(u64::from(nodes.start));
         let job = Job {
             data: self.data,
-            at: to_usize(self.index.byte_offsets().get(start)),
             entries: self.index.entry_offsets().iter_from(start),
-            nodes: nodes.clone(),
+            bytes: self.index.byte_offsets().iter_from(start),
+            nodes,
             limit,
         };
-        let done = self.decoder.run(job, out, ends)?;
-        let end = self
-            .index
-            .byte_offsets()
-            .get(to_usize(u64::from(done.node)));
-        if done.at as u64 == end {
-            Ok(done)
-        } else {
-            Err(DecodeError {
-                first: nodes.start,
-                end: done.node,
-            })
-        }
+        self.decoder.run(job, out, ends)
     }
 
     /// Decodes consecutive lists into `batch`, replacing what it held: from
@@ -316,6 +329,13 @@ impl<'a> Adjacency<'a> {
     /// (ADR 0004, condition 2); batches of a few thousand entries stay in the L1 cache
     /// (the lab used 8,192). A block (see [`AdjacencyIndex::block_nodes`]) with
     /// `usize::MAX` is a batch too.
+    ///
+    /// # Untrusted input
+    ///
+    /// Every record is checked to end where the index says, but a damaged or hostile
+    /// file can still hold records that decode to lists that are not increasing or that
+    /// name targets `>= nodes()`. Code that indexes arrays with decoded targets checks
+    /// them first (#44).
     ///
     /// # Errors
     ///
@@ -338,7 +358,7 @@ impl<'a> Adjacency<'a> {
         );
         batch.first = nodes.start;
         batch.entries = 0;
-        batch.ends.clear();
+        batch.ends.entries.clear();
         if nodes.is_empty() {
             return Ok(nodes.end);
         }
@@ -354,7 +374,7 @@ impl<'a> Adjacency<'a> {
                 Ok(done.node)
             }
             Err(e) => {
-                batch.ends.clear();
+                batch.ends.entries.clear();
                 Err(e)
             }
         }
@@ -363,6 +383,13 @@ impl<'a> Adjacency<'a> {
     /// Decodes the whole adjacency into a raw CSR: `offsets` (`nodes + 1` entries) and
     /// `targets` (`entries`), which the caller allocates (against its memory budget).
     /// Runs in parallel over blocks.
+    ///
+    /// # Untrusted input
+    ///
+    /// Every record is checked to end where the index says, but a damaged or hostile
+    /// file can still hold records that decode to lists that are not increasing or that
+    /// name targets `>= nodes()`. Code that indexes arrays with decoded targets checks
+    /// them first (#44).
     ///
     /// # Errors
     ///
@@ -399,7 +426,7 @@ impl<'a> Adjacency<'a> {
         par::for_each_chunk_mut(&mut pieces, NonZeroUsize::MIN, |_, chunk| {
             for (nodes, out, result) in chunk.iter_mut() {
                 *result = self
-                    .decode_into(nodes.clone(), usize::MAX, out, &mut Vec::new())
+                    .decode_into(nodes.clone(), usize::MAX, out, &mut Ends::default())
                     .map(|_| ());
             }
         });

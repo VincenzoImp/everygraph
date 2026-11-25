@@ -62,6 +62,7 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo fmt --manifest-path tools/wasm-toy/Cargo.toml --check
+          cargo fmt --manifest-path tools/wasm-codec/Cargo.toml --check
           cargo fmt --manifest-path tools/canary/tsan/Cargo.toml --check
           rustfmt --edition 2024 --check tools/canary/portability/*.rs
       - name: cargo clippy (workspace)
@@ -200,6 +201,9 @@ jobs:
         run: cargo clippy -p everygraph-format --target wasm32-unknown-unknown --locked -- -D warnings
       - name: Toy kernel, native and wasm32 in Node, same hash
         run: python3 tools/check_wasm_toy.py
+      # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
+      - name: Adjacency codec, simd128 in Node against scalar, same as native
+        run: python3 tools/check_wasm_codec.py
       # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
       # fails if any probe is accepted.
       - name: Portability canary

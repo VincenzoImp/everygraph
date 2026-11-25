@@ -34,6 +34,17 @@ fn node_id(v: usize) -> u32 {
     u32::try_from(v).expect("v <= n <= u32::MAX")
 }
 
+/// `len` zeros, or an error instead of an abort when the memory is not there.
+fn zeroed<T: Copy + Default>(len: usize) -> Result<Vec<T>, EncodeError> {
+    let mut v = Vec::new();
+    let oom = || EncodeError::OutOfMemory {
+        bytes: u64::try_from(len.saturating_mul(size_of::<T>())).unwrap_or(u64::MAX),
+    };
+    v.try_reserve_exact(len).map_err(|_| oom())?;
+    v.resize(len, T::default());
+    Ok(v)
+}
+
 fn to_index(offset: u64) -> usize {
     EdgeOffset::new(offset)
         .to_index()
@@ -50,8 +61,13 @@ fn to_index(offset: u64) -> usize {
 /// # Errors
 ///
 /// [`EncodeError::Offsets`] if `offsets` is not a valid CSR offset array for `targets`
-/// with at most `2^32 − 1` nodes, and [`EncodeError::NotIncreasing`] at the first list
-/// that is not strictly increasing.
+/// with at most `2^32 − 1` nodes, [`EncodeError::NotIncreasing`] at the first list
+/// that is not strictly increasing, and [`EncodeError::OutOfMemory`] if the record
+/// lengths (`8 (n + 1)` bytes) or the data part cannot be allocated.
+///
+/// The data part is one allocation, which DESIGN D2 (chunks of at most 2 GiB, budgeted
+/// allocations) does not allow for large graphs: the budgeted, streaming encoder that
+/// writes it block by block is #35's.
 pub fn encode(offsets: &[u64], targets: &[u32]) -> Result<Encoded, EncodeError> {
     let Some((&last, _)) = offsets.split_last() else {
         return Err(EncodeError::Offsets(
@@ -76,7 +92,7 @@ pub fn encode(offsets: &[u64], targets: &[u32]) -> Result<Encoded, EncodeError> 
     let list = |v: usize| &targets[to_index(offsets[v])..to_index(offsets[v + 1])];
 
     // Pass 1: record lengths, u64::MAX marking a list that is not increasing.
-    let mut byte_offsets = vec![0u64; n + 1];
+    let mut byte_offsets = zeroed::<u64>(n + 1)?;
     par::for_each_chunk_mut(&mut byte_offsets[1..], GRAIN, |start, lens| {
         for (i, len) in lens.iter_mut().enumerate() {
             let v = start + i;
@@ -91,7 +107,7 @@ pub fn encode(offsets: &[u64], targets: &[u32]) -> Result<Encoded, EncodeError> 
     }
 
     // Pass 2: records written into disjoint parts of the output, chunk by chunk.
-    let mut data = vec![0u8; to_index(byte_offsets[n])];
+    let mut data = zeroed::<u8>(to_index(byte_offsets[n]))?;
     let mut pieces = Vec::with_capacity(n.div_ceil(GRAIN.get()));
     let mut rest = data.as_mut_slice();
     for start in (0..n).step_by(GRAIN.get()) {

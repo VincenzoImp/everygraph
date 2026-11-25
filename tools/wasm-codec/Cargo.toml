@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The wasm codec check: the adjacency codec's decoders compared with the scalar one on
+# generated graphs, clean and damaged, natively and as wasm32 with `simd128` in Node;
+# the two runs must print the same line. `tools/check_wasm_codec.py` runs it. Not a
+# member of the workspace (it has its own `[workspace]` table), like tools/wasm-toy.
+
+[package]
+name = "everygraph-wasm-codec"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[lib]
+# `cdylib` is the .wasm module Node loads; `rlib` is what the native binary links.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+everygraph-core = { path = "../../crates/everygraph-core", default-features = false }
+everygraph-format = { path = "../../crates/everygraph-format" }
+
+[profile.release]
+debug-assertions = true
+overflow-checks = true
+
+[workspace]

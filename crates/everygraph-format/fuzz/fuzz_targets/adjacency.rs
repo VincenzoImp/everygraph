@@ -69,6 +69,37 @@ fn check(index: &[u8], data: &[u8]) {
     for decoder in Decoder::available() {
         assert_eq!(outcomes(adj.with_decoder(decoder)), reference, "{}", decoder.name());
     }
+    apis_agree(adj);
+}
+
+/// A block, or the whole graph, decodes only if each of its lists decodes on its own,
+/// and then to the same lists (review of #30, M1).
+fn apis_agree(adj: Adjacency<'_>) {
+    let index = adj.index();
+    let mut buf = Vec::new();
+    let lists: Vec<Outcome> = (0..index.nodes())
+        .map(|v| adj.neighbors(NodeId::new(v), &mut buf).map(<[u32]>::to_vec))
+        .collect();
+    let mut batch = Batch::default();
+    for b in 0..index.blocks() {
+        let nodes = index.block_nodes(b);
+        let own = &lists[nodes.start as usize..nodes.end as usize];
+        let got = adj.decode_nodes(nodes, usize::MAX, &mut batch);
+        assert_eq!(got.is_ok(), own.iter().all(Result::is_ok), "block {b}");
+        for ((_, l), want) in batch.iter().zip(own) {
+            assert_eq!(Ok(l.to_vec()), *want, "block {b}");
+        }
+    }
+    if index.entries() <= 1 << 20 {
+        let mut offsets = vec![0; index.nodes() as usize + 1];
+        let mut targets = vec![0; index.entries() as usize];
+        let all = adj.decode_all(&mut offsets, &mut targets);
+        assert_eq!(all.is_ok(), lists.iter().all(Result::is_ok));
+        if all.is_ok() {
+            let want: Vec<u32> = lists.into_iter().flat_map(Result::unwrap).collect();
+            assert_eq!(targets, want);
+        }
+    }
 }
 
 fn structured(bytes: &[u8]) {

@@ -106,13 +106,21 @@ fn encode_cmd(args: &[String]) {
     let index = AdjacencyIndex::parse(&e.index).expect("index");
     let mut verified = serde_json::Value::Null;
     if args.iter().any(|a| a == "--verify") {
+        // Every block decoded on its own and compared with the input, in parallel: no
+        // second copy of the graph in memory (Friendster's would not fit the limit).
         let adj = Adjacency::new(&index, &e.data).unwrap();
-        let (mut vo, mut vt) = (vec![0u64; n + 1], vec![0u32; targets.len()]);
         let t0 = Instant::now();
-        adj.decode_all(&mut vo, &mut vt).unwrap();
+        let equal = (0..index.blocks()).into_par_iter().all(|b| {
+            let nodes = index.block_nodes(b);
+            let mut batch = Batch::default();
+            adj.decode_nodes(nodes.clone(), usize::MAX, &mut batch).is_ok_and(|end| {
+                let (lo, hi) = (offsets[nodes.start as usize], offsets[nodes.end as usize]);
+                end == nodes.end && batch.targets() == &targets[lo as usize..hi as usize]
+            })
+        });
         let s = t0.elapsed().as_secs_f64();
-        assert!(vo == offsets && vt == targets, "decode_all differs from the input");
-        verified = json!({"decode_all_s": s, "equal": true});
+        assert!(equal, "a decoded block differs from the input");
+        verified = json!({"decode_blocks_s": s, "equal": true, "decoder": adj.decoder().name()});
     }
     let bits = |b: usize| b as f64 * 8.0 / entries;
     println!(

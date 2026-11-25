@@ -32,11 +32,12 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo build --workspace --release
 ```
 
-And the three checks of the checks, each one command (what they do: "CI" below):
+And the checks of the checks, each one command (what they do: "CI" below):
 
 ```sh
 python3 tools/check_portability_canary.py   # the portability checks still catch each probe
 python3 tools/check_wasm_toy.py             # toy kernel: native and wasm32 in Node agree
+python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 
@@ -99,7 +100,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's and the codec's tests natively on i686. **portability**: the three wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's and the codec's tests natively on i686. **portability**: the wasm32 builds (the codec with and without `simd128` too), the wasm toy, the wasm codec check (`simd128` in Node against scalar), the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
@@ -107,7 +108,7 @@ A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust
 to a commit, with the version in a comment; workflows get `contents: read` and nothing
 else.
 
-What the three scripts at the end of "Checks" are for:
+What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is the wasm toy's pattern applied to the codec):
 
 - **`tools/check_portability_canary.py`** breaks the portability rule on purpose. Each
   file under `tools/canary/portability/` is a probe (direct `std::fs`, file access
@@ -225,7 +226,7 @@ forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
 | `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
-| `everygraph-format`, `adjacency::simd` | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly Linux aarch64 job, `simd128` is built and linted only |
+| `everygraph-format`, `adjacency::simd` | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly arm64 jobs (`cargo test (format)`); `simd128` by `tools/check_wasm_codec.py` in Node |
 
 To add one, in a single pull request:
 

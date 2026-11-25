@@ -54,8 +54,18 @@ impl EliasFano {
     /// Encodes `values`, which must be non-empty and non-decreasing; the universe is the
     /// last value.
     pub(crate) fn new(values: &[u64]) -> Self {
+        debug_assert!(
+            values.windows(2).all(|w| w[0] <= w[1]),
+            "values must be non-decreasing"
+        );
+        Self::with_universe(values, values.last().copied().unwrap_or(0))
+    }
+
+    /// The bits of `values` with the given universe, without checking that the values
+    /// are non-decreasing or within it (tests build damaged sequences with it). Values
+    /// whose high positions `(x >> l) + i` collide lose a one.
+    pub(crate) fn with_universe(values: &[u64], universe: u64) -> Self {
         let len = values.len();
-        let universe = values.last().copied().unwrap_or(0);
         let len64 = u64::try_from(len).unwrap_or(u64::MAX);
         let l = low_bits(len64, universe);
         let (low_words, high_words) =
@@ -65,10 +75,6 @@ impl EliasFano {
         let mask = low_mask(l);
         let mut bit = 0usize;
         for (i, &x) in values.iter().enumerate() {
-            debug_assert!(
-                i == 0 || values[i - 1] <= x,
-                "values must be non-decreasing"
-            );
             if l > 0 {
                 let (word, shift) = (bit / 64, bit % 64);
                 let v = x & mask;

@@ -31,7 +31,7 @@
 #![allow(unsafe_code)]
 
 use super::DecodeError;
-use super::decode::{self, Done, Job};
+use super::decode::{self, Done, Ends, Job};
 use super::svb::{self, Corrupt};
 
 /// Which record decoder runs. All of them return the same bytes; the SIMD ones are
@@ -123,7 +123,7 @@ impl Decoder {
         self,
         job: Job<'_>,
         out: &mut [u32],
-        ends: &mut Vec<usize>,
+        ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
         match self.0 {
             Kind::Scalar => decode::run(svb::decode, job, out, ends),
@@ -197,6 +197,9 @@ unsafe fn decode_with<L: Lanes>(
     k: usize,
     out: &mut [u32],
 ) -> Result<usize, Corrupt> {
+    // The bound every store below relies on, checked here rather than trusted from the
+    // callers (review of #30, S1).
+    assert!(k <= out.len(), "output of {} words for {k}", out.len());
     let (control, base) = svb::prologue(bytes, v, total, k)?;
     let groups = simd_groups(k, out.len());
     let mut at = control;
@@ -211,7 +214,9 @@ unsafe fn decode_with<L: Lanes>(
         let mask = unsafe { L::mask(c) };
         // SAFETY: feature (caller).
         let (x, last) = unsafe { L::group(data, mask, prev) };
-        // SAFETY: feature (caller); `4 * g + 4 <= 4 * groups <= out.len()` (`simd_groups`).
+        // SAFETY: feature (caller); `4 * g + 4 <= 4 * groups <= out.len()`: `simd_groups`
+        // returns `⌈k/4⌉` only if `out` has that many groups, else `⌊k/4⌋`, and
+        // `4 * ⌊k/4⌋ <= k <= out.len()` (asserted above).
         unsafe { L::store(out, 4 * g, x) };
         prev = last;
         at += usize::from(svb::GROUP_LEN[usize::from(c)]);
@@ -298,7 +303,7 @@ mod x86 {
         _mm_shuffle_epi8, _mm_shuffle_epi32, _mm_slli_si128, _mm_storeu_si128,
     };
 
-    use super::{Corrupt, DecodeError, Done, Job, Lanes, SHUFFLE, decode, decode_with};
+    use super::{Corrupt, DecodeError, Done, Ends, Job, Lanes, SHUFFLE, decode, decode_with};
 
     pub(super) struct Ssse3;
 
@@ -377,7 +382,7 @@ mod x86 {
     pub(super) unsafe fn run(
         job: Job<'_>,
         out: &mut [u32],
-        ends: &mut Vec<usize>,
+        ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
         decode::run(
             // SAFETY: SSSE3 is available (this function's contract).
@@ -396,7 +401,7 @@ mod neon {
         vqtbl1q_u8, vreinterpretq_u8_u32, vreinterpretq_u32_u8, vst1q_u32,
     };
 
-    use super::{Corrupt, DecodeError, Done, Job, Lanes, SHUFFLE, decode, decode_with};
+    use super::{Corrupt, DecodeError, Done, Ends, Job, Lanes, SHUFFLE, decode, decode_with};
 
     pub(super) struct Neon;
 
@@ -479,7 +484,7 @@ mod neon {
     pub(super) unsafe fn run(
         job: Job<'_>,
         out: &mut [u32],
-        ends: &mut Vec<usize>,
+        ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
         decode::run(
             // SAFETY: NEON is available (this function's contract).

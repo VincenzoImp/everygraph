@@ -161,6 +161,7 @@ pub(crate) fn decode(
     k: usize,
     out: &mut [u32],
 ) -> Result<usize, Corrupt> {
+    assert!(k <= out.len(), "output of {} words for {k}", out.len());
     let (groups, base) = prologue(bytes, v, total, k)?;
     tail(bytes, 0, groups, base, k, out)
 }

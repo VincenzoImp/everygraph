@@ -319,6 +319,92 @@ fn decoders_agree(index_bytes: &[u8], data: &[u8]) {
             "{}",
             decoder.name()
         );
+        apis_agree(adj.with_decoder(decoder));
+    }
+}
+
+/// The APIs agree on the same bytes: a batch or the whole graph decodes only if every
+/// list in it decodes on its own, and then to the same lists.
+fn apis_agree(adj: Adjacency<'_>) {
+    let index = adj.index();
+    let mut buf = Vec::new();
+    let lists: Vec<_> = (0..index.nodes())
+        .map(|v| adj.neighbors(NodeId::new(v), &mut buf).map(<[u32]>::to_vec))
+        .collect();
+    let mut batch = Batch::default();
+    for b in 0..index.blocks() {
+        let nodes = index.block_nodes(b);
+        let all_ok = lists[ix(nodes.start)..ix(nodes.end)]
+            .iter()
+            .all(Result::is_ok);
+        let got = adj.decode_nodes(nodes.clone(), usize::MAX, &mut batch);
+        assert_eq!(got.is_ok(), all_ok, "block {b}");
+        if let Err(e) = got {
+            assert!(
+                lists[ix(e.first)].is_err(),
+                "the batch error names a node whose list fails"
+            );
+        }
+        for (v, l) in batch.iter() {
+            assert_eq!(Ok(l.to_vec()), lists[v.index()], "block {b}");
+        }
+    }
+    let mut offsets = vec![0; ix(index.nodes()) + 1];
+    let mut targets = vec![0; to_usize(index.entries())];
+    let all = adj.decode_all(&mut offsets, &mut targets);
+    assert_eq!(all.is_ok(), lists.iter().all(Result::is_ok));
+    if all.is_ok() {
+        let concatenated: Vec<u32> = lists.into_iter().flat_map(Result::unwrap).collect();
+        assert_eq!(targets, concatenated);
+    }
+}
+
+/// Review of #30, M1: with records checked only where a batch ends, one damaged byte
+/// made `decode_nodes` and `decode_all` return `[128, 0]` while `neighbors(0)` failed.
+/// Every API must report the damage at node 0.
+#[test]
+fn one_damaged_byte_is_an_error_at_its_node_in_every_api() {
+    let mut e = encode(&[0, 1, 2], &[0, 129]).unwrap();
+    assert_eq!(e.data, [0x00, 0x00, 0x01, 0x00, 0x01]);
+    e.data[0] = 0x01;
+    let index = AdjacencyIndex::parse(&e.index).unwrap();
+    let at_node_0 = DecodeError { first: 0, end: 1 };
+    for decoder in Decoder::available() {
+        let adj = Adjacency::new(&index, &e.data)
+            .unwrap()
+            .with_decoder(decoder);
+        let name = decoder.name();
+        let mut buf = Vec::new();
+        assert_eq!(
+            adj.neighbors(NodeId::new(0), &mut buf),
+            Err(at_node_0),
+            "{name}"
+        );
+        assert_eq!(
+            adj.neighbors(NodeId::new(1), &mut buf),
+            Ok(&[129][..]),
+            "{name}"
+        );
+        let mut batch = Batch::default();
+        assert_eq!(
+            adj.decode_nodes(0..2, usize::MAX, &mut batch),
+            Err(at_node_0),
+            "{name}"
+        );
+        assert!(batch.is_empty(), "{name}");
+        assert_eq!(
+            adj.decode_nodes(1..2, usize::MAX, &mut batch),
+            Ok(2),
+            "{name}"
+        );
+        assert_eq!(batch.targets(), [129], "{name}");
+        let (mut offsets, mut targets) = (vec![0; 3], vec![0; 2]);
+        assert_eq!(
+            adj.decode_all(&mut offsets, &mut targets),
+            Err(at_node_0),
+            "{name}"
+        );
+        apis_agree(adj);
     }
 }
 

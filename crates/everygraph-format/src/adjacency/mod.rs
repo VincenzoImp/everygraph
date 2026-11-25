@@ -120,6 +120,11 @@ pub enum EncodeError {
         /// The node.
         node: u32,
     },
+    /// A buffer of the encoder could not be allocated.
+    OutOfMemory {
+        /// Its size.
+        bytes: u64,
+    },
 }
 
 impl fmt::Display for EncodeError {
@@ -129,6 +134,7 @@ impl fmt::Display for EncodeError {
             Self::NotIncreasing { node } => {
                 write!(f, "the list of node {node} is not strictly increasing")
             }
+            Self::OutOfMemory { bytes } => write!(f, "could not allocate {bytes} bytes to encode"),
         }
     }
 }
