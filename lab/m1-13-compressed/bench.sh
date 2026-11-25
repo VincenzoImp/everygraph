@@ -26,18 +26,22 @@ MAIN="lj orkut twitter-sym friendster"
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
-# Wait until the machine is quiet: other processes use < 1.5 CPUs and at least MIN_AVAIL_GB of
+# Wait until the machine is quiet: other processes use < BUSY_MAX CPUs (default 0.5: one foreign
+# single-threaded job was measured to skew these kernels by 10-40%) and at least MIN_AVAIL_GB of
 # memory is available (a foreign 60 GB process once took the page cache away mid-run).
+# It waits rather than measures: after an hour of waiting the script stops.
 # Exports the measured values; they are written into every row.
 MIN_AVAIL_GB=${MIN_AVAIL_GB:-48}
+BUSY_MAX=${BUSY_MAX:-0.5}
 gate() {
   local tries=0 busy avail
   while :; do
     busy=$(python3 -I "$HERE/busy.py")
     avail=$(awk '/MemAvailable/{printf "%.1f", $2 / 1048576}' /proc/meminfo)
-    awk "BEGIN{exit !($busy < 1.5 && $avail >= $MIN_AVAIL_GB)}" && break
+    awk "BEGIN{exit !($busy < $BUSY_MAX && $avail >= $MIN_AVAIL_GB)}" && break
     tries=$((tries + 1))
-    if [ $tries -ge 120 ]; then log "gate: $busy CPUs busy, $avail GiB available after 10 min, measuring anyway (row is flagged)"; break; fi
+    [ $((tries % 60)) -eq 0 ] && log "gate: waiting ($busy CPUs busy, $avail GiB available)"
+    if [ $tries -ge 720 ]; then log "gate: machine not idle after 60 min ($busy CPUs busy, $avail GiB available): stopping"; kill -TERM $$; exit 1; fi
     sleep 5
   done
   export M113_BUSY=$busy M113_MEMAVAIL=$avail
