@@ -43,7 +43,8 @@
 # 10.4 GB cold copies ~2 min, solve ~3 min, rec 578 s, capin 495 s, metrics 2 x ~4 min, layout
 # ~2.5 min. Sum: about 55 minutes (estimate; an idle machine should be faster). Disk: up to
 # ~10 GB of cut graph per Friendster round in {work}/friendster (overwritten each round), up to
-# ~30 GB of m102 spill, the cold copies.
+# ~30 GB of m102 spill, 25 GB for capin's hierarchy (m102 out of core with --out-hier keeps every
+# level's quotient store; exploratory), the cold copies.
 
 schema = 1
 name = "hierarchy-shaping"
