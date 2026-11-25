@@ -27,9 +27,11 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
 - **Research waves done** (`docs/research/README.md`, 13 reports, 430 PDFs in `/home/tux/graphlab/papers/`). Plan rewritten in two PRs (#171 wave 1, #185 wave 2; 26 new issues, published as #172–#199). **ADR 0028 merged (#184):** pairs in the adjacency, events in `<name>.events` (container kind 5, index flag bit 1), kind 6 + required bit 0 reserved for segments; #170 carries the matching container text. Measurement review: ADR 0026's "~10 GB burst" is probably host drive state; probe after fstrim Mon 2026-11-30 01:08 and 48 h later (#m1-21).
 
+- **Started 2026-11-26 00:15:** #34 OOM investigation (build-500m), #18 deterministic Leiden sub-rounds A/B, #172 mmap hints / block cache (step 1 first), #189 safe parallel scatter (prerequisite of #35). #19's Friendster official run: 7/10 rows ok; the 3 shape rows failed only on a boolean metric (`super_level_built`) — spec fix in PR #162, re-run of the shape cases (~27 min) queued.
+
 ## Measurement queue (official runs, batched into one window)
 
-- #34 id dictionary (merged; script waiting for idle): `everygraph-bench run id-dictionary --official` (~20 min, ~45 GB disk).
+- #34 id dictionary: done 2026-11-25 (build-500m OOM, re-run after the fix) (~20 min, ~45 GB disk).
 - #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
