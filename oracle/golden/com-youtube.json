@@ -1,0 +1,49 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "com-youtube",
+ "source": {
+  "kind": "registry",
+  "dataset": "com-youtube",
+  "file": "com-youtube.ungraph.txt.gz",
+  "sha256_of_download": "dff1b97ba7d2fa9c59884b67dcd2275e717ff9501f86ed82ce6582ed4971f3e0",
+  "sha256_of_file": "dff1b97ba7d2fa9c59884b67dcd2275e717ff9501f86ed82ce6582ed4971f3e0",
+  "page": "https://snap.stanford.edu/data/com-Youtube.html",
+  "terms": "No licence stated by SNAP. SNAP asks that the dataset be cited."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": false,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "igraph, scipy (more than 600000 pairs: no NetworkX); core numbers have igraph as their only Python witness, the in-process Rust reference is the second",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":1134890,"by":["edge list"]},
+  "rows": {"value":2987624,"by":["edge list"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":0,"by":["edge list"]},
+  "m": {"value":2987624,"by":["igraph","scipy"]},
+  "max_degree": {"value":28754,"by":["scipy"]},
+  "wcc_count": {"value":1,"by":["igraph","scipy"]},
+  "largest_wcc": {"value":1134890,"by":["igraph","scipy"],"published":{"value":1134890,"source":"https://snap.stanford.edu/data/com-Youtube.html"}},
+  "triangle_total": {"value":3056386,"by":["igraph","scipy"],"published":{"value":3056386,"source":"https://snap.stanford.edu/data/com-Youtube.html"}},
+  "triangles_sha256": {"value":"e4b42a4bf1f07043523a878658d3a42d14c37b207ec73d3bd33b9ab915aebff5","by":["igraph","scipy"]},
+  "core_numbers_sha256": {"value":"5a44771cfe3a0cc533b30573c74853671883b27f07ecc1bb53e8775ca3b86dad","by":["igraph"]},
+  "max_core": {"value":51,"by":["igraph"]},
+  "core_histogram": {"value":[0,664726,201443,88297,47545,28443,19224,13968,10335,8238,6392,5208,4355,3944,3114,2757,2386,2127,1795,1703,1429,1422,1194,1066,943,902,814,831,837,765,569,498,585,548,444,699,854,300,262,220,282,259,266,252,196,184,265,312,258,80,509,845],"by":["igraph"]},
+  "samples": {"value":[[0,29,12,2],[1071,28754,51,180820],[1134889,1,1,0]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": []
+}

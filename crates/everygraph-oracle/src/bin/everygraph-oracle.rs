@@ -30,7 +30,7 @@ const USAGE: &str = "usage:
         [--threads 1,4] [--chunks 64,65536] [--regimes in_memory,mmap]
         [--require-python] [--max-findings N] [--show N]
   everygraph-oracle seeded-bugs [--corpus DIR]
-  everygraph-oracle golden --dir DIR";
+  everygraph-oracle golden --dir DIR [--data-root ROOT] [--cache DIR] [--only NAME]... [--require-all]";
 
 struct Args {
     rest: Vec<String>,
@@ -292,13 +292,22 @@ fn cmd_seeded_bugs(a: &mut Args) -> Result<bool, String> {
 
 fn cmd_golden(a: &mut Args) -> Result<bool, String> {
     let dir = PathBuf::from(a.value("--dir").ok_or("--dir is required")?);
+    let mut roots = everygraph_oracle::golden::Roots::from_env(&dir);
+    if let Some(d) = a.value("--data-root") {
+        roots.data = Some(PathBuf::from(d));
+    }
+    if let Some(c) = a.value("--cache") {
+        roots.cache = PathBuf::from(c);
+    }
+    let only = a.values("--only");
+    let require = a.flag("--require-all");
     a.finish()?;
-    let results = everygraph_oracle::golden::check_dir(&dir).map_err(|e| e.to_string())?;
+    let results = everygraph_oracle::golden::check_dir(&roots, &only).map_err(|e| e.to_string())?;
     let mut ok = true;
     for r in &results {
         match &r.outcome {
             Ok(checked) => println!("{}: {checked} values agree with the golden file", r.name),
-            Err(e) if e.starts_with("skipped") => println!("{}: {e}", r.name),
+            Err(e) if e.starts_with("skipped") && !require => println!("{}: {e}", r.name),
             Err(e) => {
                 ok = false;
                 println!("{}: MISMATCH {e}", r.name);

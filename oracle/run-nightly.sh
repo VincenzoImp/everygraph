@@ -2,12 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # The nightly oracle suite (issue #6): the CI suite at larger scale, the golden files of
-# the downloaded SNAP graphs, and the lab prototype through its adapter. Needs network
-# (SNAP) and, for the lab step, a toolchain that builds lab/b1-core.
+# every tier-1 dataset of the registry and of the extra SNAP graphs, and the lab prototype
+# through its adapter. Needs network (SNAP, Wikimedia) and, for the lab step, a toolchain
+# that builds lab/b1-core.
 #
 #   oracle/run-nightly.sh               # work directory under $TMPDIR, removed at the end
 #   ORACLE_WORK=dir oracle/run-nightly.sh
+#   ORACLE_DATA=dir oracle/run-nightly.sh   # reuse a data root already holding tier 1
 #   ORACLE_SKIP_LAB=1 oracle/run-nightly.sh
+#
+# On a shared machine run it under a memory limit:
+#   systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 oracle/run-nightly.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,14 +24,16 @@ else
     WORK="$(mktemp -d)"
     trap 'rm -rf "$WORK"' EXIT
 fi
+DATA="${ORACLE_DATA:-$WORK/data}"
 JOBS="${ORACLE_JOBS:-2}"
-step() { printf '\n== %s (%s)\n' "$1" "$(date +%T)"; }
+MEM="${ORACLE_MEMORY_GIB:-3}"
+step() { printf '\n== %s (%s, %d s)\n' "$1" "$(date +%T)" "$((SECONDS - START))"; }
 START=$SECONDS
 
 step "Rust: property-based tests with 2,000 cases each"
 PROPTEST_CASES=2000 cargo test -p everygraph-oracle --release --locked
 
-cargo build -p everygraph-oracle --release --locked
+cargo build -p everygraph-oracle -p everygraph-bench --release --locked
 ORACLE="$ROOT/target/release/everygraph-oracle"
 
 step "Corpus: nightly tier"
@@ -36,13 +43,14 @@ rm -rf "$WORK/nightly"
 step "Python: references"
 cd "$ROOT/oracle"
 uv sync --locked --quiet
-uv run --locked oracle-ref run "$WORK/nightly" --jobs "$JOBS" --max-memory-gib "${ORACLE_MEMORY_GIB:-3}"
+uv run --locked oracle-ref run "$WORK/nightly" --jobs "$JOBS" --max-memory-gib "$MEM"
 
-step "Golden files of the SNAP graphs (downloads, checksums verified)"
+step "Golden files: tier 1 of the registry and the extra SNAP graphs (downloads, checksums verified)"
+"$ROOT/target/release/everygraph-bench" fetch tier1 --data "$DATA"
 uv run --locked oracle-ref golden --fetch
-uv run --locked oracle-ref golden --check
+uv run --locked oracle-ref golden --check --data-root "$DATA"
 cd "$ROOT"
-"$ORACLE" golden --dir "$ROOT/oracle/golden"
+"$ORACLE" golden --dir "$ROOT/oracle/golden" --data-root "$DATA" --require-all
 
 step "In-process references, toy kernel and seeded bugs on the nightly corpus"
 "$ORACLE" check --corpus "$WORK/nightly" --plugin reference --require-python
@@ -55,7 +63,7 @@ if [[ -z "${ORACLE_SKIP_LAB:-}" ]]; then
     TMPDIR="$WORK" "$ORACLE" check --corpus "$WORK/nightly" --plugin external \
         --program "$ROOT/lab/b1-core/target/release/glab-oracle" \
         --kernels adjacency,degree,pagerank,wcc,bfs,core_number,triangle_total \
-        --threads 1,4 --chunks 64,65536 --regimes in_memory,mmap,stream --require-python
+        --threads 1,2 --chunks 64,65536 --regimes in_memory,mmap,stream --require-python
 fi
 
 printf '\noracle nightly suite passed in %d s\n' "$((SECONDS - START))"

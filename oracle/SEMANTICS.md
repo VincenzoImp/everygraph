@@ -22,14 +22,16 @@ defaults in `design/preview/choices.md`:
 - **A3.** Self-loops are dropped and counted.
 - **A4.** Direction is given by the caller.
 
-Rows marked **open** are choices these sources do not dictate. I made them for the
-oracle, and the coordinator must confirm or change them; see "Open questions" below.
+Rows marked with a question number (Q1–Q13) are choices those sources did not dictate.
+They were decided on 2026-11-25 and recorded in `design/DECISIONS.md`, row "Graph
+semantics, as the correctness oracle checks them"; see "Decisions" at the end. All were
+decided as the oracle first proposed them except Q10. Q2 is left to #36.
 
 ## Self-loops (graph: triangle 0-1-2 plus a loop at 0)
 
 | Case | NetworkX | igraph | Everygraph | Rule |
 |---|---|---|---|---|
-| degree, loops kept | [4, 2, 2] | [4, 2, 2] | [4, 2, 2] | **open (Q1)**: a kept loop adds 2 to the undirected degree, and 1 each to the out-degree and in-degree, as in both libraries. Repeated loop rows count as one loop, like any repeated pair (A1) |
+| degree, loops kept | [4, 2, 2] | [4, 2, 2] | [4, 2, 2] | **decided (Q1)**: a kept loop adds 2 to the undirected degree, and 1 each to the out-degree and in-degree, as in both libraries. Repeated loop rows count as one loop, like any repeated pair (A1) |
 | degree, default | no option | no option | [2, 2, 2] | A3: loops dropped |
 | core numbers | refuses (`NetworkXNotImplemented`) | [2, 2, 2] (counts the loop) | [2, 2, 2] | A3; with loops kept the oracle defines no answer (Q2) |
 | PageRank, undirected | [0.416, 0.292, 0.292] | [0.475, 0.263, 0.263] | [1/3, 1/3, 1/3] | A3. **The libraries disagree with each other**: NetworkX puts a weight of 1 on the loop's matrix entry, igraph counts the loop twice in the degree. With loops kept, the oracle defines no answer (Q2) |
@@ -48,20 +50,20 @@ oracle, and the coordinator must confirm or change them; see "Open questions" be
 | clustering | refuses | [1, 1, 0.333, 0] | [1, 1, 0.333, 0] | A1 (igraph ignores the multiplicity too) |
 | transitivity | refuses | 0.6 | 0.6 | A1 |
 | PageRank | [0.2857, 0.2857, 0.3047, 0.1238] (multiplicity as weight) | same | [0.2459, 0.2459, 0.3667, 0.1414] | A1: unweighted on the pairs by default |
-| PageRank, `weighted = true` | as above | as above | [0.2857, 0.2857, 0.3047, 0.1238] | **open (Q8)**: weighted PageRank uses the *sum* of the event weights of a pair (the multiplicity when there is no weight column), which reproduces both libraries |
+| PageRank, `weighted = true` | as above | as above | [0.2857, 0.2857, 0.3047, 0.1238] | **decided (Q8)**: weighted PageRank uses the *sum* of the event weights of a pair (the multiplicity when there is no weight column), which reproduces both libraries |
 | modularity, partition {0,1} {2,3} | 0.08 | 0.08 | 0.0 | A1 and A2: unweighted, on the pairs |
-| weighted distance from 0, weights 5 and 1 on the two 0-1 rows | [0, 1, 1, 2] | [0, 1, 1, 2] | [0, 1, 1, 2] | **open (Q8)**: shortest paths use the *smallest* event weight of a pair, as both libraries do |
+| weighted distance from 0, weights 5 and 1 on the two 0-1 rows | [0, 1, 1, 2] | [0, 1, 1, 2] | [0, 1, 1, 2] | **decided (Q8)**: shortest paths use the *smallest* event weight of a pair, as both libraries do |
 
 ## Direction (graph: 3-cycle 0→1→2→0, plus arcs 0→2 and 3→0)
 
 | Case | NetworkX | igraph | Everygraph | Rule |
 |---|---|---|---|---|
-| degree | [4, 2, 3, 1] | [4, 2, 3, 1] | [4, 2, 3, 1] | **open (Q10)**: out + in, with the two arcs of a reciprocal pair counted separately, as in both libraries. Out-degree and in-degree are their own kernels |
+| degree | [4, 2, 3, 1] (in + out) | [4, 2, 3, 1] (in + out) | [3, 2, 2, 1] | **decided (Q10)**: distinct neighbours in either direction, the degree in the undirected projection; a reciprocal pair is one neighbour. Both libraries add in- and out-degree. `degree_out` and `degree_in` count distinct out- and in-neighbours |
 | core numbers | [2, 2, 2, 1] | [2, 2, 2, 1] | [2, 2, 2, 1] | — |
-| core numbers, arcs 0→1 and 1→0 only | [2, 2] | [2, 2] | [1, 1] | **open (Q3)**: on the undirected projection, where a reciprocal pair is one edge. The libraries use in + out, so a reciprocal pair alone makes a 2-core |
-| triangles | refuses | [1, 1, 1, 0] | [1, 1, 1, 0] | **open (Q4)**: on the undirected projection, as igraph |
-| clustering | [0.2, 1, 0.5, 0] (Fagiolo's directed clustering) | [0.333, 1, 1, 0] | [0.333, 1, 1, 0] | **open (Q4)**: undirected projection, as igraph; directed clustering is not offered |
-| transitivity | 0.5 | 0.6 | 0.6 | **open (Q4)**: undirected projection, as igraph |
+| core numbers, arcs 0→1 and 1→0 only | [2, 2] | [2, 2] | [1, 1] | **decided (Q3)**: on the undirected projection, where a reciprocal pair is one edge. The libraries use in + out, so a reciprocal pair alone makes a 2-core |
+| triangles | refuses | [1, 1, 1, 0] | [1, 1, 1, 0] | **decided (Q4)**: on the undirected projection, as igraph |
+| clustering | [0.2, 1, 0.5, 0] (Fagiolo's directed clustering) | [0.333, 1, 1, 0] | [0.333, 1, 1, 0] | **decided (Q4)**: undirected projection, as igraph; directed clustering is not offered |
+| transitivity | 0.5 | 0.6 | 0.6 | **decided (Q4)**: undirected projection, as igraph |
 | modularity, two directed 3-cycles joined by 0→3 | 0.3673 (directed formula) | 0.3673 (directed formula) | 0.3571 | A2: direction ignored |
 | BFS from 2 on 0→1→2 | [–, –, 0] | [∞, ∞, 0] | [–, –, 0] | out-edges; "unreachable" is `null` in the exchange form (Q12) |
 | PageRank with dangling nodes (0→1→2, node 3 isolated) | [0.1557, 0.2880, 0.4005, 0.1557] | same | same | agree: dangling mass spread uniformly |
@@ -70,9 +72,9 @@ oracle, and the coordinator must confirm or change them; see "Open questions" be
 
 | Case | NetworkX | igraph | Everygraph | Rule |
 |---|---|---|---|---|
-| clustering where degree < 2 (one edge plus an isolate) | 0 | NaN (default mode) | 0 | **open (Q5)**: 0, as NetworkX and as igraph's `mode="zero"` |
-| transitivity without any connected triple | 0 | NaN | 0 | **open (Q6)**: 0, as NetworkX |
-| modularity of a graph without edges | 0 | NaN | 0 | **open (Q7)**: 0, as NetworkX |
+| clustering where degree < 2 (one edge plus an isolate) | 0 | NaN (default mode) | 0 | **decided (Q5)**: 0, as NetworkX and as igraph's `mode="zero"` |
+| transitivity without any connected triple | 0 | NaN | 0 | **decided (Q6)**: 0, as NetworkX |
+| modularity of a graph without edges | 0 | NaN | 0 | **decided (Q7)**: 0, as NetworkX |
 | PageRank of the graph with no nodes | empty | empty | empty | agree |
 
 ## PageRank convergence
@@ -111,36 +113,32 @@ listed in `ADJUSTMENTS` in `src/everygraph_oracle_ref/refs.py` and copied into e
   with igraph and the in-process reference then decides whether that answer is close enough
   within `max_iter`.
 
-## Open questions for the coordinator
+## Decisions (2026-11-25, `design/DECISIONS.md`)
 
-Each one is a choice I made for the oracle; it fixes what every kernel will be tested
-against.
-
-1. **Q1. Kept self-loops in degrees.** +2 to the undirected degree, +1 to out and in, and
-   repeated loop rows are one loop. Follows both libraries, except for the collapse of
-   repeated loops, which follows A1.
-2. **Q2. PageRank and core numbers with kept self-loops.** Left undefined: the oracle does
-   not check these kernels when loops are kept. NetworkX and igraph disagree on PageRank,
-   and NetworkX refuses core numbers. This has to be decided when the "keep self-loops"
-   option is built (m2-09).
-3. **Q3. Core numbers of a directed graph.** Computed on the undirected projection, where
-   a reciprocal pair is one edge. Both libraries use in + out and count it twice. m3-07
-   does not say; the k-core is an undirected notion.
-4. **Q4. Triangles, clustering and transitivity of a directed graph.** Undirected
-   projection, as igraph does. NetworkX refuses triangles and computes Fagiolo's directed
-   clustering.
+1. **Q1. Kept self-loops in degrees.** +2 to the undirected degree (and to `degree` of a
+   directed graph), +1 to out- and in-degree. Repeated loop rows are one loop.
+2. **Q2. PageRank and core numbers with kept self-loops.** Not checked by the oracle. Their
+   definition is assigned to #36: NetworkX and igraph disagree on PageRank, and NetworkX
+   refuses core numbers.
+3. **Q3. Core numbers of a directed graph.** On the undirected projection, where a
+   reciprocal pair is one edge.
+4. **Q4. Triangles, clustering and transitivity of a directed graph.** On the undirected
+   projection, as igraph.
 5. **Q5, Q6, Q7. Undefined ratios.** Clustering at degree < 2, transitivity without a
-   connected triple, and modularity without edges are all 0, as in NetworkX (the
-   NetworkX backend must match it anyway). The alternative is NaN, as in igraph.
-6. **Q8. Aggregating weights of a repeated pair.** PageRank sums them, shortest paths take
-   the minimum. Both libraries behave this way on multigraphs.
-7. **Q9. Undirected projection of a directed graph.** It aggregates the events of both
-   directions: the multiplicity of {u, v} is the number of arcs either way. No kernel
-   reads that weight today.
-8. **Q10. "Degree" of a directed graph.** out + in, with a reciprocal pair counted twice.
-9. **Q11. Component labels.** The smallest node id of the component, for weak components
-   (m3-05) and, by extension, strong ones.
-10. **Q12. Traversals of directed graphs.** They follow out-edges; an unreachable node
-    has no value.
-11. **Q13. PageRank.** The answer is the fixed point, never a "stopped after N·tol"
-    approximation.
+   connected triple and modularity without edges are 0, never NaN.
+6. **Q8. Weights of a repeated pair.** PageRank sums them; shortest paths take the minimum.
+7. **Q9. Undirected projection of a directed graph.** It sums the events of both
+   directions.
+8. **Q10. `degree` of a directed graph.** Distinct neighbours in either direction (the
+   degree in the undirected projection), *not* in + out as NetworkX and igraph define it.
+   The oracle had proposed in + out; the decision changed it. `degree_out` and
+   `degree_in` count distinct out- and in-neighbours.
+9. **Q11. Component labels.** A component's internal label is its smallest node id (the
+   API then numbers components by size).
+10. **Q12. Traversals.** They follow out-edges unless `direction=` says otherwise; an
+    unreachable node has no value.
+11. **Q13. PageRank.** The fixed point, whatever the iteration count.
+
+The reason recorded with the decision: one projection for everything that ignores
+direction, so that the numbers a user sees on one graph agree with each other; where the
+libraries disagree with each other, follow the one that returns a number.

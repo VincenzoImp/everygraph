@@ -157,7 +157,7 @@ Kernels run on the *analytic graph* (`projection.rs`, `graph.py`), the rules of
 
 The ingest counts add up to the rows (a property test checks it). Where NetworkX and
 igraph disagree, [`SEMANTICS.md`](SEMANTICS.md) records the case, what each does and what
-Everygraph does. It ends with the open questions the coordinator must confirm.
+Everygraph does. It ends with the decisions (Q1–Q13, 2026-11-25) taken where no earlier rule applied.
 
 ## Tolerances
 

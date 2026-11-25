@@ -18,7 +18,8 @@ pub enum Kernel {
     /// (symmetric for undirected graphs). Output: [`Output::Csr`].
     Adjacency,
     /// Number of distinct neighbours; a kept loop adds 2 (repeated loop rows are one loop).
-    /// On a directed graph, out + in.
+    /// On a directed graph, distinct neighbours in either direction: the degree in the
+    /// undirected projection, so a reciprocal pair is one neighbour (Q10).
     /// Output: [`Output::Ints`].
     Degree,
     /// Directed graphs: distinct out-neighbours, a kept loop adds 1.

@@ -108,8 +108,12 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
         G = to_networkx(p, loops=loops)
         H = to_igraph(p, loops=loops)
         if k == "degree":
-            out["networkx"] = {"ints": [G.degree(v) for v in range(n)]}
-            out["igraph"] = {"ints": H.degree(mode="all", loops=True)}
+            # Distinct neighbours in either direction: the undirected projection (Q10),
+            # not NetworkX's and igraph's in + out on a directed graph.
+            Gu = to_networkx(p, undirected=True, loops=loops)
+            Hu = to_igraph(p, undirected=True, loops=loops)
+            out["networkx"] = {"ints": [Gu.degree(v) for v in range(n)]}
+            out["igraph"] = {"ints": Hu.degree(mode="all", loops=True)}
         elif k == "degree_out":
             out["networkx"] = {"ints": [G.out_degree(v) for v in range(n)]}
             out["igraph"] = {"ints": H.degree(mode="out", loops=True)}
@@ -122,7 +126,8 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
         loop_set = set(p.loop_nodes) if loops else set()
         loop = [1 if v in loop_set else 0 for v in range(n)]
         if k == "degree":
-            base = [r + c for r, c in zip(rows, cols)] if p.directed else rows
+            Au = to_scipy(p, undirected=True)
+            base = np.diff(Au.indptr).astype(int).tolist() if n else []
             out["scipy"] = {"ints": [b + 2 * lp for b, lp in zip(base, loop)]}
         elif k == "degree_out":
             out["scipy"] = {"ints": [r + lp for r, lp in zip(rows, loop)]}

@@ -9,7 +9,7 @@
 //! | `offsets_monotone`, `targets_in_range`, `lists_sorted_unique`, `no_self_loops` | adjacency |
 //! | `adjacency_symmetric` | adjacency of an undirected graph |
 //! | `entries_equal_m` (Σ list lengths = 2m undirected, m directed) | adjacency |
-//! | `degree_sum` (Σ degree = 2m + 2·loops undirected; out/in: m + loops) | degrees |
+//! | `degree_sum` (Σ degree = 2m + 2·loops, m of the undirected projection; out/in: m + loops) | degrees |
 //! | `pagerank_nonnegative`, `pagerank_sums_to_one` | PageRank |
 //! | `labels_constant_along_edges`, `labels_are_smallest_ids` | weak components |
 //! | `labels_are_smallest_ids` | strong components |
@@ -246,7 +246,8 @@ fn degrees(c: &mut Checker, kernel: &Kernel, p: &Projection, d: &[Option<u64>]) 
     let sum: u64 = d.iter().flatten().sum();
     let (expected, rule) = match kernel {
         Kernel::DegreeOut | Kernel::DegreeIn => (p.m() + loops, "m + loops"),
-        _ => (2 * p.m() + 2 * loops, "2m + 2·loops"),
+        // `degree` is taken in the undirected projection, directed graphs included.
+        _ => (2 * p.undirected_m() + 2 * loops, "2m + 2·loops"),
     };
     c.require(d.iter().all(Option::is_some), "shape", || {
         "a node without a degree".into()
@@ -254,7 +255,11 @@ fn degrees(c: &mut Checker, kernel: &Kernel, p: &Projection, d: &[Option<u64>]) 
     c.require(sum == expected, "degree_sum", || {
         format!(
             "Σ degree = {sum}, {rule} = {expected} (m = {}, kept loops = {loops})",
-            p.m()
+            if matches!(kernel, Kernel::Degree) {
+                p.undirected_m()
+            } else {
+                p.m()
+            }
         )
     });
 }

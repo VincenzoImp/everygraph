@@ -15,7 +15,12 @@ publish = false
 # Strategies are part of the public API (other crates' tests build on them), so proptest
 # is a normal dependency of this development crate, not a dev-dependency.
 proptest = { version = "1.7", default-features = false, features = ["std"] }
+# The golden-file check reads the registry's gzip files and compares per-node arrays by
+# SHA-256 (sha2 is the hash everygraph-bench pins datasets with). flate2's default
+# backend is miniz_oxide: pure Rust.
+flate2 = "1"
 serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [lints]

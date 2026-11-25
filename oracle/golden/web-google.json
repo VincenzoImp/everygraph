@@ -1,0 +1,51 @@
+{
+ "format": "everygraph-oracle-golden",
+ "version": 2,
+ "name": "web-google",
+ "source": {
+  "kind": "registry",
+  "dataset": "web-google",
+  "file": "web-Google.txt.gz",
+  "sha256_of_download": "bcac0af0471d749f4a8c010bca92b61cf2868a0570741de06892fc062f265ea6",
+  "sha256_of_file": "bcac0af0471d749f4a8c010bca92b61cf2868a0570741de06892fc062f265ea6",
+  "page": "https://snap.stanford.edu/data/web-Google.html",
+  "terms": "No licence stated by SNAP. SNAP asks that the dataset be cited."
+ },
+ "parse": {
+  "separator": "whitespace",
+  "comment": "#",
+  "src": 0,
+  "dst": 1,
+  "keep": null,
+  "ids": "integer"
+ },
+ "directed": true,
+ "ids": "rank of the original id among the ids that appear in a row (numeric order for integer ids, code-point order for strings)",
+ "semantics": "Everygraph defaults: self-loops dropped and counted, repeated pairs analysed once; degrees, triangles and core numbers on the undirected projection",
+ "witnesses": "igraph, scipy (more than 600000 pairs: no NetworkX); core numbers have igraph as their only Python witness, the in-process Rust reference is the second",
+ "libraries": {
+  "networkx": "3.7",
+  "igraph": "1.0.0",
+  "scipy": "1.18.1",
+  "numpy": "2.5.5"
+ },
+ "values": {
+  "n": {"value":875713,"by":["edge list"]},
+  "rows": {"value":5105039,"by":["edge list"]},
+  "self_loop_rows": {"value":0,"by":["edge list"]},
+  "duplicate_rows": {"value":0,"by":["edge list"]},
+  "m": {"value":5105039,"by":["igraph","scipy"]},
+  "max_degree": {"value":6332,"by":["scipy"]},
+  "wcc_count": {"value":2746,"by":["igraph","scipy"]},
+  "largest_wcc": {"value":855802,"by":["igraph","scipy"],"published":{"value":855802,"source":"https://snap.stanford.edu/data/web-Google.html"}},
+  "scc_count": {"value":371764,"by":["igraph","scipy"]},
+  "largest_scc": {"value":434818,"by":["igraph","scipy"],"published":{"value":434818,"source":"https://snap.stanford.edu/data/web-Google.html"}},
+  "triangle_total": {"value":13391903,"by":["igraph","scipy"],"published":{"value":13391903,"source":"https://snap.stanford.edu/data/web-Google.html"}},
+  "triangles_sha256": {"value":"1ca516cd6a29b371adb35e84db91d1999ce12db0b0714deb64e26f9ee1852aea","by":["igraph","scipy"]},
+  "core_numbers_sha256": {"value":"132966125fc58839a3149c66e2ec7a63e34207cbec3735a7ae9870193598f539","by":["igraph"]},
+  "max_core": {"value":44,"by":["igraph"]},
+  "core_histogram": {"value":[0,163843,130158,89057,68500,56794,48167,44737,42682,38369,34386,27658,24790,20270,17893,14950,12971,10934,9565,8916,6004,2139,969,440,264,143,165,162,169,122,79,40,101,36,2,3,4,6,2,0,1,4,115,55,48],"by":["igraph"]},
+  "samples": {"value":[[0,212,15,1225],[510729,6332,20,38643],[875712,10,9,33]],"by":["scipy","igraph"],"columns":["node","degree","core","triangles"]}
+ },
+ "notes": []
+}

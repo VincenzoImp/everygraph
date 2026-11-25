@@ -28,14 +28,9 @@ pub fn compute(g: &Graph, p: &Projection, kernel: &Kernel) -> Option<Output> {
         },
         Kernel::Degree => Output::Ints(
             (0..n)
-                .map(|v| {
-                    let d = if p.directed {
-                        p.out.degree(v) + p.inn.degree(v)
-                    } else {
-                        p.out.degree(v)
-                    };
-                    Some(to_u64(d) + 2 * kept(v))
-                })
+                // On a directed graph: distinct neighbours in either direction, the
+                // degree in the undirected projection (design/DECISIONS.md, Q10).
+                .map(|v| Some(to_u64(p.undirected.degree(v)) + 2 * kept(v)))
                 .collect(),
         ),
         Kernel::DegreeOut | Kernel::DegreeIn if !p.directed => return None,
