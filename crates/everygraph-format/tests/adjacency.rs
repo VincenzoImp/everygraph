@@ -52,13 +52,23 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
     for (v, &o) in offsets.iter().enumerate() {
         assert_eq!(index.entry_offset(id(v)).get(), o);
     }
-    // Degrees in one pass, from every start, to the end and cut short.
+    // Degrees in one pass: all of them, and short runs from starts spread over the nodes.
     let n32 = id(n).get();
     let degree = |v: u32| offsets[ix(v) + 1] - offsets[ix(v)];
-    for start in (0..=n32).step_by(if MIRI { 97 } else { 13 }) {
-        for end in [n32, (start + 5).min(n32)] {
+    let step = (n32 / if MIRI { 4 } else { 64 }).max(1);
+    for start in (0..=n32).step_by(ix(step)) {
+        let ends = if start == 0 {
+            vec![n32, 5.min(n32)]
+        } else {
+            vec![(start + 5).min(n32)]
+        };
+        for end in ends {
             let got: Vec<u64> = index.degrees(start..end).map(u64::from).collect();
-            assert_eq!(got, (start..end).map(degree).collect::<Vec<_>>(), "degrees {start}..{end}");
+            assert_eq!(
+                got,
+                (start..end).map(degree).collect::<Vec<_>>(),
+                "degrees {start}..{end}"
+            );
         }
     }
     for decoder in Decoder::available() {

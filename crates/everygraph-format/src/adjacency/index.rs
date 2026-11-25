@@ -292,7 +292,9 @@ impl AdjacencyIndex {
             self.nodes
         );
         let count = nodes.len();
-        let mut offsets = self.entry_offsets.iter_from(usize::try_from(nodes.start).expect("usize holds u32"));
+        let mut offsets = self
+            .entry_offsets
+            .iter_from(usize::try_from(nodes.start).expect("usize holds u32"));
         let mut prev = offsets.next().unwrap_or(0);
         offsets.take(count).map(move |next| {
             let d = next - prev;

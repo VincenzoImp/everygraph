@@ -142,7 +142,9 @@ impl<T> Copy for PerNode<'_, '_, T> {}
 
 impl<T> fmt::Debug for PerNode<'_, '_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PerNode").field("len", &self.values.len()).finish()
+        f.debug_struct("PerNode")
+            .field("len", &self.values.len())
+            .finish()
     }
 }
 
@@ -185,7 +187,9 @@ pub struct NodeCells<'g> {
 
 impl fmt::Debug for NodeCells<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NodeCells").field("len", &self.cells.len()).finish()
+        f.debug_struct("NodeCells")
+            .field("len", &self.cells.len())
+            .finish()
     }
 }
 
@@ -270,7 +274,6 @@ impl<'g> NodeCells<'g> {
     }
 
     /// The ids in the cells, and the reservation that holds them.
-    #[must_use]
     pub fn into_ids(self) -> (Vec<AtomicU32>, Reservation) {
         (self.cells, self._reservation)
     }
@@ -297,11 +300,13 @@ pub struct NodeSet<'g> {
 }
 
 /// Touched words above which listing and clearing go over every word in parallel.
-const SPARSE_WORDS: usize = 1 << 14;
+const SPARSE_WORDS: usize = 1 << 10;
 
 impl fmt::Debug for NodeSet<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NodeSet").field("words", &self.words.len()).finish()
+        f.debug_struct("NodeSet")
+            .field("words", &self.words.len())
+            .finish()
     }
 }
 
@@ -410,15 +415,22 @@ impl<'g> NodeSet<'g> {
             }
         };
         if let Some(touched) = self.touched() {
-            let mut result = Ok(());
+            let count = touched
+                .iter()
+                .map(|&w| words[w].load(Ordering::Relaxed).count_ones() as usize)
+                .sum();
+            ids.try_resize(count, 0)?;
+            let all = ids.as_mut_slice().ok_or(Error::Invalid(
+                "a node list longer than one segment (#m3-15)",
+            ))?;
+            let mut at = 0;
             for w in touched {
                 bits(w, words[w].load(Ordering::Relaxed), &mut |id| {
-                    if result.is_ok() {
-                        result = ids.try_push(id);
-                    }
+                    all[at] = id;
+                    at += 1;
                 });
             }
-            return Ok(result?);
+            return Ok(());
         }
         let counts = par::map_ranges(words.len(), GRAIN, |r| {
             words[r]
@@ -427,9 +439,9 @@ impl<'g> NodeSet<'g> {
                 .sum::<usize>()
         });
         ids.try_resize(counts.iter().sum(), 0)?;
-        let all = ids
-            .as_mut_slice()
-            .ok_or(Error::Invalid("a node list longer than one segment (#m3-15)"))?;
+        let all = ids.as_mut_slice().ok_or(Error::Invalid(
+            "a node list longer than one segment (#m3-15)",
+        ))?;
         let mut pieces = Vec::new();
         let mut rest = all;
         for (k, &c) in counts.iter().enumerate() {
@@ -500,10 +512,9 @@ impl<'g> NodeList<'g> {
     ///
     /// [`Error::Invalid`] if they are in more than one segment (#m3-15).
     pub fn as_slice(&self) -> Result<&[Node<'g>], Error> {
-        let ids = self
-            .ids
-            .as_slice()
-            .ok_or(Error::Invalid("a node list longer than one segment (#m3-15)"))?;
+        let ids = self.ids.as_slice().ok_or(Error::Invalid(
+            "a node list longer than one segment (#m3-15)",
+        ))?;
         // SAFETY: every id was a `Node<'g>` when written (field invariant).
         Ok(unsafe { as_nodes(ids) })
     }
@@ -565,7 +576,9 @@ pub(crate) fn check_offsets(offsets: &[u64], entries: u64) -> Result<u32, Error>
     if ok.into_iter().all(|x| x) {
         Ok(n)
     } else {
-        Err(Error::Invalid("offsets: decrease, or a degree is 2^32 or more"))
+        Err(Error::Invalid(
+            "offsets: decrease, or a degree is 2^32 or more",
+        ))
     }
 }
 
@@ -611,8 +624,14 @@ mod tests {
         assert_eq!(cells.load(list[0], Relaxed), list[0]);
         cells.store(list[0], list[1], Relaxed);
         assert_eq!(cells.load(list[0], Relaxed), list[1]);
-        assert_eq!(cells.compare_exchange(list[0], list[1], list[2], Relaxed), Ok(list[1]));
-        assert_eq!(cells.compare_exchange(list[0], list[1], list[2], Relaxed), Err(list[2]));
+        assert_eq!(
+            cells.compare_exchange(list[0], list[1], list[2], Relaxed),
+            Ok(list[1])
+        );
+        assert_eq!(
+            cells.compare_exchange(list[0], list[1], list[2], Relaxed),
+            Err(list[2])
+        );
         let (ids, _) = cells.into_ids();
         assert_eq!(ids[4].load(Relaxed), 2);
 
@@ -631,7 +650,10 @@ mod tests {
         let (csr, n) = check_csr(&offsets, &targets).unwrap();
         assert_eq!(n, 3);
         let lists: [&[u32]; 3] = [&[1, 2], &[], &[0]];
-        assert_eq!([csr_list(&csr, 0), csr_list(&csr, 1), csr_list(&csr, 2)], lists);
+        assert_eq!(
+            [csr_list(&csr, 0), csr_list(&csr, 1), csr_list(&csr, 2)],
+            lists
+        );
         assert!(check_csr(&[0, 2, 1], &targets).is_err());
         assert!(check_csr(&[0, 1], &targets).is_err());
     }

@@ -15,6 +15,14 @@
 #![forbid(unsafe_code)]
 // Tests write the files that the mapped and streamed sources read.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+// Test code on small, generated graphs: casts cannot truncate, and a summary line is printed.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::disallowed_macros,
+    clippy::print_stderr,
+    clippy::doc_markdown,
+    clippy::type_complexity
+)]
 
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -27,7 +35,9 @@ use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
 use everygraph_kernels::proof::{UNREACHED, bfs, pagerank, wcc};
 use everygraph_oracle::corpus::{Tier, entries};
-use everygraph_oracle::plugin::{Case, Config, KernelUnderTest, Options, Prepared, Regime, Storage, run};
+use everygraph_oracle::plugin::{
+    Case, Config, KernelUnderTest, Options, Prepared, Regime, Storage, run,
+};
 use everygraph_oracle::projection::Adjacency as Lists;
 use everygraph_oracle::{Kernel, Output};
 
@@ -97,7 +107,12 @@ impl Proof {
     }
 }
 
-fn kernel<S: Source>(source: &S, kernel: &Kernel, config: &Config, symmetric: bool) -> Result<Output, String> {
+fn kernel<S: Source>(
+    source: &S,
+    kernel: &Kernel,
+    config: &Config,
+    symmetric: bool,
+) -> Result<Output, String> {
     let memory = Memory::unlimited();
     let settings = Settings {
         threads: NonZeroUsize::new(config.threads).unwrap(),
@@ -106,19 +121,27 @@ fn kernel<S: Source>(source: &S, kernel: &Kernel, config: &Config, symmetric: bo
         prefetch: config.regime != Regime::InMemory,
     };
     let e = |e: everygraph_kernels::edge_map::Error| e.to_string();
-    let out = Plan::with(source, &memory, settings, |plan| par::with_threads(settings.threads, || match kernel {
-        Kernel::PageRank { damping, .. } => pagerank::<_, f64>(&plan, &memory, *damping, ITERATIONS)
-            .map_err(e)
-            .map(|r| Output::Reals(r.iter().map(|&x| Some(x)).collect())),
-        Kernel::Wcc => wcc(&plan, &memory)
-            .map_err(e)
-            .map(|(l, _)| Output::Labels(l.into_iter().map(AtomicU32::into_inner).collect())),
-        Kernel::Bfs { source } => bfs(&plan, &memory, *source, symmetric).map_err(e).map(|(d, _)| {
-            let d = d.into_iter().map(AtomicU32::into_inner);
-            Output::Ints(d.map(|d| (d != UNREACHED).then_some(d.into())).collect())
-        }),
-        _ => Err("unsupported".into()),
-    }));
+    let out = Plan::with(source, &memory, settings, |plan| {
+        par::with_threads(settings.threads, || match kernel {
+            Kernel::PageRank { damping, .. } => {
+                pagerank::<_, f64>(&plan, &memory, *damping, ITERATIONS)
+                    .map_err(e)
+                    .map(|r| Output::Reals(r.iter().map(|&x| Some(x)).collect()))
+            }
+            Kernel::Wcc => wcc(&plan, &memory)
+                .map_err(e)
+                .map(|(l, _)| Output::Labels(l.into_iter().map(AtomicU32::into_inner).collect())),
+            Kernel::Bfs { source } => {
+                bfs(&plan, &memory, *source, symmetric)
+                    .map_err(e)
+                    .map(|(d, _)| {
+                        let d = d.into_iter().map(AtomicU32::into_inner);
+                        Output::Ints(d.map(|d| (d != UNREACHED).then_some(d.into())).collect())
+                    })
+            }
+            _ => Err("unsupported".into()),
+        })
+    });
     out.map_err(|e| e.to_string())?
 }
 
@@ -191,9 +214,15 @@ fn graphs() -> (Vec<Prepared>, bool) {
     match std::env::var_os("EVERYGRAPH_ORACLE_CORPUS") {
         Some(dir) => {
             let dirs = everygraph_oracle::exchange::list_corpus(dir.as_ref()).unwrap();
-            (dirs.iter().map(|d| Prepared::load(d).unwrap()).collect(), true)
+            (
+                dirs.iter().map(|d| Prepared::load(d).unwrap()).collect(),
+                true,
+            )
         }
-        None => (entries(Tier::Ci).into_iter().map(Prepared::new).collect(), false),
+        None => (
+            entries(Tier::Ci).into_iter().map(Prepared::new).collect(),
+            false,
+        ),
     }
 }
 
@@ -201,12 +230,25 @@ fn graphs() -> (Vec<Prepared>, bool) {
 fn proof_kernels_pass_the_oracle_under_every_configuration() {
     let (graphs, python) = graphs();
     let report = run(&Proof::default(), &graphs, Options::default());
-    let shown: Vec<String> = report.findings.iter().take(20).map(ToString::to_string).collect();
-    assert!(report.findings.is_empty(), "{} findings:\n{}", report.findings.len(), shown.join("\n"));
+    let shown: Vec<String> = report
+        .findings
+        .iter()
+        .take(20)
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        report.findings.is_empty(),
+        "{} findings:\n{}",
+        report.findings.len(),
+        shown.join("\n")
+    );
     assert!(report.checked > 3 * graphs.len() / 2, "{report:?}");
     assert_eq!(report.runs, report.checked * 24);
     if python {
-        assert!(report.python_comparisons > 0 && report.python_missing == 0, "{report:?}");
+        assert!(
+            report.python_comparisons > 0 && report.python_missing == 0,
+            "{report:?}"
+        );
     }
     eprintln!(
         "{} graphs, {} (graph, kernel) pairs, {} runs, {} Python comparisons, 0 findings",

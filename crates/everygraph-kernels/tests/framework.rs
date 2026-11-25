@@ -8,6 +8,14 @@
 #![forbid(unsafe_code)]
 // Tests write the files that the mapped and streamed sources read.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+// Test code on small, generated graphs: casts cannot truncate, and a summary line is printed.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::disallowed_macros,
+    clippy::print_stderr,
+    clippy::doc_markdown,
+    clippy::type_complexity
+)]
 
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -58,7 +66,7 @@ fn graph(n: u32, seed: u64) -> (Vec<u64>, Vec<u32>) {
 /// grouped changes their bits.
 fn value(v: u32, list: &[u32]) -> f64 {
     let scale = [1e-12, 1e-6, 1.0, 1e6, 1e12][(v % 5) as usize];
-    let sign = if v % 3 == 0 { -1.0 } else { 1.0 };
+    let sign = if v.is_multiple_of(3) { -1.0 } else { 1.0 };
     sign * scale * (1.0 + f64::from(list.iter().fold(0_u32, |a, &t| a ^ t)) / 7.0)
 }
 
@@ -123,10 +131,14 @@ fn probe<S: Source>(source: &S, settings: Settings) -> Seen {
                 })
                 .unwrap();
             let filtered: u64 = plan
-                .scan((), |v| v.get() % 7 == 3, |acc: &mut u64, (), _, v, list| {
-                    assert_eq!(v.get() % 7, 3);
-                    *acc += list.len() as u64 + 1;
-                })
+                .scan(
+                    (),
+                    |v| v.get() % 7 == 3,
+                    |acc: &mut u64, (), _, v, list| {
+                        assert_eq!(v.get() % 7, 3);
+                        *acc += list.len() as u64 + 1;
+                    },
+                )
                 .unwrap();
             let degrees: (u64, f64) = plan
                 .vertices((), |acc: &mut (u64, f64), (), _, v, d| {
@@ -141,7 +153,12 @@ fn probe<S: Source>(source: &S, settings: Settings) -> Seen {
                     *acc = acc.wrapping_add(u64::from(v.get()).wrapping_mul(0x9E37) ^ total);
                 })
                 .unwrap();
-            (sum.to_bits(), out, filtered ^ degrees.0 << 32 ^ degrees.1.to_bits(), lists)
+            (
+                sum.to_bits(),
+                out,
+                filtered ^ degrees.0 << 32 ^ degrees.1.to_bits(),
+                lists,
+            )
         })
         .unwrap()
     })
@@ -182,9 +199,15 @@ fn every_source_threads_chunking_and_batch_give_the_same_bits() {
         let mapped = Compressed::new(Adjacency::new(&s.index, s.map.as_slice().unwrap()).unwrap())
             .with_hints(&s.map);
         let stream = Stream::new(&s.offsets, &s.stream).unwrap();
-        let block = Plan::with(&csr, &Memory::unlimited(), Settings::default(), |p| p.block_nodes());
+        let block = Plan::with(&csr, &Memory::unlimited(), Settings::default(), |p| {
+            p.block_nodes()
+        });
         let expected = probe(&csr, Settings::default());
-        assert_eq!(expected.0, blockwise(&s.offsets, &s.targets, block), "n {n}");
+        assert_eq!(
+            expected.0,
+            blockwise(&s.offsets, &s.targets, block),
+            "n {n}"
+        );
         for threads in [1, 3, 8] {
             for (chunk, batch) in [(1, 1), (64, 7), (1 << 16, 8192), (u64::MAX, usize::MAX)] {
                 let c = settings(threads, chunk, batch);
@@ -213,8 +236,10 @@ fn node_set_lists_in_order(n: usize) {
     let csr = Csr::new(&offsets, &targets).unwrap();
     Plan::with(&csr, &memory, Settings::default(), |plan| {
         let mut set = plan.node_set(&memory).unwrap();
-        let mut nodes: Vec<Node<'_>> =
-            plan.all_nodes().filter(|v| v.get() % 3 == 0 || v.get() % 64 == 63).collect();
+        let mut nodes: Vec<Node<'_>> = plan
+            .all_nodes()
+            .filter(|v| v.get() % 3 == 0 || v.get() % 64 == 63)
+            .collect();
         let sorted = nodes.clone();
         nodes.reverse();
         let grain = NonZeroUsize::new(100).unwrap();
@@ -251,8 +276,10 @@ fn a_target_outside_the_graph_is_an_error_not_a_panic() {
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
     let memory = Memory::unlimited();
     fn scan<S: Source>(p: &Plan<'_, '_, S>) -> Error {
-        p.scan((), all, |(): &mut (), (), _, _, list| assert!(list.iter().all(|t| t.get() < 4)))
-            .unwrap_err()
+        p.scan((), all, |(): &mut (), (), _, _, list| {
+            assert!(list.iter().all(|t| t.get() < 4));
+        })
+        .unwrap_err()
     }
     let s0 = Settings::default();
     fn frontier<S: Source>(p: &Plan<'_, '_, S>, f: &[u32]) -> Error {
@@ -270,7 +297,10 @@ fn a_target_outside_the_graph_is_an_error_not_a_panic() {
     // Offsets that are not a CSR are refused when the source is made.
     assert!(matches!(Csr::new(&[0, 2, 1], &[0]), Err(Error::Invalid(_))));
     let bytes = MemorySource::new(vec![0_u8; 8]);
-    assert!(matches!(Stream::new(&[0, 1, 3], &bytes), Err(Error::Invalid(_))));
+    assert!(matches!(
+        Stream::new(&[0, 1, 3], &bytes),
+        Err(Error::Invalid(_))
+    ));
 }
 
 /// Readers are reserved against the budget, and a refusal is an error.
@@ -282,16 +312,23 @@ fn readers_are_reserved_against_the_budget() {
     let budget = Arc::new(Budget::new(1 << 20));
     let memory = Memory::from(budget.clone());
     Plan::with(&heap, &memory, Settings::default(), |plan| {
-        let entries: u64 =
-            plan.scan((), all, |acc: &mut u64, (), _, _, l| *acc += l.len() as u64).unwrap();
+        let entries: u64 = plan
+            .scan((), all, |acc: &mut u64, (), _, _, l| *acc += l.len() as u64)
+            .unwrap();
         assert_eq!(entries, s.targets.len() as u64);
-        // One reader: the hub's list (1,500 entries) and the batch, as decode buffers.
-        assert!(budget.used() >= 8192 * 4, "{}", budget.used());
+        // One reader at least, holding the longest list (the hub) as decode buffer.
+        let longest = s.offsets.windows(2).map(|w| w[1] - w[0]).max().unwrap();
+        assert!(
+            budget.used() >= longest * 4,
+            "{} < {longest} entries",
+            budget.used()
+        );
     });
     assert_eq!(budget.used(), 0);
     let tiny = Memory::from(Arc::new(Budget::new(1000)));
     let e = Plan::with(&heap, &tiny, Settings::default(), |plan| {
-        plan.scan((), all, |(): &mut (), (), _, _, _| ()).unwrap_err()
+        plan.scan((), all, |(): &mut (), (), _, _, _| ())
+            .unwrap_err()
     });
     assert!(matches!(e, Error::Memory(_)), "{e}");
 }

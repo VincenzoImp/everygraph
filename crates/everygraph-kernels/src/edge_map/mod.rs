@@ -146,7 +146,10 @@ impl fmt::Display for Error {
             Self::Decode(e) => e.fmt(f),
             Self::Read(e) => e.fmt(f),
             Self::Target { node, target } => {
-                write!(f, "the list of node {node} names {target}, which is not a node of the graph")
+                write!(
+                    f,
+                    "the list of node {node} names {target}, which is not a node of the graph"
+                )
             }
             Self::Invalid(what) => write!(f, "not a graph: {what}"),
             Self::Memory(e) => e.fmt(f),
@@ -354,7 +357,7 @@ impl<'s, S: Source> Plan<'s, '_, S> {
     /// but not another plan's, even over the same graph (the indexing would be unchecked,
     /// so this must not compile):
     ///
-    /// ```compile_fail
+    /// ```compile_fail,E0521
     /// # use everygraph_core::Memory;
     /// # use everygraph_kernels::edge_map::{Csr, Plan, Settings};
     /// # let (offsets, targets, values) = ([0_u64, 0], [0_u32; 0], [1.0_f64]);
@@ -399,7 +402,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         let mut tasks = Vec::new();
         let mut start = 0;
         while start < n {
-            let limit = source.entry_offset(start).saturating_add(settings.chunk_entries.max(1));
+            let limit = source
+                .entry_offset(start)
+                .saturating_add(settings.chunk_entries.max(1));
             let mut end = start.saturating_add(block).min(n);
             while end < n && source.entry_offset(end) < limit {
                 end = end.saturating_add(block).min(n);
@@ -414,7 +419,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             tasks,
             batch: settings.batch_entries.max(1),
             prefetch: settings.prefetch,
-            readers: (0..settings.threads.get()).map(|_| Mutex::new(None)).collect(),
+            readers: (0..settings.threads.get())
+                .map(|_| Mutex::new(None))
+                .collect(),
             memory: memory.clone(),
             work: [AtomicU64::new(0), AtomicU64::new(0)],
         }
@@ -503,7 +510,10 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
 
     /// Runs `f` with a reader of the pool, or one made for the call when every reader
     /// is in use.
-    fn with_reader<R>(&self, f: impl FnOnce(&mut S::Reader) -> Result<R, Error>) -> Result<R, Error> {
+    fn with_reader<R>(
+        &self,
+        f: impl FnOnce(&mut S::Reader) -> Result<R, Error>,
+    ) -> Result<R, Error> {
         for slot in &self.readers {
             if let Ok(mut guard) = slot.try_lock() {
                 if guard.is_none() {
@@ -533,7 +543,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         let (mut out, mut rest) = (out, partials.as_mut_slice());
         for r in &self.tasks {
             let (mine, others) = out.split_at(ix((r.end - r.start).into()));
-            let (sums, more) = rest.split_at_mut(ix(((r.end - r.start).div_ceil(self.block)).into()));
+            let (sums, more) =
+                rest.split_at_mut(ix(((r.end - r.start).div_ceil(self.block)).into()));
             pieces.push((r.clone(), Some(mine), sums, Ok(())));
             (out, rest) = (others, more);
         }
@@ -646,7 +657,10 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
     {
         let frontier = ids(frontier);
-        debug_assert!(frontier.windows(2).all(|w| w[0] < w[1]), "frontier not increasing");
+        debug_assert!(
+            frontier.windows(2).all(|w| w[0] < w[1]),
+            "frontier not increasing"
+        );
         let run = |r: Range<usize>| {
             self.with_reader(|reader| {
                 let nodes = &frontier[r];
@@ -708,7 +722,9 @@ mod tests {
                 Some(at)
             })
             .collect();
-        let targets: Vec<u32> = (0..offsets[ix(n.into())]).map(|e| (e % 1000) as u32).collect();
+        let targets: Vec<u32> = (0..offsets[ix(n.into())])
+            .map(|e| (e % 1000) as u32)
+            .collect();
         let csr = Csr::new(&offsets, &targets).unwrap();
         for chunk in [1, 64, 1000, 1 << 16, u64::MAX] {
             let settings = Settings {

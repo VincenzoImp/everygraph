@@ -67,7 +67,10 @@ macro_rules! real {
 }
 
 real!(f64, |x| x);
-#[expect(clippy::cast_possible_truncation, reason = "rounding to f32 is the point")]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "rounding to f32 is the point"
+)]
 fn round_f32(x: f64) -> f32 {
     x as f32
 }
@@ -98,8 +101,9 @@ fn gather<'g, F: Real>(contrib: PerNode<'_, 'g, F>, list: &[Node<'g>]) -> F {
 }
 
 fn one_segment<T: Copy>(v: &mut SegVec<T>) -> Result<&mut [T], Error> {
-    v.as_mut_slice()
-        .ok_or(Error::Invalid("node state longer than one segment (#m3-15)"))
+    v.as_mut_slice().ok_or(Error::Invalid(
+        "node state longer than one segment (#m3-15)",
+    ))
 }
 
 /// Pull `PageRank` of an undirected graph: `iterations` power iterations from the
@@ -130,9 +134,9 @@ pub fn pagerank<S: Source, F: Real>(
         let base = F::from_f64((1.0 - damping) * inv_n + damping * dangling * inv_n);
         let dmp = F::from_f64(damping);
         let last = it + 1 == iterations;
-        let c = contrib
-            .as_slice()
-            .ok_or(Error::Invalid("node state longer than one segment (#m3-15)"))?;
+        let c = contrib.as_slice().ok_or(Error::Invalid(
+            "node state longer than one segment (#m3-15)",
+        ))?;
         let c = plan.per_node(c)?;
         let out = (one_segment(&mut next)?, one_segment(&mut rank)?);
         dangling = plan.scan(out, all, |dang: &mut f64, (next, rank), i, _, list| {
@@ -169,7 +173,10 @@ fn link<'g>(comp: &NodeCells<'g>, u: Node<'g>, v: Node<'g>) {
 }
 
 /// The most frequent label among 1,024 fixed samples (ties: the smallest label).
-fn sample_frequent<'g, S: Source>(plan: &Plan<'_, 'g, S>, comp: &NodeCells<'g>) -> Option<Node<'g>> {
+fn sample_frequent<'g, S: Source>(
+    plan: &Plan<'_, 'g, S>,
+    comp: &NodeCells<'g>,
+) -> Option<Node<'g>> {
     let n = u64::from(plan.nodes());
     let mut seen: Vec<(Node<'g>, u32)> = Vec::new();
     let mut x = 0x9E37_79B9_7F4A_7C15_u64;
@@ -177,7 +184,7 @@ fn sample_frequent<'g, S: Source>(plan: &Plan<'_, 'g, S>, comp: &NodeCells<'g>) 
         x ^= x << 13;
         x ^= x >> 7;
         x ^= x << 17;
-        let label = comp.load(plan.node(u32::try_from(x % n).ok()?)?, Relaxed);
+        let label = comp.load(plan.node(u32::try_from(x.checked_rem(n)?).ok()?)?, Relaxed);
         match seen.iter_mut().find(|(l, _)| *l == label) {
             Some((_, c)) => *c += 1,
             None => seen.push((label, 1)),
@@ -209,11 +216,15 @@ pub fn wcc<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory) -> Result<Atomics
     }
     if let Some(giant) = sample_frequent(plan, &comp) {
         let in_giant = |u| comp.load(u, Relaxed) == giant;
-        plan.scan((), |u| !in_giant(u), |(): &mut (), (), _, u, list| {
-            for &v in list.get(ROUNDS..).unwrap_or_default() {
-                link(&comp, u, v);
-            }
-        })?;
+        plan.scan(
+            (),
+            |u| !in_giant(u),
+            |(): &mut (), (), _, u, list| {
+                for &v in list.get(ROUNDS..).unwrap_or_default() {
+                    link(&comp, u, v);
+                }
+            },
+        )?;
         comp.flatten();
     }
     Ok(comp.into_ids())
@@ -243,7 +254,9 @@ pub fn bfs<S: Source>(
     const ALPHA: u64 = 15;
     const BETA: u64 = 18;
     let n = plan.nodes();
-    let source = plan.node(source).ok_or(Error::Invalid("bfs source: not a node"))?;
+    let source = plan
+        .node(source)
+        .ok_or(Error::Invalid("bfs source: not a node"))?;
     let reservation = memory.reserve("bfs depths", MemoryKind::Anonymous, u64::from(n) * 4)?;
     let depth: Vec<AtomicU32> = par::collect(ix(n.into()), GRAIN, |_| AtomicU32::new(UNREACHED));
     let at = plan.per_node(&depth)?;
@@ -257,9 +270,12 @@ pub fn bfs<S: Source>(
     while !frontier.is_empty() {
         if symmetric && scout > edges_to_check / ALPHA {
             let mut front = plan.node_set(memory)?;
-            for &u in frontier.as_slice()? {
-                front.insert(u);
-            }
+            let list = frontier.as_slice()?;
+            par::for_each_range(list.len(), GRAIN, |r| {
+                for &u in &list[r] {
+                    front.insert(u);
+                }
+            });
             let mut awake = frontier.len() as u64;
             loop {
                 let old = awake;
@@ -289,7 +305,8 @@ pub fn bfs<S: Source>(
                 for &v in list {
                     let d = &at[v];
                     if d.load(Relaxed) == UNREACHED
-                        && d.compare_exchange(UNREACHED, level + 1, Relaxed, Relaxed).is_ok()
+                        && d.compare_exchange(UNREACHED, level + 1, Relaxed, Relaxed)
+                            .is_ok()
                     {
                         next.insert(v);
                         *scout += u64::from(plan.degree(v));

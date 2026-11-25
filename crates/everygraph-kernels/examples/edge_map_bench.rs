@@ -56,27 +56,40 @@ fn args() -> (String, Args) {
 
 fn read_words<const W: usize, T>(path: &Path, from: fn([u8; W]) -> T) -> Vec<T> {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    bytes.chunks_exact(W).map(|c| from(c.try_into().expect("W bytes"))).collect()
+    bytes
+        .chunks_exact(W)
+        .map(|c| from(c.try_into().expect("W bytes")))
+        .collect()
 }
 
 fn fnv(words: impl Iterator<Item = u64>) -> u64 {
-    words.fold(0xCBF2_9CE4_8422_2325, |h, w| (h ^ w).wrapping_mul(0x0000_0100_0000_01B3))
+    words.fold(0xCBF2_9CE4_8422_2325, |h, w| {
+        (h ^ w).wrapping_mul(0x0000_0100_0000_01B3)
+    })
 }
 
 /// Times `reps` runs of `kernel` on `source`; returns the times and the last result's
 /// hash and summary.
 fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> (Vec<f64>, u64, String) {
     let memory = Memory::unlimited();
-    Plan::with(source, &memory, settings, |plan| time_plan(&plan, a, &memory))
+    Plan::with(source, &memory, settings, |plan| {
+        time_plan(&plan, a, &memory)
+    })
 }
 
-fn time_plan<S: Source>(plan: &Plan<'_, '_, S>, a: &Args, memory: &Memory) -> (Vec<f64>, u64, String) {
+fn time_plan<S: Source>(
+    plan: &Plan<'_, '_, S>,
+    a: &Args,
+    memory: &Memory,
+) -> (Vec<f64>, u64, String) {
     let source = plan.source();
     let reps: usize = a.get("reps").map_or(3, |s| s.parse().expect("--reps"));
     let iters: u32 = a.get("iters").map_or(20, |s| s.parse().expect("--iters"));
     let kernel = a.get("kernel").map_or("pr32", String::as_str);
     let n = source.nodes();
-    let hub = (0..n).max_by_key(|&v| (source.degree(v), std::cmp::Reverse(v))).unwrap_or(0);
+    let hub = (0..n)
+        .max_by_key(|&v| (source.degree(v), std::cmp::Reverse(v)))
+        .unwrap_or(0);
     let mut secs = Vec::new();
     let mut last = (0, String::new());
     for _ in 0..reps {
@@ -100,15 +113,23 @@ fn time_plan<S: Source>(plan: &Plan<'_, '_, S>, a: &Args, memory: &Memory) -> (V
                 secs.push(t.elapsed().as_secs_f64());
                 let labels: Vec<u32> = labels.into_iter().map(AtomicU32::into_inner).collect();
                 let components = labels.iter().zip(0..).filter(|&(&l, v)| l == v).count();
-                (fnv(labels.iter().map(|&l| u64::from(l))), format!("{{\"components\": {components}}}"))
+                (
+                    fnv(labels.iter().map(|&l| u64::from(l))),
+                    format!("{{\"components\": {components}}}"),
+                )
             }
             "bfs" => {
                 let (depth, _held) = proof::bfs(plan, memory, hub, true).expect("bfs");
                 secs.push(t.elapsed().as_secs_f64());
                 let depth: Vec<u32> = depth.into_iter().map(AtomicU32::into_inner).collect();
                 let reached = depth.iter().filter(|&&d| d != UNREACHED).count();
-                let sum: u64 = depth.iter().filter(|&&d| d != UNREACHED).map(|&d| u64::from(d)).sum();
-                let summary = format!("{{\"source\": {hub}, \"reached\": {reached}, \"depth_sum\": {sum}}}");
+                let sum: u64 = depth
+                    .iter()
+                    .filter(|&&d| d != UNREACHED)
+                    .map(|&d| u64::from(d))
+                    .sum();
+                let summary =
+                    format!("{{\"source\": {hub}, \"reached\": {reached}, \"depth_sum\": {sum}}}");
                 (fnv(depth.iter().map(|&d| u64::from(d))), summary)
             }
             other => panic!("unknown --kernel {other}"),
@@ -124,11 +145,16 @@ fn store_paths(store: &Path) -> (PathBuf, PathBuf) {
 fn run(a: &Args) {
     let graph = PathBuf::from(&a["graph"]);
     let source = a.get("source").map_or("raw", String::as_str);
-    let threads = NonZeroUsize::new(a.get("threads").map_or(1, |s| s.parse().expect("--threads")))
-        .expect("--threads > 0");
+    let threads = NonZeroUsize::new(
+        a.get("threads")
+            .map_or(1, |s| s.parse().expect("--threads")),
+    )
+    .expect("--threads > 0");
     let settings = Settings {
         threads,
-        chunk_entries: a.get("chunk").map_or(1 << 16, |s| s.parse().expect("--chunk")),
+        chunk_entries: a
+            .get("chunk")
+            .map_or(1 << 16, |s| s.parse().expect("--chunk")),
         batch_entries: a.get("batch").map_or(8192, |s| s.parse().expect("--batch")),
         prefetch: false,
     };
@@ -143,7 +169,8 @@ fn run(a: &Args) {
         }
         "compressed" | "mmap" => {
             let (index, data) = store_paths(Path::new(&a["store"]));
-            let index = AdjacencyIndex::parse(&std::fs::read(index).expect("index")).expect("an index");
+            let index =
+                AdjacencyIndex::parse(&std::fs::read(index).expect("index")).expect("an index");
             let map = MmapSource::open(&data).expect("map");
             let heap;
             let bytes = if source == "mmap" {
@@ -190,7 +217,11 @@ fn encode_store(a: &Args) {
     let (index, data) = store_paths(&out);
     std::fs::write(index, &encoded.index).expect("write index");
     std::fs::write(data, &encoded.data).expect("write data");
-    println!("{{\"entries\": {}, \"data_bytes\": {}}}", targets.len(), encoded.data.len());
+    println!(
+        "{{\"entries\": {}, \"data_bytes\": {}}}",
+        targets.len(),
+        encoded.data.len()
+    );
 }
 
 fn main() -> ExitCode {

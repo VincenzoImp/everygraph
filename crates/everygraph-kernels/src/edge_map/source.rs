@@ -116,11 +116,7 @@ fn in_range(targets: &[u32], n: u32) -> bool {
 }
 
 /// The first entry of the lists `first..` that names a node `>= n`, as an error.
-fn bad_target(
-    first: u32,
-    lists: impl Iterator<Item = impl AsRef<[u32]>>,
-    n: u32,
-) -> Error {
+fn bad_target(first: u32, lists: impl Iterator<Item = impl AsRef<[u32]>>, n: u32) -> Error {
     for (v, list) in (first..).zip(lists) {
         if let Some(&target) = list.as_ref().iter().find(|&&t| t >= n) {
             return Error::Target { node: v, target };
@@ -209,7 +205,12 @@ unsafe impl Source for Csr<'_> {
         Ok(())
     }
 
-    fn lists(&self, (): &mut (), nodes: &[u32], mut f: impl FnMut(u32, &[u32])) -> Result<(), Error> {
+    fn lists(
+        &self,
+        (): &mut (),
+        nodes: &[u32],
+        mut f: impl FnMut(u32, &[u32]),
+    ) -> Result<(), Error> {
         for &v in nodes {
             f(v, csr_list(&self.csr, v));
         }
@@ -299,10 +300,15 @@ impl<'a> Compressed<'a> {
     /// Decodes from `nodes.start`, as far as `reader`'s batch allows; returns where it
     /// stopped.
     fn decode(&self, r: &mut DecodeReader, nodes: Range<u32>) -> Result<u32, Error> {
-        let first = self.degree(nodes.start);
+        // What the codec's batch grows to: the batch, or the first list if longer, but
+        // no more than the range holds; and its SIMD slack of three.
+        let first = ix(self.degree(nodes.start).into());
+        let span = ix(self.entry_offset(nodes.end) - self.entry_offset(nodes.start));
         r.held
-            .ensure(r.max_entries.max(ix(first.into())) + 3, DECODED)?;
-        let end = self.adjacency.decode_nodes(nodes, r.max_entries, &mut r.batch)?;
+            .ensure(r.max_entries.max(first).min(span) + 3, DECODED)?;
+        let end = self
+            .adjacency
+            .decode_nodes(nodes, r.max_entries, &mut r.batch)?;
         if !in_range(r.batch.targets(), self.n) {
             let lists = (0..r.batch.len()).map(|i| r.batch.list(i));
             return Err(bad_target(r.batch.first(), lists, self.n));
@@ -455,7 +461,9 @@ pub struct Stream<'a> {
 
 impl std::fmt::Debug for Stream<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Stream").field("nodes", &self.n).finish_non_exhaustive()
+        f.debug_struct("Stream")
+            .field("nodes", &self.n)
+            .finish_non_exhaustive()
     }
 }
 
@@ -513,7 +521,7 @@ impl<'a> Stream<'a> {
     /// The end of the batch that starts at `start`: as many lists as fit in `max`
     /// entries, at least one, at most up to `end`.
     fn batch_end(&self, start: u32, end: u32, max: usize) -> u32 {
-        let limit = self.offsets[ix(start.into())] + max as u64;
+        let limit = self.offsets[ix(start.into())].saturating_add(max as u64);
         let mut stop = start + 1;
         while stop < end && self.offsets[ix(u64::from(stop) + 1)] <= limit {
             stop += 1;
@@ -590,7 +598,7 @@ unsafe impl Source for Stream<'_> {
         while i < nodes.len() {
             // Lists less than COALESCE_GAP bytes apart are one read, within the batch.
             let start = nodes[i];
-            let limit = self.offsets[ix(start.into())] + r.max_entries as u64;
+            let limit = self.offsets[ix(start.into())].saturating_add(r.max_entries as u64);
             let mut end = i + 1;
             while end < nodes.len() {
                 let (prev, next) = (ix(nodes[end - 1].into()), ix(nodes[end].into()));

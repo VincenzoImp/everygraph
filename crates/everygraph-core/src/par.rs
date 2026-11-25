@@ -358,12 +358,12 @@ mod tests {
             let (sum, seen) = with_threads(grain(threads), || {
                 let workers = Mutex::new(std::collections::BTreeSet::new());
                 for_each_range(1 << 12, grain(1), |_| {
-                    workers
-                        .lock()
-                        .unwrap()
-                        .insert(rayon_index().unwrap_or(0));
+                    workers.lock().unwrap().insert(rayon_index().unwrap_or(0));
                 });
-                (chunked_sum(&values, 64).to_bits(), workers.into_inner().unwrap())
+                (
+                    chunked_sum(&values, 64).to_bits(),
+                    workers.into_inner().unwrap(),
+                )
             })
             .unwrap();
             assert_eq!(sum, expected, "threads {threads}");
