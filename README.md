@@ -65,7 +65,7 @@ subject of the first work milestone. See [docs/DESIGN.md § 5](docs/DESIGN.md).
 ## Building
 
 The Rust workspace is a skeleton: the crate layout, the coding rules, and the first
-pieces of the portable core (`crates/everygraph-core`). It needs Rust 1.85 or newer and
+pieces of the portable core (`crates/everygraph-core`). It needs Rust 1.87 or newer and
 nothing else.
 
 ```sh

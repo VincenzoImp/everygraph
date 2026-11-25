@@ -55,7 +55,7 @@ reason, and every crate inherits them with `[lints] workspace = true`.
 On the minimum supported toolchain (see "Rust version"):
 
 ```sh
-cargo +1.85 test --workspace --locked
+cargo +1.87 test --workspace --locked
 ```
 
 And these on nightly, because Miri is the way to *run* tests with a 32-bit `usize` on a
@@ -88,7 +88,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
@@ -237,9 +237,11 @@ browser bindings (#81, #108). `everygraph-core` is expected to stay free of it.
 
 ## Rust version
 
-The minimum supported Rust version is **1.85**, recorded as `rust-version` in the
-workspace manifest: it is the first release with edition 2024 and the MSRV-aware
-dependency resolver, and the toolchain Debian 13 ships. Everything builds on stable. The
+The minimum supported Rust version is **1.87**, recorded as `rust-version` in the
+workspace manifest. It was 1.85 (the first release with edition 2024 and the MSRV-aware
+resolver, and Debian 13's toolchain) until 2026-11-25, when it was raised to 1.87 because
+the fix for RUSTSEC-2026-0344 in `ruzstd` (0.9.1, needed by the text reader, #32) requires
+it. Everything builds on stable. The
 one planned exception is the threaded browser build (#108), which needs a nightly
 toolchain pinned by that build's own script, not by a `rust-toolchain.toml` at the root,
 which would move the whole workspace to nightly.
