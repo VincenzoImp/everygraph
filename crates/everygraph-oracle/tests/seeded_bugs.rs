@@ -31,8 +31,15 @@ fn graphs() -> &'static (Vec<Prepared>, bool) {
             let with_python = g.iter().all(|p| p.references.is_some());
             (g, with_python)
         }
+        // Without a corpus directory: the CI tier minus its sparse-id graph, which this
+        // debug-built test would spend most of its time on. The oracle job checks that
+        // graph with release builds (`check --plugin toy` and `seeded-bugs`).
         None => (
-            entries(Tier::Ci).into_iter().map(Prepared::new).collect(),
+            entries(Tier::Ci)
+                .into_iter()
+                .filter(|e| e.graph.n <= everygraph_oracle::corpus::PYTHON_MAX_NODES)
+                .map(Prepared::new)
+                .collect(),
             false,
         ),
     })

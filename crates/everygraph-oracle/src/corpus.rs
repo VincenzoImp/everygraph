@@ -288,7 +288,8 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
     // 2^7, 2^14 and 2^21 (4-byte LEB128 codes); 2^28 would need n > 2^28, whose O(n)
     // reference arrays do not fit the memory limit.
     let sparse: &[(u32, bool)] = match tier {
-        Tier::Ci => &[(1 << 22, false)],
+        // CI: the smallest n whose gaps still cross 2^21 (cost: see PR #131).
+        Tier::Ci => &[((1 << 21) + 256, false)],
         Tier::Nightly => &[
             (1 << 22, false),
             (1 << 22, true),
