@@ -13,6 +13,7 @@ Tracking issue for milestone M5.
 - [ ] {{#m5-01-layout}}, {{#m5-02-tile-format}}, {{#m5-03-tile-builder}}, {{#m5-04-search-index}}
 - [ ] {{#m5-05-viewer-core}}, {{#m5-06-viewer-ux}}, {{#m5-07-edge-strategy}}
 - [ ] {{#m5-09-static-export}}, {{#m5-11-perf-accessibility}}, {{#m5-12-honest-map}}, {{#m5-14-design-system}}
+- [ ] {{#m5-15-summary-export}}, {{#m5-16-nonvisual-navigation}} (from the second literature review, 2026-11-25, `docs/research/README.md` H1, H2)
 
 **Scope note.** M5 is the static map and depends only on M4. Three map features need other milestones and are tracked there: the Jupyter widget {{#m5-10-jupyter-widget}} in M6 (needs the Python API), live mode {{#m5-08-live-mode}} and attribute/time overlays {{#m5-13-attribute-overlays}} in M7 (need queries and views).
 

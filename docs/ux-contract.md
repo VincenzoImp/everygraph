@@ -107,6 +107,13 @@ forms are complete on their own.
   error or warning) and anything meant to be copied and run: the suggested next command,
   an option in "Ways forward", a URL. Dim marks labels, table headers, the prompt, the
   finished bar and secondary remarks.
+- **S-10** Progress also takes the piped form — ASCII, nothing redrawn, no bars, one line
+  per finished phase (§ 4.5) — on a terminal under `TERM=dumb`, and whenever
+  `--progress=plain` is given. Redrawn bars are noise for a screen reader, and
+  `TERM=dumb` alone only removed colour (added 2026-11-25, `docs/research/README.md`
+  H6; `docs/research/sota-human-factors.md` § 3, challenge 6). The rest of the stream
+  keeps the rendering the table above gives it: tables on standard output stay aligned
+  on a terminal.
 
 ### 2.3 Symbols and fallbacks
 
@@ -2318,6 +2325,7 @@ on an idle machine (`CLAUDE.md` § 3).
 | G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`, with `duplicates` under `"collapse"` and with `merged:` under `"sum"`, whose counts add up to the rows read; a graph kept in memory; an operation that returns a table (no result block). Every `✓` line ends with a duration. In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
 | C-8, C-9, R-9 | **Clean-up tests.** After a successful run the scratch root holds no `.everygraph-*` directory. With a failure injected in each phase in turn (invalid row, disk full), the scratch is gone, or holds exactly the finished phases when the error's last line says they were kept. A scratch directory with an old modification time is still there after an unrelated run. | #40 |
 | S-5 | The same command under two locales (`LANG=C.UTF-8`, `LANG=it_IT.UTF-8`) prints identical bytes. | #98 |
+| S-10 | A long command run in a pseudo-terminal with `TERM=dumb`, and again with `--progress=plain`, writes progress on standard error with no carriage return, no cursor movement and no bar: one line per finished phase, as in the piped rendering. | #98 |
 | T-7, T-8 | A vocabulary lint over the catalogue and over the public names: "budget" never appears in an entry about nodes or seconds, "limit" never in one about memory, "groups" never appears; a user's noun reaches a message only through the one function that derives it; no public name contains one. | #98, #81 |
 | T-1, T-6 | Not mechanical. Every new or changed catalogue entry appears in a golden file, so it is visible in the diff and is read against these two rules in review. | reviewer |
 | T-2 – T-5 | A lint over the message catalogue: forbidden words, exclamation marks, a full stop at the end of each sentence, every error entry has at least one way forward. | #98 |

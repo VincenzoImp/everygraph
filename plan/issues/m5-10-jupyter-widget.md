@@ -11,6 +11,7 @@ labels: type:feature, area:viewer, P1, risk:low, size:S
 - [ ] Works in JupyterLab, VS Code notebooks and Colab (where loopback servers are restricted — use the widget transport, not HTTP)
 - [ ] Progress display for the build ({{#m0-12-ux-contract}})
 - [ ] The cards of `docs/ux-contract.md` § 7, driven only by the events of § 4.6; interrupting the kernel ends the card in the stop block
+- [ ] The map's keyboard model (`design/DECISIONS.md`, "The map's keyboard model", 2026-11-25): Esc means "up a level" in the map and "command mode" in JupyterLab, so Esc at the top level, or a documented key, leaves the map's focus; the keyboard is never trapped (WCAG 2.1.2); `/ + - 0` act only while the map has focus
 
 **Acceptance**
 - 1 M-edge CSV → inline map in < 10 s in a fresh notebook on a laptop
