@@ -12,6 +12,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:M
 - [ ] Use dictionary pages to map each distinct key once ({{#m2-07-id-mapping}})
 - [ ] Multi-file datasets (globs, hive-style directories)
 - [ ] Keep `arrow`/`parquet` out of `everygraph-core`; check their wasm32 story for the browser tier and record it
+- [ ] Edge-type column: reading a column beyond source, target, weight and time needs a public option, which has no name yet and needs a preview before it is built (`docs/spec/graph-semantics.md` § 2.6, § 9 item 8)
 
 **Acceptance**
 - Friendster as Parquet (integer ids) → `.eg` no slower than from plain text

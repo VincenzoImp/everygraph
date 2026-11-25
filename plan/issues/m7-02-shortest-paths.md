@@ -10,6 +10,7 @@ labels: type:feature, area:query, P0, risk:medium, size:M, lab-evidence
 **Scope**
 - [ ] Bidirectional BFS for unweighted paths; on directed graphs the target side expands in-edges ({{#m2-11-in-adjacency}})
 - [ ] Weighted: bidirectional Dijkstra on a per-entry weight column
+- [ ] A step's cost is the smallest non-null event cost of its pair; under `duplicates="sum"` it is the stored sum, under `"collapse"` the kept row's value; a pair whose costs are all null is not used; a kept loop is never a step; a negative, NaN or ∞ cost is `InvalidInput` (3) (`docs/spec/graph-semantics.md` § 4.2, § 6)
 - [ ] Results: one shortest path, all shortest paths (bounded), k shortest (stretch); path as node ids with edge properties
 - [ ] Constraints: maximum hops, node/edge filters (a view), avoid-set; these are what make paths useful in investigations (e.g. "not through the exchange hub")
 - [ ] Budgets and timeouts — tails reach 113 ms p99 on twitter-2010 because of hubs (shared machine; idle, #118: 32.3 ms raw, 27.3 ms default storage, graph in heap)

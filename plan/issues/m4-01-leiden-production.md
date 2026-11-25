@@ -20,12 +20,14 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 - [ ] Seeds: the visiting-order permutation is seeded; same seed → same result
 - [ ] Louvain kept as an internal baseline, not a public default (17–94 disconnected communities per run)
 - [ ] Outputs: membership column per level, community table (size, internal edges, volume, cut), modularity
+- [ ] Modularity with kept loops as `docs/spec/graph-semantics.md` § 5.5 (S5): `Q = Σ_c [L(c)/W − γ(S(c)/2W)²]`, L(c) counting each loop once, s(v) including the loop's 2w, Q = 0 when W = 0; the aggregation's quotient carries the input's kept loops on its diagonal with the internal edges (§ 5.5, S6)
 
 **Acceptance (lab machine, idle, 16 threads)**
 - `fast`: lj ≤ 0.8 s, orkut ≤ 1.5 s, modularity ≥ lab values
 - `deterministic`: identical hash at 1, 2, 4, 8, 16 threads on all tier-1/2 graphs; time ≤ 2× `fast` (stretch 1.5×, pending {{#m1-04-det-leiden-scaling}})
 - 0 disconnected communities on every run
 - No data race reported by TSan
+- On every oracle graph, kept loops included, the modularity of each level's partition equals the modularity of its quotient graph under the singleton partition (`docs/spec/graph-semantics.md` § 5.5)
 
 **Pointers.** `lab/b2-leiden/src/main.rs`, FINDINGS § B2 and idle re-runs.
 
