@@ -21,6 +21,7 @@ python3 tools/check_core_portability.py
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
+cargo build -p everygraph-ingest --target wasm32-unknown-unknown
 cargo build -p everygraph-wasm --target wasm32-unknown-unknown
 cargo deny check                            # offline: cargo deny check bans licenses sources
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
@@ -88,7 +89,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the three wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
@@ -181,8 +182,7 @@ one: read what it does on a target without an OS, add it and its own dependencie
 `ALLOWED_DEPENDENCIES` in the same pull request, and say why in the description. The
 same list is what keeps C and C++ out of the core (DESIGN D1): everything on it is pure
 Rust. `deny.toml` adds two workspace-wide rules: rayon may be a direct dependency of
-`everygraph-core` only, and memory-mapping crates are banned until #29 allows one for
-`everygraph-io`.
+`everygraph-core` only, and memory maps come from memmap2 and only into `everygraph-io`.
 
 **Adding a `cfg` condition to `everygraph-core` needs a lint run that compiles it.**
 `#[cfg(not(clippy))]` hides code from every lint, and `#[cfg(windows)]` hides it from a
@@ -208,13 +208,13 @@ than memory (file lengths, byte offsets, memory budgets) are `u64` on every targ
 
 ## `unsafe`
 
-`unsafe` is allowed only in modules named in the table below. Today there are none, and
-every crate root forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file
-under `tests/`, which Cargo compiles as a crate of its own.
+`unsafe` is allowed only in modules named in the table below. Every other crate root
+forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests/` and
+`examples/`, which Cargo compiles as crates of their own.
 
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
-| *(none yet)* | | |
+| `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
 
 To add one, in a single pull request:
 
@@ -232,7 +232,7 @@ To add one, in a single pull request:
 
 Where we expect to need it, from the lab prototypes: SIMD in the adjacency codec (#30),
 disjoint parallel writes into shared arrays in the build pipeline and in Leiden (#35,
-#57), memory maps in `everygraph-io` (#29), and the generated glue of the Python and
+#57), and the generated glue of the Python and
 browser bindings (#81, #108). `everygraph-core` is expected to stay free of it.
 
 ## Rust version

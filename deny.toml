@@ -60,9 +60,8 @@ deny = [
     # is added to `wrappers` in the pull request that introduces it.
     { crate = "rayon", wrappers = ["everygraph-core"], reason = "use everygraph_core::par; only everygraph-core depends on rayon" },
     { crate = "rayon-core", wrappers = ["rayon"], reason = "use everygraph_core::par; only everygraph-core depends on rayon" },
-    # Memory maps are an I/O backend. Issue #29 allows memmap2 for everygraph-io alone,
-    # by adding `wrappers = ["everygraph-io"]` to its entry.
-    { crate = "memmap2", reason = "memory maps belong in everygraph-io, behind ByteSource (issue #29)" },
+    # Memory maps are an I/O backend: memmap2 is allowed for everygraph-io alone.
+    { crate = "memmap2", wrappers = ["everygraph-io"], reason = "memory maps belong in everygraph-io, behind ByteSource" },
     { crate = "memmap", reason = "unmaintained; memory maps belong in everygraph-io, through memmap2" },
     { crate = "mmap-rs", reason = "memory maps belong in everygraph-io, through memmap2" },
 ]
