@@ -736,10 +736,13 @@ mod tests {
     fn growth_past_a_segment_adds_one_segment_at_a_time() {
         let memory = Memory::unlimited();
         let mut vec = SegVec::<u64>::with_segment_bits(&memory, "ids", 4);
+        let mut capacities = Vec::new();
         for value in 0..16 {
             vec.try_push(value).unwrap();
+            capacities.push(vec.capacity());
         }
-        assert_eq!(vec.capacity(), 16);
+        capacities.dedup();
+        assert_eq!(capacities, [4, 8, 16], "doubling within the first segment");
         vec.try_push(16).unwrap();
         assert_eq!(vec.capacity(), 32, "not twice the memory");
         for value in 17..33 {
