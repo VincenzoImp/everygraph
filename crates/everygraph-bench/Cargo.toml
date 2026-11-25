@@ -10,5 +10,28 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[lib]
+name = "everygraph_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "everygraph-bench"
+path = "src/main.rs"
+
+[dependencies]
+# Hashes: SHA-256 is what the registry pins; MD5 only checks the sums a source publishes
+# (LAW does), so that a first download can be compared with the source's own record.
+md-5 = "0.10"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+toml = "1"
+# A blocking HTTP client. TLS through rustls with the ring provider and the operating
+# system's certificate store, loaded by rustls-native-certs. Both of ureq's built-in
+# choices of roots (`rustls`, `platform-verifier`) pull in webpki-roots or
+# webpki-root-certs, whose licence (CDLA-Permissive-2.0) is not on the deny.toml list.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+ureq = { version = "3.4", default-features = false, features = ["rustls-no-provider"] }
+
 [lints]
 workspace = true

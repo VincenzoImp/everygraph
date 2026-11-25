@@ -67,7 +67,7 @@ under the default, stricter settings.
 | `everygraph-cli` | the `everygraph` command | #98 | no |
 | `everygraph-py` | Python bindings | #81, #82 | no |
 | `everygraph-wasm` | browser bindings | #108 | yes |
-| `everygraph-bench` | the `everygraph-bench` harness | #4 | no |
+| `everygraph-bench` | the `everygraph-bench` harness; the dataset registry and fetcher (`datasets/`) | #4, #5 | no |
 
 A crate that has no content yet has no dependencies either. When a crate starts to use
 the core it adds the dependency with `default-features = false`: a library does not
