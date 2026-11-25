@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #31 (plan/issues/m2-04-arrays-accountant.md), with the program
+# lab/m2-04-segvec (`segbench`), which this spec builds:
+#
+# - `ab`: SegVec against Vec in the PageRank inner loop. One process loads the graph
+#   once per layout — `vec` (Vec), `seg` (SegVec, default segments: 1 GiB) and
+#   `seg-small` (SegVec, segments of 2^16 elements, which stands for state arrays
+#   beyond one segment, i.e. graphs above 2^28 nodes with f32 state) — then runs the
+#   layouts in turn, round after round, rotating which goes first. The metric is the
+#   median over rounds of (layout's seconds per iteration) / (vec's, same round): an
+#   interleaved A/B, robust to background load. The scope asks for `seg` within 3%.
+#   `same_ranks` must be 1: every layout computes the same ranks bit for bit.
+#   Friendster is the case where the edge array spans several segments (14 GiB of
+#   targets, 14 segments); it runs only vec and seg (two copies, about 30 GiB).
+# - `no-oom`: the memory accountant under a hard limit. The program's budget is the
+#   cgroup limit it reads through `everygraph_io::ProcMemoryProbe` minus a fixed slack
+#   of 64 MiB; it adds up its arrays first and either refuses (`refused` = 1, before
+#   anything is allocated) or runs PageRank with every array in a SegVec. Expected:
+#   lj (358 MB) refused at 256M and run above; orkut (1,003 MB) refused at 256M and
+#   512M, run at 1G (budget 960 MiB, 3 MB to spare) and 2G. No row may be `oom`; the
+#   harness's `anon_peak_bytes` next to `accountant_peak` is the untracked memory.
+#
+# Run (about 12 minutes, most of it Friendster's loading):
+#   everygraph-bench run segvec --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "segvec"
+description = "Issue #31: SegVec vs Vec in the PageRank inner loop (interleaved A/B), and the accountant under a hard memory limit"
+reference = "plan/issues/m2-04-arrays-accountant.md"
+binaries = ["{segbench}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+# The program warms up each layout itself; a separate warm-up process adds nothing.
+warmup = 0
+threads = [16]
+timeout = "20m"
+
+[vars]
+segbench = "{repo}/lab/m2-04-segvec/target/release/segbench"
+
+[[prepare]]
+name = "build-segbench"
+cwd = "{repo}/lab/m2-04-segvec"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+needed_by = ["ab", "ab-friendster", "no-oom"]
+
+[[benchmark]]
+name = "ab"
+group = "segvec-vs-vec"
+description = "PageRank with its arrays in Vec, SegVec and SegVec with small segments, interleaved in one process"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["{segbench}", "ab", "--graph", "{dataset}", "--layouts", "vec,seg,seg-small", "--rounds", "7", "--iterations", "10", "--threads", "{threads}"]
+conditions = { graph = "{graph}", kernel = "PageRank, pull, f32, 10 iterations per round, 7 rounds interleaved in one process", storage = "raw CSR (glab-csr-v0) in anonymous memory", comparison = "same binary, same process, same thread count" }
+metric = [
+  { name = "seg_over_vec", json = "/seg_over_vec" },
+  { name = "seg_small_over_vec", json = "/seg_small_over_vec" },
+  { name = "vec_s_per_iter", json = "/vec_s_per_iter", unit = "s" },
+  { name = "seg_s_per_iter", json = "/seg_s_per_iter", unit = "s" },
+  { name = "same_ranks", json = "/same_ranks" },
+]
+primary = "seg_over_vec"
+reference = [
+  { match = { graph = "lj" }, metric = "seg_over_vec", max = 1.03, source = "issue #31 scope: SegVec within 3% of Vec in the PageRank inner loop" },
+  { match = { graph = "orkut" }, metric = "seg_over_vec", max = 1.03, source = "issue #31 scope: SegVec within 3% of Vec in the PageRank inner loop" },
+]
+
+[[benchmark]]
+name = "ab-friendster"
+group = "segvec-vs-vec"
+description = "as ab, on an edge array of 14 segments; vec and seg only"
+dataset_path = "csr/friendster"
+memory_limit = "40G"
+command = ["{segbench}", "ab", "--graph", "{dataset}", "--layouts", "vec,seg", "--rounds", "3", "--iterations", "5", "--threads", "{threads}"]
+conditions = { graph = "friendster", kernel = "PageRank, pull, f32, 5 iterations per round, 3 rounds interleaved in one process", storage = "raw CSR (glab-csr-v0) in anonymous memory", comparison = "same binary, same process, same thread count" }
+metric = [
+  { name = "seg_over_vec", json = "/seg_over_vec" },
+  { name = "vec_s_per_iter", json = "/vec_s_per_iter", unit = "s" },
+  { name = "seg_s_per_iter", json = "/seg_s_per_iter", unit = "s" },
+  { name = "same_ranks", json = "/same_ranks" },
+]
+primary = "seg_over_vec"
+reference = [
+  { metric = "seg_over_vec", max = 1.03, source = "issue #31 scope: SegVec within 3% of Vec in the PageRank inner loop" },
+]
+
+[[benchmark]]
+name = "no-oom"
+group = "no-oom"
+description = "every array through the accountant, budget = cgroup limit - 64 MiB: refused before allocating, or run without an OOM kill"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], limit = ["256M", "512M", "1G", "2G"] }
+memory_limit = "{limit}"
+repetitions = 1
+command = ["{segbench}", "budget", "--graph", "{dataset}", "--slack", "67108864", "--iterations", "10", "--threads", "{threads}"]
+conditions = { graph = "{graph}", limit = "{limit}", slack = "64 MiB", budget = "limit read by ProcMemoryProbe minus the slack" }
+metric = [
+  { name = "refused", json = "/refused" },
+  { name = "needed", json = "/needed_bytes", unit = "B" },
+  { name = "budget", json = "/budget_bytes", unit = "B" },
+  { name = "accountant_peak", json = "/accountant_peak_bytes", unit = "B" },
+]
+primary = "refused"

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Measurement program of issue #31: SegVec against Vec in the PageRank inner loop, and
+# the no-OOM matrix of the memory accountant (bench/specs/segvec.toml). Not part of the
+# workspace; it builds the production core with the workspace's release settings (no
+# target-cpu=native).
+
+[package]
+name = "m204-segvec"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[[bin]]
+name = "segbench"
+path = "src/main.rs"
+
+[dependencies]
+everygraph-core = { path = "../../crates/everygraph-core" }
+everygraph-io = { path = "../../crates/everygraph-io" }
+rayon = "1.10"
+
+[workspace]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

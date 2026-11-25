@@ -106,7 +106,9 @@ What the three scripts at the end of "Checks" are for:
   runs the check the probe names, and fails unless that check fails with the message
   the probe expects. A check that has quietly stopped checking — `clippy.toml` moved,
   a list entry deleted, an allow-list widened — is caught this way. A new way around the
-  rule gets a probe in the pull request that closes it.
+  rule gets a probe in the pull request that closes it. The probes under
+  `tools/canary/allocation/` do the same for the allocation rule (below) in each kernel
+  crate.
 - **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
   through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
   as wasm32 in Node, and compares the hashes. Real kernels replace it with the
@@ -124,8 +126,8 @@ describing it).
 
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
-| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant interface; later segmentable arrays | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks | #29 | no — the one crate for OS I/O |
+| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks; the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31 | no — the one crate for OS I/O |
 | `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
@@ -196,6 +198,29 @@ allowed to wait. Code in the core must not block; today nothing verifies it.
 The rule is enforced for `everygraph-core` only. Clippy reads the `clippy.toml` nearest
 to the crate it checks, so the lists do not apply to `everygraph-io` or to any other
 crate (see "Crates").
+
+## The allocation rule
+
+Every large buffer is reserved against the user's memory budget before it is allocated
+(DESIGN D11; issue #31). Code that allocates takes a `Memory` handle and holds memory
+through the types of `everygraph-core` that own both the buffer and its reservation:
+`SegVec` for arrays (growth reserves first; segments of at most 1 GiB, for wasm32),
+`ScratchPool` for per-thread scratch (one buffer per chunk that can run at once, the
+plan's thread count), and a `Reservation` kept next to anything else (a hash table) —
+sized by the caller, so it is the last resort. A refusal is a typed error
+(`MemoryError::Budget` carrying `InsufficientBudget { needed, available }`), never an
+abort. A plan adds up the sizes first (`SegVec::<T>::bytes_for`, in `u64`) so that a
+kernel is refused before it allocates anything.
+
+In the kernel crates (`everygraph-kernels`, `everygraph-community`, `everygraph-map`,
+`everygraph-query`) a `clippy.toml` disallows the ways of sizing a buffer directly —
+`Vec::with_capacity`, `reserve`, `resize`, `vec![x; n]`, `HashMap::with_capacity` and
+the like — and each crate root forbids the lint, so it cannot be allowed locally. The
+four lists are identical; `tools/check_portability_canary.py` checks that each still
+catches every entry. What no lint sees: growth through `push`, `extend` and `collect`.
+Small vectors use those; a large one is a review finding, and the no-OOM tests
+(#53) measure what was missed. `everygraph-ingest` and `everygraph-format` join the
+rule once their first pull requests (#30, #32–#35) are in.
 
 ## Integers
 
