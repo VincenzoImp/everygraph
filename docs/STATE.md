@@ -18,7 +18,9 @@ Updated at the end of every session. Read this first.
 
 Started 2026-11-25, after the owner approved the design previews (#119 closed, PR #120 merged):
 
-- **#2 workspace** — implementer agent in its own worktree, branch `m0-01-workspace`.
+- **#2 workspace** — PR #123 open (12 crates; `everygraph-core` with id types, `ByteSource`,
+  parallel facade, accountant interface; 29 tests). Under independent review. Known gap:
+  Miri cannot run the rayon tests under Stacked Borrows (fault inside `crossbeam-epoch`).
 - **#118 compressed storage end to end** (M1) — experimenter agent, branch
   `lab-m1-13-compressed-end-to-end`. It has the machine for measurements; nothing else may
   benchmark until it reports.

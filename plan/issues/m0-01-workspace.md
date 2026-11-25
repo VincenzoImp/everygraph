@@ -7,7 +7,7 @@ labels: type:infra, area:foundations, P0, risk:low, size:M
 
 **Scope**
 - [ ] Workspace with `everygraph-core`, `everygraph-io`, `everygraph-format`, `everygraph-ingest`, `everygraph-kernels`, `everygraph-community`, `everygraph-map`, `everygraph-query`, `everygraph-cli`, `everygraph-py`, `everygraph-wasm`, `everygraph-bench`
-- [ ] `everygraph-core` must not use `std::fs`, `std::thread` or mmap — enforced by clippy `disallowed-types`/`disallowed-methods` and by the wasm32 build in CI (Rust has no `forbid` attribute for this); it holds `NodeId`, `EdgeOffset`, the `ByteSource` trait, the parallel facade (rayon optional feature), the memory accountant interface and segmentable arrays
+- [ ] `everygraph-core` must not use `std::fs`, `std::thread` or mmap — enforced by clippy `disallowed-types`/`disallowed-methods` and by the wasm32 build in CI (Rust has no `forbid` attribute for this); it holds `NodeId`, `EdgeOffset`, the `ByteSource` trait, the parallel facade (rayon optional feature) and the memory accountant interface (segmentable arrays and the accountant's implementation belong to {{#m2-04-arrays-accountant}})
 - [ ] MSRV policy (stable Rust for everything except the threaded wasm build, which needs a pinned nightly)
 - [ ] `unsafe` policy: allowed only in named modules, each with a safety comment and a Miri test
 - [ ] Release profile (`lto = "fat"`, `codegen-units = 1`); **no** `target-cpu=native` in shipped builds — runtime CPU-feature dispatch instead (the lab used `native`)
