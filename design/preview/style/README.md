@@ -19,9 +19,9 @@ on GitHub. To browse the pages themselves, clone the repository and open
 
 ## At a glance
 
-![](../screens/g-full-index-light.png)
+![](../screens/g-full-index-light.webp)
 
-[The same page in the dark theme](../screens/g-full-index-dark.png)
+[The same page in the dark theme](../screens/g-full-index-dark.webp)
 
 ## The viewer
 
@@ -29,149 +29,149 @@ The product's main screen, fully in the style ([`viewer.html`](viewer.html), nav
 
 | The whole graph | A region selected |
 |---|---|
-| ![](../screens/s-21-viewer-04-overview-dark.png) | ![](../screens/s-21-viewer-08-region-selected.png) |
+| ![](../screens/s-21-viewer-04-overview-dark.webp) | ![](../screens/s-21-viewer-08-region-selected.webp) |
 
 | One address and its links | A path between two addresses |
 |---|---|
-| ![](../screens/s-21-viewer-09-node-links.png) | ![](../screens/s-21-viewer-11-path.png) |
+| ![](../screens/s-21-viewer-09-node-links.webp) | ![](../screens/s-21-viewer-11-path.webp) |
 
 | Light theme | "Cells" style, light |
 |---|---|
-| ![](../screens/s-21-viewer-05-overview-light.png) | ![](../screens/s-21-viewer-07-cells-light.png) |
+| ![](../screens/s-21-viewer-05-overview-light.webp) | ![](../screens/s-21-viewer-07-cells-light.webp) |
 
-More states: [first open](../screens/s-21-viewer-01-first-open.png) ·
-[plan before starting](../screens/s-21-viewer-02-preflight.png) ·
-[progress](../screens/s-21-viewer-03-progress.png) ·
-[cells, dark](../screens/s-21-viewer-06-cells-dark.png) ·
-[search](../screens/s-21-viewer-10-search.png) ·
-[path avoiding hubs](../screens/s-21-viewer-12-path-avoiding-hubs.png) ·
-[time window](../screens/s-21-viewer-13-time-window.png) ·
-[colour by attribute](../screens/s-21-viewer-14-colour-by-attribute.png) ·
-[colour by metric](../screens/s-21-viewer-15-colour-by-metric.png) ·
-[share](../screens/s-21-viewer-16-share-dialog.png) ·
-[about this map](../screens/s-21-viewer-17-about-this-map.png) ·
-[compact](../screens/s-21-viewer-18-compact.png) ·
-[narrow window](../screens/s-21-viewer-19-narrow-1024x700.png) ·
-[one colour per region](../screens/s-21-viewer-20-region-colours-one-per-region.png)
+More states: [first open](../screens/s-21-viewer-01-first-open.webp) ·
+[plan before starting](../screens/s-21-viewer-02-preflight.webp) ·
+[progress](../screens/s-21-viewer-03-progress.webp) ·
+[cells, dark](../screens/s-21-viewer-06-cells-dark.webp) ·
+[search](../screens/s-21-viewer-10-search.webp) ·
+[path avoiding hubs](../screens/s-21-viewer-12-path-avoiding-hubs.webp) ·
+[time window](../screens/s-21-viewer-13-time-window.webp) ·
+[colour by attribute](../screens/s-21-viewer-14-colour-by-attribute.webp) ·
+[colour by metric](../screens/s-21-viewer-15-colour-by-metric.webp) ·
+[share](../screens/s-21-viewer-16-share-dialog.webp) ·
+[about this map](../screens/s-21-viewer-17-about-this-map.webp) ·
+[compact](../screens/s-21-viewer-18-compact.webp) ·
+[narrow window](../screens/s-21-viewer-19-narrow-1024x700.webp) ·
+[one colour per region](../screens/s-21-viewer-20-region-colours-one-per-region.webp)
 
 ## Foundations
 
 **The mark** — construction, sizes, the small cut, what never to do.
 
-![](../screens/g-foundations-01-mark.png)
+![](../screens/g-foundations-01-mark.webp)
 
 **Colour** — every value with its measured contrast.
 
-![](../screens/g-foundations-03-colour.png)
+![](../screens/g-foundations-03-colour.webp)
 
 **Type**
 
-![](../screens/g-foundations-04-type.png)
+![](../screens/g-foundations-04-type.webp)
 
-Also: [wordmark and lockups](../screens/g-foundations-02-wordmark.png) ·
-[space and layout](../screens/g-foundations-05-space.png) ·
-[shape, borders, elevation](../screens/g-foundations-06-shape.png) ·
-[motion](../screens/g-foundations-07-motion.png) ·
-[icons](../screens/g-foundations-08-icons.png) ·
-[accessibility summary](../screens/g-foundations-09-a11y.png)
+Also: [wordmark and lockups](../screens/g-foundations-02-wordmark.webp) ·
+[space and layout](../screens/g-foundations-05-space.webp) ·
+[shape, borders, elevation](../screens/g-foundations-06-shape.webp) ·
+[motion](../screens/g-foundations-07-motion.webp) ·
+[icons](../screens/g-foundations-08-icons.webp) ·
+[accessibility summary](../screens/g-foundations-09-a11y.webp)
 
 ## Components
 
 Every component in all its states, light and dark side by side.
 
-![](../screens/g-components-01-actions.png)
+![](../screens/g-components-01-actions.webp)
 
-![](../screens/g-components-07-data.png)
+![](../screens/g-components-07-data.webp)
 
 **A whole panel assembled from the components**
 
-![](../screens/g-components-08-assembled.png)
+![](../screens/g-components-08-assembled.webp)
 
-Also: [inputs](../screens/g-components-02-inputs.png) ·
-[tags, keys, tooltips](../screens/g-components-03-small.png) ·
-[menus, dialogs, toasts](../screens/g-components-04-overlays.png) ·
-[progress, loading, empty states](../screens/g-components-05-waiting.png) ·
-[pagination, breadcrumb, disclosure](../screens/g-components-06-nav.png)
+Also: [inputs](../screens/g-components-02-inputs.webp) ·
+[tags, keys, tooltips](../screens/g-components-03-small.webp) ·
+[menus, dialogs, toasts](../screens/g-components-04-overlays.webp) ·
+[progress, loading, empty states](../screens/g-components-05-waiting.webp) ·
+[pagination, breadcrumb, disclosure](../screens/g-components-06-nav.webp)
 
 ## Data and map
 
 **The palette, measured** (including for colour-blind readers)
 
-![](../screens/g-data-01-s1.png)
+![](../screens/g-data-01-s1.webp)
 
 **How regions are coloured** — the one open question with real consequences
 
-![](../screens/g-data-02-s2.png)
+![](../screens/g-data-02-s2.webp)
 
 **Anatomy of the map**
 
-![](../screens/g-data-04-s4.png)
+![](../screens/g-data-04-s4.webp)
 
-Also (light · dark): scales [l](../screens/g-data-03-s3.png) · [d](../screens/g-data-03-s3-dark.png) ·
-zoom levels [l](../screens/g-data-05-s5.png) · [d](../screens/g-data-05-s5-dark.png) ·
-states of the map [l](../screens/g-data-06-s6.png) · [d](../screens/g-data-06-s6-dark.png) ·
-labels [l](../screens/g-data-07-s7.png) · [d](../screens/g-data-07-s7-dark.png) ·
-small charts [l](../screens/g-data-08-s8.png) · [d](../screens/g-data-08-s8-dark.png) ·
-result tables [l](../screens/g-data-09-s9.png) · [d](../screens/g-data-09-s9-dark.png) ·
-palette, dark [d](../screens/g-data-01-s1-dark.png) · anatomy, dark [d](../screens/g-data-04-s4-dark.png)
+Also (light · dark): scales [l](../screens/g-data-03-s3.webp) · [d](../screens/g-data-03-s3-dark.webp) ·
+zoom levels [l](../screens/g-data-05-s5.webp) · [d](../screens/g-data-05-s5-dark.webp) ·
+states of the map [l](../screens/g-data-06-s6.webp) · [d](../screens/g-data-06-s6-dark.webp) ·
+labels [l](../screens/g-data-07-s7.webp) · [d](../screens/g-data-07-s7-dark.webp) ·
+small charts [l](../screens/g-data-08-s8.webp) · [d](../screens/g-data-08-s8-dark.webp) ·
+result tables [l](../screens/g-data-09-s9.webp) · [d](../screens/g-data-09-s9-dark.webp) ·
+palette, dark [d](../screens/g-data-01-s1-dark.webp) · anatomy, dark [d](../screens/g-data-04-s4-dark.webp)
 
 ## Web and docs
 
 **Landing page**
 
-![](../screens/g-full-landing-light.png)
+![](../screens/g-full-landing-light.webp)
 
-[Dark](../screens/g-full-landing-dark.png) ·
-[on a phone](../screens/s-30-web-03b-landing-mobile-sheet.png) ·
-[documentation page](../screens/g-full-docs-light.png)
+[Dark](../screens/g-full-landing-dark.webp) ·
+[on a phone](../screens/s-30-web-03b-landing-mobile-sheet.webp) ·
+[documentation page](../screens/g-full-docs-light.webp)
 
 The guide's sections for the web, in order:
-[1](../screens/g-web-01-section.png) · [2](../screens/g-web-02-section.png) ·
-[3](../screens/g-web-03-section.png) · [4](../screens/g-web-04-section.png) ·
-[5](../screens/g-web-05-section.png) · [6](../screens/g-web-06-section.png) ·
-[7](../screens/g-web-07-section.png) · [8](../screens/g-web-08-section.png)
+[1](../screens/g-web-01-section.webp) · [2](../screens/g-web-02-section.webp) ·
+[3](../screens/g-web-03-section.webp) · [4](../screens/g-web-04-section.webp) ·
+[5](../screens/g-web-05-section.webp) · [6](../screens/g-web-06-section.webp) ·
+[7](../screens/g-web-07-section.webp) · [8](../screens/g-web-08-section.webp)
 (landing, documentation, API reference, search, 404, changelog, README header, social card and slide)
 
 ## Terminal
 
 **One transcript three ways**: colour, no colour, ASCII only.
 
-![](../screens/g-terminal-01-three.png)
+![](../screens/g-terminal-01-three.webp)
 
 **When it refuses, errs or warns**
 
-![](../screens/g-terminal-08-refusals.png)
+![](../screens/g-terminal-08-refusals.webp)
 
-Also: [colours](../screens/g-terminal-02-colour.png) ·
-[symbols and fallbacks](../screens/g-terminal-03-symbols.png) ·
-[progress and alignment](../screens/g-terminal-04-anatomy.png) ·
-[help](../screens/g-terminal-05-help.png) ·
-[from a file to a map](../screens/g-terminal-06-file-to-map.png) ·
-[questions, info, doctor](../screens/g-terminal-07-questions.png) ·
-[interrupt and resume](../screens/g-terminal-09-interrupt.png) ·
-[for scripts](../screens/g-terminal-10-scripts.png) ·
-[on other terminals](../screens/g-terminal-11-light.png)
+Also: [colours](../screens/g-terminal-02-colour.webp) ·
+[symbols and fallbacks](../screens/g-terminal-03-symbols.webp) ·
+[progress and alignment](../screens/g-terminal-04-anatomy.webp) ·
+[help](../screens/g-terminal-05-help.webp) ·
+[from a file to a map](../screens/g-terminal-06-file-to-map.webp) ·
+[questions, info, doctor](../screens/g-terminal-07-questions.webp) ·
+[interrupt and resume](../screens/g-terminal-09-interrupt.webp) ·
+[for scripts](../screens/g-terminal-10-scripts.webp) ·
+[on other terminals](../screens/g-terminal-11-light.webp)
 
 ## Notebook
 
-![](../screens/g-full-notebook-light.png)
+![](../screens/g-full-notebook-light.webp)
 
-[Dark](../screens/g-full-notebook-dark.png) ·
-[states](../screens/g-notebook-04-states.png) ·
-[the same objects as plain text](../screens/g-notebook-05-text.png)
+[Dark](../screens/g-full-notebook-dark.webp) ·
+[states](../screens/g-notebook-04-states.webp) ·
+[the same objects as plain text](../screens/g-notebook-05-text.webp)
 
 ## Figures and export
 
 **A map as a figure for a paper** — black, white and data colours only, caption included.
 
-![](../screens/g-export-01-map-figure.png)
+![](../screens/g-export-01-map-figure.webp)
 
-Also: [charts](../screens/g-export-02-charts.png) ·
-[the page a recipient sees](../screens/g-export-03-shared.png) ·
-[embedded in an article](../screens/g-export-04-embed.png) ·
-[how to cite](../screens/g-export-05-cite.png) ·
-[file icons](../screens/g-export-06-files.png) ·
-[message preview](../screens/g-export-07-message.png)
+Also: [charts](../screens/g-export-02-charts.webp) ·
+[the page a recipient sees](../screens/g-export-03-shared.webp) ·
+[embedded in an article](../screens/g-export-04-embed.webp) ·
+[how to cite](../screens/g-export-05-cite.webp) ·
+[file icons](../screens/g-export-06-files.webp) ·
+[message preview](../screens/g-export-07-message.webp)
 
 ---
 
