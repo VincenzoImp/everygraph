@@ -85,6 +85,14 @@ impl<'a> DenseBits<'a> {
         Ok(())
     }
 
+    /// Number of words [`DenseBits::into_words`] allocates (at most).
+    pub(crate) fn word_len(&self) -> usize {
+        self.segments
+            .iter()
+            .rposition(|s| s.get().is_some_and(|w| !w.is_empty()))
+            .map_or(0, |last| (last + 1) * SEGMENT_WORDS)
+    }
+
     /// The bitmap as words, up to the last one with a bit set.
     pub(crate) fn into_words(self) -> Vec<u64> {
         let last = self

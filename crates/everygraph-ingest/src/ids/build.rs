@@ -592,6 +592,8 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             part_bits,
             ..Mphf::default()
         };
+        // The hash function is kept in memory by the dictionary: reserved as it grows.
+        let mut resident = Reservation::new(self.accountant, "id dictionary hash function", 0)?;
         let mut unit_base: Vec<u32> = Vec::with_capacity(units + 1);
         let mut total = 0_u64;
         let _bucket_buffers = Reservation::new(
@@ -619,9 +621,11 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
                 unit_base.push(u32::try_from(total).map_err(|_| super::too_many_nodes(total))?);
                 total += u64::from(out.n);
                 check_node_count(total)?;
+                let before = mphf.bytes();
                 for p in &out.parts {
                     mphf.push(p);
                 }
+                resident.grow(mphf.bytes() - before)?;
                 for (r, bytes) in out.buckets.iter().enumerate() {
                     bucket_spills[r].write(bytes)?;
                     bucket_counts[r] += out.counts[r];
@@ -749,8 +753,6 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             part_bits,
             parts: u32::try_from(mphf.parts.len()).expect("at most 2^16 parts"),
         };
-        let resident =
-            Reservation::new(self.accountant, "id dictionary hash function", mphf.bytes())?;
         out.finish(
             self.scratch,
             header,
@@ -902,13 +904,14 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
     }
 
     fn build_dense(self) -> Result<Dictionary<'a, Sc::Source>, DictionaryError> {
-        let words = self.dense.expect("dense path").into_words();
+        let bits = self.dense.expect("dense path");
+        // The rank bitmap is a copy of the segments, made while they still exist.
         let resident = Reservation::new(
             self.accountant,
             "id dictionary dense bitmap",
-            RankBitmap::bytes(words.len()),
+            RankBitmap::bytes(bits.word_len()),
         )?;
-        let bitmap = RankBitmap::new(words)?;
+        let bitmap = RankBitmap::new(bits.into_words())?;
         let header = Header {
             kind: self.kind,
             column: self.column,

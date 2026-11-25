@@ -255,12 +255,20 @@ impl<W: std::io::Write + Send> SectionWriters<W> {
             }
             put(Sec::Parts, Some(bytes_section(&parts)?))?;
             put(Sec::Pilots, Some(bytes_section(&m.pilots)?))?;
-            let remap: Vec<u8> = m.remap.iter().flat_map(|r| r.to_le_bytes()).collect();
-            put(Sec::Remap, Some(bytes_section(&remap)?))?;
+            let mut remap = Spill::new(scratch, "id dictionary section")?;
+            for chunk in m.remap.chunks(1 << 14) {
+                let bytes: Vec<u8> = chunk.iter().flat_map(|r| r.to_le_bytes()).collect();
+                remap.write(&bytes)?;
+            }
+            put(Sec::Remap, Some(remap))?;
         }
         if let Some(d) = &dense {
-            let words: Vec<u8> = d.words().iter().flat_map(|w| w.to_le_bytes()).collect();
-            put(Sec::Dense, Some(bytes_section(&words)?))?;
+            let mut words = Spill::new(scratch, "id dictionary section")?;
+            for chunk in d.words().chunks(1 << 13) {
+                let bytes: Vec<u8> = chunk.iter().flat_map(|w| w.to_le_bytes()).collect();
+                words.write(&bytes)?;
+            }
+            put(Sec::Dense, Some(words))?;
         }
         let (slot_sec, slot_off_sec) = match self.layout {
             Layout::Split => (Sec::SlotToId, Sec::RecordOffsets),
