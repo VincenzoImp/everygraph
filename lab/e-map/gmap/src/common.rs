@@ -16,15 +16,45 @@ pub fn write_slice<T: Copy>(path: &str, v: &[T]) {
     let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * std::mem::size_of::<T>()) };
     f.write_all(bytes).unwrap();
 }
+/// An array read into the heap (the lab's default) or memory-mapped from its file.
+pub enum Arr<T> {
+    Heap(Vec<T>),
+    Map(memmap2::Mmap, std::marker::PhantomData<T>),
+}
+impl<T: Copy + Default> Arr<T> {
+    /// `GMAP_LOAD=mmap` maps the file read-only (added for issue #15, the tracer bullet,
+    /// to tell the graph's own footprint from the stage's); anything else reads it into
+    /// the heap, as experiment E did.
+    pub fn load(path: &str) -> Arr<T> {
+        if std::env::var("GMAP_LOAD").as_deref() == Ok("mmap") {
+            let f = File::open(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+            let m = unsafe { memmap2::Mmap::map(&f) }.unwrap_or_else(|e| panic!("{path}: {e}"));
+            assert_eq!(m.len() % std::mem::size_of::<T>(), 0);
+            assert_eq!(m.as_ptr() as usize % std::mem::align_of::<T>(), 0);
+            Arr::Map(m, std::marker::PhantomData)
+        } else {
+            Arr::Heap(read_vec(path))
+        }
+    }
+}
+impl<T> std::ops::Deref for Arr<T> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        match self {
+            Arr::Heap(v) => v,
+            Arr::Map(m, _) => unsafe { std::slice::from_raw_parts(m.as_ptr() as *const T, m.len() / std::mem::size_of::<T>()) },
+        }
+    }
+}
 pub struct Csr {
     pub n: usize,
-    pub off: Vec<u64>,
-    pub tgt: Vec<u32>,
+    pub off: Arr<u64>,
+    pub tgt: Arr<u32>,
 }
 impl Csr {
     pub fn load(dir: &str) -> Csr {
-        let off: Vec<u64> = read_vec(&format!("{dir}/offsets.u64"));
-        let tgt: Vec<u32> = read_vec(&format!("{dir}/targets.u32"));
+        let off: Arr<u64> = Arr::load(&format!("{dir}/offsets.u64"));
+        let tgt: Arr<u32> = Arr::load(&format!("{dir}/targets.u32"));
         Csr { n: off.len() - 1, off, tgt }
     }
     #[inline]

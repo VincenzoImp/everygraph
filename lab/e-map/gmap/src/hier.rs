@@ -68,8 +68,8 @@ pub fn run() {
     let mut cap = argf(&a, "cap", 48.0) as u32;
     let mult = argf(&a, "mult", 24.0) as u32;
     let mut n = csr.n;
-    let mut off = csr.off.clone();
-    let mut tgt = csr.tgt.clone();
+    let mut off = csr.off.to_vec();
+    let mut tgt = csr.tgt.to_vec();
     let mut w: Option<Vec<u32>> = None;
     let mut size = vec![1u32; n];
     let mut levels = vec![];
