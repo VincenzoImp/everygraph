@@ -84,19 +84,53 @@ own.
 
 ## CI
 
-GitHub Actions, two workflows under `.github/workflows/`. The repository is private and
-its Actions minutes are counted (macOS ten-fold, Windows two-fold), which is why the
-expensive platforms do not run on every push.
+GitHub Actions, two workflows under `.github/workflows/`, on GitHub-hosted runners.
+While the repository is private, Actions minutes are counted against the account's
+monthly quota, each job rounded up to a whole minute (macOS ten-fold, Windows two-fold);
+once it is public, standard runners are free. Either way the queue is shared by every
+agent's pull request, so on a pull request the expensive jobs run only when it changed
+what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the three wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the four Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
-| `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the wasm toy, the portability canary; plus the release build when a manifest changed, the core's tests natively on i686 when the core did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the four Miri commands, then `check_tsan.py`. All on Linux x86_64 |
+| `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
+
+Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
+in the lint job, from `git diff` of GitHub's merge commit against its base (run it
+locally with `--base main` to see what your branch would run):
+
+| Job | Runs on a pull request when it changes |
+|---|---|
+| lint, test | always |
+| sanitizers (Miri, ThreadSanitizer), and the i686 tests in test | `crates/everygraph-core/`, a module of the `unsafe` table below, `tools/nightly-toolchain`, `tools/check_tsan.py`, `tools/canary/tsan/` |
+| oracle, and the oracle crate's tests in test | `crates/everygraph-oracle/`, `oracle/`, the kernel crates (`everygraph-kernels`, `-community`, `-map`), `datasets/`, `crates/everygraph-bench/src/datasets/` |
+| msrv, and the release build in test | any `Cargo.toml` (`rust-version`, dependencies, profiles), `Cargo.lock`, a `rust-toolchain` file |
+| everything | anything under `.github/`, or the pull request has the label **`full-ci`** |
+
+Everything also runs on every push to `main`, and nightly unless `main`'s last commit
+already passed a full run (then only lint, which hears of new advisories and of a new
+stable toolchain). So nothing merged goes unchecked by any job for more than a day. What
+a pull request may therefore leave to `main`: a newer *language* feature below the MSRV
+in a change that touched no manifest (newer *std* APIs are caught on every run by
+clippy's `incompatible_msrv`), a dependency bump in `Cargo.lock` that changes the core's
+behaviour under Miri, and anything a kernel change breaks in the oracle's Python suite
+through a crate not listed above. The coordinator adds `full-ci` to every Tier 2 pull
+request (CLAUDE.md § 4) before merging it. The test job runs even when lint fails, so
+that a red pull request still gets its test results; the conditional jobs wait for lint
+to pass.
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
 (and `astral-sh/setup-uv`'s cache of the oracle's Python packages) are written by runs on `main` and read by every branch. Third-party actions are pinned
 to a commit, with the version in a comment; workflows get `contents: read` and nothing
-else.
+else (the lint job also reads Actions runs, for the nightly check).
+
+**Push when the branch is ready for CI, not after every commit.** Every push to an open
+pull request starts a run, which costs minutes while the repository is private and
+takes a place in the queue every agent shares, even when the next push cancels it. Run
+the checks of the crates you touched locally ("Checks"), commit as often as you like,
+and push once the branch is ready to be checked — or push to a branch without a pull
+request, which starts nothing.
 
 What the three scripts at the end of "Checks" are for:
 
@@ -255,8 +289,12 @@ To add one, in a single pull request:
    on, and one unsafe operation per block (`undocumented_unsafe_blocks` and
    `multiple_unsafe_ops_per_block` are `deny`).
 4. Add tests that reach every `unsafe` block and pass under `cargo +nightly miri test`.
-5. Add the module to the table above. The pull request gets the independent review
-   that CLAUDE.md § 4 requires for `unsafe` code.
+5. Add the module to the table above, written in backticks as its path
+   (`` `crates/everygraph-io/src/sys.rs` ``, a directory ending in `/`) or as the crate
+   followed by the path inside it (`` `everygraph-io`, `src/sys.rs` ``): CI reads that
+   column to run the sanitizers job when the module changes. If the module is outside
+   the core, add its Miri run to that job in `ci.yml`. The pull request gets the independent review that CLAUDE.md § 4
+   requires for `unsafe` code.
 
 Where we expect to need it, from the lab prototypes: SIMD in the adjacency codec (#30),
 disjoint parallel writes into shared arrays in the build pipeline and in Leiden (#35,

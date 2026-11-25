@@ -1,36 +1,56 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# Continuous integration on Linux x86_64: every pull request, every push to main.
+# Continuous integration on Linux x86_64: every pull request, every push to main, nightly.
 # Each step is a command of CONTRIBUTING.md ("Checks" and "CI"), so that anything that
 # fails here can be reproduced locally with the same command.
 #
-# Cost: the repository is private and Actions minutes are counted. So: Linux only here
-# (macOS and Windows run weekly, in other-platforms.yml); superseded runs of a pull
-# request are cancelled; documentation-only changes do not start the workflow; and the
-# caches are written by main only, read by every branch.
+# Cost: while the repository is private, Actions minutes are counted, each job rounded
+# up to a whole minute; once it is public, standard runners are free but the queue is
+# still shared by every agent's pull request. So:
+# - Linux x86_64 only here (macOS, Windows and Linux aarch64 are in other-platforms.yml);
+# - on a pull request, `lint` and `test` always run, and the expensive jobs only when
+#   the pull request changed what they check: the `lint` job's first step,
+#   .github/scripts/ci_changes.py, decides from `git diff` of the merge commit and
+#   exposes the flags. The label `full-ci` runs everything;
+# - every push to main runs everything, and so does a nightly run unless main's last
+#   commit already passed a full run (then only `lint`, for new advisories and a new
+#   stable toolchain);
+# - small checks share a job instead of paying a job's minimum each;
+# - superseded runs of a pull request are cancelled; documentation-only changes do not
+#   start the workflow; the caches are written by main only, read by every branch.
 
 name: CI
 
 on:
   pull_request:
+    # `labeled`: adding `full-ci` starts a full run; other labels start nothing.
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore: &docs-only
       - "**.md"
       - "docs/**"
       - "plan/**"
       - "design/**"
       - "lab/**"
+      - "bench/results/**"
       - "LICENSE*"
   push:
     branches: [main]
     paths-ignore: *docs-only
+  schedule:
+    # 03:41 UTC (off the hour, when scheduled runs are less often delayed).
+    - cron: "41 3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
   # A new push to a pull request cancels the run it supersedes; runs on main all finish.
+  # A label other than full-ci gets a group of its own, so that it cancels nothing.
+  group: >-
+    ${{ github.workflow }}-${{ github.ref }}${{
+    github.event.action == 'labeled' && github.event.label.name != 'full-ci'
+    && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -40,13 +60,42 @@ env:
 
 jobs:
   lint:
-    name: Format, lint, portability rule, dependency policy, docs
+    name: Changes, format, lint, portability rule, dependency policy, docs
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # The nightly run asks whether main's commit already passed.
+      actions: read
+    outputs:
+      core: ${{ steps.changes.outputs.core }}
+      oracle: ${{ steps.changes.outputs.oracle }}
+      msrv: ${{ steps.changes.outputs.msrv }}
+      full: ${{ steps.changes.outputs.full }}
+      test: ${{ steps.changes.outputs.test }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The merge commit and its parents: enough for `git diff HEAD^1 HEAD`.
+          fetch-depth: 2
+      - name: Already checked? (nightly run only)
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success" --jq .total_count)"
+          echo "successful push runs of $GITHUB_SHA: $n"
+          if [ "$n" != "0" ]; then echo "ALREADY_CHECKED=1" >> "$GITHUB_ENV"; fi
+      - name: Which jobs this run needs
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          python3 .github/scripts/ci_changes.py
+          if [ "${ALREADY_CHECKED:-}" = 1 ]; then echo "test=false" >> "$GITHUB_OUTPUT"; else echo "test=true" >> "$GITHUB_OUTPUT"; fi
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt --target i686-unknown-linux-gnu
@@ -76,7 +125,7 @@ jobs:
         run: python3 tools/check_core_portability.py
       # The advisory database is fetched from the network on every run (the runner has
       # it): a newly published advisory against a dependency fails the next run, which
-      # is the point. The weekly workflow runs it too, so main hears of one without a push.
+      # is the point; the nightly run hears of one without a push.
       - name: cargo deny
         run: cargo deny --locked check
       - name: cargo doc
@@ -84,8 +133,13 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --locked
 
+  # Runs even when lint failed (its flags are set by then), because test results are the
+  # feedback a red pull request needs most. The portability checks live here: their work
+  # is seconds, and a job of their own cost a whole billed minute every run.
   test:
-    name: Tests and release build
+    name: Tests, wasm32 builds, wasm toy, portability canary (release build, i686 when needed)
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.test == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -94,33 +148,58 @@ jobs:
           persist-credentials: false
       - name: Install stable Rust
         run: |
-          rustup toolchain install stable --profile minimal
+          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
           rustup default stable
           rustc --version
+          node --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152
+      # The oracle's own tests (its seeded-bug tests take ~90 s of the two cores) run
+      # when the oracle job does: the oracle crate has no workspace dependency, so only
+      # its own files can break them, and those switch the oracle flag on.
       - name: cargo nextest (workspace)
-        run: cargo nextest run --workspace --locked
+        env:
+          EXCLUDE: ${{ needs.lint.outputs.oracle != 'true' && '--exclude everygraph-oracle' || '' }}
+        run: cargo nextest run --workspace $EXCLUDE --locked
       - name: Doc tests (nextest does not run them)
         run: cargo test --workspace --doc --locked
       - name: cargo test (core, no default features)
         run: cargo test -p everygraph-core --no-default-features --locked
+      - name: wasm32 build (core, no default features)
+        run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
+      - name: wasm32 build (everygraph-ingest)
+        run: cargo build -p everygraph-ingest --target wasm32-unknown-unknown --locked
+      - name: wasm32 build (everygraph-wasm)
+        run: cargo build -p everygraph-wasm --target wasm32-unknown-unknown --locked
+      - name: Toy kernel, native and wasm32 in Node, same hash
+        run: python3 tools/check_wasm_toy.py
+      # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
+      # fails if any probe is accepted.
+      - name: Portability canary
+        run: python3 tools/check_portability_canary.py
+      # The release profile (fat LTO) is a minute of compilation and checks what a
+      # manifest or a profile can break: on main, nightly, full-ci, and when a manifest
+      # changed.
       - name: Release build
+        if: needs.lint.outputs.msrv == 'true'
         run: cargo build --workspace --release --locked
       # Native tests with a 32-bit usize, with and without rayon (Miri covers the same
       # tests without rayon, slowly). Linking for i686 needs the 32-bit C runtime.
       - name: Install the i686 target and gcc-multilib
+        if: needs.lint.outputs.core == 'true'
         run: |
           rustup target add i686-unknown-linux-gnu
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends gcc-multilib
       - name: cargo test (core, i686)
+        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --locked
       - name: cargo test (core, i686, no default features)
+        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
 
   # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
@@ -130,6 +209,8 @@ jobs:
   # and the packages are cached, written by main only.
   oracle:
     name: Correctness oracle (references, seeded bugs, golden files)
+    needs: lint
+    if: needs.lint.outputs.oracle == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -162,44 +243,20 @@ jobs:
           ORACLE_MEMORY_GIB: "2"
         run: oracle/run-ci.sh
 
-  portability:
-    name: wasm32 build, wasm toy in Node, portability canary
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
-          rustup default stable
-          rustc --version
-          node --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: wasm32 build (core, no default features)
-        run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
-      - name: wasm32 build (everygraph-ingest)
-        run: cargo build -p everygraph-ingest --target wasm32-unknown-unknown --locked
-      - name: wasm32 build (everygraph-wasm)
-        run: cargo build -p everygraph-wasm --target wasm32-unknown-unknown --locked
-      - name: Toy kernel, native and wasm32 in Node, same hash
-        run: python3 tools/check_wasm_toy.py
-      # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
-      # fails if any probe is accepted.
-      - name: Portability canary
-        run: python3 tools/check_portability_canary.py
-
   # Placeholder, not a job: the threaded browser build arrives with issue #108. It needs
   # the nightly named in tools/nightly-toolchain with rust-src, `-Z build-std=panic_abort,std`,
   # RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals" and the explicit
   # linker flags `--shared-memory --import-memory --max-memory=…` (FINDINGS § G), and a
   # browser or Node run with SharedArrayBuffer. Add it here as a job when #108 lands.
 
+  # On a pull request only when a manifest changed (rust-version, a dependency, a new
+  # crate). Newer *std* APIs are caught on every run anyway by clippy's
+  # `incompatible_msrv` lint, which reads rust-version; newer *language* features are
+  # caught on main and nightly.
   msrv:
     name: Minimum supported Rust (1.87)
+    needs: lint
+    if: needs.lint.outputs.msrv == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -212,18 +269,30 @@ jobs:
         with:
           key: msrv
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      # nextest, so that the retries of .config/nextest.toml apply here too; it does not
+      # run doc tests, hence the second command.
       - name: cargo +1.87 test
-        run: cargo +1.87 test --workspace --locked
+        run: |
+          cargo +1.87 nextest run --workspace --locked
+          cargo +1.87 test --workspace --doc --locked
 
-  miri:
-    name: Miri (no default features, i686, rayon under Tree Borrows)
+  # Miri and ThreadSanitizer share the pinned nightly and one job (ThreadSanitizer's
+  # 30 s of work cost a second billed job of 1–2 minutes). On a pull request only when
+  # the core, a module of CONTRIBUTING.md's `unsafe` table or the nightly tooling changed.
+  sanitizers:
+    name: Miri (no default features, i686, rayon under Tree Borrows) and ThreadSanitizer
+    needs: lint
+    if: needs.lint.outputs.core == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install the pinned nightly with Miri
+      - name: Install the pinned nightly with Miri and rust-src
         run: |
           NIGHTLY="$(cat tools/nightly-toolchain)"
           echo "NIGHTLY=$NIGHTLY" >> "$GITHUB_ENV"
@@ -231,7 +300,7 @@ jobs:
           cargo "+$NIGHTLY" miri --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: miri
+          key: sanitizers
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Cache the Miri sysroots
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -248,23 +317,7 @@ jobs:
         run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked
       - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
         run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
-
-  tsan:
-    name: ThreadSanitizer (core tests, and a racy canary that must be caught)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install the pinned nightly with rust-src
-        run: |
-          NIGHTLY="$(cat tools/nightly-toolchain)"
-          rustup toolchain install "$NIGHTLY" --profile minimal --component rust-src
-          rustc "+$NIGHTLY" --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: tsan
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: ThreadSanitizer
+      - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
+        if: ${{ !cancelled() }}
         run: python3 tools/check_tsan.py
+
