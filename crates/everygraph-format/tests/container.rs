@@ -3,8 +3,12 @@
 //! Tests of the `.eg` container (`docs/spec/eg-container.md`): round trips, the crash
 //! guarantees of the update protocol under injected faults, forward compatibility,
 //! damage detection, and the cost of opening.
+//!
+//! Not run under Miri: the container is safe code, and these tests hash thousands of
+//! images (hours there). Miri runs the container's unit tests, which reach BLAKE3.
 
 #![forbid(unsafe_code)]
+#![cfg(not(miri))]
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -806,7 +810,6 @@ fn check_crashes(start: Vec<u8>, script: impl Fn(&mut Writer<&mut Recording>) ->
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_crash_at_any_step_of_creating_a_file_leaves_none_or_the_whole_file() {
     check_crashes(Vec::new(), |w| {
         w.add_provenance("p", &record("ingest")).unwrap();
@@ -821,7 +824,6 @@ fn a_crash_at_any_step_of_creating_a_file_leaves_none_or_the_whole_file() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_crash_at_any_step_of_an_update_leaves_the_previous_or_the_new_state() {
     check_crashes(base_file(), |w| {
         w.add_provenance("provenance/pagerank", &record("pagerank"))
@@ -849,7 +851,6 @@ fn a_crash_at_any_step_of_an_update_leaves_the_previous_or_the_new_state() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_crash_between_commits_of_one_writer_leaves_one_of_the_generations() {
     // The phases of `map` commit one by one (docs/ux-contract.md § 5.1).
     check_crashes(base_file(), |w| {
@@ -874,7 +875,6 @@ fn a_crash_between_commits_of_one_writer_leaves_one_of_the_generations() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_failed_write_poisons_the_writer_and_the_file_reads_as_before() {
     let start = base_file();
     let mut probe = Recording::new(start.clone());
@@ -947,8 +947,7 @@ proptest! {
     })]
 
     #[test]
-    #[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
-    fn random_appends_removals_and_reopens_round_trip(actions in prop::collection::vec(action(), 1..40)) {
+        fn random_appends_removals_and_reopens_round_trip(actions in prop::collection::vec(action(), 1..40)) {
         let mut committed: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         let mut pending = committed.clone();
         let mut w = Writer::create(Mem::default()).unwrap();
