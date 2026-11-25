@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "everygraph-io"
+description = "Native I/O backends for Everygraph: files, memory maps and direct I/O behind the ByteSource trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

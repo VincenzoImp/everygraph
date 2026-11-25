@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "everygraph-community"
+description = "Community detection for Everygraph: deterministic parallel Leiden and the map hierarchy."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

@@ -14,7 +14,7 @@ labels: type:spec, area:foundations, P0, risk:medium, size:M
 - [ ] Explicit non-goals for v0.1 (mutation, query language)
 
 **Acceptance**
-- `docs/api-sketch.md` reviewed against the ten stories by at least one outside graph practitioner
+- `docs/api-sketch.md` passes an independent review against the approved previews, the decisions and the issues that implement it (a review by outside graph practitioners is part of the pre-launch review in {{#m8-08-release}}, where there is software for them to try)
 - Each story maps to issues in M2–M7
 
 **Pointers.** FINDINGS § F2 (binding costs, NetworkX traps).

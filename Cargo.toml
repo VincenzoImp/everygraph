@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# The lab prototypes are standalone research packages with their own manifests,
+# lock files and flags (some use `target-cpu=native`). They are not part of the product.
+exclude = ["lab"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+# MSRV: 1.85 is the first release with edition 2024 and the MSRV-aware resolver, and
+# the toolchain Debian 13 ships; nothing in the workspace needs anything newer.
+# Policy for raising it: CONTRIBUTING.md, "Rust version".
+rust-version = "1.85"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/VincenzoImp/everygraph"
+# Nothing is published until the release issue (#105) lifts this, crate by crate.
+publish = false
+
+[workspace.dependencies]
+rayon = "1.10"
+
+[workspace.lints.rust]
+# `deny`, not `forbid`, at workspace level: every crate root adds
+# `#![forbid(unsafe_code)]` until it gets a module registered under the unsafe policy
+# (CONTRIBUTING.md), which can then opt in with a module-level `allow`.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+# A public item whose type cannot be named from outside the crate is a forgotten export.
+unnameable_types = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+# The portability rule. The lists live in the `clippy.toml` of each crate they apply to
+# (today: crates/everygraph-core). `deny` so that they fail without `-D warnings` too;
+# the crate they apply to raises them to `forbid` at its root, so that they cannot be
+# allowed away.
+disallowed_types = "deny"
+disallowed_methods = "deny"
+disallowed_macros = "deny"
+
+# `unsafe` policy: every block explains itself and does one thing.
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+
+# Integer widths (DESIGN D3: u32 ids, u64 offsets, usize only for memory). An `as` that
+# can truncate or change sign is a bug on wasm32 and i686 that x86_64 tests never see.
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_sign_loss = "warn"
+cast_lossless = "warn"
+checked_conversions = "warn"
+ptr_as_ptr = "warn"
+
+# Libraries do not print and do not ship placeholders. The two binaries allow printing
+# at their crate root.
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+# Public functions say how they fail.
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+doc_markdown = "warn"
+
+# Tidiness that keeps diffs small.
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+redundant_closure_for_method_calls = "warn"
+explicit_iter_loop = "warn"
+cloned_instead_of_copied = "warn"
+
+[profile.release]
+# Shipped builds: whole-program optimization, and no `target-cpu=native` anywhere in the
+# repository (the lab used it). Code that wants AVX2/NEON selects it at run time.
+# `panic` stays at the default (unwind): the Python binding turns panics into exceptions.
+lto = "fat"
+codegen-units = 1
