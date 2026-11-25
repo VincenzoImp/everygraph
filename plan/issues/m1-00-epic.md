@@ -18,6 +18,7 @@ Tracking issue for milestone M1.
 7. {{#m1-07-layout-area}}, {{#m1-08-memory-bandwidth}}, {{#m1-09-hierarchy-order}}
 8. {{#m1-10-graph-families}}, {{#m1-11-real-inputs}}, {{#m1-12-viewer-no-gpu}}
 9. From the first literature review (2026-11-25, `docs/research/README.md`): {{#m1-14-relabel-at-ingest}}, {{#m1-15-mmap-hints-block-cache}}, {{#m1-16-codec-0124}}, {{#m1-17-chunked-hub-records}}, {{#m1-18-layout-baseline}}, {{#m1-19-networkx-dispatch}}, {{#m1-20-ldbc-graphalytics}}
+10. From the second literature review (2026-11-25, `docs/research/README.md` D): {{#m1-21-drive-state}}
 
 **Exit criteria**
 - [ ] Each experiment closed with a result file, a FINDINGS section and an ADR verdict

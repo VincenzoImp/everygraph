@@ -1,0 +1,19 @@
+---
+title: Drive state against drive: is ADR 0026's sustained write rate the drive's or this host's?
+milestone: M1 · De-risking lab, round 2
+labels: type:experiment, area:bench, P1, risk:low, size:S
+---
+**Question.** Promise 1 and ADR 0026 say ingest is "bounded by the drive's sustained write rate: about 60 M edges/s" on Friendster, after a fast-write burst of about 10 GB, then 1.4–1.6 GB/s. Is that the drive model, or the state this host keeps it in? A review of the same model (Samsung 990 Pro 2 TB, empty) measured "6.2 GBps for 39 seconds, suggesting a pSLC cache size of about 240GB", then about 1.4 GB/s (Tom's Hardware, not peer-reviewed). This host mounts ext4 **without `discard`**, `fstrim.timer` runs weekly (last Mon 23 Nov 01:11, next Mon 30 Nov 01:08), and since boot (14.9 days) `/proc/diskstats` showed 9.06 TB written and 1.85 TB discarded, about 0.61 TB/day on a 2 TB drive whose file system is 24% full (`docs/research/sota-measurement.md` § 3.2, read 2026-11-25). The inference, not measured: between trims the drive sees most blocks as live, so its dynamic fast region is near zero. Drive history is an uncontrolled variable for weeks (Maricq et al., OSDI'18 § 7.4). Decided 2026-11-25 (`docs/research/README.md` M1).
+
+**What the ADR's numbers already say, by arithmetic.** Bytes written per edge are 45.1 GB / 1.806 B = 25.0 B/edge at a 32 GB budget and 55.4 / 1.806 = 30.7 B/edge at 8 GB; at 1.5 GB/s that predicts 30.1 s and 36.9 s, against the measured 29.06 s and 36.97 s. So "sustained ingest time ≈ bytes written ÷ sustained write rate" holds within 4% on both budgets — the "rule in bytes written per second" ADR 0026's "what would change our mind" asks for.
+
+**Method.** Official runs only on an idle machine through the harness, queued by the coordinator; every run that loads a graph under `systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0` unless the case states a larger limit.
+- [ ] Drive state in every harness row ({{#m0-03-bench-harness}}'s fingerprint; about 60 lines in `machine.rs`): model, firmware (`/sys/block/*/device/firmware_rev`, readable here: `4B2QJXD7`), file-system fill (`statfs`), discards since boot and time since the last `fstrim` (`/proc/diskstats` field 17, the timer's log), NVMe temperature (hwmon). Also the CPU side the report asks for: `scaling_driver` and EPP, not only the governor (this host reads `powersave` under `amd-pstate-epp` with EPP `performance`, and the row records only `powersave`), effective frequency per repetition where `perf_event_open` allows it (`perf_event_paranoid` is 2 here), k10temp and NVMe temperatures at start and end
+- [ ] Re-run PR 136's 64 GB `O_DIRECT` write probe right after the next fstrim (Mon 2026-11-30, just after 01:08) and again about 48 h later (Wed), recording `/proc/diskstats` discards and `df` each time; run one `ingest-friendster` case after each probe. A `sudo fstrim` would be faster but needs the owner's hands
+- [ ] If the fast region after a trim is ≫ 10 GB: restate promise 1 as bytes written per edge × the drive's rate, in an ADR amending 0026 (the report's proposed wording, `docs/research/sota-measurement.md` § 3.2, "How to state it for other drives and laptops"), and make the preflight's time estimate (P-9) span burst and sustained rates instead of picking one
+
+**Done when.** The two probe results and the two ingest rows are in a result file, with the drive state of each; and either the ADR amending 0026 is written, or a FINDINGS entry says why the 10 GB / 1.4–1.6 GB/s figures are the drive's.
+
+**Feeds.** ADR 0026 and promise 1 (`docs/DESIGN.md` § 2), {{#m2-08-csr-build}} (#35's targets), {{#m2-13-preflight-resume}} (P-9's estimate), {{#m8-03-public-benchmarks}}.
+
+**Pointers.** `docs/research/sota-measurement.md` § 2 (drives table), § 3.2, § 4 challenges 1 and 5; SNIA SSS PTS v2.0.2 (purge, precondition, steady-state window).

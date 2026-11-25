@@ -13,6 +13,7 @@ labels: type:feature, area:community, P0, risk:low, size:M, lab-evidence
 - [ ] Conservation checks run on write and in `everygraph verify`
 - [ ] Each level's quotient graph carries a loop at every community of weight L(c), the input's kept loops included, so its total weight is W and its modularity under singletons equals that of the partition; `internal_edges` counts a kept loop's events (`docs/spec/graph-semantics.md` § 5.5, S6)
 - [ ] API: membership at any level as a column, community table as Arrow, `subgraph(community)` as a view, ancestors/descendants of a community
+- [ ] Region ids are stable: a deterministic run (D14) gives every community at every level the same id on every run of the same input and seed, so a region can be cited by id — by the map, by the MCP server's region card ({{#m9-02-mcp-server}}) and in a user's notes (added 2026-11-25, `docs/research/README.md` H8)
 - [ ] Per-community summary statistics of node properties (counts by category, top-k by PageRank) for map labels
 
 **Acceptance**
