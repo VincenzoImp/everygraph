@@ -97,6 +97,11 @@ Tell the owner when each becomes due, with everything prepared.
   the shell. Reports come back as text and the coordinator records them.
 - 2026-11-24 — The short name `eg` is taken on PyPI, crates.io and npm.
 - 2026-11-24 — Effort estimates quoted without adding them up were 30% too low.
+- 2026-11-25 — An oracle reference run (`--jobs 6`, no limit) reached 61.5 GB resident,
+  the host swapped 25 GB (other people's services included) and experiment #118 had to
+  discard its rows and restart. Cause of the damage: the brief said "no benchmarks" but set
+  no memory limit. Now a rule (CLAUDE.md § 7): every data-loading run under `MemoryMax`,
+  and the limit is stated in each brief.
 
 ## Journal
 
