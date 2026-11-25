@@ -61,10 +61,20 @@ The first lab produced ten errors that reached the plan. Their causes are now ru
 
 ## 4. Review
 
-Every PR that touches kernels, the on-disk formats, `unsafe` code, the planner or memory
-accounting gets an independent review by the `reviewer` agent (`.claude/agents/`), which
-receives the diff and the issue text — not the author's reasoning. Its findings are fixed
-or answered in the PR before merge. Documentation-only PRs may skip this.
+Proportional to risk (decided 2026-11-25 with the owner, to keep speed without losing what
+the reviews have been catching):
+
+- **Tier 0 — no review:** `docs/STATE.md`, the plan, decision records, documentation that
+  only records results already reviewed, lab write-ups. The coordinator spot-checks numbers.
+- **Tier 1 — CI plus the coordinator's read of the diff:** infrastructure, tooling, the
+  harness, readers and writers of formats that are already specified, CLI and docs code.
+- **Tier 2 — independent review by the `reviewer` agent** (diff and issue text, not the
+  author's reasoning): kernels, the on-disk formats, `unsafe` code, the planner, memory
+  accounting, and experiments whose result changes a decision or a public number. One
+  round; a second round only when the first found a must-fix on correctness. Findings are
+  fixed or answered in the PR before merge.
+
+Merge only on a green CI, checked with `gh pr checks` immediately before `gh pr merge`.
 
 ## 5. Changing a decision
 
@@ -102,6 +112,34 @@ so the rule can be tuned. The coordinator itself runs on the session's model.
 An issue that needs escalation usually was underspecified: after it is done, improve the
 issue template or the neighbouring issues so the next one does not.
 
+
+### Speed (decided 2026-11-25 with the owner)
+
+The project runs around the clock; subagents spend most of their time waiting on the
+network, not on this machine. So:
+
+- **Keep many streams going.** Every issue whose dependencies are closed (`plan/next.py`)
+  and whose files do not overlap with another running agent's can run now; up to about
+  eight agents at once. Builds and tests may run in parallel at any time.
+- **Only official measurements need the machine to themselves.** They are batched: an
+  agent finishes its code and exploratory runs, hands back the exact commands, and the
+  coordinator runs a queue of official runs in one short window, pausing compilation for
+  its duration only. Decisions between two variants are taken from interleaved A/B runs
+  in the same process or the same harness run (robust to background load); an empty
+  machine is required only for absolute numbers that go into documents.
+- **Offload to CI.** Locally an agent runs the checks of the crates it touched; CI runs
+  the whole matrix.
+- **Thin end to end first.** Production code builds a usable vertical slice — ingest →
+  `.eg` → a few kernels → command line and Python — as early as possible, then widens.
+  Every milestone ends with a **dogfood pass**: an agent uses the product as a user would,
+  through the command line and Python, on real datasets and the user stories of
+  `docs/api-sketch.md`, and files what is wrong or awkward as issues.
+- **Keep the code small.** No code without an issue; prefer deleting to adding; each crate
+  states what it owns in its crate docs. The `lab/` prototypes are frozen once their
+  production counterpart lands. Every milestone ends with a cleanup issue: dead code,
+  duplicated helpers, and a **test audit** with `cargo-mutants` — a test that no mutation
+  can make fail is rewritten or removed; prefer property and oracle tests that cover many
+  cases to many hand-written ones. The pull-request CI stays under 15 minutes.
 
 - Use them for independent work in parallel: separate issues, experiments, reviews.
   Brief them with the issue file path, the acceptance criteria and the rules in this file.
