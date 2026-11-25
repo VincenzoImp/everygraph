@@ -52,15 +52,20 @@ prototypes, reading plain text, without `fsync`. Details, methods and caveats ar
 
 ## What is not solved yet
 
-Community detection beyond RAM (Leiden needs 22.6 GiB of anonymous memory on the 1.8 B-edge graph), the quality
-of the map's hierarchy and edges on dense graphs, and the cost of determinism. The headline
-"a billion edges to a map on a 16 GB laptop" has not been run end to end. These are the
+Community detection beyond RAM works in the lab but not yet in the product: one Leiden
+iteration on the 1.8 B-edge graph runs under a 16 GiB limit at 1.17× and under 8 GiB at
+2.34× the time of the same algorithm in RAM (idle machine, 16 threads, default storage,
+0 disconnected communities, the deterministic partition identical to the in-RAM one), but
+only that graph and one iteration were measured. Also open: the quality of the map's
+hierarchy and edges on dense graphs, and the cost of determinism. The headline
+"a billion edges to a map on a 16 GB laptop" has not been run end to end: the tile builder
+does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. These are the
 subject of the first work milestone. See [docs/DESIGN.md § 5](docs/DESIGN.md).
 
 ## Building
 
 The Rust workspace is a skeleton: the crate layout, the coding rules, and the first
-pieces of the portable core (`crates/everygraph-core`). It needs Rust 1.85 or newer and
+pieces of the portable core (`crates/everygraph-core`). It needs Rust 1.87 or newer and
 nothing else.
 
 ```sh

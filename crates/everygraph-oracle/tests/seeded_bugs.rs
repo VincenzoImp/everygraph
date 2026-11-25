@@ -120,3 +120,9 @@ fn thread_dependent_float_sum_is_caught_by_cross_config_identity() {
 fn offset_overflow_is_caught() {
     caught(Bug::OffsetOverflow { bits: 8 });
 }
+
+#[test]
+fn undirected_loop_counted_once_in_pagerank_is_caught_by_two_families() {
+    assert_eq!(Bug::UndirectedLoopOnceInPageRank.required().1, 2);
+    caught(Bug::UndirectedLoopOnceInPageRank);
+}
