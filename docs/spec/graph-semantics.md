@@ -186,14 +186,18 @@ incrementally, from what each append writes, never by a rescan of older runs:
 
 - `count`, `null_count`, `nan_count`, and `min` and `max` of a per-event column: combined
   from the run's values;
-- `sum`: each run records its exact accumulator (not its `float64` rounding), and the whole
-  graph's exact sum is the exact sum of those, rounded once (§ 4.3);
+- `sum`: each run records its exact accumulator (not its `float64` rounding) of what it
+  adds, and the whole graph's exact sum is the exact sum of those, rounded once (§ 4.3).
+  Under `"sum"`, where a run supersedes a pair's stored value, its `count` covers only the
+  pairs it adds and its accumulator holds the difference from the values it supersedes, so
+  nothing is counted twice (base 5, append 8 for the same pair: count 1, sum 8);
 - the largest multiplicity: the larger of the recorded one and the multiplicities, over
   all runs, of the pairs the run touches (a pair split across runs has a multiplicity
   that is not the largest of the runs' maxima);
 - under `"sum"`, `min` and `max` of the stored pair sums: updated from the values the
   append writes; when a value it supersedes (§ 4.3) was the recorded `min` or `max`, both
-  are recomputed at that commit from the per-pair column (one column, not the events),
+  are recomputed at that commit by one pass over the per-pair columns of every run (not
+  the events) — the one exception to the no-rescan rule —
   and a merge always recomputes them.
 
 A column is **clean** — usable as a weight or a cost by every operation — when

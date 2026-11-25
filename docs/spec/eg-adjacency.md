@@ -213,8 +213,8 @@ decrease, a degree below 2^32, and a record length `r` that fits the degree `d`:
 when `d = 0`, else `⌈d/4⌉ + d ≤ r ≤ ⌈d/4⌉ + 4d`. Then the data length must equal
 `data_bytes`.
 
-The events, when flag bit 1 is set (and a `.events` section without the flag is an
-error). On opening: the magic, version and flags; `entries` equal to the index's;
+The events, when flag bit 1 is set (a `.events` section without the flag, and the flag
+without a `.events` section, are errors). On opening: the magic, version and flags; `entries` equal to the index's;
 `events > entries` (a section in which every entry has one event is refused, so that a
 graph has one stored form); the exact length, computed with checked arithmetic (`events`
 is any `u64` and `l` can reach 63, so `len·l` and `U >> l` are computed in 128 bits or
@@ -245,8 +245,9 @@ the correctness oracle's corpus, property tests and a fuzz target
 
 The version field changes when a reader of the previous version would misread the
 bytes. A new block codec or a new flag needs a new version or a defined flag; a reader
-refuses what it does not know (unknown version, any flag, any non-zero codec byte), it
-never guesses. Node ids wider than 32 bits (DESIGN D3, a later build) are a new version:
+refuses what it does not know (unknown version, any flag this revision does not define —
+bit 1 is defined, bit 0 is reserved and refused — any non-zero codec byte), it never
+guesses. Node ids wider than 32 bits (DESIGN D3, a later build) are a new version:
 words are 32-bit here. The `.events` section has its own version field, under the same
 rule.
 

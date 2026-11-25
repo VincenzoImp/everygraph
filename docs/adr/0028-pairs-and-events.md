@@ -126,7 +126,8 @@ format, and the earlier measurement that still carries D9.
   repeated event per 4.5 pairs. That leaves out the per-pair columns (A) also stores and
   (B) need not: with a `float64` pair sum (64 bits per entry per adjacency), (A) costs
   `65 + r` bits per entry against (B)'s `10 (r − 1)`, and (B) is smaller up to
-  `r < 75/9 ≈ 8.3`. So the decision does not rest on space: it rests on kernel time (every
+  about `r ≈ 7.9` (with the `r ≥ 2` cost of (A); `75/9 ≈ 8.3` from the `r < 2`
+  formula). So the decision does not rest on space: it rests on kernel time (every
   scan under (B) decodes, deduplicates and sums every event) and on appends (below).
 - **Kernels on pairs** keep the bits per entry and the times of ADR 0004 (#118: social
   graphs, no repeated pairs, where (A) and revision 1 are the same bytes). Under (B), a
