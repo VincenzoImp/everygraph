@@ -1,0 +1,659 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The dataset registry of Everygraph (issue #5). Read by `everygraph-bench`, which
+# compiles this file in; the tables in datasets/README.md are generated from it with
+# `everygraph-bench list --write-readme datasets/README.md`.
+#
+# No dataset is redistributed in this repository: each entry says where the source
+# publishes it and under which terms. Read the terms before using a dataset.
+#
+# Fields (all checked by `everygraph-bench`, see crates/everygraph-bench/src/datasets/registry.rs):
+#   name          command-line name: lowercase, digits, '-' and '.'
+#   title         one line, with the source's own name for the graph
+#   family        social | web | road | bipartite | weighted | temporal | directed-social | synthetic
+#   tier          1 = CI (whole tier under ~1 GB), 2 = workstation, 3 = server, optional
+#   directed, weighted, temporal
+#   nodes, edges  as published by the source; `counts_note` says what they count and
+#                 what was checked against the file
+#   format, to_edge_list
+#   page, licence, licence_url, citation, notes
+#   unverified    fields NOT checked against the source (shown with † in the README)
+#   generator     synthetic datasets only: generated locally, never downloaded
+#   [[dataset.file]]  name, url, mirrors, size (bytes), sha256, md5_published (by the source)
+#
+# How values were obtained (2026-11-25): sizes from the servers' Content-Length; SHA-256
+# computed by `everygraph-bench fetch` on a fresh download unless the entry says otherwise;
+# counts from the source's dataset page (SNAP, GroupLens README, DIMACS10 page) or from the
+# `.properties` file (LAW). Where a file was also checked against the published counts, the
+# `counts_note` says so.
+
+schema = 1
+
+# ---------------------------------------------------------------- tier 1: CI
+
+[[dataset]]
+name = "ego-facebook"
+title = "Facebook ego networks, all ten combined (SNAP ego-Facebook, facebook_combined)"
+family = "social"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 4039
+edges = 88234
+counts_note = "Undirected edges. Checked on the file: 88,234 lines, 4,039 distinct ids (0..4038)."
+format = "Edge list, gzip: one 'u v' pair per line (space-separated), no header"
+to_edge_list = "gunzip. Each line is one undirected edge, listed once. Ids are 0-based and contiguous."
+page = "https://snap.stanford.edu/data/ego-Facebook.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "J. McAuley and J. Leskovec. Learning to Discover Social Circles in Ego Networks. NIPS, 2012."
+notes = "The smallest real graph of the registry; used by the ignored-by-default integration test."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "facebook_combined.txt.gz"
+url = "https://snap.stanford.edu/data/facebook_combined.txt.gz"
+size = 218576
+sha256 = "125e84db872eeba443d270c70315c256b0af43a502fcfe51f50621166ad035d7"
+
+[[dataset]]
+name = "com-youtube"
+title = "YouTube friendship network with ground-truth communities (SNAP com-Youtube)"
+family = "social"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 1134890
+edges = 2987624
+counts_note = "Undirected edges. Checked on the file: 2,987,624 edge lines; the header repeats both counts."
+format = "SNAP edge list, gzip: '#' comment header, then 'u\\tv' per line"
+to_edge_list = "gunzip, drop lines starting with '#'. Each undirected edge is listed once. Ids are not contiguous (largest id 1,157,827 for 1,134,890 nodes): remap."
+page = "https://snap.stanford.edu/data/com-Youtube.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "J. Yang and J. Leskovec. Defining and Evaluating Network Communities based on Ground-truth. ICDM, 2012."
+notes = "The tier-1 social graph at scale (3 M edges). Ground-truth communities are published separately on the same page (not registered)."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "com-youtube.ungraph.txt.gz"
+url = "https://snap.stanford.edu/data/bigdata/communities/com-youtube.ungraph.txt.gz"
+size = 10590328
+sha256 = "dff1b97ba7d2fa9c59884b67dcd2275e717ff9501f86ed82ce6582ed4971f3e0"
+
+[[dataset]]
+name = "roadnet-ca"
+title = "California road network (SNAP roadNet-CA)"
+family = "road"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 1965206
+edges = 2766607
+counts_note = "The page counts 2,766,607 undirected edges; the file holds each in both directions: 5,533,214 lines, as its header says. 1,965,206 distinct ids, checked."
+format = "SNAP edge list, gzip, CRLF line endings: '#' header, then 'u\\tv' per line"
+to_edge_list = "gunzip, drop '#' lines, strip the trailing '\\r'. Every undirected edge appears as u->v and v->u: keep u < v to get each once. Ids are not contiguous (largest 1,971,280): remap."
+page = "https://snap.stanford.edu/data/roadNet-CA.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "J. Leskovec, K. Lang, A. Dasgupta, M. Mahoney. Community Structure in Large Networks: Natural Cluster Sizes and the Absence of Large Well-Defined Clusters. Internet Mathematics 6(1) 29-123, 2009."
+notes = "High diameter, degree about 2 to 3: the weak case of direction-optimizing BFS (issue #25)."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "roadNet-CA.txt.gz"
+url = "https://snap.stanford.edu/data/roadNet-CA.txt.gz"
+size = 17892860
+sha256 = "383f7b14424530a9e25c392969a9c19dace32ebcfd141f0967a1433498c2acdd"
+
+[[dataset]]
+name = "web-google"
+title = "Web graph from the Google programming contest, 2002 (SNAP web-Google)"
+family = "web"
+tier = 1
+directed = true
+weighted = false
+temporal = false
+nodes = 875713
+edges = 5105039
+counts_note = "Directed edges. Checked on the file: 5,105,039 edge lines, 875,713 distinct ids."
+format = "SNAP edge list, gzip, CRLF line endings: '#' header, then 'from\\tto' per line"
+to_edge_list = "gunzip, drop '#' lines, strip the trailing '\\r'. One directed hyperlink per line. Ids are not contiguous (largest 916,427): remap."
+page = "https://snap.stanford.edu/data/web-Google.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "J. Leskovec, K. Lang, A. Dasgupta, M. Mahoney. Community Structure in Large Networks: Natural Cluster Sizes and the Absence of Large Well-Defined Clusters. Internet Mathematics 6(1) 29-123, 2009."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "web-Google.txt.gz"
+url = "https://snap.stanford.edu/data/web-Google.txt.gz"
+size = 21168784
+sha256 = "bcac0af0471d749f4a8c010bca92b61cf2868a0570741de06892fc062f265ea6"
+
+[[dataset]]
+name = "soc-epinions1"
+title = "Epinions who-trusts-whom network (SNAP soc-Epinions1)"
+family = "directed-social"
+tier = 1
+directed = true
+weighted = false
+temporal = false
+nodes = 75879
+edges = 508837
+counts_note = "Directed edges. Checked on the file: 508,837 edge lines, 75,879 distinct ids."
+format = "SNAP edge list, gzip, CRLF line endings: '#' header, then 'from\\tto' per line"
+to_edge_list = "gunzip, drop '#' lines, strip the trailing '\\r'. One directed trust edge per line. Ids are 0-based with gaps (largest 75,887)."
+page = "https://snap.stanford.edu/data/soc-Epinions1.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "M. Richardson, R. Agrawal and P. Domingos. Trust Management for the Semantic Web. ISWC, 2003."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "soc-Epinions1.txt.gz"
+url = "https://snap.stanford.edu/data/soc-Epinions1.txt.gz"
+size = 1630437
+sha256 = "69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938"
+
+[[dataset]]
+name = "soc-sign-bitcoin-otc"
+title = "Bitcoin OTC trust network, weighted and signed, with timestamps (SNAP soc-sign-bitcoin-otc)"
+family = "directed-social"
+tier = 1
+directed = true
+weighted = true
+temporal = true
+nodes = 5881
+edges = 35592
+counts_note = "Directed rated edges. Checked on the file: 35,592 lines, 5,881 distinct ids, weights from -10 to +10."
+format = "CSV, gzip, no header: SOURCE,TARGET,RATING,TIME (TIME in seconds since the epoch, with a fraction)"
+to_edge_list = "gunzip; columns 1 and 2 are the edge, column 3 the weight (an integer in -10..+10), column 4 the time."
+page = "https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html"
+licence = "No licence stated by SNAP. SNAP asks that the papers on the page be cited."
+licence_url = "https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html"
+citation = "S. Kumar, F. Spezzano, V.S. Subrahmanian, C. Faloutsos. Edge Weight Prediction in Weighted Signed Networks. ICDM, 2016."
+notes = "Weights are signed (-10 to +10), so it does not stand for the weighted family: it is here to test how kernels that need positive weights (Leiden modularity, Dijkstra) refuse or handle negative ones. The weighted family is wiki-clickstream-ptwiki-2024-01 and the generated synth-weighted-gnm-1000-5000."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "soc-sign-bitcoinotc.csv.gz"
+url = "https://snap.stanford.edu/data/soc-sign-bitcoinotc.csv.gz"
+size = 397258
+sha256 = "6424ac981dad3a019f697fc1b9fcd85c19d8d9f039797758e9ffb6fea100c373"
+
+[[dataset]]
+name = "college-msg"
+title = "Private messages of a college online community, with timestamps (SNAP CollegeMsg)"
+family = "temporal"
+tier = 1
+directed = true
+weighted = false
+temporal = true
+nodes = 1899
+edges = 59835
+counts_note = "Edges are temporal edges (messages), a multigraph; SNAP also lists 20,296 edges in the static graph. Checked on the file: 59,835 lines, 1,899 distinct ids (1..1899)."
+format = "Edge list, gzip, no header: 'SRC TGT UNIXTS' per line (space-separated)"
+to_edge_list = "gunzip. Each line is one message u -> v at time t; parallel edges are real. Ids are 1-based and contiguous."
+page = "https://snap.stanford.edu/data/CollegeMsg.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/CollegeMsg.html"
+citation = "P. Panzarasa, T. Opsahl, K. M. Carley. Patterns and dynamics of users' behavior and interaction: Network analysis of an online community. JASIST 60(5), 2009."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "CollegeMsg.txt.gz"
+url = "https://snap.stanford.edu/data/CollegeMsg.txt.gz"
+size = 345339
+sha256 = "50ae2d98ed3bad9ddb18dbd495a89e5e10cfb8f7e86932827db29fc41b41f9fa"
+
+[[dataset]]
+name = "wiki-clickstream-ptwiki-2024-01"
+title = "Portuguese Wikipedia clickstream, January 2024: article-to-article clicks with counts (Wikimedia clickstream-ptwiki-2024-01)"
+family = "weighted"
+tier = 1
+directed = true
+weighted = true
+temporal = false
+nodes = 288605
+edges = 983234
+counts_note = "Not published by the source: counted on the file, keeping only rows of type 'link' (983,234 of 1,763,469 rows, all distinct (prev, curr) pairs, 288,605 distinct titles). Weights are click counts, the smallest 10."
+format = "TSV, gzip, no header: 'prev\\tcurr\\ttype\\tn' per line; prev and curr are article titles, type is link, external or other, n the number of clicks"
+to_edge_list = "gunzip; keep rows whose type is 'link' (both ends are articles and prev links to curr); prev -> curr is the edge, n its positive integer weight. Titles are strings: build an id dictionary."
+page = "https://meta.wikimedia.org/wiki/Research:Wikipedia_clickstream"
+licence = "CC0 1.0 (\"All Analytics datasets are available under the Creative Commons CC0 dedication\", dumps.wikimedia.org)."
+licence_url = "https://dumps.wikimedia.org/other/clickstream/readme.html"
+citation = "Wikimedia Foundation, Wikipedia clickstream (https://meta.wikimedia.org/wiki/Research:Wikipedia_clickstream). CC0 asks for no citation."
+notes = "The real positively weighted graph of tier 1: directed, weights are counts (a clicks-between-articles graph rather than a co-occurrence graph). The meta page says pairs with 10 or fewer observations are removed; the smallest count in this file is 10. The January 2024 file was still online on 2026-11-25; no promise of permanence was found."
+unverified = ["nodes", "edges"]
+
+[[dataset.file]]
+name = "clickstream-ptwiki-2024-01.tsv.gz"
+url = "https://dumps.wikimedia.org/other/clickstream/2024-01/clickstream-ptwiki-2024-01.tsv.gz"
+size = 22182571
+sha256 = "223441b104c0fd0488beaeaf73fc41dba4cbee3cf25052bac91d460a6d02b2fb"
+
+# Generated graphs: made by `everygraph-bench fetch`, no download. Format: two '#'
+# lines, then 'u<TAB>v' with u < v, ids from 0 (the weighted one adds '<TAB>w').
+# Pinned by SHA-256 so that a change to a generator is caught.
+
+[[dataset]]
+name = "synth-weighted-gnm-1000-5000"
+title = "Weighted G(n, m) random graph: 1,000 nodes, 5,000 distinct edges, integer weights 1..10, seed 7"
+family = "weighted"
+tier = 1
+directed = false
+weighted = true
+temporal = false
+nodes = 1000
+edges = 5000
+format = "Edge list: '#' header, then 'u\\tv\\tw' with u < v and w in 1..10"
+to_edge_list = "Drop '#' lines; the third column is the weight."
+licence = "Generated by everygraph-bench; no third-party terms."
+notes = "The weighted graph CI can always rely on: positive integer weights, no network, no terms."
+generator = { kind = "weighted-gnm", n = 1000, m = 5000, max_weight = 10, seed = 7 }
+
+[[dataset.file]]
+name = "weighted-gnm-1000-5000.txt"
+size = 49516
+sha256 = "982d40e2c157a55673978882050603a0a117bfab61c753d8720968c923f3db9c"
+
+[[dataset]]
+name = "synth-bipartite-300x200"
+title = "Random bipartite graph: 300 + 200 nodes, 3,000 distinct edges, seed 11"
+family = "bipartite"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 500
+edges = 3000
+format = "Edge list: '#' header, then 'u\\tv' with u in 0..300 (left) and v in 300..500 (right)"
+to_edge_list = "Drop '#' lines. The two sides share one id space: left 0..299, right 300..499."
+licence = "Generated by everygraph-bench; no third-party terms."
+notes = "The bipartite graph of tier 1. No real bipartite graph with permissive terms is registered yet (MovieLens 100K was removed: its terms forbid commercial use and redistribution)."
+generator = { kind = "bipartite", left = 300, right = 200, m = 3000, seed = 11 }
+
+[[dataset.file]]
+name = "bipartite-300x200.txt"
+size = 22996
+sha256 = "8f787a9414cd72ab030c20368ee91c73b903bf81712fa0b3a80358dd818ea2a3"
+
+[[dataset]]
+name = "synth-path-100"
+title = "Path on 100 nodes"
+family = "synthetic"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 100
+edges = 99
+format = "Edge list: '#' header, then 'u\\tv' with u < v"
+to_edge_list = "Drop '#' lines."
+licence = "Generated by everygraph-bench; no third-party terms."
+generator = { kind = "path", n = 100 }
+
+[[dataset.file]]
+name = "path-100.txt"
+size = 637
+sha256 = "98a28a9f363bb30939f32e608d0426eaf11258e2d5e13578e280c22f9aa0d75e"
+
+[[dataset]]
+name = "synth-cycle-100"
+title = "Cycle on 100 nodes"
+family = "synthetic"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 100
+edges = 100
+format = "Edge list: '#' header, then 'u\\tv' with u < v"
+to_edge_list = "Drop '#' lines."
+licence = "Generated by everygraph-bench; no third-party terms."
+generator = { kind = "cycle", n = 100 }
+
+[[dataset.file]]
+name = "cycle-100.txt"
+size = 644
+sha256 = "a207dea49f788c1fb9acdc7f5353bd0217731450b17a67cdf0503f956281721f"
+
+[[dataset]]
+name = "synth-star-100"
+title = "Star with one centre and 99 leaves"
+family = "synthetic"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 100
+edges = 99
+format = "Edge list: '#' header, then 'u\\tv' with u < v"
+to_edge_list = "Drop '#' lines."
+licence = "Generated by everygraph-bench; no third-party terms."
+generator = { kind = "star", n = 100 }
+
+[[dataset.file]]
+name = "star-100.txt"
+size = 548
+sha256 = "6afb08442ee28411b116d013a181e5963260727226717f820e80f404168d1e3b"
+
+[[dataset]]
+name = "synth-complete-20"
+title = "Complete graph on 20 nodes"
+family = "synthetic"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 20
+edges = 190
+format = "Edge list: '#' header, then 'u\\tv' with u < v"
+to_edge_list = "Drop '#' lines."
+licence = "Generated by everygraph-bench; no third-party terms."
+generator = { kind = "complete", n = 20 }
+
+[[dataset.file]]
+name = "complete-20.txt"
+size = 1015
+sha256 = "f62b96e6ee17a065036e5b4ef5a814f85b60ef58ce899a86222e5fbce68b24bf"
+
+[[dataset]]
+name = "synth-grid-30x30"
+title = "30 x 30 grid with 4-neighbourhoods"
+family = "synthetic"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 900
+edges = 1740
+format = "Edge list: '#' header, then 'u\\tv' with u < v"
+to_edge_list = "Drop '#' lines. Node r * 30 + c is row r, column c."
+licence = "Generated by everygraph-bench; no third-party terms."
+generator = { kind = "grid", rows = 30, cols = 30 }
+
+[[dataset.file]]
+name = "grid-30x30.txt"
+size = 13602
+sha256 = "c603a1dbf0b8ea11c281adc578ee0310cd06d3b3e04f80457ddb17ce4bf39232"
+
+[[dataset]]
+name = "synth-barbell-10"
+title = "Two 10-cliques joined by one edge"
+family = "synthetic"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 20
+edges = 91
+format = "Edge list: '#' header, then 'u\\tv' with u < v"
+to_edge_list = "Drop '#' lines. Nodes 0..9 and 10..19 are the cliques; 9-10 is the bridge."
+licence = "Generated by everygraph-bench; no third-party terms."
+notes = "Two obvious communities: a sanity check for community detection."
+generator = { kind = "barbell", k = 10 }
+
+[[dataset.file]]
+name = "barbell-10.txt"
+size = 518
+sha256 = "2e108e28fcb6b9a280b227b434caa62bd0a3700f905b6547203d1cf7b2102e34"
+
+[[dataset]]
+name = "synth-gnm-1000-5000"
+title = "G(n, m) random graph: 1,000 nodes, 5,000 distinct edges, seed 42"
+family = "synthetic"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 1000
+edges = 5000
+format = "Edge list: '#' header, then 'u\\tv' with u < v"
+to_edge_list = "Drop '#' lines. Edges are in generation order, not sorted."
+licence = "Generated by everygraph-bench; no third-party terms."
+notes = "SplitMix64 stream, so the bytes do not depend on any crate's random-number implementation. Some nodes may be isolated."
+generator = { kind = "gnm", n = 1000, m = 5000, seed = 42 }
+
+[[dataset.file]]
+name = "gnm-1000-5000.txt"
+size = 38966
+sha256 = "cf084616d259d6c5ea6f47a075524e158edd058cc8208d4c6be747813680a020"
+
+# ---------------------------------------------------------------- tier 2: workstation
+
+[[dataset]]
+name = "com-livejournal"
+title = "LiveJournal friendship network with ground-truth communities (SNAP com-LiveJournal)"
+family = "social"
+tier = 2
+directed = false
+weighted = false
+temporal = false
+nodes = 3997962
+edges = 34681189
+counts_note = "Undirected edges, as published on the page."
+format = "SNAP edge list, gzip: '#' comment header, then 'u\\tv' per line"
+to_edge_list = "gunzip, drop '#' lines. Each undirected edge is listed once. Ids are not contiguous: remap."
+page = "https://snap.stanford.edu/data/com-LiveJournal.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "J. Yang and J. Leskovec. Defining and Evaluating Network Communities based on Ground-truth. ICDM, 2012."
+notes = "The graph of the first lab's headline numbers (docs/FINDINGS.md). Issue #5 listed it in tier 1; it is tier 2 here because its 124 MB are twice the rest of tier 1 together and CI needs no graph this large."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "com-lj.ungraph.txt.gz"
+url = "https://snap.stanford.edu/data/bigdata/communities/com-lj.ungraph.txt.gz"
+size = 124262769
+sha256 = "e0e8996341b963ecbe0a572c71446c03fd6e93a6c521578eaae7566c68ff608e"
+
+[[dataset]]
+name = "com-orkut"
+title = "Orkut friendship network with ground-truth communities (SNAP com-Orkut)"
+family = "social"
+tier = 2
+directed = false
+weighted = false
+temporal = false
+nodes = 3072441
+edges = 117185083
+counts_note = "Undirected edges, as published on the page."
+format = "SNAP edge list, gzip: '#' comment header, then 'u\\tv' per line"
+to_edge_list = "gunzip, drop '#' lines. Each undirected edge is listed once. Ids are not contiguous: remap."
+page = "https://snap.stanford.edu/data/com-Orkut.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "J. Yang and J. Leskovec. Defining and Evaluating Network Communities based on Ground-truth. ICDM, 2012."
+notes = "SHA-256 computed from the lab's copy (/home/tux/graphlab/data/raw, downloaded 2026-11-24), whose size equals the server's Content-Length; SNAP publishes no checksum to compare with."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "com-orkut.ungraph.txt.gz"
+url = "https://snap.stanford.edu/data/bigdata/communities/com-orkut.ungraph.txt.gz"
+size = 447251958
+sha256 = "f73e33fb685f411a10c952f2ba3ea788380b91a17bc636e38da1a23f6c6b2bc6"
+
+[[dataset]]
+name = "com-friendster"
+title = "Friendster friendship network with ground-truth communities (SNAP com-Friendster)"
+family = "social"
+tier = 2
+directed = false
+weighted = false
+temporal = false
+nodes = 65608366
+edges = 1806067135
+counts_note = "Undirected edges, as published on the page."
+format = "SNAP edge list, gzip: '#' comment header, then 'u\\tv' per line"
+to_edge_list = "gunzip, drop '#' lines. Each undirected edge is listed once. Ids are not contiguous: remap."
+page = "https://snap.stanford.edu/data/com-Friendster.html"
+licence = "No licence stated by SNAP. SNAP asks that the dataset be cited."
+licence_url = "https://snap.stanford.edu/data/index.html"
+citation = "J. Yang and J. Leskovec. Defining and Evaluating Network Communities based on Ground-truth. ICDM, 2012."
+notes = "9.4 GB compressed; at SNAP's ~0.7 MB/s per connection a single stream takes hours. SHA-256 computed from the lab's copy (/home/tux/graphlab/data/raw, downloaded 2026-11-24), whose size equals the server's Content-Length; it was not downloaded again, and SNAP publishes no checksum to compare with."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "com-friendster.ungraph.txt.gz"
+url = "https://snap.stanford.edu/data/bigdata/communities/com-friendster.ungraph.txt.gz"
+size = 9371322431
+sha256 = "2efc60acf958220467b0bfc4ffcd2be9f46804dbfd9899e9796204d0ee41a5c6"
+
+[[dataset]]
+name = "twitter-2010"
+title = "Twitter follower graph, 2010 crawl (LAW twitter-2010)"
+family = "directed-social"
+tier = 2
+directed = true
+weighted = false
+temporal = false
+nodes = 41652230
+edges = 1468365182
+counts_note = "nodes and arcs from twitter-2010.properties."
+format = "WebGraph BVGraph (.graph + .properties); the .offsets file is not published and is rebuilt by WebGraph"
+to_edge_list = "Needs a WebGraph reader: the optional webgraph feature of issue #42 (webgraph-rs), or the Java WebGraph tools (for example ArcListASCIIGraph) to write an arc list."
+page = "https://law.di.unimi.it/webdata/twitter-2010/"
+licence = "No licence stated by LAW. LAW asks to acknowledge WebGraph and LLP when publishing results; the crawl is by Kwak et al."
+licence_url = "https://law.di.unimi.it/datasets.php"
+citation = "H. Kwak, C. Lee, H. Park, S. Moon. What is Twitter, a social network or a news media? WWW 2010. Plus WebGraph (Boldi, Vigna, WWW 2004) and LLP (Boldi, Rosa, Santini, Vigna, WWW 2011)."
+notes = "Reading it needs the optional webgraph feature (issue #42). SHA-256 computed from the lab's copy (/home/tux/graphlab/data/raw); its MD5 equals the one LAW publishes in twitter-2010.md5sums, for both files. The direction of an arc (follower to followed or the reverse) is as described by LAW; not checked here."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "twitter-2010.graph"
+url = "http://data.law.di.unimi.it/webdata/twitter-2010/twitter-2010.graph"
+size = 2591013817
+sha256 = "e29ef53ba00f9dd441e142454745f4bb1c4274d19815b2983b5d7e640f9e58bb"
+md5_published = "44386aaeaed6c19004e24157b3636d63"
+
+[[dataset.file]]
+name = "twitter-2010.properties"
+url = "http://data.law.di.unimi.it/webdata/twitter-2010/twitter-2010.properties"
+size = 1272
+sha256 = "79fa8752cc95cc1e9ae7aec455c0076d490d5e9f9b883262fa7d357e0076543c"
+md5_published = "bfb883800b1c6e06f26d176235ab058f"
+
+[[dataset]]
+name = "uk-2005"
+title = "Web crawl of the .uk domain, 2005 (LAW uk-2005)"
+family = "web"
+tier = 2
+directed = true
+weighted = false
+temporal = false
+nodes = 39459925
+edges = 936364282
+counts_note = "nodes and arcs from uk-2005.properties."
+format = "WebGraph BVGraph (.graph + .properties); the .offsets file is not published and is rebuilt by WebGraph"
+to_edge_list = "Needs a WebGraph reader: the optional webgraph feature of issue #42 (webgraph-rs), or the Java WebGraph tools to write an arc list."
+page = "https://law.di.unimi.it/webdata/uk-2005/"
+licence = "No licence stated by LAW. LAW asks to acknowledge WebGraph, LLP and UbiCrawler when publishing results."
+licence_url = "https://law.di.unimi.it/datasets.php"
+citation = "WebGraph (Boldi, Vigna, WWW 2004), LLP (Boldi, Rosa, Santini, Vigna, WWW 2011), UbiCrawler (Boldi, Codenotti, Santini, Vigna, 2004)."
+notes = "Reading it needs the optional webgraph feature (issue #42). Downloaded fresh; MD5 equals the one LAW publishes in uk-2005.md5sums, for both files."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "uk-2005.graph"
+url = "http://data.law.di.unimi.it/webdata/uk-2005/uk-2005.graph"
+size = 209998792
+sha256 = "a73fff765e2bc1c34def5162a28831781a2c7bba7beb4472d54bd15a923b5fad"
+md5_published = "5b04b4fccbb0b24c3d5762f4625fa0a9"
+
+[[dataset.file]]
+name = "uk-2005.properties"
+url = "http://data.law.di.unimi.it/webdata/uk-2005/uk-2005.properties"
+size = 1211
+sha256 = "ff495767649fe1c00caeebca55eef506c7d6e94b4aa7aada7d7e400979c1a900"
+md5_published = "4221de1d7850eed1cb2723747b9909d8"
+
+[[dataset]]
+name = "europe-osm"
+title = "European road network from OpenStreetMap, largest strongly connected component (DIMACS10 europe.osm)"
+family = "road"
+tier = 2
+directed = false
+weighted = false
+temporal = false
+nodes = 50912018
+edges = 54054660
+counts_note = "Undirected edges, from the DIMACS10 street-networks page; the file's first line says '50912018 54054660'."
+format = "METIS graph, bzip2: '%' comment lines, a line 'n m', then line i lists the neighbours of node i (1-based)"
+to_edge_list = "bunzip2, skip '%' lines and the 'n m' line; for line i (from 1) emit (i, j) for each neighbour j > i. Coordinates are in europe.osm.xyz.bz2 on the same page (not registered)."
+page = "https://sites.cc.gatech.edu/dimacs10/archive/streets.shtml"
+licence = "Derived from OpenStreetMap data (Geofabrik extract, March 2010). OpenStreetMap data of that date was published under CC BY-SA 2.0 (OpenStreetMap moved to the ODbL 1.0 in 2012); the DIMACS10 page states no terms of its own."
+licence_url = "https://www.openstreetmap.org/copyright"
+citation = "D. A. Bader, H. Meyerhenke, P. Sanders, D. Wagner (eds.). Graph Partitioning and Graph Clustering. 10th DIMACS Implementation Challenge, Contemporary Mathematics 588, 2013. Map data (c) OpenStreetMap contributors."
+notes = "The SuiteSparse copy (DIMACS10/europe_osm) is unreachable: its file host has answered 403 to every request since mid-October 2026 (the collection's site says it is offline because of excess downloads). This entry uses the original DIMACS10 file at Georgia Tech instead: the same graph in METIS rather than Matrix Market format. Which OpenStreetMap terms bind this 2010 extract today was not established."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "europe.osm.graph.bz2"
+url = "https://sites.cc.gatech.edu/dimacs10/archive/data/streets/europe.osm.graph.bz2"
+size = 258310855
+sha256 = "5c170df84744bbbad46a51ce39dd47416f4fd2ea2b829f44a6917ee6c6e0a3c6"
+
+[[dataset]]
+name = "sx-stackoverflow"
+title = "Stack Overflow interactions (answers and comments) with timestamps (SNAP sx-stackoverflow)"
+family = "temporal"
+tier = 2
+directed = true
+weighted = false
+temporal = true
+nodes = 2601977
+edges = 63497050
+counts_note = "Edges are temporal edges; SNAP also lists 36,233,450 edges in the static graph, over 2,774 days. Checked on the file: 63,497,050 lines."
+format = "Edge list, gzip, no header: 'SRC TGT UNIXTS' per line (space-separated)"
+to_edge_list = "gunzip. Each line is one interaction u -> v at time t (u answered or commented on v's post); parallel edges are real. Ids are Stack Overflow user ids: remap."
+page = "https://snap.stanford.edu/data/sx-stackoverflow.html"
+licence = "No licence stated by SNAP for the graph. It is derived from the Stack Exchange Data Dump, whose archive.org page gives the licence as CC BY-SA 4.0."
+licence_url = "https://archive.org/details/stackexchange"
+citation = "A. Paranjape, A. R. Benson, J. Leskovec. Motifs in Temporal Networks. WSDM, 2017."
+notes = "The large transaction-style edge list of the registry: a timestamped interaction multigraph. Whether CC BY-SA carries over to the derived graph was not established."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "sx-stackoverflow.txt.gz"
+url = "https://snap.stanford.edu/data/sx-stackoverflow.txt.gz"
+size = 529869668
+sha256 = "fc04264de1652bbf91c10eb8ec2465df082fc0aec2012e5f4a8edc6400f0d7a3"
+
+# ---------------------------------------------------------------- tier 3: server, optional
+
+[[dataset]]
+name = "gsh-2015"
+title = "General host-level-sampled web crawl, 2015 (LAW gsh-2015)"
+family = "web"
+tier = 3
+directed = true
+weighted = false
+temporal = false
+nodes = 988490691
+edges = 33877399152
+counts_note = "nodes and arcs from gsh-2015.properties: about 34 billion arcs."
+format = "WebGraph BVGraph (.graph + .properties); the .offsets file is not published and is rebuilt by WebGraph"
+to_edge_list = "Needs a WebGraph reader: the optional webgraph feature of issue #42 (webgraph-rs). An arc list would be hundreds of GB: process it in BVGraph form."
+page = "https://law.di.unimi.it/webdata/gsh-2015/"
+licence = "No licence stated by LAW. LAW asks to acknowledge WebGraph, LLP and BUbiNG when publishing results."
+licence_url = "https://law.di.unimi.it/datasets.php"
+citation = "WebGraph (Boldi, Vigna, WWW 2004), LLP (Boldi, Rosa, Santini, Vigna, WWW 2011), BUbiNG (Boldi, Marino, Santini, Vigna, 2018)."
+notes = "Not downloaded (8.7 GB): SHA-256 is not pinned, so `fetch` needs --allow-unpinned and checks the MD5 that LAW publishes. Pin the SHA-256 it reports. LAW graphs above 10 billion arcs, as listed on 2026-11-25: uk-2014 (47.6 B arcs, 7.8 GB), gsh-2015 (33.9 B, 8.7 GB), clueweb12 (42.6 B, 11.9 GB), eu-2015 (91.8 B, 13.7 GB). gsh-2015 is chosen as a crawl not limited to one country domain; uk-2014 is the smaller download."
+unverified = ["licence", "sha256"]
+
+[[dataset.file]]
+name = "gsh-2015.graph"
+url = "http://data.law.di.unimi.it/webdata/gsh-2015/gsh-2015.graph"
+size = 8673000442
+md5_published = "566bde4b0030d8f2f48015a8a59eb9dc"
+
+[[dataset.file]]
+name = "gsh-2015.properties"
+url = "http://data.law.di.unimi.it/webdata/gsh-2015/gsh-2015.properties"
+size = 1387
+md5_published = "054bed47747e05abac4e8cab895b5ea5"

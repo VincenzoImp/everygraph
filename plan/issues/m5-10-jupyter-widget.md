@@ -10,6 +10,7 @@ labels: type:feature, area:viewer, P1, risk:low, size:S
 - [ ] Two-way selection: clicking a region gives its node ids in Python; Python can highlight a set of nodes or a result column on the map
 - [ ] Works in JupyterLab, VS Code notebooks and Colab (where loopback servers are restricted — use the widget transport, not HTTP)
 - [ ] Progress display for the build ({{#m0-12-ux-contract}})
+- [ ] The cards of `docs/ux-contract.md` § 7, driven only by the events of § 4.6; interrupting the kernel ends the card in the stop block
 
 **Acceptance**
 - 1 M-edge CSV → inline map in < 10 s in a fresh notebook on a laptop

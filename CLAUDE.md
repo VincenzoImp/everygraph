@@ -123,6 +123,10 @@ issue template or the neighbouring issues so the next one does not.
   the repository's ignored directories or the scratch directory.
 - **The host has a public IP.** Any server binds to `127.0.0.1` only.
 - No `sudo`. Hard memory limits: `systemd-run --user --scope -p MemoryMax=… -p MemorySwapMax=0`.
+- **Anything that loads a graph runs under a hard memory limit** (the `systemd-run` line
+  above; 8 GB unless the task says otherwise), and tools that load data take a limit of their
+  own. A reference run without one grew to 61 GB, pushed the host into swap and spoiled a
+  measurement in progress. Say the limit in every subagent brief.
 - **Never kill by name or pattern** (`pkill`, `killall`, `kill $(pgrep -f …)`): it has
   killed the calling shell and other experiments' processes here. Record PIDs and kill those.
 - **Never wrap a script that takes a lock in the same lock** (a nested `flock` deadlocked

@@ -16,19 +16,31 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-As of 2026-11-25, six agents (Opus unless noted; policy in CLAUDE.md § 6):
+As of 2026-11-25, 03:45 (policy for models in CLAUDE.md § 6):
 
-- **#3 CI** — `m0-02-ci` (Opus medium). Includes the portability canary and cost discipline
-  for Actions minutes on a private repository.
-- **#5 datasets** — `m0-04-datasets` (Opus medium). Registry and fetcher in `everygraph-bench`.
-- **#6 oracle** — `m0-05-oracle` (Opus high). Generators, reference runners, invariants,
-  plug-in trait; proven against the lab kernels and seeded bugs.
-- **#12 API sketch, #13 UX contract** — one specification agent, two PRs (Fable high, started
-  before the model policy).
 - **#118 compressed storage end to end** (M1) — experimenter (Fable high, started before the
-  policy). It has the machine for measurements; nothing else may benchmark until it reports.
+  policy), branch `lab-m1-13-compressed-end-to-end`. **It owns the machine**: about 3.5 hours
+  of measurements; even one busy core skewed its timings by 10–40%, so nothing that compiles
+  or computes for more than a moment runs until it reports. Encode and verify stages are
+  done (bits per edge reported: lj 18.1, orkut 16.7, twitter-sym 16.1, Friendster 23.2 —
+  to be checked against its result files).
+- **#6 oracle** — draft PR #131 (`m0-05-oracle`), agent paused. To do when the machine is
+  free (resume the same agent): rebase on main; golden files for the tier-1 datasets through
+  the registry of #5; a CI job that runs `oracle/run-ci.sh` (with `uv`); time `run-ci.sh`;
+  final seeded-bug matrix; toy and lab adapter on the nightly tier; `run-nightly.sh`. The
+  semantics questions Q1–Q13 are answered in `design/DECISIONS.md` ("Graph semantics").
+  Then independent review (Opus high). Corpora kept in scratch `m0-05-oracle` (110 MB).
+- **#12 API sketch (PR #125), #13 UX contract (PR #124)** — first review applied by two
+  agents; second review by the same reviewer running (verification item by item and the two
+  documents against each other). Coordinator rulings to apply in the last fix round are in
+  the reviewer's brief (khop cut by discovery order; share hint through export with a reveal
+  choice; `OutputExists` in the contract's error enum; `duplicates` words; path tie rule in
+  #91). After merge: apply the amendments of the sketch's § 7 table to #34, #36, #50, #90,
+  #91, #94, #39, #98, #75, #84 and republish the plan.
+- **#4 benchmark harness** — ready (its dependency #5 is merged) but not started: it would
+  compile during the measurement window. Start it (Opus high) when #118 reports.
 
-Done today: **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
+Done today: **#5 datasets** merged (PR #129) after an independent review and a fix round (17 tier-1 datasets, 75 MB, all usable by anyone; follow-up for real bipartite and co-occurrence graphs in `m3-13-dataset-gaps`). **#3 CI** merged (PR #127; all six Linux jobs green on `main`, run 45530945188; macOS, Windows and Linux arm64 run weekly; the threaded wasm job moved to #108). **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
 lands). **#2 workspace** merged (PR #123) after an independent review found the
 portability rule narrower than claimed; fixed (lint lists, `forbid` at the crate root,
 `tools/check_core_portability.py`). **#11 patent** closed. **#10 name**: the owner keeps
@@ -92,6 +104,11 @@ Tell the owner when each becomes due, with everything prepared.
   the shell. Reports come back as text and the coordinator records them.
 - 2026-11-24 — The short name `eg` is taken on PyPI, crates.io and npm.
 - 2026-11-24 — Effort estimates quoted without adding them up were 30% too low.
+- 2026-11-25 — An oracle reference run (`--jobs 6`, no limit) reached 61.5 GB resident,
+  the host swapped 25 GB (other people's services included) and experiment #118 had to
+  discard its rows and restart. Cause of the damage: the brief said "no benchmarks" but set
+  no memory limit. Now a rule (CLAUDE.md § 7): every data-loading run under `MemoryMax`,
+  and the limit is stated in each brief.
 
 ## Journal
 

@@ -13,6 +13,9 @@ labels: type:infra, area:bench, P0, risk:medium, size:L
 - [ ] Peak-memory, wall, user/sys time, bytes read/written per run
 - [ ] Comparison runners for NetworKit, igraph, GVE-Louvain/Leiden, DuckDB, and the engines measured in F2
 - [ ] Report generator: markdown tables + chart-ready JSON
+- [ ] Record the estimates and actuals of `docs/ux-contract.md` P-9 for every run, report per quantity the share of runs whose actual lies in `[low, high]`, and measure the 2 s stop bound of C-4 on the tier-1 datasets (both apply from the first issue that produces a plan; the harness provides the fields and the report now)
+- [ ] Every run under a hard memory limit (`systemd-run --user --scope -p MemoryMax=…`), stated in the spec file and recorded in the result (CLAUDE.md § 7)
+- [ ] Command line through a parser crate (`clap` or `lexopt`) now that the tool gains subcommands beyond the dataset ones (review of PR #129)
 
 **Acceptance**
 - `everygraph-bench run headline` reproduces the ingest, kernel and semi-external tables of FINDINGS § B1 within 10% on the lab machine
