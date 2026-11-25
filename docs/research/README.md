@@ -19,10 +19,16 @@ with ours as it stands. Nothing in these reports was built or measured.
 | [sota-ingest-query.md](sota-ingest-query.md) | ingest, ids, format, views, API | MPHFs (PtrHash, PHastR), parsing (csveee, simdjson), CSR build and sorting (PIGO, IPS4o), containers (GraphAr, Lance, Arrow IPC, BtrBlocks), engines (Kùzu, DuckPGQ, Neo4j GDS, NetworKit), NetworkX dispatch; D7–D10, D19–D21, ADR 0026 | mixed: full, partial and docs, by four readers |
 | [sota-coverage.md](sota-coverage.md) | coverage audit | which works and topics the six area reviews missed; the scopes of the second wave | abstracts only, by design |
 
-**A second wave is in progress** (scoped in `sota-coverage.md` § (d)): bit-identical
-numerics, testing a graph engine, honest measurement, dynamic graphs; and, as follow-ups,
-human factors of graph maps and approximation / Rust practice. Its reports will be listed
-here when they land.
+**The second wave** (scoped in `sota-coverage.md` § (d)) is in progress. Four reports have
+landed; the coordinator has not yet turned them into decisions. Bit-identical numerics and
+testing a graph engine are still being written.
+
+| Report | Area | What it covers | Read depth |
+|---|---|---|---|
+| [sota-measurement.md](sota-measurement.md) | honest measurement | repetition and confidence intervals, measurement bias, interleaving, CPU and drive effects (the lab drive's fast-write burst, TRIM), graph-benchmark pitfalls, how to publish comparisons | full by the author or by helpers, checked; two official result files re-analysed offline |
+| [sota-dynamic.md](sota-dynamic.md) | graphs that change | dynamic storage (LSM-of-CSR, PaC-trees, Sortledton), snapshots, incremental kernels and Leiden, map stability after an append; what `.eg` must reserve now | full, partial and abstract, marked per work |
+| [sota-human-factors.md](sota-human-factors.md) | human factors | accessibility of graph views, API usability, privacy of shared maps, graphs for LLM agents | full text for a core set; several key papers abstract only (bot walls), stated in the report |
+| [sota-approx-rust.md](sota-approx-rust.md) | approximation and Rust practice | sketching and approximation under a memory budget (HyperBall, sampling for centralities), Rust parallel practice (Rayon, `unsafe`, fearless parallelism) | full, method-and-evaluation or abstract, marked per work |
 
 ## Decisions taken from the first wave
 
