@@ -1,0 +1,6 @@
+﻿source;target;weight
+alice;bob;1
+alice;;1
+carol;dave
+carol;dave;one
+  carol  ;  "dave; jr"  ;2

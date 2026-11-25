@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The malformed-input corpus of the text reader (issue #32), and the index of every
+# invalid row in it.
+#
+# "@ FILE KEY=VALUE..." names a file and the options it is read with (tests/corpus.rs
+# lists the keys). Every other line is "FILE:LINE  MESSAGE": one invalid row, located as
+# docs/ux-contract.md § 6.1 locates it (lines from 1, counting the header and comments),
+# with the sentence printed after the location. tests/corpus.rs checks that the reader
+# reports exactly these rows and no others, that every file here is listed, and that
+# each problem's excerpt is that line of the file.
+#
+# FILE.gz and FILE.zst are compressed copies of FILE (gzip -n; zstd, transfers.csv.zst
+# as two frames) and must give FILE's rows and problems.
+
+@ transfers.csv weight=value time=time
+transfers.csv:3  4 fields where the header has 5
+transfers.csv:4  value is not a number
+transfers.csv:5  time is not a time
+transfers.csv:6  from is empty
+transfers.csv:7  a quote is not closed
+transfers.csv:8  text follows a closing quote
+transfers.csv:9  value is empty
+transfers.csv:11  7 fields where the header has 5
+
+@ snap-crlf.txt ids=integer
+snap-crlf.txt:5  1 field where 2 are needed
+snap-crlf.txt:6  column 1 is larger than 18446744073709551615
+snap-crlf.txt:7  column 2 is not an integer
+snap-crlf.txt:10  column 1 is not an integer
+
+@ hex.tsv ids=hex
+hex.tsv:2  column 1 is not a hexadecimal integer
+hex.tsv:3  column 1 is larger than 18446744073709551615
+hex.tsv:4  column 1 is not a hexadecimal integer
+
+@ times.csv time=2 weight=3 unit=ms
+times.csv:3  column 3 is not a time
+times.csv:4  column 3 is too far from 1970
+times.csv:7  1 field where 4 are needed
+times.csv:8  column 4 is empty
+
+@ semicolon-bom.csv weight=weight
+semicolon-bom.csv:3  target is empty
+semicolon-bom.csv:4  2 fields where the header has 3
+semicolon-bom.csv:5  weight is not a number
+
+@ titles.tsv kind=2 extra=3
+titles.tsv:3  1 field where 4 are needed
+
+@ empty.txt
+@ header-only.csv
