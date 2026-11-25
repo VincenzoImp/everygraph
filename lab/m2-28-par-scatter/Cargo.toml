@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Exploratory A/B of issue #189: the lab Leiden's raw-pointer member scatter against the
+# safe write helpers of `everygraph_core::par`, on synthetic community labels. Not part
+# of the workspace; it builds the production core with the workspace's release settings
+# (no target-cpu=native).
+
+[package]
+name = "m228-par-scatter"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[[bin]]
+name = "scatterab"
+path = "src/main.rs"
+
+[dependencies]
+everygraph-core = { path = "../../crates/everygraph-core" }
+rayon = "1.10"
+
+[workspace]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

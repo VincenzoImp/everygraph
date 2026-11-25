@@ -261,6 +261,128 @@ impl<T: Copy> SegVec<T> {
         }
     }
 
+    /// Calls `f(i, range)` with the elements `offsets[i]..offsets[i + 1]` as one mutable
+    /// slice, for each `i` below `offsets.len() - 1`, possibly in parallel: what
+    /// [`par::for_each_range_mut`] does on a flat slice, with the same rules for the
+    /// offsets and the grain.
+    ///
+    /// A range that crosses the end of a segment cannot be lent as one slice. It is
+    /// copied into a scratch buffer, `f` runs on the copy, and the copy is written back;
+    /// those calls run one after the other on the calling thread. There is at most one
+    /// such range per segment end. The buffer, as long as the longest of them, is
+    /// reserved for [`purpose`](Self::purpose) before `f` is called for any range.
+    ///
+    /// # Errors
+    ///
+    /// [`MemoryError::Budget`] if the scratch buffer does not fit, before `f` is called;
+    /// [`MemoryError::AllocationFailed`] if it would exceed [`MAX_ALLOCATION_BYTES`] or
+    /// the allocator refused.
+    ///
+    /// # Panics
+    ///
+    /// If an offset is smaller than the one before it, or the last exceeds
+    /// [`len`](Self::len), before `f` is called.
+    pub fn for_each_range_mut<O, F>(
+        &mut self,
+        offsets: &[O],
+        grain: NonZeroUsize,
+        f: F,
+    ) -> Result<(), MemoryError>
+    where
+        T: Send,
+        O: Copy + Sync,
+        usize: TryFrom<O>,
+        F: Fn(usize, &mut [T]) + Send + Sync,
+    {
+        const CHECK_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).unwrap();
+        let Some(ranges) = offsets.len().checked_sub(1) else {
+            return Ok(());
+        };
+        let at = |i| par::offset_at(offsets, i);
+        let sorted = par::map_ranges(ranges, CHECK_GRAIN, |mut r| r.all(|i| at(i) <= at(i + 1)));
+        assert!(
+            sorted.into_iter().all(|ok| ok) && at(ranges) <= self.len,
+            "offsets decrease or end beyond a SegVec of length {}",
+            self.len
+        );
+
+        // Ranges are assigned to the segment they start in, in order. Those that end in
+        // it are lent in place; the last one may cross its end, and goes through the
+        // scratch buffer. The last segment takes all the remaining ranges, also the
+        // empty ones at `len`; with no segment at all, every range is empty.
+        let segment_len = self.segment_len();
+        let segments = self.used_segments().max(1);
+        let mut inner = Vec::with_capacity(segments);
+        let mut crossing = Vec::new();
+        let mut low = 0;
+        for segment in 1..=segments {
+            let end = segment * segment_len;
+            let mut high = if segment == segments {
+                ranges
+            } else {
+                offsets
+                    .partition_point(|&o| usize::try_from(o).unwrap_or(usize::MAX) < end)
+                    .clamp(low, ranges)
+            };
+            let crosses = high > low && at(high) > end;
+            high -= usize::from(crosses);
+            inner.push(low..high);
+            if crosses {
+                crossing.push(high);
+                high += 1;
+            }
+            low = high;
+        }
+        let longest = crossing
+            .iter()
+            .map(|&i| at(i + 1) - at(i))
+            .max()
+            .unwrap_or(0);
+        let bytes = Self::bytes_for(widen(longest))
+            .filter(|&bytes| bytes <= MAX_ALLOCATION_BYTES)
+            .ok_or_else(|| self.allocation_failed(longest))?;
+        let _scratch =
+            self.reservation
+                .memory()
+                .reserve(self.purpose(), MemoryKind::Anonymous, bytes)?;
+        let mut scratch = Vec::new();
+        scratch
+            .try_reserve_exact(longest)
+            .map_err(|_| self.allocation_failed(longest))?;
+
+        let mut slices = self.segments_mut();
+        for (segment, range) in inner.into_iter().enumerate() {
+            let data = slices.next().unwrap_or_default();
+            if !range.is_empty() {
+                let (start, end) = (at(range.start), at(range.end));
+                let base = segment * segment_len;
+                let offsets = &offsets[range.start..=range.end];
+                let data = &mut data[start - base..end - base];
+                par::ranges_mut(data, start, offsets, range.start, grain.get(), &f);
+            }
+        }
+        drop(slices);
+        let mask = self.mask();
+        for i in crossing {
+            let mut position = at(i);
+            for part in self.range_slices(position..at(i + 1)) {
+                scratch.extend_from_slice(part);
+            }
+            f(i, &mut scratch);
+            let mut rest = &scratch[..];
+            while !rest.is_empty() {
+                let segment = &mut self.segments[position >> self.bits];
+                let offset = position & mask;
+                let take = rest.len().min(segment.len() - offset);
+                segment[offset..offset + take].copy_from_slice(&rest[..take]);
+                rest = &rest[take..];
+                position += take;
+            }
+            scratch.clear();
+        }
+        Ok(())
+    }
+
     /// Reserves room for at least `additional` more elements, exactly as many as
     /// asked.
     ///
