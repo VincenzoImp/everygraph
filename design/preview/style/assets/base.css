@@ -108,3 +108,10 @@ pre code { padding: 0; background: none; font-size: inherit; }
 .term .dim { color: var(--term-dim); } .term .ok { color: var(--term-ok); } .term .warn { color: var(--term-warn); } .term .err { color: var(--term-err); } .term .acc { color: var(--term-accent); } .term b { font-weight: 700; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* added after the first applied pages: monospace must not fuse "--", "->", ">>>" into ligatures */
+code, pre, kbd, samp, .num, .term { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+/* right-aligned header or cell that is not a number (keeps the text face) */
+.r, table.t th.r, table.t td.r { text-align: right; }
+/* a number with its unit: digits in mono, unit in the text face after a thin space */
+.unit { font-family: var(--font-sans); margin-left: 0.2em; }

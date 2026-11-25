@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everygraph style — Terminal</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+/* page-specific layout only; colours, sizes and radii come from tokens.css */
+
+/* Three 80-column terminals side by side need more room than the 1200 px page;
+   on narrower windows the row wraps to two and one. Prose stays at the reading width. */
+.page { max-width: 2112px; }
+.narrow { max-width: var(--page); }
+.section > p, .tx > p, .section li { max-width: var(--content); }
+.section > p + p { margin-top: var(--space-3); }
+
+.tx { margin-top: var(--space-6); }
+.tx > h3 { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-1); }
+.tx > p { color: var(--ink-2); font-size: var(--text-sm); line-height: var(--lh-sm); margin-bottom: var(--space-3); }
+.ways { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-start; }
+.way { margin: 0; }
+.way > figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3);
+  font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); margin-bottom: var(--space-2); }
+.way > figcaption b { font-weight: var(--weight-medium); color: var(--ink-2); }
+/* the content box of a specimen is exactly 80 columns wide: its right padding edge is column 80 */
+/* JetBrains Mono joins "->" and "--" into single glyphs; a terminal shows the characters that were sent */
+.term, td.mono, code, .ruler { font-variant-ligatures: none; }
+.term.c80 { box-sizing: content-box; width: 80ch; border: var(--border) solid var(--line); overflow: hidden; position: relative; }
+.term.c60 { box-sizing: content-box; width: 60ch; border: var(--border) solid var(--line); overflow: hidden; }
+.same { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); margin-top: var(--space-2); }
+.same .ok-word { color: var(--ok); font-weight: var(--weight-medium); }
+
+/* ---- local variables: tokens that do not exist yet (reported) ----
+   1. A light terminal surface. tokens.css only defines the dark one (--term-*), so the light
+      terminal re-points the same variables at light-theme tokens. */
+.th-light { --term-bg: var(--surface); --term-ink: var(--ink); --term-dim: var(--muted); --term-ok: var(--ok);
+  --term-warn: var(--warn); --term-err: var(--err); --term-accent: var(--accent-ink); --term-cyan: var(--info); }
+/* 2. Other people's default palettes — NOT Everygraph colours. Quoted from the programs named, only to
+      test that the output stays legible when the user's terminal decides the hues. "Faint" (SGR 2) is
+      drawn the way terminals draw it: the foreground mixed towards the background. */
+.th-xterm { --term-bg: #000000; --term-ink: #e5e5e5; --term-ok: #00cd00; --term-warn: #cdcd00; --term-err: #cd0000; --term-accent: #0000ee; --term-cyan: #00cdcd; }
+.th-campbell { --term-bg: #0c0c0c; --term-ink: #cccccc; --term-ok: #13a10e; --term-warn: #c19c00; --term-err: #c50f1f; --term-accent: #0037da; --term-cyan: #3a96dd; }
+.th-solarized { --term-bg: #fdf6e3; --term-ink: #657b83; --term-ok: #859900; --term-warn: #b58900; --term-err: #dc322f; --term-accent: #268bd2; --term-cyan: #2aa198; }
+.th-xterm, .th-campbell, .th-solarized { --term-dim: color-mix(in srgb, var(--term-ink) 60%, var(--term-bg)); }
+/* 3. Slots of a 16-colour theme that have no terminal token: magenta and cyan are taken from the
+      data and status palettes (see the table), black and white from the surface and the ink. */
+.sw { background: var(--term-bg); color: var(--term-ink); font-family: var(--font-mono); white-space: nowrap; }
+table.t td.sw { border-bottom-color: transparent; }
+.sw .ratio { color: var(--term-dim); margin-left: var(--space-3); font-size: var(--text-xs); }
+table.t tr:hover td.sw { background: var(--term-bg); }
+.ansi td, .ansi th { font-size: var(--text-sm); }
+.ansi td:first-child, .ansi td:nth-child(2), .ansi td:nth-child(3) { white-space: nowrap; }
+
+/* anatomy: brackets under one line, measured in the terminal's own columns */
+.anat { width: max-content; max-width: 100%; }
+.segs { display: flex; font: var(--text-sm)/20px var(--font-mono); padding: 0 calc(var(--space-4) + var(--border)); margin-top: var(--space-2); height: 28px; }
+.segs > span { box-sizing: border-box; height: 6px; border-top: var(--border) solid var(--ink-2); border-left: var(--border) solid var(--ink-2); position: relative; flex: none; }
+.segs > span.gap { border-top-color: transparent; }
+.segs > span.end { border-top-color: transparent; width: 0; }
+.segs > span > i { position: absolute; top: 8px; left: 0; right: 0; text-align: center; font-style: normal; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.legend { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-3); margin-top: var(--space-3); max-width: var(--content); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.legend > dt { font-family: var(--font-mono); color: var(--ink-2); }
+.legend > dd { margin: 0; color: var(--ink-2); }
+.legend > dd b { color: var(--ink); font-weight: var(--weight-medium); }
+.ruler { font: var(--text-sm)/20px var(--font-mono); color: var(--muted); white-space: pre; padding: 0 calc(var(--space-4) + var(--border)); }
+/* guide lines inside a specimen, at a column */
+.term .g { position: absolute; top: 0; bottom: 0; width: 0; left: calc(var(--space-4) + var(--col) * 1ch); }
+.term .g::before, .term .g::after { content: ""; position: absolute; left: 0; width: var(--border); height: var(--space-3); background: var(--term-ink); }
+.term .g::before { top: 0; } .term .g::after { bottom: 0; }
+.rules { padding-left: var(--space-5); display: grid; gap: var(--space-2); color: var(--ink-2); }
+.rules b { color: var(--ink); font-weight: var(--weight-medium); }
+.cols2 { display: flex; flex-wrap: wrap; gap: var(--space-6); align-items: flex-start; }
+.cols2 > div { min-width: 0; }
+.readout { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); margin-top: var(--space-2); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); max-width: calc(80ch * 1.1); }
+.readout .low { color: var(--err); font-weight: var(--weight-medium); }
+.only-wrap { padding: var(--space-5); }
+.only-wrap > .section { margin-top: 0; }
+table.t.fit { width: auto; min-width: 640px; }
+table.t td.mono { font-family: var(--font-mono); font-size: var(--text-sm); white-space: nowrap; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <h1>Terminal</h1>
+    <p>Everything the <code>everygraph</code> command prints, set on the terminal surface. Each transcript is shown three ways — with colour and Unicode, without colour, and in plain ASCII — because the first is an enhancement and the other two must be complete on their own.</p>
+  </header>
+
+  <!-- ============================================================ -->
+  <section class="section" data-only="three">
+    <h2>One transcript, three ways</h2>
+    <p>The three columns are generated from one source, so they cannot drift. The right edge of every specimen is column <span class="num">80</span>; the figure above each one is its longest line, measured by the page.</p>
+    <div class="tx" data-src="t-ingest-done" style="margin-top:0"></div>
+
+    <div class="sub narrow">
+      <h3>Which one you get</h3>
+      <table class="t">
+        <thead><tr><th>Rendering</th><th>When</th><th>What it changes</th></tr></thead>
+        <tbody>
+          <tr><td>Colour and Unicode</td><td>The output is a terminal, it accepts UTF-8 and colour has not been turned off.</td><td>Nothing: this is the full form.</td></tr>
+          <tr><td>No colour</td><td>The <code>NO_COLOR</code> environment variable is set, or the terminal reports that it has no colour.</td><td>Colour, bold and dim are removed. Symbols and words carry the status.</td></tr>
+          <tr><td>ASCII only</td><td>The terminal's encoding is not UTF-8.</td><td>Every symbol is replaced as in the <a href="#symbols">table of fallbacks</a>. Colour is decided separately.</td></tr>
+          <tr><td>Piped</td><td>The output is not a terminal: a pipe, a file, a job log.</td><td>ASCII, no colour, no bars; tables become tab-separated. See <a href="#scripts">For scripts</a>.</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin-top:var(--space-3)">Colour and Unicode are detected independently, so a fourth combination exists — colour with ASCII symbols. It is the third column wearing the colours of the first, and is not drawn separately.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="section" data-only="colour" id="colour">
+    <h2>Colour</h2>
+    <p>The command emits seven instructions and nothing else: reset, bold, faint, and four named colours. It never sets a background and never sends an exact colour value, so the user's terminal theme decides the hues. The swatches show what the documentation and a matching terminal theme use; the figure beside each is its measured contrast against the terminal background.</p>
+
+    <div class="sub narrow">
+      <h3>What Everygraph emits</h3>
+      <table class="t ansi" id="roles">
+        <thead><tr><th>Role</th><th>Code</th><th>Dark terminal</th><th>Light terminal</th><th>Used for</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="note" style="margin-top:var(--space-3)">Dim is the <em>faint</em> attribute, not "bright black": several popular themes draw bright black in the background colour, where it disappears, while a terminal that does not know faint shows ordinary text. Colour goes on the symbol, not on the sentence — the words must read the same in the second column.</p>
+    </div>
+
+    <div class="sub narrow">
+      <h3>The 16 ANSI colours, from the palette</h3>
+      <p class="note" style="margin-bottom:var(--space-3)">For a terminal theme that matches Everygraph, and for every terminal drawn in the documentation. Slots the command never emits are filled so that other programs look at home; the palette has one tier of status colours, so the bright slots repeat the normal ones.</p>
+      <table class="t ansi" id="ansi16">
+        <thead><tr><th class="num">Slot</th><th>Name</th><th>Code</th><th>Dark terminal</th><th>Token</th><th>Light terminal</th><th>Token</th><th>Emitted by Everygraph</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="section" data-only="symbols" id="symbols">
+    <h2>Symbols and their fallbacks</h2>
+    <p>Nine characters outside ASCII and one sign, all present in common monospace fonts and one cell wide. No box-drawing characters: tables are aligned with spaces only. Status fallbacks are words, so a log can be searched for <code>error:</code> and <code>warning:</code>.</p>
+    <div class="narrow">
+      <table class="t fit">
+        <thead><tr><th>Unicode</th><th>ASCII</th><th>Meaning</th><th>Colour</th><th class="num">Width change</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">✓</td><td class="mono">ok</td><td>Done; a check that passed.</td><td>green, symbol only</td><td class="num">+1</td></tr>
+          <tr><td class="mono">✗</td><td class="mono">error:</td><td>Refused or failed. Always followed by one sentence.</td><td>red, symbol only</td><td class="num">+5</td></tr>
+          <tr><td class="mono">!</td><td class="mono">warning:</td><td>It will go on, but there is something to know.</td><td>yellow, symbol only</td><td class="num">+7</td></tr>
+          <tr><td class="mono">█</td><td class="mono">#</td><td>A filled cell of a progress bar.</td><td>none; dim once the phase is finished</td><td class="num">0</td></tr>
+          <tr><td class="mono">░</td><td class="mono">.</td><td>A cell not yet filled.</td><td>dim</td><td class="num">0</td></tr>
+          <tr><td class="mono">·</td><td class="mono">|</td><td>Separates facts on one line.</td><td>none</td><td class="num">0</td></tr>
+          <tr><td class="mono">—</td><td class="mono">-</td><td>Joins a statement to its reason.</td><td>none</td><td class="num">0</td></tr>
+          <tr><td class="mono">→</td><td class="mono">-&gt;</td><td>Becomes; leads to.</td><td>none</td><td class="num">+1</td></tr>
+          <tr><td class="mono">…</td><td class="mono">...</td><td>Something was shortened; a range.</td><td>none</td><td class="num">+2</td></tr>
+          <tr><td class="mono">×</td><td class="mono">x</td><td>Times, in arithmetic.</td><td>none</td><td class="num">0</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin-top:var(--space-3)">Because some fallbacks are wider, the Unicode form of a line may use at most the width that leaves room for them. The page checks this: every ASCII column on this page contains only ASCII and stays inside <span class="num">80</span> columns. Where a line cannot (the path below), the output wraps before an arrow rather than inside an address.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="section" data-only="anatomy" id="anatomy">
+    <h2>Progress, alignment and width</h2>
+    <p>Three rules of construction that every transcript below follows.</p>
+
+    <div class="sub">
+      <h3>Anatomy of a progress line</h3>
+      <div class="anat">
+        <div class="term c80" id="anat-line"></div>
+        <div class="segs">
+          <span style="width:2ch"><i>1</i></span><span style="width:13ch"><i>2</i></span><span style="width:16ch"><i>3</i></span><span class="gap" style="width:2ch"></span><span style="width:32ch"><i>4</i></span><span class="gap" style="width:3ch"></span><span style="width:10ch"><i>5</i></span><span class="end"></span>
+        </div>
+      </div>
+      <dl class="legend">
+        <dt>1</dt><dd><b>Indent, 2 columns.</b> Phases belong to the command above them.</dd>
+        <dt>2</dt><dd><b>Phase name, 13 columns.</b> One lowercase word, left-aligned: the longest name plus two.</dd>
+        <dt>3</dt><dd><b>Bar, 16 cells.</b> A cell fills when its sixteenth is complete. Whole blocks only — no partial blocks, brackets, spinners or colour. With 20 cells the longest line of <code>map</code> would be 82 columns.</dd>
+        <dt>4</dt><dd><b>Detail, up to 32 columns.</b> While running: percent, rate, time left. When finished: the exact count of what was made.</dd>
+        <dt>5</dt><dd><b>Elapsed time, right-aligned to column 78.</b> Units are written out on every line.</dd>
+      </dl>
+      <div class="cols2" style="margin-top:var(--space-5)">
+        <div>
+          <p class="small muted" style="margin-bottom:var(--space-2)">The three states: finished (bar recedes, numbers stay), running, waiting</p>
+          <div class="term c80" id="anat-states"></div>
+        </div>
+        <div>
+          <p class="small muted" style="margin-bottom:var(--space-2)">The same, ASCII only</p>
+          <div class="term c80" id="anat-states-ascii"></div>
+        </div>
+      </div>
+      <div style="margin-top:var(--space-5)">
+        <p class="small muted" style="margin-bottom:var(--space-2)">The glyph is still a choice: blocks as in cli.md (used on this page), squares as in api.md, or rules. All three are one cell wide in common fonts.</p>
+        <div class="ways">
+          <figure class="way"><figcaption><b>Blocks █ ░ — as specified</b><span>ASCII <span class="num"># .</span></span></figcaption><div class="term c60" id="bar-blocks"></div></figure>
+          <figure class="way"><figcaption><b>Squares ■ □</b><span>ASCII <span class="num"># .</span></span></figcaption><div class="term c60" id="bar-squares"></div></figure>
+          <figure class="way"><figcaption><b>Rules ━ ─</b><span>ASCII <span class="num">= -</span></span></figcaption><div class="term c60" id="bar-rules"></div></figure>
+        </div>
+      </div>
+      <p class="note" style="margin-top:var(--space-3)">On a terminal the running line is redrawn in place a few times a second and the lines above it never move. When the output is not a terminal nothing is redrawn: each phase prints one line when it finishes, without a bar.</p>
+    </div>
+
+    <div class="sub">
+      <h3>Column alignment</h3>
+      <div class="cols2">
+        <div>
+          <p class="small muted" style="margin-bottom:var(--space-2)">Labels and values: the ticks mark two left edges and one right edge</p>
+          <div class="term c80" id="align-labels"></div>
+        </div>
+        <div>
+          <p class="small muted" style="margin-bottom:var(--space-2)">A table: text starts on a line, numbers end on one</p>
+          <div class="term c80" id="align-table"></div>
+        </div>
+      </div>
+      <ol class="rules" style="margin-top:var(--space-4)">
+        <li><b>Two spaces of indent</b> under a headline, four under a sub-heading. Nothing is indented with tabs.</li>
+        <li><b>Labels are lowercase, dim and left-aligned</b>; the values start at the longest label plus two.</li>
+        <li><b>Text is left-aligned, numbers are right-aligned</b> so that digits of the same weight sit under each other; a column of decimals shows the same number of decimals on every row.</li>
+        <li><b>A header aligns like its column</b>, is dim, and uses the column's real name, so it can be typed back.</li>
+        <li><b>At least two spaces between columns</b>; no rules, borders or zebra stripes.</li>
+        <li><b>Numbers to read have thousands separators</b> (<span class="num">1,830,397,917</span>); numbers to copy do not (a line number, a port, <code>--memory 6GB</code>). In a terminal the thin space before a unit is an ordinary space.</li>
+        <li><b>Durations are right-aligned</b> and written as they are said: <span class="num">38 s</span>, <span class="num">1 min 41 s</span>. No zero padding.</li>
+      </ol>
+    </div>
+
+    <div class="sub">
+      <h3>Maximum line width</h3>
+      <p class="lede" style="margin-bottom:var(--space-3)">Nothing the command prints is longer than <span class="num">80</span> columns, in any of the three renderings. A wider terminal changes nothing, so a transcript pasted into an issue looks the way it did on screen.</p>
+      <div class="anat">
+        <div class="ruler" id="ruler"></div>
+        <div class="term c80" id="width-lines"></div>
+      </div>
+      <ol class="rules" style="margin-top:var(--space-4)">
+        <li><b>Lines that are redrawn stop at column 78</b>, because a progress line that wraps cannot be redrawn in place.</li>
+        <li><b>A table with identifiers too long for the width</b> shortens them in the middle (<span class="num">0x28c6…1d60</span>) on a terminal, and never when piped.</li>
+        <li><b>Machine output is exempt</b>: tab-separated rows and JSON are as long as the data.</li>
+        <li><b>In a terminal narrower than 80 columns</b> a progress line gives up its bar first, then its detail; other lines are left to the terminal to wrap.</li>
+      </ol>
+      <p class="small muted" style="margin:var(--space-4) 0 var(--space-2)">A 60-column terminal: the bars are gone, the numbers are not</p>
+      <div class="term c60" id="narrow-60"></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="section" data-only="help" id="help">
+    <h2>Help</h2>
+    <p>Headings are bold and nothing else is coloured, so help reads the same in a pager. Descriptions are sentences without a full stop, one line each.</p>
+    <div class="tx" data-src="t-help"></div>
+    <div class="tx" data-src="t-help-ingest"></div>
+  </section>
+
+  <section class="section" data-only="file-to-map" id="file-to-map">
+    <h2>From a file to a map</h2>
+    <p>What it understood, what it will do and what that costs, then one line per phase, a result and the next command. The first specimen of this page is the finished <code>ingest</code>; here it is while running.</p>
+    <div class="tx" data-src="t-ingest-running"></div>
+    <div class="tx" data-src="t-map"></div>
+    <div class="tx" data-src="t-open"></div>
+  </section>
+
+  <section class="section" data-only="questions" id="questions">
+    <h2>Questions and inspection</h2>
+    <p>Results are tables without decoration; descriptions of a file or a machine are labels and values.</p>
+    <div class="tx" data-src="t-pagerank"></div>
+    <div class="tx" data-src="t-path"></div>
+    <div class="tx" data-src="t-info"></div>
+    <div class="tx" data-src="t-doctor"></div>
+  </section>
+
+  <section class="section" data-only="refusals" id="refusals">
+    <h2>Refusals, errors and warnings</h2>
+    <p>One sentence of what, the reason with its arithmetic, then the ways forward. The last line says what state things were left in.</p>
+    <div class="tx" data-src="t-refusal"></div>
+    <div class="tx" data-src="t-invalid"></div>
+    <div class="tx" data-src="t-gzip"></div>
+  </section>
+
+  <section class="section" data-only="interrupt" id="interrupt">
+    <h2>Interruption and resume</h2>
+    <p>Stopping is not an error and gets no symbol. The message says what was kept and what was not, and the same command continues.</p>
+    <div class="tx" data-src="t-interrupt"></div>
+    <div class="tx" data-src="t-resume"></div>
+  </section>
+
+  <section class="section" data-only="scripts" id="scripts">
+    <h2>For scripts</h2>
+    <p>A plan without a run, and output meant for programs. Machine output has one rendering: there is no colour or symbol to take away.</p>
+    <div class="tx" data-src="t-dry-run"></div>
+    <div class="tx" data-src="t-json"></div>
+    <div class="tx" data-src="t-json-error"></div>
+    <div class="tx" data-src="t-piped-table"></div>
+    <div class="tx" data-src="t-piped-log"></div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="section" data-only="light" id="light">
+    <h2>On a light terminal, and on other people's</h2>
+    <p>The same bytes on a light background. Nothing depends on the background being dark: no background is set, no white or black is named, and dim is an attribute of whatever the foreground is.</p>
+    <div class="sub">
+      <h3>Everygraph's light terminal</h3>
+      <div class="ways" data-theme="light">
+        <figure class="way"><figcaption><b>Colour and Unicode, light background</b><span id="light-a-cols"></span></figcaption><div class="term c80 th-light" id="light-a"></div><div class="readout" id="light-a-read"></div></figure>
+        <figure class="way"><figcaption><b>Refusal and warning, light background</b><span id="light-b-cols"></span></figcaption><div class="term c80 th-light" id="light-b"></div></figure>
+      </div>
+    </div>
+    <div class="sub">
+      <h3>Three default palettes that are not ours</h3>
+      <p class="lede" style="margin-bottom:var(--space-3)">The command only names colours; these are the hues three widespread defaults give them. Figures are contrast against each background; anything under <span class="num">4.5</span>&#8239;:&#8239;<span class="num">1</span> is marked. Solarized is low in contrast by design, for every program. The finding that is ours: the suggested command in blue is hard to read on both dark defaults.</p>
+      <div class="ways">
+        <figure class="way"><figcaption><b>xterm, default colours</b></figcaption><div class="term c80 th-xterm" id="proof-xterm"></div><div class="readout" id="proof-xterm-read"></div></figure>
+        <figure class="way"><figcaption><b>Windows Terminal, Campbell</b></figcaption><div class="term c80 th-campbell" id="proof-campbell"></div><div class="readout" id="proof-campbell-read"></div></figure>
+        <figure class="way"><figcaption><b>Solarized Light</b></figcaption><div class="term c80 th-solarized" id="proof-solarized"></div><div class="readout" id="proof-solarized-read"></div></figure>
+      </div>
+    </div>
+    <div class="sub narrow">
+      <h3>The next step: three candidates</h3>
+      <p class="note" style="margin-bottom:var(--space-3)">SPEC.md gives the suggested command the accent, and in a terminal the accent can only be the colour named blue. Measured on five palettes, blue fails on the two commonest dark defaults, cyan fails on Solarized Light, and bold in the default colour cannot fail. This page keeps blue, as specified, until that is decided.</p>
+      <table class="t ansi" id="nextstep">
+        <thead><tr><th>Palette</th><th>Blue, <span class="num">34</span> — as specified</th><th>Cyan, <span class="num">36</span></th><th>Bold, no colour</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== transcript sources =====================
+  Inline tags: <d> dim  <b> bold  <ok> green  <w> yellow  <e> red  <a> accent.
+  Directives:  @phase STATE|name|detail|elapsed   STATE = done | run:CELLS | wait
+               @line name|detail|elapsed          a finished phase when piped (no bar)
+               @under PREFIX|N                    carets under an excerpt, after PREFIX
+               @tsv a|b|c                         a tab-separated row
+               @u … / @a …                        a line only in the Unicode / only in the ASCII rendering
+  ⚑ stands for the warning symbol ("!" in Unicode, "warning:" in ASCII). -->
+
+<script type="text/x-eg-term" id="t-ingest-done" data-title="`everygraph ingest`, finished" data-note="Wording from cli.md. The bar is 16 cells here, not 20, so that every command's phases fit the width.">
+<d>$</d> everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time
+<b>transfers.parquet</b> · 38.2 GB · 1,830,402,118 rows
+
+  <d>ids</d>       hex addresses (20 bytes) · ~212.4 M distinct
+  <d>edges</d>     directed · duplicates kept as events · 4,201 self-loops dropped
+  <d>columns</d>   value → weight · block_time → time · ignored: gas, nonce, input
+
+  <d>machine</d>   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
+  <d>budget</d>    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  <d>plan</d>      build on disk — the graph is 4.6× the memory budget
+  <d>estimate</d>  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+
+@phase done|reading|1,830,402,118 rows|1 min 41 s
+@phase done|identifiers|212,418,907 addresses|38 s
+@phase done|building|2,048 parts|59 s
+@phase done|checking|sorted · symmetric counts|12 s
+
+<ok>✓</ok> <b>transfers.eg</b> · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 3 min 30 s
+  <d>next:</d> <a>everygraph map transfers.eg</a>
+</script>
+
+<script type="text/x-eg-term" id="t-ingest-running" data-title="`everygraph ingest`, in progress" data-new="1" data-note="The summary and plan are printed once and stay; only the running line is redrawn. Phases still to come are listed, so the whole job is visible from the start.">
+<d>$</d> everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time
+<b>transfers.parquet</b> · 38.2 GB · 1,830,402,118 rows
+
+  <d>ids</d>       hex addresses (20 bytes) · ~212.4 M distinct
+  <d>edges</d>     directed · duplicates kept as events · 4,201 self-loops dropped
+  <d>columns</d>   value → weight · block_time → time · ignored: gas, nonce, input
+
+  <d>machine</d>   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
+  <d>budget</d>    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  <d>plan</d>      build on disk — the graph is 4.6× the memory budget
+  <d>estimate</d>  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+
+@phase done|reading|1,830,402,118 rows|1 min 41 s
+@phase run:9|identifiers|61% · 5.6 M/s · about 15 s left|23 s
+@phase wait|building
+@phase wait|checking
+</script>
+
+<script type="text/x-eg-term" id="t-map" data-title="`everygraph map`" data-note="Wording from cli.md, re-set on the 16-cell bar: as written there, these lines are 80 to 83 columns and their times do not share a right edge.">
+<d>$</d> everygraph map transfers.eg
+@phase done|communities|31,960 groups · modularity 0.603|2 min 11 s
+@phase done|hierarchy|6 zoom levels|18 s
+@phase done|layout||41 s
+@phase done|tiles|1,204,118 tiles|1 min 2 s
+
+<ok>✓</ok> <b>transfers.egmap</b> · 4.1 GB
+  <d>open it:</d>   <a>everygraph open transfers.eg</a>
+  <d>share it:</d>  upload transfers.egmap and viewer.html to any static host
+</script>
+
+<script type="text/x-eg-term" id="t-open" data-title="`everygraph open`" data-note="Wording from cli.md. The address is the one thing here that can be acted on, so it takes the accent.">
+<d>$</d> everygraph open transfers.eg
+Serving on <a>http://127.0.0.1:7461</a> (this computer only) — opening your browser.
+<d>Ctrl-C to stop.</d>
+</script>
+
+<script type="text/x-eg-term" id="t-help" data-title="`everygraph --help`" data-new="1" data-note="Only commands and options that appear in cli.md; the descriptions are new.">
+<d>$</d> everygraph --help
+Everygraph 0.1.0 — ingest, analyze, query and map a graph on one machine.
+
+<b>Usage</b>
+  everygraph COMMAND [OPTIONS]
+
+<b>Commands</b>
+  ingest FILE           read a file of edges and build a graph (.eg) beside it
+  map GRAPH             find communities, lay them out, write a map (.egmap)
+  open GRAPH            show the map in your browser, on this computer only
+  run NAME GRAPH        analyze the whole graph: pagerank, communities
+  query NAME GRAPH …    ask about particular nodes: path
+  info GRAPH            what a graph file holds and what was computed so far
+  doctor                what this machine offers, and a budget that suits it
+
+<b>Options</b>
+  --memory SIZE         the memory budget, for example 8GB
+  --dry-run             print the plan and the estimate, then stop
+  --json                print the result as JSON, with nothing around it
+  --out FILE            write the result to a file, for example pr.parquet
+  -h, --help            this text; after a command, the help for that command
+  --version             print the version
+
+<b>Start here</b>
+  <a>everygraph ingest FILE</a>
+</script>
+
+<script type="text/x-eg-term" id="t-help-ingest" data-title="`everygraph ingest --help`" data-new="1" data-note="One sentence of what the command does, then the same three blocks. The last paragraph answers the two questions people ask before a long job.">
+<d>$</d> everygraph ingest --help
+Read a file of edges and build a graph beside it: FILE becomes FILE.eg.
+
+<b>Usage</b>
+  everygraph ingest FILE [OPTIONS]
+
+<b>Columns</b>
+  --source NAME         the column an edge starts from
+  --target NAME         the column it arrives at
+  --weight NAME         a number for each edge; optional
+  --time NAME           a time for each edge; optional
+
+<b>Options</b>
+  --memory SIZE         the memory budget, for example 8GB
+  --dry-run             print what was detected, the plan and the estimate
+  -h, --help            this text
+
+Nothing is asked: the plan is printed and the work starts.
+Ctrl-C stops it safely; the same command then continues where it stopped.
+
+<b>Example</b>
+  <a>everygraph ingest transfers.parquet --source from --target to</a>
+</script>
+
+<script type="text/x-eg-term" id="t-pagerank" data-title="`everygraph run pagerank --top 5`" data-note="Wording from cli.md. The header is moved two columns so that it ends where its numbers end.">
+<d>$</d> everygraph run pagerank transfers.eg --top 5
+<d>node                                           pagerank  rank</d>
+0x28c6c06298d514db089934071355e5743bf21d60   0.00412907     1
+0xdac17f958d2ee523a2206206994597c13d831ec7   0.00388114     2
+0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48   0.00301775     3
+0x21a31ee1afc51d94c2efccaa2092ad1028285549   0.00214466     4
+0x7a250d5630b4cf539739df2c5dacb4c659f2488d   0.00198203     5
+
+<d>full result: transfers.eg (cached) · export with --out pagerank.parquet</d>
+</script>
+
+<script type="text/x-eg-term" id="t-path" data-title="`everygraph query path`" data-note="Wording from cli.md. In ASCII the path is one column too long, so it wraps before an arrow.">
+<d>$</d> everygraph query path transfers.eg 0x4f3a…91bc 0x9e12…07aa --max-hops 5
+4 hops · 1.3 ms
+@u 0x4f3a…91bc → 0x77e0…c1d4 → 0xb81c…5520 → 0x02fd…a9e3 → 0x9e12…07aa
+@a 0x4f3a…91bc → 0x77e0…c1d4 → 0xb81c…5520 → 0x02fd…a9e3
+@a   → 0x9e12…07aa
+</script>
+
+<script type="text/x-eg-term" id="t-info" data-title="`everygraph info`" data-note="Wording from cli.md, re-set as one fact per line: the two-column block there is 86 columns wide. The two counts share a right edge.">
+<d>$</d> everygraph info transfers.eg
+<b>transfers.eg</b> · 9.3 GB · created 2026-11-24 from transfers.parquet
+
+  <d>nodes</d>       212,418,907
+  <d>edges</d>     1,830,397,917 · directed, with duplicates as events
+  <d>ids</d>       hex addresses
+  <d>time</d>      2024-01-01 … 2024-12-31
+  <d>columns</d>   value (weight), block_time (time)
+
+  computed so far
+    <d>degrees</d>                           at ingest
+    <d>communities (Leiden, repeatable)</d>  31,960 groups · 2 min 11 s · 2026-11-24
+    <d>pagerank</d>                          41 s · 2026-11-24
+    <d>map</d>                               transfers.egmap · 4.1 GB
+</script>
+
+<script type="text/x-eg-term" id="t-doctor" data-title="`everygraph doctor`" data-note="Wording from cli.md, with the label column narrowed to the longest label plus two; as written there the storage line is 80 columns, 81 in ASCII.">
+<d>$</d> everygraph doctor
+  <d>cores</d>     16 physical (32 threads)         <ok>✓</ok>
+  <d>memory</d>    61 GB · 44 GB free               <ok>✓</ok>
+  <d>storage</d>   NVMe · 5.4 GB/s sequential read  <ok>✓</ok>  <d>out-of-core work will be fast</d>
+  <d>scratch</d>   /tmp on the same disk · 1.4 TB   <ok>✓</ok>
+  <d>limits</d>    no container memory limit        <ok>✓</ok>
+  <d>graphics</d>  discrete GPU found               <ok>✓</ok>  <d>the map will be smooth</d>
+
+  Suggested: <a>--memory 22GB</a> for single jobs on this machine.
+</script>
+
+<script type="text/x-eg-term" id="t-refusal" data-title="Not enough memory" data-note="Wording from cli.md. The cross is red; the sentence is bold in the default colour, so the second column loses nothing.">
+<d>$</d> everygraph run communities transfers.eg --memory 4GB
+<e>✗</e> <b>Not enough memory for this step.</b>
+
+  communities needs 5.1 GB for per-node state (212,418,907 nodes × 24 bytes).
+  The budget is 4.0 GB. The edges stay on disk either way.
+
+  Ways forward:
+    <a>--memory 6GB</a>            the smallest budget that works
+    <a>--precision low</a>         needs 3.4 GB; slightly lower quality
+
+Nothing was changed.
+</script>
+
+<script type="text/x-eg-term" id="t-invalid" data-title="Invalid input, with line numbers" data-new="1" data-note="Each problem is located as file:line, without thousands separators, so it can be pasted into an editor. The excerpt shortens long fields in the middle and the carets follow.">
+<d>$</d> everygraph ingest transfers.csv --source from --target to --weight value
+<e>✗</e> <b>Cannot read transfers.csv: 2 lines are not valid rows.</b>
+
+  <b>transfers.csv:48211907</b>      5 fields where the header has 7
+    <d>0x4f3a…91bc,0x77e0…c1d4,12.400,2024-03-02T11:04:35Z,21000</d>
+
+  <b>transfers.csv:1204877310</b>    value is not a number
+    <d>0xb81c…5520,0x02fd…a9e3,</d>n/a<d>,2024-03-04T08:51:12Z,21000,7,0x</d>
+@under 0xb81c…5520,0x02fd…a9e3,|3
+
+  The whole file was checked: 1,830,402,119 lines, 2 of them invalid.
+
+  Ways forward:
+    correct those 2 lines, then run the same command again
+    or leave out --weight value: line 1204877310 is then a valid edge
+
+Nothing was written.
+</script>
+
+<script type="text/x-eg-term" id="t-gzip" data-title="Warning: the input is gzip" data-new="1" data-note="A warning does not stop the work: it says what is slow, by how much, and what would be faster, then carries on. The usual summary, plan and phases follow it.">
+<d>$</d> everygraph ingest transfers.csv.gz --source from --target to
+<w>⚑</w> <b>transfers.csv.gz is gzip, which can only be read on one core.</b>
+
+  Reading will take about 24 min instead of about 2 min.
+
+  Faster, if 71.4 GB of disk can be spared (1.4 TB are free):
+    <a>gunzip -k transfers.csv.gz</a>
+    <a>everygraph ingest transfers.csv --source from --target to</a>
+
+  Continuing with the compressed file. Ctrl-C stops it safely.
+</script>
+
+<script type="text/x-eg-term" id="t-interrupt" data-title="`Ctrl-C` during a phase" data-new="1" data-note="Shown from the phase lines onward. The terminal echoes ^C; the command answers with what it kept.">
+@phase done|reading|1,830,402,118 rows|1 min 41 s
+@phase run:9|identifiers|61% · 5.6 M/s · about 15 s left|23 s
+^C
+Stopped at your request, during identifiers.
+
+  <d>kept</d>      reading · 31 GB of scratch in /tmp/everygraph-7c1e
+  <d>dropped</d>   identifiers at 61% — that phase starts again from its beginning
+  <d>written</d>   nothing: there is no transfers.eg yet
+
+  <d>continue:</d>  run the same command again
+  <d>discard:</d>   rm -r /tmp/everygraph-7c1e
+</script>
+
+<script type="text/x-eg-term" id="t-resume" data-title="The same command again" data-new="1" data-note="It says that it is continuing and why it may. The phase done earlier keeps its count; the time on the result line is this run's.">
+<d>$</d> everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time
+<b>transfers.parquet</b> · 38.2 GB · 1,830,402,118 rows
+  Continuing the run stopped 6 min ago: the file has not changed since.
+
+@phase done|reading|1,830,402,118 rows|<d>kept</d>
+@phase done|identifiers|212,418,907 addresses|38 s
+@phase done|building|2,048 parts|59 s
+@phase done|checking|sorted · symmetric counts|12 s
+
+<ok>✓</ok> <b>transfers.eg</b> · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 1 min 49 s
+  <d>next:</d> <a>everygraph map transfers.eg</a>
+</script>
+
+<script type="text/x-eg-term" id="t-dry-run" data-title="`--dry-run`" data-new="1" data-note="The same summary and plan as a real run, then what would happen instead of the phases.">
+<d>$</d> everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time --dry-run
+<b>transfers.parquet</b> · 38.2 GB · 1,830,402,118 rows
+
+  <d>ids</d>       hex addresses (20 bytes) · ~212.4 M distinct
+  <d>edges</d>     directed · duplicates kept as events · 4,201 self-loops dropped
+  <d>columns</d>   value → weight · block_time → time · ignored: gas, nonce, input
+
+  <d>machine</d>   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
+  <d>budget</d>    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  <d>plan</d>      build on disk — the graph is 4.6× the memory budget
+  <d>estimate</d>  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+
+  <d>phases</d>    reading → identifiers → building → checking
+  <d>result</d>    transfers.eg, beside the input
+
+Dry run: nothing was written.
+  <d>to run it:</d> the same command without --dry-run
+</script>
+
+<script type="text/x-eg-term" id="t-json" data-single="1" data-title="`--json`" data-new="1" data-note="One JSON document on standard output and nothing else. Numbers are plain; column names are the ones the table shows.">
+$ everygraph run pagerank transfers.eg --top 5 --json
+{
+  "graph": "transfers.eg",
+  "result": "pagerank",
+  "columns": ["node", "pagerank", "rank"],
+  "rows": [
+    ["0x28c6c06298d514db089934071355e5743bf21d60", 0.00412907, 1],
+    ["0xdac17f958d2ee523a2206206994597c13d831ec7", 0.00388114, 2],
+    ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 0.00301775, 3],
+    ["0x21a31ee1afc51d94c2efccaa2092ad1028285549", 0.00214466, 4],
+    ["0x7a250d5630b4cf539739df2c5dacb4c659f2488d", 0.00198203, 5]
+  ],
+  "rows_returned": 5,
+  "rows_total": 212418907,
+  "cached": true
+}
+</script>
+
+<script type="text/x-eg-term" id="t-json-error" data-single="1" data-title="`--json`, when it refuses" data-new="1" data-note="The refusal keeps its parts: the name from the Python API, the arithmetic in bytes, the ways forward as data.">
+$ everygraph run communities transfers.eg --memory 4GB --json
+{
+  "error": "InsufficientBudget",
+  "message": "Not enough memory for this step.",
+  "step": "communities",
+  "needs_bytes": 5098053768,
+  "budget_bytes": 4000000000,
+  "ways_forward": [
+    {"option": "--memory 6GB", "note": "the smallest budget that works"},
+    {"option": "--precision low", "needs_bytes": 3400000000}
+  ],
+  "changed": false
+}
+</script>
+
+<script type="text/x-eg-term" id="t-piped-table" data-single="1" data-title="A result, piped" data-new="1" data-note="Tab-separated with a header row: no alignment, no separators in numbers, no footer. Shown as a terminal would show the tabs.">
+$ everygraph run pagerank transfers.eg --top 5 | cat
+@tsv node|pagerank|rank
+@tsv 0x28c6c06298d514db089934071355e5743bf21d60|0.00412907|1
+@tsv 0xdac17f958d2ee523a2206206994597c13d831ec7|0.00388114|2
+@tsv 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48|0.00301775|3
+@tsv 0x21a31ee1afc51d94c2efccaa2092ad1028285549|0.00214466|4
+@tsv 0x7a250d5630b4cf539739df2c5dacb4c659f2488d|0.00198203|5
+</script>
+
+<script type="text/x-eg-term" id="t-piped-log" data-single="1" data-title="Messages, sent to a file" data-new="1" data-note="What a job log contains: the ASCII rendering, one line per finished phase, no bars. Counts keep their separators, because a log is read by people.">
+$ everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time > ingest.log 2>&1
+$ cat ingest.log
+transfers.parquet · 38.2 GB · 1,830,402,118 rows
+
+  ids       hex addresses (20 bytes) · ~212.4 M distinct
+  edges     directed · duplicates kept as events · 4,201 self-loops dropped
+  columns   value → weight · block_time → time · ignored: gas, nonce, input
+
+  machine   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
+  budget    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  plan      build on disk — the graph is 4.6× the memory budget
+  estimate  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+
+@line reading|1,830,402,118 rows|1 min 41 s
+@line identifiers|212,418,907 addresses|38 s
+@line building|2,048 parts|59 s
+@line checking|sorted · symmetric counts|12 s
+
+✓ transfers.eg · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 3 min 30 s
+  next: everygraph map transfers.eg
+</script>
+
+<!-- short pieces used by the reference sections -->
+<script type="text/x-eg-term" id="p-anat-line">
+@phase run:9|identifiers|61% · 5.6 M/s · about 15 s left|23 s
+</script>
+<script type="text/x-eg-term" id="p-anat-states">
+@phase done|reading|1,830,402,118 rows|1 min 41 s
+@phase run:9|identifiers|61% · 5.6 M/s · about 15 s left|23 s
+@phase wait|building
+@phase wait|checking
+</script>
+<script type="text/x-eg-term" id="p-bars">
+  reading       <d>████████████████</d>  1,830,402,118 rows
+  identifiers   █████████<d>░░░░░░░</d>  61% · about 15 s left
+  <d>building      ░░░░░░░░░░░░░░░░</d>
+</script>
+<script type="text/x-eg-term" id="p-align-labels">
+<b>transfers.eg</b> · 9.3 GB · created 2026-11-24 from transfers.parquet
+
+  <d>nodes</d>       212,418,907
+  <d>edges</d>     1,830,397,917 · directed, with duplicates as events
+  <d>ids</d>       hex addresses
+  <d>time</d>      2024-01-01 … 2024-12-31
+  <d>columns</d>   value (weight), block_time (time)
+</script>
+<script type="text/x-eg-term" id="p-align-table">
+<d>node                                           pagerank  rank</d>
+0x28c6c06298d514db089934071355e5743bf21d60   0.00412907     1
+0xdac17f958d2ee523a2206206994597c13d831ec7   0.00388114     2
+0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48   0.00301775     3
+0x21a31ee1afc51d94c2efccaa2092ad1028285549   0.00214466     4
+0x7a250d5630b4cf539739df2c5dacb4c659f2488d   0.00198203     5
+</script>
+<script type="text/x-eg-term" id="p-width-lines">
+@phase done|communities|31,960 groups · modularity 0.603|2 min 11 s
+<ok>✓</ok> <b>transfers.eg</b> · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 3 min 30 s
+  <d>estimate</d>  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+</script>
+<script type="text/x-eg-term" id="p-narrow-60">
+  reading       1,830,402,118 rows                1 min 41 s
+  identifiers   61% · 5.6 M/s · about 15 s left         23 s
+  <d>building</d>
+  <d>checking</d>
+</script>
+<script type="text/x-eg-term" id="p-light-b">
+<d>$</d> everygraph run communities transfers.eg --memory 4GB
+<e>✗</e> <b>Not enough memory for this step.</b>
+
+  communities needs 5.1 GB for per-node state (212,418,907 nodes × 24 bytes).
+  The budget is 4.0 GB. The edges stay on disk either way.
+
+  Ways forward:
+    <a>--memory 6GB</a>            the smallest budget that works
+    <a>--precision low</a>         needs 3.4 GB; slightly lower quality
+
+Nothing was changed.
+
+<d>$</d> everygraph ingest transfers.csv.gz --source from --target to
+<w>⚑</w> <b>transfers.csv.gz is gzip, which can only be read on one core.</b>
+
+  Reading will take about 24 min instead of about 2 min.
+
+  Faster, if 71.4 GB of disk can be spared (1.4 TB are free):
+    <a>gunzip -k transfers.csv.gz</a>
+    <a>everygraph ingest transfers.csv --source from --target to</a>
+
+  Continuing with the compressed file. Ctrl-C stops it safely.
+</script>
+<script type="text/x-eg-term" id="p-proof">
+@phase done|building|2,048 parts|59 s
+@phase run:11|checking|70% · about 4 s left|8 s
+
+<ok>✓</ok> <b>transfers.eg</b> · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges · 3 min 30 s
+  <d>next:</d> <a>everygraph map transfers.eg</a>
+
+<d>$</d> everygraph ingest transfers.csv.gz --source from --target to
+<w>⚑</w> <b>transfers.csv.gz is gzip, which can only be read on one core.</b>
+^C
+<d>$</d> everygraph run communities transfers.eg --memory 4GB
+<e>✗</e> <b>Not enough memory for this step.</b>
+
+  communities needs 5.1 GB for per-node state (212,418,907 nodes × 24 bytes).
+  The budget is 4.0 GB. The edges stay on disk either way.
+
+  Ways forward:
+    <a>--memory 6GB</a>            the smallest budget that works
+    <a>--precision low</a>         needs 3.4 GB; slightly lower quality
+</script>
+
+<script src="assets/shell.js" data-page="terminal"></script>
+<script>
+(function () {
+  'use strict';
+  var MAX = 80;                      /* nothing printed is wider than this */
+  var NAME = 13, CELLS = 16, RIGHT = 78;   /* progress line: name field, bar cells, right edge of the elapsed time */
+  var ASCII = { '✓': 'ok', '✗': 'error:', '⚑': 'warning:', '█': '#', '░': '.', '·': '|', '—': '-', '→': '->', '…': '...', '×': 'x' };
+  var UNI = { '⚑': '!' };
+  var CLS = { d: 'dim', ok: 'ok', w: 'warn', e: 'err', a: 'acc' };
+  var TAG = /<(\/?)(d|b|ok|w|e|a)>/g;
+
+  function chars(s) { return Array.from(s).length; }
+  function strip(s) { return s.replace(TAG, ''); }
+  function rep(c, n) { return n > 0 ? new Array(n + 1).join(c) : ''; }
+  function pad(s, n) { return s + rep(' ', n - chars(strip(s))); }
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function glyphs(s, mode) { var map = mode === 'ascii' ? ASCII : UNI; return Array.from(s).map(function (c) { return map[c] || c; }).join(''); }
+
+  /* directives → tagged lines (still in Unicode) */
+  function expand(src, mode) {
+    var out = [];
+    src.replace(/^\n/, '').replace(/\n$/, '').split('\n').forEach(function (line) {
+      var m;
+      if ((m = /^@u (.*)$/.exec(line))) { if (mode !== 'ascii') out.push(m[1]); return; }
+      if ((m = /^@a (.*)$/.exec(line))) { if (mode === 'ascii') out.push(m[1]); return; }
+      if ((m = /^@phase (.*)$/.exec(line))) {
+        var p = m[1].split('|'), state = p[0], name = p[1], detail = p[2] || '', time = p[3] || '';
+        if (state === 'wait') { out.push('  <d>' + pad(name, NAME) + rep('░', CELLS) + '</d>'); return; }
+        var n = state === 'done' ? CELLS : +state.split(':')[1];
+        var bar = state === 'done' ? '<d>' + rep('█', CELLS) + '</d>' : rep('█', n) + '<d>' + rep('░', CELLS - n) + '</d>';
+        var head = '  ' + pad(name, NAME) + bar + '  ' + detail;
+        out.push(head + rep(' ', RIGHT - chars(strip(head)) - chars(strip(time))) + time); return;
+      }
+      if ((m = /^@line (.*)$/.exec(line))) {
+        var q = m[1].split('|'), h = '  ' + pad(q[0], NAME) + q[1];
+        out.push(h + rep(' ', RIGHT - CELLS - 2 - chars(h) - chars(q[2])) + q[2]); return;
+      }
+      if ((m = /^@under (.*)\|(\d+)$/.exec(line))) { out.push(rep(' ', 4 + chars(glyphs(m[1], mode))) + '<e>' + rep('^', +m[2]) + '</e>'); return; }
+      if ((m = /^@tsv (.*)$/.exec(line))) {
+        var col = 0, s = '';
+        m[1].split('|').forEach(function (cell, i) { if (i) { var t = 8 - (col % 8); s += rep(' ', t); col += t; } s += cell; col += chars(cell); });
+        out.push(s); return;
+      }
+      out.push(line);
+    });
+    return out;
+  }
+
+  /* one source, three renderings: 'colour' | 'plain' | 'ascii' */
+  function render(src, mode) {
+    var text = [], html = expand(src, mode).map(function (line) {
+      var res = '', last = 0, m; TAG.lastIndex = 0;
+      var plain = glyphs(strip(line), mode); text.push(plain);
+      while ((m = TAG.exec(line))) {
+        res += esc(glyphs(line.slice(last, m.index), mode)); last = TAG.lastIndex;
+        if (mode === 'colour') res += m[2] === 'b' ? (m[1] ? '</b>' : '<b>') : (m[1] ? '</span>' : '<span class="' + CLS[m[2]] + '">');
+      }
+      return res + esc(glyphs(line.slice(last), mode));
+    }).join('\n');
+    var width = Math.max.apply(null, text.map(chars));
+    return { html: html, text: text.join('\n'), width: width };
+  }
+  function source(id) { var el = document.getElementById(id); if (!el) throw new Error('no transcript ' + id); return el.textContent; }
+  function check(id, mode, r) {
+    if (r.width > MAX) console.error(id + ' (' + mode + '): a line is ' + r.width + ' columns, over ' + MAX);
+    if (mode === 'ascii' && /[^\x00-\x7f]/.test(r.text)) console.error(id + ' (ascii): contains non-ASCII: ' + r.text.match(/[^\x00-\x7f]/)[0]);
+    if (mode !== 'colour' && /<span|<b>/.test(r.html)) console.error(id + ' (' + mode + '): contains styling');
+  }
+  function put(target, id, mode, colsEl) {
+    var r = render(source(id), mode); check(id, mode, r);
+    var el = typeof target === 'string' ? document.getElementById(target) : target;
+    el.innerHTML = r.html;
+    if (colsEl) colsEl.innerHTML = '<span class="num">' + r.width + '</span> of <span class="num">' + MAX + '</span> columns';
+    return r;
+  }
+
+  /* the catalogue: every .tx becomes a title, a note and its renderings */
+  var NAMES = { colour: 'Colour and Unicode', plain: 'No colour', ascii: 'ASCII only' };
+  document.querySelectorAll('.tx[data-src]').forEach(function (tx) {
+    var id = tx.getAttribute('data-src'), s = document.getElementById(id), single = s.hasAttribute('data-single');
+    var h = '<h3><span>' + esc(s.getAttribute('data-title')).replace(/`([^`]+)`/g, '<code>$1</code>') + '</span>' + (s.hasAttribute('data-new') ? ' <span class="tag">new wording, not in cli.md</span>' : '') + '</h3>' +
+      '<p>' + esc(s.getAttribute('data-note') || '') + '</p><div class="ways"></div>';
+    tx.innerHTML = h;
+    var ways = tx.querySelector('.ways'), texts = {};
+    (single ? ['ascii'] : ['colour', 'plain', 'ascii']).forEach(function (mode) {
+      var f = document.createElement('figure'); f.className = 'way';
+      f.innerHTML = '<figcaption><b>' + (single ? 'One rendering' : NAMES[mode]) + '</b><span></span></figcaption><div class="term c80"></div>';
+      ways.appendChild(f);
+      texts[mode] = put(f.querySelector('.term'), id, mode, f.querySelector('figcaption span')).text;
+    });
+    if (single) {
+      /* machine output: prove that the three renderings are the same bytes */
+      var same = render(source(id), 'colour').text === texts.ascii && render(source(id), 'plain').text === texts.ascii;
+      var p = document.createElement('p'); p.className = 'same';
+      p.innerHTML = same ? '<span class="ok-word">✓ identical</span> in all three renderings — compared by the page' :
+        'Always the ASCII rendering: output that is not a terminal has nothing to enhance';
+      tx.appendChild(p);
+    }
+  });
+
+  /* reference pieces */
+  put('anat-line', 'p-anat-line', 'colour');
+  put('anat-states', 'p-anat-states', 'colour');
+  put('anat-states-ascii', 'p-anat-states', 'ascii');
+  [['bar-blocks', null], ['bar-squares', { '█': '■', '░': '□' }], ['bar-rules', { '█': '━', '░': '─' }]].forEach(function (v) {
+    var el = document.getElementById(v[0]); put(el, 'p-bars', 'colour');
+    if (v[1]) el.innerHTML = el.innerHTML.replace(/[█░]/g, function (c) { return v[1][c]; });
+  });
+  put('align-labels', 'p-align-labels', 'colour');
+  put('align-table', 'p-align-table', 'colour');
+  put('width-lines', 'p-width-lines', 'colour');
+  put('narrow-60', 'p-narrow-60', 'colour');
+  put('light-a', 't-ingest-done', 'colour', document.getElementById('light-a-cols'));
+  put('light-b', 'p-light-b', 'colour', document.getElementById('light-b-cols'));
+  ['xterm', 'campbell', 'solarized'].forEach(function (t) { put('proof-' + t, 'p-proof', 'colour'); });
+  function guide(id, cols) { var el = document.getElementById(id); cols.forEach(function (c) { var g = document.createElement('i'); g.className = 'g'; g.style.setProperty('--col', c); el.appendChild(g); }); }
+  guide('align-labels', [2, 12, 25]);
+  guide('align-table', [0, 55, 61]);
+  guide('anat-states', [2, 15, 31, 33, 78]);
+  guide('width-lines', [78, 80]);
+
+  /* an 80-column ruler */
+  (function () {
+    var a = [], b = '';
+    for (var c = 1; c <= MAX; c++) { a.push(' '); b += c % 10 === 0 ? '|' : c % 5 === 0 ? ':' : '·'; }
+    for (c = 10; c <= MAX; c += 10) { var s = String(c); for (var k = 0; k < s.length; k++) a[c - s.length + k] = s[k]; }
+    a = a.join('');
+    document.getElementById('ruler').textContent = a + '\n' + b;
+  })();
+
+  /* ---- colour tables, with measured contrast ---- */
+  function rgb(str) {
+    var n = (str.match(/-?[\d.]+(e-?\d+)?/g) || []).map(Number);
+    if (/^color\(srgb/.test(str)) return [n[0] * 255, n[1] * 255, n[2] * 255];
+    return n.slice(0, 3);
+  }
+  function lum(c) { var a = c.map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]; }
+  function contrast(fg, bg) { var a = lum(rgb(fg)), b = lum(rgb(bg)); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); }
+  function ratioOf(chip, cell) { return contrast(getComputedStyle(chip).color, getComputedStyle(cell).backgroundColor); }
+  function ratioHtml(r) { return '<span class="num">' + r.toFixed(1) + '</span>&#8239;:&#8239;<span class="num">1</span>'; }
+  function cell(theme, style, sample, inner) {
+    /* theme 'dark' = the terminal tokens of the current guide theme; 'light' = the local light terminal */
+    return '<td class="sw' + (theme === 'light' ? ' th-light' : '') + '"' + (theme === 'light' ? ' data-theme="light"' : '') + '><span class="chip"' + (inner ? ' data-theme="' + inner + '"' : '') +
+      ' style="' + style + '">' + sample + '</span><span class="ratio"></span></td>';
+  }
+  var roles = [
+    ['Default text', '<span class="num">0</span> (reset)', 'color:var(--term-ink)', 'transfers.eg', 'Everything that is not one of the rows below.'],
+    ['Bold', '<span class="num">1</span>', 'color:var(--term-ink);font-weight:700', 'transfers.eg', 'The file a block is about; the sentence of an error or warning; help headings.'],
+    ['Dim', '<span class="num">2</span> (faint)', 'color:var(--term-dim)', 'estimate', 'Labels, the prompt, table headers, finished bars and empty cells, remarks.'],
+    ['Done', '<span class="num">32</span> green', 'color:var(--term-ok)', '✓', 'The check mark, and only the check mark.'],
+    ['Warning', '<span class="num">33</span> yellow', 'color:var(--term-warn)', '!', 'The warning sign.'],
+    ['Failure', '<span class="num">31</span> red', 'color:var(--term-err)', '✗ ^^^', 'The cross, and carets under bad input.'],
+    ['Next step', '<span class="num">34</span> blue', 'color:var(--term-accent)', 'everygraph map transfers.eg', 'A command or option to type next; an address to open. Never status.']
+  ];
+  document.querySelector('#roles tbody').innerHTML = roles.map(function (r) {
+    return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td>' + cell('dark', r[2], r[3]) + cell('light', r[2], r[3]) + '<td>' + r[4] + '</td></tr>';
+  }).join('');
+  /* slot, name, fg code, dark: [css colour, token label, inner theme], light: [...], emitted */
+  var D4 = ['color:var(--d4)', '--d4 (dark)', 'dark'], INFO = ['color:var(--info)', '--info (dark)', 'dark'];
+  var base = [
+    ['black', ['color:var(--term-bg)', '--term-bg'], ['color:var(--ink)', '--ink'], 'no'],
+    ['red', ['color:var(--term-err)', '--term-err'], ['color:var(--err)', '--err'], '✗ and carets'],
+    ['green', ['color:var(--term-ok)', '--term-ok'], ['color:var(--ok)', '--ok'], '✓'],
+    ['yellow', ['color:var(--term-warn)', '--term-warn'], ['color:var(--warn)', '--warn'], '!'],
+    ['blue', ['color:var(--term-accent)', '--term-accent'], ['color:var(--accent-ink)', '--accent-ink'], 'next step'],
+    ['magenta', D4, ['color:var(--d4)', '--d4'], 'no'],
+    ['cyan', INFO, ['color:var(--info)', '--info'], 'no'],
+    ['white', ['color:var(--term-ink)', '--term-ink'], ['color:var(--surface-2)', '--surface-2'], 'no']
+  ];
+  var rows = [];
+  for (var i = 0; i < 16; i++) {
+    var b = base[i % 8], bright = i >= 8, d = b[1], l = b[2];
+    if (i === 8) { d = ['color:var(--term-dim)', '--term-dim']; l = ['color:var(--muted)', '--muted']; }
+    if (i === 15) { l = ['color:var(--surface)', '--surface']; }
+    rows.push('<tr><td class="num">' + i + '</td><td>' + (bright ? 'bright ' : '') + b[0] + '</td><td class="num">' + ((bright ? 90 : 30) + i % 8) + '</td>' +
+      cell('dark', d[0], 'Aa 0123', d[2]) + '<td><code>' + d[1] + '</code></td>' + cell('light', l[0], 'Aa 0123') + '<td><code>' + l[1] + '</code></td>' +
+      '<td>' + (bright ? 'no' : b[3]) + '</td></tr>');
+  }
+  document.querySelector('#ansi16 tbody').innerHTML = rows.join('');
+  /* the suggested command under five palettes, three ways */
+  document.querySelector('#nextstep tbody').innerHTML = [['Everygraph, dark', '', ''], ['Everygraph, light', 'th-light', 'light'], ['xterm, default colours', 'th-xterm', ''],
+    ['Windows Terminal, Campbell', 'th-campbell', ''], ['Solarized Light', 'th-solarized', '']].map(function (p) {
+    function td(style, inner) {
+      return '<td class="sw ' + p[1] + '"' + (p[2] ? ' data-theme="' + p[2] + '"' : '') + '><span style="color:var(--term-dim)">next: </span><span class="chip"' +
+        (inner ? ' data-theme="' + inner + '"' : '') + ' style="' + style + '">everygraph map transfers.eg</span><span class="ratio"></span></td>';
+    }
+    var cyan = p[1] ? td('color:var(--term-cyan)') : td('color:var(--info)', 'dark');
+    return '<tr><td>' + p[0] + '</td>' + td('color:var(--term-accent)') + cyan + td('color:var(--term-ink);font-weight:700') + '</tr>';
+  }).join('');
+  function measure() {
+    document.querySelectorAll('td.sw').forEach(function (td) {
+      var r = ratioOf(td.querySelector('.chip'), td);
+      td.querySelector('.ratio').innerHTML = r < 1.05 ? 'the background' : ratioHtml(r) + (r < 4.5 && td.closest('#nextstep') ? ' — low' : '');
+    });
+    [['light-a', 'light-a-read'], ['proof-xterm', 'proof-xterm-read'], ['proof-campbell', 'proof-campbell-read'], ['proof-solarized', 'proof-solarized-read']].forEach(function (p) {
+      var term = document.getElementById(p[0]), cs = getComputedStyle(term), bg = cs.backgroundColor;
+      var probe = document.createElement('span'); term.appendChild(probe);
+      var parts = [['text', '--term-ink'], ['dim', '--term-dim'], ['green', '--term-ok'], ['yellow', '--term-warn'], ['red', '--term-err'], ['blue', '--term-accent']].map(function (k) {
+        probe.style.color = 'var(' + k[1] + ')';
+        var r = contrast(getComputedStyle(probe).color, bg);
+        return '<span' + (r < 4.5 ? ' class="low"' : '') + '>' + k[0] + ' ' + ratioHtml(r) + (r < 4.5 ? ' — low' : '') + '</span>';
+      });
+      term.removeChild(probe);
+      document.getElementById(p[1]).innerHTML = parts.join('');
+    });
+  }
+  (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(measure);
+
+  /* #only=<id>&chrome=0 shows one section alone, for clean captures */
+  var only = window.EGStyle && EGStyle.opts.only;
+  if (only) {
+    var el = document.querySelector('[data-only="' + only + '"]');
+    if (el) { var w = document.createElement('div'); w.className = 'only-wrap'; document.body.appendChild(w); w.appendChild(el); document.querySelector('main').hidden = true; }
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everygraph style — Web &amp; docs</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+/* Page-specific layout only; colours, sizes and radii come from tokens.css.
+   Three groups: (1) guide scaffolding, (2) the Everygraph website (.site …), (3) other people's
+   chrome drawn neutral (GitHub), with its own local variables. */
+
+/* ---------- 1. guide scaffolding ---------- */
+.fr-cap { display: flex; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); margin: var(--space-5) 0 var(--space-2); }
+.fr-cap b { color: var(--ink-2); font-weight: var(--weight-medium); }
+.fr-cap a { font-family: var(--font-mono); }
+.fr { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--bg); color: var(--ink); position: relative; }
+.fit { transform-origin: 0 0; }
+.mobiles { display: flex; gap: var(--space-5); align-items: flex-start; flex-wrap: wrap; }
+.mobiles .fr { width: 390px; flex: none; }
+.rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); margin-top: var(--space-5); }
+.rules h4 { margin-bottom: var(--space-1); }
+.rules p { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+body.only { background: var(--bg); }
+body.only main { display: none; }
+.only-wrap > .fr { border: 0; border-radius: 0; }
+.only-wrap.exact { width: max-content; }
+
+/* ---------- 2. the website ---------- */
+.site { container-type: inline-size; background: var(--bg); color: var(--ink); font-size: var(--text-md); line-height: var(--lh-md); }
+.site a.plain, .site-nav a, .site-foot a, .tree a, .toc a { text-decoration: none; }
+.site-in { max-width: var(--page); margin: 0 auto; padding: 0 var(--space-5); }
+.nest { flex: none; color: var(--ink); }
+.wordmark { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-xl); line-height: var(--lh-xl); color: var(--ink); letter-spacing: var(--tracking-tight); }
+.wordmark b { font-weight: var(--weight-semibold); }
+.site-nav { border-bottom: var(--border) solid var(--line); }
+.site-nav > div { height: calc(var(--topbar) + var(--space-2)); display: flex; align-items: center; gap: var(--space-4); }
+.site-nav .links { margin-left: auto; display: flex; gap: var(--space-5); align-items: center; }
+.site-nav .links a { color: var(--ink-2); font-weight: var(--weight-medium); }
+.site-nav .links a:hover, .site-nav .links a[aria-current] { color: var(--ink); }
+.site-nav .links a[aria-current] { box-shadow: 0 2px 0 var(--ink); }
+.site-nav .menu { display: none; margin-left: auto; }
+.searchbox { display: flex; align-items: center; gap: var(--space-2); width: 260px; height: var(--control-md); padding: 0 var(--space-2) 0 var(--space-3); border: var(--border) solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); }
+.searchbox span { flex: 1; }
+
+/* landing */
+.lp .hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-8); align-items: end; padding: var(--space-8) 0 var(--space-7); }
+.lp h1 { font-size: var(--text-5xl); line-height: var(--lh-5xl); margin: var(--space-3) 0 var(--space-5); max-width: 11em; }
+.lp .lead { font-size: var(--text-xl); line-height: var(--lh-xl); color: var(--ink-2); max-width: 30em; }
+.install { display: flex; align-items: center; gap: var(--space-3); height: calc(var(--control-lg) + var(--space-2)); padding: 0 var(--space-2) 0 var(--space-4); background: var(--surface); border: var(--border) solid var(--line-strong); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--text-md); }
+.install .p { color: var(--muted); user-select: none; }
+.install code { flex: 1; background: none; padding: 0; font-size: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-act .row { margin-top: var(--space-3); }
+.hero-act .also { margin-top: var(--space-3); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); }
+.mapfig .frame { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--map-bg); line-height: 0; }
+.mapfig svg { display: block; width: 100%; height: auto; }
+.mapcap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2) var(--space-5); padding-top: var(--space-3); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.mapcap .what b { color: var(--ink); font-weight: var(--weight-semibold); }
+.mapcap .how { color: var(--muted); max-width: 62em; }
+.mapcap .hint { color: var(--muted); text-align: right; white-space: nowrap; }
+.lp section.band { padding: var(--space-8) 0; border-top: var(--border) solid var(--line); margin-top: var(--space-8); }
+.lp section.band + section.band { margin-top: 0; }
+.lp h2 { font-size: var(--text-3xl); line-height: var(--lh-3xl); }
+.lp .sec-lede { font-size: var(--text-lg); line-height: var(--lh-lg); color: var(--ink-2); max-width: var(--content); margin-top: var(--space-3); }
+.promises { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(4, auto); }
+.promise { padding: 0 var(--space-6); border-left: var(--border) solid var(--line); display: grid; grid-row: span 4; grid-template-rows: subgrid; }
+.promise:first-child { padding-left: 0; border-left: 0; }
+.promise:last-child { padding-right: 0; }
+.promise .n { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--muted); }
+.promise h3 { font-size: var(--text-2xl); line-height: var(--lh-2xl); letter-spacing: var(--tracking-tight); margin: var(--space-2) 0 var(--space-3); }
+.promise p { font-size: var(--text-lg); line-height: var(--lh-lg); color: var(--ink-2); }
+.ph { margin-top: var(--space-5); padding: var(--space-3) var(--space-4); border: var(--border) dashed var(--line-strong); border-radius: var(--radius-sm); }
+.ph .slot { display: flex; align-items: baseline; gap: var(--space-3); }
+.ph .fig { font-family: var(--font-mono); font-size: var(--text-2xl); line-height: var(--lh-2xl); color: var(--line-strong); letter-spacing: var(--tracking-wide); }
+.ph p { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); margin-top: var(--space-1); }
+.ph-note { margin-top: var(--space-5); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); }
+.example { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--space-8); margin-top: var(--space-6); align-items: start; }
+.steps { list-style: none; padding: 0; counter-reset: st; }
+.steps li { counter-increment: st; display: grid; grid-template-columns: var(--space-5) 1fr; gap: var(--space-3); padding: var(--space-4) 0; border-top: var(--border) solid var(--line); }
+.steps li:last-child { border-bottom: var(--border) solid var(--line); }
+.steps li::before { content: counter(st); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--muted); line-height: var(--lh-lg); }
+.steps b { display: block; font-size: var(--text-lg); line-height: var(--lh-lg); font-weight: var(--weight-semibold); }
+.steps span { color: var(--ink-2); }
+.else-t { margin-top: var(--space-6); }
+.else-t td { font-size: var(--text-lg); line-height: var(--lh-lg); padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.else-t td:nth-child(2) { font-weight: var(--weight-semibold); white-space: nowrap; }
+.else-t td:nth-child(3) { color: var(--ink-2); }
+.else-t th:first-child, .else-t td:first-child, .prose table.t th:first-child, .prose table.t td:first-child { padding-left: 0; }
+.gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); margin-top: var(--space-6); }
+.gallery figcaption { padding-top: var(--space-2); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.gallery figcaption b { display: block; color: var(--ink); font-weight: var(--weight-semibold); }
+.site-foot { border-top: var(--border) solid var(--line); margin-top: var(--space-8); }
+.site-foot > div { display: flex; gap: var(--space-5); align-items: center; flex-wrap: wrap; padding-top: var(--space-5); padding-bottom: var(--space-6); color: var(--ink-2); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.site-foot .links { margin-left: auto; display: flex; gap: var(--space-5); }
+.site-foot .fine { flex-basis: 100%; color: var(--muted); }
+.lp .site-foot { margin-top: 0; }
+
+/* JetBrains Mono joins -- and -> into one glyph by default; flags and arrows must stay as typed.
+   (This belongs in base.css for code, pre, kbd and .term; set here because assets/ is not ours to edit.) */
+.site code, .site pre, .site kbd, .site .term, .install, .card-og .cmd, .grid .code pre { font-variant-ligatures: none; }
+/* code blocks with a header strip: language on the left, Copy on the right */
+.code { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--surface-2); }
+.code-h { display: flex; align-items: center; justify-content: space-between; height: calc(var(--control-sm) + var(--space-2)); padding: 0 var(--space-1) 0 var(--space-4); background: var(--surface); border-bottom: var(--border) solid var(--line); font-size: var(--text-xs); color: var(--muted); }
+.code pre { border-radius: 0; }
+.code .p { color: var(--muted); user-select: none; }
+.code.out { background: var(--surface); } .code.out pre { background: var(--surface); }
+.code.out .code-h { height: var(--control-sm); border-bottom-style: dashed; }
+.code .term { border-radius: 0; }
+.code.lg pre { font-size: var(--text-md); line-height: var(--lh-lg); padding: var(--space-5); }
+.term .cur { color: var(--term-dim); }
+
+/* docs */
+.docs-grid { display: grid; grid-template-columns: 216px minmax(0, var(--content)) 184px; gap: var(--space-6); justify-content: space-between; padding-top: var(--space-6); padding-bottom: var(--space-8); }
+.tree { font-size: var(--text-md); }
+.tree h4 { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); font-weight: var(--weight-medium); margin: var(--space-5) 0 var(--space-1); }
+.tree h4:first-child { margin-top: 0; }
+.tree ul { list-style: none; padding: 0; margin: 0; }
+.tree a { display: block; padding: var(--space-1) var(--space-3); margin-left: calc(-1 * var(--space-3)); border-radius: var(--radius-sm); color: var(--ink-2); }
+.tree a:hover { background: var(--surface-2); color: var(--ink); }
+.tree a[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: var(--weight-medium); }
+.tree ul ul { margin-left: var(--space-3); padding-left: var(--space-3); border-left: var(--border) solid var(--line); }
+.tree .mono a { font-family: var(--font-mono); font-size: var(--text-sm); }
+.toc { font-size: var(--text-sm); line-height: var(--lh-sm); position: sticky; top: var(--space-5); align-self: start; }
+.toc h4 { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); font-weight: var(--weight-medium); margin-bottom: var(--space-2); }
+.toc ul { list-style: none; padding: 0; border-left: var(--border) solid var(--line); }
+.toc a { display: block; padding: var(--space-1) var(--space-3); color: var(--ink-2); margin-left: -1px; border-left: var(--border-strong) solid transparent; }
+.toc a[aria-current] { color: var(--ink); border-left-color: var(--ink); font-weight: var(--weight-medium); }
+.toc .meta { margin-top: var(--space-5); padding-top: var(--space-3); border-top: var(--border) solid var(--line); color: var(--muted); display: grid; gap: var(--space-1); }
+.crumbs { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); margin-bottom: var(--space-3); }
+.crumbs a { color: var(--ink-2); text-decoration: none; }
+.prose { font-size: var(--text-lg); line-height: var(--lh-lg); }
+.prose > * + * { margin-top: var(--space-4); }
+.prose .lede { font-size: var(--text-xl); line-height: var(--lh-xl); color: var(--ink-2); margin-bottom: 0; }
+.prose h2 { margin-top: var(--space-7); padding-top: var(--space-5); border-top: var(--border) solid var(--line); }
+.prose h3 { font-size: var(--text-xl); line-height: var(--lh-xl); margin-top: var(--space-6); }
+.prose ul, .prose ol { padding-left: var(--space-5); }
+.prose li + li { margin-top: var(--space-2); }
+.prose li::marker { color: var(--muted); font-family: var(--font-mono); font-size: var(--text-sm); }
+.prose table.t { font-size: var(--text-md); line-height: var(--lh-md); }
+.prose :not(pre) > code { white-space: nowrap; }
+.prose code, .prose kbd { line-height: 1; }
+.site th.r { text-align: right; }
+.prose table.t caption { caption-side: bottom; text-align: left; padding-top: var(--space-2); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); }
+.prose .callout { font-size: var(--text-md); line-height: var(--lh-md); }
+.prose .callout p + p { margin-top: var(--space-1); }
+.prose figure.fig { border: var(--border) solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.prose figure.fig svg { display: block; width: 100%; height: auto; }
+.prose figure.fig figcaption { padding: var(--space-3) var(--space-4); border-top: var(--border) solid var(--line); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.bud text { font-family: var(--font-sans); font-size: var(--text-sm); fill: var(--ink); }
+.bud .m { font-family: var(--font-mono); font-size: var(--text-xs); fill: var(--muted); }
+.bud .mi { font-family: var(--font-mono); font-size: var(--text-xs); fill: var(--ink); }
+.bud .need { fill: var(--d10); }
+.bud .track { fill: var(--surface-2); }
+.bud .tick { stroke: var(--line-strong); stroke-width: 1; }
+.bud .lim { stroke: var(--ink); stroke-width: 1.5; }
+.bud .over { stroke: var(--err); stroke-width: 1; }
+.bud .overt { fill: var(--err); font-weight: var(--weight-medium); }
+.prose dl { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 0; margin-bottom: 0; }
+.prose dt, .prose dd { padding: var(--space-3) 0; border-top: var(--border) solid var(--line); margin: 0; }
+.prose dt { font-weight: var(--weight-semibold); padding-right: var(--space-4); }
+.prose dd { color: var(--ink-2); }
+.pn { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-top: var(--space-7) !important; }
+.pn a { display: block; padding: var(--space-3) var(--space-4); border: var(--border) solid var(--line); border-radius: var(--radius-md); text-decoration: none; color: var(--ink); background: var(--surface); }
+.pn a:hover { border-color: var(--line-strong); }
+.pn a span { display: block; font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); }
+.pn a b { font-weight: var(--weight-semibold); color: var(--accent-ink); }
+.pn a.next { text-align: right; }
+.helpful { display: flex; gap: var(--space-3); align-items: center; font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--muted); margin-top: var(--space-5) !important; }
+
+/* API reference */
+.api h1 { font-family: var(--font-mono); font-size: var(--text-2xl); line-height: var(--lh-2xl); letter-spacing: 0; font-weight: var(--weight-medium); }
+.api h1 .q { color: var(--muted); font-weight: var(--weight-regular); }
+.sig { font-size: var(--text-md); line-height: var(--lh-lg); border: var(--border) solid var(--line); border-left: 3px solid var(--ink); border-radius: 0 var(--radius-md) var(--radius-md) 0; background: var(--surface); }
+.sig .ret { color: var(--muted); }
+.api .facts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.api table.t code { white-space: nowrap; }
+.api table.t td:first-child code { background: none; padding: 0; font-weight: var(--weight-medium); font-size: var(--text-md); }
+.api h2 { font-size: var(--text-xl); line-height: var(--lh-xl); letter-spacing: 0; }
+.seealso { list-style: none; padding: 0 !important; display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--space-5); }
+.seealso li { margin: 0 !important; padding: var(--space-2) 0; border-top: var(--border) solid var(--line); font-size: var(--text-md); line-height: var(--lh-md); }
+.seealso li span { color: var(--ink-2); display: block; }
+
+/* search overlay */
+.searchdemo { height: 760px; }
+.searchdemo .scrim { position: absolute; inset: 0; background: var(--scrim); }
+.search { position: absolute; left: 50%; top: var(--space-8); width: 640px; margin-left: -320px; padding: 0; overflow: hidden; }
+.search .q { display: flex; align-items: center; gap: var(--space-3); height: calc(var(--control-lg) + var(--space-3)); padding: 0 var(--space-4); border-bottom: var(--border) solid var(--line); font-size: var(--text-lg); }
+.search .q .v { flex: 1; } .search .q .caret { display: inline-block; width: var(--border-strong); height: var(--text-xl); background: var(--accent); vertical-align: text-bottom; margin-left: 1px; }
+.search h4 { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); font-weight: var(--weight-medium); padding: var(--space-3) var(--space-4) var(--space-1); }
+.search ul { list-style: none; padding: 0 var(--space-2); }
+.search li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-3); padding: var(--space-2); border-radius: var(--radius-sm); }
+.search li.is-selected { background: var(--accent-soft); }
+.search li b { font-weight: var(--weight-medium); }
+.search li .where { grid-column: 2; grid-row: 1; font-size: var(--text-xs); color: var(--muted); align-self: center; }
+.search li p { grid-column: 1 / -1; font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search mark { background: none; color: inherit; font-weight: var(--weight-semibold); box-shadow: inset 0 -2px 0 var(--ink); }
+.search .foot { display: flex; gap: var(--space-4); align-items: center; padding: var(--space-2) var(--space-4); margin-top: var(--space-2); border-top: var(--border) solid var(--line); font-size: var(--text-xs); color: var(--muted); }
+.search .foot .cnt { margin-right: auto; }
+.search.empty .none { padding: var(--space-5) var(--space-4); color: var(--ink-2); }
+.search.empty .none p + p { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
+.search-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
+.search-pair .pop { position: static; margin: 0; width: auto; }
+.search-pair > [data-theme] { background: var(--bg); color: var(--ink); padding: var(--space-5); border: var(--border) solid var(--line); border-radius: var(--radius-md); }
+.search { color: var(--ink); }
+
+/* 404 */
+.nf { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--space-8); align-items: center; padding-top: var(--space-9); padding-bottom: var(--space-9); }
+.nf .code404 { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--muted); }
+.nf h1 { font-size: var(--text-4xl); line-height: var(--lh-4xl); margin: var(--space-2) 0 var(--space-4); }
+.nf p { font-size: var(--text-lg); line-height: var(--lh-lg); color: var(--ink-2); max-width: 34em; }
+.nf ul { list-style: none; padding: 0; margin: var(--space-5) 0; max-width: 34em; }
+.nf li { padding: var(--space-3) 0; border-top: var(--border) solid var(--line); display: flex; justify-content: space-between; gap: var(--space-4); }
+.nf li:last-child { border-bottom: var(--border) solid var(--line); }
+.nf li span { color: var(--muted); font-size: var(--text-sm); }
+.nf svg text { font-family: var(--font-mono); font-size: var(--text-sm); fill: var(--muted); text-anchor: middle; }
+.nf svg .e { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+
+/* changelog */
+.cl { display: grid; grid-template-columns: 200px minmax(0, var(--content)); gap: var(--space-6); padding-top: var(--space-7); padding-bottom: var(--space-8); }
+.cl .ver { position: sticky; top: var(--space-5); align-self: start; }
+.cl .ver .v { font-family: var(--font-mono); font-size: var(--text-2xl); line-height: var(--lh-2xl); font-weight: var(--weight-medium); }
+.cl .ver .d { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--muted); margin: var(--space-1) 0 var(--space-3); }
+.cl .body { font-size: var(--text-lg); line-height: var(--lh-lg); }
+.cl .body > p { color: var(--ink-2); }
+.cl h3 { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-6) 0 var(--space-2); padding-bottom: var(--space-2); border-bottom: var(--border) solid var(--line); }
+.cl ul { padding-left: var(--space-5); } .cl li + li { margin-top: var(--space-2); } .cl li::marker { color: var(--muted); }
+.cl .code { margin-top: var(--space-3); }
+
+/* social card and slide */
+.card-og { width: 1200px; height: 630px; background: var(--bg); color: var(--ink); display: grid; grid-template-columns: 560px 1fr; }
+.card-og .txt { padding: var(--space-8) 0 var(--space-8) var(--space-8); display: flex; flex-direction: column; }
+.card-og .wordmark { font-size: var(--text-3xl); line-height: var(--lh-3xl); gap: var(--space-3); }
+.card-og h1 { font-size: var(--text-5xl); line-height: var(--lh-5xl); margin-top: auto; }
+.card-og p { font-size: var(--text-2xl); line-height: var(--lh-2xl); color: var(--ink-2); margin-top: var(--space-4); }
+.card-og .cmd { margin-top: auto; font-family: var(--font-mono); font-size: var(--text-xl); color: var(--ink-2); }
+.card-og .cmd .p { color: var(--muted); }
+.card-og .map { margin: var(--space-7) 0 var(--space-7) var(--space-7); border: var(--border) solid var(--line); border-right: 0; border-radius: var(--radius-md) 0 0 var(--radius-md); overflow: hidden; background: var(--map-bg); }
+.card-og .map svg, .slide .map svg { display: block; }
+.slide { width: 1280px; height: 720px; background: var(--bg); color: var(--ink); display: grid; grid-template-columns: 1fr 520px; }
+.slide .txt { padding: var(--space-8); display: flex; flex-direction: column; }
+.slide .wordmark { font-size: var(--text-2xl); line-height: var(--lh-2xl); }
+.slide h1 { font-size: var(--text-5xl); line-height: var(--lh-5xl); margin-top: auto; max-width: 10em; }
+.slide .sub { font-size: var(--text-2xl); line-height: var(--lh-2xl); color: var(--ink-2); margin-top: var(--space-4); max-width: 22em; }
+.slide .who { margin-top: auto; padding-top: var(--space-4); border-top: var(--border) solid var(--line); display: flex; justify-content: space-between; font-size: var(--text-xl); line-height: var(--lh-xl); color: var(--ink-2); }
+.slide .map { background: var(--map-bg); border-left: var(--border) solid var(--line); display: flex; flex-direction: column; }
+.slide .map .cap { margin-top: auto; padding: var(--space-3) var(--space-4); border-top: var(--border) solid var(--line); font-size: var(--text-md); line-height: var(--lh-md); color: var(--ink-2); background: var(--bg); }
+
+/* ---------- 3. GitHub's chrome: not ours, drawn neutral so the README header can be judged in place ---------- */
+.gh { --gh-bg: #ffffff; --gh-ink: #1f2328; --gh-muted: #59636e; --gh-line: #d1d9e0; --gh-well: #f6f8fa; --gh-link: #0969da;
+  background: var(--gh-bg); color: var(--gh-ink); font: 16px/1.5 -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; padding: var(--space-5); }
+.gh.dark { --gh-bg: #0d1117; --gh-ink: #f0f6fc; --gh-muted: #9198a1; --gh-line: #3d444d; --gh-well: #151b23; --gh-link: #4493f8; }
+.gh .box { border: 1px solid var(--gh-line); border-radius: 6px; }
+.gh .tab { padding: 12px 16px; border-bottom: 1px solid var(--gh-line); font-size: 14px; font-weight: 600; display: flex; gap: 16px; }
+.gh .tab span { color: var(--gh-muted); font-weight: 400; }
+.gh .tab b { box-shadow: 0 13px 0 -11px #fd8c73; }
+.gh .md { padding: 32px; }
+.gh .head { display: flex; align-items: center; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--gh-line); }
+.gh .head h1 { font: 600 32px/1.25 inherit; font-family: inherit; letter-spacing: 0; }
+.gh .md p { margin-top: 16px; }
+.gh .md a { color: var(--gh-link); text-decoration: none; }
+.gh .badges { display: flex; gap: 6px; margin-top: 16px; }
+.gh .badge { display: inline-flex; font: 11px/20px Verdana, Geneva, "DejaVu Sans", sans-serif; color: #fff; border-radius: 3px; overflow: hidden; }
+.gh .badge i { font-style: normal; background: #555; padding: 0 6px; } .gh .badge b { font-weight: 400; background: #6b6258; padding: 0 6px; }
+.gh blockquote { margin: 16px 0 0; padding: 0 16px; border-left: 4px solid var(--gh-line); color: var(--gh-muted); }
+.gh .img { margin-top: 16px; border-radius: 6px; overflow: hidden; line-height: 0; }
+.gh .img svg { width: 100%; height: auto; display: block; }
+.gh-pair { display: grid; grid-template-columns: 1fr 1fr; }
+
+/* ---------- narrow: the site reflows by container, so the 390 px specimen is the real thing ---------- */
+@container (max-width: 720px) {
+  .site-in { padding: 0 var(--space-4); }
+  .site-nav .links, .site-nav .tag { display: none; }
+  .site-nav .menu { display: inline-flex; }
+  .lp .hero { grid-template-columns: minmax(0, 1fr); gap: var(--space-5); padding: var(--space-6) 0 var(--space-5); }
+  .lp h1 { font-size: var(--text-4xl); line-height: var(--lh-4xl); }
+  .lp .lead { font-size: var(--text-lg); line-height: var(--lh-lg); }
+  .hero-act .row .btn { flex: 1; }
+  .mapcap { grid-template-columns: minmax(0, 1fr); }
+  .mapcap .hint { text-align: left; white-space: normal; }
+  .lp section.band { padding: var(--space-7) 0; margin-top: var(--space-7); }
+  .lp h2 { font-size: var(--text-2xl); line-height: var(--lh-2xl); }
+  .promises, .example, .gallery { grid-template-columns: minmax(0, 1fr); }
+  .promises { grid-template-rows: none; } .promise { display: block; }
+  .promise { padding: var(--space-5) 0 0; margin-top: var(--space-5); border-left: 0; border-top: var(--border) solid var(--line); }
+  .promise:first-child { padding-top: 0; margin-top: 0; border-top: 0; }
+  .example { gap: var(--space-5); }
+  .code.lg pre { font-size: var(--text-xs); line-height: var(--lh-md); padding: var(--space-3); }
+  .else-t, .else-t tbody, .else-t tr, .else-t td { display: block; }
+  .else-t thead { display: none; }
+  .else-t tr { padding: var(--space-3) 0; border-bottom: var(--border) solid var(--line); }
+  table.else-t td { border: 0; padding: 0 !important; }
+  .else-t td:nth-child(1) { color: var(--ink-2); font-size: var(--text-md); line-height: var(--lh-md); }
+  .else-t td:nth-child(3) { font-size: var(--text-md); line-height: var(--lh-md); }
+  .site-foot .links { margin-left: 0; flex-basis: 100%; flex-wrap: wrap; gap: var(--space-4); }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="nest" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="18.5" cy="18" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="20" cy="19.2" r="2.6" fill="var(--accent)"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="4.9" r="0.9" fill="currentColor"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 2.2 14.3 13H1.7Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.4v3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.2" r="0.85" fill="currentColor"/></symbol>
+</svg>
+
+<main class="page">
+  <header><h1>Web &amp; docs</h1>
+    <p>The website, the documentation, and the small things around them: search, a missing page, a changelog entry, the README header, a social card and a slide. Everything here is set from the tokens; the map is drawn from invented data, and no performance figure appears anywhere, only the places where measured ones will go.</p></header>
+
+  <section class="section"><h2>Landing page</h2>
+    <p>One screen says what it is and how to get it; the map carries the picture; the three promises each keep an empty, clearly marked slot for a measured figure. One primary action on the page. The accent appears only on things you can press.</p>
+    <div class="fr-cap"><b>Landing, light</b><span>1,200 px page</span><a href="web.html#only=landing&chrome=0">#only=landing&amp;chrome=0</a></div>
+    <div class="fr" data-use="landing" data-theme="light" data-only="landing"></div>
+    <div class="fr-cap"><b>Landing, dark</b><a href="web.html#only=landing&theme=dark&chrome=0">#only=landing&amp;theme=dark&amp;chrome=0</a></div>
+    <div class="fr" data-use="landing" data-theme="dark"></div>
+    <div class="fr-cap"><b>Landing at 390 px</b><span>the same markup, reflowed by container width: one column, the table becomes a list, the map is redrawn for the width rather than scaled, so labels keep their size</span></div>
+    <div class="mobiles">
+      <div class="fr" data-use="landing" data-theme="light"></div>
+      <div class="fr" data-use="landing" data-theme="dark"></div>
+    </div>
+    <div class="rules">
+      <div><h4>Placeholders are visible</h4><p>A dashed outline, the word “Placeholder” and a sentence saying which figure goes there and how it will be published. An empty slot is better than a number nobody can reproduce.</p></div>
+      <div><h4>The map sits on its own canvas</h4><p>The hero map uses the viewer’s dark canvas on both themes, inside a hairline frame, with the caption strip beneath it: what is on screen, what is omitted, what position means.</p></div>
+      <div><h4>Honest neighbours</h4><p>“When to use something else” is a plain table, set at the same size as the promises. It names the tools; it does not rank them.</p></div>
+    </div>
+  </section>
+
+  <section class="section"><h2>Documentation page</h2>
+    <p>Navigation tree on the left, a 720 px reading column at 16 px, “on this page” on the right. The page below is real content and uses every element a guide needs: headings, lists, a table, Python and shell blocks with copy buttons, terminal output, an error as output, callouts, a figure, a definition list, keys, links, previous and next.</p>
+    <div class="fr-cap"><b>Docs, light</b><a href="web.html#only=docs&chrome=0">#only=docs&amp;chrome=0</a></div>
+    <div class="fr" data-use="docs" data-theme="light" data-only="docs"></div>
+    <div class="fr-cap"><b>Docs, dark</b><a href="web.html#only=docs&theme=dark&chrome=0">#only=docs&amp;theme=dark&amp;chrome=0</a></div>
+    <div class="fr" data-use="docs" data-theme="dark"></div>
+    <div class="fr-cap"><b>Copy button</b><span>at rest, under the pointer, and after pressing: the word changes and a tick appears, then it returns. No colour is involved.</span></div>
+    <div class="grid g3">
+      <div class="code"><div class="code-h"><span>Shell</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="sh">$ pip install everygraph</pre></div>
+      <div class="code"><div class="code-h"><span>Shell</span><button class="btn sm is-hover">Copy</button></div><pre data-lang="sh">$ pip install everygraph</pre></div>
+      <div class="code"><div class="code-h"><span>Shell</span><button class="btn sm">✓ Copied</button></div><pre data-lang="sh">$ pip install everygraph</pre></div>
+    </div>
+  </section>
+
+  <section class="section"><h2>API reference entry</h2>
+    <p>One function per page. The name and signature are monospace; the first sentence says what you get; parameters are a table with type and default in their own columns; examples show the real printed output.</p>
+    <div class="fr-cap"><b>Graph.communities</b><a href="web.html#only=api&chrome=0">#only=api&amp;chrome=0</a></div>
+    <div class="fr" data-use="api" data-theme="light" data-only="api"></div>
+  </section>
+
+  <section class="section"><h2>Search</h2>
+    <p>The overlay is one of the two things allowed a shadow. Results are grouped by kind; the match is marked with weight and an underline, not a coloured background; the selected row uses the accent tint; the keys are listed at the foot.</p>
+    <div class="fr-cap"><b>Search overlay over the docs</b><a href="web.html#only=search&chrome=0">#only=search&amp;chrome=0</a></div>
+    <div class="fr searchdemo" data-theme="light" data-only="search">
+      <div data-use="docs"></div>
+      <div class="scrim"></div>
+      <div class="pop search" role="dialog" aria-label="Search the documentation">
+        <div class="q"><svg width="16" height="16" class="muted"><use href="#i-search"/></svg><span class="v">budget<span class="caret"></span></span><kbd>Esc</kbd></div>
+        <h4>Guides</h4>
+        <ul>
+          <li class="is-selected"><b>Memory budgets and what the planner does</b><span class="where">Guides</span><p>A memory <mark>budget</mark> is the most memory a job may hold at once. It is a limit, not a hint.</p></li>
+          <li><b>Communities</b><span class="where">Guides › When it does not fit</span><p>…needs 5.1 GB for per-node state; raise the <mark>budget</mark> or use less state.</p></li>
+        </ul>
+        <h4>Reference</h4>
+        <ul>
+          <li><b><code>Graph.communities</code></b><span class="where">Python API › parameter <code>memory</code></span><p>Memory <mark>budget</mark> for this call, for example <code>"6GB"</code>.</p></li>
+          <li><b><code>InsufficientBudget</code></b><span class="where">Python API › errors</span><p>Raised when a step does not fit in the memory <mark>budget</mark>.</p></li>
+          <li><b><code>Graph.khop</code></b><span class="where">Python API › parameter <code>budget</code></span><p>Stops at this many nodes and says so: <code><mark>budget</mark>=10_000</code>.</p></li>
+          <li><b><code>everygraph run</code></b><span class="where">Command line › <code>--memory</code></span><p>The memory <mark>budget</mark> for the step, for example <code>--memory 6GB</code>.</p></li>
+        </ul>
+        <div class="foot"><span class="cnt"><span class="num">6</span> results</span><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
+      </div>
+    </div>
+    <div class="fr-cap"><b>States</b><span>nothing found, in both themes: it says so, and offers what can be done next</span></div>
+    <div class="search-pair">
+      <div data-theme="light"><div class="pop search empty">
+        <div class="q"><svg width="16" height="16" class="muted"><use href="#i-search"/></svg><span class="v">sharding<span class="caret"></span></span><kbd>Esc</kbd></div>
+        <div class="none"><p>No page mentions “sharding”.</p><p>Everygraph works on one machine. See <a href="#">When to use something else</a>, or search the <a href="#">Python API</a> by name.</p></div>
+        <div class="foot"><span class="cnt"><span class="num">0</span> results</span><span><kbd>Esc</kbd> close</span></div>
+      </div></div>
+      <div data-theme="dark"><div class="pop search empty">
+        <div class="q"><svg width="16" height="16" class="muted"><use href="#i-search"/></svg><span class="v">sharding<span class="caret"></span></span><kbd>Esc</kbd></div>
+        <div class="none"><p>No page mentions “sharding”.</p><p>Everygraph works on one machine. See <a href="#">When to use something else</a>, or search the <a href="#">Python API</a> by name.</p></div>
+        <div class="foot"><span class="cnt"><span class="num">0</span> results</span><span><kbd>Esc</kbd> close</span></div>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="section"><h2>A page that is not there</h2>
+    <p>What happened, why it probably happened, and where to go. The picture is an empty region with its exact count.</p>
+    <div class="fr-cap"><b>404</b><a href="web.html#only=404&chrome=0">#only=404&amp;chrome=0</a></div>
+    <div class="fr" data-use="nf" data-theme="light" data-only="404"></div>
+  </section>
+
+  <section class="section"><h2>Changelog entry</h2>
+    <p>The version and date are monospace and stay in view; changes are grouped under plain words; a breaking change says what to type instead; a release that changes a published figure lists the old and the new value.</p>
+    <div class="fr-cap"><b>One entry</b><span>an example of the shape: no release exists yet</span><a href="web.html#only=changelog&chrome=0">#only=changelog&amp;chrome=0</a></div>
+    <div class="fr" data-use="changelog" data-theme="light" data-only="changelog"></div>
+  </section>
+
+  <section class="section"><h2>README header on GitHub</h2>
+    <p>GitHub sets the type and the colours; ours are the mark, the name, one line, and a map with its caption. Two badges at most, both grey: a licence and a status. The mark is shipped as two images so that it follows GitHub’s light and dark themes.</p>
+    <div class="fr-cap"><b>README.md as rendered</b><span>GitHub’s chrome is drawn neutral; it is not part of the style</span><a href="web.html#only=readme&chrome=0">#only=readme&amp;chrome=0</a></div>
+    <div class="fr gh-pair" data-only="readme">
+      <div class="gh" data-use="readme" data-theme="light"></div>
+      <div class="gh dark" data-use="readme" data-theme="dark"></div>
+    </div>
+  </section>
+
+  <section class="section"><h2>Social card and slide</h2>
+    <p>The card is what a link shows when it is shared: the mark, the line, the install command and a piece of the map. The slide is a title slide at 16:9 with the same parts and room for the speaker. Both are shown reduced to fit; the links open them at their true size.</p>
+    <div class="fr-cap"><b>Social card</b><span class="num">1200 × 630</span><a href="web.html#only=social&chrome=0">#only=social&amp;chrome=0</a></div>
+    <div class="fr"><div class="fit" data-w="1200" data-h="630"><div class="card-og" data-only="social" data-theme="light">
+      <div class="txt">
+        <span class="wordmark"><svg class="nest" width="40" height="40"><use href="#nest"/></svg><span>every<b>graph</b></span></span>
+        <h1>Every graph, every size, every machine.</h1>
+        <p>Ingest, analyze, query and map a graph on one computer, inside the memory budget you set.</p>
+        <div class="cmd"><span class="p">$</span> pip install everygraph</div>
+      </div>
+      <div class="map" data-theme="dark"><svg data-map='{"w":592,"h":532,"aspect":2,"zoom":2.1,"focus":0,"dx":0.55,"dy":0.1,"fs":14,"fixed":true}' width="592" height="532"></svg></div>
+    </div></div></div>
+    <div class="fr-cap"><b>Slide title</b><span class="num">1280 × 720</span><span>16:9</span><a href="web.html#only=slide&chrome=0">#only=slide&amp;chrome=0</a></div>
+    <div class="fr"><div class="fit" data-w="1280" data-h="720"><div class="slide" data-only="slide" data-theme="light">
+      <div class="txt">
+        <span class="wordmark"><svg class="nest" width="32" height="32"><use href="#nest"/></svg><span>every<b>graph</b></span></span>
+        <h1>Every graph, every size, every machine.</h1>
+        <p class="sub">A single-machine engine to ingest, analyze, query and map graphs inside a memory budget.</p>
+        <div class="who"><span>Speaker name · affiliation</span><span class="num">2026-11-25</span></div>
+      </div>
+      <div class="map" data-theme="dark"><svg data-map='{"w":519,"h":640,"aspect":2,"zoom":2.4,"focus":0,"dx":0.35,"dy":0,"fs":14,"fixed":true}' width="519" height="640"></svg>
+        <div class="cap" data-theme="light"><b>transfers.eg</b> · part of a map of <span class="num">212,418,907</span> addresses. Each circle is a community; the number is exact. Invented data.</div></div>
+    </div></div></div>
+  </section>
+</main>
+
+<!-- ======================= templates: each is instantiated into every [data-use] host ======================= -->
+
+<template id="tpl-nav">
+  <nav class="site-nav"><div class="site-in">
+    <a class="wordmark plain" href="#"><svg class="nest" width="24" height="24"><use href="#nest"/></svg><span>every<b>graph</b></span></a>
+    <span class="tag">Design preview · nothing to install yet</span>
+    <div class="links"><a href="#" data-nav="docs">Docs</a><a href="#" data-nav="gallery">Gallery</a><a href="#" data-nav="changelog">Changelog</a><a href="#">GitHub</a>
+      <span class="searchbox"><svg width="16" height="16"><use href="#i-search"/></svg><span>Search the docs</span><kbd>/</kbd></span></div>
+    <button class="btn menu">Menu</button>
+  </div></nav>
+</template>
+
+<template id="tpl-landing">
+<div class="site lp">
+  <div data-use="nav"></div>
+  <div class="site-in">
+    <section class="hero">
+      <div>
+        <div class="overline">Open-source graph engine · one machine · Python, command line, map viewer</div>
+        <h1>Every graph, every size, every machine.</h1>
+        <p class="lead">One engine to ingest, analyze, query and map a graph, from thousands of edges to billions, on a single computer, inside the memory budget you set.</p>
+      </div>
+      <div class="hero-act">
+        <div class="install"><span class="p">$</span><code>pip install everygraph</code><button class="btn sm" data-copy>Copy</button></div>
+        <div class="row"><a class="btn primary lg" href="#">Get started</a><a class="btn lg" href="#">Open a sample map</a></div>
+        <p class="also">Also a single binary for the command line: <code>everygraph</code>. Apache-2.0 or MIT. No telemetry.</p>
+      </div>
+    </section>
+    <figure class="mapfig">
+      <div class="frame" data-theme="dark"><svg data-map='{"ratio":0.5,"aspect":2,"narrow":{"ratio":1.05,"zoom":2.3,"focus":0,"dx":0.1,"dy":0}}'></svg></div>
+      <figcaption class="mapcap">
+        <span class="what"><b>transfers.eg</b> · <span class="num">212,418,907</span> addresses · <span class="num">1,830,397,917</span> transfers · <span class="num">83</span> regions at this level: the <span class="num">74</span> largest communities and <span class="num">9</span> groups holding the other <span class="num">31,886</span></span>
+        <span class="hint">Drag to move · scroll to zoom · click a region for its numbers</span>
+        <span class="how">Each circle is a community of addresses; area is proportional to the number of addresses. Dashed circles are subdivisions made for readability; hatched circles stand for many small communities. Position keeps strongly connected regions close and has no other meaning. Links are not drawn. Invented data, drawn for this preview.</span>
+      </figcaption>
+    </figure>
+
+    <section class="band">
+      <div class="promises">
+        <div class="promise"><span class="n">1</span><h3>Open anything fast</h3>
+          <p>Point it at a CSV, Parquet or edge-list file. Before anything long runs it says what it read, what it will do and what that will cost. Then the file becomes a graph you can analyze.</p>
+          <div class="ph"><div class="slot"><span class="fig">— — —</span><span class="tag">Placeholder</span></div><p>Measured figure goes here: edges per second, from file to analysis-ready graph.</p></div></div>
+        <div class="promise"><span class="n">2</span><h3>Never run out of memory</h3>
+          <p>You set a memory budget. The engine plans first and stays inside it, or says exactly why it cannot, with the arithmetic and the ways out.</p>
+          <div class="ph"><div class="slot"><span class="fig">— — —</span><span class="tag">Placeholder</span></div><p>Measured figure goes here: the same analysis in memory and under a small budget, side by side.</p></div></div>
+        <div class="promise"><span class="n">3</span><h3>See it and trust it</h3>
+          <p>A zoomable map of the whole graph with exact numbers at every level. The same input gives the same result at any number of cores, and the map is one static file you can share.</p>
+          <div class="ph"><div class="slot"><span class="fig">— — —</span><span class="tag">Placeholder</span></div><p>Measured figure goes here: the thread counts at which results were checked identical.</p></div></div>
+      </div>
+      <p class="ph-note">Dashed boxes are placeholders. Each will hold one figure from the released software, with the hardware it was measured on and the script that reproduces it. <a href="#">How figures are measured</a></p>
+    </section>
+
+    <section class="band">
+      <h2>Twelve lines, from a file to a map</h2>
+      <div class="example">
+        <div class="code lg"><div class="code-h"><span>Python</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="py">import everygraph as eg
+
+g = eg.read("transfers.parquet", source="from", target="to",
+            weight="value", time="block_time", directed=True)
+
+pr = g.pagerank()
+pr.top(5)
+
+c = g.communities()            # same answer every run, on any machine
+
+m = g.map()                    # lays the communities out; builds the tiles
+m.export("transfers.egmap")    # one file, hostable anywhere static</pre></div>
+        <div>
+          <div class="overline">What happens</div>
+          <ol class="steps" style="margin-top: var(--space-3)">
+            <li><div><b>It says what it is about to do.</b><span>What it read, the plan and the estimate are printed before anything long runs.</span></div></li>
+            <li><div><b>The file is read once.</b><span>The prepared graph is written next to the input as <code>transfers.eg</code>; opening that later does not repeat the work.</span></div></li>
+            <li><div><b>Analyses return tables.</b><span>Each result is an Arrow table with your own identifiers. Polars, pandas and DuckDB read it without copying.</span></div></li>
+            <li><div><b>The map is a file.</b><span>No server: put <code>transfers.egmap</code> on any static host, or open it on your own computer.</span></div></li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="band">
+      <h2>When to use something else</h2>
+      <p class="sec-lede">Everygraph is for measuring and looking at a large graph on the computer you have. It is not a database, a cluster or a drawing program, and it reads from and writes to the tools that are.</p>
+      <table class="t else-t">
+        <thead><tr><th>When you need to</th><th>Use</th><th>Because</th></tr></thead>
+        <tbody>
+          <tr><td>Polish a figure of a few thousand nodes by hand</td><td>Gephi</td><td>You place and style every node yourself.</td></tr>
+          <tr><td>Serve many users reading and writing at once, with transactions</td><td>Neo4j</td><td>It is a database. Everygraph analyzes a file.</td></tr>
+          <tr><td>Ask questions that are really joins and sums over tables</td><td>DuckDB</td><td>SQL answers those better than a graph engine does.</td></tr>
+          <tr><td>Try many algorithms on a graph that fits easily in memory</td><td>NetworkX</td><td>The widest choice of algorithms, and nothing to prepare.</td></tr>
+          <tr><td>Train graph neural networks</td><td>PyG or DGL</td><td>They are built for tensors and GPUs.</td></tr>
+          <tr><td>Work on data that does not fit on one machine’s disk</td><td>a cluster</td><td>Everygraph is one machine, by design.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="band">
+      <h2>Three views of one map</h2>
+      <p class="sec-lede">The same file at three moments. The gallery will hold maps of public graphs once they exist; these are the invented transfers graph.</p>
+      <div class="gallery">
+        <figure class="mapfig"><div class="frame" data-theme="light"><svg data-map='{"ratio":0.72,"aspect":2,"fs":11,"zoom":1.45,"focus":0,"dx":0,"dy":0}'></svg></div>
+          <figcaption><b>On the light canvas</b>The middle of the map; every address is inside one of the <span class="num">83</span> regions.</figcaption></figure>
+        <figure class="mapfig"><div class="frame" data-theme="dark"><svg data-map='{"ratio":0.72,"aspect":2,"fs":11,"select":2,"links":true,"zoom":1.5,"focus":0,"dx":0.1,"dy":0}'></svg></div>
+          <figcaption><b>A region selected</b>Token swaps and its <span class="num">7</span> strongest links; the rest dims to 60%.</figcaption></figure>
+        <figure class="mapfig"><div class="frame" data-theme="dark"><svg data-map='{"ratio":0.72,"aspect":2,"fs":11,"zoom":3.4,"focus":1,"dx":-0.55,"dy":-0.1}'></svg></div>
+          <figcaption><b>Closer</b>Between Exchange deposits and Stablecoin transfers: communities inside communities.</figcaption></figure>
+      </div>
+    </section>
+  </div>
+  <footer class="site-foot"><div class="site-in">
+    <span class="wordmark" style="font-size: var(--text-lg)"><svg class="nest" width="20" height="20"><use href="#nest"/></svg><span>every<b>graph</b></span></span>
+    <span>Apache-2.0 or MIT, at your option</span>
+    <div class="links"><a href="#">Docs</a><a href="#">Gallery</a><a href="#">How figures are measured</a><a href="#">Changelog</a><a href="#">GitHub</a></div>
+    <span class="fine">No telemetry. Every figure on this site can be reproduced with a published script, on stated hardware.</span>
+  </div></footer>
+</div>
+</template>
+
+<template id="tpl-tree">
+  <aside class="tree">
+    <h4>Get started</h4>
+    <ul><li><a href="#">Install</a></li><li><a href="#">Your first graph</a></li><li><a href="#">Your first map</a></li></ul>
+    <h4>Guides</h4>
+    <ul><li><a href="#">Reading files</a></li><li><a href="#" data-cur="guide">Memory budgets</a></li><li><a href="#">Communities</a></li><li><a href="#">Paths and neighbourhoods</a></li><li><a href="#">Views and time windows</a></li><li><a href="#">Maps</a></li><li><a href="#">Sharing a map</a></li></ul>
+    <h4>Reference</h4>
+    <ul><li><a href="#">Python API</a>
+        <ul class="mono" data-api><li><a href="#">eg.read</a></li><li><a href="#">eg.open</a></li><li><a href="#">Graph.bfs</a></li><li><a href="#" data-cur="api">Graph.communities</a></li><li><a href="#">Graph.components</a></li><li><a href="#">Graph.degrees</a></li><li><a href="#">Graph.filter</a></li><li><a href="#">Graph.kcore</a></li><li><a href="#">Graph.khop</a></li><li><a href="#">Graph.map</a></li><li><a href="#">Graph.neighbors</a></li><li><a href="#">Graph.pagerank</a></li><li><a href="#">Graph.path</a></li><li><a href="#">Graph.subgraph</a></li><li><a href="#">Graph.triangles</a></li><li><a href="#">Graph.window</a></li></ul></li>
+      <li><a href="#">Command line</a></li><li><a href="#">File formats: .eg and .egmap</a></li></ul>
+    <h4>About</h4>
+    <ul><li><a href="#">When to use something else</a></li><li><a href="#">How figures are measured</a></li><li><a href="#">Changelog</a></li></ul>
+  </aside>
+</template>
+
+<template id="tpl-docs">
+<div class="site docs">
+  <div data-use="nav" data-current="docs"></div>
+  <div class="site-in docs-grid">
+    <div data-use="tree" data-current="guide"></div>
+    <article class="prose">
+      <div class="crumbs"><a href="#">Docs</a> / <a href="#">Guides</a> / Memory budgets</div>
+      <h1>Memory budgets and what the planner does</h1>
+      <p class="lede">You tell Everygraph how much memory it may use. Before anything long runs, the planner works out whether the job fits, how it will be done and what it will cost, and prints that.</p>
+
+      <h2 id="limit">The budget is a limit</h2>
+      <p>A memory budget is the most memory a job may hold at once. It is a limit, not a hint: the engine plans to stay inside it, and stops before changing anything when it cannot. Set it for one call, or for one command.</p>
+      <div class="code"><div class="code-h"><span>Python</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="py">import everygraph as eg
+
+g = eg.open("transfers.eg")
+c = g.communities(memory="6GB")     # this call may use up to 6 GB</pre></div>
+      <div class="code"><div class="code-h"><span>Shell</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="sh">$ everygraph run communities transfers.eg --memory 6GB</pre></div>
+      <p>When you do not set one, the default is a fifth of the memory that is free when the job starts, and at least <span class="num">2</span>&#8239;GB. <code>everygraph doctor</code> suggests a budget for the machine it runs on. Sizes are decimal: <span class="num">1</span>&#8239;GB is <span class="num">10⁹</span> bytes, as disks show it.</p>
+
+      <h2 id="planner">What the planner decides</h2>
+      <p>Given the graph and the budget, the planner settles three things before the first byte is read:</p>
+      <ol>
+        <li><b>Where the work happens.</b> A graph that fits in the budget is built in memory. A larger one is built on disk, in parts.</li>
+        <li><b>What must stay in memory.</b> Edges can stay on disk. What an analysis remembers for every node cannot, and that sets the smallest budget that works.</li>
+        <li><b>How much scratch space it needs</b>, and where it will be written.</li>
+      </ol>
+      <p>For <code>transfers.eg</code>, with <span class="num">212,418,907</span> nodes:</p>
+      <table class="t">
+        <thead><tr><th>Step</th><th>Kept in memory</th><th class="r">Per node</th><th class="r">On this graph</th></tr></thead>
+        <tbody>
+          <tr><td><code>eg.read(…)</code></td><td>the peak while building on disk</td><td class="num">—</td><td class="num">5.9 GB</td></tr>
+          <tr><td><code>g.communities()</code></td><td>per-node state</td><td class="num">24 bytes</td><td class="num">5.1 GB</td></tr>
+          <tr><td><code>g.communities(precision="low")</code></td><td>per-node state, less of it</td><td class="num">16 bytes</td><td class="num">3.4 GB</td></tr>
+        </tbody>
+        <caption>The arithmetic is the one the messages print: <span class="num">212,418,907</span> nodes × <span class="num">24</span> bytes = <span class="num">5.1</span>&#8239;GB.</caption>
+      </table>
+
+      <h2 id="plan">Reading the plan</h2>
+      <p>Add <code>--dry-run</code> on the command line, or <code>dry_run=True</code> in Python, to see the plan without running it.</p>
+      <div class="code"><div class="code-h"><span>Shell</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="sh">$ everygraph ingest transfers.parquet --source from --target to \
+      --weight value --time block_time --dry-run</pre></div>
+      <div class="code"><div class="code-h"><span>Terminal output</span></div><div class="term"><b>transfers.parquet</b> · 38.2 GB · 1,830,402,118 rows
+
+  <span class="dim">ids</span>       hex addresses (20 bytes) · ~212.4 M distinct
+  <span class="dim">edges</span>     directed · duplicates kept as events · 4,201 self-loops dropped
+  <span class="dim">columns</span>   value → weight · block_time → time · ignored: gas, nonce, input
+
+  <span class="dim">machine</span>   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
+  <span class="dim">budget</span>    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  <span class="dim">plan</span>      build on disk — the graph is 4.6× the memory budget
+  <span class="dim">estimate</span>  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+
+  <span class="dim">phases</span>    reading → identifiers → building → checking
+  <span class="dim">result</span>    transfers.eg, beside the input
+
+Dry run: nothing was written.
+  <span class="dim">to run it:</span> the same command without --dry-run</div></div>
+      <ul>
+        <li><b>budget</b> is the limit in force and the rule that chose it.</li>
+        <li><b>plan</b> says where the work happens, and why.</li>
+        <li><b>estimate</b> gives the expected time, the peak memory, the scratch space and the size of the result. The peak is always below the budget; if it could not be, there would be no plan.</li>
+      </ul>
+      <figure class="fig">
+        <svg class="bud" viewBox="0 0 720 236" role="img" aria-label="Two bars comparing the memory a step needs with its budget">
+          <defs><pattern id="UIDover" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><line class="over" x1="0" y1="0" x2="0" y2="6"/></pattern></defs>
+          <g transform="translate(24,0)">
+            <text x="0" y="34"><tspan font-weight="600">Ingest</tspan> · peak 5.9 GB, budget 8.0 GB · fits</text>
+            <rect class="track" x="0" y="46" width="640" height="24"/><rect class="need" x="0" y="46" width="377.6" height="24"/>
+            <line class="lim" x1="512" y1="38" x2="512" y2="78"/><text class="mi" x="518" y="42">budget 8.0 GB</text>
+            <text x="0" y="118"><tspan font-weight="600">Communities</tspan> · needs 5.1 GB, budget 4.0 GB · <tspan class="overt">does not fit: 1.1 GB over</tspan></text>
+            <rect class="track" x="0" y="130" width="640" height="24"/><rect class="need" x="0" y="130" width="256" height="24"/>
+            <rect x="256" y="130" width="70.4" height="24" fill="url(#UIDover)"/><rect x="256.5" y="130.5" width="69.4" height="23" fill="none" class="over"/>
+            <line class="lim" x1="256" y1="122" x2="256" y2="162"/><text class="mi" x="262" y="176">budget 4.0 GB</text>
+            <g><line class="tick" x1="0" y1="196" x2="640" y2="196"/>
+              <line class="tick" x1="0.5" y1="196" x2="0.5" y2="201"/><line class="tick" x1="128" y1="196" x2="128" y2="201"/><line class="tick" x1="256" y1="196" x2="256" y2="201"/><line class="tick" x1="384" y1="196" x2="384" y2="201"/><line class="tick" x1="512" y1="196" x2="512" y2="201"/><line class="tick" x1="639.5" y1="196" x2="639.5" y2="201"/>
+              <text class="m" x="0" y="216">0</text><text class="m" x="128" y="216" text-anchor="middle">2 GB</text><text class="m" x="256" y="216" text-anchor="middle">4 GB</text><text class="m" x="384" y="216" text-anchor="middle">6 GB</text><text class="m" x="512" y="216" text-anchor="middle">8 GB</text><text class="m" x="640" y="216" text-anchor="end">10 GB</text></g>
+          </g>
+        </svg>
+        <figcaption><b>Figure 1.</b> The same graph under two budgets. Ingest peaks at <span class="num">5.9</span>&#8239;GB and fits in <span class="num">8.0</span>&#8239;GB. Communities need <span class="num">5.1</span>&#8239;GB of per-node state and do not fit in <span class="num">4.0</span>&#8239;GB; the hatched part is what is over.</figcaption>
+      </figure>
+
+      <h2 id="refusal">When a step does not fit</h2>
+      <p>The step is refused before it starts. The message gives the arithmetic and the ways out, written as calls you can copy. See <a href="#"><code>Graph.communities</code></a> for the parameters it mentions.</p>
+      <div class="code"><div class="code-h"><span>Python</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="py">g.communities(memory="4GB")</pre></div>
+      <div class="code out"><div class="code-h"><span>Output</span></div><pre>InsufficientBudget: communities() needs 5.1 GB for per-node state on this graph
+(212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
+
+  • raise the budget:        g.communities(memory="6GB")     ← smallest that works
+  • or use less state:       g.communities(precision="low")  → needs 3.4 GB
+  The edges themselves stay on disk either way.</pre></div>
+      <div class="callout warn"><svg class="ico" width="16" height="16"><use href="#i-warn"/></svg><div><p><b>Warning: lower precision changes the result.</b></p><p><code>precision="low"</code> keeps less state for every node and gives slightly lower quality. Say which one you used when you report a result.</p></div></div>
+      <div class="callout"><svg class="ico" width="16" height="16"><use href="#i-info"/></svg><div><p><b>Note: a refusal changes nothing.</b></p><p>The graph file and every earlier result stay exactly as they were.</p></div></div>
+
+      <h2 id="terms">Terms</h2>
+      <dl>
+        <dt>Memory budget</dt><dd>The most memory a job may hold at once. <code>memory="8GB"</code> in Python, <code>--memory 8GB</code> on the command line.</dd>
+        <dt>Per-node state</dt><dd>What an analysis remembers for every node while it runs. It stays in memory, so it sets the smallest budget that works.</dd>
+        <dt>Scratch space</dt><dd>Temporary files written while building on disk. The estimate says how much and where.</dd>
+        <dt>Plan</dt><dd>What the engine will do: in memory or on disk, and why.</dd>
+        <dt>Estimate</dt><dd>Expected time, peak memory, scratch space and size of the result, printed with the plan.</dd>
+      </dl>
+
+      <h2 id="stop">Stopping a job</h2>
+      <p>Press <kbd>Ctrl</kbd> <kbd>C</kbd> to stop. Phases that finished are kept; running the same command again continues from there. On these pages, <kbd>/</kbd> opens search and <kbd>Esc</kbd> closes it.</p>
+
+      <div class="pn"><a href="#"><span>← Previous</span><b>Reading files</b></a><a class="next" href="#"><span>Next →</span><b>Communities</b></a></div>
+      <div class="helpful"><span>Something wrong or unclear on this page?</span><a href="#">Edit it on GitHub</a><a href="#">Open an issue</a></div>
+    </article>
+    <aside class="toc">
+      <h4>On this page</h4>
+      <ul><li><a href="#">The budget is a limit</a></li><li><a href="#">What the planner decides</a></li><li><a href="#" aria-current="true">Reading the plan</a></li><li><a href="#">When a step does not fit</a></li><li><a href="#">Terms</a></li><li><a href="#">Stopping a job</a></li></ul>
+      <div class="meta"><span>Applies to version <span class="num">0.1</span></span><span>Last changed <span class="num">2026-11-24</span></span></div>
+    </aside>
+  </div>
+  <footer class="site-foot"><div class="site-in">
+    <span class="wordmark" style="font-size: var(--text-lg)"><svg class="nest" width="20" height="20"><use href="#nest"/></svg><span>every<b>graph</b></span></span>
+    <span>Apache-2.0 or MIT, at your option</span>
+    <div class="links"><a href="#">Docs</a><a href="#">Gallery</a><a href="#">How figures are measured</a><a href="#">Changelog</a><a href="#">GitHub</a></div>
+  </div></footer>
+</div>
+</template>
+
+<template id="tpl-api">
+<div class="site docs api">
+  <div data-use="nav" data-current="docs"></div>
+  <div class="site-in docs-grid">
+    <div data-use="tree" data-current="api"></div>
+    <article class="prose">
+      <div class="crumbs"><a href="#">Docs</a> / <a href="#">Python API</a> / Graph</div>
+      <h1><span class="q">Graph.</span>communities</h1>
+      <pre class="sig"><span class="q muted">Graph.</span><b>communities</b>(*, method=<span class="tok-s">"leiden"</span>, resolution=<span class="tok-n">1.0</span>, deterministic=<span class="tok-k">True</span>,
+                  precision=<span class="tok-s">"high"</span>, memory=<span class="tok-k">None</span>) <span class="ret">→</span> Communities</pre>
+      <p>Find the communities of the graph: groups of nodes more connected to each other than to the rest. The answer is the same on every run and on any machine unless you ask otherwise.</p>
+      <div class="facts"><span class="tag">Works on views</span><span class="tag">Ignores edge direction</span><span class="tag">Per-node state: <span class="num">24</span> bytes</span></div>
+
+      <h2>Parameters</h2>
+      <table class="t">
+        <thead><tr><th>Name</th><th>Type</th><th>Default</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>method</code></td><td><code>str</code></td><td><code>"leiden"</code></td><td>How communities are found.</td></tr>
+          <tr><td><code>resolution</code></td><td><code>float</code></td><td><code>1.0</code></td><td>Higher values give more, smaller communities.</td></tr>
+          <tr><td><code>deterministic</code></td><td><code>bool</code></td><td><code>True</code></td><td>Identical result at any number of cores. <code>False</code> is faster and may differ between runs.</td></tr>
+          <tr><td><code>precision</code></td><td><code>str</code></td><td><code>"high"</code></td><td><code>"low"</code> keeps <span class="num">16</span> bytes for every node instead of <span class="num">24</span>, at slightly lower quality.</td></tr>
+          <tr><td><code>memory</code></td><td><code>str | None</code></td><td><code>None</code></td><td>Memory budget for this call, for example <code>"6GB"</code>. <code>None</code> uses the budget already in force.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Returns</h2>
+      <p><a href="#"><code>Communities</code></a>. Printing it gives the summary shown below. <code>c.table()</code> has one row for each community; <code>c.of(node)</code> says which community a node is in, at every level; <code>c[0]</code> is the largest community, and can be passed to <a href="#"><code>Graph.subgraph</code></a>.</p>
+
+      <h2>Raises</h2>
+      <table class="t">
+        <tbody>
+          <tr><td><code>InsufficientBudget</code></td><td>The per-node state does not fit in the memory budget. The message gives the arithmetic, the smallest budget that works, and the other way out. Nothing is changed.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Examples</h2>
+      <div class="code"><div class="code-h"><span>Python</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="py">c = g.communities()
+c</pre></div>
+      <div class="code out"><div class="code-h"><span>Output</span></div><pre>Communities of transfers.eg — Leiden, resolution 1.0, deterministic
+  31,960 communities · modularity 0.6033 · 0 disconnected
+  levels   212.4 M nodes → 17.7 M → 1.55 M → 153 k → 31,960
+  largest  18,204,551 nodes (8.6%) · median 37 · 12,877 singletons
+  took     2 min 11 s</pre></div>
+      <div class="code"><div class="code-h"><span>Python</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="py">c.table().head(3)</pre></div>
+      <div class="code out"><div class="code-h"><span>Output</span></div><pre>┌───────────┬────────────┬────────────────┬───────────────┬──────────┐
+│ community │ nodes      │ internal_edges │ edges_out     │ share    │
+├───────────┼────────────┼────────────────┼───────────────┼──────────┤
+│         0 │ 18,204,551 │    402,118,330 │    96,410,227 │ 8.57%    │
+│         1 │ 11,930,204 │    188,300,412 │    71,002,118 │ 5.62%    │
+│         2 │  9,410,877 │    151,902,006 │    40,331,905 │ 4.43%    │
+└───────────┴────────────┴────────────────┴───────────────┴──────────┘</pre></div>
+      <div class="code"><div class="code-h"><span>Python</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="py">c.of("0x28c6…1d60")            # which community, at every level
+g.subgraph(c[0]).pagerank()    # any analysis inside one community</pre></div>
+
+      <h2>See also</h2>
+      <ul class="seealso">
+        <li><a href="#"><code>Graph.components</code></a><span>Connected components and their sizes.</span></li>
+        <li><a href="#"><code>Graph.subgraph</code></a><span>Any analysis inside one community.</span></li>
+        <li><a href="#"><code>Graph.map</code></a><span>The communities, laid out as a map.</span></li>
+        <li><a href="#">Memory budgets and what the planner does</a><span>Guide: what fits, and what happens when it does not.</span></li>
+      </ul>
+    </article>
+    <aside class="toc">
+      <h4>On this page</h4>
+      <ul><li><a href="#" aria-current="true">Parameters</a></li><li><a href="#">Returns</a></li><li><a href="#">Raises</a></li><li><a href="#">Examples</a></li><li><a href="#">See also</a></li></ul>
+      <div class="meta"><span>Since version <span class="num">0.1</span></span><a href="#">Source on GitHub</a></div>
+    </aside>
+  </div>
+</div>
+</template>
+
+<template id="tpl-nf">
+<div class="site">
+  <div data-use="nav"></div>
+  <div class="site-in nf">
+    <div>
+      <div class="code404">404 · /docs/guides/memory-budget</div>
+      <h1>There is no page at this address.</h1>
+      <p>The page may have moved, or the link may be mistyped. These are the closest pages that exist:</p>
+      <ul>
+        <li><a href="#">Memory budgets and what the planner does</a><span>Guides</span></li>
+        <li><a href="#"><code>InsufficientBudget</code></a><span>Python API</span></li>
+        <li><a href="#">Reading files</a><span>Guides</span></li>
+      </ul>
+      <div class="row"><a class="btn primary" href="#">Go to the documentation</a><a class="btn" href="#">Search <kbd>/</kbd></a><a class="btn quiet" href="#">Report a broken link</a></div>
+    </div>
+    <svg viewBox="0 0 300 300" width="300" height="300" aria-hidden="true">
+      <circle class="e" cx="150" cy="150" r="128" stroke-dasharray="4 3"/>
+      <text x="150" y="148" style="font-family: var(--font-sans); font-weight: 600; fill: var(--ink-2)">Nothing here</text><text x="150" y="168">0 pages</text>
+    </svg>
+  </div>
+</div>
+</template>
+
+<template id="tpl-changelog">
+<div class="site">
+  <div data-use="nav" data-current="changelog"></div>
+  <div class="site-in cl">
+    <div class="ver"><div class="v">0.2.0</div><div class="d">YYYY-MM-DD</div><span class="tag warn">Example · not a release</span></div>
+    <div class="body">
+      <p>Maps can be exported without individual identifiers, and the default memory budget changes.</p>
+      <h3>Added</h3>
+      <ul>
+        <li><code>m.export("transfers.egmap")</code> can write a summary-only map: regions and counts, no individual node ids.</li>
+        <li><code>everygraph doctor</code> now suggests a memory budget for the machine it runs on.</li>
+        <li><code>eg.read(…, dry_run=True)</code> prints the plan and the estimate without running.</li>
+      </ul>
+      <h3>Changed <span class="tag err">Breaking</span></h3>
+      <ul>
+        <li>The default memory budget is now half of free RAM. It was a fifth. To keep the old behaviour, set the budget yourself:
+          <div class="code"><div class="code-h"><span>Shell</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="sh">$ everygraph ingest transfers.parquet --memory 8GB</pre></div></li>
+      </ul>
+      <h3>Fixed</h3>
+      <ul>
+        <li>The ingest summary counted each self-loop twice. On the example file it reported <span class="num">8,402</span> dropped; the right figure is <span class="num">4,201</span>. The graph itself was correct.</li>
+      </ul>
+      <h3>Published figures that changed</h3>
+      <ul>
+        <li>None in this release. When a release moves a published figure, the old value, the new value and the script that measures it are listed here.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</template>
+
+<template id="tpl-readme">
+  <div class="box">
+    <div class="tab"><b>README</b><span>Apache-2.0 license</span><span>MIT license</span></div>
+    <div class="md">
+      <div class="head"><svg class="nest" width="44" height="44" style="color: var(--gh-ink)"><use href="#nest"/></svg><h1>Everygraph</h1></div>
+      <p><strong>Every graph, every size, every machine.</strong> One engine to ingest, analyze, query and map graphs on a single computer, inside the memory budget you set.</p>
+      <div class="badges"><span class="badge"><i>licence</i><b>Apache-2.0 or MIT</b></span><span class="badge"><i>status</i><b>design and planning</b></span></div>
+      <blockquote><p style="margin-top:0"><strong>Status: design and planning.</strong> There is no installable software here yet.</p></blockquote>
+      <div class="img" data-mapwrap><svg data-map='{"ratio":0.5,"aspect":2,"fs":11}'></svg></div>
+      <p style="font-size: 14px; color: var(--gh-muted); margin-top: 8px"><em>Design preview with invented data: 212,418,907 addresses in 83 regions. Each circle is a community; the number on it is exact.</em></p>
+    </div>
+  </div>
+</template>
+
+<script src="assets/shell.js" data-page="web"></script>
+<script>/*EGMAP-BEGIN*/
+/* egMap — a deterministic stand-in for the Everygraph map, for the style preview only.
+   It draws the invented transactions graph (212,418,907 addresses in 31,960 communities) as nested
+   bubbles following SPEC.md "The map": 1.5 px outline in the data colour with a light tint, solid =
+   found community, dashed = subdivision made for readability, hatched = many small communities shown
+   as one; labels with a halo; selection = double ring in the ink colour, the rest at 60%.
+   Usage: var info = egMap(svgElement, { w, h, zoom, focus, select, links, labels, detail, print, fs });
+   Colours come from the tokens in scope (--map-bg, --map-ink, --d1 … --d10). */
+function egMap(svg, o) {
+  o = Object.assign({ w: 960, h: 600, seed: 7, zoom: 1, focus: null, select: null, links: false, labels: 'full',
+    detail: 2, print: false, fs: 12, pad: 14, labelMin: 30, keys: false, frame: true }, o || {});
+  var uid = 'egm' + (egMap.n = (egMap.n || 0) + 1);
+  var L = egMap.layout(o.seed, o.aspect || o.w / o.h);   /* pass aspect to keep one layout across views of different shapes */
+  var s = Math.min((o.w - 2 * o.pad) / (L.x1 - L.x0), (o.h - 2 * o.pad) / (L.y1 - L.y0)) * o.zoom;
+  var fx = (L.x0 + L.x1) / 2, fy = (L.y0 + L.y1) / 2;
+  if (o.focus != null) { var fr = L.regions[o.focus]; fx = fr.x + (o.dx || 0) * fr.r; fy = fr.y + (o.dy || 0) * fr.r; }
+  function X(x) { return +((x - fx) * s + o.w / 2).toFixed(1); }
+  function Y(y) { return +((y - fy) * s + o.h / 2).toFixed(1); }
+  function R(r) { return +(r * s).toFixed(1); }
+  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  var sel = o.select, out = [], lab = [];
+  var sw = o.print ? (o.stroke || 1) : 1.5;
+  out.push('<style>' +
+    '.' + uid + ' .r{fill:var(--c);fill-opacity:' + (o.print ? 0.08 : 0.11) + ';stroke:var(--c);stroke-width:' + sw + 'px}' +
+    '.' + uid + ' .s{fill:var(--c);fill-opacity:' + (o.print ? 0.07 : 0.10) + ';stroke:var(--c);stroke-width:' + (sw * 0.67).toFixed(2) + 'px}' +
+    '.' + uid + ' .t{fill:var(--c);fill-opacity:0.16;stroke:var(--c);stroke-width:' + (sw * 0.5).toFixed(2) + 'px}' +
+    '.' + uid + ' .dash{stroke-dasharray:' + (o.print ? '3 2' : '4 3') + '}' +
+    '.' + uid + ' .agg{fill:url(#' + uid + 'h);fill-opacity:1}' +
+    '.' + uid + ' .dimmed{opacity:0.6}' +
+    '.' + uid + ' .ring{fill:none;stroke:var(--map-ink);stroke-width:' + sw + 'px}' +
+    '.' + uid + ' .band{fill:none;stroke:var(--map-ink);stroke-opacity:0.55;stroke-linecap:round}' +
+    '.' + uid + ' text{font-family:var(--font-sans);fill:var(--map-ink);text-anchor:middle;paint-order:stroke;stroke:var(--map-bg);stroke-width:' + (o.fs * 0.3).toFixed(1) + 'px;stroke-linejoin:round}' +
+    '.' + uid + ' .nm{font-weight:600;font-size:' + o.fs + 'px}' +
+    '.' + uid + ' .ct{font-family:var(--font-mono);font-size:' + (o.fs - 1) + 'px;font-variant-numeric:tabular-nums}' +
+    '</style>');
+  var hs = o.print ? 4 : 6;
+  out.push('<defs><pattern id="' + uid + 'h" patternUnits="userSpaceOnUse" width="' + hs + '" height="' + hs + '" patternTransform="rotate(45)">' +
+    '<line x1="0" y1="0" x2="0" y2="' + hs + '" stroke="var(--d10)" stroke-width="' + (o.print ? 0.8 : 1) + '" stroke-opacity="' + (o.print ? 0.9 : 0.55) + '"/></pattern>' +
+    '<clipPath id="' + uid + 'c"><rect width="' + o.w + '" height="' + o.h + '"/></clipPath></defs>');
+  if (o.frame) out.push('<rect width="' + o.w + '" height="' + o.h + '" fill="var(--map-bg)"/>');
+  out.push('<g clip-path="url(#' + uid + 'c)">');
+  var vis = [];
+  L.regions.forEach(function (g, i) {
+    var x = X(g.x), y = Y(g.y), r = R(g.r);
+    if (x + r < -4 || x - r > o.w + 4 || y + r < -4 || y - r > o.h + 4) return;
+    vis.push(i);
+    var dim = sel != null && sel !== i ? ' dimmed' : '';
+    var p = ['<g class="reg' + dim + '" style="--c:var(--d' + g.c + ')">'];
+    p.push('<circle class="r' + (g.kind === 'aggregate' ? ' agg' : '') + '" cx="' + x + '" cy="' + y + '" r="' + r + '"/>');
+    if (o.detail > 0) g.subs.forEach(function (b) {
+      var br = R(b.r); if (br < 1.6) return;
+      p.push('<circle class="s' + (g.subkind === 'subdivision' ? ' dash' : '') + '" cx="' + X(b.x) + '" cy="' + Y(b.y) + '" r="' + br + '"/>');
+      if (o.detail > 1) b.subs.forEach(function (t) { var tr = R(t.r); if (tr >= 1.2) p.push('<circle class="t" cx="' + X(t.x) + '" cy="' + Y(t.y) + '" r="' + tr + '"/>'); });
+    });
+    p.push('</g>');
+    out.push(p.join(''));
+    /* labels: name (if any) with the exact count beneath; unnamed regions show the count only */
+    if (o.labels !== 'none') {
+      var fits = function (txt, mono) { return txt.length * (mono ? (o.fs - 1) * 0.6 : o.fs * 0.55) <= 2 * r - o.fs * 0.5; };
+      var lines = [], key = o.keys && g.key ? g.key : '';
+      var name = g.kind === 'aggregate' ? fmt(g.groups) + ' communities' : g.name;
+      var cnt = fmt(g.n);
+      if (name && fits((key ? key + ' · ' : '') + name) && r >= o.fs * 2.2) lines.push(['nm', (key ? key + ' · ' : '') + egMap.mono(name)]);
+      else if (key && r >= o.fs * 1.1) lines.push(['nm', key]);
+      if (o.labels === 'full' && fits(cnt, true) && r >= o.fs * (lines.length ? 2.2 : 1.1)) lines.push(['ct', cnt]);
+      var lh = o.fs * 1.3, y0 = y - (lines.length - 1) * lh / 2 + o.fs * 0.35;
+      /* a label that would be cut by the edge of the frame is left out rather than shown in part */
+      var tw = 0; lines.forEach(function (ln) { var plain = ln[1].replace(/<[^>]+>/g, ''); tw = Math.max(tw, plain.length * (ln[0] === 'ct' ? (o.fs - 1) * 0.6 : o.fs * 0.56)); });
+      if (x - tw / 2 < 8 || x + tw / 2 > o.w - 8 || y0 - o.fs < 1 || y0 + (lines.length - 1) * lh > o.h - 3) lines = [];
+      lines.forEach(function (ln, k) { lab.push('<text class="' + ln[0] + (dim ? ' dimmed' : '') + '" x="' + x + '" y="' + (y0 + k * lh).toFixed(1) + '">' + ln[1] + '</text>'); });
+    }
+  });
+  var linkInfo = [];
+  if (sel != null) {
+    var a = L.regions[sel];
+    if (o.links) L.links(sel).forEach(function (lk) {
+      var b = L.regions[lk.to], dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy), ux = dx / d, uy = dy / d;
+      var x1 = a.x + ux * a.r, y1 = a.y + uy * a.r, x2 = b.x - ux * b.r * 0.15, y2 = b.y - uy * b.r * 0.15;
+      var mx = (x1 + x2) / 2 - uy * d * 0.14, my = (y1 + y2) / 2 + ux * d * 0.14;
+      var wd = (o.print ? 0.8 : 1.5) + (o.print ? 5 : 8) * Math.sqrt(lk.w / L.wmax) * Math.min(1.6, Math.max(0.6, o.w / 960 * o.zoom));
+      out.push('<path class="band" d="M' + X(x1) + ' ' + Y(y1) + 'Q' + X(mx) + ' ' + Y(my) + ' ' + X(x2) + ' ' + Y(y2) + '" stroke-width="' + wd.toFixed(1) + '"/>');
+      linkInfo.push({ to: lk.to, w: lk.w, name: b.name, n: b.n });
+    });
+    var g1 = sw + 2.5, g2 = sw * 2 + 5;
+    out.push('<circle class="ring" cx="' + X(a.x) + '" cy="' + Y(a.y) + '" r="' + (R(a.r) + g1) + '"/><circle class="ring" cx="' + X(a.x) + '" cy="' + Y(a.y) + '" r="' + (R(a.r) + g2) + '"/>');
+  }
+  out.push(lab.join(''));
+  out.push('</g>');
+  svg.setAttribute('viewBox', '0 0 ' + o.w + ' ' + o.h);
+  svg.setAttribute('class', ((svg.getAttribute('class') || '') + ' ' + uid).trim());
+  if (!svg.getAttribute('role')) { svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Map of transfers.eg: nested bubbles, one per community of addresses'); }
+  svg.innerHTML = out.join('');
+  return { scale: s, regions: L.regions, visible: vis, links: linkInfo, total: L.total, fmt: fmt, r: function (count) { return Math.sqrt(count) * s; } };
+}
+egMap.cache = {};
+/* identifiers inside a region name are set in the monospace face */
+egMap.mono = function (s) { return s.replace(/0x[0-9a-f]+…[0-9a-f]+/g, function (m) { return '<tspan dx="0.2em" style="font-family:var(--font-mono);font-weight:500;font-size:0.94em">' + m + '</tspan>'; }); };
+egMap.layout = function (seed, aspect) {
+  var key = seed + ':' + aspect.toFixed(2); if (egMap.cache[key]) return egMap.cache[key];
+  var t = seed >>> 0;
+  function rnd() { t += 0x6D2B79F5; var v = t; v = Math.imul(v ^ (v >>> 15), v | 1); v ^= v + Math.imul(v ^ (v >>> 7), v | 61); return ((v ^ (v >>> 14)) >>> 0) / 4294967296; }
+  function between(a, b) { return a + (b - a) * rnd(); }
+  /* the 16 largest communities; names come from a label column where one exists, else from the most
+     central member, else the fallback "Region N" (choices.md B3) */
+  var big = [[18204551, 'Exchange deposits', 'A'], [11930204, 'Stablecoin transfers', 'B'], [9410877, 'Token swaps', 'C'], [8112460, 'around 0x21a3…5549', 'D'],
+    [7305118, 'Bridges', 'E'], [6120933, 'Region 5', 'F'], [5477206, 'Mining payouts', 'G'], [4902311, 'around 0x7a25…488d', 'H'], [4390072, 'Region 8', 'I'],
+    [3871540, 'Collectibles', 'J'], [3204665, 'Region 10', 'K'], [2766019, 'Region 11', 'L'], [2381407, null], [2040112, null], [1733950, null], [1502288, null]];
+  var mid = [1427908, 1407502, 1369904, 1317013, 1275823, 1224900, 1180258, 1154496, 1133798, 1119399, 1100967, 1046293, 1009974, 990660, 960371, 946045, 908274, 880897,
+    859366, 838239, 823805, 812136, 801692, 767224, 749330, 729762, 703015, 693154, 668286, 655511, 639152, 620620, 601249, 583378, 568817, 545852, 527545, 514774, 504832,
+    490597, 485452, 475342, 456862, 446210, 440289, 416368, 407027, 407164, 390500, 374361, 362391, 352168, 335790, 321989, 316953, 301067, 300057, 289590];
+  /* the other 31,886 communities, drawn as nine hatched groups */
+  var agg = [[12325248, 5104], [10784591, 4464], [10014263, 4145], [9243935, 3826], [8473607, 3507], [7703279, 3188], [6932951, 2870], [6162623, 2551], [5392299, 2231]];
+  var regions = [];
+  big.forEach(function (b, i) { regions.push({ id: i, n: b[0], name: b[1], key: b[2] || null, kind: 'community', subkind: i === 0 || i === 5 ? 'subdivision' : 'community' }); });
+  mid.forEach(function (n, i) { regions.push({ id: 16 + i, n: n, name: null, key: null, kind: 'community', subkind: 'community' }); });
+  agg.forEach(function (a, i) { regions.push({ id: 74 + i, n: a[0], groups: a[1], name: null, key: null, kind: 'aggregate', subkind: null }); });
+  var total = 0; regions.forEach(function (g) { g.r = Math.sqrt(g.n); total += g.n; });
+  /* pack: largest first, each at the free position closest to the centre (elliptical, to fill the frame) */
+  function tier(g) { return g.id < 16 ? 0 : g.kind === 'aggregate' ? 1 : 2; }
+  var order = regions.slice().sort(function (a, b) { return tier(a) - tier(b) || b.r - a.r; }), placed = [], gap = 190;
+  order.forEach(function (g, i) {
+    if (!i) { g.x = 0; g.y = 0; placed.push(g); return; }
+    var a0 = rnd() * 6.283;
+    for (var d = 0; ; d += 110) {
+      var steps = Math.max(8, Math.round(d / 160)), found = false;
+      for (var k = 0; k < steps && !found; k++) {
+        var a = a0 + k * 6.283 / steps, x = Math.cos(a) * d * aspect * 0.92, y = Math.sin(a) * d, ok = true;
+        for (var j = 0; j < placed.length; j++) { var q = placed[j], dx = q.x - x, dy = q.y - y, m = q.r + g.r + gap; if (dx * dx + dy * dy < m * m) { ok = false; break; } }
+        if (ok) { g.x = x; g.y = y; found = true; }
+      }
+      if (found) break;
+    }
+    placed.push(g);
+  });
+  /* colours d1…d9, chosen so that neighbours differ; d10 (neutral) is kept for the hatched groups */
+  var use = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  order.forEach(function (g) {
+    if (g.kind === 'aggregate') { g.c = 10; return; }
+    var near = {}; order.forEach(function (q) { if (q.c && q !== g) { var dx = q.x - g.x, dy = q.y - g.y, m = q.r + g.r + 900; if (dx * dx + dy * dy < m * m) near[q.c] = (near[q.c] || 0) + 1; } });
+    var best = 1, bs = 1e9; for (var c = 1; c <= 9; c++) { var sc = (near[c] || 0) * 100 + use[c] + rnd() * 0.5; if (sc < bs) { bs = sc; best = c; } }
+    g.c = best; use[best]++;
+  });
+  /* nested bubbles: sub-regions and, inside the larger ones, a third level */
+  function fill(parent, maxN, f0, minR, pad) {
+    var subs = [], r = parent.r * between(f0 * 0.8, f0), ox = parent.x + between(-0.2, 0.2) * parent.r, oy = parent.y + between(-0.2, 0.2) * parent.r;
+    for (var n = 0; n < maxN && r > minR; n++) {
+      var a0 = rnd() * 6.283, done = false;
+      for (var d = 0; d < parent.r * 1.3 && !done; d += Math.max(minR * 0.5, r * 0.3)) {
+        var steps = Math.max(6, Math.round(d / (r * 0.5)));
+        for (var k = 0; k < steps && !done; k++) {
+          var a = a0 + k * 6.283 / steps, x = ox + Math.cos(a) * d, y = oy + Math.sin(a) * d, ddx = x - parent.x, ddy = y - parent.y;
+          if (Math.sqrt(ddx * ddx + ddy * ddy) + r > parent.r - pad) continue;
+          var ok = true; for (var j = 0; j < subs.length; j++) { var q = subs[j], dx = q.x - x, dy = q.y - y, m = q.r + r + pad * 0.6; if (dx * dx + dy * dy < m * m) { ok = false; break; } }
+          if (ok) { subs.push({ x: x, y: y, r: r, subs: [] }); done = true; }
+        }
+      }
+      r *= between(0.78, 0.97);
+    }
+    return subs;
+  }
+  regions.forEach(function (g) {
+    g.subs = [];
+    if (g.kind === 'aggregate') return;
+    g.subs = fill(g, g.r > 2000 ? 46 : g.r > 1100 ? 26 : 12, g.r > 2000 ? 0.44 : 0.5, g.r > 2000 ? 130 : 90, 110);
+    g.subs.forEach(function (b) { if (b.r > 520) b.subs = fill(b, 9, 0.46, 70, 60); });
+  });
+  var x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  regions.forEach(function (g) { x0 = Math.min(x0, g.x - g.r); x1 = Math.max(x1, g.x + g.r); y0 = Math.min(y0, g.y - g.r); y1 = Math.max(y1, g.y + g.r); });
+  /* transfers leaving a region, to its most connected neighbours (invented, fixed per region) */
+  var wmax = 31204118;
+  function links(i) {
+    var a = regions[i], ws = [31204118, 18877402, 12410936, 8930211, 5102774, 3318050, 1904662], pick = [0, 1, 4, 3, 6, 9, 2, 7, 10, 5];
+    return pick.filter(function (id) { return id !== i; }).slice(0, 7).map(function (id, k) { return { to: id, w: ws[k] }; });
+  }
+  return (egMap.cache[key] = { regions: regions, x0: x0, x1: x1, y0: y0, y1: y1, total: total, links: links, wmax: wmax });
+};
+/*EGMAP-END*/</script>
+<script>
+(function () {
+  var opts = (window.EGStyle && EGStyle.opts) || {};
+  var n = 0;
+  /* a small highlighter for the two languages the site shows */
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function hl(pre) {
+    var t = esc(pre.textContent);
+    if (pre.dataset.lang === 'py') t = t.replace(/(#[^\n]*)|("(?:[^"\\]|\\.)*")|\b(import|as|from|for|in|def|return|True|False|None)\b|\b(\d[\d_]*(?:\.\d+)?)\b/g, function (m, c, s, k, d) {
+      return '<span class="tok-' + (c ? 'c' : s ? 's' : k ? 'k' : 'n') + '">' + m + '</span>'; });
+    else t = t.replace(/^\$ /gm, '<span class="p">$ </span>').replace(/(#[^\n]*)/g, '<span class="tok-c">$1</span>');
+    pre.innerHTML = '<code>' + t + '</code>';
+  }
+  function use(host) {
+    var tpl = document.getElementById('tpl-' + host.dataset.use); if (!tpl) return;
+    host.appendChild(tpl.content.cloneNode(true));
+    host.querySelectorAll('[data-use]').forEach(function (h) { if (!h.firstChild) use(h); });
+  }
+  document.querySelectorAll('[data-use]').forEach(function (h) { if (!h.firstChild) use(h); });
+  /* current items in the shared navigation and tree */
+  document.querySelectorAll('[data-current]').forEach(function (h) {
+    var cur = h.dataset.current;
+    h.querySelectorAll('[data-nav="' + cur + '"], [data-cur="' + cur + '"]').forEach(function (a) { a.setAttribute('aria-current', 'page'); });
+    if (h.dataset.use === 'tree' && cur !== 'api') { var api = h.querySelector('[data-api]'); if (api) api.remove(); }
+  });
+  document.querySelectorAll('pre[data-lang]').forEach(hl);
+  document.querySelectorAll('svg.bud').forEach(function (s) { n++; s.innerHTML = s.innerHTML.replace(/UIDover/g, 'over' + n); });
+  document.querySelectorAll('[data-copy]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var src = b.closest('.code, .install'), el = src && src.querySelector('pre, code');
+      var text = el ? el.textContent.replace(/^\$ /gm, '') : '';
+      try { if (navigator.clipboard) navigator.clipboard.writeText(text).catch(function () {}); } catch (e) {}
+      b.textContent = '✓ Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1200);
+    });
+  });
+
+  /* #only=<id>: show one specimen alone, at the theme given in the hash */
+  var only = opts.only && document.querySelector('[data-only="' + opts.only + '"]');
+  if (only) {
+    document.body.classList.add('only');
+    var wrap = document.createElement('div'); wrap.className = 'only-wrap' + (only.matches('.card-og, .slide') ? ' exact' : '');
+    if (opts.theme && only.hasAttribute('data-theme')) only.setAttribute('data-theme', opts.theme);
+    wrap.appendChild(only); document.body.insertBefore(wrap, document.querySelector('main'));
+  }
+  /* specimens larger than the column are reduced to fit (never in #only, where they are exact) */
+  document.querySelectorAll('.fit').forEach(function (f) {
+    var w = +f.dataset.w, h = +f.dataset.h, k = Math.min(1, f.parentNode.clientWidth / w);
+    f.style.width = w + 'px'; f.style.transform = 'scale(' + k + ')'; f.parentNode.style.height = Math.round(h * k) + 'px';
+  });
+  /* maps are drawn for the width they are shown at, so labels keep their size */
+  document.querySelectorAll('svg[data-map]').forEach(function (svg) {
+    if (!svg.closest('main, .only-wrap') || !svg.getClientRects().length) return;   /* templates and hidden specimens are not drawn */
+    var o = JSON.parse(svg.dataset.map);
+    if (!o.fixed) {
+      o.w = Math.round(svg.parentNode.clientWidth);
+      if (o.w < 420 && o.narrow) { Object.assign(o, o.narrow); }   /* on a phone the hero shows the middle of the same map, not a miniature */
+      o.h = Math.round(o.w * o.ratio); if (o.w < 420) { o.fs = Math.min(o.fs || 12, 11); o.pad = 8; }
+    }
+    egMap(svg, o);
+  });
+})();
+</script>
+</body>
+</html>
