@@ -8,6 +8,7 @@ labels: type:feature, area:algorithms, P1, risk:low, size:S, lab-evidence
 - [ ] Global count, per-node counts, local clustering coefficient, transitivity
 - [ ] SIMD intersection for long lists; galloping for skewed pairs
 - [ ] Memory: the forward adjacency is a derived artifact — declare it to the planner; out-of-core behaviour documented (intersection is random-access heavy)
+- [ ] A bounded-memory path: MGT-style chunked listing (Hu, Tao, Chung, SIGMOD 2013; exact, Θ(m/M) passes over the oriented graph), with PDTL's parallel split; per-node counts in O(n). Approximate wedge sampling only as an explicitly labelled variant (`docs/research/memory-bounded-algorithms.md`)
 
 **Acceptance**
 - Counts equal the known values: lj 177,820,130; orkut 627,584,181; Friendster 4,173,724,142 (verify these against published figures, the lab did not look them up)

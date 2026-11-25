@@ -18,4 +18,4 @@ labels: type:experiment, area:community, P1, risk:medium, size:M, lab-evidence
 
 **Done when.** A table det/async by thread count for lj, orkut and Friendster on an idle machine, with the hash check, and a recommendation.
 
-**Pointers.** `lab/b2-leiden`, FINDINGS § B2 determinism table; literature: Mt-KaHyPar synchronized moves (arXiv 2112.12704), LD-Leiden (arXiv 2502.18497).
+**Pointers.** `lab/b2-leiden`, FINDINGS § B2 determinism table; literature: Mt-KaHyPar synchronized moves (arXiv 2112.12704), LD-Leiden (note 2026-11-25: a dynamic method, not deterministic — the survey in `docs/research/memory-bounded-algorithms.md` finds it misplaced here; Mt-KaHyPar remains the reference) (arXiv 2502.18497).

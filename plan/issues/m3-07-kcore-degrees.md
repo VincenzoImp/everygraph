@@ -8,6 +8,7 @@ labels: type:feature, area:algorithms, P1, risk:low, size:S, lab-evidence
 - [ ] k-core with PKC-style peeling and task-local stacks (the lab's first level-synchronous version scaled *negatively*: 1.39 s at 8 threads, 1.93 s at 32; PKC: 0.28 s at 8)
 - [ ] Core-number column, shell sizes, k-core subgraph as a view
 - [ ] Note: k-core does not scale past 8 threads in the prototype (0.28 → 0.30 → 0.37 s at 8/16/32); investigate or cap threads
+- [ ] A bounded-memory path for core numbers: SemiCore* (Wen et al., ICDE 2016; exact, unique fixpoint, O(n) memory, re-reads only nodes whose estimate may change) over the edge-map's semi-external source; identical result to the in-RAM peel (`docs/research/memory-bounded-algorithms.md`). Without it the planner refuses k-core when the graph does not fit, which leaves promise 2 uncovered
 
 **Acceptance**
 - Core numbers equal NetworkX on oracle graphs; max core 360 (lj), 253 (orkut), 304 (Friendster)

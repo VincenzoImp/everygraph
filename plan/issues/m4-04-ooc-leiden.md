@@ -11,6 +11,7 @@ labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
 - [ ] Planner integration: per-level regime choice, preflight estimate of state + level-1 size (22–44% of the input entries in the lab)
 - [ ] Visiting order: block-permuted order reads the edge array in runs of 64 consecutive nodes; raise the block to ~1k nodes for streamed levels (no quality loss measured up to 1,024) and schedule blocks to follow disk order within a pass
 - [ ] Included in the no-OOM matrix ({{#m3-10-no-oom-ci}})
+- [ ] The visiting order out of core is a fixed function of the graph and the seed, never of the budget (otherwise "same result for any budget" breaks). Candidates from the survey (`docs/research/memory-bounded-algorithms.md`), to be tested in {{#m1-02-ooc-aggregation}}: decorrelation by a seeded relabelling at ingest with storage-order visits; a windowed block permutation of fixed width; the active set as a bitmap swept in disk order with block skipping; level-1 never materialized (stream level 0 through community[], Graphyti); bumped two-phase hashing in aggregation (TeraPart). If one changes ADR 0015's order, the ADR is amended
 
 **Acceptance**
 - Friendster under `MemoryMax=16G`: completes, Q ≥ 0.60, 0 disconnected, ≤ 2.5× the in-RAM time

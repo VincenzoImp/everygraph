@@ -8,6 +8,7 @@ labels: type:feature, area:community, P2, risk:low, size:S
 **Scope**
 - [ ] Deterministic synchronous label propagation with tie-breaking by label hash, on the edge-map framework, semi-external capable
 - [ ] Clearly labelled as a preview in output provenance; not a substitute for Leiden
+- [ ] Evaluate CluStRE Light/Light+ (Chhabra, Peretz, Schulz, SEA 2025; MIT; Q 0.5871 on Friendster in O(n) memory, deterministic for a fixed stream order) as the labelled quick preview and low-budget fallback, against plain synchronous LPA; never substituted silently for Leiden (`docs/research/memory-bounded-algorithms.md`)
 
 **Acceptance**
 - Friendster preview partition in < 30 s under a 4 GiB budget

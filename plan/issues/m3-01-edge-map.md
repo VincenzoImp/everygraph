@@ -16,6 +16,7 @@ labels: type:feature, area:engine, P0, risk:high, size:XL, lab-evidence
 - [ ] Zero-overhead check: the framework must not cost more than 5% vs the hand-written lab loops
 - [ ] A way for tests to run the same kernel at a chosen number of threads inside one process (a scoped pool behind `everygraph_core::par`), so the oracle's cross-configuration checks ({{#m0-05-oracle}}) and the determinism job ({{#m3-11-determinism-ci}}) need no environment variables or subprocesses; rayon stays a dependency of the core only
 - [ ] Reductions are performed over fixed node-range blocks owned by the framework, never over the scan chunks, so a kernel's floating-point result does not depend on chunk size, thread count or storage (finding of the oracle, PR #131); the oracle's cross-configuration check runs each kernel at chunk sizes 64 and 65,536
+- [ ] The random-access path sorts the frontier and coalesces compressed byte ranges through the Elias–Fano offsets (FlashGraph, Graphene), and scan-shaped kernels skip blocks with no active nodes (GridGraph) (`docs/research/memory-bounded-algorithms.md`)
 
 **Acceptance**
 - PageRank, WCC and BFS written once run over all four sources with byte-identical results
