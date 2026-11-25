@@ -10,7 +10,8 @@
 //!   conversions between them and `usize` (DESIGN D3).
 //! - [`ByteSource`]: positional, re-readable access to bytes, read in bounded chunks.
 //!   [`MemorySource`] is the in-memory backend; files, mmap and HTTP ranges live in
-//!   `everygraph-io`.
+//!   `everygraph-io`. [`Segments`] and [`SegmentReader`] cut a source into the bounded,
+//!   aligned chunks that readers and kernels loop over.
 //! - [`par`]: the only place where work is split across threads. It runs on rayon with
 //!   the `parallel` feature and on the calling thread without it, with equal results.
 //! - Memory accounting: [`Budget`] (the accountant), [`Memory`] (the handle kernels
@@ -62,8 +63,9 @@ mod memory;
 pub mod par;
 mod scratch;
 mod seg_vec;
+mod segment;
 
-pub use byte_source::{ByteSource, MemorySource, ReadError};
+pub use byte_source::{AccessHint, ByteSource, MemorySource, ReadError};
 pub use ids::{EdgeOffset, NodeId, NodeIdOverflow, OffsetOverflow};
 pub use memory::{
     Budget, InsufficientBudget, Memory, MemoryAccountant, MemoryError, MemoryKind, MemoryProbe,
@@ -71,6 +73,7 @@ pub use memory::{
 };
 pub use scratch::ScratchPool;
 pub use seg_vec::{MAX_ALLOCATION_BYTES, SegVec};
+pub use segment::{AlignedBuf, DEFAULT_SEGMENT_SIZE, SEGMENT_ALIGN, SegmentReader, Segments};
 
 // Every conversion in this crate relies on these two facts: a `u32` always fits in a
 // `usize`, and a `usize` always fits in a `u64`. A target where either is false must

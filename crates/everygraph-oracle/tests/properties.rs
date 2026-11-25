@@ -10,6 +10,7 @@ use everygraph_oracle::corpus::Entry;
 use everygraph_oracle::corpus::kernels_for;
 use everygraph_oracle::exchange::{read_entry, write_entry};
 use everygraph_oracle::generators::generate;
+use everygraph_oracle::graph::{Duplicates, Graph, SelfLoops};
 use everygraph_oracle::invariants;
 use everygraph_oracle::plugin::{Options, Prepared, RustReference, run};
 use everygraph_oracle::projection::Projection;
@@ -76,6 +77,31 @@ proptest! {
         let report = run(&Toy::default(), &[Prepared::new(e)], Options::default());
         let shown: Vec<String> = report.findings.iter().map(ToString::to_string).collect();
         prop_assert!(report.findings.is_empty(), "{:#?}", shown);
+    }
+
+    /// Metamorphic (S2–S4): core numbers, clustering and transitivity are the same with
+    /// loops kept and dropped; and `duplicates = sum` analyses as `events` for every
+    /// kernel but a path cost and the report (§ 2.4).
+    #[test]
+    fn loops_and_summing_change_only_what_the_spec_says(g in arb_graph(50)) {
+        let answers = |g: &Graph, ks: &[Kernel]| -> Vec<Option<Output>> {
+            let p = Projection::new(g);
+            ks.iter().map(|k| reference::compute(g, &p, k)).collect()
+        };
+        let cohesion = [Kernel::CoreNumber, Kernel::Clustering, Kernel::Transitivity];
+        let (mut kept, mut dropped) = (g.clone(), g.clone());
+        kept.semantics.self_loops = SelfLoops::Keep;
+        dropped.semantics.self_loops = SelfLoops::Drop;
+        prop_assert_eq!(answers(&kept, &cohesion), answers(&dropped, &cohesion));
+        let (mut events, mut summed) = (g.clone(), g);
+        events.semantics.duplicates = Duplicates::Events;
+        summed.semantics.duplicates = Duplicates::Sum;
+        let p = Projection::new(&events);
+        let pairs: Vec<Kernel> = kernels_for(&events, &p)
+            .into_iter()
+            .filter(|k| !matches!(k, Kernel::Sssp { .. } | Kernel::IngestReport))
+            .collect();
+        prop_assert_eq!(answers(&events, &pairs), answers(&summed, &pairs));
     }
 
     /// Metamorphic: relabelling the nodes does not change label-free answers.

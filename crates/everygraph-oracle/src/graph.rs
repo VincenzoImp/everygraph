@@ -12,18 +12,34 @@ pub enum SelfLoops {
     /// The default: dropped from the analytic graph and counted in the ingest report.
     #[default]
     Drop,
-    /// Kept. Only the kernels whose meaning with loops is settled run on such graphs
-    /// (see `oracle/SEMANTICS.md`).
+    /// Kept: a pair `{v, v}` of the analytic graph (`docs/spec/graph-semantics.md` § 5).
     Keep,
 }
 
-/// The semantics a graph is analysed under. Parallel edges are always kept as events and
-/// analysed once per pair, with the multiplicity and the aggregated weight available to
-/// weighted kernels (A1); there is no option for them yet.
+/// What happens to a row whose pair was already seen (`docs/spec/graph-semantics.md`
+/// § 2.3, § 2.4). Loops are treated first: a dropped loop row is never a duplicate.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Duplicates {
+    /// The default (A1): every row is an event; the pair has their multiplicity and
+    /// aggregates.
+    #[default]
+    Events,
+    /// Repeated rows are dropped and counted: the pair keeps its first row in input order.
+    Collapse,
+    /// Repeated rows are merged into one edge: the analytic graph equals `Events`', except
+    /// that a path cost is the stored sum (the events are gone, § 4.2).
+    Sum,
+}
+
+/// The semantics a graph is analysed under.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Semantics {
     /// Self-loop handling.
     pub self_loops: SelfLoops,
+    /// Repeated-pair handling; absent in graph directories written before it existed.
+    #[serde(default)]
+    pub duplicates: Duplicates,
 }
 
 /// A graph as a list of events (rows of an edge list), with dense node ids `0..n`.

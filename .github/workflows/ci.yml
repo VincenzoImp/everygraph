@@ -197,21 +197,21 @@ jobs:
   # browser or Node run with SharedArrayBuffer. Add it here as a job when #108 lands.
 
   msrv:
-    name: Minimum supported Rust (1.85)
+    name: Minimum supported Rust (1.87)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust 1.85
-        run: rustup toolchain install 1.85 --profile minimal
+      - name: Install Rust 1.87
+        run: rustup toolchain install 1.87 --profile minimal
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: msrv
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: cargo +1.85 test
-        run: cargo +1.85 test --workspace --locked
+      - name: cargo +1.87 test
+        run: cargo +1.87 test --workspace --locked
 
   miri:
     name: Miri (no default features, i686, rayon under Tree Borrows)

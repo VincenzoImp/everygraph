@@ -22,7 +22,7 @@
 use proptest::prelude::*;
 
 use crate::generators::{Decorations, Family, GraphSpec, Weights, generate};
-use crate::graph::{Graph, SelfLoops, Semantics};
+use crate::graph::{Duplicates, Graph, SelfLoops, Semantics};
 
 /// A family with at most about `max_n` nodes.
 pub fn arb_family(max_n: u32) -> impl Strategy<Value = Family> {
@@ -106,10 +106,21 @@ pub fn arb_decorations(directed: bool) -> impl Strategy<Value = Decorations> {
         )
 }
 
-/// A spec, directed or not, with the default semantics or kept self-loops.
+/// A spec, directed or not, with self-loops dropped or (15%) kept, and each `duplicates`
+/// mode.
 pub fn arb_spec(max_n: u32) -> impl Strategy<Value = GraphSpec> {
-    (any::<bool>(), any::<u64>(), prop::bool::weighted(0.15)).prop_flat_map(
-        move |(directed, seed, keep)| {
+    let modes = prop::sample::select(vec![
+        Duplicates::Events,
+        Duplicates::Collapse,
+        Duplicates::Sum,
+    ]);
+    (
+        any::<bool>(),
+        any::<u64>(),
+        prop::bool::weighted(0.15),
+        modes,
+    )
+        .prop_flat_map(move |(directed, seed, keep, duplicates)| {
             (arb_family(max_n), arb_decorations(directed)).prop_map(move |(family, decorations)| {
                 GraphSpec {
                     name: format!("prop-s{seed}"),
@@ -122,12 +133,12 @@ pub fn arb_spec(max_n: u32) -> impl Strategy<Value = GraphSpec> {
                         } else {
                             SelfLoops::Drop
                         },
+                        duplicates,
                     },
                     seed,
                 }
             })
-        },
-    )
+        })
 }
 
 /// A generated graph.
@@ -135,12 +146,11 @@ pub fn arb_graph(max_n: u32) -> impl Strategy<Value = Graph> {
     arb_spec(max_n).prop_map(|s| generate(&s))
 }
 
-/// An undirected generated graph with the default semantics.
+/// An undirected generated graph.
 pub fn arb_undirected_graph(max_n: u32) -> impl Strategy<Value = Graph> {
     arb_spec(max_n).prop_map(|mut s| {
         s.directed = false;
         s.decorations.reciprocal_permille = 0;
-        s.semantics = Semantics::default();
         generate(&s)
     })
 }
