@@ -24,8 +24,10 @@
 # - framework / lab ≤ 1.05 for each kernel on `raw`, at 1 and 16 threads;
 # - `pr32` at 16 threads: compressed / raw ≤ 1.0 (lab #118: 0.73).
 #
-# Run (about 15 minutes, an estimate from exploratory runs; the orkut store is encoded
-# once under {work}/stores, about 10 s more):
+# Run (about 15 minutes, an estimate: the exploratory run with one repetition took
+# 6.6 minutes of command time on a loaded machine, and an official run has four processes
+# per case instead of two; the orkut store is encoded once under {work}/stores, about
+# 2 s more):
 #   everygraph-bench run edge-map --official --data /home/tux/graphlab/data
 
 schema = 1
