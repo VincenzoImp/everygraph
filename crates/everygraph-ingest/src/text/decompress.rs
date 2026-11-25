@@ -35,8 +35,8 @@ pub(super) fn detect(source: &impl ByteSource) -> Result<Compression, ReadError>
     })
 }
 
-/// The decompressed bytes of `source`. With `parallel`, zstd frames are decoded a group
-/// of up to `group` compressed bytes at a time, in parallel.
+/// The decompressed bytes of `source`. With `parallel`, zstd frames are decoded in
+/// parallel, a group of up to `group` compressed bytes at a time.
 pub(super) fn reader<'a, S: ByteSource + Sync>(
     source: &'a S,
     compression: Compression,
@@ -54,6 +54,7 @@ pub(super) fn reader<'a, S: ByteSource + Sync>(
             ready: Vec::new(),
             at: 0,
             stream: None,
+            stream_next: false,
         }),
     })
 }
@@ -149,6 +150,8 @@ struct ZstdReader<'a, S: ByteSource> {
     ready: Vec<u8>,
     at: usize,
     stream: Option<StreamingDecoder<SourceReader<'a, S>, ruzstd::decoding::FrameDecoder>>,
+    /// The frame at `next` expanded past its cap in a group: stream it.
+    stream_next: bool,
 }
 
 impl<S: ByteSource + Sync> Read for ZstdReader<'_, S> {
@@ -189,9 +192,14 @@ enum Frame {
 
 impl<S: ByteSource + Sync> ZstdReader<'_, S> {
     /// Decodes the next group of frames into `ready`, or starts streaming the next
-    /// frame when it alone is larger than a group.
+    /// frame when it alone is larger than a group, or expands more than
+    /// [`expansion_cap`] allows: the memory a group takes is bounded by its compressed
+    /// size, whatever the frames contain.
     fn refill(&mut self) -> Result<(), FrameError> {
         let len = self.source.len();
+        if std::mem::take(&mut self.stream_next) {
+            return self.start_stream(self.next);
+        }
         let mut frames = Vec::new();
         let mut at = self.next;
         let mut budget = self.group;
@@ -211,24 +219,40 @@ impl<S: ByteSource + Sync> ZstdReader<'_, S> {
                 self.next = at;
                 return Ok(());
             }
-            let Frame::Data(end) = frame_end(self.source, at, u64::MAX)? else {
-                unreachable!("a data frame is not skippable and fits in u64::MAX");
-            };
-            let decoder = StreamingDecoder::new(SourceReader::new(self.source, at..end))
-                .map_err(|e| FrameError::Damaged(e.to_string()))?;
-            self.stream = Some(decoder);
-            self.next = end;
-            return Ok(());
+            return self.start_stream(at);
         }
         let decoded = par::map_ranges(frames.len(), ONE, |range| {
             decode_frame(self.source, frames[range.start].clone())
         });
         self.ready.clear();
         self.at = 0;
-        for frame in decoded {
-            self.ready.extend_from_slice(&frame?);
-        }
         self.next = at;
+        for (frame, range) in decoded.into_iter().zip(&frames) {
+            if let Some(content) = frame? {
+                self.ready.extend_from_slice(&content);
+            } else {
+                // Streamed next, and the frames after it decoded again.
+                self.next = range.start;
+                self.stream_next = true;
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Streams the data frame at `at` (after any skippable frames), on one core.
+    fn start_stream(&mut self, mut at: u64) -> Result<(), FrameError> {
+        let end = loop {
+            match frame_end(self.source, at, u64::MAX)? {
+                Frame::Skippable(end) => at = end,
+                Frame::Data(end) => break end,
+                Frame::Larger => unreachable!("no frame is larger than u64::MAX"),
+            }
+        };
+        let decoder = StreamingDecoder::new(SourceReader::new(self.source, at..end))
+            .map_err(|e| FrameError::Damaged(e.to_string()))?;
+        self.stream = Some(decoder);
+        self.next = end;
         Ok(())
     }
 }
@@ -278,17 +302,32 @@ fn check_checksum(decoder: &ruzstd::decoding::FrameDecoder) -> Result<(), FrameE
     }
 }
 
-fn decode_frame(source: &impl ByteSource, range: Range<u64>) -> Result<Vec<u8>, FrameError> {
+/// Most bytes a frame of `compressed` bytes may decode to in a parallel group. Text
+/// compresses 3–10×; a frame that expands more is streamed instead.
+const fn expansion_cap(compressed: u64) -> u64 {
+    16 * compressed + (64 << 10)
+}
+
+/// The content of the frame at `range`, or `None` if it exceeds [`expansion_cap`].
+fn decode_frame(
+    source: &impl ByteSource,
+    range: Range<u64>,
+) -> Result<Option<Vec<u8>>, FrameError> {
+    let cap = expansion_cap(range.end - range.start);
     let mut compressed = Vec::new();
     read_into(source, range.start, range.end, &mut compressed)?;
     let mut decoder = StreamingDecoder::new(compressed.as_slice())
         .map_err(|e| FrameError::Damaged(e.to_string()))?;
     let mut out = Vec::new();
-    decoder
+    (&mut decoder)
+        .take(cap + 1)
         .read_to_end(&mut out)
         .map_err(|e| FrameError::Damaged(e.to_string()))?;
+    if widen(out.len()) > cap {
+        return Ok(None);
+    }
     check_checksum(&decoder.decoder)?;
-    Ok(out)
+    Ok(Some(out))
 }
 
 fn read_bytes<const N: usize>(source: &impl ByteSource, at: u64) -> Result<[u8; N], FrameError> {

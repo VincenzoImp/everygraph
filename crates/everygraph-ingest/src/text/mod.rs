@@ -19,10 +19,11 @@
 //!   parallel parsing (FINDINGS § B1). The command line warns and suggests
 //!   decompressing once (`docs/ux-contract.md` § 6.2).
 //! - **zstd** files with several frames (as `pzstd` writes them, or several files
-//!   concatenated) have their frames decoded in parallel, a group of up to 32 MiB of
-//!   compressed bytes at a time. A frame larger than that, as the `zstd` command writes
-//!   (one frame per file, also with `-T`), is decoded on one core, at about half the
-//!   speed of gzip with the pure-Rust decoder.
+//!   concatenated) have their frames decoded in parallel, a group of up to 16 MiB of
+//!   compressed bytes at a time; a frame may decode to at most 16 times its size there,
+//!   which bounds the memory of a group. A frame that is larger, or expands more, is
+//!   decoded on one core, as is the single frame the `zstd` command writes (also with
+//!   `-T`): about half the speed of gzip with the pure-Rust decoder.
 //!
 //! Decompressed text is parsed in 32 MiB windows, each cut at line ends into 4 MiB
 //! pieces that are parsed in parallel. The rows are the same as from the plain file;
@@ -517,7 +518,7 @@ const TUNING: Tuning = Tuning {
     window: 32 << 20,
     piece: 4 << 20,
     max_line: 1 << 20,
-    zstd_group: 32 << 20,
+    zstd_group: 16 << 20,
 };
 
 /// Bytes looked at by [`TextReader::open`].

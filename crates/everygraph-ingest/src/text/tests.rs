@@ -85,7 +85,29 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap()
 }
 
-/// zstd frames of `bytes` cut every `every` bytes, with a skippable frame among them.
+/// A zstd frame of raw blocks that declares its content size (`declared`), as libzstd
+/// writes it; ruzstd's encoder does not declare it.
+fn raw_frame(content: &[u8], declared: u64) -> Vec<u8> {
+    // Single segment, 8-byte content size, no checksum, no dictionary.
+    let mut out = [0x28, 0xB5, 0x2F, 0xFD, 0xE0].to_vec();
+    out.extend_from_slice(&declared.to_le_bytes());
+    let blocks: Vec<&[u8]> = if content.is_empty() {
+        vec![&[]]
+    } else {
+        content.chunks(1000).collect()
+    };
+    for (i, block) in blocks.iter().enumerate() {
+        let last = u32::from(i + 1 == blocks.len());
+        let header = (u32::try_from(block.len()).unwrap() << 3) | last;
+        out.extend_from_slice(&header.to_le_bytes()[..3]);
+        out.extend_from_slice(block);
+    }
+    out
+}
+
+/// zstd frames of `bytes` cut every `every` bytes, with a skippable frame among them;
+/// frames alternate between declared sizes (decoded in parallel) and undeclared ones
+/// (streamed).
 fn zstd_frames(bytes: &[u8], every: usize) -> Vec<u8> {
     let mut out = Vec::new();
     for (i, part) in bytes.chunks(every.max(1)).enumerate() {
@@ -94,7 +116,11 @@ fn zstd_frames(bytes: &[u8], every: usize) -> Vec<u8> {
             out.extend_from_slice(&3_u32.to_le_bytes());
             out.extend_from_slice(b"abc");
         }
-        out.extend_from_slice(&compress_to_vec(part, CompressionLevel::Fastest));
+        if i % 2 == 0 {
+            out.extend_from_slice(&raw_frame(part, widen(part.len())));
+        } else {
+            out.extend_from_slice(&compress_to_vec(part, CompressionLevel::Fastest));
+        }
     }
     if bytes.is_empty() {
         out = compress_to_vec(bytes, CompressionLevel::Fastest);
@@ -551,7 +577,7 @@ fn damaged_compressed_data_is_an_error() {
             "{result:?}"
         );
     }
-    let mut corrupt = zstd_frames(&text, usize::MAX);
+    let mut corrupt = compress_to_vec(text.as_slice(), CompressionLevel::Fastest);
     let n = corrupt.len();
     corrupt[n - 2] ^= 0xff; // in the checksum
     let result = TextReader::open(
@@ -563,6 +589,21 @@ fn damaged_compressed_data_is_an_error() {
         matches!(result, Err(TextError::Damaged { .. })),
         "{result:?}"
     );
+}
+
+#[test]
+fn a_zstd_frame_that_expands_past_its_cap_is_streamed() {
+    // Two RLE blocks, 4 bytes each, that decode to 100,000 line ends each.
+    let mut bomb = [0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x50].to_vec();
+    for last in [0, 1] {
+        bomb.extend_from_slice(&((100_000_u32 << 3) | (1 << 1) | last).to_le_bytes()[..3]);
+        bomb.push(b'\n');
+    }
+    let text = b"1 2\n3 4\n";
+    let bytes = [raw_frame(text, 8), bomb, raw_frame(text, 8)].concat();
+    let (_, rows, summary) = read(&bytes, &TextOptions::default());
+    assert_eq!(rows, [int(1, 2), int(3, 4), int(1, 2), int(3, 4)]);
+    assert_eq!(summary.lines, 200_004);
 }
 
 #[test]
