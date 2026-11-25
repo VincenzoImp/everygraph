@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everygraph style — Figures & export</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+/* page-specific layout only; colours, sizes and radii come from tokens.css.
+   Three groups of page-local variables exist because tokens.css has no value for them (reported):
+   1. print paper and ink (pure white and black) and print type sizes in points;
+   2. neutral stand-ins for other people's chrome (a blog, a mail client, a file manager);
+   3. the fixed colours of a file icon, which must not follow the theme of the page around it. */
+
+/* ---------- 1. the exported figure: white, black, data colours only ---------- */
+.xfig { --print-paper: #ffffff; --print-ink: #000000;          /* missing tokens */
+  --map-bg: var(--print-paper); --map-ink: var(--print-ink);
+  --fig-caption: 7pt; --fig-caption-lh: 9pt;                    /* missing tokens: print type scale */
+  --fig-label: 6.5pt; --fig-num: 6pt; --fig-gap: 2mm;
+  --fig-rule: rgba(0, 0, 0, 0.22); --fig-grid: rgba(0, 0, 0, 0.14);   /* greys are tints of the black ink */
+  background: var(--print-paper); color: var(--print-ink); font: var(--weight-regular) var(--fig-caption)/var(--fig-caption-lh) var(--font-sans);
+  display: block; }
+.xfig svg { display: block; }
+.xfig .xf-map { width: 100%; height: auto; }
+.xfig .xf-legend { display: flex; gap: calc(var(--fig-gap) * 2); align-items: flex-end; margin-top: var(--fig-gap); padding-top: var(--fig-gap); border-top: 0.5pt solid var(--print-ink); }
+.xfig .xf-legend > div { min-width: 0; }
+.xfig h5 { margin: 0 0 1mm; font: var(--weight-semibold) var(--fig-label)/1.3 var(--font-sans); }
+.xfig .xf-kinds, .xfig .xf-links { display: grid; grid-template-columns: auto 1fr; gap: 0.6mm 1.4mm; align-items: center; font-size: var(--fig-label); line-height: 1.25; }
+.xfig .xf-links { grid-template-columns: auto auto; justify-content: start; }
+.xfig .n { font-family: var(--font-mono); font-size: var(--fig-num); font-variant-numeric: tabular-nums; }
+.xfig .xf-key { display: grid; gap: 0.5mm 3mm; margin-top: var(--fig-gap); padding-top: var(--fig-gap); border-top: 0.5pt solid var(--fig-rule); font-size: var(--fig-label); line-height: 1.3; }
+.xfig .xf-key > div { display: grid; grid-template-columns: 2.6mm 1fr auto; gap: 1mm; align-items: baseline; white-space: nowrap; }
+.xfig .xf-key b { font-weight: var(--weight-semibold); }
+.xfig .xf-key .m { font-family: var(--font-mono); font-size: 0.94em; }
+.xfig .xf-cap { margin-top: var(--fig-gap); padding-top: var(--fig-gap); border-top: 0.5pt solid var(--fig-rule); }
+.xfig .xf-cap b { font-weight: var(--weight-semibold); }
+.xfig .xf-cap .prov { display: block; margin-top: 1mm; font-size: var(--fig-num); }
+.xfig .xf-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 7mm; }
+.xfig .xf-panel h5 { margin-bottom: 0.5mm; }
+.xfig .xf-panel .sub { font-size: var(--fig-label); margin-bottom: 1mm; }
+/* the 16:9 slide version: same parts, type sized for a room (no type below 12 pt on a 13.33 in slide = 16 px here) */
+.xfig.slide { --fig-caption: var(--text-lg); --fig-caption-lh: var(--lh-lg); --fig-label: var(--text-lg); --fig-num: var(--text-lg); --fig-gap: var(--space-3);
+  width: 1280px; height: 720px; padding: var(--space-6); display: grid; grid-template-columns: 1fr 330px; grid-template-rows: 1fr auto; gap: 0 var(--space-6); }
+.xfig.slide .xf-side { display: flex; flex-direction: column; gap: var(--space-4); justify-content: center; }
+.xfig.slide .xf-legend { flex-direction: column; align-items: flex-start; gap: var(--space-4); border: 0; margin: 0; padding: 0; }
+.xfig.slide .xf-key { margin: 0; padding-top: var(--space-3); border-top: 1px solid var(--print-ink); grid-template-columns: 1fr; gap: 0; line-height: 21px; }
+.xfig.slide .xf-key > div { grid-template-columns: 22px 1fr auto; gap: var(--space-2); }
+.xfig.slide h5 { margin-bottom: var(--space-2); }
+.xfig.slide .xf-kinds, .xfig.slide .xf-links { gap: 6px 10px; }
+.xfig.slide .xf-cap { grid-column: 1 / -1; border-top: 1px solid var(--print-ink); font-size: var(--text-lg); line-height: var(--lh-lg); }
+.xfig.slide .xf-cap .prov { display: inline; margin: 0; }
+.xgrey { filter: grayscale(1); }
+
+/* how figures sit on this guide page: a trim outline that is not part of the image */
+.xtrim { display: inline-block; vertical-align: top; outline: var(--border) dashed var(--line-strong); outline-offset: var(--space-2); margin: var(--space-2); }
+.xrow { display: flex; gap: var(--space-7); align-items: flex-start; flex-wrap: wrap; }
+.xrow > figure > figcaption, .xnote { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); margin-bottom: var(--space-3); }
+.xnote { margin: var(--space-3) 0 0; max-width: var(--content); }
+.xscroll { overflow-x: auto; padding: var(--space-2); }
+.spec + .spec, .spec + .xgrid2, .xgrid2 + .spec { margin-top: var(--space-5); }
+.xgrid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); } .xgrid2 > * { min-width: 0; }
+.xrules td:first-child { white-space: nowrap; color: var(--ink-2); }
+details.xdata { margin-top: var(--space-4); } details.xdata summary { cursor: pointer; color: var(--accent-ink); font-size: var(--text-sm); }
+details.xdata table { max-width: 560px; margin-top: var(--space-3); }
+.xph { border: var(--border) dashed var(--line-strong); border-radius: var(--radius-xs); padding: 0 var(--space-1); color: var(--ink-2); font-family: var(--font-mono); font-size: 0.92em; white-space: nowrap; }
+
+/* ---------- the shared-map page (ours, the viewer in its read-only form) ---------- */
+.xshare { background: var(--bg); color: var(--ink); border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; }
+.xshare .top { display: flex; align-items: center; gap: var(--space-4); min-height: var(--topbar); padding: var(--space-2) var(--space-4); border-bottom: var(--border) solid var(--line); }
+.xshare .top .ttl { display: grid; }
+.xshare .top h3 { display: flex; align-items: baseline; gap: var(--space-2); }
+.xshare .top .by { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.xshare .top .sp { flex: 1; }
+.xshare .counts { display: flex; gap: var(--space-5); font-size: var(--text-sm); color: var(--ink-2); }
+.xshare .counts b { display: block; font: var(--weight-medium) var(--text-md)/var(--lh-md) var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.xshare .body { display: grid; grid-template-columns: 1fr var(--panel); min-height: 0; }
+.xshare .canvas { position: relative; background: var(--map-bg); min-width: 0; }
+.xshare .canvas svg { display: block; width: 100%; height: auto; }
+.xshare .zoomer { position: absolute; right: var(--space-3); bottom: var(--space-3); display: grid; background: var(--surface); border: var(--border) solid var(--line-strong); border-radius: var(--radius-sm); }
+.xshare .zoomer button { width: var(--control-md); height: var(--control-md); border: 0; background: none; color: var(--ink); cursor: pointer; display: grid; place-items: center; }
+.xshare .zoomer button + button { border-top: var(--border) solid var(--line); }
+.xshare .level { position: absolute; left: var(--space-3); top: var(--space-3); background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); font-size: var(--text-sm); color: var(--ink-2); }
+.xshare .panel { border-left: var(--border) solid var(--line); background: var(--surface); padding: var(--space-4); display: grid; gap: var(--space-4); align-content: start; font-size: var(--text-sm); line-height: var(--lh-md); }
+.xshare .panel h3 { display: flex; justify-content: space-between; align-items: center; }
+.xshare .panel h4 { margin-bottom: var(--space-1); }
+.xshare .panel section + section { padding-top: var(--space-4); border-top: var(--border) solid var(--line); }
+.xshare dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); }
+.xshare dt { color: var(--muted); } .xshare dd { margin: 0; }
+.xshare ul { list-style: none; padding: 0; display: grid; gap: var(--space-1); }
+.xshare li { display: grid; grid-template-columns: 16px 1fr; gap: var(--space-2); }
+.xshare li svg { margin-top: 3px; }
+.xshare .yes { color: var(--ok); } .xshare .no { color: var(--err); }
+.xshare .strip { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); align-items: center; padding: var(--space-2) var(--space-4); border-top: var(--border) solid var(--line); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.xshare .strip .made { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); color: var(--ink-2); text-decoration: none; }
+.xmark { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink); } .xmark b { font-weight: var(--weight-semibold); }
+.xicon { width: 16px; height: 16px; flex: none; }
+
+/* ---------- 2. other people's chrome: neutral stand-ins, not Everygraph ---------- */
+.xthird { --third-bg: #ffffff; --third-fill: #f4f5f6; --third-ink: #1f2328; --third-muted: #667080; --third-line: #d5d9de; --third-link: #1a5fb4; --third-sel: #e3ecf8;
+  --third-serif: Georgia, "Times New Roman", serif; --third-sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--third-bg); color: var(--third-ink); font-family: var(--third-sans); border: var(--border) solid var(--third-line); border-radius: var(--radius-md); overflow: hidden; }
+.xours { position: relative; }
+.xours::after { content: attr(data-label); position: absolute; left: calc(100% + var(--space-3)); top: 0; bottom: 0; width: 132px; padding-left: var(--space-2); border-left: var(--border-strong) solid var(--accent);
+  font: var(--text-xs)/var(--lh-xs) var(--font-sans); color: var(--muted); display: flex; align-items: center; }
+/* blog */
+.xblog { padding: var(--space-7) 0 var(--space-7); }
+.xblog .col { width: 680px; margin: 0 auto; font: var(--text-lg)/var(--lh-xl) var(--third-serif); }
+.xblog .col > h3 { font: 700 var(--text-3xl)/var(--lh-3xl) var(--third-serif); margin-bottom: var(--space-2); letter-spacing: 0; }
+.xblog .col > .meta { font: var(--text-sm)/var(--lh-sm) var(--third-sans); color: var(--third-muted); margin-bottom: var(--space-5); }
+.xblog .col > p { margin-bottom: var(--space-4); } .xblog a { color: var(--third-link); }
+.xblog figure { margin: var(--space-5) 0; }
+.xblog figure > figcaption { font: italic var(--text-sm)/var(--lh-md) var(--third-serif); color: var(--third-muted); margin-top: var(--space-2); text-align: center; }
+.xembed { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--bg); color: var(--ink); font: var(--text-xs)/var(--lh-xs) var(--font-sans); }
+.xembed svg.m { display: block; width: 100%; height: auto; }
+.xembed .bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-top: var(--border) solid var(--line); }
+.xembed .bar .t { font-size: var(--text-sm); font-weight: var(--weight-semibold); } .xembed .bar .sp { flex: 1; }
+.xembed .cap { padding: var(--space-2) var(--space-3); color: var(--ink-2); border-top: var(--border) solid var(--line); }
+/* file manager */
+.xfiles { font-size: var(--text-sm); }
+.xfiles .bar { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-3); background: var(--third-fill); border-bottom: var(--border) solid var(--third-line); color: var(--third-muted); }
+.xfiles .bar .path { color: var(--third-ink); font-weight: var(--weight-medium); }
+.xfiles table { width: 100%; border-collapse: collapse; }
+.xfiles th { text-align: left; font-weight: var(--weight-regular); color: var(--third-muted); padding: var(--space-1) var(--space-3); border-bottom: var(--border) solid var(--third-line); font-size: var(--text-xs); }
+.xfiles td { padding: 5px var(--space-3); white-space: nowrap; } .xfiles td.sz { text-align: right; font-variant-numeric: tabular-nums; }
+.xfiles td.nm { display: flex; align-items: center; gap: var(--space-2); } .xfiles tr.sel td { background: var(--third-sel); }
+.xfiles .generic { color: var(--third-muted); }
+.xfiles .icons { display: flex; gap: var(--space-5); padding: var(--space-5) var(--space-4); border-top: var(--border) solid var(--third-line); }
+.xfiles .icons > div { width: 104px; text-align: center; display: grid; gap: var(--space-1); justify-items: center; font-size: var(--text-xs); }
+.xfiles .icons .selname { background: var(--third-sel); border-radius: var(--radius-xs); padding: 0 var(--space-1); }
+/* chat and mail */
+.xchat { padding: var(--space-4); display: grid; gap: var(--space-3); font-size: var(--text-md); }
+.xchat .msg { display: grid; grid-template-columns: 32px 1fr; gap: var(--space-3); }
+.xchat .av { width: 32px; height: 32px; border-radius: var(--radius-round); background: var(--third-fill); border: var(--border) solid var(--third-line); display: grid; place-items: center; font-size: var(--text-xs); color: var(--third-muted); }
+.xchat .who { font-weight: var(--weight-semibold); } .xchat .who span { font-weight: var(--weight-regular); color: var(--third-muted); font-size: var(--text-xs); margin-left: var(--space-2); }
+.xchat a { color: var(--third-link); }
+.xunfurl { margin-top: var(--space-2); border-left: 3px solid var(--third-line); padding-left: var(--space-3); max-width: 480px; display: grid; gap: 2px; }
+.xunfurl .site { font-size: var(--text-xs); color: var(--third-muted); } .xunfurl .t { font-weight: var(--weight-semibold); color: var(--third-link); }
+.xunfurl .d { font-size: var(--text-sm); line-height: var(--lh-sm); } .xunfurl .img { margin-top: var(--space-2); border-radius: var(--radius-md); overflow: hidden; border: var(--border) solid var(--third-line); }
+.xmail .hd { padding: var(--space-3) var(--space-4); border-bottom: var(--border) solid var(--third-line); display: grid; gap: 2px; font-size: var(--text-sm); }
+.xmail .hd b { font-size: var(--text-lg); line-height: var(--lh-lg); font-weight: var(--weight-semibold); } .xmail .hd span { color: var(--third-muted); }
+.xmail .bd { padding: var(--space-4); display: grid; gap: var(--space-3); font-size: var(--text-md); line-height: var(--lh-lg); }
+.xmail a { color: var(--third-link); }
+.xcard { border: var(--border) solid var(--third-line); border-radius: var(--radius-md); overflow: hidden; max-width: 520px; }
+.xcard .tx { padding: var(--space-3); display: grid; gap: 2px; border-top: var(--border) solid var(--third-line); }
+.xcard .t { font-weight: var(--weight-semibold); } .xcard .d { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--third-muted); } .xcard .site { font-size: var(--text-xs); color: var(--third-muted); }
+/* the share image (ours): 1200 × 630, drawn once and scaled into the previews */
+.xog { width: 1200px; height: 630px; position: relative; background: var(--map-bg); color: var(--map-ink); overflow: hidden; }
+.xog svg.m { position: absolute; left: 0; top: 0; }
+.xog .txt { position: absolute; left: 0; top: 0; bottom: 0; width: 470px; padding: var(--space-7); display: flex; flex-direction: column; gap: var(--space-4); background: var(--map-bg); border-right: var(--border) solid var(--line); }
+.xog .txt h3 { font-size: var(--text-4xl); line-height: var(--lh-4xl); letter-spacing: var(--tracking-tight); }
+.xog .txt dl { margin: 0; display: grid; gap: var(--space-2); font-size: var(--text-xl); line-height: var(--lh-xl); color: var(--ink-2); }
+.xog .txt dd { margin: 0; } .xog .txt dd b { font: var(--weight-medium) var(--text-2xl)/var(--lh-2xl) var(--font-mono); color: var(--ink); display: block; }
+.xog .txt .by { color: var(--ink-2); font-size: var(--text-lg); line-height: var(--lh-lg); }
+.xog .txt .sp { flex: 1; } .xog .txt .xmark { font-size: var(--text-2xl); gap: var(--space-3); }
+.xog .cap { position: absolute; left: 470px; right: 0; bottom: 0; height: 74px; padding: var(--space-3) var(--space-5); background: var(--map-bg); border-top: var(--border) solid var(--line); font-size: var(--text-lg); line-height: var(--lh-lg); color: var(--ink-2); }
+.xscale { overflow: hidden; } .xscale > * { transform-origin: 0 0; }
+
+/* ---------- 3. file icons: fixed colours, the same on any background ---------- */
+.xico { --ico-paper: #fdfbf7; --ico-ink: #22201c; --ico-dot: #3346c7; --ico-canvas: #131210; --ico-on-canvas: #ece8dd; --ico-dot-on-canvas: #93a0ff; display: inline-block; vertical-align: middle; flex: none; }
+.xsizes { display: flex; align-items: flex-end; gap: var(--space-5); flex-wrap: wrap; }
+.xsizes > div { display: grid; gap: var(--space-2); justify-items: center; font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--muted); }
+.xsizes + .xsizes { margin-top: var(--space-5); padding-top: var(--space-5); border-top: var(--border) solid var(--line); }
+.pair.xicons > [data-theme] { display: grid; gap: 0; }
+
+/* code block with a copy button */
+.xcode { position: relative; } .xcode .btn { position: absolute; top: var(--space-2); right: var(--space-2); }
+.xcode pre { white-space: pre; }
+/* JetBrains Mono joins -->, != and -> into ligatures unless told not to; code must show the characters typed (reported: belongs in base.css) */
+.page pre, .page code { font-variant-ligatures: none; }
+
+/* clean captures: #only=<id>&chrome=0 shows one composition alone */
+body.only-mode { background: var(--bg); } body.only-mode > main { display: none; } body.only-mode .mockup-chip { display: none; }
+#only-wrap { padding: 0; } #only-wrap.padded { padding: var(--space-5); } #only-wrap.tight { display: inline-block; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header><h1>Figures and things that leave the product</h1>
+    <p>A map or a chart that leaves Everygraph has to stand without the viewer around it: in a paper, on a slide, in a blog post, in somebody's inbox. This page settles how those look, and the two file types people will see on their disks.</p></header>
+
+  <!-- ================= 1. exported map figure ================= -->
+  <section class="section" id="map-figure"><h2>1. Exported map figure</h2>
+    <p>The print style from the specification: white paper, black ink and the data colours, nothing else. No chrome, no accent. The caption and the scale of counts are inside the image and cannot be switched off; a map without them is easy to misread. Dashed outlines on this page mark the trim of each image and are not part of it.</p>
+    <div class="spec"><span class="cap">The rules these figures follow</span>
+      <table class="t xrules">
+        <tr><th>Rule</th><th>Value</th><th>Why</th></tr>
+        <tr><td>Paper and ink</td><td>Pure white and pure black; regions in the light-theme data colours; greys only as tints of black</td><td>Journals print on white; warm paper would print as a tint</td></tr>
+        <tr><td>Smallest type</td><td><span class="num">6 pt</span> at final size for numbers, <span class="num">6.5 pt</span> for names, <span class="num">7 pt</span> for the caption; slide <span class="num">12 pt</span></td><td>Most journals ask for <span class="num">5</span>–<span class="num">7 pt</span> at least; the figure is exported at its final width, never scaled afterwards</td></tr>
+        <tr><td>Thinnest line</td><td><span class="num">0.5 pt</span> for region outlines, <span class="num">0.375 pt</span> inside regions</td><td>Thinner lines disappear in print</td></tr>
+        <tr><td>Widths</td><td><span class="num">85 mm</span> (single column) · <span class="num">175 mm</span> (double column) · <span class="num">16:9</span> slide</td><td>The two widths most journals share</td></tr>
+        <tr><td>Resolution</td><td>Vector where the format allows; raster at <span class="num">300 dpi</span>: <span class="num">1,004 px</span> and <span class="num">2,067 px</span> wide; slide <span class="num">1,920 × 1,080 px</span></td><td>Line art stays sharp at any zoom</td></tr>
+        <tr><td>Identity without colour</td><td>Letters on the map keyed to a table of names and exact counts; region kinds by outline and hatching; links by width</td><td>Many readers print in grey, and some do not see hue</td></tr>
+        <tr><td>Always inside the image</td><td>What is shown, what is omitted, what position means, the scale of counts, the file and the version that made it</td><td>The figure will be copied without its page</td></tr>
+      </table>
+    </div>
+
+    <div class="sub"><h3>Single column, 85 mm</h3>
+      <p class="lede">The overview with no links. At this width only letters fit on the map; names and exact counts move to the key beneath it.</p>
+      <div class="spec"><span class="cap">Left: true size (85 mm on a screen at 96 px per inch; 1,004 px wide at 300 dpi). Right: the same figure enlarged twice, to judge the small type.</span>
+        <div class="xrow">
+          <figure><figcaption>True size</figcaption><div class="xtrim" data-only="map-85"><div data-fig="map85"></div></div></figure>
+          <figure><figcaption>Enlarged 2×</figcaption><div class="xtrim" data-only="map-85-2x"><div style="zoom:2" data-fig="map85"></div></div></figure>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Double column, 175 mm</h3>
+      <p class="lede">The same map with one region selected and its strongest links drawn. Names fit on the larger regions; the key carries the rest, and the exact link figures sit in the legend because a width cannot be read to eight digits.</p>
+      <div class="spec"><span class="cap">True size (175 mm; 2,067 px wide at 300 dpi)</span>
+        <div class="xscroll"><div class="xtrim" data-only="map-175"><div data-fig="map175"></div></div></div>
+      </div>
+      <div class="spec"><span class="cap">The same figure enlarged 1.6×</span>
+        <div class="xscroll"><div class="xtrim" data-only="map-175-2x"><div style="zoom:1.6" data-fig="map175"></div></div></div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Slide, 16:9</h3>
+      <p class="lede">For a projector the parts are the same and the type is larger: nothing under 12 pt on a 13.33 in slide. The key moves beside the map; the caption stays, shortened to what a room can read.</p>
+      <div class="spec"><span class="cap">1,280 × 720 px shown at 88%; exported at 1,920 × 1,080 px</span>
+        <div class="xscale" id="slide-scale"><div class="xtrim" style="margin:0;outline-offset:0" data-only="map-slide" data-bare><div data-fig="slide"></div></div></div>
+      </div>
+    </div>
+
+    <div class="sub"><h3>Without relying on colour</h3>
+      <p class="lede">Colour separates neighbours and nothing more. Every distinction that carries meaning has a second carrier that survives a grey printer.</p>
+      <div class="spec" data-only="key"><span class="cap">The key, enlarged 2×: every meaning and what carries it besides colour</span>
+        <div class="xrow" style="gap:var(--space-5);flex-wrap:nowrap">
+          <div class="xtrim" style="flex:none"><div class="xfig" data-theme="light" style="zoom:2;width:85mm" id="keyspec"></div></div>
+          <table class="t" style="font-size:var(--text-sm)">
+            <tr><th>Meaning</th><th>Carried by</th></tr>
+            <tr><td>Which region</td><td>Letter, name, exact count</td></tr>
+            <tr><td>Found community</td><td>Solid outline</td></tr>
+            <tr><td>Subdivision</td><td>Dashed outline</td></tr>
+            <tr><td>Many small communities</td><td>Hatched fill</td></tr>
+            <tr><td>Selected</td><td>Double ring in black</td></tr>
+            <tr><td>Link strength</td><td>Width; exact figure in the legend</td></tr>
+            <tr><td>A path and its direction</td><td>Dashed line, arrowheads, numbered points</td></tr>
+            <tr><td>A series in a chart</td><td>Line style, marker shape, label at the line end</td></tr>
+          </table>
+        </div>
+        <p class="xnote">The dashed path with numbered points is a proposal: the specification only defines links for a selection. It is here because a path is the other thing people export.</p>
+      </div>
+      <div class="spec"><span class="cap">Greyscale check: the 85 mm figure in colour and as a grey printer renders it, both enlarged 1.6×</span>
+        <div class="xrow" data-only="grey-85" style="gap:var(--space-4);flex-wrap:nowrap">
+          <div class="xtrim"><div style="zoom:1.6" data-fig="map85"></div></div>
+          <div class="xtrim xgrey"><div style="zoom:1.6" data-fig="map85"></div></div>
+        </div>
+      </div>
+      <div class="spec"><span class="cap">Greyscale check with a selection and links (map only, 136 mm wide)</span>
+        <div class="xrow" data-only="grey-pair" style="gap:var(--space-4);flex-wrap:nowrap">
+          <div class="xtrim"><div class="xfig" data-theme="light" style="width:136mm"><svg class="xf-map" data-map="greyA"></svg></div></div>
+          <div class="xtrim xgrey"><div class="xfig" data-theme="light" style="width:136mm"><svg class="xf-map" data-map="greyB"></svg></div></div>
+        </div>
+        <p class="xnote">What survives: the kind of each region (solid, dashed, hatched), the selection (double ring), link strength (width), identity (letters and names). What does not: telling two unlabelled neighbours apart by hue, which is why colour never carries a meaning of its own.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 2. exported charts ================= -->
+  <section class="section" id="charts"><h2>2. Exported charts</h2>
+    <p>Charts follow the same print rules. One measure per chart and one axis; a series keeps the colour its region has on the map and also gets its own line style and marker; the two or three numbers a reader will quote are printed exactly, the rest are read from the axis.</p>
+    <div class="spec"><span class="cap">Activity over time, double column (175 mm; 2,067 px wide at 300 dpi), true size</span>
+      <div class="xscroll"><div class="xtrim" data-only="chart-175"><div data-fig="chart175"></div></div></div>
+    </div>
+    <div class="spec"><span class="cap">The same figure enlarged 1.6×</span>
+      <div class="xscroll"><div class="xtrim" data-only="chart-175-2x"><div style="zoom:1.6" data-fig="chart175"></div></div></div>
+      <details class="xdata"><summary>The numbers behind panel a (a chart is always exported with its table)</summary>
+        <table class="t" id="month-table"></table></details>
+    </div>
+    <div class="spec"><span class="cap">Degree distribution, single column (85 mm; 1,004 px wide at 300 dpi). Left: true size. Right: enlarged 2×.</span>
+      <div class="xrow" style="gap:var(--space-6)">
+        <figure><figcaption>True size</figcaption><div class="xtrim" data-only="chart-85"><div data-fig="chart85"></div></div></figure>
+        <figure><figcaption>Enlarged 2×</figcaption><div class="xtrim" data-only="chart-85-2x"><div style="zoom:2" data-fig="chart85"></div></div></figure>
+      </div>
+    </div>
+    <div class="spec"><span class="cap">Greyscale check for the lines: the three series stay apart by line style, marker and label</span>
+      <div class="xtrim xgrey" data-only="chart-grey"><div style="zoom:1.6" data-fig="chart175"></div></div>
+    </div>
+    <p class="xnote">On screen these charts have a hover layer (a crosshair with exact values). An exported figure cannot, so it prints the extremes and ships the table.</p>
+  </section>
+
+  <!-- ================= 3. shared-map page ================= -->
+  <section class="section" id="shared"><h2>3. Shared-map page</h2>
+    <p>What a recipient sees when they open a shared map link: the viewer in its read-only form. The title, who made it, when, the three counts, the map, and "About this map" open on first visit so that nobody reads the picture before reading what it is.</p>
+    <div class="xshare" data-only="shared" data-bare id="shared-page">
+      <div class="top">
+        <span class="xmark" id="sh-mark"></span>
+        <div class="ttl"><h3>Transfers in 2024 <span class="tag">shared map · read only</span></h3>
+          <span class="by">Made by Ada Moretti · <span class="num">24 November 2026</span> · from <code>transfers.eg</code></span></div>
+        <span class="sp"></span>
+        <div class="counts"><span><b>212,418,907</b>addresses</span><span><b>1,830,397,917</b>transfers</span><span><b>31,960</b>communities</span></div>
+        <button class="btn is-hover" aria-pressed="true"><svg class="xicon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4M8 4.6v.4" stroke-linecap="round"/></svg>About this map</button>
+      </div>
+      <div class="body">
+        <div class="canvas"><svg data-map="shared"></svg>
+          <div class="level">Level <span class="num">1</span> of <span class="num">6</span> · regions</div>
+          <div class="zoomer"><button aria-label="Zoom in"><svg class="xicon" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg></button><button aria-label="Zoom out"><svg class="xicon" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button></div>
+        </div>
+        <aside class="panel">
+          <section><h3>About this map <button class="btn sm quiet" aria-label="Close">Close</button></h3>
+            <p class="ink2" style="margin-top:var(--space-2)">A map of every address that sent or received a transfer in 2024, grouped by who transfers with whom.</p></section>
+          <section><h4>Where it comes from</h4>
+            <dl><dt>Made by</dt><dd>Ada Moretti</dd><dt>Date</dt><dd class="num">2026-11-24</dd><dt>Period</dt><dd class="num">2024-01-01 … 2024-12-31</dd>
+              <dt>Method</dt><dd>Leiden, resolution <span class="num">1.0</span>, deterministic · modularity <span class="num">0.6033</span></dd>
+              <dt>Contains</dt><dd>Regions and counts only. Individual addresses are not in this file.</dd>
+              <dt>Made with</dt><dd>Everygraph <span class="xph">version</span></dd></dl></section>
+          <section><h4>How to read it</h4>
+            <ul>
+              <li><svg class="xicon yes" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg><span><b>Nesting is exact.</b> A region contains the addresses of the regions inside it; counts add up.</span></li>
+              <li><svg class="xicon yes" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg><span><b>Area follows the number of addresses.</b> Read the number when it matters.</span></li>
+              <li><svg class="xicon no" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg><span><b>Distance is not a measurement.</b> Position keeps strongly connected regions close and has no other meaning.</span></li>
+              <li><svg class="xicon no" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg><span><b>No line does not mean no link.</b> Links are drawn only for what you select.</span></li>
+            </ul></section>
+          <section><h4>Three kinds of region</h4>
+            <ul id="sh-kinds"></ul></section>
+        </aside>
+      </div>
+      <div class="strip"><span><span class="num">83</span> regions at this level: the <span class="num">74</span> largest communities and <span class="num">9</span> groups holding the other <span class="num">31,886</span></span><span>no links drawn until you select something</span><span>area = addresses</span>
+        <a class="made" href="#shared"><span class="xmark" id="sh-mark2"></span>Made with Everygraph</a></div>
+    </div>
+    <p class="xnote">Fields a shared map always shows: title, author, date, counts, what the file contains, method, version. The title and author are typed by the person who shares; everything else is read from the file.</p>
+  </section>
+
+  <!-- ================= 4. embeds ================= -->
+  <section class="section" id="embed"><h2>4. Embeds</h2>
+    <p>A map inside somebody else's article. The blog below is a neutral stand-in; the marked block is ours. The embed brings its own hairline frame, a title bar and the caption, and nothing else: no shadow, no banner. The dark canvas is the viewer's default and holds on a white page; the bar and the caption take the light theme here because the page around them is light.</p>
+    <div class="xthird xblog" data-only="embed" style="padding-right:0">
+      <div class="col">
+        <h3>Where the transfers went in 2024</h3>
+        <div class="meta">Ada Moretti · 24 November 2026 · 6 min read</div>
+        <p>Most of what moved last year moved inside a handful of groups. When every address that sent or received something is placed on one map, a dozen large communities take up less than half of it, and thousands of small ones fill the rest.</p>
+        <figure>
+          <div class="xours" data-label="Everygraph embed: map, title bar and caption">
+            <div class="xembed" data-theme="light"><div data-theme="dark"><svg class="m" data-map="embed"></svg></div>
+              <div class="bar"><span class="xmark" id="em-mark"></span><span class="t">Transfers in 2024</span><span class="muted"><span class="num">212,418,907</span> addresses · <span class="num">1,830,397,917</span> transfers</span><span class="sp"></span><a href="#embed">Open the full map</a></div>
+              <div class="cap">Each circle is a community of addresses; area is proportional to the number of addresses. Dashed circles are subdivisions made for readability; hatched circles stand for many small communities. Position keeps strongly connected regions close and has no other meaning. Links are not drawn.</div>
+            </div>
+          </div>
+          <figcaption>The whole year on one map. Zoom in to see the groups inside each group.</figcaption>
+        </figure>
+        <p>The largest community, the one around exchange deposit addresses, holds <a href="#embed">18.2 million addresses</a>, about one in twelve. The next two are less than two thirds of its size.</p>
+      </div>
+    </div>
+    <p class="xnote">The embed keeps the caption even at 680 px. Below about 480 px wide the counts in the title bar drop first, then the caption folds to its first sentence with "more"; the frame and the "Open the full map" link never go.</p>
+  </section>
+
+  <!-- ================= 5. citation ================= -->
+  <section class="section" id="cite"><h2>5. Citation block</h2>
+    <p>How "Cite" reads, in the documentation and in "About this map". Nothing has been published and no version exists yet, so the dashed fields are placeholders: this shows the shape, not a reference to copy.</p>
+    <div class="xgrid2" data-only="cite">
+      <div class="card"><h3>Cite the software</h3>
+        <p class="small ink2" style="margin:var(--space-2) 0 var(--space-3)">Everygraph <span class="xph">version</span>, <span class="xph">year</span>. <span class="xph">project URL</span>. Apache-2.0 or MIT.</p>
+        <div class="xcode"><button class="btn sm">Copy</button>
+<pre><span class="tok-k">@software</span>{everygraph,
+  title   = {<span class="tok-s">Everygraph: every graph, every size,
+             every machine</span>},
+  author  = {<span class="tok-c">&lt;authors&gt;</span>},
+  year    = {<span class="tok-c">&lt;year&gt;</span>},
+  version = {<span class="tok-c">&lt;version&gt;</span>},
+  url     = {<span class="tok-c">&lt;project URL&gt;</span>},
+  license = {<span class="tok-s">Apache-2.0 OR MIT</span>}
+}</pre></div></div>
+      <div class="card"><h3>Cite this map</h3>
+        <p class="small ink2" style="margin:var(--space-2) 0 var(--space-3)">Moretti, A. (<span class="num">2026</span>). Transfers in 2024 [map]. <span class="num">212,418,907</span> addresses, <span class="num">1,830,397,917</span> transfers. Made with Everygraph <span class="xph">version</span>. <span class="xph">map URL</span></p>
+        <div class="xcode"><button class="btn sm">Copy</button>
+<pre><span class="tok-k">@misc</span>{moretti2026transfers,
+  title        = {<span class="tok-s">Transfers in 2024</span>},
+  author       = {<span class="tok-s">Moretti, Ada</span>},
+  year         = {<span class="tok-n">2026</span>},
+  howpublished = {<span class="tok-s">Interactive map</span>},
+  url          = {<span class="tok-c">&lt;map URL&gt;</span>},
+  note         = {<span class="tok-s">212,418,907 addresses, 1,830,397,917
+                  transfers, 31,960 communities (Leiden,
+                  resolution 1.0, deterministic).
+                  Made with Everygraph </span><span class="tok-c">&lt;version&gt;</span>}
+}</pre></div></div>
+    </div>
+    <p class="xnote">The note carries the counts and the method so a reader can tell two maps of the same data apart. In BibTeX the numbers keep their separators; they are text there, not data.</p>
+  </section>
+
+  <!-- ================= 6. file icons ================= -->
+  <section class="section" id="files"><h2>6. File icons</h2>
+    <p>Two files reach people's disks: <code>.eg</code>, a graph, and <code>.egmap</code>, a shareable map. Both are a sheet with the mark. The graph carries the mark on paper; the map carries it on a dark canvas with a caption line beneath, so the two differ in shape and tone, not in hue. Icon colours are fixed and do not follow the theme around them.</p>
+    <div class="pair xicons" data-only="icons">
+      <div data-theme="light"><div class="xsizes" data-icons="eg"></div><div class="xsizes" data-icons="egmap"></div></div>
+      <div data-theme="dark"><div class="xsizes" data-icons="eg"></div><div class="xsizes" data-icons="egmap"></div></div>
+    </div>
+    <div class="sub"><h3>In a file manager</h3>
+      <p class="lede">A neutral file manager, not ours. Ours are the two icons and the two kind names: "Everygraph graph" and "Everygraph map".</p>
+      <div class="xthird xfiles" data-only="files">
+        <div class="bar"><span>Home</span><span>›</span><span>research</span><span>›</span><span class="path">transfers-2024</span></div>
+        <table><tr><th>Name</th><th style="text-align:right">Size</th><th>Kind</th><th>Modified</th></tr><tbody id="file-rows"></tbody></table>
+        <div class="icons" id="file-icons"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 7. message preview ================= -->
+  <section class="section" id="message"><h2>7. A shared link in a message</h2>
+    <p>When a shared map link is pasted into a chat or an e-mail, the other program builds a preview from three things the page declares: a title, a description and an image. The chat and the mail client below are neutral stand-ins; ours are those three.</p>
+    <div class="spec"><span class="cap">The share image, 1,200 × 630 px, shown at 92%. It is an exported image, so it carries the caption.</span>
+      <div class="xscale" id="og-scale"><div class="xog" data-theme="dark" data-only="share-image" data-bare id="og"></div></div>
+    </div>
+    <div class="xgrid2" style="margin-top:var(--space-5)" data-only="message">
+      <div class="xthird xchat">
+        <div class="msg"><div class="av">AM</div><div><div class="who">Ada Moretti <span>10:42</span></div>
+          <div>Here is the map of last year's transfers. Start with "About this map". <a href="#message">https://maps.example.org/transfers-2024/</a></div>
+          <div class="xunfurl"><span class="site">maps.example.org</span><span class="t">Transfers in 2024 · a map of 212,418,907 addresses</span>
+            <span class="d">1,830,397,917 transfers between 212,418,907 addresses, grouped into 31,960 communities. Made by Ada Moretti with Everygraph.</span>
+            <div class="img xscale" data-og="0.4"></div></div></div></div>
+        <div class="msg"><div class="av">LK</div><div><div class="who">Lena Kovač <span>10:47</span></div><div>Got it. Does the hatching mean those are estimates?</div></div></div>
+        <div class="msg"><div class="av">AM</div><div><div class="who">Ada Moretti <span>10:48</span></div><div>No, the counts are exact. Hatched means many small communities drawn as one.</div></div></div>
+      </div>
+      <div class="xthird xmail">
+        <div class="hd"><b>Map of the 2024 transfers</b><span>Ada Moretti &lt;ada@example.org&gt; · to Lena Kovač · 24 Nov 2026, 10:42</span></div>
+        <div class="bd"><p>Lena,</p><p>the map is up. It opens in the browser, nothing to install:</p>
+          <div class="xcard"><div class="xscale" data-og="0.4333"></div>
+            <div class="tx"><span class="t">Transfers in 2024 · a map of 212,418,907 addresses</span><span class="d">1,830,397,917 transfers between 212,418,907 addresses, grouped into 31,960 communities. Made by Ada Moretti with Everygraph.</span><span class="site">maps.example.org</span></div></div>
+          <p>It holds regions and counts only, no individual addresses.</p><p>Ada</p></div>
+      </div>
+    </div>
+    <div class="spec" style="margin-top:var(--space-5)"><span class="cap">What the shared page declares (standard link-preview tags; titles keep exact numbers)</span>
+<pre><span class="tok-k">&lt;title&gt;</span>Transfers in 2024 · a map of 212,418,907 addresses<span class="tok-k">&lt;/title&gt;</span>
+<span class="tok-k">&lt;meta</span> property=<span class="tok-s">"og:title"</span>       content=<span class="tok-s">"Transfers in 2024 · a map of 212,418,907 addresses"</span><span class="tok-k">&gt;</span>
+<span class="tok-k">&lt;meta</span> property=<span class="tok-s">"og:description"</span> content=<span class="tok-s">"1,830,397,917 transfers between 212,418,907 addresses, grouped into
+                                         31,960 communities. Made by Ada Moretti with Everygraph."</span><span class="tok-k">&gt;</span>
+<span class="tok-k">&lt;meta</span> property=<span class="tok-s">"og:image"</span>       content=<span class="tok-s">"share.png"</span><span class="tok-k">&gt;</span>   <span class="tok-c">&lt;!-- 1200 × 630, written next to the map at export --&gt;</span>
+<span class="tok-k">&lt;meta</span> property=<span class="tok-s">"og:image:alt"</span>   content=<span class="tok-s">"Map of nested circles, one per community of addresses; the largest holds 18,204,551."</span><span class="tok-k">&gt;</span></pre>
+    </div>
+  </section>
+</main>
+<script src="assets/shell.js" data-page="export"></script>
+<script>/*EGMAP-BEGIN*/
+/* egMap — a deterministic stand-in for the Everygraph map, for the style preview only.
+   It draws the invented transactions graph (212,418,907 addresses in 31,960 communities) as nested
+   bubbles following SPEC.md "The map": 1.5 px outline in the data colour with a light tint, solid =
+   found community, dashed = subdivision made for readability, hatched = many small communities shown
+   as one; labels with a halo; selection = double ring in the ink colour, the rest at 60%.
+   Usage: var info = egMap(svgElement, { w, h, zoom, focus, select, links, labels, detail, print, fs });
+   Colours come from the tokens in scope (--map-bg, --map-ink, --d1 … --d10). */
+function egMap(svg, o) {
+  o = Object.assign({ w: 960, h: 600, seed: 7, zoom: 1, focus: null, select: null, links: false, labels: 'full',
+    detail: 2, print: false, fs: 12, pad: 14, labelMin: 30, keys: false, frame: true }, o || {});
+  var uid = 'egm' + (egMap.n = (egMap.n || 0) + 1);
+  var L = egMap.layout(o.seed, o.aspect || o.w / o.h);   /* pass aspect to keep one layout across views of different shapes */
+  var s = Math.min((o.w - 2 * o.pad) / (L.x1 - L.x0), (o.h - 2 * o.pad) / (L.y1 - L.y0)) * o.zoom;
+  var fx = (L.x0 + L.x1) / 2, fy = (L.y0 + L.y1) / 2;
+  if (o.focus != null) { var fr = L.regions[o.focus]; fx = fr.x + (o.dx || 0) * fr.r; fy = fr.y + (o.dy || 0) * fr.r; }
+  function X(x) { return +((x - fx) * s + o.w / 2).toFixed(1); }
+  function Y(y) { return +((y - fy) * s + o.h / 2).toFixed(1); }
+  function R(r) { return +(r * s).toFixed(1); }
+  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  var sel = o.select, out = [], lab = [];
+  var sw = o.print ? (o.stroke || 1) : 1.5;
+  out.push('<style>' +
+    '.' + uid + ' .r{fill:var(--c);fill-opacity:' + (o.print ? 0.08 : 0.11) + ';stroke:var(--c);stroke-width:' + sw + 'px}' +
+    '.' + uid + ' .s{fill:var(--c);fill-opacity:' + (o.print ? 0.07 : 0.10) + ';stroke:var(--c);stroke-width:' + (sw * 0.67).toFixed(2) + 'px}' +
+    '.' + uid + ' .t{fill:var(--c);fill-opacity:0.16;stroke:var(--c);stroke-width:' + (sw * 0.5).toFixed(2) + 'px}' +
+    '.' + uid + ' .dash{stroke-dasharray:' + (o.print ? '3 2' : '4 3') + '}' +
+    '.' + uid + ' .agg{fill:url(#' + uid + 'h);fill-opacity:1}' +
+    '.' + uid + ' .dimmed{opacity:0.6}' +
+    '.' + uid + ' .ring{fill:none;stroke:var(--map-ink);stroke-width:' + sw + 'px}' +
+    '.' + uid + ' .band{fill:none;stroke:var(--map-ink);stroke-opacity:0.55;stroke-linecap:round}' +
+    '.' + uid + ' text{font-family:var(--font-sans);fill:var(--map-ink);text-anchor:middle;paint-order:stroke;stroke:var(--map-bg);stroke-width:' + (o.fs * 0.3).toFixed(1) + 'px;stroke-linejoin:round}' +
+    '.' + uid + ' .nm{font-weight:600;font-size:' + o.fs + 'px}' +
+    '.' + uid + ' .ct{font-family:var(--font-mono);font-size:' + (o.fs - 1) + 'px;font-variant-numeric:tabular-nums}' +
+    '</style>');
+  var hs = o.print ? 4 : 6;
+  out.push('<defs><pattern id="' + uid + 'h" patternUnits="userSpaceOnUse" width="' + hs + '" height="' + hs + '" patternTransform="rotate(45)">' +
+    '<line x1="0" y1="0" x2="0" y2="' + hs + '" stroke="var(--d10)" stroke-width="' + (o.print ? 0.8 : 1) + '" stroke-opacity="' + (o.print ? 0.9 : 0.55) + '"/></pattern>' +
+    '<clipPath id="' + uid + 'c"><rect width="' + o.w + '" height="' + o.h + '"/></clipPath></defs>');
+  if (o.frame) out.push('<rect width="' + o.w + '" height="' + o.h + '" fill="var(--map-bg)"/>');
+  out.push('<g clip-path="url(#' + uid + 'c)">');
+  var vis = [];
+  L.regions.forEach(function (g, i) {
+    var x = X(g.x), y = Y(g.y), r = R(g.r);
+    if (x + r < -4 || x - r > o.w + 4 || y + r < -4 || y - r > o.h + 4) return;
+    vis.push(i);
+    var dim = sel != null && sel !== i ? ' dimmed' : '';
+    var p = ['<g class="reg' + dim + '" style="--c:var(--d' + g.c + ')">'];
+    p.push('<circle class="r' + (g.kind === 'aggregate' ? ' agg' : '') + '" cx="' + x + '" cy="' + y + '" r="' + r + '"/>');
+    if (o.detail > 0) g.subs.forEach(function (b) {
+      var br = R(b.r); if (br < 1.6) return;
+      p.push('<circle class="s' + (g.subkind === 'subdivision' ? ' dash' : '') + '" cx="' + X(b.x) + '" cy="' + Y(b.y) + '" r="' + br + '"/>');
+      if (o.detail > 1) b.subs.forEach(function (t) { var tr = R(t.r); if (tr >= 1.2) p.push('<circle class="t" cx="' + X(t.x) + '" cy="' + Y(t.y) + '" r="' + tr + '"/>'); });
+    });
+    p.push('</g>');
+    out.push(p.join(''));
+    /* labels: name (if any) with the exact count beneath; unnamed regions show the count only */
+    if (o.labels !== 'none') {
+      var fits = function (txt, mono) { return txt.length * (mono ? (o.fs - 1) * 0.6 : o.fs * 0.55) <= 2 * r - o.fs * 0.5; };
+      var lines = [], key = o.keys && g.key ? g.key : '';
+      var name = g.kind === 'aggregate' ? fmt(g.groups) + ' communities' : g.name;
+      var cnt = fmt(g.n);
+      if (name && fits((key ? key + ' · ' : '') + name) && r >= o.fs * 2.2) lines.push(['nm', (key ? key + ' · ' : '') + egMap.mono(name)]);
+      else if (key && r >= o.fs * 1.1) lines.push(['nm', key]);
+      if (o.labels === 'full' && fits(cnt, true) && r >= o.fs * (lines.length ? 2.2 : 1.1)) lines.push(['ct', cnt]);
+      var lh = o.fs * 1.3, y0 = y - (lines.length - 1) * lh / 2 + o.fs * 0.35;
+      /* a label that would be cut by the edge of the frame is left out rather than shown in part */
+      var tw = 0; lines.forEach(function (ln) { var plain = ln[1].replace(/<[^>]+>/g, ''); tw = Math.max(tw, plain.length * (ln[0] === 'ct' ? (o.fs - 1) * 0.6 : o.fs * 0.56)); });
+      if (x - tw / 2 < 3 || x + tw / 2 > o.w - 3 || y0 - o.fs < 1 || y0 + (lines.length - 1) * lh > o.h - 3) lines = [];
+      lines.forEach(function (ln, k) { lab.push('<text class="' + ln[0] + (dim ? ' dimmed' : '') + '" x="' + x + '" y="' + (y0 + k * lh).toFixed(1) + '">' + ln[1] + '</text>'); });
+    }
+  });
+  var linkInfo = [];
+  if (sel != null) {
+    var a = L.regions[sel];
+    if (o.links) L.links(sel).forEach(function (lk) {
+      var b = L.regions[lk.to], dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy), ux = dx / d, uy = dy / d;
+      var x1 = a.x + ux * a.r, y1 = a.y + uy * a.r, x2 = b.x - ux * b.r * 0.15, y2 = b.y - uy * b.r * 0.15;
+      var mx = (x1 + x2) / 2 - uy * d * 0.14, my = (y1 + y2) / 2 + ux * d * 0.14;
+      var wd = (o.print ? 0.8 : 1.5) + (o.print ? 5 : 8) * Math.sqrt(lk.w / L.wmax) * Math.min(1.6, Math.max(0.6, o.w / 960 * o.zoom));
+      out.push('<path class="band" d="M' + X(x1) + ' ' + Y(y1) + 'Q' + X(mx) + ' ' + Y(my) + ' ' + X(x2) + ' ' + Y(y2) + '" stroke-width="' + wd.toFixed(1) + '"/>');
+      linkInfo.push({ to: lk.to, w: lk.w, name: b.name, n: b.n });
+    });
+    var g1 = sw + 2.5, g2 = sw * 2 + 5;
+    out.push('<circle class="ring" cx="' + X(a.x) + '" cy="' + Y(a.y) + '" r="' + (R(a.r) + g1) + '"/><circle class="ring" cx="' + X(a.x) + '" cy="' + Y(a.y) + '" r="' + (R(a.r) + g2) + '"/>');
+  }
+  out.push(lab.join(''));
+  out.push('</g>');
+  svg.setAttribute('viewBox', '0 0 ' + o.w + ' ' + o.h);
+  svg.setAttribute('class', ((svg.getAttribute('class') || '') + ' ' + uid).trim());
+  if (!svg.getAttribute('role')) { svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Map of transfers.eg: nested bubbles, one per community of addresses'); }
+  svg.innerHTML = out.join('');
+  return { scale: s, regions: L.regions, visible: vis, links: linkInfo, total: L.total, fmt: fmt, r: function (count) { return Math.sqrt(count) * s; } };
+}
+egMap.cache = {};
+/* identifiers inside a region name are set in the monospace face */
+egMap.mono = function (s) { return s.replace(/0x[0-9a-f]+…[0-9a-f]+/g, function (m) { return '<tspan style="font-family:var(--font-mono);font-weight:500;font-size:0.94em">' + m + '</tspan>'; }); };
+egMap.layout = function (seed, aspect) {
+  var key = seed + ':' + aspect.toFixed(2); if (egMap.cache[key]) return egMap.cache[key];
+  var t = seed >>> 0;
+  function rnd() { t += 0x6D2B79F5; var v = t; v = Math.imul(v ^ (v >>> 15), v | 1); v ^= v + Math.imul(v ^ (v >>> 7), v | 61); return ((v ^ (v >>> 14)) >>> 0) / 4294967296; }
+  function between(a, b) { return a + (b - a) * rnd(); }
+  /* the 16 largest communities; names come from a label column where one exists, else from the most
+     central member, else the fallback "Region N" (choices.md B3) */
+  var big = [[18204551, 'Exchange deposits', 'A'], [11930204, 'Stablecoin transfers', 'B'], [9410877, 'Token swaps', 'C'], [8112460, 'around 0x21a3…5549', 'D'],
+    [7305118, 'Bridges', 'E'], [6120933, 'Region 5', 'F'], [5477206, 'Mining payouts', 'G'], [4902311, 'around 0x7a25…488d', 'H'], [4390072, 'Region 8', 'I'],
+    [3871540, 'Collectibles', 'J'], [3204665, 'Region 10', 'K'], [2766019, 'Region 11', 'L'], [2381407, null], [2040112, null], [1733950, null], [1502288, null]];
+  var mid = [1427908, 1407502, 1369904, 1317013, 1275823, 1224900, 1180258, 1154496, 1133798, 1119399, 1100967, 1046293, 1009974, 990660, 960371, 946045, 908274, 880897,
+    859366, 838239, 823805, 812136, 801692, 767224, 749330, 729762, 703015, 693154, 668286, 655511, 639152, 620620, 601249, 583378, 568817, 545852, 527545, 514774, 504832,
+    490597, 485452, 475342, 456862, 446210, 440289, 416368, 407027, 407164, 390500, 374361, 362391, 352168, 335790, 321989, 316953, 301067, 300057, 289590];
+  /* the other 31,886 communities, drawn as nine hatched groups */
+  var agg = [[12325248, 5104], [10784591, 4464], [10014263, 4145], [9243935, 3826], [8473607, 3507], [7703279, 3188], [6932951, 2870], [6162623, 2551], [5392299, 2231]];
+  var regions = [];
+  big.forEach(function (b, i) { regions.push({ id: i, n: b[0], name: b[1], key: b[2] || null, kind: 'community', subkind: i === 0 || i === 5 ? 'subdivision' : 'community' }); });
+  mid.forEach(function (n, i) { regions.push({ id: 16 + i, n: n, name: null, key: null, kind: 'community', subkind: 'community' }); });
+  agg.forEach(function (a, i) { regions.push({ id: 74 + i, n: a[0], groups: a[1], name: null, key: null, kind: 'aggregate', subkind: null }); });
+  var total = 0; regions.forEach(function (g) { g.r = Math.sqrt(g.n); total += g.n; });
+  /* pack: largest first, each at the free position closest to the centre (elliptical, to fill the frame) */
+  function tier(g) { return g.id < 16 ? 0 : g.kind === 'aggregate' ? 1 : 2; }
+  var order = regions.slice().sort(function (a, b) { return tier(a) - tier(b) || b.r - a.r; }), placed = [], gap = 190;
+  order.forEach(function (g, i) {
+    if (!i) { g.x = 0; g.y = 0; placed.push(g); return; }
+    var a0 = rnd() * 6.283;
+    for (var d = 0; ; d += 110) {
+      var steps = Math.max(8, Math.round(d / 160)), found = false;
+      for (var k = 0; k < steps && !found; k++) {
+        var a = a0 + k * 6.283 / steps, x = Math.cos(a) * d * aspect * 0.92, y = Math.sin(a) * d, ok = true;
+        for (var j = 0; j < placed.length; j++) { var q = placed[j], dx = q.x - x, dy = q.y - y, m = q.r + g.r + gap; if (dx * dx + dy * dy < m * m) { ok = false; break; } }
+        if (ok) { g.x = x; g.y = y; found = true; }
+      }
+      if (found) break;
+    }
+    placed.push(g);
+  });
+  /* colours d1…d9, chosen so that neighbours differ; d10 (neutral) is kept for the hatched groups */
+  var use = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  order.forEach(function (g) {
+    if (g.kind === 'aggregate') { g.c = 10; return; }
+    var near = {}; order.forEach(function (q) { if (q.c && q !== g) { var dx = q.x - g.x, dy = q.y - g.y, m = q.r + g.r + 900; if (dx * dx + dy * dy < m * m) near[q.c] = (near[q.c] || 0) + 1; } });
+    var best = 1, bs = 1e9; for (var c = 1; c <= 9; c++) { var sc = (near[c] || 0) * 100 + use[c] + rnd() * 0.5; if (sc < bs) { bs = sc; best = c; } }
+    g.c = best; use[best]++;
+  });
+  /* nested bubbles: sub-regions and, inside the larger ones, a third level */
+  function fill(parent, maxN, f0, minR, pad) {
+    var subs = [], r = parent.r * between(f0 * 0.8, f0), ox = parent.x + between(-0.2, 0.2) * parent.r, oy = parent.y + between(-0.2, 0.2) * parent.r;
+    for (var n = 0; n < maxN && r > minR; n++) {
+      var a0 = rnd() * 6.283, done = false;
+      for (var d = 0; d < parent.r * 1.3 && !done; d += Math.max(minR * 0.5, r * 0.3)) {
+        var steps = Math.max(6, Math.round(d / (r * 0.5)));
+        for (var k = 0; k < steps && !done; k++) {
+          var a = a0 + k * 6.283 / steps, x = ox + Math.cos(a) * d, y = oy + Math.sin(a) * d, ddx = x - parent.x, ddy = y - parent.y;
+          if (Math.sqrt(ddx * ddx + ddy * ddy) + r > parent.r - pad) continue;
+          var ok = true; for (var j = 0; j < subs.length; j++) { var q = subs[j], dx = q.x - x, dy = q.y - y, m = q.r + r + pad * 0.6; if (dx * dx + dy * dy < m * m) { ok = false; break; } }
+          if (ok) { subs.push({ x: x, y: y, r: r, subs: [] }); done = true; }
+        }
+      }
+      r *= between(0.78, 0.97);
+    }
+    return subs;
+  }
+  regions.forEach(function (g) {
+    g.subs = [];
+    if (g.kind === 'aggregate') return;
+    g.subs = fill(g, g.r > 2000 ? 46 : g.r > 1100 ? 26 : 12, g.r > 2000 ? 0.44 : 0.5, g.r > 2000 ? 130 : 90, 110);
+    g.subs.forEach(function (b) { if (b.r > 520) b.subs = fill(b, 9, 0.46, 70, 60); });
+  });
+  var x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  regions.forEach(function (g) { x0 = Math.min(x0, g.x - g.r); x1 = Math.max(x1, g.x + g.r); y0 = Math.min(y0, g.y - g.r); y1 = Math.max(y1, g.y + g.r); });
+  /* transfers leaving a region, to its most connected neighbours (invented, fixed per region) */
+  var wmax = 31204118;
+  function links(i) {
+    var a = regions[i], ws = [31204118, 18877402, 12410936, 8930211, 5102774, 3318050, 1904662], pick = [0, 1, 4, 3, 6, 9, 2, 7, 10, 5];
+    return pick.filter(function (id) { return id !== i; }).slice(0, 7).map(function (id, k) { return { to: id, w: ws[k] }; });
+  }
+  return (egMap.cache[key] = { regions: regions, x0: x0, x1: x1, y0: y0, y1: y1, total: total, links: links, wmax: wmax });
+};
+/*EGMAP-END*/</script>
+<script>
+(function () {
+  'use strict';
+  /* ---- clean captures: #only=<id>&chrome=0[&zoom=2] ---- */
+  var opts = (window.EGStyle && EGStyle.opts) || {};
+  var onlyEl = opts.only ? document.querySelector('[data-only="' + opts.only + '"]') : null;
+  if (onlyEl) {
+    var wrap = document.createElement('div'); wrap.id = 'only-wrap';
+    if (onlyEl.hasAttribute('data-bare')) { onlyEl.style.outline = '0'; } else { wrap.className = 'padded' + (onlyEl.classList.contains('xtrim') || onlyEl.classList.contains('xrow') ? ' tight' : ''); }
+    if (opts.zoom) wrap.style.zoom = opts.zoom;
+    document.body.appendChild(wrap); wrap.appendChild(onlyEl); document.body.classList.add('only-mode');
+  }
+
+  var PX = 96 / 25.4;   /* CSS pixels per millimetre */
+  var CAP = 'Each circle is a community of addresses; area is proportional to the number of addresses. Dashed circles are subdivisions made for readability; hatched circles stand for many small communities. Position keeps strongly connected regions close and has no other meaning.';
+  var COUNT = '<span class="n">83</span> regions at this level: the <span class="n">74</span> largest communities and <span class="n">9</span> groups holding the other <span class="n">31,886</span>.';
+  var LEAD = '<b>transfers.eg</b> · <span class="n">212,418,907</span> addresses · <span class="n">1,830,397,917</span> transfers · <span class="n">31,960</span> communities (Leiden, resolution <span class="n">1.0</span>, deterministic; modularity <span class="n">0.6033</span>).';
+  var PROV = 'Everygraph ‹version› · exported <span class="n">2026-11-24</span>';
+  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function monoName(s) { return s.replace(/0x[0-9a-f]+…[0-9a-f]+/g, function (m) { return '<span class="m">' + m + '</span>'; }); }
+  function nest(size, dotVar) {
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="18.5" cy="18" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="20" cy="19.2" r="2.6" fill="var(' + (dotVar || '--accent') + ')"/></svg>';
+  }
+
+  /* ---------- parts of an exported map figure ---------- */
+  /* scale of counts: nested circles for round counts, drawn with the map's own scale */
+  function countScale(info, counts, fs) {
+    var R = info.r(counts[0]), lw = fmt(counts[0]).length * fs * 0.62 + 4, W = 2 * R + 8 + lw, H = 2 * R + 2 + fs * 0.5, s = '';
+    counts.forEach(function (c) {
+      var r = info.r(c), top = H - 1 - 2 * r;
+      s += '<circle cx="' + (R + 1) + '" cy="' + (H - 1 - r).toFixed(1) + '" r="' + r.toFixed(1) + '" fill="none" stroke="var(--print-ink)" stroke-width="0.67"/>' +
+        '<line x1="' + (R + 1) + '" x2="' + (2 * R + 7) + '" y1="' + top.toFixed(1) + '" y2="' + top.toFixed(1) + '" stroke="var(--print-ink)" stroke-width="0.5"/>' +
+        '<text x="' + (2 * R + 9) + '" y="' + (top + fs * 0.36).toFixed(1) + '" font-family="var(--font-mono)" font-size="' + fs + '" fill="var(--print-ink)">' + fmt(c) + '</text>';
+    });
+    return '<svg width="' + Math.ceil(W) + '" height="' + Math.ceil(H) + '" viewBox="0 0 ' + Math.ceil(W) + ' ' + Math.ceil(H) + '">' + s + '</svg>';
+  }
+  var hid = 0;
+  function kindSwatch(kind, d) {
+    var id = 'xk' + (++hid), r = d / 2 - 1, c = d / 2, extra = '';
+    if (kind === 'subdivision') extra = ' stroke-dasharray="3 2"';
+    var defs = kind === 'aggregate' ? '<defs><pattern id="' + id + '" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="var(--print-ink)" stroke-width="0.8"/></pattern></defs>' : '';
+    return '<svg width="' + d + '" height="' + d + '" viewBox="0 0 ' + d + ' ' + d + '">' + defs + '<circle cx="' + c + '" cy="' + c + '" r="' + r + '" fill="' + (kind === 'aggregate' ? 'url(#' + id + ')' : 'none') + '" stroke="var(--print-ink)" stroke-width="1"' + extra + '/></svg>';
+  }
+  function kindsKey(d) {
+    return '<div><h5>Kinds of region</h5><div class="xf-kinds">' +
+      kindSwatch('community', d) + '<span>Community found by the method</span>' +
+      kindSwatch('subdivision', d) + '<span>Subdivision made for readability</span>' +
+      kindSwatch('aggregate', d) + '<span>Many small communities shown as one</span></div></div>';
+  }
+  /* Links are drawn by this page, not by the generator: the generator's link figures are fixed and only add up
+     for region A, and a print figure needs links that cross the map. Same look as SPEC.md: ink at 55%, width by weight. */
+  var LINKS_C = { from: 2, out: 40331905,   /* edges_out of community 2, from api.md */
+    to: [[0, 14820331], [1, 6204118], [4, 4410936], [3, 2930211], [6, 1902774], [9, 1118050], [7, 704662]] };
+  function linkWidth(w, k) { return (0.8 + 5.2 * Math.sqrt(w / 15e6)) * (k || 1); }
+  function positions(svg, info) {
+    var pos = {}, circles = svg.querySelectorAll('g.reg > circle.r');
+    info.visible.forEach(function (id, i) { pos[id] = { x: +circles[i].getAttribute('cx'), y: +circles[i].getAttribute('cy'), r: +circles[i].getAttribute('r') }; });
+    return pos;
+  }
+  function drawLinks(svg, info, L, k) {
+    var pos = positions(svg, info), a = pos[L.from], s = '';
+    L.to.forEach(function (l) {
+      var b = pos[l[0]]; if (!a || !b) return;
+      var dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy), ux = dx / d, uy = dy / d;
+      var x1 = a.x + ux * a.r, y1 = a.y + uy * a.r, x2 = b.x - ux * b.r * 0.5, y2 = b.y - uy * b.r * 0.5, mx = (x1 + x2) / 2 - uy * d * 0.14, my = (y1 + y2) / 2 + ux * d * 0.14;
+      s += '<path d="M' + x1.toFixed(1) + ' ' + y1.toFixed(1) + 'Q' + mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' + x2.toFixed(1) + ' ' + y2.toFixed(1) + '" fill="none" stroke="var(--map-ink)" stroke-opacity="0.55" stroke-linecap="round" stroke-width="' + linkWidth(l[1], k).toFixed(1) + '"/>';
+    });
+    var ring = svg.querySelector('.ring'); if (ring) ring.insertAdjacentHTML('beforebegin', s);
+  }
+  function linksKey(lens, k) {
+    var rows = [15000000, 5000000, 1000000].map(function (w) {
+      var sw = linkWidth(w, k);
+      return '<svg width="' + lens + '" height="' + Math.ceil(sw + 2) + '"><line x1="' + (sw / 2 + 0.5).toFixed(1) + '" x2="' + (lens - sw / 2 - 0.5).toFixed(1) + '" y1="' + (sw / 2 + 1).toFixed(1) + '" y2="' + (sw / 2 + 1).toFixed(1) + '" stroke="var(--print-ink)" stroke-opacity="0.55" stroke-width="' + sw.toFixed(1) + '" stroke-linecap="round"/></svg><span class="n">' + fmt(w) + '</span>';
+    }).join('');
+    return '<div><h5>Transfers (width)</h5><div class="xf-links">' + rows + '</div></div>';
+  }
+  function keyTable(info, cols) {
+    var rows = info.regions.filter(function (g) { return g.key; }).map(function (g) {
+      return '<div><b>' + g.key + '</b><span>' + monoName(g.name) + '</span><span class="n">' + fmt(g.n) + '</span></div>';
+    });
+    return '<div class="xf-key" style="grid-template-columns:repeat(' + cols + ',1fr);grid-auto-flow:column;grid-template-rows:repeat(' + Math.ceil(rows.length / cols) + ',auto)">' + rows.join('') + '</div>';
+  }
+  function linkTable(info, L) {
+    var sum = 0;
+    var rows = L.to.map(function (l) { sum += l[1]; var g = info.regions[l[0]]; return '<div><b>' + g.key + '</b><span>' + monoName(g.name) + '</span><span class="n">' + fmt(l[1]) + '</span></div>'; });
+    return { html: rows.join(''), sum: sum, out: L.out, share: (100 * sum / L.out).toFixed(1) };
+  }
+
+  var figs = {
+    /* single column: overview, letters on the map, names in the key */
+    map85: function (host) {
+      var w = Math.round(85 * PX), h = 232;
+      host.innerHTML = '<div class="xfig" data-theme="light" style="width:85mm"><svg class="xf-map"></svg><div class="xf-legend"></div><div class="xf-keyhost"></div>' +
+        '<div class="xf-cap">' + LEAD + ' ' + CAP + ' Letters refer to the key. ' + COUNT + ' Links are not drawn.<span class="prov">' + PROV + '</span></div></div>';
+      var info = egMap(host.querySelector('svg'), { w: w, h: h, print: true, keys: true, labels: 'names', fs: 9, stroke: 0.9, detail: 1, pad: 3 });
+      host.querySelector('.xf-legend').innerHTML = '<div><h5>Addresses (area)</h5>' + countScale(info, [20000000, 5000000, 1000000], 8) + '</div>' + kindsKey(11);
+      host.querySelector('.xf-keyhost').innerHTML = keyTable(info, 2);
+    },
+    /* double column: region C selected, its strongest links drawn */
+    map175: function (host) {
+      var w = Math.round(175 * PX), h = 392;
+      host.innerHTML = '<div class="xfig" data-theme="light" style="width:175mm"><svg class="xf-map"></svg><div class="xf-legend"></div><div class="xf-keyhost"></div><div class="xf-cap"></div></div>';
+      var svg = host.querySelector('svg');
+      var info = egMap(svg, { w: w, h: h, print: true, keys: true, labels: 'full', fs: 9, stroke: 1, detail: 2, pad: 5, select: LINKS_C.from });
+      drawLinks(svg, info, LINKS_C);
+      var lt = linkTable(info, LINKS_C);
+      host.querySelector('.xf-legend').innerHTML = '<div><h5>Addresses (area)</h5>' + countScale(info, [10000000, 2000000, 200000], 8) + '</div>' + kindsKey(11) + linksKey(30) +
+        '<div style="flex:1;max-width:46mm;margin-left:auto"><h5>Transfers leaving C, by destination</h5><div class="xf-key" style="margin:0;padding:0;border:0;grid-template-columns:1fr">' + lt.html + '</div></div>';
+      host.querySelector('.xf-keyhost').innerHTML = keyTable(info, 4);
+      host.querySelector('.xf-cap').innerHTML = LEAD + ' ' + CAP + ' ' + COUNT + ' Region C is selected (double ring); the other regions are drawn at <span class="n">60%</span>. Links are drawn for the selection only: the <span class="n">7</span> strongest, carrying <span class="n">' + fmt(lt.sum) + '</span> of the <span class="n">' + fmt(lt.out) + '</span> transfers that leave C (<span class="n">' + lt.share + '%</span>); width is proportional to the square root of the number of transfers.<span class="prov">' + PROV + '</span>';
+    },
+    /* slide: same parts, larger type, key beside the map */
+    slide: function (host) {
+      host.innerHTML = '<div class="xfig slide" data-theme="light"><svg class="xf-map" style="width:854px;height:548px"></svg><div class="xf-side"><div class="xf-legend"></div><div class="xf-keyhost"></div></div>' +
+        '<div class="xf-cap"><b>transfers.eg</b> · <span class="n">212,418,907</span> addresses · <span class="n">1,830,397,917</span> transfers · <span class="n">31,960</span> communities. Each circle is a community; area is proportional to addresses. Position keeps connected regions close and has no other meaning. Links are not drawn. <span class="prov">' + PROV + '</span></div></div>';
+      var info = egMap(host.querySelector('svg'), { w: 854, h: 548, print: true, keys: true, labels: 'full', fs: 17, stroke: 1.5, detail: 2, pad: 4 });
+      host.querySelector('.xf-legend').innerHTML = '<div><h5>Addresses (area)</h5>' + countScale(info, [10000000, 2000000, 200000], 16) + '</div>' + kindsKey(22).replace('Community found by the method', 'Community').replace('Subdivision made for readability', 'Subdivision for readability').replace('Many small communities shown as one', 'Many small communities');
+      host.querySelector('.xf-keyhost').innerHTML = keyTable(info, 1);
+    },
+    chart175: function (host) {
+      host.innerHTML = '<div class="xfig" data-theme="light" style="width:175mm"><div class="xf-cols"><div class="xf-panel"><h5>a · Transfers per month, 2024</h5>' + colChart(Math.round(84 * PX), 176) + '</div>' +
+        '<div class="xf-panel"><h5>b · Transfers per month inside the three largest communities</h5>' + lineChart(Math.round(84 * PX), 176) + '</div></div>' +
+        '<div class="xf-cap"><b>transfers.eg</b> · <span class="n">1,830,397,917</span> transfers, <span class="n">2024-01-01 … 2024-12-31</span>, counted by calendar month (UTC). <b>a</b> All transfers; the highest and the lowest month are printed exactly. <b>b</b> Transfers with both ends inside one community, for A, B and C of the map (<span class="n">402,118,330</span>, <span class="n">188,300,412</span> and <span class="n">151,902,006</span> over the year); each series has its own line style and marker. Months differ in length; values are totals, not daily rates.<span class="prov">' + PROV + '</span></div></div>';
+    },
+    chart85: function (host) {
+      host.innerHTML = '<div class="xfig" data-theme="light" style="width:85mm"><div class="xf-panel"><h5>Addresses by number of transfers (degree)</h5>' + degreeChart(Math.round(85 * PX), 214) + '</div>' +
+        '<div class="xf-cap"><b>transfers.eg</b> · <span class="n">212,418,907</span> addresses. Each point is the number of addresses whose degree (transfers sent plus received) falls in a bin; bins double in width from <span class="n">1</span> to <span class="n">16,777,215</span>, and a point sits at the middle of its bin. Both axes are logarithmic. The first and the last bin are printed exactly.<span class="prov">' + PROV + '</span></div></div>';
+    }
+  };
+
+  /* ---------- charts (print style): black axes, hairline grid, data colour only on the marks ---------- */
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var TOTAL = [133282406, 130496150, 182914277, 155950840, 150358538, 131981676, 130155978, 144118581, 149962375, 167394823, 175506900, 178275373];   /* sums to 1,830,397,917 */
+  var SERIES = [   /* internal transfers of communities 0, 1, 2; each sums to internal_edges in api.md */
+    { key: 'A', name: 'Exchange deposits', id: 0, dash: '', v: [30767626, 29432693, 42716506, 34750954, 32468606, 29750865, 29422917, 30756876, 32423866, 34864012, 36379718, 38383691] },
+    { key: 'B', name: 'Stablecoin transfers', id: 1, dash: '5 2.5', v: [9742015, 9999602, 11970720, 12564234, 14280929, 14714267, 16182149, 17509795, 17886093, 19766879, 20990007, 22693722] },
+    { key: 'C', name: 'Token swaps', id: 2, dash: '1.2 2.4', v: [16762004, 15010639, 17537246, 13733907, 12679198, 10484259, 9797665, 10360643, 10231045, 11614112, 11990713, 11700575] }];
+  var DEG = [104096098, 54993458, 24984605, 14447078, 6891191, 3628755, 1790207, 796370, 403363, 193582, 96371, 47350, 24900, 13232, 5839, 3357, 1568, 780, 431, 202, 98, 47, 19, 6];   /* bin k = [2^k, 2^(k+1)); sums to 212,418,907 */
+  var regionColour = (function () { var L = egMap.layout(7, 1.5); return function (id) { return 'var(--d' + L.regions[id].c + ')'; }; })();
+  var T = 'font-family="var(--font-mono)" font-size="8" fill="var(--print-ink)"', TS = 'font-family="var(--font-sans)" font-size="8.67" fill="var(--print-ink)"';
+  function frame(w, h, body) { return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto" role="img">' + body + '</svg>'; }
+  function yGrid(m, w, h, ticks, y, label) {
+    return ticks.map(function (t, i) {
+      var yy = y(t).toFixed(1);
+      return '<line x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + yy + '" y2="' + yy + '" stroke="' + (i ? 'var(--fig-grid)' : 'var(--print-ink)') + '" stroke-width="' + (i ? 0.5 : 0.67) + '"/>' +
+        '<text ' + T + ' x="' + (m.l - 4) + '" y="' + (+yy + 2.8) + '" text-anchor="end">' + label(t) + '</text>';
+    }).join('');
+  }
+  function colChart(w, h) {
+    var m = { l: 31, r: 3, t: 14, b: 14 }, pw = w - m.l - m.r, ph = h - m.t - m.b, band = pw / 12, bw = 10, max = 200e6;
+    function y(v) { return m.t + ph * (1 - v / max); }
+    var s = yGrid(m, w, h, [0, 50e6, 100e6, 150e6, 200e6], y, function (t) { return t ? t / 1e6 + ' M' : '0'; });
+    var hi = TOTAL.indexOf(Math.max.apply(null, TOTAL)), lo = TOTAL.indexOf(Math.min.apply(null, TOTAL));
+    TOTAL.forEach(function (v, i) {
+      var x = m.l + band * i + (band - bw) / 2, yy = y(v), r = 1.5;
+      s += '<path d="M' + x.toFixed(1) + ' ' + y(0).toFixed(1) + 'V' + (yy + r).toFixed(1) + 'q0 -' + r + ' ' + r + ' -' + r + 'h' + (bw - 2 * r) + 'q' + r + ' 0 ' + r + ' ' + r + 'V' + y(0).toFixed(1) + 'z" fill="var(--d1)"/>' +
+        '<text ' + TS + ' x="' + (x + bw / 2).toFixed(1) + '" y="' + (h - 3) + '" text-anchor="middle">' + MONTHS[i] + '</text>';
+      if (i === hi) s += '<text ' + T + ' x="' + (x + bw / 2).toFixed(1) + '" y="' + (yy - 3).toFixed(1) + '" text-anchor="middle">' + fmt(v) + '</text>';
+      if (i === lo) { var ly = y(172e6); s += '<line x1="' + (x + bw / 2).toFixed(1) + '" x2="' + (x + bw / 2).toFixed(1) + '" y1="' + (ly + 3).toFixed(1) + '" y2="' + (yy - 2).toFixed(1) + '" stroke="var(--print-ink)" stroke-width="0.5"/><text ' + T + ' x="' + (x + bw / 2).toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle">' + fmt(v) + '</text>'; }
+    });
+    return frame(w, h, s);
+  }
+  function marker(kind, x, y, c) {
+    var a = 'fill="' + c + '" stroke="var(--print-paper)" stroke-width="0.8"';
+    if (kind === 0) return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="2.3" ' + a + '/>';
+    if (kind === 1) return '<rect x="' + (x - 2.1).toFixed(1) + '" y="' + (y - 2.1).toFixed(1) + '" width="4.2" height="4.2" ' + a + '/>';
+    return '<path d="M' + x.toFixed(1) + ' ' + (y - 2.9).toFixed(1) + 'l2.7 4.9h-5.4z" ' + a + '/>';
+  }
+  function lineChart(w, h) {
+    var m = { l: 31, r: 121, t: 14, b: 14 }, pw = w - m.l - m.r, ph = h - m.t - m.b, max = 50e6;
+    function x(i) { return m.l + 6 + (pw - 12) * i / 11; } function y(v) { return m.t + ph * (1 - v / max); }
+    var s = yGrid(m, w, h, [0, 10e6, 20e6, 30e6, 40e6, 50e6], y, function (t) { return t ? t / 1e6 + ' M' : '0'; });
+    MONTHS.forEach(function (mn, i) { if (i % 2 === 0) s += '<text ' + TS + ' x="' + x(i).toFixed(1) + '" y="' + (h - 3) + '" text-anchor="middle">' + mn + '</text>'; });
+    SERIES.forEach(function (sr, k) {
+      var c = regionColour(sr.id), d = sr.v.map(function (v, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1); }).join('');
+      s += '<path d="' + d + '" fill="none" stroke="' + c + '" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"' + (sr.dash ? ' stroke-dasharray="' + sr.dash + '"' : '') + '/>';
+      sr.v.forEach(function (v, i) { s += marker(k, x(i), y(v), c); });
+      var ye = y(sr.v[11]), xe = w - m.r + 5;
+      s += '<line x1="' + xe + '" x2="' + (xe + 13) + '" y1="' + ye.toFixed(1) + '" y2="' + ye.toFixed(1) + '" stroke="' + c + '" stroke-width="1.3"' + (sr.dash ? ' stroke-dasharray="' + sr.dash + '"' : '') + '/>' + marker(k, xe + 6.5, ye, c) +
+        '<text ' + TS + ' x="' + (xe + 17) + '" y="' + (ye + 3).toFixed(1) + '"><tspan font-weight="600">' + sr.key + '</tspan> ' + sr.name + '</text>';
+    });
+    return frame(w, h, s);
+  }
+  function degreeChart(w, h) {
+    var m = { l: 31, r: 8, t: 12, b: 24 }, pw = w - m.l - m.r, ph = h - m.t - m.b, xmax = 7.4, ymax = 8.4;
+    function x(d) { return m.l + pw * Math.log10(d) / xmax; } function y(c) { return m.t + ph * (1 - Math.log10(c) / ymax); }
+    var short = ['1', '10', '100', '1 k', '10 k', '100 k', '1 M', '10 M', '100 M'], s = '';
+    for (var e = 0; e <= 8; e++) {
+      var yy = y(Math.pow(10, e)).toFixed(1);
+      s += '<line x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + yy + '" y2="' + yy + '" stroke="' + (e ? 'var(--fig-grid)' : 'var(--print-ink)') + '" stroke-width="' + (e ? 0.5 : 0.67) + '"/>';
+      if (e % 2 === 0) s += '<text ' + T + ' x="' + (m.l - 4) + '" y="' + (+yy + 2.8) + '" text-anchor="end">' + short[e] + '</text>';
+    }
+    for (e = 0; e <= 7; e++) {
+      var xx = x(Math.pow(10, e)).toFixed(1);
+      s += '<line x1="' + xx + '" x2="' + xx + '" y1="' + y(1).toFixed(1) + '" y2="' + (y(1) + 3).toFixed(1) + '" stroke="var(--print-ink)" stroke-width="0.67"/>' +
+        '<text ' + T + ' x="' + xx + '" y="' + (y(1) + 11).toFixed(1) + '" text-anchor="middle">' + short[e] + '</text>';
+    }
+    s += '<text ' + TS + ' x="' + (w - m.r) + '" y="' + (h - 2) + '" text-anchor="end">Transfers per address (degree) →</text>' +
+      '<text ' + TS + ' x="' + m.l + '" y="' + (m.t - 4) + '">↑ Addresses in the bin</text>';
+    DEG.forEach(function (c, k) { s += marker(0, x(Math.pow(2, k + 0.5)), y(c), 'var(--d1)'); });
+    var x0 = x(Math.SQRT2), y0 = y(DEG[0]), x1 = x(Math.pow(2, 23.5)), y1 = y(DEG[23]);
+    s += '<text ' + TS + ' x="' + (x0 + 6).toFixed(1) + '" y="' + (y0 + 1).toFixed(1) + '"><tspan font-family="var(--font-mono)" font-size="8">' + fmt(DEG[0]) + '</tspan> addresses with exactly one transfer</text>' +
+      '<text ' + TS + ' x="' + (x1 - 7).toFixed(1) + '" y="' + (y1 + 4).toFixed(1) + '" text-anchor="end"><tspan font-family="var(--font-mono)" font-size="8">' + DEG[23] + '</tspan> addresses with more than <tspan font-family="var(--font-mono)" font-size="8">8,388,607</tspan></text>';
+    return frame(w, h, s);
+  }
+
+  /* ---------- build every figure on the page ---------- */
+  Array.prototype.forEach.call(document.querySelectorAll('[data-fig]'), function (host) { figs[host.getAttribute('data-fig')](host); });
+
+  /* the key specimen: kinds of region, kinds of link, a path */
+  (function () {
+    var host = document.getElementById('keyspec'); if (!host) return;
+    var w = Math.round(85 * PX), h = 150;
+    host.innerHTML = '<svg class="xf-map"></svg><div class="xf-legend" style="align-items:flex-start"></div>';
+    var svg = host.querySelector('svg');
+    var info = egMap(svg, { w: w, h: h, print: true, keys: true, labels: 'names', fs: 9, stroke: 1, detail: 1, pad: 3, zoom: 1.75, focus: 0, dx: -0.1, dy: 0.05, select: LINKS_C.from });
+    drawLinks(svg, info, LINKS_C);
+    /* page-local addition, not in the generator: a path of four hops between five addresses, dashed, with direction, numbered in order */
+    var pos = positions(svg, info), pts = [[3, 0.1, 0.5], [0, -0.35, -0.5], [0, 0.3, 0.45], [1, -0.35, 0.5], [1, 0.4, -0.25]].filter(function (q) { return pos[q[0]]; })
+      .map(function (q) { var c = pos[q[0]]; return [c.x + c.r * q[1], c.y + c.r * q[2]]; }), seg = '', dots = '';
+    pts.forEach(function (q, i) {
+      if (i) seg += '<line x1="' + pts[i - 1][0].toFixed(1) + '" y1="' + pts[i - 1][1].toFixed(1) + '" x2="' + q[0].toFixed(1) + '" y2="' + q[1].toFixed(1) + '" stroke="var(--print-ink)" stroke-width="1.1" stroke-dasharray="4 2" marker-end="url(#xarrow)"/>';
+      dots += '<circle cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="4.6" fill="var(--print-paper)" stroke="var(--print-ink)" stroke-width="0.8"/><text x="' + q[0].toFixed(1) + '" y="' + (q[1] + 2.8).toFixed(1) + '" style="font-family:var(--font-mono);font-size:8px;stroke:none">' + (i + 1) + '</text>';
+    });
+    svg.insertAdjacentHTML('beforeend', '<defs><marker id="xarrow" viewBox="0 0 8 8" refX="15" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0.5L8 4L0 7.5z" fill="var(--print-ink)"/></marker></defs>' + seg + dots);
+    host.querySelector('.xf-legend').innerHTML = kindsKey(11) +
+      '<div><h5>Kinds of link</h5><div class="xf-kinds">' +
+      '<svg width="26" height="8"><line x1="2" x2="24" y1="4" y2="4" stroke="var(--print-ink)" stroke-opacity="0.55" stroke-width="5" stroke-linecap="round"/></svg><span>Transfers between regions; width by count</span>' +
+      '<svg width="26" height="8"><line x1="1" x2="25" y1="4" y2="4" stroke="var(--print-ink)" stroke-width="1.1" stroke-dasharray="4 2"/></svg><span>A path; points numbered in order</span>' +
+      '<svg width="26" height="16"><circle cx="13" cy="8" r="4" fill="none" stroke="var(--print-ink)"/><circle cx="13" cy="8" r="6.6" fill="none" stroke="var(--print-ink)"/></svg><span>Selected region (double ring)</span></div></div>';
+  })();
+
+  /* greyscale pair: map only */
+  ['greyA', 'greyB'].forEach(function (k) {
+    var svg = document.querySelector('[data-map="' + k + '"]'); if (!svg) return;
+    var info = egMap(svg, { w: Math.round(136 * PX), h: 318, print: true, keys: true, labels: 'full', fs: 9, stroke: 1, detail: 2, pad: 5, select: LINKS_C.from });
+    drawLinks(svg, info, LINKS_C);
+  });
+
+  /* month table */
+  (function () {
+    var t = document.getElementById('month-table'); if (!t) return;
+    var sum = 0, rows = TOTAL.map(function (v, i) { sum += v; return '<tr><td>' + MONTHS[i] + ' <span class="num">2024</span></td><td class="num">' + fmt(v) + '</td><td class="num">' + (100 * v / 1830397917).toFixed(2) + '%</td></tr>'; }).join('');
+    t.innerHTML = '<tr><th>Month</th><th class="num">Transfers</th><th class="num">Share</th></tr>' + rows + '<tr><td><b>Total</b></td><td class="num"><b>' + fmt(sum) + '</b></td><td class="num">100.00%</td></tr>';
+  })();
+
+  /* slide and share image are drawn at their real pixel size and scaled to fit the column */
+  function fit(id, inner) { var box = document.getElementById(id); if (!box || !box.firstElementChild) return; var k = Math.min(1, box.clientWidth / inner.w); box.firstElementChild.style.transform = 'scale(' + k + ')'; box.style.height = Math.ceil(inner.h * k) + 'px'; }
+
+  /* ---------- shared page, embed, share image ---------- */
+  ['sh-mark', 'sh-mark2', 'em-mark'].forEach(function (id) { var e = document.getElementById(id); if (e) e.innerHTML = nest(id === 'sh-mark' ? 24 : 16); });
+  (function () {
+    var k = document.getElementById('sh-kinds'); if (!k) return;
+    function sw(kind) { return kindSwatch(kind, 16).replace(/var\(--print-ink\)/g, 'currentColor'); }
+    k.innerHTML = '<li>' + sw('community') + '<span><b>Community.</b> Found by the method.</span></li><li>' + sw('subdivision') + '<span><b>Subdivision.</b> A large community cut into parts so it can be drawn. Not a finding.</span></li><li>' + sw('aggregate') + '<span><b>Many small communities</b> shown as one.</span></li>';
+    /* the map fills the space beside the panel */
+    var svg = document.querySelector('[data-map="shared"]'), cw = svg.parentNode.clientWidth || 790, ch = Math.max(Math.round(cw * 0.66), document.querySelector('#shared-page .panel').offsetHeight);
+    egMap(svg, { w: cw, h: ch, fs: 12, pad: 18 });
+  })();
+  (function () { var svg = document.querySelector('[data-map="embed"]'); if (svg) egMap(svg, { w: 678, h: 420, fs: 11, pad: 12 }); })();
+  (function () {
+    var og = document.getElementById('og'); if (!og) return;
+    og.innerHTML = '<svg class="m" width="730" height="556" style="left:470px"></svg>' +
+      '<div class="txt"><h3>Transfers in 2024</h3><div class="by">A map by Ada Moretti · <span class="num">24 November 2026</span></div>' +
+      '<dl><dd><b>212,418,907</b>addresses</dd><dd><b>1,830,397,917</b>transfers</dd><dd><b>31,960</b>communities</dd></dl><span class="sp"></span>' +
+      '<span class="xmark">' + nest(36) + '<span>every<b>graph</b></span></span></div>' +
+      '<div class="cap">Each circle is a community of addresses; area follows the number of addresses. Position has no other meaning.</div>';
+    egMap(og.querySelector('svg'), { w: 730, h: 556, fs: 15, pad: 14, labels: 'full', detail: 2 });
+    /* scaled copies inside the message previews */
+    Array.prototype.forEach.call(document.querySelectorAll('[data-og]'), function (box) {
+      var k = +box.getAttribute('data-og'), c = og.cloneNode(true); c.removeAttribute('id'); c.removeAttribute('data-only'); c.removeAttribute('data-bare');
+      var n = 0; c.innerHTML = c.innerHTML.replace(/egm(\d+)/g, function (m0, d) { return 'egc' + k.toString().replace('.', '') + 'x' + d; });
+      c.style.transform = 'scale(' + k + ')'; box.style.width = Math.round(1200 * k) + 'px'; box.style.height = Math.round(630 * k) + 'px'; box.appendChild(c);
+    });
+  })();
+  fit('slide-scale', { w: 1280, h: 720 }); fit('og-scale', { w: 1200, h: 630 });
+
+  /* ---------- file icons ---------- */
+  function nestAt(cx, cy, k, ink, dot) {
+    return '<circle cx="' + cx + '" cy="' + cy + '" r="' + (13 * k).toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + (2.4 * k).toFixed(2) + '"/>' +
+      '<circle cx="' + (cx + 2.5 * k).toFixed(2) + '" cy="' + (cy + 2 * k).toFixed(2) + '" r="' + (7 * k).toFixed(2) + '" fill="none" stroke="' + ink + '" stroke-width="' + (2.4 * k).toFixed(2) + '"/>' +
+      '<circle cx="' + (cx + 4 * k).toFixed(2) + '" cy="' + (cy + 3.2 * k).toFixed(2) + '" r="' + (2.6 * k).toFixed(2) + '" fill="' + dot + '"/>';
+  }
+  function fileIcon(kind, size) {
+    var P = 'var(--ico-paper)', I = 'var(--ico-ink)', b;
+    if (size >= 48) {            /* full drawing on a 64 grid */
+      b = '<path d="M13 5h26.5L51 16.5V59H13z" fill="' + P + '" stroke="' + I + '" stroke-width="2" stroke-linejoin="round"/><path d="M39.5 5v11.5H51" fill="none" stroke="' + I + '" stroke-width="2" stroke-linejoin="round"/>';
+      if (kind === 'eg') b += nestAt(31, 37.5, 0.86, I, 'var(--ico-dot)');
+      else b += '<rect x="18.5" y="23" width="27" height="22" rx="1.5" fill="var(--ico-canvas)"/>' + nestAt(31.4, 33.6, 0.56, 'var(--ico-on-canvas)', 'var(--ico-dot-on-canvas)') + '<path d="M18.5 51.5h17" stroke="' + I + '" stroke-width="2"/>';
+      if (size >= 128) b = b.replace(/stroke-width="2"/g, 'stroke-width="1.5"');   /* large sizes take a lighter outline */
+      return '<svg class="xico" width="' + size + '" height="' + size + '" viewBox="0 0 64 64" aria-label=".' + kind + ' file">' + b + '</svg>';
+    }
+    if (size >= 24) {            /* simplified on a 24 grid: no inner ring */
+      b = '<path d="M5.25 2.25h9l4.5 4.5v15h-13.5z" fill="' + P + '" stroke="' + I + '" stroke-width="1.5" stroke-linejoin="round"/><path d="M14.25 2.25v4.5h4.5" fill="none" stroke="' + I + '" stroke-width="1.5" stroke-linejoin="round"/>';
+      if (kind === 'eg') b += '<circle cx="11.6" cy="14.6" r="3.7" fill="none" stroke="' + I + '" stroke-width="1.4"/><circle cx="12.6" cy="15.4" r="1.35" fill="var(--ico-dot)"/>';
+      else b += '<rect x="7.75" y="10" width="8.5" height="6.5" rx="0.75" fill="var(--ico-canvas)"/><circle cx="12" cy="13.25" r="1.9" fill="none" stroke="var(--ico-on-canvas)" stroke-width="1"/><path d="M7.75 19h5" stroke="' + I + '" stroke-width="1.3"/>';
+      return '<svg class="xico" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" aria-label=".' + kind + ' file">' + b + '</svg>';
+    }
+    /* 16 px: sheet, and either a ring or a dark block */
+    b = '<path d="M3.5 1.5h6l3 3v10h-9z" fill="' + P + '" stroke="' + I + '" stroke-linejoin="round"/>';
+    if (kind === 'eg') b += '<circle cx="8" cy="9.5" r="2.25" fill="none" stroke="' + I + '"/><circle cx="8.5" cy="10" r="0.9" fill="var(--ico-dot)"/>';
+    else b += '<rect x="5.5" y="7" width="5" height="4" fill="var(--ico-canvas)"/><path d="M5.5 12.5h3" stroke="' + I + '"/>';
+    return '<svg class="xico" width="' + size + '" height="' + size + '" viewBox="0 0 16 16" aria-label=".' + kind + ' file">' + b + '</svg>';
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-icons]'), function (row) {
+    var kind = row.getAttribute('data-icons');
+    row.innerHTML = [128, 64, 48, 32, 24, 16].map(function (s) { return '<div>' + fileIcon(kind, s) + '<span>' + (s === 128 ? '.' + kind + ' · ' : '') + s + '</span></div>'; }).join('');
+  });
+  (function () {
+    var rows = document.getElementById('file-rows'); if (!rows) return;
+    var G = '<svg class="generic" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M3.5 1.5h6l3 3v10h-9z"/></svg>';
+    var files = [['notes.md', '4 kB', 'Markdown document', '21 Nov 2026', G], ['pagerank.parquet', '6.1 GB', 'Parquet file', '24 Nov 2026', G],
+      ['transfers.eg', '9.3 GB', 'Everygraph graph', '24 Nov 2026', fileIcon('eg', 16), 1], ['transfers.egmap', '4.1 GB', 'Everygraph map', '24 Nov 2026', fileIcon('egmap', 16)],
+      ['transfers.parquet', '38.2 GB', 'Parquet file', '19 Nov 2026', G], ['viewer.html', '412 kB', 'HTML document', '24 Nov 2026', G]];
+    rows.innerHTML = files.map(function (f) { return '<tr' + (f[5] ? ' class="sel"' : '') + '><td class="nm">' + f[4] + f[0] + '</td><td class="sz">' + f[1] + '</td><td>' + f[2] + '</td><td>' + f[3] + '</td></tr>'; }).join('');
+    var G64 = '<svg class="generic" width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 5h26.5L51 16.5V59H13z"/><path d="M39.5 5v11.5H51"/></svg>';
+    document.getElementById('file-icons').innerHTML = '<div>' + G64 + '<span>pagerank.parquet</span></div><div>' + fileIcon('eg', 64) + '<span class="selname">transfers.eg</span></div><div>' + fileIcon('egmap', 64) + '<span>transfers.egmap</span></div><div>' + G64 + '<span>transfers.parquet</span></div><div>' + G64 + '<span>viewer.html</span></div>';
+  })();
+})();
+</script>
+</body>
+</html>

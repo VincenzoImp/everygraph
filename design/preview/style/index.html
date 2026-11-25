@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everygraph style — Overview</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+/* page-specific layout only; colours, sizes and radii come from tokens.css */
+/* -- shared by index, foundations and components (kept inline: these pages own no file under assets/) -- */
+svg.i { flex: none; display: inline-block; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+svg.i .f { fill: currentColor; stroke: none; }
+svg.mk { flex: none; display: inline-block; vertical-align: middle; color: var(--ink); }
+.lockup { display: inline-flex; align-items: center; gap: calc(var(--t) * 0.5); font-size: var(--t); line-height: 1; color: var(--ink); white-space: nowrap; }
+.lockup b { font-weight: var(--weight-semibold); }
+.lockup.tight { letter-spacing: var(--tracking-tight); }
+.lockup.stacked { flex-direction: column; gap: calc(var(--t) * 0.6); }
+code, kbd, pre, samp, .num { font-variant-ligatures: none; }   /* proposed for base.css: see Foundations, "Code ligatures" */
+
+.page > header h1 { font-size: var(--text-4xl); line-height: var(--lh-4xl); }
+.page > header p + p { margin-top: var(--space-2); }
+.pair > [data-theme] { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); align-content: start; }
+.cap { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); } .cap .num { font-size: inherit; }
+.spec > h4 { font-size: var(--text-sm); line-height: var(--lh-sm); font-weight: var(--weight-medium); color: var(--ink-2); margin-bottom: var(--space-3); }
+
+/* identity */
+.ident { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
+.ident .marks { display: flex; align-items: flex-end; gap: var(--space-4); }
+.chips { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
+.chip { display: grid; gap: 2px; min-width: 0; }
+.chip .swatch { height: 44px; margin-bottom: var(--space-1); }
+.chip .n { font: var(--weight-medium) var(--text-xs)/var(--lh-xs) var(--font-sans); white-space: nowrap; }
+.chip .h { font: 11px/var(--lh-xs) var(--font-mono); color: var(--muted); }
+.typespec { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5) var(--space-6); align-items: start; }
+.typespec .display, .typespec .bignum { align-self: end; }
+.typespec .display { font-size: var(--text-5xl); line-height: var(--lh-5xl); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-tight); }
+.typespec .lede2 { font-size: var(--text-lg); line-height: var(--lh-lg); color: var(--ink-2); max-width: 520px; }
+.typespec .bignum { font: 400 var(--text-4xl)/var(--lh-5xl) var(--font-mono); letter-spacing: -0.02em; }
+.typespec dl { margin: var(--space-4) 0 0; display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-4); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.typespec dt { color: var(--muted); } .typespec dd { margin: 0; color: var(--ink-2); }
+
+/* one of everything */
+.inbox { display: flex; align-items: center; gap: var(--space-2); height: var(--control-md); padding: 0 var(--space-2) 0 var(--space-3); background: var(--surface); border: var(--border) solid var(--line-strong); border-radius: var(--radius-sm); min-width: 0; flex: 1; }
+.inbox > input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; font: var(--text-md)/1 var(--font-sans); color: var(--ink); }
+.inbox > input::placeholder { color: var(--muted); } .inbox > svg.i { color: var(--muted); }
+.controls { display: flex; align-items: center; gap: var(--space-2); }
+.tframe { border: var(--border) solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
+.tframe table.t tr:last-child td { border-bottom: 0; } .tframe table.t tr:hover td { background: none; }
+.tframe table.t tr.is-selected td { background: var(--accent-soft); }
+.tfoot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); border-top: var(--border) solid var(--line); font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.tfoot .num { font-size: inherit; color: var(--ink); }
+.minimap { border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.minimap svg { display: block; width: 100%; height: auto; background: var(--map-bg); }
+.mapreg { fill-opacity: 0.12; stroke-width: 1.5; }
+.maplab { font: var(--weight-semibold) 12px/1 var(--font-sans); fill: var(--map-ink); paint-order: stroke; stroke: var(--map-bg); stroke-width: 3px; stroke-linejoin: round; text-anchor: middle; }
+.maplab.n { font: 400 11px/1 var(--font-mono); }
+.mapsel { fill: none; stroke: var(--map-ink); stroke-width: 1.5; }
+.dim60 { opacity: 0.6; }
+.strip { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--surface); border-top: var(--border) solid var(--line); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.strip .si { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; row-gap: var(--space-1); overflow: hidden; margin-left: calc(-1 * var(--space-3)); }
+.strip .si > span { margin-left: -1px; padding: 0 var(--space-3); border-left: var(--border) solid var(--line-strong); }
+.strip b { color: var(--ink); font-weight: var(--weight-medium); } .strip .num { font-size: inherit; }
+
+/* principles */
+.principles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3) var(--space-4); }
+.principles > div { display: grid; gap: var(--space-2); align-content: start; }
+.principles .verdict { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); line-height: var(--lh-sm); font-weight: var(--weight-medium); color: var(--ink); }
+.principles .rule-do .verdict svg { color: var(--ok); } .principles .rule-dont .verdict svg { color: var(--err); }
+.principles .ex { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: 64px; padding: var(--space-3); background: var(--surface); border-radius: var(--radius-sm); }
+.principles .ex .num { font-size: 0.95em; }
+.fakecard { padding: var(--space-2) var(--space-3); background: var(--surface); border-radius: var(--radius-md); }
+.pill { display: inline-flex; align-items: center; height: 22px; padding: 0 var(--space-2); border-radius: var(--radius-round); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.dotonly { width: 10px; height: 10px; border-radius: var(--radius-round); }
+
+/* name, decisions, contents */
+.names td:first-child { width: 300px; color: var(--ink-2); } .names tr:hover td { background: none; }
+.names .wm { font-size: var(--text-lg); } .names .wm b { font-weight: var(--weight-semibold); }
+.names .never { color: var(--muted); }
+.decide { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.decide ul { list-style: none; padding: 0; display: grid; }
+.decide li { display: grid; grid-template-columns: 20px 1fr; gap: var(--space-2); padding: var(--space-3) 0; border-bottom: var(--border) solid var(--line); }
+.decide li:last-child { border-bottom: 0; padding-bottom: 0; }
+.decide li > svg.i { margin-top: 2px; }
+.decide .done svg.i { color: var(--ok); } .decide .open svg.i { color: var(--warn); }
+.decide li b { font-weight: var(--weight-medium); } .decide li span { display: block; color: var(--ink-2); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.toc { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.toc a { display: grid; grid-template-rows: auto auto 1fr auto; gap: var(--space-3); padding: var(--space-3); background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-md); color: var(--ink); text-decoration: none; transition: border-color var(--dur-fast) var(--ease); }
+.toc a:hover { border-color: var(--line-strong); }
+.toc .thumb { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); background: var(--bg); border: var(--border) solid var(--line); }
+.toc h3 { display: flex; justify-content: space-between; align-items: center; } .toc h3 svg.i { color: var(--ink-2); }
+.toc p { color: var(--ink-2); font-size: var(--text-sm); line-height: var(--lh-sm); }
+.toc .n { font: var(--text-xs)/var(--lh-xs) var(--font-mono); color: var(--muted); }
+.th-l { stroke: var(--line-strong); stroke-width: 1; fill: none; } .th-f { fill: var(--surface-2); } .th-s { fill: var(--surface); stroke: var(--line); } .th-i { fill: var(--ink); } .th-i2 { fill: var(--ink-2); } .th-a { fill: var(--accent); } .th-m { fill: var(--line-strong); }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <span class="overline">Everygraph style · working name “Vernier”</span>
+    <h1 style="margin-top:var(--space-2)">A calm measuring instrument</h1>
+    <p>Everygraph should feel like something you trust a number from: warm paper, soft black, one ink-blue accent, and hairlines instead of boxes.</p>
+    <p>Every number is exact, set in monospace, and says so when it has been cut short.</p>
+    <p>It is friendly through plain words and generous spacing, not through colour, rounded shapes or decoration.</p>
+  </header>
+
+  <!-- ============================== IDENTITY ============================== -->
+  <section class="section" id="identity"><h2>The mark, the name, the colours</h2>
+    <p>Two off-centre rings and a dot — a region, a sub-region, a node. Seven colours carry almost everything; the accent is the only one with a hue, and it means “interactive or selected”.</p>
+    <div class="pair" data-dup>
+      <div class="ident">
+        <span class="lockup tight" style="--t:44px"><span data-mark="nest" data-size="60"></span><span>every<b>graph</b></span></span>
+        <div class="marks"><span data-mark="nest" data-size="40"></span><span data-mark="seal" data-size="40"></span><span data-mark="seal" data-size="24"></span><span data-mark="seal-s" data-size="16"></span></div>
+      </div>
+      <div class="chips">
+        <div class="chip"><div class="swatch" style="background:var(--bg)"></div><span class="n">Paper</span><span class="h" data-tok="bg"></span></div>
+        <div class="chip"><div class="swatch" style="background:var(--surface)"></div><span class="n">Surface</span><span class="h" data-tok="surface"></span></div>
+        <div class="chip"><div class="swatch" style="background:var(--surface-2)"></div><span class="n">Well</span><span class="h" data-tok="surface-2"></span></div>
+        <div class="chip"><div class="swatch" style="background:var(--line-strong)"></div><span class="n">Line</span><span class="h" data-tok="line-strong"></span></div>
+        <div class="chip"><div class="swatch" style="background:var(--muted)"></div><span class="n">Muted</span><span class="h" data-tok="muted"></span></div>
+        <div class="chip"><div class="swatch" style="background:var(--ink)"></div><span class="n">Ink</span><span class="h" data-tok="ink"></span></div>
+        <div class="chip"><div class="swatch" style="background:var(--accent)"></div><span class="n">Accent</span><span class="h" data-tok="accent"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== TYPE ============================== -->
+  <section class="section" id="type"><h2>Type</h2>
+    <p>Inter for everything read. JetBrains Mono for every number, code, identifier, file name and key. Sentence case everywhere.</p>
+    <div class="spec"><div class="typespec">
+      <div class="display">Every graph</div>
+      <div class="bignum">1,830,397,917</div>
+      <div>
+        <p class="lede2">One engine to load, measure, query and map a graph — from a thousand edges to billions — on a single computer, inside the memory you give it.</p>
+        <dl><dt>Inter</dt><dd>Regular 400 · <span style="font-weight:var(--weight-medium)">Medium 500</span> · <span style="font-weight:var(--weight-semibold)">Semibold 600</span> — interface <span class="num">14&#8239;px</span>, reading <span class="num">16&#8239;px</span></dd></dl>
+      </div>
+      <div>
+        <p class="lede2" style="font-family:var(--font-mono);font-size:var(--text-md);line-height:var(--lh-lg)">212,418,907 addresses · 9.3&#8239;GB · 3&#8239;min 30&#8239;s<br>g.communities(seed=0) · transfers.eg · 0x7a25…488d</p>
+        <dl><dt>JetBrains Mono</dt><dd>Regular 400 · <span style="font-family:var(--font-mono);font-weight:500">Medium 500</span> — tabular, dotted zero, no ligatures</dd></dl>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============================== ONE OF EVERYTHING ============================== -->
+  <section class="section" id="everything"><h2>One of everything</h2>
+    <p>A button, an input, a table of numbers, a message and a small map, in both themes. Each is specified with all its states on the <a href="components.html">Components</a> page.</p>
+    <div class="pair" data-dup>
+      <div class="controls"><div class="inbox"><i data-i="search"></i><input placeholder="Search address or region" tabindex="-1"><kbd>/</kbd></div><button class="btn" tabindex="-1"><i data-i="table"></i>Open as table</button><button class="btn primary" tabindex="-1">Zoom in</button></div>
+      <div class="tframe">
+        <table class="t">
+          <thead><tr><th>Community</th><th class="num">Addresses</th><th class="num">Transfers inside</th><th class="num">Share</th></tr></thead>
+          <tbody>
+            <tr><td>Exchanges</td><td class="num">31,204,118</td><td class="num">412,880,341</td><td class="num">14.69&#8239;%</td></tr>
+            <tr class="is-selected"><td>DeFi protocols</td><td class="num">22,870,455</td><td class="num">268,114,902</td><td class="num">10.77&#8239;%</td></tr>
+            <tr><td>Stablecoin transfers</td><td class="num">18,441,082</td><td class="num">201,557,310</td><td class="num">8.68&#8239;%</td></tr>
+          </tbody>
+        </table>
+        <div class="tfoot"><span>Showing <span class="num">3</span> of <span class="num">1,312</span> · sorted by addresses</span><button class="btn sm" tabindex="-1">Show 20 more</button></div>
+      </div>
+      <div class="callout warn"><span class="ico"><i data-i="warning"></i></span><div><b><span class="num">4,201</span> self-loops were dropped.</b> A transfer from an address to itself connects nothing. Keep them with <code>--keep-loops</code>.</div></div>
+      <div class="minimap">
+        <div data-theme="dark">
+          <svg viewBox="0 0 527 250" role="img" aria-label="A small map: nested regions, one selected">
+            <defs><pattern id="ih__T__" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V5" stroke="var(--d10)" stroke-width="1"/></pattern></defs>
+            <g class="dim60">
+              <circle class="mapreg" cx="96" cy="118" r="88" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="66" cy="96" r="34" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="124" cy="146" r="30" style="fill:var(--d1);stroke:var(--d1)"/><circle class="mapreg" cx="134" cy="84" r="18" style="fill:var(--d1);stroke:var(--d1)" stroke-dasharray="4 3"/>
+              <circle class="mapreg" cx="452" cy="86" r="62" style="fill:var(--d3);stroke:var(--d3)"/><circle class="mapreg" cx="436" cy="74" r="24" style="fill:var(--d3);stroke:var(--d3)"/><circle class="mapreg" cx="474" cy="106" r="20" style="fill:var(--d3);stroke:var(--d3)"/>
+              <circle class="mapreg" cx="444" cy="204" r="34" style="fill:var(--d4);stroke:var(--d4)"/>
+              <text class="maplab" x="96" y="26">Exchanges</text><text class="maplab n" x="96" y="212">31,204,118</text>
+              <text class="maplab" x="452" y="18">Stablecoin transfers</text><text class="maplab n" x="444" y="208">9,112,876</text>
+            </g>
+            <g fill="none" stroke="var(--map-ink)" stroke-opacity="0.55" stroke-linecap="round"><path d="M196 110 Q 168 104 142 112" stroke-width="7"/><path d="M366 100 Q 392 88 416 90" stroke-width="4"/><path d="M352 178 Q 388 200 420 204" stroke-width="2"/></g>
+            <circle class="mapreg" cx="282" cy="126" r="92" style="fill:var(--d2);stroke:var(--d2)"/>
+            <circle class="mapsel" cx="282" cy="126" r="96"/><circle class="mapsel" cx="282" cy="126" r="100.5"/>
+            <circle class="mapreg" cx="246" cy="104" r="38" style="fill:var(--d2);stroke:var(--d2)"/><circle class="mapreg" cx="320" cy="112" r="34" style="fill:var(--d2);stroke:var(--d2)"/><circle class="mapreg" cx="286" cy="174" r="26" style="fill:var(--d2);stroke:var(--d2)"/>
+            <circle cx="232" cy="168" r="20" fill="url(#ih__T__)" stroke="var(--d10)" stroke-width="1.5"/>
+            <text class="maplab" x="246" y="102">Lending</text><text class="maplab n" x="246" y="116">6,204,417</text>
+            <text class="maplab" x="320" y="110">DEXs</text><text class="maplab n" x="320" y="124">5,881,902</text>
+            <text class="maplab n" x="286" y="178">3,412,650</text>
+          </svg>
+        </div>
+        <div class="strip"><b>DeFi protocols</b><div class="si"><span><span class="num">3</span> of <span class="num">38</span> links drawn</span><span><b>distance is not a measurement</b></span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== PRINCIPLES ============================== -->
+  <section class="section" id="principles"><h2>Principles</h2>
+    <p>The rules of the specification, each as something to do and something to avoid. The right-hand examples deliberately break the system.</p>
+    <div class="principles">
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>The accent means “interactive or selected”</span><div class="ex"><button class="btn primary" tabindex="-1">Zoom in</button><a href="#principles">About this map</a><span class="tag accent">selected</span></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>The accent as decoration</span><div class="ex"><span style="color:var(--accent);font-weight:var(--weight-semibold);font-size:var(--text-lg)">Largest communities</span><span style="width:48px;border-top:3px solid var(--accent)"></span><span style="color:var(--accent)"><i data-i="community"></i></span></div></div>
+
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>A status has an icon and a word</span><div class="ex"><span class="tag ok"><i data-i="success"></i>Done</span><span class="tag warn"><i data-i="warning"></i>Cut short</span><span class="tag err"><i data-i="error"></i>Failed</span></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>Colour as the only carrier</span><div class="ex"><span class="dotonly" style="background:var(--ok)"></span><span class="dotonly" style="background:var(--warn)"></span><span class="dotonly" style="background:var(--err)"></span><span style="color:var(--err)">transfers.eg</span></div></div>
+
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>Exact numbers, in monospace</span><div class="ex"><span><span class="num">22,870,455</span> addresses · <span class="num">10.77&#8239;%</span> of the graph · <span class="num">9.3&#8239;GB</span></span></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>Rounded numbers in the text face</span><div class="ex"><span>22.9M addresses · ~11% of the graph · 9.3GB</span></div></div>
+
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>A result cut short says so, in place</span><div class="ex"><span>Showing <span class="num">20</span> of <span class="num">1,312</span></span><button class="btn sm" tabindex="-1">Show 20 more</button></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>A silent cut</span><div class="ex"><span>Top communities</span><span class="muted">…</span></div></div>
+
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>Hairlines; a shadow only on what floats</span><div class="ex"><div class="card" style="padding:var(--space-2) var(--space-3)">A card: flat, one hairline</div><div class="pop" style="padding:var(--space-2) var(--space-3)">A menu: the one shadow</div></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>Shadows, big radii, gradients</span><div class="ex"><div style="padding:var(--space-2) var(--space-4);border-radius:16px;background:linear-gradient(135deg,var(--accent-soft),var(--surface));box-shadow:0 6px 16px var(--scrim)">A soft, floating card</div></div></div>
+
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>Sentence case and plain words</span><div class="ex"><span><b style="font-weight:var(--weight-semibold)">Not enough memory for this step.</b> The budget is <span class="num">4.0&#8239;GB</span>; <span class="num">5.6&#8239;GB</span> is the smallest that works.</span></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>Capitals, exclamation marks, “simply”</span><div class="ex"><span><b>OOPS! SOMETHING WENT WRONG</b> — simply try again with our blazing-fast engine!</span></div></div>
+
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>Data colours belong to data</span><div class="ex"><span class="row" style="gap:var(--space-2)"><span class="dotonly" style="background:var(--d2)"></span>Lending <span class="num muted">6,204,417</span></span><span class="row" style="gap:var(--space-2)"><span class="dotonly" style="background:var(--d3)"></span>Liquid staking <span class="num muted">3,412,650</span></span></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>Chrome borrowing data colours</span><div class="ex"><span class="pill" style="background:var(--d3);color:var(--surface)">New</span><span class="pill" style="background:var(--d4);color:var(--surface)">Beta</span><button class="btn" style="border-color:var(--d2);color:var(--d2)" tabindex="-1">Open as table</button></div></div>
+
+      <div class="rule-do"><span class="verdict"><i data-i="check"></i>Square enough to be an instrument</span><div class="ex"><button class="btn" tabindex="-1">Copy link</button><span class="tag">found community</span><kbd>Esc</kbd></div></div>
+      <div class="rule-dont"><span class="verdict"><i data-i="close"></i>Pills and bubbles</span><div class="ex"><button class="btn" style="border-radius:var(--radius-round);padding:0 var(--space-4)" tabindex="-1">Copy link</button><span class="pill" style="background:var(--surface-2);color:var(--ink-2)">found community</span></div></div>
+    </div>
+  </section>
+
+  <!-- ============================== NAME ============================== -->
+  <section class="section" id="name"><h2>Spelling the name</h2>
+    <p>One name, three forms, each with its place. The incorrect forms are shown on the <a href="foundations.html#wordmark">Foundations</a> page.</p>
+    <div class="spec">
+      <table class="t names">
+        <thead><tr><th>Where</th><th>Form</th><th>Never</th></tr></thead>
+        <tbody>
+          <tr><td>Running text, headings, titles</td><td><b style="font-weight:var(--weight-semibold)">Everygraph</b> — capital E, one word</td><td class="never">EveryGraph · Every Graph · everyGraph · EVERYGRAPH</td></tr>
+          <tr><td>The wordmark</td><td><span class="wm">every<b>graph</b></span> — lowercase, “every” regular, “graph” semibold</td><td class="never">a capital, a space, one weight</td></tr>
+          <tr><td>Anything typed: package, import, command, crates, URLs</td><td><code>everygraph</code> · <code>pip install everygraph</code> · <code>everygraph ingest …</code></td><td class="never">a capital anywhere</td></tr>
+          <tr><td>Python alias</td><td><code>eg</code> — <code>import everygraph as eg</code></td><td class="never">“EG” in prose</td></tr>
+          <tr><td>File extensions</td><td><code>.eg</code> (a graph) · <code>.egmap</code> (a shareable map)</td><td class="never">.EG · .EgMap</td></tr>
+          <tr><td>Crates and packages</td><td><code>everygraph-core</code> · <code>@everygraph/viewer</code></td><td class="never">every_graph · EveryGraph-Core</td></tr>
+          <tr><td>Parts of the product</td><td>the Everygraph viewer · an Everygraph map</td><td class="never">coined sub-brands</td></tr>
+          <tr><td>This design system</td><td>“Vernier”, an internal working name</td><td class="never">anywhere in the product</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================== DECIDED / OPEN ============================== -->
+  <section class="section" id="status"><h2>What is decided, what is still open</h2>
+    <p>These pages apply the decisions on the left and show the open questions on the right as they currently stand, so they can be judged on real screens.</p>
+    <div class="decide">
+      <div class="spec done"><h4>Decided</h4>
+        <ul>
+          <li><i data-i="success"></i><div><b>The system.</b><span>The calm instrument: warm paper, soft black, one ink-blue accent, hairlines, almost no shadow.</span></div></li>
+          <li><i data-i="success"></i><div><b>The mark.</b><span>The Nest — two off-centre rings and a dot — with the Seal for small sizes.</span></div></li>
+          <li><i data-i="success"></i><div><b>The typefaces.</b><span>Inter for everything read; JetBrains Mono for numbers, code and identifiers.</span></div></li>
+          <li><i data-i="success"></i><div><b>Numbers in monospace.</b><span>Exact, with thousands separators, tabular; rounded only in running text.</span></div></li>
+        </ul>
+      </div>
+      <div class="spec open"><h4>Still open</h4>
+        <ul>
+          <li><i data-i="help"></i><div><b>The rule for colouring the map.</b><span>A few well-separated colours reused for regions that do not touch, or one colour per top-level region. See <a href="data.html">Data &amp; map</a>.</span></div></li>
+          <li><i data-i="help"></i><div><b>The default theme of the viewer.</b><span>The specification proposes the dark canvas; both are drawn on the <a href="viewer.html">Viewer</a> page.</span></div></li>
+          <li><i data-i="help"></i><div><b>The final data palette.</b><span>Ten categorical colours are in the tokens; the first is the accent blue, which is one of the things to settle.</span></div></li>
+          <li><i data-i="help"></i><div><b>Raised by these pages.</b><span>The small cut of the Seal, and a few token values that miss their contrast target. See <a href="foundations.html#a11y">Foundations, section 9</a>.</span></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== CONTENTS ============================== -->
+  <section class="section" id="contents"><h2>The eight other pages</h2>
+    <p>Each page settles one part of the style. They share one set of tokens, so a change of value shows on all of them at once.</p>
+    <div class="toc">
+      <a href="foundations.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true"><g transform="translate(22 30) scale(1.875)" style="color:var(--ink)"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="18.5" cy="18" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="20" cy="19.2" r="2.6" fill="var(--accent)"/></g>
+          <rect x="104" y="32" width="20" height="20" class="th-s"/><rect x="128" y="32" width="20" height="20" class="th-f"/><rect x="152" y="32" width="20" height="20" class="th-m"/><rect x="176" y="32" width="20" height="20" class="th-i"/><rect x="200" y="32" width="20" height="20" class="th-a"/>
+          <text x="104" y="88" style="font:600 28px var(--font-sans);fill:var(--ink)">Aa</text><text x="150" y="88" style="font:400 22px var(--font-mono);fill:var(--ink-2)">1,312</text></svg>
+        <h3>Foundations<i data-i="arrow-right"></i></h3><p>The mark, the name, every colour with its measured contrast, type, space, shape, motion and icons.</p><span class="n">foundations.html</span></a>
+      <a href="components.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true"><rect x="24" y="24" width="64" height="24" rx="3" class="th-a"/><rect x="96.500" y="24.500" width="72" height="23" rx="3" class="th-s" style="stroke:var(--line-strong)"/><rect x="178" y="27" width="34" height="18" rx="9" class="th-a"/><circle cx="203" cy="36" r="6" fill="var(--on-accent)"/>
+          <rect x="24.500" y="62.500" width="120" height="23" rx="3" class="th-s" style="stroke:var(--line-strong)"/><rect x="32" y="72" width="52" height="4" class="th-m"/><rect x="156" y="66" width="16" height="16" rx="2" class="th-a"/><path d="M160 74l3 3 5-6" fill="none" stroke="var(--on-accent)" stroke-width="1.5"/>
+          <rect x="24" y="100" width="192" height="4" class="th-f"/><rect x="24" y="100" width="118" height="4" class="th-i"/></svg>
+        <h3>Components<i data-i="arrow-right"></i></h3><p>Every control, message and data display with all of its states, in both themes, and one panel assembled from them.</p><span class="n">components.html</span></a>
+      <a href="data.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true"><g stroke-width="1.5" fill-opacity="0.14"><circle cx="64" cy="60" r="40" fill="var(--d2)" stroke="var(--d2)"/><circle cx="50" cy="52" r="16" fill="var(--d2)" stroke="var(--d2)"/><circle cx="80" cy="70" r="13" fill="var(--d2)" stroke="var(--d2)"/><circle cx="140" cy="46" r="24" fill="var(--d3)" stroke="var(--d3)"/><circle cx="150" cy="92" r="16" fill="var(--d6)" stroke="var(--d6)" stroke-dasharray="4 3"/></g>
+          <g><rect x="184" y="24" width="12" height="12" fill="var(--d1)"/><rect x="200" y="24" width="12" height="12" fill="var(--d2)"/><rect x="184" y="40" width="12" height="12" fill="var(--d3)"/><rect x="200" y="40" width="12" height="12" fill="var(--d4)"/><rect x="184" y="56" width="12" height="12" fill="var(--d5)"/><rect x="200" y="56" width="12" height="12" fill="var(--d6)"/><rect x="184" y="72" width="12" height="12" fill="var(--d7)"/><rect x="200" y="72" width="12" height="12" fill="var(--d8)"/><rect x="184" y="88" width="12" height="12" fill="var(--d9)"/><rect x="200" y="88" width="12" height="12" fill="var(--d10)"/></g></svg>
+        <h3>Data &amp; map<i data-i="arrow-right"></i></h3><p>The data palettes, and how regions, links, labels and the selection are drawn on the map.</p><span class="n">data.html</span></a>
+      <a href="viewer.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true" data-theme="dark" style="background:var(--map-bg)"><rect x="0" y="0" width="240" height="14" fill="var(--surface)"/><rect x="8" y="5" width="36" height="4" fill="var(--ink-2)"/><rect x="100" y="4" width="60" height="6" rx="1" fill="var(--surface-2)"/>
+          <g stroke-width="1.5" fill-opacity="0.14"><circle cx="70" cy="64" r="34" fill="var(--d2)" stroke="var(--d2)"/><circle cx="58" cy="58" r="13" fill="var(--d2)" stroke="var(--d2)"/><circle cx="84" cy="72" r="11" fill="var(--d2)" stroke="var(--d2)"/><circle cx="134" cy="42" r="16" fill="var(--d8)" stroke="var(--d8)"/><circle cx="136" cy="92" r="14" fill="var(--d3)" stroke="var(--d3)"/></g><circle cx="70" cy="64" r="37.500" fill="none" stroke="var(--map-ink)"/>
+          <rect x="168" y="14" width="72" height="96" fill="var(--surface)"/><rect x="176" y="24" width="40" height="5" fill="var(--ink)"/><rect x="176" y="38" width="26" height="8" fill="var(--ink-2)"/><rect x="208" y="38" width="24" height="8" fill="var(--ink-2)"/><rect x="176" y="58" width="56" height="2" fill="var(--line-strong)"/><rect x="176" y="68" width="44" height="2" fill="var(--line-strong)"/><rect x="176" y="78" width="30" height="2" fill="var(--line-strong)"/><rect x="176" y="88" width="20" height="2" fill="var(--line-strong)"/>
+          <rect x="0" y="110" width="240" height="10" fill="var(--surface)"/><rect x="8" y="114" width="120" height="2" fill="var(--muted)"/></svg>
+        <h3>Viewer<i data-i="arrow-right"></i></h3><p>The map viewer, screen by screen: top bar, canvas, inspection panel, time window, sharing.</p><span class="n">viewer.html</span></a>
+      <a href="web.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true"><rect x="16" y="12" width="30" height="4" class="th-i"/><rect x="150" y="12" width="20" height="3" class="th-m"/><rect x="176" y="12" width="20" height="3" class="th-m"/><rect x="202" y="12" width="20" height="3" class="th-m"/>
+          <rect x="16" y="34" width="96" height="9" class="th-i"/><rect x="16" y="48" width="70" height="9" class="th-i"/><rect x="16" y="66" width="90" height="3" class="th-m"/><rect x="16" y="73" width="80" height="3" class="th-m"/><rect x="16" y="88" width="46" height="14" rx="2" class="th-a"/><rect x="68.500" y="88.500" width="44" height="13" rx="2" class="th-s" style="stroke:var(--line-strong)"/>
+          <rect x="132" y="30" width="92" height="74" rx="3" fill="var(--term-bg)"/><g stroke-width="1.2" fill="none"><circle cx="166" cy="64" r="20" stroke="var(--term-warn)"/><circle cx="198" cy="56" r="11" stroke="var(--term-ok)"/><circle cx="196" cy="84" r="9" stroke="var(--term-accent)"/></g></svg>
+        <h3>Web &amp; docs<i data-i="arrow-right"></i></h3><p>The landing page and the documentation, built from the same tokens and components.</p><span class="n">web.html</span></a>
+      <a href="terminal.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true" style="background:var(--term-bg)"><rect x="16" y="18" width="8" height="4" fill="var(--term-dim)"/><rect x="28" y="18" width="110" height="4" fill="var(--term-ink)"/>
+          <rect x="16" y="36" width="34" height="4" fill="var(--term-dim)"/><rect x="62" y="36" width="96" height="4" fill="var(--term-ink)"/><rect x="170" y="36" width="40" height="4" fill="var(--term-dim)"/>
+          <rect x="16" y="48" width="44" height="4" fill="var(--term-dim)"/><rect x="62" y="48" width="96" height="4" fill="var(--term-ink)"/><rect x="170" y="48" width="30" height="4" fill="var(--term-dim)"/>
+          <rect x="16" y="60" width="38" height="4" fill="var(--term-dim)"/><rect x="62" y="60" width="58" height="4" fill="var(--term-ink)"/><rect x="170" y="60" width="34" height="4" fill="var(--term-dim)"/>
+          <rect x="16" y="82" width="6" height="4" fill="var(--term-ok)"/><rect x="28" y="82" width="130" height="4" fill="var(--term-ink)"/><rect x="16" y="96" width="24" height="4" fill="var(--term-dim)"/><rect x="46" y="96" width="92" height="4" fill="var(--term-accent)"/></svg>
+        <h3>Terminal<i data-i="arrow-right"></i></h3><p>What the command line prints — plans, progress, errors — with and without colour and Unicode.</p><span class="n">terminal.html</span></a>
+      <a href="notebook.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true"><rect x="16" y="20" width="14" height="3" class="th-m"/><rect x="38" y="14" width="186" height="16" rx="2" class="th-f"/><rect x="46" y="20" width="90" height="4" class="th-i2"/>
+          <rect x="38" y="38" width="186" height="46" rx="2" fill="var(--err-soft)"/><circle cx="50" cy="50" r="4" fill="none" stroke="var(--err)" stroke-width="1.5"/><rect x="60" y="48" width="96" height="4" class="th-i"/><rect x="46" y="62" width="170" height="5" fill="var(--surface)"/><rect x="46" y="62" width="126" height="5" fill="var(--err)"/><rect x="46" y="74" width="110" height="3" class="th-i2"/>
+          <rect x="16" y="98" width="14" height="3" class="th-m"/><rect x="38" y="92" width="186" height="16" rx="2" class="th-f"/><rect x="46" y="98" width="70" height="4" class="th-i2"/></svg>
+        <h3>Notebook<i data-i="arrow-right"></i></h3><p>How results, progress and errors look inside Jupyter, which keeps its own chrome around them.</p><span class="n">notebook.html</span></a>
+      <a href="export.html">
+        <svg class="thumb" viewBox="0 0 240 120" aria-hidden="true"><rect x="40" y="10" width="160" height="100" fill="var(--on-accent)" stroke="var(--line)" data-theme="light" style="fill:var(--on-accent)"/>
+          <g data-theme="light" stroke-width="1.5" fill-opacity="0.14"><circle cx="98" cy="52" r="28" fill="var(--d2)" stroke="var(--d2)"/><circle cx="90" cy="46" r="11" fill="var(--d2)" stroke="var(--d2)"/><circle cx="110" cy="60" r="9" fill="var(--d2)" stroke="var(--d2)"/><circle cx="152" cy="40" r="16" fill="var(--d3)" stroke="var(--d3)"/><circle cx="158" cy="72" r="11" fill="var(--d6)" stroke="var(--d6)"/></g>
+          <g data-theme="light"><rect x="52" y="92" width="96" height="3" fill="var(--ink)"/><rect x="52" y="99" width="64" height="2" fill="var(--muted)"/><circle cx="170" cy="96" r="3" fill="none" stroke="var(--ink)"/><circle cx="182" cy="96" r="5" fill="none" stroke="var(--ink)"/></g></svg>
+        <h3>Figures &amp; export<i data-i="arrow-right"></i></h3><p>Images for papers and slides: white, black and data colours only, with the caption and a scale included.</p><span class="n">export.html</span></a>
+    </div>
+  </section>
+</main>
+<script src="assets/shell.js" data-page="index"></script>
+<script>
+/* -- shared by index, foundations and components: icon set, mark, theme pairs -- */
+var EGIcons = {
+  'search': 'c:7,7,4.5|M10.5 10.5 14 14',
+  'zoom-in': 'c:7,7,4.5|M10.5 10.5 14 14|M7 5v4|M5 7h4',
+  'zoom-out': 'c:7,7,4.5|M10.5 10.5 14 14|M5 7h4',
+  'fit': 'M2 6V3.5A1.5 1.5 0 0 1 3.5 2H6|M10 2h2.5A1.5 1.5 0 0 1 14 3.5V6|M14 10v2.5a1.5 1.5 0 0 1-1.5 1.5H10|M6 14H3.5A1.5 1.5 0 0 1 2 12.5V10',
+  'layers': 'M8 2 2 5l6 3 6-3-6-3z|M2 8l6 3 6-3|M2 11l6 3 6-3',
+  'colour': 'M8 2c2.7 3 4.5 5.2 4.5 7.5a4.5 4.5 0 0 1-9 0C3.5 7.2 5.3 5 8 2z',
+  'time': 'c:8,8,6|M8 4.5V8l2.5 1.5',
+  'share': 'c:12,3.5,1.75|c:4,8,1.75|c:12,12.5,1.75|M5.55 7.15l4.9-2.8|M5.55 8.85l4.9 2.8',
+  'link': 'M6.75 9.25a3 3 0 0 0 4.25 0l2-2a3 3 0 0 0-4.25-4.25l-1 1|M9.25 6.75a3 3 0 0 0-4.25 0l-2 2a3 3 0 0 0 4.25 4.25l1-1',
+  'export': 'M9 2H3.5A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14H9|M6.5 8H14|M11.5 5.5 14 8l-2.5 2.5',
+  'download': 'M8 2v8.5|M4.5 7 8 10.5 11.5 7|M3 13.5h10',
+  'upload': 'M8 10.5V2|M4.5 5.5 8 2l3.5 3.5|M3 13.5h10',
+  'file': 'M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6L9 2z|M9 2v4h4',
+  'graph': 'c:4,4,1.75|c:12.5,6,1.75|c:6,12.5,1.75|M5.7 4.4l5.1 1.2|M4.4 5.7l1.2 5.1|M11.3 7.3 7.2 11.2',
+  'node': 'c:8,8,3|M10.1 5.9 13.5 2.5|M5.9 10.1 2.5 13.5',
+  'edge': 'c:3.75,12.25,1.75|c:12.25,3.75,1.75|M5 11l6-6',
+  'path': 'c:3.25,12.5,1.5|c:12.75,3.5,1.5|M4.75 12.5H9.5a2.25 2.25 0 0 0 0-4.5h-3a2.25 2.25 0 0 1 0-4.5h4.75',
+  'filter': 'M2 3h12L9.5 8.5V13l-3 1V8.5L2 3z',
+  'community': 'c:8,8,6|c:6.25,9.25,2.25|c:10.5,6,1.25',
+  'table': 'r:2,2.5,12,11,1.5|M2 6.25h12|M2 10h12|M6.5 6.25v7.25',
+  'code': 'M5.5 4.5 2 8l3.5 3.5|M10.5 4.5 14 8l-3.5 3.5',
+  'terminal': 'r:2,2.5,12,11,1.5|M5 6.5l2 1.75-2 1.75|M8.5 10.25H11',
+  'info': 'c:8,8,6|M8 7.5v3.25|d:8,5.25,0.9',
+  'warning': 'M8 2.25 14.5 13.5h-13L8 2.25z|M8 6.5v3.25|d:8,11.5,0.9',
+  'error': 'c:8,8,6|M6 6l4 4|M10 6l-4 4',
+  'success': 'c:8,8,6|M5.25 8.25l2 2 3.5-4',
+  'help': 'c:8,8,6|M6.25 6.5a1.75 1.75 0 1 1 2.6 1.55c-.5.3-.85.65-.85 1.2|d:8,11.25,0.9',
+  'close': 'M4 4l8 8|M12 4l-8 8',
+  'check': 'M3 8.5l3.25 3.25L13 4.5',
+  'plus': 'M8 3v10|M3 8h10',
+  'minus': 'M3 8h10',
+  'chevron-down': 'M4 6l4 4 4-4',
+  'chevron-up': 'M4 10l4-4 4 4',
+  'chevron-left': 'M10 4 6 8l4 4',
+  'chevron-right': 'M6 4l4 4-4 4',
+  'sort': 'M5 6l3-3 3 3|M5 10l3 3 3-3',
+  'arrow-up': 'M8 13V3|M4 7l4-4 4 4',
+  'arrow-down': 'M8 3v10|M4 9l4 4 4-4',
+  'arrow-right': 'M3 8h10|M9 4l4 4-4 4',
+  'more': 'd:3.5,8,1.1|d:8,8,1.1|d:12.5,8,1.1',
+  'menu': 'M2.5 4.5h11|M2.5 8h11|M2.5 11.5h11',
+  'settings': 'M2 4.75h6.5|M12.5 4.75H14|c:10.5,4.75,1.75|M2 11.25h1.5|M7.5 11.25H14|c:5.5,11.25,1.75',
+  'sun': 'c:8,8,2.75|M8 1.5V3|M8 13v1.5|M1.5 8H3|M13 8h1.5|M3.4 3.4l1.1 1.1|M11.5 11.5l1.1 1.1|M3.4 12.6l1.1-1.1|M11.5 4.5l1.1-1.1',
+  'moon': 'M13.5 9.6A6 6 0 0 1 6.4 2.5a6 6 0 1 0 7.1 7.1z',
+  'copy': 'r:5.5,5.5,8.5,8.5,1.5|M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2',
+  'external': 'M9.5 2.5h4v4|M13.5 2.5 7.5 8.5|M11.5 9.5V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V6A1.5 1.5 0 0 1 4 4.5h2.5',
+  'pin': 'M8 14.5s4.5-4 4.5-8a4.5 4.5 0 0 0-9 0c0 4 4.5 8 4.5 8z|c:8,6.5,1.5',
+  'eye': 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z|c:8,8,2',
+  'eye-off': 'M6.2 3.8A6 6 0 0 1 8 3.5c4 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.8 2.3|M10.9 11.7a6 6 0 0 1-2.9.8C4 12.5 1.5 8 1.5 8a11 11 0 0 1 2.9-3.2|M2.5 2.5l11 11',
+  'play': 'M5 3l8 5-8 5V3z',
+  'pause': 'M5.5 3v10|M10.5 3v10',
+  'refresh': 'M13.5 8a5.5 5.5 0 1 1-1.6-3.9|M13.5 2v3.5H10',
+  'trash': 'M2.5 4.5h11|M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5|M4 4.5l.6 8.1A1.5 1.5 0 0 0 6.1 14h3.8a1.5 1.5 0 0 0 1.5-1.4l.6-8.1'
+};
+function egIcon(name, size) {
+  var def = EGIcons[name]; if (!def) { throw new Error('unknown icon: ' + name); }
+  var ne = ' vector-effect="non-scaling-stroke"', s = size || 16;
+  var inner = def.split('|').map(function (part) {
+    var a;
+    if (part.indexOf('c:') === 0) { a = part.slice(2).split(','); return '<circle cx="' + a[0] + '" cy="' + a[1] + '" r="' + a[2] + '"' + ne + '/>'; }
+    if (part.indexOf('d:') === 0) { a = part.slice(2).split(','); return '<circle class="f" cx="' + a[0] + '" cy="' + a[1] + '" r="' + a[2] + '"/>'; }
+    if (part.indexOf('r:') === 0) { a = part.slice(2).split(','); return '<rect x="' + a[0] + '" y="' + a[1] + '" width="' + a[2] + '" height="' + a[3] + '" rx="' + a[4] + '"' + ne + '/>'; }
+    return '<path d="' + part + '"' + ne + '/>';
+  }).join('');
+  return '<svg class="i" width="' + s + '" height="' + s + '" viewBox="0 0 16 16" aria-hidden="true">' + inner + '</svg>';
+}
+/* The mark, to the geometry in SPEC.md (32-unit box). kind: nest | mono | rev (reversed, no square) | seal | seal-s (inner ring dropped) | seal-h (dropped ring, heavier cut). */
+function egMark(kind, size, ctxTheme) {
+  var a = '<svg class="mk" width="' + size + '" height="' + size + '" viewBox="0 0 32 32" role="img" aria-label="Everygraph mark">';
+  var ring = function (cx, cy, r, w, col) { return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="' + w + '"/>'; };
+  if (kind === 'nest' || kind === 'mono') {
+    return a + ring(16, 16, 13, 2.4, 'currentColor') + ring(18.5, 18, 7, 2.4, 'currentColor') +
+      '<circle cx="20" cy="19.2" r="2.6" fill="' + (kind === 'mono' ? 'currentColor' : 'var(--accent)') + '"/></svg>';
+  }
+  /* Seal: the square is an inverse surface, so the dot takes the accent of the opposite theme. */
+  var inv = ctxTheme === 'dark' ? 'light' : 'dark';
+  var sq = '<rect width="32" height="32" rx="3" fill="var(--ink)"/>';
+  var dot = function (cx, cy, r) { return '<circle data-theme="' + inv + '" cx="' + cx + '" cy="' + cy + '" r="' + r + '" style="fill:var(--accent)"/>'; };
+  if (kind === 'rev') { return a + ring(16, 16, 13, 2.4, 'var(--bg)') + ring(18.5, 18, 7, 2.4, 'var(--bg)') + dot(20, 19.2, 2.6) + '</svg>'; }
+  if (kind === 'seal-s') { return a + sq + ring(16, 16, 11.4, 2.4, 'var(--bg)') + dot(19.5, 18.8, 2.6) + '</svg>'; }
+  if (kind === 'seal-h') { return a + sq + ring(16, 16, 10.6, 3.6, 'var(--bg)') + dot(18.4, 17.9, 3.6) + '</svg>'; }
+  return a + sq + '<g transform="translate(16 16) scale(0.875) translate(-16 -16)">' + ring(16, 16, 13, 2.4, 'var(--bg)') + ring(18.5, 18, 7, 2.4, 'var(--bg)') + '</g>' + dot(19.5, 18.8, 2.275) + '</svg>';
+}
+function egHydrate(root) {
+  root = root || document;
+  /* [data-dup]: write a specimen once, show it in both themes inside a .pair */
+  Array.prototype.forEach.call(root.querySelectorAll('[data-dup]'), function (el) {
+    var html = el.innerHTML; el.removeAttribute('data-dup');
+    /* __T__ in an id is replaced per theme, so SVG patterns stay unique in the document */
+    el.innerHTML = '<div data-theme="light">' + html.replace(/__T__/g, 'l') + '</div><div data-theme="dark">' + html.replace(/__T__/g, 'd') + '</div>';
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('[data-mark]'), function (el) {
+    var t = el.closest('[data-theme]'); t = t ? t.getAttribute('data-theme') : 'light';
+    el.outerHTML = egMark(el.getAttribute('data-mark'), +(el.getAttribute('data-size') || 32), t);
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('[data-i]'), function (el) {
+    var st = el.getAttribute('style'), svg = egIcon(el.getAttribute('data-i'), +(el.getAttribute('data-size') || 16));
+    el.outerHTML = st ? svg.replace('<svg ', '<svg style="' + st + '" ') : svg;
+  });
+}
+</script>
+<script>
+(function () {
+  'use strict';
+  egHydrate();
+  /* print each swatch's value from the live token, per theme */
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tok]'), function (el) {
+    el.textContent = getComputedStyle(el).getPropertyValue('--' + el.getAttribute('data-tok')).trim();
+  });
+})();
+</script>
+</body>
+</html>

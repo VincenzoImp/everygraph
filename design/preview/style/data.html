@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everygraph style — Data &amp; map</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+/* ---------------------------------------------------------------------------------------------
+   CURATED DATA PALETTE — a local override of tokens.css, proposed as its replacement.
+   tokens.css is not edited by this page. Elements marked data-pal="token" keep the original values,
+   so section 1 can show both. The same block is used by viewer.html.
+   --------------------------------------------------------------------------------------------- */
+:root:not([data-pal="token"]), [data-theme="light"]:not([data-pal="token"]) {
+  --d1: #7861cb; --d2: #604100; --d3: #739400; --d4: #522e95; --d5: #c36f8b;
+  --d6: #0091bc; --d7: #007122; --d8: #005369; --d9: #8e1953; --d10: #766d5f;
+  --s1: #dde4f9; --s2: #b9c6ef; --s3: #97a8e4; --s4: #768ad8; --s5: #576bcb; --s6: #3d4cb8; --s7: #2a3590;
+  --v1: #8c3700; --v2: #c16d45; --v3: #e2ad96; --v4: #e8e4dc; --v5: #a7bae9; --v6: #6782ce; --v7: #324ca7;
+}
+[data-theme="dark"]:not([data-pal="token"]) {
+  --d1: #9383dc; --d2: #f1b959; --d3: #6e8a25; --d4: #d9d0ff; --d5: #c26083;
+  --d6: #52c0eb; --d7: #a0eca6; --d8: #008bad; --d9: #fa94bb; --d10: #a69b89;
+  --s1: #222741; --s2: #343b6a; --s3: #475195; --s4: #5c69bc; --s5: #7483e0; --s6: #90a0f9; --s7: #b3c0ff;
+  --v1: #f2ab83; --v2: #c67544; --v3: #864d2b; --v4: #35332e; --v5: #4a5996; --v6: #7186db; --v7: #a7baff;
+}
+
+/* ---- page layout only; every colour, radius and duration below is a token ---- */
+.section, .sub { scroll-margin-top: calc(var(--topbar) + var(--space-3)); }
+.toc { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin-top: var(--space-4); font-size: var(--text-sm); }
+.toc a { color: var(--ink-2); } .toc .num { color: var(--muted); margin-right: 4px; }
+.section > h2 .num { color: var(--muted); font-weight: var(--weight-regular); margin-right: var(--space-2); }
+.stack { display: grid; gap: var(--space-4); } .sub > p, .sub > .note { margin-bottom: var(--space-3); }
+.pair > [data-theme] > h4 { margin-bottom: var(--space-3); font-size: var(--text-sm); color: var(--ink-2); font-weight: var(--weight-medium); }
+.pair > [data-theme] { min-width: 0; }
+.pair.maps > [data-theme] { padding: var(--space-3); }
+table.mx td.near { background: var(--warn-soft); }
+.fail { color: var(--err); font-weight: var(--weight-medium); }
+td .chip-sw, .chip-sw { display: inline-block; width: 12px; height: 12px; border-radius: var(--radius-xs); margin-right: 6px; vertical-align: -1px; }
+.spec-list { display: grid; grid-template-columns: 28px 170px 1fr; gap: 6px var(--space-3); font-size: var(--text-sm); line-height: var(--lh-sm); align-items: baseline; }
+.spec-list .n { font: var(--weight-medium) var(--text-xs)/18px var(--font-mono); width: 20px; height: 20px; border: var(--border) solid var(--ink); border-radius: var(--radius-round); text-align: center; }
+.spec-list b { font-weight: var(--weight-semibold); } .spec-list span { color: var(--ink-2); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); align-items: start; }
+.rules { display: grid; gap: var(--space-2); padding-left: 18px; font-size: var(--text-sm); line-height: var(--lh-md); color: var(--ink-2); max-width: var(--content); }
+.rules b { color: var(--ink); font-weight: var(--weight-semibold); }
+
+/* palette specimens */
+.sw-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-4) var(--space-3); }
+.sw-cell { display: grid; grid-template-columns: 1fr auto; gap: 6px var(--space-2); align-items: center; }
+.sw-fill { grid-column: 1 / -1; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: flex-end; padding: 4px 6px; font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.sw-out { height: 26px; border: var(--border-strong) solid; border-radius: var(--radius-round); }
+.sw-dots { display: flex; gap: 5px; align-items: center; } .sw-dots i { border-radius: var(--radius-round); display: block; }
+.sw-name { grid-column: 1 / -1; font-size: var(--text-xs); line-height: var(--lh-xs); font-weight: var(--weight-medium); }
+.sw-cell > .num { grid-column: 1 / -1; margin-top: -6px; }
+.sim-rows { margin-top: var(--space-4); display: grid; gap: 4px; }
+.sim-row { display: grid; grid-template-columns: 96px repeat(10, 1fr); gap: 3px; align-items: center; } .sim-row i { height: 10px; border-radius: var(--radius-xs); }
+.mx-block { margin-top: var(--space-4); } .mx-block > h4 { margin-bottom: var(--space-2); }
+.mx-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); padding: var(--space-4); border: var(--border) solid var(--line); border-radius: var(--radius-md); background: var(--bg); color: var(--ink); }
+.mx-h { font-size: var(--text-sm); margin-bottom: 6px; } .mx-f { font-size: var(--text-xs); line-height: var(--lh-md); margin-top: 6px; color: var(--ink-2); }
+table.mx { border-collapse: collapse; font: var(--text-xs)/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+table.mx td, table.mx th { width: 23px; height: 21px; text-align: center; padding: 0; font-weight: var(--weight-regular); color: var(--ink-2); font-size: 11px; }
+table.mx th i { display: block; width: 13px; height: 13px; margin: 0 auto; border-radius: var(--radius-xs); }
+table.mx td.dg { background: var(--surface-2); }
+table.mx td.bad { background: var(--err-soft); color: var(--err); font-weight: var(--weight-bold); text-decoration: underline; }
+table.mx td.near { color: var(--ink); font-weight: var(--weight-medium); }
+.lg { background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); font-size: var(--text-sm); width: 300px; }
+.lg-t { font-weight: var(--weight-semibold); margin-bottom: 6px; }
+.lg-row { display: grid; grid-template-columns: 12px 1fr auto; gap: var(--space-2); align-items: center; padding: 2px 0; } .lg-row i { width: 12px; height: 12px; border-radius: var(--radius-xs); }
+.lg-row.other { border-top: var(--border) solid var(--line); margin-top: 4px; padding-top: 6px; }
+.lg-n { margin-top: 6px; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--muted); }
+
+/* the map specimen frame */
+.mapframe { position: relative; background: var(--map-bg); color: var(--ink); border: var(--border) solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.mf-canvas { position: relative; } .mf-canvas svg { display: block; width: 100%; height: auto; }
+.mf-crumbs { position: absolute; left: var(--space-3); top: var(--space-3); display: flex; gap: var(--space-2); }
+.crumbbar, .levelind { display: inline-flex; align-items: center; gap: 6px; height: var(--control-sm); padding: 0 var(--space-2); background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--ink-2); white-space: nowrap; }
+.crumbbar b, .levelind b { color: var(--ink); font-weight: var(--weight-semibold); } .crumbbar .sep { color: var(--muted); }
+.levelind .ticks { display: inline-flex; gap: 2px; align-items: center; } .ticks i { width: 9px; height: 4px; background: var(--line-strong); border-radius: 1px; } .ticks i.on { background: var(--ink); } .ticks i.leaf { width: 4px; border-radius: var(--radius-round); }
+.capstrip { padding: 6px var(--space-3); background: var(--surface); border-top: var(--border) solid var(--line); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--ink-2); }
+.capstrip b { color: var(--ink); font-weight: var(--weight-medium); } .capstrip .sep { color: var(--muted); margin: 0 2px; }
+.mf-tip { position: absolute; padding: 6px var(--space-2); font-size: var(--text-xs); line-height: var(--lh-xs); white-space: nowrap; border-radius: var(--radius-md); }
+.mf-tip b { font-weight: var(--weight-semibold); }
+.mf-legend { position: absolute; left: var(--space-3); top: var(--space-3); background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--text-xs); line-height: var(--lh-xs); width: 232px; }
+.mf-legend.strip { position: static; width: auto; border: 0; border-top: var(--border) solid var(--line); border-radius: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-4); }
+.mf-legend .lg-t { margin: 0; } .mf-legend .lg-n { margin: 0; } .lg-scale { width: 200px; flex: none; }
+.lg-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; } .lg-steps.seven { grid-template-columns: repeat(7, 1fr); } .lg-steps i { height: 10px; }
+.lg-ticks { display: flex; justify-content: space-between; margin-top: 2px; color: var(--ink-2); font-size: 11px; line-height: 12px; } .lg-ticks.seven { padding: 0 calc(100% / 14); font-size: 10px; }
+.lg-ticks.seven span { width: 0; display: flex; justify-content: center; white-space: nowrap; }
+.lg-cats { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); } .lg-r { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); } .lg-r i { width: 11px; height: 11px; border: var(--border-strong) solid; border-radius: var(--radius-round); flex: none; }
+.mf-msg { min-height: 262px; display: grid; place-items: center; padding: var(--space-4); text-align: center; } .mf-msg > div { max-width: 320px; display: grid; gap: var(--space-2); justify-items: center; }
+.mf-msg svg { width: 40px; height: 40px; }
+.mf-msg pre { padding: var(--space-2) var(--space-3); font-size: var(--text-xs); text-align: left; }
+.mf-hist { position: relative; display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; align-items: end; height: 34px; padding: 4px var(--space-3) 0; background: var(--surface); border-top: var(--border) solid var(--line); }
+.mf-hist i { background: var(--line-strong); } .mf-hist i.in { background: var(--ink); }
+.mf-win { position: absolute; top: 2px; bottom: 0; margin: 0 var(--space-3); border: var(--border) solid var(--accent); background: color-mix(in srgb, var(--accent-soft) 50%, transparent); border-radius: var(--radius-xs); }
+
+/* drawing classes used inside the SVG specimens */
+.m-link { fill: none; stroke: var(--map-ink); stroke-opacity: .55; stroke-linecap: round; }
+.m-sel { fill: none; stroke: var(--map-ink); stroke-width: 1.5; } .m-hover { fill: none; stroke: var(--map-ink); stroke-opacity: .55; stroke-width: 1; }
+.m-halo { paint-order: stroke; stroke: var(--map-bg); stroke-width: 3px; stroke-linejoin: round; } .m-plate { fill: var(--map-bg); }
+.m-chip { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+.m-path-case { fill: none; stroke: var(--map-bg); stroke-width: 6.5; stroke-linecap: round; stroke-opacity: .9; } .m-path { fill: none; stroke: var(--map-ink); stroke-width: 2.5; stroke-linecap: round; }
+.m-end { fill: var(--map-ink); stroke: var(--map-bg); stroke-width: 2; } .m-hop { fill: var(--map-bg); stroke: var(--map-ink); stroke-width: 2; }
+.m-mk { font: 700 10.5px var(--font-mono); fill: var(--map-ink); } .m-mk.end { fill: var(--map-bg); }
+.m-skel { fill: var(--map-ink); fill-opacity: .06; stroke: var(--line-strong); stroke-width: 1; stroke-opacity: .6; }
+.m-adj { stroke: var(--map-ink); stroke-width: 1; stroke-opacity: .75; } .m-fan { fill: none; stroke: var(--map-ink); stroke-opacity: .55; stroke-width: 7; stroke-dasharray: 1 3; }
+.m-ghost { fill: none; stroke: var(--line-strong); stroke-width: 2.4; stroke-dasharray: 4 3; }
+.co-line { stroke: var(--ink); stroke-width: 1; } .co-dot { fill: var(--ink); } .co-mk { fill: var(--surface); stroke: var(--ink); stroke-width: 1; } .co-n { font: 500 11px var(--font-mono); fill: var(--ink); }
+.c-axis { stroke: var(--line-strong); stroke-width: 1; } .c-grid { stroke: var(--line); stroke-width: 1; }
+.c-tick { font: 11px var(--font-mono); fill: var(--muted); } .c-tick.in { fill: var(--ink); } .c-title { font: var(--text-xs) var(--font-sans); fill: var(--ink-2); }
+.c-bar { fill: var(--line-strong); } .c-bar.in { fill: var(--ink); }
+.c-win-fill { fill: var(--accent-soft); } .c-win { fill: var(--accent-soft); fill-opacity: 0; stroke: var(--accent); stroke-width: 1; cursor: grab; } .c-handle { fill: var(--accent); cursor: ew-resize; }
+.c-line { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; } .c-dot { fill: var(--ink); } .c-pt { fill: var(--ink); fill-opacity: .75; }
+
+/* ramps */
+.rampbox { display: grid; gap: var(--space-5); }
+.ramp-h { font-size: var(--text-sm); margin-bottom: 6px; } .ramp { display: grid; grid-template-columns: repeat(7, 52px); }
+.ramp > div { display: grid; justify-items: center; gap: 1px; font-size: 11px; } .ramp i { display: block; width: 52px; height: 28px; margin-bottom: 3px; }
+.ramp-l { display: block; margin-top: 2px; } .ramp-v { margin-top: 4px; color: var(--ink-2); }
+
+/* zoom levels, states */
+.zrow { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-3); } .zrow.three { grid-template-columns: repeat(3, 1fr); max-width: 760px; }
+.zl { min-width: 0; } .zl figcaption { margin-top: var(--space-2); display: grid; gap: 6px; } .zl-lv { display: flex; align-items: center; }
+.zl-lv .levelind { border: 0; background: none; padding: 0; font-size: var(--text-xs); height: auto; }
+.st-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5) var(--space-4); } .st { min-width: 0; } .st h4 { margin-bottom: var(--space-2); } .st figcaption { margin-top: var(--space-2); }
+.cap2 { padding: 4px var(--space-2); background: var(--surface); border-top: var(--border) solid var(--line); }
+.ex { display: grid; grid-template-columns: 150px 1fr 1fr; gap: 6px var(--space-4); font-size: var(--text-sm); align-items: baseline; } .ex > b { font-weight: var(--weight-medium); } .ex .h { color: var(--muted); font-size: var(--text-xs); }
+
+/* charts and tables */
+.chart { background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-md); padding: var(--space-4); min-width: 0; }
+.chart > h4 { margin-bottom: 2px; } .chart > .sub2 { font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-3); }
+#hist { touch-action: none; user-select: none; } #hist svg, #degree svg { display: block; }
+.rb-h { display: flex; justify-content: space-between; font-size: var(--text-xs); margin-bottom: var(--space-2); font-weight: var(--weight-medium); } .rb-h .muted { font-weight: var(--weight-regular); }
+.rb { display: grid; grid-template-columns: 18px 1fr auto; gap: 0 var(--space-2); align-items: baseline; padding: 5px 0 6px; font-size: var(--text-sm); }
+.rb > .muted { font-size: var(--text-xs); text-align: right; } .rb-v { font-weight: var(--weight-medium); } .rb-b { grid-column: 2 / 4; height: 3px; background: var(--surface-2); margin-top: 3px; } .rb-b i { display: block; height: 100%; background: var(--ink-2); }
+.rb-f { margin-top: var(--space-2); padding-top: var(--space-2); border-top: var(--border) solid var(--line); }
+td.sp { padding-top: 5px !important; padding-bottom: 3px !important; } td.sp svg { display: block; }
+table.t th.sorted { color: var(--ink); font-weight: var(--weight-semibold); } table.t td.sorted { color: var(--ink); font-weight: var(--weight-medium); }
+table.t tfoot td { border-bottom: 0; font-size: var(--text-sm); color: var(--ink-2); padding-top: var(--space-3); } table.t tfoot td > span:last-child { float: right; }
+table.t.bars td.bc { position: relative; padding-bottom: 11px; } table.t.bars td.bc i { position: absolute; right: var(--space-3); bottom: 5px; height: 3px; background: var(--ink-2); max-width: calc(100% - 2 * var(--space-3)); }
+table.t th[colspan] { text-align: left; border-bottom-width: var(--border); }
+.tablewrap { background: var(--surface); border: var(--border) solid var(--line); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3) var(--space-3); overflow-x: auto; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <h1>Data &amp; map</h1>
+    <p>How data looks in Everygraph: the colours that carry it, the map and each of its states, the small charts and the tables around it. Specified closely enough to build from. Every map, number and name here is invented.</p>
+    <nav class="toc" aria-label="Sections">
+      <a href="#s1"><span class="num">1</span>Categorical palette</a><a href="#s2"><span class="num">2</span>Colouring regions</a><a href="#s3"><span class="num">3</span>Sequential and diverging</a><a href="#s4"><span class="num">4</span>Map anatomy</a><a href="#s5"><span class="num">5</span>Zoom levels</a><a href="#s6"><span class="num">6</span>States</a><a href="#s7"><span class="num">7</span>Labels</a><a href="#s8"><span class="num">8</span>Small charts</a><a href="#s9"><span class="num">9</span>Tables</a>
+    </nav>
+  </header>
+
+  <!-- ============================== 1 ============================== -->
+  <section class="section" id="s1">
+    <h2><span class="num">1</span>Categorical palette</h2>
+    <p>Ten slots, <code>--d1</code> to <code>--d10</code>, for things that have no order: categories, labels, regions. The values in <code>tokens.css</code> were chosen by eye. They are measured here, and they fail; a replacement is proposed next to them.</p>
+
+    <div class="callout warn"><span class="ico" aria-hidden="true">!</span><div><b>Measured result.</b> <span id="verdict-text"></span></div></div>
+    <div class="sub"><div class="tablewrap" id="verdict-table"></div>
+      <p class="note" style="margin-top:var(--space-3)">Method. Distance is ΔE: Euclidean distance in OKLab × 100. Colour blindness is simulated with Machado, Oliveira and Fernandes (2009) at full severity, in linear RGB. Floors: 15 between any two colours for normal vision; 8 under protanopia and deuteranopia, where 6 to 8 is tolerable only when something other than colour also tells the two apart. Every figure on this page is computed in the page from the colours it is showing.</p></div>
+
+    <div class="sub"><h3>Proposed: the curated set</h3>
+      <p class="note">One hue per slot in both themes, each with its own lightness, so a colour-blind reader can still use light against dark. Shown as a fill with a label, as a region outline with its 12% tint, and as dots of 8, 5 and 3 px. The three strips underneath are the same ten colours as seen with each kind of colour blindness.</p>
+      <div class="pair"><div data-theme="light"><h4>Light</h4><div data-swatches="cur"></div></div><div data-theme="dark"><h4>Dark</h4><div data-swatches="cur"></div></div></div>
+    </div>
+    <div class="sub"><h3>Current: the token palette</h3>
+      <p class="note">Pleasant, even, and too even: all ten sit between lightness 0.47 and 0.58 on light. Look at the protanopia strip, slots 2, 5 and 9.</p>
+      <div class="pair"><div data-theme="light" data-pal="token"><h4>Light</h4><div data-swatches="token"></div></div><div data-theme="dark" data-pal="token"><h4>Dark</h4><div data-swatches="token"></div></div></div>
+    </div>
+
+    <div class="sub"><h3>Every pair, measured</h3>
+      <p class="note">Each cell is the distance between two slots. Cells under the floor are underlined on a tinted ground. The header squares show each colour as that reader sees it.</p>
+      <div class="mx-block"><h4>Curated, light</h4><div data-matrices="cur-light"></div></div>
+      <div class="mx-block"><h4>Curated, dark</h4><div data-matrices="cur-dark"></div></div>
+      <div class="mx-block"><h4>Token palette, light</h4><div data-matrices="token-light"></div></div>
+      <div class="mx-block"><h4>Token palette, dark</h4><div data-matrices="token-dark"></div></div>
+      <p class="note" style="margin-top:var(--space-4)"><b>What the curated set still cannot do.</b> Ten colours that share a hue across both themes, stay at 3 : 1 or more against the paper and keep a calm chroma cannot all be 8 apart for a red–green colour-blind reader: a search over that space tops out near 7.5. So the full ten are for charts and legends where a label sits next to the colour. Where any two colours can meet with no label between them, as on a map, use fewer:</p>
+      <div class="tablewrap" id="subset-table" style="margin-top:var(--space-3)"></div>
+    </div>
+
+    <div class="sub"><h3>Contrast against each surface</h3>
+      <p class="note">An outline or a dot needs 3 : 1 against what it sits on. Text never wears a data colour: labels stay in ink, with a coloured mark beside them.</p>
+      <div class="tablewrap" data-contrast="cur"></div>
+    </div>
+
+    <div class="sub"><h3>What changed, slot by slot</h3><div class="tablewrap" id="changed-table"></div></div>
+
+    <div class="sub"><h3>More than ten categories</h3>
+      <div class="two"><div><ol class="rules">
+        <li><b>Nine hues, then “other”.</b> The nine largest categories take <code>--d1</code> to <code>--d9</code> in order of size. Everything else is drawn in <code>--d10</code> and named “other”, with its total and the number of categories folded into it.</li>
+        <li><b>Never a generated tenth hue,</b> never a second pass through the palette, never lighter and darker versions of the same slot.</li>
+        <li><b>Colour follows the category, not the rank.</b> Once assigned in a session, a category keeps its slot when a filter changes the order.</li>
+        <li><b>The reader can choose</b> which categories get a hue; the default is by size.</li>
+        <li><b>On the map, three hues at most</b> for an attribute, plus “other” and “none”. Any two regions can touch there.</li>
+      </ol></div><div class="lg" id="other-legend"></div></div>
+    </div>
+  </section>
+
+  <!-- ============================== 2 ============================== -->
+  <section class="section" id="s2">
+    <h2><span class="num">2</span>Colouring regions</h2>
+    <p>An open decision. A map has as many top-level regions as the graph has large communities; this sample has twelve. Should each have its own colour, or should a few colours be reused, as on a political map? The same map, both ways, both themes.</p>
+    <div class="sub"><h3>(a) One hue per region</h3>
+      <div class="pair maps"><div data-theme="light"><div data-regionmap="hue"></div></div><div data-theme="dark"><div data-regionmap="hue"></div></div></div>
+      <p class="note" style="margin-top:var(--space-3)"><b>What it costs.</b> Colour looks like identity, and stops being one at the tenth region: here three regions already share the neutral. Ten colours on one canvas include pairs a colour-blind reader cannot separate, and nothing stops such a pair from being neighbours. A thirteenth region changes nothing visible. <b>What it buys.</b> In a small graph, “the green one” works in conversation, and a legend can list the regions by colour.</p></div>
+    <div class="sub"><h3>(b) Five colours, reused where regions do not touch</h3>
+      <div class="pair maps"><div data-theme="light"><div data-regionmap="reuse"></div></div><div data-theme="dark"><div data-regionmap="reuse"></div></div></div>
+      <p class="note" style="margin-top:var(--space-3)"><b>What it costs.</b> Colour no longer names a region: two regions far apart can be the same violet, and a legend by colour is impossible. The name, the outline and the count carry identity. <b>What it buys.</b> Only <code>--d1</code> to <code>--d5</code> are ever on the canvas together, the five that are furthest apart, and no two regions that touch share one. It works unchanged for 12 regions or 1,200.</p></div>
+    <div class="sub"><h3>The evidence</h3>
+      <div class="two"><div><div id="adjacency"></div><p class="xs muted" style="margin-top:var(--space-2)">The graph that is coloured: a line joins two regions that touch. Children take their top-level region’s colour.</p></div>
+        <div class="stack"><p class="note" id="region-facts"></p>
+        <div class="callout"><span class="ico" aria-hidden="true">i</span><div><b>Recommendation: (b).</b> It is the only one of the two that does not depend on how many regions the graph has, and its weakest neighbouring pair is measured, not hoped for. Keep (a) as a setting for small graphs.</div></div></div></div>
+      <div class="tablewrap" id="region-table" style="margin-top:var(--space-4)"></div>
+      <p class="note" style="margin-top:var(--space-3)">Read it as: of all pairs of regions that are neighbours on this map, how many have the very same colour, and how far apart are the two closest colours among the rest. Under (a) both depend on which regions happen to be neighbours, and regions past the ninth share the neutral; under (b) no neighbours ever share a colour and the weakest pair cannot fall below the worst pair of the region set. Four colours would do as well as five here and would raise that floor (section 1, row d1–d4).</p>
+    </div>
+  </section>
+
+  <!-- ============================== 3 ============================== -->
+  <section class="section" id="s3">
+    <h2><span class="num">3</span>Sequential and diverging scales</h2>
+    <p>For quantities. Sequential: one hue, light to dark on paper and dark to light on the dark canvas, so “more” is always “further from the background”. Diverging: two hues around a neutral midpoint, for values with a meaningful zero.</p>
+    <div class="sub"><h3>Ramps and their lightness steps</h3>
+      <p class="note">Under each swatch is its OKLCH lightness. The small plot is that lightness step by step: a straight line means equal steps, which is what makes equal differences in the data look equal. The curated ramps are built to a constant step; the token ramps are close but uneven, and the token diverging ramp on light has two steps next to its midpoint that are barely distinguishable.</p>
+      <div class="pair">
+        <div data-theme="light"><div class="rampbox"><div data-ramp="seq-cur"></div><div data-theme="light" data-pal="token" data-ramp="seq-token"></div><div data-ramp="div-cur"></div><div data-theme="light" data-pal="token" data-ramp="div-token"></div></div></div>
+        <div data-theme="dark"><div class="rampbox"><div data-ramp="seq-cur"></div><div data-theme="dark" data-pal="token" data-ramp="seq-token"></div><div data-ramp="div-cur"></div><div data-theme="dark" data-pal="token" data-ramp="div-token"></div></div></div>
+      </div>
+    </div>
+    <div class="sub"><h3>A metric on the map: PageRank in fifths</h3>
+      <p class="note">Five classes, <code>--s2</code> to <code>--s6</code>; the two ends of the ramp are kept back so the lowest class still stands off the canvas and the highest still takes a label. Fills carry the value at full strength, outlines go to the canvas colour, and each label picks light or dark ink from the fill under it. A region that is showing its children has no fill of its own.</p>
+      <div class="pair maps"><div data-theme="light"><div data-metricmap="metric"></div></div><div data-theme="dark"><div data-metricmap="metric"></div></div></div></div>
+    <div class="sub"><h3>A change on the map: second half of the year against the first</h3>
+      <p class="note">Seven classes around “no change”. The midpoint is neutral, close to the canvas on purpose: what did not change recedes.</p>
+      <div class="pair maps"><div data-theme="light"><div data-metricmap="div"></div></div><div data-theme="dark"><div data-metricmap="div"></div></div></div></div>
+    <div class="sub"><h3>Legend rules</h3><ol class="rules">
+      <li><b>Stepped, never a smooth gradient.</b> One block per class, 10 px high, 1 px apart. In the viewer the legend is a surface card in the top-left corner of the map; in a small view or an exported figure it is a strip under the map, above the caption, as here.</li>
+      <li><b>Bounds under the edges between blocks</b>, in JetBrains Mono; the title says what is measured and over what (“summed over members”).</li>
+      <li><b>One line saying how classes were made</b> (“percentile among regions of the same level”), because fifths at one level are not fifths at another.</li>
+      <li><b>Diverging legends label the midpoint class</b> in words and put the sign on every bound.</li>
+      <li><b>The caption strip repeats the encoding</b> in words, so an exported image explains itself.</li></ol></div>
+  </section>
+
+  <!-- ============================== 4 ============================== -->
+  <section class="section" id="s4">
+    <h2><span class="num">4</span>Map anatomy</h2>
+    <p>Every element of the map and its exact style. Numbers on the specimens match the lists underneath. Two specimens: a map at rest, at the level of regions; and a selection with its links, at the level of single nodes.</p>
+    <div class="sub"><h3>Regions, at rest</h3>
+      <div data-theme="dark"><div data-anatomy="a-full"></div></div>
+      <div class="spec" style="margin-top:var(--space-4)"><div class="spec-list">
+        <i class="n">1</i><b>Canvas</b><span><code>--map-bg</code>, flat. No grid, no vignette, no texture. Empty space means nothing and is left empty.</span>
+        <i class="n">2</i><b>Region outline and tint</b><span>1.5 px in the region’s data colour (1 px under 9 px radius). Fill in the same colour at 12%; 5% once the region shows its children, so nested tints never pile up.</span>
+        <i class="n">3</i><b>Found community</b><span>Solid outline. A result of the method.</span>
+        <i class="n">4</i><b>Subdivision</b><span>Dashed outline, 4 on 3 off. A huge community cut into parts only so that it can be drawn; named “part <span class="num">n</span>”.</span>
+        <i class="n">5</i><b>Aggregate</b><span>Hatched fill: 45°, lines 1.2 px every 6 px at 60% of the region’s colour, over a 5% tint, 1 px solid outline. Many small communities shown as one.</span>
+        <i class="n">6</i><b>Nesting</b><span>Children are drawn inside the parent, never overlapping its outline. Area is proportional to the number of nodes within one parent.</span>
+        <i class="n">7</i><b>Label</b><span>Name in Inter 600 at 15, 13, 12 or 11 px by radius (over 130, 64, 36 px, else); exact count beneath in JetBrains Mono 400, 2 px smaller, <code>--ink-2</code>. Halo: 3 px stroke in <code>--map-bg</code>, always on. A parent that shows its children moves name and count to its top edge on a canvas-coloured plate.</span>
+        <i class="n">9</i><b>Hover</b><span>One 1 px ring in <code>--map-ink</code> at 55%, 2 px outside, and the popover component with name, kind and count. Appears with no delay, 120 ms fade.</span>
+        <i class="n">12</i><b>Breadcrumb</b><span>Top left, 12 px in. 28 px high, <code>--surface</code>, 1 px <code>--line</code>, 3 px radius, 13 px text; the current place in 600. Each step is a button.</span>
+        <i class="n">13</i><b>Level indicator</b><span>Beside the breadcrumb, same box. Six ticks 9 × 4 px and a dot for single nodes, filled up to the level on screen; “Level <span class="num">2</span> of <span class="num">6</span> · sub-regions”.</span>
+        <i class="n">14</i><b>Caption strip</b><span>Under every view, and inside every exported image. <code>--surface</code>, hairline above, 12 px. Says what is on screen, what is left out, what area and position mean. Numbers in mono.</span>
+      </div>
+      </div>
+      <div style="margin-top:var(--space-4)"><div data-theme="light"><div data-anatomy="a-small"></div></div></div>
+      <p class="xs muted" style="margin-top:var(--space-2)">The same view on the light canvas. Nothing changes but the token values.</p>
+    </div>
+    <div class="sub"><h3>Single nodes, one selected</h3>
+      <div data-theme="light"><div data-anatomy="b-full"></div></div>
+      <div class="spec" style="margin-top:var(--space-4)"><div class="spec-list">
+        <i class="n">15</i><b>Node</b><span>A filled disc in its region’s colour. Radius follows activity (transfers to the power 0.3), never under 1.8 px. From 3.2 px up it has a 1 px ring in the canvas colour so that neighbours stay separate.</span>
+        <i class="n">16</i><b>Small nodes</b><span>Under 7.5 px radius a node has no label until it is selected, hovered or among the six heaviest links of the selection.</span>
+        <i class="n">8</i><b>Selection</b><span>Two 1.5 px rings in <code>--map-ink</code>, 3 px and 7 px outside the outline (of a node or of a region). No extra hue. Everything that is not the selection or one of its link targets is drawn at 60%.</span>
+        <i class="n">9</i><b>Hover and link targets</b><span>The same single 1 px ring at 55%.</span>
+        <i class="n">10</i><b>Links</b><span>Only for the selection. Quadratic curves, centre to centre, bent by 16% of their length; <code>--map-ink</code> at 55%, round caps, width by weight (below). Between single nodes a link is real: these two addresses exchanged transfers.</span>
+        <i class="n">11</i><b>“+<span class="num">k</span> more”</b><span>A hatched disc with a dashed outline (3 on 3 off) and <code>+k</code> in JetBrains Mono 500. It stands for the nodes of this community that are counted but not drawn; it can be selected, not opened.</span>
+        <i class="n">17</i><b>Node label</b><span>Address in JetBrains Mono 10.5 px, shortened to <code>0x634c…8ea3</code>; a known label follows in Inter 400, <code>--muted</code>. To the right of the disc, 5 px away.</span>
+        <i class="n">18</i><b>Off-screen target</b><span>A link that leaves the view ends in a chip on the edge: a dot in the target’s colour, its name, and the exact weight in mono. 20 px high, <code>--surface</code>, 1 px <code>--line</code>, 2 px radius.</span>
+      </div>
+      <div style="margin-top:var(--space-4)"><h4>Link widths</h4><p class="note" style="margin:4px 0 var(--space-2)">Width = 1 + 7 × √(weight ÷ heaviest link shown), in px. The heaviest link is always 8 px, and the panel gives every exact figure. Shown: links at 1%, 6%, 25%, 50% and 100% of the heaviest.</p><div id="width-legend"></div></div>
+      </div>
+      <div style="margin-top:var(--space-4)"><div data-theme="dark"><div data-anatomy="b-small"></div></div></div>
+    </div>
+  </section>
+
+  <!-- ============================== 5 ============================== -->
+  <section class="section" id="s5">
+    <h2><span class="num">5</span>Zoom levels</h2>
+    <p>The same place at five depths, from the whole graph to single addresses inside “DeFi protocols › Lending”. What a level shows is decided by size on screen, not by the zoom number: a region opens when its radius on screen passes 84 px (60 px in these small panels).</p>
+    <div class="zrow" id="zoomrow"></div>
+    <div class="sub"><h3>How a parent hands over to its children</h3>
+      <p class="note">A cross-fade of 190 ms, started when the region crosses the threshold and not tied to the gesture, so it never flickers while you hold the zoom near the edge (it closes again only under 90% of the threshold). With reduced motion the switch is instant.</p>
+      <div class="zrow three" id="handover"></div></div>
+  </section>
+
+  <!-- ============================== 6 ============================== -->
+  <section class="section" id="s6">
+    <h2><span class="num">6</span>States of the map</h2>
+    <p>Each with the caption it carries. The caption is part of the state: it is where the map says what it is not showing.</p>
+    <div class="st-grid" id="states"></div>
+  </section>
+
+  <!-- ============================== 7 ============================== -->
+  <section class="section" id="s7">
+    <h2><span class="num">7</span>Labels</h2>
+    <p>Labels are placed greedily by priority; one that would touch another is dropped, never shrunk, moved far or overlapped. The count is what every region has; a name is a bonus.</p>
+    <div class="two">
+      <ol class="rules">
+        <li><b>Priority, highest first:</b> the selection; the hovered thing; ends and hops of a path; the six heaviest link targets; top-level regions; named regions; then by size on screen.</li>
+        <li><b>A region label must fit inside its circle.</b> Tried in order: name and count; name on two lines and count; name alone; name on two lines; name cut with “…” at the end (from 26 px radius). If nothing fits and the region is top-level or selected, the name goes just above it.</li>
+        <li><b>Unnamed regions show the count only</b>, in mono, from 22 px radius. Smaller unnamed regions have no label: the outline is enough.</li>
+        <li><b>Minimum size 10 px.</b> Under 11 px radius nothing is labelled.</li>
+        <li><b>Collisions:</b> 3 px of clear space around every label (6 px around a plate). The loser is dropped and comes back when you zoom.</li>
+        <li><b>Halo always:</b> 3 px in the canvas colour under the text, so a link or an outline never cuts through a glyph. On a metric fill there is no halo; the ink switches instead.</li>
+      </ol>
+      <div class="stack">
+        <div class="spec"><span class="cap">Shortening</span><div class="ex">
+          <span class="h">Kind</span><span class="h">Full</span><span class="h">On the map</span>
+          <b>Address</b><span class="num xs" style="overflow-wrap:anywhere">0x634c0a2f9b1d77e04c3a51f2aa90d6be13c48ea3</span><span class="num">0x634c…8ea3</span>
+          <b>Transaction, hash</b><span class="num xs" style="overflow-wrap:anywhere">0x9a1b44c07e…55d077c2</span><span class="num">0x9a1b…77c2</span>
+          <b>Region name</b><span>Centralized exchanges and custody desks</span><span>Centralized exchan…</span>
+          <b>Unnamed community</b><span>community <span class="num">#964425</span></span><span class="num">1,184,770</span>
+          <b>Number</b><span class="num">51,197,779</span><span class="num">51,197,779</span>
+        </div><p class="note" style="margin-top:var(--space-3)">Identifiers are cut in the middle, keeping 4 characters after <code>0x</code> and the last 4: both ends are what people compare. Names are cut at the end. Numbers are never cut and never rounded on the map; if a count does not fit, it is not shown.</p></div>
+        <div id="halo-demo" class="two" style="gap:var(--space-3)"></div>
+      </div>
+    </div>
+    <div class="sub"><h3>Names and counts, or names only</h3>
+      <div class="two"><div><div id="lab-counts"></div><p class="xs muted" style="margin-top:var(--space-2)">Names + counts (the default). <span id="lab-counts-n"></span>.</p></div><div><div id="lab-names"></div><p class="xs muted" style="margin-top:var(--space-2)">Names only. <span id="lab-names-n"></span>. Calmer, but an unnamed region has nothing to show.</p></div></div></div>
+    <div class="sub"><h3>What an unnamed map really looks like</h3>
+      <p class="note">The mockups flatter the product: every region has a name. In a real graph a region has a name only if its nodes carry labels, and most do not. This is the same map with names for two regions and three sub-regions, which is nearer to what a first import gives. It still has to read as a map: outline, tint and exact count carry it, and it is why counts are on by default.</p>
+      <div class="two"><div><div id="lab-honest"></div><p class="xs muted" style="margin-top:var(--space-2)">Whole graph, five names in all. <span id="lab-honest-n"></span>.</p></div><div><div id="lab-honest-zoom"></div><p class="xs muted" style="margin-top:var(--space-2)">Inside a region with no names at all: counts, kinds and nesting only.</p></div></div></div>
+  </section>
+
+  <!-- ============================== 8 ============================== -->
+  <section class="section" id="s8">
+    <h2><span class="num">8</span>Small charts around the map</h2>
+    <p>Charts here are ink on paper. A data colour appears in a chart only when the same colour is on the map for the same thing; the accent appears only on what can be dragged or pressed.</p>
+    <div class="two">
+      <div class="chart"><h4>Activity over time, with a window</h4><div class="sub2">Drag the window or its edges; click a month to start a new one.</div><div id="hist"></div><div class="small" id="hist-read" style="margin-top:var(--space-2)"></div></div>
+      <div class="chart"><h4>Ranked bars with exact values</h4><div class="sub2">The number is the content; the bar is a reading aid.</div><div id="ranked"></div></div>
+      <div class="chart"><h4>Degree distribution, logarithmic axes</h4><div class="sub2">One dot per degree value up to 100, then logarithmic bins, as addresses per unit of degree.</div><div id="degree"></div></div>
+      <div class="chart"><h4>Sparklines in a table</h4><div class="sub2">96 × 22 px, 1.5 px line, one dot on the peak. No axis: the peak month is in the next column.</div><div id="sparks"></div></div>
+    </div>
+    <div class="sub"><h3>Axis, grid and tick style</h3><ol class="rules">
+      <li><b>One axis line</b>, the baseline: 1 px <code>--line-strong</code>. Grid lines 1 px <code>--line</code>, horizontal only, four or five at most.</li>
+      <li><b>Tick labels</b> in JetBrains Mono 11 px, <code>--muted</code>; units follow a thin space (“150 M”); powers of ten as 10³, 10⁶. Axis titles in Inter 12 px, <code>--ink-2</code>, sentence case.</li>
+      <li><b>Marks are thin:</b> bars with a 2 px gap on each side, lines 1.5 px, dots 1.6 to 2.5 px. No rounded bar ends, no gradients, no shadows.</li>
+      <li><b>Emphasis by ink, not hue:</b> what is inside the window is <code>--ink</code>, what is outside is <code>--line-strong</code>.</li>
+      <li><b>The window is a selection</b>, so it wears the accent: 1 px outline over an <code>--accent-soft</code> ground behind the bars, two 8 × 28 px handles.</li>
+      <li><b>Every mark has the exact value on hover</b> (a native title here; the popover component in the product), and the same numbers exist as a table.</li>
+      <li><b>Logarithmic axes say so</b> in the title or subtitle, show minor ticks at 2 to 9, and never start at zero.</li></ol></div>
+  </section>
+
+  <!-- ============================== 9 ============================== -->
+  <section class="section" id="s9">
+    <h2><span class="num">9</span>Tables of results</h2>
+    <p>The standard result table. Exact numbers, right-aligned in mono so digits line up; the unit once, in the header; the sorted column marked in words and by weight; and a footer that says when the result was cut short.</p>
+    <div class="tablewrap" id="result-table"></div>
+    <ol class="rules" style="margin-top:var(--space-4)">
+      <li><b>Numbers:</b> JetBrains Mono, tabular, right-aligned, thousands separators, a fixed number of decimals per column. Text and identifiers are left-aligned.</li>
+      <li><b>Units live in the header</b>, in parentheses, never repeated in cells.</li>
+      <li><b>Sorted column:</b> header in <code>--ink</code> 600 with an arrow and <code>aria-sort</code>; its cells in 500. One sorted column at a time.</li>
+      <li><b>Missing values</b> say “none” in <code>--muted</code>; never an empty cell, never a zero that is not a zero.</li>
+      <li><b>The footer is not optional</b> when rows were cut: how many are shown, of how many, in what order, and the ways to get the rest.</li>
+      <li><b>Selected row</b> on <code>--accent-soft</code>; hover on <code>--surface-2</code>.</li></ol>
+    <div class="sub"><h3>With a bar in the cell</h3>
+      <p class="note">For columns where rank matters at a glance. A 3 px bar under the number, right-aligned with it, scaled to the largest value in the column. The number stays the content.</p>
+      <div class="tablewrap" id="bar-table"></div></div>
+  </section>
+</main>
+<script src="viewer-assets/data-sample-graph.js"></script>
+<script src="assets/shell.js" data-page="data"></script>
+<script src="viewer-assets/data-page.js"></script>
+</body>
+</html>

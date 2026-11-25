@@ -9,13 +9,22 @@ Updated at the end of every session. Read this first.
   board `users/VincenzoImp/projects/7`. Source of truth: `plan/issues/*.md`.
 - **Evidence:** first feasibility lab done; results in `docs/FINDINGS.md`, raw result
   files in `lab/*/results`, prototypes in `lab/`.
-- **Owner's standing instructions:** full autonomy on this repository and this machine;
-  keep the machine clean; coordinate subagents; the items in CLAUDE.md § 8 stay with the
-  owner.
+- **Owner's standing instructions:** every decision is delegated (2026-11-24); the owner
+  helps where hands are needed (2FA, credentials, payments). Keep the machine clean;
+  coordinate subagents. Safeguards Claude keeps: CLAUDE.md § 8. The owner wants to see
+  previews of everything that is a matter of taste before it is built (`design/preview/`).
 
 ## In flight
 
-Nothing.
+- **#119 design previews** — branch `m0-13-design-previews`, draft PR #120. Published at
+  `design/preview/`: viewer mockup, identity rounds 1 and 2, API, CLI, choices, and the
+  detailed guide of the chosen style (`design/preview/style/`, entry `README.md` on GitHub
+  or `index.html` locally). Owner decided: identity = B's system with A's mark. Claude chose
+  the "Vernier" system and the spelling of the name (both provisional in
+  `design/DECISIONS.md`). **Waiting for the owner's reaction to the detailed style and to
+  the choice lists.** Afterwards: record answers, align names in the older mockups with
+  `api.md`, prune superseded screenshots (`design/preview/screens` is ~77 MB), merge.
+  The Playwright helper scripts live in `$EVERYGRAPH_SCRATCH/pw` (`shot.mjs`, `sections.mjs`).
 
 ## Next actions
 
@@ -40,9 +49,14 @@ Nothing.
 
 ## Open questions for the owner
 
-- None blocking. Reserved decisions are listed in CLAUDE.md § 8.
+- Answers to the design previews (`design/preview/README.md`, issue #119).
 
 ## Lessons (append, never delete)
+
+- 2026-11-25 — A colour palette chosen by eye failed measurement (two pairs invisible to
+  colour-blind readers, one colour equal to the accent). Measure palettes and contrast.
+- 2026-11-25 — Text that looked fine in Markdown broke when typeset (lines over 80 columns,
+  one word with two meanings). Typeset user-facing text before calling it done.
 
 - 2026-11-24 — Timings taken while eight experiments shared the machine were off by up to
   2–3× in comparisons (GVE) and hid real effects (SMT). Idle machine only.
@@ -61,6 +75,10 @@ Nothing.
 
 ## Journal
 
+- **2026-11-25** — Detailed style guide built (nine pages, three subagents). Measurements
+  overturned Claude's hand-picked data palette and five contrast values; tokens corrected.
+- **2026-11-24 (later)** — Owner delegated every decision and asked for previews of all
+  matters of taste. Added #119; produced the previews with three subagents.
 - **2026-11-24** — Project conceived as a rethink of `largegraph`. Feasibility lab (8
   experiments), design baseline, 117-issue plan published. Full review of the plan found
   ten errors; fixed, one issue added (#118), three issues moved between milestones.

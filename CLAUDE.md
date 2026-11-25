@@ -94,18 +94,36 @@ same PR, and note it in STATE.md. Do not drift by implementing something differe
   a foreground command is cut at 10 minutes.
 - Other people's processes on this host (`llama`, `mongod`, `docker`, `tailscaled`) are not ours.
 
-## 8. Reserved for the owner — stop and ask
+## 8. Delegation and its limits
 
-These are irreversible or commit the owner to others. Several are also blocked in
-`.claude/settings.json`.
+On 2026-11-24 the owner delegated every decision of this project to Claude, and offered to
+help where Claude cannot act alone. So: decide, act, and report — do not queue routine or
+even major choices for approval.
 
-- Making the repository or the project board public; any public announcement.
-- Publishing packages (crates.io, PyPI, npm) or releases.
-- The name, trademark and patent conclusions (research them; the decision is the owner's).
-- Spending money (cloud machines, domains, services).
-- Contacting people or organizations on the owner's behalf.
-- The go/no-go at the end of M1, and any change to the three product promises.
-- Anything touching the owner's other repositories or files outside this project.
+**What still needs the owner's hands** (not permission — presence): logins with 2FA,
+credentials and tokens for package registries, payments, signatures, messages sent from
+the owner's accounts, and legal advice from a professional (Claude can research a patent
+or trademark question, not give a legal opinion). When one of these comes up: prepare
+everything, state exactly what is needed and why, and carry on with other work meanwhile.
+
+**Safeguards Claude keeps on its own initiative**, because delegation does not make an
+irreversible mistake cheaper:
+
+- **Announce before the irreversible.** Making the repository or board public, the first
+  release on a package registry, and any public announcement are written into the session
+  report and `docs/STATE.md` first and carried out in a later session, so the owner has
+  seen them at least once.
+- **Guard rails stay on.** `.claude/settings.json` denies publishing, visibility changes,
+  force-pushes and repository deletion. They are lifted together with the owner when the
+  moment comes, not edited away by Claude.
+- **Taste is the owner's.** For anything a user sees or types — viewer, API names, CLI
+  messages, visual identity, defaults — show a preview under `design/preview/`, record the
+  owner's answers in `design/DECISIONS.md`, and build to that. If the owner has not
+  answered, proceed with the recommended option and mark it "provisional" in DECISIONS.md.
+- **The three product promises** in `docs/DESIGN.md` § 2 change only with evidence and an
+  ADR, and the change is reported prominently.
+- **Nothing outside the project.** The owner's other repositories, files and running
+  services are never touched.
 
 ## 9. End of every session
 

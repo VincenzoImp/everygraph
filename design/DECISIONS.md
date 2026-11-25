@@ -1,0 +1,12 @@
+# Design decisions
+
+The owner's answers to the previews in `design/preview/`. "Provisional" means the owner
+has not answered and the recommended option is in use until they do.
+
+| Date | Topic | Decision | Status |
+|---|---|---|---|
+| 2026-11-24 | Visual identity, round 1 | System of direction **B "Datum"** (technical, crisp: near-monochrome, one accent, monospace numerals) with the **mark of direction A** (nested off-centre contours). Round 2 explores variants of this combination. | decided by owner |
+| 2026-11-25 | Visual identity, round 2 | **Vernier** (calm instrument: warm paper, soft black, ink-blue accent, monospace numbers, Inter + JetBrains Mono) with the two-ring **Nest** mark and its **Seal** form for small sizes. Chosen by Claude at the owner's request to detail "the style you prefer"; full preview in `design/preview/style/`. | **approved by the owner on 2026-11-25** ("va benissimo il lavoro fatto") |
+| 2026-11-25 | The name and its spelling | **Everygraph** in text (capital E, one word); **everygraph** lowercase in the wordmark and in everything typed (package, import, command, crates, repository); alias `eg` in Python only; `.eg` and `.egmap` extensions. Details in `design/preview/style/SPEC.md`. | provisional |
+| 2026-11-25 | Refinements from the detailed style preview | Measured data palette replaces the first one; contrast-adjusted text and border tokens; five reused region colours; numbers mono with units in the text face; no ligatures; bold (not blue) next-step command in the terminal; `limit=` for traversals, "budget" for memory only. Full list in `design/preview/style/SPEC.md`, last section. | provisional |
+| 2026-11-25 | All remaining preview choices (viewer V1–V12, identity I0–I3, notebook N1–N3, API 1–13, CLI 1–10, choices A–E, style questions 1–7) | The recommended option (★) in each case. The owner approved the previews as a whole without singling out any choice; each stays open to change if the owner objects when it is built. Summary of the ones that shape the product: bubbles map on a dark canvas, links drawn for the selection only, five reused region colours, artefact regions hatched and labelled; methods on the graph (`g.pagerank()`), results as Arrow-backed tables with original ids, repeatable by default, `limit`/`timeout` on traversals; command `everygraph`, starts without asking, half of free RAM by default; duplicates kept as events, direction ignored for communities; repository public at 0.1; NetworkX backend after 0.1; no telemetry. | accepted by default |
