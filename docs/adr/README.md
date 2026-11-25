@@ -4,6 +4,9 @@ An ADR here records one design decision of `docs/DESIGN.md` § 4 (D1…D25): wha
 what was measured, how far the measurement supports it, and what would make us change it.
 ADR `NNNN` ratifies decision `DN`; ADR 0000 records the assumptions the first lab
 overturned, so they are not brought back by accident.
+ADRs from 0026 on record a decision that is not one of D1…D25, such as the wording of a
+product promise in `docs/DESIGN.md` § 2; their header names what they decide (a promise,
+a decision row or a section) instead of `DN`.
 
 A decision changes only through a new or amended ADR, with `docs/DESIGN.md` updated in the
 same pull request and the change noted in `docs/STATE.md` (`CLAUDE.md` § 5). Implementing
@@ -41,7 +44,7 @@ extrapolation is labelled as one every time.
 # ADR NNNN — <title>
 
 - **Status:** accepted | accepted, partly validated | open — needs experiment
-- **Decision:** DN in [DESIGN.md](../DESIGN.md#4-decisions)
+- **Decision:** DN in [DESIGN.md](../DESIGN.md#4-decisions)  (from ADR 0026 on, when not a D-row: promise N in [DESIGN.md § 2](../DESIGN.md#2-the-product), or the section)
 - **Date:** YYYY-MM-DD
 
 ## Context
@@ -94,6 +97,7 @@ A measurable condition.
 | [0023](0023-licence-and-open-specs.md) | Apache-2.0 OR MIT; published format specs | accepted | — |
 | [0024](0024-visual-system.md) | One visual system, Vernier | accepted | — |
 | [0025](0025-user-facing-choices.md) | User-facing choices live in `design/DECISIONS.md` | accepted | — |
+| [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #35 |
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of
 `docs/DESIGN.md` agree, that each ADR has the required sections and a known status, that

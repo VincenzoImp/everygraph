@@ -198,6 +198,35 @@ no hand-written SIMD. The machine was never quiet (load 10–45): the same orkut
 - Out of core the bottleneck is temp-file traffic (128 GB of NVMe I/O at an 8 GB budget),
   not CPU. O_DIRECT helps for input, **hurts** for small appending temp writes
   (74.6–81.4 s vs 33.2–45.3 s). Parallel `pwrite` into one output file does not scale.
+- **Write-heavy ingest is bounded by the drive's sustained write rate, not by the CPU**
+  (benchmark harness, idle machine, 2026-11-25; Friendster text → uncompressed CSR with
+  `glab`, 32 threads, `O_DIRECT` input, output memory-mapped, no `fsync`, 48 GiB memory
+  limit; Samsung 990 PRO 2 TB, ext4). Each run writes 45.1 GB at a 32 GB budget and
+  55.4 GB at 8 GB (the cgroup's `io.write_bytes` in every row; `temp_disk` 29.6 / 39.9 GB
+  plus the CSR). The first ingest after a light period took 17.7 and 19.5 s at 32 GB
+  (92–102 M edges/s; repetition 1 of `bench/results/headline/20261125T101402Z-79634d76b95b.jsonl`
+  and of `…/20261125T104322Z-79634d76b95b.jsonl`, rows 37) and used 14–16 cores on
+  average; the back-to-back repetitions after it took 27.2–30.8 s and used 7.8–9.3 of 32
+  cores (rows 38–39 of the same files). So the CPU was waiting, not saturated.
+  - *Cause (inference with strong support, exploratory, not in a committed result file;
+    recorded in the investigation of PR 136):* a 64 GB `O_DIRECT` write probe showed this
+    drive writing its first ~10 GB after 5 idle minutes at 5.3 GB/s, then 1.4–1.6 GB/s, at
+    49–55 °C with no thermal throttling. A 45–55 GB ingest therefore runs mostly in the
+    slow region unless the drive has rested. `/proc/pressure/io` stall time tracks the
+    slowdown: 9.7 s of stall in a 22.5 s ingest, 18.3 s in a 33.6 s one (exploratory runs).
+  - *Ruled out (same exploratory investigation):* deleting the previous run's output
+    before the next, write-back left over from the previous run, ext4 discard, drive
+    temperature, and other load on the machine (the harness's disturbance check saw others
+    at ≤ 0.31 cores and ≤ 0.5 MB/s in every official window).
+  - *Protocol that follows:* a case that writes tens of gigabytes per repetition runs one
+    untimed warm-up repetition (`warmup = 1` in `bench/specs/headline.toml`,
+    `ingest-friendster`), so that every measured repetition meets the sustained rate that
+    back-to-back ingests meet; the rested-drive figure is reported beside it, never instead
+    of it. Under that protocol: 29.06 s at 32 GB and 36.97 s at 8 GB (§ Idle-machine
+    re-runs). The lab's single Friendster runs (21.1 s and 52.4 s) had no such control.
+  - Not measured: another drive, or the same ingest with `fsync`. What it implies: the
+    ingest's speed on large graphs depends on bytes written, so the m2-08 reductions of
+    temp traffic (no spill pass, 6-byte bucket entries) are speed work, not only space work.
 
 **Kernels in RAM (orkut, 32 threads):** PageRank 20 it. 0.40–0.46 s (NetworKit 3.42 s);
 WCC (Afforest) 27 ms (NetworKit parallel 302 ms); BFS 35 ms; k-core 0.27–0.42 s;
@@ -364,13 +393,32 @@ These supersede the shared-machine timings above where they overlap.
 
 **B1 — ingest and kernels**
 
+The ingest rows are the benchmark harness's official idle runs of 2026-11-25
+(`bench/results/headline/20261125T101402Z-79634d76b95b.jsonl` = run 1,
+`…/20261125T104322Z-79634d76b95b.jsonl` = run 2, `…/20261125T114658Z-0ffe756ac9ac.jsonl`
+= the Friendster re-take with one untimed warm-up repetition): `glab`, text → uncompressed
+CSR, page cache warm for the text, no `fsync`, 8 GiB memory limit (48 GiB for Friendster),
+each repetition a separate process. lj and orkut are the median of 6 repetitions (3 per
+run). The lab's values of 2026-11-24 (`lab/b1-core/results/bench/ingest.jsonl`), now
+superseded, were one run each, except lj and orkut at 32 threads (best of 3 runs in one
+sequence; medians 0.428 / 0.889 s), and are kept in brackets. Its Friendster 32 GB run followed
+only the small lj and orkut runs, so it met a rested drive (inferred from the order of
+the file, not measured). Kernel rows are the lab's idle re-run of 2026-11-24.
+
 | measurement | idle result |
 |---|---|
-| lj / orkut text → CSR, 32 threads | 0.42 s / 0.89 s (1 thread: 1.22 s / 4.20 s) |
-| parse only, 32 threads | 0.047 s (lj), 0.123 s (orkut) |
-| from gzip (in-process / pigz pipe) | lj 1.24 / 1.14 s; orkut 3.93 / 3.66 s |
-| Friendster, 32 GB budget | 21.1 s, peak RSS 13.2 GB |
-| Friendster, 8 GB budget | 52.4 s, peak RSS 3.6 GB (33–45 s in earlier shared runs: variance is high) |
+| lj / orkut text → CSR, 32 threads, 8 GB budget, output memory-mapped | 0.386 s (0.370–0.395) / 0.781 s (0.754–0.806): 90 M / 150 M edges/s (rows 1–6 of runs 1 and 2; lab, best of 3: 0.42 s / 0.89 s) |
+| lj / orkut, 1 thread | 1.182 s / 3.965 s (rows 31–36 of runs 1 and 2; lab: 1.22 s / 4.20 s) |
+| parse only, 32 threads | 0.0467 s (lj), 0.118 s (orkut) (rows 10–12, 22–24; lab: 0.047 / 0.123 s) |
+| from gzip (in-process / pigz pipe) | lj 1.134 / 1.054 s; orkut 3.70 / 3.549 s (rows 13–18, 25–30; lab: lj 1.24 / 1.14 s, orkut 3.93 / 3.66 s) |
+| Friendster (1.806 B edges from 31 GiB of text, `O_DIRECT` input, output memory-mapped, 32 threads), 32 GB budget | **sustained** (after an untimed warm-up, back to back): 29.06 s (27.52–29.56, 3 runs), 62 M edges/s, peak RSS 13.3 GiB (re-take, rows 1–3). **Rested drive** (first ingest after a light period): 17.7 s and 19.5 s, 102 / 92 M edges/s (row 37 of runs 1 and 2). Lab single run, on a rested drive (inferred): 21.1 s, 86 M edges/s |
+| Friendster, 8 GB budget | **sustained**: 36.97 s (35.06–37.14, 3 runs), 49 M edges/s, peak RSS 3.6 GiB (re-take, rows 4–6); runs 1 and 2 without a warm-up, right after the 32 GB case: 32.6–41.0 s (rows 40–42). Lab single run: 52.4 s (33–45 s in earlier shared runs); the gap to 37.0 s is not explained |
+
+The spread between rested and sustained Friendster ingest is the drive's, not the code's:
+see § B1, "Write-heavy ingest is bounded by the drive's sustained write rate".
+
+| measurement | idle result |
+|---|---|
 | orkut PageRank f32, 20 it. | 3.57 s (1T) → 1.87 → 0.96 → 0.53 → 0.37 (16T) → 0.38 (32T) |
 | orkut PageRank f64, 20 it. | 0.43 s (16T) |
 | orkut WCC | 81 ms (1T) → 13 ms (16T) |
@@ -446,7 +494,8 @@ igraph 6.9 / 23.1 GiB; largegraph 2.3 / 4.0 GiB (`ru_maxrss`, recorded in MiB).
 
 **What the comparison says (lab prototype, idle machine)**
 
-- Ingest: 0.42 s / 0.89 s against DuckDB's 1.91 s / 5.37 s (4.5–6×). DuckDB runs general SQL
+- Ingest: 0.386 s / 0.781 s (harness medians, 2026-11-25; the lab's single runs: 0.42 s /
+  0.89 s) against DuckDB's 1.91 s / 5.37 s (4.9–6.9×). DuckDB runs general SQL
   and writes compressed Parquet, so this bounds the gain rather than declaring a winner.
 - Kernels on orkut against NetworKit at its best thread count: PageRank in f64 0.43 vs 2.79 s
   (6.5×; 0.37 s in f32), components 13 vs 247 ms (19×), k-core 0.28 vs 1.23 s (4.4×).

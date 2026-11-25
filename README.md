@@ -20,7 +20,10 @@ machine.
 
 ## Three promises
 
-1. **Open anything fast** — a file becomes an analysis-ready graph at about 100 M edges/s.
+1. **Open anything fast** — a file becomes an analysis-ready graph at about 100 M edges/s
+   while what the ingest writes fits in memory or in the drive's fast-write burst; an
+   ingest that writes more goes at the drive's sustained write rate (about 60 M edges/s
+   for 1.8 B edges on the lab machine).
 2. **Never run out of memory** — you set a budget; the engine plans first and stays inside it.
 3. **See it and trust it** — a zoomable map of the whole graph, exact numbers at every
    level, identical results at any thread count, shareable as one static file.
@@ -37,7 +40,7 @@ prototypes, reading plain text, without `fsync`. Details, methods and caveats ar
 
 | Question | Result |
 |---|---|
-| Text edge list → graph ‡ | 35 M edges in 0.42 s; 117 M in 0.89 s; 1.8 B in 21 s (52 s with an 8 GB budget), to uncompressed arrays, 32 threads. Encoding them to the default storage took a further 0.06 s, 0.17 s and 3.4 s at 16 threads, measured separately from ingest |
+| Text edge list → graph ‡ | to uncompressed arrays, 32 threads, through the benchmark harness: 35 M edges in 0.39 s and 117 M in 0.78 s (90 M and 150 M edges/s, median of 6); 1.8 B in 29 s with a 32 GB budget and 37 s with 8 GB when ingests run back to back (62 M and 49 M edges/s, median of 3), bounded by the drive's sustained write rate, not the CPU — 17.7–19.5 s (92–102 M edges/s) on a rested drive. Encoding them to the default storage took a further 0.06 s, 0.17 s and 3.4 s at 16 threads, measured separately from ingest |
 | PageRank on 1.8 B edges | 3.2 s/iteration in RAM on the default storage (uncompressed: 3.4), f32, 16 threads. Under a 2 GB memory limit: 3.6 s/iteration with the uncompressed-format streaming reader (32 threads) ‡; the default storage has no streaming reader yet and takes 4.3 s/iteration through plain mmap (16 threads). Cheap single-pass kernels do not get this: components take 0.50 s in RAM on the default storage (uncompressed: 0.36, 16 threads) and 3.6 s out of core ‡, bounded by reading the file |
 | Kernels vs NetworKit (117 M edges) | lab at 16 threads, NetworKit at 32: PageRank (f64, 20 iterations) 0.31 s (uncompressed: 0.42 s) vs 2.79 s; components 17 ms (uncompressed: 12 ms) vs 247 ms; k-core 0.22–0.36 s in either storage (run-to-run spread) vs 1.23 s |
 | Communities (Leiden, 35 M edges) | one iteration, 16 threads: 0.79 s at modularity 0.749 on the default storage (uncompressed: 0.76 s at 0.750); GVE-Leiden, 32 threads: 1.02 s at 0.722. Three iterations: 2.0 s at 0.765 ‡ (NetworKit: 6.0 s at 0.769) |
@@ -71,7 +74,7 @@ the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBU
 
 ## Where to look
 
-- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 25 decisions with their evidence (one ADR each under `docs/adr/`)
+- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 25 decisions with their evidence (one ADR each under `docs/adr/`; ADR 0026 words promise 1)
 - [docs/FINDINGS.md](docs/FINDINGS.md) — what the lab measured, including negative results
 - [docs/ROADMAP.md](docs/ROADMAP.md) — milestones and their exit criteria
 - [plan/](plan/) — every issue as a file, and the script that publishes them
