@@ -23,8 +23,8 @@ From the properties experiment (FINDINGS § F1; shared machine; orkut; one weigh
 PageRank iteration with an f32 weight; `lab/f1-query/results/props_orkut_t32.json`,
 `lab/f1-query/results/props_orkut_t4.json`):
 - Through a u32 edge id: 0.247 s vs 0.117 s with the weight duplicated per entry at 32
-  threads (2.10×); 0.668 vs 0.391 s at 4 threads (1.71×). This is DESIGN's "1.7–2.1×":
-  **one kernel, one graph, two thread counts**, not "kernels" in general.
+  threads (2.10×); 0.668 vs 0.391 s at 4 threads (1.71×). This is the "1.7–2.1×" that DESIGN
+  quoted for "kernels" until on 2026-11-25: **one kernel, one graph, two thread counts**.
 - Space: duplication costs 2·m·P bytes, indirection 2·m·4 + m·P; indirection is smaller
   when a property set exceeds 4 bytes per edge (note in the same file). Orkut with three
   columns (f32 weight, u32 timestamp, u8 type): 2.11 GB duplicated vs 1.99 GB indirect.

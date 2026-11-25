@@ -21,8 +21,8 @@ Idle, 16 threads, async Leiden unless noted (FINDINGS § B2 "Hierarchy for the m
 `lab/b2-leiden/results/hier/`, "Hierarchies (whole machine)" in
 `lab/b2-leiden/results/summary.txt`):
 - **Natural hierarchies are unusable for a map**: the largest parent has 102,821 children
-  on lj and 338,769 on orkut (level 1, compaction ratio 3). DESIGN and FINDINGS say
-  "~100k"; the idle orkut run is 3.4× that. Louvain is shallower still (orkut 3.07 M →
+  on lj and 338,769 on orkut (level 1, compaction ratio 3). DESIGN and FINDINGS said
+  "~100k" until on 2026-11-25; the idle orkut run is 3.4× that. Louvain is shallower still (orkut 3.07 M →
   11,044 → 118 → 37 → 33 nodes per level).
 - **The cap costs modularity**: fan-out cap 64 with compaction ratio 3 lowers top-level
   modularity from 0.7494 to 0.7260 on lj (2.3 points) and from 0.6795 to 0.6297 on orkut

@@ -25,11 +25,12 @@ From the map experiment (FINDINGS § E; shared machine; `lab/e-map/results/`):
   0.014 for disc packing on lj against 0.244 for a FastRP-like embedding with PCA, a
   featureless blob (`lab/e-map/results/eval_lj_hcl.json`,
   `lab/e-map/results/eval_lj_fastrp.json`). On orkut disc packing gives 0.074
-  (`lab/e-map/results/eval_orkut_hcl.json`), which DESIGN does not mention.
+  (`lab/e-map/results/eval_orkut_hcl.json`), which DESIGN does not quote.
 - **Determinism**: positions byte-identical across thread counts on lj and orkut after one
   fix (`lab/e-map/results/determinism_orkut.json`).
 - **Wasted area**: node discs cover "about 1–3%" of the map (`lab/e-map/REPORT.md`, an
-  estimate). DESIGN's "wastes 97% of the area" is **not traced** to a result file.
+  estimate). DESIGN's earlier "wastes 97% of the area" was not traced to a result file and
+  was replaced on 2026-11-25 by the estimate, labelled as such.
 - "Readable" is the experiment's visual judgment, not a metric.
 - **At 10^9 edges**: 2–4 minutes and about 20 GB of RAM — an extrapolation, not measured
   (FINDINGS § E).

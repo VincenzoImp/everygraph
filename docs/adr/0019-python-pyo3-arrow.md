@@ -23,11 +23,12 @@ From the Python experiment (FINDINGS § F2; shared machine; lj):
   0.5–4.4 ms. The GIL is released during kernels.
 - **Per-call cost**: an empty method call costs 28 ns (dev cores) and 40 ns (32 threads)
   (`lab/f2-python/results/goalB_lj_dev.json`, `lab/f2-python/results/goalB_lj_t32.json`).
-  FINDINGS gives "28–62 ns"; the 62 ns is **not traced** to a result file. A neighbour
+  FINDINGS gave "28–62 ns" until on 2026-11-25; the 62 ns is **not traced** to a result
+  file. A neighbour
   list as a zero-copy NumPy view costs 238 ns per call, against 171 ns per node in a
   batch call (`goalB_lj_t32.json`).
 - **Packaging**: one 525 KB abi3 wheel for CPython 3.10–3.14 (FINDINGS § F2; the wheel
-  size is **not traced** to a result file). Free-threaded CPython needs separate wheels.
+  size is **not traced** to a result file and is labelled an estimate since on 2026-11-25). Free-threaded CPython needs separate wheels.
 
 ## Consequences
 

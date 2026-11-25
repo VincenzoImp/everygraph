@@ -26,8 +26,8 @@ From 16 to 32 threads (FINDINGS "Idle-machine re-runs"; idle; uncompressed array
   1.43 → 1.24 s.
 - lj: Leiden async 0.76 → 0.78 s; Louvain async 0.42 → 0.38 s (small gain); and on both
   graphs every deterministic run is slower at 32 (Leiden det lj 2.30 → 2.51, orkut 3.48 → 3.77 s;
-  Louvain det lj 0.85 → 0.99 s). DESIGN quotes only orkut Louvain; the gain for community
-  detection depends on the graph and the mode.
+  Louvain det lj 0.85 → 0.99 s). DESIGN quoted only orkut Louvain until on 2026-11-25; the gain for
+  community detection depends on the graph and the mode.
 - Friendster: PageRank looked flat from 8 threads up (FINDINGS § B1), but only on a loaded
   machine; there is no idle scaling curve, and the memory-bandwidth explanation is not
   confirmed with counters.

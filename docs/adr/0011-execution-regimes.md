@@ -37,8 +37,8 @@ O(n) state, not by the size of the graph. A memory accountant backs the no-OOM g
   `lab/b2-leiden/results/big/friendster_louvain_semiext16g.json`,
   `lab/b2-leiden/results/semiext/`): Leiden's O(n) state is small (21–53 B/node) but its
   dominant term is the level-1 quotient graph (22–44% of input entries). Leiden on
-  Friendster at 32 threads peaked at 23,648,132 KiB of anonymous memory (22.6 GiB; DESIGN
-  and FINDINGS write "23.6 GB") and does not fit 16 GiB. Louvain under 16 GiB finished
+  Friendster at 32 threads peaked at 23,648,132 KiB of anonymous memory (22.6 GiB; DESIGN,
+  FINDINGS and README wrote "23.6 GB" until on 2026-11-25) and does not fit 16 GiB. Louvain under 16 GiB finished
   with 3.8 GiB anonymous but Q 0.4647 against Leiden's 0.6033. On orkut with a limit near
   the edge-array size, Leiden ran 5.7× slower (23.8 vs 4.2 s, 6 threads); below it,
   Louvain ran 51× slower (163.9 vs 3.2 s) or was killed.
