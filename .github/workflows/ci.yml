@@ -1,0 +1,227 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Continuous integration on Linux x86_64: every pull request, every push to main.
+# Each step is a command of CONTRIBUTING.md ("Checks" and "CI"), so that anything that
+# fails here can be reproduced locally with the same command.
+#
+# Cost: the repository is private and Actions minutes are counted. So: Linux only here
+# (macOS and Windows run weekly, in other-platforms.yml); superseded runs of a pull
+# request are cancelled; documentation-only changes do not start the workflow; and the
+# caches are written by main only, read by every branch.
+
+name: CI
+
+on:
+  pull_request:
+    paths-ignore: &docs-only
+      - "**.md"
+      - "docs/**"
+      - "plan/**"
+      - "design/**"
+      - "lab/**"
+      - "LICENSE*"
+  push:
+    branches: [main]
+    paths-ignore: *docs-only
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A new push to a pull request cancels the run it supersedes; runs on main all finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  lint:
+    name: Format, lint, portability rule, dependency policy, docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt --target i686-unknown-linux-gnu
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo fmt
+        run: |
+          cargo fmt --all --check
+          cargo fmt --manifest-path tools/wasm-toy/Cargo.toml --check
+          cargo fmt --manifest-path tools/canary/tsan/Cargo.toml --check
+          rustfmt --edition 2024 --check tools/canary/portability/*.rs
+      - name: cargo clippy (workspace)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo clippy (core, no default features)
+        run: cargo clippy -p everygraph-core --no-default-features --all-targets --locked -- -D warnings
+      - name: cargo clippy (core, i686)
+        run: cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --all-targets --locked -- -D warnings
+      - name: cargo clippy (core, i686, no default features)
+        run: cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets --locked -- -D warnings
+      - name: Portability checks of the core
+        run: python3 tools/check_core_portability.py
+      # The advisory database is fetched from the network on every run (the runner has
+      # it): a newly published advisory against a dependency fails the next run, which
+      # is the point. The weekly workflow runs it too, so main hears of one without a push.
+      - name: cargo deny
+        run: cargo deny --locked check
+      - name: cargo doc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --locked
+
+  test:
+    name: Tests and release build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      - name: cargo nextest (workspace)
+        run: cargo nextest run --workspace --locked
+      - name: Doc tests (nextest does not run them)
+        run: cargo test --workspace --doc --locked
+      - name: cargo test (core, no default features)
+        run: cargo test -p everygraph-core --no-default-features --locked
+      - name: Release build
+        run: cargo build --workspace --release --locked
+      # Native tests with a 32-bit usize, with and without rayon (Miri covers the same
+      # tests without rayon, slowly). Linking for i686 needs the 32-bit C runtime.
+      - name: Install the i686 target and gcc-multilib
+        run: |
+          rustup target add i686-unknown-linux-gnu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends gcc-multilib
+      - name: cargo test (core, i686)
+        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --locked
+      - name: cargo test (core, i686, no default features)
+        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
+
+  portability:
+    name: wasm32 build, wasm toy in Node, portability canary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup default stable
+          rustc --version
+          node --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: wasm32 build (core, no default features)
+        run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
+      - name: wasm32 build (everygraph-wasm)
+        run: cargo build -p everygraph-wasm --target wasm32-unknown-unknown --locked
+      - name: Toy kernel, native and wasm32 in Node, same hash
+        run: python3 tools/check_wasm_toy.py
+      # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
+      # fails if any probe is accepted.
+      - name: Portability canary
+        run: python3 tools/check_portability_canary.py
+
+  # Placeholder, not a job: the threaded browser build arrives with issue #108. It needs
+  # the nightly named in tools/nightly-toolchain with rust-src, `-Z build-std=panic_abort,std`,
+  # RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals" and the explicit
+  # linker flags `--shared-memory --import-memory --max-memory=…` (FINDINGS § G), and a
+  # browser or Node run with SharedArrayBuffer. Add it here as a job when #108 lands.
+
+  msrv:
+    name: Minimum supported Rust (1.85)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.85
+        run: rustup toolchain install 1.85 --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo +1.85 test
+        run: cargo +1.85 test --workspace --locked
+
+  miri:
+    name: Miri (no default features, i686, rayon under Tree Borrows)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned nightly with Miri
+        run: |
+          NIGHTLY="$(cat tools/nightly-toolchain)"
+          echo "NIGHTLY=$NIGHTLY" >> "$GITHUB_ENV"
+          rustup toolchain install "$NIGHTLY" --profile minimal --component miri,rust-src
+          cargo "+$NIGHTLY" miri --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: miri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Cache the Miri sysroots
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/miri
+          key: miri-sysroot-${{ env.NIGHTLY }}
+      - name: Miri, no default features
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --locked
+      - name: Miri, no default features, i686 (the 32-bit usize run)
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu --locked
+      - name: Miri, default features (rayon), Tree Borrows
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked
+
+  tsan:
+    name: ThreadSanitizer (core tests, and a racy canary that must be caught)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned nightly with rust-src
+        run: |
+          NIGHTLY="$(cat tools/nightly-toolchain)"
+          rustup toolchain install "$NIGHTLY" --profile minimal --component rust-src
+          rustc "+$NIGHTLY" --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: tsan
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: ThreadSanitizer
+        run: python3 tools/check_tsan.py

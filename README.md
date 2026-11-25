@@ -35,10 +35,10 @@ Details, methods and caveats are in [docs/FINDINGS.md](docs/FINDINGS.md).
 | Question | Result |
 |---|---|
 | Text edge list → graph | 35 M edges in 0.42 s; 117 M in 0.89 s; 1.8 B in 21 s (52 s with an 8 GB budget) |
-| PageRank on 1.8 B edges | 3.4 s/iteration in RAM; 3.7 s/iteration under a 2 GB memory limit. Cheap single-pass kernels do not get this: components take 0.34 s in RAM and 3.6 s out of core, bounded by reading the file |
+| PageRank on 1.8 B edges | 3.4 s/iteration in RAM; 3.6 s/iteration under a 2 GB memory limit (f32, 32 threads). Cheap single-pass kernels do not get this: components take 0.34 s in RAM and 3.6 s out of core, bounded by reading the file |
 | Kernels vs NetworKit (117 M edges) | PageRank (f64, 20 iterations) 0.43 s vs 2.79 s; components 13 ms vs 247 ms; k-core 0.28 s vs 1.23 s |
 | Communities (Leiden, 35 M edges) | 0.76 s at modularity 0.750 (GVE-Leiden: 1.02 s at 0.722); 2.0 s at 0.765 with three iterations (NetworKit: 6.0 s at 0.769) |
-| Determinism | identical partition, layout and map file at 1–32 threads; costs 2.4–3× for Leiden |
+| Determinism | identical partition at 1–32 threads (layout and map file: † shared machine); costs 2.4–3.0× for Leiden at 16 threads |
 | Storage † | 16–17 bits/edge on social graphs (raw: 33); at 32 threads scans faster than raw arrays on twitter-2010, slower on Orkut |
 | Shortest path between two nodes † | 0.3 ms median on LiveJournal, in-process (Neo4j 6.4 ms and embedded engines 0.3–4.8 s on the same graph, measured through their query interfaces); 1.5 ms on twitter-2010 |
 | Map of a 4 M-node graph † | layout 3.3 s, tiles 8.5 s; first view 152 KB; search in 2 requests |
@@ -46,7 +46,7 @@ Details, methods and caveats are in [docs/FINDINGS.md](docs/FINDINGS.md).
 
 ## What is not solved yet
 
-Community detection beyond RAM (Leiden needs 23.6 GB on the 1.8 B-edge graph), the quality
+Community detection beyond RAM (Leiden needs 22.6 GiB of anonymous memory on the 1.8 B-edge graph), the quality
 of the map's hierarchy and edges on dense graphs, and the cost of determinism. The headline
 "a billion edges to a map on a 16 GB laptop" has not been run end to end. These are the
 subject of the first work milestone. See [docs/DESIGN.md § 5](docs/DESIGN.md).
@@ -77,4 +77,21 @@ the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBU
 
 ## Licence
 
-Dual-licensed under Apache-2.0 or MIT, at your option.
+- **Code** — every source file, script and build file, everything under `crates/` and
+  `lab/`, and code samples wherever they appear — is dual-licensed under
+  [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.
+- **Documentation and format specifications** — `docs/`, `design/` and the Markdown
+  files outside `crates/` and `lab/` — are under [CC BY 4.0](LICENSE-DOCS), which lists
+  the exact paths.
+- **Third-party files** (the fonts of the design previews, one generated script in the
+  browser experiment) keep their own licences: see
+  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+The format specifications are public and versioned, and no feature will be held back for
+a paid edition. Everygraph has no telemetry and will not get any: the software sends
+nothing anywhere unless you ask it to.
+
+Contributions come in under the same licences, with a Developer Certificate of Origin
+sign-off and no contributor licence agreement ([CONTRIBUTING.md](CONTRIBUTING.md)). How
+the project is run, and by whom, is in [GOVERNANCE.md](GOVERNANCE.md); how to report a
+vulnerability is in [SECURITY.md](SECURITY.md).

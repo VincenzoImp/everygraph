@@ -16,33 +16,39 @@ Updated at the end of every session. Read this first.
 
 ## In flight
 
-Started 2026-11-25, after the owner approved the design previews (#119 closed, PR #120 merged):
+As of 2026-11-25, 03:45 (policy for models in CLAUDE.md § 6):
 
-- **#2 workspace** — PR #123 open (12 crates; `everygraph-core` with id types, `ByteSource`,
-  parallel facade, accountant interface; 29 tests). Under independent review. Known gap:
-  Miri cannot run the rayon tests under Stacked Borrows (fault inside `crossbeam-epoch`).
-- **#118 compressed storage end to end** (M1) — experimenter agent, branch
-  `lab-m1-13-compressed-end-to-end`. It has the machine for measurements; nothing else may
-  benchmark until it reports.
-- **#12 API sketch and #13 UX contract** — specification agent, two branches and PRs.
-- **#10 name** — research done (`docs/legal/name-check.md`). A US trademark application for
-  EVERYGRAPH (graph database analysis software) was filed 2026-11-17. The owner keeps the
-  name; remaining: reservations with the owner, watching serial 50223142 at every milestone,
-  professional advice before going public (#122).
-- **#11 patent** — closed: the Uncharted application was abandoned in 2019
-  (`docs/legal/patent-check.md`); design notes carried into the tile-format issue.
+- **#118 compressed storage end to end** (M1) — experimenter (Fable high, started before the
+  policy), branch `lab-m1-13-compressed-end-to-end`. **It owns the machine**: about 3.5 hours
+  of measurements; even one busy core skewed its timings by 10–40%, so nothing that compiles
+  or computes for more than a moment runs until it reports. Encode and verify stages are
+  done (bits per edge reported: lj 18.1, orkut 16.7, twitter-sym 16.1, Friendster 23.2 —
+  to be checked against its result files).
+- **#6 oracle** — draft PR #131 (`m0-05-oracle`), agent paused. To do when the machine is
+  free (resume the same agent): rebase on main; golden files for the tier-1 datasets through
+  the registry of #5; a CI job that runs `oracle/run-ci.sh` (with `uv`); time `run-ci.sh`;
+  final seeded-bug matrix; toy and lab adapter on the nightly tier; `run-nightly.sh`. The
+  semantics questions Q1–Q13 are answered in `design/DECISIONS.md` ("Graph semantics").
+  Then independent review (Opus high). Corpora kept in scratch `m0-05-oracle` (110 MB).
+- **#4 benchmark harness** — ready (its dependency #5 is merged) but not started: it would
+  compile during the measurement window. Start it (Opus high) when #118 reports.
+
+Done today: **#7 ADRs** merged (PR #132): 25 ADRs under `docs/adr/` plus 0000 on overturned assumptions; DESIGN, FINDINGS and README corrected where they said more than the result files (13 statements, list in the PR); **D10 is open** (mask vs materialized view: the "~25%" rule was never measured, #93 derives it); **D14 is widened** (identical results across budgets and regimes; unmeasured so far); D4's ADR has a pending section for #118. To watch: with the default of one Leiden iteration the idle result is 2.7–3.4% below the best reference, while the §6 criterion (within 1%) is written for three iterations — #57 settles the default. Promise 1 ("about 100 M edges/s") holds with ample memory (83–132 M/s) and not under a tight budget (34 M/s for Friendster at 8 GB): say both wherever the number is quoted. **#12 API sketch and #13 UX contract** merged (PRs #125, #124) after two rounds of independent review and a joint alignment pass; their obligations are written into the issues that build them (commits "Plan: …" of 2026-11-25) and the choices are in `design/DECISIONS.md`. **#5 datasets** merged (PR #129) after an independent review and a fix round (17 tier-1 datasets, 75 MB, all usable by anyone; follow-up for real bipartite and co-occurrence graphs in `m3-13-dataset-gaps`). **#3 CI** merged (PR #127; all six Linux jobs green on `main`, run 45530945188; macOS, Windows and Linux arm64 run weekly; the threaded wasm job moved to #108). **#9 licence and governance** merged (PR #126; its CI box is ticked when #3
+lands). **#2 workspace** merged (PR #123) after an independent review found the
+portability rule narrower than claimed; fixed (lint lists, `forbid` at the crate root,
+`tools/check_core_portability.py`). **#11 patent** closed. **#10 name**: the owner keeps
+"Everygraph" knowing a US application for the identical mark was filed 2026-11-17; watch
+serial 50223142 at every milestone.
 
 ## Next actions
 
-1. Review and merge #2, then start #3 (CI), #4 (benchmark harness), #5 (datasets), #6 (oracle)
-   in parallel; write #12 (API sketch) and #13 (UX contract) from `design/preview/api.md`,
-   `cli.md` and `design/DECISIONS.md`; ratify the ADRs (#7).
-2. When #118 reports: record it in FINDINGS, update D4 and the public numbers, then run the
-   end-to-end tracer on Friendster under 16 GiB (#15).
-3. The design previews are settled (`design/DECISIONS.md`); the style lives in
-   `design/preview/style/`. Screenshots are on the branch `design-previews-archive`, which
-   still carries ~100 MB of superseded history: slimming it needs a branch deletion that the
-   permission classifier declined; harmless, revisit with the owner if repository size matters.
+1. Each returning PR gets an independent review (`reviewer`, Opus high) before merge; the
+   coordinator re-runs the checks it relies on.
+2. After #5 merges: #4 benchmark harness (Opus high), then #8 lab reproducibility.
+3. After #118 reports: record it in FINDINGS, update D4 and the public numbers, write the
+   ADRs (#7), then run the end-to-end tracer on Friendster under 16 GiB (#15).
+4. When #12 is merged, M2 can start: container spec (#29), I/O layer (#30), codec (#31 area —
+   check numbers with `plan/next.py`), arrays and accountant.
 
 ## Machine
 
@@ -56,9 +62,15 @@ Started 2026-11-25, after the owner approved the design previews (#119 closed, P
   i686-unknown-linux-gnu, cargo-deny, cargo-nextest, cargo-fuzz, hyperfine, maturin (uv
   tool), node 26, uv. `perf` 6.12 with `kernel.perf_event_paranoid=2` (persistent): user-space hardware counters work without privileges.
 
-## Open questions for the owner
+## Needs the owner's hands (nothing here blocks development)
 
-- None blocking.
+Tell the owner when each becomes due, with everything prepared.
+
+- At publication: enable GitHub private vulnerability reporting; authorize `Signed-off-by` on
+  commits made by agents under the owner's account, then set the repository variable
+  `DCO_ALL_PULL_REQUESTS=true`.
+- Accounts with 2FA on PyPI, crates.io and npm — at the first release.
+- A trademark and patent professional (#122) — before anything is public.
 
 ## Lessons (append, never delete)
 
@@ -85,9 +97,16 @@ Started 2026-11-25, after the owner approved the design previews (#119 closed, P
   the shell. Reports come back as text and the coordinator records them.
 - 2026-11-24 — The short name `eg` is taken on PyPI, crates.io and npm.
 - 2026-11-24 — Effort estimates quoted without adding them up were 30% too low.
+- 2026-11-25 — An oracle reference run (`--jobs 6`, no limit) reached 61.5 GB resident,
+  the host swapped 25 GB (other people's services included) and experiment #118 had to
+  discard its rows and restart. Cause of the damage: the brief said "no benchmarks" but set
+  no memory limit. Now a rule (CLAUDE.md § 7): every data-loading run under `MemoryMax`,
+  and the limit is stated in each brief.
 
 ## Journal
 
+- **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner
+  keeps it. Model policy: Opus by default, Fable by escalation. Wave 2 launched (#3, #5, #6, #9).
 - **2026-11-25 (later)** — Owner approved the previews. #119 merged; M0 started (#2, #10, #11)
   together with the M1 experiment #118.
 - **2026-11-25** — Detailed style guide built (nine pages, three subagents). Measurements

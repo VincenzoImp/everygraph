@@ -12,6 +12,10 @@ __pycache__/
 .claude/settings.local.json
 .claude/worktrees/
 
+# The default data root of `everygraph-bench fetch` when $EVERYGRAPH_DATA is not set
+# (datasets/README.md). Datasets are never committed.
+/data/
+
 # Editors and operating systems
 .idea/
 .vscode/

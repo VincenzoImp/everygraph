@@ -1,0 +1,51 @@
+# ADR 0021 — Queries in v0.1: a traversal API with budgets, no query language
+
+- **Status:** accepted, partly validated
+- **Decision:** D21 in [DESIGN.md](../DESIGN.md#4-decisions)
+- **Date:** 2026-11-25
+
+## Context
+
+Users ask point questions (neighbours, k-hop, paths) as well as whole-graph analytics.
+Embedded graph databases offer Cypher or GQL; building a query language is large, and
+the engine's strength is the in-process kernel.
+
+## Decision
+
+Version 0.1 offers a traversal API with budgets (`limit`, `timeout`) and no query
+language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parser.
+
+## Evidence
+
+- **Our prototype** (FINDINGS § F1; shared machine; mmapped *uncompressed* CSR, warm,
+  single thread, p50; `lab/f1-query/results/pq_lj_warm.json`,
+  `lab/f1-query/results/pq_orkut_warm.json`, `lab/f1-query/results/pq_twitter-dir_warm.json`):
+  degree/neighbours 0.1–0.6 µs; 3-hop with a 10k budget 56–115 µs; bidirectional BFS
+  0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter-2010). p99 tails on hubs up to 15 ms
+  (2-hop) and 113 ms (path). Cold on Friendster, a shortest path took 0.8 s.
+- **Other engines through their query interfaces** (FINDINGS § F2; shared; lj, 3 threads,
+  warm; `lab/f2-python/results/goalA_summary.txt`): shortest path Neo4j 6.4 ms, igraph
+  291 ms, LadybugDB 2,550 ms, rustworkx 4,785 ms; DuckPGQ ran out of memory above 6 GB.
+- **Not like for like**: an in-process kernel on raw arrays against calls through a query
+  interface, at different thread counts — different measurement levels (CLAUDE.md § 3).
+  It shows where the cost lies, not a speed-up to quote.
+- **Reuse is possible**: Rust parsers exist (`ocg`, Grafeo's GQL parser); SQL/PGQ was
+  reverted from PostgreSQL 19 (FINDINGS R8, web research).
+- Not measured: point queries on the compressed default (#118).
+
+## Consequences
+
+- #90 (point queries) and #91 (shortest paths) build the API; `limit` is the word for
+  traversal budgets, "budget" is kept for memory (`design/DECISIONS.md`).
+- No query-language parsing before v0.1; #110 is in M9.
+
+## What would change our mind
+
+- #118 shows bidirectional BFS or neighbours on the default format more than 5× slower
+  than raw, so that #91's p50 < 2 ms on twitter-2010 needs a resident raw copy.
+- Feedback collected after release (#106) shows that most target users cannot express
+  their questions with the traversal API.
+
+## Closed by
+
+#118 (point queries on compressed adjacency), #91 (shortest paths at 10^9 arcs).

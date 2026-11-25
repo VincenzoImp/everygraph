@@ -5,7 +5,7 @@ labels: type:experiment, area:engine, P0, risk:high, size:L, lab-evidence
 ---
 **Question.** The lab measured each stage separately. Does the chain text → CSR → communities → hierarchy → layout → tiles → viewer complete on com-Friendster inside a hard 16 GiB limit, and what are the per-stage time, peak memory and disk?
 
-**Why first.** This is the product's headline claim and it has never been run end to end. Layout and tiles on Friendster are extrapolations (2–4 min, ~20 GB RAM, 9–13 GB of tiles); community detection under 16 GiB currently either fails (Leiden needs 23.6 GB anonymous) or returns a poor partition (Louvain, Q 0.465).
+**Why first.** This is the product's headline claim and it has never been run end to end. Layout and tiles on Friendster are extrapolations (2–4 min, ~20 GB RAM, 9–13 GB of tiles); community detection under 16 GiB currently either fails (Leiden needs 22.6 GiB anonymous) or returns a poor partition (Louvain, Q 0.465).
 
 **Method**
 - [ ] Glue the lab binaries (`lab/b1-core` ingest, `lab/b2-leiden`, `lab/e-map` layout + tiles + viewer) with a driver script; no new algorithms

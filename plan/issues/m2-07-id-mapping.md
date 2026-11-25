@@ -13,6 +13,9 @@ labels: type:feature, area:ingest, P0, risk:medium, size:L, lab-evidence
 - [ ] Reverse lookup (id → key) from the id-ordered store
 - [ ] Optional, lazily built front-coded sorted index for prefix/range search (3 µs lookups, 18 B/key on URL-like keys)
 - [ ] Id assignment policy: by first appearance, by sorted key, or by a later renumbering ({{#m1-09-hierarchy-order}}) — the dictionary must survive renumbering
+- [ ] Graph order — the order of `g.nodes()`, by which results are ordered and ties broken (`docs/api-sketch.md` § 2.2, § 2.12) — is fixed when the file is built and is the same for the same input and parameters at any thread count or budget; a later renumbering may change internal ids, never graph order
+- [ ] Keys recognized as hexadecimal come back as lowercase text with the prefix the input used; look-ups accept any case
+- [ ] An input whose distinct node count reaches 2^32 is refused with a clear error naming {{#m9-07-u64-ids-server-scale}}, never truncated (ADR 0003)
 
 **Acceptance**
 - 65 M 42-byte hex keys: dictionary built in < 15 s at 16 threads, forward lookup < 1 µs warm

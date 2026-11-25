@@ -15,7 +15,7 @@ labels: type:feature, area:python, P2, risk:medium, size:L, lab-evidence
 
 **Acceptance**
 - NetworkX backend tests pass for the covered functions without fallback
-- On a natively loaded lj: PageRank ≥ 25× and components ≥ 20× faster than NetworkX end to end
+- On a natively loaded lj: PageRank ≥ 25× and components ≥ 20× faster than NetworkX, loading excluded; with loading included, report the ratio (lab: 9.0× and 5.9×)
 - No claim of "N× faster NetworkX" without the conversion caveat next to it
 
 **Estimate from the lab.** 2–3 engineer-months for ~60 functions; ongoing cost tracking NetworkX releases.
