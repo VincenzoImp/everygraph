@@ -67,6 +67,7 @@ serial 50223142 at every milestone.
 - #32 text reader (merged, issue open): `everygraph-bench run text-reader --official` (~3 min + build).
 - #31 arrays and accountant (PR #154, review fixes in progress): `everygraph-bench run segvec --official` (~12 min, 40 GiB free).
 - #34 id dictionary (PR #158, in review): `everygraph-bench run id-dictionary --official` (~20 min, ~45 GB disk).
+- #19 hierarchy shaping (PR #162, in review): prepare outside the window, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min, ≤ 24 GiB, ~85 GB disk; exact commands in the PR).
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
 ## Needs the owner's hands (nothing here blocks development)
