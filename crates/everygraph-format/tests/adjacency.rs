@@ -148,6 +148,26 @@ fn a_simd_decoder_compiled_in_is_available() {
     assert_eq!(Decoder::best().name(), *names.last().unwrap());
 }
 
+/// The analytic adjacency: the projection's lists with each kept self-loop listed once
+/// (`docs/spec/graph-semantics.md`), which is what the oracle's adjacency invariants expect.
+fn with_kept_loops(
+    p: &Projection,
+    adj: &everygraph_oracle::projection::Adjacency,
+) -> (Vec<u64>, Vec<u32>) {
+    let mut offsets = vec![0u64];
+    let mut targets = Vec::new();
+    for v in 0..adj.n() {
+        let mut l = adj.list(v).to_vec();
+        if p.kept_loops(v) > 0 {
+            let at = l.partition_point(|&u| ix(u) < v);
+            l.insert(at, id(v).get());
+        }
+        targets.extend(l);
+        offsets.push(targets.len() as u64);
+    }
+    (offsets, targets)
+}
+
 #[test]
 fn the_oracle_corpus_round_trips_on_every_path() {
     let all = specs(Tier::Ci);
@@ -160,21 +180,19 @@ fn the_oracle_corpus_round_trips_on_every_path() {
             continue;
         }
         let p = Projection::new(&g);
-        for adj in [&p.out, &p.inn] {
-            round_trip(&adj.offsets, &adj.targets);
-            // The decoded CSR passes the oracle's adjacency invariants.
-            let encoded = encode(&adj.offsets, &adj.targets).unwrap();
-            let index = AdjacencyIndex::parse(&encoded.index).unwrap();
-            let view = Adjacency::new(&index, &encoded.data).unwrap();
-            let mut offsets = vec![0; adj.offsets.len()];
-            let mut targets = vec![0; adj.targets.len()];
-            view.decode_all(&mut offsets, &mut targets).unwrap();
-            if std::ptr::eq(adj, &p.out) {
-                let out = Output::Csr { offsets, targets };
-                let v = invariants::check(&Kernel::Adjacency, &p, None, &out);
-                assert!(v.is_empty(), "{}: {v:?}", spec.name);
-            }
-        }
+        let ((out_offsets, out_targets), (in_offsets, in_targets)) =
+            (with_kept_loops(&p, &p.out), with_kept_loops(&p, &p.inn));
+        round_trip(&in_offsets, &in_targets);
+        let encoded = round_trip(&out_offsets, &out_targets);
+        // The decoded out-adjacency passes the oracle's adjacency invariants.
+        let index = AdjacencyIndex::parse(&encoded.index).unwrap();
+        let view = Adjacency::new(&index, &encoded.data).unwrap();
+        let mut offsets = vec![0; out_offsets.len()];
+        let mut targets = vec![0; out_targets.len()];
+        view.decode_all(&mut offsets, &mut targets).unwrap();
+        let out = Output::Csr { offsets, targets };
+        let v = invariants::check(&Kernel::Adjacency, &p, None, &out);
+        assert!(v.is_empty(), "{}: {v:?}", spec.name);
         checked += 1;
     }
     assert!(checked >= if MIRI { 3 } else { 280 }, "{checked} graphs");
