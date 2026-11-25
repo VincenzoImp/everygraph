@@ -23,8 +23,12 @@ As of 2026-11-25, six agents (Opus unless noted; policy in CLAUDE.md § 6):
 - **#5 datasets** — `m0-04-datasets` (Opus medium). Registry and fetcher in `everygraph-bench`.
 - **#6 oracle** — `m0-05-oracle` (Opus high). Generators, reference runners, invariants,
   plug-in trait; proven against the lab kernels and seeded bugs.
-- **#12 API sketch, #13 UX contract** — one specification agent, two PRs (Fable high, started
-  before the model policy).
+- **#12 API sketch (PR #125), #13 UX contract (PR #124)** — written by one specification
+  agent; the independent review (Opus high) asked for changes on both (comments on the PRs).
+  The ten questions it raised are decided in `design/DECISIONS.md` (2026-11-25); two agents
+  (Opus medium) are applying the review, one per PR. After they report: the coordinator
+  amends the issue files they name (identity tests across regimes in #47/#48/#54/#93, #45's
+  "lower-memory variant", obligations from the contract's § 10), then a second review.
 - **#118 compressed storage end to end** (M1) — experimenter (Fable high, started before the
   policy). It has the machine for measurements; nothing else may benchmark until it reports.
 
