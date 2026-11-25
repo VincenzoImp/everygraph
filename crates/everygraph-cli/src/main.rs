@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
+// (temporary measurement branch, not to be merged)
 
 //! The `everygraph` command. It has no subcommands until issue #98; until then it says
 //! so and exits with a non-zero status, so that nothing mistakes it for a working tool.
