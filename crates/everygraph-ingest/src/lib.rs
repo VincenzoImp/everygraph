@@ -5,3 +5,5 @@
 //! #33 (Parquet), #34 (id dictionary) and #35 (build pipeline).
 
 #![forbid(unsafe_code)]
+
+pub mod ids;

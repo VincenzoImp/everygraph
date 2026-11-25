@@ -10,5 +10,17 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+everygraph-core = { path = "../everygraph-core", default-features = false }
+# XXH3-128 is the hash of every identifier (module `ids`). It is a specified algorithm
+# with implementations in every common language, so the dictionary's on-disk form can
+# be read without this crate. Pure Rust, no dependencies, builds for wasm32.
+xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"] }
+
+[dev-dependencies]
+# Threads in the tests, so that thread-count independence is exercised.
+everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
+proptest = { version = "1.7", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true
