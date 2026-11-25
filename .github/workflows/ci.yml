@@ -171,6 +171,8 @@ jobs:
         run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
         run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
+      - name: wasm32 build (everygraph-ingest)
+        run: cargo build -p everygraph-ingest --target wasm32-unknown-unknown --locked
       - name: wasm32 build (everygraph-wasm)
         run: cargo build -p everygraph-wasm --target wasm32-unknown-unknown --locked
       - name: Toy kernel, native and wasm32 in Node, same hash

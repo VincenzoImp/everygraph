@@ -21,6 +21,7 @@ python3 tools/check_core_portability.py
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
+cargo build -p everygraph-ingest --target wasm32-unknown-unknown
 cargo build -p everygraph-wasm --target wasm32-unknown-unknown
 cargo deny check                            # offline: cargo deny check bans licenses sources
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
@@ -91,7 +92,7 @@ what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the two wasm32 builds, the wasm toy, the portability canary; plus the release build when a manifest changed, the core's tests natively on i686 when the core did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the three Miri commands, then `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the wasm toy, the portability canary; plus the release build when a manifest changed, the core's tests natively on i686 when the core did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the three Miri commands, then `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 
 Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
