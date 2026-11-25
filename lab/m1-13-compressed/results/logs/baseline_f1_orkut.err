@@ -1,0 +1,16 @@
+orkut: n=3072441 m=234370166 prefetch=false random=false
+warm-up 0.0s resident 1.000
+warm degree: {"max_us":2.455,"mean_us":0.09493342999990301,"n":100000,"p50_us":0.1,"p95_us":0.16,"p99_us":0.361}
+  tput 32t: 335063939 q/s
+warm neighbors: {"max_us":16.902,"mean_us":0.2133151299998299,"n":100000,"p50_us":0.21,"p95_us":0.421,"p99_us":0.511}
+  tput 32t: 76843824 q/s
+warm common_neighbors: {"max_us":52.087,"mean_us":0.7884912799999978,"n":100000,"p50_us":0.541,"p95_us":1.483,"p99_us":5.21}
+  tput 32t: 22351036 q/s
+warm two_hop_size: {"max_us":3304.919,"mean_us":94.68810999999997,"n":3000,"p50_us":37.44,"p95_us":367.888,"p99_us":1011.211}
+  tput 32t: 214631 q/s
+warm khop3_budget10k: {"max_us":153.828,"mean_us":53.15250133333326,"n":3000,"p50_us":53.1,"p95_us":88.124,"p99_us":104.515}
+  tput 32t: 319588 q/s
+warm bidir_bfs_path: {"max_us":21233.884,"mean_us":1331.297377,"n":1000,"p50_us":402.743,"p95_us":5838.847,"p99_us":13840.319}
+  tput 32t: 4874 q/s
+sink 90482870137337
+wrote "/home/tux/projects/everygraph/.claude/worktrees/agent-a4d868e363f96c22f/lab/m1-13-compressed/results/baseline_f1_orkut.json"

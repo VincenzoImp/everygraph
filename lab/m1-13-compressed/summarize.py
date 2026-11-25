@@ -90,7 +90,9 @@ for (g, algo, t, cfg), r in K.items():
         continue
     res, rr = dict(r["result"]), dict(ref["result"])
     for d in (res, rr):
-        for k in ("forward_build_seconds", "variant", "forward_bytes", "forward_bits_per_undirected_edge"):
+        # timings and sizes; and Afforest's "fraction examined", which depends on thread interleaving
+        # at more than one thread (labels and component counts do not)
+        for k in ("forward_build_seconds", "variant", "forward_bytes", "forward_bits_per_undirected_edge", "fraction_of_entries_examined"):
             d.pop(k, None)
     if "pr" in res:
         # PageRank sums floats in parallel in a schedule-dependent order: compare the top-5 node
@@ -235,14 +237,16 @@ if cap:
 # ---------------------------------------------------------------- perf
 pf = rows("perf.jsonl")
 if pf:
-    print("\n== 9. perf stat, user space, whole process (billions; per kernel run where noted)")
-    print(f"{'label':32s} {'cycles':>9s} {'instr':>9s} {'IPC':>5s} {'br-miss':>9s} {'L1d-miss':>9s} {'LLC-miss':>9s} {'dTLB-miss':>9s}")
+    print("\n== 9. perf stat, user space, whole process including graph load (billions of events; counters were multiplexed and scaled by perf)")
+    print("   cache-miss = perf's generic cache-misses event; perf reports L1d-miss and dTLB-miss without the :u suffix")
+    print(f"{'label':32s} {'cycles':>9s} {'instr':>9s} {'IPC':>5s} {'br-miss':>9s} {'L1d-miss':>9s} {'cache-miss':>10s} {'dTLB-miss':>9s}  kernel s (best x reps)")
     ptab2 = []
-    for r in pf:
+    for r in sorted(pf, key=lambda r: r["label"]):
         e = r["counters_user_space_whole_process"]
-        g = lambda k: e.get(k, 0.0) / 1e9
-        cyc, ins = g("cycles:u"), g("instructions:u")
-        print(f"{r['label']:32s} {cyc:9.2f} {ins:9.2f} {ins / cyc if cyc else 0:5.2f} {g('branch-misses:u'):9.3f} {g('L1-dcache-load-misses:u'):9.3f} {g('cache-misses:u'):9.3f} {g('dTLB-load-misses:u'):9.3f}")
+        g = lambda k: (e.get(k + ":u") or e.get(k) or 0.0) / 1e9
+        cyc, ins = g("cycles"), g("instructions")
+        ks = r.get("kernel_seconds_all") or []
+        print(f"{r['label']:32s} {cyc:9.2f} {ins:9.2f} {ins / cyc if cyc else 0:5.2f} {g('branch-misses'):9.3f} {g('L1-dcache-load-misses'):9.3f} {g('cache-misses'):10.3f} {g('dTLB-load-misses'):9.4f}  {fmt(min(ks)) if ks else '-'} x{len(ks)}")
         ptab2.append(r)
     out["perf"] = ptab2
 
