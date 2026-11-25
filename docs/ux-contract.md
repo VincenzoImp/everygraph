@@ -110,7 +110,8 @@ forms are complete on their own.
 
 The command prints no box-drawing characters: its tables are aligned with spaces. The
 Python text forms of tables and paths (`docs/api-sketch.md` § 3) do use them, with these
-fallbacks: `─` → `-`, `│` → `|`, every corner and junction → `+`, `▶` → `>`.
+fallbacks: `─` → `-`, `│` → `|`, every corner and junction → `+`, `▶` → `>`. The
+footer of an approximate result uses `±`, which becomes `+/-`.
 
 - **S-9** No other character outside ASCII is printed by the engine. Data (identifiers,
   column names, file names) is printed as it is.
@@ -1525,9 +1526,14 @@ with it they need no real graph.
 | C-4, C-5, C-7 | Time from SIGINT to exit is under the bound on the tier-1 datasets; two SIGINTs 10 ms apart leave the conditions of C-1 true; exit statuses are 130 and 143. | #98 |
 | R-4 – R-7 | Unit tests of the fingerprint: changing `--memory`, `--threads` or `progress` does not change it; changing any other parameter, the input's bytes or the output path does. Table-driven tests of R-7, one per row, each asserting the line printed. | #40 |
 | M-1 – M-4, M-6 – M-10, § 6.3 | Golden transcripts of every worked example in § 6, on each surface. The corpus of malformed inputs (#32) produces `file:line` locations that are checked against the corpus's own index. | #32, #98, #81 |
-| § 6.4 | A table-driven test: each exception class raised inside the command yields its exit status. | #98 |
+| § 6.4, M-11 | A table-driven test: each exception class raised inside the command yields its exit status. A query stopped at its limit exits with 0 and has a non-null `"truncated"` in its `--json` document. | #98 |
+| G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`; a graph kept in memory; an operation that returns a table (no result block). In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
+| C-8, C-9, R-9 | **Clean-up tests.** After a successful run the scratch root holds no `everygraph-*` directory. With a failure injected in each phase in turn (invalid row, disk full), the scratch is gone, or holds exactly the finished phases when the error's last line says they were kept. A scratch directory with an old modification time is still there after an unrelated run. | #40 |
+| S-5 | The same command under two locales (`LANG=C.UTF-8`, `LANG=it_IT.UTF-8`) prints identical bytes. | #98 |
+| T-7, T-8 | A vocabulary lint over the catalogue and over the public names: "budget" never appears in an entry about nodes or seconds, "limit" never in one about memory; a user's noun reaches a message only through the one function that derives it; no public name contains one. | #98, #81 |
+| T-1, T-6 | Not mechanical. Every new or changed catalogue entry appears in a golden file, so it is visible in the diff and is read against these two rules in review. | reviewer |
 | T-2 – T-5 | A lint over the message catalogue: forbidden words, exclamation marks, a full stop at the end of each sentence, every error entry has at least one way forward. | #98 |
-| this document | `python3 docs/tools/check_transcripts.py docs/ux-contract.md`: every code block within 80 columns; the ASCII rendering of every transcript pure ASCII and within 80; redrawn lines within 78; the JSON blocks parse. `docs/tools/check_schemas.py`: the schemas are valid and the examples validate. | #13 |
+| this document | `python3 docs/tools/check_transcripts.py docs/ux-contract.md`: every code block within 80 columns; the ASCII rendering of every transcript pure ASCII and within 80; redrawn lines within 78; the JSON blocks parse; every numbered rule is cited in this table. `docs/tools/check_schemas.py`: the schemas are valid and the examples validate. | #13 |
 
 ---
 
