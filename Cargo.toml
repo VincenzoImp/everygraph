@@ -30,11 +30,15 @@ unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 missing_docs = "warn"
 missing_debug_implementations = "warn"
+# A public item whose type cannot be named from outside the crate is a forgotten export.
+unnameable_types = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 
 [workspace.lints.clippy]
 # The portability rule. The lists live in the `clippy.toml` of each crate they apply to
-# (today: crates/everygraph-core). `deny` so that they fail without `-D warnings` too.
+# (today: crates/everygraph-core). `deny` so that they fail without `-D warnings` too;
+# the crate they apply to raises them to `forbid` at its root, so that they cannot be
+# allowed away.
 disallowed_types = "deny"
 disallowed_methods = "deny"
 disallowed_macros = "deny"

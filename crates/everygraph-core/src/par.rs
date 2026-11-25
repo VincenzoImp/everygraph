@@ -16,28 +16,23 @@
 //!   first chunk first. Folding that vector on the calling thread gives the same answer
 //!   everywhere, including for floating-point sums (DESIGN D14).
 //!
-//! The functions take the same `Send`/`Sync` bounds whether or not `parallel` is
-//! enabled, so code that compiles in one mode compiles in the other.
+//! # Choosing the grain
+//!
+//! **A grain is a function of the data, never of the machine.** Derive it from the
+//! input (a constant, the block size of the format, the number of nodes) and from
+//! nothing else. A grain computed from a thread count — `len / threads` is the classic
+//! — moves the chunk boundaries with the hardware, and with them every floating-point
+//! result: the same graph would give different answers on a laptop and on a server.
+//! This module deliberately has no function that returns the number of threads.
 //!
 //! The grain is a [`NonZeroUsize`]: a grain of zero has no meaning, and a constant such
 //! as `NonZeroUsize::new(1 << 16).unwrap()` is checked at compile time.
+//!
+//! The functions take the same `Send`/`Sync` bounds whether or not `parallel` is
+//! enabled, so code that compiles in one mode compiles in the other.
 
 use std::num::NonZeroUsize;
 use std::ops::Range;
-
-/// Number of threads that chunks handed to this module may run on: the size of the
-/// current rayon pool with the `parallel` feature, `1` without it.
-#[must_use]
-pub fn current_num_threads() -> usize {
-    #[cfg(feature = "parallel")]
-    {
-        rayon::current_num_threads()
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        1
-    }
-}
 
 /// Calls `f` once for each chunk of `0..len`, possibly in parallel.
 ///
@@ -63,6 +58,12 @@ where
 
 /// Calls `f` once for each chunk of `0..len`, possibly in parallel, and returns the
 /// results in chunk order.
+///
+/// The returned vector has one element per chunk, `len.div_ceil(grain)` in all, and is
+/// allocated here, outside any [`MemoryAccountant`](crate::MemoryAccountant). Keep `T`
+/// small and the grain large enough for that to be negligible next to the data; a
+/// caller with a tight budget reserves `len.div_ceil(grain) * size_of::<T>()` bytes
+/// itself before calling.
 pub fn map_ranges<T, F>(len: usize, grain: NonZeroUsize, f: F) -> Vec<T>
 where
     T: Send,
@@ -153,13 +154,6 @@ mod tests {
         (1000, 1001),
         (1000, usize::MAX),
     ];
-
-    #[test]
-    fn at_least_one_thread() {
-        assert!(current_num_threads() >= 1);
-        #[cfg(not(feature = "parallel"))]
-        assert_eq!(current_num_threads(), 1);
-    }
 
     #[test]
     fn map_ranges_returns_every_chunk_in_order() {
@@ -277,7 +271,7 @@ mod tests {
                 .build()
                 .unwrap();
             pool.install(|| {
-                assert_eq!(current_num_threads(), threads);
+                assert_eq!(rayon::current_num_threads(), threads);
                 assert_eq!(chunked_sum(&values, 64).to_bits(), expected);
 
                 let mut doubled = values.clone();

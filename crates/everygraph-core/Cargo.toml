@@ -17,8 +17,10 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dependencies]
-# Adding a dependency here is a portability decision: it must build for
-# wasm32-unknown-unknown and must not touch files, threads or the OS on its own.
+# Adding a dependency here is a portability decision: it must not touch files, threads
+# or the OS on its own, and no build or lint can tell. It, and everything it pulls in,
+# must be added to the allow-list in tools/check_core_portability.py (CONTRIBUTING.md,
+# "The portability rule").
 rayon = { workspace = true, optional = true }
 
 [lints]

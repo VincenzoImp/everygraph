@@ -3,14 +3,17 @@
 # The portability rule of everygraph-core (DESIGN D2, FINDINGS § G), as a lint.
 #
 # Clippy reads the `clippy.toml` closest to the crate it is checking, so these lists
-# apply to this crate only. The lints are set to `deny` in the workspace `Cargo.toml`.
+# apply to this crate only. The crate root forbids the three lints, so that no inner
+# `#[allow]` can switch them off.
 #
 # Everything listed here compiles for wasm32-unknown-unknown and then fails or panics
-# when called, so the wasm32 build alone would not catch it. What does not compile there
-# (`std::os::*`, crates that need an OS) is caught by that build instead.
+# when called, so the wasm32 build alone would not catch it. What does not exist on
+# that target (`std::os::*`) is caught by that build instead.
 #
-# Clippy can disallow items, not modules: when `std` grows a new function in one of
-# these modules, add it here.
+# Clippy can disallow items, not modules, so this is a list that someone maintains: when
+# `std` grows a new way to reach the file system, the clock or the network, add it here.
+# What the lint cannot see at all (code behind `cfg`, dependencies) is checked by
+# `tools/check_core_portability.py`.
 
 disallowed-types = [
     # std::fs — files belong behind `ByteSource`, in everygraph-io.
@@ -23,6 +26,7 @@ disallowed-types = [
     { path = "std::fs::Permissions", reason = "no file system in everygraph-core" },
     { path = "std::fs::FileType", reason = "no file system in everygraph-core" },
     { path = "std::fs::FileTimes", reason = "no file system in everygraph-core" },
+    { path = "std::fs::TryLockError", reason = "no file system in everygraph-core" },
 
     # std::thread — threads belong behind `everygraph_core::par`.
     { path = "std::thread::Builder", reason = "no OS threads in everygraph-core: split work with `everygraph_core::par`" },
@@ -38,6 +42,9 @@ disallowed-types = [
     { path = "std::net::TcpStream", reason = "no sockets in everygraph-core: remote data arrives through `ByteSource`" },
     { path = "std::net::TcpListener", reason = "no sockets in everygraph-core" },
     { path = "std::net::UdpSocket", reason = "no sockets in everygraph-core" },
+    { path = "std::io::Stdin", reason = "no standard streams in everygraph-core" },
+    { path = "std::io::Stdout", reason = "no standard streams in everygraph-core" },
+    { path = "std::io::Stderr", reason = "no standard streams in everygraph-core" },
 ]
 
 disallowed-methods = [
@@ -62,6 +69,20 @@ disallowed-methods = [
     { path = "std::fs::symlink_metadata", reason = "no file system in everygraph-core" },
     { path = "std::fs::write", reason = "no file system in everygraph-core" },
 
+    # std::path — the methods of `Path` (and of `PathBuf`, through deref) that ask the
+    # file system. Building and taking apart paths is fine.
+    { path = "std::path::Path::canonicalize", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::exists", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::is_dir", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::is_file", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::is_symlink", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::metadata", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::read_dir", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::read_link", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::symlink_metadata", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::Path::try_exists", reason = "no file system in everygraph-core: a path may be handled, not looked up" },
+    { path = "std::path::absolute", reason = "no file system in everygraph-core: resolving a relative path reads the current directory" },
+
     # std::thread
     { path = "std::thread::spawn", reason = "no OS threads in everygraph-core: split work with `everygraph_core::par`" },
     { path = "std::thread::scope", reason = "no OS threads in everygraph-core: split work with `everygraph_core::par`" },
@@ -70,11 +91,14 @@ disallowed-methods = [
     { path = "std::thread::park_timeout", reason = "no OS threads in everygraph-core" },
     { path = "std::thread::yield_now", reason = "no OS threads in everygraph-core" },
     { path = "std::thread::current", reason = "no OS threads in everygraph-core: results must not depend on which thread ran" },
-    { path = "std::thread::available_parallelism", reason = "use `everygraph_core::par::current_num_threads`; the thread count is the caller's decision" },
+    { path = "std::thread::available_parallelism", reason = "the thread count is the caller's decision, and nothing in everygraph-core may depend on it" },
 
-    # Clock: both panic on wasm32-unknown-unknown.
+    # Clock: all four panic on wasm32-unknown-unknown. `elapsed` reads the clock too
+    # (`UNIX_EPOCH.elapsed()` is `SystemTime::now()` by another name).
     { path = "std::time::Instant::now", reason = "no clock in everygraph-core (panics on wasm32-unknown-unknown): timing is the caller's job" },
     { path = "std::time::SystemTime::now", reason = "no clock in everygraph-core (panics on wasm32-unknown-unknown): timing is the caller's job" },
+    { path = "std::time::Instant::elapsed", reason = "no clock in everygraph-core (panics on wasm32-unknown-unknown): timing is the caller's job" },
+    { path = "std::time::SystemTime::elapsed", reason = "no clock in everygraph-core (panics on wasm32-unknown-unknown): timing is the caller's job" },
 
     # Environment and process.
     { path = "std::env::args", reason = "no process environment in everygraph-core: configuration is passed in" },
@@ -93,9 +117,25 @@ disallowed-methods = [
     { path = "std::process::exit", reason = "a library does not end the process: return an error" },
     { path = "std::process::abort", reason = "a library does not end the process: return an error" },
     { path = "std::process::id", reason = "no processes in everygraph-core" },
+    { path = "std::backtrace::Backtrace::capture", reason = "no process environment in everygraph-core: capturing a backtrace reads it" },
+    { path = "std::backtrace::Backtrace::force_capture", reason = "no stack walking in everygraph-core: return an error" },
+
+    # Network: name resolution needs no socket type.
+    { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "no network in everygraph-core: resolving a host name is a DNS query" },
 
     # Standard streams: a library returns data and errors, it does not print.
     { path = "std::io::stdin", reason = "no standard streams in everygraph-core" },
     { path = "std::io::stdout", reason = "no standard streams in everygraph-core" },
     { path = "std::io::stderr", reason = "no standard streams in everygraph-core" },
+]
+
+# A library returns data and errors; it does not print. The workspace already warns on
+# these through `print_stdout`, `print_stderr` and `dbg_macro`; here they cannot be
+# allowed.
+disallowed-macros = [
+    { path = "std::print", reason = "no standard streams in everygraph-core" },
+    { path = "std::println", reason = "no standard streams in everygraph-core" },
+    { path = "std::eprint", reason = "no standard streams in everygraph-core" },
+    { path = "std::eprintln", reason = "no standard streams in everygraph-core" },
+    { path = "std::dbg", reason = "no standard streams in everygraph-core" },
 ]

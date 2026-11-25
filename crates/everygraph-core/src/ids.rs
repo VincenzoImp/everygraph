@@ -292,8 +292,9 @@ mod tests {
         assert_eq!(EdgeOffset::new(u64::MAX).to_index(), Ok(usize::MAX));
     }
 
-    /// The case the type exists for: 2^32 adjacency entries on a 32-bit target. This
-    /// test runs under Miri with `--target i686-unknown-linux-gnu` and on wasm32.
+    /// The case the type exists for: 2^32 adjacency entries on a 32-bit target. On the
+    /// development machine this test runs only under Miri with
+    /// `--target i686-unknown-linux-gnu`; nothing runs tests on wasm32 yet.
     #[cfg(target_pointer_width = "32")]
     #[test]
     fn edge_offset_above_4_gib_is_an_error_on_32_bit_targets() {

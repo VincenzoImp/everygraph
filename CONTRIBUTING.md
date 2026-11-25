@@ -14,15 +14,28 @@ exists (issue #3), run them yourself and paste the output in the pull request.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy -p everygraph-core --no-default-features --all-targets -- -D warnings
+cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --all-targets -- -D warnings
+cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets -- -D warnings
+python3 tools/check_core_portability.py
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
-cargo check -p everygraph-core --target i686-unknown-linux-gnu --all-targets
 cargo deny check
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 ```
+
+The four clippy runs are not redundant: the core is linted once for each configuration
+its code can be compiled under (with and without `parallel`, 64-bit and 32-bit). The
+i686 runs also do what `cargo check --target i686-unknown-linux-gnu` would.
 
 Lint levels live in `[workspace.lints]` in the root `Cargo.toml`, each group with its
 reason, and every crate inherits them with `[lints] workspace = true`.
+
+On the minimum supported toolchain (see "Rust version"):
+
+```sh
+cargo +1.85 test --workspace --locked
+```
 
 And these on nightly, because Miri is the only way here to *run* tests with a 32-bit
 `usize`, and the required check for any module that contains `unsafe`:
@@ -73,21 +86,43 @@ the pull request that gives it content.
 `everygraph-core` does not open files, map memory, start threads, read the clock or the
 environment, or call the operating system (DESIGN D2; the browser experiment in
 FINDINGS § G). Code above it reaches bytes through `ByteSource` and threads through
-`everygraph_core::par`. Three mechanisms enforce this, because none is enough alone:
+`everygraph_core::par`.
 
-1. **Clippy.** `crates/everygraph-core/clippy.toml` lists the `std` items that compile
-   for `wasm32-unknown-unknown` and then fail or panic when called (`std::fs`,
-   `std::thread`, `std::time::Instant::now`, `std::env`, `std::process`, sockets, the
-   standard streams). Using one is an error from `disallowed_types` or
-   `disallowed_methods`, which the workspace sets to `deny`. Clippy reads the
-   `clippy.toml` nearest to the crate it checks, so the list does not apply to
-   `everygraph-io`. Clippy can disallow items but not whole modules: a function added to
-   `std::fs` by a future Rust release must be added to the list by hand.
-2. **The wasm32 build** without default features. It rejects what does not exist on that
-   target at all: everything under `std::os`, and any dependency that needs an OS.
-3. **No `unsafe` and no stray dependencies.** With `unsafe` forbidden the crate cannot
-   make a system call of its own, and `deny.toml` bans memory-mapping crates everywhere
-   and allows rayon as a direct dependency of `everygraph-core` only.
+No single tool can check that rule, so it is checked in pieces. Each piece covers what
+is written next to it and nothing more:
+
+| What is checked | By | What it does not cover |
+|---|---|---|
+| Named items of `std` that reach the file system (`std::fs`, the querying methods of `Path`), threads, the clock (`now` and `elapsed`), the environment, the process, the network (sockets, name resolution) and the standard streams (including `println!` and friends) | `crates/everygraph-core/clippy.toml`, through `disallowed_types`, `disallowed_methods` and `disallowed_macros` | An item that is not on the list. Clippy cannot disallow a module, so the list is kept by hand |
+| That those lints cannot be switched off | `#![forbid(…)]` at the crate root: an inner `#[allow]` or `#[expect]`, also of a group such as `clippy::all`, is error E0453 under clippy | Removing the `forbid` line — next row |
+| That the `forbid` line is present in every crate root of the core, that every entry of `clippy.toml` names something (clippy only warns about an entry it cannot resolve, and `-D warnings` does not make that an error), that code is compiled only under conditions the lint runs cover (`test`, `feature = "parallel"`, `target_pointer_width`), and that every dependency, direct or transitive, normal or build, is on an allow-list | `tools/check_core_portability.py` | Code pulled in from outside the crate directory with `include!` or `#[path]` |
+| Anything under `std::os`, and dependencies that do not compile for the target | `cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features` | Everything that compiles for wasm32 and fails when called: all of the rows above |
+| System calls and foreign functions declared in the crate itself | `#![forbid(unsafe_code)]` (an `unsafe extern` block is rejected too) | — |
+
+Two things follow from the table.
+
+**Adding a dependency to `everygraph-core` is a portability decision.** A crate that
+walks directories or starts a runtime builds for wasm32 and passes clippy and
+`cargo deny`; only the allow-list in `tools/check_core_portability.py` stops it. To add
+one: read what it does on a target without an OS, add it and its own dependencies to
+`ALLOWED_DEPENDENCIES` in the same pull request, and say why in the description. The
+same list is what keeps C and C++ out of the core (DESIGN D1): everything on it is pure
+Rust. `deny.toml` adds two workspace-wide rules: rayon may be a direct dependency of
+`everygraph-core` only, and memory-mapping crates are banned until #29 allows one for
+`everygraph-io`.
+
+**Adding a `cfg` condition to `everygraph-core` needs a lint run that compiles it.**
+`#[cfg(not(clippy))]` hides code from every lint, and `#[cfg(windows)]` hides it from a
+lint run on Linux. A new condition goes into `ALLOWED_CFG` together with a clippy
+command, in "Checks" above, that selects it.
+
+Not checked at all: **blocking**. `Mutex::lock`, `Condvar::wait`, `Barrier::wait` and a
+channel's `recv` compile everywhere and can block a browser's main thread, which is not
+allowed to wait. Code in the core must not block; today nothing verifies it.
+
+The rule is enforced for `everygraph-core` only. Clippy reads the `clippy.toml` nearest
+to the crate it checks, so the lists do not apply to `everygraph-io` or to any other
+crate (see "Crates").
 
 ## Integers
 
@@ -101,7 +136,8 @@ than memory (file lengths, byte offsets, memory budgets) are `u64` on every targ
 ## `unsafe`
 
 `unsafe` is allowed only in modules named in the table below. Today there are none, and
-every crate root carries `#![forbid(unsafe_code)]`.
+every crate root forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file
+under `tests/`, which Cargo compiles as a crate of its own.
 
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
@@ -150,4 +186,13 @@ the workspace and keep their own flags.
 Everygraph is licensed `Apache-2.0 OR MIT` (DESIGN D23). Every source file starts with
 `// SPDX-License-Identifier: Apache-2.0 OR MIT`. `deny.toml` lists the licences a
 dependency may carry; adding one to the list is a licensing decision, not a build fix.
-The core takes no C or C++ dependency (DESIGN D1).
+
+`Cargo.lock` is committed, and it is what the checks run against: continuous integration
+passes `--locked`, so a manifest change without the matching lock change fails. Updating
+dependencies (`cargo update`) is a pull request of its own. The resolver is aware of
+`rust-version`, so an update does not select a release that needs a newer Rust than the
+minimum.
+
+The core takes no C or C++ dependency (DESIGN D1); the dependency allow-list described
+under "The portability rule" is what checks it. For the other crates nothing checks it
+yet.

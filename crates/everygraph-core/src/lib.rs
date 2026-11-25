@@ -19,17 +19,37 @@
 //! # The portability rule
 //!
 //! This crate does not open files, map memory, start threads, read the clock or the
-//! environment, or call the operating system. The rule is enforced three ways:
+//! environment, or call the operating system. No single tool can check that, so it is
+//! checked in pieces. Each piece covers exactly what is written next to it:
 //!
-//! - `clippy.toml` in this crate lists the `std` items that compile for
-//!   `wasm32-unknown-unknown` but fail or panic there at run time (`std::fs`,
-//!   `std::thread`, `std::time::Instant::now`, …); using one is a clippy error.
-//! - The crate is built for `wasm32-unknown-unknown` without default features, which
-//!   rejects anything under `std::os` and any dependency that needs an OS.
-//! - `unsafe` is forbidden, so no system call can be made behind the back of the two
-//!   checks above; `deny.toml` keeps memory-mapping crates out of the dependencies.
+//! - **Named items of `std`.** `clippy.toml` in this crate lists the items that reach
+//!   the file system, threads, the clock, the environment, the process, the network
+//!   and the standard streams. They compile for `wasm32-unknown-unknown` and fail or
+//!   panic there at run time. Using one is a clippy error, and the crate root forbids
+//!   the lints, so an inner `allow` is an error too. The list is kept by hand: an item
+//!   that is missing from it is not caught.
+//! - **Conditional compilation.** Code that clippy does not compile is not linted, so
+//!   `tools/check_core_portability.py` accepts only a fixed set of conditions (tests,
+//!   the `parallel` feature, the pointer width), and each has its own lint run.
+//! - **`std::os`.** It does not exist on `wasm32-unknown-unknown`; the build for that
+//!   target, without default features, rejects it.
+//! - **Dependencies.** Neither clippy nor the wasm32 build sees what a dependency does:
+//!   a crate that walks directories builds for wasm32 without complaint. The same
+//!   script compares the dependency tree with an allow-list.
+//! - **`unsafe`** is forbidden, so the crate cannot declare a foreign function or make
+//!   a system call of its own.
+//!
+//! Not checked: blocking. `Mutex::lock`, `Condvar::wait`, `Barrier::wait` and a channel
+//! `recv` compile everywhere and must not be reached on a browser's main thread.
 
-#![forbid(unsafe_code)]
+// `forbid`, not `deny`: an inner `#[allow]` of any of these is a compile error (E0453).
+// `tools/check_core_portability.py` checks that this line stays.
+#![forbid(
+    unsafe_code,
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    clippy::disallowed_macros
+)]
 
 mod byte_source;
 mod ids;
@@ -38,7 +58,7 @@ pub mod par;
 
 pub use byte_source::{ByteSource, MemorySource, ReadError};
 pub use ids::{EdgeOffset, NodeId, NodeIdOverflow, OffsetOverflow};
-pub use memory::{InsufficientBudget, MemoryAccountant};
+pub use memory::{InsufficientBudget, MemoryAccountant, MemoryKind};
 
 // Every conversion in this crate relies on these two facts: a `u32` always fits in a
 // `usize`, and a `usize` always fits in a `u64`. A target where either is false must

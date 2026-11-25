@@ -3,6 +3,8 @@
 //! The binary is called `everygraph` (not `everygraph-cli`, not `eg`), and until it can
 //! do something it must not look as if it had succeeded.
 
+#![forbid(unsafe_code)]
+
 use std::process::Command;
 
 #[test]
