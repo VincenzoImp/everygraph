@@ -135,19 +135,20 @@ impl DataRoot {
     pub fn status(&self, dataset: &Dataset, file: &FileEntry) -> FileStatus {
         let path = self.file_path(dataset, file);
         let Ok(meta) = fs::metadata(&path) else {
-            return match fs::metadata(self.state_path(dataset, file)) {
-                Ok(_) => FileStatus::Partial {
-                    done: super::download::State::load(&self.state_path(dataset, file))
-                        .map(|s| s.done())
-                        .unwrap_or(0),
-                },
+            // A ranged download has a state file; a plain stream (server without
+            // `Range`) killed before it could clean up leaves only its `.part`.
+            if let Ok(state) = super::download::State::load(&self.state_path(dataset, file)) {
+                return FileStatus::Partial { done: state.done() };
+            }
+            return match fs::metadata(self.part_path(dataset, file)) {
+                Ok(m) => FileStatus::Partial { done: m.len() },
                 Err(_) => FileStatus::Missing,
             };
         };
         let Some(stamp) = self.read_stamp(dataset, file) else {
             return FileStatus::Unverified;
         };
-        if stamp.size != meta.len() || Some(stamp.mtime) != mtime_of(&meta) {
+        if Snapshot::of_metadata(&meta) != stamp.snapshot {
             return FileStatus::Unverified;
         }
         match &file.sha256 {
@@ -159,21 +160,31 @@ impl DataRoot {
         }
     }
 
-    /// Records that `path` (the placed file) hashed to `sha256`.
+    /// Records that the placed file hashed to `sha256` while it had the size and
+    /// modification time in `snapshot`, taken *before* hashing (see [`hash_unchanged`]).
+    /// Refuses if the file no longer has them.
     pub(crate) fn write_stamp(
         &self,
         dataset: &Dataset,
         file: &FileEntry,
         sha256: &str,
+        snapshot: &Snapshot,
     ) -> Result<()> {
         let path = self.file_path(dataset, file);
-        let meta = fs::metadata(&path).context(|| format!("reading {}", path.display()))?;
-        let mtime = mtime_of(&meta).unwrap_or_default();
+        if Snapshot::of(&path)? != *snapshot {
+            return Err(Error::new(format!(
+                "{} changed while it was being checked; run the command again",
+                path.display()
+            )));
+        }
         let stamp = self.stamp_path(dataset, file);
         if let Some(dir) = stamp.parent() {
             fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
         }
-        let text = format!("sha256 {sha256}\nsize {}\nmtime {mtime}\n", meta.len());
+        let text = format!(
+            "sha256 {sha256}\nsize {}\nmtime {}\n",
+            snapshot.size, snapshot.mtime
+        );
         write_atomically(&stamp, text.as_bytes())
     }
 
@@ -197,21 +208,63 @@ impl DataRoot {
         }
         Some(Stamp {
             sha256: sha256?,
-            size: size?,
-            mtime: mtime?,
+            snapshot: Snapshot {
+                size: size?,
+                mtime: mtime?,
+            },
         })
     }
 }
 
 struct Stamp {
     sha256: String,
+    snapshot: Snapshot,
+}
+
+/// The size and modification time of a file: what `status()` compares with the stamp.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Snapshot {
     size: u64,
+    /// Seconds and nanoseconds since the epoch, as text; empty if the platform has none.
     mtime: String,
 }
 
-fn mtime_of(meta: &fs::Metadata) -> Option<String> {
-    let t = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
-    Some(format!("{}.{:09}", t.as_secs(), t.subsec_nanos()))
+impl Snapshot {
+    pub(crate) fn of(path: &Path) -> Result<Self> {
+        let meta = fs::metadata(path).context(|| format!("reading {}", path.display()))?;
+        Ok(Self::of_metadata(&meta))
+    }
+
+    fn of_metadata(meta: &fs::Metadata) -> Self {
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|t| format!("{}.{:09}", t.as_secs(), t.subsec_nanos()))
+            .unwrap_or_default();
+        Self {
+            size: meta.len(),
+            mtime,
+        }
+    }
+}
+
+/// Hashes `path` and returns the hashes with the size and modification time the file
+/// had *before* it was read; refuses if they are different afterwards, so a hash is
+/// never paired with the metadata of other contents.
+///
+/// # Errors
+/// If the file cannot be read or changed while it was read.
+pub(crate) fn hash_unchanged(path: &Path, with_md5: bool) -> Result<(Hashes, Snapshot)> {
+    let before = Snapshot::of(path)?;
+    let hashes = hash_file(path, with_md5)?;
+    if Snapshot::of(path)? != before || hashes.size != before.size {
+        return Err(Error::new(format!(
+            "{} changed while it was being checked; run the command again",
+            path.display()
+        )));
+    }
+    Ok((hashes, before))
 }
 
 /// The hashes of a file.

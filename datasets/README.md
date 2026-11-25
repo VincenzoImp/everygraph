@@ -15,7 +15,7 @@ cargo build --release -p everygraph-bench
 B=target/release/everygraph-bench
 
 $B list                      # what is registered, and what is on disk and verified
-$B fetch tier1               # the CI set: about 57 MB, plus the generated graphs
+$B fetch tier1               # the CI set: about 74 MB, plus the generated graphs
 $B fetch com-livejournal     # one dataset by name
 $B fetch tier2               # tiers 1 and 2: about 14 GB, mostly Friendster and Twitter
 $B verify tier1              # re-read the files and check them again
@@ -31,10 +31,16 @@ $B path roadnet-ca           # where the files of a dataset are
   serves about 0.7 MB/s per connection), resumed after an interruption from where each
   range stopped, checked against the size and SHA-256 in the registry (and against the MD5
   the source publishes, where it does), and moved into place only when it matches. A
-  failed check deletes the download.
-- **Local copies.** `--from-dir DIR` takes a file of the same name from `DIR` instead of
-  downloading it, after the same checks, as a hard link when possible (the directory is
-  only read; do not then modify the linked file).
+  failed check deletes the download. A server that ignores `Range` gets one plain
+  stream, refused up front if its declared length is wrong and cut one byte past the
+  expected size. Placed files are made read-only.
+- **A file that no longer matches** (the registry pinned a new version, or the file was
+  edited) stops `fetch` with the path to delete; `fetch --replace` deletes it and fetches
+  it again.
+- **Local copies.** `--from-dir DIR` copies a file of the same name from `DIR` instead of
+  downloading it, then checks it like a download. It is a copy, never a hard link, so
+  the data root shares no inode with `DIR`; on file systems that support it the copy
+  shares extents (a reflink, through `copy_file_range`). `DIR` is only read.
 - **Unpinned files.** Tier 3 may hold files nobody has downloaded yet, so the registry
   has no SHA-256 for them. `fetch` refuses them unless given `--allow-unpinned`, and then
   reports the checksum to record in `datasets.toml`.
@@ -49,11 +55,12 @@ below quote them. The registry records what the source says, not legal advice. I
 - **LAW** (Milan) states no licence and asks to acknowledge WebGraph, LLP and the crawler
   that gathered each graph.
 - **DIMACS10** `europe.osm` is derived from 2010 OpenStreetMap data.
-- **MovieLens 100K** (`ml-100k`) has the strictest terms: research use only, no
-  redistribution, **no commercial or revenue-bearing use** without permission from
-  GroupLens. It is in tier 1 as the bipartite graph because no permissively licensed
-  alternative of that size was found; replacing it is worth doing before any commercial
-  use of the test suite.
+- **Wikimedia** publishes the clickstream data under CC0.
+- **No registered dataset states terms that forbid commercial use**, but SNAP and LAW
+  state no terms at all, which is not the same as a licence. MovieLens 100K was in an
+  earlier version of the registry as the bipartite graph and was removed: its terms
+  allow research use only, with no redistribution. Tier 1 uses a generated bipartite
+  graph instead.
 
 Fields that could not be checked against the source are listed as "not verified" in each
 section and marked † in the table. For most datasets that is the licence: a source that
@@ -80,9 +87,11 @@ Values marked † are not verified against the source; see each dataset's notes.
 | [`roadnet-ca`](https://snap.stanford.edu/data/roadNet-CA.html) | 1 | road | no | no | no | 1,965,206 | 2,766,607 | 17.8 MB | SHA-256 | [No licence stated by SNAP](https://snap.stanford.edu/data/index.html) † |
 | [`web-google`](https://snap.stanford.edu/data/web-Google.html) | 1 | web | yes | no | no | 875,713 | 5,105,039 | 21.1 MB | SHA-256 | [No licence stated by SNAP](https://snap.stanford.edu/data/index.html) † |
 | [`soc-epinions1`](https://snap.stanford.edu/data/soc-Epinions1.html) | 1 | directed-social | yes | no | no | 75,879 | 508,837 | 1.6 MB | SHA-256 | [No licence stated by SNAP](https://snap.stanford.edu/data/index.html) † |
-| [`soc-sign-bitcoin-otc`](https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html) | 1 | weighted | yes | yes | yes | 5,881 | 35,592 | 397.2 kB | SHA-256 | [No licence stated by SNAP](https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html) † |
+| [`soc-sign-bitcoin-otc`](https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html) | 1 | directed-social | yes | yes | yes | 5,881 | 35,592 | 397.2 kB | SHA-256 | [No licence stated by SNAP](https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html) † |
 | [`college-msg`](https://snap.stanford.edu/data/CollegeMsg.html) | 1 | temporal | yes | no | yes | 1,899 | 59,835 | 345.3 kB | SHA-256 | [No licence stated by SNAP](https://snap.stanford.edu/data/CollegeMsg.html) † |
-| [`ml-100k`](https://grouplens.org/datasets/movielens/100k/) | 1 | bipartite | no | yes | yes | 2,625 | 100,000 | 4.9 MB | SHA-256 | [Research use only, no commercial use without permission (GroupLens)](https://files.grouplens.org/datasets/movielens/ml-100k-README.txt) |
+| [`wiki-clickstream-ptwiki-2024-01`](https://meta.wikimedia.org/wiki/Research:Wikipedia_clickstream) | 1 | weighted | yes | yes | no | 288,605 † | 983,234 † | 22.1 MB | SHA-256 | [CC0 1.0 ("All Analytics datasets are available under the Creative Commons CC0 dedication", dumps.wikimedia.org)](https://dumps.wikimedia.org/other/clickstream/readme.html) |
+| `synth-weighted-gnm-1000-5000` | 1 | weighted | no | yes | no | 1,000 | 5,000 | generated | SHA-256 | Generated by everygraph-bench; no third-party terms |
+| `synth-bipartite-300x200` | 1 | bipartite | no | no | no | 500 | 3,000 | generated | SHA-256 | Generated by everygraph-bench; no third-party terms |
 | `synth-path-100` | 1 | synthetic | no | no | no | 100 | 99 | generated | SHA-256 | Generated by everygraph-bench; no third-party terms |
 | `synth-cycle-100` | 1 | synthetic | no | no | no | 100 | 100 | generated | SHA-256 | Generated by everygraph-bench; no third-party terms |
 | `synth-star-100` | 1 | synthetic | no | no | no | 100 | 99 | generated | SHA-256 | Generated by everygraph-bench; no third-party terms |
@@ -171,7 +180,7 @@ Bitcoin OTC trust network, weighted and signed, with timestamps (SNAP soc-sign-b
 - **Counts:** Directed rated edges. Checked on the file: 35,592 lines, 5,881 distinct ids, weights from -10 to +10.
 - **Licence / terms:** No licence stated by SNAP. SNAP asks that the papers on the page be cited.
 - **Cite:** S. Kumar, F. Spezzano, V.S. Subrahmanian, C. Faloutsos. Edge Weight Prediction in Weighted Signed Networks. ICDM, 2016.
-- **Notes:** Weights are signed: kernels that need positive weights (Leiden, Dijkstra) must map them first, for example to rating + 11 or to |rating|. The registry has no positively weighted co-occurrence graph yet.
+- **Notes:** Weights are signed (-10 to +10), so it does not stand for the weighted family: it is here to test how kernels that need positive weights (Leiden modularity, Dijkstra) refuse or handle negative ones. The weighted family is wiki-clickstream-ptwiki-2024-01 and the generated synth-weighted-gnm-1000-5000.
 - **Not verified:** licence
 - **File:** [`soc-sign-bitcoinotc.csv.gz`](https://snap.stanford.edu/data/soc-sign-bitcoinotc.csv.gz), 397258 bytes, SHA-256 `6424ac981dad3a019f697fc1b9fcd85c19d8d9f039797758e9ffb6fea100c373`
 
@@ -187,17 +196,38 @@ Private messages of a college online community, with timestamps (SNAP CollegeMsg
 - **Not verified:** licence
 - **File:** [`CollegeMsg.txt.gz`](https://snap.stanford.edu/data/CollegeMsg.txt.gz), 345339 bytes, SHA-256 `50ae2d98ed3bad9ddb18dbd495a89e5e10cfb8f7e86932827db29fc41b41f9fa`
 
-### `ml-100k`
+### `wiki-clickstream-ptwiki-2024-01`
 
-MovieLens 100K: user-movie ratings, a bipartite graph (GroupLens ml-100k)
+Portuguese Wikipedia clickstream, January 2024: article-to-article clicks with counts (Wikimedia clickstream-ptwiki-2024-01)
 
-- **Format:** ZIP archive; the graph is ml-100k/u.data: 'user\titem\trating\ttimestamp' per line
-- **To an edge list:** unzip ml-100k/u.data. User ids 1..943 and item ids 1..1682 overlap: offset items by 943 (or keep two id spaces). Rating 1..5 is the weight, timestamp in seconds since the epoch.
-- **Counts:** 943 users + 1,682 movies = 2,625 nodes; 100,000 ratings, as u.info and the README state. Checked on u.data: 100,000 lines, 943 distinct users, 1,682 distinct items, ratings 1..5.
-- **Licence / terms:** Research use only, no commercial use without permission (GroupLens). The terms in the archive's README: research use only; no redistribution without permission; no commercial or revenue-bearing use without permission from GroupLens; no implied endorsement; acknowledge use in publications. Check that a use fits before relying on it.
-- **Cite:** F. M. Harper and J. A. Konstan. The MovieLens Datasets: History and Context. ACM TiiS 5(4), 2015.
-- **Notes:** The most restrictive terms in the registry; see datasets/README.md. Chosen because no permissively licensed user-item graph of this size was found in the time available.
-- **File:** [`ml-100k.zip`](https://files.grouplens.org/datasets/movielens/ml-100k.zip), 4924029 bytes, SHA-256 `50d2a982c66986937beb9ffb3aa76efe955bf3d5c6b761f4e3a7cd717c6a3229`
+- **Format:** TSV, gzip, no header: 'prev\tcurr\ttype\tn' per line; prev and curr are article titles, type is link, external or other, n the number of clicks
+- **To an edge list:** gunzip; keep rows whose type is 'link' (both ends are articles and prev links to curr); prev -> curr is the edge, n its positive integer weight. Titles are strings: build an id dictionary.
+- **Counts:** Not published by the source: counted on the file, keeping only rows of type 'link' (983,234 of 1,763,469 rows, all distinct (prev, curr) pairs, 288,605 distinct titles). Weights are click counts, the smallest 10.
+- **Licence / terms:** CC0 1.0 ("All Analytics datasets are available under the Creative Commons CC0 dedication", dumps.wikimedia.org).
+- **Cite:** Wikimedia Foundation, Wikipedia clickstream (https://meta.wikimedia.org/wiki/Research:Wikipedia_clickstream). CC0 asks for no citation.
+- **Notes:** The real positively weighted graph of tier 1: directed, weights are counts (a clicks-between-articles graph rather than a co-occurrence graph). The meta page says pairs with 10 or fewer observations are removed; the smallest count in this file is 10. The January 2024 file was still online on 2026-11-25; no promise of permanence was found.
+- **Not verified:** nodes, edges
+- **File:** [`clickstream-ptwiki-2024-01.tsv.gz`](https://dumps.wikimedia.org/other/clickstream/2024-01/clickstream-ptwiki-2024-01.tsv.gz), 22182571 bytes, SHA-256 `223441b104c0fd0488beaeaf73fc41dba4cbee3cf25052bac91d460a6d02b2fb`
+
+### `synth-weighted-gnm-1000-5000`
+
+Weighted G(n, m) random graph: 1,000 nodes, 5,000 distinct edges, integer weights 1..10, seed 7
+
+- **Format:** Edge list: '#' header, then 'u\tv\tw' with u < v and w in 1..10
+- **To an edge list:** Drop '#' lines; the third column is the weight.
+- **Licence / terms:** Generated by everygraph-bench; no third-party terms.
+- **Notes:** The weighted graph CI can always rely on: positive integer weights, no network, no terms.
+- **File:** `weighted-gnm-1000-5000.txt` (generated), 49516 bytes, SHA-256 `982d40e2c157a55673978882050603a0a117bfab61c753d8720968c923f3db9c`
+
+### `synth-bipartite-300x200`
+
+Random bipartite graph: 300 + 200 nodes, 3,000 distinct edges, seed 11
+
+- **Format:** Edge list: '#' header, then 'u\tv' with u in 0..300 (left) and v in 300..500 (right)
+- **To an edge list:** Drop '#' lines. The two sides share one id space: left 0..299, right 300..499.
+- **Licence / terms:** Generated by everygraph-bench; no third-party terms.
+- **Notes:** The bipartite graph of tier 1. No real bipartite graph with permissive terms is registered yet (MovieLens 100K was removed: its terms forbid commercial use and redistribution).
+- **File:** `bipartite-300x200.txt` (generated), 22996 bytes, SHA-256 `8f787a9414cd72ab030c20368ee91c73b903bf81712fa0b3a80358dd818ea2a3`
 
 ### `synth-path-100`
 

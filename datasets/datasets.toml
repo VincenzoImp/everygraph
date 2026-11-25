@@ -162,7 +162,7 @@ sha256 = "69a2dab71fa5e3a0715487599fc16ca17ddc847379325a6c765bbad6e3e36938"
 [[dataset]]
 name = "soc-sign-bitcoin-otc"
 title = "Bitcoin OTC trust network, weighted and signed, with timestamps (SNAP soc-sign-bitcoin-otc)"
-family = "weighted"
+family = "directed-social"
 tier = 1
 directed = true
 weighted = true
@@ -176,7 +176,7 @@ page = "https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html"
 licence = "No licence stated by SNAP. SNAP asks that the papers on the page be cited."
 licence_url = "https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html"
 citation = "S. Kumar, F. Spezzano, V.S. Subrahmanian, C. Faloutsos. Edge Weight Prediction in Weighted Signed Networks. ICDM, 2016."
-notes = "Weights are signed: kernels that need positive weights (Leiden, Dijkstra) must map them first, for example to rating + 11 or to |rating|. The registry has no positively weighted co-occurrence graph yet."
+notes = "Weights are signed (-10 to +10), so it does not stand for the weighted family: it is here to test how kernels that need positive weights (Leiden modularity, Dijkstra) refuse or handle negative ones. The weighted family is wiki-clickstream-ptwiki-2024-01 and the generated synth-weighted-gnm-1000-5000."
 unverified = ["licence"]
 
 [[dataset.file]]
@@ -211,33 +211,76 @@ size = 345339
 sha256 = "50ae2d98ed3bad9ddb18dbd495a89e5e10cfb8f7e86932827db29fc41b41f9fa"
 
 [[dataset]]
-name = "ml-100k"
-title = "MovieLens 100K: user-movie ratings, a bipartite graph (GroupLens ml-100k)"
-family = "bipartite"
+name = "wiki-clickstream-ptwiki-2024-01"
+title = "Portuguese Wikipedia clickstream, January 2024: article-to-article clicks with counts (Wikimedia clickstream-ptwiki-2024-01)"
+family = "weighted"
+tier = 1
+directed = true
+weighted = true
+temporal = false
+nodes = 288605
+edges = 983234
+counts_note = "Not published by the source: counted on the file, keeping only rows of type 'link' (983,234 of 1,763,469 rows, all distinct (prev, curr) pairs, 288,605 distinct titles). Weights are click counts, the smallest 10."
+format = "TSV, gzip, no header: 'prev\\tcurr\\ttype\\tn' per line; prev and curr are article titles, type is link, external or other, n the number of clicks"
+to_edge_list = "gunzip; keep rows whose type is 'link' (both ends are articles and prev links to curr); prev -> curr is the edge, n its positive integer weight. Titles are strings: build an id dictionary."
+page = "https://meta.wikimedia.org/wiki/Research:Wikipedia_clickstream"
+licence = "CC0 1.0 (\"All Analytics datasets are available under the Creative Commons CC0 dedication\", dumps.wikimedia.org)."
+licence_url = "https://dumps.wikimedia.org/other/clickstream/readme.html"
+citation = "Wikimedia Foundation, Wikipedia clickstream (https://meta.wikimedia.org/wiki/Research:Wikipedia_clickstream). CC0 asks for no citation."
+notes = "The real positively weighted graph of tier 1: directed, weights are counts (a clicks-between-articles graph rather than a co-occurrence graph). The meta page says pairs with 10 or fewer observations are removed; the smallest count in this file is 10. The January 2024 file was still online on 2026-11-25; no promise of permanence was found."
+unverified = ["nodes", "edges"]
+
+[[dataset.file]]
+name = "clickstream-ptwiki-2024-01.tsv.gz"
+url = "https://dumps.wikimedia.org/other/clickstream/2024-01/clickstream-ptwiki-2024-01.tsv.gz"
+size = 22182571
+sha256 = "223441b104c0fd0488beaeaf73fc41dba4cbee3cf25052bac91d460a6d02b2fb"
+
+# Generated graphs: made by `everygraph-bench fetch`, no download. Format: two '#'
+# lines, then 'u<TAB>v' with u < v, ids from 0 (the weighted one adds '<TAB>w').
+# Pinned by SHA-256 so that a change to a generator is caught.
+
+[[dataset]]
+name = "synth-weighted-gnm-1000-5000"
+title = "Weighted G(n, m) random graph: 1,000 nodes, 5,000 distinct edges, integer weights 1..10, seed 7"
+family = "weighted"
 tier = 1
 directed = false
 weighted = true
-temporal = true
-nodes = 2625
-edges = 100000
-counts_note = "943 users + 1,682 movies = 2,625 nodes; 100,000 ratings, as u.info and the README state. Checked on u.data: 100,000 lines, 943 distinct users, 1,682 distinct items, ratings 1..5."
-format = "ZIP archive; the graph is ml-100k/u.data: 'user\\titem\\trating\\ttimestamp' per line"
-to_edge_list = "unzip ml-100k/u.data. User ids 1..943 and item ids 1..1682 overlap: offset items by 943 (or keep two id spaces). Rating 1..5 is the weight, timestamp in seconds since the epoch."
-page = "https://grouplens.org/datasets/movielens/100k/"
-licence = "Research use only, no commercial use without permission (GroupLens). The terms in the archive's README: research use only; no redistribution without permission; no commercial or revenue-bearing use without permission from GroupLens; no implied endorsement; acknowledge use in publications. Check that a use fits before relying on it."
-licence_url = "https://files.grouplens.org/datasets/movielens/ml-100k-README.txt"
-citation = "F. M. Harper and J. A. Konstan. The MovieLens Datasets: History and Context. ACM TiiS 5(4), 2015."
-notes = "The most restrictive terms in the registry; see datasets/README.md. Chosen because no permissively licensed user-item graph of this size was found in the time available."
+temporal = false
+nodes = 1000
+edges = 5000
+format = "Edge list: '#' header, then 'u\\tv\\tw' with u < v and w in 1..10"
+to_edge_list = "Drop '#' lines; the third column is the weight."
+licence = "Generated by everygraph-bench; no third-party terms."
+notes = "The weighted graph CI can always rely on: positive integer weights, no network, no terms."
+generator = { kind = "weighted-gnm", n = 1000, m = 5000, max_weight = 10, seed = 7 }
 
 [[dataset.file]]
-name = "ml-100k.zip"
-url = "https://files.grouplens.org/datasets/movielens/ml-100k.zip"
-size = 4924029
-sha256 = "50d2a982c66986937beb9ffb3aa76efe955bf3d5c6b761f4e3a7cd717c6a3229"
+name = "weighted-gnm-1000-5000.txt"
+size = 49516
+sha256 = "982d40e2c157a55673978882050603a0a117bfab61c753d8720968c923f3db9c"
 
-# Synthetic graphs: generated by `everygraph-bench fetch`, no download. Format: two '#'
-# lines, then 'u<TAB>v' with u < v, ids from 0. Pinned by SHA-256 so that a change to a
-# generator is caught.
+[[dataset]]
+name = "synth-bipartite-300x200"
+title = "Random bipartite graph: 300 + 200 nodes, 3,000 distinct edges, seed 11"
+family = "bipartite"
+tier = 1
+directed = false
+weighted = false
+temporal = false
+nodes = 500
+edges = 3000
+format = "Edge list: '#' header, then 'u\\tv' with u in 0..300 (left) and v in 300..500 (right)"
+to_edge_list = "Drop '#' lines. The two sides share one id space: left 0..299, right 300..499."
+licence = "Generated by everygraph-bench; no third-party terms."
+notes = "The bipartite graph of tier 1. No real bipartite graph with permissive terms is registered yet (MovieLens 100K was removed: its terms forbid commercial use and redistribution)."
+generator = { kind = "bipartite", left = 300, right = 200, m = 3000, seed = 11 }
+
+[[dataset.file]]
+name = "bipartite-300x200.txt"
+size = 22996
+sha256 = "8f787a9414cd72ab030c20368ee91c73b903bf81712fa0b3a80358dd818ea2a3"
 
 [[dataset]]
 name = "synth-path-100"

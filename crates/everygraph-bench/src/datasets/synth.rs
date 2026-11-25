@@ -5,7 +5,8 @@
 //! as a checksum failure rather than as silently different test inputs.
 //!
 //! Output format: two `#` comment lines, then one undirected edge per line as
-//! `u<TAB>v` with `u < v`, nodes numbered from 0 — the layout of a SNAP edge list.
+//! `u<TAB>v` with `u < v`, nodes numbered from 0 — the layout of a SNAP edge list. The
+//! weighted generator adds a third column, `u<TAB>v<TAB>w`, with `w >= 1`.
 
 use std::collections::HashSet;
 use std::io::{self, Write};
@@ -59,6 +60,31 @@ pub enum Generator {
         /// Seed of the random stream.
         seed: u64,
     },
+    /// G(n, m) as in [`Generator::Gnm`], each edge with a positive integer weight drawn
+    /// uniformly from `1..=max_weight` from the same stream. Lines are `u<TAB>v<TAB>w`.
+    WeightedGnm {
+        /// Number of nodes.
+        n: u32,
+        /// Number of edges; at most `n (n - 1) / 2`.
+        m: u64,
+        /// Largest weight; at least 1.
+        max_weight: u32,
+        /// Seed of the random stream.
+        seed: u64,
+    },
+    /// A random bipartite graph: `m` distinct edges between the `left` nodes
+    /// `0..left` and the `right` nodes `left..left + right`, drawn uniformly. Lines are
+    /// `u<TAB>v` with `u` on the left.
+    Bipartite {
+        /// Nodes on the left side.
+        left: u32,
+        /// Nodes on the right side.
+        right: u32,
+        /// Number of edges; at most `left * right`.
+        m: u64,
+        /// Seed of the random stream.
+        seed: u64,
+    },
 }
 
 impl Generator {
@@ -70,9 +96,11 @@ impl Generator {
             | Generator::Cycle { n }
             | Generator::Star { n }
             | Generator::Complete { n }
-            | Generator::Gnm { n, .. } => u64::from(n),
+            | Generator::Gnm { n, .. }
+            | Generator::WeightedGnm { n, .. } => u64::from(n),
             Generator::Grid { rows, cols } => u64::from(rows) * u64::from(cols),
             Generator::Barbell { k } => 2 * u64::from(k),
+            Generator::Bipartite { left, right, .. } => u64::from(left) + u64::from(right),
         }
     }
 
@@ -89,7 +117,9 @@ impl Generator {
                 r * c.saturating_sub(1) + c * r.saturating_sub(1)
             }
             Generator::Barbell { k } => 2 * pairs(u64::from(k)) + 1,
-            Generator::Gnm { m, .. } => m,
+            Generator::Gnm { m, .. }
+            | Generator::WeightedGnm { m, .. }
+            | Generator::Bipartite { m, .. } => m,
         }
     }
 
@@ -106,6 +136,18 @@ impl Generator {
             Generator::Grid { rows, cols } => format!("grid rows={rows} cols={cols}"),
             Generator::Barbell { k } => format!("barbell k={k}"),
             Generator::Gnm { n, m, seed } => format!("gnm n={n} m={m} seed={seed}"),
+            Generator::WeightedGnm {
+                n,
+                m,
+                max_weight,
+                seed,
+            } => format!("weighted-gnm n={n} m={m} max_weight={max_weight} seed={seed}"),
+            Generator::Bipartite {
+                left,
+                right,
+                m,
+                seed,
+            } => format!("bipartite left={left} right={right} m={m} seed={seed}"),
         }
     }
 
@@ -178,6 +220,49 @@ impl Generator {
                     }
                 }
             }
+            Generator::WeightedGnm {
+                n,
+                m,
+                max_weight,
+                seed,
+            } => {
+                if m > (Generator::Complete { n }).edges() {
+                    return Err(invalid("more G(n, m) edges than node pairs"));
+                }
+                if max_weight == 0 {
+                    return Err(invalid("weights start at 1: max_weight must be at least 1"));
+                }
+                let mut rng = SplitMix64(seed);
+                let mut seen = HashSet::new();
+                while u64::try_from(seen.len()).unwrap_or(u64::MAX) < m {
+                    let (u, v) = (rng.below(n), rng.below(n));
+                    if u != v && seen.insert((u.min(v), u.max(v))) {
+                        let w = rng.below(max_weight) + 1;
+                        writeln!(out, "{}\t{}\t{w}", u.min(v), u.max(v))?;
+                    }
+                }
+            }
+            Generator::Bipartite {
+                left,
+                right,
+                m,
+                seed,
+            } => {
+                if left.checked_add(right).is_none() {
+                    return Err(invalid("bipartite graph too large for u32 node ids"));
+                }
+                if m > u64::from(left) * u64::from(right) {
+                    return Err(invalid("more bipartite edges than left-right pairs"));
+                }
+                let mut rng = SplitMix64(seed);
+                let mut seen = HashSet::new();
+                while u64::try_from(seen.len()).unwrap_or(u64::MAX) < m {
+                    let (u, v) = (rng.below(left), left + rng.below(right));
+                    if seen.insert((u, v)) {
+                        edge(u, v)?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -233,13 +318,28 @@ mod tests {
         text.lines()
             .filter(|l| !l.starts_with('#'))
             .map(|l| {
-                let (u, v) = l.split_once('\t').expect("tab");
-                (u.parse().expect("u"), v.parse().expect("v"))
+                let mut f = l.split('\t');
+                let u = f.next().expect("u").parse().expect("u");
+                let v = f.next().expect("v").parse().expect("v");
+                (u, v)
             })
             .collect()
     }
 
-    const ALL: [Generator; 7] = [
+    const WEIGHTED: Generator = Generator::WeightedGnm {
+        n: 50,
+        m: 200,
+        max_weight: 9,
+        seed: 3,
+    };
+    const BIPARTITE: Generator = Generator::Bipartite {
+        left: 20,
+        right: 30,
+        m: 300,
+        seed: 5,
+    };
+
+    const ALL: [Generator; 9] = [
         Generator::Path { n: 10 },
         Generator::Cycle { n: 10 },
         Generator::Star { n: 10 },
@@ -251,7 +351,32 @@ mod tests {
             m: 200,
             seed: 7,
         },
+        WEIGHTED,
+        BIPARTITE,
     ];
+
+    #[test]
+    fn weights_are_positive_integers_in_range() {
+        let text = generate(WEIGHTED);
+        let weights: Vec<u32> = text
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .map(|l| l.split('\t').nth(2).expect("weight").parse().expect("int"))
+            .collect();
+        assert_eq!(weights.len(), 200);
+        assert!(weights.iter().all(|w| (1..=9).contains(w)), "{weights:?}");
+        assert!(
+            weights.contains(&1) && weights.contains(&9),
+            "both ends drawn"
+        );
+    }
+
+    #[test]
+    fn bipartite_edges_join_the_two_sides() {
+        for (u, v) in edges(&generate(BIPARTITE)) {
+            assert!(u < 20 && (20..50).contains(&v), "{u} {v}");
+        }
+    }
 
     #[test]
     fn each_generator_writes_the_edge_count_it_announces_without_loops_or_duplicates() {
@@ -305,5 +430,19 @@ mod tests {
             .write(&mut sink)
             .is_err()
         );
+        let zero_weight = Generator::WeightedGnm {
+            n: 10,
+            m: 5,
+            max_weight: 0,
+            seed: 0,
+        };
+        assert!(zero_weight.write(&mut sink).is_err());
+        let too_many = Generator::Bipartite {
+            left: 2,
+            right: 3,
+            m: 7,
+            seed: 0,
+        };
+        assert!(too_many.write(&mut sink).is_err());
     }
 }

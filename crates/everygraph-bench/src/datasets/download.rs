@@ -261,24 +261,60 @@ fn content_range<B>(response: &Response<B>) -> Option<(u64, u64, Option<u64>)> {
     Some((a.parse().ok()?, b.parse().ok()?, total))
 }
 
+/// One plain stream, for a server that ignores `Range`. A declared `Content-Length`
+/// that differs from the registry is refused before any byte is read, and the stream
+/// is cut one byte past the expected size, so a server that sends more than it should
+/// cannot fill the disk. There is no resume on this path: on failure the `.part` is
+/// deleted.
 fn whole(
     mut response: Response<ureq::Body>,
     url: &str,
     expected_size: Option<u64>,
     part: &Path,
 ) -> Result<u64> {
-    let mut out = File::create(part).context(|| format!("creating {}", part.display()))?;
-    let mut reader = response.body_mut().as_reader();
-    let written = std::io::copy(&mut reader, &mut out).context(|| format!("downloading {url}"))?;
-    out.sync_all()
-        .context(|| format!("syncing {}", part.display()))?;
-    if let Some(expected) = expected_size {
-        if written != expected {
+    let declared: Option<u64> = response
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse().ok());
+    if let (Some(declared), Some(expected)) = (declared, expected_size) {
+        if declared != expected {
             return Err(Error::new(format!(
-                "{url} sent {written} bytes, the registry says {expected}"
+                "{url} declares {declared} bytes, the registry says {expected}: the source changed"
             )));
         }
     }
+    let result = stream_into(&mut response, url, expected_size, part);
+    if result.is_err() {
+        let _ignored = fs::remove_file(part);
+    }
+    result
+}
+
+fn stream_into(
+    response: &mut Response<ureq::Body>,
+    url: &str,
+    expected_size: Option<u64>,
+    part: &Path,
+) -> Result<u64> {
+    let mut out = File::create(part).context(|| format!("creating {}", part.display()))?;
+    let limit = expected_size.map_or(u64::MAX, |e| e.saturating_add(1));
+    let mut reader = response.body_mut().as_reader().take(limit);
+    let written = std::io::copy(&mut reader, &mut out).context(|| format!("downloading {url}"))?;
+    if let Some(expected) = expected_size {
+        if written != expected {
+            let sent = if written > expected {
+                format!("more than {expected}")
+            } else {
+                format!("only {written}")
+            };
+            return Err(Error::new(format!(
+                "{url} sent {sent} bytes, the registry says {expected}"
+            )));
+        }
+    }
+    out.sync_all()
+        .context(|| format!("syncing {}", part.display()))?;
     Ok(written)
 }
 
@@ -466,12 +502,19 @@ fn worker(
         let Some(&chunk) = chunks.get(index) else {
             return;
         };
+        // Consecutive tries that wrote nothing. A try that made progress resets it, so
+        // a server that drops connections now and then cannot exhaust the retries of a
+        // download that is still advancing.
         let mut failures = 0;
         loop {
+            let before = chunk_done(shared, index);
             match fetch_chunk(agent, url, total, &mut file, chunk, index, shared) {
                 Ok(()) => break,
                 Err(_) if shared.abort.load(Ordering::SeqCst) => return,
                 Err(e) => {
+                    if chunk_done(shared, index) > before {
+                        failures = 0;
+                    }
                     failures += 1;
                     if failures > options.retries {
                         return record(
@@ -493,6 +536,17 @@ fn worker(
     }
 }
 
+/// Bytes of chunk `index` written so far.
+fn chunk_done(shared: &Shared, index: usize) -> u64 {
+    shared
+        .done
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(index)
+        .copied()
+        .unwrap_or(0)
+}
+
 /// Fetches what is missing of one chunk with one request.
 fn fetch_chunk(
     agent: &Agent,
@@ -503,14 +557,7 @@ fn fetch_chunk(
     index: usize,
     shared: &Shared,
 ) -> Result<()> {
-    let done = shared
-        .done
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(index)
-        .copied()
-        .unwrap_or(0);
-    let start = chunk.start + done;
+    let start = chunk.start + chunk_done(shared, index);
     if start >= chunk.end {
         return Ok(());
     }

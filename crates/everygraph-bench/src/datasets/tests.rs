@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use super::test_support::{Server, ServerConfig, TempDir, bytes};
+use super::test_support::{ChunkLie, Server, ServerConfig, TempDir, bytes};
 use super::*;
 
 fn sha256_of(data: &[u8]) -> String {
@@ -26,6 +26,7 @@ fn options(connections: usize) -> FetchOptions {
         },
         from_dir: None,
         allow_unpinned: false,
+        replace: false,
     }
 }
 
@@ -240,20 +241,140 @@ fn a_size_different_from_the_registry_is_refused_before_downloading() {
     assert_eq!(range_starts(&server), Vec::<u64>::new(), "only the probe");
 }
 
-#[test]
-fn a_wrong_content_range_is_an_error() {
-    let data = bytes(1 << 20, 8);
+/// Fetches 4 MiB from a server that answers the probe honestly and then misbehaves on
+/// every chunk request; returns the error.
+fn fetch_from_lying_server(lie: ChunkLie) -> Error {
+    let data = bytes(4 << 20, 8);
     let server = Server::start(
         data.clone(),
         ServerConfig {
-            lie_about_total: Some(5),
+            chunk_lie: Some(lie),
             ..ServerConfig::default()
         },
     );
     let dir = TempDir::new("lie");
     let root = DataRoot::new(dir.path());
     let registry = registry_for(&server.url(), data.len(), Some(&sha256_of(&data)));
-    assert!(run(&root, &registry, &options(2)).is_err());
+    let mut opts = options(4);
+    opts.download.retries = 0;
+    let err = run(&root, &registry, &opts).expect_err("a lying server must fail the fetch");
+    assert!(
+        !range_starts(&server).is_empty(),
+        "the probe passed and chunks were asked for: {lie:?}"
+    );
+    err
+}
+
+#[test]
+fn a_wrong_content_range_on_a_chunk_is_an_error() {
+    // The bytes sent are the right ones in all three cases: only the header check can
+    // fail the fetch.
+    for lie in [
+        ChunkLie::WrongStart,
+        ChunkLie::WrongEnd,
+        ChunkLie::WrongTotal,
+    ] {
+        let err = fetch_from_lying_server(lie);
+        assert!(
+            err.to_string().contains("got Content-Range"),
+            "{lie:?}: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_200_answer_to_a_chunk_request_is_an_error() {
+    // A plausible Content-Range with status 200 and the whole file: without the status
+    // check the wrong bytes would be written and only the checksum would notice.
+    let err = fetch_from_lying_server(ChunkLie::Status200);
+    assert!(err.to_string().contains("got status 200"), "{err}");
+}
+
+#[test]
+fn a_server_without_ranges_declaring_the_wrong_length_is_refused_before_reading() {
+    let data = bytes(1 << 20, 13);
+    let server = Server::start(
+        data.clone(),
+        ServerConfig {
+            ignore_ranges: true,
+            ..ServerConfig::default()
+        },
+    );
+    let dir = TempDir::new("whole-length");
+    let root = DataRoot::new(dir.path());
+    let registry = registry_for(&server.url(), data.len() - 1, Some(&sha256_of(&data)));
+    let err = run(&root, &registry, &options(2)).expect_err("length differs");
+    assert!(err.to_string().contains("declares"), "{err}");
+    let ds = registry.get("toy").expect("toy");
+    assert!(
+        !root.part_path(ds, &ds.files[0]).exists(),
+        "nothing written"
+    );
+}
+
+#[test]
+fn a_server_without_ranges_sending_too_much_is_cut_off() {
+    // No Content-Length: the body runs until the connection closes, and it is twice
+    // the size the registry expects.
+    let data = bytes(2 << 20, 14);
+    let expected = &data[..1 << 20];
+    let server = Server::start(
+        data.clone(),
+        ServerConfig {
+            ignore_ranges: true,
+            no_content_length: true,
+            ..ServerConfig::default()
+        },
+    );
+    let dir = TempDir::new("whole-long");
+    let root = DataRoot::new(dir.path());
+    let registry = registry_for(&server.url(), expected.len(), Some(&sha256_of(expected)));
+    let err = run(&root, &registry, &options(2)).expect_err("too long");
+    assert!(err.to_string().contains("more than 1048576 bytes"), "{err}");
+    let ds = registry.get("toy").expect("toy");
+    assert!(
+        !root.part_path(ds, &ds.files[0]).exists(),
+        "the partial stream is deleted"
+    );
+    assert_eq!(root.status(ds, &ds.files[0]), FileStatus::Missing);
+}
+
+#[test]
+fn a_leftover_part_without_state_is_listed_as_partial_and_replaced() {
+    let data = bytes(100_000, 15);
+    let server = Server::start(data.clone(), ServerConfig::default());
+    let dir = TempDir::new("leftover");
+    let root = DataRoot::new(dir.path());
+    let registry = registry_for(&server.url(), data.len(), Some(&sha256_of(&data)));
+    let ds = registry.get("toy").expect("toy");
+    let f = &ds.files[0];
+    std::fs::create_dir_all(root.dataset_dir(ds).join(".partial")).expect("mkdir");
+    std::fs::write(root.part_path(ds, f), b"left by a killed plain stream").expect("write");
+    assert_eq!(root.status(ds, f), FileStatus::Partial { done: 29 });
+    run(&root, &registry, &options(2)).expect("fetch");
+    assert_eq!(root.status(ds, f), FileStatus::Verified);
+}
+
+#[test]
+fn retries_are_not_used_up_while_a_chunk_still_advances() {
+    // One 3 MiB chunk, every one of the first eight responses cut after 300 000 bytes,
+    // one retry allowed: each try makes progress, so the download completes.
+    let data = bytes(3 << 20, 16);
+    let server = Server::start(
+        data.clone(),
+        ServerConfig {
+            cut_responses: 8,
+            cut_after: 300_000,
+            ..ServerConfig::default()
+        },
+    );
+    let dir = TempDir::new("progress");
+    let root = DataRoot::new(dir.path());
+    let registry = registry_for(&server.url(), data.len(), Some(&sha256_of(&data)));
+    let mut opts = options(1);
+    opts.download.retries = 1;
+    run(&root, &registry, &opts).expect("progressing tries do not count as failures");
+    assert_eq!(range_starts(&server).len(), 9);
 }
 
 #[test]
@@ -319,11 +440,23 @@ fn from_dir_takes_a_local_copy_after_checking_it() {
     opts.from_dir = Some(local.path().to_path_buf());
     let out = run(&root, &registry, &opts).expect("from dir");
     assert!(matches!(&out[..], [Outcome::Placed { from }] if from.ends_with("toy.bin")));
-    // The source copy is untouched; a corrupt local copy is refused.
+    // A copy, not a link: the placed file is read-only, and writing to it anyway
+    // leaves the source as it was.
+    let ds = registry.get("toy").expect("toy");
+    let placed = root.file_path(ds, &ds.files[0]);
+    assert!(
+        std::fs::metadata(&placed)
+            .expect("meta")
+            .permissions()
+            .readonly()
+    );
+    make_writable(&placed);
+    std::fs::write(&placed, b"edited in place").expect("write");
     assert_eq!(
         std::fs::read(local.path().join("toy.bin")).expect("read"),
         data
     );
+    // A corrupt local copy is refused.
     let dir2 = TempDir::new("fromdir-bad");
     std::fs::write(local.path().join("toy.bin"), b"corrupt").expect("write");
     let err = run(&DataRoot::new(dir2.path()), &registry, &opts).expect_err("corrupt");
@@ -347,9 +480,81 @@ fn verify_detects_a_changed_file() {
     assert_eq!(verify_file(&root, ds, f).expect("ok"), FileStatus::Verified);
     let mut changed = data.clone();
     changed[0] ^= 1;
+    make_writable(&root.file_path(ds, f));
     std::fs::write(root.file_path(ds, f), &changed).expect("write");
     assert!(verify_file(&root, ds, f).is_err());
     assert_eq!(root.status(ds, f), FileStatus::Unverified);
+}
+
+#[test]
+fn list_status_notices_a_same_size_change_through_the_modification_time() {
+    // The cheap path: no re-hash, only the stamp's size and mtime.
+    let data = bytes(10_000, 17);
+    let server = Server::start(data.clone(), ServerConfig::default());
+    let dir = TempDir::new("mtime");
+    let root = DataRoot::new(dir.path());
+    let registry = registry_for(&server.url(), data.len(), Some(&sha256_of(&data)));
+    run(&root, &registry, &options(1)).expect("fetch");
+    let ds = registry.get("toy").expect("toy");
+    let f = &ds.files[0];
+    let path = root.file_path(ds, f);
+    assert_eq!(root.status(ds, f), FileStatus::Verified);
+    let mtime = std::fs::metadata(&path)
+        .expect("meta")
+        .modified()
+        .expect("mtime");
+    make_writable(&path);
+    let mut changed = data.clone();
+    changed[0] ^= 1;
+    std::fs::write(&path, &changed).expect("same size, other bytes");
+    // Make sure the clock moved even on a coarse file system.
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(mtime + Duration::from_secs(2)))
+        .expect("set mtime");
+    assert_eq!(root.status(ds, f), FileStatus::Unverified);
+}
+
+#[test]
+fn a_placed_file_that_no_longer_matches_says_what_to_do_and_replace_fixes_it() {
+    let old = bytes(20_000, 18);
+    let new = bytes(20_000, 19);
+    let dir = TempDir::new("replace");
+    let root = DataRoot::new(dir.path());
+    let server = Server::start(old.clone(), ServerConfig::default());
+    run(
+        &root,
+        &registry_for(&server.url(), old.len(), Some(&sha256_of(&old))),
+        &options(1),
+    )
+    .expect("old version placed");
+    // The registry now pins a new version of the file.
+    let server = Server::start(new.clone(), ServerConfig::default());
+    let registry = registry_for(&server.url(), new.len(), Some(&sha256_of(&new)));
+    let err = run(&root, &registry, &options(1)).expect_err("old file in place");
+    let ds = registry.get("toy").expect("toy");
+    let path = root.file_path(ds, &ds.files[0]);
+    assert!(
+        err.to_string()
+            .contains(&format!("delete {} and run fetch again", path.display())),
+        "{err}"
+    );
+    let mut opts = options(1);
+    opts.replace = true;
+    let out = run(&root, &registry, &opts).expect("replaced");
+    assert_eq!(out, vec![Outcome::Placed { from: server.url() }]);
+    assert_eq!(std::fs::read(&path).expect("read"), new);
+}
+
+fn make_writable(path: &std::path::Path) {
+    let mut p = std::fs::metadata(path).expect("meta").permissions();
+    #[allow(
+        clippy::permissions_set_readonly_false,
+        reason = "a test undoing read-only"
+    )]
+    p.set_readonly(false);
+    std::fs::set_permissions(path, p).expect("chmod");
 }
 
 #[test]
@@ -362,7 +567,7 @@ fn every_synthetic_dataset_of_the_registry_generates_its_pinned_bytes() {
     let synthetic: Vec<_> = registry
         .datasets
         .iter()
-        .filter(|d| d.family == Family::Synthetic)
+        .filter(|d| d.is_generated())
         .collect();
     assert!(synthetic.len() >= 5);
     for ds in synthetic {

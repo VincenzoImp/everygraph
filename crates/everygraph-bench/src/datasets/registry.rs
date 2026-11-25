@@ -307,14 +307,14 @@ fn check_dataset(ds: &Dataset) -> Result<()> {
         return Err(Error::new("no [[dataset.file]] entries"));
     }
     let generated = ds.is_generated();
-    if generated != (ds.family == Family::Synthetic) {
-        return Err(Error::new(
-            "a generator is required for, and only allowed in, the synthetic family",
-        ));
+    // A generated graph may stand for another family (the weighted and bipartite graphs
+    // of tier 1); the synthetic family holds generated graphs only.
+    if ds.family == Family::Synthetic && !generated {
+        return Err(Error::new("the synthetic family needs a generator"));
     }
     if generated && (ds.files.len() != 1 || ds.tier != 1) {
         return Err(Error::new(
-            "a synthetic dataset is tier 1 and has exactly one file",
+            "a generated dataset is tier 1 and has exactly one file",
         ));
     }
     let mut file_names = BTreeSet::new();
@@ -489,6 +489,23 @@ sha256 = "{H64}"
     }
 
     #[test]
+    fn tier1_has_generated_weighted_and_bipartite_graphs_ci_can_rely_on() {
+        // Positive integer weights and a true two-sided graph, with no third-party terms.
+        let r = Registry::embedded().expect("valid");
+        let tier1 = r.select("tier1").expect("tier1");
+        assert!(tier1.iter().any(|d| d.family == Family::Weighted
+            && d.weighted
+            && matches!(d.generator, Some(Generator::WeightedGnm { max_weight, .. }) if max_weight >= 1)));
+        assert!(tier1.iter().any(|d| d.family == Family::Bipartite
+            && matches!(d.generator, Some(Generator::Bipartite { .. }))));
+        for d in &r.datasets {
+            if d.family == Family::Weighted {
+                assert!(d.weighted, "{} stands for the weighted family", d.name);
+            }
+        }
+    }
+
+    #[test]
     fn tiers_one_and_two_are_fully_pinned() {
         let r = Registry::embedded().expect("valid");
         for d in r.select("tier2").expect("tier2") {
@@ -600,6 +617,10 @@ sha256 = "{H64}"
         assert!(err(&with_gen).contains("no URL"));
         let ok = with_gen.replace("url = \"https://example.org/toy.txt\"", "");
         Registry::parse(&ok).expect("a generated dataset");
+        // A generated graph may stand for another family, but stays in tier 1.
+        let weighted = ok.replace("\"synthetic\"", "\"weighted\"");
+        Registry::parse(&weighted).expect("a generated weighted graph");
+        assert!(err(&weighted.replace("tier = 1", "tier = 2")).contains("tier 1"));
     }
 
     #[test]

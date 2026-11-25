@@ -77,12 +77,31 @@ fn fetch_list_verify_and_path_work_on_a_generated_dataset() {
     let text = std::fs::read_to_string(&printed).expect("the file is there");
     assert_eq!(text.lines().filter(|l| !l.starts_with('#')).count(), 1740);
 
+    // Placed files are read-only.
+    let meta = std::fs::metadata(&printed).expect("meta");
+    assert!(meta.permissions().readonly());
+
     // A changed file fails `verify` and is no longer listed as verified.
-    std::fs::write(&printed, "0\t1\n").expect("overwrite");
+    std::fs::remove_file(&printed).expect("remove");
+    std::fs::write(&printed, "0\t1\n").expect("a different file in its place");
     let failed = bench(&dir.0, &["verify", "synth-grid-30x30"]);
     assert_eq!(failed.status.code(), Some(1));
     assert!(
         !status_of(&stdout(&bench(&dir.0, &["list"])), "synth-grid-30x30").ends_with("  verified")
+    );
+
+    // `fetch` says what to do about it, and `--replace` does it.
+    let stuck = bench(&dir.0, &["fetch", "synth-grid-30x30"]);
+    assert_eq!(stuck.status.code(), Some(1));
+    assert!(
+        stderr(&stuck).contains("and run fetch again"),
+        "{}",
+        stderr(&stuck)
+    );
+    let replaced = bench(&dir.0, &["fetch", "synth-grid-30x30", "--replace"]);
+    assert!(replaced.status.success(), "{}", stderr(&replaced));
+    assert!(
+        status_of(&stdout(&bench(&dir.0, &["list"])), "synth-grid-30x30").ends_with("  verified")
     );
 }
 
@@ -104,6 +123,9 @@ fn usage_errors_exit_with_status_2() {
         &["fetch", "synth-path-100", "--bogus"][..],
         &["list", "--connections", "3"][..],
         &["fetch", "synth-path-100", "--connections", "0"][..],
+        // An empty data root would mean the working directory.
+        &["--data=", "list"][..],
+        &["--data", "", "list"][..],
     ] {
         let out = bench(&dir.0, args);
         assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));

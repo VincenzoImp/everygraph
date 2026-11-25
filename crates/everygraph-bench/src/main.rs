@@ -23,8 +23,9 @@ usage: everygraph-bench [--registry FILE] [--data DIR] <command> [options]
 commands:
   fetch <name|tier1|tier2|tier3|all>...   download (or generate) and verify datasets
       --connections N      parallel connections per file (default 8)
-      --from-dir DIR       take files of the same name from DIR if they match
+      --from-dir DIR       copy files of the same name from DIR if they match
       --allow-unpinned     also fetch files the registry pins no checksum for
+      --replace            delete placed files that no longer match, fetch again
   verify <name|tier1|tier2|tier3|all>...  re-read present files and check them
   list [--markdown]                       show datasets and what is on disk
       --markdown           print the tables of datasets/README.md instead
@@ -87,7 +88,13 @@ const VALUE_FLAGS: &[&str] = &[
     "--from-dir",
     "--write-readme",
 ];
-const BOOL_FLAGS: &[&str] = &["--allow-unpinned", "--markdown", "--help", "-h"];
+const BOOL_FLAGS: &[&str] = &[
+    "--allow-unpinned",
+    "--replace",
+    "--markdown",
+    "--help",
+    "-h",
+];
 
 impl Args {
     fn parse(raw: &[String]) -> Result<Self, Failure> {
@@ -148,6 +155,15 @@ fn run(raw: &[String]) -> Result<ExitCode, Failure> {
         Some(path) => Registry::load(&PathBuf::from(path))?,
         None => Registry::embedded()?,
     };
+    // Every value flag must have a non-empty value: `--data=` would otherwise make the
+    // working directory the data root.
+    if let Some((name, _)) = args
+        .flags
+        .iter()
+        .find(|(_, v)| v.as_deref().is_some_and(str::is_empty))
+    {
+        return Err(usage(format!("{name} needs a non-empty value")));
+    }
     let root = args
         .value("--data")
         .map_or_else(DataRoot::from_env, DataRoot::new);
@@ -156,7 +172,12 @@ fn run(raw: &[String]) -> Result<ExitCode, Failure> {
     };
     match command.as_str() {
         "fetch" => {
-            args.only(&["--connections", "--from-dir", "--allow-unpinned"])?;
+            args.only(&[
+                "--connections",
+                "--from-dir",
+                "--allow-unpinned",
+                "--replace",
+            ])?;
             fetch(&registry, &root, operands, &args)
         }
         "verify" => {
@@ -214,6 +235,7 @@ fn fetch(
     let selected = selection(registry, operands)?;
     let mut options = FetchOptions {
         allow_unpinned: args.has("--allow-unpinned"),
+        replace: args.has("--replace"),
         from_dir: args.value("--from-dir").map(PathBuf::from),
         ..FetchOptions::default()
     };

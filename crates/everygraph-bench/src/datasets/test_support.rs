@@ -50,8 +50,24 @@ pub(crate) struct ServerConfig {
     pub(crate) cut_responses: usize,
     /// See `cut_responses`.
     pub(crate) cut_after: usize,
-    /// Report this total size in `Content-Range` instead of the real one.
-    pub(crate) lie_about_total: Option<u64>,
+    /// Misbehave on chunk requests (never on the 1-byte probe).
+    pub(crate) chunk_lie: Option<ChunkLie>,
+    /// Send no `Content-Length`: the body ends when the connection closes.
+    pub(crate) no_content_length: bool,
+}
+
+/// How the server misbehaves on chunk requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChunkLie {
+    /// `Content-Range` names a start one byte later than asked.
+    WrongStart,
+    /// `Content-Range` names an end one byte later than asked.
+    WrongEnd,
+    /// `Content-Range` names a total one byte larger than the file.
+    WrongTotal,
+    /// `200 OK` and the whole file instead of `206` and the range, with a
+    /// `Content-Range` header that matches the request.
+    Status200,
 }
 
 /// A request the server saw: the `Range` header, if any.
@@ -171,24 +187,41 @@ fn serve(
         };
         (a <= b && b < total).then_some((a, b))
     });
+    let is_probe = range.as_deref() == Some("bytes=0-0");
+    // Lies are told to chunk requests only: the probe stays honest, so that a test of
+    // the chunk checks really reaches them.
+    let lie = if is_probe { None } else { config.chunk_lie };
     let (status, slice, extra) = match parsed {
+        // A plausible Content-Range with the wrong status and the whole body: only the
+        // status check can tell.
+        Some((a, b)) if lie == Some(ChunkLie::Status200) => (
+            "200 OK",
+            body,
+            format!("Content-Range: bytes {a}-{b}/{total}\r\n"),
+        ),
         Some((a, b)) if !config.ignore_ranges => {
-            let reported = config
-                .lie_about_total
-                .unwrap_or(u64::try_from(total).unwrap_or(u64::MAX));
+            let (sa, sb, st) = match lie {
+                Some(ChunkLie::WrongStart) => (a + 1, b, total),
+                Some(ChunkLie::WrongEnd) => (a, b + 1, total),
+                Some(ChunkLie::WrongTotal) => (a, b, total + 1),
+                Some(ChunkLie::Status200) | None => (a, b, total),
+            };
             (
                 "206 Partial Content",
                 body.get(a..=b).unwrap_or_default(),
-                format!("Content-Range: bytes {a}-{b}/{reported}\r\n"),
+                format!("Content-Range: bytes {sa}-{sb}/{st}\r\n"),
             )
         }
         _ => ("200 OK", body, String::new()),
     };
-    let is_probe = range.as_deref() == Some("bytes=0-0");
+    let length = if config.no_content_length {
+        String::new()
+    } else {
+        format!("Content-Length: {}\r\n", slice.len())
+    };
     write!(
         out,
-        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\n{extra}Connection: close\r\n\r\n",
-        slice.len()
+        "HTTP/1.1 {status}\r\n{length}Accept-Ranges: bytes\r\n{extra}Connection: close\r\n\r\n",
     )?;
     let cut = !is_probe && {
         let mut left = cuts_left.lock().unwrap_or_else(PoisonError::into_inner);
