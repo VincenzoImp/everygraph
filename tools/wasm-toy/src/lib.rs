@@ -124,7 +124,11 @@ fn kernels_on<S: Source>(source: &S) -> u64 {
         let (depth, _) = proof::bfs(&plan, &memory, 0, true).expect("bfs");
         let load = |a: &AtomicU32| u64::from(a.load(Relaxed));
         let words = rank.iter().map(|r| r.to_bits());
-        fnv1a64(words.chain(labels.iter().map(load)).chain(depth.iter().map(load)))
+        fnv1a64(
+            words
+                .chain(labels.iter().map(load))
+                .chain(depth.iter().map(load)),
+        )
     })
 }
 
