@@ -7,7 +7,7 @@ labels: type:infra, area:engine, P1, risk:low, size:M
 
 **Method**
 - [ ] For each crate: what it owns (crate docs), lines per module, and for every module above ~800 lines a one-line answer to "what would break if this were half the size"
-- [ ] `everygraph-bench`: list features no spec or CI job uses; remove them or move them behind one module; target a stated size with reasons
+- [ ] Product crates first (core, format, io, ingest). The harness (`everygraph-bench`) is a tool: only remove what no spec or CI job uses, if cheap; no size target (owner, 2026-11-26: tools may be rough, product code must be clean)
 - [ ] `everygraph-ingest`: duplicated helpers between the text reader and the dictionary (buffers, scratch, partitioning), merged into one place
 - [ ] Duplicated test helpers across crates (byte generators, temporary files, child-process runners) moved to one test-support module
 - [ ] `cargo mutants` over `everygraph-core`, `-format`, `-io`, `-ingest` ({{#m3-17-cargo-mutants}} for the tooling): every surviving mutant killed by a test or explained in the report; every test that no mutant can fail rewritten or removed

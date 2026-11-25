@@ -23,7 +23,8 @@ GitHub issues are published from these files with `plan/publish.py`).
 ## 2. Unit of work
 
 - One issue → one branch (`m2-03-adjacency-codec`) → one pull request that says
-  `Closes #N`. Direct commits to `main` are for coordination only: `docs/STATE.md`, the plan
+  `Closes #N`. Closely related issues may go in one larger pull request that closes them
+  all (the owner prefers big steps to many small ones, 2026-11-26). Direct commits to `main` are for coordination only: `docs/STATE.md`, the plan
   (`plan/`, republished with `plan/publish.py`) and records of decisions. Code and
   specifications always go through a pull request.
 - When an issue starts, mark it on the board (`python3 plan/board.py doing N`); merging its
@@ -141,7 +142,11 @@ network, not on this machine. So:
   can make fail is rewritten or removed; prefer property and oracle tests that cover many
   cases to many hand-written ones. The pull-request CI stays under 15 minutes.
 - **Quality gates (the owner's main risks, 2026-11-26: bugs we never find, heavy code,
-  weak tests, performance).** A kernel or format is "done" only with: an independent oracle
+  weak tests, performance).** They apply in full to **product code** (core, format, io,
+  ingest, kernels, community, map, query, cli, py, wasm): clean and small from the first
+  pull request. Tools that serve the work (the harness, lab, scripts, the oracle's
+  plumbing) may be rough; they are tidied when they get in the way, not for their own
+  sake. Prefer one big step that is then corrected over many tiny edits. A kernel or format is "done" only with: an independent oracle
   or metamorphic relation that would catch a wrong answer (`m3-16-metamorphic-oracle`), a fuzz target replayed in
   CI for anything that parses bytes (`m2-30-fuzz-ci`), fault injection for anything that writes
   (`m2-29-fault-injection-io`), a mutation audit with no surviving mutant left unexplained (`m3-17-cargo-mutants`), and a
