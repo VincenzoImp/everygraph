@@ -9,8 +9,22 @@ all-features = true
 
 [licenses]
 # Everygraph is Apache-2.0 OR MIT (DESIGN D23); every dependency must be usable under
-# terms at least as permissive. Anything not listed here fails the check. Extending this
-# list is a licensing decision (issue #9), not a build fix.
+# permissive terms: no copyleft of any strength, no source-available or non-commercial
+# terms. Anything not listed here fails the check. Extending this list is a licensing
+# decision recorded in the pull request, not a build fix. A crate offered under a choice
+# of licences (`MIT OR LGPL-2.1`) passes if one of its choices is on the list.
+#
+# Not on the list, on purpose:
+# - MPL-2.0. File-level copyleft: changes to its files must be published under MPL-2.0.
+#   Usable unmodified, but not permissive, so it is allowed crate by crate under
+#   `exceptions` below, with the reason, and never patched.
+# - CC0-1.0. Permissive for copyright, but its section 4(a) expressly withholds any
+#   patent licence — the protection the Apache-2.0 half of our licence exists to give.
+#   Allowed crate by crate under `exceptions`, like MPL-2.0.
+# - Font and asset licences (OFL-1.1, CC-BY-4.0). `cargo deny` sees only the `license`
+#   field of crates; the fonts under design/ belong to no crate (THIRD-PARTY-NOTICES.md).
+#   A crate that embeds a font must declare it in its own `license` field
+#   (`... AND OFL-1.1`), and that pull request adds a crate exception here.
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
@@ -20,8 +34,14 @@ allow = [
     "ISC",
     "Zlib",
     "BSL-1.0",
+    # The Unicode data licences (current and previous name), carried by crates that embed
+    # Unicode tables, such as unicode-ident. Permissive, attribution only.
     "Unicode-3.0",
+    "Unicode-DFS-2016",
 ]
+# Licences allowed for one named crate only: { crate = "name", allow = ["MPL-2.0"] },
+# with a comment saying why the crate is needed and that it is used unmodified.
+exceptions = []
 confidence-threshold = 0.9
 # The list is a policy, not an inventory: entries no dependency uses yet are expected.
 unused-allowed-license = "allow"

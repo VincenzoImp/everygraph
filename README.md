@@ -77,4 +77,21 @@ the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBU
 
 ## Licence
 
-Dual-licensed under Apache-2.0 or MIT, at your option.
+- **Code** — every source file, script and build file, everything under `crates/` and
+  `lab/`, and code samples wherever they appear — is dual-licensed under
+  [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.
+- **Documentation and format specifications** — `docs/`, `design/` and the Markdown
+  files outside `crates/` and `lab/` — are under [CC BY 4.0](LICENSE-DOCS), which lists
+  the exact paths.
+- **Third-party files** (the fonts of the design previews, one generated script in the
+  browser experiment) keep their own licences: see
+  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+The format specifications are public and versioned, and no feature will be held back for
+a paid edition. Everygraph has no telemetry and will not get any: the software sends
+nothing anywhere unless you ask it to.
+
+Contributions come in under the same licences, with a Developer Certificate of Origin
+sign-off and no contributor licence agreement ([CONTRIBUTING.md](CONTRIBUTING.md)). How
+the project is run, and by whom, is in [GOVERNANCE.md](GOVERNANCE.md); how to report a
+vulnerability is in [SECURITY.md](SECURITY.md).
