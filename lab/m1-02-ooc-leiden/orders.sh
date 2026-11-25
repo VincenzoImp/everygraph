@@ -7,22 +7,22 @@
 #         natural = id order
 #         winW    = blocks permuted inside fixed windows of W blocks, windows in disk order (L2)
 #         shuf-*  = the same on a seeded random relabelling of the ids (L1)
-# Usage: ./orders.sh  (needs the stores; see PREP below). Rows go to $S/orders.jsonl.
+# Usage: ./orders.sh  (needs the stores; see PREP below). Rows go to $OUT (default results/orders.jsonl).
 set -u
 cd "$(dirname "$0")"
 S=${S:-/home/tux/graphlab/scratch/m1-02-ooc-leiden}
 D=/home/tux/graphlab/data
 B=./target/release/m102
 export T=16
-mkdir -p "$S/csr" "$S/store"
+mkdir -p "$S/csr"
 # PREP: shuffled CSR and its store (seed 1)
 for g in lj orkut; do
-  if [ ! -e "$S/store/$g-shuf1/meta.json" ]; then
+  if [ ! -e "$D/store-m113/$g-shuf1/meta.json" ]; then
     systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 $B shuffle --graph $D/csr/$g --out $S/csr/$g-shuf1 --seed 1
-    systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 $B encode --graph $S/csr/$g-shuf1 --out $S/store/$g-shuf1 --threads 16 >> "$S/orders_encode.jsonl"
+    systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 $B encode --graph $S/csr/$g-shuf1 --out $D/store-m113/$g-shuf1 --threads 16 >> "$S/orders_encode.jsonl"
   fi
 done
-store() { case $1 in *-shuf1) echo "$S/store/$1" ;; *) echo "$D/store-m113/$1" ;; esac; }
+store() { echo "$D/store-m113/$1"; }
 flags() {
   case $1 in
     block) echo "" ;;
@@ -31,7 +31,7 @@ flags() {
   esac
 }
 ORDERS=${ORDERS:-"block natural win16 win256 win4096 win65536"}
-export OUT="$S/orders.jsonl"
+export OUT="${OUT:-$PWD/results/orders.jsonl}"
 for g in lj orkut lj-shuf1 orkut-shuf1; do
   for o in $ORDERS; do
     case $g in *-shuf1) [ "$o" = block ] || [ "$o" = natural ] || continue ;; esac
