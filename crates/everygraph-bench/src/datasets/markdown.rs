@@ -160,7 +160,9 @@ mod tests {
 
     #[test]
     fn the_readme_holds_the_generated_tables() {
-        let readme = include_str!("../../../../datasets/README.md");
+        // A Windows checkout may have CRLF line endings (git's autocrlf); the generated
+        // tables have LF.
+        let readme = include_str!("../../../../datasets/README.md").replace("\r\n", "\n");
         let registry = Registry::embedded().expect("valid");
         let generated = render(&registry);
         let start = readme.find(BEGIN).expect("README has the BEGIN marker");
