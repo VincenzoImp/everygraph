@@ -368,6 +368,33 @@ pub fn reference_checks(case: &CaseRows<'_>) -> Vec<(String, Check)> {
         .collect()
 }
 
+/// Replaces the references the rows ran with by the current ones of `spec`, case by
+/// case (rows of cases the spec no longer has keep theirs). For references set after a
+/// run, from that run's own measurements. Returns how many rows were changed.
+pub fn use_spec_references(rows: &mut [Row], spec: &super::spec::Spec) -> usize {
+    let mut changed = 0;
+    for r in rows.iter_mut() {
+        if let Some(c) = spec.cases.iter().find(|c| c.id == r.case) {
+            let refs: Vec<super::row::ReferenceRecord> = c
+                .references
+                .iter()
+                .map(|x| super::row::ReferenceRecord {
+                    metric: x.metric.clone(),
+                    value: x.value,
+                    max: x.max,
+                    tolerance: x.tolerance,
+                    source: x.source.clone(),
+                })
+                .collect();
+            if refs != r.references {
+                r.references = refs;
+                changed += 1;
+            }
+        }
+    }
+    changed
+}
+
 fn run_header(out: &mut String, run: &RunRows<'_>) {
     let r = run.any();
     let rows: usize = run.cases().map(|c| c.rows.len()).sum();
@@ -1004,6 +1031,40 @@ mod tests {
         b[1].status = Status::Failed;
         let (md, pass) = compare(&a.into_iter().chain(b).collect::<Vec<_>>(), 0.05);
         assert!(!pass && md.contains("fewer than 2 counted"), "{md}");
+    }
+
+    #[test]
+    fn references_can_come_from_the_current_spec() {
+        // The rows ran with a reference of 1.0 s; the spec now says 2.0 s.
+        let mut rows = with_reference(run_of(&[2.0, 2.02]), 1.0);
+        assert_eq!(verdict(&rows).off, 1);
+        let spec = crate::harness::spec::Spec::parse(
+            r#"
+schema = 1
+name = "demo"
+description = "d"
+[defaults]
+memory_limit = "1G"
+[[benchmark]]
+name = "pr32"
+command = ["x"]
+metric = [{ name = "seconds", json = "/s", unit = "s" }]
+reference = [{ metric = "seconds", value = 2.0, source = "measured" }]
+"#,
+        )
+        .expect("spec");
+        assert_eq!(use_spec_references(&mut rows, &spec), 2);
+        assert_eq!(
+            verdict(&rows),
+            Verdict {
+                within: 1,
+                off: 0,
+                unchecked: 0
+            }
+        );
+        assert_eq!(rows[0].references[0].source, "measured");
+        // Applying it again changes nothing.
+        assert_eq!(use_spec_references(&mut rows, &spec), 0);
     }
 
     #[test]

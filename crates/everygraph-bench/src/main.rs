@@ -234,6 +234,10 @@ struct ReportArgs {
     /// Only cases whose id contains PATTERN (repeatable).
     #[arg(long = "only", value_name = "PATTERN")]
     only: Vec<String>,
+    /// Judge the rows against the current references of this spec (a name under
+    /// bench/specs/ or a file), not the ones they ran with; the report says so.
+    #[arg(long, value_name = "SPEC")]
+    spec: Option<String>,
     /// Also write chart-ready JSON to FILE.
     #[arg(long, value_name = "FILE", value_parser = non_empty_path)]
     json: Option<PathBuf>,
@@ -680,6 +684,15 @@ fn report_files(args: &ReportArgs) -> Result<ExitCode, String> {
     }
     if rows.is_empty() {
         return Err("the result files hold no rows (matching --only)".into());
+    }
+    if let Some(name) = &args.spec {
+        let spec = Spec::load(&spec_path(&find_repo(None)?, name))?;
+        let changed = report::use_spec_references(&mut rows, &spec);
+        out!(
+            "References from spec {} as it is now (SHA-256 {}…), not from the rows: {changed} rows judged against changed references.\n",
+            spec.name,
+            &spec.sha256[..12]
+        );
     }
     if let Some(path) = &args.json {
         let text =

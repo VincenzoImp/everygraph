@@ -94,8 +94,8 @@ metric = [
   { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
 ]
 reference = [
-  { match = { graph = "lj" }, metric = "seconds", value = 0.428, source = "idle re-run, ingest.jsonl plain-lj, median of 3" },
-  { match = { graph = "orkut" }, metric = "seconds", value = 0.889, source = "idle re-run, ingest.jsonl plain-orkut, median of 3" },
+  { match = { graph = "lj" }, metric = "seconds", value = 0.386, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut" }, metric = "seconds", value = 0.781, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
 ]
 
 [[benchmark]]
@@ -120,14 +120,14 @@ metric = [
   { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B", optional = true },
 ]
 reference = [
-  { match = { graph = "lj", variant = "budget0.25GB" }, metric = "seconds", value = 0.500, source = "idle re-run, ingest.jsonl" },
-  { match = { graph = "lj", variant = "parse-only" }, metric = "seconds", value = 0.047, source = "idle re-run, ingest.jsonl" },
-  { match = { graph = "lj", variant = "pigz-pipe" }, metric = "seconds", value = 1.14, source = "idle re-run, ingest.jsonl" },
-  { match = { graph = "lj", variant = "gz-inprocess" }, metric = "seconds", value = 1.24, source = "idle re-run, ingest.jsonl" },
-  { match = { graph = "orkut", variant = "budget0.25GB" }, metric = "seconds", value = 1.574, source = "idle re-run, ingest.jsonl" },
-  { match = { graph = "orkut", variant = "parse-only" }, metric = "seconds", value = 0.123, source = "idle re-run, ingest.jsonl" },
-  { match = { graph = "orkut", variant = "pigz-pipe" }, metric = "seconds", value = 3.66, source = "idle re-run, ingest.jsonl" },
-  { match = { graph = "orkut", variant = "gz-inprocess" }, metric = "seconds", value = 3.93, source = "idle re-run, ingest.jsonl" },
+  { match = { graph = "lj", variant = "budget0.25GB" }, metric = "seconds", value = 0.538, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "lj", variant = "parse-only" }, metric = "seconds", value = 0.0467, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "lj", variant = "pigz-pipe" }, metric = "seconds", value = 1.054, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "lj", variant = "gz-inprocess" }, metric = "seconds", value = 1.134, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "budget0.25GB" }, metric = "seconds", value = 1.621, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "parse-only" }, metric = "seconds", value = 0.118, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "pigz-pipe" }, metric = "seconds", value = 3.549, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "gz-inprocess" }, metric = "seconds", value = 3.7, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
 ]
 
 [[benchmark]]
@@ -144,8 +144,8 @@ metric = [
   { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
 ]
 reference = [
-  { match = { graph = "lj" }, metric = "seconds", value = 1.22, source = "idle re-run, ingest.jsonl plain-1thread-lj" },
-  { match = { graph = "orkut" }, metric = "seconds", value = 4.20, source = "idle re-run, ingest.jsonl plain-1thread-orkut" },
+  { match = { graph = "lj" }, metric = "seconds", value = 1.182, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut" }, metric = "seconds", value = 3.965, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
 ]
 
 [[benchmark]]
