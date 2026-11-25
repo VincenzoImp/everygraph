@@ -506,9 +506,11 @@ mod tests {
             for (at, bytes) in &self.pieces {
                 let (lo, hi) = (offset.max(*at), end.min(at + bytes.len() as u64));
                 if lo < hi {
-                    let (lo, hi) = (small(lo), small(hi));
-                    buf[lo - small(offset)..hi - small(offset)]
-                        .copy_from_slice(&bytes[lo - small(*at)..hi - small(*at)]);
+                    // Positions in the file stay `u64` (they pass 4 GiB); only the
+                    // distances inside `buf` and `bytes` become `usize`.
+                    let index = |x: u64| usize::try_from(x).unwrap();
+                    let (dst, src, n) = (index(lo - offset), index(lo - at), index(hi - lo));
+                    buf[dst..dst + n].copy_from_slice(&bytes[src..src + n]);
                 }
             }
             Ok(())
@@ -551,6 +553,9 @@ mod tests {
             reads: Cell::new(0),
         };
         assert!((15_000_000_000..15_000_100_000).contains(&source.len()));
+        // The table lies past 4 GiB: on a 32-bit target (i686, wasm32) this checks that
+        // no position the reader handles goes through `usize`.
+        assert!(toc_offset > u64::from(u32::MAX));
         let file = Container::open(&source).unwrap();
         assert_eq!(file.entries(), &entries[..]);
         assert_eq!(source.reads.get(), 2);
