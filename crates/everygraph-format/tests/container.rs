@@ -15,8 +15,10 @@ use std::collections::BTreeMap;
 
 use everygraph_core::{ByteSink, ByteSource, MemorySource, ReadError, WriteError};
 use everygraph_format::container::{
-    Codec, Container, ContainerError, Entry, Input, Kind, Provenance, Writer, compact,
+    Codec, Container, ContainerError, Entry, Input, Kind, Provenance, REQUIRED_SEGMENTS, Writer,
+    compact,
 };
+use everygraph_oracle::rng::SplitMix64;
 use proptest::prelude::*;
 
 type Mem = MemorySource<Vec<u8>>;
@@ -27,15 +29,8 @@ fn kind(code: u32) -> Kind {
 
 /// Deterministic bytes for section `seed` of length `len`.
 fn bytes(seed: u64, len: usize) -> Vec<u8> {
-    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    (0..len)
-        .map(|_| {
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            x.to_le_bytes()[0]
-        })
-        .collect()
+    let mut rng = SplitMix64::new(seed);
+    (0..len).map(|_| rng.next_u64().to_le_bytes()[0]).collect()
 }
 
 fn record(operation: &str) -> Provenance {
@@ -63,7 +58,7 @@ fn contents<S: ByteSource>(file: &Container<S>) -> BTreeMap<String, Vec<u8>> {
             let section = file.section(&e.name).unwrap();
             let mut buf = vec![0; usize::try_from(section.len()).unwrap()];
             section.read_at(0, &mut buf).unwrap();
-            (e.name.clone(), buf)
+            (e.name.to_string(), buf)
         })
         .collect()
 }
@@ -102,7 +97,7 @@ fn a_written_file_reads_back_with_its_provenance() {
     assert_eq!(file.generation(), 1);
     assert_eq!(file.version(), (1, 0));
     assert_eq!(file.recovered_from(), None);
-    let names: Vec<&str> = file.entries().iter().map(|e| e.name.as_str()).collect();
+    let names: Vec<&str> = file.entries().iter().map(|e| &*e.name).collect();
     assert_eq!(
         names,
         [
@@ -251,6 +246,17 @@ fn the_writer_refuses_what_the_specification_forbids() {
         Err(ContainerError::NoSuchSection(_))
     ));
     assert_eq!(Kind::new(0), None);
+    // Names and the manifest kind reserved for segments are not written by 1.0.
+    assert!(matches!(
+        w.add_section("seg/0000002a/adjacency.out.index", k, b"", None),
+        Err(ContainerError::Reserved(_))
+    ));
+    assert!(matches!(
+        w.add_section("segments", Kind::SEGMENTS, b"", None),
+        Err(ContainerError::Reserved(_))
+    ));
+    // `.events` sections (kind 5) are part of 1.0.
+    assert!(Kind::ADJACENCY_EVENTS.is_known());
     // Nothing above changed what the file holds except the one valid section.
     assert_eq!(w.commit().unwrap(), 2);
     // A commit with nothing new writes nothing.
@@ -342,6 +348,28 @@ fn unknown_required_features_and_versions_are_refused_unknown_optional_ones_kept
     assert!(matches!(
         Container::open(Mem::new(file)),
         Err(ContainerError::UnsupportedFeatures { required: 0b100 })
+    ));
+
+    // Bit 0, `segments`, is reserved: a file built by appends is refused, never read
+    // as its base run alone (an older graph).
+    let mut file = base_file();
+    patch_header(&mut file, 0, |b| b[32] = 1);
+    let refused = Container::open(Mem::new(file)).unwrap_err();
+    assert!(matches!(
+        refused,
+        ContainerError::UnsupportedFeatures {
+            required: REQUIRED_SEGMENTS
+        }
+    ));
+    assert!(refused.to_string().contains("segments"));
+    // And the manifest goes with the bit: a manifest without it is damage.
+    let mut file = base_file();
+    patch_toc(&mut file, |toc| {
+        toc[32 + 4 * 72..32 + 4 * 72 + 4].copy_from_slice(&Kind::SEGMENTS.code().to_le_bytes());
+    });
+    assert!(matches!(
+        Container::open(Mem::new(file)),
+        Err(ContainerError::Corrupt(_))
     ));
 
     let mut file = base_file();
@@ -462,8 +490,12 @@ fn a_damaged_newest_table_falls_back_to_the_older_commit() {
     assert_eq!(opened.recovered_from(), Some(2));
     assert!(opened.get("late").is_none());
     opened.verify_all().unwrap();
-    // Updating it continues from the older commit and overwrites the broken one.
-    let mut w = Writer::update(Mem::new(file)).unwrap();
+    // An update would write over the newer commit: refused unless asked for.
+    assert!(matches!(
+        Writer::update(Mem::new(file.clone())),
+        Err(ContainerError::Recovered)
+    ));
+    let mut w = Writer::update_recovered(Mem::new(file)).unwrap();
     w.add_section("again", kind(0x8000_0000), &bytes(9, 100), None)
         .unwrap();
     assert_eq!(w.commit().unwrap(), 2);
@@ -471,6 +503,180 @@ fn a_damaged_newest_table_falls_back_to_the_older_commit() {
     assert_eq!(opened.recovered_from(), None);
     assert!(opened.get("again").is_some());
     opened.verify_all().unwrap();
+}
+
+/// A source that fails (as a bad sector or a network would) on any read that touches
+/// `bad`.
+struct Failing<S> {
+    inner: S,
+    bad: std::ops::Range<u64>,
+}
+
+impl<S: ByteSource> ByteSource for Failing<S> {
+    fn len(&self) -> u64 {
+        self.inner.len()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        if offset < self.bad.end && offset + buf.len() as u64 > self.bad.start {
+            return Err(ReadError::Backend("injected read error".into()));
+        }
+        self.inner.read_at(offset, buf)
+    }
+}
+
+impl<S: ByteSink> ByteSink for Failing<S> {
+    fn write_at(&mut self, offset: u64, data: &[u8]) -> Result<(), WriteError> {
+        self.inner.write_at(offset, data)
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), WriteError> {
+        self.inner.set_len(len)
+    }
+
+    fn sync(&mut self) -> Result<(), WriteError> {
+        self.inner.sync()
+    }
+}
+
+/// `base_file` with a second commit (generation 2, in header block 1).
+fn two_commits() -> Vec<u8> {
+    let mut w = Writer::update(Mem::new(base_file())).unwrap();
+    w.add_section("late", kind(0x8000_0000), &bytes(8, 100), None)
+        .unwrap();
+    assert_eq!(w.commit().unwrap(), 2);
+    w.into_sink().into_inner()
+}
+
+#[test]
+fn one_unreadable_header_block_does_not_hide_the_other() {
+    let file = two_commits();
+    // Block 1 (the newest commit) cannot be read: block 0's commit opens, flagged.
+    let opened = Container::open(Failing {
+        inner: Mem::new(file.clone()),
+        bad: 4096..4224,
+    })
+    .unwrap();
+    assert_eq!(opened.generation(), 1);
+    assert_eq!(opened.unreadable_block(), Some(1));
+    opened.verify_all().unwrap();
+    // Block 0 cannot be read: block 1's commit, the newest, opens, still flagged.
+    let opened = Container::open(Failing {
+        inner: Mem::new(file.clone()),
+        bad: 0..128,
+    })
+    .unwrap();
+    assert_eq!(opened.generation(), 2);
+    assert_eq!(opened.unreadable_block(), Some(0));
+    // Neither: the read error.
+    assert!(matches!(
+        Container::open(Failing {
+            inner: Mem::new(file),
+            bad: 0..8192,
+        }),
+        Err(ContainerError::Read(ReadError::Backend(_)))
+    ));
+}
+
+#[test]
+fn an_unreadable_newest_table_opens_the_older_commit_and_an_update_needs_consent() {
+    let file = two_commits();
+    let newest = Container::open(Mem::new(file.clone())).unwrap();
+    let toc = newest.committed_len() - 4096;
+    let failing = || Failing {
+        inner: Mem::new(file.clone()),
+        bad: toc..toc + 1,
+    };
+    let opened = Container::open(failing()).unwrap();
+    assert_eq!(opened.generation(), 1);
+    assert_eq!(opened.recovered_from(), Some(2));
+    // A writer would overwrite the commit it could not read: refused unless asked.
+    assert!(matches!(
+        Writer::update(failing()),
+        Err(ContainerError::Recovered)
+    ));
+    // The same for an unreadable header block.
+    let unreadable = Failing {
+        inner: Mem::new(file.clone()),
+        bad: 4096..4224,
+    };
+    assert!(matches!(
+        Writer::update(unreadable),
+        Err(ContainerError::Recovered)
+    ));
+    let mut w = Writer::update_recovered(failing()).unwrap();
+    w.add_section("again", kind(0x8000_0000), b"x", None)
+        .unwrap();
+    assert_eq!(w.commit().unwrap(), 2);
+    let file = w.into_sink().inner;
+    let opened = Container::open(file).unwrap();
+    assert!(opened.get("again").is_some() && opened.get("late").is_none());
+}
+
+#[test]
+fn the_generation_counter_cannot_wrap() {
+    let mut file = base_file();
+    patch_header(&mut file, 0, |b| {
+        b[24..32].copy_from_slice(&u64::MAX.to_le_bytes());
+    });
+    let before = file.clone();
+    let mut w = Writer::update(Mem::new(file)).unwrap();
+    assert_eq!(w.generation(), u64::MAX);
+    w.add_section("more", kind(0x8000_0000), b"x", None)
+        .unwrap();
+    assert!(matches!(
+        w.commit(),
+        Err(ContainerError::GenerationExhausted)
+    ));
+    // Nothing a reader sees has changed: the same commit, the same header bytes.
+    let after = w.into_sink().into_inner();
+    assert_eq!(after[..8192], before[..8192]);
+    let opened = Container::open(Mem::new(after)).unwrap();
+    assert_eq!(opened.generation(), u64::MAX);
+    assert!(opened.get("more").is_none());
+    // Generation 0 is never valid.
+    let mut file = base_file();
+    patch_header(&mut file, 0, |b| b[24..32].fill(0));
+    assert!(matches!(
+        Container::open(Mem::new(file)),
+        Err(ContainerError::NotCommitted)
+    ));
+}
+
+#[test]
+fn on_a_tie_block_0_wins() {
+    let mut file = two_commits();
+    // Both blocks at generation 2: block 0 holds the first commit's table.
+    patch_header(&mut file, 0, |b| {
+        b[24..32].copy_from_slice(&2u64.to_le_bytes());
+    });
+    let opened = Container::open(Mem::new(file)).unwrap();
+    assert_eq!(opened.generation(), 2);
+    assert!(opened.get("late").is_none(), "block 1's table was used");
+    assert_eq!(
+        contents(&opened),
+        contents(&Container::open(Mem::new(base_file())).unwrap())
+    );
+}
+
+#[test]
+fn a_commit_after_an_abandoned_tail_overwrites_it_and_cuts_it_off() {
+    // A writer appended 30 KB and never committed (a crash, or a dropped writer).
+    let mut w = Writer::update(Mem::new(base_file())).unwrap();
+    w.add_section("abandoned", kind(0x8000_0002), &[0xAB; 30_000], None)
+        .unwrap();
+    let with_tail = w.into_sink();
+    // The next writer commits a small section over the start of that tail.
+    let mut w = Writer::update(with_tail).unwrap();
+    w.add_section("small", kind(0x8000_0002), &bytes(10, 50), None)
+        .unwrap();
+    w.commit().unwrap();
+    let file = Container::open(w.into_sink()).unwrap();
+    // The table's padding was written, not inherited from the tail, and the tail
+    // past the table is gone.
+    file.verify_all().unwrap();
+    assert_eq!(file.source().len(), file.committed_len());
+    assert!(file.get("abandoned").is_none());
 }
 
 // ---------------------------------------------------------------------------------
@@ -595,22 +801,6 @@ fn is_flip(op: &Op) -> bool {
     matches!(op, Op::Write(at, data) if *at < 8192 && data.len() == 128)
 }
 
-/// A small deterministic generator for the random crash images.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-
-    fn below(&mut self, n: u64) -> u64 {
-        self.next() % n
-    }
-}
-
 /// How a pending (not yet synced) operation reached the disk in one crash image.
 #[derive(Clone, Copy, Debug)]
 enum Fate {
@@ -620,6 +810,9 @@ enum Fate {
     Prefix(usize),
     /// Only the 512-byte sectors (counted from the start of the file) whose bit is set.
     Sectors(u64),
+    /// The write's bytes replaced by garbage (seeded), not zeros: what a device may
+    /// leave in a range written but never synced.
+    Garbage(u64),
 }
 
 /// Applies `op` with `fate`; returns whether it reached the disk whole.
@@ -652,6 +845,10 @@ fn apply_with(image: &mut Mem, op: &Op, fate: Fate) -> bool {
             }
             whole
         }
+        (Op::Write(at, data), Fate::Garbage(seed)) => {
+            image.write_at(*at, &bytes(seed, data.len())).unwrap();
+            false
+        }
         (_, _) => {
             apply(image, op);
             true
@@ -662,7 +859,7 @@ fn apply_with(image: &mut Mem, op: &Op, fate: Fate) -> bool {
 /// Every crash image of `ops` applied to `start` that the sink contract allows when
 /// the crash happens before operation `k`: what was synced is there; of what followed,
 /// any part may be.
-fn crash_images(start: &[u8], ops: &[Op], k: usize, rng: &mut Rng) -> Vec<(Mem, Vec<bool>)> {
+fn crash_images(start: &[u8], ops: &[Op], k: usize, rng: &mut SplitMix64) -> Vec<(Mem, Vec<bool>)> {
     let synced = ops[..k]
         .iter()
         .rposition(|op| matches!(op, Op::Sync))
@@ -676,13 +873,20 @@ fn crash_images(start: &[u8], ops: &[Op], k: usize, rng: &mut Rng) -> Vec<(Mem, 
     let n = pending.len();
     // The process was killed: everything written is there.
     fates.push(vec![Fate::Whole; n]);
-    // Power was lost: nothing, each prefix in order, each operation alone, each
-    // operation torn, random subsets with torn sectors.
+    // Power was lost: nothing, each prefix in order and each suffix (the first writes
+    // lost), each operation alone, each operation torn or turned to garbage, random
+    // subsets with torn sectors and garbage.
     fates.push(vec![Fate::Lost; n]);
     for p in 1..n {
         fates.push(
             (0..n)
                 .map(|i| if i < p { Fate::Whole } else { Fate::Lost })
+                .collect(),
+        );
+        // And the reverse: the writes issued first lost, the later ones on the disk.
+        fates.push(
+            (0..n)
+                .map(|i| if i < p { Fate::Lost } else { Fate::Whole })
                 .collect(),
         );
     }
@@ -693,12 +897,23 @@ fn crash_images(start: &[u8], ops: &[Op], k: usize, rng: &mut Rng) -> Vec<(Mem, 
                 .collect(),
         );
         if let Op::Write(_, data) = op {
-            for cut in [1, data.len() / 2, data.len().saturating_sub(1)] {
+            // A header write is torn at every byte (a tear inside bytes 8..16 must
+            // read as torn, not as a foreign file); other writes at three places.
+            let cuts: Vec<usize> = if is_flip(op) {
+                (0..data.len()).collect()
+            } else {
+                vec![1, data.len() / 2, data.len().saturating_sub(1)]
+            };
+            let torn = cuts
+                .into_iter()
+                .map(Fate::Prefix)
+                .chain([Fate::Garbage(rng.next_u64())]);
+            for fate in torn {
                 fates.push(
                     (0..n)
                         .map(|j| match j.cmp(&i) {
                             std::cmp::Ordering::Less => Fate::Whole,
-                            std::cmp::Ordering::Equal => Fate::Prefix(cut),
+                            std::cmp::Ordering::Equal => fate,
                             std::cmp::Ordering::Greater => Fate::Lost,
                         })
                         .collect(),
@@ -709,10 +924,11 @@ fn crash_images(start: &[u8], ops: &[Op], k: usize, rng: &mut Rng) -> Vec<(Mem, 
     for _ in 0..12 {
         fates.push(
             (0..n)
-                .map(|_| match rng.below(4) {
+                .map(|_| match rng.below(5) {
                     0 => Fate::Lost,
                     1 => Fate::Whole,
-                    _ => Fate::Sectors(rng.next()),
+                    2 => Fate::Garbage(rng.next_u64()),
+                    _ => Fate::Sectors(rng.next_u64()),
                 })
                 .collect(),
         );
@@ -763,7 +979,7 @@ fn check_crashes(start: Vec<u8>, script: impl Fn(&mut Writer<&mut Recording>) ->
         .collect();
     assert_eq!(flips.len(), committed.len());
     states.extend(committed);
-    let mut rng = Rng(0x5EED);
+    let mut rng = SplitMix64::new(0x5EED);
     let mut images = 0;
     for k in 0..=ops.len() {
         for (image, whole) in crash_images(&start, &ops, k, &mut rng) {
@@ -848,6 +1064,94 @@ fn a_crash_at_any_step_of_an_update_leaves_the_previous_or_the_new_state() {
         let file = Container::open(w.sink().image.clone()).unwrap();
         [(generation, contents(&file))].into_iter().collect()
     });
+}
+
+/// An update of the base file: a result and its record, and one section removed.
+fn add_a_result(w: &mut Writer<&mut Recording>) -> States {
+    w.add_provenance("provenance/pagerank", &record("pagerank"))
+        .unwrap();
+    w.add_section(
+        "results/pagerank",
+        kind(0x8000_0001),
+        &bytes(14, 5000),
+        Some("provenance/pagerank"),
+    )
+    .unwrap();
+    w.remove("x.unknown").unwrap();
+    let generation = w.commit().unwrap();
+    let file = Container::open(w.sink().image.clone()).unwrap();
+    [(generation, contents(&file))].into_iter().collect()
+}
+
+#[test]
+fn crash_recover_commit_crash() {
+    // A first update crashes at every step, as a process kill (its tail stays) or a
+    // power cut (nothing pending survives); the file is then updated again, and that
+    // second update is crash-checked at every step from that image.
+    let start = base_file();
+    let mut sink = Recording::new(start.clone());
+    add_a_result(&mut Writer::update(&mut sink).unwrap());
+    let ops = sink.ops.clone();
+    let mut rng = SplitMix64::new(0xC0FFEE);
+    for k in (0..=ops.len()).step_by(2) {
+        let images = crash_images(&start, &ops, k, &mut rng);
+        // Index 0: everything written; index 1: nothing pending.
+        for (image, _) in images.into_iter().take(2) {
+            check_crashes(image.into_inner(), |w| {
+                w.add_section("second", kind(0x8000_0003), &bytes(15, 3000), None)
+                    .unwrap();
+                let generation = w.commit().unwrap();
+                let file = Container::open(w.sink().image.clone()).unwrap();
+                [(generation, contents(&file))].into_iter().collect()
+            });
+        }
+    }
+}
+
+#[test]
+fn a_crash_while_committing_to_a_recovered_file_leaves_the_older_or_the_new_commit() {
+    // The newest table is damaged (a disk that lied about a sync); the caller accepts
+    // the older commit and commits over the damaged one; that commit crashes at every
+    // step.
+    let mut start = two_commits();
+    let toc = usize::try_from(
+        Container::open(Mem::new(start.clone()))
+            .unwrap()
+            .committed_len(),
+    )
+    .unwrap()
+        - 4096;
+    start[toc + 40] ^= 1;
+    let older = Container::open(Mem::new(start.clone())).unwrap();
+    assert_eq!(older.recovered_from(), Some(2));
+    let older = contents(&older);
+    let mut sink = Recording::new(start.clone());
+    let newer = {
+        let mut w = Writer::update_recovered(&mut sink).unwrap();
+        w.add_section("after", kind(0x8000_0004), &bytes(16, 6000), None)
+            .unwrap();
+        assert_eq!(w.commit().unwrap(), 2);
+        contents(&Container::open(w.sink().image.clone()).unwrap())
+    };
+    let ops = sink.ops.clone();
+    let flip = ops.iter().position(is_flip).unwrap();
+    let mut rng = SplitMix64::new(0xFA11);
+    for k in 0..=ops.len() {
+        for (image, whole) in crash_images(&start, &ops, k, &mut rng) {
+            let file = Container::open(image).unwrap_or_else(|e| panic!("op {k}: {e}"));
+            file.verify_all().unwrap();
+            if whole.get(flip).copied().unwrap_or(false) {
+                assert_eq!(file.generation(), 2, "op {k}");
+                assert_eq!(file.recovered_from(), None, "op {k}");
+                assert_eq!(contents(&file), newer, "op {k}");
+            } else {
+                // Still the older commit (the damaged one, if its block is intact,
+                // is still skipped).
+                assert_eq!(file.generation(), 1, "op {k}");
+                assert_eq!(contents(&file), older, "op {k}");
+            }
+        }
+    }
 }
 
 #[test]

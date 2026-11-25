@@ -144,7 +144,7 @@ the checks of the crates you touched locally ("Checks"), commit as often as you 
 and push once the branch is ready to be checked — or push to a branch without a pull
 request, which starts nothing.
 
-What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is the wasm toy's pattern applied to the codec; `tools/check_container_python.py` has `everygraph-io`'s example `container_sample` write a container and requires `tools/eg_container.py`, a reader in Python written from `docs/spec/eg-container.md` alone, to list the same sections, verify their hashes, report a damaged one and fall back past a damaged table of contents):
+What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is the wasm toy's pattern applied to the codec; `tools/check_container_python.py` has `everygraph-io`'s example `container_sample` write a container and requires `tools/eg_container.py`, a reader in Python written from `docs/spec/eg-container.md` alone, to agree with the Rust reader on the sample and on files patched to exercise the reading rules (fallback past a damaged or rule-breaking table, the tie between header blocks, required features of the older block), verify the hashes and report a damaged section):
 
 - **`tools/check_portability_canary.py`** breaks the portability rule on purpose. Each
   file under `tools/canary/portability/` is a probe (direct `std::fs`, file access

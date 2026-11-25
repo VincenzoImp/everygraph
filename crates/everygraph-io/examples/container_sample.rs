@@ -1,39 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Writes a sample `.eg` container to the path given and prints what it holds, as
-//! JSON, on standard output: the fixture of `tools/check_container_python.py`, which
-//! reads the file with the independent Python reader (`tools/eg_container.py`) and
-//! compares.
+//! The Rust side of `tools/check_container_python.py`, which compares it with the
+//! independent Python reader (`tools/eg_container.py`):
 //!
-//! The file has two commits: a small graph (a provenance record, the two sections of a
-//! compressed adjacency, an empty section, one of a kind no specification defines, and
-//! sections of 0 to 70,000 bytes, so that BLAKE3's tree has one and several chunks),
-//! then a result appended with its own record and one section removed — so it also
-//! holds a replaced table of contents and bytes no commit refers to.
+//! - `write PATH` writes a sample `.eg` container to `PATH` (as `PATH.partial`, then
+//!   [`persist`]ed) and prints what it holds;
+//! - `list PATH` prints what the container at `PATH` holds, as the Rust reader opens it
+//!   (the check script uses it on files it has patched), or `{"error": "…"}`.
+//!
+//! The listing is JSON on standard output: generation, version, whether the reader
+//! fell back to an older commit, and every section.
+//!
+//! The sample has two commits: a small graph (a provenance record, the two sections of
+//! a compressed adjacency, an empty section, one of a kind no specification defines,
+//! and sections of 0 to 70,000 bytes, so that BLAKE3's tree has one and several
+//! chunks), then a result appended with its own record and one section removed — so
+//! it also holds a replaced table of contents and bytes no commit refers to.
 //!
 //! ```sh
-//! cargo run -p everygraph-io --example container_sample -- sample.eg
+//! cargo run -p everygraph-io --example container_sample -- write sample.eg
+//! cargo run -p everygraph-io --example container_sample -- list sample.eg
 //! ```
 
 #![forbid(unsafe_code)]
 
+#[path = "../tests/support/bytes.rs"]
+mod support;
+
 use std::io::Write;
+use std::path::Path;
 
 use everygraph_format::adjacency;
 use everygraph_format::container::{Container, Input, Kind, Provenance, Writer};
-use everygraph_io::{FileSink, FileSource};
-
-fn bytes(seed: u64, len: usize) -> Vec<u8> {
-    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    (0..len)
-        .map(|_| {
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            x.to_le_bytes()[0]
-        })
-        .collect()
-}
+use everygraph_io::{FileSink, FileSource, persist};
+use support::bytes;
 
 fn record(operation: &str) -> Provenance {
     Provenance {
@@ -55,11 +55,8 @@ fn record(operation: &str) -> Provenance {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::env::args_os()
-        .nth(1)
-        .ok_or("usage: container_sample PATH")?;
-
+/// Writes the sample container to `path`.
+fn write(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // A ring of 1,000 nodes with chords, as a compressed adjacency.
     let n = 1000u32;
     let mut offsets = vec![0u64];
@@ -75,7 +72,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let encoded = adjacency::encode(&offsets, &targets)?;
     let private = Kind::new(0x8000_0001).ok_or("kind")?;
 
-    let mut w = Writer::create(FileSink::create(&path)?)?;
+    let partial = path.with_extension("eg.partial");
+    let mut w = Writer::create(FileSink::create(&partial)?)?;
     w.add_provenance("provenance/ingest", &record("ingest"))?;
     let ingest = Some("provenance/ingest");
     w.add_section(
@@ -111,17 +109,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     w.remove("x.chunk-boundary")?;
     w.commit()?;
     drop(w);
+    persist(&partial, path)?;
+    Ok(())
+}
 
-    // What the file holds, read back through the Rust reader.
-    let file = Container::open(FileSource::open(&path)?)?;
-    file.verify_all()?;
-    let mut out = String::new();
-    out.push_str(&format!(
-        "{{\"generation\": {}, \"version\": [{}, {}], \"sections\": [",
+/// What the container at `path` holds, as JSON.
+fn list(path: &Path) -> String {
+    let file = match FileSource::open(path)
+        .map_err(|e| e.to_string())
+        .and_then(|source| Container::open(source).map_err(|e| e.to_string()))
+    {
+        Ok(file) => file,
+        // Debug quoting is valid JSON for the ASCII messages of the reader.
+        Err(e) => return format!("{{\"error\": {e:?}}}\n"),
+    };
+    let mut out = format!(
+        "{{\"generation\": {}, \"version\": [{}, {}], \"recovered\": {}, \"sections\": [",
         file.generation(),
         file.version().0,
-        file.version().1
-    ));
+        file.version().1,
+        file.recovered_from().is_some(),
+    );
     for (i, e) in file.entries().iter().enumerate() {
         let hash: String = e.hash.iter().map(|b| format!("{b:02x}")).collect();
         let provenance = e
@@ -139,6 +147,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     out.push_str("]}\n");
-    std::io::stdout().lock().write_all(out.as_bytes())?;
+    out
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut args = std::env::args_os().skip(1);
+    let usage = "usage: container_sample write|list PATH";
+    let (mode, path) = (args.next().ok_or(usage)?, args.next().ok_or(usage)?);
+    let path = Path::new(&path);
+    match mode.to_str() {
+        Some("write") => write(path)?,
+        Some("list") => {}
+        _ => return Err(usage.into()),
+    }
+    std::io::stdout().lock().write_all(list(path).as_bytes())?;
     Ok(())
 }

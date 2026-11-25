@@ -26,17 +26,76 @@ pub struct Container<S> {
     header: Header,
     entries: Vec<Entry>,
     recovered_from: Option<u64>,
+    unreadable_block: Option<u32>,
+}
+
+/// What the header read found.
+struct Heads {
+    blocks: [Block; 2],
+    /// A block the source failed to read (the other one could be read).
+    unreadable: Option<u32>,
+    /// The error, kept for when no block turns out valid.
+    error: Option<ReadError>,
+}
+
+/// Reads the two header blocks: in one read, and if the source fails, one read per
+/// block, so that one unreadable sector does not hide the other block.
+fn read_headers<S: ByteSource>(source: &S) -> Result<Heads, ContainerError> {
+    let used = layout::HEADER_USED;
+    let mut head = [0u8; BLOCK_USIZE + layout::HEADER_USED];
+    let head_len = small(source.len()).min(head.len());
+    let error = match source.read_at(0, &mut head[..head_len]) {
+        Ok(()) => {
+            return Ok(Heads {
+                blocks: [
+                    layout::decode_header(&head[..head_len.min(used)], 0),
+                    layout::decode_header(head.get(BLOCK_USIZE..head_len).unwrap_or(&[]), 1),
+                ],
+                unreadable: None,
+                error: None,
+            });
+        }
+        Err(e @ ReadError::Backend(_)) => e,
+        Err(e) => return Err(e.into()),
+    };
+    let mut blocks = [Block::Absent, Block::Absent];
+    let mut unreadable = Vec::with_capacity(2);
+    for ((index, start), block) in [(0u32, 0usize), (1, BLOCK_USIZE)]
+        .into_iter()
+        .zip(blocks.iter_mut())
+    {
+        let end = (start + used).min(head_len);
+        if start >= end {
+            continue;
+        }
+        let mut b = [0u8; layout::HEADER_USED];
+        match source.read_at(start as u64, &mut b[..end - start]) {
+            Ok(()) => *block = layout::decode_header(&b[..end - start], index),
+            Err(ReadError::Backend(_)) => unreadable.push(index),
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(Heads {
+        blocks,
+        // Both unreadable: `open` finds no valid block and returns the error.
+        unreadable: (unreadable.len() == 1).then(|| unreadable[0]),
+        error: (!unreadable.is_empty()).then_some(error),
+    })
 }
 
 impl<S: ByteSource> Container<S> {
     /// Opens the container held by `source`.
     ///
-    /// The newest valid header block is used. If the table of contents it points to
-    /// cannot be used (its hash does not match, or it lies outside the source) and the
-    /// other block is valid, that older commit is opened instead, and
+    /// The newest valid header block is used (block 0 on a tie). If the table of
+    /// contents it points to cannot be used — its hash does not match, it breaks a rule
+    /// of the specification, it lies outside the source, or the source fails to read it
+    /// — and the other block is valid, that older commit is opened instead, and
     /// [`recovered_from`](Self::recovered_from) says so: the protocol of
     /// [`Writer::commit`](super::Writer::commit) never leaves such a file, but a disk
-    /// that acknowledged a sync it had not done can.
+    /// that acknowledged a sync it had not done, a bad sector or a failing network can.
+    /// If the source fails to read one header block but not the other, the other is
+    /// used and [`unreadable_block`](Self::unreadable_block) says so. A caller that
+    /// would rather retry than read an older commit checks both.
     ///
     /// # Errors
     ///
@@ -47,18 +106,11 @@ impl<S: ByteSource> Container<S> {
     /// table of contents breaks the specification; [`ContainerError::Read`] when the
     /// source fails.
     pub fn open(source: S) -> Result<Self, ContainerError> {
-        let mut head = [0u8; BLOCK_USIZE + layout::HEADER_USED];
-        let head_len = small(source.len()).min(head.len());
-        // One read covers what both blocks use.
-        source.read_at(0, &mut head[..head_len])?;
-        let blocks = [
-            layout::decode_header(&head[..head_len.min(layout::HEADER_USED)], 0),
-            layout::decode_header(head.get(BLOCK_USIZE..head_len).unwrap_or(&[]), 1),
-        ];
+        let heads = read_headers(&source)?;
         let mut valid: Vec<Header> = Vec::with_capacity(2);
         let mut foreign = None;
         let mut any_magic = false;
-        for block in blocks {
+        for block in heads.blocks {
             match block {
                 Block::Valid(h) => valid.push(h),
                 Block::Foreign(e) => foreign = Some(e),
@@ -69,10 +121,11 @@ impl<S: ByteSource> Container<S> {
         // Newest first; on a tie, block 0.
         valid.sort_by_key(|h| (std::cmp::Reverse(h.generation), h.block));
         let Some(newest) = valid.first().copied() else {
-            return Err(match foreign {
-                Some(e) => e,
-                None if any_magic => ContainerError::NotCommitted,
-                None => ContainerError::NotAContainer,
+            return Err(match (heads.error, foreign) {
+                (Some(e), _) => ContainerError::Read(e),
+                (None, Some(e)) => e,
+                (None, None) if any_magic => ContainerError::NotCommitted,
+                (None, None) => ContainerError::NotAContainer,
             });
         };
         let mut first_error = None;
@@ -82,6 +135,8 @@ impl<S: ByteSource> Container<S> {
             if unknown != 0 {
                 return Err(ContainerError::UnsupportedFeatures { required: unknown });
             }
+            // Any failure of a table — damage, a rule broken, the source failing — opens
+            // the older commit instead, and says so (spec § 7).
             match read_toc(&source, header) {
                 Ok(entries) => {
                     return Ok(Self {
@@ -90,9 +145,9 @@ impl<S: ByteSource> Container<S> {
                         entries,
                         recovered_from: (header.generation != newest.generation)
                             .then_some(newest.generation),
+                        unreadable_block: heads.unreadable,
                     });
                 }
-                Err(e @ ContainerError::Read(ReadError::Backend(_))) => return Err(e),
                 Err(e) => {
                     first_error.get_or_insert(e);
                 }
@@ -126,6 +181,13 @@ impl<S: ByteSource> Container<S> {
         self.recovered_from
     }
 
+    /// The header block the source failed to read, when the file was opened from the
+    /// other one; `None` normally. That block may have held a newer commit.
+    #[must_use]
+    pub fn unreadable_block(&self) -> Option<u32> {
+        self.unreadable_block
+    }
+
     /// Every section, in increasing byte order of name, unknown kinds included.
     #[must_use]
     pub fn entries(&self) -> &[Entry] {
@@ -136,7 +198,7 @@ impl<S: ByteSource> Container<S> {
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&Entry> {
         self.entries
-            .binary_search_by(|e| e.name.as_str().cmp(name))
+            .binary_search_by(|e| (*e.name).cmp(name))
             .ok()
             .map(|i| &self.entries[i])
     }
@@ -156,7 +218,7 @@ impl<S: ByteSource> Container<S> {
         let entry = self.entry(name)?;
         if entry.codec != Codec::NONE {
             return Err(ContainerError::UnsupportedCodec {
-                name: entry.name.clone(),
+                name: entry.name.to_string(),
                 codec: entry.codec,
             });
         }
@@ -177,7 +239,7 @@ impl<S: ByteSource> Container<S> {
     pub fn verify(&self, name: &str) -> Result<(), ContainerError> {
         let entry = self.entry(name)?;
         let damaged = || ContainerError::Damaged {
-            name: entry.name.clone(),
+            name: entry.name.to_string(),
         };
         if hash_range(&self.source, entry.offset, entry.len)? != entry.hash {
             return Err(damaged());
@@ -191,15 +253,27 @@ impl<S: ByteSource> Container<S> {
         Ok(())
     }
 
-    /// [`verify`](Self::verify) for every section, in offset order.
+    /// [`verify`](Self::verify) for every section, in offset order; then that the
+    /// table of contents' padding is zero and the file reaches the committed end
+    /// (opening checks neither).
     ///
     /// # Errors
     ///
-    /// The first section that fails.
+    /// The first section that fails; [`ContainerError::Corrupt`] for the table's
+    /// padding or a file that ends inside it.
     pub fn verify_all(&self) -> Result<(), ContainerError> {
         let mut by_offset: Vec<&Entry> = self.entries.iter().collect();
         by_offset.sort_by_key(|e| e.offset);
-        by_offset.iter().try_for_each(|e| self.verify(&e.name))
+        by_offset.iter().try_for_each(|e| self.verify(&e.name))?;
+        let toc_end = self.header.toc_offset + self.header.toc_len;
+        let mut pad = vec![0u8; small(self.committed_len() - toc_end)];
+        match self.source.read_at(toc_end, &mut pad) {
+            Ok(()) if pad.iter().all(|&b| b == 0) => Ok(()),
+            Err(e @ ReadError::Backend(_)) => Err(e.into()),
+            _ => Err(ContainerError::Corrupt(
+                "the table of contents' padding is not zero, or the file ends inside it",
+            )),
+        }
     }
 
     /// The provenance record of section `name`, if it has one.
@@ -297,7 +371,15 @@ fn read_toc<S: ByteSource>(source: &S, header: &Header) -> Result<Vec<Entry>, Co
             "the table of contents does not match its hash",
         ));
     }
-    layout::decode_toc(&toc, header.toc_offset)
+    let entries = layout::decode_toc(&toc, header.toc_offset)?;
+    // The segment manifest goes with required bit 0 (spec § 10); a file with the bit
+    // never gets here, so a manifest here is one without it.
+    if entries.iter().any(|e| e.kind == Kind::SEGMENTS) {
+        return Err(ContainerError::Corrupt(
+            "a segment manifest without the segments feature",
+        ));
+    }
+    Ok(entries)
 }
 
 /// BLAKE3 of `len` bytes of `source` at `offset`.
@@ -424,11 +506,12 @@ mod tests {
         let entries: Vec<Entry> = ["adjacency.out.data", "adjacency.out.index", "ids.keys"]
             .iter()
             .enumerate()
+            // Three 5 GB sections, one after another: a 15 GB file.
             .map(|(i, name)| Entry {
-                name: (*name).to_owned(),
+                name: (*name).into(),
                 kind: Kind::ID_DICTIONARY,
                 codec: Codec::NONE,
-                offset: HEADER_BYTES + i as u64 * pad_end(0, gb15).unwrap(),
+                offset: HEADER_BYTES + i as u64 * pad_end(0, gb15 / 3).unwrap(),
                 len: gb15 / 3,
                 hash: [0; 32],
                 provenance: None,
@@ -452,7 +535,7 @@ mod tests {
             pieces: vec![(0, header.to_vec()), (toc_offset, toc)],
             reads: Cell::new(0),
         };
-        assert!(source.len() > 15_000_000_000);
+        assert!((15_000_000_000..15_000_100_000).contains(&source.len()));
         let file = Container::open(&source).unwrap();
         assert_eq!(file.entries(), &entries[..]);
         assert_eq!(source.reads.get(), 2);

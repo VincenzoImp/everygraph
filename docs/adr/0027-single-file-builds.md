@@ -43,12 +43,15 @@ This is a design decision; the evidence is about what each choice costs.
 - **The constraints of one file are met** (#28, tests in the pull request): opening
   reads the two header blocks and the table of contents — two reads on a synthetic
   15 GB file (`opening_a_15_gb_file_costs_one_header_read_and_one_table_read`); a crash
-  at any step of an update, under every image the sync model allows, leaves the previous
-  or the new commit and changes no byte the file held
+  at any step of an update, under every image the sync model allows (a model argued in
+  the specification, not measured on hardware), leaves the previous or the new commit and
+  changes no section the file held
   (`a_crash_at_any_step_of_an_update_leaves_the_previous_or_the_new_state` and the two
   tests beside it); a writer killed with `SIGKILL` twenty times at drifting moments left
   a valid file with every acknowledged commit each time
-  (`a_writer_killed_at_any_moment_leaves_a_valid_file_with_every_acknowledged_commit`).
+  (`a_writer_killed_at_any_moment_leaves_a_valid_file_with_every_acknowledged_commit`) —
+  evidence about process death only: the page cache survives `SIGKILL`, so that test
+  never sees a lost or torn write.
 - **A bundle would break the browser and HTTP paths**: a browser `File` from a drop or
   a file picker is one file, and a static server serves one URL per file; a bundle would
   need an archive format on top (zip, tar) to travel, and then it is one file again with
@@ -69,14 +72,19 @@ This is a design decision; the evidence is about what each choice costs.
 
 - #35 and #40 write `NAME.eg.partial` with `everygraph_format::container::Writer` over
   `everygraph_io::FileSink`, from the products of the scratch directory, commit, then
-  rename and sync the directory.
+  `everygraph_io::persist` it (rename, then sync of the directory); `compact` ends the
+  same way.
+- A file that opened at an older commit (a damaged newest table, an unreadable header
+  block) is not updated without the caller's consent (`Writer::update_recovered`).
+- Cross-process: one writer at a time is issue `m2-22-single-writer-lock`; a process
+  committing to a graph it holds mapped is issue `m2-21-range-maps`.
 - #39 appends results with their provenance records and commits; a result that replaces
   another removes it in the same commit.
 - `compact` is a command over `everygraph_format::container::compact` (#98); `info`
   reports the reclaimable bytes.
 - A process that holds a graph mapped cannot commit to it until the map is dropped
   (`everygraph-io`'s in-process guard). Mapping only the section range, which the
-  protocol makes safe (spec § 11), is a follow-up.
+  protocol makes safe (spec § 11), is issue `m2-21-range-maps`.
 
 ## What would change our mind
 

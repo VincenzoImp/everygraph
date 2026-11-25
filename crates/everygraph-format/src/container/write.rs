@@ -4,13 +4,15 @@
 //! (`docs/spec/eg-container.md` § 8), and compaction (§ 9).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use everygraph_core::{ByteSink, ByteSource, WriteError};
 
 use super::layout::{self, BLOCK_USIZE, Header, MINOR, pad_end, padded, small};
 use super::read::Container;
 use super::{
-    BLOCK, Codec, ContainerError, Entry, HEADER_BYTES, Kind, MIN_PADDING, Provenance, check_name,
+    BLOCK, Codec, ContainerError, Entry, HEADER_BYTES, Kind, MIN_PADDING, Provenance,
+    SEGMENT_PREFIX, check_name,
 };
 
 /// Bytes copied at a time by [`Writer::copy_section`].
@@ -34,7 +36,7 @@ const _: () = assert!(MIN_PADDING == 16);
 #[derive(Debug)]
 pub struct Writer<S: ByteSink> {
     sink: S,
-    entries: BTreeMap<String, Entry>,
+    entries: BTreeMap<Arc<str>, Entry>,
     /// Generation of the last commit; 0 before the first.
     generation: u64,
     /// The header block that holds the last commit.
@@ -77,16 +79,39 @@ impl<S: ByteSink> Writer<S> {
     ///
     /// # Errors
     ///
-    /// Whatever [`Container::open`] returns, and [`ContainerError::NewerMinor`] for a file
-    /// of a newer minor version than [`MINOR`].
+    /// Whatever [`Container::open`] returns; [`ContainerError::NewerMinor`] for a file
+    /// of a newer minor version than [`MINOR`]; [`ContainerError::Recovered`] when the
+    /// file opened at an older commit than the newest it may hold
+    /// ([`Container::recovered_from`], [`Container::unreadable_block`]), because the
+    /// first commit would write over that newer commit's bytes.
     pub fn update(sink: S) -> Result<Self, ContainerError> {
+        Self::open_for_update(sink, false)
+    }
+
+    /// [`update`](Self::update) of a file that opened at an older commit, on purpose:
+    /// the newer commit that could not be read (damaged, or on a sector the source
+    /// could not read) is given up, and the next commit writes over its bytes and its
+    /// header block. Copy what can be saved first (`everygraph verify`, `compact`).
+    ///
+    /// # Errors
+    ///
+    /// As [`update`](Self::update), without [`ContainerError::Recovered`].
+    pub fn update_recovered(sink: S) -> Result<Self, ContainerError> {
+        Self::open_for_update(sink, true)
+    }
+
+    fn open_for_update(sink: S, recovered_allowed: bool) -> Result<Self, ContainerError> {
         let (header, entries, committed) = {
             let file = Container::open(&sink)?;
+            let recovered = file.recovered_from().is_some() || file.unreadable_block().is_some();
+            if recovered && !recovered_allowed {
+                return Err(ContainerError::Recovered);
+            }
             let header: Header = *file.header();
             let entries = file
                 .entries()
                 .iter()
-                .map(|e| (e.name.clone(), e.clone()))
+                .map(|e| (Arc::clone(&e.name), e.clone()))
                 .collect();
             (header, entries, file.committed_len())
         };
@@ -153,16 +178,25 @@ impl<S: ByteSink> Writer<S> {
         provenance: Option<&str>,
     ) -> Result<SectionWriter<'_, S>, ContainerError> {
         self.check_new(name, provenance)?;
+        // Segments are reserved (spec § 13): this version writes neither their names
+        // nor their manifest.
+        if name.starts_with(SEGMENT_PREFIX) || kind == Kind::SEGMENTS {
+            return Err(ContainerError::Reserved(name.to_owned()));
+        }
         let offset = self.position;
+        // A reference shares the record's name.
+        let provenance = provenance
+            .and_then(|record| self.entries.get(record))
+            .map(|record| Arc::clone(&record.name));
         Ok(SectionWriter {
             entry: Entry {
-                name: name.to_owned(),
+                name: name.into(),
                 kind,
                 codec,
                 offset,
                 len: 0,
                 hash: [0; 32],
-                provenance: provenance.map(str::to_owned),
+                provenance,
             },
             hasher: blake3::Hasher::new(),
             writer: self,
@@ -301,7 +335,7 @@ impl<S: ByteSink> Writer<S> {
         {
             return Err(ContainerError::StillReferenced {
                 name: name.to_owned(),
-                by: by.name.clone(),
+                by: by.name.to_string(),
             });
         }
         let removed = self
@@ -325,8 +359,9 @@ impl<S: ByteSink> Writer<S> {
     /// # Errors
     ///
     /// [`ContainerError::TooLarge`] when the table of contents would exceed 16 MiB;
-    /// [`ContainerError::Write`] when the sink fails (the writer is then poisoned);
-    /// [`ContainerError::Poisoned`].
+    /// [`ContainerError::GenerationExhausted`] after 2^64 − 1 commits (nothing is
+    /// written); [`ContainerError::Write`] when the sink fails (the writer is then
+    /// poisoned); [`ContainerError::Poisoned`].
     pub fn commit(&mut self) -> Result<u64, ContainerError> {
         if self.poisoned {
             return Err(ContainerError::Poisoned);
@@ -334,6 +369,12 @@ impl<S: ByteSink> Writer<S> {
         if !self.changed {
             return Ok(self.generation);
         }
+        // Checked before anything is written: a wrapped generation would be a commit
+        // that returns `Ok` and never becomes the file's state.
+        let generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(ContainerError::GenerationExhausted)?;
         let mut toc = layout::encode_toc(self.entries.values())?;
         let toc_offset = self.position;
         let toc_len = toc.len() as u64;
@@ -342,7 +383,7 @@ impl<S: ByteSink> Writer<S> {
         let header = Header {
             block: self.newest_block.map_or(0, |b| 1 - b),
             minor: MINOR,
-            generation: self.generation + 1,
+            generation,
             required: self.required,
             optional: self.optional,
             toc_offset,

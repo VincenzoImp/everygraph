@@ -16,7 +16,8 @@ without risk to what the file already held.
 
 Contents: 1 Conventions · 2 Header blocks · 3 Sections · 4 Table of contents ·
 5 Kinds and codecs · 6 Provenance records · 7 Reading · 8 Updating · 9 Compaction ·
-10 Versions · 11 Memory maps and concurrent use · 12 Decided here.
+10 Versions · 11 Memory maps and concurrent use · 12 Decided here · 13 Segments
+(reserved).
 
 ```
 offset 0      header block 0   (4096 bytes; 128 used)
@@ -33,6 +34,12 @@ offset 0      header block 0   (4096 bytes; 128 used)
 
 - All integers are little-endian. Offsets and lengths are `u64` and count bytes from
   the start of the file.
+- Floating-point values are IEEE 754 binary32 or binary64, little-endian. Result and
+  derived sections store NaN only as the canonical quiet NaN (`0x7FC00000`,
+  `0x7FF8000000000000`) and never −0.0, which is written as +0.0: the same result is
+  then the same bytes, and the same hash, on every platform
+  (`docs/research/sota-numerics.md`). This is a rule for the writers of those sections;
+  the container does not inspect them.
 - **BLAKE3** is the BLAKE3 hash function (O'Connor, Aumasson, Neves, Wilcox-O'Hearn,
   2020) in its default mode (not keyed, not derive-key), with the standard 32-byte
   output.
@@ -56,10 +63,10 @@ offset  size  field
 8       4     byte order         0x0A0B0C0D (bytes 0D 0C 0B 0A)
 12      2     major version      1
 14      2     minor version      0
-16      4     block              0 or 1: which block this is
+16      4     block              0 or 1: which block this is; must match its position
 20      4     reserved
-24      8     generation         ≥ 1: the number of the commit this block records
-32      8     required features  bit set (§ 10); none defined in 1.0
+24      8     generation         1 … 2^64 − 1: the number of the commit this block records
+32      8     required features  bit set (§ 10); bit 0 reserved (`segments`)
 40      8     optional features  bit set (§ 10); none defined in 1.0
 48      8     TOC offset         where the table of contents starts
 56      8     TOC length         its length in bytes
@@ -68,10 +75,16 @@ offset  size  field
 ```
 
 A block is **valid** when its magic is right, its byte order is `0x0A0B0C0D`, its major
-version is 1 and its block hash matches. Bytes 0 to 15 (magic, byte order, versions)
-keep their meaning in every version, so that a reader can tell a foreign file from a
-damaged one: a block with the magic and another byte order or major version is a file
-this reader does not read (§ 7), not a torn block.
+version is 1, its block hash matches, its generation is not 0 and its block field is
+its position (0 at offset 0, 1 at offset 4096; a block copied to the other place is not
+valid). Bytes 0 to 15 (magic, byte order, versions) keep their meaning in every
+version, so that a reader can tell a foreign file from a damaged one. A block is
+**foreign** — a file this reader does not read (§ 7) — only when it says so exactly:
+the magic followed by the byte order written big-endian (bytes `0A 0B 0C 0D`), or by
+the right byte order and a major version above 1. Any other content of bytes 8 to 15
+after the magic is a **torn** block: a first commit cut short inside those bytes leaves
+part of the byte order or a major version of 0, and must read as unfinished, not as a
+file of another version.
 
 The magic's first byte is not ASCII (it catches transfers that drop the eighth bit) and
 its last is a line feed (it catches line-ending conversion), as in PNG.
@@ -121,7 +134,8 @@ offset  size  field
 8       8     offset       a multiple of 4096, at least 8192
 16      8     length
 24      32    hash         BLAKE3 of the section's length bytes (padding not included)
-56      4     name offset  into the name area
+56      4     name offset  into the name area: the sum of the name lengths of the
+                           entries before this one
 60      4     name length  1 to 1024
 64      4     provenance   the index (0-based, in this TOC) of the entry holding the
                            provenance record of this section, or 0xFFFFFFFF for none
@@ -132,11 +146,22 @@ offset  size  field
   bytewise and strictly increasing, which also proves the names unique. Names are not
   interpreted by the container; the graph layer gives them meaning
   (`adjacency.out.index`, `ids.keys`, `results/…`).
+- Names beginning with `seg/` are reserved for segments (§ 13): `seg/` + the segment
+  number as 8 lowercase hexadecimal digits + `/` + the name the section would have in an
+  unsegmented file (`seg/0000002a/adjacency.out.index`). The base run keeps the names
+  of an unsegmented file. Bytewise name order then groups a segment's sections and
+  orders segments by number. A 1.0 writer writes no such name (nor kind 6); a 1.0
+  reader treats them as ordinary names, since a file with segments also sets required
+  bit 0 and is refused first (§ 10).
+- The **name area** is exactly the names, concatenated in entry order: entry `i`'s name
+  offset is the sum of the lengths of the names before it, and the names length is the
+  sum of all of them. A reader checks both. So what a reader holds of the names is at
+  most the size of the TOC: names cannot overlap or be read twice.
 - A provenance reference names another entry of the same TOC, whose kind is 1
-  (provenance record). An index is valid only within its TOC: a writer that rewrites the
-  TOC renumbers it.
-- The name area holds the names in entry order in what this implementation writes; a
-  reader only uses each entry's offset and length into it.
+  (provenance record). An entry of kind 1 has no provenance reference (0xFFFFFFFF):
+  records do not refer to records, so a copy of the file can always put every record
+  before the entries that refer to it. An index is valid only within its TOC: a writer
+  that rewrites the TOC renumbers it.
 
 ## 5. Kinds and codecs
 
@@ -146,6 +171,12 @@ it, and otherwise ignores it: that is how later issues add artifacts without a n
 version. A section that a reader *must* understand to read the file correctly is
 announced with a required feature (§ 10), not by its kind.
 
+Kinds 2–5 define the graph and are not optional for a reader that reads the graph;
+"unknown kinds are skipped" applies only to kinds a reader does not know, and a section
+added after 1.0 that a reader must understand is announced with a required feature.
+(Within the adjacency format, whether an adjacency has `.events` is announced by its
+index's own flags, `eg-adjacency.md`; the container needs no bit for it.)
+
 | Kind | Meaning | Specified in |
 |---|---|---|
 | 0 | not allowed | — |
@@ -153,7 +184,9 @@ announced with a required feature (§ 10), not by its kind.
 | 2 | compressed adjacency, index | `eg-adjacency.md` § 3 |
 | 3 | compressed adjacency, data | `eg-adjacency.md` § 1 |
 | 4 | one section of an identifier dictionary (the name, `ids.*`, says which) | `everygraph_ingest::ids` (#34) |
-| 5 … 0x7FFFFFFF | assigned by later specifications (columns #37, results #39, hierarchy, layout, indexes) | — |
+| 5 | event offsets of an adjacency (`<name>.events`): where each pair's events start, for graphs that keep repeated pairs as events | `eg-adjacency.md` |
+| 6 | segment manifest (`segments`, one per file); reserved, not written by 1.0 | § 13 |
+| 7 … 0x7FFFFFFF | assigned by later specifications (columns #37, results #39, hierarchy, layout, indexes) | — |
 | 0x80000000 … 0xFFFFFFFF | private and experimental use; never assigned | — |
 
 The **codec** says how the stored bytes encode the content. Version 1.0 defines only 0:
@@ -195,36 +228,89 @@ The record ends exactly at the section's end. A reader refuses a record longer t
 `docs/api-sketch.md` § 2.8 lists what a result's record must hold to serve as its cache
 key.
 
+**Graph identity.** A result's provenance record holds the parameter `graph`: the
+**graph identity**, as 64 lowercase hexadecimal digits — BLAKE3 of the concatenation, in
+name order, of the 32-byte hashes of the sections that define the graph (kinds 2 to 5:
+adjacency index and data, `.events`, dictionary; and the property columns once #37
+assigns their kind). For a segmented file (§ 13) it is BLAKE3 of the manifest's hash
+alone, since the manifest lists the hashes of every run's sections. A reader serves a
+stored result only for a graph with that identity: after an append the graph has a new
+identity, and results stored before it remain what they are, results as of the earlier
+graph, never served as results of the new one.
+
+**Other parameters.** No field beyond the key/value parameters is needed for what the
+measurement review asks a build to record (`docs/research/sota-measurement.md`, § 4,
+challenge 7). These keys are conventional, so that every operation writes them the same
+way: `order` (the vertex-ordering method: `input`, `first-appearance`, `sorted-key`,
+`degree`, `seeded-relabel`), `order_seed` (its seed, when it has one), `id_min` and
+`id_max` (the range of the original identifiers, when they are integers),
+`isolated_kept` and `isolated_dropped` (nodes with no edge kept in the graph, and
+dropped by the build). The content hash of the source file is an input's fingerprint
+(`algorithm` = `blake3`, `digest`), not a parameter. From the numerics review
+(`docs/research/sota-numerics.md`, challenge 8): `seed` (the seed of a randomized
+operation), `numerics` (the version of the engine's rules for bit-identical floating
+point), `weight_scale` (the exponent of a fixed-point weight). Counts and seeds are
+written in decimal; floating-point values as the shortest decimal that reads back to
+the same bits (Rust's `{}`), never with a fixed number of digits.
+
 ## 7. Reading
 
 Opening a file costs **two positional reads**, whatever its size:
 
 1. Read the first 4,224 bytes (block 0 and the used part of block 1; fewer if the file
-   is shorter). Classify each block: *valid* (§ 2); *foreign* (the magic, but another
-   byte order or major version); *torn* (the magic but a wrong block hash); *absent*
-   (no magic).
-2. Take the valid block with the highest generation (block 0 on a tie). Refuse the file
-   if its required features contain a bit the reader does not know. Read its TOC
-   (TOC offset, TOC length) and check the TOC hash. Check the TOC (below).
+   is shorter, and a block cut short by the end of the file is absent). Classify each
+   block: *valid*, *foreign* or *torn* (§ 2), or *absent* (no magic). If the source
+   fails this read, read the 128 bytes of each block on their own, so that one
+   unreadable sector does not hide the other block; a block that still cannot be read
+   is *unreadable*.
+2. Take the valid block with the highest generation; on a tie, block 0. Refuse the file
+   if *that block's* required features contain a bit the reader does not know (the
+   other block's bits do not matter unless it is used). Read its TOC (TOC offset, TOC
+   length), check the TOC hash, then check the TOC (below).
 
-If the TOC of the newest block cannot be used — its hash does not match, it lies outside
-the file, or it breaks a rule below — and the other block is valid, a reader should open
-that older commit instead and say so. The update protocol never produces such a file;
-a disk that acknowledged a sync it had not performed can. If no block is valid, the
-file is refused: as "not an `.eg` file" when no block has the magic, as "never
-completed" when one has the magic (a first commit that did not finish), as unreadable
-by this version when a block is foreign.
+**Falling back.** If the TOC of the newest valid block cannot be used — its hash does not
+match, it breaks a rule below, it lies outside the file, or the source fails to read it
+— and the other block is valid, a reader opens that older commit instead and says that
+it did. The update protocol never produces such a file; a disk that acknowledged a sync
+it had not performed, a bad sector, or a failing network can. A read error is treated
+like damage here because a reader cannot tell a bad sector from a passing failure; a
+caller that would rather retry than see the older commit checks what the reader said.
+If one block was unreadable and the other is used, the reader says so too: the
+unreadable block may have held a newer commit.
+
+If no block is valid, the file is refused: with the read error when a block was
+unreadable; as unreadable by this version when a block is foreign; as "never completed"
+when a block has the magic (a first commit that did not finish); as "not an `.eg` file"
+otherwise.
 
 A reader checks, before trusting a TOC: the magic; the entry size; the exact length;
-for every entry, kind ≠ 0, name length 1–1024 and within the name area, valid UTF-8,
-offset a multiple of 4096 and at least 8192, padded end at or before the TOC offset;
-names strictly increasing; no two sections overlapping (padding included); every
-provenance index naming another entry of kind 1. The TOC offset must be a multiple of
-4096, at least 8192, and its length at least 32 and at most 16 MiB.
+for every entry, kind ≠ 0, name length 1–1024, name offset equal to the sum of the
+name lengths before it, valid UTF-8, offset a multiple of 4096 and at least 8192,
+padded end at or before the TOC offset, no provenance reference on an entry of kind 1;
+the names length equal to the sum of all name lengths; names strictly increasing; no two
+sections overlapping (padding included); every provenance index naming another entry of
+kind 1. The TOC offset must be a multiple of 4096, at least 8192, and its length at
+least 32 and at most 16 MiB.
+
+**Length and padding.** A valid file is at least as long as its committed end (the TOC's
+padded end, § 8), and every padding byte, after sections and after the TOC, is zero.
+Opening checks neither (it reads only the header and the TOC); verification checks
+both.
 
 A section is checked against its hash when it is used for something that must be right
 (`everygraph verify`, compaction, a provenance record) — not when the file is opened,
-which would read the whole file. Verification also checks that the padding is zero.
+which would read the whole file.
+
+**No amplification.** No field of a header block or of the TOC may make a reader
+allocate or read more than a bound linear in the bytes the field refers to, and every
+bound is checked before the allocation or the read: the header read is fixed (4,224
+bytes); the TOC is read only once a valid header points to it and is at most 16 MiB;
+entries and names are counted against the TOC's own length (§ 4), so what a reader
+holds after opening is linear in the TOC; a provenance record is at most 16 MiB and at
+most its section; sections are hashed and copied in bounded pieces, never read whole
+for the container's sake; and no pointer is followed from a section to another section,
+so nothing is read twice or recursively. A later minor version that adds a pointer
+states its bound in the same terms.
 
 ## 8. Updating
 
@@ -251,11 +337,33 @@ for a new file):
 3. Write header block `B`: generation `g + 1`, pointing to the new TOC.
 4. **Sync.** The commit is durable when this returns.
 
+**A failed write or sync.** If any write, length change or sync fails, the commit is not
+acknowledged and the writer is **poisoned**: it does nothing more, and the file must be
+opened again to go on. In particular a sync that returned an error is never retried and
+then trusted: after a failed `fsync`, Linux may already have dropped the dirty pages it
+could not write and report success on the next call (the "fsyncgate" behaviour; Rebello
+et al., *Can Applications Recover from fsync Failures?*, USENIX ATC 2020). Reopening
+reads what is really on the disk, which the rules above make one of the two commits.
+
+When `g` is 2^64 − 1 there is no next generation: the writer refuses to commit and
+writes nothing (generations never wrap; a wrapped one would be a commit that is not the
+file's state). At one commit per microsecond that takes 584,000 years; the rule exists
+so that a damaged or hostile header cannot make a commit look successful.
+
+**After a fallback.** A file opened at an older commit (§ 7: the newest TOC unusable, or
+a header block unreadable) is not updated unless the caller asks for it explicitly
+(`Writer::update_recovered`): its committed end is the older commit's, so the first
+commit writes over the newer commit's sections and TOC, and step 3 over the header
+block that may have held it. That newer commit may be intact but for one bad sector; a
+writer must not destroy the only copy without being told to.
+
 A new file is created the same way: length set to 0, then to 8192 (two zero header
 blocks), sections, then steps 1–4. It is written under a temporary name
 (`NAME.eg.partial`, `docs/ux-contract.md` C-1) and renamed to `NAME.eg` only after
-step 4; the rename and the sync of the directory that makes it durable are the
-caller's.
+step 4, and the directory that holds it is then synced so that the rename survives a
+power cut (`everygraph_io::persist` does both; on Windows, where a directory cannot be
+synced, the rename is durable once the file system commits its journal). Compaction
+ends the same way.
 
 **What a crash leaves.** Whatever happens at any instant — the process killed, the
 machine losing power, any write before a sync lost, reordered or torn at any byte:
@@ -277,12 +385,21 @@ writer may commit several times in one session (the three cached phases of `map`
 ux-contract § 5.1): each commit is a generation, and a crash leaves the file at the
 last one that reached the disk.
 
-These guarantees are tested step by step in `crates/everygraph-format/tests/container.rs`
-(a sink that records every write, length change and sync; at every step, every image
-the sync model allows: everything, nothing, every prefix, each write alone, each write
-torn at the first byte, half way and the last byte, random subsets torn by 512-byte
-sector) and with a real `kill -9` of a writing process in
-`crates/everygraph-io/tests/container.rs`.
+These guarantees are tested step by step in `crates/everygraph-format/tests/container.rs`:
+a sink records every write, length change and sync, and at every step every image the
+sync model allows is checked — everything, nothing, every prefix, every suffix (the
+writes issued first lost, later ones kept), each write alone, each write torn after
+1 byte, half way and all but the last byte (a header write after every one of its 128
+bytes), each write replaced by garbage rather than zeros, random subsets torn by 512-byte
+sector or turned to garbage. Two sequences are checked the same way: a crash, then a
+second update from the crashed image, which crashes at every step; and a commit to a
+file opened at an older commit (a damaged newest table), which crashes at every step and
+must leave the older or the new commit. The writes of one
+unsynced window never overlap, so applying any subset of them in program order covers
+every order in which they could reach the disk. That model is argued, not measured on
+hardware. A real `kill -9` of a writing process (`crates/everygraph-io/tests/container.rs`)
+tests process death only: the page cache survives it, so it produces the "everything
+written" image, never a lost or torn write.
 
 ## 9. Compaction
 
@@ -291,8 +408,8 @@ names, kinds, codecs, hashes and provenance references; provenance records first
 in the order of the original offsets), as one commit of generation 1. Every section is
 checked against its hash while it is copied: a damaged section stops the compaction,
 which never makes damage look whole. The new file is written under a temporary name and
-renamed over the original by the caller; the original is not modified, so a crash
-during compaction leaves it as it was.
+persisted over the original (§ 8); the original is not modified, so a crash during
+compaction leaves it as it was.
 
 What compaction reclaims is the file's length minus the bytes the newest commit uses
 (the header blocks, every section and the TOC, each with its padding): sections removed
@@ -311,11 +428,19 @@ from the TOC alone (`Container::reclaimable_bytes`).
 - **Required features.** A bit set in the header: a reader refuses a file in which a
   bit it does not know is set, without falling back to an older commit. This is how a
   later version adds something that must be understood (a section kind without which
-  the graph would read wrong). None are defined in 1.0.
+  the graph would read wrong). None are defined in 1.0. Bit 0 of the required
+  features, `segments`, is reserved: it is set exactly when the graph of the file is the
+  union of more than one adjacency run (§ 13). A file without it is read as today; a
+  1.0 reader refuses a file with it, rather than read the base run alone and return an
+  older graph. Setting it only when segments exist keeps every unsegmented file
+  readable by 1.0 readers. Bit 0 goes with kind 6: a file holds the segment manifest
+  (kind 6, `segments`) exactly when it sets bit 0, and a reader that finds one without
+  the other treats the file as damaged.
 - **Optional features.** A bit set a reader may ignore; writers keep the bits they find.
   None are defined in 1.0.
-- **Unknown kinds** are listed and skipped; **unknown codecs** make a section
-  unreadable but not unverifiable (§ 5).
+- **Unknown kinds** are listed and skipped — only kinds the reader does not know; the
+  kinds 1.0 defines, 2–5 above all, are read by every reader that reads the graph (§ 5).
+  **Unknown codecs** make a section unreadable but not unverifiable (§ 5).
 
 ## 11. Memory maps and concurrent use
 
@@ -324,18 +449,23 @@ committed end, and only ever shortens the file to the TOC's padded end, which is
 after the committed end of every earlier commit. So for a reader of any earlier commit,
 the bytes from 8192 to that commit's committed end never change while it reads.
 
-That is what makes reading during an update safe, under the invariant of
+That is what can make reading during an update safe, under the invariant of
 `design/DECISIONS.md` ("Memory-mapped files are read through a safe constructor"): a
 reader that maps a graph file must map only the range from 8192 to the committed end
-of the commit it opened, and read the header blocks with positional reads. Today
-`everygraph_io::MmapSource` maps whole files, so within one process the sinks refuse to
-open a file that is mapped (`ResourceBusy`): a process commits to a graph file only
-after dropping its maps of it. Mapping by range, which would let a process commit to a
-graph it holds mapped, is a follow-up.
+of the commit it opened, and read the header blocks with positional reads. A map of the
+whole file is not safe against a commit by someone else: step 3 changes 128 bytes it
+covers, and step 1 may cut off an uncommitted tail it covers (touching those pages then
+ends the reader with `SIGBUS`). Today `everygraph_io::MmapSource` maps whole files, so:
+within one process the sinks refuse to open a file that is mapped (`ResourceBusy`), and
+a process commits to a graph file only after dropping its maps of it; a commit by
+another process to a file this one maps breaks the invariant. Mapping by range, with a
+guard that knows ranges, is issue `m2-21-range-maps`.
 
 One writer at a time: two writers appending to one file at once would write over each
-other's sections. The container does not lock; the caller holds a lock that keeps
-writers apart (the command line and the Python layer, which own the file).
+other's sections. The container itself does not lock. Within one process,
+`everygraph_io::FileSink` holds its file alone (a second sink on the same file is
+refused); across processes, a lock is issue `m2-22-single-writer-lock`. Until it lands,
+the command line and the Python layer, which own the file, keep writers apart.
 
 ## 12. Decided here
 
@@ -348,10 +478,19 @@ writers apart (the command line and the Python layer, which own the file).
   alone and a writer never needs to search for free space.
 - **Hashes are checked on use, not on open.** Opening a 15 GB file reads 4 KiB and the
   TOC; `verify` reads everything.
-- **Fall back to the older commit** when the newest TOC cannot be used, and say so,
-  rather than refuse the file: a lying disk then costs the last commit, not the graph.
+- **Fall back to the older commit** when the newest TOC cannot be used — read errors
+  included — and say so, rather than refuse the file: a lying disk or a bad sector then
+  costs the last commit, not the graph. Writers do not follow a fallback without
+  consent (§ 8), so reading the older commit never destroys the newer one.
 - **Names sorted in the TOC**: look-up by binary search and uniqueness checked in one
   pass, with no hash table in the format.
+- **The name area is the names concatenated, nothing else**: a TOC of 16 MiB then holds
+  at most 16 MiB of names. Letting names overlap (as a first draft did) let a 9 MB TOC
+  hold 258 MB of distinct names (review of PR #170).
+- **No provenance on provenance records**: references then always point from sections
+  to records, and a copy can write every record first; a chain or a cycle of records
+  is not expressible.
+- **Generations do not wrap**, and 0 is never valid.
 - **Provenance records are sections** referred to by entry index, not fields of each
   entry: one record serves many sections, records are hashed like everything else, and
   the TOC stays small.
@@ -363,3 +502,25 @@ writers apart (the command line and the Python layer, which own the file).
   elsewhere. Hashing is on the path of writing sections and of `verify`, not of
   reading.
 - **Single file for every state of a graph, in-progress builds included** — ADR 0027.
+- **Segments are reserved now, built later** (§ 13): required bit 0, the `seg/` names,
+  kinds 5 and 6 and the graph identity cost nothing in an unsegmented file, and let
+  appends (m9-04) arrive without a new major version
+  (`docs/research/sota-dynamic.md` § 0.2). One commit may add a segment and drop the
+  runs a merge replaced; a reader of an earlier commit keeps reading those runs (§ 11).
+
+## 13. Segments (reserved; not implemented in 1.0)
+
+A segmented file holds a base run and segments `1 … k`, each a complete set of graph
+sections (adjacency out and in, `.events`, columns, dictionary extension) over the node
+ids `0 … n_i − 1` known after it. The manifest (kind 6, name `segments`) lists, per
+segment: number, level (compaction tier), node count after it `n_i`, pairs, events,
+`t_min` and `t_max` of its events in the time column's unit (absent without a time
+column), the input fingerprints, and the hashes of its sections. The graph of the file
+is the union of the events of all runs; a pair's aggregates are computed over its
+events in every run. Appending writes one segment and commits; merging writes a merged
+run and commits a TOC without the runs it replaces; `compact` reclaims their bytes.
+
+What 1.0 fixes of this, and nothing more: a file with segments sets required bit 0
+(§ 10), names its segments' sections `seg/NNNNNNNN/…` (§ 4), stores the manifest as
+kind 6, and gives results the graph identity of § 6. The manifest's byte layout, the
+merge policy and the reading rules are specified with the issue that builds segments.

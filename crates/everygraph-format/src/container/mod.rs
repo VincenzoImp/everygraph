@@ -51,6 +51,7 @@ mod write;
 
 use std::error::Error;
 use std::fmt;
+use std::sync::Arc;
 
 use everygraph_core::{ReadError, WriteError};
 
@@ -72,6 +73,15 @@ pub const MAX_TOC_BYTES: u64 = 16 << 20;
 pub const MAX_NAME_BYTES: usize = 1024;
 /// The largest provenance record a reader accepts: 16 MiB.
 pub const MAX_PROVENANCE_BYTES: u64 = 16 << 20;
+/// Required feature bit 0, `segments` (spec § 10, § 13): set exactly when the graph of
+/// the file is the union of more than one adjacency run. Reserved: this version does
+/// not know it, so it refuses a file that sets it ([`ContainerError::UnsupportedFeatures`])
+/// rather than read only the base run, an older graph.
+pub const REQUIRED_SEGMENTS: u64 = 1 << 0;
+/// Section names that begin with this are reserved for segments (spec § 4, § 13):
+/// `seg/` + 8 lowercase hexadecimal digits + `/` + the unsegmented name. This version
+/// does not write them.
+pub const SEGMENT_PREFIX: &str = "seg/";
 
 /// What a section holds (spec § 5). A reader skips sections whose kind it does not
 /// know; that is how later issues add artifacts without a new version.
@@ -87,6 +97,13 @@ impl Kind {
     pub const ADJACENCY_DATA: Self = Self(3);
     /// One section of an identifier dictionary (`ids.*`, `everygraph_ingest::ids`).
     pub const ID_DICTIONARY: Self = Self(4);
+    /// The event offsets of an adjacency (`<name>.events`): where each pair's events
+    /// start, for graphs that keep repeated pairs as events. Specified with the
+    /// adjacency format.
+    pub const ADJACENCY_EVENTS: Self = Self(5);
+    /// The segment manifest of a segmented file (`segments`, spec § 13). Reserved:
+    /// version 1.0 neither writes nor reads segments.
+    pub const SEGMENTS: Self = Self(6);
     /// The first of the kinds reserved for private and experimental use, which no
     /// specification will ever assign.
     pub const PRIVATE: Self = Self(0x8000_0000);
@@ -106,7 +123,7 @@ impl Kind {
     /// Whether this version of the specification defines the kind.
     #[must_use]
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 1..=4)
+        matches!(self.0, 1..=6)
     }
 }
 
@@ -143,8 +160,9 @@ impl Codec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Entry {
-    /// Unique within the TOC; 1 to [`MAX_NAME_BYTES`] bytes of UTF-8.
-    pub name: String,
+    /// Unique within the TOC; 1 to [`MAX_NAME_BYTES`] bytes of UTF-8. Shared, not
+    /// copied, by the entries that refer to it as their provenance.
+    pub name: Arc<str>,
     /// What the section holds.
     pub kind: Kind,
     /// How its bytes are encoded.
@@ -155,8 +173,9 @@ pub struct Entry {
     pub len: u64,
     /// BLAKE3-256 of its `len` stored bytes.
     pub hash: [u8; 32],
-    /// The name of the provenance record that says how it was made, if any.
-    pub provenance: Option<String>,
+    /// The name of the provenance record that says how it was made, if any (never for
+    /// a provenance record itself).
+    pub provenance: Option<Arc<str>>,
 }
 
 /// Why a container could not be read or written.
@@ -231,6 +250,16 @@ pub enum ContainerError {
     TooLarge(&'static str),
     /// An earlier write failed: this writer does nothing more.
     Poisoned,
+    /// [`Writer::update`] refuses a file that was opened at an older commit than the
+    /// newest one it may hold ([`Container::recovered_from`],
+    /// [`Container::unreadable_block`]): its first commit would write over the newer
+    /// commit's bytes. [`Writer::update_recovered`] does it on purpose.
+    Recovered,
+    /// The generation counter would pass 2^64 − 1.
+    GenerationExhausted,
+    /// A name or kind reserved for segments ([`SEGMENT_PREFIX`], [`Kind::SEGMENTS`]),
+    /// which this version does not write.
+    Reserved(String),
 }
 
 impl fmt::Display for ContainerError {
@@ -250,6 +279,13 @@ impl fmt::Display for ContainerError {
                 f,
                 "the graph file has format version {major}.{minor}; this Everygraph reads {MAJOR}.x"
             ),
+            Self::UnsupportedFeatures { required } if required & REQUIRED_SEGMENTS != 0 => {
+                write!(
+                    f,
+                    "the graph file was built by appends (segments), which this Everygraph \
+                     cannot read (required feature bits {required:#x})"
+                )
+            }
             Self::UnsupportedFeatures { required } => write!(
                 f,
                 "the graph file needs features this Everygraph does not have (bits {required:#x})"
@@ -288,6 +324,22 @@ impl fmt::Display for ContainerError {
                 f,
                 "an earlier write to the graph file failed; it still reads as its last commit"
             ),
+            Self::Recovered => write!(
+                f,
+                "the graph file was opened at an older commit because a newer one could not \
+                 be read; adding to it would overwrite that newer commit"
+            ),
+            Self::Reserved(name) => write!(
+                f,
+                "section {name:?}: names beginning with \"seg/\" and the segment manifest are \
+                 reserved for segments, which this Everygraph does not write"
+            ),
+            Self::GenerationExhausted => {
+                write!(
+                    f,
+                    "the graph file has reached the last commit number (2^64 - 1)"
+                )
+            }
         }
     }
 }

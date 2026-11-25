@@ -22,7 +22,8 @@
 //! file filled in aligned blocks by many threads), [`SpillLogs`] (sharded temporary
 //! logs read back as [`FileSource`]s), [`FileSink`] (a file read and written in
 //! place, with `fsync`: the `ByteSink` of formats updated in place, such as the `.eg`
-//! container). See the [`sink`] module for which lab result each answers.
+//! container), and [`persist`], the rename that makes a finished file take its name
+//! durably. See the [`sink`] module for which lab result each answers.
 //!
 //! **Later backends** need no change here or in the trait. An HTTP-range source
 //! implements `len` and `read_at` (one range request each, or served from a block
@@ -53,7 +54,7 @@ pub use everygraph_core::{AccessHint, ByteSource, MemorySource};
 pub use file::FileSource;
 pub use memory_probe::ProcMemoryProbe;
 pub use mmap::MmapSource;
-pub use sink::{AppendSink, BlockWriter, FileSink, SpillLogs};
+pub use sink::{AppendSink, BlockWriter, FileSink, SpillLogs, persist};
 
 /// The error for a read of `len` bytes at `offset` outside a source of `source_len`.
 fn check_bounds(offset: u64, len: usize, source_len: u64) -> Result<(), ReadError> {

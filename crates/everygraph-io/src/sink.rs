@@ -54,7 +54,8 @@ impl AppendSink {
     /// The file cannot be created, or a live `MmapSource` of this process maps it
     /// ([`io::ErrorKind::ResourceBusy`]; nothing is truncated then).
     pub fn create(path: impl AsRef<Path>) -> io::Result<Self> {
-        let (file, claim) = open_claimed(OpenOptions::new().write(true), path.as_ref())?;
+        let (file, claim) =
+            open_claimed(OpenOptions::new().write(true), path.as_ref(), Use::Write)?;
         file.set_len(0)?;
         Ok(Self::with_claim(file, claim))
     }
@@ -152,7 +153,7 @@ impl BlockWriter {
             let claim = Claim::take(&file, Use::Write)?;
             (file, claim, direct)
         } else {
-            let (file, claim) = open_claimed(&mut options, path.as_ref())?;
+            let (file, claim) = open_claimed(&mut options, path.as_ref(), Use::Write)?;
             (file, claim, false)
         };
         // Truncate only once the claim is held: no map can exist from here on.
@@ -259,7 +260,9 @@ impl BlockWriter {
 /// live [`MmapSource`](crate::MmapSource) of this process maps
 /// ([`io::ErrorKind::ResourceBusy`]), and the file cannot be mapped while the sink is
 /// open. So a graph that this process holds mapped cannot be committed to until the
-/// map is dropped. Other processes are not stopped (see `MmapSource`).
+/// map is dropped. It also holds the file alone: a second `FileSink`, or any other
+/// sink, of this process on the same file is refused while it is open (one writer at a
+/// time updates a container). Other processes are not stopped (see `MmapSource`).
 #[derive(Debug)]
 pub struct FileSink {
     // Declared before the claim: the file is closed first.
@@ -269,14 +272,20 @@ pub struct FileSink {
 }
 
 impl FileSink {
-    /// Creates `path`, or empties it.
+    /// Creates `path`, or empties it — at once and without a sync. Never point it at
+    /// a live `NAME.eg`: write a new graph or a compacted copy to a temporary name and
+    /// [`persist`] it over the old one.
     ///
     /// # Errors
     ///
-    /// The file cannot be created, or a live `MmapSource` of this process maps it
-    /// ([`io::ErrorKind::ResourceBusy`]; nothing is truncated then).
+    /// The file cannot be created, or a live `MmapSource` or another sink of this
+    /// process holds it ([`io::ErrorKind::ResourceBusy`]; nothing is truncated then).
     pub fn create(path: impl AsRef<Path>) -> io::Result<Self> {
-        let (file, claim) = open_claimed(OpenOptions::new().read(true).write(true), path.as_ref())?;
+        let (file, claim) = open_claimed(
+            OpenOptions::new().read(true).write(true),
+            path.as_ref(),
+            Use::WriteAlone,
+        )?;
         file.set_len(0)?;
         Ok(Self {
             file,
@@ -289,11 +298,11 @@ impl FileSink {
     ///
     /// # Errors
     ///
-    /// The file cannot be opened, or a live `MmapSource` of this process maps it
-    /// ([`io::ErrorKind::ResourceBusy`]).
+    /// The file cannot be opened, or a live `MmapSource` or another sink of this
+    /// process holds it ([`io::ErrorKind::ResourceBusy`]).
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
-        let claim = Claim::take(&file, Use::Write)?;
+        let claim = Claim::take(&file, Use::WriteAlone)?;
         let len = file.metadata()?.len();
         Ok(Self { file, len, claim })
     }
@@ -350,10 +359,46 @@ fn write_error(error: io::Error) -> WriteError {
 
 /// Opens `path` with `options`, creating it if needed but not truncating it, and claims
 /// it for writing: a file that a live map holds is refused before anything changes.
-fn open_claimed(options: &mut OpenOptions, path: &Path) -> io::Result<(File, Claim)> {
+fn open_claimed(
+    options: &mut OpenOptions,
+    path: &Path,
+    used_for: Use,
+) -> io::Result<(File, Claim)> {
     let file = options.create(true).truncate(false).open(path)?;
-    let claim = Claim::take(&file, Use::Write)?;
+    let claim = Claim::take(&file, used_for)?;
     Ok((file, claim))
+}
+
+/// Gives the file `partial` the name `destination`, replacing what had that name, and
+/// makes the new name durable: the last step of writing a graph (`NAME.eg.partial` →
+/// `NAME.eg`, ux-contract C-1) or of a compaction. At every instant `destination` is
+/// either the old file or the new one, whole.
+///
+/// The caller has made the file's content durable first (a container's commit does).
+/// Both paths must be on the same file system. On Unix the rename is `rename(2)` and
+/// the directory holding `destination` is then synced, which is what makes the rename
+/// itself survive a power cut. On Windows the rename is `MoveFileExW` with
+/// `MOVEFILE_REPLACE_EXISTING` (std's `rename`); std offers no write-through flag and
+/// no way to sync a directory there, so the rename is durable only once NTFS commits
+/// its journal (a power cut just after may leave the old file under the name; never a
+/// mixture).
+///
+/// # Errors
+///
+/// The rename failed (nothing changed), or the directory could not be synced (the
+/// rename happened; it may not survive a power cut).
+pub fn persist(partial: impl AsRef<Path>, destination: impl AsRef<Path>) -> io::Result<()> {
+    let destination = destination.as_ref();
+    std::fs::rename(partial.as_ref(), destination)?;
+    #[cfg(unix)]
+    {
+        let dir = match destination.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => dir,
+            _ => Path::new("."),
+        };
+        File::open(dir)?.sync_all()?;
+    }
+    Ok(())
 }
 
 /// Sharded temporary logs: append-only files that an out-of-core build spills into and

@@ -35,10 +35,13 @@ PMTiles v3 file.
   a synthetic 15 GB file (`everygraph-format`, `container::read` unit test); a crash at
   every step of creating a file, of an update and of three commits by one writer, with
   every image the sync model allows (lost, reordered and torn writes after the last
-  sync), leaves the previous or the new commit, every section matching its hash, and no
-  byte the file held changed (`tests/container.rs` of `everygraph-format`); a writer
-  killed with `SIGKILL` at drifting moments, twenty times, left a valid file holding
-  every acknowledged commit (`tests/container.rs` of `everygraph-io`); an independent
+  sync, header writes torn at every byte), leaves the previous or the new commit, every
+  section matching its hash, and no section the file held changed (`tests/container.rs`
+  of `everygraph-format`; the sync model is argued in the specification, § 8, not
+  measured on hardware); a writer killed with `SIGKILL` at drifting moments, twenty
+  times, left a valid file holding every acknowledged commit (`tests/container.rs` of
+  `everygraph-io`) — evidence about process death only, since the page cache survives
+  `SIGKILL`; an independent
   reader in Python, written from the specification alone, lists the sections of a file
   written by Rust and verifies their BLAKE3 hashes (`tools/check_container_python.py`).
 
@@ -50,7 +53,7 @@ PMTiles v3 file.
 - A process commits to a graph file only when it holds no memory map of it (the sinks
   refuse, `design/DECISIONS.md`); the protocol never writes bytes a reader of an earlier
   commit can see between offset 8192 and its committed end, so mapping that range only
-  would lift the restriction (follow-up).
+  would lift the restriction (issue `m2-21-range-maps`).
 - Nothing else depends on container details until #28 merges; formats inside sections
   (codec #30, columns #37) are specified separately.
 

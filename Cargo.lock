@@ -297,6 +297,7 @@ version = "0.0.0"
 dependencies = [
  "everygraph-core",
  "everygraph-format",
+ "everygraph-oracle",
  "libc",
  "memmap2",
 ]

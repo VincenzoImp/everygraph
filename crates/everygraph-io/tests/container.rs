@@ -1,26 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The `.eg` container on real files: written through [`FileSink`], read back through
-//! every native source, and a writer killed with `SIGKILL` at arbitrary moments of its
-//! commits (`docs/spec/eg-container.md` § 8). The step-by-step fault injection is in
-//! `everygraph-format`'s `tests/container.rs`; this is the same guarantee with a real
-//! process, a real file system and a real `kill -9`.
+//! The `.eg` container on real files: written through [`FileSink`] under a temporary
+//! name and [`persist`]ed, read back through every native source, and a writer killed
+//! with `SIGKILL` at arbitrary moments of its commits (`docs/spec/eg-container.md` § 8).
+//!
+//! The kill test is evidence about **process death only**: the page cache survives
+//! `SIGKILL`, so every write the process made is on the file afterwards. What a power
+//! cut can leave (lost, reordered, torn writes) is tested step by step in
+//! `everygraph-format`'s `tests/container.rs`.
 
 #![forbid(unsafe_code)]
 
+#[path = "support/bytes.rs"]
+mod support;
+
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use everygraph_core::ByteSource;
 use everygraph_format::container::{Container, Kind, Writer};
-use everygraph_io::{FileSink, FileSource, MmapSource};
+use everygraph_io::{AppendSink, FileSink, FileSource, MmapSource, persist};
+use support::bytes;
 
-/// The environment variable that turns [`kill_child_writer`] from a no-op into the
-/// writer the parent kills.
+/// Set in the child process of the kill test, to the file it writes.
 const CHILD: &str = "EVERYGRAPH_TEST_KILL_CHILD";
+/// The name of the kill test, which the child runs again in child mode.
+const KILL_TEST: &str =
+    "a_writer_killed_at_any_moment_leaves_a_valid_file_with_every_acknowledged_commit";
 
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
@@ -31,18 +40,6 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn bytes(seed: u64, len: usize) -> Vec<u8> {
-    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    (0..len)
-        .map(|_| {
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            x.to_le_bytes()[0]
-        })
-        .collect()
-}
-
 /// The length of section `s{i}` in the kill test: up to 300 KB, so that a kill lands
 /// in section writes as well as in syncs.
 fn len_of(i: u64) -> usize {
@@ -51,6 +48,18 @@ fn len_of(i: u64) -> usize {
 
 fn kind() -> Kind {
     Kind::new(0x8000_0000).unwrap()
+}
+
+/// Writes a new graph file at `path` with one section, `base`: under a temporary name,
+/// committed, then persisted.
+fn create_graph(path: &Path) {
+    let partial = path.with_extension("eg.partial");
+    let mut w = Writer::create(FileSink::create(&partial).unwrap()).unwrap();
+    w.add_section("base", kind(), &bytes(0, 10_000), None)
+        .unwrap();
+    w.commit().unwrap();
+    drop(w);
+    persist(&partial, path).unwrap();
 }
 
 /// Checks that `path` holds a valid container whose sections are `base` and `s1 …
@@ -103,14 +112,58 @@ fn a_file_sink_writes_in_place_extends_with_zeros_and_truncates() {
 }
 
 #[test]
+fn a_file_sink_holds_its_file_alone_in_the_process() {
+    let dir = scratch("alone");
+    let path = dir.join("f");
+    let link = dir.join("hard-link");
+    let sink = FileSink::create(&path).unwrap();
+    fs::hard_link(&path, &link).unwrap();
+    for target in [&path, &link] {
+        assert_eq!(
+            FileSink::open(target).unwrap_err().kind(),
+            ErrorKind::ResourceBusy
+        );
+        assert_eq!(
+            FileSink::create(target).unwrap_err().kind(),
+            ErrorKind::ResourceBusy
+        );
+        assert_eq!(
+            AppendSink::create(target).unwrap_err().kind(),
+            ErrorKind::ResourceBusy
+        );
+    }
+    drop(sink);
+    // And the other way round: no FileSink on a file another sink writes.
+    let append = AppendSink::create(&path).unwrap();
+    assert_eq!(
+        FileSink::open(&link).unwrap_err().kind(),
+        ErrorKind::ResourceBusy
+    );
+    drop(append);
+    FileSink::open(&link).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn persist_replaces_the_destination_whole() {
+    let dir = scratch("persist");
+    let (partial, destination) = (dir.join("g.eg.partial"), dir.join("g.eg"));
+    fs::write(&destination, b"old").unwrap();
+    fs::write(&partial, b"new graph").unwrap();
+    persist(&partial, &destination).unwrap();
+    assert_eq!(fs::read(&destination).unwrap(), b"new graph");
+    assert!(!partial.exists());
+    // A missing source changes nothing.
+    assert!(persist(&partial, &destination).is_err());
+    assert_eq!(fs::read(&destination).unwrap(), b"new graph");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_container_written_to_a_file_reads_back_through_every_source() {
     let dir = scratch("round-trip");
     let path = dir.join("g.eg");
-    let mut w = Writer::create(FileSink::create(&path).unwrap()).unwrap();
-    w.add_section("base", kind(), &bytes(0, 10_000), None)
-        .unwrap();
-    w.commit().unwrap();
-    drop(w);
+    create_graph(&path);
     // An update through a new sink on the same file.
     let mut w = Writer::update(FileSink::open(&path).unwrap()).unwrap();
     w.add_section("s1", kind(), &bytes(1, len_of(1)), None)
@@ -124,20 +177,15 @@ fn a_container_written_to_a_file_reads_back_through_every_source() {
     assert_eq!(section.as_slice().unwrap(), &bytes(0, 10_000)[..]);
     // While the file is mapped, this process cannot commit to it.
     let refused = FileSink::open(&path).unwrap_err();
-    assert_eq!(refused.kind(), std::io::ErrorKind::ResourceBusy);
+    assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
     drop(mapped);
     FileSink::open(&path).unwrap();
     fs::remove_dir_all(dir).unwrap();
 }
 
-/// The writer the parent kills: commits one section after another to the file named
-/// by `CHILD`, printing each generation once its commit has returned. A no-op unless
-/// `CHILD` is set.
-#[test]
-fn kill_child_writer() {
-    let Some(path) = std::env::var_os(CHILD) else {
-        return;
-    };
+/// The child of the kill test: commits one section after another to `path`, printing
+/// each generation once its commit has returned, until it is killed.
+fn child_writer(path: &Path) {
     let mut w = Writer::update(FileSink::open(path).unwrap()).unwrap();
     let mut out = std::io::stdout().lock();
     for i in w.generation()..100_000 {
@@ -155,23 +203,19 @@ fn kill_child_writer() {
 
 #[test]
 fn a_writer_killed_at_any_moment_leaves_a_valid_file_with_every_acknowledged_commit() {
+    // Run again by itself with `CHILD` set, this test is the writer that gets killed.
+    if let Some(path) = std::env::var_os(CHILD) {
+        child_writer(Path::new(&path));
+        return;
+    }
     let dir = scratch("kill");
     let rounds = 20;
     for round in 0..rounds {
         let path = dir.join(format!("g{round}.eg"));
-        let mut w = Writer::create(FileSink::create(&path).unwrap()).unwrap();
-        w.add_section("base", kind(), &bytes(0, 10_000), None)
-            .unwrap();
-        w.commit().unwrap();
-        drop(w);
+        create_graph(&path);
 
         let mut child = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "kill_child_writer",
-                "--nocapture",
-                "--test-threads=1",
-            ])
+            .args(["--exact", KILL_TEST, "--nocapture", "--test-threads=1"])
             .env(CHILD, &path)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

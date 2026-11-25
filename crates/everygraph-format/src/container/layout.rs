@@ -3,6 +3,8 @@
 //! The bytes of the header blocks and of the table of contents
 //! (`docs/spec/eg-container.md` § 2 and § 4). Pure functions: no I/O.
 
+use std::sync::Arc;
+
 use super::{
     BLOCK, Codec, ContainerError, Entry, HEADER_BYTES, Kind, MAX_NAME_BYTES, MAX_TOC_BYTES,
     MIN_PADDING,
@@ -17,7 +19,9 @@ pub(crate) const BYTE_ORDER: u32 = 0x0A0B_0C0D;
 pub const MAJOR: u16 = 1;
 /// The minor version this crate writes; it reads every minor of [`MAJOR`].
 pub const MINOR: u16 = 0;
-/// Required feature bits this crate understands (none are defined in 1.0).
+/// Required feature bits this crate understands: none. Bit 0,
+/// [`REQUIRED_SEGMENTS`](super::REQUIRED_SEGMENTS), is reserved and refused like any
+/// other until segments are built.
 pub(crate) const KNOWN_REQUIRED: u64 = 0;
 
 /// Bytes of a header block that carry fields; the rest of the block is zero.
@@ -97,26 +101,41 @@ fn hash32(b: &[u8], at: usize) -> [u8; 32] {
     b[at..at + 32].try_into().expect("32 bytes")
 }
 
+/// `0x0A0B0C0D` as a big-endian writer would have written it.
+const BYTE_ORDER_SWAPPED: u32 = 0x0D0C_0B0A;
+
 /// Decodes the first [`HEADER_USED`] bytes of header block `index`.
+///
+/// A block is foreign only when it says so exactly — the byte-swapped byte order, or a
+/// major version above ours — so that a first commit torn inside bytes 8 to 15 reads as
+/// torn, not as a file of another version.
 pub(crate) fn decode_header(b: &[u8], index: u32) -> Block {
     if b.len() < HEADER_USED || b[..8] != MAGIC {
         return Block::Absent;
     }
     // Bytes 0..16 mean the same in every version: magic, byte order, major, minor.
-    if u32_at(b, 8) != BYTE_ORDER {
+    let (order, major, minor) = (u32_at(b, 8), u16_at(b, 12), u16_at(b, 14));
+    if order == BYTE_ORDER_SWAPPED {
         return Block::Foreign(ContainerError::UnsupportedByteOrder);
     }
-    let (major, minor) = (u16_at(b, 12), u16_at(b, 14));
-    if major != MAJOR {
+    if order == BYTE_ORDER && major > MAJOR {
         return Block::Foreign(ContainerError::UnsupportedVersion { major, minor });
     }
-    if *blake3::hash(&b[..HEADER_HASHED]).as_bytes() != hash32(b, HEADER_HASHED) {
+    if order != BYTE_ORDER
+        || major != MAJOR
+        || *blake3::hash(&b[..HEADER_HASHED]).as_bytes() != hash32(b, HEADER_HASHED)
+    {
+        return Block::Torn;
+    }
+    let generation = u64_at(b, 24);
+    // Generation 0 is never written, and a block must say where it is.
+    if generation == 0 || u32_at(b, 16) != index {
         return Block::Torn;
     }
     Block::Valid(Header {
         block: index,
         minor,
-        generation: u64_at(b, 24),
+        generation,
         required: u64_at(b, 32),
         optional: u64_at(b, 40),
         toc_offset: u64_at(b, 48),
@@ -193,7 +212,10 @@ pub(crate) fn decode_toc(b: &[u8], toc_offset: u64) -> Result<Vec<Entry>, Contai
         ));
     }
     let names = &b[names_at..];
-    let mut raw = Vec::with_capacity(n);
+    // The name area is the names, concatenated in entry order: what a reader holds of
+    // the names is at most the table's own size.
+    let mut names_seen = 0usize;
+    let mut raw: Vec<(Entry, u32)> = Vec::with_capacity(n);
     for i in 0..n {
         let e = &b[TOC_HEADER + i * entry_size..][..ENTRY_V1];
         let kind = Kind::new(u32_at(e, 0)).ok_or(corrupt("an entry has kind 0"))?;
@@ -207,13 +229,26 @@ pub(crate) fn decode_toc(b: &[u8], toc_offset: u64) -> Result<Vec<Entry>, Contai
         if name_len == 0 || name_len > MAX_NAME_BYTES {
             return Err(corrupt("a section name is empty or longer than 1024 bytes"));
         }
-        let name = name_at
-            .checked_add(name_len)
-            .and_then(|end| names.get(name_at..end))
+        if name_at != names_seen {
+            return Err(corrupt(
+                "the name area is not the names concatenated in entry order",
+            ));
+        }
+        let name = names
+            .get(name_at..name_at + name_len)
             .ok_or(corrupt("a section name lies outside the name area"))?;
-        let name = std::str::from_utf8(name)
+        names_seen += name_len;
+        let name: Arc<str> = std::str::from_utf8(name)
             .map_err(|_| corrupt("a section name is not UTF-8"))?
-            .to_owned();
+            .into();
+        if raw.last().is_some_and(|(prev, _)| *prev.name >= *name) {
+            return Err(corrupt(
+                "section names are not unique and in increasing byte order",
+            ));
+        }
+        if kind == Kind::PROVENANCE && provenance != NO_PROVENANCE {
+            return Err(corrupt("a provenance record has a provenance reference"));
+        }
         if offset < HEADER_BYTES || !offset.is_multiple_of(BLOCK) {
             return Err(corrupt(
                 "a section does not start at a block boundary after the header",
@@ -240,9 +275,9 @@ pub(crate) fn decode_toc(b: &[u8], toc_offset: u64) -> Result<Vec<Entry>, Contai
             provenance,
         ));
     }
-    if raw.windows(2).any(|w| w[0].0.name >= w[1].0.name) {
+    if names_seen != names_len {
         return Err(corrupt(
-            "section names are not unique and in increasing byte order",
+            "the name area is not the names concatenated in entry order",
         ));
     }
     // Sections and their padding do not overlap.
@@ -254,25 +289,33 @@ pub(crate) fn decode_toc(b: &[u8], toc_offset: u64) -> Result<Vec<Entry>, Contai
             return Err(corrupt("two sections overlap"));
         }
     }
-    let mut entries = Vec::with_capacity(n);
-    for (i, (entry, provenance)) in raw.iter().enumerate() {
-        let mut entry = entry.clone();
-        if provenance != &NO_PROVENANCE {
-            let p = usize::try_from(*provenance).map_err(|_| corrupt("provenance index"))?;
-            let record = raw
-                .get(p)
-                .filter(|_| p != i)
-                .ok_or(corrupt("a provenance reference names no other entry"))?;
-            if record.0.kind != Kind::PROVENANCE {
-                return Err(corrupt(
-                    "a provenance reference names an entry that is not a provenance record",
-                ));
-            }
-            entry.provenance = Some(record.0.name.clone());
+    // Resolve provenance references; a reference shares the record's name.
+    let mut references = Vec::with_capacity(n);
+    for (i, (_, provenance)) in raw.iter().enumerate() {
+        if *provenance == NO_PROVENANCE {
+            references.push(None);
+            continue;
         }
-        entries.push(entry);
+        let p = usize::try_from(*provenance).map_err(|_| corrupt("provenance index"))?;
+        let record = raw
+            .get(p)
+            .filter(|_| p != i)
+            .ok_or(corrupt("a provenance reference names no other entry"))?;
+        if record.0.kind != Kind::PROVENANCE {
+            return Err(corrupt(
+                "a provenance reference names an entry that is not a provenance record",
+            ));
+        }
+        references.push(Some(Arc::clone(&record.0.name)));
     }
-    Ok(entries)
+    Ok(raw
+        .into_iter()
+        .zip(references)
+        .map(|((mut entry, _), provenance)| {
+            entry.provenance = provenance;
+            entry
+        })
+        .collect())
 }
 
 /// Encodes `entries` (sorted by name, provenance names among them) as a table of
@@ -283,7 +326,7 @@ pub(crate) fn encode_toc<'a>(
     let too_large = || ContainerError::TooLarge("the table of contents would exceed 16 MiB");
     let n = entries.len();
     // Entries are sorted by name, so a reference is found by binary search.
-    let names: Vec<&str> = entries.clone().map(|e| e.name.as_str()).collect();
+    let names: Vec<&str> = entries.clone().map(|e| &*e.name).collect();
     let index_of = |name: &str| {
         names
             .binary_search(&name)
@@ -306,7 +349,7 @@ pub(crate) fn encode_toc<'a>(
         let name_len = u32::try_from(e.name.len()).map_err(|_| too_large())?;
         let provenance = match &e.provenance {
             None => NO_PROVENANCE,
-            Some(p) => index_of(p).ok_or_else(|| ContainerError::NoSuchSection(p.clone()))?,
+            Some(p) => index_of(p).ok_or_else(|| ContainerError::NoSuchSection(p.to_string()))?,
         };
         b.extend_from_slice(&e.kind.code().to_le_bytes());
         b.extend_from_slice(&e.codec.code().to_le_bytes());
@@ -333,7 +376,7 @@ mod tests {
 
     fn entry(name: &str, offset: u64, len: u64) -> Entry {
         Entry {
-            name: name.to_owned(),
+            name: name.into(),
             kind: Kind::new(0x8000_0000).unwrap(),
             codec: Codec::NONE,
             offset,
@@ -386,6 +429,48 @@ mod tests {
             decode_header(&c, 1),
             Block::Foreign(ContainerError::UnsupportedByteOrder)
         ));
+        // Anything else in bytes 8..16 is a torn block, not a foreign file: a first
+        // commit torn after 9 to 15 bytes leaves a partial byte order or version.
+        for (at, value) in [(8, 0u8), (9, 0), (10, 0), (11, 0), (12, 0)] {
+            let mut c = b;
+            c[at] = value;
+            assert!(matches!(decode_header(&c, 1), Block::Torn), "byte {at}");
+        }
+        // Generation 0 and a block that is not where it says are not valid, even
+        // with a matching hash.
+        let zero = encode_header(&Header { generation: 0, ..h });
+        assert!(matches!(decode_header(&zero, 1), Block::Torn));
+        assert!(matches!(decode_header(&b, 0), Block::Torn));
+    }
+
+    #[test]
+    fn the_name_area_must_be_the_names_in_entry_order() {
+        let mut p = entry("p", 8192, 10);
+        p.kind = Kind::PROVENANCE;
+        let mut entries = [entry("ab", 12288, 1), entry("ac", 16384, 1), p];
+        entries[0].provenance = Some("p".into());
+        entries[1].provenance = Some("p".into());
+        let toc = encode_toc(entries.iter()).unwrap();
+        let decoded = decode_toc(&toc, 1 << 20).unwrap();
+        // What is held of the names is the name area once: references share it.
+        let record = &decoded[2].name;
+        assert!(
+            decoded[..2]
+                .iter()
+                .all(|e| Arc::ptr_eq(e.provenance.as_ref().unwrap(), record))
+        );
+        let held: usize = decoded.iter().map(|e| e.name.len()).sum();
+        assert!(held <= toc.len());
+
+        // Entry 1's name taken from entry 0's bytes (names that overlap).
+        let mut c = toc.clone();
+        c[TOC_HEADER + ENTRY_V1 + 56..TOC_HEADER + ENTRY_V1 + 60].fill(0);
+        assert!(decode_toc(&c, 1 << 20).is_err());
+        // Bytes in the name area that belong to no name.
+        let mut c = toc.clone();
+        c[16..24].copy_from_slice(&6u64.to_le_bytes());
+        c.push(b'z');
+        assert!(decode_toc(&c, 1 << 20).is_err());
     }
 
     #[test]
@@ -439,5 +524,12 @@ mod tests {
         let mut not_a_record = [entry("a", 8192, 1), entry("b", 12288, 1)];
         not_a_record[1].provenance = Some("a".into());
         assert!(decode_toc(&encode_toc(not_a_record.iter()).unwrap(), 1 << 20).is_err());
+        // A provenance record with a provenance of its own (which `compact` could not
+        // copy in an order that satisfies every reference, cycles included).
+        let mut records = [entry("p_a", 8192, 1), entry("p_b", 12288, 1)];
+        records[0].kind = Kind::PROVENANCE;
+        records[1].kind = Kind::PROVENANCE;
+        records[0].provenance = Some("p_b".into());
+        assert!(decode_toc(&encode_toc(records.iter()).unwrap(), 1 << 20).is_err());
     }
 }

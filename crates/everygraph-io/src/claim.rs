@@ -9,7 +9,10 @@
 //! processes cannot be stopped; writers in this one go through the sinks of this crate,
 //! and they register here. A file, identified by device and inode, is either mapped
 //! (any number of times) or open in a sink (any number of times), never both: whichever
-//! comes second is refused with [`io::ErrorKind::ResourceBusy`].
+//! comes second is refused with [`io::ErrorKind::ResourceBusy`]. A
+//! [`FileSink`](crate::FileSink) holds a file alone: no other sink of this process may
+//! open it while it does, nor it a file another sink holds (one writer at a time
+//! updates a container, `docs/spec/eg-container.md` § 11).
 //!
 //! Writes through `std::fs` directly are not seen; the `MmapSource` docs say so. On
 //! platforms without a device and inode (Windows), the guard does nothing; Windows
@@ -24,14 +27,19 @@ use std::sync::{Mutex, PoisonError};
 pub(crate) enum Use {
     Map,
     Write,
+    /// Writing, as the only sink of this process on the file (`FileSink`: one writer
+    /// at a time updates a container).
+    WriteAlone,
 }
 
-/// Device and inode, and how many maps and sinks hold the file.
+/// Device and inode, how many maps and sinks hold the file, and whether one sink
+/// holds it alone.
 #[derive(Debug)]
 struct Entry {
     id: (u64, u64),
     maps: usize,
     writers: usize,
+    alone: bool,
 }
 
 static CLAIMS: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
@@ -73,26 +81,39 @@ impl Claim {
                     id: key,
                     maps: 0,
                     writers: 0,
+                    alone: false,
                 });
                 claims.len() - 1
             }
         };
         let entry = &mut claims[index];
-        let (mine, other) = match used_for {
-            Use::Map => (&mut entry.maps, entry.writers),
-            Use::Write => (&mut entry.writers, entry.maps),
+        // A new entry has no use, so a refusal always leaves an entry that is held.
+        let refusal = match used_for {
+            Use::Map if entry.writers > 0 => {
+                Some("refused to map the file: a sink of this process is writing it")
+            }
+            Use::Write | Use::WriteAlone if entry.maps > 0 => {
+                Some("refused to write the file: a live MmapSource of this process maps it")
+            }
+            Use::Write if entry.alone => {
+                Some("refused to write the file: a FileSink of this process is updating it")
+            }
+            Use::WriteAlone if entry.writers > 0 => {
+                Some("refused to update the file: another sink of this process is writing it")
+            }
+            _ => None,
         };
-        // A new entry has neither use, so a refusal always leaves an entry that is held.
-        if other > 0 {
-            let message = match used_for {
-                Use::Map => "refused to map the file: a sink of this process is writing it",
-                Use::Write => {
-                    "refused to write the file: a live MmapSource of this process maps it"
-                }
-            };
+        if let Some(message) = refusal {
             return Err(io::Error::new(io::ErrorKind::ResourceBusy, message));
         }
-        *mine += 1;
+        match used_for {
+            Use::Map => entry.maps += 1,
+            Use::Write => entry.writers += 1,
+            Use::WriteAlone => {
+                entry.writers += 1;
+                entry.alone = true;
+            }
+        }
         Ok(Self { id, used_for })
     }
 }
@@ -106,6 +127,10 @@ impl Drop for Claim {
             match self.used_for {
                 Use::Map => entry.maps -= 1,
                 Use::Write => entry.writers -= 1,
+                Use::WriteAlone => {
+                    entry.writers -= 1;
+                    entry.alone = false;
+                }
             }
             if entry.maps == 0 && entry.writers == 0 {
                 claims.swap_remove(i);
