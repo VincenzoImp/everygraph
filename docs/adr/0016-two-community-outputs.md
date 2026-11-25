@@ -33,6 +33,20 @@ Idle, 16 threads, async Leiden unless noted (FINDINGS § B2 "Hierarchy for the m
   star-shaped. A fallback hierarchy made the layout's median edge-length ratio 3× worse
   (`lab/e-map/results/eval_lj_hcl_lpfallback.json`): hierarchy quality matters more than
   layout tuning.
+- **Friendster, 2026-11-25** (#15, FINDINGS § M1-01; idle; Louvain async, 1 iteration,
+  f32 weights, 32 threads;
+  `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`): the plain hierarchy has a parent with 18,723,769
+  children, and the lab layout was killed on it even with 56 GiB (rows 20–21). The capped
+  hierarchy (cap 64, ratio 3) has fan-out ≤ 64 on four of six levels, then 1,094 and 6,478
+  at the top; its Q is 0.5757 against 0.6038 plain (2.8 points; under 56 and 16 GiB; the
+  other capped repetition gave 0.5771). Capped coarsening shrinks slowly (level 1:
+  10.5 M communities against 1.16 M plain; capped Leiden's pass 3 still 1.42 B entries),
+  and with hierarchy output the prototype keeps every level's quotient graph in memory:
+  that kills the capped Leiden at 56 GiB (about 51.5 GiB of quotient graphs, arithmetic;
+  not tested without hierarchy output). Under 16 GiB both capped runs were killed in
+  pass-0 aggregation, while plain Louvain fit with 4.2 GiB (rows 9, 11–15). So the map
+  hierarchy cannot be had by capping during coarsening on a 16 GiB machine as the
+  prototype does it; shaping must be bounded in memory (#19, #63).
 - Known bug in the prototype: `--cap` is ignored after the first iteration (#19).
 - Not tested: recursive sub-clustering, nested resolution sweeps; any graph that is not
   social.

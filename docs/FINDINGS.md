@@ -6,8 +6,8 @@ Samsung 990 PRO NVMe, RTX 4090 unused by the pipelines). Datasets: com-LiveJourn
 (65.6M / 1.806B), twitter-2010 (41.7M / 1.468B arcs, directed).
 
 **Read this first.** Eight experiments ran concurrently on the same machine. Unless a
-number is marked *idle re-run* or belongs to § M1-13 (second-round experiment, idle machine,
-2026-11-25), it was taken under load (load average 20–40) and is
+number is marked *idle re-run* or belongs to § M1-13 or § M1-01 (second-round experiments,
+idle machine, 2026-11-25), it was taken under load (load average 20–40) and is
 pessimistic and noisy (±30% typical, more for 32-thread and cold-I/O runs). Relative
 orderings were stable. Extrapolations are marked as such. Code and raw results are in
 `~/graphlab/exp/<experiment>/`.
@@ -137,7 +137,13 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   the map; inter-continent distances mean little (top quotient graph nearly complete);
   edges become fog inside giant communities; thread scaling of layout is only 6–7×.
   Hierarchy quality matters more than layout tuning (fallback hierarchy: 3× worse).
-- Extrapolation to 1B edges (not measured): layout 2–4 min, ~20 GB RAM; 9–13 GB of tiles.
+- Extrapolation to 1B edges, made before it was measured: layout 2–4 min, ~20 GB RAM;
+  9–13 GB of tiles. *Corrected 2026-11-25 with the measurement (§ M1-01; Friendster, 1.8 B
+  edges, 32 threads, idle, map-shaped Louvain hierarchy, uncompressed CSR in the heap, 56 GiB
+  limit):* layout 69.6 s with 17.7 GiB anonymous; tiles 244.5 s with 29.1 GiB anonymous,
+  a 6.84 GB file (`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`, rows 22–23
+  and 29). Under 16 GiB the layout needs the graph memory-mapped (405.1 s) and the tiles do
+  not finish.
 - Needed for readable edges: distance-adaptive aggregation, on-demand ego edges from a
   per-node adjacency index, hub suppression, bundling along the hierarchy.
 
@@ -326,7 +332,14 @@ is the level-1 quotient graph (22–44% of input entries). Friendster: Leiden in
 iteration at 16 threads takes 82.4 s on raw arrays and 82.0 s on the compressed default
 (one repetition each, Q 0.6050 / 0.6008; § M1-13, `leiden_big.jsonl`). The two times are
 not comparable with each other as a speed-up: different thread count and machine state. Louvain under a hard 16 GiB limit completes in 109.6 s with 3.8 GiB anonymous, but
-the partition is poor (Q 0.4647, undiagnosed). Scaled-down semi-external test (orkut,
+the partition is poor (Q 0.4647, undiagnosed). *Not reproduced (2026-11-25, § M1-01, idle):*
+plain Louvain under 16 GiB again (async, 1 iteration, f32 weights, `--lowmem`, 32 threads,
+as here; this time on an idle machine and with level compaction `--min-ratio 3`) gave
+Q 0.6038 with 33,306 communities, the largest 19.8 M nodes, against 35,682 and 33.4 M here
+(`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` row 15;
+`lab/m1-01-tracer/results/b2_louvain_plain_16G.json`;
+`lab/b2-leiden/results/big/friendster_louvain_semiext16g.json`). One run each, cause not
+diagnosed (#17). Scaled-down semi-external test (orkut,
 limit ≈ edge array): 5.6× slower; below it, 51× slower or OOM. **Semi-external community
 detection is not yet a product feature:** aggregation needs a sequential sort/bucket
 implementation and the level-1 graph must be budgeted or spilled.
@@ -810,3 +823,147 @@ but complicate random access (not tested).
   discarded attempt; 1-thread and bandwidth-bound runs are the most sensitive, which is why
   the gate counts foreign CPU before every row.
 - Every "why" beyond the perf counters is inference.
+
+## M1-01 — tracer bullet: Friendster text to map under 16 GiB (#15; 2026-11-25, idle machine)
+
+**Question.** Does the chain text → CSR → communities → hierarchy → layout → tiles → viewer
+complete on com-Friendster (65.6 M nodes, 1.8 B edges) inside a hard 16 GiB limit, and what
+does each stage cost? **No.** Under 56 GiB it completes, but only with the map-shaped
+Louvain hierarchy: the map-shaped Leiden is killed at 56 GiB too.
+
+**Setup.** One official run of `bench/specs/tracer.toml` through the benchmark harness,
+revision `3e764d1`, 2026-11-25 12:26–14:36 UTC:
+`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` ("row N" below is line N of
+that file). The gate saw a 1-minute load of 0.85 and 59.2 GiB available; other processes
+used at most 0.40 cores during any row (gate 0.5); the per-row load average of 12–32 at
+start is the run's own previous stage. Verification, screenshots, the lab tools' own
+reports and the failure logs are in `lab/m1-01-tracer/results/`; bare file names below are
+relative to it.
+
+- *Tools:* the lab binaries glued by `lab/m1-01-tracer/tracer.py`, no new algorithms: glab
+  ingest; b2 Leiden or Louvain, async, 1 iteration, f32 quotient weights, `--lowmem
+  --no-populate`, CSR memory-mapped; gmap layout and tiles; the lab viewer in headless
+  Chromium on the RTX 4090 through ANGLE, 1600×1000.
+- *Conditions:* 32 threads (viewer 1); inputs evicted from the page cache before each stage;
+  uncompressed CSR (`glab-csr-v0`); no `fsync`. Each stage in its own scope with
+  `MemoryMax=16G` and again with `56G`, `MemorySwapMax=0`.
+- *Map-shaped* is experiment E's hierarchy setting, `--cap 64 --max-passes 20 --min-ratio 3`
+  (fan-out cap 64, levels kept only if they shrink 3×); *plain* is `--min-ratio 3` alone.
+- *Numbers:* times are the harness's primary metric (the tool's own seconds), median of the
+  repetitions shown. "anon" is the sampled anonymous peak of the scope. The cgroup peak
+  (`memory.peak`, page cache included) reads 16.0 or 56.0 GiB whenever a stage sits at its
+  limit, so it is given only where it is lower. Memory in GiB, disk in GB (10^9).
+
+| stage | 16 GiB | 56 GiB |
+|---|---|---|
+| ingest, text | budget 8 GB: ok, 52.3 s (51.9–59.1, 3 reps after a warm-up), anon 3.6 GiB, disk peak 40.4 GB, CSR 15.5 GB (rows 1–3) | budget 32 GB: ok, 30.7 s (27.5–32.6), cgroup peak 28.0 GiB, anon 13.2 GiB, disk peak 30.1 GB (rows 4–6) |
+| ingest from .gz (pigz pipe) | budget 8 GB: ok, 103.8 s (102.7–105.0, 2 reps), anon 3.6 GiB (rows 7–8) | not run |
+| Leiden, map-shaped | killed at 460.5 s in pass-0 aggregation, anon 15.9 GiB, 1.80 TB read (row 9) | killed in the warm-up at 117.3 s, after pass 4, anon 55.8 GiB (row 10 only says "failed"; the measurement is in `logs/communities-leiden-56G.warmup1.measure.json`) |
+| Louvain, map-shaped | killed at 648.7 and 648.2 s (2 of 2) in pass-0 aggregation, anon 15.9 GiB, 2.72–2.74 TB read (rows 11–12) | ok, 110.7 s (110.6–110.8, 2 reps), anon 42.9 GiB (b2's own 28.3 GiB before the hierarchy write), 42.5 GB written, Q 0.5771 and 0.5757 (80 and 52 top communities; the chain used the second) (rows 13–14) |
+| Louvain, plain | ok, 115.1 s, anon 4.2 GiB, 0.46 GB written, Q 0.6038, 33,306 communities, fan-out up to 18.7 M (row 15) | not run |
+| layout, plain-Louvain hierarchy | killed: graph in heap at 27.0 s (row 16); graph mmapped at 74.1 s, during depth 3 (row 17) | killed at 93.2 and 89.1 s during depth 3, anon 55.8 GiB (rows 20–21) |
+| layout, map-shaped Louvain hierarchy | graph in heap: killed at 15.7 s (row 18); graph mmapped: ok, 405.1 s, anon 3.7 GiB, 733 GB read, 1.99 GB written (row 19) | ok, 69.6 s (69.5–69.8, 2 reps), cgroup peak 33.3 GiB, anon 17.7 GiB, 1.99 GB (rows 22–23) |
+| tiles, same hierarchy | graph in heap: killed at 13.2 s (row 26); graph mmapped: cut by the 60-minute timeout after zoom levels 0–10 of 0–11, anon 13.9 GiB (row 27) | ok, 244.5 s (1 rep after a warm-up), cgroup peak 51.7 GiB, anon 29.1 GiB, 6.84 GB file, 847,925 tiles, zmax 11 (row 29) |
+| tiles and viewer, plain-Louvain chain | no input, no layout exists (rows 24, 25, 30) | no input (row 28) |
+| viewer, on the 56 GiB tile file | ok, 18.2 s, anon 1.9 GiB; first view 163,184 B in 18 requests; session 5,624,158 B in 577 requests; cold search 289,056 B in 2 requests (row 31) | – |
+
+Verification (`lab/m1-01-tracer/results/verify_friendster.json`): the three ingest outputs
+(8 GB text, 8 GB gzip, 32 GB text) are byte-identical to the reference CSR
+`data/csr/friendster`. On Friendster, byte identity between the graph in the heap and
+memory-mapped is shown for the layout only (16 GiB mmap against 56 GiB heap, same SHA-256 of
+positions and tree nodes). Only one tile file exists (the 16 GiB one did not finish), so
+the file's "identical across variants" for tiles compared it with nothing. The independent
+review of the lab PR (#138) found layout and tile file byte-identical between heap and mmap
+on lj (map-shaped Louvain, 8 threads), not on Friendster.
+
+- **The 16 GiB claim fails at community detection.** Leiden and the map-shaped Louvain are
+  killed in the first aggregation, after the local moves (and Leiden's refinement) have
+  finished: Leiden's pass 0 took 65.6 M nodes to 20.9 M communities in 37.8 s of moves and
+  6.3 s of refinement, Louvain's to 10.5 M
+  (`logs/communities-leiden-16g__graph-friendster__t32.rep1.err.tail`,
+  `logs/communities-louvain__graph-friendster__limit-16G__t32.rep1.err.tail`). Anonymous
+  memory reached the limit while the 15 GB mapped graph was being re-read: 1.80 TB read by
+  Leiden, 2.72–2.74 TB by Louvain (rows 9, 11–12). Leiden's level-1 quotient graph alone is
+  about 22 GB (arithmetic: 2.77 B entries × 8 B, from the 56 GiB warm-up log).
+- **The partition that fits cannot be drawn.** Plain Louvain fits (4.2 GiB anonymous;
+  aggregation 74.6 s of b2's 104.3 s, `b2_louvain_plain_16G.json`), but its hierarchy has a
+  parent with 18,723,769 children, the largest community 19.8 M nodes and 62 disconnected
+  communities. The lab layout builds an unbounded map over the sibling pairs of any parent
+  with more than 384 children (code, per the review of #138), and it was killed during
+  depth 3 even at 56 GiB (rows 20–21); that the 18.7 M-child parent is the one it died on
+  is inference (the log shows depths 0–2 completing).
+- **Capped coarsening shrinks slowly, and the prototype keeps every level.** Under the
+  fan-out cap, level 1 has 10.5 M communities against plain Louvain's 1.16 M, and the capped
+  Leiden's pass 3 still has 1.42 B entries (pass 4: 0.70 B; warm-up log). With `--out-hier`,
+  b2 keeps every level's quotient graph in memory (`keep_graphs` in
+  `lab/b2-leiden/src/main.rs`); that is what kills the capped Leiden at 56 GiB: about
+  51.5 GiB of quotient graphs (arithmetic: 2.77 + 2.03 + 1.42 + 0.70 B entries × 8 B; not
+  tested without `--out-hier`). The capped Louvain completes at 56 GiB with a scope
+  anonymous peak of 42.9 GiB (rows 13–14), but b2's own anonymous peak, recorded before it
+  writes the hierarchy, is 28.3 GiB (`b2_louvain_capped_56G.json`); the difference is most
+  likely the writer's transient f64 copy of the quotient weights (the level-1 quotient has
+  2.14 B entries, about 16 GiB as f64; inference from the code and these numbers, by the
+  review of #138). Plain Louvain: 4.2 GiB at 16 GiB (row 15; b2's own figure 3.7 GiB). The
+  capped Louvain writes 42.5 GB of hierarchy, 2.7× the CSR; about two thirds of that is the
+  f64 weights of the quotient graphs (arithmetic: 3.49 B quotient entries over passes 1–8
+  × 8 B = 27.9 GB), which neither the layout nor the tiles read (gmap reads only the
+  `level_k.u32` parent maps). **No Leiden map exists at Friendster scale yet.**
+- **With a map-shaped hierarchy, layout fits 16 GiB** if the graph is memory-mapped rather
+  than loaded into the heap (the graph alone is 13.9 GiB of heap, arithmetic: 3.61 B
+  4-byte targets and 65.6 M 8-byte offsets): 3.7 GiB anonymous, at 5.8× the time (405.1
+  against 69.6 s at 56 GiB, arithmetic), re-reading 733 GB. These mmap figures are with
+  the kernel's default readahead: gmap makes no `madvise` call, and `MADV_RANDOM` was not
+  tried. The map-shaped hierarchy (Q 0.5757; levels 10,511,685 / 1,332,441 / 239,714 /
+  69,440 / 13,413 / 52; fan-out ≤ 64 on the four lower levels, then up to 1,094 and 6,478;
+  largest community 17.7 M nodes; 25 disconnected) gives 11,346,253 tree nodes, 731
+  derived regions and depth 8 (`layout_unl_56G.json`). It is the only map produced.
+- **The tile builder does not fit 16 GiB.** It keeps every tile in RAM (gzip bytes, about
+  2.55 GB through zoom 10 by the log's per-level sizes) and, per zoom level, a working state
+  (candidate sets, per-tile hash maps, positions, order) that is most of the rest: 13.9 GiB
+  anonymous together, leaving about 2 GiB of the 16 GiB for page cache. Each zoom level
+  re-read the graph, 68–211 s per level for zoom 0–4 and 278–491 s for zoom 5–10, against
+  7.1–32.5 s per level at 56 GiB
+  (`logs/tiles-16g__chain-unl__graph-friendster__load-mmap__t32.rep1.err.tail`,
+  `tiles_unl_56G.json`). At 56 GiB: 5.79 GB of gzip tiles plus a 1.05 GB search index;
+  tile median 6.8 KB gzip, maximum 32.8 KB; 7.4% of edge weight shown at the deepest zoom.
+- **Slowdown 16 GiB against 56 GiB, same input** (arithmetic on the medians): ingest 1.70×
+  (52.3 against 30.7 s), not like for like: the budgets differ, 8 GB and 32 GB; layout 5.8×
+  (mmap against heap); tiles at least 14.7× and unfinished.
+- **Unlimited, the chain takes 455.5 s of stage time** (30.7 + 110.7 + 69.6 + 244.5,
+  arithmetic on the medians, Louvain hierarchy, viewer excluded) and writes 66.9 GB: CSR
+  15.5, hierarchy 42.5, layout 2.0, tiles 6.84 (rows 6, 14, 23, 29), plus the 32.4 GB text
+  input (`text_bytes` in `lab/b1-core/results/ingest.jsonl`). The ingest work directory
+  peaks at 30.1 GB with a 32 GB budget and 40.4 GB with 8 GB, the 15.5 GB output included.
+  The whole store of the run (three CSR variants, two hierarchies, two layouts, one tile
+  file) was 100.3 GB.
+- **The viewer reads well** (screenshots at zoom 1.9 / 4.52 / 7.14 / 9.37 / 11.6 and after a
+  search, `lab/m1-01-tracer/results/viewer/`; the experimenter's visual judgment):
+  continents of 1–18 M nodes with exact counts, node-level edges inside 64-node
+  communities. Fly-to steps cost 0.93–1.47 MB; a pan at node level 0 B. Frames 16.67 ms
+  mean, none over 33 ms: vsync-capped, so this shows no dropped frames, not headroom
+  (`viewer/viewer.json`). The first view, 163,184 B, is under DESIGN § 6's 250 KB. The
+  header shows the store directory "csr.16G-b8" as the graph name (cosmetic).
+- **Against the § E extrapolations** (layout 2–4 min and ~20 GB; 9–13 GB of tiles): the
+  layout took 69.6 s with 17.7 GiB anonymous and the tiles 244.5 s for a 6.84 GB file, on
+  this hierarchy, with 56 GiB. § E is corrected in place.
+- **The § B2 Louvain figure was not reproduced:** plain Louvain under 16 GiB gave Q 0.6038
+  here against 0.4647 (one run each, not diagnosed; § B2 is annotated). This run's passes
+  1–3 converged in 6, 3 and 7 iterations; in the § B2 run passes 1–4 each hit the
+  20-iteration cap (`b2_louvain_plain_16G.json`,
+  `lab/b2-leiden/results/big/friendster_louvain_semiext16g.json`).
+- **The two map-shaped Louvain repetitions differ** (async): Q 0.5771 with 80 top
+  communities (row 13) and 0.5757 with 52 (row 14). The map used the second.
+
+**Harness defects** (follow-up to #4; confirmed from the harness code by the review of
+#138): a failed warm-up writes a generic "failed" row without its measurement (row 10), so
+the Leiden 56 GiB peaks exist only in a log file; on a timeout the harness kills every
+process of the scope at once, and its `/proc/self/io` counts only descendants it has
+reaped, so row 27 records `read_bytes` 86,016, its own page-fault reads count as others'
+storage traffic (3,211 MB/s) and the row is wrongly marked disturbed.
+
+**Not measured.** A Leiden hierarchy under any limit (plain Leiden with hierarchy output,
+which fits 34 GiB without it, was not in the spec); layout and tiles on a Leiden hierarchy;
+ingest under 16 GiB with a budget other than 8 GB; tiles under 16 GiB to completion;
+deterministic or multi-iteration Leiden; the compressed default storage (the lab binaries
+read raw CSR); `fsync`; frame-time headroom (vsync-capped); a viewer without a GPU.
+Repetitions: 1 for the expected-OOM cases and for tiles, 2 for communities and layout.

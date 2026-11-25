@@ -42,6 +42,26 @@ O(n) state, not by the size of the graph. A memory accountant backs the no-OOM g
   with 3.8 GiB anonymous but Q 0.4647 against Leiden's 0.6033. On orkut with a limit near
   the edge-array size, Leiden ran 5.7× slower (23.8 vs 4.2 s, 6 threads); below it,
   Louvain ran 51× slower (163.9 vs 3.2 s) or was killed.
+- **Measured end to end, 2026-11-25** (#15, FINDINGS § M1-01; idle; Friendster, lab
+  binaries, 32 threads, f32 quotient weights, uncompressed CSR memory-mapped;
+  `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`):
+  - Under 16 GiB, Leiden and fan-out-capped Louvain are killed in pass-0 aggregation, after
+    the local moves, while re-reading the mapped graph (1.80 TB and 2.72–2.74 TB read;
+    rows 9, 11–12). The level-1 graph is the term that does not fit, as above.
+  - Plain Louvain under 16 GiB finished in 115.1 s with 4.2 GiB anonymous and Q 0.6038
+    (row 15): the Q 0.4647 above was not reproduced (one run each, not diagnosed, #17).
+  - With hierarchy output the prototype keeps every level's quotient graph in memory: the
+    capped Leiden was killed at 56 GiB (about 51.5 GiB of quotient graphs by arithmetic;
+    not tested without hierarchy output). The capped Louvain completed with a 42.9 GiB
+    anonymous peak (rows 13–14), 28.3 GiB before writing the hierarchy; the rest is most
+    likely the writer's transient f64 copy of the weights (inference, review of #15's lab
+    PR).
+  - The map stages follow the regime rule only when their graph is not in the heap: the
+    layout fits 16 GiB with the graph memory-mapped (3.7 GiB anonymous) at 5.8× its time
+    with 56 GiB, re-reading 733 GB with default readahead (rows 19, 22–23); the tile
+    builder, which keeps every tile and each zoom level's working state in RAM, did not
+    finish in 60 minutes (row 27).
+  None of this is #16's experiment, so "What would change our mind" has not fired.
 
 So the rule is measured for PageRank and components on one graph (Friendster). It is not
 valid for community detection, whose memory is set by an intermediate graph.
@@ -51,7 +71,8 @@ valid for community detection, whose memory is set by an intermediate graph.
 - The planner (#45) sizes the O(n) state per kernel and refuses with the minimum budget
   when it does not fit; the semi-external source is #46; the no-OOM matrix is #53.
 - For community detection the planner must also estimate the level-1 graph (22–44% of
-  input entries in the lab) — part of #60.
+  input entries in the lab) — part of #60 — and, for the map hierarchy, every level's
+  quotient graph unless they are streamed to disk (#62; added 2026-11-25 from #15).
 - The documentation says plainly that out of core costs about one read of the graph per
   pass: small for PageRank, 10× for components on Friendster.
 

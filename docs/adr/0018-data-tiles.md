@@ -36,6 +36,17 @@ load; `lab/e-map/results/tiles_lj_t32.json`, `lab/e-map/results/tiles_orkut_t32.
   undrawn at the deepest zoom on lj, 90% on orkut (DESIGN § 5, item 3).
 - **Not measured**: live mode; Firefox and Safari; integrated GPUs; any graph above
   117 M edges. At 10^9 edges, 9–13 GB of tiles is an extrapolation (FINDINGS § E).
+- **Friendster, measured 2026-11-25** (#15, FINDINGS § M1-01; idle; 1.8 B edges, 32
+  threads, capped Louvain hierarchy;
+  `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`), replacing that extrapolation: 847,925 tiles,
+  zmax 11, a 6.84 GB file (5.79 GB of gzip tiles, 1.05 GB search index), tile median
+  6.8 KB and maximum 32.8 KB gzip, built in 244.5 s with 29.1 GiB anonymous under 56 GiB
+  (row 29). Under 16 GiB the builder, which keeps every tile and each zoom level's
+  working state in RAM (13.9 GiB anonymous), was cut by the 60-minute timeout before the
+  last zoom level (row 27; #69). Viewer on the RTX 4090
+  (row 31): first view 163,184 B in 18 requests, a zoom-to-node session 5,624,158 B in 577
+  requests, cold search 289,056 B in 2 requests; frames vsync-capped at 16.67 ms. 7.4% of
+  edge weight is drawn at the deepest zoom.
 
 ## Consequences
 
@@ -48,7 +59,8 @@ load; `lab/e-map/results/tiles_lj_t32.json`, `lab/e-map/results/tiles_orkut_t32.
 
 - #26 shows integrated GPUs cannot hold 30 fps with data tiles under any per-frame cap,
   so an overview of pre-rendered pixels becomes necessary.
-- #15 measures a first view above 250 KB on Friendster.
+- #15 measures a first view above 250 KB on Friendster. *(2026-11-25: it measured
+  163,184 B; this did not fire.)*
 
 ## Closed by
 
