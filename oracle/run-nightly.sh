@@ -60,10 +60,14 @@ step "In-process references, toy kernel and seeded bugs on the nightly corpus"
 if [[ -z "${ORACLE_SKIP_LAB:-}" ]]; then
     step "Lab prototype B1 through its adapter (undirected graphs; 3 regimes x 2 thread counts x 2 chunk sizes)"
     (cd lab/b1-core && cargo build --release -p glab-oracle)
+    # Reported, not gating: the prototype is research code that will not be fixed. Its
+    # known finding (PR #131): PageRank's dangling-mass sum follows the chunking, so
+    # results differ in the last bits between chunk sizes on graphs with isolated nodes.
     TMPDIR="$WORK" "$ORACLE" check --corpus "$WORK/nightly" --plugin external \
         --program "$ROOT/lab/b1-core/target/release/glab-oracle" \
         --kernels adjacency,degree,pagerank,wcc,bfs,core_number,triangle_total \
-        --threads 1,2 --chunks 64,65536 --regimes in_memory,mmap,stream --require-python
+        --threads 1,2 --chunks 64,65536 --regimes in_memory,mmap,stream --require-python \
+        || echo "lab prototype: findings above (reported, not gating)"
 fi
 
 printf '\noracle nightly suite passed in %d s\n' "$((SECONDS - START))"

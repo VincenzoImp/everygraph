@@ -301,3 +301,9 @@ a different rounding when the chunk size changes, and with it when the storage b
 changes. The toy's first version did this, and the harness flagged it at once. The fixed
 version reduces over blocks of a constant number of nodes. Production kernels will meet
 the same trap whenever raw and compressed storage cut lists differently.
+
+The lab prototype falls into it too. On the nightly tier its PageRank differs bit-wise
+between chunk sizes 64 and 65,536 on 56 graphs with isolated nodes: its dangling-mass
+sum follows the chunks. Threads and regimes do not change it, and every other lab kernel
+is bit-identical in every configuration. `run-nightly.sh` reports the prototype's
+findings without failing on them.
