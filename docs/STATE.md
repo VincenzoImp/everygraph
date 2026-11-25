@@ -22,7 +22,8 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 - **#34 id dictionary**: code merged (PR #158, both review rounds answered: short-record panic fixed, refusal threshold now independent of threads and runs, tested at 1/16/128 threads). Issue stays open until the official run is recorded; a detached script on main prepares the data and waits for an idle machine (log `/home/tux/graphlab/scratch/window-ids.log`).
 - **State-of-the-art review** (owner's request, 2026-11-25): six researchers read the literature of each area in full text (storage and ordering, I/O and memory, kernels and determinism, communities and hierarchy, maps, ingest/format/query) plus one verifying a list of out-of-core systems; PDFs kept in `/home/tux/graphlab/papers/`, reports to `docs/research/sota-*.md`. Then the coordinator cross-checks every decision and turns what survives an A/B test into ADRs and issues. Until then #35 (CSR build), layout and tiles stay unstarted, so the review can still change them.
 - **#19 hierarchy shaping** (PR #162): review found rounds not independent per region; experimenter fixing and re-measuring; official run after.
-- **#44 edge-map framework** (hard list, Opus high) and **#28 .eg container** (Opus high): started.
+- **#44 edge-map framework** (hard list, Opus high): in development.
+- **#28 .eg container** (PR #170): spec v1.0, crash-injection and real `kill -9` tests, stdlib Python reader, ADR 0027 (one file in every state); Tier 2 review running. Follow-ups proposed: range maps in `MmapSource` (commit to a mapped graph), single-writer lock (needs Rust 1.89), parallel hashing.
 
 ## Measurement queue (official runs, batched into one window)
 
