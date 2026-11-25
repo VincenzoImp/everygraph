@@ -7,7 +7,7 @@ labels: type:feature, area:algorithms, P0, risk:low, size:M, lab-evidence
 - [ ] Pull-based PageRank on undirected and directed graphs (uses in-adjacency), damping, dangling-mass handling, max iterations and tolerance
 - [ ] Weighted and personalized variants (single source and seed set)
 - [ ] f32 and f64 state (f32 is ~10–15% faster and halves the state; lab: 0.37 vs 0.43 s on orkut; on the default storage 0.27 / 0.31 s at 16 threads on orkut (#118))
-- [ ] Deterministic summation order via the framework's fixed chunking
+- [ ] Deterministic summation order: every reduction (the rank sums, and the dangling mass in particular) runs over fixed reduction blocks defined by node ranges, independent of the scan's chunk size, the thread count and the storage format (raw or compressed). The oracle found that the lab prototype's dangling-mass sum follows the chunking: on 56 nightly graphs with isolated nodes its bits differ between chunks of 64 and 65,536 (PR #131)
 - [ ] Convergence semantics documented against NetworkX and igraph (NetworkX compares L1 error with `N·tol`, which stops after one iteration for N > 2 M — a trap the NetworkX backend must reproduce, the native API must not)
 - [ ] Returns an Arrow column aligned with node ids; top-k helper
 
