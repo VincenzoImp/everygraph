@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The SIMD record decoders — SSSE3 on x86-64, NEON on AArch64, `simd128` on wasm32 —
+//! The SIMD record decoders — SSSE3 on x86 and x86-64, NEON on AArch64, `simd128` on wasm32 —
 //! and [`Decoder`], the only way to reach them.
 //!
 //! **Why safe code is not enough.** Stream VByte decodes four words with one byte
@@ -28,11 +28,7 @@
 //! primitives of [`Lanes`]. The loop is `#[inline(always)]` and the primitives are small,
 //! so both are inlined into the feature-enabled batch loop (checked in the disassembly:
 //! no call per list).
-//!
-//! Lints: on Rust 1.85 (the MSRV) the value intrinsics are `unsafe fn`s; from 1.87 on
-//! they are safe inside a function compiled for their feature, and the blocks around
-//! them are "unused" there.
-#![allow(unsafe_code, unused_unsafe)]
+#![allow(unsafe_code)]
 
 use super::DecodeError;
 use super::decode::{self, Done, Job};
@@ -41,15 +37,15 @@ use super::svb::{self, Corrupt};
 /// Which record decoder runs. All of them return the same bytes; the SIMD ones are
 /// faster. A SIMD decoder can only be obtained where it can run: through
 /// [`best`](Self::best) or [`available`](Self::available), which detect the CPU's
-/// features at run time on x86-64 (SSSE3) and AArch64 (NEON); on wasm32 the `simd128`
-/// decoder exists when the crate is compiled with that target feature.
+/// features at run time on x86 and x86-64 (SSSE3) and on AArch64 (NEON); on wasm32 the
+/// `simd128` decoder exists when the crate is compiled with that target feature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Decoder(Kind);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Scalar,
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     Ssse3,
     #[cfg(target_arch = "aarch64")]
     Neon,
@@ -72,7 +68,7 @@ impl Decoder {
     pub fn available() -> Vec<Self> {
         #[allow(unused_mut, reason = "only targets with a SIMD decoder push")]
         let mut all = vec![Self::SCALAR];
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if std::arch::is_x86_feature_detected!("ssse3") {
             all.push(Self(Kind::Ssse3));
         }
@@ -90,7 +86,7 @@ impl Decoder {
     pub fn name(self) -> &'static str {
         match self.0 {
             Kind::Scalar => "scalar",
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Kind::Ssse3 => "ssse3",
             #[cfg(target_arch = "aarch64")]
             Kind::Neon => "neon",
@@ -110,7 +106,7 @@ impl Decoder {
     ) -> Result<usize, Corrupt> {
         match self.0 {
             Kind::Scalar => svb::decode(bytes, v, total, k, out),
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             // SAFETY: a decoder of this kind is only made after SSSE3 was detected.
             Kind::Ssse3 => unsafe { x86::decode(bytes, v, total, k, out) },
             #[cfg(target_arch = "aarch64")]
@@ -131,7 +127,7 @@ impl Decoder {
     ) -> Result<Done, DecodeError> {
         match self.0 {
             Kind::Scalar => decode::run(svb::decode, job, out, ends),
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             // SAFETY: a decoder of this kind is only made after SSSE3 was detected.
             Kind::Ssse3 => unsafe { x86::run(job, out, ends) },
             #[cfg(target_arch = "aarch64")]
@@ -154,11 +150,12 @@ impl Decoder {
 /// besides the bounds stated on `load` and `store`.
 #[cfg_attr(
     not(any(
+        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         all(target_arch = "wasm32", target_feature = "simd128")
     )),
-    expect(dead_code, reason = "no SIMD decoder on this target")
+    allow(dead_code, reason = "no SIMD decoder on this target")
 )]
 trait Lanes {
     /// Four 32-bit lanes.
@@ -186,11 +183,12 @@ trait Lanes {
 #[inline(always)]
 #[cfg_attr(
     not(any(
+        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         all(target_arch = "wasm32", target_feature = "simd128")
     )),
-    expect(dead_code, reason = "no SIMD decoder on this target")
+    allow(dead_code, reason = "no SIMD decoder on this target")
 )]
 unsafe fn decode_with<L: Lanes>(
     bytes: &[u8],
@@ -239,11 +237,12 @@ unsafe fn decode_with<L: Lanes>(
 /// 0x80 marks a zero byte (`pshufb`, `tbl` and `swizzle` all give 0 for it).
 #[cfg_attr(
     not(any(
+        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         all(target_arch = "wasm32", target_feature = "simd128")
     )),
-    expect(dead_code, reason = "no SIMD decoder on this target")
+    allow(dead_code, reason = "no SIMD decoder on this target")
 )]
 static SHUFFLE: [[u8; 16]; 256] = {
     let mut t = [[0x80u8; 16]; 256];
@@ -271,11 +270,12 @@ static SHUFFLE: [[u8; 16]; 256] = {
 #[inline]
 #[cfg_attr(
     not(any(
+        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         all(target_arch = "wasm32", target_feature = "simd128")
     )),
-    expect(dead_code, reason = "no SIMD decoder on this target")
+    allow(dead_code, reason = "no SIMD decoder on this target")
 )]
 fn simd_groups(k: usize, out_len: usize) -> usize {
     if out_len >= k.div_ceil(4) * 4 {
@@ -285,8 +285,14 @@ fn simd_groups(k: usize, out_len: usize) -> usize {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod x86 {
+    #[cfg(target_arch = "x86")]
+    use core::arch::x86::{
+        __m128i, _mm_add_epi32, _mm_cvtsi128_si32, _mm_loadu_si128, _mm_set1_epi32,
+        _mm_shuffle_epi8, _mm_shuffle_epi32, _mm_slli_si128, _mm_storeu_si128,
+    };
+    #[cfg(target_arch = "x86_64")]
     use core::arch::x86_64::{
         __m128i, _mm_add_epi32, _mm_cvtsi128_si32, _mm_loadu_si128, _mm_set1_epi32,
         _mm_shuffle_epi8, _mm_shuffle_epi32, _mm_slli_si128, _mm_storeu_si128,
@@ -303,8 +309,7 @@ mod x86 {
         #[inline]
         #[expect(clippy::cast_possible_wrap, reason = "the bits are what matters")]
         unsafe fn splat(x: u32) -> __m128i {
-            // SAFETY: value intrinsic; the feature is enabled here.
-            unsafe { _mm_set1_epi32(x as i32) }
+            _mm_set1_epi32(x as i32)
         }
 
         #[target_feature(enable = "ssse3")]
@@ -323,19 +328,12 @@ mod x86 {
 
         #[target_feature(enable = "ssse3")]
         #[inline]
-        #[allow(
-            clippy::multiple_unsafe_ops_per_block,
-            reason = "value intrinsics, whose one condition is the feature"
-        )]
         unsafe fn group(data: __m128i, mask: __m128i, prev: __m128i) -> (__m128i, __m128i) {
-            // SAFETY: value intrinsics only, no memory access; the feature is enabled here.
-            unsafe {
-                let x = _mm_add_epi32(_mm_shuffle_epi8(data, mask), _mm_set1_epi32(1));
-                let x = _mm_add_epi32(x, _mm_slli_si128::<4>(x));
-                let x = _mm_add_epi32(x, _mm_slli_si128::<8>(x));
-                let x = _mm_add_epi32(x, prev);
-                (x, _mm_shuffle_epi32::<0xff>(x))
-            }
+            let x = _mm_add_epi32(_mm_shuffle_epi8(data, mask), _mm_set1_epi32(1));
+            let x = _mm_add_epi32(x, _mm_slli_si128::<4>(x));
+            let x = _mm_add_epi32(x, _mm_slli_si128::<8>(x));
+            let x = _mm_add_epi32(x, prev);
+            (x, _mm_shuffle_epi32::<0xff>(x))
         }
 
         #[target_feature(enable = "ssse3")]
@@ -349,8 +347,7 @@ mod x86 {
         #[inline]
         #[expect(clippy::cast_sign_loss, reason = "the bits are what matters")]
         unsafe fn first(x: __m128i) -> u32 {
-            // SAFETY: value intrinsic; the feature is enabled here.
-            unsafe { _mm_cvtsi128_si32(x) as u32 }
+            _mm_cvtsi128_si32(x) as u32
         }
     }
 
@@ -409,55 +406,37 @@ mod neon {
         #[target_feature(enable = "neon")]
         #[inline]
         unsafe fn splat(x: u32) -> uint32x4_t {
-            // SAFETY: value intrinsic; the feature is enabled here.
-            unsafe { vdupq_n_u32(x) }
+            vdupq_n_u32(x)
         }
 
         #[target_feature(enable = "neon")]
         #[inline]
-        #[allow(
-            clippy::multiple_unsafe_ops_per_block,
-            reason = "one load and a value intrinsic"
-        )]
         unsafe fn load(bytes: &[u8], at: usize) -> uint32x4_t {
-            // SAFETY: `bytes[at..at + 16]` is inside `bytes` (the method's contract); the
-            // reinterpretation is a value intrinsic.
-            unsafe { vreinterpretq_u32_u8(vld1q_u8(bytes.as_ptr().wrapping_add(at))) }
+            // SAFETY: `bytes[at..at + 16]` is inside `bytes` (the method's contract).
+            vreinterpretq_u32_u8(unsafe { vld1q_u8(bytes.as_ptr().wrapping_add(at)) })
         }
 
         #[target_feature(enable = "neon")]
         #[inline]
-        #[allow(
-            clippy::multiple_unsafe_ops_per_block,
-            reason = "one load and a value intrinsic"
-        )]
         unsafe fn mask(c: u8) -> uint32x4_t {
-            // SAFETY: each row of the table is 16 bytes; the reinterpretation is a value
-            // intrinsic.
-            unsafe { vreinterpretq_u32_u8(vld1q_u8(SHUFFLE[usize::from(c)].as_ptr())) }
+            // SAFETY: each row of the table is 16 bytes.
+            vreinterpretq_u32_u8(unsafe { vld1q_u8(SHUFFLE[usize::from(c)].as_ptr()) })
         }
 
         #[target_feature(enable = "neon")]
         #[inline]
-        #[allow(
-            clippy::multiple_unsafe_ops_per_block,
-            reason = "value intrinsics, whose one condition is the feature"
-        )]
         unsafe fn group(
             data: uint32x4_t,
             mask: uint32x4_t,
             prev: uint32x4_t,
         ) -> (uint32x4_t, uint32x4_t) {
-            // SAFETY: value intrinsics only, no memory access; the feature is enabled here.
-            unsafe {
-                let zero = vdupq_n_u32(0);
-                let bytes = vqtbl1q_u8(vreinterpretq_u8_u32(data), vreinterpretq_u8_u32(mask));
-                let x = vaddq_u32(vreinterpretq_u32_u8(bytes), vdupq_n_u32(1));
-                let x = vaddq_u32(x, vextq_u32::<3>(zero, x));
-                let x = vaddq_u32(x, vextq_u32::<2>(zero, x));
-                let x = vaddq_u32(x, prev);
-                (x, vdupq_laneq_u32::<3>(x))
-            }
+            let zero = vdupq_n_u32(0);
+            let bytes = vqtbl1q_u8(vreinterpretq_u8_u32(data), vreinterpretq_u8_u32(mask));
+            let x = vaddq_u32(vreinterpretq_u32_u8(bytes), vdupq_n_u32(1));
+            let x = vaddq_u32(x, vextq_u32::<3>(zero, x));
+            let x = vaddq_u32(x, vextq_u32::<2>(zero, x));
+            let x = vaddq_u32(x, prev);
+            (x, vdupq_laneq_u32::<3>(x))
         }
 
         #[target_feature(enable = "neon")]
@@ -470,8 +449,7 @@ mod neon {
         #[target_feature(enable = "neon")]
         #[inline]
         unsafe fn first(x: uint32x4_t) -> u32 {
-            // SAFETY: value intrinsic; the feature is enabled here.
-            unsafe { vgetq_lane_u32::<0>(x) }
+            vgetq_lane_u32::<0>(x)
         }
     }
 

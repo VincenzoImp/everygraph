@@ -136,7 +136,10 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
 fn a_simd_decoder_compiled_in_is_available() {
     let names: Vec<_> = Decoder::available().iter().map(|d| d.name()).collect();
     assert_eq!(names[0], "scalar");
-    if cfg!(all(target_arch = "x86_64", target_feature = "ssse3")) {
+    if cfg!(all(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        target_feature = "ssse3"
+    )) {
         assert!(names.contains(&"ssse3"), "{names:?}");
     }
     if cfg!(target_arch = "aarch64") {
