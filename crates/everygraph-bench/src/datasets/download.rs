@@ -291,6 +291,17 @@ fn whole(
     result
 }
 
+/// Copies at most one byte more than `expected` (everything if it is unknown): enough to
+/// tell that a stream is too long without writing the rest of it.
+fn capped_copy(
+    reader: &mut dyn Read,
+    writer: &mut dyn Write,
+    expected: Option<u64>,
+) -> std::io::Result<u64> {
+    let limit = expected.map_or(u64::MAX, |e| e.saturating_add(1));
+    std::io::copy(&mut reader.take(limit), writer)
+}
+
 fn stream_into(
     response: &mut Response<ureq::Body>,
     url: &str,
@@ -298,9 +309,9 @@ fn stream_into(
     part: &Path,
 ) -> Result<u64> {
     let mut out = File::create(part).context(|| format!("creating {}", part.display()))?;
-    let limit = expected_size.map_or(u64::MAX, |e| e.saturating_add(1));
-    let mut reader = response.body_mut().as_reader().take(limit);
-    let written = std::io::copy(&mut reader, &mut out).context(|| format!("downloading {url}"))?;
+    let mut reader = response.body_mut().as_reader();
+    let written = capped_copy(&mut reader, &mut out, expected_size)
+        .context(|| format!("downloading {url}"))?;
     if let Some(expected) = expected_size {
         if written != expected {
             let sent = if written > expected {
@@ -635,6 +646,17 @@ mod tests {
         }
         assert_eq!(State::plan(5 << 20, 8).chunks.len(), 5, "1 MiB minimum");
         assert_eq!(State::plan(10 << 30, 8).chunks.len(), 160, "64 MiB maximum");
+    }
+
+    #[test]
+    fn a_plain_stream_is_cut_one_byte_past_the_expected_size() {
+        let endless = vec![7_u8; 10 << 20];
+        let mut out = Vec::new();
+        let n = capped_copy(&mut endless.as_slice(), &mut out, Some(1000)).expect("copy");
+        assert_eq!((n, out.len()), (1001, 1001));
+        let mut all = Vec::new();
+        let n = capped_copy(&mut endless.as_slice(), &mut all, None).expect("copy");
+        assert_eq!(n, 10 << 20, "no cap without an expected size");
     }
 
     #[test]
