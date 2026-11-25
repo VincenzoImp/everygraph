@@ -20,11 +20,26 @@
 // expect: use of a disallowed method `std::collections::HashSet::reserve`
 // expect: use of a disallowed method `std::collections::VecDeque::with_capacity`
 // expect: use of a disallowed method `std::collections::VecDeque::reserve`
+// expect: use of a disallowed method `std::collections::VecDeque::reserve_exact`
+// expect: use of a disallowed method `std::collections::VecDeque::try_reserve`
+// expect: use of a disallowed method `std::collections::VecDeque::try_reserve_exact`
+// expect: use of a disallowed method `std::collections::VecDeque::resize`
+// expect: use of a disallowed method `std::collections::VecDeque::resize_with`
+// expect: use of a disallowed method `std::collections::HashMap::try_reserve`
+// expect: use of a disallowed method `std::collections::HashSet::try_reserve`
+// expect: use of a disallowed method `std::collections::HashSet::with_capacity_and_hasher`
+// expect: use of a disallowed method `std::collections::BinaryHeap::with_capacity`
+// expect: use of a disallowed method `std::collections::BinaryHeap::reserve`
+// expect: use of a disallowed method `std::collections::BinaryHeap::reserve_exact`
+// expect: use of a disallowed method `std::string::String::with_capacity`
+// expect: use of a disallowed method `std::boxed::Box::new_zeroed_slice`
+// expect: use of a disallowed method `slice::to_vec`
+// expect: use of a disallowed method `slice::repeat`
 
 //! Allocation canary probe (never part of a build of the real crate).
 
 use std::collections::hash_map::RandomState;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 /// Sizes buffers by `n` in every way the rule forbids.
 pub fn allocate(n: usize) -> usize {
@@ -45,5 +60,21 @@ pub fn allocate(n: usize) -> usize {
     f.reserve(n);
     let mut g: VecDeque<u32> = VecDeque::with_capacity(n);
     g.reserve(n);
-    a.len() + b.len() + c.len() + d.len() + e.len() + f.len() + g.len()
+    g.reserve_exact(n);
+    let _ = g.try_reserve(n);
+    let _ = g.try_reserve_exact(n);
+    g.resize(n, 0);
+    g.resize_with(n, Default::default);
+    let _ = d.try_reserve(n);
+    let _ = f.try_reserve(n);
+    let h: HashSet<u32, RandomState> = HashSet::with_capacity_and_hasher(n, RandomState::new());
+    let mut i: BinaryHeap<u32> = BinaryHeap::with_capacity(n);
+    i.reserve(n);
+    i.reserve_exact(n);
+    let j = String::with_capacity(n);
+    let k = Box::<[u8]>::new_zeroed_slice(n);
+    let l = a.as_slice().to_vec();
+    let m = [0_u8].repeat(n);
+    a.len() + b.len() + c.len() + d.len() + e.len() + f.len() + g.len() + h.len()
+        + i.len() + j.len() + k.len() + l.len() + m.len()
 }

@@ -18,6 +18,7 @@
 //!   cgroup's anonymous peak that the harness measures. `--slack S` sets the budget to
 //!   the memory limit read by `everygraph_io::ProcMemoryProbe` minus `S` bytes, so that
 //!   a spec states the limit and the slack and the budget follows.
+//! - `probe`: prints what `ProcMemoryProbe` reads (no graph needed).
 //!
 //! Every layout computes the same ranks bit for bit (`checksum`): chunk boundaries and
 //! the order of each node's sum do not depend on the layout.
@@ -234,7 +235,7 @@ fn load_vec(dir: &Path, n: usize, entries: usize) -> Graph<Vec<u64>, Vec<u32>, V
     }
 }
 
-fn new_seg<T>(memory: &Memory, purpose: &'static str, bits: Option<u32>) -> SegVec<T> {
+fn new_seg<T: Copy>(memory: &Memory, purpose: &'static str, bits: Option<u32>) -> SegVec<T> {
     match bits {
         Some(bits) => SegVec::with_segment_bits(memory, purpose, bits),
         None => SegVec::new(memory, purpose),
@@ -368,6 +369,20 @@ fn args() -> Args {
 
 fn main() {
     let args = args();
+    if args.mode == "probe" {
+        // What ProcMemoryProbe reads here (the review's live check of #154).
+        let m = ProcMemoryProbe::new().probe().expect("memory probe");
+        println!(
+            "{{\"machine_total\":{},\"machine_available\":{},\"limit\":{:?},\"limit_available\":{:?},\"total\":{},\"available\":{}}}",
+            m.machine_total,
+            m.machine_available,
+            m.limit,
+            m.limit_available,
+            m.total(),
+            m.available()
+        );
+        return;
+    }
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.threads)
         .build_global()

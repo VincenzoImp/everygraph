@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{InsufficientBudget, MemoryAccountant, MemoryKind};
 
-/// Distinct (purpose, kind) pairs tracked one by one; any further pair is added to a
-/// shared "other purposes" entry. A kernel names a handful.
+/// Distinct (purpose, kind) pairs tracked one by one; any further pair is added to the
+/// shared "other purposes" entry of its kind. A kernel names a handful.
 const PURPOSE_SLOTS: usize = 64;
 
 /// The name the report gives to the pairs beyond [`PURPOSE_SLOTS`].
@@ -33,7 +33,9 @@ pub struct Budget {
     file_backed: AtomicU64,
     file_backed_peak: AtomicU64,
     purposes: Box<[Slot]>,
-    other: Slot,
+    /// The pairs beyond the table: anonymous first, file-backed second. Labelled when
+    /// the budget is made, so that no reservation ever initializes a shared label.
+    other: [Slot; 2],
 }
 
 /// Counters of one (purpose, kind) pair. A slot is claimed by writing its key with a
@@ -53,6 +55,13 @@ impl Slot {
             label: OnceLock::new(),
             current: AtomicU64::new(0),
             peak: AtomicU64::new(0),
+        }
+    }
+
+    fn labelled(purpose: &'static str, kind: MemoryKind) -> Self {
+        Self {
+            label: OnceLock::from((purpose, kind)),
+            ..Self::new()
         }
     }
 
@@ -149,7 +158,10 @@ impl Budget {
             file_backed: AtomicU64::new(0),
             file_backed_peak: AtomicU64::new(0),
             purposes: (0..PURPOSE_SLOTS).map(|_| Slot::new()).collect(),
-            other: Slot::new(),
+            other: [
+                Slot::labelled(OTHER_PURPOSES, MemoryKind::Anonymous),
+                Slot::labelled(OTHER_PURPOSES, MemoryKind::FileBacked),
+            ],
         }
     }
 
@@ -184,7 +196,11 @@ impl Budget {
         let mut purposes: Vec<PurposeUsage> = self
             .purposes
             .iter()
-            .chain(std::iter::once(&self.other))
+            .chain(
+                self.other
+                    .iter()
+                    .filter(|slot| slot.peak.load(Ordering::Relaxed) > 0),
+            )
             .filter_map(|slot| {
                 let &(purpose, kind) = slot.label.get()?;
                 Some(PurposeUsage {
@@ -231,9 +247,7 @@ impl Budget {
                 return slot;
             }
         }
-        // Several pairs share this one; it is labelled by the first.
-        let _ = self.other.label.get_or_init(|| (OTHER_PURPOSES, kind));
-        &self.other
+        &self.other[usize::from(kind == MemoryKind::FileBacked)]
     }
 }
 
@@ -349,6 +363,28 @@ mod tests {
             .find(|p| p.purpose == OTHER_PURPOSES)
             .unwrap();
         assert_eq!((other.current, other.peak), (2, 2));
+        assert_eq!(other.kind, MemoryKind::Anonymous);
+
+        // A file-backed pair beyond the table has its own line, not the anonymous one
+        // (review of #154).
+        budget
+            .try_reserve("mapped", MemoryKind::FileBacked, 1 << 40)
+            .unwrap();
+        let report = budget.report();
+        let others: Vec<_> = report
+            .purposes
+            .iter()
+            .filter(|p| p.purpose == OTHER_PURPOSES)
+            .map(|p| (p.kind, p.current))
+            .collect();
+        assert_eq!(
+            others,
+            [
+                (MemoryKind::Anonymous, 2),
+                (MemoryKind::FileBacked, 1 << 40)
+            ]
+        );
+        budget.release("mapped", MemoryKind::FileBacked, 1 << 40);
         assert_eq!(report.used, crate::widen(names.len()));
         for &name in &names {
             budget.release(name, MemoryKind::Anonymous, 1);

@@ -244,6 +244,8 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
         run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked
+      - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
+        run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
 
   tsan:
     name: ThreadSanitizer (core tests, and a racy canary that must be caught)

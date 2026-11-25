@@ -20,8 +20,9 @@ const V1_UNLIMITED: u64 = 1 << 62;
 /// runtime or a parent slice may set it higher up, and a group whose own
 /// `memory.max` is `max` is still bounded by its parents. Both cgroup v2 and the
 /// memory controller of v1 are read. What is free under a limit is the limit minus the
-/// group's usage, not counting its file cache (reclaimable, as `MemAvailable` treats it
-/// on the machine), at the level that leaves the least.
+/// group's usage, not counting the page cache on its file LRU lists (reclaimable, as
+/// `MemAvailable` treats it on the machine; shmem and tmpfs are not), at the level
+/// that leaves the least.
 ///
 /// A level whose files are missing is skipped; a value that cannot be parsed is an
 /// error, never a guess.
@@ -106,20 +107,24 @@ impl ProcMemoryProbe {
 struct Files {
     limit: &'static str,
     usage: &'static str,
-    /// The `memory.stat` key of the group's file cache.
-    file_cache: &'static str,
+    /// The `memory.stat` keys of the pages on the file LRU lists: the page cache that
+    /// reclaim can drop. Not `file` (v2) or `total_cache` (v1): those include shmem
+    /// (tmpfs, `/dev/shm`), which lives on the anonymous LRU lists and, without swap,
+    /// cannot be reclaimed at all. The LRU keys also leave out unevictable (mlocked)
+    /// file pages, which `file − shmem` would count as free.
+    reclaimable: [&'static str; 2],
 }
 
 const V2: Files = Files {
     limit: "memory.max",
     usage: "memory.current",
-    file_cache: "file",
+    reclaimable: ["active_file", "inactive_file"],
 };
 
 const V1: Files = Files {
     limit: "memory.limit_in_bytes",
     usage: "memory.usage_in_bytes",
-    file_cache: "total_cache",
+    reclaimable: ["total_active_file", "total_inactive_file"],
 };
 
 impl Files {
@@ -136,24 +141,26 @@ impl Files {
         Ok((bytes < V1_UNLIMITED).then_some(bytes))
     }
 
-    /// What the group uses, minus its file cache.
+    /// What the group uses, minus the page cache reclaim can drop. A missing key counts
+    /// as nothing reclaimable.
     fn unreclaimable_usage(&self, dir: &Path) -> io::Result<Option<u64>> {
         let Some(usage) = read_optional(&dir.join(self.usage))? else {
             return Ok(None);
         };
         let usage = parse(usage.trim(), &dir.join(self.usage))?;
-        let cache = match read_optional(&dir.join("memory.stat"))? {
-            Some(stat) => stat
-                .lines()
-                .find_map(|line| {
-                    let (key, value) = line.split_once(' ')?;
-                    (key == self.file_cache).then(|| parse(value.trim(), &dir.join("memory.stat")))
-                })
-                .transpose()?
-                .unwrap_or(0),
-            None => 0,
-        };
-        Ok(Some(usage.saturating_sub(cache)))
+        let mut reclaimable: u64 = 0;
+        if let Some(stat) = read_optional(&dir.join("memory.stat"))? {
+            for line in stat.lines() {
+                let Some((key, value)) = line.split_once(' ') else {
+                    continue;
+                };
+                if self.reclaimable.contains(&key) {
+                    let bytes = parse(value.trim(), &dir.join("memory.stat"))?;
+                    reclaimable = reclaimable.saturating_add(bytes);
+                }
+            }
+        }
+        Ok(Some(usage.saturating_sub(reclaimable)))
     }
 }
 
@@ -273,13 +280,52 @@ mod tests {
         root.write("cgroup/slice/memory.current", &format!("{}\n", 3 * GIB));
         root.write(
             "cgroup/slice/memory.stat",
-            &format!("anon {}\nfile {}\nkernel 0\n", 2 * GIB, GIB),
+            &format!(
+                "anon {}\nfile {GIB}\nkernel 0\nshmem 0\nactive_file {}\ninactive_file {}\n",
+                2 * GIB,
+                GIB / 4,
+                3 * GIB / 4
+            ),
         );
         let memory = root.probe().unwrap();
         assert_eq!(memory.limit, Some(8 * GIB));
         // 8 GiB minus 3 GiB used, of which 1 GiB is file cache.
         assert_eq!(memory.limit_available, Some(6 * GIB));
         assert_eq!((memory.total(), memory.available()), (8 * GIB, 6 * GIB));
+    }
+
+    /// tmpfs and `/dev/shm` pages are counted in `file` (v2) and `total_cache` (v1) but
+    /// sit on the anonymous LRU lists: without swap they free nothing (review of #154:
+    /// 400 MiB in `/dev/shm` was reported as free).
+    #[test]
+    fn shared_memory_is_not_reclaimable() {
+        let root = Root::new();
+        root.write("proc/self/cgroup", "0::/job\n");
+        root.write("cgroup/job/memory.max", &format!("{}\n", 4 * GIB));
+        root.write("cgroup/job/memory.current", &format!("{}\n", 2 * GIB));
+        root.write(
+            "cgroup/job/memory.stat",
+            &format!("anon {GIB}\nfile {GIB}\nshmem {GIB}\nactive_file 0\ninactive_file 0\n"),
+        );
+        assert_eq!(root.probe().unwrap().limit_available, Some(2 * GIB));
+
+        let root = Root::new();
+        root.write("proc/self/cgroup", "4:memory:/job\n");
+        root.write(
+            "cgroup/memory/job/memory.limit_in_bytes",
+            &format!("{}\n", 4 * GIB),
+        );
+        root.write(
+            "cgroup/memory/job/memory.usage_in_bytes",
+            &format!("{}\n", 2 * GIB),
+        );
+        root.write(
+            "cgroup/memory/job/memory.stat",
+            &format!(
+                "total_cache {GIB}\ntotal_shmem {GIB}\ntotal_active_file 0\ntotal_inactive_file 0\n"
+            ),
+        );
+        assert_eq!(root.probe().unwrap().limit_available, Some(2 * GIB));
     }
 
     #[test]

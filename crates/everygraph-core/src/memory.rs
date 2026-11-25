@@ -225,12 +225,6 @@ impl Memory {
     pub fn available(&self) -> u64 {
         self.0.available()
     }
-
-    /// The accountant behind the handle.
-    #[must_use]
-    pub fn accountant(&self) -> &dyn MemoryAccountant {
-        &*self.0
-    }
 }
 
 impl<A: MemoryAccountant + 'static> From<Arc<A>> for Memory {

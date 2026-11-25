@@ -30,6 +30,9 @@ const MIN_GROWTH: usize = 4;
 /// reserves, and segments are lent out as slices. Dropping the vector releases its
 /// reservation.
 ///
+/// **Elements are `Copy`**: an element that owned heap memory (a `Vec`, a `String`)
+/// would allocate it outside the budget, through every clone and push.
+///
 /// **Layout.** Element `i` lives in segment `i >> k` at offset `i & (2^k − 1)`. Every
 /// segment but the last holds exactly `2^k` elements. By default `k` is the largest
 /// that keeps a segment within [`MAX_ALLOCATION_BYTES`] (`2^28` elements of a 4-byte
@@ -49,7 +52,7 @@ const MIN_GROWTH: usize = 4;
 /// `size_of::<T>()`, and code that reduces per segment would change its answer with it
 /// (DESIGN D14). Chunks of [`for_each_chunk_mut`](Self::for_each_chunk_mut) and of
 /// [`par`] are placed by the grain only.
-pub struct SegVec<T> {
+pub struct SegVec<T: Copy> {
     // Dropped before the reservation: memory is freed before it is given back.
     segments: Vec<Vec<T>>,
     len: usize,
@@ -57,7 +60,7 @@ pub struct SegVec<T> {
     reservation: Reservation,
 }
 
-impl<T> SegVec<T> {
+impl<T: Copy> SegVec<T> {
     /// `k` of the default layout: the largest segment within [`MAX_ALLOCATION_BYTES`].
     /// Evaluating it rejects, at compile time, a zero-sized `T` and one larger than a
     /// segment.
@@ -239,8 +242,8 @@ impl<T> SegVec<T> {
     ///
     /// # Panics
     ///
-    /// If `grain` does not divide [`segment_len`](Self::segment_len) (it must be a power
-    /// of two no larger), so that no chunk straddles two segments. This is checked
+    /// If `grain` does not divide [`segment_len`](Self::segment_len) (a power of two: the
+    /// grain must be a power of two no larger), so that no chunk straddles two segments. This is checked
     /// whatever the length, so that a wrong grain fails on small inputs too.
     pub fn for_each_chunk_mut<F>(&mut self, grain: NonZeroUsize, f: F)
     where
@@ -249,7 +252,7 @@ impl<T> SegVec<T> {
     {
         let segment_len = self.segment_len();
         assert!(
-            segment_len % grain == 0,
+            grain.is_power_of_two() && grain.get() <= segment_len,
             "a grain of {grain} does not divide segments of {segment_len} elements"
         );
         for (index, segment) in self.segments_mut().enumerate() {
@@ -315,14 +318,14 @@ impl<T> SegVec<T> {
     /// smaller copy next to the old one; otherwise that segment keeps its capacity.
     pub fn shrink_to_fit(&mut self) {
         let used = self.used_segments();
-        for segment in self.segments.drain(used..) {
-            self.reservation.shrink(Self::bytes_of(segment.capacity()));
-        }
-        if let Some(last) = self.segments.last() {
-            if last.len() < last.capacity() {
-                let _ = self.resize_last(last.len());
+        while self.segments.len() > used {
+            if let Some(segment) = self.segments.pop() {
+                let bytes = Self::bytes_of(segment.capacity());
+                drop(segment);
+                self.reservation.shrink(bytes);
             }
         }
+        self.shrink_last();
     }
 
     /// Bytes of `elements` elements; only for counts that fit in memory, whose size
@@ -421,26 +424,20 @@ impl<T> SegVec<T> {
         Ok(())
     }
 
-    /// Reallocates the last segment to `capacity` elements (at least its length),
-    /// reserving the new buffer before the old one is released.
-    fn resize_last(&mut self, capacity: usize) -> Result<(), MemoryError> {
-        let new_bytes = Self::bytes_of(capacity);
-        self.reservation.try_grow(new_bytes)?;
+    /// Shrinks the last segment to its length if the budget has room for the smaller
+    /// buffer next to the old one while the allocator moves it; otherwise keeps it.
+    fn shrink_last(&mut self) {
         let Some(last) = self.segments.last_mut() else {
-            self.reservation.shrink(new_bytes);
-            return Ok(());
+            return;
         };
-        let old_bytes = Self::bytes_of(last.capacity());
-        if capacity >= last.capacity() {
-            if last.try_reserve_exact(capacity - last.len()).is_err() {
-                self.reservation.shrink(new_bytes);
-                return Err(self.allocation_failed(capacity));
-            }
-        } else {
-            last.shrink_to(capacity);
+        let (len, capacity) = (last.len(), last.capacity());
+        if len == capacity || self.reservation.try_grow(Self::bytes_of(len)).is_err() {
+            return;
         }
-        self.reservation.shrink(old_bytes);
-        Ok(())
+        // `shrink_to` is not fallible: if the allocator cannot give the smaller buffer,
+        // the process aborts, as for any reallocation in `std`.
+        last.shrink_to(len);
+        self.reservation.shrink(Self::bytes_of(capacity));
     }
 
     fn allocation_failed(&self, elements: usize) -> MemoryError {
@@ -451,7 +448,7 @@ impl<T> SegVec<T> {
     }
 }
 
-impl<T: Clone> SegVec<T> {
+impl<T: Copy> SegVec<T> {
     /// A vector of `len` copies of `value`. The whole size is reserved before the first
     /// segment is allocated, so a refusal allocates nothing.
     ///
@@ -486,7 +483,7 @@ impl<T: Clone> SegVec<T> {
         for (index, segment) in self.segments.iter_mut().enumerate() {
             let wanted = len.saturating_sub(index << bits).min(1 << bits);
             if segment.len() < wanted {
-                segment.resize(wanted, value.clone());
+                segment.resize(wanted, value);
             }
         }
         self.len = len;
@@ -506,8 +503,12 @@ impl<T: Clone> SegVec<T> {
         self.grow_to(self.amortized(needed))?;
         let mut rest = values;
         while !rest.is_empty() {
+            let room = self.segment_len() - (self.len & self.mask());
             let segment = &mut self.segments[self.len >> self.bits];
-            let (now, later) = rest.split_at(rest.len().min(segment.capacity() - segment.len()));
+            // Bounded by the segment's length too, so that an allocator giving more
+            // capacity than asked cannot put an element in the wrong segment.
+            let room = room.min(segment.capacity() - segment.len());
+            let (now, later) = rest.split_at(rest.len().min(room));
             segment.extend_from_slice(now);
             self.len += now.len();
             rest = later;
@@ -533,12 +534,12 @@ impl<T: Clone> SegVec<T> {
     /// Sets every element to `value`.
     pub fn fill(&mut self, value: T) {
         for segment in self.segments_mut() {
-            segment.fill(value.clone());
+            segment.fill(value);
         }
     }
 }
 
-impl<T> Index<usize> for SegVec<T> {
+impl<T: Copy> Index<usize> for SegVec<T> {
     type Output = T;
 
     #[inline]
@@ -555,7 +556,7 @@ impl<T> Index<usize> for SegVec<T> {
     }
 }
 
-impl<T> IndexMut<usize> for SegVec<T> {
+impl<T: Copy> IndexMut<usize> for SegVec<T> {
     #[inline]
     fn index_mut(&mut self, index: usize) -> &mut T {
         let mask = self.mask();
@@ -563,7 +564,7 @@ impl<T> IndexMut<usize> for SegVec<T> {
     }
 }
 
-impl<T> fmt::Debug for SegVec<T> {
+impl<T: Copy> fmt::Debug for SegVec<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SegVec")
             .field("purpose", &self.purpose())
@@ -589,7 +590,7 @@ mod tests {
 
     /// The invariants every operation must keep: the reservation is the capacity in
     /// bytes, segments but the last are full-sized, and the elements match `model`.
-    fn check<T: Clone + PartialEq + fmt::Debug>(vec: &SegVec<T>, model: &[T]) {
+    fn check<T: Copy + PartialEq + fmt::Debug>(vec: &SegVec<T>, model: &[T]) {
         let allocated: u64 = vec
             .segments
             .iter()
@@ -732,6 +733,24 @@ mod tests {
         assert_eq!(budget.used(), 60);
     }
 
+    /// Shrinking reserves the smaller buffer before it releases the old one, and keeps
+    /// the capacity when the budget has no room for both (review of #154).
+    #[test]
+    fn shrinking_keeps_the_capacity_when_both_buffers_do_not_fit() {
+        for (limit, capacity, peak) in [(60, 60, 60), (70, 10, 70)] {
+            let (budget, memory) = budget(limit);
+            let mut vec = SegVec::<u8>::with_segment_bits(&memory, "bytes", 6);
+            vec.try_reserve(60).unwrap();
+            vec.try_extend_from_slice(&[7; 10]).unwrap();
+            vec.shrink_to_fit();
+            assert_eq!(vec.capacity(), capacity, "budget {limit}");
+            assert_eq!(budget.used(), vec.reserved_bytes());
+            assert_eq!(budget.used(), u64::try_from(capacity).unwrap());
+            assert_eq!(budget.peak(), peak, "budget {limit}");
+            assert!(vec.iter().all(|&b| b == 7));
+        }
+    }
+
     #[test]
     fn growth_past_a_segment_adds_one_segment_at_a_time() {
         let memory = Memory::unlimited();
@@ -768,7 +787,7 @@ mod tests {
                 assert!(parts.iter().all(|p| !p.is_empty()));
                 assert_eq!(
                     parts.len(),
-                    (start..end).filter(|i| i % 4 == 0 || *i == start).count()
+                    (start..end).filter(|i| i & 3 == 0 || *i == start).count()
                 );
             }
         }

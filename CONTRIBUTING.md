@@ -66,6 +66,7 @@ contains `unsafe`:
 cargo +nightly miri test -p everygraph-core --no-default-features
 cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core
+cargo +nightly miri test -p everygraph-io --test allocation_failure
 ```
 
 The third command runs the tests on rayon's thread pool. It needs the two flags because
@@ -88,7 +89,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.85 test`. **miri**: the four Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
@@ -217,9 +218,10 @@ In the kernel crates (`everygraph-kernels`, `everygraph-community`, `everygraph-
 `Vec::with_capacity`, `reserve`, `resize`, `vec![x; n]`, `HashMap::with_capacity` and
 the like — and each crate root forbids the lint, so it cannot be allowed locally. The
 four lists are identical; `tools/check_portability_canary.py` checks that each still
-catches every entry. What no lint sees: growth through `push`, `extend` and `collect`.
-Small vectors use those; a large one is a review finding, and the no-OOM tests
-(#53) measure what was missed. `everygraph-ingest` and `everygraph-format` join the
+catches every entry. What no lint sees: growth through `push`, `extend`, `collect` and
+`clone`. Small vectors use those; a large one is a review finding, and what catches it
+is a counting global allocator in the kernel tests that asserts heap bytes ≤
+`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` join the
 rule once their first pull requests (#30, #32–#35) are in.
 
 ## Integers
@@ -239,7 +241,7 @@ under `tests/`, which Cargo compiles as a crate of its own.
 
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
-| *(none yet)* | | |
+| `crates/everygraph-io/tests/allocation_failure.rs`, module `refusing` | A test that makes the allocator refuse, to reach every `MemoryError::AllocationFailed` path of `SegVec` and `ScratchPool`: replacing the global allocator is an `unsafe impl GlobalAlloc`. It is not in `everygraph-core` because the core forbids `unsafe` in every crate root, its tests included | `cargo +nightly miri test -p everygraph-io --test allocation_failure` |
 
 To add one, in a single pull request:
 
