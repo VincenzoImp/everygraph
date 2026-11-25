@@ -1,0 +1,378 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The headline numbers of the first lab (docs/FINDINGS.md § B1): ingest, in-RAM kernels and
+# larger-than-RAM PageRank/WCC, measured with the lab prototype `glab` (lab/b1-core),
+# which this spec builds. The tables of § B1 were taken on a shared machine; the
+# references below are the idle re-run of 2026-11-24 (lab/b1-core/results/bench/*.jsonl,
+# summarized in FINDINGS "Idle-machine re-runs"), which supersedes them.
+#
+# Differences from lab/b1-core/bench.sh, on purpose:
+# - every run is under a hard memory limit; the lab ran ingest and in-RAM kernels without
+#   one. Limits are set well above what the run uses (the tool's own --mem-gb budget is
+#   what is measured); the Friendster runs get 48 GiB.
+# - each repetition is a separate process (3 per case after one warm-up), not --reps
+#   inside one process; `glab run` still does 2 in-process repetitions and reports the
+#   best, as the lab did, and that is the `seconds` metric.
+# - the larger-than-RAM cases run cold on private copies (the lab evicted the shared
+#   files); naive mmap under a limit has no warm-up.
+# - "limit: none" of the § B1 table is a 48 GiB limit here.
+# - Friendster PageRank in RAM runs 10 iterations, not 20 (per-iteration time is the
+#   metric).
+#
+# References, as issue #4 was amended on 2026-11-25:
+# - kernels, probes and semi-external: the lab's idle re-run, in the statistic the
+#   harness reports for the same quantity — the in-process best that `glab run` prints
+#   (the lab ran one process, best of 2 or 3 in it) and the median of the per-iteration
+#   times (semi-external). Naive mmap under 8/16 GiB is gated against the idle rows of
+#   semiext.jsonl; semi-external PageRank at 16 GiB has no idle value: reported only.
+# - ingest: the harness's own official idle measurements, each citing its result file
+#   (the lab's ingest figures were single runs, and its Friendster ones were taken on a
+#   rested drive; see the warm-up of ingest-friendster).
+# The harness takes the median over its own repetitions.
+#
+# Run (about 26 minutes measured on 2026-11-25, plus 2 minutes of preparation the first
+# time): everygraph-bench run headline --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "headline"
+description = "FINDINGS § B1 with the lab prototype: ingest, in-RAM kernels, larger than RAM"
+reference = "docs/FINDINGS.md § B1 and § Idle-machine re-runs; lab/b1-core/results/bench/"
+
+# Every row records the SHA-256 of the lab binary that produced it.
+binaries = ["{glab}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+threads = [32]
+timeout = "10m"
+
+[vars]
+glab = "{repo}/lab/b1-core/target/release/glab"
+inputs = "{work}/inputs"
+csr = "{data}/csr"
+ingest_out = "--out {case_work}/out --tmp {case_work}/tmp"
+
+# --- preparation (untimed) ------------------------------------------------------------
+
+[[prepare]]
+name = "build-glab"
+# The lab's own flags (target-cpu=native, lto=fat) come from lab/b1-core/.cargo/config.toml,
+# which cargo reads from the working directory.
+cwd = "{repo}/lab/b1-core"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+
+[[prepare]]
+name = "text-lj"
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-lj.ungraph.txt.gz > {inputs}/lj.txt.part && mv {inputs}/lj.txt.part {inputs}/lj.txt"
+creates = "{inputs}/lj.txt"
+needed_by = ["ingest-text", "ingest-variants", "ingest-1thread"]
+
+[[prepare]]
+name = "text-orkut"
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-orkut.ungraph.txt.gz > {inputs}/orkut.txt.part && mv {inputs}/orkut.txt.part {inputs}/orkut.txt"
+creates = "{inputs}/orkut.txt"
+needed_by = ["ingest-text", "ingest-variants", "ingest-1thread"]
+
+[[prepare]]
+name = "text-friendster"
+# 31 GiB of text, about 100 s.
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-friendster.ungraph.txt.gz > {inputs}/friendster.txt.part && mv {inputs}/friendster.txt.part {inputs}/friendster.txt"
+creates = "{inputs}/friendster.txt"
+needed_by = ["ingest-friendster"]
+
+# --- ingest: text edge list -> validated symmetric CSR (glab-csr-v0) -----------------
+
+[[benchmark]]
+name = "ingest-text"
+group = "ingest"
+description = "text edge list to CSR in RAM-budget mode, as FINDINGS § B1 'Ingest'"
+dataset_path = "raw/com-{graph}.ungraph.txt.gz"
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "exec {glab} ingest --input {inputs}/{graph}.txt {ingest_out} --mem-gb 8 --threads {threads} --out-mmap"]
+conditions = { graph = "{graph}", input = "plain text, page cache warm", budget = "8 GB (--mem-gb)", fsync = "no", precision = "n/a (integer CSR)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "medges_per_s", json = "/edges_per_s", scale = 1e-6, unit = "M edges/s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { match = { graph = "lj" }, metric = "seconds", value = 0.386, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut" }, metric = "seconds", value = 0.781, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+]
+
+[[benchmark]]
+name = "ingest-variants"
+group = "ingest"
+description = "the other ingest rows of the idle re-run: small budget, parse only, from gzip"
+dataset_path = "raw/com-{graph}.ungraph.txt.gz"
+matrix = { graph = ["lj", "orkut"], variant = ["budget0.25GB", "parse-only", "pigz-pipe", "gz-inprocess"] }
+# One shell line per variant, selected by {variant}.
+shell = """
+case {variant} in
+  budget0.25GB) exec {glab} ingest --input {inputs}/{graph}.txt {ingest_out} --mem-gb 0.25 --threads {threads} --direct-in ;;
+  parse-only)   exec {glab} ingest --input {inputs}/{graph}.txt {ingest_out} --threads {threads} --parse-only ;;
+  pigz-pipe)    pigz -dc {data}/raw/com-{graph}.ungraph.txt.gz | {glab} ingest --input - {ingest_out} --mem-gb 8 --threads {threads} ;;
+  gz-inprocess) exec {glab} ingest --input {data}/raw/com-{graph}.ungraph.txt.gz --gz-inproc {ingest_out} --mem-gb 8 --threads {threads} ;;
+esac
+"""
+conditions = { graph = "{graph}", variant = "{variant}", fsync = "no", precision = "n/a (integer CSR)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  # parse-only builds nothing and prints no RSS.
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B", optional = true },
+]
+reference = [
+  { match = { graph = "lj", variant = "budget0.25GB" }, metric = "seconds", value = 0.538, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "lj", variant = "parse-only" }, metric = "seconds", value = 0.0467, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "lj", variant = "pigz-pipe" }, metric = "seconds", value = 1.054, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "lj", variant = "gz-inprocess" }, metric = "seconds", value = 1.134, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "budget0.25GB" }, metric = "seconds", value = 1.621, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "parse-only" }, metric = "seconds", value = 0.118, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "pigz-pipe" }, metric = "seconds", value = 3.549, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut", variant = "gz-inprocess" }, metric = "seconds", value = 3.7, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+]
+
+[[benchmark]]
+name = "ingest-1thread"
+group = "ingest"
+description = "text edge list to CSR on one thread (the lab ran it without --out-mmap)"
+dataset_path = "raw/com-{graph}.ungraph.txt.gz"
+threads = [1]
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "exec {glab} ingest --input {inputs}/{graph}.txt {ingest_out} --mem-gb 8 --threads {threads}"]
+conditions = { graph = "{graph}", input = "plain text, page cache warm", budget = "8 GB (--mem-gb)", fsync = "no", precision = "n/a (integer CSR)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { match = { graph = "lj" }, metric = "seconds", value = 1.182, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+  { match = { graph = "orkut" }, metric = "seconds", value = 3.965, source = "harness, official idle runs bench/results/headline/20261125T101402Z-79634d76b95b.jsonl and 20261125T104322Z-79634d76b95b.jsonl, median of the 6 repetitions" },
+]
+
+[[benchmark]]
+name = "ingest-friendster"
+group = "ingest"
+description = "Friendster, 1.8 B edges from 31 GiB of text, at two RAM budgets"
+dataset_path = "raw/com-friendster.ungraph.txt.gz"
+memory_limit = "48G"
+# One untimed run first: each run writes 45-53 GB, and the drive (Samsung 990 PRO 2TB)
+# takes the first ~10 GB after an idle spell at ~5 GB/s, then ~1.5 GB/s sustained
+# (exploratory probe, 2026-11-25). Without the warm-up the first repetition measures a
+# rested drive and the others a busy one (17.7-19.5 s against 27-31 s for the 32 GB
+# budget in the first official runs); with it, every repetition measures the sustained
+# rate that back-to-back ingests meet.
+warmup = 1
+matrix = { budget = ["32", "8"] }
+command = ["sh", "-c", "exec {glab} ingest --input {inputs}/friendster.txt {ingest_out} --mem-gb {budget} --threads {threads} --direct-in --out-mmap"]
+conditions = { graph = "friendster", input = "plain text, O_DIRECT", budget = "{budget} GB (--mem-gb)", fsync = "no", precision = "n/a (integer CSR)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "medges_per_s", json = "/edges_per_s", scale = 1e-6, unit = "M edges/s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+  { name = "temp_disk", json = "/temp_disk_gb", scale = 1e9, unit = "B", optional = true },
+]
+reference = [
+  { match = { budget = "32" }, metric = "seconds", value = 29.06, source = "harness, official idle re-take with a warm-up (sustained drive rate) bench/results/headline/20261125T114658Z-0ffe756ac9ac.jsonl, median of 3" },
+  { match = { budget = "8" }, metric = "seconds", value = 36.97, source = "harness, official idle re-take with a warm-up (sustained drive rate) bench/results/headline/20261125T114658Z-0ffe756ac9ac.jsonl, median of 3" },
+]
+
+# --- kernels in RAM (orkut), thread scaling --------------------------------------------
+
+[[benchmark]]
+name = "kernels-orkut"
+group = "kernels"
+description = "in-RAM kernels on orkut (heap-loaded CSR), 1 to 32 threads"
+dataset_path = "csr/orkut"
+threads = [1, 2, 4, 8, 16, 32]
+matrix = { algo = ["pr32", "pr64", "wcc", "bfs", "kcore", "tc"] }
+# As bench.sh: no triangles and no f64 PageRank below 4 threads.
+exclude = [
+  { algo = "tc", threads = 1 }, { algo = "tc", threads = 2 },
+  { algo = "pr64", threads = 1 }, { algo = "pr64", threads = 2 },
+]
+shell = "reps=2; [ {algo} = tc ] && reps=1; exec {glab} run --graph {dataset} --algo {algo} --threads {threads} --load heap --reps $reps"
+conditions = { graph = "orkut", kernel = "{algo}", load = "heap", storage = "uncompressed CSR, u32 ids", level = "in-process kernel, best of 2 (tc: 1)", precision = "integer" }
+when = [
+  { match = { algo = "pr32" }, conditions = { precision = "f32" } },
+  { match = { algo = "pr64" }, conditions = { precision = "f64" } },
+]
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { match = { algo = "pr32", threads = 1 }, metric = "seconds", value = 3.57, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr32", threads = 2 }, metric = "seconds", value = 1.87, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr32", threads = 4 }, metric = "seconds", value = 0.96, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr32", threads = 8 }, metric = "seconds", value = 0.53, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr32", threads = 16 }, metric = "seconds", value = 0.37, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr32", threads = 32 }, metric = "seconds", value = 0.38, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr64", threads = 4 }, metric = "seconds", value = 1.16, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr64", threads = 8 }, metric = "seconds", value = 0.65, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr64", threads = 16 }, metric = "seconds", value = 0.43, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "pr64", threads = 32 }, metric = "seconds", value = 0.46, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "wcc", threads = 1 }, metric = "seconds", value = 0.081, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "wcc", threads = 2 }, metric = "seconds", value = 0.045, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "wcc", threads = 4 }, metric = "seconds", value = 0.025, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "wcc", threads = 8 }, metric = "seconds", value = 0.016, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "wcc", threads = 16 }, metric = "seconds", value = 0.013, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "wcc", threads = 32 }, metric = "seconds", value = 0.015, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "bfs", threads = 1 }, metric = "seconds", value = 0.0995, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "bfs", threads = 2 }, metric = "seconds", value = 0.0535, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "bfs", threads = 4 }, metric = "seconds", value = 0.0298, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "bfs", threads = 8 }, metric = "seconds", value = 0.023, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "bfs", threads = 16 }, metric = "seconds", value = 0.0219, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "bfs", threads = 32 }, metric = "seconds", value = 0.0223, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "kcore", threads = 1 }, metric = "seconds", value = 1.35, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "kcore", threads = 2 }, metric = "seconds", value = 0.74, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "kcore", threads = 4 }, metric = "seconds", value = 0.45, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "kcore", threads = 8 }, metric = "seconds", value = 0.28, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "kcore", threads = 16 }, metric = "seconds", value = 0.30, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "kcore", threads = 32 }, metric = "seconds", value = 0.37, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "tc", threads = 4 }, metric = "seconds", value = 9.24, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "tc", threads = 8 }, metric = "seconds", value = 4.78, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "tc", threads = 16 }, metric = "seconds", value = 2.51, source = "idle re-run, kernels.jsonl" },
+  { match = { algo = "tc", threads = 32 }, metric = "seconds", value = 1.46, source = "idle re-run, kernels.jsonl" },
+]
+
+[[benchmark]]
+name = "probes-orkut"
+group = "kernels"
+description = "PageRank probes of § B1: mmap vs heap, huge pages off, u64 ids, node order"
+dataset_path = "csr/orkut"
+matrix = { algo = ["pr32", "pr64"], probe = ["mmap", "thp-off", "ids-u64", "order-degree", "order-bfs", "order-random"] }
+shell = """
+case {probe} in
+  mmap)         extra="--load mmap" ;;
+  thp-off)      extra="--load heap --thp off" ;;
+  ids-u64)      extra="--load heap --ids u64" ;;
+  order-degree) extra="--load heap --order degree" ;;
+  order-bfs)    extra="--load heap --order bfs" ;;
+  order-random) extra="--load heap --order random" ;;
+esac
+exec {glab} run --graph {dataset} --algo {algo} --threads {threads} --reps 3 $extra
+"""
+conditions = { graph = "orkut", kernel = "{algo}", probe = "{probe}", level = "in-process kernel, best of 3", precision = "f32" }
+when = [{ match = { algo = "pr64" }, conditions = { precision = "f64" } }]
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { match = { algo = "pr32", probe = "mmap" }, metric = "seconds", value = 0.380, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr32", probe = "thp-off" }, metric = "seconds", value = 0.375, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr32", probe = "ids-u64" }, metric = "seconds", value = 0.70, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr32", probe = "order-degree" }, metric = "seconds", value = 0.405, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr32", probe = "order-bfs" }, metric = "seconds", value = 0.377, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr32", probe = "order-random" }, metric = "seconds", value = 0.468, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr64", probe = "mmap" }, metric = "seconds", value = 0.435, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr64", probe = "thp-off" }, metric = "seconds", value = 0.468, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr64", probe = "ids-u64" }, metric = "seconds", value = 0.80, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr64", probe = "order-degree" }, metric = "seconds", value = 0.473, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr64", probe = "order-bfs" }, metric = "seconds", value = 0.430, source = "idle re-run, kernels.jsonl probe" },
+  { match = { algo = "pr64", probe = "order-random" }, metric = "seconds", value = 0.520, source = "idle re-run, kernels.jsonl probe" },
+]
+
+# --- kernels on Friendster, CSR memory-mapped, warm ---------------------------------------
+
+[[benchmark]]
+name = "kernels-friendster"
+group = "kernels"
+description = "Friendster with the CSR memory-mapped and in the page cache"
+dataset_path = "csr/friendster"
+memory_limit = "24G"
+matrix = { algo = ["wcc", "bfs", "pr32"] }
+shell = "if [ {algo} = pr32 ]; then exec {glab} run --graph {dataset} --algo pr32 --load mmap --threads {threads} --iters 10; else exec {glab} run --graph {dataset} --algo {algo} --load mmap --threads {threads} --reps 3; fi"
+conditions = { graph = "friendster", kernel = "{algo}", load = "mmap, warm", level = "in-process kernel", precision = "integer" }
+when = [{ match = { algo = "pr32" }, conditions = { precision = "f32" } }]
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  # Per PageRank iteration (10 iterations); not meaningful for wcc and bfs.
+  { name = "s_per_iter", json = "/seconds_best", scale = 0.1, unit = "s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { match = { algo = "wcc" }, metric = "seconds", value = 0.344, source = "idle re-run, kernels.jsonl friendster-mmap" },
+  { match = { algo = "bfs" }, metric = "seconds", value = 0.340, source = "idle re-run, kernels.jsonl friendster-mmap" },
+  { match = { algo = "pr32" }, metric = "s_per_iter", value = 3.37, source = "idle re-run, kernels.jsonl friendster-mmap (20 iterations)" },
+]
+
+# --- larger than RAM: Friendster under hard limits, cold cache ---------------------------
+
+[[benchmark]]
+name = "semiext-pr-friendster"
+group = "semi-external"
+description = "semi-external PageRank f32 (O_DIRECT streaming of the targets) under hard cgroup limits, cold"
+dataset_path = "csr/friendster"
+cache = "cold"
+# 48G stands for the "none" row of the § B1 table.
+matrix = { limit = ["48G", "16G", "8G", "2G"] }
+memory_limit = "{limit}"
+# As bench.sh: at 2 GiB, 5 iterations and 4 MiB chunks.
+shell = "if [ {limit} = 2G ]; then a='--iters 5 --chunk-mb 4'; else a='--iters 10'; fi; exec {glab} semiext --graph {dataset} --algo pr32 --io direct --threads {threads} $a"
+conditions = { graph = "friendster", kernel = "pr32", mode = "semi-external, O_DIRECT, cold", precision = "f32" }
+metric = [
+  { name = "s_per_iter", json = "/iter_seconds", reduce = "median", unit = "s" },
+  { name = "read_gb_per_s", json = "/read_gb_per_s_wall", unit = "GB/s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { match = { limit = "48G" }, metric = "s_per_iter", value = 3.704, source = "idle re-run, semiext.jsonl nolimit-semiext-direct (no limit), median per iteration" },
+  { match = { limit = "8G" }, metric = "s_per_iter", value = 3.705, source = "idle re-run, semiext.jsonl lim8G-semiext-direct-pr32, median per iteration" },
+  { match = { limit = "2G" }, metric = "s_per_iter", value = 3.638, source = "idle re-run, semiext.jsonl lim2G-semiext-direct-pr32, median per iteration" },
+  # 16G: no idle measurement exists (shared run: 4.18 s/iter): reported, not gated (issue #4).
+]
+
+[[benchmark]]
+name = "semiext-wcc-friendster"
+group = "semi-external"
+description = "semi-external WCC (O_DIRECT) under an 8 GiB limit, cold"
+dataset_path = "csr/friendster"
+cache = "cold"
+memory_limit = "8G"
+command = ["sh", "-c", "exec {glab} semiext --graph {dataset} --algo wcc --io direct --threads {threads}"]
+conditions = { graph = "friendster", kernel = "wcc", mode = "semi-external, O_DIRECT, cold", precision = "integer" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { metric = "seconds", value = 3.55, source = "idle re-run, semiext.jsonl lim8G-semiext-direct-wcc" },
+]
+
+[[benchmark]]
+name = "mmap-naive-friendster-16g"
+group = "semi-external"
+description = "naive memory-mapped PageRank f32 under a 16 GiB limit, cold: 5 iterations"
+dataset_path = "csr/friendster"
+cache = "cold"
+memory_limit = "16G"
+command = ["sh", "-c", "exec {glab} run --graph {dataset} --algo pr32 --load mmap --threads {threads} --iters 5"]
+conditions = { graph = "friendster", kernel = "pr32", mode = "naive mmap, cold (first iteration reads the graph)", precision = "f32" }
+metric = [
+  { name = "s_per_iter", json = "/seconds_best", scale = 0.2, unit = "s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { metric = "s_per_iter", value = 3.56, source = "idle re-run, semiext.jsonl lim16G-mmap-naive-pr32 (17.81 s / 5)" },
+]
+
+[[benchmark]]
+name = "mmap-naive-friendster-8g"
+group = "semi-external"
+description = "naive memory-mapped PageRank f32 under an 8 GiB limit, cold: 2 iterations, thrashing"
+dataset_path = "csr/friendster"
+cache = "cold"
+memory_limit = "8G"
+command = ["sh", "-c", "exec {glab} run --graph {dataset} --algo pr32 --load mmap --threads {threads} --iters 2"]
+conditions = { graph = "friendster", kernel = "pr32", mode = "naive mmap, cold, graph larger than the limit", precision = "f32" }
+metric = [
+  { name = "s_per_iter", json = "/seconds_best", scale = 0.5, unit = "s" },
+  { name = "peak_rss", json = "/peak_rss_gb", scale = 1073741824, unit = "B" },
+]
+reference = [
+  { metric = "s_per_iter", value = 4.62, source = "idle re-run, semiext.jsonl lim8G-mmap-naive-pr32 (9.24 s / 2)" },
+]

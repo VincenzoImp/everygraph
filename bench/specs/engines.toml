@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The query-engine bar of FINDINGS § F2: embedded engines answering point queries on lj
+# (neighbors, 2-hop count, shortest path) on the lab's seed-42 query set, plus igraph's
+# PageRank. As in the lab: 3 cores (taskset -c 0-2, as lab/f2-python/scripts/engines/
+# run_all.sh pinned them; the thread pools size themselves from the affinity, and
+# OMP_NUM_THREADS, POLARS_MAX_THREADS and RAYON_NUM_THREADS say 3 as well), warm, a
+# 6 GiB limit. Runners: bench/runners/run.py.
+#
+# Medians are per query, in milliseconds, measured inside the runner; the harness
+# repeats the whole process. `load_seconds` is each engine's own load path (text edge
+# list for igraph and rustworkx, a Parquet COPY for LadybugDB, a polars frame for GFQL).
+#
+# Run: everygraph-bench run engines --official --data /home/tux/graphlab/data
+# (about 25 minutes: rustworkx's shortest paths take seconds each, 50 of them per run).
+
+schema = 1
+name = "engines"
+description = "Embedded graph engines on lj point queries, as FINDINGS § F2"
+reference = "docs/FINDINGS.md § F2; lab/f2-python/results/goalA_*"
+# Every row records the SHA-256 of the interpreter and of the runner.
+binaries = ["{py}", "{repo}/bench/runners/run.py"]
+
+[defaults]
+memory_limit = "6G"
+repetitions = 3
+# Each process loads its engine from scratch, and the runner warms each query type up
+# itself; a whole untimed run first would only double the time.
+warmup = 0
+threads = [3]
+timeout = "20m"
+
+[vars]
+py = "{repo}/bench/runners/.venv/bin/python"
+run = "{py} {repo}/bench/runners/run.py"
+edges = "{work}/inputs/lj.edges"
+
+[[prepare]]
+name = "runners"
+command = ["uv", "sync", "--frozen", "--project", "{repo}/bench/runners"]
+
+[[prepare]]
+name = "edges"
+command = ["sh", "-c", "{run} convert edges --graph {data}/csr/lj --out {edges}"]
+creates = "{edges}"
+
+[[benchmark]]
+name = "queries"
+group = "queries"
+dataset_path = "csr/lj"
+matrix = { engine = ["igraph", "rustworkx", "ladybug", "gfql"] }
+runner = "f2-engines"
+env = { OMP_NUM_THREADS = "{threads}", POLARS_MAX_THREADS = "{threads}", RAYON_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec taskset -c 0-2 {run} {engine} queries --graph {dataset} --edges {edges} --threads {threads} --work {case_work}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "lj", engine = "{engine}", queries = "seed 42: 200 nodes, 50 pairs (GFQL: first 30 nodes)", cache = "warm", cores = "0-2 (taskset)", precision = "n/a (integer answers)" }
+metric = [
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+  { name = "neighbors_ms", json = "/result/neighbors/median_ms", unit = "ms" },
+  { name = "hop2_ms", json = "/result/hop2/median_ms", unit = "ms" },
+  # GFQL has no shortest-path operator.
+  { name = "shortest_path_ms", json = "/result/shortest_path/median_ms", unit = "ms", optional = true },
+]
+primary = "hop2_ms"
+
+[[benchmark]]
+name = "igraph-pagerank"
+group = "queries"
+runner = "igraph"
+dataset_path = "csr/lj"
+threads = [1]
+env = { OMP_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec taskset -c 0 {run} igraph pagerank --graph {dataset} --edges {edges} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "lj", engine = "igraph", task = "PageRank, PRPACK exact solve", cores = "0 (taskset)", precision = "f64" }
+metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
+
+[[benchmark]]
+name = "duckpgq"
+group = "queries"
+dataset_path = "csr/lj"
+command = ["true"]
+unavailable = "DuckPGQ parses only on DuckDB 1.3.2 (parser error on 2.0.1, FINDINGS § F2), while bench/runners pins DuckDB 2.0.1 for the ingest bar of § B1; one uv project cannot hold both. It also downloads its extension from the community repository at run time. Needs a second locked project (follow-up)."
+
+[[benchmark]]
+name = "neo4j"
+group = "queries"
+dataset_path = "csr/lj"
+command = ["true"]
+unavailable = "Neo4j 5.26 Community + GDS is a server, not a library: Java 21 is installed, but the runner would have to download the server tarball and the GDS plugin, run an offline import, start the server bound to 127.0.0.1, query it over Bolt and stop it by its PID, all inside one measured process. Not written in this pull request (follow-up)."

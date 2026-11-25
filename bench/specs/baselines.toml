@@ -1,0 +1,204 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Reference tools on the kernels and community detection of FINDINGS § B1 and § B2:
+# NetworKit, python-igraph, GVE-Louvain/Leiden and DuckDB (the ingest bar). The runners
+# are bench/runners/run.py (uv-locked, versions there). Every row stores the runner's
+# own account of what ran (`tool`, `version`, `algorithm`, `options`), and the SHA-256
+# of the Python interpreter, of run.py and of the GVE binaries.
+#
+# The lab's numbers for these tools (lab/a-baselines/results/, FINDINGS § B1 "NetworKit
+# 3.42 s", § B2 "GVE-Leiden binary") were taken on a shared machine; this spec has no
+# references for them, so its first official run is their first idle measurement.
+#
+# Run: everygraph-bench run baselines --official --data /home/tux/graphlab/data
+# (about 35 minutes, an estimate from the lab's timings; the preparation downloads the
+# runners' wheels and GVE's sources the first time, and needs the network then).
+
+schema = 1
+name = "baselines"
+description = "NetworKit, igraph, GVE and DuckDB on the kernels, communities and ingest of § B1/B2"
+reference = "lab/a-baselines; docs/FINDINGS.md § B1, § B2"
+# Every row records the SHA-256 of the interpreter and of the runner.
+binaries = ["{py}", "{repo}/bench/runners/run.py"]
+
+[defaults]
+memory_limit = "16G"
+repetitions = 3
+# Every process builds its tool's graph from files; an untimed run first would only
+# warm the page cache, which the first repetition does as well (its min-max shows it).
+warmup = 0
+threads = [32]
+timeout = "15m"
+
+[vars]
+py = "{repo}/bench/runners/.venv/bin/python"
+run = "{py} {repo}/bench/runners/run.py"
+gve = "{work}/gve"
+# Pinned commits of github.com/puzzlef/{louvain,leiden}-communities-openmp (MIT), the
+# newest on 2026-11-25 (both of 2025-04-08). The lab did not record which it built.
+louvain_commit = "e228af3e1e611ce3d94f984b5217b2bc367875b5"
+leiden_commit = "f741a40717a1b207d53289c5cdda36ce858477a7"
+
+[[prepare]]
+name = "runners"
+command = ["uv", "sync", "--frozen", "--project", "{repo}/bench/runners"]
+
+[[prepare]]
+name = "inputs"
+shell = """
+set -e
+for g in lj orkut; do
+  [ -s {work}/inputs/$g.mtx ] || {run} convert mtx --graph {data}/csr/$g --out {work}/inputs/$g.mtx
+  [ -s {work}/inputs/$g.edges ] || {run} convert edges --graph {data}/csr/$g --out {work}/inputs/$g.edges
+done
+"""
+needed_by = ["igraph-kernels", "igraph-communities", "gve-louvain", "gve-leiden"]
+
+[[prepare]]
+name = "gve"
+# Downloads go to a directory of their own; built as the projects' main.sh does
+# (TYPE=float), one binary per thread count because MAX_THREADS is a compile-time
+# constant that main.cxx passes to omp_set_num_threads, and REPEAT_METHOD=1 so that
+# each process times one run (the harness repeats).
+shell = """
+set -e
+mkdir -p {gve}/src
+for a in louvain leiden; do
+  if [ $a = louvain ]; then c={louvain_commit}; else c={leiden_commit}; fi
+  d={gve}/src/$a-$c
+  if [ ! -d $d ]; then
+    curl -sSfL -o {gve}/src/$a.tar.gz https://codeload.github.com/puzzlef/$a-communities-openmp/tar.gz/$c
+    mkdir -p $d.part && tar -xzf {gve}/src/$a.tar.gz -C $d.part --strip-components=1 && mv $d.part $d
+  fi
+  for t in 1 32; do
+    [ -x {gve}/$a-$c-t$t ] || g++ -DTYPE=float -DMAX_THREADS=$t -DREPEAT_METHOD=1 -std=c++17 -O3 -fopenmp $d/main.cxx -o {gve}/$a-$c-t$t
+  done
+done
+"""
+# The binaries are named after their commit: a new pin builds new ones.
+creates = "{gve}/leiden-{leiden_commit}-t32"
+needed_by = ["gve-louvain", "gve-leiden"]
+
+# --- kernels: NetworKit and igraph on orkut, as § B1 compares -------------------------------
+
+[[benchmark]]
+name = "networkit-kernels"
+group = "kernels"
+runner = "networkit"
+dataset_path = "csr/{graph}"
+threads = [1, 32]
+matrix = { graph = ["orkut"], task = ["pagerank", "components", "parallel_components", "kcore", "bfs", "triangles"] }
+env = { OMP_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec {run} networkit {task} --graph {dataset} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit", task = "{task}", level = "in-process call from Python", precision = "integer" }
+when = [{ match = { task = "pagerank" }, conditions = { precision = "f64" } }]
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "igraph-kernels"
+group = "kernels"
+runner = "igraph"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["orkut"], task = ["pagerank", "components", "kcore", "bfs"] }
+env = { OMP_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec {run} igraph {task} --graph {dataset} --edges {work}/inputs/{graph}.edges --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "python-igraph", task = "{task}", level = "in-process call from Python", pagerank = "PRPACK exact solve", precision = "integer" }
+when = [{ match = { task = "pagerank" }, conditions = { precision = "f64" } }]
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+# --- community detection on lj and orkut, as § B2 compares ----------------------------------
+
+[[benchmark]]
+name = "networkit-communities"
+group = "communities"
+runner = "networkit"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], task = ["plm", "leiden"] }
+env = { OMP_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec {run} networkit {task} --graph {dataset} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit", task = "{task}", precision = "f64 (modularity gains)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "modularity", json = "/result/modularity" },
+  { name = "communities", json = "/result/communities" },
+]
+
+[[benchmark]]
+name = "igraph-communities"
+group = "communities"
+runner = "igraph"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["lj", "orkut"], task = ["multilevel", "leiden"] }
+env = { OMP_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec {run} igraph {task} --graph {dataset} --edges {work}/inputs/{graph}.edges --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "python-igraph", task = "{task}", precision = "f64 (modularity gains)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "modularity", json = "/result/modularity" },
+  { name = "communities", json = "/result/communities" },
+]
+
+# GVE prints one line per method, `{0000816.6ms, … 0.723988342 modularity, …} louvainStaticOmp`;
+# the leiden binary prints a Louvain line first. Each benchmark reads its own method's line.
+
+[[benchmark]]
+name = "gve-louvain"
+group = "communities"
+runner = "gve"
+description = "GVE-Louvain (C++/OpenMP) on MatrixMarket input; the time is the binary's own"
+dataset_path = "csr/{graph}"
+threads = [1, 32]
+matrix = { graph = ["lj", "orkut"] }
+command = ["{gve}/louvain-{louvain_commit}-t{threads}", "{work}/inputs/{graph}.mtx", "1", "0"]
+record = { tool = "GVE-Louvain", version = "puzzlef/louvain-communities-openmp {louvain_commit}", algorithm = "louvainStaticOmp", options = "TYPE=float MAX_THREADS={threads} REPEAT_METHOD=1; input MatrixMarket, symmetric, unweighted" }
+conditions = { graph = "{graph}", tool = "GVE-Louvain", input = "MatrixMarket, read by the binary", precision = "f32 (TYPE=float)" }
+metric = [
+  { name = "seconds", regex = '\{0*([0-9.]+)ms,[^}]*\} louvainStaticOmp', scale = 0.001, unit = "s" },
+  { name = "modularity", regex = '([0-9.]+) modularity[^}]*\} louvainStaticOmp' },
+]
+
+[[benchmark]]
+name = "gve-leiden"
+group = "communities"
+runner = "gve"
+description = "GVE-Leiden (C++/OpenMP) on MatrixMarket input; the time is the binary's own"
+dataset_path = "csr/{graph}"
+threads = [1, 32]
+matrix = { graph = ["lj", "orkut"] }
+command = ["{gve}/leiden-{leiden_commit}-t{threads}", "{work}/inputs/{graph}.mtx", "1", "0"]
+record = { tool = "GVE-Leiden", version = "puzzlef/leiden-communities-openmp {leiden_commit}", algorithm = "leidenStaticOmp", options = "TYPE=float MAX_THREADS={threads} REPEAT_METHOD=1; input MatrixMarket, symmetric, unweighted" }
+conditions = { graph = "{graph}", tool = "GVE-Leiden", input = "MatrixMarket, read by the binary", precision = "f32 (TYPE=float)" }
+metric = [
+  { name = "seconds", regex = '\{0*([0-9.]+)ms,[^}]*\} leidenStaticOmp', scale = 0.001, unit = "s" },
+  { name = "modularity", regex = '([0-9.]+) modularity[^}]*\} leidenStaticOmp' },
+]
+
+# --- the ingest bar of § B1 --------------------------------------------------------------------
+
+[[benchmark]]
+name = "duckdb-ingest"
+group = "ingest"
+runner = "duckdb"
+description = "text edge list (.gz) to a symmetric, deduplicated, sorted adjacency in Parquet, in SQL"
+dataset_path = "raw/com-{graph}.ungraph.txt.gz"
+matrix = { graph = ["lj", "orkut"] }
+env = { OMP_NUM_THREADS = "{threads}" }
+command = ["sh", "-c", "exec {run} duckdb ingest --input {dataset} --threads {threads} --work {case_work} --memory-limit 12GB"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "DuckDB", input = "gzip text", output = "Parquet ZSTD", budget = "12 GB (DuckDB memory_limit)", precision = "n/a (integer ids)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "entries", json = "/result/entries" },
+]

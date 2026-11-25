@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Used by tests/harness.rs: an official run whose gate lets any machine in (load up to
+# 1000, no memory asked), next to a busy neighbour the test starts on purpose.
+
+schema = 1
+name = "disturbed"
+description = "test spec: a quiet command next to a busy neighbour"
+
+[defaults]
+memory_limit = "64M"
+repetitions = 1
+warmup = 0
+settle = "1s"
+
+[gate]
+max_load = 1000.0
+min_mem_available = "1M"
+
+[[benchmark]]
+name = "wait"
+command = ["sleep", "2"]

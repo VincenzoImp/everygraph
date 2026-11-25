@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Comparison runners of the benchmark harness (bench/specs/baselines.toml and
+# engines.toml). Locked with uv; the specs' preparation step runs
+# `uv sync --frozen --project bench/runners`.
+#
+# Versions are the ones the lab measured where it recorded them (docs/FINDINGS.md § F2:
+# python-igraph 1.0, rustworkx 0.18, LadybugDB 0.22.3, graphistry 0.62.2 with polars 2.1;
+# § B1: DuckDB 2.0.1; § A: NetworKit 11.3, pinned by the idle re-run of the baselines).
+# Changing a version changes what a baseline measures: say so in the pull request.
+
+[project]
+name = "everygraph-bench-runners"
+version = "0.0.0"
+description = "Thin runners that time reference graph tools for everygraph-bench"
+requires-python = ">=3.12,<3.14"
+license = "Apache-2.0 OR MIT"
+dependencies = [
+    "numpy==2.5.5",
+    "scipy==1.18.1",
+    "networkit==11.3",
+    "igraph==1.0.0",
+    "rustworkx==0.18.1",
+    "duckdb==2.0.1",
+    "polars==2.1.0",
+    "pyarrow==26.0.1",
+    "graphistry==0.62.2",
+    "ladybug==0.22.3",
+]
+
+[tool.uv]
+package = false

@@ -32,6 +32,28 @@ toml = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
 ureq = { version = "3.4", default-features = false, features = ["rustls-no-provider"] }
+# The command line. Without default features: no colours (anstream and four more
+# crates) and no "did you mean" (strsim); help, usage and error context stay. Six crates
+# in all, against one for lexopt, for a --help that cannot drift from the parser.
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+# Result rows are JSON lines; metrics are read from commands' JSON output.
+serde_json = "1"
+# Metrics read from text output; no Unicode tables, no dependencies.
+regex-lite = "0.1"
+
+[features]
+# Hooks for the crate's own tests (the lock file named by EVERYGRAPH_BENCH_LOCK). Enabled
+# through the dev-dependency below, so `cargo test` builds the binary with them and
+# `cargo build` never does.
+test-hooks = []
+
+[dev-dependencies]
+everygraph-bench = { path = ".", features = ["test-hooks"] }
 
 [lints]
 workspace = true
+
+# flock, posix_fadvise, sync and kill through safe wrappers, so that the crate keeps
+# forbidding `unsafe`. Linux only: the harness needs cgroups v2 and systemd-run.
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process"] }

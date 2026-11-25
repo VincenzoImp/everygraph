@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Used by tests/harness.rs: an official run of this spec would be refused by its gate
+# (it asks for 1000 TiB of available memory), so a refusal that names the lock proves
+# the lock is taken first.
+
+schema = 1
+name = "lockfirst"
+description = "test spec: a gate that always refuses"
+
+[defaults]
+memory_limit = "64M"
+repetitions = 1
+warmup = 0
+
+[gate]
+min_mem_available = "1000T"
+
+[[benchmark]]
+name = "nothing"
+command = ["true"]

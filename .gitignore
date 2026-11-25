@@ -21,3 +21,8 @@ __pycache__/
 .vscode/
 *.swp
 .DS_Store
+
+# Benchmark harness: work directory (builds, inputs, cold-cache copies, logs) and
+# exploratory results. Official results under bench/results/ are committed.
+/bench/work/
+/bench/exploratory/
