@@ -84,8 +84,14 @@ iteration (`m3-04`). On a random directed graph with 3,000 nodes, the default an
 to 8·10⁻⁶ away from igraph's PRPACK solution. With `tol = 1e-15` the gap is 8·10⁻¹⁵
 (`pagerank-convergence` in the probe). igraph solves the linear system directly.
 
+A fixed `tol` is not enough either. On the nightly corpus's power-law graph with 20,000
+nodes, NetworkX at `tol = 1e-15` was 2.5·10⁻⁸ relative away from PRPACK on some nodes:
+the stopping bound n·tol grows with n. NetworkX and igraph disagreed there by more than
+the PageRank tolerance, and the in-process reference sided with igraph. At
+`tol = 1e-14 / n` the gap is 1.7·10⁻¹¹.
+
 The oracle compares every PageRank against the **fixed point**. NetworkX runs with
-`tol = 1e-15` and `max_iter = 100000` (`ADJUSTMENTS` in `refs.py`), igraph with PRPACK,
+`tol = 1e-14 / n` and `max_iter = 100000` (`ADJUSTMENTS` in `refs.py`), igraph with PRPACK,
 and the in-process reference iterates until the initial error has shrunk by 10⁻¹⁷. That
 takes 241 iterations at damping 0.85. An Everygraph kernel may stop by any rule, as long
 as it lands within the PageRank tolerance (`tolerances.json`, `oracle/README.md`). The
@@ -100,7 +106,7 @@ listed in `ADJUSTMENTS` in `src/everygraph_oracle_ref/refs.py` and copied into e
 
 - igraph's local transitivity is called with `mode="zero"`;
 - igraph's NaN transitivity and NaN modularity become 0;
-- NetworkX's PageRank runs with `tol = 1e-15`, retried at `1e-13` if it fails to converge
+- NetworkX's PageRank runs with `tol = 1e-14 / n`, retried at `1e-13 / n` if it fails to converge
   within `max_iter`.
 
 ## Open questions for the coordinator

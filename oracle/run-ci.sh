@@ -19,7 +19,7 @@ else
     WORK="$(mktemp -d)"
     trap 'rm -rf "$WORK"' EXIT
 fi
-JOBS="${ORACLE_JOBS:-4}"
+JOBS="${ORACLE_JOBS:-2}"
 step() { printf '\n== %s (%s)\n' "$1" "$(date +%T)"; }
 START=$SECONDS
 
@@ -37,7 +37,7 @@ rm -rf "$WORK/ci"
 step "Python: references (NetworkX, python-igraph, scipy)"
 cd "$ROOT/oracle"
 uv sync --locked --quiet
-uv run --locked oracle-ref run "$WORK/ci" --jobs "$JOBS"
+uv run --locked oracle-ref run "$WORK/ci" --jobs "$JOBS" --max-memory-gib "${ORACLE_MEMORY_GIB:-3}"
 uv run --locked pytest -q
 uv run --locked oracle-ref probe --check > /dev/null && echo "semantics probe unchanged"
 uv run --locked oracle-ref golden --check

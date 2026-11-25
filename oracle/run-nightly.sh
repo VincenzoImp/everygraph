@@ -19,7 +19,7 @@ else
     WORK="$(mktemp -d)"
     trap 'rm -rf "$WORK"' EXIT
 fi
-JOBS="${ORACLE_JOBS:-8}"
+JOBS="${ORACLE_JOBS:-2}"
 step() { printf '\n== %s (%s)\n' "$1" "$(date +%T)"; }
 START=$SECONDS
 
@@ -36,7 +36,7 @@ rm -rf "$WORK/nightly"
 step "Python: references"
 cd "$ROOT/oracle"
 uv sync --locked --quiet
-uv run --locked oracle-ref run "$WORK/nightly" --jobs "$JOBS"
+uv run --locked oracle-ref run "$WORK/nightly" --jobs "$JOBS" --max-memory-gib "${ORACLE_MEMORY_GIB:-3}"
 
 step "Golden files of the SNAP graphs (downloads, checksums verified)"
 uv run --locked oracle-ref golden --fetch

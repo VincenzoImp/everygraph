@@ -24,7 +24,7 @@ ADJUSTMENTS = {
     "igraph.transitivity_local_undirected": "mode='zero': degree < 2 gives 0, not NaN (row 'clustering, degree < 2')",
     "igraph.transitivity_undirected": "NaN (no connected triple) mapped to 0 (row 'transitivity, no triple')",
     "igraph.modularity": "NaN (no edges) mapped to 0 (row 'modularity, no edges')",
-    "networkx.pagerank": "tol = 1e-15 (NetworkX stops when the L1 change < n*tol), max_iter = 100000",
+    "networkx.pagerank": "tol = 1e-14 / n, so that NetworkX's stopping rule (L1 change < n * tol) means L1 change < 1e-14 whatever n; retried at 1e-13 / n if it does not converge; max_iter = 100000",
 }
 
 LIBS = ("networkx", "igraph", "scipy")
@@ -56,19 +56,36 @@ def _nx_pagerank(G, damping, weighted):
         return []
     weight = "wsum" if weighted else None
     try:
-        pr = nx.pagerank(G, alpha=damping, max_iter=100000, tol=1e-15, weight=weight)
+        n = G.number_of_nodes()
+        pr = nx.pagerank(G, alpha=damping, max_iter=100000, tol=1e-14 / n, weight=weight)
     except nx.PowerIterationFailedConvergence:
-        pr = nx.pagerank(G, alpha=damping, max_iter=100000, tol=1e-13, weight=weight)
+        pr = nx.pagerank(G, alpha=damping, max_iter=100000, tol=1e-13 / n, weight=weight)
     return [pr[v] for v in range(G.number_of_nodes())]
 
 
 def _triangles_scipy(p: Projection) -> list[int]:
-    A = to_scipy(p, undirected=True)
+    """Triangles per node with sparse products over the degree-ordered orientation.
+
+    Not `diag(A^3) / 2`: `A @ A` has deg(v)^2 entries at a hub, which is 2^32 for the
+    nightly corpus's star with 2^16 leaves (it once took 61 GB). Orienting each edge from
+    the endpoint of lower (degree, id) to the higher one bounds every product below by
+    the sum of squared forward degrees, which is O(m^1.5).
+    """
+    import scipy.sparse as sp
+
     if p.n == 0:
         return []
-    A.data[:] = 1.0
-    t = (A @ A).multiply(A).sum(axis=1)
-    return [int(round(x / 2)) for x in np.asarray(t).ravel()]
+    A = to_scipy(p, undirected=True).tocoo()
+    deg = np.bincount(A.row, minlength=p.n)
+    key = deg.astype(np.int64) * (p.n + 1) + np.arange(p.n)
+    fwd = key[A.row] < key[A.col]
+    U = sp.csr_array((np.ones(int(fwd.sum())), (A.row[fwd], A.col[fwd])), shape=(p.n, p.n))
+    # For a triangle u < w < x in that order: (U @ U)[u, x] counts w.
+    C = (U @ U).multiply(U)
+    first = np.asarray(C.sum(axis=1)).ravel()
+    last = np.asarray(C.sum(axis=0)).ravel()
+    middle = np.asarray((U.multiply(U.T @ U)).sum(axis=1)).ravel()
+    return [int(round(x)) for x in first + last + middle]
 
 
 def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:

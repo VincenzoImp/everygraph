@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 """oracle-ref: the Python side of the Everygraph correctness oracle.
 
-  oracle-ref run CORPUS [--jobs N]          reference.json for every graph of a corpus
+  oracle-ref run CORPUS [--jobs N] [--max-memory-gib G] [--max-rows R]
+                                            reference.json for every graph of a corpus
   oracle-ref golden (--fetch|--write|--check) [--cache DIR]
                                             golden files of small real graphs
   oracle-ref probe (--write|--check)        where NetworkX and igraph disagree
@@ -21,7 +22,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="compute references for a corpus directory")
     r.add_argument("corpus", type=Path)
-    r.add_argument("--jobs", type=int, default=8)
+    r.add_argument("--jobs", type=int, default=2, help="worker processes (default 2)")
+    r.add_argument("--max-memory-gib", type=float, default=3.0, help="address-space limit per worker (default 3 GiB)")
+    r.add_argument("--max-rows", type=int, default=2_000_000, help="graphs with more rows are skipped (default 2,000,000)")
     g = sub.add_parser("golden", help="golden files of small real graphs")
     mode = g.add_mutually_exclusive_group(required=True)
     mode.add_argument("--fetch", action="store_true", help="download the sources into the cache, verifying checksums")
@@ -34,9 +37,15 @@ def main(argv: list[str] | None = None) -> int:
     pm.add_argument("--check", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "run":
+        import os
+
+        # One BLAS thread per worker: the parallelism is the worker count, and a BLAS
+        # pool per worker would multiply both cores and reserved memory.
+        for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+            os.environ.setdefault(var, "1")
         from .run import run
 
-        return run(a.corpus, a.jobs)
+        return run(a.corpus, a.jobs, a.max_memory_gib, a.max_rows)
     if a.cmd == "golden":
         from . import golden
 

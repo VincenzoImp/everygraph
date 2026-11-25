@@ -80,6 +80,29 @@ target/release/everygraph-oracle golden --dir oracle/golden
 Measured runtimes are in the pull request that introduced the oracle (#6). They were
 taken on a loaded machine, so they are upper bounds, not benchmarks.
 
+**Memory.** Reference implementations are for small and medium graphs; large graphs are
+checked by invariants. `oracle-ref run` bounds memory twice:
+
+- It skips any graph with more rows than `--max-rows` (default 2,000,000) without
+  loading it.
+- Each worker process runs under an address-space limit (`--max-memory-gib`, default
+  3 GiB), with one BLAS thread. A kernel that would grow past the limit fails with
+  `MemoryError`, which is recorded as a skipped case; the run then exits non-zero.
+
+The summary line reports the largest worker resident set. Workers default to 2
+(`--jobs`), so the default total stays near 6 GiB. On the lab machine, run anything that
+is not a unit test under a hard limit as well:
+
+```sh
+systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 uv run oracle-ref run DIR --jobs 2
+```
+
+This is a lesson learned the hard way. The first version computed scipy's triangle
+counts as `diag(A³)/2`. On the nightly tier's star with 2^16 leaves, `A @ A` has 2^32
+entries: one worker reached 61.5 GB before it was stopped. The graph has only 65,536
+edges. Every product is now taken over the degree-ordered orientation, which is bounded
+by O(m^1.5).
+
 ## Exchange formats
 
 One directory per graph, written by `everygraph-oracle corpus` and read by Rust, by
@@ -145,7 +168,7 @@ bit.
 
 | Quantity | Tolerance | Why |
 |---|---|---|
-| PageRank, per node | `rel = 1e-9`, `abs_over_n = 1e-9` | The references are at the fixed point to about 10⁻¹⁵ (PRPACK; NetworkX at `tol = 1e-15`; the in-process power iteration shrinks the initial error by 10⁻¹⁷). Values scale as 1/n, so a bare absolute bound would be loose on large graphs and meaningless on small ones: the bound is 10⁻⁹ relative, floored at 10⁻⁹ of the uniform value 1/n. m3-04 asks for agreement "within 1e-9"; this is that, made scale-free. On the CI corpus every comparison passes, including those of the lab prototype, which runs a fixed 300 iterations |
+| PageRank, per node | `rel = 1e-9`, `abs_over_n = 1e-9` | The references are at the fixed point to about 10⁻¹¹ relative or better (PRPACK; NetworkX at `tol = 1e-14 / n`, see SEMANTICS.md; the in-process power iteration shrinks the initial error by 10⁻¹⁷). Values scale as 1/n, so a bare absolute bound would be loose on large graphs and meaningless on small ones: the bound is 10⁻⁹ relative, floored at 10⁻⁹ of the uniform value 1/n. m3-04 asks for agreement "within 1e-9"; this is that, made scale-free. On the CI corpus every comparison passes, including those of the lab prototype, which runs a fixed 300 iterations |
 | PageRank, sum | `abs = 1e-9` | n additions of values that sum to 1 in exact arithmetic |
 | local clustering | `abs = 1e-12` | `2t / (d(d−1))` is one division of exact integers, so every correct implementation gives the same correctly rounded double. The slack only covers a different but equivalent formula |
 | transitivity | `abs = 1e-12` | same reason, one division |
