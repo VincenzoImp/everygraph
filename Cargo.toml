@@ -10,10 +10,11 @@ exclude = ["lab"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-# MSRV: 1.85 is the first release with edition 2024 and the MSRV-aware resolver, and
-# the toolchain Debian 13 ships; nothing in the workspace needs anything newer.
+# MSRV: 1.87, raised from 1.85 on 2026-11-25 because the fix for RUSTSEC-2026-0344 in
+# ruzstd (0.9.1, used by the text reader) needs it. 1.85 was the first release with
+# edition 2024 and the MSRV-aware resolver.
 # Policy for raising it: CONTRIBUTING.md, "Rust version".
-rust-version = "1.85"
+rust-version = "1.87"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/VincenzoImp/everygraph"
 # Nothing is published until the release issue (#105) lifts this, crate by crate.

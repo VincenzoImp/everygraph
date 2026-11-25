@@ -5,7 +5,7 @@
 
 #![forbid(unsafe_code)]
 
-use everygraph_oracle::graph::Graph;
+use everygraph_oracle::graph::{Graph, SelfLoops};
 use everygraph_oracle::invariants::check;
 use everygraph_oracle::kernel::{Kernel, Output};
 use everygraph_oracle::projection::Projection;
@@ -125,19 +125,48 @@ fn lists_sorted_unique() {
     );
 }
 
+/// `sample()` with two loop rows at 0, kept, and one dropped-or-kept at 4.
+fn looped() -> Graph {
+    let mut g = sample();
+    for v in [0, 0, 4] {
+        g.src.push(v);
+        g.dst.push(v);
+    }
+    g.semantics.self_loops = SelfLoops::Keep;
+    g
+}
+
 #[test]
-fn no_self_loops() {
+fn self_loop_exactly_where_kept() {
     let g = sample();
     let (o, mut t) = csr(&g);
     t[0] = 0; // node 0 lists itself
+    let wrong = Output::Csr {
+        offsets: o,
+        targets: t,
+    };
     rejects(
         &g,
         &Kernel::Adjacency,
-        &Output::Csr {
-            offsets: o,
-            targets: t,
-        },
-        "no_self_loops",
+        &wrong,
+        "self_loop_exactly_where_kept",
+    );
+    // Kept loops are listed once: leaving node 4's out fails too.
+    let g = looped();
+    let (mut o, mut t) = csr(&g);
+    assert_eq!(&t[..3], &[0, 1, 2], "node 0 lists itself first");
+    assert_eq!(t.last(), Some(&4));
+    t.pop();
+    *o.last_mut().expect("offsets") -= 1;
+    let wrong = Output::Csr {
+        offsets: o,
+        targets: t,
+    };
+    rejects(
+        &g,
+        &Kernel::Adjacency,
+        &wrong,
+        "self_loop_exactly_where_kept",
     );
 }
 
@@ -185,6 +214,25 @@ const PR: Kernel = Kernel::PageRank {
     damping: 0.85,
     weighted: false,
 };
+
+#[test]
+fn pagerank_fixed_point() {
+    // NetworkX's convention on an undirected loop (A[v][v] = 1, not 2) is a PageRank that
+    // sums to 1: only the fixed-point equation of S1 tells it from the right one.
+    let g = looped();
+    let right = reals(good(&g, &PR));
+    // Move mass from node 0 to node 1 by a little more than the tolerance allows.
+    let mut r = right;
+    let d = 1e-6;
+    r[0] = r[0].map(|x| x - d);
+    r[1] = r[1].map(|x| x + d);
+    rejects(&g, &PR, &Output::Reals(r), "pagerank_fixed_point");
+    // With loops dropped the same graph has another answer, which fails on the kept graph.
+    let mut dropped = g.clone();
+    dropped.semantics.self_loops = SelfLoops::Drop;
+    let other = good(&dropped, &PR);
+    rejects(&g, &PR, &other, "pagerank_fixed_point");
+}
 
 #[test]
 fn pagerank_nonnegative() {
@@ -395,17 +443,78 @@ fn transitivity_in_unit_interval() {
 }
 
 #[test]
+fn modularity_equals_quotient_modularity() {
+    let g = looped();
+    for weighted in [false, true] {
+        let k = Kernel::Modularity {
+            resolution: 1.0,
+            weighted,
+        };
+        let Output::Real(q) = good(&g, &k) else {
+            panic!("a real")
+        };
+        // Leaving the loops out of L(c) (but not of the strengths) is the classic mistake.
+        rejects(
+            &g,
+            &k,
+            &Output::Real(q - 0.05),
+            "modularity_equals_quotient_modularity",
+        );
+    }
+}
+
+#[test]
+fn report_rows_add_up() {
+    let g = looped();
+    let Output::Counts(mut r) = good(&g, &Kernel::IngestReport) else {
+        panic!("counts")
+    };
+    *r.get_mut("dropped.duplicates").expect("key") += 1;
+    rejects(
+        &g,
+        &Kernel::IngestReport,
+        &Output::Counts(r),
+        "report_rows_add_up",
+    );
+}
+
+#[test]
+fn report_edges_add_up() {
+    let g = looped();
+    let Output::Counts(mut r) = good(&g, &Kernel::IngestReport) else {
+        panic!("counts")
+    };
+    *r.get_mut("counts.pairs").expect("key") += 1;
+    rejects(
+        &g,
+        &Kernel::IngestReport,
+        &Output::Counts(r),
+        "report_edges_add_up",
+    );
+}
+
+#[test]
 fn modularity_in_range() {
     let g = sample();
-    let k = Kernel::Modularity { resolution: 1.0 };
+    let k = Kernel::Modularity {
+        resolution: 1.0,
+        weighted: false,
+    };
     good(&g, &k);
     rejects(&g, &k, &Output::Real(1.5), "modularity_in_range");
     rejects(&g, &k, &Output::Real(-0.6), "modularity_in_range");
     // At resolution 2 the bound is −1.5: −1.2 is possible, −1.6 is not.
-    let k2 = Kernel::Modularity { resolution: 2.0 };
+    let k2 = Kernel::Modularity {
+        resolution: 2.0,
+        weighted: false,
+    };
     good(&g, &k2);
     let p = Projection::new(&g);
-    assert!(check(&k2, &p, g.partition.as_deref(), &Output::Real(-1.2)).is_empty());
+    assert!(
+        !check(&k2, &p, g.partition.as_deref(), &Output::Real(-1.2))
+            .iter()
+            .any(|v| v.invariant == "modularity_in_range")
+    );
     rejects(&g, &k2, &Output::Real(-1.6), "modularity_in_range");
 }
 
@@ -469,11 +578,11 @@ fn every_invariant_has_a_negative_test() {
                 && s.chars()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         })
-        .filter(|s| !["pagerank_sum", "sssp"].contains(s)) // tolerance names, not invariants
+        .filter(|s| !["pagerank_sum", "sssp", "pagerank", "modularity"].contains(s)) // tolerance names
         .collect();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 28, "27 invariants plus `shape`: {names:?}");
+    assert_eq!(names.len(), 32, "31 invariants plus `shape`: {names:?}");
     for name in names {
         assert!(
             this.contains(&format!("fn {name}()")),

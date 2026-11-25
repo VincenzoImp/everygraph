@@ -64,3 +64,31 @@ def test_kept_loop_adds_two_to_the_degree_once():
     g = graph([(0, 0), (0, 0), (0, 1)], 2, keep_loops=True)
     values = compute(project(g), None, {"kernel": "degree"})
     assert {k: v["ints"] for k, v in values.items()} == {"networkx": [3, 1], "igraph": [3, 1], "scipy": [3, 1]}
+
+
+def test_kept_loop_pagerank_and_modularity_agree_across_libraries():
+    # Triangle with a loop of weight 3 at 0 (docs/spec/graph-semantics.md S1, S5).
+    g = graph([(0, 0), (0, 1), (1, 2), (2, 0)], 3, keep_loops=True, weight=[3.0, 1.0, 1.0, 1.0])
+    p = project(g)
+    pr = compute(p, None, {"kernel": "pagerank", "damping": 0.85, "weighted": True})
+    for v in pr.values():
+        assert compare("pagerank", 3, v, {"reals": [38 / 63, 25 / 126, 25 / 126]}) is None, pr
+    q = compute(p, [0, 0, 1], {"kernel": "modularity", "resolution": 1.0, "weighted": True})
+    assert {k: round(v["real"], 12) for k, v in q.items()} == {"networkx": round(-1 / 18, 12), "igraph": round(-1 / 18, 12)}
+
+
+def test_duplicates_modes_and_the_ingest_report():
+    edges = [(0, 1), (0, 1), (1, 0), (2, 2), (2, 2)]
+    w = [4.0, 1.0, 2.0, 3.0, 5.0]
+    seen = {}
+    for mode in ("events", "collapse", "sum"):
+        g = graph(edges, 4, keep_loops=True, weight=w)
+        g.duplicates = mode
+        p = project(g)
+        a = p.arcs[(0, 1)]
+        seen[mode] = (a.mult, a.wsum, a.wmin, p.loops[2].wsum)
+        r = compute(p, None, {"kernel": "ingest_report"})["python"]["counts"]
+        assert r["counts.rows"] == r["dropped.self_loops"] + r["dropped.duplicates"] + r["counts.merged"] + r["counts.edges"]
+        assert r["counts.edges"] == r["counts.pairs"] + r["counts.repeated"]
+        assert (r["counts.pairs"], r["counts.isolates"]) == (2, 1)
+    assert seen == {"events": (3, 7.0, 1.0, 8.0), "collapse": (1, 4.0, 4.0, 3.0), "sum": (3, 7.0, 7.0, 8.0)}

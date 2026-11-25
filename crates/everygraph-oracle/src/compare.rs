@@ -244,6 +244,19 @@ pub fn compare(kernel: &Kernel, n: u32, got: &Output, want: &Output) -> Result<(
                 ))
             }
         }
+        (Output::Counts(a), Output::Counts(b)) => {
+            let keys: std::collections::BTreeSet<&String> = a.keys().chain(b.keys()).collect();
+            let bad: Vec<String> = keys
+                .into_iter()
+                .filter(|k| a.get(*k) != b.get(*k))
+                .map(|k| format!("{k}: {:?} vs {:?}", a.get(k), b.get(k)))
+                .collect();
+            if bad.is_empty() {
+                Ok(())
+            } else {
+                Err(describe_positions(&bad, a.len()))
+            }
+        }
         _ => Err(format!(
             "output shape {} where the reference is {}",
             got.shape(),
