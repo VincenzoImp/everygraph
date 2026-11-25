@@ -296,6 +296,7 @@ fn an_exploratory_run_records_every_field() {
         assert_eq!(r.exit.expect("exit").code, Some(0));
         assert!(r.wrapper.iter().any(|a| a == "MemoryMax=268435456"));
         assert!(r.wrapper.iter().any(|a| a == "MemorySwapMax=0"));
+        assert!(r.wrapper.iter().any(|a| a == "OOMPolicy=continue"));
         assert!(r.load_start.is_some() && r.mem_available_start_bytes.is_some());
         assert!(r.disturbance.settle_busy_cores.is_some());
         assert_eq!(r.git.revision.len(), 40);

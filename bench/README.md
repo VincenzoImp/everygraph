@@ -59,9 +59,12 @@ would otherwise run during the next repetition), and sleeps through a settle win
 (`/proc/stat`). The command then runs as
 
 ```
-systemd-run --user --scope -p MemoryMax=<limit> -p MemorySwapMax=0 -- \
-    everygraph-bench measure --report … -- <command>
+systemd-run --user --scope -p MemoryMax=<limit> -p MemorySwapMax=0 \
+    -p OOMPolicy=continue -- everygraph-bench measure --report … -- <command>
 ```
+
+(`OOMPolicy=continue`: otherwise systemd stops the whole scope when the OOM killer
+ends one of its processes, and the OOM would go unrecorded.)
 
 **Every run is under a hard memory limit**: a spec whose benchmark has no
 `memory_limit` (its own or `[defaults]`) is an error, and the limit the kernel applied
@@ -74,9 +77,11 @@ and its own `/proc/self/io` (bytes the command and its descendants read from and
 to storage). Anonymous and file-backed peaks are kept apart because a memory-mapped
 graph counts as RSS but is reclaimable page cache (FINDINGS § B1): RSS alone misleads.
 They are sampled, so a spike shorter than the interval can be missed; `memory.peak` is
-not sampled. While the command runs, `/proc/stat` minus the scope's own CPU time gives
-the cores used by others (for runs of 1 s and more; shorter runs rely on the settle
-window).
+not sampled. While the command runs, the machine's user time (`/proc/stat`) minus the
+scope's own gives the cores used by others (for runs of 1 s and more; shorter runs rely
+on the settle window). User time only: the kernel's work for the run — write-back,
+reclaim — is system time charged outside the scope and would count as someone else's;
+interrupt time is left out of both windows for the same reason.
 
 **Disturbed rows.** In an official run, a repetition during which, or just before
 which, other processes kept more than 0.5 cores busy on average (`[gate]

@@ -58,9 +58,14 @@ pub fn parse_meminfo(text: &str) -> BTreeMap<String, u64> {
 /// CPU time of the whole machine, from the `cpu` line of `/proc/stat`, in ticks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CpuTimes {
-    /// Time spent running something: user, nice, system, irq, softirq and steal.
+    /// Time spent running processes: user, nice, system and steal. Interrupt time
+    /// (irq, softirq) is left out: it serves whoever does I/O, the benchmark included.
     pub busy: u64,
-    /// Busy plus idle and iowait.
+    /// User and nice time only: what other people's computations show as. Kernel work
+    /// done for the benchmark (write-back by kernel threads) is system time outside
+    /// its cgroup, so the during-run check counts this field alone.
+    pub user: u64,
+    /// Everything, idle and iowait included.
     pub total: u64,
 }
 
@@ -83,10 +88,11 @@ pub fn parse_proc_stat(text: &str) -> Result<CpuTimes, String> {
         return Err(format!("unexpected /proc/stat cpu line: {line:?}"));
     };
     // guest and guest_nice are already counted in user and nice.
-    let busy = user + nice + system + irq + softirq + steal;
+    let busy = user + nice + system + steal;
     Ok(CpuTimes {
         busy,
-        total: busy + idle + iowait,
+        user: user + nice,
+        total: busy + irq + softirq + idle + iowait,
     })
 }
 
@@ -403,11 +409,13 @@ mod tests {
     }
 
     #[test]
-    fn proc_stat_busy_excludes_idle_and_iowait() {
+    fn proc_stat_busy_excludes_idle_iowait_and_interrupts() {
+        // user nice system idle iowait irq softirq steal guest guest_nice
         let text = "cpu  100 5 20 1000 7 3 2 1 50 0\ncpu0 1 2 3 4 5 6 7 8 9 10\nintr 1\n";
         let t = parse_proc_stat(text).expect("valid");
-        assert_eq!(t.busy, 100 + 5 + 20 + 3 + 2 + 1);
-        assert_eq!(t.total, t.busy + 1000 + 7);
+        assert_eq!(t.busy, 100 + 5 + 20 + 1);
+        assert_eq!(t.user, 100 + 5);
+        assert_eq!(t.total, t.busy + 3 + 2 + 1000 + 7);
         assert!(parse_proc_stat("cpu0 1 2\n").is_err());
     }
 
@@ -458,5 +466,70 @@ mod tests {
         assert_eq!((info.logical, info.physical_cores), (32, 16));
         assert_eq!(parse_selected("always [madvise] never\n"), "madvise");
         assert_eq!(parse_selected("performance\n"), "performance");
+    }
+
+    /// The readers on a fixture tree laid out like `/proc` and `/sys/fs/cgroup` inside a
+    /// `systemd-run --user --scope -p MemoryMax=1G -p MemorySwapMax=0` scope.
+    #[test]
+    fn host_and_cgroup_read_a_fixture_tree() {
+        let dir = crate::datasets::test_support::TempDir::new("cgroup-tree");
+        let scope = "user.slice/user-1000.slice/user@1000.service/app.slice/run-p42-i7.scope";
+        let put = |rel: &str, text: &str| {
+            let p = dir.path().join(rel);
+            std::fs::create_dir_all(p.parent().expect("parent")).expect("mkdir");
+            std::fs::write(p, text).expect("write");
+        };
+        put("proc/self/cgroup", &format!("0::/{scope}\n"));
+        put(
+            "proc/self/io",
+            "rchar: 1\nwchar: 2\nsyscr: 3\nsyscw: 4\nread_bytes: 4096\nwrite_bytes: 8192\ncancelled_write_bytes: 0\n",
+        );
+        put("proc/loadavg", "0.20 0.10 0.05 1/900 4242\n");
+        put(
+            "proc/meminfo",
+            "MemTotal: 64000000 kB\nMemAvailable: 60000000 kB\n",
+        );
+        put("proc/stat", "cpu  10 0 5 100 1 0 0 0 0 0\n");
+        let cg = format!("sys/fs/cgroup/{scope}");
+        put(&format!("{cg}/memory.max"), "1073741824\n");
+        put(&format!("{cg}/memory.swap.max"), "0\n");
+        put(&format!("{cg}/memory.peak"), "2117632\n");
+        put(
+            &format!("{cg}/memory.events"),
+            "low 0\nhigh 0\nmax 3\noom 1\noom_kill 1\noom_group_kill 0\n",
+        );
+        put(
+            &format!("{cg}/memory.stat"),
+            "anon 237568\nfile 4096\nkernel 303104\n",
+        );
+        put(
+            &format!("{cg}/cpu.stat"),
+            "usage_usec 5638\nuser_usec 1000\nsystem_usec 4638\n",
+        );
+        put(&format!("{cg}/cgroup.procs"), "42\n43\n");
+
+        let host = Host::new(dir.path());
+        assert_eq!(host.loadavg().expect("loadavg").one, 0.20);
+        assert_eq!(host.mem_available(), Ok(60_000_000 * 1024));
+        assert_eq!(host.cpu_times().expect("stat").busy, 15);
+        assert_eq!(
+            host.self_io(),
+            Ok(IoCounters {
+                read_bytes: 4096,
+                write_bytes: 8192
+            })
+        );
+        let cg = Cgroup::new(host.self_cgroup().expect("cgroup v2"));
+        assert!(cg.dir().ends_with("run-p42-i7.scope"));
+        assert_eq!(cg.memory_max(), Ok(Some(1 << 30)));
+        assert_eq!(cg.swap_max(), Ok(Some(0)));
+        assert_eq!(cg.memory_peak(), Ok(2_117_632));
+        assert_eq!(cg.memory_events().expect("events")["oom_kill"], 1);
+        assert_eq!(cg.memory_stat().expect("stat")["anon"], 237_568);
+        assert_eq!(cg.cpu_stat().expect("cpu")["user_usec"], 1000);
+        assert_eq!(cg.procs(), Ok(vec![42, 43]));
+        // A missing file is an error that names it.
+        std::fs::remove_file(cg.dir().join("memory.peak")).expect("rm");
+        assert!(cg.memory_peak().unwrap_err().contains("memory.peak"));
     }
 }

@@ -286,11 +286,7 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
     m.read_bytes = io1.read_bytes.saturating_sub(io0.read_bytes);
     m.write_bytes = io1.write_bytes.saturating_sub(io0.write_bytes);
     let stat1 = host.cpu_times()?;
-    m.others_cores_during = others_cores(
-        stat0,
-        stat1,
-        Duration::from_secs_f64(secs("usage_usec")),
-        wall,
-    );
+    m.others_cores_during =
+        others_cores(stat0, stat1, Duration::from_secs_f64(m.user_seconds), wall);
     Ok(m)
 }

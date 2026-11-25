@@ -5,10 +5,11 @@
 //! The gate looks at the 1-minute load average and `MemAvailable` once, before the run.
 //! After that the load average is useless: it counts the benchmark itself and decays
 //! over minutes. So each repetition measures instead how many cores *other* processes
-//! kept busy — in a quiet "settle" window just before it, from `/proc/stat`, and while
-//! it ran, from `/proc/stat` minus the run's own cgroup CPU time. One busy core skewed
-//! lab timings by 10–40%; a repetition above the threshold is kept, marked disturbed,
-//! and left out of every summary.
+//! kept busy — in a quiet "settle" window just before it, from `/proc/stat` (user and
+//! system time), and while it ran, from the machine's user time in `/proc/stat` minus
+//! the run's own (its cgroup's `cpu.stat`). One busy core skewed lab timings by 10–40%;
+//! in an official run a repetition above the threshold is kept, marked disturbed, and
+//! left out of every summary.
 
 use std::time::Duration;
 
@@ -71,20 +72,25 @@ pub fn busy_cores(before: CpuTimes, after: CpuTimes, elapsed: Duration) -> f64 {
     ticks / USER_HZ / secs
 }
 
-/// Average number of cores other processes kept busy while a run used `own_cpu` of CPU
-/// time over `wall`; `None` for runs shorter than [`MIN_DURING_WINDOW`].
+/// Average number of cores other processes kept busy *in user mode* while a run used
+/// `own_user` of user CPU time over `wall`; `None` for runs shorter than
+/// [`MIN_DURING_WINDOW`]. User time only, because the kernel's work for the run
+/// (write-back, page reclaim) is system time charged outside its cgroup and would
+/// otherwise count as someone else's.
 #[must_use]
 pub fn others_cores(
     before: CpuTimes,
     after: CpuTimes,
-    own_cpu: Duration,
+    own_user: Duration,
     wall: Duration,
 ) -> Option<f64> {
     if wall < MIN_DURING_WINDOW {
         return None;
     }
-    let all = busy_cores(before, after, wall);
-    Some((all - own_cpu.as_secs_f64() / wall.as_secs_f64()).max(0.0))
+    #[allow(clippy::cast_precision_loss, reason = "tick counts far below 2^53")]
+    let user_ticks = after.user.saturating_sub(before.user) as f64;
+    let all = user_ticks / USER_HZ / wall.as_secs_f64();
+    Some((all - own_user.as_secs_f64() / wall.as_secs_f64()).max(0.0))
 }
 
 /// The disturbance verdict recorded in each row.
@@ -157,11 +163,16 @@ mod tests {
 
     #[test]
     fn busy_and_others_cores() {
-        let t = |busy| CpuTimes { busy, total: 0 };
+        // busy and user ticks alike; `others_cores` reads `user`.
+        let t = |ticks| CpuTimes {
+            busy: ticks,
+            user: ticks,
+            total: 0,
+        };
         // 150 ticks in 1 s = 1.5 cores.
         assert!((busy_cores(t(1000), t(1150), Duration::from_secs(1)) - 1.5).abs() < 1e-9);
-        // 32 cores busy for 2 s (6400 ticks) of which our cgroup used 62 s of CPU: 1 core
-        // of others.
+        // 32 cores in user mode for 2 s (6400 ticks) of which our cgroup used 62 s: one
+        // core of others.
         let o = others_cores(
             t(0),
             t(6400),
@@ -178,6 +189,24 @@ mod tests {
             others_cores(t(0), t(100), Duration::ZERO, Duration::from_millis(300)),
             None
         );
+        // System time outside the cgroup (kernel write-back for the run) is not counted.
+        let before = CpuTimes {
+            busy: 0,
+            user: 0,
+            total: 0,
+        };
+        let after = CpuTimes {
+            busy: 6400,
+            user: 6200,
+            total: 0,
+        };
+        let o = others_cores(
+            before,
+            after,
+            Duration::from_secs(62),
+            Duration::from_secs(2),
+        );
+        assert_eq!(o, Some(0.0));
     }
 
     #[test]

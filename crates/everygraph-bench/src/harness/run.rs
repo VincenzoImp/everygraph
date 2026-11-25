@@ -154,6 +154,10 @@ pub fn dataset_path(ctx: &Context, d: &DatasetRef) -> Result<PathBuf, String> {
 
 /// The `systemd-run` prefix that puts a command under a hard memory limit, in a scope of
 /// its own (its cgroup) so that its peak and OOM events can be read.
+///
+/// `OOMPolicy=continue`: by default systemd stops the whole scope when the kernel's OOM
+/// killer ends one of its processes, which would kill the measuring helper before it
+/// records the OOM (seen in tests: SIGTERM, no report).
 #[must_use]
 pub fn scope_prefix(memory_limit: u64, description: &str) -> Vec<String> {
     [
@@ -167,6 +171,8 @@ pub fn scope_prefix(memory_limit: u64, description: &str) -> Vec<String> {
         &format!("MemoryMax={memory_limit}"),
         "-p",
         "MemorySwapMax=0",
+        "-p",
+        "OOMPolicy=continue",
         "--",
     ]
     .iter()
