@@ -31,6 +31,9 @@ pub fn decoder_name() -> &'static str {
 /// handing the lists to the kernel. 1 = list by list (decode and kernel body interleaved);
 /// usize::MAX = the whole work chunk (one ~64K-entry block). Default 8192 entries (32 KiB, L1-sized).
 pub static BATCH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(8192);
+/// Prefix scans (`for_range_prefix`, used by Afforest's sampling rounds): decode the prefixes of
+/// this many nodes before running the kernel body over them. 0 = node by node.
+pub static PREFIX_BATCH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 /// Build, at open, an Elias-Fano index of the *entry* offsets (cumulative degrees) and answer
 /// deg(v) from it instead of reading the record header. Not part of the D4 proposal; measured as
 /// an option because edge-indexed property columns need these offsets anyway.
@@ -487,6 +490,34 @@ impl Adj for Comp {
         c.last = usize::MAX;
         let d = self.dptr();
         let mut it = self.boff.iter_from(lo);
+        let pb = PREFIX_BATCH.load(Relaxed);
+        if pb > 1 {
+            // decode the prefixes of `pb` nodes first, then run the kernel body over them
+            let slot = (k.max(1) + 3) / 4 * 4 + 4;
+            let out = c.reserve(pb * slot);
+            let mut v = lo;
+            unsafe {
+                while v < hi {
+                    let first = v;
+                    c.starts.clear();
+                    while v < hi && v - first < pb {
+                        let mut pos = it.next() as usize;
+                        let deg = get_varint(d, &mut pos);
+                        let kk = k.min(deg);
+                        if kk > 0 {
+                            decode_list(d.add(pos), v, deg, kk, out.add((v - first) * slot));
+                        }
+                        c.starts.push(deg as u32);
+                        v += 1;
+                    }
+                    for (i, u) in (first..v).enumerate() {
+                        let deg = *c.starts.get_unchecked(i) as usize;
+                        f(u, std::slice::from_raw_parts(out.add(i * slot), k.min(deg)), deg);
+                    }
+                }
+            }
+            return;
+        }
         let out = c.reserve(k.max(1));
         for v in lo..hi {
             let mut pos = it.next() as usize;
@@ -760,6 +791,19 @@ mod tests {
                 assert_eq!(v0, g.n);
             }
             BATCH.store(8192, Relaxed);
+            for pb in [3usize, 256] {
+                PREFIX_BATCH.store(pb, Relaxed);
+                for k in [0usize, 1, 2, 5, 9] {
+                    let mut v0 = 0;
+                    c.for_range_prefix(0, g.n, k, &mut cur, |v, l, d| {
+                        assert_eq!(v, v0);
+                        assert_eq!((l, d), (&g.list(v)[..k.min(g.deg(v))], g.deg(v)), "prefix batch {pb} k {k} v {v}");
+                        v0 += 1;
+                    });
+                    assert_eq!(v0, g.n);
+                }
+            }
+            PREFIX_BATCH.store(0, Relaxed);
             let mut c = c;
             c.build_degree_index();
             for v in 0..g.n {

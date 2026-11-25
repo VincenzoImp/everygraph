@@ -5,6 +5,7 @@
 #   ./bench.sh                 all stages, in order (about 4 hours on the lab machine)
 #   ./bench.sh encode kernels  only the named stages
 #   stages: build encode baseline scan open kernels kernels_big leiden leiden_big pq ablation capped perf summarize
+#   (plus followup_wcc, which is not in the default list and has not been run for the record)
 #
 # Environment: EVERYGRAPH_DATA (default /home/tux/graphlab/data, read-only inputs in csr/),
 #              SCRATCH (default /home/tux/graphlab/scratch/m1-13: build outputs and encoded stores,
@@ -377,6 +378,23 @@ PY
   done
   p orkut_tc_1t_fwdraw "$B" kernel --graph "$DATA/orkut" --store "$S/store/orkut" --config raw --threads 1 --algos tc --reps 1
   p orkut_tc_1t_fwdcomp "$B" kernel --graph "$DATA/orkut" --store "$S/store/orkut" --config raw --threads 1 --algos tc-comp --reps 1
+}
+
+# NOT part of the recorded run of 2026-11-25 and not in the default stage list: a proposed
+# follow-up measurement (about 4 minutes). Afforest's sampling rounds on the compressed store,
+# decoding the two-neighbor prefixes of 256 nodes before running the union-find body over them
+# (`--prefix-batch`, unit-tested only), against the node-by-node path that was measured
+# (Friendster 1.36x at 16 threads, 1.57x at 1 thread). Rows go to results/followup.jsonl.
+stage_followup_wcc() {
+  stage_start followup_wcc
+  : > "$R/followup.jsonl"
+  export OUT=followup
+  for g in lj orkut twitter-sym friendster; do for t in 1 16; do
+    k $g raw $t wcc 3 --label prefix-batch
+    k $g comp $t wcc 3 --label prefix-batch
+    k $g comp $t wcc 3 --prefix-batch 256 --label prefix-batch
+  done; done
+  unset OUT
 }
 
 stage_summarize() {

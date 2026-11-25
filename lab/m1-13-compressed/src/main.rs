@@ -56,6 +56,7 @@ fn emit(mut v: Value, a: &HashMap<String, String>) {
     if v["config"] == "comp-block" || v["config"] == "comp" {
         v["scan_batch_entries"] = if b == usize::MAX { json!("whole block") } else { json!(b) };
         v["degree_index"] = json!(store::DEG_INDEX.load(Relaxed));
+        v["prefix_batch_nodes"] = json!(store::PREFIX_BATCH.load(Relaxed));
     }
     if let Ok(b) = std::env::var("M113_BUSY") {
         v["busy_cpus_before"] = json!(b.parse::<f64>().unwrap_or(-1.0));
@@ -92,6 +93,9 @@ fn main() {
     }
     if argv.iter().any(|a| a == "--deg-index") {
         store::DEG_INDEX.store(true, Relaxed);
+    }
+    if let Some(i) = argv.iter().position(|a| a == "--prefix-batch") {
+        store::PREFIX_BATCH.store(argv[i + 1].parse().unwrap(), Relaxed);
     }
     if argv[1] == "leiden" {
         return leiden::main_leiden(argv[1..].to_vec());
