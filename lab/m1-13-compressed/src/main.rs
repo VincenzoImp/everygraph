@@ -60,6 +60,9 @@ fn emit(mut v: Value, a: &HashMap<String, String>) {
     if let Ok(b) = std::env::var("M113_BUSY") {
         v["busy_cpus_before"] = json!(b.parse::<f64>().unwrap_or(-1.0));
     }
+    if let Ok(b) = std::env::var("M113_MEMAVAIL") {
+        v["mem_available_gb_before"] = json!(b.parse::<f64>().unwrap_or(-1.0));
+    }
     for k in ["label", "name"] {
         if let Some(l) = a.get(k) {
             v[k] = json!(l);

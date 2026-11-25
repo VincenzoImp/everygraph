@@ -1509,7 +1509,7 @@ pub fn main_leiden(args: Vec<String>) {
         !has("--no-populate")
     );
     let json = format!(
-        "{},\"config\":\"{}\",\"mem\":\"{}\",\"decoder\":\"{}\",\"loadavg_1m_start\":{},\"loadavg_1m_end\":{},\"anon_huge_gb\":{:.3},\"busy_cpus_before\":{},\"cmd\":\"leiden\"}}",
+        "{},\"config\":\"{}\",\"mem\":\"{}\",\"decoder\":\"{}\",\"loadavg_1m_start\":{},\"loadavg_1m_end\":{},\"anon_huge_gb\":{:.3},\"busy_cpus_before\":{},\"mem_available_gb_before\":{},\"cmd\":\"leiden\"}}",
         &json[..json.len() - 1],
         config,
         mem,
@@ -1517,7 +1517,8 @@ pub fn main_leiden(args: Vec<String>) {
         loadavg_start,
         crate::adj::loadavg(),
         crate::adj::gb(crate::adj::anon_huge()),
-        std::env::var("M113_BUSY").ok().and_then(|b| b.parse::<f64>().ok()).unwrap_or(-1.0)
+        std::env::var("M113_BUSY").ok().and_then(|b| b.parse::<f64>().ok()).unwrap_or(-1.0),
+        std::env::var("M113_MEMAVAIL").ok().and_then(|b| b.parse::<f64>().ok()).unwrap_or(-1.0)
     );
     println!("{}", json);
     if let Some(p) = get("--json") {

@@ -26,23 +26,32 @@ MAIN="lj orkut twitter-sym friendster"
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
-# Wait until the machine is quiet (other processes use < 1.5 CPUs); export the measured value.
+# Wait until the machine is quiet: other processes use < 1.5 CPUs and at least MIN_AVAIL_GB of
+# memory is available (a foreign 60 GB process once took the page cache away mid-run).
+# Exports the measured values; they are written into every row.
+MIN_AVAIL_GB=${MIN_AVAIL_GB:-48}
 gate() {
-  local tries=0 busy
+  local tries=0 busy avail
   while :; do
     busy=$(python3 -I "$HERE/busy.py")
-    awk "BEGIN{exit !($busy < 1.5)}" && break
+    avail=$(awk '/MemAvailable/{printf "%.1f", $2 / 1048576}' /proc/meminfo)
+    awk "BEGIN{exit !($busy < 1.5 && $avail >= $MIN_AVAIL_GB)}" && break
     tries=$((tries + 1))
-    if [ $tries -ge 60 ]; then log "gate: still $busy CPUs busy after 5 min, measuring anyway (row is flagged by busy_cpus_before)"; break; fi
+    if [ $tries -ge 120 ]; then log "gate: $busy CPUs busy, $avail GiB available after 10 min, measuring anyway (row is flagged)"; break; fi
     sleep 5
   done
-  export M113_BUSY=$busy
+  export M113_BUSY=$busy M113_MEMAVAIL=$avail
 }
-# Start of a stage: additionally require a 1-minute load average below 3 (waits up to 10 min).
+# Start of a stage: additionally require a 1-minute load average below 3 and MIN_AVAIL_GB of
+# available memory (waits up to 30 min, then gives up: do not measure on a busy machine).
 stage_start() {
   local i=0
-  while awk '{exit !($1 >= 3)}' /proc/loadavg && [ $i -lt 120 ]; do sleep 5; i=$((i + 1)); done
-  log "== stage $1 (loadavg $(cut -d' ' -f1-3 /proc/loadavg))"
+  while { awk '{exit !($1 >= 3)}' /proc/loadavg || awk -v m="$MIN_AVAIL_GB" '/MemAvailable/{exit !($2 / 1048576 < m)}' /proc/meminfo; } && [ $i -lt 360 ]; do
+    sleep 5; i=$((i + 1))
+  done
+  if [ $i -ge 360 ]; then log "stage $1: machine not idle after 30 min (loadavg $(cut -d' ' -f1 /proc/loadavg)), giving up"; return 1; fi
+  log "== stage $1 (loadavg $(cut -d' ' -f1-3 /proc/loadavg), MemAvailable $(awk '/MemAvailable/{printf "%.1f", $2 / 1048576}' /proc/meminfo) GiB)"
+  echo "{\"stage\":\"$1\",\"time\":\"$(date -Is)\",\"loadavg_1m\":$(cut -d' ' -f1 /proc/loadavg),\"mem_available_gb\":$(awk '/MemAvailable/{printf "%.1f", $2 / 1048576}' /proc/meminfo)}" >> "$R/stages.jsonl"
 }
 
 # kernel run: graph config threads algos reps [extra m113 args]
@@ -64,12 +73,12 @@ orig() {
   local la; la=$(cut -d' ' -f1 /proc/loadavg)
   "$@" 2>/dev/null | python3 -I -c '
 import sys, json
-out, tool, la, busy = sys.argv[1:5]
+out, tool, la, busy, avail = sys.argv[1:6]
 for l in sys.stdin:
     l = l.strip()
     if l.startswith("{"):
-        r = json.loads(l); r["tool"] = tool; r["loadavg_1m_start"] = float(la); r["busy_cpus_before"] = float(busy)
-        open(out, "a").write(json.dumps(r) + "\n")' "$out" "$tool" "$la" "$M113_BUSY"
+        r = json.loads(l); r["tool"] = tool; r["loadavg_1m_start"] = float(la); r["busy_cpus_before"] = float(busy); r["mem_available_gb_before"] = float(avail)
+        open(out, "a").write(json.dumps(r) + "\n")' "$out" "$tool" "$la" "$M113_BUSY" "$M113_MEMAVAIL"
 }
 
 stage_build() {
