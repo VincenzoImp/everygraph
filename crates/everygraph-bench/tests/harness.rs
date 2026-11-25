@@ -146,8 +146,8 @@ name = "stop"
 group = "stop"
 repetitions = 1
 # A non-interactive shell starts background jobs with SIGINT ignored: the trap ends
-# its child itself, or the harness would find it left over.
-shell = "trap 'kill $!; sleep 0.2; exit 130' INT; sleep 10 & wait"
+# its child itself (and waits for it), or the harness would find it left over.
+shell = "trap 'kill $!; wait; sleep 0.2; exit 130' INT; sleep 10 & wait"
 interrupt = { after = "300ms" }
 reference = [{ metric = "stop_seconds", max = 2.0, source = "ux-contract C-4" }]
 
@@ -155,7 +155,7 @@ reference = [{ metric = "stop_seconds", max = 2.0, source = "ux-contract C-4" }]
 name = "stop-badly"
 group = "stop"
 repetitions = 1
-shell = "trap 'kill $!; exit 0' INT; sleep 10 & wait"
+shell = "trap 'kill $!; wait; exit 0' INT; sleep 10 & wait"
 interrupt = { after = "300ms" }
 
 [[benchmark]]
