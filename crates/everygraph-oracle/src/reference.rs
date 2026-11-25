@@ -15,17 +15,15 @@ use crate::projection::{Adjacency, Projection};
 use crate::{exact_f64, ix, to_u64};
 
 /// Computes `kernel` on the analytic graph. `None` when the oracle defines no answer for
-/// this kernel on this graph (a directed-only kernel on an undirected graph, PageRank or
-/// core numbers with kept self-loops, a partition kernel without a partition).
+/// this kernel on this graph (a directed-only kernel on an undirected graph, a partition
+/// kernel without a partition).
 #[must_use]
 pub fn compute(g: &Graph, p: &Projection, kernel: &Kernel) -> Option<Output> {
     let n = p.len();
     let kept = |v: usize| p.kept_loops(v);
     Some(match kernel {
-        Kernel::Adjacency => Output::Csr {
-            offsets: p.out.offsets.clone(),
-            targets: p.out.targets.clone(),
-        },
+        Kernel::Adjacency => adjacency(p),
+        Kernel::IngestReport => Output::Counts(p.report()),
         Kernel::Degree => Output::Ints(
             (0..n)
                 // On a directed graph: distinct neighbours in either direction, the
@@ -44,45 +42,50 @@ pub fn compute(g: &Graph, p: &Projection, kernel: &Kernel) -> Option<Output> {
                 .map(|v| Some(to_u64(p.inn.degree(v)) + kept(v)))
                 .collect(),
         ),
-        Kernel::PageRank { damping, weighted } => {
-            if p.keep_loops {
-                return None;
-            }
-            Output::Reals(
-                pagerank(p, *damping, *weighted)
-                    .into_iter()
-                    .map(Some)
-                    .collect(),
-            )
-        }
+        Kernel::PageRank { damping, weighted } => Output::Reals(
+            pagerank(p, *damping, *weighted)
+                .into_iter()
+                .map(Some)
+                .collect(),
+        ),
         Kernel::Wcc => Output::Labels(wcc(&p.undirected)),
         Kernel::Scc if !p.directed => return None,
         Kernel::Scc => Output::Labels(scc(&p.out)),
         Kernel::Bfs { source } => Output::Ints(bfs(&p.out, ix(*source))?),
         Kernel::Sssp { source } => Output::Reals(sssp(&p.out, ix(*source))?),
+        // Cohesion measures ignore kept loops (S2–S4): `p.undirected` has none.
         Kernel::CoreNumber => {
-            if p.keep_loops {
-                return None;
-            }
             Output::Ints(core_numbers(&p.undirected).into_iter().map(Some).collect())
         }
         Kernel::Triangles => Output::Ints(triangles(&p.undirected).into_iter().map(Some).collect()),
         Kernel::TriangleTotal => Output::Count(triangles(&p.undirected).iter().sum::<u64>() / 3),
-        // Undecided with kept self-loops (#36): does the loop's +2 enter d(d - 1)?
-        Kernel::Clustering | Kernel::Transitivity | Kernel::Modularity { .. } if p.keep_loops => {
-            return None;
-        }
         Kernel::Clustering => {
             Output::Reals(clustering(&p.undirected).into_iter().map(Some).collect())
         }
         Kernel::Transitivity => Output::Real(transitivity(&p.undirected)),
-        Kernel::Modularity { resolution } => Output::Real(modularity(
-            &p.undirected,
-            g.partition.as_ref()?,
-            *resolution,
-        )),
-        Kernel::Quotient => quotient(&p.undirected, g.partition.as_ref()?)?,
+        Kernel::Modularity {
+            resolution,
+            weighted,
+        } => Output::Real(modularity(p, g.partition.as_ref()?, *resolution, *weighted)),
+        Kernel::Quotient => quotient(p, g.partition.as_ref()?)?,
     })
+}
+
+/// The out-adjacency with each kept loop listed once, in order, in its node's list.
+fn adjacency(p: &Projection) -> Output {
+    let mut offsets = vec![0u64];
+    let mut targets = Vec::with_capacity(p.out.entries());
+    for v in 0..p.len() {
+        let list = p.out.list(v);
+        let at = list.partition_point(|&u| ix(u) < v);
+        targets.extend_from_slice(&list[..at]);
+        if p.kept_loops(v) == 1 {
+            targets.push(u32::try_from(v).expect("u32 ids"));
+        }
+        targets.extend_from_slice(&list[at..]);
+        offsets.push(to_u64(targets.len()));
+    }
+    Output::Csr { offsets, targets }
 }
 
 /// Iterations that shrink the initial error by 1e-17 at damping `d` (at least 1).
@@ -105,7 +108,8 @@ fn iterations_for(damping: f64) -> u32 {
     }
 }
 
-/// PageRank by power iteration to the fixed point (see [`Kernel::PageRank`]).
+/// PageRank by power iteration to the fixed point (see [`Kernel::PageRank`]). A kept loop
+/// is `A[v][v]`: `2w` undirected, `w` directed (S1).
 #[must_use]
 pub fn pagerank(p: &Projection, damping: f64, weighted: bool) -> Vec<f64> {
     let n = p.len();
@@ -114,8 +118,12 @@ pub fn pagerank(p: &Projection, damping: f64, weighted: bool) -> Vec<f64> {
     }
     let nf = f64::from(p.n);
     let w = |adj: &Adjacency, e: usize| if weighted { adj.weight_sum[e] } else { 1.0 };
+    let diag = |v: usize| {
+        let w = p.loop_pair_weight(v, weighted);
+        if p.directed { w } else { 2.0 * w }
+    };
     let out_w: Vec<f64> = (0..n)
-        .map(|u| p.out.range(u).map(|e| w(&p.out, e)).sum())
+        .map(|u| p.out.range(u).map(|e| w(&p.out, e)).sum::<f64>() + diag(u))
         .collect();
     let mut x = vec![1.0 / nf; n];
     for _ in 0..iterations_for(damping) {
@@ -131,7 +139,12 @@ pub fn pagerank(p: &Projection, damping: f64, weighted: bool) -> Vec<f64> {
                         x[u] * w(&p.inn, e) / out_w[u]
                     })
                     .sum();
-                base + damping * s
+                let stay = if diag(v) > 0.0 {
+                    x[v] * diag(v) / out_w[v]
+                } else {
+                    0.0
+                };
+                base + damping * (s + stay)
             })
             .collect();
         let diff: f64 = x.iter().zip(&next).map(|(a, b)| (a - b).abs()).sum();
@@ -400,37 +413,45 @@ fn ratio(a: u64, b: u64) -> f64 {
     a / b
 }
 
-/// Newman modularity of `partition`, unweighted, 0 without edges.
+/// Newman modularity of `partition` on the undirected projection, 0 without edges. A kept
+/// loop of weight `w` is `A[v][v] = 2w`: `2w` in its node's strength and in its
+/// community's `2L(c)` (S5).
 #[must_use]
-pub fn modularity(sym: &Adjacency, partition: &[u32], resolution: f64) -> f64 {
-    let m2 = to_u64(sym.entries());
-    if m2 == 0 {
-        return 0.0;
-    }
-    let mut inside: BTreeMap<u32, u64> = BTreeMap::new();
-    let mut volume: BTreeMap<u32, u64> = BTreeMap::new();
+pub fn modularity(p: &Projection, partition: &[u32], resolution: f64, weighted: bool) -> f64 {
+    let sym = &p.undirected;
+    let mut inside: BTreeMap<u32, f64> = BTreeMap::new();
+    let mut volume: BTreeMap<u32, f64> = BTreeMap::new();
+    let mut total = 0.0; // 2W
     for u in 0..sym.n() {
         let c = partition[u];
-        *volume.entry(c).or_default() += to_u64(sym.degree(u));
-        for &v in sym.list(u) {
-            if partition[ix(v)] == c {
-                *inside.entry(c).or_default() += 1; // each pair twice
+        let diag = 2.0 * p.loop_pair_weight(u, weighted);
+        let mut s = diag;
+        let mut l = diag;
+        for e in sym.range(u) {
+            let w = if weighted { sym.weight_sum[e] } else { 1.0 };
+            s += w;
+            if partition[ix(sym.targets[e])] == c {
+                l += w; // each pair twice
             }
         }
+        *volume.entry(c).or_default() += s;
+        *inside.entry(c).or_default() += l;
+        total += s;
     }
-    let m2f = exact_f64(m2);
+    if total == 0.0 {
+        return 0.0;
+    }
     volume
         .iter()
-        .map(|(c, &d)| {
-            let l = exact_f64(inside.get(c).copied().unwrap_or(0));
-            l / m2f - resolution * (exact_f64(d) / m2f).powi(2)
-        })
+        .map(|(c, &d)| inside[c] / total - resolution * (d / total).powi(2))
         .sum()
 }
 
-/// Quotient graph of a dense partition (labels below `n`). `None` otherwise.
+/// Quotient graph of a dense partition (labels below `n`), kept loops on the diagonal.
+/// `None` otherwise.
 #[must_use]
-pub fn quotient(sym: &Adjacency, partition: &[u32]) -> Option<Output> {
+pub fn quotient(p: &Projection, partition: &[u32]) -> Option<Output> {
+    let sym = &p.undirected;
     let n = sym.n();
     if partition.iter().any(|&c| ix(c) >= n.max(1)) {
         return None;
@@ -447,6 +468,9 @@ pub fn quotient(sym: &Adjacency, partition: &[u32]) -> Option<Output> {
                 let (a, b) = (partition[u], partition[ix(v)]);
                 *edges.entry((a.min(b), a.max(b))).or_default() += 1;
             }
+        }
+        if p.kept_loops(u) == 1 {
+            *edges.entry((partition[u], partition[u])).or_default() += 1;
         }
     }
     Some(Output::Quotient {

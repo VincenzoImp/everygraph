@@ -6,17 +6,26 @@
 //! external kernels (`oracle/README.md`, "Exchange formats"): a kernel is an object tagged
 //! by `"kernel"`, an output an object with exactly one key naming its shape.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// A kernel and its parameters. Every kernel runs on the analytic graph of the input
 /// (the projection in [`crate::projection`]): self-loops dropped unless kept, parallel
 /// edges analysed once per pair. Kernels marked "undirected projection" ignore direction.
+/// A kept loop is the pair `{v, v}` (`docs/spec/graph-semantics.md` § 5): volume and flow
+/// measures count it as `A[v][v] = 2w` undirected, `w` directed; core numbers, triangles,
+/// clustering, transitivity, components and traversals ignore it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kernel", rename_all = "snake_case")]
 pub enum Kernel {
     /// The out-adjacency of the analytic graph as sorted, duplicate-free lists
-    /// (symmetric for undirected graphs). Output: [`Output::Csr`].
+    /// (symmetric for undirected graphs); a node with a kept loop lists itself once.
+    /// Output: [`Output::Csr`].
     Adjacency,
+    /// The ingest report of `docs/spec/graph-semantics.md` § 2.8, keyed as printed
+    /// (`counts.rows`, `dropped.self_loops`, ...). Output: [`Output::Counts`].
+    IngestReport,
     /// Number of distinct neighbours; a kept loop adds 2 (repeated loop rows are one loop).
     /// On a directed graph, distinct neighbours in either direction: the degree in the
     /// undirected projection, so a reciprocal pair is one neighbour (Q10).
@@ -27,8 +36,9 @@ pub enum Kernel {
     /// Directed graphs: distinct in-neighbours, a kept loop adds 1.
     DegreeIn,
     /// PageRank at its fixed point: uniform teleport, dangling mass spread uniformly,
-    /// out-edges for directed graphs. `weighted` uses the summed event weight of each pair
-    /// (the multiplicity when the graph has no weight column). Output: [`Output::Reals`].
+    /// out-edges for directed graphs, a kept loop as `A[v][v]` (S1). `weighted` uses the
+    /// summed event weight of each pair (the multiplicity when the graph has no weight
+    /// column). Output: [`Output::Reals`].
     #[serde(rename = "pagerank")]
     PageRank {
         /// Damping factor (probability of following an edge).
@@ -65,15 +75,20 @@ pub enum Kernel {
     /// Global clustering (transitivity), undirected projection; 0 without any connected
     /// triple. Output: [`Output::Real`].
     Transitivity,
-    /// Newman modularity of the graph's partition, undirected projection, unweighted;
-    /// 0 for a graph without edges. Output: [`Output::Real`].
+    /// Newman modularity of the graph's partition, undirected projection, a kept loop a
+    /// pair inside its node's community (S5); 0 for a graph without edges.
+    /// Output: [`Output::Real`].
     Modularity {
         /// Resolution γ.
         resolution: f64,
+        /// Weight pairs by their summed event weight (the multiplicity without a weight
+        /// column); unweighted (1 per pair) otherwise.
+        #[serde(default)]
+        weighted: bool,
     },
     /// Quotient graph of the graph's partition, undirected projection, unweighted: the
-    /// size of every community and the number of pairs between (or inside) communities.
-    /// Output: [`Output::Quotient`].
+    /// size of every community and the number of pairs between (or inside) communities,
+    /// kept loops included on the diagonal (S6). Output: [`Output::Quotient`].
     Quotient,
 }
 
@@ -83,6 +98,7 @@ impl Kernel {
     pub const fn name(&self) -> &'static str {
         match self {
             Self::Adjacency => "adjacency",
+            Self::IngestReport => "ingest_report",
             Self::Degree => "degree",
             Self::DegreeOut => "degree_out",
             Self::DegreeIn => "degree_in",
@@ -113,7 +129,13 @@ impl Kernel {
             }
             Self::Bfs { source } => format!("bfs(source={source})"),
             Self::Sssp { source } => format!("sssp(source={source})"),
-            Self::Modularity { resolution } => format!("modularity(γ={resolution})"),
+            Self::Modularity {
+                resolution,
+                weighted,
+            } => format!(
+                "modularity(γ={resolution}{})",
+                if *weighted { ",weighted" } else { "" }
+            ),
             other => other.name().to_owned(),
         }
     }
@@ -146,6 +168,8 @@ pub enum Output {
         /// Concatenated neighbour lists.
         targets: Vec<u32>,
     },
+    /// Named counts.
+    Counts(BTreeMap<String, u64>),
     /// A quotient graph.
     Quotient {
         /// Number of nodes in each community, indexed by community label.
@@ -166,6 +190,7 @@ impl Output {
             Self::Count(_) => "count",
             Self::Real(_) => "real",
             Self::Csr { .. } => "csr",
+            Self::Counts(_) => "counts",
             Self::Quotient { .. } => "quotient",
         }
     }

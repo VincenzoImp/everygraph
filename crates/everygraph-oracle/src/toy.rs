@@ -4,7 +4,7 @@
 //! catches the mistakes chunked, parallel graph code makes.
 //!
 //! The toy builds an undirected adjacency from the events (two storages: raw arrays and a
-//! delta + LEB128 code), cuts it into chunks of about `chunk_entries` entries the way the
+//! delta + LEB128 code; a kept loop is its node's own entry, once), cuts it into chunks of about `chunk_entries` entries the way the
 //! lab prototype does, and runs degrees, components (min-label propagation), PageRank and
 //! a quotient graph over the chunks on `threads` scoped threads. Without a bug its results
 //! are identical under every configuration and pass every check.
@@ -40,16 +40,20 @@ pub enum Bug {
         /// Width of the simulated counter.
         bits: u32,
     },
+    /// PageRank counts an undirected kept loop once (`A[v][v] = 1`, NetworkX's
+    /// convention) instead of twice (S1 of `docs/spec/graph-semantics.md`).
+    UndirectedLoopOnceInPageRank,
 }
 
 impl Bug {
     /// Every bug the toy knows, with the small-scale overflow at 2^8 entries.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::OffByOneLastListOfChunk,
         Self::DropsKeptSelfLoop,
         Self::UnsymmetrizedEdge,
         Self::ThreadDependentFloatSum,
         Self::OffsetOverflow { bits: 8 },
+        Self::UndirectedLoopOnceInPageRank,
     ];
 
     /// A short name.
@@ -61,6 +65,7 @@ impl Bug {
             Self::UnsymmetrizedEdge => "unsymmetrized-edge".into(),
             Self::ThreadDependentFloatSum => "thread-dependent-float-sum".into(),
             Self::OffsetOverflow { bits } => format!("offset-overflow-at-2^{bits}"),
+            Self::UndirectedLoopOnceInPageRank => "undirected-loop-once-in-pagerank".into(),
         }
     }
 
@@ -96,6 +101,11 @@ impl Bug {
                 ],
                 2,
             ),
+            // The answer is a proper PageRank (NetworkX's): its sum is 1, so only the
+            // references and the fixed-point equation can see it.
+            Self::UndirectedLoopOnceInPageRank => {
+                (&["invariant:pagerank_fixed_point", "reference:rust"], 2)
+            }
         }
     }
 
@@ -251,6 +261,7 @@ impl Toy {
             if u == v {
                 if keep {
                     loops[ix(u)] = 1;
+                    entries.push((u, u));
                 }
                 continue;
             }
@@ -359,8 +370,18 @@ impl Toy {
             return Vec::new();
         }
         let nf = f64::from(u32::try_from(n).expect("u32 ids"));
+        // A kept loop is its node's own entry, once; it weighs 2 (S1), so the strength
+        // is the list length plus the loop.
+        let loop_w = if self.has(Bug::UndirectedLoopOnceInPageRank) {
+            0.0
+        } else {
+            1.0
+        };
         let deg: Vec<f64> = (0..n)
-            .map(|v| f64::from(u32::try_from(b.degree(v)).unwrap_or(u32::MAX)))
+            .map(|v| {
+                f64::from(u32::try_from(b.degree(v)).unwrap_or(u32::MAX))
+                    + loop_w * crate::exact_f64(b.loops[v])
+            })
             .collect();
         let mut x = vec![1.0 / nf; n];
         for _ in 0..300 {
@@ -375,7 +396,14 @@ impl Toy {
                         let s: f64 = self
                             .scanned(b, cs[c], v)
                             .iter()
-                            .map(|&u| x[ix(u)] / deg[ix(u)])
+                            .map(|&u| {
+                                let share = x[ix(u)] / deg[ix(u)];
+                                if ix(u) == v {
+                                    share * (1.0 + loop_w)
+                                } else {
+                                    share
+                                }
+                            })
                             .sum();
                         base + damping * s
                     })
@@ -419,9 +447,7 @@ impl KernelUnderTest for Toy {
         !g.directed
             && match kernel {
                 Kernel::Adjacency | Kernel::Degree | Kernel::Wcc => true,
-                Kernel::PageRank { weighted, .. } => {
-                    !weighted && g.semantics.self_loops == SelfLoops::Drop
-                }
+                Kernel::PageRank { weighted, .. } => !weighted,
                 Kernel::Quotient => g.partition.is_some(),
                 _ => false,
             }
@@ -450,7 +476,7 @@ impl KernelUnderTest for Toy {
             Kernel::Degree => {
                 let parts = Self::per_chunk(threads, cs.len(), |c| {
                     (cs[c].0..cs[c].1)
-                        .map(|v| Some(to_u64(self.scanned(&b, cs[c], v).len()) + 2 * b.loops[v]))
+                        .map(|v| Some(to_u64(self.scanned(&b, cs[c], v).len()) + b.loops[v]))
                         .collect::<Vec<_>>()
                 });
                 Output::Ints(parts.into_iter().flatten().collect())
@@ -473,7 +499,7 @@ impl KernelUnderTest for Toy {
                     let mut m: BTreeMap<(u32, u32), u64> = BTreeMap::new();
                     for v in cs[c].0..cs[c].1 {
                         for &u in self.scanned(&b, cs[c], v).iter() {
-                            if ix(u) > v {
+                            if ix(u) >= v {
                                 let (x, y) = (part[v], part[ix(u)]);
                                 *m.entry((x.min(y), x.max(y))).or_default() += 1;
                             }

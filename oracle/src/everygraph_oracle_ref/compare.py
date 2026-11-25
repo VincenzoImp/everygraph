@@ -33,6 +33,9 @@ def compare(kernel: str, n: int, got: dict, want: dict) -> str | None:
     (shape_w, b), = want.items()
     if shape_g != shape_w:
         return f"shape {shape_g} vs {shape_w}"
+    if shape_g == "counts":
+        bad = sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+        return None if not bad else "; ".join(f"{k}: {a.get(k)} vs {b.get(k)}" for k in bad)
     if shape_g in ("ints", "labels", "count"):
         if shape_g == "labels":
             a, b = canonical_labels(a), canonical_labels(b)
