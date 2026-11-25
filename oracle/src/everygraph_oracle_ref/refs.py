@@ -24,7 +24,7 @@ ADJUSTMENTS = {
     "igraph.transitivity_local_undirected": "mode='zero': degree < 2 gives 0, not NaN (row 'clustering, degree < 2')",
     "igraph.transitivity_undirected": "NaN (no connected triple) mapped to 0 (row 'transitivity, no triple')",
     "igraph.modularity": "NaN (no edges) mapped to 0 (row 'modularity, no edges')",
-    "networkx.pagerank": "tol = 1e-14 / n, so that NetworkX's stopping rule (L1 change < n * tol) means L1 change < 1e-14 whatever n; retried at 1e-13 / n if it does not converge; max_iter = 100000",
+    "networkx.pagerank": "tol = 1e-14 / n, so that NetworkX's stopping rule (L1 change < n * tol) means L1 change < 1e-14 whatever n; retried with 1e-12 / n and 1e-10 / n if rounding noise prevents convergence; max_iter = 20000",
 }
 
 LIBS = ("networkx", "igraph", "scipy")
@@ -52,15 +52,24 @@ def _dist_reals(row) -> list:
 
 
 def _nx_pagerank(G, damping, weighted):
-    if G.number_of_nodes() == 0:
+    """NetworkX PageRank as close to the fixed point as its stopping rule allows.
+
+    NetworkX stops when the L1 change between iterates is below n * tol, so tol is scaled
+    by 1/n. Where rounding noise keeps the L1 change above the tightest bound (seen on a
+    star with 2^16 leaves), looser bounds are tried; the comparison with igraph and the
+    in-process reference then decides whether the answer is close enough.
+    """
+    n = G.number_of_nodes()
+    if n == 0:
         return []
     weight = "wsum" if weighted else None
-    try:
-        n = G.number_of_nodes()
-        pr = nx.pagerank(G, alpha=damping, max_iter=100000, tol=1e-14 / n, weight=weight)
-    except nx.PowerIterationFailedConvergence:
-        pr = nx.pagerank(G, alpha=damping, max_iter=100000, tol=1e-13 / n, weight=weight)
-    return [pr[v] for v in range(G.number_of_nodes())]
+    for bound in (1e-14, 1e-12, 1e-10):
+        try:
+            pr = nx.pagerank(G, alpha=damping, max_iter=20000, tol=bound / n, weight=weight)
+            return [pr[v] for v in range(n)]
+        except nx.PowerIterationFailedConvergence:
+            continue
+    raise nx.PowerIterationFailedConvergence(20000)
 
 
 def _triangles_scipy(p: Projection) -> list[int]:
