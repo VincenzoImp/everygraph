@@ -14,10 +14,13 @@ of every **message**. Section 8 says how each rule is tested.
 `design/preview/cli.md` and `design/preview/api.md`; the approved layout is the typeset
 form in `design/preview/style/terminal.html` and `notebook.html`, under the rules of
 `design/preview/style/SPEC.md`. This document turns them into rules. Where the previews
-were silent or disagreed, the choice is listed in § 9 "Decided here" and nowhere else.
+were silent or disagreed, and where this document departs from their wording, the
+choice and its reason are listed in § 9 "Decided here" and nowhere else.
 
 **Every figure in a transcript is invented.** The sizes, counts, durations and rates
-below are carried over from the approved previews to show shape and arithmetic. None is
+below are carried over from the approved previews, or made up in the same spirit for
+cases the previews do not show (a 2.6 B-node graph, a byte count per edge record), to
+show shape and arithmetic. None is
 a measurement, an estimate of real performance or a target. The handful of thresholds
 this document introduces are marked *placeholder*: the implementing issue sets the value,
 the rule stays.
@@ -37,7 +40,8 @@ cite them. "Must" is a requirement on the implementation.
 | plan | What the engine decided before starting: what it detected, how it will run, what that costs. A value (`Plan` in Python, JSON on the command line), not only text. |
 | long operation | One whose estimated time is at least `T_PLAN` = 5 s (*placeholder*). |
 | memory budget | The limit on memory the engine may own, set by `memory=` / `--memory`. "Budget" never means anything else (SPEC, last section). |
-| scratch | Temporary files of a running operation, in the scratch directory (`temp_dir=` / `--temp-dir`, default the system temporary directory). |
+| scratch | Temporary files of a running operation, in the job's scratch directory. Its place is the **scratch root**: by default the directory of the output file; `--temp-dir`, `temp_dir=` or `EVERYGRAPH_TEMP_DIR` override it (`design/DECISIONS.md`, "Where scratch goes"). The system temporary directory is never the default. |
+| job | The work an operation does, identified by its fingerprint (§ 5.3): running the same command again is the same job. |
 | refusal | A plan that cannot be carried out inside the limits, reported before any work. |
 | rendering | The form text takes on a stream: colour and Unicode, no colour, ASCII, or piped (§ 2.2). |
 
@@ -53,19 +57,25 @@ These rules apply to everything in §§ 3–6.
 |---|---|---|---|
 | The result as data (a table, a path, a file's description) | standard output | the returned object; its `repr` | the returned object; its card |
 | Summary, plan, progress, result line, hints | standard error | `sys.stderr` | one card in the cell's output, updated in place |
-| Warnings | standard error | `sys.stderr` | a notice card |
+| Warnings of an operation (§ 6.2) | standard error | `sys.stderr`, through the progress channel | a notice card |
+| A result cut short (§ 6.2) | standard error | a `warnings` warning of category `eg.TruncatedWarning` | the same warning, under the cell; the result's card is marked |
 | Errors and refusals | standard error, and the exit code (§ 6.4) | an exception (§ 6.1) | the error card, traceback folded |
 | A plan asked for on its own (`--dry-run`, `dry_run=True`, `explain`) | standard output | the returned `Plan`; nothing is printed | the returned `Plan`; its card |
 
 - **S-1** Standard output of the command carries only what a program would consume: the
   result, and nothing else. `everygraph info`, `doctor`, `--help` and `--version` are
   results. Everything about *how the work is going* is on standard error.
-- **S-2** With `--json`, standard output is exactly one JSON document: the result, or the
-  error document of § 6.1 when the command fails, or the plan with `--dry-run`. Standard
-  error keeps the plan, progress and warnings; it does not repeat the final message.
+- **S-2** With `--json`, standard output is exactly one JSON document in every outcome:
+  the result; the plan with `--dry-run`; the error document of § 6.1 when the command
+  fails or is refused, a usage error included; the stop document of § 5.4 when it is
+  stopped (exit status 130 or 143). Standard error keeps the plan, progress and
+  warnings; it does not repeat the final message.
 - **S-3** A library call prints only through the progress channel, and only when
   `progress=True` (the default). `progress=False` prints nothing; `progress=f` sends
-  the events of § 4.6 to `f` and prints nothing. Results never print themselves.
+  the events of § 4.6 to `f` and prints nothing. Results never print themselves. The
+  one exception is a result cut short (§ 6.2): it is reported with Python's
+  `warnings.warn(…, eg.TruncatedWarning)`, so Python's own warning filters show it,
+  silence it or turn it into an error, whatever `progress` says.
 - **S-4** Nothing ever waits for an answer. There is no confirmation prompt and no
   `--yes`; standard input is not read except as data.
 - **S-5** Text is English only in 0.1.
@@ -137,7 +147,11 @@ footer of an approximate result uses `±`, which becomes `+/-`.
 
 - Two spaces of indent under a headline, four under a sub-heading. No tabs.
 - In label-and-value blocks the label is lowercase and dim; the summary, plan and stop
-  blocks use a label field of 10 columns, so values start at column 13.
+  blocks use a label field of 10 columns, so values start at column 13. The step-table
+  form of an `explain` plan (§ 3.4) has its own grid, as typeset in `notebook.html`:
+  labels `fits`, `why`, `estimate` in a field of 9 columns, values from column 12;
+  step numbers at column 3, steps from column 6, then the place, the memory
+  right-aligned, and the work, each separated by at least two spaces.
 - Text is left-aligned; numbers are right-aligned so digits of the same weight sit under
   each other; a column of decimals shows the same number of decimals on every row.
 - A table header aligns like its column, is dim, and is the column's real name, so it can
@@ -185,7 +199,7 @@ In a terminal the space between a number and its unit is an ordinary space.
   | The file's size and metadata, and a sample of its rows | format, columns, identifier type, estimated rows and distinct identifiers | #40 |
   | The graph file's header | nodes, edges, direction, columns, what is already computed | #28, #39 |
   | The operation's cost model | per-node state, passes, scratch, output size | #45 |
-  | A probe of the machine | cores, memory installed, free and limited by a container, storage type, free disk in the scratch and output directories | #45 |
+  | A probe of the machine | cores, memory installed, free and limited by a container, storage type, free disk in the scratch and output directories, and whether the scratch root is on a memory-backed file system (`tmpfs`, `ramfs`) | #45 |
 
   Free memory and free disk are read at that moment, not cached. The time spent planning
   is bounded: at most 1 s or 1 % of the estimated run, whichever is larger (*placeholder*).
@@ -199,10 +213,23 @@ In a terminal the space between a number and its unit is an ordinary space.
 - **P-4** After the plan is printed the work starts at once (S-4).
 - **P-5** Before starting, the engine checks, in this order, and refuses on the first
   failure (§ 3.5):
-  1. the per-node state of every phase fits the memory budget;
+  1. the per-node state of every phase fits the memory budget — and, when the scratch
+     root is on a memory-backed file system, the per-node state plus the upper bound
+     of the scratch estimate fits it (P-18);
   2. the scratch directory has room for the upper bound of the scratch estimate;
   3. the output directory has room for the upper bound of the output estimate, and the
      output can be created there.
+- **P-16** A memory budget larger than the machine's memory in all (or than the
+  container's limit, when that is lower) is refused before any work, as a usage error
+  (exit status 2; in Python a `ValueError` with the same text): what was asked, what the
+  machine has, and the ways forward. It is never silently lowered.
+- **P-17** A budget above what is free now but within the machine's memory is honoured.
+  The plan says so on a second `budget` line (§ 3.4), because the system may have to
+  swap or evict other programs' memory to give it.
+- **P-18** Scratch on a memory-backed file system is memory. When the scratch root is
+  one, the preflight counts the scratch's upper bound against the memory budget; if the
+  two together do not fit, the refusal offers `--temp-dir` (`temp_dir=`) with a
+  directory on a disk, and a larger budget only if one would work (P-15).
 
 ### 3.2 Fields of a plan
 
@@ -218,7 +245,7 @@ In a terminal the space between a number and its unit is an ordinary space.
 | `steps` | For `explain`: each step, where its data is, the memory it holds, the work it does. | the step table |
 | `phases` | The phases in order, each with its own estimate and whether it will be reused from an earlier run. | `phases` (dry run); the progress lines |
 | `estimate` | Wall time, peak memory, scratch disk, output size. Each is a value with a range and a basis (§ 3.3). | `estimate` |
-| `scratch`, `output` | Where scratch goes and how much is free there; what will be written and where. | `estimate`, `result` |
+| `scratch`, `output` | Where scratch goes, where that choice came from, whether it is memory-backed, and how much is free there; what will be written and where. | `estimate`, `result` |
 | `fits`, `refusal` | Whether the plan can run inside the limits; if not, why and the ways forward (§ 3.5). | the refusal |
 
 The four regimes. The planner (#45) chooses; this contract fixes the names and the words.
@@ -232,14 +259,23 @@ The four regimes. The planner (#45) chooses; this contract fixes the names and t
 
 - **P-6** The reason always carries its arithmetic: `the graph is 4.6× the memory
   budget`, `the graph fits the memory budget`. A choice of regime is never printed
-  without one.
+  without one. The ratio is `regime.working_bytes / budget.memory_bytes`, printed with
+  one decimal, where `working_bytes` is the graph as the operation must handle it:
+  for an operation on a graph, the size of the edge data it reads (the map example
+  below: 9.3 GB of edges against 8.0 GB, `1.2×`); for a build, the edge records the
+  build sorts, rows × bytes per record (the ingest example: 1,830,402,118 rows ×
+  20 bytes — two 4-byte node numbers, an 8-byte weight, a 4-byte time — is
+  36.6 GB against 8.0 GB, `4.6×`; the record size is invented, like every figure here).
 
 ### 3.3 Estimates and their uncertainty
 
 - **P-7** Every estimate is a triple — `value`, `low`, `high` — with a `basis`:
   `exact` (known, `low` = `value` = `high`), `sampled` (from a sample of the input) or
-  `model` (from the cost model alone). The engine claims that the actual figure will lie
-  in `[low, high]`.
+  `model` (from the cost model alone). `[low, high]` is an interval with a stated
+  target coverage, not a guarantee: on an idle machine, the actual figure lies inside
+  it in at least 90 % of runs (*placeholder*), counted per quantity over the benchmark
+  corpus. Wall time depends on what else the machine is doing, so its coverage is
+  defined, and measured, on an idle machine only (`CLAUDE.md` § 3).
 - **P-8** In text, the form follows the range:
 
   | Range | Form | Example |
@@ -252,8 +288,14 @@ The four regimes. The planner (#45) chooses; this contract fixes the names and t
 - **P-9** The actual figures are recorded next to the estimates when the operation ends:
   in the ingest report (#36, #40), in the provenance of every result (#45), in the
   `result` event (§ 4.6) and in the `--json` document. The relative error is
-  `(actual − value) / actual` for each of the four quantities. The target of #40 — within
-  ±30 % on the tier-2 datasets — applies to all four.
+  `(actual − value) / actual` for each of the four quantities. When the actual is 0
+  (an operation that used no scratch), the relative error is `0` if `value` is 0 too,
+  and otherwise undefined: it is recorded as `null`, next to the absolute error
+  `value − actual` in the quantity's unit, and it counts as a miss wherever a bound is
+  checked. The bound of #40 — estimates within ±30 % of actuals on the tier-2 datasets —
+  is checked where #40 asks for it, for an ingest, on the four quantities, by the
+  benchmark harness (#4) on an idle machine. No test anywhere depends on a wall time
+  measured under load.
 
 ### 3.4 Text form
 
@@ -267,6 +309,7 @@ The plan is at most four blocks, in this order, separated by one empty line.
 4. **Then** the progress lines (§ 4) for a run, or the two lines `phases` and `result`
    and a closing sentence for a dry run.
 
+<!-- block: ingest-plan -->
 ```console
 $ everygraph ingest transfers.parquet --source from --target to \
       --weight value --time block_time
@@ -279,7 +322,7 @@ transfers.parquet · 38.2 GB · 1,830,402,118 rows
   machine   16 cores · 61 GB RAM (16 GB free) · NVMe, 1.4 TB free
   budget    8.0 GB memory (default: half of free RAM)
   plan      build on disk — the graph is 4.6× the memory budget
-  estimate  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+  estimate  3 min 40 s · peak 5.9 GB · 61 GB scratch · result 9.3 GB
 ```
 
 Rules for the lines:
@@ -288,12 +331,12 @@ Rules for the lines:
 |---|---|---|
 | headline | name · size · rows | `~1.83 B rows` when the count is sampled (a text file); for a graph: name · size · nodes · edges |
 | `ids` | kind of identifier (width) · distinct count | kinds: `integers`, `hex addresses (20 bytes)`, `text` |
-| `edges` | direction · repeated edges · self-loops | `directed (from the column names)` or `undirected (the column names give no direction)` when the caller did not say; a second line, aligned with the first value, when one does not fit |
+| `edges` | direction · repeated edges · self-loops | repeated edges `duplicates kept as events`, `duplicates collapsed` or `duplicates aggregated` (#36); `self-loops dropped` or `self-loops kept`; `directed (from the column names)` or `undirected (the column names give no direction)` when the caller did not say; a second line, aligned with the first value, when one does not fit |
 | `columns` | each used column `name → role` · `ignored:` the rest | `a → source · b → target` first when they were detected rather than given; more than three ignored columns are counted: `ignored: 12 columns` |
 | `machine` | physical cores · memory installed (free) · storage, free space | `(8.0 GB allowed by the container)` in place of the free figure when a limit is lower |
-| `budget` | size `memory` (where it came from) | `(default: half of free RAM)`, `(--memory)`, `(memory=)`, `(EVERYGRAPH_MEMORY)` |
+| `budget` | size `memory` (where it came from) | `(default: half of free RAM)`, `(--memory)`, `(memory=)`, `(EVERYGRAPH_MEMORY)`; when the budget is more than is free now (P-17), a second line aligned with the value: `more than the 16 GB free now: the system may swap` |
 | `plan` | regime `—` reason | § 3.2 |
-| `estimate` | time · `peak` memory · scratch `in` directory · `result` size | `no scratch` when none; `result 1.7 GB in transfers.eg` when the result is stored inside the graph file |
+| `estimate` | time · `peak` memory · scratch, and `in` its root when that is not the default (`61 GB scratch in /data/tmp`) · `result` size | `no scratch` when none; `result 1.7 GB in transfers.eg` when the result is stored inside the graph file |
 
 - **P-10** The summary states rules and estimates, never a count that needs the whole
   file (N-1). Exact counts of what was dropped appear in the result block (§ 4.4).
@@ -316,7 +359,7 @@ transfers.parquet · 38.2 GB · 1,830,402,118 rows
   machine   16 cores · 61 GB RAM (16 GB free) · NVMe, 1.4 TB free
   budget    8.0 GB memory (default: half of free RAM)
   plan      build on disk — the graph is 4.6× the memory budget
-  estimate  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+  estimate  3 min 40 s · peak 5.9 GB · 61 GB scratch · result 9.3 GB
 
   phases    reading → identifiers → building → checking
   result    transfers.eg, beside the input
@@ -336,7 +379,7 @@ transfers.eg · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges
   machine   16 cores · 61 GB RAM (16 GB free) · NVMe, 1.4 TB free
   budget    8.0 GB memory (default: half of free RAM)
   plan      edges on disk, read in passes — the graph is 1.2× the memory budget
-  estimate  about 4 min · peak 5.6 GB · 12 GB scratch in /tmp · result 4.1 GB
+  estimate  about 4 min · peak 5.6 GB · 12 GB scratch · result 4.1 GB
 ```
 
 The plan of an operation on a graph, **asked for on its own** — `g.explain("communities")`
@@ -348,10 +391,10 @@ command line writes the operation without parentheses and ends with the dry-run 
 Plan for communities() on transfers.eg — Leiden, resolution 1.0, deterministic
   fits     peak 5.6 GB of 8.0 GB budget
 
-  1  keep per-node state         memory            5.1 GB
-  2  move nodes between groups   edges from disk   0.5 GB   about 12 passes
-  3  merge groups and repeat     memory          < 0.4 GB   4 levels
-  4  write the result            disk                   —
+  1  keep per-node state              memory            5.1 GB
+  2  move nodes between communities   edges from disk   0.5 GB   about 12 passes
+  3  merge communities and repeat     memory          < 0.4 GB   4 levels
+  4  write the result                 disk                   —
 
   why      212,418,907 nodes × 24 bytes = 5.1 GB of state
            the edges (9.3 GB) stay on disk and are read each pass
@@ -379,6 +422,11 @@ last line can always say that nothing happened.
   from 1 GB, of 100 MB below. The exact figure is in the machine-readable form.
 - **P-15** A way forward is listed only if it would work: an option the operation does
   not have, or a lower-memory variant that does not exist for it, is not offered.
+  Community detection has no lower-memory variant in 0.1 (`design/DECISIONS.md`, "A
+  low-memory variant of community detection"), so its refusal offers a budget only.
+  When the smallest budget that would work is more than the machine's memory in all,
+  the refusal says so in plain words and offers no `--memory` line: no budget on this
+  machine would work.
 
 ```console
 $ everygraph run communities transfers.eg --memory 4GB
@@ -389,9 +437,71 @@ $ everygraph run communities transfers.eg --memory 4GB
 
   Ways forward:
     --memory 6GB            the smallest budget that works
-    --precision low         needs 3.4 GB; slightly lower quality
 
 Nothing was changed.
+```
+
+The arithmetic: 212,418,907 × 24 = 5,098,053,768 bytes of state; with the plan's fixed
+buffers of 0.5 GB (invented) the smallest budget is 5,598,053,768 bytes, rounded up
+to `6GB` (P-14).
+
+When no budget on this machine is enough (an invented graph of 2.6 B nodes: 2.6 × 10⁹ ×
+24 bytes = 62.4 GB, plus 0.5 GB of buffers, rounds up to 63 GB, more than 61 GB):
+
+```console
+$ everygraph run communities web.eg
+✗ Not enough memory for this step.
+
+  communities needs 62.4 GB for per-node state (2,600,000,000 nodes × 24 bytes).
+  The budget is 8.0 GB, and this machine has 61 GB of memory in all, so no
+  budget on it is enough. The edges stay on disk either way.
+
+  Ways forward:
+    a machine with at least 63 GB of memory
+
+Nothing was changed.
+```
+
+When the scratch root is on a memory-backed file system (P-18), here `/tmp` given with
+`--temp-dir`; up to 70 GB of scratch and a peak of 5.9 GB are 75.9 GB, more than this
+machine has, so no budget is offered:
+
+```console
+$ everygraph ingest transfers.parquet --source from --target to \
+      --temp-dir /tmp
+✗ Not enough memory for this step.
+
+  /tmp is held in memory (tmpfs), so its scratch counts against the budget:
+  up to 70 GB of scratch and a peak of 5.9 GB do not fit 8.0 GB.
+
+  Ways forward:
+    --temp-dir DIR          a directory on a disk with 70 GB free
+    leave out --temp-dir    scratch goes beside the output (1.4 TB free)
+
+Nothing was written.
+```
+
+A budget larger than the machine (P-16) is a usage error, before any plan:
+
+```console
+$ everygraph run communities transfers.eg --memory 80GB
+✗ The memory budget is more than this machine has.
+
+  --memory 80GB asks for 80.0 GB; this machine has 61 GB of memory in all.
+
+  Ways forward:
+    --memory 16GB           what is free now
+    leave out --memory      the default, half of free RAM: 8.0 GB now
+
+Nothing was changed.
+```
+
+A budget above what is free but within the machine (P-17) runs, and the plan says so:
+
+```console
+  machine   16 cores · 61 GB RAM (16 GB free) · NVMe, 1.4 TB free
+  budget    40.0 GB memory (--memory)
+            more than the 16 GB free now: the system may swap
 ```
 
 The same refusal in Python is an exception (§ 6.1 gives the pattern) and in a notebook
@@ -402,9 +512,28 @@ command exits with status 4.
 ### 3.6 Machine-readable form
 
 `Plan.to_dict()` in Python, the `plan` event (§ 4.6), and the standard output of
-`--dry-run --json` are the same document. Keys may be added within a schema version;
-removing a key or changing its meaning increments `schema`. Readers must ignore keys they
-do not know.
+`--dry-run --json` are the same document. A refusal inside a plan is the error document
+of § 6.1, by reference: there is one definition of it.
+
+**Compatibility.** Every document carries `schema`, and these rules hold for all four
+schemas of this contract (plan, error, event, stop):
+
+- Within version 1 a later release may **add an optional key**. It never removes or
+  renames a key, never changes a key's type or meaning, never makes an optional key
+  required, and never adds a value to an enumeration. Any of those increments `schema`.
+- A **reader of version 1** must tolerate keys it does not know, at any depth, and may
+  rely on every required key being present with its stated type and on every
+  enumeration being complete for version 1.
+- The schemas below are **closed** (`additionalProperties: false`, or
+  `unevaluatedProperties: false` where a definition is shared) wherever this document
+  fixes the keys, so the engine's own tests catch a misspelt key. They describe what
+  one release writes: a reader that checks a document from a newer release must not
+  use them as they are (it drops the closing keyword first). The open places are
+  `parameters`, which holds the operation's own arguments, `arithmetic`, and `counts`
+  and `dropped` in the `result` event.
+- The enumerations are complete for 0.1, including the choices that #36 builds
+  (`self_loops`: `dropped`, `kept`; `duplicates`: `kept as events`, `collapsed`,
+  `aggregated`), even where the approved defaults use only one.
 
 ```json
 {
@@ -412,6 +541,7 @@ do not know.
   "$id": "urn:everygraph:schema:plan:1",
   "title": "Everygraph plan, version 1",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "schema", "operation", "parameters", "machine", "budget", "regime",
     "phases", "estimate", "scratch", "output", "fits", "refusal"
@@ -422,9 +552,11 @@ do not know.
     "parameters": {"type": "object"},
     "call": {
       "type": "object",
+      "additionalProperties": false,
+      "required": ["python", "command"],
       "properties": {
         "python": {"type": "string"},
-        "cli": {"type": "string"}
+        "command": {"type": "string"}
       }
     },
     "input": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/input"}]},
@@ -441,6 +573,7 @@ do not know.
     },
     "estimate": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "seconds", "peak_memory_bytes", "scratch_bytes", "output_bytes"
       ],
@@ -453,14 +586,18 @@ do not know.
     },
     "scratch": {
       "type": "object",
-      "required": ["path", "free_bytes"],
+      "additionalProperties": false,
+      "required": ["path", "from", "memory_backed", "free_bytes"],
       "properties": {
         "path": {"type": "string"},
+        "from": {"$ref": "#/$defs/origin"},
+        "memory_backed": {"type": "boolean"},
         "free_bytes": {"$ref": "#/$defs/count"}
       }
     },
     "output": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["path", "kind"],
       "properties": {
         "path": {"type": ["string", "null"]},
@@ -469,13 +606,19 @@ do not know.
       }
     },
     "fits": {"type": "boolean"},
-    "refusal": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/refusal"}]}
+    "refusal": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "urn:everygraph:schema:error:1"}
+      ]
+    }
   },
   "$defs": {
     "count": {"type": "integer", "minimum": 0},
     "origin": {"enum": ["argument", "graph", "environment", "default"]},
     "estimate": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["value", "low", "high", "basis"],
       "properties": {
         "value": {"type": "number", "minimum": 0},
@@ -486,6 +629,7 @@ do not know.
     },
     "input": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["path", "bytes", "format", "rows"],
       "properties": {
         "path": {"type": "string"},
@@ -497,6 +641,7 @@ do not know.
     },
     "graph": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["path", "bytes", "nodes", "edges", "directed"],
       "properties": {
         "path": {"type": ["string", "null"]},
@@ -509,10 +654,12 @@ do not know.
     },
     "detected": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["ids", "edges", "columns"],
       "properties": {
         "ids": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["kind", "distinct"],
           "properties": {
             "kind": {"enum": ["integer", "hex", "text"]},
@@ -523,18 +670,22 @@ do not know.
         },
         "edges": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["directed", "directed_from", "duplicates", "self_loops"],
           "properties": {
             "directed": {"type": "boolean"},
             "directed_from": {"enum": ["caller", "column names", "default"]},
-            "duplicates": {"enum": ["kept as events"]},
-            "self_loops": {"enum": ["dropped"]}
+            "duplicates": {
+              "enum": ["kept as events", "collapsed", "aggregated"]
+            },
+            "self_loops": {"enum": ["dropped", "kept"]}
           }
         },
         "columns": {
           "type": "array",
           "items": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["name", "role"],
             "properties": {
               "name": {"type": "string"},
@@ -549,6 +700,7 @@ do not know.
     },
     "machine": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "cores", "hardware_threads", "memory_bytes", "memory_free_bytes",
         "memory_limit_bytes", "storage"
@@ -561,6 +713,7 @@ do not know.
         "memory_limit_bytes": {"type": ["integer", "null"]},
         "storage": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["kind", "free_bytes"],
           "properties": {
             "kind": {"type": "string"},
@@ -571,25 +724,32 @@ do not know.
     },
     "budget": {
       "type": "object",
-      "required": ["memory_bytes", "memory_from", "threads", "threads_from"],
+      "additionalProperties": false,
+      "required": [
+        "memory_bytes", "memory_from", "above_free", "threads", "threads_from"
+      ],
       "properties": {
         "memory_bytes": {"$ref": "#/$defs/count"},
         "memory_from": {"$ref": "#/$defs/origin"},
+        "above_free": {"type": "boolean"},
         "threads": {"type": "integer", "minimum": 1},
         "threads_from": {"$ref": "#/$defs/origin"}
       }
     },
     "regime": {
       "type": "object",
-      "required": ["name", "reason"],
+      "additionalProperties": false,
+      "required": ["name", "reason", "working_bytes", "ratio"],
       "properties": {
         "name": {"enum": ["in_memory", "mapped", "streamed", "on_disk"]},
         "reason": {"type": "string"},
-        "ratio": {"type": ["number", "null"]}
+        "working_bytes": {"$ref": "#/$defs/count"},
+        "ratio": {"type": "number", "minimum": 0}
       }
     },
     "step": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["step", "where", "memory_bytes"],
       "properties": {
         "step": {"type": "string"},
@@ -600,6 +760,7 @@ do not know.
     },
     "phase": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["name", "kept", "seconds"],
       "properties": {
         "name": {"type": "string", "pattern": "^[a-z]{1,11}$"},
@@ -607,48 +768,14 @@ do not know.
         "seconds": {"$ref": "#/$defs/estimate"},
         "regime": {"enum": ["in_memory", "mapped", "streamed", "on_disk"]}
       }
-    },
-    "refusal": {
-      "type": "object",
-      "required": [
-        "error", "message", "step", "needs_bytes", "available_bytes",
-        "ways_forward"
-      ],
-      "properties": {
-        "error": {"enum": ["InsufficientBudget", "InsufficientDisk"]},
-        "message": {"type": "string"},
-        "step": {"type": "string"},
-        "needs_bytes": {"$ref": "#/$defs/count"},
-        "available_bytes": {"$ref": "#/$defs/count"},
-        "arithmetic": {
-          "type": "object",
-          "required": ["count", "unit", "bytes_each"],
-          "properties": {
-            "count": {"$ref": "#/$defs/count"},
-            "unit": {"type": "string"},
-            "bytes_each": {"$ref": "#/$defs/count"}
-          }
-        },
-        "smallest_budget_bytes": {"type": ["integer", "null"]},
-        "ways_forward": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/way"}
-        }
-      }
-    },
-    "way": {
-      "type": "object",
-      "required": ["option", "python"],
-      "properties": {
-        "option": {"type": "string"},
-        "python": {"type": "string"},
-        "note": {"type": "string"},
-        "needs_bytes": {"$ref": "#/$defs/count"}
-      }
     }
   }
 }
 ```
+
+`regime.ratio` is `working_bytes / budget.memory_bytes` (P-6), unrounded; the text
+rounds it. `budget.above_free` is true when P-17 applies. `scratch.path` is the scratch
+root; the job's own directory inside it is named in § 5.3.
 
 The plan of the ingest above, as that document (shortened: `call`, `detected.columns`
 and three of the four phases are left out here, not in the real output):
@@ -694,12 +821,13 @@ and three of the four phases are left out here, not in the real output):
   },
   "budget": {
     "memory_bytes": 8000000000, "memory_from": "default",
-    "threads": 16, "threads_from": "default"
+    "above_free": false, "threads": 16, "threads_from": "default"
   },
   "regime": {
     "name": "on_disk",
     "reason": "the graph is 4.6× the memory budget",
-    "ratio": 4.6
+    "working_bytes": 36608042360,
+    "ratio": 4.576
   },
   "phases": [
     {
@@ -722,7 +850,10 @@ and three of the four phases are left out here, not in the real output):
       "basis": "sampled"
     }
   },
-  "scratch": {"path": "/tmp", "free_bytes": 1400000000000},
+  "scratch": {
+    "path": ".", "from": "default", "memory_backed": false,
+    "free_bytes": 1400000000000
+  },
   "output": {
     "path": "transfers.eg", "kind": "graph", "free_bytes": 1400000000000
   },
@@ -731,30 +862,29 @@ and three of the four phases are left out here, not in the real output):
 }
 ```
 
-The `refusal` of § 3.5, inside a plan whose `fits` is `false`:
+The `refusal` of § 3.5, inside a plan whose `fits` is `false`. It is the same document
+that `--json` prints when the command is refused (§ 6.1), and it validates against the
+error schema:
 
 ```json
 {
+  "schema": 1,
   "error": "InsufficientBudget",
   "message": "Not enough memory for this step.",
+  "why": "communities needs 5.1 GB for per-node state.",
   "step": "communities",
   "needs_bytes": 5098053768,
-  "available_bytes": 4000000000,
-  "arithmetic": {"count": 212418907, "unit": "nodes", "bytes_each": 24},
+  "budget_bytes": 4000000000,
   "smallest_budget_bytes": 5598053768,
+  "arithmetic": {"count": 212418907, "unit": "nodes", "bytes_each": 24},
   "ways_forward": [
     {
-      "option": "--memory 6GB",
+      "command": "--memory 6GB",
       "python": "g.communities(memory=\"6GB\")",
       "note": "the smallest budget that works"
-    },
-    {
-      "option": "--precision low",
-      "python": "g.communities(precision=\"low\")",
-      "note": "slightly lower quality",
-      "needs_bytes": 3400000000
     }
-  ]
+  ],
+  "changed": false
 }
 ```
 
@@ -772,14 +902,14 @@ The `refusal` of § 3.5, inside a plan whose `fits` is `false`:
 | Operation | Phases, in order | Counts while running | Detail when finished |
 |---|---|---|---|
 | `ingest`, `eg.read` | `reading` | bytes of input | rows read |
-| | `identifiers` | distinct identifiers | identifiers, with the user's noun: `212,418,907 addresses` |
+| | `identifiers` | distinct identifiers (unit `identifiers`) | identifiers, with the user's noun: `212,418,907 addresses` |
 | | `building` | parts | `2,048 parts` |
-| | `checking` | sections | the checks that passed: `sorted · symmetric counts` |
-| `map`, `g.map()` | `communities` | passes over the edges | `31,960 groups · modularity 0.603` |
-| | `hierarchy` | levels | `6 zoom levels` |
-| | `layout` | regions | (empty) |
+| | `checking` | sections of the file (unit `sections`) | the checks that passed: `sorted · symmetric counts` |
+| `map`, `g.map()` | `communities` | passes over the edges | `31,960 · modularity 0.603` (the noun is dropped for width: `design/DECISIONS.md`, "The word for what community detection finds") |
+| | `hierarchy` | levels (unit `levels`) | `6 zoom levels` |
+| | `layout` | regions (unit `regions`) | (empty) |
 | | `tiles` | tiles | `1,204,118 tiles` |
-| `run NAME`, `g.NAME()` | one phase, named after the operation | passes over the edges, or nodes | one or two exact facts about the result |
+| `run NAME`, `g.NAME()` | one phase, named after the operation | passes over the edges, or nodes | one or two exact facts about the result: `31,960 communities · modularity 0.603` where it fits |
 
 A whole-graph algorithm is a single phase: `communities`, `pagerank`, `components`,
 `kcore`, `triangles`, `degrees`, `bfs`. Point queries (`neighbors`, `khop`, `path`) have
@@ -801,6 +931,7 @@ no phases and no progress; they have `limit` and `timeout` instead (§ 6.2, "cut
 
 ### 4.3 States
 
+<!-- block: states -->
 ```text
   reading      ████████████████  1,830,402,118 rows                 1 min 41 s
   identifiers  █████████░░░░░░░  61% · 5.6 M/s · about 15 s left          23 s
@@ -850,6 +981,7 @@ If the three do not fit 32 columns the second part is dropped, then the third.
 
 When the last phase finishes, the result block follows after one empty line:
 
+<!-- block: ingest-done -->
 ```console
   reading      ████████████████  1,830,402,118 rows                 1 min 41 s
   identifiers  ████████████████  212,418,907 addresses                    38 s
@@ -862,8 +994,10 @@ When the last phase finishes, the result block follows after one empty line:
 ```
 
 - **G-11** An operation that makes a file ends with the result block. Its first line
-  is `✓`, what was made (bold), its size, its exact counts and the total time; it is
-  the only place a total time appears. A graph kept in memory says `in memory` where
+  is `✓`, what was made (bold), its size, its exact counts (for a graph, nodes and
+  edges; a map has none beyond its phase lines) and, always, the total time — the
+  `map` example below, `4 min 12 s`, is the sum of its four phases; it is the only
+  place a total time appears. A graph kept in memory says `in memory` where
   the size would be. An operation that returns a table or an object has no result
   block: its last phase line is the record, and the result follows on its own channel
   (§ 2.1).
@@ -880,14 +1014,14 @@ transfers.eg · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges
   machine   16 cores · 61 GB RAM (16 GB free) · NVMe, 1.4 TB free
   budget    8.0 GB memory (default: half of free RAM)
   plan      edges on disk, read in passes — the graph is 1.2× the memory budget
-  estimate  about 4 min · peak 5.6 GB · 12 GB scratch in /tmp · result 4.1 GB
+  estimate  about 4 min · peak 5.6 GB · 12 GB scratch · result 4.1 GB
 
-  communities  ████████████████  31,960 groups · modularity 0.603   2 min 11 s
+  communities  ████████████████  31,960 · modularity 0.603          2 min 11 s
   hierarchy    ████████████████  6 zoom levels                            18 s
   layout       ████████████████                                           41 s
   tiles        ████████████████  1,204,118 tiles                     1 min 2 s
 
-✓ transfers.egmap · 4.1 GB
+✓ transfers.egmap · 4.1 GB · 4 min 12 s
   open it:   everygraph open transfers.eg
   share it:  upload transfers.egmap and viewer.html to any static host
 ```
@@ -896,6 +1030,7 @@ transfers.eg · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges
 
 **ASCII only.** The same lines through the table of § 2.3:
 
+<!-- rendering: ascii of states -->
 ```text
   reading      ################  1,830,402,118 rows                 1 min 41 s
   identifiers  #########.......  61% | 5.6 M/s | about 15 s left          23 s
@@ -907,6 +1042,7 @@ transfers.eg · 9.3 GB · 212,418,907 nodes · 1,830,397,917 edges
 are (in ASCII), then each phase prints one line when it finishes, without a bar, its
 time ending at column 60; then the result block.
 
+<!-- rendering: piped of ingest-plan + ingest-done -->
 ```text
 transfers.parquet | 38.2 GB | 1,830,402,118 rows
 
@@ -917,7 +1053,7 @@ transfers.parquet | 38.2 GB | 1,830,402,118 rows
   machine   16 cores | 61 GB RAM (16 GB free) | NVMe, 1.4 TB free
   budget    8.0 GB memory (default: half of free RAM)
   plan      build on disk - the graph is 4.6x the memory budget
-  estimate  3 min 40 s | peak 5.9 GB | 61 GB scratch in /tmp | result 9.3 GB
+  estimate  3 min 40 s | peak 5.9 GB | 61 GB scratch | result 9.3 GB
 
   reading      1,830,402,118 rows                 1 min 41 s
   identifiers  212,418,907 addresses                    38 s
@@ -933,6 +1069,7 @@ ok transfers.eg | 9.3 GB | 212,418,907 nodes | 1,830,397,917 edges | 3 min 30 s
 
 **Narrow terminal.** At 60 columns the bars are gone and the numbers are not (W-6):
 
+<!-- rendering: narrow of states -->
 ```text
   reading      1,830,402,118 rows                 1 min 41 s
   identifiers  61% · 5.6 M/s · about 15 s left          23 s
@@ -964,6 +1101,10 @@ The renderings above are views of one stream of events. Python receives it throu
   `done`, `kept` or `stopped`. A kept phase emits only its `kept` event.
 - **G-18** An exception raised by `f` cancels the operation exactly as `Ctrl-C` does
   (§ 5.2) and then propagates to the caller.
+- **G-19** `job` is the first 16 hexadecimal digits of the job's fingerprint (R-4), and
+  the scratch directory's `ID` is a prefix of it. So a run that continues a stopped one
+  carries the same `job`, and so does a later run of the same command: `job` names the
+  work, not the run.
 
 Every event has these keys:
 
@@ -971,9 +1112,9 @@ Every event has these keys:
 |---|---|---|
 | `event` | string | `plan`, `phase`, `warning`, `result`, `stopped` or `error` |
 | `schema` | integer | `1` |
-| `job` | string | 16 hexadecimal digits, the same for every event of one operation |
+| `job` | string | 16 hexadecimal digits (G-19) |
 | `operation` | string | as in the plan |
-| `t` | number | seconds since the operation started |
+| `t` | number | seconds since this run of the operation started |
 
 and, by kind:
 
@@ -983,7 +1124,7 @@ and, by kind:
 | `phase` | `name` | string | the phase |
 | | `index`, `count` | integer | position from 0, and the number of phases |
 | | `state` | string | `running`, `done`, `kept` or `stopped` |
-| | `unit` | string | `bytes`, `rows`, `nodes`, `edges`, `parts`, `passes`, `tiles`, `items` |
+| | `unit` | string | `bytes`, `rows`, `identifiers`, `nodes`, `edges`, `parts`, `sections`, `passes`, `levels`, `regions`, `tiles`, `items` (§ 4.1) |
 | | `done`, `total` | number; number or null | progress in that unit; the total if known |
 | | `fraction` | number or null | `done / total`, from 0 to 1 |
 | | `pass` | object or null | `{"index": 2, "of": 3}`; `of` is null when open-ended |
@@ -992,25 +1133,254 @@ and, by kind:
 | | `elapsed_seconds` | number | time in this phase |
 | | `detail` | string or null | the finished detail of § 4.1, for final states |
 | | `peak_memory_bytes` | integer | peak so far in this phase |
-| `warning` | `code` | string | a stable identifier: `slow-gzip`, `cut-short`, … (§ 6.2) |
+| `warning` | `code` | string | a stable identifier: `slow-gzip`, `read-only`, `old-scratch` (§ 6.2, R-10) |
 | | `message` | string | the headline sentence |
 | | `why` | string or null | the consequence, with its numbers |
-| | `ways_forward` | array | as in § 3.6 |
+| | `ways_forward` | array | ways, as in § 6.1 |
 | | `continuing` | string or null | what happens now |
 | `result` | `output` | object | `path`, `kind`, `bytes` |
 | | `counts` | object | exact counts: `nodes`, `edges`, `rows`, … |
 | | `dropped` | object | exact counts by kind: `self_loops`, … |
 | | `elapsed_seconds`, `peak_memory_bytes`, `scratch_bytes` | number | the actual figures |
-| | `estimate_error` | object | relative error of each of the four estimates (P-9) |
-| | `next` | array | hints: `label`, `python`, `cli` |
-| `stopped` | `reason` | string | `interrupt`, `terminate` or `callback` |
-| | `during`, `fraction` | string; number or null | the phase that was running and how far it was |
-| | `kept`, `dropped` | arrays of strings | phases kept; phases that start again |
-| | `scratch` | object or null | `path`, `bytes` of what was kept |
-| | `changed` | boolean | always `false` (§ 5.2) |
-| | `resume` | object | `python`, `cli`: what continues the work |
-| | `discard` | string or null | the command that removes what was kept |
-| `error` | (all keys) | | the error document of § 6.1 |
+| | `estimate_error` | object | for each of the four estimates, `relative` (number or null) and `absolute` (P-9) |
+| | `next` | array | hints: `label`, `python`, `command` |
+| `stopped` | `stopped` | object | the stop object of § 5.4: also what `--json` prints after a stop |
+| `error` | `error` | object | the error document of § 6.1 |
+
+The same, as a schema. The stop object is defined here and used by the stop document
+of § 5.4:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:everygraph:schema:event:1",
+  "title": "Everygraph progress event, version 1",
+  "type": "object",
+  "required": ["event", "schema", "job", "operation", "t"],
+  "properties": {
+    "event": {
+      "enum": ["plan", "phase", "warning", "result", "stopped", "error"]
+    },
+    "schema": {"const": 1},
+    "job": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "operation": {"type": "string"},
+    "t": {"type": "number", "minimum": 0}
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/plan_event"},
+    {"$ref": "#/$defs/phase_event"},
+    {"$ref": "#/$defs/warning_event"},
+    {"$ref": "#/$defs/result_event"},
+    {"$ref": "#/$defs/stopped_event"},
+    {"$ref": "#/$defs/error_event"}
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "rate": {"type": ["number", "null"], "minimum": 0},
+    "plan_event": {
+      "properties": {
+        "event": {"const": "plan"},
+        "plan": {"$ref": "urn:everygraph:schema:plan:1"}
+      },
+      "required": ["plan"]
+    },
+    "phase_event": {
+      "properties": {
+        "event": {"const": "phase"},
+        "name": {"type": "string", "pattern": "^[a-z]{1,11}$"},
+        "index": {"$ref": "#/$defs/count"},
+        "count": {"type": "integer", "minimum": 1},
+        "state": {"enum": ["running", "done", "kept", "stopped"]},
+        "unit": {
+          "enum": [
+            "bytes", "rows", "identifiers", "nodes", "edges", "parts",
+            "sections", "passes", "levels", "regions", "tiles", "items"
+          ]
+        },
+        "done": {"type": "number", "minimum": 0},
+        "total": {"type": ["number", "null"], "minimum": 0},
+        "fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "pass": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["index", "of"],
+              "properties": {
+                "index": {"type": "integer", "minimum": 1},
+                "of": {"type": ["integer", "null"], "minimum": 1}
+              }
+            }
+          ]
+        },
+        "rate": {"$ref": "#/$defs/rate"},
+        "eta_seconds": {"$ref": "#/$defs/rate"},
+        "elapsed_seconds": {"type": "number", "minimum": 0},
+        "detail": {"type": ["string", "null"]},
+        "peak_memory_bytes": {"$ref": "#/$defs/count"}
+      },
+      "required": [
+        "name", "index", "count", "state", "unit", "done", "total",
+        "fraction", "pass", "rate", "eta_seconds", "elapsed_seconds",
+        "detail", "peak_memory_bytes"
+      ]
+    },
+    "warning_event": {
+      "properties": {
+        "event": {"const": "warning"},
+        "code": {"enum": ["slow-gzip", "read-only", "old-scratch"]},
+        "message": {"type": "string"},
+        "why": {"type": ["string", "null"]},
+        "ways_forward": {
+          "type": "array",
+          "items": {"$ref": "urn:everygraph:schema:error:1#/$defs/way"}
+        },
+        "continuing": {"type": ["string", "null"]}
+      },
+      "required": ["code", "message", "why", "ways_forward", "continuing"]
+    },
+    "result_event": {
+      "properties": {
+        "event": {"const": "result"},
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "kind", "bytes"],
+          "properties": {
+            "path": {"type": ["string", "null"]},
+            "kind": {"enum": ["graph", "map", "result", "file", "none"]},
+            "bytes": {"type": ["integer", "null"], "minimum": 0}
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/count"}
+        },
+        "dropped": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/count"}
+        },
+        "elapsed_seconds": {"type": "number", "minimum": 0},
+        "peak_memory_bytes": {"$ref": "#/$defs/count"},
+        "scratch_bytes": {"$ref": "#/$defs/count"},
+        "estimate_error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "seconds", "peak_memory_bytes", "scratch_bytes", "output_bytes"
+          ],
+          "properties": {
+            "seconds": {"$ref": "#/$defs/error_of"},
+            "peak_memory_bytes": {"$ref": "#/$defs/error_of"},
+            "scratch_bytes": {"$ref": "#/$defs/error_of"},
+            "output_bytes": {"$ref": "#/$defs/error_of"}
+          }
+        },
+        "next": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "python", "command"],
+            "properties": {
+              "label": {"type": "string"},
+              "python": {"type": "string"},
+              "command": {"type": "string"}
+            }
+          }
+        }
+      },
+      "required": [
+        "output", "counts", "dropped", "elapsed_seconds", "peak_memory_bytes",
+        "scratch_bytes", "estimate_error", "next"
+      ]
+    },
+    "error_of": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative", "absolute"],
+      "properties": {
+        "relative": {"type": ["number", "null"]},
+        "absolute": {"type": "number"}
+      }
+    },
+    "stopped_event": {
+      "properties": {
+        "event": {"const": "stopped"},
+        "stopped": {"$ref": "#/$defs/stopped"}
+      },
+      "required": ["stopped"]
+    },
+    "error_event": {
+      "properties": {
+        "event": {"const": "error"},
+        "error": {"$ref": "urn:everygraph:schema:error:1"}
+      },
+      "required": ["error"]
+    },
+    "stopped": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason", "during", "fraction", "kept", "dropped", "scratch",
+        "partial", "written", "resume", "discard"
+      ],
+      "properties": {
+        "reason": {"enum": ["interrupt", "terminate", "exception"]},
+        "during": {"type": "string"},
+        "fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "kept": {"type": "array", "items": {"type": "string"}},
+        "dropped": {"type": "array", "items": {"type": "string"}},
+        "scratch": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "bytes"],
+              "properties": {
+                "path": {"type": "string"},
+                "bytes": {"$ref": "#/$defs/count"}
+              }
+            }
+          ]
+        },
+        "partial": {"type": ["string", "null"]},
+        "written": {"type": "array", "items": {"type": "string"}},
+        "resume": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["python", "command"],
+          "properties": {
+            "python": {"type": "string"},
+            "command": {"type": "string"}
+          }
+        },
+        "discard": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}
+```
+
+A running phase, as `f` receives it:
+
+```json
+{
+  "event": "phase", "schema": 1, "job": "7c1e04b9a2f35d68",
+  "operation": "ingest", "t": 124.2,
+  "name": "identifiers", "index": 1, "count": 4, "state": "running",
+  "unit": "identifiers", "done": 129600000, "total": 212400000,
+  "fraction": 0.61, "pass": null, "rate": 5600000, "eta_seconds": 15,
+  "elapsed_seconds": 23, "detail": null, "peak_memory_bytes": 4100000000
+}
+```
+
+In that event `total` is the sampled estimate of distinct identifiers; the percentage
+of G-5 is taken against it and held below 100 until the phase ends.
 
 ---
 
@@ -1027,22 +1397,26 @@ and, by kind:
 
 | Operation | Checkpoint after | Kept where | Notes |
 |---|---|---|---|
-| `ingest`, `eg.read` of a file | `reading`, `identifiers`, `building` | the scratch directory of the job; the unfinished output as `NAME.eg.partial` beside its destination | #40 |
-| `map`, `g.map()` | `communities`, `hierarchy`, `layout` | in the graph file, as computed results (#39): a later run finds them like any cached result | `tiles` writes `NAME.egmap.partial` and starts again if interrupted |
+| `ingest`, `eg.read` of a file | `reading`, `identifiers`, `building` | the job's scratch directory; the unfinished output as `NAME.eg.partial` beside its destination | #40 |
+| `map`, `g.map()` | `communities`, `hierarchy`, `layout` | committed to the graph file as cached results when each phase finishes (#39, by the protocol of C-1): a later run finds them like any cached result | `tiles` writes `NAME.egmap.partial`, removed if interrupted; the phase starts again |
 | a whole-graph algorithm (one phase) | — | nothing | The result is stored when the phase ends, or not at all. |
 | point queries, `info`, `doctor`, `verify` | — | nothing | They write nothing. |
 
 - **R-3** Only work that will be asked for again in the same form is kept. A phase's
-  kept output is valid for any memory budget and any number of threads: neither may
-  change what a phase writes, because after a refusal or a stop the next run will often
-  change them.
+  kept output is valid for any number of threads. Where the layout of a phase's kept
+  output depends on the memory budget — the number of parts or buckets it was cut
+  into — the manifest records that layout, and a run under another budget either
+  reuses it, when the following phases can still work with it inside the new budget,
+  or runs that phase again and says so (R-7). The result does not depend on the
+  budget either way (`design/DECISIONS.md`, "What 'repeatable' promises").
 
 ### 5.2 What stopping leaves behind
 
-Stopping means `Ctrl-C` (SIGINT), SIGTERM, a `KeyboardInterrupt` in Python (including
-"interrupt the kernel" in a notebook), or an exception from a progress callback (G-18).
-These are *clean* stops. SIGKILL, a power cut and a kill by the operating system are
-*hard* stops: nothing can be printed, and the guarantees must hold anyway.
+Stopping means `Ctrl-C` (SIGINT), SIGTERM sent to the command, a `KeyboardInterrupt` in
+Python (including "interrupt the kernel" in a notebook), or an exception from a progress
+callback (G-18). These are *clean* stops. SIGKILL, a power cut and a kill by the
+operating system are *hard* stops: nothing can be printed, and the guarantees must hold
+anyway.
 
 - **C-1** **A graph file is never left corrupt.** At every instant a file named
   `NAME.eg` either does not exist or is complete and passes `everygraph verify`.
@@ -1052,36 +1426,53 @@ These are *clean* stops. SIGKILL, a power cut and a kill by the operating system
     switched to include it only once the result is durable (the protocol of #28). Until
     that switch the file reads exactly as before.
   - The same holds for `NAME.egmap`.
-- **C-2** After a clean stop an existing graph file is byte for byte what it was before
-  the operation. After a hard stop it has the same contents as before; bytes appended
-  but never referenced may remain at its end until the next write removes them.
-- **C-3** After a clean stop the only files left are the ones the stop block names
-  (§ 5.4): the job's scratch directory, holding finished phases only, and possibly
-  `NAME.eg.partial`. The interrupted phase's files are removed.
-- **C-4** A clean stop is prompt: workers check for cancellation at chunk boundaries and
-  the stop block is printed within 2 s of the signal (*placeholder*).
+- **C-2** **A stop never changes what an existing graph file already held.** After a
+  clean or a hard stop, every section the file had before the operation is unchanged
+  and the file is valid. What a finished phase committed as a cached result (the first
+  three phases of `map`) stays in it, and the stop block names it on its `written`
+  line; nothing else is added. After a hard stop, bytes appended but never referenced
+  may remain at the file's end until the next write removes them.
+- **C-3** After a clean stop the only things left are the ones the stop block names
+  (§ 5.4): cached results committed by finished phases, the job's scratch directory
+  holding finished phases only, and possibly `NAME.eg.partial`. The interrupted phase's
+  files are removed.
+- **C-4** A clean stop is prompt: workers check for cancellation at chunk boundaries, at
+  least every 64 MiB of input or 10⁶ items of work (*placeholders*), and the stop block
+  is printed within 2 s of the signal on an idle machine (*placeholder*).
 - **C-5** A second `Ctrl-C` while the first is being handled ends the process at once,
   with no message. It is a hard stop.
-- **C-6** In Python the engine stops its workers, cleans up, prints the stop block and
-  then raises a plain `KeyboardInterrupt`, never a wrapped one. The Python process and
-  any graph object in it remain usable.
-- **C-7** The command exits with status 130 after SIGINT and 143 after SIGTERM.
+- **C-6** In Python the engine installs **no signal handler**. Python's own handler turns
+  `Ctrl-C` into `KeyboardInterrupt`; a long call polls Python's signal check at the
+  chunk boundaries of C-4 and, when it raises, stops its workers, cleans up, prints the
+  stop block and re-raises that same exception — a plain `KeyboardInterrupt`, never a
+  wrapped one. An exception raised by a signal handler the program installed itself is
+  handled the same way (reason `exception`). SIGTERM is not handled by the library: a
+  Python process that receives it with no handler of its own ends as a hard stop. The
+  Python process and any graph object in it remain usable after a clean stop.
+- **C-7** The command handles SIGINT and SIGTERM itself and exits with status 130 after
+  SIGINT and 143 after SIGTERM. With `--json` its standard output is then the stop
+  document of § 5.4 (S-2).
 - **C-8** A failure is not a stop. When an operation fails (§ 6), its scratch is removed
   unless finished phases can still be used by the same command once the cause is fixed
   (the disk filled up during `building`); the error's last line says which.
 - **C-9** On success the scratch directory is removed.
 
-### 5.3 The manifest and staleness
+### 5.3 The scratch directory, the manifest and staleness
 
-The scratch directory of a job is `everygraph-ID` inside the scratch root, where `ID` is
-the first four hexadecimal digits of the job's fingerprint (more digits if that name is
-taken by a different job). "The same command again" finds it by computing the same
-fingerprint: there is no registry.
+The scratch directory of a job is `.everygraph-ID` inside the scratch root (§ 1): by
+default the directory of the output, so the final rename of C-1 stays on one file
+system and nothing is left in the system temporary directory. `ID` is the first four
+hexadecimal digits of the job's fingerprint (more digits if that name is taken by a
+different job, which the manifest's full fingerprint shows). The leading dot hides it
+on Unix; on Windows the directory is given the hidden attribute. "The same command
+again" finds it by computing the same fingerprint: there is no registry.
 
 - **R-4** The fingerprint is a hash of: the operation; every parameter that changes what
-  a phase writes (so not the memory budget, not the thread count, not `progress`); the
-  identity of the input (below); the output path; and the version of each phase's
-  algorithm.
+  a phase writes, the input's path included (so not the memory budget, not the thread
+  count, not `progress`); and the output path. It does **not** include the identity of
+  the input or the versions of the phases' algorithms: those are recorded in the
+  manifest and checked against it (R-7), so that a changed input or a newer Everygraph
+  finds the old directory, says why it cannot be used, and removes it.
 - **R-5** The directory holds `manifest.json`, rewritten atomically at each phase
   boundary, and the kept files it lists.
 
@@ -1089,32 +1480,43 @@ fingerprint: there is no registry.
 |---|---|
 | `schema` | `1` |
 | `fingerprint` | the full job fingerprint |
-| `operation`, `parameters` | as in the plan |
+| `operation`, `parameters`, `call` | as in the plan; `call` is what the R-10 warning and the stop block quote |
 | `engine`, `phase_versions` | the Everygraph version that wrote it; the algorithm version of each phase |
 | `input` | `path`, `bytes`, `modified` (nanoseconds), `sample_hash` |
 | `output` | the destination path and the `.partial` file, if any |
-| `phases` | for each phase: `name`, `state` (`done` or absent), `finished`, `elapsed_seconds`, `detail`, and `files`: name, bytes and content hash of each kept file |
+| `phases` | for each phase: `name`, `state` (`done` or absent), `finished`, `elapsed_seconds`, `detail`, `layout` (what of its output depends on the budget, such as `{"parts": 2048}`, and the memory the following phases need to read it), and `files`: name, bytes and content hash of each kept file |
+| `budget_bytes`, `threads`, `deterministic` | what the run that wrote it used; recorded, never compared except through `layout` |
 | `started`, `stopped` | timestamps of the first start and of the last stop |
 | `owner` | host name and process id of the run that holds the directory, while it runs |
 
 - **R-6** The identity of an input file is its size, its modification time and the hash
   of a fixed sample of its bytes (the first and last 1 MiB — *placeholder*). The whole
   file is not hashed again to decide.
-- **R-7** A kept phase is used only if all of these hold; otherwise it and every later
-  phase run again:
+- **R-7** A kept phase is used only if all of these hold, checked in this order;
+  otherwise it and every later phase run again:
 
   | Check | If it fails |
   |---|---|
-  | A manifest with this fingerprint exists | A new run. Nothing is said. |
-  | No live process owns the directory | Error: another run of this job is in progress (exit 1). Nothing is touched. |
-  | The input's identity matches | The kept work is stale: it is removed, a line says so, the run starts from the first phase. |
-  | Each phase's algorithm version matches | That phase and the later ones run again; a line says so. |
+  | A directory whose manifest has this fingerprint exists | A new run. Nothing is said. |
+  | No live process owns the directory | Error: `Another run of this job is in progress.` (exit 1). Nothing is touched. |
+  | The input's identity matches the manifest's | The kept work is stale: the directory is removed, a line says so, the run starts from the first phase. |
+  | Each phase's algorithm version matches the manifest's | That phase and the later ones run again; a line says so. |
+  | Each phase's recorded `layout` can be read by the following phases within the new budget | That phase and the later ones run again; a line says so. |
   | Every kept file exists with the recorded size and hash | That phase and the later ones run again; a line says so. |
 
-- **R-8** A run that continues produces a result byte for byte equal to an uninterrupted
-  run with the same parameters (the acceptance test of #40).
+- **R-8** A deterministic run that continues produces a result byte for byte equal to an
+  uninterrupted deterministic run with the same parameters (the acceptance test of #40),
+  whatever the budget and thread count of either. Ingest is always deterministic. A run
+  with `deterministic=False` that continues produces a valid result of the same
+  operation, not necessarily the same bytes.
 - **R-9** Kept scratch is never removed by time. It is removed by a successful run, by a
-  run that finds it stale, or by the person, with the command the stop block gives.
+  run that finds it stale, or by the person, who deletes the directory the stop block
+  names.
+- **R-10** Scratch that no run will find again is still reported. A long operation that
+  is about to write scratch looks in its scratch root for other `.everygraph-*`
+  directories with no live owner, and prints the warning of § 6.2 (`old-scratch`) for
+  each, at most three (*placeholder*), then `and N more`. It never removes them: the
+  command that made one may still be run again.
 
 ### 5.4 The words
 
@@ -1127,22 +1529,46 @@ symbol.
 ^C
 Stopped at your request, during identifiers.
 
-  kept      reading · 31 GB of scratch in /tmp/everygraph-7c1e
+  kept      reading · 31 GB of scratch in .everygraph-7c1e
   dropped   identifiers at 61% — that phase starts again from its beginning
   written   nothing: there is no transfers.eg yet
 
   continue:  run the same command again
-  discard:   rm -r /tmp/everygraph-7c1e
+  discard:   delete the directory .everygraph-7c1e
 ```
 
 | Line | Rule |
 |---|---|
-| first | `Stopped at your request, during PHASE.` After SIGTERM: `Stopped by a signal, during PHASE.` |
-| `kept` | The finished phases, then the size and place of what is kept. `nothing` when no phase had finished. |
+| first | `Stopped at your request, during PHASE.` After SIGTERM to the command: `Stopped by a signal, during PHASE.` |
+| `kept` | The finished phases; then, for those kept as scratch, the size and place of the scratch. `nothing` when no phase had finished. |
 | `dropped` | The interrupted phase and how far it was, and always the words `that phase starts again from its beginning`. |
-| `written` | What exists of the output. `nothing: there is no NAME.eg yet`, or for an operation on an existing graph `nothing: NAME.eg is unchanged`. |
+| `written` | What exists of the output. `nothing: there is no NAME.eg yet`; for an operation on an existing graph `nothing: NAME.eg is unchanged`; when finished phases were committed to the graph file as cached results, their names: `communities, hierarchy kept in NAME.eg; no NAME.egmap yet`. |
 | `continue:` | `run the same command again`; in Python `run the same call again`; in a notebook `run the cell again`. |
-| `discard:` | The command that removes everything kept, including a `.partial` file. Left out when nothing was kept. |
+| `discard:` | What can be deleted to throw the kept work away: `delete the directory .everygraph-7c1e`, and `and NAME.eg.partial` when there is one. Paths are relative to the working directory when they are inside it, absolute otherwise. Left out when no scratch and no `.partial` file was kept; cached results in the graph file are not discarded from here. |
+
+The `discard:` line names what to delete rather than a shell command, so it is right on
+every platform (`choices.md` D6); no command of 0.1 lists or removes scratch (§ 10).
+
+A `map` stopped during its third phase keeps the first two in the graph file:
+
+```console
+$ everygraph map transfers.eg
+  communities  ████████████████  31,960 · modularity 0.603          2 min 11 s
+  hierarchy    ████████████████  6 zoom levels                            18 s
+  layout       ██████░░░░░░░░░░  40% · about 25 s left                    16 s
+^C
+Stopped at your request, during layout.
+
+  kept      communities, hierarchy
+  dropped   layout at 40% — that phase starts again from its beginning
+  written   communities, hierarchy kept in transfers.eg; no transfers.egmap yet
+
+  continue:  run the same command again
+```
+
+(Shown from the phase lines onward; the headline and plan block of § 4.4 come before
+them.) Running it again shows `communities` and `hierarchy` as `kept` (G-3) and runs
+`layout` and `tiles`.
 
 A single-phase operation uses the same block:
 
@@ -1162,6 +1588,53 @@ Stopped at your request, during triangles.
 In a notebook the progress card's row reads `stopped at 48%` and the same four facts
 follow as text in the card. The sentence in `notebook.html` ("run the cell again to
 start over") is replaced by this block (§ 9).
+
+**With `--json`**, the block above is still printed on standard error, and standard
+output carries the stop document; the exit status is 130 or 143. For the ingest
+stopped above (the two strings of `resume` are shortened here with `…`; the real ones
+are the whole call and the whole command):
+
+```json
+{
+  "schema": 1,
+  "job": "7c1e04b9a2f35d68",
+  "operation": "ingest",
+  "stopped": {
+    "reason": "interrupt",
+    "during": "identifiers",
+    "fraction": 0.61,
+    "kept": ["reading"],
+    "dropped": ["identifiers"],
+    "scratch": {"path": ".everygraph-7c1e", "bytes": 31000000000},
+    "partial": null,
+    "written": [],
+    "resume": {
+      "python": "eg.read(\"transfers.parquet\", source=\"from\", …)",
+      "command": "everygraph ingest transfers.parquet --source from …"
+    },
+    "discard": [".everygraph-7c1e"]
+  }
+}
+```
+
+Its schema; the stop object itself is the one of the event schema (§ 4.6):
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:everygraph:schema:stop:1",
+  "title": "Everygraph stop document, version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "job", "operation", "stopped"],
+  "properties": {
+    "schema": {"const": 1},
+    "job": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "operation": {"type": "string"},
+    "stopped": {"$ref": "urn:everygraph:schema:event:1#/$defs/stopped"}
+  }
+}
+```
 
 **On continuing.** The headline, then one line that says it is continuing and why it
 may; then the phases, with `kept` for the ones not repeated. The summary and plan block
@@ -1183,14 +1656,25 @@ transfers.parquet · 38.2 GB · 1,830,402,118 rows
   next: everygraph map transfers.eg
 ```
 
-When kept work cannot be used, the line says so instead, and a full run follows with its
-summary and plan:
+When kept work cannot be used, the line says so instead (one line per case, in the
+order of R-7, wrapped at 80 columns), and a full run follows with its summary and plan;
+phases that could be kept still show `kept`:
 
-| Case | Line |
-|---|---|
-| The input changed | `The file has changed since the run stopped 6 min ago: starting again.` |
-| A phase's algorithm changed | `Everygraph has changed since the run stopped 3 days ago: starting again from identifiers.` |
-| A kept file is missing or damaged | `Part of the scratch from the run stopped 6 min ago is missing: starting again from identifiers.` |
+```console
+  The file has changed since the run stopped 6 min ago: starting again.
+  Everygraph has changed since the run stopped 3 days ago: starting again
+  from identifiers.
+  The kept reading was laid out for a larger memory budget: starting again
+  from reading.
+  Part of the scratch from the run stopped 6 min ago is missing: starting
+  again from identifiers.
+```
+
+The four cases, in that order: the input changed (the directory is removed); a phase's
+algorithm changed; a phase's layout does not fit the new budget (R-3); a kept file is
+missing or damaged. When the kept work is in the graph file (`map`), there is no
+manifest to check: the cached results are found like any other (#39) and their phases
+show `kept`.
 
 ---
 
@@ -1227,7 +1711,6 @@ The edges stay on disk either way.
 
   Ways forward:
     g.communities(memory="6GB")       the smallest budget that works
-    g.communities(precision="low")    needs 3.4 GB; slightly lower quality
 
 Nothing was changed.
 ```
@@ -1235,7 +1718,17 @@ Nothing was changed.
 - **M-4** In a notebook the error is a card with the explanation first and the traceback
   folded beneath it (`notebook.html`, cell 7 and "The error card with the traceback
   unfolded"); each way forward has a copy button.
-- **M-5** With `--json` the error is one document on standard output:
+- **M-5** With `--json` the error is one document on standard output. This is the only
+  definition of an error or a refusal: the plan's `refusal` (§ 3.6), the `error` event
+  (§ 4.6) and `to_dict()` of every Python exception are this document. Its key names
+  are fixed: `budget_bytes` is the memory budget; `needs_bytes` what the step needs;
+  `smallest_budget_bytes` the exact smallest budget that would work (P-14), or null when
+  none on this machine would; `available_bytes` only ever free disk (for
+  `InsufficientDisk`) or free machine memory; `machine_memory_bytes` the machine's
+  memory in all. Every way forward has the same three keys in every document:
+  `command` (what the command line shows under `Ways forward:` — an option alone, a
+  whole command, or a phrase, as in M-2), `python` (the same for Python) and `note`
+  (its consequence, possibly empty).
 
 ```json
 {
@@ -1243,6 +1736,7 @@ Nothing was changed.
   "$id": "urn:everygraph:schema:error:1",
   "title": "Everygraph error, version 1",
   "type": "object",
+  "additionalProperties": false,
   "required": ["schema", "error", "message", "ways_forward", "changed"],
   "properties": {
     "schema": {"const": 1},
@@ -1250,21 +1744,38 @@ Nothing was changed.
       "enum": [
         "InsufficientBudget", "InsufficientDisk", "InvalidInput",
         "InvalidExpression", "UnknownNode", "Unsupported", "CorruptFile",
-        "EverygraphError"
+        "UsageError", "EverygraphError"
       ]
     },
     "message": {"type": "string"},
     "why": {"type": "string"},
     "step": {"type": "string"},
-    "needs_bytes": {"type": "integer", "minimum": 0},
-    "budget_bytes": {"type": "integer", "minimum": 0},
-    "available_bytes": {"type": "integer", "minimum": 0},
-    "smallest_budget_bytes": {"type": "integer", "minimum": 0},
-    "arithmetic": {"type": "object"},
+    "needs_bytes": {"$ref": "#/$defs/count"},
+    "budget_bytes": {"$ref": "#/$defs/count"},
+    "smallest_budget_bytes": {"type": ["integer", "null"], "minimum": 0},
+    "available_bytes": {"$ref": "#/$defs/count"},
+    "machine_memory_bytes": {"$ref": "#/$defs/count"},
+    "arithmetic": {
+      "type": "object",
+      "required": ["count", "unit", "bytes_each"],
+      "properties": {
+        "count": {"$ref": "#/$defs/count"},
+        "unit": {"type": "string"},
+        "bytes_each": {"$ref": "#/$defs/count"}
+      }
+    },
+    "path": {"type": "string"},
+    "section": {"type": ["string", "null"]},
+    "node": {"type": "string"},
+    "operation": {"type": "string"},
+    "reason": {"type": "string"},
+    "expression": {"type": "string"},
+    "position": {"type": ["integer", "null"], "minimum": 0},
     "problems": {
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["file", "line", "problem"],
         "properties": {
           "file": {"type": "string"},
@@ -1275,41 +1786,89 @@ Nothing was changed.
         }
       }
     },
-    "invalid_rows": {"type": "integer", "minimum": 0},
-    "rows_checked": {"type": "integer", "minimum": 0},
+    "invalid_rows": {"$ref": "#/$defs/count"},
+    "rows_checked": {"$ref": "#/$defs/count"},
     "ways_forward": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["option"],
-        "properties": {
-          "option": {"type": "string"},
-          "python": {"type": "string"},
-          "note": {"type": "string"},
-          "needs_bytes": {"type": "integer", "minimum": 0}
-        }
-      }
+      "items": {"$ref": "#/$defs/way"}
     },
     "changed": {"type": "boolean"},
-    "kept": {"type": ["object", "null"]}
+    "kept": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["phases", "path", "bytes"],
+          "properties": {
+            "phases": {"type": "array", "items": {"type": "string"}},
+            "path": {"type": "string"},
+            "bytes": {"$ref": "#/$defs/count"}
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"error": {"const": "InsufficientBudget"}}},
+      "then": {
+        "required": [
+          "step", "needs_bytes", "budget_bytes", "smallest_budget_bytes"
+        ]
+      }
+    },
+    {
+      "if": {"properties": {"error": {"const": "InsufficientDisk"}}},
+      "then": {"required": ["step", "needs_bytes", "available_bytes", "path"]}
+    },
+    {
+      "if": {"properties": {"error": {"const": "InvalidInput"}}},
+      "then": {"required": ["problems", "invalid_rows", "rows_checked"]}
+    },
+    {
+      "if": {"properties": {"error": {"const": "UnknownNode"}}},
+      "then": {"required": ["node"]}
+    }
+  ],
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "way": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "python", "note"],
+      "properties": {
+        "command": {"type": "string"},
+        "python": {"type": "string"},
+        "note": {"type": "string"},
+        "needs_bytes": {"$ref": "#/$defs/count"}
+      }
+    }
   }
 }
 ```
+
+The refusal of § 3.5 with `--json` is the document shown at the end of § 3.6. The one
+where no budget on the machine is enough:
 
 ```json
 {
   "schema": 1,
   "error": "InsufficientBudget",
   "message": "Not enough memory for this step.",
-  "why": "communities needs 5.1 GB for per-node state.",
+  "why": "communities needs 62.4 GB for per-node state.",
   "step": "communities",
-  "needs_bytes": 5098053768,
-  "budget_bytes": 4000000000,
-  "smallest_budget_bytes": 5598053768,
-  "arithmetic": {"count": 212418907, "unit": "nodes", "bytes_each": 24},
+  "needs_bytes": 62400000000,
+  "budget_bytes": 8000000000,
+  "smallest_budget_bytes": null,
+  "machine_memory_bytes": 61000000000,
+  "arithmetic": {"count": 2600000000, "unit": "nodes", "bytes_each": 24},
   "ways_forward": [
-    {"option": "--memory 6GB", "note": "the smallest budget that works"},
-    {"option": "--precision low", "needs_bytes": 3400000000}
+    {
+      "command": "a machine with at least 63 GB of memory",
+      "python": "a machine with at least 63 GB of memory",
+      "note": ""
+    }
   ],
   "changed": false
 }
@@ -1327,6 +1886,7 @@ in `docs/api-sketch.md` § 2.7):
 | `UnknownNode` | `ID is not in FILE.` |
 | `Unsupported` | `OPERATION cannot be done on FILE.` |
 | `CorruptFile` | `FILE is damaged.` |
+| `UsageError` (command line only; in Python the same case is a `TypeError` or `ValueError` with the same text) | the one thing that is wrong: `Unknown option --memroy.`, `The memory budget is more than this machine has.` (P-16) |
 | `EverygraphError` (no more specific class) | one sentence of what, for example `Another run of this job is in progress.` |
 
 **Worked example: invalid input rows.** Each problem is located as `file:line`, the line
@@ -1387,16 +1947,40 @@ $ everygraph ingest transfers.csv.gz --source from --target to
   Continuing with the compressed file. Ctrl-C stops it safely.
 ```
 
+**Worked example: scratch left by another run** (R-10). Printed, like every warning,
+before the plan block (M-9) of a long operation that is about to write scratch in the
+same place:
+
+```console
+! Another stopped run left 12 GB of scratch here, 3 days ago.
+
+  It is .everygraph-31a0, from: everygraph ingest transfers.parquet --undirected
+
+  Running that command again continues it; to free the space instead,
+  delete the directory .everygraph-31a0
+
+  Continuing with this run.
+```
+
 **Worked example: a result cut short.** A point query stops at its `limit` (nodes) or
 its `timeout` (seconds) and returns what it has. The result itself is marked — that is
 the rule (`design/preview/choices.md` E1) — and the warning says where it stopped and
 how to go further.
 
+- **M-12** In Python the warning is issued with `warnings.warn(text,
+  eg.TruncatedWarning)`, where `eg.TruncatedWarning` derives from `UserWarning`, and is
+  attributed to the caller's line. It is not printed by the progress renderer and does
+  not depend on `progress=`. Python's filters therefore apply: by default it is shown
+  once per calling line, so a loop of truncated calls prints it once;
+  `warnings.simplefilter("ignore", eg.TruncatedWarning)` silences it, `"error"` makes it
+  raise. Python's own formatting puts `FILE:LINE: TruncatedWarning: ` before the text,
+  which therefore carries no `!` and no "cut short:" prefix of its own:
+
 ```text
 >>> near = g.khop("0x28c6…1d60", k=2, limit=10_000)
-! cut short: khop() stopped at its limit of 10,000 nodes,
-  part of the way through hop 2. The result is partial
-  and marked truncated=True.
+<stdin>:1: TruncatedWarning: khop() stopped at its limit of 10,000 nodes,
+part of the way through hop 2. The result is partial and marked
+truncated=True.
   to go further: g.khop("0x28c6…1d60", k=2, limit=100_000)
 >>> near.truncated
 True
@@ -1424,8 +2008,11 @@ The table is on standard output; the two messages under it are on standard error
   `"truncated"` in the JSON document. An approximate result carries its bound in the
   same way (`docs/api-sketch.md` § 2.5).
 
-Stable codes of the warnings in 0.1: `slow-gzip`, `cut-short`, `read-only` (a result
-could not be stored in the graph file and is kept for the session only). A direction
+Stable codes of the warnings of an operation in 0.1 (the `code` of the `warning` event):
+`slow-gzip`, `read-only` (a result could not be stored in the graph file and is kept
+for the session only) and `old-scratch` (R-10). A result cut short is not one of them:
+point queries take no `progress=`, so they have no event stream; the mark is on the
+result (`truncated`) and the warning is Python's (M-12). A direction
 that was guessed is not a warning: the `edges` line of the summary states it (§ 3.4),
 and the summary is always printed (P-3).
 
@@ -1437,6 +2024,7 @@ Plain sentences with no symbol, each fixed:
 |---|---|
 | Clean stop | `Stopped at your request, during PHASE.` and its block (§ 5.4) |
 | Continuing | `Continuing the run stopped AGE ago: the file has not changed since.` |
+| Kept work cannot be used | the four lines of § 5.4, "When kept work cannot be used" |
 | Dry run | `Dry run: nothing was written.` |
 | A file was up to date | `transfers.eg is up to date with transfers.parquet: opened, not rebuilt.` |
 | A result came from the file | `full result: transfers.eg (cached) · export with --out pagerank.parquet` (dim, under a table on a terminal) |
@@ -1447,13 +2035,17 @@ Plain sentences with no symbol, each fixed:
 | Status | Meaning |
 |---|---|
 | 0 | Done. Includes a result cut short or approximate, and a dry run whose plan fits. |
-| 1 | Failed for a reason not listed below (an input/output error, an internal error, a job already running). |
-| 2 | The command line could not be understood: unknown command or option, missing argument, a filter that does not parse (`InvalidExpression`), an identifier that is not in the graph (`UnknownNode`), an operation the graph does not support (`Unsupported`). |
+| 1 | Failed for a reason not listed below (an input/output error, an internal error, another run of the same job in progress): `EverygraphError` with no more specific class. |
+| 2 | Usage: the command line could not be understood or cannot be honoured — unknown command or option, missing argument (`UsageError`), a budget larger than the machine (P-16), a filter that does not parse (`InvalidExpression`), an operation the graph does not support (`Unsupported`). |
 | 3 | The input is not valid (`InvalidInput`). |
-| 4 | Refused before starting: `InsufficientBudget`, `InsufficientDisk`. Also a dry run whose plan does not fit. |
+| 4 | Refused before starting for lack of memory or disk: `InsufficientBudget`, `InsufficientDisk` (and `InsufficientDisk` when the disk fills during a run). Also a dry run whose plan does not fit. |
 | 5 | A graph or map file is damaged (`CorruptFile`), or `everygraph verify` found a problem. |
-| 130 | Stopped by `Ctrl-C`. |
+| 6 | No such node: an identifier that is not in the graph (`UnknownNode`; `design/DECISIONS.md`, "Exit status for 'no such node'"). |
+| 130 | Stopped by `Ctrl-C` (SIGINT). |
 | 143 | Stopped by SIGTERM. |
+
+With `--json`, every one of these outcomes also puts exactly one document on standard
+output (S-2): the result, the plan, the error document, or the stop document.
 
 ### 6.5 Tone
 
@@ -1490,6 +2082,8 @@ contract requires of #76:
 - the plan card, the progress card and the error card show exactly the fields of § 3.2,
   § 4.3 and § 6.1; the error's traceback is folded, not removed;
 - interrupting the kernel is a clean stop (C-6) and the card ends in the stop block;
+- a result cut short is shown by the result's own card (its footer says so) and by
+  Python's warning under the cell (M-12), not by a card of its own;
 - a display with no JavaScript (a notebook rendered as a static page, a log) falls back
   to the piped text form.
 
@@ -1503,45 +2097,51 @@ no probe of its own. The planner takes the machine and the clock as inputs. Ever
 message string lives in one catalogue. Without this the tests below are not possible;
 with it they need no real graph.
 
+**No test depends on wall time measured under load.** Tests in the suite use a fake
+clock or count work; figures in seconds are measured only by the benchmark harness (#4)
+on an idle machine (`CLAUDE.md` § 3).
+
 | Rules | Mechanical test | Owner |
 |---|---|---|
-| S-1, S-2 | Run each command with standard output and standard error captured separately. With `--json`, standard output parses as exactly one JSON document; without it and piped, it is a tab-separated table with a header, or empty. Standard error never contains a result row. | #98 |
-| S-3 | A Python test with `progress=False` asserts nothing is written to either stream; with `progress=f`, that `f` received events and nothing was written. | #81 |
+| S-1, S-2 | Run each command with standard output and standard error captured separately. With `--json`, standard output parses as exactly one JSON document in every outcome — a result, a plan, an error (a usage error included), and a stop: SIGINT and SIGTERM sent during a run give the stop document, valid against its schema, with exit status 130 and 143. Without `--json` and piped, standard output is a tab-separated table with a header, or empty. Standard error never contains a result row. | #98 |
+| S-3, M-12 | A Python test with `progress=False` asserts nothing is written to either stream; with `progress=f`, that `f` received events and nothing was written. A `khop` stopped at its limit, inside `warnings.catch_warnings(record=True)`, records exactly one `eg.TruncatedWarning` attributed to the calling line; with `simplefilter("ignore", eg.TruncatedWarning)` nothing is written; with `"error"` it raises. | #81 |
 | S-4, P-4 | Every command runs to completion with standard input closed. The message catalogue contains no question mark at the end of a line. | #98 |
 | S-6 – S-9, W-1 – W-6, G-14 | **Golden transcripts.** Recorded event streams (one JSON object per line) are rendered for each surface in four renderings (`colour`, `plain`, `ascii`, `piped`) at widths 80 and 60 and compared with stored files, colour instructions included. A checker asserts for every golden file: no line over 80 columns; no redrawn line over 78; the `ascii` and `piped` files are pure ASCII; the `plain` file has no escape sequence; the `colour` file uses only the six instructions of S-7. | #98, #81 |
 | §§ 2.5, 2.6, N-1, N-2 | Unit tests of the formatters on a table of inputs and expected strings (every example in § 2.6 is a row). A property test: a value with basis `sampled` or `model` never renders without `~` or "about". | #98 |
-| P-1, P-5 | With the scratch and output directories on a file system that records writes, a refused operation performs none. Fault injection: each of the three checks of P-5 fails in turn and the matching refusal is produced. | #40, #45 |
+| P-1, P-5, P-16 – P-18 | With the scratch and output directories on a file system that records writes, a refused operation performs none. Fault injection: each of the three checks of P-5 fails in turn and the matching refusal is produced. With a fake probe: a budget above the machine's memory is a usage error with exit status 2 before any plan; a budget above the free memory runs and its plan has the second `budget` line; a scratch root reported as `tmpfs` adds the scratch's upper bound to the memory check and, when that fails, the refusal's ways forward start with `--temp-dir`; a smallest budget above the machine's memory gives a refusal with no `--memory` way and `smallest_budget_bytes` null. | #40, #45 |
 | P-2 | Planning an ingest reads no more than the sample: counted through the I/O layer's read counters (#29). | #40 |
 | P-3 | With a fake cost model, an operation estimated just under and just over `T_PLAN` prints no plan block and no progress, respectively both. An ingest of a ten-line file prints its headline and summary. | #45, #40 |
-| P-6 – P-8, P-10 – P-12 | Golden transcripts of the plan for: ingest of a Parquet file, of a text file (sampled row count), an operation on a graph, an `explain`, a plan with a kept phase. | #40, #45 |
-| § 3.6, P-13 – P-15, M-5, G-15 – G-17 | **Schemas.** The plan and error schemas are kept as files beside the tests, identical to the ones in this document, together with an event schema written from the table of § 4.6. Every plan, error and event produced in the test suite is validated against them; the examples in this document are validated by `docs/tools/check_schemas.py`. A sequence check on recorded streams: `plan` first, exactly one final event, one final `phase` event per phase. | #45, #81, #98 |
-| P-9 | **Estimates against actuals.** The ingest report and each result's provenance record `estimate` and `actual` for time, peak memory, scratch and output size. The benchmark harness (#4) asserts each actual lies in the stated `[low, high]`, and for ingest on the tier-2 datasets within ±30 % of `value`; the four relative errors are stored with the run so the model can be tuned. | #40, #45 |
+| P-6 – P-8, P-10 – P-12 | Golden transcripts of the plan for: ingest of a Parquet file, of a text file (sampled row count), an operation on a graph, an `explain`, a plan with a kept phase. A unit test: the printed ratio is `working_bytes / budget.memory_bytes` rounded to one decimal. | #40, #45 |
+| § 3.6, P-13 – P-15, M-5, G-15 – G-17 | **Schemas.** The plan, error, event and stop schemas are kept as files beside the tests, identical to the ones in this document. Every plan, error, event and stop document produced in the test suite is validated against them, closed as they are; the examples in this document are validated by `docs/tools/check_schemas.py`. A sequence check on recorded streams: `plan` first, exactly one final event, one final `phase` event per phase. A test that no refusal for `communities` offers anything but `--memory` or a phrase. | #45, #81, #98 |
+| P-7, P-9 | **Estimates against actuals.** In the suite: the ingest report, each result's provenance and the `result` event record `estimate` and `actual` for time, peak memory, scratch and output size, and a table-driven test checks the relative error, including `actual` = 0 (P-9). With the harness (#4), on an idle machine: the coverage of `[low, high]` is measured per quantity over the benchmark corpus and stored with the run, so the model can be tuned; the ±30 % bound is asserted only where #40 asks for it, for ingest on the tier-2 datasets. | #40, #45, #4 |
 | P-11 | With a fake probe reporting a given available memory, container limit and container usage, the budget is half of what is free by the definition of P-11. | #45 |
 | G-1, G-2 | Every phase name in the registry matches `^[a-z]{1,11}$`; every operation's emitted phases equal its plan's. | #45 |
 | G-5 – G-9 | Property tests on recorded streams: percentages never decrease and never reach 100 before the final event; no `eta_seconds` before the thresholds of G-7; none when `total` is null; a final event's detail contains no `~`. | #81 |
 | G-10 | A fake clock drives 1,000 updates in one second; the renderer emits at most 4 redraws, and one when a second passes with no update. | #98 |
-| G-18, C-6 | A callback that raises on its third call: the exception propagates, a `stopped` event with reason `callback` precedes it, and the conditions of C-2 and C-3 hold. | #81 |
-| R-1 – R-3, R-7, R-8, C-1 – C-3 | **Interruption tests.** For each operation and each phase: send SIGINT at a random moment inside the phase; assert exit status 130, the stop block (compared with numbers masked), `everygraph verify` on any `.eg` present, and that the directory listing equals what the block named. Run the same command again; assert the `kept` lines and that the output equals, byte for byte, the output of an uninterrupted run. Repeat with a different `--memory` and `--threads` on the second run. | #40 |
-| C-1, C-2, R-8 | **Hard stops.** `kill -9` at ten random points of an ingest and of a `map`; every following run completes, the result is byte-identical to an uninterrupted run, and a graph file that existed before is unchanged in content. Crash injection between every write step of the container (#28). | #40, #28 |
-| C-4, C-5, C-7 | Time from SIGINT to exit is under the bound on the tier-1 datasets; two SIGINTs 10 ms apart leave the conditions of C-1 true; exit statuses are 130 and 143. | #98 |
-| R-4 – R-7 | Unit tests of the fingerprint: changing `--memory`, `--threads` or `progress` does not change it; changing any other parameter, the input's bytes or the output path does. Table-driven tests of R-7, one per row, each asserting the line printed. | #40 |
+| G-18, G-19, C-6 | A callback that raises on its third call: the exception propagates, a `stopped` event with reason `exception` precedes it, and the conditions of C-2 and C-3 hold. `signal.getsignal` returns the same handlers before, during and after a long call. `_thread.interrupt_main()` during a call yields the stop block and a plain `KeyboardInterrupt`, after which the graph object still answers a query. Every event's `job` is the first 16 digits of the fingerprint the manifest records. | #81 |
+| R-1 – R-3, R-7, R-8, C-1 – C-3 | **Interruption tests.** For `ingest` (#40) and for `map` (#98, with #39 for the cached results), at each phase: send SIGINT at a random moment inside the phase; assert exit status 130, the stop block (compared with numbers masked), `everygraph verify` on any `.eg` present, and that the directory listing and the graph file's table of contents equal what the block named — for `map`, every section the file had before is unchanged and the finished phases are committed. Run the same command again with a different `--threads`; assert the `kept` lines and that the output of a deterministic run equals, byte for byte, the output of an uninterrupted one. Run it again under a smaller `--memory` than a kept layout needs; assert the R-7 line and that the phase runs again. | #40, #98 |
+| C-1, C-2, R-8 | **Hard stops.** `kill -9` at ten random points of an ingest (#40) and of a `map` (#98); every following run completes, a deterministic result is byte-identical to an uninterrupted run, and a graph file that existed before still has every section it had, unchanged, and passes `verify`. Crash injection between every write step of the container (#28). | #40, #98, #28 |
+| C-4, C-5, C-7 | An instrumented run counts the work done between two cancellation checks and asserts it never exceeds the bounds of C-4; two SIGINTs 10 ms apart leave the conditions of C-1 true; exit statuses are 130 and 143. The 2 s bound is measured by the harness on the tier-1 datasets on an idle machine, not asserted in the suite. | #98, #4 |
+| R-4 – R-7, R-10 | Unit tests of the fingerprint: changing `--memory`, `--threads`, `progress`, the input's bytes or a phase's algorithm version does not change it; changing any other parameter, the input's path or the output path does. Table-driven tests of R-7, one per row, each asserting the line printed and, for a changed input, that the old directory is gone. A scratch root holding a directory of another fingerprint with no live owner gives the `old-scratch` warning and leaves the directory in place. | #40 |
 | M-1 – M-4, M-6 – M-10, § 6.3 | Golden transcripts of every worked example in § 6, on each surface. The corpus of malformed inputs (#32) produces `file:line` locations that are checked against the corpus's own index. | #32, #98, #81 |
-| § 6.4, M-11 | A table-driven test: each exception class raised inside the command yields its exit status. A query stopped at its limit exits with 0 and has a non-null `"truncated"` in its `--json` document. | #98 |
-| G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`; a graph kept in memory; an operation that returns a table (no result block). In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
-| C-8, C-9, R-9 | **Clean-up tests.** After a successful run the scratch root holds no `everygraph-*` directory. With a failure injected in each phase in turn (invalid row, disk full), the scratch is gone, or holds exactly the finished phases when the error's last line says they were kept. A scratch directory with an old modification time is still there after an unrelated run. | #40 |
+| § 6.4, M-11 | A table-driven test: each exception class raised inside the command, and each usage error, yields its exit status. A query stopped at its limit exits with 0 and has a non-null `"truncated"` in its `--json` document. | #98 |
+| G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`; a graph kept in memory; an operation that returns a table (no result block). Every `✓` line ends with a duration. In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
+| C-8, C-9, R-9 | **Clean-up tests.** After a successful run the scratch root holds no `.everygraph-*` directory. With a failure injected in each phase in turn (invalid row, disk full), the scratch is gone, or holds exactly the finished phases when the error's last line says they were kept. A scratch directory with an old modification time is still there after an unrelated run. | #40 |
 | S-5 | The same command under two locales (`LANG=C.UTF-8`, `LANG=it_IT.UTF-8`) prints identical bytes. | #98 |
-| T-7, T-8 | A vocabulary lint over the catalogue and over the public names: "budget" never appears in an entry about nodes or seconds, "limit" never in one about memory; a user's noun reaches a message only through the one function that derives it; no public name contains one. | #98, #81 |
+| T-7, T-8 | A vocabulary lint over the catalogue and over the public names: "budget" never appears in an entry about nodes or seconds, "limit" never in one about memory, "groups" never appears; a user's noun reaches a message only through the one function that derives it; no public name contains one. | #98, #81 |
 | T-1, T-6 | Not mechanical. Every new or changed catalogue entry appears in a golden file, so it is visible in the diff and is read against these two rules in review. | reviewer |
 | T-2 – T-5 | A lint over the message catalogue: forbidden words, exclamation marks, a full stop at the end of each sentence, every error entry has at least one way forward. | #98 |
-| this document | `python3 docs/tools/check_transcripts.py docs/ux-contract.md`: every code block within 80 columns; the ASCII rendering of every transcript pure ASCII and within 80; redrawn lines within 78; the JSON blocks parse; every numbered rule is cited in this table. `docs/tools/check_schemas.py`: the schemas are valid and the examples validate. | #13 |
+| this document | `python3 docs/tools/check_transcripts.py docs/ux-contract.md`: every code block within 80 columns; the ASCII rendering of every transcript pure ASCII and within 80; redrawn lines within 78; the JSON blocks parse; every numbered rule is cited in this table; and each ASCII, piped and narrow block of § 4.5 equals the rendering the checker computes from the Unicode blocks it is marked as derived from. `docs/tools/check_schemas.py`: the four schemas are valid, the cross-references between them resolve, every example validates, and negative controls (a missing key, an unknown error class, a misspelt key, a `way` without `python`) are rejected. | #13 |
 
 ---
 
 ## 9. Decided here
 
-Choices this document had to make because the previews were silent or disagreed. Each is
-one behaviour, with one line of reasoning. None changes an answer recorded in
-`design/DECISIONS.md`.
+Choices this document had to make because the previews were silent or disagreed, and
+the places where it departs from their wording. Each is one behaviour, with one line of
+reasoning. This list is part of `design/DECISIONS.md` by reference (the row "Choices
+made while writing the two M0 specifications"); none changes an answer recorded there,
+and items 14 – 17 follow rows that settle a question this document had raised.
 
 1. **Stopping and running again behaves the same everywhere: finished phases are kept,
    the interrupted phase starts again.** `notebook.html` said "run the cell again to
@@ -1573,11 +2173,15 @@ one behaviour, with one line of reasoning. None changes an answer recorded in
    plan. `T_PLAN` = 5 s is a placeholder. *The rule has no exception to remember, and
    `choices.md` A4 needs the summary line to say when a direction was guessed.*
 7. **Standard output is for results, standard error for everything else** (§ 2.1), and
-   `--json` moves the final message to standard output. The previews did not say.
-   *It is what makes `everygraph run … | other-tool` and `> file` safe.*
-8. **Exit statuses 0–5, 130, 143** (§ 6.4). #98 asks for "meaningful exit codes" without
-   listing them. *Refusal (4) and invalid input (3) are the two a script must tell apart
-   from a crash.*
+   `--json` puts exactly one document on standard output in every outcome: result,
+   plan, error (a usage error included, as `UsageError`), or the stop document after
+   `Ctrl-C` or SIGTERM. The previews did not say. *It is what makes
+   `everygraph run … | other-tool` and `> file` safe, and a script never has to guess
+   whether to parse.*
+8. **Exit statuses 0 – 6, 130, 143** (§ 6.4), shared with `docs/api-sketch.md`; 6 is "no
+   such node" (`design/DECISIONS.md`). #98 asks for "meaningful exit codes" without
+   listing them. *Refusal (4), invalid input (3) and a missing node (6) are the ones a
+   script must tell apart from a crash or a typo.*
 9. **A Python exception's text uses the `Ways forward:` list**, as on the command line
    and in `api.md`, not the bullets of the text equivalent in `notebook.html`. *One
    pattern for errors on every surface.*
@@ -1591,26 +2195,89 @@ one behaviour, with one line of reasoning. None changes an answer recorded in
     is the Python event stream.** #98 mentions "structured logs" for non-terminals; the
     approved piped form is the ASCII log, and `--json` gives one final document.
     *The approved form wins; nothing is lost that a script can use.*
-13. **Names of what is left on disk**: the scratch directory `everygraph-ID` (as in
-    `terminal.html`), `manifest.json` inside it, and `NAME.eg.partial` beside the
-    destination. *A person will see these in a listing; they should explain themselves.*
-14. **Phase detail says "groups", as typeset.** `terminal.html` shortened
-    "31,960 communities" to "31,960 groups" to fit the 32-column detail, although the
-    chosen word is "communities" (`choices.md` B1). It is kept as typeset and listed in
-    § 10 for the owner. *Following the latest approved page; flagged, not settled.*
+13. **Names of what is left on disk**: the scratch directory `.everygraph-ID`,
+    `manifest.json` inside it, and `NAME.eg.partial` beside the destination.
+    *A person will see these in a listing; they should explain themselves.*
+14. **Scratch goes beside the output, not in `/tmp`** (`design/DECISIONS.md`, "Where
+    scratch goes"). Departs from `cli.md` and `terminal.html`, which show `61 GB scratch
+    in /tmp` and `/tmp/everygraph-7c1e`: the directory is `.everygraph-7c1e` beside the
+    output, and the `estimate` line names the scratch root only when it is not the
+    default (`61 GB scratch`, the form `api.md` already printed). A memory-backed
+    scratch root counts against the budget (P-18). *`/tmp` is memory on many systems,
+    and the output's file system is where the final rename is atomic.*
+15. **"Communities", never "groups"** (`design/DECISIONS.md`, "The word for what
+    community detection finds"). Departs from `terminal.html` and `notebook.html`: the
+    `map` phase line reads `31,960 · modularity 0.603` (the noun dropped, because
+    `31,960 communities · modularity 0.603` is 36 columns and the detail has 32); the
+    `explain` steps read `move nodes between communities` and `merge communities and
+    repeat`, with the step column widened to fit; `everygraph info` keeps `cli.md`'s
+    `31,960 communities`. *Golden files freeze whatever is merged.*
+16. **No `--precision low` way forward for communities** (`design/DECISIONS.md`, "A
+    low-memory variant of community detection"). Departs from `cli.md` § 2,
+    `api.md` § 6, `terminal.html` and `notebook.html` cell 7, whose refusals offered it:
+    the refusal offers `--memory 6GB` only. *Nothing in the plan builds the variant
+    (#57 needs f64 weights), and P-15 forbids offering what does not exist.*
+17. **Every `✓` line carries the total time** (G-11). Departs from `cli.md` and
+    `terminal.html`, whose `map` result line was `✓ transfers.egmap · 4.1 GB`; it is
+    now `✓ transfers.egmap · 4.1 GB · 4 min 12 s`. *One rule for every result line, and
+    the total is the one figure the phase lines do not give.*
+18. **`discard:` names what to delete instead of `rm -r`.** Departs from `terminal.html`
+    (`discard: rm -r /tmp/everygraph-7c1e`): the line reads `delete the directory
+    .everygraph-7c1e`. *`rm -r` is wrong on Windows (`choices.md` D6), and no issue
+    builds a clean-up command to name instead.*
+19. **In Python a result cut short is a `warnings` warning** (`eg.TruncatedWarning`,
+    M-12). Departs from `api.md` and `notebook.html` cell 8, which printed
+    `! cut short: khop() stopped …`: Python's own formatting shows
+    `FILE:LINE: TruncatedWarning: khop() stopped …`. The command line keeps the approved
+    form. *Point queries take no `progress=`, so only Python's filters can silence or
+    deduplicate a warning in a loop.*
+20. **A finished phase of `map` is committed to the graph file.** C-2 used to promise a
+    byte-for-byte unchanged file after any stop; it now promises that what the file held
+    before is unchanged and valid, and the stop block names the cached results a stop
+    leaves (`written   communities, hierarchy kept in transfers.eg; …`). *Throwing away
+    two minutes of communities because the tiles were interrupted would contradict
+    R-1.*
+21. **Budgets the machine cannot give** (P-16, P-17). A budget above the machine's
+    memory in all is a usage error before any work; one above the free memory is
+    honoured, with a second `budget` line; a refusal whose smallest budget is above the
+    machine's memory says so and offers no `--memory`. The previews were silent. *A
+    budget is a promise the engine keeps, so it must not accept one it cannot.*
+22. **What the plan's numbers mean.** `regime.ratio` is the working data over the budget
+    (P-6); `[low, high]` is an interval with a target coverage of 90 % on an idle
+    machine (P-7, *placeholder*), not a guarantee; the relative error is defined when
+    the actual is 0 (P-9). The previews printed the figures without saying. *A number
+    that a test or a user will compare against must have a definition.*
+23. **`job` names the work, not the run** (G-19): it is the fingerprint's first 16
+    digits, so a continued run has the same `job` as the one that stopped. *It lets a
+    log reader join a stop and its continuation without a registry.*
 
-## 10. Open points for other issues
+## 10. Open points and obligations for other issues
 
-Found while writing; none blocks this contract.
+**Obligations.** § 8 gives test hooks and duties to issues whose files do not yet
+contain them. This pull request does not edit `plan/issues/`; the coordinator amends
+each file with the sentence given here, then republishes.
+
+| Issue | Obligation |
+|---|---|
+| #40 (`m2-13-preflight-resume.md`) | Ingest's preflight and resume as § 3 and § 5: scratch in `.everygraph-ID` beside the output (P-5, P-18); the fingerprint of R-4 with input identity, phase versions and budget-dependent layout checked against the manifest (R-3, R-7); the `old-scratch` warning (R-10); and the § 8 tests it owns (interruption at each phase with a resume under another `--threads` and a smaller `--memory`, `kill -9`, fingerprint and R-7 table tests, clean-up tests). |
+| #40 (`m2-13-preflight-resume.md`), acceptance | The ±30 % bound applies to wall time, peak memory, scratch and output size of an ingest on the tier-2 datasets, measured by the benchmark harness on an idle machine (P-7, P-9); no test in the suite asserts a wall time. |
+| #45 (`m3-02-planner.md`) | Plans and refusals as § 3: documents valid against the closed plan, error and event schemas; P-15 (only ways forward that exist), P-16 (a budget above the machine is a usage error), P-17 (above free memory is honoured, with a line), P-18 (memory-backed scratch counts against the budget); estimate and actual in each result's provenance (P-9). |
+| #98 (`m8-01-cli.md`) | No `--yes` (S-4); `--json` gives exactly one document on standard output in every outcome, a stop included (S-2, C-7); exit statuses of § 6.4; the § 8 tests it owns: interruption and `kill -9` of `everygraph map`, the C-4 work-between-checks test, the golden transcripts. |
+| #81 (`m6-01-python-api.md`) | No signal handler installed; long calls poll Python's signal check so `Ctrl-C` arrives as a plain `KeyboardInterrupt` after a clean stop (C-6); a result cut short is reported with `warnings.warn(…, eg.TruncatedWarning)` (M-12); events valid against the event schema (§ 4.6). |
+| #39 (`m2-12-artifact-cache.md`) | The `communities`, `hierarchy` and `layout` phases of `map` are committed as cached results as each finishes, so a stopped `map` keeps them and a later run shows them as `kept` (§ 5.1, C-2). |
+| #28 (`m2-01-container-spec.md`) | Appending a result never changes a section the file already held; checked with #98 by the `kill -9` test of `map` (C-2, § 8). |
+| #69 (`m5-03-tile-builder.md`) | The pyramid is written as `NAME.egmap.partial` and renamed when complete; a stop removes the partial file (§ 5.1, C-1, C-3). |
+| #4 (`m0-03-bench-harness.md`) | Records the estimates and actuals of P-9 for every run, reports per quantity the share of runs whose actual lies in `[low, high]`, and measures the 2 s stop bound of C-4 on the tier-1 datasets. |
+| #36 (`m2-09-graph-semantics.md`) | The plan reports the treatment chosen with the values of § 3.6: `self_loops` `dropped` or `kept`; `duplicates` `kept as events`, `collapsed` or `aggregated`. |
+| #32 (`m2-05-text-reader.md`) | The malformed-input corpus carries an index of the `file:line` of every bad row, against which the messages of M-6 are checked. |
+| #76 (`m5-10-jupyter-widget.md`) | The cards of § 7, driven only by the events of § 4.6; interrupting the kernel ends the card in the stop block. |
+
+**Open points.** Found while writing; none blocks this contract.
 
 | Point | Where it shows | Suggested owner |
 |---|---|---|
-| "groups" in phase details and in `everygraph info` against "communities" as the chosen word. Either accept "groups" as the short form in width-limited lines or reword (`31,960 · modularity 0.603` fits). | `terminal.html`, § 4.1 | owner, via #121 |
-| `terminal.html` still describes seven colour instructions and keeps blue "until that is decided"; `SPEC.md` has decided. Its `budget` line says "a fifth of free RAM". | `design/preview/style/terminal.html` | #121 |
-| `notebook.html` uses `budget=10_000` for `khop` (now `limit=`), "start over" on interruption, bullets in the exception text, and "cut short" for display. | `design/preview/style/notebook.html` | #121, #76 |
+| `terminal.html` still describes seven colour instructions and keeps blue "until that is decided"; `SPEC.md` has decided. It also still shows "a fifth of free RAM", "groups", `--precision low`, `/tmp/everygraph-7c1e`, `rm -r`, and a `map` result line without its time (§ 9, items 2, 14 – 18). | `design/preview/style/terminal.html` | #121 |
+| `notebook.html` uses `budget=10_000` for `khop` (now `limit=`), "start over" on interruption, bullets in the exception text, "cut short" for display, "groups" in the step table and `precision="low"` in the error card. | `design/preview/style/notebook.html` | #121, #76 |
 | The option to skip invalid rows and count them (#32) has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | #32, then a preview |
 | A phase that lasts hours prints nothing in a job log until it ends (the approved piped form has no heartbeat). | § 4.5 | #98 |
-| No command lists or removes scratch left by stopped runs; the stop block's `discard:` line is the only pointer. `everygraph doctor` could report it. | § 5.3 | #98 |
-| #98 lists `--yes`; nothing ever asks, so the option does not exist (S-4). | `plan/issues/m8-01-cli.md` | coordinator |
-| #40's ±30 % criterion does not say which estimates; this contract applies it to all four (P-9). | `plan/issues/m2-13-preflight-resume.md` | coordinator |
-| The acceptance of #13 says the contract is "referenced by" #40 and #45; both issue files already point here by number. No edit is needed, but #76, #81 and #98 depend on it as well. | `plan/issues/` | coordinator |
+| No command lists or removes scratch left by stopped runs; the stop block's `discard:` line and the `old-scratch` warning (R-10) are the only pointers. `everygraph doctor` could list them. | § 5.3 | #98 |
