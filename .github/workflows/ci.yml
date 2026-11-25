@@ -111,6 +111,17 @@ jobs:
         run: cargo test -p everygraph-core --no-default-features --locked
       - name: Release build
         run: cargo build --workspace --release --locked
+      # Native tests with a 32-bit usize, with and without rayon (Miri covers the same
+      # tests without rayon, slowly). Linking for i686 needs the 32-bit C runtime.
+      - name: Install the i686 target and gcc-multilib
+        run: |
+          rustup target add i686-unknown-linux-gnu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends gcc-multilib
+      - name: cargo test (core, i686)
+        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --locked
+      - name: cargo test (core, i686, no default features)
+        run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
 
   portability:
     name: wasm32 build, wasm toy in Node, portability canary

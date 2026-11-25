@@ -39,6 +39,16 @@ The four clippy runs are not redundant: the core is linted once for each configu
 its code can be compiled under (with and without `parallel`, 64-bit and 32-bit). The
 i686 runs also do what `cargo check --target i686-unknown-linux-gnu` would.
 
+On a Linux x86_64 machine with the 32-bit C runtime (`gcc-multilib` on Debian and
+Ubuntu), the core's tests also run natively with a 32-bit `usize`, with and without
+rayon. CI does this; without `gcc-multilib` the link fails (`cannot open crtn.o`), and
+the Miri run on i686 below is the local substitute:
+
+```sh
+cargo test -p everygraph-core --target i686-unknown-linux-gnu
+cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features
+```
+
 Lint levels live in `[workspace.lints]` in the root `Cargo.toml`, each group with its
 reason, and every crate inherits them with `[lints] workspace = true`.
 
@@ -48,8 +58,9 @@ On the minimum supported toolchain (see "Rust version"):
 cargo +1.85 test --workspace --locked
 ```
 
-And these on nightly, because Miri is the only way here to *run* tests with a 32-bit
-`usize`, and the required check for any module that contains `unsafe`:
+And these on nightly, because Miri is the way to *run* tests with a 32-bit `usize` on a
+machine without the 32-bit C runtime, and the required check for any module that
+contains `unsafe`:
 
 ```sh
 cargo +nightly miri test -p everygraph-core --no-default-features
@@ -77,7 +88,7 @@ expensive platforms do not run on every push.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
@@ -107,8 +118,7 @@ What the three scripts at the end of "Checks" are for:
   needs their package added next to the core's.
 
 Not in CI yet: the threaded wasm32 build (issue #108; `ci.yml` holds a placeholder
-describing it), and tests run natively on a 32-bit target (i686 tests run under Miri
-only).
+describing it).
 
 ## Crates
 
