@@ -11,6 +11,7 @@ labels: type:feature, area:format, P1, risk:low, size:M
 - [ ] Lookup-before-compute in the planner; `explain()` shows reuse
 - [ ] Invalidation rules on engine upgrade (algorithm version numbers, not the whole engine version)
 - [ ] `everygraph info` lists artifacts with size, age and provenance; `everygraph compact` drops unreferenced ones
+- [ ] The `communities`, `hierarchy` and `layout` phases of `map` are committed as cached results as each finishes, so a stopped `map` keeps them and a later run shows them as `kept` (`docs/ux-contract.md` § 5.1, C-2). Results computed on a view are not stored in the graph file: they live for the session and are kept only when written out (`design/DECISIONS.md` via `docs/api-sketch.md` § 2.8)
 
 **Acceptance**
 - Re-running an identical PageRank call returns from cache in milliseconds

@@ -17,6 +17,7 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 - [ ] Per-kernel cost model: O(n) state bytes, scans per iteration, random vs sequential access
 - [ ] `explain()` output per {{#m0-12-ux-contract}}; user overrides for every choice
 - [ ] Plan recorded in result provenance
+- [ ] Plans and refusals as `docs/ux-contract.md` § 3: documents valid against its closed plan, error and event schemas; only ways forward that exist (P-15); a budget above the machine's memory is a usage error (P-16), one above free memory is honoured with a line (P-17), memory-backed scratch counts against the budget (P-18); estimate and actual in each result's provenance (P-9)
 
 **Acceptance**
 - On the lab machine the planner's choice is within 10% of the best manually chosen configuration for PageRank, WCC and BFS on orkut, twitter-sym and Friendster at budgets of 2, 8, 16 GiB and unlimited

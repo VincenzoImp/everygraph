@@ -15,6 +15,7 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 - [ ] Typed exceptions (`InsufficientBudget`, `InvalidInput`, …)
 - [ ] Type stubs, docstrings with examples, a consistent naming scheme from {{#m0-11-api-sketch}}
 - [ ] PyO3 with abi3-py310, `py.detach` around every kernel
+- [ ] No signal handler is installed: long calls poll Python's signal check so `Ctrl-C` arrives as a plain `KeyboardInterrupt` after a clean stop (`docs/ux-contract.md` C-6); a result cut short is reported with `warnings.warn(…, eg.TruncatedWarning)` (M-12); every event validates against the event schema of § 4.6
 
 **Acceptance**
 - The ten user stories from {{#m0-11-api-sketch}} run as written

@@ -14,6 +14,7 @@ labels: type:spec, area:ingest, P0, risk:medium, size:M
 - [ ] Edge types as a small categorical column
 - [ ] An ingest report: rows read, rejected, self-loops, duplicates, isolates, resulting n and m — stored in the file's provenance
 - [ ] What each kernel does on each kind (table), consistent with {{#m0-05-oracle}}
+- [ ] The plan reports the treatment chosen with the values of `docs/ux-contract.md` § 3.6: `self_loops` `dropped` or `kept`; `duplicates` `kept as events`, `collapsed` or `aggregated`. The public options are those of `docs/api-sketch.md` (ingest options), with the approved defaults: self-loops dropped and counted, duplicates kept as events
 
 **Acceptance**
 - Spec in `docs/spec/graph-model.md`; every option covered by oracle tests
