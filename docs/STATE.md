@@ -18,12 +18,14 @@ Updated at the end of every session. Read this first.
 
 As of 2026-11-25, 09:15 (policy for models in CLAUDE.md § 6):
 
-- **#118 compressed storage end to end** (M1) — the benchmark finished at 06:33 (all stages;
-  results in the agent's worktree, `lab/m1-13-compressed/results/`), then the agent was cut
-  off by a server error and the machine sat idle until 09:00. Resumed to validate the run,
-  commit, open a PR and report. To do on its report: check key numbers against the result
-  files, record them in FINDINGS, fill "Result of #118" in ADR 0004, update D4 and the
-  public numbers, then the tracer (#15).
+- **#118 compressed storage end to end** — measured and merged (PR #133, results in
+  `lab/m1-13-compressed/results/`; coordinator re-checked a sample of rows). Verdict: **D4
+  holds with conditions** (per-node Elias–Fano offsets, batched sequential decode, prefix
+  decode for budgeted queries, an entry-offset index, a raw decode cache as a planner tier).
+  An agent (Opus medium) is writing it into FINDINGS, ADR 0004, DESIGN and README
+  (`m1-13-record-findings`, closes #118); then the coordinator applies the issue amendments
+  it lists. Follow-ups the experimenter proposed, to schedule in an idle window: WCC with
+  batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 - **#6 oracle** — draft PR #131 (`m0-05-oracle`); agent resumed for the long runs, the
   tier-1 golden files, the CI job and the semantics answers. Then independent review
   (Opus high).
