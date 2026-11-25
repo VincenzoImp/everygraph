@@ -12,6 +12,8 @@ labels: type:experiment, area:community, P1, risk:medium, size:M, lab-evidence
 - [ ] The cost for the other kernels on relabelled graphs: compressed size (bits per entry, already lj +26%, orkut +16%, Friendster +5%, from the stores' `meta.json`), PageRank, WCC, BFS, k-core, point queries, in RAM and out of core
 - [ ] The alternative of a Leiden-only relabelled working copy (built when Leiden needs it), against relabelling the stored graph
 
+**Constraint (2026-11-25, `design/DECISIONS.md`, "Label propagation follows LDBC CDLP").** Whatever is chosen must keep id-dependent semantics on the original ids: CDLP labels and ties, min-label component outputs, BFS from a given source. Otherwise validation against LDBC Graphalytics fails ({{#m1-20-ldbc-graphalytics}}).
+
 **Decision it feeds.** A new ADR: relabel always at ingest, relabel only a working copy for community detection, or keep ADR 0015's order. Whatever is chosen, the visiting order stays a fixed function of the graph and the seed, never of the budget (`design/DECISIONS.md`, "What 'repeatable' promises").
 
 **Depends on** {{#m1-02-ooc-aggregation}}
