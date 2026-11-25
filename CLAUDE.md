@@ -6,7 +6,11 @@ These rules exist because sessions end and context is lost: **the repository is 
 memory**. Follow them even when a shortcut looks safe.
 
 Talk to the owner in Italian, in plain language. Everything written into the repository
-and on GitHub is in English.
+and on GitHub is in English — **Simple Technical English** (short sentences, one idea
+each, common words, active voice; owner, 2026-11-26), going beyond it only where a precise
+term needs it. Code comments exist only where the code cannot say it: why, an invariant,
+a reference to the spec or a measurement. No narration of what the next line does, no
+history ("changed because review said"), no duplicated docs.
 
 ## 1. Start of every session
 
