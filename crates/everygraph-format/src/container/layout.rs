@@ -365,7 +365,8 @@ mod tests {
         };
         let b = encode_header(&h);
         assert!(matches!(decode_header(&b, 1), Block::Valid(d) if d == h));
-        for bit in 16 * 8..HEADER_USED * 8 {
+        // Every bit natively; a sample under Miri, where each hash takes ~50 ms.
+        for bit in (16 * 8..HEADER_USED * 8).step_by(if cfg!(miri) { 61 } else { 1 }) {
             let mut c = b;
             c[bit / 8] ^= 1 << (bit % 8);
             assert!(matches!(decode_header(&c, 1), Block::Torn), "bit {bit}");

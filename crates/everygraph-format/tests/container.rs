@@ -702,8 +702,7 @@ fn crash_images(start: &[u8], ops: &[Op], k: usize, rng: &mut Rng) -> Vec<(Mem, 
             }
         }
     }
-    let random = if cfg!(miri) { 1 } else { 12 };
-    for _ in 0..random {
+    for _ in 0..12 {
         fates.push(
             (0..n)
                 .map(|_| match rng.below(4) {
@@ -761,13 +760,8 @@ fn check_crashes(start: Vec<u8>, script: impl Fn(&mut Writer<&mut Recording>) ->
     assert_eq!(flips.len(), committed.len());
     states.extend(committed);
     let mut rng = Rng(0x5EED);
-    let step = if cfg!(miri) {
-        (ops.len() / 6).max(1)
-    } else {
-        1
-    };
     let mut images = 0;
-    for k in (0..=ops.len()).step_by(step) {
+    for k in 0..=ops.len() {
         for (image, whole) in crash_images(&start, &ops, k, &mut rng) {
             images += 1;
             let expected = flips
@@ -812,6 +806,7 @@ fn check_crashes(start: Vec<u8>, script: impl Fn(&mut Writer<&mut Recording>) ->
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_crash_at_any_step_of_creating_a_file_leaves_none_or_the_whole_file() {
     check_crashes(Vec::new(), |w| {
         w.add_provenance("p", &record("ingest")).unwrap();
@@ -826,6 +821,7 @@ fn a_crash_at_any_step_of_creating_a_file_leaves_none_or_the_whole_file() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_crash_at_any_step_of_an_update_leaves_the_previous_or_the_new_state() {
     check_crashes(base_file(), |w| {
         w.add_provenance("provenance/pagerank", &record("pagerank"))
@@ -853,6 +849,7 @@ fn a_crash_at_any_step_of_an_update_leaves_the_previous_or_the_new_state() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_crash_between_commits_of_one_writer_leaves_one_of_the_generations() {
     // The phases of `map` commit one by one (docs/ux-contract.md § 5.1).
     check_crashes(base_file(), |w| {
@@ -877,6 +874,7 @@ fn a_crash_between_commits_of_one_writer_leaves_one_of_the_generations() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
 fn a_failed_write_poisons_the_writer_and_the_file_reads_as_before() {
     let start = base_file();
     let mut probe = Recording::new(start.clone());
@@ -944,11 +942,12 @@ fn action() -> impl Strategy<Value = Action> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: if cfg!(miri) { 2 } else { 64 },
+        cases: 64,
         ..ProptestConfig::default()
     })]
 
     #[test]
+    #[cfg_attr(miri, ignore = "safe code, thousands of hashes: hours under Miri")]
     fn random_appends_removals_and_reopens_round_trip(actions in prop::collection::vec(action(), 1..40)) {
         let mut committed: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         let mut pending = committed.clone();
