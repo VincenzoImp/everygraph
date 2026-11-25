@@ -3,14 +3,14 @@ title: Filtered views: mask or materialize
 milestone: M7 · Queries and views
 labels: type:feature, area:query, P0, risk:medium, size:L, lab-evidence
 ---
-**Why.** "Only edges above 10 ETH", "only this community", "only 2024" must compose with every kernel and query. The lab changed the plan here: **a mask never beats the unfiltered scan** (the kernel still visits every entry), while a materialized filtered CSR costs 47–135 ms to build on orkut — one or two PageRank iterations — and then runs PageRank at 0.09× the time for 1–10% selectivity.
+**Why.** "Only edges above 10 ETH", "only this community", "only 2024" must compose with every kernel and query. The lab changed the plan here: **a mask never beats the unfiltered scan** (the kernel still visits every entry), while a materialized filtered CSR costs 47–135 ms to build on orkut — one or two PageRank iterations — and then runs PageRank at 0.09–0.17× the time for 1–10% selectivity (orkut, 32 threads; 0.09× at 4 threads).
 
 **Scope**
 - [ ] View definition: predicates on node and edge properties, node sets, community membership, time ranges; composable; stored by definition (cheap) and optionally materialized
 - [ ] Mask representation: plain bitset over entries or nodes (3% of topology bytes); Roaring only below ~5% density or for persisted views (same size as a bitset at ≥ 10% random density)
 - [ ] Parallel mask build (lab: ~10 G entries/s for a time predicate)
 - [ ] Materialization into the standard adjacency format, cached as a derived artifact
-- [ ] Planner rule: materialize when selectivity < ~25% and the view will be iterated; otherwise mask ({{#m3-02-planner}})
+- [ ] Planner rule derived from measurement ({{#m3-02-planner}}): on orkut and twitter-sym, idle machine, 16 threads, at 1, 5, 10, 25, 50 and 90% selectivity, measure PageRank (20 iterations), BFS and components on a mask and on a materialized view, including build time and memory, and write the rule from the crossover. The lab found the materialized view faster per PageRank iteration at every selectivity it measured (1–90%; no point between 10% and 50%), the mask ahead only for few-pass work and on memory — so "~25%" was never a measurement (ADR 0010, D10 open)
 - [ ] Branchless masked kernels (50% predicates are the worst case for branch prediction — a lab todo)
 - [ ] Induced subgraph vs edge-filtered semantics spelled out
 

@@ -19,5 +19,6 @@ labels: type:feature, area:query, P0, risk:medium, size:M, lab-evidence
 - Verified against plain BFS on 1,000 random pairs per tier-2 graph
 - p50 < 2 ms and p95 < 20 ms in RAM on twitter-2010, single thread
 - A constrained query (max 4 hops, avoid top-100 hubs) works on Friendster
+- Among several shortest paths the one returned, and the order of the alternatives, follow a documented rule and are the same at any thread count, regime and budget (tested). A step reports the earliest edge of its pair inside the view — for a weighted path the cheapest, earliest among equal costs — and the pair's number of edges (`docs/api-sketch.md` § 2.12)
 
 **Depends on** {{#m7-01-point-queries}}
