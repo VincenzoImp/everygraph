@@ -3,17 +3,24 @@
 //! Building a dictionary: the distinct-key pass with spilling, then three phases over
 //! what it spilled. The phases are described in the module documentation ("How a
 //! dictionary is built").
+//!
+//! The builder is byte-identical for the same input and options at any thread count
+//! and budget; that is a property of this implementation (each step whose grouping
+//! depends on threads or budget is followed by an ordering by key, hash or position),
+//! not of the format, which a reader needs only to read.
 
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
-use everygraph_core::{ByteSource, MemoryAccountant, par};
+use everygraph_core::{ByteSource, InsufficientBudget, MemoryAccountant, par};
 
 use super::dense::{DenseBits, RankBitmap};
 use super::dict::{Dictionary, Header, Repr, SectionWriters};
 use super::hash::{FINE, FINE_BITS, KeyHash, index, top_bits};
-use super::kind::{ColumnType, Key, KeyKind, MAX_FIXED_WIDTH, dense_index};
+use super::kind::{
+    ColumnType, Key, KeyKind, MAX_FIXED_WIDTH, MAX_KEY_BYTES, dense_base, dense_index,
+};
 use super::mphf::{Mphf, Part, PartError, build_part, part_bits_for};
 use super::scratch::{
     Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, in_rounds, read_all, widen,
@@ -23,9 +30,32 @@ use super::{DictionaryError, IdOrder, Layout, check_node_count};
 
 /// One key in 2^`SAMPLE_BITS` (by hash) is kept in the sample that sizes the phases.
 const SAMPLE_BITS: u32 = 10;
-/// Memory every worker keeps for its table even after it spills, so that it can always
-/// make progress however the budget is shared out.
-const WORKER_BASE: u64 = 68 << 10;
+/// The smallest table a worker can hold a key of [`MAX_KEY_BYTES`] in: 1,024 entries
+/// (40 KiB), 2,048 slots (8 KiB) and a 64 KiB arena.
+const TABLE_BASE: u64 = 112 << 10;
+/// What a worker needs to spill its table: the write buffer, the run index and one
+/// record.
+const FLUSH_BYTES: u64 = (WRITE_BUFFER + (FINE + 1) * 8 + MAX_KEY_BYTES + 64) as u64;
+/// Memory each worker holds for the whole pass, reserved when the collector is made:
+/// with it a worker can always spill and go on, however the rest of the budget is
+/// shared out.
+const WORKER_BASE: u64 = TABLE_BASE + FLUSH_BYTES;
+/// Most workers a collector makes.
+const MAX_WORKERS: u64 = 1024;
+
+/// How many workers a collector makes when `available` bytes of the budget are left:
+/// one per 32 bases, 1 to 1,024. A function of the budget alone, not of the threads.
+pub(crate) fn worker_cap(available: u64) -> u64 {
+    (available / (32 * WORKER_BASE)).clamp(1, MAX_WORKERS)
+}
+/// Invalid keys kept as examples (the ones at the smallest positions).
+const MAX_EXAMPLES: usize = 16;
+/// Hash seeds tried before [`DictionaryError::NoHashFunction`].
+const MAX_SEEDS: u64 = 8;
+/// A dense integer dictionary is a bitmap of `max + 1` bits; it is used only when that
+/// is at most this many bits per key — 8 bytes, below the 12.3 bytes per key of the
+/// hashed form of 8-byte keys (key, slot to id, hash function).
+pub(crate) const DENSE_BITS_PER_KEY: u64 = 64;
 
 /// Choices made when a dictionary is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,9 +65,17 @@ pub struct BuildOptions {
     pub order: IdOrder,
     /// How the arrays behind a look-up are arranged.
     pub layout: Layout,
-    /// Seed of the key hash. A build that meets two keys with the same 128-bit hash
-    /// (never seen; possible only with crafted input) is retried by
-    /// [`build_dictionary`] with the next seed.
+    /// The kind of the keys, instead of detecting it (`ids="string"` is
+    /// `Some(KeyKind::Bytes)`).
+    pub kind: Option<KeyKind>,
+    /// Whether integer keys in sorted order may be collected in a bitmap (then kept as
+    /// a rank bitmap when they are dense enough). [`build_dictionary`] turns it off
+    /// and starts again when a key is outside `0..2^32` or the bitmap does not fit
+    /// the budget.
+    pub dense: bool,
+    /// Seed of the key hash. A build that meets two keys with the same 128-bit hash, or
+    /// a part no pilot can solve (never seen; possible only with crafted input), is
+    /// retried by [`build_dictionary`] with the next seed.
     pub hash_seed: u64,
 }
 
@@ -46,23 +84,32 @@ impl Default for BuildOptions {
         Self {
             order: IdOrder::Natural,
             layout: Layout::Split,
+            kind: None,
+            dense: true,
             hash_seed: 0,
         }
     }
 }
 
 impl BuildOptions {
-    /// The default options with `order`.
+    /// These options with `order`.
     #[must_use]
     pub fn with_order(mut self, order: IdOrder) -> Self {
         self.order = order;
         self
     }
 
-    /// The default options with `layout`.
+    /// These options with `layout`.
     #[must_use]
     pub fn with_layout(mut self, layout: Layout) -> Self {
         self.layout = layout;
+        self
+    }
+
+    /// These options with the kind given instead of detected.
+    #[must_use]
+    pub fn with_kind(mut self, kind: KeyKind) -> Self {
+        self.kind = Some(kind);
         self
     }
 }
@@ -94,114 +141,234 @@ pub trait KeySource: Sync {
     ) -> Result<(), DictionaryError>;
 }
 
+/// Keys that did not fit the column's kind: invalid rows (`design/DECISIONS.md`,
+/// "Identifier columns"). They are left out of the dictionary; a look-up of one finds
+/// nothing. The reader reports them with their lines.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InvalidKeys {
+    /// How many were met.
+    pub count: u64,
+    /// The first ones by position (at most 16), with the key shortened to 64 bytes.
+    pub first: Vec<InvalidKey>,
+}
+
+/// One key that did not fit the column's kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InvalidKey {
+    /// Where it was seen.
+    pub position: u64,
+    /// The key (its first 64 bytes, as text).
+    pub key: String,
+}
+
+impl InvalidKeys {
+    fn add(&mut self, position: u64, key: Key<'_>) {
+        self.count += 1;
+        let full = self.first.len() >= MAX_EXAMPLES;
+        if full && self.first.last().is_some_and(|l| l.position <= position) {
+            return;
+        }
+        let key = match key {
+            Key::Int(v) => v.to_string(),
+            Key::UInt(v) => v.to_string(),
+            Key::Bytes(b) => String::from_utf8_lossy(&b[..b.len().min(64)]).into_owned(),
+        };
+        let at = self.first.partition_point(|k| k.position <= position);
+        self.first.insert(at, InvalidKey { position, key });
+        self.first.truncate(MAX_EXAMPLES);
+    }
+
+    fn merge(&mut self, other: &Self) {
+        self.count += other.count;
+        self.first.extend(other.first.iter().cloned());
+        self.first
+            .sort_by(|a, b| (a.position, &a.key).cmp(&(b.position, &b.key)));
+        self.first.truncate(MAX_EXAMPLES);
+    }
+}
+
+/// What [`Worker::add`] did with a key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Added {
+    /// The key is in the dictionary.
+    Kept,
+    /// The key does not fit the column's kind: an invalid row, left out and counted.
+    Invalid,
+}
+
+/// A dictionary and what its build left out.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Built<'a, S> {
+    /// The dictionary.
+    pub dictionary: Dictionary<'a, S>,
+    /// The keys that were invalid rows.
+    pub invalid: InvalidKeys,
+}
+
 /// Builds the dictionary of `source`: chooses the key kind from the first
-/// [`SAMPLE_SIZE`](super::SAMPLE_SIZE) keys, reads every chunk in parallel through a
-/// [`Collector`], and builds. When a key does not fit the kind chosen, the pass is
-/// repeated with the wider kind; when two keys collide on their 128-bit hash, with the
-/// next hash seed. The result is the same at any thread count and any budget.
+/// [`SAMPLE_SIZE`](super::SAMPLE_SIZE) keys (unless the options give it), reads every
+/// chunk in parallel through a [`Collector`], and builds. A key that does not fit the
+/// kind is an invalid row, reported in [`Built::invalid`]. When two keys collide on
+/// their 128-bit hash or a part cannot be solved, the build is repeated with the next
+/// hash seed. The ids are the same at any thread count and any budget, and so are the
+/// sections, except that a budget too small for the bitmap of dense integer keys gives
+/// the hashed form (with the same ids).
 ///
 /// # Errors
 ///
 /// [`DictionaryError::Budget`] when even the smallest working set does not fit the
-/// accountant's budget, [`DictionaryError::TooManyNodes`] at 2^32 distinct keys, and
-/// read, scratch and input errors.
+/// accountant's budget, [`DictionaryError::TooManyNodes`] at 2^32 distinct keys,
+/// [`DictionaryError::NoHashFunction`] when every seed failed, and read, scratch and
+/// input errors.
 pub fn build_dictionary<'a, Sc: Scratch>(
     source: &dyn KeySource,
     options: &BuildOptions,
     accountant: &'a dyn MemoryAccountant,
     scratch: &'a Sc,
-) -> Result<Dictionary<'a, Sc::Source>, DictionaryError> {
+) -> Result<Built<'a, Sc::Source>, DictionaryError> {
     let column = source.column();
-    let mut kind = detect_from(source)?;
+    let (kind, sample_dense) = match options.kind {
+        Some(kind) if kind.fits_column(column) => (kind, true),
+        Some(_) => {
+            return Err(DictionaryError::Unsupported(
+                "the kind given does not fit the column",
+            ));
+        }
+        None => detect_from(source)?,
+    };
     let mut options = *options;
-    for _ in 0..8 {
-        let collector = Collector::new(column, kind, &options, accountant, scratch)?;
+    options.kind = Some(kind);
+    options.dense = options.dense && sample_dense;
+    for _ in 0..=MAX_SEEDS {
+        let collector = match Collector::new(column, kind, &options, accountant, scratch) {
+            Err(DictionaryError::Budget(_)) if options.dense => {
+                options.dense = false;
+                continue;
+            }
+            other => other?,
+        };
         match collect(source, &collector) {
             Ok(()) => {}
-            Err(DictionaryError::KindMismatch { .. }) if kind.widen(column) != kind => {
-                kind = kind.widen(column);
+            // A key outside 0..2^32, or a bitmap the budget cannot hold: the hashed
+            // form, which gives the same ids.
+            Err(DictionaryError::NotDense | DictionaryError::Budget(_)) if options.dense => {
+                options.dense = false;
                 continue;
             }
             Err(e) => return Err(e),
         }
-        match collector.finish()?.build() {
-            Err(DictionaryError::HashCollision) => {
+        let distinct = collector.finish()?;
+        let invalid = distinct.invalid().clone();
+        match distinct.build() {
+            Ok(dictionary) => {
+                return Ok(Built {
+                    dictionary,
+                    invalid,
+                });
+            }
+            Err(DictionaryError::HashCollision | DictionaryError::Unsolvable) => {
                 options.hash_seed = options.hash_seed.wrapping_add(1);
             }
-            other => return other,
+            Err(e) => return Err(e),
         }
     }
-    Err(DictionaryError::HashCollision)
+    Err(DictionaryError::NoHashFunction { seeds: MAX_SEEDS })
 }
 
-fn detect_from(source: &dyn KeySource) -> Result<KeyKind, DictionaryError> {
-    let mut sample: Vec<Vec<u8>> = Vec::new();
+/// The kind of the column, from its first keys, and whether those keys allow the
+/// bitmap (integers in `0..2^32`).
+fn detect_from(source: &dyn KeySource) -> Result<(KeyKind, bool), DictionaryError> {
+    let column = source.column();
+    let mut texts: Vec<Vec<u8>> = Vec::new();
     let mut ints: Vec<Key<'static>> = Vec::new();
-    let enough = || DictionaryError::Corrupt("sample complete");
-    'chunks: for chunk in 0..source.chunks() {
+    let done = AtomicBool::new(false);
+    for chunk in 0..source.chunks() {
         let r = source.read_chunk(chunk, &mut |_, key| {
+            if texts.len() + ints.len() >= super::SAMPLE_SIZE {
+                done.store(true, Ordering::Relaxed);
+                return Err(DictionaryError::NotDense);
+            }
             match key {
                 Key::Int(v) => ints.push(Key::Int(v)),
                 Key::UInt(v) => ints.push(Key::UInt(v)),
-                Key::Bytes(b) => sample.push(b.to_vec()),
-            }
-            if sample.len() + ints.len() >= super::SAMPLE_SIZE {
-                return Err(enough());
+                Key::Bytes(b) => texts.push(b[..b.len().min(MAX_KEY_BYTES + 1)].to_vec()),
             }
             Ok(())
         });
         match r {
             Ok(()) => {}
-            Err(DictionaryError::Corrupt("sample complete")) => break 'chunks,
+            Err(DictionaryError::NotDense) if done.load(Ordering::Relaxed) => break,
             Err(e) => return Err(e),
         }
     }
-    let keys = ints.into_iter().chain(sample.iter().map(|b| Key::Bytes(b)));
-    Ok(KeyKind::detect(source.column(), keys))
+    let sample = || {
+        ints.iter()
+            .copied()
+            .chain(texts.iter().map(|b| Key::Bytes(b)))
+    };
+    let kind = KeyKind::detect(column, sample());
+    let dense = kind == KeyKind::Integers
+        && sample().all(|k| {
+            let mut buf = [0_u8; MAX_FIXED_WIDTH];
+            kind.normalize(column, k, &mut buf)
+                .is_none_or(|n| dense_index(column, n).is_some())
+        });
+    Ok((kind, dense))
 }
 
 fn collect<Sc: Scratch>(
     source: &dyn KeySource,
     collector: &Collector<'_, Sc>,
 ) -> Result<(), DictionaryError> {
-    let pool: Mutex<Vec<Worker<'_, '_, Sc>>> = Mutex::new(Vec::new());
     let stop = AtomicBool::new(false);
     let one = NonZeroUsize::MIN;
     let results = par::map_ranges(source.chunks(), one, |r| -> Result<(), DictionaryError> {
         if stop.load(Ordering::Relaxed) {
             return Ok(());
         }
-        let worker = pool
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .pop();
-        let mut worker = match worker {
-            Some(w) => w,
-            None => collector.worker()?,
-        };
-        let result = source.read_chunk(r.start, &mut |pos, key| worker.add(pos, key));
+        let mut worker = collector.worker()?;
+        let result = source.read_chunk(r.start, &mut |pos, key| worker.add(pos, key).map(|_| ()));
         if result.is_err() {
             stop.store(true, Ordering::Relaxed);
         }
-        pool.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(worker);
         result
     });
-    let mut first_error = results.into_iter().find_map(Result::err);
-    for worker in pool
-        .into_inner()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
-        if let Err(e) = worker.finish() {
-            first_error.get_or_insert(e);
-        }
-    }
-    first_error.map_or(Ok(()), Err)
+    results
+        .into_iter()
+        .find_map(Result::err)
+        .map_or(Ok(()), Err)
 }
 
-/// The distinct-key pass: gathers the keys of one input from any number of
-/// [`Worker`]s, spilling to the scratch whenever their tables reach the budget.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// What a worker holds between its uses: its table and its memory.
+struct WorkerState<'a> {
+    table: Table,
+    /// The table's memory, never below [`TABLE_BASE`].
+    credit: Credit<'a>,
+    /// What a spill needs ([`FLUSH_BYTES`]), held throughout.
+    _flush: Reservation<'a>,
+    invalid: InvalidKeys,
+}
+
+struct Pool<'a> {
+    idle: Vec<WorkerState<'a>>,
+    created: u64,
+    /// The bases of the workers not yet made.
+    bases: Reservation<'a>,
+}
+
+/// The distinct-key pass: gathers the keys of one input from any number of threads,
+/// each through a [`Worker`], spilling to the scratch whenever their tables reach the
+/// budget.
+///
+/// At most `budget / 6 MiB` workers exist (1 to 1,024), their bases reserved when the
+/// collector is made, so whether a build fits a budget does not depend on the number
+/// of threads: a thread that finds every worker in use waits for one (a native
+/// thread pool only; without threads there is one worker and no wait).
 pub struct Collector<'a, Sc: Scratch> {
     column: ColumnType,
     kind: KeyKind,
@@ -212,11 +379,11 @@ pub struct Collector<'a, Sc: Scratch> {
     scratch: &'a Sc,
     runs: Mutex<Vec<Run<Sc::Source>>>,
     sample: Mutex<Sample>,
-    /// Memory of the run indexes and of the sample, split off the workers' tables.
+    /// Memory of the sample, split off the workers' tables.
     held: Mutex<Vec<Reservation<'a>>>,
-    /// The bases of the first workers, reserved up front so that a worker created late
-    /// still finds its base however much the earlier ones have grown.
-    bases: Mutex<Reservation<'a>>,
+    pool: Mutex<Pool<'a>>,
+    returned: Condvar,
+    cap: u64,
     dense: Option<DenseBits<'a>>,
 }
 
@@ -226,6 +393,7 @@ impl<Sc: Scratch> std::fmt::Debug for Collector<'_, Sc> {
             .field("column", &self.column)
             .field("kind", &self.kind)
             .field("order", &self.order)
+            .field("workers", &self.cap)
             .finish_non_exhaustive()
     }
 }
@@ -261,13 +429,21 @@ struct Sample {
     arena: Vec<u8>,
 }
 
+/// Bytes a sample of `items` entries and `arena` key bytes may hold (twice, for the
+/// doubling of its vectors).
+fn sample_bytes(items: usize, arena: usize) -> u64 {
+    2 * widen(items * std::mem::size_of::<(KeyHash, u64, usize, usize)>() + arena)
+}
+
 impl<'a, Sc: Scratch> Collector<'a, Sc> {
-    /// A collector for keys of `kind` from a column of type `column`.
+    /// A collector for keys of `kind` from a column of type `column`. With
+    /// `options.dense`, integer keys in sorted order are collected in a bitmap; a key
+    /// outside `0..2^32` then makes [`Worker::add`] fail with
+    /// [`DictionaryError::NotDense`], and the pass must start again without it.
     ///
     /// # Errors
     ///
-    /// [`DictionaryError::Budget`] if the accountant refuses the collector's first
-    /// reservation.
+    /// [`DictionaryError::Budget`] if the workers' bases do not fit the budget.
     pub fn new(
         column: ColumnType,
         kind: KeyKind,
@@ -276,11 +452,13 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         scratch: &'a Sc,
     ) -> Result<Self, DictionaryError> {
         let order = options.order.resolve(kind);
-        let dense = if kind == (KeyKind::Integers { dense: true }) && order == IdOrder::SortedKey {
+        let dense = if options.dense && kind == KeyKind::Integers && order == IdOrder::SortedKey {
             Some(DenseBits::new(accountant)?)
         } else {
             None
         };
+        let cap = worker_cap(accountant.available());
+        let bases = Reservation::new(accountant, "id dictionary distinct keys", cap * WORKER_BASE)?;
         Ok(Self {
             column,
             kind,
@@ -292,163 +470,79 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             runs: Mutex::new(Vec::new()),
             sample: Mutex::new(Sample::default()),
             held: Mutex::new(Vec::new()),
-            bases: Mutex::new(Reservation::new(
-                accountant,
-                "id dictionary distinct keys",
-                (accountant.available() / 4).min(64 * WORKER_BASE) / WORKER_BASE * WORKER_BASE,
-            )?),
+            pool: Mutex::new(Pool {
+                idle: Vec::new(),
+                created: 0,
+                bases,
+            }),
+            returned: Condvar::new(),
+            cap,
             dense,
         })
     }
 
-    /// A worker: what one thread uses to add keys.
+    /// A worker for the calling thread: an idle one, a new one while fewer than the
+    /// collector's limit exist, or else the next one returned (this waits).
     ///
     /// # Errors
     ///
-    /// [`DictionaryError::Budget`] if the worker's first reservation is refused.
+    /// None today: every worker's memory was reserved by [`Collector::new`].
     pub fn worker(&self) -> Result<Worker<'_, 'a, Sc>, DictionaryError> {
-        Ok(Worker {
-            collector: self,
-            table: Table::default(),
-            credit: {
-                let mut bases = self
-                    .bases
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if bases.bytes() >= WORKER_BASE {
-                    Credit::from_reservation(bases.split_off(WORKER_BASE))
-                } else {
-                    Credit::new(self.accountant, "id dictionary distinct keys", WORKER_BASE)?
-                }
-            },
-            buf: [0; MAX_FIXED_WIDTH],
-        })
-    }
-
-    /// Ends the pass. Every worker must have been finished.
-    ///
-    /// # Errors
-    ///
-    /// None today; the signature leaves room for checks of the runs.
-    pub fn finish(self) -> Result<Distinct<'a, Sc>, DictionaryError> {
-        let mut sample = self
-            .sample
-            .into_inner()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let arena = std::mem::take(&mut sample.arena);
-        let key = |&(_, _, off, len): &(KeyHash, u64, usize, usize)| &arena[off..off + len];
-        // One entry per key (a key spilled twice was sampled twice), with its smallest
-        // position.
-        sample
-            .items
-            .sort_unstable_by(|a, b| (a.0, key(a), a.1).cmp(&(b.0, key(b), b.1)));
-        sample.items.dedup_by(|b, a| a.0 == b.0 && key(a) == key(b));
-        sample.arena = arena;
-        Ok(Distinct {
-            column: self.column,
-            kind: self.kind,
-            order: self.order,
-            layout: self.layout,
-            seed: self.seed,
-            accountant: self.accountant,
-            scratch: self.scratch,
-            runs: self
-                .runs
-                .into_inner()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-            sample,
-            _held: self
-                .held
-                .into_inner()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-            dense: self.dense,
-        })
-    }
-}
-
-/// What one thread uses to add keys to a [`Collector`].
-pub struct Worker<'c, 'a, Sc: Scratch> {
-    collector: &'c Collector<'a, Sc>,
-    table: Table,
-    credit: Credit<'a>,
-    buf: [u8; MAX_FIXED_WIDTH],
-}
-
-impl<Sc: Scratch> std::fmt::Debug for Worker<'_, '_, Sc> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Worker")
-            .field("keys", &self.table.len())
-            .finish_non_exhaustive()
-    }
-}
-
-impl<Sc: Scratch> Worker<'_, '_, Sc> {
-    /// Adds `key`, seen at `position`.
-    ///
-    /// # Errors
-    ///
-    /// [`DictionaryError::KindMismatch`] if the key does not fit the collector's kind
-    /// (the pass is then repeated with [`KeyKind::widen`]); budget and scratch errors.
-    pub fn add(&mut self, position: u64, key: Key<'_>) -> Result<(), DictionaryError> {
-        let c = self.collector;
-        let Some(norm) = c.kind.normalize(c.column, key, &mut self.buf) else {
-            return Err(DictionaryError::mismatch(position, key));
-        };
-        if let Some(dense) = &c.dense {
-            let Some(bit) = dense_index(c.column, norm) else {
-                return Err(DictionaryError::mismatch(position, key));
-            };
-            return dense.set(bit);
+        let mut pool = lock(&self.pool);
+        loop {
+            if let Some(state) = pool.idle.pop() {
+                return Ok(Worker {
+                    collector: self,
+                    state: Some(state),
+                });
+            }
+            if pool.created < self.cap {
+                pool.created += 1;
+                let mut base = pool.bases.split_off(WORKER_BASE);
+                let flush = base.split_off(FLUSH_BYTES);
+                return Ok(Worker {
+                    collector: self,
+                    state: Some(WorkerState {
+                        table: Table::default(),
+                        credit: Credit::from_reservation(base),
+                        _flush: flush,
+                        invalid: InvalidKeys::default(),
+                    }),
+                });
+            }
+            pool = self
+                .returned
+                .wait(pool)
+                .unwrap_or_else(PoisonError::into_inner);
         }
-        let hash = KeyHash::of(norm, c.seed);
-        if self
-            .table
-            .insert(hash, position, norm, Some(&mut self.credit))
-            == Inserted::Done
-        {
+    }
+
+    /// Spills `st`'s table as a run and empties it.
+    fn flush(&self, st: &mut WorkerState<'a>) -> Result<(), DictionaryError> {
+        if st.table.is_empty() {
             return Ok(());
         }
-        // The budget is taken (by this table or by others): spill, keep the base, retry.
-        let norm = norm.to_vec();
-        let was_empty = self.table.is_empty();
-        self.flush()?;
-        if !was_empty
-            && self
-                .table
-                .insert(hash, position, &norm, Some(&mut self.credit))
-                == Inserted::Done
-        {
-            return Ok(());
-        }
-        Err(DictionaryError::Budget(
-            everygraph_core::InsufficientBudget::new(
-                "id dictionary distinct keys",
-                widen(norm.len()) + WORKER_BASE,
-                c.accountant.available(),
-            ),
-        ))
-    }
-
-    /// Spills the table as a run and empties it.
-    fn flush(&mut self) -> Result<(), DictionaryError> {
-        if self.table.is_empty() {
-            return Ok(());
-        }
-        let c = self.collector;
-        let fixed = c.kind.width().is_some();
-        self.table.group_entries_by(FINE, |e| e.hash.fine());
-        let mut spill = Spill::new(c.scratch, "id dictionary run")?;
+        let fixed = self.kind.width().is_some();
+        st.table.group_entries_by(FINE, |e| e.hash.fine());
+        let mut spill = Spill::new(self.scratch, "id dictionary run")?;
         let mut starts = vec![0_u64; FINE + 1];
         let mut record = Vec::with_capacity(32 + MAX_FIXED_WIDTH);
-        let mut sample = Vec::new();
-        let mut sample_arena = Vec::new();
+        let sampled = st
+            .table
+            .entries()
+            .iter()
+            .filter(|e| e.hash.lo.trailing_zeros() >= SAMPLE_BITS)
+            .map(|e| st.table.key(e).len())
+            .fold((0, 0), |(n, b), l| (n + 1, b + l));
+        let mut sample = Vec::with_capacity(sampled.0);
+        let mut sample_arena = Vec::with_capacity(sampled.1);
         let mut fine = 0;
-        for e in self.table.entries() {
+        for e in st.table.entries() {
             while fine < e.hash.fine() {
                 fine += 1;
                 starts[fine] = spill.bytes;
             }
-            let key = self.table.key(e);
+            let key = st.table.key(e);
             record.clear();
             record.extend_from_slice(&e.hash.hi.to_le_bytes());
             record.extend_from_slice(&e.hash.lo.to_le_bytes());
@@ -469,27 +563,20 @@ impl<Sc: Scratch> Worker<'_, '_, Sc> {
             starts[fine] = spill.bytes;
         }
         let index_at = spill.bytes;
-        let index: Vec<u8> = starts.iter().flat_map(|s| s.to_le_bytes()).collect();
-        spill.write(&index)?;
-        let source = spill.seal(c.scratch)?;
-        // The sample outlives the table: its memory is moved off the table's
-        // reservation, so that no other worker can take it meanwhile.
-        let kept = self
-            .credit
-            .split_off(widen(sample.len() * 48 + sample_arena.len()));
-        c.held
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(kept);
-        c.runs
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(Run { source, index_at });
+        for s in &starts {
+            spill.write(&s.to_le_bytes())?;
+        }
+        let source = spill.seal(self.scratch)?;
+        // The sample outlives the table: its memory is taken and moved off the table's
+        // reservation, so that no other worker can take it meanwhile. (If the budget
+        // has nothing left, it is moved out of the table's own, which is freed next.)
+        let bytes = sample_bytes(sampled.0, sampled.1);
+        let _ = st.credit.require(bytes);
+        let kept = st.credit.split_off(bytes);
+        lock(&self.held).push(kept);
+        lock(&self.runs).push(Run { source, index_at });
         {
-            let mut s = c
-                .sample
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut s = lock(&self.sample);
             let base = s.arena.len();
             s.items.extend(
                 sample
@@ -498,18 +585,147 @@ impl<Sc: Scratch> Worker<'_, '_, Sc> {
             );
             s.arena.extend_from_slice(&sample_arena);
         }
-        self.table = Table::default();
-        self.credit.reset();
+        st.table = Table::default();
+        st.credit.reset();
         Ok(())
     }
 
-    /// Spills what is left and returns the worker's memory.
+    /// Ends the pass: spills what the workers hold. Every [`Worker`] must have been
+    /// dropped.
     ///
     /// # Errors
     ///
     /// Scratch errors.
-    pub fn finish(mut self) -> Result<(), DictionaryError> {
-        self.flush()
+    pub fn finish(self) -> Result<Distinct<'a, Sc>, DictionaryError> {
+        let mut invalid = InvalidKeys::default();
+        let states = std::mem::take(&mut lock(&self.pool).idle);
+        for mut st in states {
+            self.flush(&mut st)?;
+            invalid.merge(&st.invalid);
+        }
+        let mut sample = std::mem::take(&mut *lock(&self.sample));
+        let arena = std::mem::take(&mut sample.arena);
+        let key = |&(_, _, off, len): &(KeyHash, u64, usize, usize)| &arena[off..off + len];
+        // One entry per key (a key spilled twice was sampled twice), with its smallest
+        // position.
+        sample
+            .items
+            .sort_unstable_by(|a, b| (a.0, key(a), a.1).cmp(&(b.0, key(b), b.1)));
+        sample.items.dedup_by(|b, a| a.0 == b.0 && key(a) == key(b));
+        sample.arena = arena;
+        Ok(Distinct {
+            column: self.column,
+            kind: self.kind,
+            order: self.order,
+            layout: self.layout,
+            seed: self.seed,
+            accountant: self.accountant,
+            scratch: self.scratch,
+            runs: std::mem::take(&mut *lock(&self.runs)),
+            sample,
+            _held: std::mem::take(&mut *lock(&self.held)),
+            dense: self.dense,
+            invalid,
+        })
+    }
+}
+
+/// What one thread uses to add keys to a [`Collector`]. Dropping it hands its table
+/// back to the collector for the next thread.
+pub struct Worker<'c, 'a, Sc: Scratch> {
+    collector: &'c Collector<'a, Sc>,
+    state: Option<WorkerState<'a>>,
+}
+
+impl<Sc: Scratch> std::fmt::Debug for Worker<'_, '_, Sc> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Worker").finish_non_exhaustive()
+    }
+}
+
+impl<Sc: Scratch> Drop for Worker<'_, '_, Sc> {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.take() {
+            lock(&self.collector.pool).idle.push(state);
+            self.collector.returned.notify_one();
+        }
+    }
+}
+
+impl<'a, Sc: Scratch> Worker<'_, 'a, Sc> {
+    /// Adds `key`, seen at `position`. A key that does not fit the collector's kind
+    /// (or is longer than [`MAX_KEY_BYTES`]) is an invalid row: counted, not added.
+    ///
+    /// # Errors
+    ///
+    /// [`DictionaryError::NotDense`] when the collector gathers a bitmap and the key is
+    /// outside `0..2^32`; budget and scratch errors.
+    ///
+    /// # Panics
+    ///
+    /// Never: a worker holds its state from [`Collector::worker`] until it is dropped.
+    pub fn add(&mut self, position: u64, key: Key<'_>) -> Result<Added, DictionaryError> {
+        let c = self.collector;
+        let st = self
+            .state
+            .as_mut()
+            .expect("a worker holds its state until dropped");
+        let mut copy = [0_u8; MAX_FIXED_WIDTH];
+        let Some(len) = c.kind.normalize(c.column, key, &mut copy).map(<[u8]>::len) else {
+            st.invalid.add(position, key);
+            return Ok(Added::Invalid);
+        };
+        // Bytes keys are their own normalized form; the others are in `copy`.
+        let norm: &[u8] = match (c.kind, key) {
+            (KeyKind::Bytes, Key::Bytes(b)) => b,
+            _ => &copy[..len],
+        };
+        if let Some(dense) = &c.dense {
+            let Some(bit) = dense_index(c.column, norm) else {
+                return Err(DictionaryError::NotDense);
+            };
+            dense.set(bit)?;
+            return Ok(Added::Kept);
+        }
+        Self::insert(c, st, position, norm)?;
+        Ok(Added::Kept)
+    }
+
+    /// Adds an already normalized key.
+    pub(crate) fn add_normalized(
+        &mut self,
+        position: u64,
+        norm: &[u8],
+    ) -> Result<(), DictionaryError> {
+        let c = self.collector;
+        let st = self
+            .state
+            .as_mut()
+            .expect("a worker holds its state until dropped");
+        Self::insert(c, st, position, norm)
+    }
+
+    fn insert(
+        c: &Collector<'a, Sc>,
+        st: &mut WorkerState<'a>,
+        position: u64,
+        norm: &[u8],
+    ) -> Result<(), DictionaryError> {
+        let hash = KeyHash::of(norm, c.seed);
+        if st.table.insert(hash, position, norm, Some(&mut st.credit)) == Inserted::Done {
+            return Ok(());
+        }
+        // The budget is taken (by this table or by others): spill, keep the base, retry.
+        // The base holds a table for any key up to MAX_KEY_BYTES, so this succeeds.
+        c.flush(st)?;
+        if st.table.insert(hash, position, norm, Some(&mut st.credit)) == Inserted::Done {
+            return Ok(());
+        }
+        Err(DictionaryError::Budget(InsufficientBudget::new(
+            "id dictionary distinct keys",
+            widen(norm.len()) + TABLE_BASE,
+            c.accountant.available(),
+        )))
     }
 }
 
@@ -527,6 +743,7 @@ pub struct Distinct<'a, Sc: Scratch> {
     sample: Sample,
     _held: Vec<Reservation<'a>>,
     dense: Option<DenseBits<'a>>,
+    invalid: InvalidKeys,
 }
 
 impl<Sc: Scratch> std::fmt::Debug for Distinct<'_, Sc> {
@@ -534,6 +751,7 @@ impl<Sc: Scratch> std::fmt::Debug for Distinct<'_, Sc> {
         f.debug_struct("Distinct")
             .field("kind", &self.kind)
             .field("runs", &self.runs.len())
+            .field("invalid", &self.invalid.count)
             .finish_non_exhaustive()
     }
 }
@@ -546,14 +764,27 @@ struct Located<'r> {
     key: &'r [u8],
 }
 
+/// The dense rule: a bitmap of `max + 1` bits for `n` keys is kept only when it takes
+/// at most [`DENSE_BITS_PER_KEY`] bits per key.
+pub(crate) fn dense_enough(n: u64, max: Option<u32>) -> bool {
+    max.is_none_or(|m| u64::from(m) < DENSE_BITS_PER_KEY.saturating_mul(n))
+}
+
 impl<'a, Sc: Scratch> Distinct<'a, Sc> {
+    /// The keys that were invalid rows.
+    #[must_use]
+    pub fn invalid(&self) -> &InvalidKeys {
+        &self.invalid
+    }
+
     /// Builds the dictionary.
     ///
     /// # Errors
     ///
-    /// [`DictionaryError::TooManyNodes`] at 2^32 distinct keys,
-    /// [`DictionaryError::HashCollision`] if two keys share their 128-bit hash (retry
-    /// with another seed), budget, read and scratch errors.
+    /// [`DictionaryError::TooManyNodes`] at 2^32 distinct keys;
+    /// [`DictionaryError::HashCollision`] if two keys share their 128-bit hash and
+    /// [`DictionaryError::Unsolvable`] if a part cannot be solved (retry with another
+    /// seed in both cases); budget, read and scratch errors.
     pub fn build(self) -> Result<Dictionary<'a, Sc::Source>, DictionaryError> {
         if self.dense.is_some() {
             self.build_dense()
@@ -592,8 +823,16 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             part_bits,
             ..Mphf::default()
         };
-        // The hash function is kept in memory by the dictionary: reserved as it grows.
-        let mut resident = Reservation::new(self.accountant, "id dictionary hash function", 0)?;
+        // The hash function stays in memory with the dictionary: each task reserves
+        // its parts and hands the reservation over with them.
+        let mut resident: Vec<Reservation<'a>> = Vec::with_capacity(units + 1);
+        // The start of each part's slots (the parts themselves are reserved by the
+        // tasks that solve them).
+        resident.push(Reservation::new(
+            self.accountant,
+            "id dictionary hash function",
+            (1_u64 << part_bits) * 4,
+        )?);
         let mut unit_base: Vec<u32> = Vec::with_capacity(units + 1);
         let mut total = 0_u64;
         let _bucket_buffers = Reservation::new(
@@ -613,19 +852,18 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             self.accountant,
             "id dictionary distinct keys",
             &unit_tasks,
-            // A guess (the task reserves what it really needs as it goes): the unit's
-            // share of the sampled keys, at 200 bytes each.
-            |&u| unit_sampled[u] * 200 + (1 << 16),
+            // A guess, the task reserves what it really needs as it goes: the unit's
+            // share of the sampled keys, at the memory per key the task needs.
+            |&u| unit_sampled[u] * (100 + 2 * avg_key) + (1 << 16),
             |&u, grant| self.unit_task(u, fine_per_unit, part_bits, unit_bits, &splitters, grant),
-            |_, out: UnitOut| {
+            |_, out: UnitOut<'a>| {
                 unit_base.push(u32::try_from(total).map_err(|_| super::too_many_nodes(total))?);
                 total += u64::from(out.n);
                 check_node_count(total)?;
-                let before = mphf.bytes();
-                for p in &out.parts {
+                for p in out.parts {
                     mphf.push(p);
                 }
-                resident.grow(mphf.bytes() - before)?;
+                resident.push(out.resident);
                 for (r, bytes) in out.buckets.iter().enumerate() {
                     bucket_spills[r].write(bytes)?;
                     bucket_counts[r] += out.counts[r];
@@ -653,7 +891,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             8 + avg_key,
             task_bytes / 3,
         )?;
-        let mut out = SectionWriters::new(self.scratch, self.layout, width)?;
+        let mut out = SectionWriters::new(self.scratch, self.accountant, self.layout, width)?;
         let bucket_sources = bucket_spills
             .into_iter()
             .map(|s| s.seal(self.scratch))
@@ -668,32 +906,76 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         let bucket_tasks: Vec<usize> = (0..bucket_count).collect();
         let order = self.order;
         let (range_len, range_count) = (scatter.range_len(), scatter.range_count());
+        let header_bytes = |order: IdOrder| -> u64 {
+            (if order == IdOrder::SortedKey { 0 } else { 8 })
+                + 4
+                + 4
+                + if width.is_none() { 4 } else { 0 }
+        };
+        // Exactly what a phase-C task holds: the bucket read, the records, and the
+        // outputs (all allocated at their final size).
+        let phase_c_bytes = |r: usize| -> u64 {
+            let bytes = bucket_sources[r].len();
+            let count = bucket_counts[r];
+            let keys = bytes.saturating_sub(count * header_bytes(order));
+            let located = count * widen(std::mem::size_of::<Located<'_>>());
+            let outputs = if slot_layout {
+                // id_to_slot, and records of slot + (length) + payload.
+                count * 4 + count * (4 + 4 + if width.is_none() { 4 } else { 0 }) + keys
+            } else {
+                // keys, lengths, and records of slot + id.
+                keys + if width.is_none() { count * 8 } else { 0 } + count * 8
+            };
+            // Plus the payload buffer (one key) and small vectors.
+            bytes
+                + located
+                + outputs
+                + widen(range_count) * (24 + 8)
+                + widen(MAX_KEY_BYTES)
+                + (1 << 12)
+        };
         let mut key_offset = 0_u64;
         in_rounds(
             self.accountant,
             "id dictionary order bucket",
             &bucket_tasks,
-            |&r| {
-                bucket_sources[r]
-                    .len()
-                    .saturating_mul(4)
-                    .saturating_add(1 << 16)
-            },
+            |&r| phase_c_bytes(r),
             |&r, grant| {
+                let count = index(bucket_counts[r]);
                 let bytes = read_all(&bucket_sources[r])?;
-                let mut items = parse_located(&bytes, order, width)?;
+                let mut items = parse_located(&bytes, order, width, count)?;
                 match order {
                     IdOrder::SortedKey => items.sort_unstable_by(|a, b| a.key.cmp(b.key)),
                     _ => items.sort_unstable_by(|a, b| (a.pos, a.key).cmp(&(b.pos, b.key))),
                 }
-                let mut keys = Vec::new();
-                let mut lens = Vec::new();
-                let mut id_to_slot = Vec::new();
-                let mut ranges: Vec<Vec<u8>> = vec![Vec::new(); range_count];
-                let mut payload = Vec::with_capacity(4 + MAX_FIXED_WIDTH);
+                let slot_of = |it: &Located<'_>| unit_base[index(u64::from(it.unit))] + it.local;
+                // Exact sizes of every output.
+                let key_bytes: usize = items.iter().map(|it| it.key.len()).sum();
+                let record_len = |it: &Located<'_>| {
+                    4 + usize::from(payload_width.is_none()) * 4
+                        + match (slot_layout, width) {
+                            (false, _) => 4,
+                            (true, Some(w)) => w + 4,
+                            (true, None) => 4 + it.key.len(),
+                        }
+                };
+                let mut range_sizes = vec![0_usize; range_count];
+                for it in &items {
+                    range_sizes[index(u64::from(slot_of(it)) / range_len)] += record_len(it);
+                }
+                let mut ranges: Vec<Vec<u8>> =
+                    range_sizes.iter().map(|&s| Vec::with_capacity(s)).collect();
+                let mut keys = Vec::with_capacity(if slot_layout { 0 } else { key_bytes });
+                let mut lens = Vec::with_capacity(if slot_layout || width.is_some() {
+                    0
+                } else {
+                    count
+                });
+                let mut id_to_slot = Vec::with_capacity(if slot_layout { 4 * count } else { 0 });
+                let mut payload = Vec::with_capacity(4 + MAX_KEY_BYTES);
                 for (i, it) in items.iter().enumerate() {
                     let id = u32::try_from(bucket_base[r] + widen(i)).expect("checked below 2^32");
-                    let slot = unit_base[index(u64::from(it.unit))] + it.local;
+                    let slot = slot_of(it);
                     payload.clear();
                     if slot_layout {
                         id_to_slot.extend_from_slice(&slot.to_le_bytes());
@@ -803,7 +1085,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         unit_bits: u32,
         splitters: &[Splitter],
         grant: Reservation<'a>,
-    ) -> Result<(UnitOut, Reservation<'a>), DictionaryError> {
+    ) -> Result<(UnitOut<'a>, Reservation<'a>), DictionaryError> {
         let fixed = self.kind.width();
         let (a, b) = (unit * fine_per_unit, (unit + 1) * fine_per_unit);
         // Memory beyond the round's estimate is taken as the task goes; a refusal
@@ -815,7 +1097,11 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             let (start, len) = run.span(a, b)?;
             let len_usize = index(len);
             if len_usize > bytes.capacity() {
-                credit.require(widen(len_usize - bytes.capacity()))?;
+                // The old buffer (already counted) and the new one exist while it grows.
+                credit.require(widen(len_usize))?;
+                let old = widen(bytes.capacity());
+                bytes = Vec::with_capacity(len_usize);
+                credit.give(old);
             }
             bytes.resize(len_usize, 0);
             run.source.read_at(start, &mut bytes)?;
@@ -844,16 +1130,39 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
                 }
             }
         }
+        credit.give(widen(bytes.capacity()));
         drop(bytes);
-        // The hash function's working memory and the outputs, now that the number of
-        // keys is known: about 48 bytes per key for the solver, one record per key out.
-        let distinct = widen(table.len());
-        let record = 8 + 4 + 4 + 4 + widen(fixed.unwrap_or(32));
-        credit.require(distinct * (48 + record) + widen(splitters.len() + 1) * 32)?;
-        // The unit's parts, in hash order.
+        // Everything else the task holds, now that its keys are known: the hashes by
+        // part, the solver's working memory for the largest part, the solved parts,
+        // and the records for phase C — each allocated at its exact size.
         let parts_per_unit = 1_usize << (part_bits - unit_bits);
-        let mut by_part: Vec<Vec<KeyHash>> = vec![Vec::new(); parts_per_unit];
         let part_of = |h: KeyHash| top_bits(h.hi, part_bits) - (unit << (part_bits - unit_bits));
+        let mut part_sizes = vec![0_u32; parts_per_unit];
+        let mut bucket_sizes = vec![0_usize; splitters.len() + 1];
+        let header = (if self.order == IdOrder::SortedKey {
+            0
+        } else {
+            8
+        }) + 4
+            + 4
+            + usize::from(fixed.is_none()) * 4;
+        for e in table.entries() {
+            part_sizes[part_of(e.hash)] += 1;
+            let key = table.key(e);
+            bucket_sizes[Self::bucket_of(splitters, self.order, e.pos, key)] += header + key.len();
+        }
+        let distinct = widen(table.len());
+        let largest = part_sizes.iter().copied().max().unwrap_or(0);
+        let parts_bytes: u64 = part_sizes.iter().map(|&p| Part::bytes_for(p)).sum();
+        let hashes_bytes = distinct * 16 + widen(parts_per_unit) * 24;
+        let outputs: u64 = bucket_sizes.iter().map(|&s| widen(s) + 24).sum::<u64>()
+            + widen(bucket_sizes.len()) * 8
+            + widen(parts_per_unit) * 12;
+        credit.require(hashes_bytes + Part::solver_bytes(largest) + parts_bytes + outputs)?;
+        let mut by_part: Vec<Vec<KeyHash>> = part_sizes
+            .iter()
+            .map(|&s| Vec::with_capacity(index(u64::from(s))))
+            .collect();
         for e in table.entries() {
             by_part[part_of(e.hash)].push(e.hash);
         }
@@ -863,18 +1172,19 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         for hashes in &by_part {
             let part = build_part(hashes).map_err(|e| match e {
                 PartError::Collision => DictionaryError::HashCollision,
-                PartError::Unsolvable => {
-                    DictionaryError::Corrupt("a hash function part could not be solved")
-                }
+                PartError::Unsolvable => DictionaryError::Unsolvable,
             })?;
             part_base.push(n);
             n += part.n;
             parts.push(part);
         }
         drop(by_part);
-        let mut buckets: Vec<Vec<u8>> = vec![Vec::new(); splitters.len() + 1];
+        let mut buckets: Vec<Vec<u8>> = bucket_sizes
+            .iter()
+            .map(|&s| Vec::with_capacity(s))
+            .collect();
         let mut counts = vec![0_u64; splitters.len() + 1];
-        let unit_u32 = u32::try_from(unit).expect("at most 2^12 units");
+        let unit_u32 = u32::try_from(unit).expect("at most 2^10 units");
         for e in table.entries() {
             let p = part_of(e.hash);
             let local = part_base[p] + parts[p].eval(e.hash);
@@ -892,21 +1202,40 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             out.extend_from_slice(key);
             counts[r] += 1;
         }
+        // The parts stay in memory with the dictionary: their reservation goes with
+        // them.
+        let resident = credit.split_off(parts_bytes);
         Ok((
             UnitOut {
                 parts,
                 n,
                 buckets,
                 counts,
+                resident,
             },
             credit.into_reservation(),
         ))
     }
 
-    fn build_dense(self) -> Result<Dictionary<'a, Sc::Source>, DictionaryError> {
-        let bits = self.dense.expect("dense path");
+    fn build_dense(mut self) -> Result<Dictionary<'a, Sc::Source>, DictionaryError> {
+        let bits = self.dense.take().expect("dense path");
+        // The rule first, from the segments in place: a sparse set is never copied
+        // into a bitmap spanning its largest key.
+        let (n, max) = bits.count_and_max();
+        if !dense_enough(n, max) {
+            return Self::rehash(
+                self.column,
+                self.kind,
+                self.layout,
+                self.seed,
+                self.accountant,
+                self.scratch,
+                self.invalid,
+                &bits,
+            );
+        }
         // The rank bitmap is a copy of the segments, made while they still exist.
-        let resident = Reservation::new(
+        let copy = Reservation::new(
             self.accountant,
             "id dictionary dense bitmap",
             RankBitmap::bytes(bits.word_len()),
@@ -931,13 +1260,58 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             None,
             Some(bitmap),
             self.accountant,
-            resident,
+            vec![copy],
         )
+    }
+
+    /// Builds the hashed form of the keys of a bitmap.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fields of a consumed Distinct"
+    )]
+    fn rehash(
+        column: ColumnType,
+        kind: KeyKind,
+        layout: Layout,
+        seed: u64,
+        accountant: &'a dyn MemoryAccountant,
+        scratch: &'a Sc,
+        invalid: InvalidKeys,
+        bits: &DenseBits<'a>,
+    ) -> Result<Dictionary<'a, Sc::Source>, DictionaryError> {
+        let options = BuildOptions {
+            order: IdOrder::SortedKey,
+            layout,
+            kind: Some(kind),
+            dense: false,
+            hash_seed: seed,
+        };
+        let collector = Collector::new(column, kind, &options, accountant, scratch)?;
+        let base = dense_base(column);
+        let grain = NonZeroUsize::new(64).expect("non-zero");
+        let results = par::map_ranges(
+            DenseBits::SEGMENTS,
+            grain,
+            |r| -> Result<(), DictionaryError> {
+                let mut worker = collector.worker()?;
+                bits.for_each_key(r, |bit| {
+                    let code = base + u64::from(bit);
+                    worker.add_normalized(u64::from(bit), &code.to_be_bytes())
+                })
+            },
+        );
+        results
+            .into_iter()
+            .find_map(Result::err)
+            .map_or(Ok(()), Err)?;
+        let mut distinct = collector.finish()?;
+        distinct.invalid = invalid;
+        distinct.build_hashed()
     }
 }
 
 fn refused(accountant: &dyn MemoryAccountant) -> DictionaryError {
-    DictionaryError::Budget(everygraph_core::InsufficientBudget::new(
+    DictionaryError::Budget(InsufficientBudget::new(
         "id dictionary distinct keys",
         1 << 16,
         accountant.available(),
@@ -949,19 +1323,21 @@ struct Splitter {
     key: Vec<u8>,
 }
 
-struct UnitOut {
+struct UnitOut<'a> {
     parts: Vec<Part>,
     n: u32,
     buckets: Vec<Vec<u8>>,
     counts: Vec<u64>,
+    resident: Reservation<'a>,
 }
 
 fn parse_located(
     bytes: &[u8],
     order: IdOrder,
     width: Option<usize>,
+    count: usize,
 ) -> Result<Vec<Located<'_>>, DictionaryError> {
-    let mut items = Vec::new();
+    let mut items = Vec::with_capacity(count);
     let mut at = 0;
     let truncated = || DictionaryError::Corrupt("truncated order bucket");
     while at < bytes.len() {
@@ -984,6 +1360,9 @@ fn parse_located(
             ))),
         };
         let key = take(len)?;
+        if items.len() == count {
+            return Err(DictionaryError::Corrupt("order bucket longer than counted"));
+        }
         items.push(Located {
             pos,
             unit,
@@ -995,7 +1374,7 @@ fn parse_located(
 }
 
 /// Reads `source` in pieces of `record` bytes (a few thousand at a time) and calls `f`
-/// with each piece's first record index and bytes.
+/// with each piece's first record index and bytes. Holds a buffer of about 1 MiB.
 pub(crate) fn for_each_record_chunk(
     source: &dyn ByteSource,
     record: usize,

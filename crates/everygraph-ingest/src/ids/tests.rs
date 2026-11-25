@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Tests of the whole dictionary against a reference computed the obvious way.
+//! Tests of the whole dictionary against a reference computed the obvious way, and
+//! against hostile sections.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -65,7 +66,7 @@ impl KeySource for Keys {
     }
 }
 
-/// A scratch in memory that counts the runs the distinct-key pass spilled.
+/// A scratch in memory that counts the writers made for each purpose.
 #[derive(Default)]
 struct CountingScratch {
     created: Mutex<Vec<&'static str>>,
@@ -96,8 +97,8 @@ impl Scratch for CountingScratch {
     }
 }
 
-/// The ids the dictionary must assign, computed the obvious way: normalized key ->
-/// (id, an original spelling).
+/// The ids the dictionary must assign, computed the obvious way (keys that do not fit
+/// the kind are left out): normalized key -> id.
 fn reference(
     kind: KeyKind,
     column: ColumnType,
@@ -107,11 +108,9 @@ fn reference(
     let mut first: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
     for (pos, k) in keys.iter().enumerate() {
         let mut buf = [0; MAX_FIXED_WIDTH];
-        let norm = kind
-            .normalize(column, k.key(), &mut buf)
-            .expect("the kind accepts every key")
-            .to_vec();
-        first.entry(norm).or_insert(pos);
+        if let Some(norm) = kind.normalize(column, k.key(), &mut buf) {
+            first.entry(norm.to_vec()).or_insert(pos);
+        }
     }
     let mut sorted: Vec<(Vec<u8>, usize)> = first.into_iter().collect();
     if order.resolve(kind) == IdOrder::FirstAppearance {
@@ -134,7 +133,10 @@ fn check<S: ByteSource>(dict: &Dictionary<'_, S>, column: ColumnType, keys: &[In
     );
     for k in keys {
         let mut buf = [0; MAX_FIXED_WIDTH];
-        let norm = kind.normalize(column, k.key(), &mut buf).unwrap();
+        let Some(norm) = kind.normalize(column, k.key(), &mut buf) else {
+            assert_eq!(dict.lookup(k.key()).unwrap(), None);
+            continue;
+        };
         let id = expected[norm];
         assert_eq!(
             dict.lookup(k.key()).unwrap(),
@@ -159,6 +161,21 @@ fn check<S: ByteSource>(dict: &Dictionary<'_, S>, column: ColumnType, keys: &[In
     ));
 }
 
+fn build_all<'a, Sc: Scratch>(
+    column: ColumnType,
+    keys: &[In],
+    options: BuildOptions,
+    budget: &'a Budget,
+    scratch: &'a Sc,
+) -> Built<'a, Sc::Source> {
+    let source = Keys {
+        column,
+        keys: keys.to_vec(),
+        chunk: 97,
+    };
+    build_dictionary(&source, &options, budget, scratch).unwrap()
+}
+
 fn build<'a, Sc: Scratch>(
     column: ColumnType,
     keys: &[In],
@@ -166,12 +183,7 @@ fn build<'a, Sc: Scratch>(
     budget: &'a Budget,
     scratch: &'a Sc,
 ) -> Dictionary<'a, Sc::Source> {
-    let source = Keys {
-        column,
-        keys: keys.to_vec(),
-        chunk: 97,
-    };
-    build_dictionary(&source, &options, budget, scratch).unwrap()
+    build_all(column, keys, options, budget, scratch).dictionary
 }
 
 /// Sections by name.
@@ -188,15 +200,20 @@ fn section_bytes<S: ByteSource>(dict: &Dictionary<'_, S>) -> Vec<(&'static str, 
         .collect()
 }
 
+fn open_bytes<'a>(
+    bytes: &Sections,
+    budget: &'a Budget,
+) -> Result<Dictionary<'a, MemorySource<Vec<u8>>>, DictionaryError> {
+    Dictionary::open(budget, |name| {
+        bytes.get(name).map(|b| MemorySource::new(b.clone()))
+    })
+}
+
 fn reopen<'a>(
     dict: &Dictionary<'_, MemorySource<Vec<u8>>>,
     budget: &'a Budget,
 ) -> Dictionary<'a, MemorySource<Vec<u8>>> {
-    let bytes: BTreeMap<&str, Vec<u8>> = section_bytes(dict).into_iter().collect();
-    Dictionary::open(budget, |name| {
-        bytes.get(name).map(|b| MemorySource::new(b.clone()))
-    })
-    .unwrap()
+    open_bytes(&section_bytes(dict).into_iter().collect(), budget).unwrap()
 }
 
 fn splitmix(mut z: u64) -> u64 {
@@ -244,44 +261,42 @@ fn users(distinct: u64, len: u64) -> Vec<In> {
         .collect()
 }
 
+const HEX40: KeyKind = KeyKind::Hex {
+    prefixed: true,
+    digits: 40,
+};
+
 #[test]
 fn every_kind_order_and_layout_matches_the_reference_and_survives_reopening() {
     let utf8 = ColumnType::Utf8;
     let cases: Vec<(ColumnType, Vec<In>, KeyKind)> = vec![
-        (
-            utf8,
-            addresses(3000, 9000),
-            KeyKind::Hex {
-                prefix: HexPrefix::Lower,
-                digits: 40,
-            },
-        ),
+        (utf8, addresses(3000, 9000), HEX40),
         (utf8, users(3000, 9000), KeyKind::Bytes),
         (
             ColumnType::Int { bits: 64 },
             (0..5000)
                 .map(|i| In::Int(i64::try_from(splitmix(i) % 4000).unwrap()))
                 .collect(),
-            KeyKind::Integers { dense: true },
+            KeyKind::Integers,
         ),
         (
             ColumnType::Int { bits: 64 },
             (0..5000)
                 .map(|i| In::Int(i64::from_ne_bytes(splitmix(i % 1500).to_ne_bytes())))
                 .collect(),
-            KeyKind::Integers { dense: false },
+            KeyKind::Integers,
         ),
         (
             ColumnType::UInt { bits: 32 },
             (0..5000).map(|i| In::UInt(splitmix(i) % 100)).collect(),
-            KeyKind::Integers { dense: true },
+            KeyKind::Integers,
         ),
         (
             utf8,
             (0..3000)
                 .map(|i| text((splitmix(i) % 2000).to_string()))
                 .collect(),
-            KeyKind::Integers { dense: true },
+            KeyKind::Integers,
         ),
         (
             utf8,
@@ -301,7 +316,7 @@ fn every_kind_order_and_layout_matches_the_reference_and_survives_reopening() {
             KeyKind::Uuid,
         ),
         (
-            ColumnType::Binary,
+            ColumnType::FixedBinary { width: 5 },
             (0..3000)
                 .map(|i| In::Bytes(splitmix(i % 800).to_le_bytes()[..5].to_vec()))
                 .collect(),
@@ -335,7 +350,9 @@ fn every_kind_order_and_layout_matches_the_reference_and_survives_reopening() {
                 let options = BuildOptions::default()
                     .with_order(order)
                     .with_layout(layout);
-                let dict = build(*column, keys, options, &budget, &MemoryScratch);
+                let built = build_all(*column, keys, options, &budget, &MemoryScratch);
+                let dict = built.dictionary;
+                assert_eq!(built.invalid.count, 0);
                 assert_eq!(dict.kind(), *kind);
                 assert_eq!(dict.order(), order.resolve(*kind));
                 check(&dict, *column, keys, order);
@@ -350,9 +367,9 @@ fn every_kind_order_and_layout_matches_the_reference_and_survives_reopening() {
 }
 
 #[test]
-fn hexadecimal_keys_are_found_in_any_case_and_come_back_lowercase() {
+fn hexadecimal_keys_are_found_in_any_case_and_come_back_lowercase_with_0x() {
     let keys = vec![
-        text("0xAbCdEf0123456789abcdef0123456789ABCDEF01"),
+        text("0XAbCdEf0123456789abcdef0123456789ABCDEF01"),
         text("0x00000000000000000000000000000000000000ff"),
     ];
     let budget = Budget::new(1 << 28);
@@ -364,7 +381,7 @@ fn hexadecimal_keys_are_found_in_any_case_and_come_back_lowercase() {
         &MemoryScratch,
     );
     let id = dict
-        .lookup(Key::from("0XABCDEF0123456789ABCDEF0123456789ABCDEF01"))
+        .lookup(Key::from("0xABCDEF0123456789ABCDEF0123456789ABCDEF01"))
         .unwrap()
         .unwrap();
     assert_eq!(id, NodeId::new(0));
@@ -385,39 +402,127 @@ fn hexadecimal_keys_are_found_in_any_case_and_come_back_lowercase() {
     assert_eq!(dict.lookup(Key::Int(5)).unwrap(), None);
 }
 
+/// One stray value is an invalid row; it does not change the identity of the other
+/// nodes (the review of PR #158: one bad key turned 155,184 nodes into 205,047).
 #[test]
-fn a_key_that_breaks_the_sampled_kind_widens_it() {
-    let mut keys = addresses(5000, 5000);
-    keys.push(text("not-an-address"));
-    keys.extend(addresses(5000, 100));
-    let budget = Budget::new(1 << 28);
-    let dict = build(
+fn a_stray_key_is_an_invalid_row_and_changes_no_other_node() {
+    let clean = addresses(150_000, 200_000);
+    let budget = Budget::new(1 << 30);
+    let reference = build(
         ColumnType::Utf8,
+        &clean,
+        BuildOptions::default(),
+        &budget,
+        &MemoryScratch,
+    );
+    let mut dirty = clean.clone();
+    dirty.insert(5000, text("0x"));
+    dirty.push(text("not-an-address"));
+    dirty.push(text(""));
+    let built = build_all(
+        ColumnType::Utf8,
+        &dirty,
+        BuildOptions::default(),
+        &budget,
+        &MemoryScratch,
+    );
+    assert_eq!(built.dictionary.kind(), HEX40);
+    assert_eq!(built.dictionary.len(), reference.len());
+    assert_eq!(built.invalid.count, 3);
+    let positions: Vec<u64> = built.invalid.first.iter().map(|k| k.position).collect();
+    assert_eq!(positions, vec![5000, 200_001, 200_002]);
+    assert_eq!(built.invalid.first[0].key, "0x");
+    check(
+        &built.dictionary,
+        ColumnType::Utf8,
+        &dirty,
+        IdOrder::Natural,
+    );
+    // `ids="string"` keeps every key as text: case matters, nothing is invalid.
+    let as_text = build_all(
+        ColumnType::Utf8,
+        &dirty,
+        BuildOptions::default().with_kind(KeyKind::Bytes),
+        &budget,
+        &MemoryScratch,
+    );
+    assert_eq!(as_text.dictionary.kind(), KeyKind::Bytes);
+    assert_eq!(as_text.invalid.count, 0);
+    assert!(as_text.dictionary.len() > reference.len());
+    // A kind that cannot hold the column is refused.
+    let source = Keys {
+        column: ColumnType::Utf8,
+        keys: dirty,
+        chunk: 100,
+    };
+    let options = BuildOptions::default().with_kind(KeyKind::Fixed { width: 3 });
+    assert!(matches!(
+        build_dictionary(&source, &options, &budget, &MemoryScratch),
+        Err(DictionaryError::Unsupported(_))
+    ));
+}
+
+/// The review's case: 309 unsigned keys drawn from 0..3·10^9 are not dense; under a
+/// 64 MiB budget they build through the hash function, with a small resident part.
+#[test]
+fn sparse_integers_below_2_to_the_32_take_the_hashed_form() {
+    let keys: Vec<In> = (0..309)
+        .map(|i| In::UInt(splitmix(i) % 3_000_000_000))
+        .collect();
+    let budget = Budget::new(64 << 20);
+    let dict = build(
+        ColumnType::UInt { bits: 64 },
         &keys,
         BuildOptions::default(),
         &budget,
         &MemoryScratch,
     );
-    assert_eq!(dict.kind(), KeyKind::Bytes);
-    check(&dict, ColumnType::Utf8, &keys, IdOrder::Natural);
-    // As text, the mixed-case spellings are different keys.
-    let ints: Vec<In> = (0..300)
-        .map(|i| In::UInt(if i == 299 { 1 << 40 } else { i }))
-        .collect();
-    let dict = build(
-        ColumnType::UInt { bits: 64 },
-        &ints,
-        BuildOptions::default(),
-        &budget,
-        &MemoryScratch,
-    );
-    assert_eq!(dict.kind(), KeyKind::Integers { dense: false });
+    assert!(dict.sections().any(|(name, _)| name == "ids.parts"));
+    assert!(dict.sections().all(|(name, _)| name != "ids.dense"));
+    assert!(dict.resident_bytes() < 1 << 16, "{}", dict.resident_bytes());
+    assert!(budget.peak() < 32 << 20, "{}", budget.peak());
     check(
         &dict,
         ColumnType::UInt { bits: 64 },
-        &ints,
+        &keys,
         IdOrder::Natural,
     );
+}
+
+/// Dense keys keep the bitmap; the same keys with the bitmap turned off get the same
+/// ids through the hash function; a key of 2^32 or more sends the build to the hashed
+/// form.
+#[test]
+fn dense_integers_keep_the_bitmap_and_the_same_ids_either_way() {
+    let u = ColumnType::UInt { bits: 64 };
+    let keys: Vec<In> = (0..50_000)
+        .map(|i| In::UInt(splitmix(i) % 100_000))
+        .collect();
+    let budget = Budget::new(1 << 30);
+    let dense = build(u, &keys, BuildOptions::default(), &budget, &MemoryScratch);
+    assert!(dense.sections().any(|(name, _)| name == "ids.dense"));
+    let options = BuildOptions {
+        dense: false,
+        ..BuildOptions::default()
+    };
+    let hashed = build(u, &keys, options, &budget, &MemoryScratch);
+    assert!(hashed.sections().any(|(name, _)| name == "ids.parts"));
+    for k in &keys {
+        assert_eq!(
+            dense.lookup(k.key()).unwrap(),
+            hashed.lookup(k.key()).unwrap()
+        );
+    }
+    check(&dense, u, &keys, IdOrder::Natural);
+    let mut wide = keys.clone();
+    wide.push(In::UInt(1 << 40));
+    let built = build(u, &wide, BuildOptions::default(), &budget, &MemoryScratch);
+    assert!(built.sections().any(|(name, _)| name == "ids.parts"));
+    check(&built, u, &wide, IdOrder::Natural);
+    // The rule itself: at most 64 bits of bitmap per key.
+    assert!(build::dense_enough(10, Some(639)));
+    assert!(!build::dense_enough(10, Some(640)));
+    assert!(build::dense_enough(0, None));
 }
 
 /// The section bytes of a build — and so every id — are the same under any budget,
@@ -460,17 +565,23 @@ fn ids_do_not_depend_on_the_budget_and_a_small_budget_spills() {
         assert_eq!(section_bytes(&dict), reference, "{order:?} {layout:?}");
         assert!(small.peak() <= budget);
         // More runs than one per worker: tables spilled under pressure. The 160,000
-        // distinct keys need about 18 MiB of table, more than the budget, so this holds
-        // at any thread count.
+        // distinct keys need about 18 MiB of table, more than the budget, and the
+        // number of workers follows the budget, not the threads.
+        // More runs than workers: some table spilled before the end of the pass.
         let runs = scratch.count("id dictionary run");
-        assert!(runs > big_runs, "{runs} runs, {big_runs} without pressure");
+        let workers = build::worker_cap(budget);
+        assert!(
+            u64::try_from(runs).unwrap() > workers,
+            "{runs} runs for {workers} workers"
+        );
+        assert!(big_runs >= 1);
         assert!(scratch.count("id dictionary order bucket") > 1);
         assert!(scratch.count("id dictionary scatter") > 1);
     }
 }
 
 #[test]
-fn a_budget_that_cannot_hold_the_work_is_refused_before_allocating() {
+fn a_budget_that_cannot_hold_the_work_is_refused() {
     let keys = addresses(1000, 2000);
     let budget = Budget::new(4096);
     let source = Keys {
@@ -637,6 +748,148 @@ fn prefix_and_range_search_agree_with_a_scan() {
     ));
 }
 
+/// Writes `value` as little-endian `u64`s over a section.
+fn fill_u64(bytes: &mut [u8], from: usize, value: u64) {
+    for c in bytes[from..].chunks_exact_mut(8) {
+        c.copy_from_slice(&value.to_le_bytes());
+    }
+}
+
+fn fill_u32(bytes: &mut [u8], value: u32) {
+    for c in bytes.chunks_exact_mut(4) {
+        c.copy_from_slice(&value.to_le_bytes());
+    }
+}
+
+/// Every look-up of every key and every id, which must end in a value or an error,
+/// never an abort, and never in an id at or above `len`.
+fn probe<S: ByteSource>(dict: &Dictionary<'_, S>, keys: &[In]) -> Result<(), DictionaryError> {
+    for k in keys {
+        for id in [dict.lookup(k.key())?, dict.id_of_member(k.key())?]
+            .into_iter()
+            .flatten()
+        {
+            assert!(
+                id.get() < dict.len(),
+                "id {id} for a dictionary of {}",
+                dict.len()
+            );
+        }
+    }
+    let mut out = Vec::new();
+    for id in 0..dict.len() {
+        dict.normalized_key(NodeId::new(id), &mut out)?;
+        assert!(dict.graph_position(NodeId::new(id))? < dict.len());
+    }
+    Ok(())
+}
+
+/// The review's hostile files (M1, M2): offsets of 2^40, a truncated key store, ids of
+/// `u32::MAX` in every array of ids, a remap outside its part, a huge header. Each is
+/// refused when opened or by the look-up that meets it, with an error.
+#[test]
+fn hostile_sections_are_refused_without_aborting() {
+    let budget = Budget::new(1 << 30);
+    let utf8 = ColumnType::Utf8;
+    let keys = users(100, 300);
+    let split = build(
+        utf8,
+        &keys,
+        BuildOptions::default(),
+        &budget,
+        &MemoryScratch,
+    );
+    let slot = build(
+        utf8,
+        &keys,
+        BuildOptions::default().with_layout(Layout::SlotOrdered),
+        &budget,
+        &MemoryScratch,
+    );
+    let ints: Vec<In> = (0..300).map(|i| In::UInt(i % 100)).collect();
+    let dense = build(
+        ColumnType::UInt { bits: 64 },
+        &ints,
+        BuildOptions::default(),
+        &budget,
+        &MemoryScratch,
+    );
+    let perm: Vec<u32> = (0..split.len()).rev().collect();
+    let renumbered = split.renumber(&perm, &MemoryScratch, &budget).unwrap();
+    let dense_perm: Vec<u32> = (0..dense.len()).rev().collect();
+    let dense_renumbered = dense
+        .renumber(&dense_perm, &MemoryScratch, &budget)
+        .unwrap();
+
+    let refused = |dict: &Dictionary<'_, MemorySource<Vec<u8>>>,
+                   keys: &[In],
+                   edit: &dyn Fn(&mut Sections)| {
+        let mut bytes: Sections = section_bytes(dict).into_iter().collect();
+        edit(&mut bytes);
+        let result = open_bytes(&bytes, &budget).and_then(|d| probe(&d, keys));
+        assert!(
+            matches!(result, Err(DictionaryError::Corrupt(_))),
+            "{result:?}"
+        );
+    };
+    // M1: offsets past their section (2^40), and a key store cut in half.
+    refused(&split, &keys, &|b| {
+        fill_u64(b.get_mut("ids.key_offsets").unwrap(), 8, 1 << 40);
+    });
+    refused(&slot, &keys, &|b| {
+        fill_u64(b.get_mut("ids.record_offsets").unwrap(), 8, 1 << 40);
+    });
+    refused(&split, &keys, &|b| {
+        let k = b.get_mut("ids.keys").unwrap();
+        k.truncate(k.len() / 2);
+    });
+    // M2: ids of u32::MAX.
+    refused(&split, &keys, &|b| {
+        fill_u32(b.get_mut("ids.slot_to_id").unwrap(), u32::MAX);
+    });
+    refused(&slot, &keys, &|b| {
+        // The id of every record is its first 4 bytes; spoil them all.
+        let o = b.get("ids.record_offsets").unwrap().clone();
+        let r = b.get_mut("ids.records").unwrap();
+        for c in o.chunks_exact(8).take(o.len() / 8 - 1) {
+            let at = usize::try_from(u64::from_le_bytes(c.try_into().unwrap())).unwrap();
+            r[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        }
+    });
+    refused(&slot, &keys, &|b| {
+        fill_u32(b.get_mut("ids.id_to_slot").unwrap(), u32::MAX);
+    });
+    refused(&renumbered, &keys, &|b| {
+        fill_u32(b.get_mut("ids.order").unwrap(), u32::MAX);
+    });
+    refused(&dense_renumbered, &ints, &|b| {
+        fill_u32(b.get_mut("ids.rank_to_id").unwrap(), u32::MAX);
+    });
+    refused(&dense_renumbered, &ints, &|b| {
+        fill_u32(b.get_mut("ids.id_to_rank").unwrap(), u32::MAX);
+    });
+    // A remap entry outside its part (the reviewer's surviving mutation).
+    let big = build(
+        utf8,
+        &users(5000, 5000),
+        BuildOptions::default(),
+        &budget,
+        &MemoryScratch,
+    );
+    refused(&big, &[], &|b| {
+        fill_u32(b.get_mut("ids.remap").unwrap(), u32::MAX);
+    });
+    // A header of 64 MiB is refused by its length, before it is read.
+    refused(&split, &keys, &|b| {
+        b.get_mut("ids.header").unwrap().resize(64 << 20, 0);
+    });
+    let before = budget.available();
+    refused(&split, &keys, &|b| {
+        b.get_mut("ids.pilots").unwrap().push(0);
+    });
+    assert_eq!(budget.available(), before);
+}
+
 #[test]
 fn damaged_sections_are_refused() {
     let budget = Budget::new(1 << 28);
@@ -651,10 +904,7 @@ fn damaged_sections_are_refused() {
     let open = |edit: &dyn Fn(&mut Sections)| {
         let mut b = bytes.clone();
         edit(&mut b);
-        Dictionary::open(&budget, |name| {
-            b.get(name).map(|v| MemorySource::new(v.clone()))
-        })
-        .map(|_| ())
+        open_bytes(&b, &budget).map(|_| ())
     };
     assert!(open(&|_| {}).is_ok());
     assert!(matches!(
@@ -696,24 +946,33 @@ fn damaged_sections_are_refused() {
     assert_eq!(budget.available(), budget.total() - dict.resident_bytes());
 }
 
-/// A digest of every section of a build that exercises spilling, printed for
+/// A digest of every section of builds that spill, printed for
 /// [`ids_do_not_depend_on_the_thread_count`], which runs it in child processes with
-/// different thread counts.
+/// different thread counts. It checks there that the small budget spilled.
 #[test]
 #[ignore = "run by ids_do_not_depend_on_the_thread_count in a child process"]
 fn digest_probe() {
-    let keys = addresses(40_000, 100_000);
+    let keys = addresses(160_000, 200_000);
     let mut digest = 0_u64;
     for layout in [Layout::Split, Layout::SlotOrdered] {
         for budget in [12 << 20, 1 << 30] {
             let budget = Budget::new(budget);
+            let scratch = CountingScratch::default();
             let dict = build(
                 ColumnType::Utf8,
                 &keys,
                 BuildOptions::default().with_layout(layout),
                 &budget,
-                &MemoryScratch,
+                &scratch,
             );
+            if budget.total() < 1 << 24 {
+                let runs = u64::try_from(scratch.count("id dictionary run")).unwrap();
+                assert!(
+                    runs > build::worker_cap(budget.total()),
+                    "no spill at {}",
+                    budget.total()
+                );
+            }
             for (name, bytes) in section_bytes(&dict) {
                 digest = splitmix(
                     digest
@@ -733,11 +992,13 @@ fn digest_probe() {
     }
 }
 
+/// Builds succeed, and give the same bytes, at 1, 16 and 128 threads under a 12 MiB
+/// budget (the review of PR #158 made one fail at 128 threads).
 #[test]
 fn ids_do_not_depend_on_the_thread_count() {
     let exe = std::env::current_exe().unwrap();
     let mut digests = Vec::new();
-    for threads in ["1", "3", "8"] {
+    for threads in ["1", "16", "128"] {
         let out = std::process::Command::new(&exe)
             .args([
                 "--exact",
@@ -784,5 +1045,39 @@ proptest! {
         let budget = Budget::new(1 << 28);
         let dict = build(column, &keys, BuildOptions::default().with_order(order).with_layout(layout), &budget, &MemoryScratch);
         check(&dict, column, &keys, order);
+    }
+
+    /// A cheap fuzz target: random bytes changed anywhere in the sections of small
+    /// dictionaries of every layout. Opening and every look-up end in a value or an
+    /// error — no panic, no abort — and an id found is always below `len`.
+    #[test]
+    fn opening_and_looking_up_damaged_sections_never_panics(
+        case in 0_usize..4,
+        edits in proptest::collection::vec((0_usize..14, any::<u32>(), any::<u8>()), 1..8),
+    ) {
+        let budget = Budget::new(1 << 28);
+        let utf8 = ColumnType::Utf8;
+        let ints: Vec<In> = (0..120).map(|i| In::UInt(i % 40)).collect();
+        let keys = users(40, 120);
+        let (column, input, options) = match case {
+            0 => (utf8, keys, BuildOptions::default()),
+            1 => (utf8, keys, BuildOptions::default().with_layout(Layout::SlotOrdered)),
+            2 => (utf8, addresses(40, 120), BuildOptions::default()),
+            _ => (ColumnType::UInt { bits: 64 }, ints, BuildOptions::default()),
+        };
+        let dict = build(column, &input, options, &budget, &MemoryScratch);
+        let mut bytes: Sections = section_bytes(&dict).into_iter().collect();
+        let names: Vec<&'static str> = bytes.keys().copied().collect();
+        for (section, at, value) in edits {
+            let name = names[section % names.len()];
+            let b = bytes.get_mut(name).unwrap();
+            if !b.is_empty() {
+                let at = usize::try_from(at).unwrap() % b.len();
+                b[at] = value;
+            }
+        }
+        if let Ok(d) = open_bytes(&bytes, &budget) {
+            let _ = probe(&d, &input);
+        }
     }
 }

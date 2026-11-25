@@ -7,7 +7,7 @@
 //! id_dictionary --keys eth|ethbin|user|int|sparse|file:PATH [--n N] [--stream M]
 //!     [--budget BYTES] [--scratch memory|dir:PATH] [--layout split|slot]
 //!     [--order natural|first|sorted] [--lookups Q] [--map M] [--pregenerate yes]
-//!     [--cold Q]
+//!     [--cold Q] [--build-only yes]
 //! ```
 //!
 //! `--keys`: synthetic Ethereum-like addresses as 42-character text (`eth`) or 20
@@ -33,7 +33,6 @@ mod bench {
     use std::num::NonZeroUsize;
     use std::os::unix::fs::FileExt;
     use std::path::PathBuf;
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
@@ -61,6 +60,7 @@ mod bench {
         pregenerate: bool,
         pregenerated: bool,
         cold: u64,
+        build_only: bool,
     }
 
     fn parse_args() -> Result<Args, BoxError> {
@@ -77,6 +77,7 @@ mod bench {
             pregenerate: false,
             pregenerated: false,
             cold: 0,
+            build_only: false,
         };
         let mut it = std::env::args().skip(1);
         while let Some(flag) = it.next() {
@@ -106,6 +107,7 @@ mod bench {
                 "--map" => a.map = value.parse()?,
                 "--pregenerate" => a.pregenerate = value == "yes",
                 "--cold" => a.cold = value.parse()?,
+                "--build-only" => a.build_only = value == "yes",
                 _ => return Err(format!("unknown flag {flag}").into()),
             }
         }
@@ -158,7 +160,7 @@ mod bench {
         fn column(&self) -> ColumnType {
             match self {
                 Self::Synthetic(k) | Self::Flat { kind: k, .. } if k == "ethbin" => {
-                    ColumnType::Binary
+                    ColumnType::FixedBinary { width: 20 }
                 }
                 Self::Synthetic(k) if k == "int" || k == "sparse" => ColumnType::UInt { bits: 64 },
                 _ => ColumnType::Utf8,
@@ -499,39 +501,38 @@ mod bench {
                 .into_iter()
                 .chain(sample_bufs.iter().map(|b| Key::Bytes(b))),
         );
-        let options = BuildOptions::default()
+        let mut options = BuildOptions::default()
             .with_layout(args.layout)
             .with_order(args.order);
 
         let t0 = Instant::now();
-        let collector = Collector::new(column, kind, &options, budget, scratch)?;
         let chunks = usize::try_from(args.stream.div_ceil(CHUNK))?;
-        let pool = Mutex::new(Vec::new());
-        let errors: Vec<Result<(), DictionaryError>> =
-            par::map_ranges(chunks, NonZeroUsize::MIN, |r| {
-                let popped = pool.lock().expect("pool").pop();
-                let mut w = match popped {
-                    Some(w) => w,
-                    None => collector.worker()?,
-                };
-                let start = u64::try_from(r.start).expect("chunk") * CHUNK;
-                let mut buf = Vec::with_capacity(64);
-                let mut result = Ok(());
-                for j in start..(start + CHUNK).min(args.stream) {
-                    let key = keys.key(occurrence(args, j), &mut buf);
-                    if let Err(e) = w.add(j, key) {
-                        result = Err(e);
-                        break;
+        // As `build_dictionary` does: a pass that meets an integer outside 0..2^32 (or a
+        // bitmap the budget refuses) starts again in the hashed form.
+        let distinct = loop {
+            let collector = Collector::new(column, kind, &options, budget, scratch)?;
+            let results: Vec<Result<(), DictionaryError>> =
+                par::map_ranges(chunks, NonZeroUsize::MIN, |r| {
+                    let mut w = collector.worker()?;
+                    let start = u64::try_from(r.start).expect("chunk") * CHUNK;
+                    let mut buf = Vec::with_capacity(64);
+                    for j in start..(start + CHUNK).min(args.stream) {
+                        let key = keys.key(occurrence(args, j), &mut buf);
+                        w.add(j, key)?;
                     }
+                    Ok(())
+                });
+            match results.into_iter().collect::<Result<(), _>>() {
+                Err(DictionaryError::NotDense | DictionaryError::Budget(_)) if options.dense => {
+                    options.dense = false;
                 }
-                pool.lock().expect("pool").push(w);
-                result
-            });
-        errors.into_iter().collect::<Result<(), _>>()?;
-        for w in pool.into_inner().expect("pool") {
-            w.finish()?;
-        }
-        let distinct = collector.finish()?;
+                other => {
+                    other?;
+                    break collector.finish()?;
+                }
+            }
+        };
+        let invalid = distinct.invalid().count;
         let distinct_s = t0.elapsed().as_secs_f64();
         let t1 = Instant::now();
         let dict = distinct.build()?;
@@ -549,6 +550,20 @@ mod bench {
             dict.kind()
         );
 
+        if args.build_only {
+            // The build alone, for memory measurements: nothing is loaded afterwards.
+            return Ok(format!(
+                "{{\"keys\":\"{}\",\"kind\":\"{:?}\",\"n\":{},\"budget\":{},\"build_s\":{:.4},\"peak_reserved_bytes\":{},\"invalid\":{},\"bytes_per_key\":{:.3}}}",
+                args.keys,
+                kind,
+                n,
+                args.budget,
+                build_s,
+                peak_reserved,
+                invalid,
+                total_bytes as f64 / n.max(1) as f64
+            ));
+        }
         let cold = cold_lookups(args, keys, &dict)?;
 
         // Look-ups through in-memory copies of the sections when they fit the budget's
@@ -599,7 +614,7 @@ mod bench {
                 "{{\"keys\":\"{}\",\"kind\":\"{:?}\",\"n\":{},\"stream\":{},\"threads\":\"{}\",\"budget\":{},\"scratch\":\"{}\",",
                 "\"layout\":\"{:?}\",\"order\":\"{:?}\",\"build_s\":{:.4},\"distinct_s\":{:.4},\"phases_s\":{:.4},",
                 "\"keys_per_s\":{:.0},\"peak_reserved_bytes\":{},\"hash_function_bits_per_key\":{:.4},",
-                "\"bytes_per_key\":{:.3},\"sections\":{{{}}},{},{}}}"
+                "\"bytes_per_key\":{:.3},\"invalid\":{},\"sections\":{{{}}},{},{}}}"
             ),
             args.keys,
             kind,
@@ -617,6 +632,7 @@ mod bench {
             peak_reserved,
             resident_bits,
             total_bytes as f64 / n.max(1) as f64,
+            invalid,
             sections_json.join(","),
             lookups,
             cold,
@@ -690,7 +706,14 @@ mod bench {
             }
         };
         let t = Instant::now();
-        let first = d.prefix_search(&prefix_of(0, &mut buf), 100)?;
+        let first = match d.prefix_search(&prefix_of(0, &mut buf), 100) {
+            Ok(first) => first,
+            // The index does not fit what is left of the budget.
+            Err(DictionaryError::Budget(_)) => {
+                return Ok("\"prefix\":\"refused by the budget\"".into());
+            }
+            Err(e) => return Err(e.into()),
+        };
         let build_s = t.elapsed().as_secs_f64();
         std::hint::black_box(first);
         let mut lat = Vec::new();

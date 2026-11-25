@@ -60,18 +60,37 @@ impl<'a> PrefixIndex<'a> {
         accountant: &'a dyn MemoryAccountant,
     ) -> Result<Self, DictionaryError> {
         let n = dict.len();
-        let mut arena = Vec::new();
-        let mut spans: Vec<(u64, u32, u32)> = Vec::with_capacity(index(u64::from(n)));
-        let mut key = Vec::new();
-        // The keys and their ids, then sorted; reserved as twice the arena (the sorted
-        // copy is front-coded and smaller) plus 16 bytes per key.
+        // The index is built in memory, in single arrays: its ids and spans (16 bytes per
+        // key) and the keys must each fit one allocation of at most 1 GiB (about 67 M
+        // keys, 1 GiB of key bytes). Larger dictionaries are refused.
+        let limit = everygraph_core::MAX_ALLOCATION_BYTES;
+        let too_large = || {
+            DictionaryError::Unsupported(
+                "the prefix index holds at most 1 GiB of keys and 67 million keys",
+            )
+        };
+        if u64::from(n) * 16 > limit {
+            return Err(too_large());
+        }
+        // The keys and their ids, then sorted; reserved as the spans, then twice the
+        // arena as it grows (the sorted copy is front-coded and smaller).
         let mut memory =
             Reservation::new(accountant, "id dictionary prefix index", u64::from(n) * 16)?;
+        let mut arena: Vec<u8> = Vec::new();
+        let mut spans: Vec<(u64, u32, u32)> = Vec::with_capacity(index(u64::from(n)));
+        let mut key = Vec::new();
         for id in 0..n {
             dict.normalized_key(NodeId::new(id), &mut key)?;
             if arena.len() + key.len() > arena.capacity() {
-                memory.grow(widen(arena.capacity().max(1 << 16)) * 2)?;
-                arena.reserve(arena.capacity().max(1 << 16));
+                let new_cap = (2 * arena.capacity())
+                    .max(arena.len() + key.len())
+                    .max(1 << 16);
+                if widen(new_cap) > limit {
+                    return Err(too_large());
+                }
+                // The old and new arenas coexist while it grows.
+                memory.grow(2 * widen(new_cap))?;
+                arena.reserve_exact(new_cap - arena.len());
             }
             spans.push((
                 widen(arena.len()),

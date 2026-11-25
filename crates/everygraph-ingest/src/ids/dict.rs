@@ -10,10 +10,12 @@ use everygraph_core::{ByteSource, MemoryAccountant, NodeId, ReadError};
 use super::build::for_each_record_chunk;
 use super::dense::RankBitmap;
 use super::hash::{KeyHash, index};
-use super::kind::{ColumnType, Key, KeyKind, MAX_FIXED_WIDTH, dense_base, dense_index};
-use super::mphf::{Mphf, PartRow};
+use super::kind::{
+    ColumnType, Key, KeyKind, MAX_FIXED_WIDTH, MAX_KEY_BYTES, dense_base, dense_index,
+};
+use super::mphf::{Mphf, Part, PartRow, part_shape};
 use super::prefix::PrefixIndex;
-use super::scratch::{Reservation, Scatter, Scratch, Spill, read_all, widen};
+use super::scratch::{Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, read_range, widen};
 use super::{DictionaryError, IdOrder, Layout};
 
 /// How the keys are found: through the hash function, or (dense integers in sorted
@@ -161,21 +163,29 @@ enum Sec {
 }
 
 /// Writers of the sections a build produces.
-pub(crate) struct SectionWriters<W: std::io::Write> {
+pub(crate) struct SectionWriters<'a, W: std::io::Write> {
     pub(crate) keys: Option<Spill<W>>,
     pub(crate) key_offsets: Option<Spill<W>>,
     pub(crate) id_to_slot: Option<Spill<W>>,
     slot_main: Option<Spill<W>>,
     slot_offsets: Option<Spill<W>>,
     layout: Layout,
+    /// The write buffers of the writers above and of the ones `finish` makes.
+    _buffers: Option<Reservation<'a>>,
 }
 
-impl<W: std::io::Write + Send> SectionWriters<W> {
+impl<'a, W: std::io::Write + Send> SectionWriters<'a, W> {
     pub(crate) fn new<Sc: Scratch<Writer = W>>(
         scratch: &Sc,
+        accountant: &'a dyn MemoryAccountant,
         layout: Layout,
         width: Option<usize>,
     ) -> Result<Self, DictionaryError> {
+        let buffers = Reservation::new(
+            accountant,
+            "id dictionary write buffers",
+            widen(4 * WRITE_BUFFER),
+        )?;
         let spill = || Spill::new(scratch, "id dictionary section");
         let var = width.is_none();
         let mut w = Self {
@@ -185,6 +195,7 @@ impl<W: std::io::Write + Send> SectionWriters<W> {
             slot_main: Some(spill()?),
             slot_offsets: None,
             layout,
+            _buffers: Some(buffers),
         };
         match layout {
             Layout::Split => {
@@ -213,6 +224,7 @@ impl<W: std::io::Write + Send> SectionWriters<W> {
             slot_main: None,
             slot_offsets: None,
             layout: Layout::Split,
+            _buffers: None,
         }
     }
 
@@ -226,15 +238,22 @@ impl<W: std::io::Write + Send> SectionWriters<W> {
     }
 
     /// Writes the remaining sections and opens the dictionary.
-    pub(crate) fn finish<'a, Sc: Scratch<Writer = W>>(
+    pub(crate) fn finish<Sc: Scratch<Writer = W>>(
         self,
         scratch: &Sc,
         header: Header,
         mphf: Option<Mphf>,
         dense: Option<RankBitmap>,
         accountant: &'a dyn MemoryAccountant,
-        resident: Reservation<'a>,
+        resident: Vec<Reservation<'a>>,
     ) -> Result<Dictionary<'a, Sc::Source>, DictionaryError> {
+        // One more write buffer at a time below (each section is sealed before the
+        // next is made).
+        let _buffer = Reservation::new(
+            accountant,
+            "id dictionary write buffers",
+            widen(WRITE_BUFFER),
+        )?;
         let mut sections: [Option<Sc::Source>; 14] = Default::default();
         let mut put = |sec: Sec, spill: Option<Spill<W>>| -> Result<(), DictionaryError> {
             if let Some(s) = spill {
@@ -249,16 +268,25 @@ impl<W: std::io::Write + Send> SectionWriters<W> {
         };
         put(Sec::Header, Some(bytes_section(&header.encode())?))?;
         if let Some(m) = &mphf {
-            let mut parts = Vec::with_capacity(m.parts.len() * PartRow::BYTES);
-            for p in &m.parts {
-                p.encode(&mut parts);
+            let mut rows = Spill::new(scratch, "id dictionary section")?;
+            let mut row = Vec::with_capacity(PartRow::BYTES);
+            for r in m.rows() {
+                row.clear();
+                r.encode(&mut row);
+                rows.write(&row)?;
             }
-            put(Sec::Parts, Some(bytes_section(&parts)?))?;
-            put(Sec::Pilots, Some(bytes_section(&m.pilots)?))?;
+            put(Sec::Parts, Some(rows))?;
+            let mut pilots = Spill::new(scratch, "id dictionary section")?;
+            for p in &m.parts {
+                pilots.write(&p.pilots)?;
+            }
+            put(Sec::Pilots, Some(pilots))?;
             let mut remap = Spill::new(scratch, "id dictionary section")?;
-            for chunk in m.remap.chunks(1 << 14) {
-                let bytes: Vec<u8> = chunk.iter().flat_map(|r| r.to_le_bytes()).collect();
-                remap.write(&bytes)?;
+            for p in &m.parts {
+                for chunk in p.remap.chunks(1 << 12) {
+                    let bytes: Vec<u8> = chunk.iter().flat_map(|r| r.to_le_bytes()).collect();
+                    remap.write(&bytes)?;
+                }
             }
             put(Sec::Remap, Some(remap))?;
         }
@@ -302,7 +330,7 @@ pub struct Dictionary<'a, S> {
     dense: Option<RankBitmap>,
     sections: [Option<S>; 14],
     accountant: &'a dyn MemoryAccountant,
-    _resident: Reservation<'a>,
+    _resident: Vec<Reservation<'a>>,
     prefix: OnceLock<PrefixIndex<'a>>,
 }
 
@@ -327,7 +355,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         dense: Option<RankBitmap>,
         sections: [Option<S>; 14],
         accountant: &'a dyn MemoryAccountant,
-        resident: Reservation<'a>,
+        resident: Vec<Reservation<'a>>,
     ) -> Result<Self, DictionaryError> {
         let d = Self {
             header,
@@ -369,55 +397,107 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         let header_source = sections[Sec::Header as usize]
             .as_ref()
             .ok_or(DictionaryError::Corrupt("no ids.header section"))?;
-        let header = Header::decode(&read_all(header_source)?)?;
-        let small = |sec: Sec| sections[sec as usize].as_ref().map_or(0, ByteSource::len);
-        let resident_bytes = match header.repr {
-            Repr::Hashed => small(Sec::Parts) + small(Sec::Pilots) + small(Sec::Remap),
-            Repr::Dense => RankBitmap::bytes(index(small(Sec::Dense) / 8)),
-        };
-        let resident = Reservation::new(accountant, "id dictionary hash function", resident_bytes)?;
-        let read = |sec: Sec| -> Result<Vec<u8>, DictionaryError> {
-            sections[sec as usize]
-                .as_ref()
-                .map_or(Ok(Vec::new()), |s| read_all(s))
-        };
-        let (mphf, dense) = match header.repr {
+        if header_source.len() != widen(HEADER_BYTES) {
+            return Err(DictionaryError::Corrupt("ids.header is not 64 bytes"));
+        }
+        let header = Header::decode(&read_range(header_source, 0, widen(HEADER_BYTES))?)?;
+        let len_of = |sec: Sec| sections[sec as usize].as_ref().map_or(0, ByteSource::len);
+        let (mphf, dense, resident) = match header.repr {
             Repr::Hashed => {
-                let parts_bytes = read(Sec::Parts)?;
-                if parts_bytes.len() != index(u64::from(header.parts)) * PartRow::BYTES {
+                // The part table first (at most 2^16 rows): it says how long every
+                // other array of the hash function must be, before any is read.
+                let parts = sections[Sec::Parts as usize]
+                    .as_ref()
+                    .ok_or(DictionaryError::Corrupt("no ids.parts section"))?;
+                let rows_len = widen(index(u64::from(header.parts)) * PartRow::BYTES);
+                if parts.len() != rows_len {
                     return Err(DictionaryError::Corrupt("ids.parts has the wrong size"));
                 }
-                let remap_bytes = read(Sec::Remap)?;
-                if remap_bytes.len() % 4 != 0 {
-                    return Err(DictionaryError::Corrupt("ids.remap has the wrong size"));
+                let rows: Vec<PartRow> = read_range(parts, 0, rows_len)?
+                    .chunks_exact(PartRow::BYTES)
+                    .map(PartRow::decode)
+                    .collect();
+                let (mut slot_base, mut buckets, mut remap) = (0_u64, 0_u64, 0_u64);
+                for r in &rows {
+                    let (slots, nb) = part_shape(r.n);
+                    let ok = u64::from(r.slot_base) == slot_base
+                        && r.slots == slots
+                        && r.buckets == nb
+                        && u64::from(r.bucket_base) == buckets
+                        && u64::from(r.remap_base) == remap;
+                    if !ok {
+                        return Err(DictionaryError::Corrupt("ids.parts is inconsistent"));
+                    }
+                    slot_base += u64::from(r.n);
+                    buckets += u64::from(r.buckets);
+                    remap += u64::from(r.slots - r.n);
                 }
-                let mphf = Mphf {
+                if slot_base != header.n
+                    || len_of(Sec::Pilots) != buckets
+                    || len_of(Sec::Remap) != 4 * remap
+                {
+                    return Err(DictionaryError::Corrupt(
+                        "the hash function does not cover n keys",
+                    ));
+                }
+                let bytes: u64 =
+                    rows.iter().map(|r| Part::bytes_for(r.n)).sum::<u64>() + widen(rows.len()) * 4;
+                let resident = Reservation::new(accountant, "id dictionary hash function", bytes)?;
+                let pilots = sections[Sec::Pilots as usize]
+                    .as_ref()
+                    .ok_or(DictionaryError::Corrupt("no ids.pilots section"))?;
+                let remaps = sections[Sec::Remap as usize]
+                    .as_ref()
+                    .ok_or(DictionaryError::Corrupt("no ids.remap section"))?;
+                let mut mphf = Mphf {
                     part_bits: header.part_bits,
-                    parts: parts_bytes
-                        .chunks_exact(PartRow::BYTES)
-                        .map(PartRow::decode)
-                        .collect(),
-                    pilots: read(Sec::Pilots)?,
-                    remap: remap_bytes
-                        .chunks_exact(4)
-                        .map(|c| u32::from_le_bytes(c.try_into().expect("four")))
-                        .collect(),
+                    ..Mphf::default()
                 };
-                (mphf, None)
+                for r in &rows {
+                    let remap_len = u64::from(r.slots - r.n);
+                    let remap = read_range(remaps, 4 * u64::from(r.remap_base), 4 * remap_len)?
+                        .chunks_exact(4)
+                        .map(|c| u32::from_le_bytes(c.try_into().expect("four bytes")))
+                        .collect();
+                    mphf.push(Part {
+                        n: r.n,
+                        slots: r.slots,
+                        buckets: r.buckets,
+                        seed: r.seed,
+                        pilots: read_range(pilots, u64::from(r.bucket_base), u64::from(r.buckets))?,
+                        remap,
+                    });
+                }
+                (mphf, None, resident)
             }
             Repr::Dense => {
-                let bytes = read(Sec::Dense)?;
-                if bytes.len() % 8 != 0 {
+                let source = sections[Sec::Dense as usize]
+                    .as_ref()
+                    .ok_or(DictionaryError::Corrupt("no ids.dense section"))?;
+                let len = source.len();
+                // At most 2^32 bits.
+                if len % 8 != 0 || len > 1 << 29 {
                     return Err(DictionaryError::Corrupt("ids.dense has the wrong size"));
                 }
-                let words = bytes
-                    .chunks_exact(8)
-                    .map(|c| u64::from_le_bytes(c.try_into().expect("eight")))
-                    .collect();
-                (Mphf::default(), Some(RankBitmap::new(words)?))
+                let words_len = index(len / 8);
+                let resident = Reservation::new(
+                    accountant,
+                    "id dictionary dense bitmap",
+                    RankBitmap::bytes(words_len),
+                )?;
+                let mut words = Vec::with_capacity(words_len);
+                for_each_record_chunk(source, 8, |_, bytes| {
+                    words.extend(
+                        bytes
+                            .chunks_exact(8)
+                            .map(|c| u64::from_le_bytes(c.try_into().expect("eight bytes"))),
+                    );
+                    Ok(())
+                })?;
+                (Mphf::default(), Some(RankBitmap::new(words)?), resident)
             }
         };
-        Self::assemble(header, mphf, dense, sections, accountant, resident)
+        Self::assemble(header, mphf, dense, sections, accountant, vec![resident])
     }
 
     fn sec(&self, sec: Sec) -> Option<&S> {
@@ -482,41 +562,32 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
             }
             Repr::Hashed => {
                 let m = &self.mphf;
+                if m.parts.len() != index(u64::from(h.parts)) {
+                    return Err(DictionaryError::Corrupt("ids.parts has the wrong size"));
+                }
                 let mut slot_base = 0_u64;
-                let (mut buckets, mut remap) = (0_u64, 0_u64);
-                for p in &m.parts {
-                    let (slots, nb) = super::mphf::part_shape(p.n);
-                    let ok = u64::from(p.slot_base) == slot_base
+                for (p, &base) in m.parts.iter().zip(&m.slot_base) {
+                    let (slots, nb) = part_shape(p.n);
+                    let ok = u64::from(base) == slot_base
                         && p.slots == slots
                         && p.buckets == nb
-                        && u64::from(p.bucket_base) == buckets
-                        && u64::from(p.remap_base) == remap;
+                        && p.pilots.len() == index(u64::from(nb))
+                        && p.remap.len() == index(u64::from(slots - p.n));
                     if !ok {
                         return Err(DictionaryError::Corrupt("ids.parts is inconsistent"));
                     }
-                    slot_base += u64::from(p.n);
-                    buckets += u64::from(p.buckets);
-                    remap += u64::from(p.slots - p.n);
-                }
-                if slot_base != n
-                    || widen(m.pilots.len()) != buckets
-                    || widen(m.remap.len()) != remap
-                {
-                    return Err(DictionaryError::Corrupt(
-                        "the hash function does not cover n keys",
-                    ));
-                }
-                for (p, row) in m.parts.iter().enumerate() {
-                    let r = index(u64::from(row.remap_base));
-                    if m.remap[r..r + index(u64::from(row.slots - row.n))]
-                        .iter()
-                        .any(|&x| x >= row.n.max(1))
-                    {
+                    // Every remapped slot is a slot of the part.
+                    if p.remap.iter().any(|&x| x >= p.n.max(1)) {
                         return Err(DictionaryError::Corrupt(
                             "ids.remap points outside its part",
                         ));
                     }
-                    let _ = p;
+                    slot_base += u64::from(p.n);
+                }
+                if slot_base != n {
+                    return Err(DictionaryError::Corrupt(
+                        "the hash function does not cover n keys",
+                    ));
                 }
                 absent(&[Sec::Dense, Sec::RankToId, Sec::IdToRank])?;
                 match (h.layout, width) {
@@ -533,7 +604,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                     (Layout::Split, None) => {
                         size(Sec::SlotToId, 4 * n)?;
                         size(Sec::KeyOffsets, 8 * (n + 1))?;
-                        self.need(Sec::Keys)?;
+                        self.offsets_cover(Sec::KeyOffsets, Sec::Keys, n)?;
                         absent(&[Sec::Records, Sec::RecordOffsets, Sec::IdToSlot])?;
                     }
                     (Layout::SlotOrdered, Some(w)) => {
@@ -549,7 +620,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                     (Layout::SlotOrdered, None) => {
                         size(Sec::RecordOffsets, 8 * (n + 1))?;
                         size(Sec::IdToSlot, 4 * n)?;
-                        self.need(Sec::Records)?;
+                        self.offsets_cover(Sec::RecordOffsets, Sec::Records, n)?;
                         absent(&[Sec::SlotToId, Sec::Keys, Sec::KeyOffsets])?;
                     }
                 }
@@ -561,6 +632,32 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
             }
         }
         Ok(())
+    }
+
+    /// Checks that the `n + 1` offsets of `offsets` start at 0 and end at the length of
+    /// `data` (each look-up then checks its own pair).
+    fn offsets_cover(&self, offsets: Sec, data: Sec, n: u64) -> Result<(), DictionaryError> {
+        let offsets = self.need(offsets)?;
+        let data = self.need(data)?;
+        let first = read_u64(offsets, 0)?;
+        let last = read_u64(offsets, n)?;
+        if first != 0 || last != data.len() {
+            return Err(DictionaryError::Corrupt(
+                "offsets do not cover their section",
+            ));
+        }
+        Ok(())
+    }
+
+    /// An id read from a section, checked to be below `n`.
+    fn checked_id(&self, raw: u32) -> Result<u32, DictionaryError> {
+        if u64::from(raw) < self.header.n {
+            Ok(raw)
+        } else {
+            Err(DictionaryError::Corrupt(
+                "an id in a section is not below n",
+            ))
+        }
     }
 
     /// The sections to store, by name, in the order of [`SECTION_NAMES`].
@@ -634,8 +731,9 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
     ///
     /// # Errors
     ///
-    /// A section could not be read.
-    pub fn lookup(&self, key: Key<'_>) -> Result<Option<NodeId>, ReadError> {
+    /// A section could not be read, or holds a value it cannot hold
+    /// ([`DictionaryError::Corrupt`]).
+    pub fn lookup(&self, key: Key<'_>) -> Result<Option<NodeId>, DictionaryError> {
         let mut buf = [0_u8; MAX_FIXED_WIDTH];
         let Some(norm) = self.normalize(key, &mut buf) else {
             return Ok(None);
@@ -650,8 +748,9 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
     ///
     /// # Errors
     ///
-    /// A section could not be read.
-    pub fn id_of_member(&self, key: Key<'_>) -> Result<Option<NodeId>, ReadError> {
+    /// A section could not be read, or holds a value it cannot hold
+    /// ([`DictionaryError::Corrupt`]).
+    pub fn id_of_member(&self, key: Key<'_>) -> Result<Option<NodeId>, DictionaryError> {
         let mut buf = [0_u8; MAX_FIXED_WIDTH];
         let Some(norm) = self.normalize(key, &mut buf) else {
             return Ok(None);
@@ -659,7 +758,11 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         self.lookup_normalized(norm, false)
     }
 
-    fn lookup_normalized(&self, norm: &[u8], verify: bool) -> Result<Option<NodeId>, ReadError> {
+    fn lookup_normalized(
+        &self,
+        norm: &[u8],
+        verify: bool,
+    ) -> Result<Option<NodeId>, DictionaryError> {
         if self.header.n == 0 {
             return Ok(None);
         }
@@ -674,7 +777,10 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         let mut key = KeyBuf::new();
         let id = match self.header.layout {
             Layout::Split => {
-                let id = read_u32(self.sec(Sec::SlotToId).expect("validated"), u64::from(slot))?;
+                let id = self.checked_id(read_u32(
+                    self.sec(Sec::SlotToId).expect("validated"),
+                    u64::from(slot),
+                )?)?;
                 if verify {
                     self.read_key_split(id, width, &mut key)?;
                     if key != norm {
@@ -684,7 +790,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                 id
             }
             Layout::SlotOrdered => {
-                let id = self.read_record(slot, width, &mut key)?;
+                let id = self.checked_id(self.read_record(slot, width, &mut key)?)?;
                 if key != norm {
                     return Ok(None);
                 }
@@ -694,9 +800,10 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         Ok(Some(NodeId::new(id)))
     }
 
-    fn rank_to_id(&self, rank: u32) -> Result<NodeId, ReadError> {
+    fn rank_to_id(&self, rank: u32) -> Result<NodeId, DictionaryError> {
         if self.header.renumbered {
-            read_u32(self.sec(Sec::RankToId).expect("validated"), u64::from(rank)).map(NodeId::new)
+            let raw = read_u32(self.sec(Sec::RankToId).expect("validated"), u64::from(rank))?;
+            Ok(NodeId::new(self.checked_id(raw)?))
         } else {
             Ok(NodeId::new(rank))
         }
@@ -708,20 +815,21 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         id: u32,
         width: Option<usize>,
         out: &mut KeyBuf,
-    ) -> Result<(), ReadError> {
+    ) -> Result<(), DictionaryError> {
         let keys = self.sec(Sec::Keys).expect("validated");
         match width {
             Some(w) => {
                 out.resize(w, 0);
-                keys.read_at(u64::from(id) * widen(w), out)
+                keys.read_at(u64::from(id) * widen(w), out)?;
             }
             None => {
-                let (a, b) =
-                    read_offsets(self.sec(Sec::KeyOffsets).expect("validated"), u64::from(id))?;
-                out.resize(index_len(b - a)?, 0);
-                keys.read_at(a, out)
+                let offsets = self.sec(Sec::KeyOffsets).expect("validated");
+                let (a, b) = read_offsets(offsets, u64::from(id), keys.len(), 0)?;
+                out.resize(index(b - a), 0);
+                keys.read_at(a, out)?;
             }
         }
+        Ok(())
     }
 
     /// Record of `slot` in the slot-ordered layout: its key into `out`, its id returned.
@@ -730,7 +838,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         slot: u32,
         width: Option<usize>,
         out: &mut KeyBuf,
-    ) -> Result<u32, ReadError> {
+    ) -> Result<u32, DictionaryError> {
         let records = self.sec(Sec::Records).expect("validated");
         match width {
             Some(w) => {
@@ -741,14 +849,12 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                 Ok(id)
             }
             None => {
-                let (a, b) = read_offsets(
-                    self.sec(Sec::RecordOffsets).expect("validated"),
-                    u64::from(slot),
-                )?;
-                out.resize(index_len(b - a)?, 0);
+                let offsets = self.sec(Sec::RecordOffsets).expect("validated");
+                let (a, b) = read_offsets(offsets, u64::from(slot), records.len(), 4)?;
+                out.resize(index(b - a), 0);
                 records.read_at(a, out)?;
                 if out.len() < 4 {
-                    return Err(corrupt_read("a record shorter than its id"));
+                    return Err(DictionaryError::Corrupt("a record shorter than its id"));
                 }
                 let id = u32::from_le_bytes(out[..4].try_into().expect("four bytes"));
                 out.drain(..4);
@@ -770,7 +876,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         }
         if let Some(d) = &self.dense {
             let rank = if self.header.renumbered {
-                read_u32(self.need(Sec::IdToRank)?, u64::from(id.get()))?
+                self.checked_id(read_u32(self.need(Sec::IdToRank)?, u64::from(id.get()))?)?
             } else {
                 id.get()
             };
@@ -786,7 +892,8 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         match self.header.layout {
             Layout::Split => self.read_key_split(id.get(), width, out)?,
             Layout::SlotOrdered => {
-                let slot = read_u32(self.need(Sec::IdToSlot)?, u64::from(id.get()))?;
+                let slot =
+                    self.checked_id(read_u32(self.need(Sec::IdToSlot)?, u64::from(id.get()))?)?;
                 self.read_record(slot, width, out)?;
             }
         }
@@ -824,7 +931,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
             Repr::Dense => Sec::IdToRank,
             Repr::Hashed => Sec::Order,
         };
-        Ok(read_u32(self.need(sec)?, u64::from(id.get()))?)
+        self.checked_id(read_u32(self.need(sec)?, u64::from(id.get()))?)
     }
 
     /// Ids of the keys that start with `prefix`, in key order, at most `limit` of
@@ -909,6 +1016,13 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                 seen[p / 64] |= 1 << (p % 64);
             }
         }
+        // Staging: a write buffer, a read buffer of about 1 MiB, a mapped chunk, and a
+        // 64 KiB buffer per scatter range (reserved by each scatter).
+        let _staging = Reservation::new(
+            accountant,
+            "id dictionary renumbering",
+            widen(2 * WRITE_BUFFER) + (3 << 20),
+        )?;
         let task_bytes = (accountant.available() / 8).clamp(1 << 20, 1 << 30);
         let mut sections: [Option<Sc::Source>; 14] = Default::default();
         let copy = |src: &S| -> Result<Sc::Source, DictionaryError> {
@@ -921,6 +1035,11 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                            source: Option<&S>|
          -> Result<Sc::Source, DictionaryError> {
             let mut scatter = Scatter::new(scratch, accountant, n, Some(4), 8, task_bytes / 3)?;
+            let _ranges = Reservation::new(
+                accountant,
+                "id dictionary renumbering",
+                widen(scatter.range_count()) * (2 << 16),
+            )?;
             let mut ranges: Vec<Vec<u8>> = vec![Vec::new(); scatter.range_count()];
             let mut emit = |old: u64, raw: &[u8]| -> Result<(), DictionaryError> {
                 let new = permutation[index(old)];
@@ -964,10 +1083,11 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         let map_ids = |src: &S| -> Result<Sc::Source, DictionaryError> {
             let mut s = Spill::new(scratch, "id dictionary section")?;
             for_each_record_chunk(src, 4, |_, bytes| {
-                let mapped: Vec<u8> = bytes
-                    .chunks_exact(4)
-                    .flat_map(|c| permutation[index(u64::from(as_u32(c)))].to_le_bytes())
-                    .collect();
+                let mut mapped = Vec::with_capacity(bytes.len());
+                for c in bytes.chunks_exact(4) {
+                    let old = self.checked_id(as_u32(c))?;
+                    mapped.extend_from_slice(&permutation[index(u64::from(old))].to_le_bytes());
+                }
                 Ok(s.write(&mapped)?)
             })?;
             Ok(s.seal(scratch)?)
@@ -1032,6 +1152,11 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                             widen(record),
                             task_bytes / 3,
                         )?;
+                        let _ranges = Reservation::new(
+                            accountant,
+                            "id dictionary renumbering",
+                            widen(scatter.range_count()) * (2 << 16) + widen(MAX_KEY_BYTES),
+                        )?;
                         let mut ranges: Vec<Vec<u8>> = vec![Vec::new(); scatter.range_count()];
                         let mut key = Vec::new();
                         for old in 0..n {
@@ -1073,7 +1198,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                             Some(w) => for_each_record_chunk(records, w + 4, |_, bytes| {
                                 let mut chunk = bytes.to_vec();
                                 for rec in chunk.chunks_exact_mut(w + 4) {
-                                    let old = as_u32(&rec[w..]);
+                                    let old = self.checked_id(as_u32(&rec[w..]))?;
                                     rec[w..].copy_from_slice(
                                         &permutation[index(u64::from(old))].to_le_bytes(),
                                     );
@@ -1084,10 +1209,10 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                                 let offsets = self.need(Sec::RecordOffsets)?;
                                 let mut rec = Vec::new();
                                 for slot in 0..n {
-                                    let (a, b) = read_offsets(offsets, slot)?;
-                                    rec.resize(index_len(b - a)?, 0);
+                                    let (a, b) = read_offsets(offsets, slot, records.len(), 4)?;
+                                    rec.resize(index(b - a), 0);
                                     records.read_at(a, &mut rec)?;
-                                    let old = as_u32(&rec[..4]);
+                                    let old = self.checked_id(as_u32(&rec[..4]))?;
                                     rec[..4].copy_from_slice(
                                         &permutation[index(u64::from(old))].to_le_bytes(),
                                     );
@@ -1115,17 +1240,9 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
             self.dense.clone(),
             sections,
             accountant,
-            resident,
+            vec![resident],
         )
     }
-}
-
-fn corrupt_read(what: &'static str) -> ReadError {
-    ReadError::Backend(what.into())
-}
-
-fn index_len(len: u64) -> Result<usize, ReadError> {
-    usize::try_from(len).map_err(|_| corrupt_read("a key larger than memory"))
 }
 
 pub(crate) fn read_u32(source: &dyn ByteSource, i: u64) -> Result<u32, ReadError> {
@@ -1134,13 +1251,27 @@ pub(crate) fn read_u32(source: &dyn ByteSource, i: u64) -> Result<u32, ReadError
     Ok(u32::from_le_bytes(b))
 }
 
-fn read_offsets(source: &dyn ByteSource, i: u64) -> Result<(u64, u64), ReadError> {
+fn read_u64(source: &dyn ByteSource, i: u64) -> Result<u64, ReadError> {
+    let mut b = [0_u8; 8];
+    source.read_at(i * 8, &mut b)?;
+    Ok(u64::from_le_bytes(b))
+}
+
+/// Offsets `i` and `i + 1` of an offsets section, checked before anything is
+/// allocated: increasing, within `data_len`, and at most a key (plus `extra` bytes)
+/// apart.
+fn read_offsets(
+    source: &dyn ByteSource,
+    i: u64,
+    data_len: u64,
+    extra: usize,
+) -> Result<(u64, u64), DictionaryError> {
     let mut b = [0_u8; 16];
     source.read_at(i * 8, &mut b)?;
     let a = u64::from_le_bytes(b[..8].try_into().expect("eight bytes"));
     let c = u64::from_le_bytes(b[8..].try_into().expect("eight bytes"));
-    if c < a {
-        return Err(corrupt_read("offsets decrease"));
+    if c < a || c > data_len || c - a > widen(MAX_KEY_BYTES + extra) {
+        return Err(DictionaryError::Corrupt("an offset is out of its section"));
     }
     Ok((a, c))
 }

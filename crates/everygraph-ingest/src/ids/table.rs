@@ -20,6 +20,7 @@ pub(crate) struct Credit<'a> {
 }
 
 impl<'a> Credit<'a> {
+    #[cfg(test)]
     pub(crate) fn new(
         accountant: &'a dyn everygraph_core::MemoryAccountant,
         purpose: &'static str,
@@ -54,6 +55,12 @@ impl<'a> Credit<'a> {
         }
         self.used = want;
         true
+    }
+
+    /// Gives back `bytes` taken for a transient need, keeping at least the base.
+    pub(crate) fn give(&mut self, bytes: u64) {
+        self.used = self.used.saturating_sub(bytes);
+        self.reservation.shrink_to(self.used.max(self.base));
     }
 
     /// Takes `bytes`, or fails with the accountant's refusal.
@@ -229,16 +236,34 @@ impl Table {
             self.arena.capacity()
         };
         let slots_len = (entries_cap * 2).next_power_of_two();
+        // No single allocation above the workspace's ceiling (1 GiB): a table that
+        // would need one is full.
+        let limit = everygraph_core::MAX_ALLOCATION_BYTES;
+        if widen(entries_cap * size_of::<Entry>()) > limit
+            || widen(arena_cap) > limit
+            || widen(slots_len * size_of::<u32>()) > limit
+        {
+            return false;
+        }
         let bytes = |entries: usize, arena: usize, slots: usize| {
             widen(entries * size_of::<Entry>() + arena + slots * size_of::<u32>())
         };
-        let more = bytes(entries_cap, arena_cap, slots_len).saturating_sub(bytes(
+        let old = (
             self.entries.capacity(),
             self.arena.capacity(),
             self.slots.len(),
-        ));
-        if let Some(c) = credit {
-            if more > 0 && !c.take(more) {
+        );
+        let more =
+            bytes(entries_cap, arena_cap, slots_len).saturating_sub(bytes(old.0, old.1, old.2));
+        // While an array grows, its old and new blocks both exist.
+        let transient = bytes(
+            if entries_cap == old.0 { 0 } else { old.0 },
+            if arena_cap == old.1 { 0 } else { old.1 },
+            if slots_len == old.2 { 0 } else { old.2 },
+        );
+        let mut credit = credit;
+        if let Some(c) = credit.as_deref_mut() {
+            if more > 0 && !c.take(more + transient) {
                 return false;
             }
         }
@@ -253,6 +278,11 @@ impl Table {
                     at = (at + 1) & mask;
                 }
                 self.slots[at] = u32::try_from(i).expect("fewer than 2^32 keys");
+            }
+        }
+        if let Some(c) = credit {
+            if more > 0 {
+                c.give(transient);
             }
         }
         true

@@ -13,8 +13,10 @@ use super::DictionaryError;
 use super::hash::index;
 use super::scratch::{Reservation, widen};
 
-/// Bits per segment of the bitmap: 2^22 (512 KiB), allocated when first touched.
-const SEGMENT_BITS: u32 = 22;
+/// Bits per segment of the bitmap: 2^16 (8 KiB), allocated when first touched, so that
+/// sparse keys cost about 8 KiB each at worst while they are read (a few hundred
+/// keys spread over `0..2^32` took 400 MB with 512 KiB segments).
+const SEGMENT_BITS: u32 = 16;
 const SEGMENT_WORDS: usize = 1 << (SEGMENT_BITS - 6);
 const SEGMENTS: usize = 1 << (32 - SEGMENT_BITS);
 
@@ -40,13 +42,12 @@ impl std::fmt::Debug for DenseBits<'_> {
 
 impl<'a> DenseBits<'a> {
     pub(crate) fn new(accountant: &'a dyn MemoryAccountant) -> Result<Self, DictionaryError> {
+        // The table of segments itself (65,536 entries).
+        let table = widen(SEGMENTS * std::mem::size_of::<OnceLock<Box<[AtomicU64]>>>());
+        let reservation = Reservation::new(accountant, "id dictionary dense bitmap", table)?;
         Ok(Self {
             segments: (0..SEGMENTS).map(|_| OnceLock::new()).collect(),
-            reservation: std::sync::Mutex::new(Reservation::new(
-                accountant,
-                "id dictionary dense bitmap",
-                0,
-            )?),
+            reservation: std::sync::Mutex::new(reservation),
         })
     }
 
@@ -92,6 +93,53 @@ impl<'a> DenseBits<'a> {
             .rposition(|s| s.get().is_some_and(|w| !w.is_empty()))
             .map_or(0, |last| (last + 1) * SEGMENT_WORDS)
     }
+
+    /// Number of keys set, and the largest, read from the segments in place.
+    pub(crate) fn count_and_max(&self) -> (u64, Option<u32>) {
+        let mut n = 0_u64;
+        let mut max = None;
+        for (i, s) in self.segments.iter().enumerate() {
+            let Some(words) = s.get().filter(|w| !w.is_empty()) else {
+                continue;
+            };
+            for (j, w) in words.iter().enumerate() {
+                let w = w.load(Ordering::Relaxed);
+                if w != 0 {
+                    n += u64::from(w.count_ones());
+                    let bit =
+                        (i * SEGMENT_WORDS + j) * 64 + 63 - index(u64::from(w.leading_zeros()));
+                    max = Some(u32::try_from(bit).expect("below 2^32"));
+                }
+            }
+        }
+        (n, max)
+    }
+
+    /// Calls `f` with every key set, in increasing order, for the segments of
+    /// `segments` (a range of segment numbers).
+    pub(crate) fn for_each_key(
+        &self,
+        segments: std::ops::Range<usize>,
+        mut f: impl FnMut(u32) -> Result<(), DictionaryError>,
+    ) -> Result<(), DictionaryError> {
+        for i in segments {
+            let Some(words) = self.segments[i].get().filter(|w| !w.is_empty()) else {
+                continue;
+            };
+            for (j, w) in words.iter().enumerate() {
+                let mut w = w.load(Ordering::Relaxed);
+                while w != 0 {
+                    let bit = (i * SEGMENT_WORDS + j) * 64 + index(u64::from(w.trailing_zeros()));
+                    w &= w - 1;
+                    f(u32::try_from(bit).expect("below 2^32"))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Number of segments.
+    pub(crate) const SEGMENTS: usize = SEGMENTS;
 
     /// The bitmap as words, up to the last one with a bit set.
     pub(crate) fn into_words(self) -> Vec<u64> {
@@ -214,7 +262,8 @@ mod tests {
                 }
             },
         );
-        let reserved = budget.total() - budget.available();
+        let table = widen(SEGMENTS * std::mem::size_of::<OnceLock<Box<[AtomicU64]>>>());
+        let reserved = budget.total() - budget.available() - table;
         assert_eq!(reserved % widen(SEGMENT_WORDS * 8), 0);
         let rb = RankBitmap::new(bits.into_words()).unwrap();
         let mut sorted = keys.clone();
@@ -232,7 +281,9 @@ mod tests {
 
     #[test]
     fn a_bitmap_that_does_not_fit_the_budget_is_refused() {
-        let budget = Budget::new(1000);
+        let table = widen(SEGMENTS * std::mem::size_of::<OnceLock<Box<[AtomicU64]>>>());
+        assert!(DenseBits::new(&Budget::new(table - 1)).is_err());
+        let budget = Budget::new(table + 1000);
         let bits = DenseBits::new(&budget).unwrap();
         assert!(matches!(bits.set(5), Err(DictionaryError::Budget(_))));
         assert!(matches!(bits.set(6), Err(DictionaryError::Budget(_))));

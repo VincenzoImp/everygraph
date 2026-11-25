@@ -23,7 +23,9 @@ const PART_TARGET_BITS: u32 = 15;
 const MAX_PART_BITS: u32 = 16;
 /// Part seeds tried before a part is declared unsolvable. One is almost always enough.
 const MAX_SEEDS: u32 = 64;
-/// Buckets that were placed most recently and may not be evicted (against cycles).
+/// At most this many of the buckets placed most recently may not be evicted (against
+/// cycles); a part of `b` buckets protects `min(b / 4, RECENT)`, as `PtrHash` does, so
+/// that in small parts some bucket can always be evicted.
 const RECENT: usize = 16;
 
 /// Number of part bits for `n` keys.
@@ -210,6 +212,7 @@ struct Solver {
     used: Vec<u64>,
     pilots: Vec<u8>,
     recent: [u32; RECENT],
+    recent_len: usize,
     recent_at: usize,
     evictions: u64,
     max_evictions: u64,
@@ -250,6 +253,7 @@ impl Solver {
             used: vec![0; index(u64::from(slots)).div_ceil(64)],
             pilots: vec![0; nb],
             recent: [FREE; RECENT],
+            recent_len: (nb / 4).min(RECENT),
             recent_at: 0,
             evictions: 0,
             max_evictions: 20 * n + 10_000,
@@ -388,63 +392,105 @@ impl Solver {
             self.used[s / 64] |= 1 << (s % 64);
         }
         self.pilots[index(u64::from(b))] = p;
-        self.recent[self.recent_at] = b;
-        self.recent_at = (self.recent_at + 1) % RECENT;
+        if self.recent_len > 0 {
+            self.recent[self.recent_at] = b;
+            self.recent_at = (self.recent_at + 1) % self.recent_len;
+        }
     }
 }
 
-/// The assembled function: the part table, all pilots and all remap entries.
+/// The assembled function: its parts in hash order, each with its own pilots and
+/// remap (no single allocation holds them all: at 2^32 keys the pilots alone are
+/// 1.2 GB), and where each part's slots start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Mphf {
     pub(crate) part_bits: u32,
-    pub(crate) parts: Vec<PartRow>,
-    pub(crate) pilots: Vec<u8>,
-    pub(crate) remap: Vec<u32>,
+    pub(crate) parts: Vec<Part>,
+    pub(crate) slot_base: Vec<u32>,
 }
 
 impl Mphf {
     /// Global slot of `h`, in `0..n` for every key the function was built on; some slot
     /// in `0..n` for any other hash (callers verify).
     pub(crate) fn eval(&self, h: KeyHash) -> u32 {
-        let row = &self.parts[top_bits(h.hi, self.part_bits)];
-        if row.n == 0 {
+        let q = top_bits(h.hi, self.part_bits);
+        let part = &self.parts[q];
+        if part.n == 0 {
             return 0;
         }
-        let pilots = &self.pilots[index(u64::from(row.bucket_base))..];
-        let remap = &self.remap[index(u64::from(row.remap_base))..];
-        row.slot_base
-            + local_slot(
-                h,
-                row.seed,
-                row.buckets,
-                row.slots,
-                row.n,
-                |b| pilots[b],
-                |i| remap[i],
-            )
+        self.slot_base[q] + part.eval(h)
     }
 
     /// Appends `part` as the next part of the function.
-    pub(crate) fn push(&mut self, part: &Part) {
-        let last = self.parts.last().copied().unwrap_or_default();
-        let as_u32 = |len: usize| u32::try_from(len).expect("fewer than 2^32 entries");
-        self.parts.push(PartRow {
-            slot_base: last.slot_base + last.n,
-            n: part.n,
-            slots: part.slots,
-            bucket_base: as_u32(self.pilots.len()),
-            buckets: part.buckets,
-            remap_base: as_u32(self.remap.len()),
-            seed: part.seed,
-        });
-        self.pilots.extend_from_slice(&part.pilots);
-        self.remap.extend_from_slice(&part.remap);
+    pub(crate) fn push(&mut self, part: Part) {
+        let base = match (self.slot_base.last(), self.parts.last()) {
+            (Some(b), Some(p)) => b + p.n,
+            _ => 0,
+        };
+        self.slot_base.push(base);
+        self.parts.push(part);
     }
 
-    /// Bytes this function occupies in memory and on disk.
+    /// The rows of the `ids.parts` section.
+    pub(crate) fn rows(&self) -> Vec<PartRow> {
+        let mut bucket_base = 0_u32;
+        let mut remap_base = 0_u32;
+        let as_u32 = |len: usize| u32::try_from(len).expect("fewer than 2^32 entries");
+        self.parts
+            .iter()
+            .zip(&self.slot_base)
+            .map(|(p, &slot_base)| {
+                let row = PartRow {
+                    slot_base,
+                    n: p.n,
+                    slots: p.slots,
+                    bucket_base,
+                    buckets: p.buckets,
+                    remap_base,
+                    seed: p.seed,
+                };
+                bucket_base += as_u32(p.pilots.len());
+                remap_base += as_u32(p.remap.len());
+                row
+            })
+            .collect()
+    }
+
+    /// Bytes this function occupies in memory.
     pub(crate) fn bytes(&self) -> u64 {
         let len = |l: usize| u64::try_from(l).expect("length fits in u64");
-        len(self.parts.len() * PartRow::BYTES) + len(self.pilots.len()) + len(self.remap.len() * 4)
+        self.parts.iter().map(Part::bytes).sum::<u64>() + len(self.slot_base.len() * 4)
+    }
+}
+
+impl Part {
+    /// Bytes this part holds in memory: its pilots, its remap and itself.
+    pub(crate) fn bytes(&self) -> u64 {
+        let len = |l: usize| u64::try_from(l).expect("length fits in u64");
+        len(self.pilots.len() + 4 * self.remap.len() + std::mem::size_of::<Self>())
+    }
+
+    /// Bytes a solved part of `n` keys holds, before it is solved.
+    pub(crate) fn bytes_for(n: u32) -> u64 {
+        let (slots, buckets) = part_shape(n);
+        u64::from(buckets)
+            + 4 * u64::from(slots - n)
+            + u64::try_from(std::mem::size_of::<Self>()).expect("small")
+    }
+
+    /// Working memory of [`build_part`] for `n` keys, at most: the sorted copy (16 B
+    /// per key), bucket numbers (4), low halves (8), slot owners (4 per slot), the
+    /// used-slot bitset, and per bucket its start, fill, pilot, size list and heap
+    /// entry (4 + 4 + 1 + 4 + 8).
+    pub(crate) fn solver_bytes(n: u32) -> u64 {
+        let (slots, buckets) = part_shape(n);
+        let n = u64::from(n);
+        let (slots, buckets) = (u64::from(slots), u64::from(buckets));
+        n * (16 + 4 + 8)
+            + slots * 4
+            + slots.div_ceil(64) * 8
+            + (buckets + 1) * (4 + 4 + 1 + 4 + 8)
+            + (1 << 12)
     }
 }
 
@@ -502,10 +548,43 @@ mod tests {
         assert!(bits < 2.7, "{bits} bits per key");
     }
 
+    /// Equal hashes are found wherever they are in the input (the sort brings them
+    /// together).
     #[test]
-    fn equal_hashes_are_a_collision() {
+    fn equal_hashes_are_a_collision_even_when_apart() {
         let h = KeyHash::of(b"x", 0);
         assert_eq!(build_part(&[h, h]), Err(PartError::Collision));
+        let mut hs: Vec<KeyHash> = (0..1000_u64)
+            .map(|i| KeyHash::of(&i.to_le_bytes(), 0))
+            .collect();
+        hs.push(hs[3]);
+        hs.rotate_left(500);
+        assert_eq!(build_part(&hs), Err(PartError::Collision));
+    }
+
+    /// Hash sets no pilot can separate end in `Unsolvable`, which the builder turns into
+    /// a retry with the next seed (the review of PR #158 built them directly as hashes:
+    /// real keys would need a partial XXH3-128 collision).
+    #[test]
+    fn inseparable_hash_sets_are_unsolvable() {
+        let same_lo = [KeyHash { hi: 1, lo: 7 }, KeyHash { hi: 2, lo: 7 }];
+        assert_eq!(build_part(&same_lo), Err(PartError::Unsolvable));
+    }
+
+    /// The solver's memory estimate covers what it allocates for a full part.
+    #[test]
+    fn solver_memory_is_bounded_by_its_estimate() {
+        let n = 1_u32 << 15;
+        let (slots, buckets) = part_shape(n);
+        let measured = 16 * u64::from(n)
+            + 4 * u64::from(n)
+            + 8 * u64::from(n)
+            + 4 * u64::from(slots)
+            + u64::from(slots).div_ceil(64) * 8
+            + (u64::from(buckets) + 1) * 9;
+        assert!(Part::solver_bytes(n) >= measured);
+        let part = build_part(&hashes(0..u64::from(n), 5)).unwrap();
+        assert_eq!(part.bytes(), Part::bytes_for(n));
     }
 
     #[test]
@@ -522,7 +601,7 @@ mod tests {
             ..Mphf::default()
         };
         for p in &by_part {
-            f.push(&build_part(p).unwrap());
+            f.push(build_part(p).unwrap());
         }
         let mut seen = vec![false; hs.len()];
         for &h in &hs {
@@ -530,9 +609,11 @@ mod tests {
             assert!(!seen[s]);
             seen[s] = true;
         }
+        let rows = f.rows();
         let mut encoded = Vec::new();
-        f.parts[5].encode(&mut encoded);
-        assert_eq!(PartRow::decode(&encoded), f.parts[5]);
+        rows[5].encode(&mut encoded);
+        assert_eq!(PartRow::decode(&encoded), rows[5]);
+        assert_eq!(rows[5].slot_base, f.slot_base[5]);
     }
 
     #[test]

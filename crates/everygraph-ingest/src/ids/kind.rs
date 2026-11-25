@@ -8,6 +8,10 @@ use std::fmt;
 /// Longest normalized key of a fixed-width kind, in bytes.
 pub const MAX_FIXED_WIDTH: usize = 64;
 
+/// Longest key, in bytes. A longer key is an invalid row: it is not added, and the
+/// builder reports it (`Distinct::invalid`).
+pub const MAX_KEY_BYTES: usize = 1 << 16;
+
 /// The Arrow type of the input column the identifiers come from. Results carry
 /// identifiers back in this type (`docs/api-sketch.md` § 2.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -27,21 +31,22 @@ pub enum ColumnType {
     Utf8,
     /// A binary column. Identifiers come back as bytes.
     Binary,
+    /// A fixed-size binary column (Arrow `fixed_size_binary`) of `width` bytes, 1 to 64.
+    FixedBinary {
+        /// Length of every value.
+        width: u8,
+    },
 }
 
 impl ColumnType {
-    fn code(self) -> (u8, u8) {
-        match self {
-            Self::Int { bits } => (1, bits),
-            Self::UInt { bits } => (2, bits),
-            Self::Utf8 => (3, 0),
-            Self::Binary => (4, 0),
-        }
-    }
-
     pub(crate) fn encode(self) -> [u8; 2] {
-        let (a, b) = self.code();
-        [a, b]
+        match self {
+            Self::Int { bits } => [1, bits],
+            Self::UInt { bits } => [2, bits],
+            Self::Utf8 => [3, 0],
+            Self::Binary => [4, 0],
+            Self::FixedBinary { width } => [5, width],
+        }
     }
 
     pub(crate) fn decode(bytes: [u8; 2]) -> Option<Self> {
@@ -51,12 +56,9 @@ impl ColumnType {
             [2, bits] if valid_bits => Some(Self::UInt { bits }),
             [3, 0] => Some(Self::Utf8),
             [4, 0] => Some(Self::Binary),
+            [5, width @ 1..=64] => Some(Self::FixedBinary { width }),
             _ => None,
         }
-    }
-
-    fn is_text(self) -> bool {
-        matches!(self, Self::Utf8 | Self::Binary)
     }
 }
 
@@ -90,7 +92,8 @@ pub enum OwnedKey {
     Int(i64),
     /// From an unsigned integer column.
     UInt(u64),
-    /// From a text column: hexadecimal and UUIDs in lowercase, with the input's prefix.
+    /// From a text column: hexadecimal and UUIDs in lowercase, hexadecimal with `0x`
+    /// when the input had a prefix.
     Text(String),
     /// From a binary column.
     Bytes(Vec<u8>),
@@ -112,37 +115,10 @@ impl fmt::Display for OwnedKey {
     }
 }
 
-/// The prefix of hexadecimal identifiers: the one the input used, kept for output.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum HexPrefix {
-    /// No prefix (`deadbeef…`).
-    None,
-    /// `0x`.
-    Lower,
-    /// `0X`.
-    Upper,
-}
-
-impl HexPrefix {
-    fn text(self) -> &'static [u8] {
-        match self {
-            Self::None => b"",
-            Self::Lower => b"0x",
-            Self::Upper => b"0X",
-        }
-    }
-
-    fn of(text: &[u8]) -> Self {
-        match text {
-            [b'0', b'x', ..] => Self::Lower,
-            [b'0', b'X', ..] => Self::Upper,
-            _ => Self::None,
-        }
-    }
-}
-
 /// How the identifiers of a column are represented: chosen by [`KeyKind::detect`] from
-/// a sample and checked on every key while the dictionary is built.
+/// a sample and checked on every key while the dictionary is built. A key that does
+/// not fit is an invalid row (`design/DECISIONS.md`, "Identifier columns"): it is left
+/// out and reported, and the kind does not change.
 ///
 /// Every kind but [`KeyKind::Bytes`] stores its keys as fixed-width bytes, so the key
 /// store needs no offsets. The normalized bytes compare in the order "by sorted key"
@@ -152,110 +128,113 @@ impl HexPrefix {
 #[non_exhaustive]
 pub enum KeyKind {
     /// Integers, from an integer column or as canonical decimal text (`0`, `17`, never
-    /// `017` or `+17`; text never negative). Stored as 8 bytes. `dense` when every key is
-    /// in `0..2^32` (counted from the smallest value of the column's type for signed
-    /// columns' non-negative values): then, in sorted order, the dictionary is a rank
-    /// bitmap.
-    Integers {
-        /// Every key is in `0..2^32`.
-        dense: bool,
-    },
-    /// Hexadecimal text with a fixed number of digits and one prefix for all keys,
-    /// matched without regard to case and given back in lowercase. Recognized only with
-    /// a `0x`/`0X` prefix or at least 16 digits, so that ordinary words (`cafe`) are not
-    /// taken for numbers.
+    /// `017` or `+17`; text never negative). Normalized: 8 bytes, big-endian, of the
+    /// value for unsigned columns and text, of the value with its sign bit flipped for
+    /// signed columns.
+    Integers,
+    /// Hexadecimal text with a fixed number of digits, matched in any case and given
+    /// back in lowercase, with `0x` if the input used a prefix (`0x` or `0X`).
+    /// Recognized only with a prefix or at least 16 digits, so that ordinary words
+    /// (`cafe`) are not taken for numbers. Normalized: the digits as bytes,
+    /// right-aligned (an odd count leaves the first nibble zero).
     Hex {
-        /// The prefix the input used.
-        prefix: HexPrefix,
+        /// Whether keys have a `0x`/`0X` prefix.
+        prefixed: bool,
         /// Number of hexadecimal digits (1 to 128).
         digits: u8,
     },
     /// UUIDs in the canonical 8-4-4-4-12 form, any case; given back in lowercase.
+    /// Normalized: the 16 bytes.
     Uuid,
-    /// Base58 text (the Bitcoin alphabet) of at least 20 characters whose decoded bytes
-    /// all have the same length. Case-sensitive.
+    /// Base58 text (the Bitcoin alphabet) of 20 to 88 characters whose decoded bytes
+    /// have one length. Case-sensitive. Normalized: the decoded bytes, each leading `1`
+    /// a zero byte.
     Base58 {
         /// Length of the decoded bytes.
         width: u8,
     },
-    /// Keys that all have the same length in bytes (1 to 64), stored as they are.
+    /// The values of a fixed-size binary column, stored as they are.
     Fixed {
         /// Length of every key.
         width: u8,
     },
-    /// Anything else: arbitrary text or bytes, stored as they are with offsets.
+    /// Anything else: arbitrary text or bytes (at most [`MAX_KEY_BYTES`]), stored as
+    /// they are with offsets.
     Bytes,
 }
 
-/// Number of keys [`KeyKind::detect`] needs to see; more are ignored.
+/// Number of keys [`KeyKind::detect`] looks at; more are ignored.
 pub const SAMPLE_SIZE: usize = 4096;
 
 const BASE58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
+/// Longest base58 text whose decoded bytes can be `width` long: `width` times
+/// log(256)/log(58) = 1.3657, rounded up (a leading zero byte takes one character).
+const fn base58_max_len(width: usize) -> usize {
+    (width * 13_658).div_ceil(10_000)
+}
+
+/// Whether `count` keys out of `of` are enough to give a column a kind: all but at most
+/// one in a hundred (stray values become invalid rows, not a different kind).
+fn enough(count: usize, of: usize) -> bool {
+    count > 0 && count * 100 >= of * 99
+}
+
 impl KeyKind {
     /// Chooses the kind of a column from a sample of its keys: the first
     /// [`SAMPLE_SIZE`] keys of the input in input order, so that the choice is the same
-    /// at any thread count. A key that the full pass finds not to fit is reported by the
-    /// builder, which then retries with [`KeyKind::widen`].
+    /// at any thread count. A kind is chosen when at least 99 % of the sample fits it.
     pub fn detect<'a>(column: ColumnType, sample: impl IntoIterator<Item = Key<'a>>) -> Self {
         let sample: Vec<Key<'a>> = sample.into_iter().take(SAMPLE_SIZE).collect();
-        let fits =
-            |kind: Self| !sample.is_empty() && sample.iter().all(|k| kind.accepts(column, *k));
-        if !column.is_text() {
-            let dense = Self::Integers { dense: true };
-            return if sample.iter().all(|k| dense.accepts(column, *k)) {
-                dense
-            } else {
-                Self::Integers { dense: false }
-            };
+        let of = sample.len();
+        let fitting = |kind: Self| sample.iter().filter(|k| kind.accepts(column, **k)).count();
+        match column {
+            ColumnType::Int { .. } | ColumnType::UInt { .. } => return Self::Integers,
+            ColumnType::FixedBinary { width } => return Self::Fixed { width },
+            ColumnType::Binary => return Self::Bytes,
+            ColumnType::Utf8 => {}
         }
-        let Some(Key::Bytes(first)) = sample.first().copied() else {
-            return Self::Bytes;
+        for kind in [Self::Integers, Self::Uuid] {
+            if enough(fitting(kind), of) {
+                return kind;
+            }
+        }
+        // The most frequent hexadecimal form, then the most frequent base58 width.
+        let mut forms: Vec<(usize, Self)> = Vec::new();
+        let mut count = |kind: Self| match forms.iter_mut().find(|(_, k)| *k == kind) {
+            Some((c, _)) => *c += 1,
+            None => forms.push((1, kind)),
         };
-        if column == ColumnType::Utf8 {
-            for kind in [
-                Self::Integers { dense: true },
-                Self::Integers { dense: false },
-                Self::Uuid,
-            ] {
-                if fits(kind) {
-                    return kind;
+        for key in &sample {
+            let Key::Bytes(text) = key else { continue };
+            let text: &[u8] = text;
+            let (prefixed, body) = match text {
+                [b'0', b'x' | b'X', rest @ ..] => (true, rest),
+                _ => (false, text),
+            };
+            if let Ok(digits) = u8::try_from(body.len()) {
+                let hex_like = (1..=128).contains(&digits)
+                    && (prefixed || digits >= 16)
+                    && body.iter().all(|&c| HEX_VALUE[usize::from(c)] != INVALID);
+                if hex_like {
+                    count(Self::Hex { prefixed, digits });
+                    continue;
                 }
             }
-            let prefix = HexPrefix::of(first);
-            if let Ok(digits) = u8::try_from(first.len() - prefix.text().len()) {
-                let hex = Self::Hex { prefix, digits };
-                if (prefix != HexPrefix::None || digits >= 16) && digits <= 128 && fits(hex) {
-                    return hex;
-                }
-            }
-            if first.len() >= 20 {
-                if let Some(width) = base58_decode(first).and_then(|d| u8::try_from(d.len()).ok()) {
-                    let b58 = Self::Base58 { width };
-                    if usize::from(width) <= MAX_FIXED_WIDTH && fits(b58) {
-                        return b58;
+            if (20..=base58_max_len(MAX_FIXED_WIDTH)).contains(&text.len()) {
+                if let Some(width) = base58_decode(text).and_then(|d| u8::try_from(d.len()).ok()) {
+                    if usize::from(width) <= MAX_FIXED_WIDTH
+                        && text.len() <= base58_max_len(usize::from(width))
+                    {
+                        count(Self::Base58 { width });
                     }
                 }
             }
         }
-        match u8::try_from(first.len()) {
-            Ok(width)
-                if (1..=MAX_FIXED_WIDTH).contains(&first.len()) && fits(Self::Fixed { width }) =>
-            {
-                Self::Fixed { width }
-            }
-            _ => Self::Bytes,
-        }
-    }
-
-    /// The next kind to try when a key does not fit this one. [`KeyKind::Bytes`] accepts
-    /// every key of a text or binary column, sparse integers every key of an integer
-    /// column.
-    #[must_use]
-    pub fn widen(self, column: ColumnType) -> Self {
-        match self {
-            Self::Integers { dense: true } => Self::Integers { dense: false },
-            Self::Integers { dense: false } if !column.is_text() => self,
+        // Most frequent first; ties in a fixed order of the forms' codes.
+        forms.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.encode().cmp(&b.1.encode())));
+        match forms.first() {
+            Some(&(c, kind)) if enough(c, of) => kind,
             _ => Self::Bytes,
         }
     }
@@ -264,7 +243,7 @@ impl KeyKind {
     #[must_use]
     pub const fn width(self) -> Option<usize> {
         match self {
-            Self::Integers { .. } => Some(8),
+            Self::Integers => Some(8),
             Self::Hex { digits, .. } => Some((digits as usize).div_ceil(2)),
             Self::Uuid => Some(16),
             Self::Base58 { width } | Self::Fixed { width } => Some(width as usize),
@@ -272,17 +251,10 @@ impl KeyKind {
         }
     }
 
-    /// Whether `key` belongs to this kind (for a dense integer kind: also lies in
-    /// `0..2^32` from the column's base).
+    /// Whether `key` belongs to this kind.
     pub(crate) fn accepts(self, column: ColumnType, key: Key<'_>) -> bool {
         let mut buf = [0_u8; MAX_FIXED_WIDTH];
-        match self.normalize(column, key, &mut buf) {
-            None => false,
-            Some(bytes) => match self {
-                Self::Integers { dense: true } => dense_index(column, bytes).is_some(),
-                _ => true,
-            },
-        }
+        self.normalize(column, key, &mut buf).is_some()
     }
 
     /// The normalized bytes of `key`, or `None` if it does not belong to this kind.
@@ -294,13 +266,13 @@ impl KeyKind {
         buf: &'k mut [u8; MAX_FIXED_WIDTH],
     ) -> Option<&'k [u8]> {
         match self {
-            Self::Integers { .. } => {
+            Self::Integers => {
                 let code = int_code(column, key)?;
                 buf[..8].copy_from_slice(&code.to_be_bytes());
                 Some(&buf[..8])
             }
             Self::Bytes => match key {
-                Key::Bytes(b) => Some(b),
+                Key::Bytes(b) if b.len() <= MAX_KEY_BYTES => Some(b),
                 _ => None,
             },
             _ => {
@@ -308,7 +280,7 @@ impl KeyKind {
                 let width = self.width()?;
                 let out = &mut buf[..width];
                 let ok = match self {
-                    Self::Hex { prefix, digits } => parse_hex(text, prefix, digits, out),
+                    Self::Hex { prefixed, digits } => parse_hex(text, prefixed, digits, out),
                     Self::Uuid => parse_uuid(text, out),
                     Self::Base58 { .. } => base58_decode_into(text, out),
                     Self::Fixed { .. } => {
@@ -318,7 +290,7 @@ impl KeyKind {
                         }
                         fits
                     }
-                    Self::Integers { .. } | Self::Bytes => unreachable!("handled above"),
+                    Self::Integers | Self::Bytes => unreachable!("handled above"),
                 };
                 ok.then_some(&buf[..width])
             }
@@ -327,20 +299,22 @@ impl KeyKind {
 
     /// Writes the identifier whose normalized bytes are `bytes` as the column gives it.
     pub(crate) fn render(self, column: ColumnType, bytes: &[u8]) -> OwnedKey {
-        if let Self::Integers { .. } = self {
+        if let Self::Integers = self {
             let code = u64::from_be_bytes(bytes.try_into().expect("integer keys are 8 bytes"));
             return match column {
                 ColumnType::Int { .. } => {
                     OwnedKey::Int(i64::from_ne_bytes((code ^ SIGN).to_ne_bytes()))
                 }
                 ColumnType::UInt { .. } => OwnedKey::UInt(code),
-                ColumnType::Utf8 | ColumnType::Binary => OwnedKey::Text(code.to_string()),
+                _ => OwnedKey::Text(code.to_string()),
             };
         }
         let mut out = Vec::with_capacity(bytes.len() * 2 + 2);
         match self {
-            Self::Hex { prefix, digits } => {
-                out.extend_from_slice(prefix.text());
+            Self::Hex { prefixed, digits } => {
+                if prefixed {
+                    out.extend_from_slice(b"0x");
+                }
                 let skip = usize::from(digits % 2);
                 for (i, nibble) in bytes.iter().flat_map(|b| [b >> 4, b & 15]).enumerate() {
                     if i >= skip {
@@ -361,27 +335,18 @@ impl KeyKind {
             _ => out.extend_from_slice(bytes),
         }
         match column {
-            ColumnType::Binary => OwnedKey::Bytes(out),
-            _ => OwnedKey::Text(
+            ColumnType::Utf8 => OwnedKey::Text(
                 String::from_utf8(out)
                     .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()),
             ),
+            _ => OwnedKey::Bytes(out),
         }
     }
 
     pub(crate) fn encode(self) -> [u8; 4] {
         match self {
-            Self::Integers { dense } => [1, u8::from(dense), 0, 0],
-            Self::Hex { prefix, digits } => [
-                2,
-                match prefix {
-                    HexPrefix::None => 0,
-                    HexPrefix::Lower => 1,
-                    HexPrefix::Upper => 2,
-                },
-                digits,
-                0,
-            ],
+            Self::Integers => [1, 0, 0, 0],
+            Self::Hex { prefixed, digits } => [2, u8::from(prefixed), digits, 0],
             Self::Uuid => [3, 0, 0, 0],
             Self::Base58 { width } => [4, width, 0, 0],
             Self::Fixed { width } => [5, width, 0, 0],
@@ -391,9 +356,9 @@ impl KeyKind {
 
     pub(crate) fn decode(bytes: [u8; 4]) -> Option<Self> {
         let kind = match bytes {
-            [1, d @ (0 | 1), 0, 0] => Self::Integers { dense: d == 1 },
-            [2, p @ 0..=2, digits @ 1..=128, 0] => Self::Hex {
-                prefix: [HexPrefix::None, HexPrefix::Lower, HexPrefix::Upper][usize::from(p)],
+            [1, 0, 0, 0] => Self::Integers,
+            [2, p @ (0 | 1), digits @ 1..=128, 0] => Self::Hex {
+                prefixed: p == 1,
                 digits,
             },
             [3, 0, 0, 0] => Self::Uuid,
@@ -403,6 +368,17 @@ impl KeyKind {
             _ => return None,
         };
         Some(kind)
+    }
+
+    /// Whether this kind of keys may be stored in `column`.
+    pub(crate) fn fits_column(self, column: ColumnType) -> bool {
+        match (self, column) {
+            (Self::Integers, _) => true,
+            (Self::Fixed { width }, ColumnType::FixedBinary { width: w }) => width == w,
+            (Self::Bytes, ColumnType::Utf8 | ColumnType::Binary) => true,
+            (Self::Hex { .. } | Self::Uuid | Self::Base58 { .. }, ColumnType::Utf8) => true,
+            _ => false,
+        }
     }
 }
 
@@ -417,7 +393,7 @@ pub(crate) const fn dense_base(column: ColumnType) -> u64 {
     }
 }
 
-/// The bit of a dense integer key in the rank bitmap, if it lies in `0..2^32`.
+/// The bit of an integer key in a rank bitmap, if it lies in `0..2^32`.
 pub(crate) fn dense_index(column: ColumnType, normalized: &[u8]) -> Option<u32> {
     let code = u64::from_be_bytes(normalized.try_into().ok()?);
     u32::try_from(code.checked_sub(dense_base(column))?).ok()
@@ -441,7 +417,9 @@ fn int_code(column: ColumnType, key: Key<'_>) -> Option<u64> {
             let canonical = match digits {
                 [] => false,
                 [b'0'] => !negative,
-                [first, ..] => *first != b'0' && digits.iter().all(u8::is_ascii_digit),
+                [first, ..] => {
+                    *first != b'0' && digits.len() <= 20 && digits.iter().all(u8::is_ascii_digit)
+                }
             };
             if !canonical {
                 return None;
@@ -492,14 +470,13 @@ fn hex_value(c: u8) -> Option<u8> {
     (v != INVALID).then_some(v)
 }
 
-/// Parses `digits` hexadecimal digits after `prefix` (either case of `x` accepted when
-/// a prefix is expected) into `out`, right-aligned (an odd count leaves the first
-/// nibble 0).
-fn parse_hex(text: &[u8], prefix: HexPrefix, digits: u8, out: &mut [u8]) -> bool {
-    let body = match (prefix, text) {
-        (HexPrefix::None, t) => t,
-        (_, [b'0', b'x' | b'X', rest @ ..]) => rest,
-        _ => return false,
+/// Parses `digits` hexadecimal digits, after a `0x`/`0X` prefix if `prefixed`, into
+/// `out`, right-aligned (an odd count leaves the first nibble 0).
+fn parse_hex(text: &[u8], prefixed: bool, digits: u8, out: &mut [u8]) -> bool {
+    let body = match (prefixed, text) {
+        (false, t) => t,
+        (true, [b'0', b'x' | b'X', rest @ ..]) => rest,
+        (true, _) => return false,
     };
     if body.len() != usize::from(digits) {
         return false;
@@ -556,7 +533,8 @@ fn base58_digit(c: u8) -> Option<u32> {
         .and_then(|p| u32::try_from(p).ok())
 }
 
-/// Decodes base58 text (Bitcoin alphabet; each leading `1` is a zero byte).
+/// Decodes base58 text (Bitcoin alphabet; each leading `1` is a zero byte). Quadratic
+/// in the length: callers bound the length first.
 fn base58_decode(text: &[u8]) -> Option<Vec<u8>> {
     let zeros = text.iter().take_while(|&&c| c == b'1').count();
     // Little-endian base-256 digits of the number.
@@ -579,6 +557,11 @@ fn base58_decode(text: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn base58_decode_into(text: &[u8], out: &mut [u8]) -> bool {
+    // Longer text cannot decode to `out.len()` bytes: refused before the quadratic
+    // decoding.
+    if text.len() > base58_max_len(out.len()) {
+        return false;
+    }
     match base58_decode(text) {
         Some(d) if d.len() == out.len() => {
             out.copy_from_slice(&d);
@@ -615,12 +598,8 @@ mod tests {
 
     use super::*;
 
-    fn text_keys(keys: &[&'static str]) -> Vec<Key<'static>> {
-        keys.iter().map(|k| Key::from(*k)).collect()
-    }
-
-    fn detect_text(keys: &[&'static str]) -> KeyKind {
-        KeyKind::detect(ColumnType::Utf8, text_keys(keys))
+    fn detect_text(keys: &[&str]) -> KeyKind {
+        KeyKind::detect(ColumnType::Utf8, keys.iter().map(|k| Key::from(*k)))
     }
 
     fn round_trip(kind: KeyKind, column: ColumnType, key: Key<'_>) -> OwnedKey {
@@ -632,36 +611,28 @@ mod tests {
         kind.render(column, &bytes)
     }
 
+    const ADDRESS: &str = "0x28C6c06298d514Db089934071355E5743bf21d60";
+
     #[test]
     fn kinds_are_recognized_from_a_sample() {
-        assert_eq!(
-            detect_text(&["0", "17", "4294967295"]),
-            KeyKind::Integers { dense: true }
-        );
-        assert_eq!(
-            detect_text(&["17", "4294967296"]),
-            KeyKind::Integers { dense: false }
-        );
+        let hex40 = KeyKind::Hex {
+            prefixed: true,
+            digits: 40,
+        };
+        assert_eq!(detect_text(&["0", "17", "4294967296"]), KeyKind::Integers);
         assert_eq!(detect_text(&["17", "017"]), KeyKind::Bytes);
-        assert_eq!(detect_text(&["17", "01"]), KeyKind::Fixed { width: 2 });
         assert_eq!(
-            detect_text(&[
-                "0x28C6c06298d514Db089934071355E5743bf21d60",
-                "0x0000000000000000000000000000000000000000"
-            ]),
-            KeyKind::Hex {
-                prefix: HexPrefix::Lower,
-                digits: 40
-            }
+            detect_text(&[ADDRESS, "0x0000000000000000000000000000000000000000"]),
+            hex40
         );
         assert_eq!(
             detect_text(&["deadbeefdeadbeef"]),
             KeyKind::Hex {
-                prefix: HexPrefix::None,
+                prefixed: false,
                 digits: 16
             }
         );
-        assert_eq!(detect_text(&["cafe", "face"]), KeyKind::Fixed { width: 4 });
+        assert_eq!(detect_text(&["cafe", "face"]), KeyKind::Bytes);
         assert_eq!(
             detect_text(&["550e8400-e29b-41d4-A716-446655440000"]),
             KeyKind::Uuid
@@ -675,70 +646,79 @@ mod tests {
         );
         assert_eq!(detect_text(&["alice", "bob"]), KeyKind::Bytes);
         assert_eq!(detect_text(&[]), KeyKind::Bytes);
+        // Constant length is not a kind for text: a later longer name would be refused.
+        assert_eq!(detect_text(&["alice", "carol"]), KeyKind::Bytes);
+        // `0x` alone is not hexadecimal.
+        assert_eq!(detect_text(&["0x", "0x"]), KeyKind::Bytes);
         assert_eq!(
             KeyKind::detect(
-                ColumnType::Binary,
-                [Key::Bytes(&[1, 2, 3]), Key::Bytes(&[4, 5, 6])]
+                ColumnType::FixedBinary { width: 3 },
+                [Key::Bytes(&[1, 2, 3])]
             ),
             KeyKind::Fixed { width: 3 }
         );
-        let int = ColumnType::Int { bits: 64 };
         assert_eq!(
-            KeyKind::detect(int, [Key::Int(3), Key::Int(1 << 31)]),
-            KeyKind::Integers { dense: true }
-        );
-        assert_eq!(
-            KeyKind::detect(int, [Key::Int(-1)]),
-            KeyKind::Integers { dense: false }
-        );
-    }
-
-    #[test]
-    fn widening_ends_at_a_kind_that_accepts_everything() {
-        let int = ColumnType::UInt { bits: 64 };
-        assert_eq!(
-            KeyKind::Integers { dense: true }.widen(int),
-            KeyKind::Integers { dense: false }
-        );
-        assert_eq!(
-            KeyKind::Integers { dense: false }.widen(int),
-            KeyKind::Integers { dense: false }
-        );
-        assert_eq!(
-            KeyKind::Integers { dense: false }.widen(ColumnType::Utf8),
+            KeyKind::detect(ColumnType::Binary, [Key::Bytes(&[1, 2, 3])]),
             KeyKind::Bytes
         );
-        assert_eq!(KeyKind::Uuid.widen(ColumnType::Utf8), KeyKind::Bytes);
+        let int = ColumnType::Int { bits: 64 };
+        assert_eq!(KeyKind::detect(int, [Key::Int(-1)]), KeyKind::Integers);
+    }
+
+    /// A stray value (`0x`, an empty field) does not change the kind of the column:
+    /// up to 1 % of the sample may be invalid rows.
+    #[test]
+    fn stray_keys_in_the_sample_do_not_change_the_kind() {
+        let mut keys: Vec<String> = (0..1000_u64).map(|i| format!("0x{i:040x}")).collect();
+        keys[0] = "0x".into();
+        keys[500] = String::new();
+        let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+        let kind = detect_text(&refs);
+        assert_eq!(
+            kind,
+            KeyKind::Hex {
+                prefixed: true,
+                digits: 40
+            }
+        );
+        assert!(!kind.accepts(ColumnType::Utf8, Key::from("0x")));
+        // Mixed 0x and 0X prefixes are one form.
+        let mixed: Vec<String> = (0..100_u64)
+            .map(|i| format!("{}{i:040x}", if i % 2 == 0 { "0x" } else { "0X" }))
+            .collect();
+        let refs: Vec<&str> = mixed.iter().map(String::as_str).collect();
+        assert_eq!(detect_text(&refs), kind);
+        // Two in a hundred is too many.
+        keys[1] = "zz".into();
+        let refs: Vec<&str> = keys[..100].iter().map(String::as_str).collect();
+        assert_eq!(detect_text(&refs), KeyKind::Bytes);
     }
 
     #[test]
-    fn hexadecimal_comes_back_lowercase_with_the_input_prefix_and_matches_any_case() {
+    fn hexadecimal_comes_back_lowercase_with_0x_and_matches_any_case() {
         let kind = KeyKind::Hex {
-            prefix: HexPrefix::Lower,
+            prefixed: true,
             digits: 40,
         };
-        let mixed = "0x28C6c06298d514Db089934071355E5743bf21d60";
-        let lower = mixed.to_ascii_lowercase();
+        let lower = ADDRESS.to_ascii_lowercase();
         assert_eq!(
-            round_trip(kind, ColumnType::Utf8, Key::from(mixed)),
+            round_trip(kind, ColumnType::Utf8, Key::from(ADDRESS)),
             OwnedKey::Text(lower.clone())
         );
-        let upper_x = format!("0X{}", &mixed[2..]);
-        let mut a = [0; MAX_FIXED_WIDTH];
-        let mut b = [0; MAX_FIXED_WIDTH];
+        let upper_x = format!("0X{}", &ADDRESS[2..]);
         assert_eq!(
-            kind.normalize(ColumnType::Utf8, Key::from(upper_x.as_str()), &mut a),
-            kind.normalize(ColumnType::Utf8, Key::from(lower.as_str()), &mut b)
+            round_trip(kind, ColumnType::Utf8, Key::from(upper_x.as_str())),
+            OwnedKey::Text(lower.clone())
         );
         let none = KeyKind::Hex {
-            prefix: HexPrefix::None,
+            prefixed: false,
             digits: 3,
         };
         assert_eq!(
             round_trip(none, ColumnType::Utf8, Key::from("aBc")),
             OwnedKey::Text("abc".into())
         );
-        assert!(!kind.accepts(ColumnType::Utf8, Key::from(&mixed[2..])));
+        assert!(!kind.accepts(ColumnType::Utf8, Key::from(&ADDRESS[2..])));
         assert!(!kind.accepts(ColumnType::Utf8, Key::from("0x28c6…1d60")));
         // A non-digit anywhere, in the lone first digit of an odd count, or in either
         // half of a pair, is refused.
@@ -754,20 +734,12 @@ mod tests {
         }
         assert!(!none.accepts(ColumnType::Utf8, Key::from("gbc")));
         assert!(!none.accepts(ColumnType::Utf8, Key::from("abg")));
-        let upper = KeyKind::Hex {
-            prefix: HexPrefix::Upper,
-            digits: 2,
-        };
-        assert_eq!(
-            round_trip(upper, ColumnType::Utf8, Key::from("0xAB")),
-            OwnedKey::Text("0Xab".into())
-        );
     }
 
     #[test]
     fn integers_come_back_in_the_column_type() {
         let i64c = ColumnType::Int { bits: 64 };
-        let kind = KeyKind::Integers { dense: false };
+        let kind = KeyKind::Integers;
         for v in [i64::MIN, -1, 0, 1, i64::MAX] {
             assert_eq!(round_trip(kind, i64c, Key::Int(v)), OwnedKey::Int(v));
             assert_eq!(
@@ -814,13 +786,32 @@ mod tests {
         ));
     }
 
+    /// A long key is refused by its length, before the quadratic decoding (one
+    /// 200,000-character key took 5.6 s in the review of PR #158).
+    #[test]
+    fn long_base58_text_is_refused_before_decoding() {
+        let b58 = KeyKind::Base58 { width: 25 };
+        let long = "2".repeat(200_000);
+        assert!(!b58.accepts(ColumnType::Utf8, Key::from(long.as_str())));
+        assert_eq!(base58_max_len(25), 35);
+        assert_eq!(base58_max_len(64), 88);
+        // The bound is exact enough to accept the longest real encodings.
+        for width in 1..=64 {
+            let max = base58_encode(&vec![0xFF; width]).len();
+            assert!(max <= base58_max_len(width), "{width}");
+            assert!(base58_encode(&vec![0; width]).len() <= base58_max_len(width));
+        }
+        let huge = vec![b'a'; MAX_KEY_BYTES + 1];
+        assert!(!KeyKind::Bytes.accepts(ColumnType::Utf8, Key::Bytes(&huge)));
+        assert!(KeyKind::Bytes.accepts(ColumnType::Utf8, Key::Bytes(&huge[1..])));
+    }
+
     #[test]
     fn kinds_encode_and_decode() {
         for kind in [
-            KeyKind::Integers { dense: true },
-            KeyKind::Integers { dense: false },
+            KeyKind::Integers,
             KeyKind::Hex {
-                prefix: HexPrefix::Upper,
+                prefixed: true,
                 digits: 7,
             },
             KeyKind::Uuid,
@@ -831,15 +822,18 @@ mod tests {
             assert_eq!(KeyKind::decode(kind.encode()), Some(kind));
         }
         assert_eq!(KeyKind::decode([9, 0, 0, 0]), None);
+        assert_eq!(KeyKind::decode([2, 1, 0, 0]), None);
         for column in [
             ColumnType::Int { bits: 8 },
             ColumnType::UInt { bits: 64 },
             ColumnType::Utf8,
             ColumnType::Binary,
+            ColumnType::FixedBinary { width: 20 },
         ] {
             assert_eq!(ColumnType::decode(column.encode()), Some(column));
         }
         assert_eq!(ColumnType::decode([1, 7]), None);
+        assert_eq!(ColumnType::decode([5, 0]), None);
     }
 
     proptest! {
@@ -861,8 +855,8 @@ mod tests {
             let mut text = String::from("0x");
             for b in &bytes { text.push_str(&format!("{b:02x}")); }
             let digits = u8::try_from(bytes.len() * 2).unwrap();
-            let kind = KeyKind::Hex { prefix: HexPrefix::Lower, digits };
-            let input = if upper { text.to_ascii_uppercase().replacen("0X", "0x", 1) } else { text.clone() };
+            let kind = KeyKind::Hex { prefixed: true, digits };
+            let input = if upper { text.to_ascii_uppercase() } else { text.clone() };
             prop_assert_eq!(round_trip(kind, ColumnType::Utf8, Key::from(input.as_str())), OwnedKey::Text(text));
         }
     }
