@@ -13,6 +13,7 @@ labels: type:infra, area:bench, P1, risk:low, size:S
 - [ ] On timeout or stop, the run's own I/O is counted: make the helper a child subreaper (`PR_SET_CHILD_SUBREAPER`) and reap every orphaned descendant before reading `/proc/self/io`, or read the scope's cgroup `io.stat` if the io controller is delegated to user scopes; whichever is chosen also covers grandchildren on the normal path
 - [ ] If the run's own I/O cannot be established, the row says so (I/O unknown) and the disturbance check does not use the I/O criterion for it, instead of attributing all host traffic to others
 - [ ] Tests: a spec whose warm-up is OOM-killed under a small `MemoryMax` writes a row with `oom` and a non-zero anonymous peak; a command that forks a child doing known reads and is cut by a timeout records at least those bytes and is not marked disturbed on an idle machine
+- [ ] Protect the measuring helper from the kernel OOM killer (raise the measured command's `oom_score_adj`, or read the scope's cgroup counters from outside the scope), so an OOM of the measured command can no longer kill the helper and lose the row; then drop the nextest retries for `a_failed_warm_up_writes_its_measurement` and `an_exploratory_run_records_every_field` (`.config/nextest.toml`; they failed in 2 of 4 `cargo test` jobs on GitHub runners, PR #156)
 
 **Acceptance**
 - Re-running the two cases above (synthetic, small) gives rows with the measurement and the right status; neither is marked disturbed on an idle machine

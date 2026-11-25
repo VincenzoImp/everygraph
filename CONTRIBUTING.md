@@ -74,6 +74,7 @@ cargo +nightly miri test -p everygraph-core --no-default-features --target i686-
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core
 cargo +nightly miri test -p everygraph-format
 RUSTFLAGS="-C target-feature=+ssse3" cargo +nightly miri test -p everygraph-format --test adjacency
+cargo +nightly miri test -p everygraph-io --test allocation_failure
 ```
 
 The last two run the adjacency codec's tests on the scalar decoder, then on the SSSE3 one
@@ -94,19 +95,53 @@ own.
 
 ## CI
 
-GitHub Actions, two workflows under `.github/workflows/`. The repository is private and
-its Actions minutes are counted (macOS ten-fold, Windows two-fold), which is why the
-expensive platforms do not run on every push.
+GitHub Actions, two workflows under `.github/workflows/`, on GitHub-hosted runners.
+While the repository is private, Actions minutes are counted against the account's
+monthly quota, each job rounded up to a whole minute (macOS ten-fold, Windows two-fold);
+once it is public, standard runners are free. Either way the queue is shared by every
+agent's pull request, so on a pull request the expensive jobs run only when it changed
+what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's and the codec's tests natively on i686. **portability**: the wasm32 builds (the codec with and without `simd128` too), the wasm toy, the wasm codec check (`simd128` in Node against scalar), the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
-| `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm) and the codec's wasm32 clippy runs (with and without `simd128`), the wasm toy, the wasm codec check (`simd128` in Node against scalar), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two included), then `check_tsan.py`. All on Linux x86_64 |
+| `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
+
+Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
+in the lint job, from `git diff` of GitHub's merge commit against its base (run it
+locally with `--base main` to see what your branch would run):
+
+| Job | Runs on a pull request when it changes |
+|---|---|
+| lint, test | always |
+| sanitizers (Miri, ThreadSanitizer), and the i686 tests in test | `crates/everygraph-core/`, a module of the `unsafe` table below, `tools/nightly-toolchain`, `tools/check_tsan.py`, `tools/canary/tsan/` |
+| oracle, and the oracle crate's tests in test | `crates/everygraph-oracle/`, `oracle/`, the kernel crates (`everygraph-kernels`, `-community`, `-map`), `datasets/`, `crates/everygraph-bench/src/datasets/` |
+| msrv, and the release build in test | any `Cargo.toml` (`rust-version`, dependencies, profiles), `Cargo.lock`, a `rust-toolchain` file |
+| everything | anything under `.github/`, or the pull request has the label **`full-ci`** |
+
+Everything also runs on every push to `main`, and nightly unless `main`'s last commit
+already passed a full run (then only lint, which hears of new advisories and of a new
+stable toolchain). So nothing merged goes unchecked by any job for more than a day. What
+a pull request may therefore leave to `main`: a newer *language* feature below the MSRV
+in a change that touched no manifest (newer *std* APIs are caught on every run by
+clippy's `incompatible_msrv`), a dependency bump in `Cargo.lock` that changes the core's
+behaviour under Miri, and anything a kernel change breaks in the oracle's Python suite
+through a crate not listed above. The coordinator adds `full-ci` to every Tier 2 pull
+request (CLAUDE.md § 4) before merging it. The test job runs even when lint fails, so
+that a red pull request still gets its test results; the conditional jobs wait for lint
+to pass.
 
 A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
 (and `astral-sh/setup-uv`'s cache of the oracle's Python packages) are written by runs on `main` and read by every branch. Third-party actions are pinned
 to a commit, with the version in a comment; workflows get `contents: read` and nothing
-else.
+else (the lint job also reads Actions runs, for the nightly check).
+
+**Push when the branch is ready for CI, not after every commit.** Every push to an open
+pull request starts a run, which costs minutes while the repository is private and
+takes a place in the queue every agent shares, even when the next push cancels it. Run
+the checks of the crates you touched locally ("Checks"), commit as often as you like,
+and push once the branch is ready to be checked — or push to a branch without a pull
+request, which starts nothing.
 
 What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is the wasm toy's pattern applied to the codec):
 
@@ -118,7 +153,9 @@ What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is 
   runs the check the probe names, and fails unless that check fails with the message
   the probe expects. A check that has quietly stopped checking — `clippy.toml` moved,
   a list entry deleted, an allow-list widened — is caught this way. A new way around the
-  rule gets a probe in the pull request that closes it.
+  rule gets a probe in the pull request that closes it. The probes under
+  `tools/canary/allocation/` do the same for the allocation rule (below) in each kernel
+  crate.
 - **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
   through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
   as wasm32 in Node, and compares the hashes. Real kernels replace it with the
@@ -136,8 +173,8 @@ describing it).
 
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
-| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant interface; later segmentable arrays | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks | #29 | no — the one crate for OS I/O |
+| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks; the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31 | no — the one crate for OS I/O |
 | `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
@@ -208,6 +245,30 @@ The rule is enforced for `everygraph-core` only. Clippy reads the `clippy.toml` 
 to the crate it checks, so the lists do not apply to `everygraph-io` or to any other
 crate (see "Crates").
 
+## The allocation rule
+
+Every large buffer is reserved against the user's memory budget before it is allocated
+(DESIGN D11; issue #31). Code that allocates takes a `Memory` handle and holds memory
+through the types of `everygraph-core` that own both the buffer and its reservation:
+`SegVec` for arrays (growth reserves first; segments of at most 1 GiB, for wasm32),
+`ScratchPool` for per-thread scratch (one buffer per chunk that can run at once, the
+plan's thread count), and a `Reservation` kept next to anything else (a hash table) —
+sized by the caller, so it is the last resort. A refusal is a typed error
+(`MemoryError::Budget` carrying `InsufficientBudget { needed, available }`), never an
+abort. A plan adds up the sizes first (`SegVec::<T>::bytes_for`, in `u64`) so that a
+kernel is refused before it allocates anything.
+
+In the kernel crates (`everygraph-kernels`, `everygraph-community`, `everygraph-map`,
+`everygraph-query`) a `clippy.toml` disallows the ways of sizing a buffer directly —
+`Vec::with_capacity`, `reserve`, `resize`, `vec![x; n]`, `HashMap::with_capacity` and
+the like — and each crate root forbids the lint, so it cannot be allowed locally. The
+four lists are identical; `tools/check_portability_canary.py` checks that each still
+catches every entry. What no lint sees: growth through `push`, `extend`, `collect` and
+`clone`. Small vectors use those; a large one is a review finding, and what catches it
+is a counting global allocator in the kernel tests that asserts heap bytes ≤
+`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` join the
+rule once their first pull requests (#30, #32–#35) are in.
+
 ## Integers
 
 Node ids are `u32`, edge offsets are `u64`, and `usize` is only an index into memory
@@ -226,7 +287,8 @@ forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
 | `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
-| `everygraph-format`, `adjacency::simd` | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly arm64 jobs (`cargo test (format)`); `simd128` by `tools/check_wasm_codec.py` in Node |
+| `crates/everygraph-io/tests/allocation_failure.rs`, module `refusing` | A test that makes the allocator refuse, to reach every `MemoryError::AllocationFailed` path of `SegVec` and `ScratchPool`: replacing the global allocator is an `unsafe impl GlobalAlloc`. It is not in `everygraph-core` because the core forbids `unsafe` in every crate root, its tests included | `cargo +nightly miri test -p everygraph-io --test allocation_failure` |
+| `everygraph-format`, `src/adjacency/` (the `unsafe` code is in `simd.rs`) | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly arm64 jobs (`cargo test (format)`); `simd128` by `tools/check_wasm_codec.py` in Node |
 
 To add one, in a single pull request:
 
@@ -239,8 +301,12 @@ To add one, in a single pull request:
    on, and one unsafe operation per block (`undocumented_unsafe_blocks` and
    `multiple_unsafe_ops_per_block` are `deny`).
 4. Add tests that reach every `unsafe` block and pass under `cargo +nightly miri test`.
-5. Add the module to the table above. The pull request gets the independent review
-   that CLAUDE.md § 4 requires for `unsafe` code.
+5. Add the module to the table above, written in backticks as its path
+   (`` `crates/everygraph-io/src/sys.rs` ``, a directory ending in `/`) or as the crate
+   followed by the path inside it (`` `everygraph-io`, `src/sys.rs` ``): CI reads that
+   column to run the sanitizers job when the module changes. If the module is outside
+   the core, add its Miri run to that job in `ci.yml`. The pull request gets the independent review that CLAUDE.md § 4
+   requires for `unsafe` code.
 
 Where we expect to need it, from the lab prototypes: SIMD in the adjacency codec (#30),
 disjoint parallel writes into shared arrays in the build pipeline and in Leiden (#35,

@@ -4,4 +4,5 @@
 //! builder. It must build for wasm32. Empty until issues #67 (layout), #68 (tile
 //! format) and #69 (tile builder).
 
-#![forbid(unsafe_code)]
+// `forbid`: the allocation rule in `clippy.toml` cannot be allowed away (issue #31).
+#![forbid(unsafe_code, clippy::disallowed_methods)]

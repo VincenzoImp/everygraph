@@ -2,7 +2,7 @@
 
 [package]
 name = "everygraph-core"
-description = "Portable foundations of Everygraph: id types, the ByteSource trait, the parallel facade and the memory accountant interface."
+description = "Portable foundations of Everygraph: id types, the ByteSource trait, the parallel facade, the memory accountant and segmented arrays."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
