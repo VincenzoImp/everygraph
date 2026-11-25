@@ -249,6 +249,7 @@ name = "everygraph-ingest"
 version = "0.0.0"
 dependencies = [
  "everygraph-core",
+ "everygraph-io",
  "flate2",
  "proptest",
  "rustix",

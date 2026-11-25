@@ -504,3 +504,18 @@ fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
     drop(map);
     fs::remove_dir_all(dir).unwrap();
 }
+
+/// glibc takes both thresholds (each `mallopt` returns 1), every time it is asked; any
+/// other C library is left alone.
+#[test]
+fn glibc_takes_the_malloc_thresholds_and_nothing_else_is_touched() {
+    let glibc = cfg!(all(target_os = "linux", target_env = "gnu"));
+    assert_eq!(everygraph_io::limit_allocator_retention(), glibc);
+    assert_eq!(everygraph_io::limit_allocator_retention(), glibc);
+    // Blocks on either side of the threshold are still served.
+    let threshold = usize::try_from(everygraph_io::MALLOC_THRESHOLD_BYTES).unwrap();
+    for size in [1, threshold - 1, threshold, 32 << 20] {
+        let block = vec![7_u8; size];
+        assert_eq!(block[size - 1], 7);
+    }
+}

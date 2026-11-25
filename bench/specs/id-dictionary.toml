@@ -18,7 +18,11 @@
 # - "Bounded-memory build of a 500 M-key dictionary under a 4 GiB budget": `build-500m`,
 #   20-byte binary keys (the lab's ethbin), budget 4 GiB, scratch files in the case's
 #   work directory, under MemoryMax = budget + 1 GiB. Its page cache counts against the
-#   limit and is reclaimed under it; anon_peak_bytes is the anonymous memory.
+#   limit and is reclaimed under it; anon_peak_bytes is the anonymous memory. The
+#   benchmark fixes glibc's mmap and trim thresholds at start-up
+#   (`everygraph_io::limit_allocator_retention`): without it glibc kept up to 1 GiB of
+#   freed blocks above the ledger and the case was OOM-killed (run
+#   20261125T220117Z-c855fdd77cf9; issue m2-19-allocator-policy).
 # - The two layouts ("measure both"): every benchmark runs both, and `cold-65m` times a
 #   look-up with every section evicted before each (the hash function stays in memory).
 #

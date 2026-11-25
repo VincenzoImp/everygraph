@@ -4,10 +4,10 @@
 //! crate.
 //!
 //! Why safe code is not enough: std has no memory maps, no way to preallocate a file,
-//! no `posix_fadvise` and no `F_NOCACHE`. Each `unsafe` block below is one call into the
-//! C library (or memmap2's `Mmap::map`, which is one `mmap`). None of them passes a
-//! pointer: their arguments are a file descriptor this module borrows from a live
-//! `File`, and integers. Miri cannot run foreign calls, so these blocks are reached by
+//! no `posix_fadvise`, no `F_NOCACHE` and no `mallopt`. Each `unsafe` block below is one
+//! call into the C library (or memmap2's `Mmap::map`, which is one `mmap`). None of them
+//! passes a pointer: their arguments are a file descriptor this module borrows from a
+//! live `File`, and integers. Miri cannot run foreign calls, so these blocks are reached by
 //! the crate's tests natively (`tests/conformance.rs`), not under Miri.
 //!
 //! Platforms: Linux and Android bypass the page cache with `O_DIRECT`, macOS and iOS
@@ -245,6 +245,25 @@ pub(crate) fn map(file: &File) -> io::Result<Mmap> {
     // Inside the process the sinks of this crate refuse to write a mapped file (`claim`),
     // and the caller (`MmapSource::from_file`) holds that claim before calling this.
     unsafe { Mmap::map(file) }
+}
+
+/// Fixes glibc's mmap and trim thresholds at `bytes`. True if the C library took both
+/// (false elsewhere than glibc).
+pub(crate) fn pin_malloc_thresholds(bytes: i32) -> bool {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        // SAFETY: `mallopt` takes two integers and touches no memory of ours; glibc
+        // documents it as callable at any time.
+        let mmap = unsafe { libc::mallopt(libc::M_MMAP_THRESHOLD, bytes) };
+        // SAFETY: as above.
+        let trim = unsafe { libc::mallopt(libc::M_TRIM_THRESHOLD, bytes) };
+        mmap == 1 && trim == 1
+    }
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+    {
+        let _ = bytes;
+        false
+    }
 }
 
 /// Creates a new, empty file in `dir`, open for reading and writing, that the operating
