@@ -46,10 +46,33 @@
 //! - **Frontiers.** [`Plan::frontier`] cuts the frontier into runs of [`FRONTIER_GRAIN`]
 //!   nodes, a constant, and adds their partial values in frontier order.
 //! - Per-node outputs are written by the one task that owns the node.
+//! - **Lists are whole.** A batch, a read buffer or a task never cuts a list, so a
+//!   node's own sum over its list runs from its first entry to its last in one call of
+//!   the body, whatever the batch or buffer size; a block's partial value runs across
+//!   the batches of the block. Splitting one hub list across tasks (restart points in
+//!   long compressed lists, Ligra+) would need a codec change (#28/#29) and a rule for
+//!   where the partial sums of the pieces meet; it would plug into the task cut of
+//!   `Plan::with` and an entry range on [`Source::scan`].
+//! - **Floats.** Accumulators start from `+0.0` ([`Reduce::ZERO`]), not from
+//!   `Iterator::sum`'s `-0.0`; a body that keeps several lanes (the four of the
+//!   `PageRank` gather) fixes their number in its source, never by target feature; no
+//!   result goes through `f64::max`, which may return either zero
+//!   (`docs/research/sota-numerics.md`). A pull and a push formulation of one kernel add
+//!   in different orders, so the planner may swap them only where they give the same
+//!   bits.
 //!
 //! What the body does with shared state (atomics, [`NodeCells`]) is its own affair:
 //! the kernels of [`crate::proof`] show results that do not depend on the order in which
 //! racing updates land.
+//!
+//! # Work counters
+//!
+//! [`Plan::work`] counts what the drivers handed to bodies since the plan was made:
+//! lists and their entries ([`Work`]). They are a function of the graph, the kernel and
+//! its filters alone — not of threads, chunking, batches or the source — whenever the
+//! filters read only state the kernel has fixed before the step (BFS: a node's own
+//! depth); a filter that reads state other tasks are changing (Afforest's giant
+//! component) makes them vary from run to run, as the work itself does.
 //!
 //! # `unsafe`
 //!
@@ -68,6 +91,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use everygraph_core::{InsufficientBudget, Memory, MemoryError, ReadError, par};
 use everygraph_format::adjacency::DecodeError;
@@ -163,6 +187,15 @@ impl From<InsufficientBudget> for Error {
     fn from(e: InsufficientBudget) -> Self {
         Self::Memory(e.into())
     }
+}
+
+/// What the drivers of a [`Plan`] handed to kernel bodies: [`Plan::work`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Work {
+    /// Lists, one per call of a body with a list.
+    pub lists: u64,
+    /// Their entries: the edges traversed.
+    pub entries: u64,
 }
 
 /// How a [`Plan`] cuts and reads; none of it changes a result.
@@ -273,6 +306,8 @@ pub struct Plan<'s, 'g, S: Source> {
     prefetch: bool,
     readers: Vec<Mutex<Option<S::Reader>>>,
     memory: Memory,
+    /// [`Work`]: lists, entries.
+    work: [AtomicU64; 2],
 }
 
 impl<S: Source> fmt::Debug for Plan<'_, '_, S> {
@@ -300,7 +335,53 @@ impl<'s, S: Source> Plan<'s, '_, S> {
     ///
     /// The plan, and every [`Node`] and per-node state made from it, live only inside
     /// `f`: their brand `'g` is new for this call, so nodes of one plan cannot index the
-    /// state of another.
+    /// state of another. A node indexes its own plan's state:
+    ///
+    /// ```
+    /// use everygraph_core::Memory;
+    /// use everygraph_kernels::edge_map::{Csr, Plan, Settings};
+    ///
+    /// let (offsets, targets, values) = ([0_u64, 0], [0_u32; 0], [1.0_f64]);
+    /// let csr = Csr::new(&offsets, &targets).unwrap();
+    /// let m = Memory::unlimited();
+    /// Plan::with(&csr, &m, Settings::default(), |a| {
+    ///     let v = a.node(0).unwrap();
+    ///     let w = a.per_node(&values).unwrap();
+    ///     assert_eq!(w[v], 1.0);
+    /// });
+    /// ```
+    ///
+    /// but not another plan's, even over the same graph (the indexing would be unchecked,
+    /// so this must not compile):
+    ///
+    /// ```compile_fail
+    /// # use everygraph_core::Memory;
+    /// # use everygraph_kernels::edge_map::{Csr, Plan, Settings};
+    /// # let (offsets, targets, values) = ([0_u64, 0], [0_u32; 0], [1.0_f64]);
+    /// # let csr = Csr::new(&offsets, &targets).unwrap();
+    /// # let m = Memory::unlimited();
+    /// Plan::with(&csr, &m, Settings::default(), |a| {
+    ///     let v = a.node(0).unwrap();
+    ///     Plan::with(&csr, &m, Settings::default(), |b| {
+    ///         let w = b.per_node(&values).unwrap();
+    ///         let _ = w[v];
+    ///     });
+    /// });
+    /// ```
+    ///
+    /// nor outlive its plan:
+    ///
+    /// ```compile_fail
+    /// # use everygraph_core::Memory;
+    /// # use everygraph_kernels::edge_map::{Csr, Plan, Settings};
+    /// # let (offsets, targets) = ([0_u64, 0], [0_u32; 0]);
+    /// # let csr = Csr::new(&offsets, &targets).unwrap();
+    /// # let m = Memory::unlimited();
+    /// let v = Plan::with(&csr, &m, Settings::default(), |a| a.node(0).unwrap());
+    /// ```
+    ///
+    /// and neither do a node set or node cells used with another plan's nodes
+    /// (`NodeSet::contains`, `NodeCells::load` take `Node<'g>` of their own brand).
     pub fn with<R>(
         source: &'s S,
         memory: &Memory,
@@ -335,6 +416,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             prefetch: settings.prefetch,
             readers: (0..settings.threads.get()).map(|_| Mutex::new(None)).collect(),
             memory: memory.clone(),
+            work: [AtomicU64::new(0), AtomicU64::new(0)],
         }
     }
 
@@ -354,6 +436,22 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     #[must_use]
     pub fn block_nodes(&self) -> u32 {
         self.block
+    }
+
+    /// What the drivers have handed to bodies so far (module documentation, "Work
+    /// counters").
+    #[must_use]
+    pub fn work(&self) -> Work {
+        Work {
+            lists: self.work[0].load(Ordering::Relaxed),
+            entries: self.work[1].load(Ordering::Relaxed),
+        }
+    }
+
+    /// Adds `lists` lists of `entries` entries to the counters.
+    fn count(&self, lists: u64, entries: u64) {
+        self.work[0].fetch_add(lists, Ordering::Relaxed);
+        self.work[1].fetch_add(entries, Ordering::Relaxed);
     }
 
     /// Node `id`, if it is one.
@@ -473,6 +571,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     {
         self.run(out, |task, mut out, sums| {
             self.with_reader(|reader| {
+                let (mut lists, mut entries) = (0, 0);
                 for (b, sum) in self.blocks(task.clone()).zip(sums) {
                     let mut acc = A::ZERO;
                     let filter = |v| {
@@ -486,10 +585,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         // SAFETY: the source hands out lists of its nodes only (`Source`'s
                         // contract).
                         let list = unsafe { as_nodes(list) };
+                        lists += 1;
+                        entries += list.len() as u64;
                         body(&mut acc, &mut out, ix((v - task.start).into()), node, list);
                     })?;
                     *sum = acc;
                 }
+                self.count(lists, entries);
                 Ok(())
             })
         })
@@ -551,15 +653,17 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                 if self.prefetch {
                     self.source.prefetch(nodes);
                 }
-                let mut acc = A::ZERO;
+                let (mut acc, mut entries) = (A::ZERO, 0);
                 self.source.lists(reader, nodes, |v, list| {
                     // SAFETY: `v` is a node of the frontier (`Source`'s contract).
                     let node = unsafe { Node::new_unchecked(v) };
                     // SAFETY: the source hands out lists of its nodes only (`Source`'s
                     // contract).
                     let list = unsafe { as_nodes(list) };
+                    entries += list.len() as u64;
                     body(&mut acc, node, list);
                 })?;
+                self.count(nodes.len() as u64, entries);
                 Ok(acc)
             })
         };

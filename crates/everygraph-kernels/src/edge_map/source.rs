@@ -15,6 +15,13 @@
 //! [`Stream`] check their offsets when made and [`Csr`] its targets too; [`Compressed`]
 //! and [`Stream`] check each batch they decode or read. Lists are not checked to be
 //! sorted: the kernels must not rely on it for anything but their answer.
+//!
+//! The trait does not assume one contiguous adjacency: a source hands out each node's
+//! whole list, in node order, through callbacks, and says where the entries before a
+//! node end ([`Source::entry_offset`], used to cut tasks). A source that merges several
+//! runs of a dynamic graph (a base and its deltas, `docs/research/sota-dynamic.md`) in
+//! canonical order would implement it here, merging each node's lists into its reader's
+//! buffer before the call; nothing in the drivers changes.
 
 use std::num::NonZeroUsize;
 use std::ops::Range;

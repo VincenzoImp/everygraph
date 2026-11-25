@@ -12,13 +12,15 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use everygraph_core::{Budget, ByteSource, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{
-    Compressed, Csr, Error, Node, NodeList, Plan, Settings, Source, Stream, all, ids,
+    Compressed, Csr, Error, Node, NodeList, Plan, Settings, Source, Stream, Work, all, ids,
 };
+use everygraph_kernels::proof;
 
 fn splitmix(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -292,4 +294,73 @@ fn readers_are_reserved_against_the_budget() {
         plan.scan((), all, |(): &mut (), (), _, _, _| ()).unwrap_err()
     });
     assert!(matches!(e, Error::Memory(_)), "{e}");
+}
+
+/// What the proof kernels return on one source, bit for bit, with the BFS's work.
+fn kernels<S: Source>(source: &S, settings: Settings) -> (Vec<u64>, Vec<u32>, Vec<u32>, Work) {
+    let memory = Memory::unlimited();
+    Plan::with(source, &memory, settings, |plan| {
+        par::with_threads(settings.threads, || {
+            let load = |a: &AtomicU32| a.load(Relaxed);
+            let rank = proof::pagerank::<_, f64>(&plan, &memory, 0.85, 10).unwrap();
+            let (labels, _) = proof::wcc(&plan, &memory).unwrap();
+            let before = plan.work();
+            let (depth, _) = proof::bfs(&plan, &memory, plan.nodes() / 2, true).unwrap();
+            let after = plan.work();
+            let work = Work {
+                lists: after.lists - before.lists,
+                entries: after.entries - before.entries,
+            };
+            (
+                rank.iter().map(|r| r.to_bits()).collect(),
+                labels.iter().map(load).collect(),
+                depth.iter().map(load).collect(),
+                work,
+            )
+        })
+        .unwrap()
+    })
+}
+
+/// The proof kernels on every source and thread count: the same bits, and the same
+/// BFS work counters (its filter reads only a node's own depth). The union-find cells
+/// and the frontier sets are shared between threads here, which is what puts them under
+/// ThreadSanitizer (`tools/check_tsan.py` runs this file).
+#[test]
+fn proof_kernels_and_their_work_do_not_depend_on_source_or_threads() {
+    let n = 5000_u32;
+    let (offsets, targets) = graph(n, 11);
+    // Symmetric, as the kernels require: every entry and its reverse, without loops.
+    let mut pairs: Vec<(u32, u32)> = Vec::new();
+    for v in 0..n {
+        let list = &targets[offsets[v as usize] as usize..offsets[v as usize + 1] as usize];
+        for &u in list.iter().filter(|&&u| u != v) {
+            pairs.extend([(v, u), (u, v)]);
+        }
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    let mut offsets = vec![0_u64; n as usize + 1];
+    for &(v, _) in &pairs {
+        offsets[v as usize + 1] += 1;
+    }
+    for v in 0..n as usize {
+        offsets[v + 1] += offsets[v];
+    }
+    let targets: Vec<u32> = pairs.iter().map(|p| p.1).collect();
+    let s = store("kernels", offsets, targets);
+    let csr = Csr::new(&s.offsets, &s.targets).unwrap();
+    let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
+    let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+    let expected = kernels(&csr, Settings::default());
+    assert!(expected.3.lists > 0 && expected.3.entries > 0);
+    for threads in [1, 3, 8] {
+        for (chunk, batch) in [(64, 7), (1 << 16, 8192)] {
+            let c = settings(threads, chunk, batch);
+            let what = format!("threads {threads}, chunk {chunk}");
+            assert_eq!(kernels(&csr, c), expected, "csr, {what}");
+            assert_eq!(kernels(&heap, c), expected, "compressed, {what}");
+            assert_eq!(kernels(&stream, c), expected, "stream, {what}");
+        }
+    }
 }
