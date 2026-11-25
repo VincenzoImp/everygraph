@@ -1,9 +1,14 @@
 #!/bin/bash
-# Official Friendster tracer run (issue #15), detached. State: $S/stages.log.
+# Official Friendster tracer run (issue #15), as used on 2026-11-25. Run it detached:
+#   setsid nohup bash lab/m1-01-tracer/run_official.sh > launcher.log 2>&1 &
+# One line per finished row in $S/stages.log, so the state is visible if the session ends.
+# Waits for the 1-minute load average only (the harness gate checks the same reading).
+# Needs a release build of everygraph-bench in the checkout's target/.
 set -u
-S=/home/tux/graphlab/scratch/m1-01-tracer
-R=/home/tux/projects/everygraph/.claude/worktrees/agent-a1417262a036f9d8a
-export EVERYGRAPH_DATA=/home/tux/graphlab/data EVERYGRAPH_SCRATCH=$S
+S=${EVERYGRAPH_SCRATCH:-/home/tux/graphlab/scratch/m1-01-tracer}
+R=$(cd "$(dirname "$0")/../.." && pwd)
+mkdir -p "$S"
+export EVERYGRAPH_DATA=${EVERYGRAPH_DATA:-/home/tux/graphlab/data} EVERYGRAPH_SCRATCH=$S
 cd "$R"
 st() { echo "$(date -u +%FT%TZ) $*" >> $S/stages.log; }
 st "launcher started (pid $$), waiting for 1-min load <= 0.9"

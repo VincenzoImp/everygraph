@@ -16,33 +16,52 @@ pub fn write_slice<T: Copy>(path: &str, v: &[T]) {
     let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * std::mem::size_of::<T>()) };
     f.write_all(bytes).unwrap();
 }
-/// An array read into the heap (the lab's default) or memory-mapped from its file.
-pub enum Arr<T> {
-    Heap(Vec<T>),
-    Map(memmap2::Mmap, std::marker::PhantomData<T>),
+mod plain {
+    /// Plain integer types: every bit pattern is a valid value. Sealed: implemented
+    /// here only, so `Arr` can view raw file bytes as `[T]` for these types alone.
+    pub trait Plain: Copy + Default {}
+    impl Plain for u32 {}
+    impl Plain for u64 {}
 }
-impl<T: Copy + Default> Arr<T> {
+pub use plain::Plain;
+
+enum Backing<T> {
+    Heap(Vec<T>),
+    Map(memmap2::Mmap),
+}
+/// An array of plain integers read into the heap (the lab's default) or memory-mapped
+/// from its file. The backing is private: an `Arr` exists only through `load`, which
+/// checks length and alignment of a mapping.
+pub struct Arr<T: Plain>(Backing<T>);
+impl<T: Plain> Arr<T> {
     /// `GMAP_LOAD=mmap` maps the file read-only (added for issue #15, the tracer bullet,
     /// to tell the graph's own footprint from the stage's); anything else reads it into
-    /// the heap, as experiment E did.
+    /// the heap, as experiment E did. The mapping uses the kernel's default advice: no
+    /// `madvise` is called (MADV_RANDOM was not tried), so every mmap figure of the
+    /// tracer is for default readahead. The file must not be truncated or modified
+    /// while mapped; the tracer only ever replaces outputs by rename.
     pub fn load(path: &str) -> Arr<T> {
         if std::env::var("GMAP_LOAD").as_deref() == Ok("mmap") {
             let f = File::open(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+            // SAFETY: read-only mapping of a file the pipeline never modifies in place.
             let m = unsafe { memmap2::Mmap::map(&f) }.unwrap_or_else(|e| panic!("{path}: {e}"));
-            assert_eq!(m.len() % std::mem::size_of::<T>(), 0);
-            assert_eq!(m.as_ptr() as usize % std::mem::align_of::<T>(), 0);
-            Arr::Map(m, std::marker::PhantomData)
+            assert_eq!(m.len() % std::mem::size_of::<T>(), 0, "{path}: length is not a multiple of the element size");
+            assert_eq!(m.as_ptr() as usize % std::mem::align_of::<T>(), 0, "{path}: mapping is not aligned");
+            Arr(Backing::Map(m))
         } else {
-            Arr::Heap(read_vec(path))
+            Arr(Backing::Heap(read_vec(path)))
         }
     }
 }
-impl<T> std::ops::Deref for Arr<T> {
+impl<T: Plain> std::ops::Deref for Arr<T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
-        match self {
-            Arr::Heap(v) => v,
-            Arr::Map(m, _) => unsafe { std::slice::from_raw_parts(m.as_ptr() as *const T, m.len() / std::mem::size_of::<T>()) },
+        match &self.0 {
+            Backing::Heap(v) => v,
+            // SAFETY: `load` checked length and alignment; T is a plain integer type
+            // (sealed trait), so any bytes are valid values; the slice borrows `self`
+            // and cannot outlive the mapping.
+            Backing::Map(m) => unsafe { std::slice::from_raw_parts(m.as_ptr() as *const T, m.len() / std::mem::size_of::<T>()) },
         }
     }
 }

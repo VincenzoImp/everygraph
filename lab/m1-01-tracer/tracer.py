@@ -12,7 +12,9 @@ peaks are the harness's; this script adds what the harness cannot know:
 * where a stage's input comes from and where its output goes. Outputs are built in the
   case's work directory and, only when the stage succeeds, moved to a persistent store
   (`--store`), where the next stage finds them. A failed stage leaves the store as it
-  was;
+  was, so the spec empties the store at the start of every run (prepare step
+  `clear-store`), and every stage prints what it read (`consumed`), which the spec
+  records in the row;
 * the input files are evicted from the page cache before the tool starts (cold input),
   so that every page the tool reads is charged to its own cgroup. Without it a stage
   would read its predecessor's output from page cache charged to another (dead)
@@ -181,6 +183,13 @@ def emit(obj):
     print(json.dumps(obj, sort_keys=True), flush=True)
 
 
+def missing(a, what):
+    """A stage whose input an earlier stage did not produce: fails with a JSON line
+    (the spec records `/consumed` from every stage)."""
+    emit({"stage": a.stage, "graph": a.graph, "status": "failed", "error": what, "consumed": f"none: {what}"})
+    sys.exit(1)
+
+
 def fail(rc, obj):
     obj["status"] = "failed"
     obj["exit"] = rc
@@ -193,7 +202,8 @@ def fail(rc, obj):
 def stage_ingest(a):
     store = os.path.join(a.store, f"csr.{a.tag}")
     out, tmp = os.path.join(a.work, "out"), os.path.join(a.work, "tmp")
-    res = {"stage": "ingest", "graph": a.graph, "tag": a.tag, "input": a.input, "budget_gb": a.budget}
+    res = {"stage": "ingest", "graph": a.graph, "tag": a.tag, "input": a.input, "budget_gb": a.budget,
+           "consumed": a.input}
     size, resident = evict([a.input])
     res.update(input_bytes=size, input_resident_after_evict=resident)
     cmd_tail = ["--out", out, "--tmp", tmp, "--mem-gb", str(a.budget), "--threads", str(a.threads), "--out-mmap"]
@@ -228,7 +238,7 @@ def stage_communities(a):
     store = os.path.join(a.store, name)
     out = os.path.join(a.work, "hier")
     res = {"stage": "communities", "graph": a.graph, "algo": a.algo, "variant": a.variant, "tag": a.tag,
-           "input": csr, "flags": B2_FLAGS + HIER_FLAGS[a.variant]}
+           "input": csr, "flags": B2_FLAGS + HIER_FLAGS[a.variant] + ["--out-hier"], "consumed": csr}
     size, resident = evict([csr])
     res.update(input_bytes=size, input_resident_after_evict=resident)
     jpath = os.path.join(a.work, "b2.json")
@@ -273,7 +283,7 @@ def pick_hier(a):
         return os.path.join(a.store, a.hier), None
     c = hier_candidates(a)
     if not c:
-        sys.exit(f"no hierarchy computed under {a.hier_tag} in {a.store}")
+        missing(a, f"no hierarchy computed under {a.hier_tag} in {a.store}")
     return os.path.join(a.store, c[0][1]), c
 
 
@@ -290,7 +300,7 @@ def stage_layout(a):
     store = os.path.join(a.store, f"layout.{a.chain}.{a.tag}")
     out = os.path.join(a.work, "layout")
     res = {"stage": "layout", "graph": a.graph, "chain": a.chain, "tag": a.tag, "load": a.load,
-           "input": csr, "hier": hier, "hier_candidates": cands}
+           "input": csr, "hier": hier, "hier_candidates": cands, "consumed": f"csr={csr} hier={hier}"}
     size, resident = evict([csr, hier])
     res.update(input_bytes=size, input_resident_after_evict=resident)
     argv = [a.gmap, "layout", "--graph", csr, "--hier", hier, "--out", out, "--phi", "0.72"]
@@ -315,7 +325,7 @@ def first_existing(a, kind, prefer):
         p = os.path.join(a.store, f"{kind}.{a.chain}.{t}")
         if os.path.exists(p):
             return p
-    sys.exit(f"no {kind} for chain {a.chain} in {a.store} (looked for {prefer})")
+    missing(a, f"no {kind} for chain {a.chain} in {a.store} (looked for {prefer})")
 
 
 def stage_tiles(a):
@@ -325,7 +335,7 @@ def stage_tiles(a):
     out = os.path.join(a.work, "tiles")
     os.makedirs(out)
     res = {"stage": "tiles", "graph": a.graph, "chain": a.chain, "tag": a.tag, "load": a.load,
-           "input": csr, "layout": lay}
+           "input": csr, "layout": lay, "consumed": f"csr={csr} layout={lay}"}
     size, resident = evict([csr, lay])
     res.update(input_bytes=size, input_resident_after_evict=resident)
     jpath = os.path.join(out, "tiles.json")
@@ -354,7 +364,8 @@ def stage_viewer(a):
     store = os.path.join(a.store, f"viewer.{a.chain}")
     out = os.path.join(a.work, "viewer")
     os.makedirs(out)
-    res = {"stage": "viewer", "graph": a.graph, "chain": a.chain, "tiles": tiles, "layout": src["layout"]}
+    res = {"stage": "viewer", "graph": a.graph, "chain": a.chain, "tiles": tiles, "layout": src["layout"],
+           "consumed": f"tiles={tiles}"}
     # The zoom target: experiment E's own picker (a mid-sized finest community).
     tgt = os.path.join(out, "target.json")
     with open(tgt, "w") as f:

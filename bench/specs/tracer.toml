@@ -9,26 +9,38 @@
 # (lab/b1-core `glab`, lab/b2-leiden `b2` built with f32 weights as for its Friendster
 # runs, lab/e-map `gmap` and viewer). A stage's output goes to a persistent store
 # ({store}/<graph>/) only when the stage succeeds; the next stage reads it from there.
-# The cases therefore run in this file's order and must not be reordered.
+# The cases therefore run in this file's order and must not be reordered, and the store is
+# emptied by the first preparation step of every run, so that no stage can read an output
+# of an earlier run. What each stage read is recorded in the row (`recorded.consumed`).
 #
 # Every stage evicts its input files from the page cache before the tool starts: a scope
 # reading pages cached by an earlier (dead) scope is not charged for them, so a warm
 # input would sit outside the 16 GiB limit being tested. "Cold" here means evicted with
-# posix_fadvise(DONTNEED) by the driver (resident bytes after eviction are a metric), not
-# the harness's private-copy cold mode, which cannot follow outputs made during the run.
+# posix_fadvise(DONTNEED) by the driver (bytes still resident after eviction, by fincore,
+# are the metric `resident_after_evict`), not the harness's private-copy cold mode, which
+# cannot follow outputs made during the run. The viewer stage does not evict the map.
 #
 # Chains. Both read the CSR made by the 16G ingest (all ingest outputs are compared
 # byte for byte after the run: lab/m1-01-tracer/verify.py).
 # - fit16: the best hierarchy among those computed under 16G: map-shaped (capped) before
 #   plain, then by modularity (Leiden is expected to be killed there: FINDINGS § B2,
-#   22.6 GiB anonymous; then a Louvain hierarchy is used). Its layout and tiles run under 16G and under 56G (like
-#   for like: same input).
-# - unl: the best hierarchy computed under 56G (Leiden). Layout and tiles under 56G and,
-#   to tell which later stages would fit if communities did, under 16G.
+#   22.6 GiB anonymous; then a Louvain hierarchy is used). Its layout and tiles run under
+#   16G and under 56G (like for like: same input).
+# - unl: the best hierarchy computed under 56G, by the same rule (Leiden was expected;
+#   in the run of 2026-11-25 it was the map-shaped Louvain, Leiden being killed at 56G).
+#   Layout and tiles under 56G and, to tell which later stages would fit if communities
+#   did, under 16G.
+# Community detection always writes the hierarchy (--out-hier), which makes b2 keep every
+# level's quotient graph in memory and convert its weights to f64 when writing it.
 # gmap reads the CSR into the heap (as experiment E did: load=heap); load=mmap maps it
-# instead (GMAP_LOAD=mmap, added for this issue; outputs are byte-identical, checked on
-# orkut and by verify.py). The tile builder holds every tile in RAM (known risk, not
-# fixed here).
+# instead (GMAP_LOAD=mmap, added for this issue, default kernel advice: no madvise).
+# Outputs of heap and mmap were byte-identical in the reviewer's check on lj (PR #138);
+# verify.py compares every variant the run produced. The tile builder holds every tile
+# in RAM (known risk, not fixed here).
+#
+# Rows taken before the metric `resident_after_evict`, the store-clearing step and
+# `recorded.consumed` were added (bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl)
+# carry the earlier spec hash.
 #
 # Repetitions: 1 where a stage is expected to be killed (no warm-up: a failed warm-up
 # would leave no measurement) or takes over 5 minutes; otherwise 2-3. Write-heavy
@@ -63,6 +75,11 @@ store = "{work}/{spec}/store"
 run = "python3 -I {tracer} --store {store} --work {case_work} --threads {threads} --glab {glab} --b2 {b2} --gmap {gmap}"
 
 # --- preparation (untimed) ------------------------------------------------------------
+
+[[prepare]]
+name = "clear-store"
+# Every run starts from an empty store: a stage must never read an earlier run's output.
+shell = "rm -rf {store} && mkdir -p {store}"
 
 [[prepare]]
 name = "build-glab"
@@ -107,9 +124,11 @@ repetitions = 3
 timeout = "15m"
 shell = "exec {run} ingest --graph {graph} --tag {limit}-b{budget} --input {inputs}/{graph}.txt --budget {budget}"
 conditions = { graph = "{graph}", stage = "ingest", limit = "{limit}", budget = "{budget} GB (--mem-gb)", input = "plain text, O_DIRECT", fsync = "no", storage = "glab-csr-v0, uncompressed" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -124,9 +143,11 @@ repetitions = 2
 timeout = "15m"
 shell = "exec {run} ingest --graph {graph} --tag 16G-gz-b8 --input {data}/raw/com-{graph}.ungraph.txt.gz --budget 8"
 conditions = { graph = "{graph}", stage = "ingest", limit = "16G", budget = "8 GB (--mem-gb)", input = ".gz through pigz -dc pipe (cold)", fsync = "no", storage = "glab-csr-v0, uncompressed" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -138,12 +159,14 @@ group = "2-communities"
 description = "Leiden, map-shaped hierarchy, under 16G: expected to be killed (22.6 GiB anonymous without the cap)"
 matrix = { graph = ["orkut", "friendster"] }
 shell = "exec {run} communities --graph {graph} --tag 16G --csr 16G-b8 --algo leiden --variant capped"
-conditions = { graph = "{graph}", stage = "communities", algo = "Leiden async, 1 iteration, cap 64, min ratio 3, --lowmem", limit = "16G", input = "CSR mmap, evicted first", precision = "f32 quotient weights" }
+conditions = { graph = "{graph}", stage = "communities", algo = "Leiden async, 1 iteration, cap 64, min ratio 3, --lowmem", limit = "16G", input = "CSR mmap, evicted first", output = "--out-hier: every level's quotient graph kept in memory, f64 copy on write", precision = "f32 quotient weights" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "modularity", json = "/modularity", optional = true },
   { name = "communities", json = "/communities", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -157,12 +180,14 @@ warmup = 1
 repetitions = 2
 timeout = "45m"
 shell = "exec {run} communities --graph {graph} --tag 56G --csr 16G-b8 --algo leiden --variant capped"
-conditions = { graph = "{graph}", stage = "communities", algo = "Leiden async, 1 iteration, cap 64, min ratio 3, --lowmem", limit = "56G", input = "CSR mmap, evicted first", precision = "f32 quotient weights" }
+conditions = { graph = "{graph}", stage = "communities", algo = "Leiden async, 1 iteration, cap 64, min ratio 3, --lowmem", limit = "56G", input = "CSR mmap, evicted first", output = "--out-hier: every level's quotient graph kept in memory, f64 copy on write", precision = "f32 quotient weights" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "modularity", json = "/modularity", optional = true },
   { name = "communities", json = "/communities", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -174,12 +199,14 @@ matrix = { graph = ["orkut", "friendster"], limit = ["16G", "56G"] }
 memory_limit = "{limit}"
 repetitions = 2
 shell = "exec {run} communities --graph {graph} --tag {limit} --csr 16G-b8 --algo louvain --variant capped"
-conditions = { graph = "{graph}", stage = "communities", algo = "Louvain async, cap 64, min ratio 3, --lowmem", limit = "{limit}", input = "CSR mmap, evicted first", precision = "f32 quotient weights" }
+conditions = { graph = "{graph}", stage = "communities", algo = "Louvain async, cap 64, min ratio 3, --lowmem", limit = "{limit}", input = "CSR mmap, evicted first", output = "--out-hier: every level's quotient graph kept in memory, f64 copy on write", precision = "f32 quotient weights" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "modularity", json = "/modularity", optional = true },
   { name = "communities", json = "/communities", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -189,12 +216,14 @@ group = "2-communities"
 description = "Louvain without the fan-out cap under 16G: the FINDINGS § B2 configuration (Q 0.4647), kept as a fallback hierarchy"
 matrix = { graph = ["orkut", "friendster"] }
 shell = "exec {run} communities --graph {graph} --tag 16G --csr 16G-b8 --algo louvain --variant plain"
-conditions = { graph = "{graph}", stage = "communities", algo = "Louvain async, no cap, min ratio 3, --lowmem", limit = "16G", input = "CSR mmap, evicted first", precision = "f32 quotient weights" }
+conditions = { graph = "{graph}", stage = "communities", algo = "Louvain async, no cap, min ratio 3, --lowmem", limit = "16G", input = "CSR mmap, evicted first", output = "--out-hier: every level's quotient graph kept in memory, f64 copy on write", precision = "f32 quotient weights" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "modularity", json = "/modularity", optional = true },
   { name = "communities", json = "/communities", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -206,11 +235,13 @@ group = "3-layout"
 description = "layout under 16G, CSR in the heap (as experiment E) and memory-mapped"
 matrix = { graph = ["orkut", "friendster"], chain = ["fit16", "unl"], load = ["heap", "mmap"] }
 shell = "case {chain} in fit16) h=16G ;; unl) h=56G ;; esac; exec {run} layout --graph {graph} --chain {chain} --tag 16G-{load} --load {load} --csr 16G-b8 --hier-tag $h"
-conditions = { graph = "{graph}", stage = "layout", chain = "{chain}", limit = "16G", load = "CSR {load}", input = "evicted first", storage = "glab-csr-v0, uncompressed" }
+conditions = { graph = "{graph}", stage = "layout", chain = "{chain}", limit = "16G", load = "CSR {load}, default advice", input = "evicted first", hierarchy = "best computed under the chain's limit (fit16: 16G, unl: 56G), capped before plain, then by Q; see recorded.consumed", storage = "glab-csr-v0, uncompressed" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "layout_seconds", json = "/layout_seconds", unit = "s", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -222,11 +253,13 @@ matrix = { graph = ["orkut", "friendster"], chain = ["fit16", "unl"] }
 memory_limit = "56G"
 repetitions = 2
 shell = "case {chain} in fit16) h=16G ;; unl) h=56G ;; esac; exec {run} layout --graph {graph} --chain {chain} --tag 56G-heap --load heap --csr 16G-b8 --hier-tag $h"
-conditions = { graph = "{graph}", stage = "layout", chain = "{chain}", limit = "56G", load = "CSR heap", input = "evicted first", storage = "glab-csr-v0, uncompressed" }
+conditions = { graph = "{graph}", stage = "layout", chain = "{chain}", limit = "56G", load = "CSR heap", input = "evicted first", hierarchy = "best computed under the chain's limit (fit16: 16G, unl: 56G), capped before plain, then by Q; see recorded.consumed", storage = "glab-csr-v0, uncompressed" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "layout_seconds", json = "/layout_seconds", unit = "s", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
   { name = "output", json = "/output_bytes", unit = "B", optional = true },
 ]
 
@@ -239,12 +272,14 @@ description = "tile pyramid under 16G, CSR in the heap and memory-mapped; reads 
 matrix = { graph = ["orkut", "friendster"], chain = ["fit16", "unl"], load = ["heap", "mmap"] }
 timeout = "60m"
 shell = "exec {run} tiles --graph {graph} --chain {chain} --tag 16G-{load} --load {load} --csr 16G-b8 --fallback 56G-heap"
-conditions = { graph = "{graph}", stage = "tiles", chain = "{chain}", limit = "16G", load = "CSR {load}", input = "evicted first", fsync = "no" }
+conditions = { graph = "{graph}", stage = "tiles", chain = "{chain}", limit = "16G", load = "CSR {load}, default advice", input = "evicted first", layout = "the chain's 16G-{load} layout, else its 56G-heap layout; see recorded.consumed", fsync = "no" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "file", json = "/file_bytes", unit = "B", optional = true },
   { name = "tiles", json = "/tiles", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
 ]
 
 [[benchmark]]
@@ -256,12 +291,14 @@ memory_limit = "56G"
 warmup = 1
 timeout = "60m"
 shell = "exec {run} tiles --graph {graph} --chain {chain} --tag 56G-heap --load heap --csr 16G-b8 --fallback 16G-mmap"
-conditions = { graph = "{graph}", stage = "tiles", chain = "{chain}", limit = "56G", load = "CSR heap", input = "evicted first", fsync = "no" }
+conditions = { graph = "{graph}", stage = "tiles", chain = "{chain}", limit = "56G", load = "CSR heap", input = "evicted first", layout = "the chain's 56G-heap layout, else its 16G-mmap layout; see recorded.consumed", fsync = "no" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "seconds", json = "/seconds", unit = "s", optional = true },
   { name = "file", json = "/file_bytes", unit = "B", optional = true },
   { name = "tiles", json = "/tiles", optional = true },
   { name = "disk_peak", json = "/disk_peak_bytes", unit = "B", optional = true },
+  { name = "resident_after_evict", json = "/input_resident_after_evict", unit = "B", optional = true },
 ]
 
 # --- 5. viewer (lab/e-map viewer, headless Chromium through Playwright) -----------------
@@ -274,7 +311,8 @@ matrix = { graph = ["orkut", "friendster"], chain = ["fit16", "unl"] }
 threads = [1]
 timeout = "15m"
 shell = "exec {run} viewer --graph {graph} --chain {chain} --prefer 16G-heap 16G-mmap 56G-heap --port 8791"
-conditions = { graph = "{graph}", stage = "viewer", chain = "{chain}", limit = "16G (browser, server, picker)", viewport = "1600x1000", browser = "headless Chromium, ANGLE GL-EGL" }
+conditions = { graph = "{graph}", stage = "viewer", chain = "{chain}", limit = "16G (browser, server, picker)", viewport = "1600x1000", map = "the chain's 16G-heap tiles, else 16G-mmap, else 56G-heap; see recorded.consumed", browser = "headless Chromium, ANGLE GL-EGL" }
+record_json = { consumed = "/consumed" }
 metric = [
   { name = "first_view", json = "/first_view_bytes", unit = "B", optional = true },
   { name = "first_view_requests", json = "/first_view_requests", optional = true },

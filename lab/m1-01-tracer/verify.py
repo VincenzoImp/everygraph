@@ -36,13 +36,41 @@ def sha(p):
     return h.hexdigest()
 
 
+def summarise(res):
+    """Identity across the variants of one chain (limit, heap or mmap). A group with a
+    single variant proves nothing and says so: "single variant", never true."""
+    groups = {}
+    for d, item in res["items"].items():
+        for k in ("sha256_pos", "sha256_tnodes", "sha256_pmtiles"):
+            if k in item:
+                chain = d.split(".")[1]
+                groups.setdefault(f"{chain}:{k}", []).append((d, item[k]))
+    res["identical_across_variants"] = {
+        k: {"n_variants": len(v), "variants": [d for d, _ in v],
+            "identical": "single variant" if len(v) < 2 else len({h for _, h in v}) == 1}
+        for k, v in sorted(groups.items())}
+    res["total_bytes"] = sum(i["bytes"] for i in res["items"].values())
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--store", required=True)
-    ap.add_argument("--graph", required=True)
+    ap.add_argument("--store")
+    ap.add_argument("--graph")
     ap.add_argument("--data", default=os.environ.get("EVERYGRAPH_DATA", "/home/tux/graphlab/data"))
     ap.add_argument("--out")
+    ap.add_argument("--resummarise", metavar="FILE",
+                    help="recompute the summary of an earlier output (its items) instead of reading a store")
     a = ap.parse_args()
+    if a.resummarise:
+        res = json.load(open(a.resummarise))
+        res.pop("identical_across_variants", None)
+        summarise(res)
+        s = json.dumps(res, indent=1, sort_keys=True)
+        open(a.out or a.resummarise, "w").write(s + "\n")
+        print(s)
+        return
+    if not (a.store and a.graph):
+        ap.error("--store and --graph are required")
     st = os.path.join(a.store, a.graph)
     ref = os.path.join(a.data, "csr", a.graph)
     res = {"graph": a.graph, "store": st, "items": {}}
@@ -63,15 +91,7 @@ def main():
             item.update(sha256_pmtiles=sha(os.path.join(p, "map.pmtiles")),
                         source=json.load(open(os.path.join(p, "source.json"))))
         res["items"][d] = item
-    # identity across variants of one chain
-    groups = {}
-    for d, item in res["items"].items():
-        for k in ("sha256_pos", "sha256_tnodes", "sha256_pmtiles"):
-            if k in item:
-                chain = d.split(".")[1]
-                groups.setdefault(f"{chain}:{k}", set()).add(item[k])
-    res["identical_across_variants"] = {k: len(v) == 1 for k, v in sorted(groups.items())}
-    res["total_bytes"] = sum(i["bytes"] for i in res["items"].values())
+    summarise(res)
     s = json.dumps(res, indent=1, sort_keys=True)
     if a.out:
         open(a.out, "w").write(s + "\n")

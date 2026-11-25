@@ -1,9 +1,29 @@
 {
  "graph": "friendster",
  "identical_across_variants": {
-  "unl:sha256_pmtiles": true,
-  "unl:sha256_pos": true,
-  "unl:sha256_tnodes": true
+  "unl:sha256_pmtiles": {
+   "identical": "single variant",
+   "n_variants": 1,
+   "variants": [
+    "tiles.unl.56G-heap"
+   ]
+  },
+  "unl:sha256_pos": {
+   "identical": true,
+   "n_variants": 2,
+   "variants": [
+    "layout.unl.16G-mmap",
+    "layout.unl.56G-heap"
+   ]
+  },
+  "unl:sha256_tnodes": {
+   "identical": true,
+   "n_variants": 2,
+   "variants": [
+    "layout.unl.16G-mmap",
+    "layout.unl.56G-heap"
+   ]
+  }
  },
  "items": {
   "csr.16G-b8": {
