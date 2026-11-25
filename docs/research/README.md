@@ -93,7 +93,8 @@ was corrected at once. Where each item landed is in the pull request that applie
 ### B. Experiments (new or widened issues), each with its cheapest test
 
 - **B1.** mmap hints, then a budgeted block cache over `ByteSource`
-  ([io-memory C5, C1](sota-io-memory.md)); if it wins, an ADR amends D11 (regime 2 = an
+  ([io-memory C5, C1](sota-io-memory.md); the report's "m2-21" is filed as m2-23, the
+  number being taken); if it wins, an ADR amends D11 (regime 2 = an
   explicit cache for random access, mmap for warm data and scans).
 - **B2.** An ordering bake-off (m1-09 widened; [storage C1, C5, C7](sota-storage.md)); #146
   reframed (random relabelling is the literature's worst case); a deterministic BP ordering

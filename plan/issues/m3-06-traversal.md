@@ -11,6 +11,7 @@ labels: type:feature, area:algorithms, P0, risk:medium, size:M, lab-evidence
 - [ ] High-diameter graphs (roads): check the level-synchronous design does not collapse; see {{#m1-10-graph-families}}
 - [ ] On compressed input: degree from the entry-offset index or the traversal state, and bottom-up stops decoding at the first hit (#118: 1.20–1.52× at 16 threads, 1.78–2.04× at 1; with the entry-offset index 0.99–1.22× at 16)
 - [ ] Semi-external variant: bottom-up steps are scans; top-down steps need random list access with frontier prefetch
+- [ ] Out of core, BFS and SSSP may skip inactive lists and run in any order: the answer is the unique fixpoint of a monotone update, so the output is identical by construction (Seraph-style active-list decoding, Gem-style bound pruning; {{#m3-03-semi-external}}; `docs/research/memory-bounded-algorithms.md` addendum § F 5, added 2026-11-25). Identity with the in-RAM result is asserted in the tests
 
 **Acceptance**
 - Distances equal NetworkX on the oracle graphs

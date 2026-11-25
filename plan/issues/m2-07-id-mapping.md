@@ -23,4 +23,4 @@ labels: type:feature, area:ingest, P0, risk:medium, size:L, lab-evidence
 - Bounded-memory build of a 500 M-key dictionary under a 4 GiB budget
 - The default id order is the natural one: dense integer keys in sorted order, any other key kind by first appearance in the input (the smallest input position wins, at any thread count and budget). Never hash order: whatever order ids get at ingest is the storage order, and a hash order stores every string-keyed graph at its worst size and locality (web-Google: 20.08 BV bits/edge in its natural random-like order against 7.69 after a BFS order, BP paper Table 2, their data; our web-google 21.9 bits/entry, PR #157). Tested on lj and web-google with string ids: bits/entry and PageRank time under first appearance and sorted key (`docs/research/sota-storage.md` § 3, challenge 4; recorded 2026-11-25)
 
-**Pointers.** `lab/f1-query/src/bin/dict.rs`, FINDINGS § F1.
+**Pointers.** `lab/f1-query/src/bin/dict.rs`, FINDINGS § F1. Follow-up for the mapping loop: {{#m2-25-id-mapping-staged}} (`docs/research/sota-ingest-query.md` C2).
