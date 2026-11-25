@@ -10,5 +10,13 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+# A library does not decide whether threads exist (CONTRIBUTING.md, "Crates").
+everygraph-core = { path = "../everygraph-core", default-features = false }
+
+[dev-dependencies]
+everygraph-oracle = { path = "../everygraph-oracle" }
+proptest = { version = "1.7", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true
