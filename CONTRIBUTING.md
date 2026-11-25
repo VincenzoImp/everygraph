@@ -7,8 +7,9 @@ policy arrive with issue #9.
 
 ## Checks
 
-Every pull request passes these on current stable Rust. Until continuous integration
-exists (issue #3), run them yourself and paste the output in the pull request.
+Every pull request passes these on current stable Rust. Continuous integration runs
+all of them (see "CI" below); run them yourself before pushing, because a red run costs
+Actions minutes and a round trip.
 
 ```sh
 cargo fmt --all --check
@@ -20,13 +21,33 @@ python3 tools/check_core_portability.py
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
-cargo deny check
+cargo build -p everygraph-wasm --target wasm32-unknown-unknown
+cargo deny check                            # offline: cargo deny check bans licenses sources
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo build --workspace --release
+```
+
+And the three checks of the checks, each one command (what they do: "CI" below):
+
+```sh
+python3 tools/check_portability_canary.py   # the portability checks still catch each probe
+python3 tools/check_wasm_toy.py             # toy kernel: native and wasm32 in Node agree
+python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 
 The four clippy runs are not redundant: the core is linted once for each configuration
 its code can be compiled under (with and without `parallel`, 64-bit and 32-bit). The
 i686 runs also do what `cargo check --target i686-unknown-linux-gnu` would.
+
+On a Linux x86_64 machine with the 32-bit C runtime (`gcc-multilib` on Debian and
+Ubuntu), the core's tests also run natively with a 32-bit `usize`, with and without
+rayon. CI does this; without `gcc-multilib` the link fails (`cannot open crtn.o`), and
+the Miri run on i686 below is the local substitute:
+
+```sh
+cargo test -p everygraph-core --target i686-unknown-linux-gnu
+cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features
+```
 
 Lint levels live in `[workspace.lints]` in the root `Cargo.toml`, each group with its
 reason, and every crate inherits them with `[lints] workspace = true`.
@@ -37,8 +58,9 @@ On the minimum supported toolchain (see "Rust version"):
 cargo +1.85 test --workspace --locked
 ```
 
-And these on nightly, because Miri is the only way here to *run* tests with a 32-bit
-`usize`, and the required check for any module that contains `unsafe`:
+And these on nightly, because Miri is the way to *run* tests with a 32-bit `usize` on a
+machine without the 32-bit C runtime, and the required check for any module that
+contains `unsafe`:
 
 ```sh
 cargo +nightly miri test -p everygraph-core --no-default-features
@@ -51,6 +73,52 @@ of rayon's dependencies, not because of this code: `crossbeam-epoch` keeps an in
 list that Miri's default aliasing model (Stacked Borrows) rejects, and rayon's global
 pool is still alive when the test process ends. The first two commands run our own code
 under the default, stricter settings.
+
+CI runs them on the nightly named in `tools/nightly-toolchain` (with the `miri` and
+`rust-src` components), not on whatever `nightly` is today, so that a Miri regression
+upstream does not turn every pull request red. To run exactly what CI runs, replace
+`+nightly` by `+$(cat tools/nightly-toolchain)`. Moving the pin is a pull request of its
+own.
+
+## CI
+
+GitHub Actions, two workflows under `.github/workflows/`. The repository is private and
+its Actions minutes are counted (macOS ten-fold, Windows two-fold), which is why the
+expensive platforms do not run on every push.
+
+| Workflow | When | Jobs (each step is a command from "Checks") |
+|---|---|---|
+| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
+| `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
+
+A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
+are written by runs on `main` and read by every branch. Third-party actions are pinned
+to a commit, with the version in a comment; workflows get `contents: read` and nothing
+else.
+
+What the three scripts at the end of "Checks" are for:
+
+- **`tools/check_portability_canary.py`** breaks the portability rule on purpose. Each
+  file under `tools/canary/portability/` is a probe (direct `std::fs`, file access
+  through `Path`, clock reads, a DNS lookup, a thread, an inner `allow`, a
+  `cfg(not(clippy))` block, a platform `cfg`, `std::os`, an I/O dependency); the
+  script adds it to a scratch copy of the core under `target/portability-canary/`,
+  runs the check the probe names, and fails unless that check fails with the message
+  the probe expects. A check that has quietly stopped checking — `clippy.toml` moved,
+  a list entry deleted, an allow-list widened — is caught this way. A new way around the
+  rule gets a probe in the pull request that closes it.
+- **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
+  through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
+  as wasm32 in Node, and compares the hashes. Real kernels replace it with the
+  determinism CI (m3-11).
+- **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
+  ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
+  `tools/canary/tsan/`, a toy kernel on `par` with a deliberate data race, which must be
+  reported. Parallel kernels join it by having tests in their crate; the script then
+  needs their package added next to the core's.
+
+Not in CI yet: the threaded wasm32 build (issue #108; `ci.yml` holds a placeholder
+describing it).
 
 ## Crates
 
