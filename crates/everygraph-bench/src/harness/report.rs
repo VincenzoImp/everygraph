@@ -538,11 +538,14 @@ pub fn markdown(rows: &[Row]) -> String {
                     e.truncate(cut);
                     e.push('…');
                 }
+                let which = r.warmup.map_or_else(
+                    || format!("rep {}", r.repetition),
+                    |w| format!("warm-up {w}"),
+                );
                 let _ = writeln!(
                     out,
-                    "- `{}` rep {}: {}: {}",
+                    "- `{}` {which}: {}: {}",
                     r.case,
-                    r.repetition,
                     r.status.as_str(),
                     e.replace('\n', " ")
                 );

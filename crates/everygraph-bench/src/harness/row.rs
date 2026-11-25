@@ -3,7 +3,10 @@
 //! One result row: one repetition of one case, as a line of JSON. Rows are
 //! self-contained — machine, revision, command and conditions are in each — so that a
 //! row copied out of its file still says what it measured. The schema is documented in
-//! `bench/README.md`; a change to it bumps [`ROW_SCHEMA`].
+//! `bench/README.md`. A change that rows of the current version cannot be read under, or
+//! that changes what an existing field means, bumps [`ROW_SCHEMA`]; a new field that
+//! older rows lack is read with a default that states what those rows meant, and keeps
+//! the version (so that committed results stay readable).
 
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, Write as _};
@@ -115,13 +118,19 @@ pub struct TimeRecord {
     pub system_seconds: f64,
 }
 
-/// Storage traffic of the command and its descendants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Storage traffic of the command and its descendants, orphaned ones included.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IoRecord {
     /// From storage (page-cache hits not counted).
     pub read_bytes: u64,
     /// To storage.
     pub write_bytes: u64,
+    /// Why the run's own traffic could not be established, if it could not (a
+    /// descendant could not be reaped). The two counts are then a lower bound, the
+    /// `read_bytes`/`write_bytes` metrics are missing, and the disturbance check does not
+    /// compute others' traffic during the run. Absent in rows written before it existed.
+    #[serde(default)]
+    pub unknown: Option<String>,
 }
 
 /// Memory of the run's cgroup.
@@ -282,6 +291,11 @@ pub struct Row {
     pub repetition: u32,
     /// Repetitions of the case.
     pub repetitions: u32,
+    /// For the row of a warm-up run that failed (`repetition` 0, never counted): which
+    /// warm-up it was, 1-based. `None` for every other row, and in rows written before
+    /// the field existed.
+    #[serde(default)]
+    pub warmup: Option<u32>,
     /// How it ended.
     pub status: Status,
     /// Why, when not `ok`.
@@ -372,11 +386,16 @@ impl Row {
             "memory_peak_bytes" => self.memory.as_ref().map(|m| b(m.peak_bytes)),
             "anon_peak_bytes" => self.memory.as_ref().map(|m| b(m.anon_peak_bytes)),
             "file_peak_bytes" => self.memory.as_ref().map(|m| b(m.file_peak_bytes)),
-            "read_bytes" => self.io.map(|i| b(i.read_bytes)),
-            "write_bytes" => self.io.map(|i| b(i.write_bytes)),
+            "read_bytes" => self.known_io().map(|i| b(i.read_bytes)),
+            "write_bytes" => self.known_io().map(|i| b(i.write_bytes)),
             "stop_seconds" => self.stop.as_ref().and_then(|s| s.stop_seconds),
             other => self.metrics.get(other).copied(),
         }
+    }
+
+    /// The storage traffic, when the run's own is known.
+    fn known_io(&self) -> Option<&IoRecord> {
+        self.io.as_ref().filter(|i| i.unknown.is_none())
     }
 
     /// The unit of a metric.
@@ -523,6 +542,7 @@ pub(crate) mod tests {
             runner: None,
             repetition: rep,
             repetitions: 3,
+            warmup: None,
             status: Status::Ok,
             error: None,
             started_at: "2026-11-25T09:06:42Z".into(),
@@ -602,6 +622,7 @@ pub(crate) mod tests {
             io: Some(IoRecord {
                 read_bytes: 0,
                 write_bytes: 4096,
+                unknown: None,
             }),
             memory: Some(MemoryRecord {
                 limit_bytes: Some(8 << 30),
@@ -655,6 +676,34 @@ pub(crate) mod tests {
         assert_eq!(read_rows(&path).expect("read"), rows);
     }
 
+    /// The fields added by #142 are additive: a row written before them reads with
+    /// "not a warm-up" and "I/O known", and keeps its metrics.
+    #[test]
+    fn rows_without_the_warmup_and_io_unknown_fields_still_read() {
+        let mut v = serde_json::to_value(sample_row("pr32", 1, 0.38)).expect("serializes");
+        let obj = v.as_object_mut().expect("object");
+        obj.remove("warmup");
+        obj["io"].as_object_mut().expect("io").remove("unknown");
+        let dir = TempDir::new("old-rows");
+        let path = dir.path().join("old.jsonl");
+        std::fs::write(&path, format!("{v}\n")).expect("write");
+        let rows = read_rows(&path).expect("an older row reads");
+        assert_eq!(rows[0], sample_row("pr32", 1, 0.38));
+        assert_eq!(rows[0].metric("write_bytes"), Some(4096.0));
+    }
+
+    #[test]
+    fn unknown_io_is_no_metric() {
+        let mut r = sample_row("pr32", 1, 0.38);
+        r.io = Some(IoRecord {
+            read_bytes: 86_016,
+            write_bytes: 0,
+            unknown: Some("a descendant could not be reaped".into()),
+        });
+        assert_eq!(r.metric("read_bytes"), None);
+        assert_eq!(r.metric("write_bytes"), None);
+    }
+
     #[test]
     fn the_row_schema_has_the_fields_the_issue_asks_for() {
         let v = serde_json::to_value(sample_row("pr32", 1, 0.38)).expect("serializes");
@@ -679,6 +728,8 @@ pub(crate) mod tests {
             "/time/system_seconds",
             "/io/read_bytes",
             "/io/write_bytes",
+            "/io/unknown",
+            "/warmup",
             "/memory/peak_bytes",
             "/memory/anon_peak_bytes",
             "/memory/file_peak_bytes",

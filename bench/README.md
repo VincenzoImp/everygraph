@@ -91,7 +91,18 @@ the first process of the scope; it starts the command, samples `memory.stat` eve
 `memory.peak` (exact peak of anonymous + file-backed + kernel memory), `memory.events`
 (limit hits, OOM kills), `cpu.stat` (user and system time of everything in the scope),
 and its own `/proc/self/io` (bytes the command and its descendants read from and wrote
-to storage). Anonymous and file-backed peaks are kept apart because a memory-mapped
+to storage). Those counters include a descendant only once it is reaped, and a
+descendant whose parent ends first — on a timeout or a stop every process of the scope
+is signalled at once; a command may also exit before its children — would be reaped by
+init and its traffic lost (tracer row 27, `tiles-16g`, recorded 86,016 bytes read
+after an hour of page faults). So `measure` makes itself a child subreaper
+(`PR_SET_CHILD_SUBREAPER`): orphans become its children, and after the scope is empty
+it reaps every one before it reads the counters. When that cannot be done (a descendant
+moved itself to another cgroup and still runs 5 s later, or the `prctl` fails) the row's
+`io.unknown` says why, the byte counts are a lower bound and no metric, and others'
+storage traffic during the run is not computed. The cgroup's own `io.stat` would avoid
+all this, but on the lab machine systemd does not delegate the io controller to user
+scopes (`cgroup.controllers` of `user@1000.service`: `cpu memory pids`). Anonymous and file-backed peaks are kept apart because a memory-mapped
 graph counts as RSS but is reclaimable page cache (FINDINGS § B1): RSS alone misleads.
 They are sampled, so a spike shorter than the interval can be missed; `memory.peak` is
 not sampled.
@@ -117,7 +128,11 @@ disturbed_above_io_mb_s`). The row says which reading crossed which threshold
 (`disturbance.reasons`); it is kept, left out of every summary, and listed at the end
 of the run. One busy core skewed lab timings by 10–40%.
 
-**Warm and cold cache.** A warm case runs once untimed first (`warmup`, default 1). A
+**Warm and cold cache.** A warm case runs once untimed first (`warmup`, default 1).
+A warm-up that fails ends the case: its row carries the whole measurement — status
+`oom`, `timeout` or `failed` as for a repetition, memory, I/O, OOM events, exit — with
+`repetition` 0 and `warmup` set to its number, so it is never counted, and the
+repetitions are not run. A
 cold case (`cache = "cold"`) reads a private copy of its dataset, made once under
 `work/copies/` by a read/write loop (not `copy_file_range`, which may share blocks on
 a reflinking file system) and reused while the source is unchanged. Before each
@@ -243,10 +258,14 @@ Metrics the harness measures for every row: `wall_seconds`, `user_seconds`,
 ## Rows
 
 One JSON object per line, one line per repetition, written as each finishes. Schema
-version 1 (`schema`); the fields, from `harness::row::Row`:
+version 1 (`schema`); the fields, from `harness::row::Row`. A field added later is read
+with a default from rows written before it, and keeps the version (so far: `warmup` and
+`io.unknown`, #142, both absent or `null` meaning what older rows meant):
 
 - identity: `run_id`, `spec`, `spec_sha256`, `spec_path`, `official`, `case`,
-  `benchmark`, `group`, `vars`, `runner`, `repetition`, `repetitions`, `started_at`;
+  `benchmark`, `group`, `vars`, `runner`, `repetition`, `repetitions`, `warmup` (the
+  number of the failed warm-up a row records, with `repetition` 0; `null` otherwise),
+  `started_at`;
 - outcome: `status` (`ok`, `failed`, `timeout`, `oom`, `not_cold`, `left_processes`,
   `unavailable`, `harness_error`) and `error`;
 - where: `machine` (CPU model, cores, threads, SMT, memory, kernel, governors, boost,
@@ -259,7 +278,8 @@ version 1 (`schema`); the fields, from `harness::row::Row`:
 - the machine around it: `load_start`, `load_end`, `mem_available_start_bytes`,
   `disturbance` (busy cores and storage traffic before, after, and of others during;
   thresholds; reasons; verdict);
-- measured: `time` (wall, user, system), `io` (read, written), `memory` (limit and
+- measured: `time` (wall, user, system), `io` (read, written, and `unknown`: why the
+  run's own traffic could not be established, `null` when it was), `memory` (limit and
   swap limit applied, `peak_bytes`, `anon_peak_bytes`, `file_peak_bytes`, samples),
   `oom` (`max_events`, `oom_events`, `oom_kills`), `exit` (code, signal, timed out),
   `stop`, `left_processes`;

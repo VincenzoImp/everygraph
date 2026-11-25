@@ -96,7 +96,7 @@ pub fn evaluate(rows: &[Row]) -> (String, bool) {
                     )),
                     None => problems.push("no reading during the run".into()),
                 }
-                if r.io.is_none_or(|i| i.write_bytes < 1 << 30) {
+                if r.io.as_ref().is_none_or(|i| i.write_bytes < 1 << 30) {
                     problems.push("the run's own 1 GiB write was not counted".into());
                 }
             }
