@@ -134,7 +134,8 @@ def run(check):
     """Runs a check in COPY; returns (exit status, combined output)."""
     result = subprocess.run(
         CHECKS[check], cwd=COPY, capture_output=True, text=True,
-        env={**os.environ, "CARGO_TARGET_DIR": str(COPY / "target")},
+        # No colour: escape codes would split the messages the probes expect.
+        env={**os.environ, "CARGO_TARGET_DIR": str(COPY / "target"), "CARGO_TERM_COLOR": "never"},
     )
     return result.returncode, result.stdout + result.stderr
 

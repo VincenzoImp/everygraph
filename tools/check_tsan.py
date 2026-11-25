@@ -37,6 +37,8 @@ ENV = {
     **os.environ,
     "RUSTFLAGS": "-Zsanitizer=thread",
     "CARGO_TARGET_DIR": str(ROOT / "target" / "tsan"),
+    # No colour: escape codes would split the messages searched for below.
+    "CARGO_TERM_COLOR": "never",
     # More than one worker even on a one-core runner, so that chunks really overlap.
     "RAYON_NUM_THREADS": "4",
     # Report every race, not only the first; the exit status is 66 when there was one.
