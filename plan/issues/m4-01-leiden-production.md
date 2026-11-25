@@ -6,7 +6,7 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 **Why.** Community detection is the heart of the product and the lab prototype (~1,900 lines) is fast but research-grade: shared-memory `unsafe`, lightly exercised options, one known bug (`--cap` with multiple iterations).
 
 **Keep from the lab**
-- Block-permuted visiting order (blocks of 64 ids): worth 3–4 modularity points over id order; quality is flat for block sizes 1–1,024
+- Block-permuted visiting order (blocks of 64 ids): worth 2.0–2.1 modularity points over id order at one iteration on an idle machine (lj, orkut; 2.6–4.2 in the first shared runs); quality is flat for block sizes 1–1,024
 - Split-last step for a real connectivity guarantee (it fired: +27 communities on lj, +476 on Friendster — GVE-style refinement alone is not enough)
 - Deterministic mode: hashed sub-rounds, frozen decisions, commutative commit, smaller-label merge rule, fixed-point gain sums, deterministic refinement and aggregation
 - Threshold scaling, flag pruning, per-thread open-addressing tables, f64 quotient weights (f32 is exact only to 16.7 M)

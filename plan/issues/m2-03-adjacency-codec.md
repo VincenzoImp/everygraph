@@ -3,7 +3,7 @@ title: Compressed adjacency codec: Stream VByte gap blocks with Elias–Fano off
 milestone: M2 · Format and ingest
 labels: type:feature, area:format, P0, risk:medium, size:L, lab-evidence
 ---
-**Why.** Compressed adjacency is the default storage (DESIGN D4). The lab bake-off: Stream VByte gaps cost 16–17 bits/edge on social graphs (raw: 33), decode 7–20× faster than BVGraph, scan faster than raw at 32 threads on twitter-sym (21.7 vs 13.6 G edges/s), and under an 8 GB cap run 5.2× faster than raw because they stay resident.
+**Why.** Compressed adjacency is the default storage (DESIGN D4). The lab bake-off: Stream VByte gaps cost 16–17 bits/edge on social graphs (raw: 33), decode 5.0–21.9× faster than BVGraph (9.1–21.9× on social graphs), scan faster than raw at 32 threads on twitter-sym (21.7 vs 13.6 G edges/s), and under an 8 GB cap run 5.2× faster than raw because they stay resident.
 
 **Format (proposed in the lab as "glab-adj-v1")**
 - Node-aligned blocks of ~64K edges; a list is never split; a huge list gets its own block

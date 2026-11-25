@@ -3,7 +3,7 @@ title: Edge-map framework: one kernel body for slices, mmap, streams and compres
 milestone: M3 · Engine and kernels
 labels: type:feature, area:engine, P0, risk:high, size:XL, lab-evidence
 ---
-**Why.** Without a shared abstraction every kernel would be written three or four times (raw, compressed, streamed, wasm), and the regimes would drift apart. In the lab the PageRank loop body was already identical for in-memory slices and O_DIRECT streams. The browser adds a constraint: a kernel executed as one long call stays in V8's baseline compiler and runs up to 9× slower, so kernels must be many short calls over chunks.
+**Why.** Without a shared abstraction every kernel would be written three or four times (raw, compressed, streamed, wasm), and the regimes would drift apart. In the lab the PageRank loop body was already identical for in-memory slices and O_DIRECT streams. The browser adds a constraint: a kernel executed as one long call stays in V8's baseline compiler and runs 4.6× slower (lab, PageRank in Chromium), so kernels must be many short calls over chunks.
 
 **Scope**
 - [ ] `AdjacencySource` abstraction yielding node-range chunks: (node range, offsets, decoded targets, optional property slices), backed by raw CSR, compressed blocks (decode into a per-thread buffer), mmap, or sequential streams
