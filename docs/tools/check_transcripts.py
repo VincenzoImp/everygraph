@@ -15,6 +15,13 @@ For blocks that show what a person sees (```console and ```text):
 For a document that numbers its rules (**P-3**) and has a "Test hooks"
 section:
   * every rule is cited in that section, alone or inside a range (P-6 – P-8).
+For blocks marked as renderings of others (docs/ux-contract.md § 4.5):
+  * a block preceded by `<!-- block: NAME -->` is a source; a block preceded by
+    `<!-- rendering: KIND of NAME [+ NAME ...] -->` must equal the rendering the
+    checker computes from those sources, where KIND is `ascii` (every symbol
+    replaced), `narrow` (bars removed, as at 60 columns) or `piped` (commands,
+    unfinished phases and bars removed, then ASCII; sources joined by one empty
+    line).
 
 Exit status 0 when every block passes, 1 otherwise. No third-party imports.
 """
@@ -71,22 +78,94 @@ def ascii_lines(line):
     return out + [current]
 
 
-def blocks(path):
-    """Yield (first line number, language, lines) for each fenced block."""
-    lang, start, body, fence = None, 0, [], None
+MARK = re.compile(r"^<!-- (block|rendering): (.+?) -->$")
+
+
+def blocks(path, marks=None):
+    """Yield (first line number, language, lines) for each fenced block.
+
+    When `marks` is a dict, the mark comment on the line just before a block
+    (MARK) is stored in it under the block's first line number.
+    """
+    lang, start, body, fence, previous = None, 0, [], None, ""
     with open(path, encoding="utf-8") as f:
         for no, raw in enumerate(f, 1):
             line = raw.rstrip("\n")
             m = FENCE.match(line)
             if lang is None and m:
                 lang, start, body, fence = m.group(3) or "", no + 1, [], m.group(2)
+                mark = MARK.match(previous)
+                if mark and marks is not None:
+                    marks[start] = (mark.group(1), mark.group(2))
             elif lang is not None and m and m.group(2) == fence and not m.group(3):
                 yield start, lang, body
                 lang = None
             elif lang is not None:
                 body.append(line)
+            previous = line
     if lang is not None:
         raise SystemExit(f"{path}:{start}: code block is not closed")
+
+
+BAR = re.compile(r"^(  \S+\s+)([█░]{16})(  |$)")
+
+
+def without_bar(line):
+    m = BAR.match(line)
+    return (m.group(1) + line[m.end():]).rstrip() if m else line
+
+
+def render(kind, lines):
+    """The rendering of a Unicode transcript, as docs/ux-contract.md § 4.5."""
+    if kind == "ascii":
+        return [ascii_form(x) for x in lines]
+    if kind == "narrow":
+        return [without_bar(x) for x in lines]
+    if kind == "piped":
+        out, continued = [], False
+        for x in lines:
+            if x.startswith("$ ") or continued:
+                continued = x.endswith("\\")
+                continue
+            m = BAR.match(x)
+            if m and "░" in m.group(2):
+                continue            # piped: only finished phases are printed
+            out.append(ascii_form(without_bar(x)))
+        return out
+    raise ValueError(f"unknown rendering {kind!r}")
+
+
+def check_renderings(path):
+    """Problems where a marked rendering differs from what its sources give."""
+    marks, bodies, problems, compared = {}, {}, [], 0
+    for start, _lang, body in blocks(path, marks):
+        bodies[start] = body
+    sources = {name: bodies[s] for s, (k, name) in marks.items() if k == "block"}
+    for start, (k, spec) in sorted(marks.items()):
+        if k != "rendering":
+            continue
+        m = re.fullmatch(r"(\w+) of (.+)", spec)
+        if not m:
+            problems.append(f"{path}:{start}: cannot read the mark {spec!r}")
+            continue
+        kind, names = m.group(1), [n.strip() for n in m.group(2).split("+")]
+        missing = [n for n in names if n not in sources]
+        if missing:
+            problems.append(f"{path}:{start}: no block named {missing}")
+            continue
+        expected = []
+        for i, n in enumerate(names):
+            expected += ([""] if i else []) + render(kind, sources[n])
+        actual = bodies[start]
+        compared += 1
+        for i in range(max(len(expected), len(actual))):
+            e = expected[i] if i < len(expected) else "(nothing)"
+            a = actual[i] if i < len(actual) else "(nothing)"
+            if e != a:
+                problems.append(f"{path}:{start + i}: {kind} rendering differs:"
+                                f"\n    expected: {e}\n    found:    {a}")
+                break
+    return problems, compared
 
 
 RULE = re.compile(r"\*\*([A-Z])-(\d+)\*\*")
@@ -156,6 +235,13 @@ def main(paths):
         problems, count, widest, widest_ascii = check(path)
         for p in problems:
             print(p)
+        rendering_problems, compared = check_renderings(path)
+        for p in rendering_problems:
+            print(p)
+        problems += rendering_problems
+        if compared:
+            print(f"    {path}: {compared} renderings compared with their "
+                  f"sources, {len(rendering_problems)} differ")
         coverage = rules_without_a_hook(path)
         if coverage:
             total, missing = coverage
