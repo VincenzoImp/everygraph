@@ -17,7 +17,8 @@ labels: type:feature, area:query, P0, risk:medium, size:L, lab-evidence
 **Acceptance**
 - PageRank on a 5% edge view of orkut ≥ 5× faster than on the full graph, including materialization amortized over 20 iterations
 - Any kernel and any point query accepts a view; oracle tests compare against NetworkX subgraphs
-- A deterministic kernel gives the identical result on a view whether the planner runs it as a mask or materialized (node order of a materialized view preserves graph order, so tie-breaks and summation order do not change): tested for PageRank, components and communities (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises")
+- A deterministic kernel gives the identical result on a view whether the planner runs it as a mask or materialized (node order of a materialized view preserves graph order, so tie-breaks and summation order do not change): tested for PageRank, components and communities (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises"); the same holds for that view saved with `save()` and opened again
+- A view's `num_nodes` and `num_edges` are computed by one planned pass on first use and never by printing the view (`docs/api-sketch.md` § 3.3)
 
 **Pointers.** `lab/f1-query/src/bin/props.rs`.
 
