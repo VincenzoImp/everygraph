@@ -1,9 +1,9 @@
 ---
-title: Ratify design decisions D1–D23 as ADRs
+title: Ratify design decisions D1–D25 as ADRs
 milestone: M0 · Foundations and decisions
 labels: type:decision, area:foundations, P0, risk:low, size:M, lab-evidence
 ---
-**Why.** `docs/DESIGN.md` lists 23 decisions with their evidence. Before code depends on them, each needs an explicit accept / revise / needs-experiment verdict, so later changes are deliberate.
+**Why.** `docs/DESIGN.md` lists 25 decisions with their evidence. Before code depends on them, each needs an explicit accept / revise / needs-experiment verdict, so later changes are deliberate.
 
 **Scope**
 - [ ] One ADR per decision under `docs/adr/` (context, decision, evidence with link to FINDINGS, consequences, what would change our mind)
@@ -12,5 +12,5 @@ labels: type:decision, area:foundations, P0, risk:low, size:M, lab-evidence
 - [ ] Record the three initial assumptions the lab overturned (FST dictionary, raw-by-default storage, "determinism within 30%") so they are not reintroduced
 
 **Acceptance**
-- 23 ADRs merged; each open one names its owner experiment
+- 25 ADRs merged; each open one names its owner experiment
 - DESIGN.md decision table links to the ADRs
