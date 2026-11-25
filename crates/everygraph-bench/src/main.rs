@@ -327,7 +327,7 @@ fn list(registry: &Registry, root: &DataRoot, args: &Args) -> Result<ExitCode, F
     }
     out!("data root: {}", root.path().display());
     out!(
-        "{:<24} {:>4}  {:<16} {:>10}  status",
+        "{:<32} {:>4}  {:<16} {:>10}  status",
         "name",
         "tier",
         "family",
@@ -342,7 +342,7 @@ fn list(registry: &Registry, root: &DataRoot, args: &Args) -> Result<ExitCode, F
             ds.total_size().map_or_else(|| "?".to_string(), human_bytes)
         };
         out!(
-            "{:<24} {:>4}  {:<16} {:>10}  {status}",
+            "{:<32} {:>4}  {:<16} {:>10}  {status}",
             ds.name,
             ds.tier,
             ds.family.as_str(),
