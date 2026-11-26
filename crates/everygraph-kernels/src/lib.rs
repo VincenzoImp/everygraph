@@ -55,8 +55,9 @@
 //! assert_eq!((heaviest, total.value()), ([2, 0, 0], 112.0));
 //! ```
 //!
-//! The same closure runs over a [`Compressed`](edge_map::Compressed) or a
-//! [`Stream`](edge_map::Stream) source with the same result. The crate builds for
+//! The same closure runs over a [`Compressed`](edge_map::Compressed), a
+//! [`Stream`](edge_map::Stream) or a [`CompressedStream`](edge_map::CompressedStream)
+//! source with the same result. The crate builds for
 //! wasm32: it reads through `ByteSource`, splits work through `everygraph_core::par`, and
 //! is under the portability lists of the core and the allocation rule (`clippy.toml`).
 
