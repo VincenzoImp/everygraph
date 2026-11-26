@@ -174,4 +174,4 @@ Idle, 16 threads, async Leiden unless noted (FINDINGS § B2 "Hierarchy for the m
 
 ## Closed by
 
-#19 (hierarchy shaping); productionized in #63.
+Productionized in #63.

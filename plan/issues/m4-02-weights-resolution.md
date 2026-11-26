@@ -16,7 +16,7 @@ labels: type:feature, area:community, P1, risk:medium, size:M, lab-evidence
 
 **Acceptance**
 - Weighted results match `leidenalg` within tolerance on oracle graphs (same objective and γ)
-- Deterministic hash stable across thread counts and across two memory budgets, in RAM and out of core ({{#m4-04-ooc-leiden}}), with random real weights: f32, and log-uniform over 2^-20…2^20 on orkut (`docs/research/sota-numerics.md` challenge 1)
+- Deterministic hash stable across thread counts and across two memory budgets in RAM (the same out of core is {{#m4-04-ooc-leiden}}'s), with random real weights: f32, and log-uniform over 2^-20…2^20 on orkut (`docs/research/sota-numerics.md` challenge 1)
 - Modularity, Leicht–Newman and CPM values equal the oracle's on graphs with kept loops, and modularity is equal across aggregation (a partition and its quotient under singletons), also with real weights — attainable only with exact sums, which the fixed-point weights above give: a float sum over members is not in general the same float sum over a quotient (`docs/spec/graph-semantics.md` § 5.5)
 
 **Depends on** {{#m4-01-leiden-production}}, {{#m2-10-property-columns}}, {{#m1-10-graph-families}}

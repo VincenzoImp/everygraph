@@ -371,23 +371,38 @@ impl Shown<'_> {
         out: &mut impl Write,
         corrupt: &dyn Fn(DictionaryError) -> Failure,
     ) -> Result<(), Failure> {
-        let gone = |e: io::Error| failure::io("write", Path::new("standard output"), &e);
-        writeln!(out, "{}", self.names().join("\t")).map_err(gone)?;
+        // A reader that closes the pipe asked for no more rows: the end is quiet
+        // (`design/DECISIONS.md`, "A closed pipe").
+        let mut closed = false;
+        let send = |out: &mut dyn Write, bytes: &[u8], closed: &mut bool| match out
+            .write_all(bytes)
+            .and_then(|()| out.flush())
+        {
+            Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {
+                *closed = true;
+                Ok(())
+            }
+            other => other.map_err(|e| failure::io("write", Path::new("standard output"), &e)),
+        };
+        let header = format!("{}\n", self.names().join("\t"));
+        send(out, header.as_bytes(), &mut closed)?;
         let mut text = String::new();
         self.batches(
             nodes,
             memory,
             |batch| {
+                if closed {
+                    return Ok(());
+                }
                 text.clear();
                 for j in 0..batch.ids.len() {
                     text.push_str(&self.cells(batch, j, None).join("\t"));
                     text.push('\n');
                 }
-                out.write_all(text.as_bytes()).map_err(gone)
+                send(out, text.as_bytes(), &mut closed)
             },
             corrupt,
-        )?;
-        out.flush().map_err(gone)
+        )
     }
 
     /// The terminal form: aligned with spaces, a dim header, numbers with separators,

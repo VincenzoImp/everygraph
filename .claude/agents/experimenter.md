@@ -14,9 +14,11 @@ directory `/home/tux/graphlab/scratch/<issue-slug>` that you remove when finishe
 Rules:
 - Answer the questions asked. A clear "this does not work, here is the number" is a good
   result. Do not make results look better than they are.
-- You may develop and test freely, but you do **not** take measurements for the record
-  unless the coordinator told you the machine is yours for this run. Otherwise deliver a
-  script that reproduces every number and writes JSON results; the coordinator runs it.
+- Decide from interleaved A/B runs and load-independent counts (bytes read or written,
+  peaks, deterministic quality metrics), labelled exploratory; that is enough to answer an
+  experiment (CLAUDE.md § 6). Official idle-machine numbers come once per milestone or
+  before publication: deliver a script that reproduces every number and writes JSON
+  results; the coordinator runs it then.
 - State for every number: graph, threads, memory limit, numeric precision, storage format,
   whether the cache was warm, and whether timings include loading or `fsync`.
 - Compare like with like, and check what a reference tool actually computes.

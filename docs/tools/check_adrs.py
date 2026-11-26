@@ -12,6 +12,11 @@ Checks:
   4. The index in docs/adr/README.md links every ADR, with the status the ADR states.
   5. Every #N cited in docs/adr/ is an issue in plan/published.json.
   6. Every lab/... path cited in docs/adr/ exists in the repository.
+  7. No closed issue (plan/closed.json, written by `plan/board.py sync`) is cited in an
+     ADR's "Closed by" section, in the "Closed by" column of the index, or in the status
+     cell of a DESIGN.md decision row: those name the work still to do.
+  8. No DESIGN.md status cell calls an accepted ADR proposed: the row of ADR N (N <= 25),
+     or a cell that links to or names the ADR, says "proposed" only while it is proposed.
 
 Usage: python3 docs/tools/check_adrs.py [--root REPO]
 Exit status 0 when every check passes, 1 otherwise.
@@ -67,7 +72,7 @@ def check(root):
     extra = sorted(files.keys() - expected)
 
     statuses = {}
-    issue_refs, lab_paths = [], []
+    issue_refs, lab_paths, pending_refs = [], [], []
     for num, p in sorted(files.items()):
         text = p.read_text(encoding="utf-8")
         found = STATUS_LINE.findall(text)
@@ -97,6 +102,8 @@ def check(root):
             if not ISSUE_REF.search(section_body(text, "Closed by")):
                 errors.append(f"{p.name}: status '{status}' but no '## Closed by' citing #N")
         issue_refs += [(p.name, int(n)) for n in ISSUE_REF.findall(text)]
+        pending_refs += [(f"{p.name} (Closed by)", int(n))
+                         for n in ISSUE_REF.findall(section_body(text, "Closed by"))]
         lab_paths += [(p.name, x) for x in LAB_PATH.findall(text)]
 
     # 3. DESIGN.md decision table
@@ -115,8 +122,10 @@ def check(root):
     # 4. README index
     readme = (adr_dir / "README.md").read_text(encoding="utf-8")
     index = {}
-    for m in re.finditer(r"^\| \[(\d{4})\]\(([^)]+)\) \| [^|]+ \| ([^|]+?) \| [^|]+ \|$", readme, re.M):
+    for m in re.finditer(r"^\| \[(\d{4})\]\(([^)]+)\) \| [^|]+ \| ([^|]+?) \| ([^|]+) \|$", readme, re.M):
         index[int(m.group(1))] = (m.group(2), m.group(3).strip())
+        pending_refs += [(f"README.md (Closed by of {m.group(1)})", int(n))
+                         for n in ISSUE_REF.findall(m.group(4))]
     for num, p in sorted(files.items()):
         if num not in index:
             errors.append(f"README.md: ADR {num:04d} is not in the index")
@@ -137,6 +146,26 @@ def check(root):
     for name, n in issue_refs:
         if n not in published:
             errors.append(f"{name}: #{n} is not an issue in plan/published.json")
+
+    # 7. closed issues where the remaining work is named; 8. accepted ADRs still called proposed
+    closed_file = root / "plan" / "closed.json"
+    closed = set(json.loads(closed_file.read_text())) if closed_file.exists() else None
+    if closed is None:
+        errors.append("plan/closed.json is missing: run `python3 plan/board.py sync`")
+        closed = set()
+    for m in re.finditer(r"^\| \[D(\d+)\]\(adr/[^)]+\) \|.*\| ([^|]*) \|$", design, re.M):
+        k, cell = int(m.group(1)), m.group(2)
+        pending_refs += [(f"DESIGN.md (status of D{k})", int(n)) for n in ISSUE_REF.findall(cell)]
+        if "proposed" in cell:
+            for num, status in statuses.items():
+                if not status or not status.startswith("accepted"):
+                    continue
+                if num == k or f"adr/{num:04d}-" in cell or f"ADR {num:04d}" in cell:
+                    errors.append(f"DESIGN.md: the status of D{k} says 'proposed', "
+                                  f"but ADR {num:04d} is '{status}'")
+    for name, n in pending_refs:
+        if n in closed:
+            errors.append(f"{name}: #{n} is closed; name the open issue that holds the rest")
 
     # 6. lab paths
     for name, raw in lab_paths:

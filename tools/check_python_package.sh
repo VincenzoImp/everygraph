@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 venv=target/py-check
-uv venv -q --allow-existing "$venv"
+uv venv -q --clear "$venv"
 export VIRTUAL_ENV=$PWD/$venv
 uv pip install -q maturin==1.16.0 pytest==9.2.0 networkx==3.7 scipy==1.18.1 pyarrow==26.0.1 \
   polars==2.2.0 pandas==3.1.1 duckdb==2.0.1 jsonschema==4.26.0 numpy==2.5.5
