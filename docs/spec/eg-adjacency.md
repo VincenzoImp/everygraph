@@ -274,7 +274,10 @@ have no repeated pair, so they have no `.events` section.
 
 The `.events` section, on an adjacency with `r = events / entries > 1`, takes `1 + r` bits
 per entry when `r < 2`, and between `2 + ⌊log2 r⌋` and `3 + ⌊log2 r⌋` bits per entry
-otherwise (arithmetic from § 2, not measured; #35 measures it on a temporal graph). That
+otherwise (arithmetic from § 2). Measured once: on college-msg, directed, `r` = 2.95,
+the build of #35 wrote an `.events` section of 8,856 bytes, 3.49 bits per entry with its
+header (`lab/m2-08-build/results/college-msg-events.json`; a size, so the machine's load
+does not change it). That
 is the structure alone: the per-pair columns a graph with repeated pairs also stores (a
 `float64` pair sum is 64 bits per entry) come on top (ADR 0028 compares both).
 
