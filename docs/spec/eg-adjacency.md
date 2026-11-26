@@ -291,7 +291,8 @@ is the structure alone: the per-pair columns a graph with repeated pairs also st
 - **Per-list records, not one stream per block.** The A/B of #30 (single thread,
   interleaved): block framing ran `PageRank` 2–5% faster on lj and no faster on orkut, scanned
   orkut 30% slower and random lists 12–24% slower, for 0.2–1.2% fewer bytes; per-list
-  records keep random access to one list a single read.
+  records keep random access to one list a single read
+  (`lab/m2-03-codec/results/framing.jsonl`).
 - **Readers ignore unused control fields** instead of refusing them: every decoder then
   counts record lengths the same way without a check per record.
 - **Pairs in the adjacency, events beside it** (ADR 0028), not equal neighbours in the
