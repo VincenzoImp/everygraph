@@ -25,7 +25,7 @@ pub struct StoredMap<'f, S> {
 }
 
 impl<'f, S: ByteSource> StoredMap<'f, S> {
-    /// The map stored under `key` ([`key`]); `None` when there is none for this graph.
+    /// The map stored under `key` ([`key`](super::key)); `None` when there is none for this graph.
     ///
     /// # Errors
     ///
