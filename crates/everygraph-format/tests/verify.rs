@@ -484,7 +484,8 @@ fn add_with_events(w: &mut Writer<Mem>, name: &str, nodes: usize, arcs: &[(u32, 
     let mut data = Vec::new();
     for (v, list) in lists.iter().enumerate() {
         let before = data.len();
-        let degree = append_record(v as u32, list.keys().copied(), &mut data).unwrap();
+        let v = u32::try_from(v).unwrap();
+        let degree = append_record(v, list.keys().copied(), &mut data).unwrap();
         index.push(degree, (data.len() - before) as u64).unwrap();
     }
     let ms: Vec<u64> = lists.iter().flat_map(|l| l.values().copied()).collect();
