@@ -90,7 +90,7 @@ A measurable condition.
 | [0015](0015-leiden-visiting-order.md) | Leiden with block-permuted order and a connectivity guarantee | accepted, partly validated | #24, #259 |
 | [0016](0016-two-community-outputs.md) | Two community outputs, one artifact: the partition T inside the map tree | accepted | #63 |
 | [0017](0017-layout-disc-packing.md) | Layout by hierarchy-constrained disc packing | accepted, partly validated | #67 |
-| [0018](0018-data-tiles.md) | Data tiles in PMTiles v3 and a WebGL2 viewer | accepted, partly validated | #26, #69 |
+| [0018](0018-data-tiles.md) | Data tiles in PMTiles v3 and a WebGL2 viewer | accepted, partly validated | #77, #69 |
 | [0019](0019-python-pyo3-arrow.md) | Python through PyO3 abi3 and Arrow PyCapsule | accepted | — |
 | [0020](0020-networkx-backend.md) | The NetworkX backend is an adoption channel | accepted | — |
 | [0021](0021-queries-traversal-api.md) | Queries in v0.1: a traversal API, no query language | accepted, partly validated | #91 |

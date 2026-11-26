@@ -1,0 +1,4 @@
+{"prefs":{},"env":{},"result":"no context: WebGL creation failed: \n* tryNativeGL ()\n* Exhausted GL driver options. (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)"}
+{"prefs":{"webgl.out-of-process":false},"env":{},"result":"no context: WebGL creation failed: \n* tryNativeGL ()\n* Exhausted GL driver options. (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)"}
+{"prefs":{"webgl.out-of-process":false,"gfx.webrender.software":true},"env":{"LIBGL_ALWAYS_SOFTWARE":"1"},"result":"no context: WebGL creation failed: \n* tryNativeGL ()\n* Exhausted GL driver options. (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)"}
+{"prefs":{"webgl.out-of-process":false},"env":{"LIBGL_ALWAYS_SOFTWARE":"1","MOZ_X11_EGL":"1","EGL_PLATFORM":"surfaceless"},"result":"no context: WebGL creation failed: \n* tryNativeGL ()\n* Exhausted GL driver options. (FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)"}

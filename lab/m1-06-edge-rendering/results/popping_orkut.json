@@ -1,0 +1,69 @@
+{
+ "map": "/home/tux/graphlab/scratch/m1-06-edge-rendering/maps/orkut.pmtiles",
+ "zmax": 10,
+ "tiles": 142710,
+ "nodes": {
+  "shown_at_some_zoom": 3072441,
+  "vanish_events": 20544,
+  "entities_that_vanish_before_zmax": 0,
+  "entities_with_popping": 20544,
+  "popping_gap_levels": 20584,
+  "first_zoom_histogram": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   103,
+   1495,
+   55870,
+   2530577,
+   479602,
+   4794
+  ],
+  "vanish_events_by_zoom": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   20544,
+   0,
+   0
+  ]
+ },
+ "regions": {
+  "shown_at_some_zoom": 857966,
+  "vanish_events": 0,
+  "entities_that_vanish_before_zmax": 0,
+  "entities_with_popping": 0,
+  "popping_gap_levels": 0,
+  "first_zoom_histogram": [
+   187,
+   374,
+   997,
+   3294,
+   9910,
+   26460,
+   62823,
+   152487,
+   559674,
+   41743,
+   17
+  ],
+  "vanish_events_by_zoom": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ]
+ }
+}

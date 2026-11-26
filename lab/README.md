@@ -31,7 +31,9 @@ Second-round experiments and measurements of production code:
 | `m1-03-louvain-collapse` | #17, the async Louvain collapse on Friendster | § M1-03 | — |
 | `m1-04-det-leiden-scaling` | #18, the sub-round rule of deterministic Leiden, A/B | its own `README.md` (exploratory) | `det-leiden.toml` |
 | `m1-05-hierarchy-shaping` | #19, a hierarchy the map can use | § M1-05 | `hierarchy-shaping.toml` |
+| `m1-06-edge-rendering` | #20, connections without a selection (the preview `design/preview/style/overview.html`); popping in the lab tiles | `design/DECISIONS.md` (2026-11-26), `results/` (exploratory) | — |
 | `m1-09-hierarchy-order` | #23, node orders against our codec and kernels | its own `results/README.md` (exploratory) | `hierarchy-order.toml` |
+| `m1-12-viewer-no-gpu` | #26, the lab viewer without a discrete GPU: entities against pixels, drawing modes in `e-map/viewer` | `results/` (exploratory) | — |
 | `m1-13-compressed` | #118, the default storage end to end | § M1-13 | — |
 | `m1-15-mmap-hints-block-cache` | #172, mmap hints and a budgeted block cache | ADR 0029, `results/README.md` | `mmap-hints.toml` |
 | `m1-18-layout-baseline` | #175, our map layout against published large-graph layouts | § M1-18 | — |
