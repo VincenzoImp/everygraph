@@ -1858,8 +1858,8 @@ Nothing was changed.
   (§ 4.6) and `to_dict()` of every Python exception are this document. Its key names
   are fixed: `budget_bytes` is the memory budget; `needs_bytes` what the step needs;
   `smallest_budget_bytes` the exact smallest budget that would work (P-14), or null when
-  it is not known: either no budget on this machine would work, or the planner (#45) is
-  not there yet to compute it, and it will give the exact value; `available_bytes` only ever free disk (for
+  it is not known: either no budget on this machine would work, or the step does not go
+  through the planner (#45) yet, which gives the exact value for the operations it plans; `available_bytes` only ever free disk (for
   `InsufficientDisk`) or free machine memory; `machine_memory_bytes` the machine's
   memory in all; `holds`, for `OutputExists`, what the file in the way holds (`other
   graph` or `not ours`); `column`, for an `InvalidInput` about a column rather than
