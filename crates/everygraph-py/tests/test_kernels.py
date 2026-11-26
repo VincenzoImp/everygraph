@@ -162,3 +162,45 @@ def test_kernel_events_follow_the_event_schema(small, validate):
     assert [e["state"] for e in events] == ["running", "done"]
     for event in events:
         validate(event, "urn:everygraph:schema:event:1")
+
+
+def test_components_match_networkx_and_are_numbered_by_size(small):
+    g_nx, path = small
+    g = eg.read(path, progress=False)
+    wcc = g.components(progress=False)
+    t = pa.table(wcc)
+    assert t.schema.field("component").type == pa.uint32()
+    order = {v: i for i, v in enumerate(t["node"].to_pylist())}
+    got = by_node(wcc, "component")
+    parts = sorted(nx.connected_components(g_nx), key=lambda c: (-len(c), min(order[v] for v in c)))
+    for number, part in enumerate(parts):
+        assert {got[v] for v in part} == {number}
+    sizes = pa.table(wcc.sizes())
+    assert sizes.column_names == ["component", "nodes"]
+    assert sizes["nodes"].to_pylist() == [len(p) for p in parts]
+    assert wcc.meta["components"] == len(parts)
+
+
+def test_components_of_a_directed_graph_are_weak(tmp_path):
+    path = write_edges(tmp_path / "d.csv", [(0, 1), (2, 1), (3, 4)], header="from,to")
+    got = by_node(eg.read(path, progress=False).components(progress=False), "component")
+    assert got[0] == got[1] == got[2] != got[3] == got[4]
+
+
+def test_kcore_matches_networkx(small):
+    g_nx, path = small
+    got = by_node(eg.read(path, progress=False).kcore(progress=False), "core")
+    assert got == nx.core_number(g_nx)
+
+
+def test_degrees_count_distinct_neighbors(tmp_path, small):
+    g_nx, path = small
+    g = eg.read(path, progress=False)
+    assert by_node(g.degrees(progress=False), "degree") == dict(g_nx.degree())
+    some = sorted(g_nx.nodes())[:3][::-1]
+    t = pa.table(g.degrees(some, progress=False))
+    assert t["node"].to_pylist() == some
+    assert t["degree"].to_pylist() == [g_nx.degree(v) for v in some]
+    repeated = write_edges(tmp_path / "r.csv", [(0, 1), (1, 0), (0, 1), (1, 2)])
+    degree = by_node(eg.read(repeated, progress=False).degrees(progress=False), "degree")
+    assert degree == {0: 1, 1: 2, 2: 1}

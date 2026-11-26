@@ -9,9 +9,12 @@
 use std::sync::atomic::AtomicU32;
 
 use arrow_array::ArrayRef;
-use arrow_array::types::{Float32Type, Float64Type};
+use arrow_array::types::{Float32Type, Float64Type, UInt32Type};
 use everygraph_core::{Budget, Memory, MemoryKind, SegVec};
+use everygraph_kernels::components::{self, WccOptions};
+use everygraph_kernels::degrees::{self, Loop};
 use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, one_segment_mut};
+use everygraph_kernels::kcore;
 use everygraph_kernels::pagerank::{self, PageRank};
 use everygraph_kernels::traversal::{self, Bfs, UNREACHED};
 
@@ -188,6 +191,63 @@ pub(crate) fn bfs(
             columns: vec![("distance", table::own_u32(distance, UNREACHED, held))],
             ids: vec![("parent", parent)],
             extra: vec![("hops", Extra::Count(deepest))],
+        })
+    })
+}
+/// Weakly connected components (#48): `component`, numbered from 0 by decreasing size,
+/// ties by the earliest node (`docs/api-sketch.md` § 2.12).
+pub(crate) fn components(call: &Call<'_>, g: &Shared) -> Result<Output, Failure> {
+    let options = WccOptions {
+        symmetric: !g.file().directed(),
+        sample: true,
+    };
+    let memory = call.memory;
+    call.on_lists(g, |plan| {
+        let (labels, held) = components::wcc(plan, memory, options)?;
+        let numbered = components::number(&labels, memory)?;
+        drop((labels, held));
+        let count = numbered.sizes.len() as u64;
+        Ok(Output {
+            columns: vec![("component", table::lend::<UInt32Type>(numbered.component))],
+            ids: Vec::new(),
+            extra: vec![("components", Extra::Count(count))],
+        })
+    })
+}
+
+/// Core numbers (#50): `core`, direction ignored.
+pub(crate) fn kcore(call: &Call<'_>, g: &Shared) -> Result<Output, Failure> {
+    if g.file().directed() {
+        return Err(call.needs_in_edges());
+    }
+    let memory = call.memory;
+    call.on_lists(g, |plan| {
+        let (core, state) = kcore::kcore(plan, memory)?;
+        drop(state);
+        let held = memory.reserve("core numbers", MemoryKind::Anonymous, core.len() as u64 * 4)?;
+        let core: Vec<u32> = core.into_iter().map(AtomicU32::into_inner).collect();
+        let largest = core.iter().copied().max().unwrap_or(0);
+        Ok(Output {
+            columns: vec![("core", table::own_u32(core, u32::MAX, held))],
+            ids: Vec::new(),
+            extra: vec![("largest_core", Extra::Count(u64::from(largest)))],
+        })
+    })
+}
+
+/// Degrees (#50): `degree`, the distinct neighbours of each node. A directed graph's
+/// `in_degree` and `degree` need its in-edges.
+pub(crate) fn degrees(call: &Call<'_>, g: &Shared) -> Result<Output, Failure> {
+    if g.file().directed() {
+        return Err(call.needs_in_edges());
+    }
+    let memory = call.memory;
+    call.on_lists(g, |plan| {
+        let d = degrees::degrees(plan, memory, Loop::Twice)?;
+        Ok(Output {
+            columns: vec![("degree", table::lend::<UInt32Type>(d))],
+            ids: Vec::new(),
+            extra: Vec::new(),
         })
     })
 }

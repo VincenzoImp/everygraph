@@ -215,6 +215,11 @@ impl Table {
     }
 
     /// The rows `rows` of every column, in that order.
+    /// The rows `rows`, in that order.
+    pub(crate) fn rows_of(&self, rows: &[u32]) -> PyResult<Self> {
+        self.take(rows).map_err(arrow_err)
+    }
+
     fn take(&self, rows: &[u32]) -> Result<Self, ArrowError> {
         let columns = self
             .columns

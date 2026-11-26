@@ -383,4 +383,51 @@ impl Graph {
             kernels::bfs(call, g, source, direction, max_hops)
         })
     }
+
+    /// Weakly connected components (`everygraph.Graph.components`).
+    fn components<'py>(
+        &self,
+        py: Python<'py>,
+        memory: u64,
+        threads: NonZeroUsize,
+        on_event: Bound<'py, PyAny>,
+    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
+        self.call(
+            py,
+            "components",
+            memory,
+            threads,
+            &on_event,
+            kernels::components,
+        )
+    }
+
+    /// Core numbers (`everygraph.Graph.kcore`).
+    fn kcore<'py>(
+        &self,
+        py: Python<'py>,
+        memory: u64,
+        threads: NonZeroUsize,
+        on_event: Bound<'py, PyAny>,
+    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
+        self.call(py, "kcore", memory, threads, &on_event, kernels::kcore)
+    }
+
+    /// Degrees (`everygraph.Graph.degrees`), of every node or of the dense ids `nodes`,
+    /// in that order.
+    fn degrees<'py>(
+        &self,
+        py: Python<'py>,
+        nodes: Option<Vec<u32>>,
+        memory: u64,
+        threads: NonZeroUsize,
+        on_event: Bound<'py, PyAny>,
+    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
+        let (table, info) =
+            self.call(py, "degrees", memory, threads, &on_event, kernels::degrees)?;
+        match nodes {
+            Some(ids) => Ok((table.rows_of(&ids)?, info)),
+            None => Ok((table, info)),
+        }
+    }
 }
