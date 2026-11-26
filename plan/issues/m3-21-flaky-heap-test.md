@@ -1,7 +1,7 @@
 ---
 title: Flaky test: readers_hold_no_more_heap_than_they_reserve under load
 milestone: M3 · Engine and kernels
-labels: type:bug, area:engine, P1, risk:low, size:S
+labels: type:infra, area:engine, P1, risk:low, size:S
 ---
 **Why.** `everygraph-kernels` test `heap::readers_hold_no_more_heap_than_they_reserve` (from PR #202) failed in 1 of 6 runs on an unmodified main head at load about 40, and in 3 of 13 mutant runs during the review of PR #220 (comment 7183716406). A test that fails without a code change hides real failures.
 
