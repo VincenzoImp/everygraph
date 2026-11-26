@@ -225,6 +225,10 @@ fn graphs() -> (Vec<Prepared>, bool) {
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "minutes in a debug build; `oracle/run-ci.sh` (the oracle job) runs it in release"
+)]
 fn proof_kernels_pass_the_oracle_under_every_configuration() {
     let (graphs, python) = graphs();
     let report = run(&Proof::default(), &graphs, Options::default());
