@@ -33,4 +33,4 @@ labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
 - orkut with a limit of 50% of its edge array: ≤ 3× the in-RAM time (lab: 5.6× at 100%, OOM below)
 - Deterministic mode works out of core with the same hash as in RAM, on an unweighted graph and on a graph with real weights (the fixed-point scheme of {{#m4-02-weights-resolution}}): stable across thread counts and two memory budgets with random real weights, f32 and log-uniform over 2^-20…2^20 on orkut (moved from {{#m4-02-weights-resolution}}, whose acceptance covers RAM only)
 
-**Depends on** {{#m1-02-ooc-aggregation}}, {{#m3-03-semi-external}}, {{#m4-03-parallel-aggregation}}
+**Depends on** {{#m1-02-ooc-aggregation}}, {{#m3-03-semi-external}}, {{#m4-01-leiden-production}}, {{#m4-02-weights-resolution}} (fixed-point weights, for the last acceptance criterion)

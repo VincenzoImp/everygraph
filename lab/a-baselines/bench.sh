@@ -9,4 +9,3 @@ for g in lj orkut; do
   for a in louvain leiden; do for t in 32 1; do ./gve/gve-$a-t$t data/$g.mtx 1 0 > results/gve-$a-$g-t$t.log 2>&1; done; done
 done
 $PY bench_lib.py rustworkx lj 1
-./run_largegraph.sh

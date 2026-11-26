@@ -6,8 +6,8 @@
 
 ## Context
 
-The feasibility lab (`lab/LAB.md`) started from working assumptions "to be validated or
-refuted". Three of them were refuted by measurement. They are natural defaults that a later
+The feasibility lab (`lab/README.md`) started from working assumptions to be validated or
+refuted. Three of them were refuted by measurement. They are natural defaults that a later
 session, a contributor or a reviewer could propose again without knowing they were tested.
 
 ## Decision
