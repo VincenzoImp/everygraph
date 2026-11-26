@@ -26,11 +26,12 @@ labels: type:docs, area:bench, P0, risk:medium, size:M, lab-evidence
   11. drive and CPU state recorded ({{#m1-21-drive-state}})
 - [ ] The laptop runs (decided 2026-11-25, `docs/research/README.md` M7): a "cool start" and a "back-to-back steady state", with a cooldown to a recorded temperature between rounds and AC or battery recorded. No peer-reviewed laptop study was found (`docs/research/sota-measurement.md` § 2): a boost frequency differs by up to 16% between chips of one model (Acun et al., ICS'16), so a laptop number belongs to one unit, not to the model
 - [ ] A cheap check of the published ratios first: BFS on orkut from the hub against 64 seeded non-zero-degree sources, ours and NetworKit, interleaved — does the 4.4–19× range of D1 move?
+- [ ] The capacity curve of {{#m3-12-perf-tracking}} (S9) is the headline table: time or OOM per kernel from 2 to 56 GB, with residence proven and the COST line, against GBBS on mmap, GAP and NetworKit
 - [ ] A "where we lose" section (e.g. Gephi on styling small graphs, Neo4j on Cypher, GPUs on raw throughput, BV on web-graph compression)
 - [ ] Comparison runners left unavailable by {{#m0-03-bench-harness}}: Neo4j + GDS (needs a server-lifecycle runner: download, import, start bound to 127.0.0.1, stop by PID) and DuckPGQ (needs a DuckDB release compatible with the extension, beside the pinned one); each recorded with tool, version, algorithm and options like the others
 
 **Acceptance**
-- An outside person reproduces the headline table on their own machine within 20% using only the kit
+- An outside person reproduces the headline table on their own machine using only the kit: the ratios between tools fall within their published intervals and the rankings are the same. Absolute times on another machine are not expected to match (corrected 2026-11-26, `docs/research/sota-review-2026-11.md` § 8)
 - No number in the README or launch post is absent from the report
 
 **Depends on** {{#m0-03-bench-harness}}, {{#m3-12-perf-tracking}}, {{#m4-04-ooc-leiden}}, {{#m5-03-tile-builder}}, {{#m7-01-point-queries}}

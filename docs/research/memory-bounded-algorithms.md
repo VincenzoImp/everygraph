@@ -308,9 +308,9 @@ I. Out-of-core systems, and whether their lessons hold on a compressed adjacency
 
 5. Blaze (SC 2022)
    - What it did: online binning by destination with no atomics.
-   - Licence: not verified.
-   - Lesson: deterministic push reductions.
-   - Recommendation: PROTOTYPE the idea.
+   - Licence: none (the repository has no licence file, as the review of 2026-11-26 found).
+   - Lesson: push reductions without atomics. **The bins do not give deterministic float sums** (corrected 2026-11-26, [sota-review-2026-11.md](sota-review-2026-11.md)): scatter threads fill bins at the same time, and a full bin goes to whichever gather thread takes it (Blaze dissertation § 5.3.1), so the order in which a destination's values are added depends on the schedule.
+   - Recommendation: read only; do not build on it for deterministic kernels.
 
 6. Ligra+ (DCC 2015)
    - Evidence: compressed is slightly faster in parallel. This agrees with the project's own finding (#118).
@@ -384,7 +384,7 @@ L5. TeraPart's bumped two-phase hashing and one-pass coarse CSR write in the sor
 
 - No external-memory or semi-external Leiden reaching in-RAM quality, and no out-of-core label-propagation paper; none found.
 - CluStRE gives no runtimes on the large graphs.
-- Licences not verified: Graphyti, Vite, puzzlef's leiden-lowmem, MGT code, STXXL, Blaze, Graphene, Aspen, BatchLayout, DRGraph, SNAP-tFDP, t-FDP. OGDF returned NOASSERTION.
+- Licences not verified: Graphyti, Vite, puzzlef's leiden-lowmem, MGT code, STXXL, Graphene, Aspen, BatchLayout, DRGraph, SNAP-tFDP, t-FDP. OGDF returned NOASSERTION.
 - Unknown whether KaMinPar has a deterministic mode.
 - Seen only as search snippets: BP reordering details, BuffCut, HeiStream, KADABRA's speed-up figures, Ajwani et al.'s BFS timings.
 - Bounds not read: the exact I/O bounds of Abello et al., 1PSCC and Mehlhorn–Meyer; and the contents of Contract & Expand and Wan & Wang's SCC paper (pages blocked).

@@ -33,6 +33,16 @@ into decisions in section D below.
 | [sota-human-factors.md](sota-human-factors.md) | human factors | accessibility of graph views, API usability, privacy of shared maps, graphs for LLM agents | full text for a core set; several key papers abstract only (bot walls), stated in the report |
 | [sota-approx-rust.md](sota-approx-rust.md) | approximation and Rust practice | sketching and approximation under a memory budget (HyperBall, sampling for centralities), Rust parallel practice (Rayon, `unsafe`, fearless parallelism) | full, method-and-evaluation or abstract, marked per work |
 
+**The state-of-the-art review of 2026-11-26:** [sota-review-2026-11.md](sota-review-2026-11.md),
+a condensed English synthesis with its conclusions, sources and the decisions taken from
+it (its § 4). It covers eight areas: out-of-core systems (`ooc`), parallel kernels
+(`kernels`), compression and orderings (`compression`), community detection
+(`communities`), ingest and query (`ingest-query`), maps (`maps`), GPU and resources
+(`gpu-resources`), and benchmarks and tests (`benchmarks`). The full synthesis (in
+Italian) and the eight area reports are not in the repository: they live on the owner's
+machine in `/home/tux/graphlab/sota-2026-11-26/`, with the scripts of the few checks the
+synthesis measured.
+
 ## Decisions taken from the first wave
 
 Decided 2026-11-25 by the coordinator after the first wave. Rule: nothing below changes a
