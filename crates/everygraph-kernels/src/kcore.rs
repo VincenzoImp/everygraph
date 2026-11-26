@@ -382,6 +382,10 @@ fn peel<'g, S: Source>(
                 p.recount.list_into(&mut counted)?;
                 p.recount.clear();
                 p.exact(&buckets, counted.as_slice()?, k, k, true)?;
+                // A missed node stays in sample mode, so the round would not end.
+                if p.missed.load(Relaxed) {
+                    return Ok(None);
+                }
                 p.next.list_into(&mut frontier)?;
                 p.next.clear();
             }
@@ -391,13 +395,13 @@ fn peel<'g, S: Source>(
                 break;
             }
             p.exact(&buckets, late.as_slice()?, k, k, true)?;
+            if p.missed.load(Relaxed) {
+                return Ok(None);
+            }
             std::mem::swap(&mut sampled, &mut safe);
             sampled.extend_from_slice(late.as_slice()?)?;
             p.next.list_into(&mut frontier)?;
             p.next.clear();
-        }
-        if p.missed.load(Relaxed) {
-            return Ok(None);
         }
         floor = k + 1;
     }
@@ -662,8 +666,15 @@ mod tests {
         for pad in 0..10 {
             let (offsets, targets) = hub_of_cliques(pad);
             let want = reference(&offsets, &targets);
-            let sampler = Some(Sampler { mu: 8, min_degree: 20 });
-            assert_eq!(run(&offsets, &targets, sampler, false), Some(want), "pad {pad}");
+            let sampler = Some(Sampler {
+                mu: 8,
+                min_degree: 20,
+            });
+            assert_eq!(
+                run(&offsets, &targets, sampler, false),
+                Some(want),
+                "pad {pad}"
+            );
         }
     }
 

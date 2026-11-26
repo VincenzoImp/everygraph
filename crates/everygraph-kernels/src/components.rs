@@ -223,7 +223,11 @@ pub fn number(labels: &[AtomicU32], memory: &Memory) -> Result<Numbered, Error> 
     let count: usize = par::map_ranges(n, GRAIN, |r| r.filter(|&v| is_root(v)).count())
         .into_iter()
         .sum();
-    let _roots = memory.reserve("component roots", MemoryKind::Anonymous, (count * size_of::<usize>()) as u64)?;
+    let _roots = memory.reserve(
+        "component roots",
+        MemoryKind::Anonymous,
+        (count * size_of::<usize>()) as u64,
+    )?;
     let roots: Vec<Vec<usize>> = par::map_ranges(n, GRAIN, |r| r.filter(|&v| is_root(v)).collect());
     let roots = || roots.iter().flatten().copied();
     // Rank by decreasing size, then by root: the components of size `s` start after all
