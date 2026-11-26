@@ -133,6 +133,9 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
             assert_eq!(batch.targets(), all);
+            let mut part = vec![0; all.len()];
+            adj.decode_lists(r.clone(), &mut part).unwrap();
+            assert_eq!(part, all, "{name} decode_lists {r:?}");
             // A window over the range's records alone decodes the same lists.
             let bytes = index.data_range(r.clone());
             let records = &encoded.data[to_usize(bytes.start)..to_usize(bytes.end)];

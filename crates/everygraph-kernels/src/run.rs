@@ -8,6 +8,13 @@
 //! [`stored`] finds a result in the graph file before it is computed, and [`store`]
 //! keeps one there (`docs/api-sketch.md` § 2.8); `bfs` is never kept.
 //!
+//! The command line and Python run an operation in three calls: [`kept`] says whether
+//! the file serves its result, [`crate::planner::plan`] decides how it runs (its
+//! `Display` is `explain`, its `to_json` the plan document, its `refusal` the error
+//! before any work), and [`execute`] carries the plan out on its threads: it serves the
+//! kept result by the same lookup, or runs the kernel, with a [`Session`] that keeps the
+//! decode tier's raw copy from one traversal to the next.
+//!
 //! A graph file holds the out-adjacency only; an undirected graph's out-lists are its
 //! lists. On a directed graph, `pagerank` and `kcore` need the in-adjacency or the
 //! undirected projection, which no file holds yet (#m2-11): they are
@@ -17,7 +24,9 @@
 use std::fmt;
 use std::sync::atomic::AtomicU32;
 
-use everygraph_core::{ByteSink, ByteSource, Memory, MemoryError, SegVec};
+use everygraph_core::par::{self, ThreadsError};
+use everygraph_core::{AccessHint, ByteSink, ByteSource, Memory, MemoryError, SegVec};
+use everygraph_format::adjacency::{Adjacency, AdjacencyIndex};
 use everygraph_format::container::{
     Container, ContainerError, GraphIdentity, Provenance, ResultKey, StoredResult, Value,
     ValueType, Writer,
@@ -25,9 +34,10 @@ use everygraph_format::container::{
 
 use crate::components::{self, WccOptions};
 use crate::degrees::{self, Loop};
-use crate::edge_map::{Error, Plan, Source};
+use crate::edge_map::{Compressed, Error, Plan, RawCopy, Source};
 use crate::kcore;
 use crate::pagerank::{self, PageRank};
+use crate::planner::{self, Request};
 use crate::traversal::{self, Bfs, UNREACHED};
 
 /// The state precision of `pagerank` (`docs/api-sketch.md` § 2.4).
@@ -187,6 +197,10 @@ pub enum RunError {
     Unsupported(&'static str),
     /// A stored result could not be read: the file is damaged.
     Stored(ContainerError),
+    /// The plan does not fit its budget, or cannot run: [`execute`] did no work.
+    Refused(Box<planner::Refusal>),
+    /// The threads of the plan could not be started.
+    Threads(ThreadsError),
 }
 
 impl fmt::Display for RunError {
@@ -195,6 +209,8 @@ impl fmt::Display for RunError {
             Self::Kernel(e) => e.fmt(f),
             Self::Unsupported(why) => f.write_str(why),
             Self::Stored(e) => e.fmt(f),
+            Self::Refused(r) => write!(f, "{} {}", r.message, r.why),
+            Self::Threads(e) => e.fmt(f),
         }
     }
 }
@@ -225,6 +241,171 @@ const ONE_SEGMENT: &str = "it needs per-node state of more than one segment, whi
 const NEEDS_IN_LISTS: &str =
     "on a directed graph it needs the in-adjacency, which this file does not hold";
 
+/// Why `op` cannot run on the out-lists of a graph of `nodes` nodes that is `directed`
+/// or not; `None` if it can.
+#[must_use]
+pub fn unsupported(op: &Operation, directed: bool, nodes: u32) -> Option<&'static str> {
+    if u64::from(nodes) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
+        Some(ONE_SEGMENT)
+    } else if directed && matches!(op, Operation::PageRank { .. } | Operation::KCore) {
+        Some(NEEDS_IN_LISTS)
+    } else {
+        None
+    }
+}
+
+/// The out-adjacency of a graph file, as [`execute`] reads it.
+#[expect(
+    missing_debug_implementations,
+    reason = "a set of borrows; the data part has no `Debug`"
+)]
+pub struct Lists<'a, S: ByteSource> {
+    /// The graph file: its identity, and its kept results.
+    pub file: &'a Container<S>,
+    /// The index of its out-adjacency.
+    pub index: &'a AdjacencyIndex,
+    /// The data part, held in memory: a memory map or a buffer.
+    pub data: &'a (dyn ByteSource + Sync),
+    /// Whether the graph is directed.
+    pub directed: bool,
+}
+
+/// What a sequence of operations on one graph keeps from one to the next: the
+/// traversals run so far, and the raw copy of the adjacency once a plan builds it (the
+/// decode tier of `planner`). The copy holds memory of the budget it was built in.
+/// Both belong to one graph, by its identity: on another graph they are dropped.
+#[derive(Debug, Default)]
+pub struct Session {
+    graph: Option<GraphIdentity>,
+    traversals: u32,
+    raw: Option<RawCopy>,
+}
+
+impl Session {
+    /// A session with nothing run yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `request`, with what the planner must know of this session on the graph of
+    /// `lists`: the traversals run on it, and the bytes the session holds, of a raw copy
+    /// of this graph or of another.
+    #[must_use]
+    pub fn request<S: ByteSource>(&self, lists: &Lists<'_, S>, request: Request) -> Request {
+        let same = self.graph == Some(lists.file.graph_identity());
+        Request {
+            traversals_before: if same { self.traversals } else { 0 },
+            held: self.raw.as_ref().map(|r| planner::Held {
+                bytes: r.held(),
+                usable: same,
+            }),
+            ..request
+        }
+    }
+
+    /// Bytes the raw copy holds, if the session has one.
+    #[must_use]
+    pub fn raw_bytes(&self) -> Option<u64> {
+        self.raw.as_ref().map(RawCopy::held)
+    }
+
+    /// The session, emptied when it belongs to another graph than `graph`.
+    fn on(&mut self, graph: GraphIdentity) -> &mut Self {
+        if self.graph != Some(graph) {
+            *self = Self {
+                graph: Some(graph),
+                ..Self::default()
+            };
+        }
+        self
+    }
+}
+
+/// Carries out `plan`, made with [`Session::request`] on `lists`, within `memory`, on
+/// `plan.threads()` threads: it serves a kept result through [`stored`], or runs the
+/// kernel on the plan's tier with its settings and the advice of each phase. It drops
+/// the session's raw copy first when the plan says so, or when the copy is of another
+/// graph. A traversal counts in `session`, which keeps the raw copy the plan builds.
+///
+/// # Errors
+///
+/// [`RunError::Refused`] for a plan that does not fit, and for a kept result that the
+/// file no longer serves; [`RunError::Threads`]; [`RunError::Kernel`] with
+/// [`Error::Invalid`] when the data part is not in memory; the errors of [`run`] and
+/// [`stored`].
+pub fn execute<S: ByteSource + Sync>(
+    plan: &planner::Plan,
+    lists: &Lists<'_, S>,
+    memory: &Memory,
+    session: &mut Session,
+) -> Result<Output, RunError> {
+    let op = plan.operation();
+    if let Some(refusal) = plan.refusal() {
+        return Err(RunError::Refused(Box::new(refusal.clone())));
+    }
+    let session = session.on(lists.file.graph_identity());
+    if plan.drops_raw() {
+        session.raw = None;
+    }
+    let work = || {
+        if plan.kept() {
+            let nodes = lists.index.nodes();
+            return stored(lists.file, op, lists.directed, nodes, memory)?
+                .ok_or_else(|| RunError::Refused(Box::new(planner::Refusal::not_kept(op))));
+        }
+        compute(plan, lists, memory, &mut session.raw)
+    };
+    let output = par::with_threads(plan.threads(), work).map_err(RunError::Threads)??;
+    if planner::traverses(op) && !plan.kept() {
+        session.traversals += 1;
+    }
+    Ok(output)
+}
+
+/// Runs the kernel of `plan` on its tier: the raw copy in `raw`, built first if the plan
+/// builds it, or the compressed lists of `lists`.
+fn compute<S: ByteSource + Sync>(
+    plan: &planner::Plan,
+    lists: &Lists<'_, S>,
+    memory: &Memory,
+    raw: &mut Option<RawCopy>,
+) -> Result<Output, RunError> {
+    let (op, directed) = (plan.operation(), lists.directed);
+    let data = lists
+        .data
+        .as_slice()
+        .ok_or(Error::Invalid("the data part is not in memory"))?;
+    let whole = 0..lists.data.len();
+    let advise = |hint| lists.data.advise(whole.clone(), hint);
+    let mut phases = plan.phases().iter();
+    if plan.tier() == planner::Tier::Compressed {
+        let source = Compressed::mapped(lists.index, lists.data)?;
+        if let Some(phase) = phases.next() {
+            advise(phase.advice);
+        }
+        let out = Plan::with(&source, memory, plan.settings(), |p| {
+            run(op, &p, directed, memory)
+        });
+        advise(AccessHint::Normal);
+        return out;
+    }
+    if raw.is_none() || plan.builds_raw() {
+        if let Some(decoding) = phases.next().filter(|p| p.name == "decoding") {
+            advise(decoding.advice);
+        }
+        *raw = None;
+        let adjacency = Adjacency::new(lists.index, data).map_err(Error::Format)?;
+        let built = RawCopy::decode(&adjacency, memory);
+        advise(AccessHint::Normal);
+        *raw = Some(built?);
+    }
+    let source = raw.as_ref().ok_or(Error::Invalid("no raw copy"))?;
+    Plan::with(source, memory, plan.settings(), |p| {
+        run(op, &p, directed, memory)
+    })
+}
+
 /// Runs `op` on the out-lists that `out` reads, of a graph that is `directed` or not,
 /// within `memory`.
 ///
@@ -248,14 +429,11 @@ pub fn run<S: Source>(
         null: None,
         nodes: false,
     };
-    if u64::from(out.nodes()) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
-        return Err(RunError::Unsupported(ONE_SEGMENT));
+    if let Some(why) = unsupported(op, directed, out.nodes()) {
+        return Err(RunError::Unsupported(why));
     }
     match *op {
         Operation::PageRank { params, precision } => {
-            if directed {
-                return Err(RunError::Unsupported(NEEDS_IN_LISTS));
-            }
             let g = pagerank::Graph {
                 lists: out,
                 weights: None,
@@ -291,9 +469,6 @@ pub fn run<S: Source>(
             Ok(plain("component", labels(numbered.component)))
         }
         Operation::KCore => {
-            if directed {
-                return Err(RunError::Unsupported(NEEDS_IN_LISTS));
-            }
             let (core, _held) = kcore::kcore(out, memory)?;
             Ok(plain("core", labels(to_column(&core, memory)?)))
         }
@@ -352,18 +527,9 @@ pub fn stored<S: ByteSource>(
     nodes: u32,
     memory: &Memory,
 ) -> Result<Option<Output>, RunError> {
-    if !op.stored() {
-        return Ok(None);
-    }
-    if u64::from(nodes) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
-        return Err(RunError::Unsupported(ONE_SEGMENT));
-    }
-    let Some(found) = file.find_result(&op.key(file.graph_identity())?)? else {
+    let Some(found) = find(file, op, nodes)? else {
         return Ok(None);
     };
-    if found.len() != u64::from(nodes) {
-        return Ok(None);
-    }
     file.verify_result(&found)?;
     let len = usize::try_from(found.len())
         .map_err(|_| Error::Invalid("a result longer than the address space"))?;
@@ -374,13 +540,49 @@ pub fn stored<S: ByteSource>(
             nodes: false,
         },
         ValueType::F64 => Column::F64(read(&found, len, memory)?),
-        ValueType::F32 => Column::F32(read(&found, len, memory)?),
-        _ => return Ok(None),
+        _ => Column::F32(read(&found, len, memory)?),
     };
     Ok(Some(Output {
         columns: vec![(op.column(directed), column)],
         iterations: None,
         converged: None,
+    }))
+}
+
+/// Whether [`stored`] serves `op` on the graph of `file`, of `nodes` nodes, without
+/// reading its values: what [`planner::Graph::kept`] must be.
+///
+/// # Errors
+///
+/// As [`stored`], for the key and the table of the file.
+pub fn kept<S: ByteSource>(
+    file: &Container<S>,
+    op: &Operation,
+    nodes: u32,
+) -> Result<bool, RunError> {
+    Ok(find(file, op, nodes)?.is_some())
+}
+
+/// The kept result of `op` that [`stored`] serves: one value per node, of a type a
+/// column holds.
+fn find<'f, S: ByteSource>(
+    file: &'f Container<S>,
+    op: &Operation,
+    nodes: u32,
+) -> Result<Option<StoredResult<'f, S>>, RunError> {
+    if !op.stored() {
+        return Ok(None);
+    }
+    if u64::from(nodes) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
+        return Err(RunError::Unsupported(ONE_SEGMENT));
+    }
+    let found = file.find_result(&op.key(file.graph_identity())?)?;
+    Ok(found.filter(|f| {
+        f.len() == u64::from(nodes)
+            && matches!(
+                f.value_type(),
+                ValueType::U32 | ValueType::F64 | ValueType::F32
+            )
     }))
 }
 
