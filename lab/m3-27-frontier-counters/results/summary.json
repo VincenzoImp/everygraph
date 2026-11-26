@@ -1,0 +1,1704 @@
+[
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "sssp-product",
+  "source": "raw",
+  "threads": 1,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "10447d27a528faff",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 267,
+    "keys": 1,
+    "nodes": 3072084,
+    "entries": 234776167,
+    "runs": 12177,
+    "single_run_calls": 96,
+    "single_run_entries": 276617,
+    "single_run_share": 0.0011782158450521086,
+    "side_lists": 799,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 17036534.8125,
+    "span_s3": 14770889.0625,
+    "span_ideal": 14673510.4375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 120,
+      "entries": 23589,
+      "single_run_calls": 90,
+      "single_run_entries": 4269,
+      "now_span": 14067
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 91,
+      "entries": 985809,
+      "single_run_calls": 5,
+      "single_run_entries": 68744,
+      "now_span": 193550.6875
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 26,
+      "entries": 8343086,
+      "single_run_calls": 1,
+      "single_run_entries": 203604,
+      "now_span": 1533788.25
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 30,
+      "entries": 225423683,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 15295128.875
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "sssp",
+  "source": "raw",
+  "threads": 1,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "10447d27a528faff",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 267,
+    "keys": 267,
+    "nodes": 3072084,
+    "entries": 234776167,
+    "runs": 12177,
+    "single_run_calls": 96,
+    "single_run_entries": 276617,
+    "single_run_share": 0.0011782158450521086,
+    "side_lists": 799,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 17036534.8125,
+    "span_s3": 14770889.0625,
+    "span_ideal": 14673510.4375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 120,
+      "entries": 23589,
+      "single_run_calls": 90,
+      "single_run_entries": 4269,
+      "now_span": 14067
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 91,
+      "entries": 985809,
+      "single_run_calls": 5,
+      "single_run_entries": 68744,
+      "now_span": 193550.6875
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 26,
+      "entries": 8343086,
+      "single_run_calls": 1,
+      "single_run_entries": 203604,
+      "now_span": 1533788.25
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 30,
+      "entries": 225423683,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 15295128.875
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "kcore",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "ebea627d802a1caf",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "kcore.exact": {
+    "calls": 16,
+    "keys": 16,
+    "nodes": 21,
+    "entries": 526999,
+    "runs": 16,
+    "single_run_calls": 16,
+    "single_run_entries": 526999,
+    "single_run_share": 1.0,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 262144,
+    "span_s3": 262144,
+    "span_ideal": 32937.4375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 15,
+      "entries": 458180,
+      "single_run_calls": 15,
+      "single_run_entries": 458180,
+      "now_span": 245760
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 1,
+      "entries": 68819,
+      "single_run_calls": 1,
+      "single_run_entries": 68819,
+      "now_span": 16384
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     }
+    ]
+   },
+   "kcore.subround": {
+    "calls": 420,
+    "keys": 253,
+    "nodes": 1781937,
+    "entries": 234370166,
+    "runs": 7202,
+    "single_run_calls": 249,
+    "single_run_entries": 36829682,
+    "single_run_share": 0.15714321762267303,
+    "side_lists": 1290504,
+    "draws": 128581,
+    "max_list": 23934,
+    "span_now": 68957751.3125,
+    "span_s3": 18622331.5625,
+    "span_ideal": 14648135.375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 4,
+      "entries": 2121,
+      "single_run_calls": 4,
+      "single_run_entries": 2121,
+      "now_span": 2121
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 79,
+      "entries": 2162358,
+      "single_run_calls": 79,
+      "single_run_entries": 2162358,
+      "now_span": 2162358
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 267,
+      "entries": 63366391,
+      "single_run_calls": 164,
+      "single_run_entries": 26734003,
+      "now_span": 42854594.6875
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 70,
+      "entries": 168839296,
+      "single_run_calls": 2,
+      "single_run_entries": 7931200,
+      "now_span": 23938677.625
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "sssp",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "10447d27a528faff",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 267,
+    "keys": 267,
+    "nodes": 3072077,
+    "entries": 234773777,
+    "runs": 12177,
+    "single_run_calls": 96,
+    "single_run_entries": 279943,
+    "single_run_share": 0.0011923946685067812,
+    "side_lists": 799,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 17033369.8125,
+    "span_s3": 14770739.6875,
+    "span_ideal": 14673361.0625,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 120,
+      "entries": 23589,
+      "single_run_calls": 90,
+      "single_run_entries": 4269,
+      "now_span": 14067
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 91,
+      "entries": 985809,
+      "single_run_calls": 5,
+      "single_run_entries": 68744,
+      "now_span": 193550.6875
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 26,
+      "entries": 8340696,
+      "single_run_calls": 1,
+      "single_run_entries": 206930,
+      "now_span": 1530623.25
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 30,
+      "entries": 225423683,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 15295128.875
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "b",
+  "graph": "orkut",
+  "kernel": "kcore",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "ebea627d802a1caf",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "kcore.exact": {
+    "calls": 16,
+    "keys": 16,
+    "nodes": 21,
+    "entries": 526999,
+    "runs": 16,
+    "single_run_calls": 16,
+    "single_run_entries": 526999,
+    "single_run_share": 1.0,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 262144,
+    "span_s3": 262144,
+    "span_ideal": 32937.4375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 15,
+      "entries": 458180,
+      "single_run_calls": 15,
+      "single_run_entries": 458180,
+      "now_span": 245760
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 1,
+      "entries": 68819,
+      "single_run_calls": 1,
+      "single_run_entries": 68819,
+      "now_span": 16384
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     }
+    ]
+   },
+   "kcore.subround": {
+    "calls": 420,
+    "keys": 253,
+    "nodes": 1782077,
+    "entries": 234370166,
+    "runs": 7201,
+    "single_run_calls": 250,
+    "single_run_entries": 36660671,
+    "single_run_share": 0.15642208914935019,
+    "side_lists": 1290364,
+    "draws": 128581,
+    "max_list": 15066,
+    "span_now": 68621386.125,
+    "span_s3": 18715909.25,
+    "span_ideal": 14648135.375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 3,
+      "entries": 1330,
+      "single_run_calls": 3,
+      "single_run_entries": 1330,
+      "now_span": 1330
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 79,
+      "entries": 2319628,
+      "single_run_calls": 79,
+      "single_run_entries": 2319628,
+      "now_span": 2319628
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 268,
+      "entries": 63433064,
+      "single_run_calls": 166,
+      "single_run_entries": 26408513,
+      "now_span": 42530505.6875
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 70,
+      "entries": 168616144,
+      "single_run_calls": 2,
+      "single_run_entries": 7931200,
+      "now_span": 23769922.4375
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "b",
+  "graph": "orkut",
+  "kernel": "sssp",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "10447d27a528faff",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 267,
+    "keys": 267,
+    "nodes": 3072076,
+    "entries": 234773008,
+    "runs": 12177,
+    "single_run_calls": 96,
+    "single_run_entries": 279943,
+    "single_run_share": 0.0011923985742006594,
+    "side_lists": 799,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 17032744.8125,
+    "span_s3": 14770691.625,
+    "span_ideal": 14673313.0,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 120,
+      "entries": 23589,
+      "single_run_calls": 90,
+      "single_run_entries": 4269,
+      "now_span": 14067
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 91,
+      "entries": 985809,
+      "single_run_calls": 5,
+      "single_run_entries": 68744,
+      "now_span": 193550.6875
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 26,
+      "entries": 8339927,
+      "single_run_calls": 1,
+      "single_run_entries": 206930,
+      "now_span": 1529998.25
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 30,
+      "entries": 225423683,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 15295128.875
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "bfs",
+  "source": "compressed",
+  "threads": 16,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "6fae1d393d667d29",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "bfs.top-down": {
+    "calls": 4,
+    "keys": 4,
+    "nodes": 72608,
+    "entries": 9173368,
+    "runs": 287,
+    "single_run_calls": 2,
+    "single_run_entries": 33446,
+    "single_run_share": 0.0036459891285294563,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 895657.1875,
+    "span_s3": 573460.1875,
+    "span_ideal": 573335.5,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 1,
+      "entries": 133,
+      "single_run_calls": 1,
+      "single_run_entries": 133,
+      "now_span": 133
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 1,
+      "entries": 33313,
+      "single_run_calls": 1,
+      "single_run_entries": 33313,
+      "now_span": 33313
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 1,
+      "entries": 118387,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 7399.1875
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 1,
+      "entries": 9021535,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 854812
+     }
+    ]
+   }
+  },
+  "steps": {
+   "bfs.top-down": {
+    "steps": 4,
+    "decoded": 9173368,
+    "handed": 9173368,
+    "examined": 9173368
+   },
+   "bfs.bottom-up": {
+    "steps": 3,
+    "decoded": 485565512,
+    "handed": 147692659,
+    "examined": 49266494
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "wcc",
+  "source": "compressed",
+  "threads": 16,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "02e16d27a528faff",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {},
+  "steps": {
+   "wcc.sample": {
+    "steps": 1,
+    "decoded": 234370166,
+    "handed": 234370166,
+    "examined": 120238312
+   },
+   "wcc.finish": {
+    "steps": 1,
+    "decoded": 0,
+    "handed": 0,
+    "examined": 0
+   }
+  },
+  "wcc_sample_touched": 6077115
+ },
+ {
+  "run": "a",
+  "graph": "twitter-sym",
+  "kernel": "kcore",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 41652230,
+  "entries": 2405026092,
+  "hash": "edb915584fa80882",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 1651152058,
+   "1024": 1000041663,
+   "10240": 404962386,
+   "65536": 270109282
+  },
+  "frontier": {
+   "kcore.exact": {
+    "calls": 1173,
+    "keys": 1152,
+    "nodes": 10343,
+    "entries": 3525227305,
+    "runs": 1173,
+    "single_run_calls": 1173,
+    "single_run_entries": 3525227305,
+    "single_run_share": 1.0,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 2997487,
+    "span_now": 223933861.875,
+    "span_s3": 223933861.875,
+    "span_ideal": 220326706.5625,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 115,
+      "entries": 4977040,
+      "single_run_calls": 115,
+      "single_run_entries": 4977040,
+      "now_span": 1884160
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 412,
+      "entries": 115972900,
+      "single_run_calls": 412,
+      "single_run_entries": 115972900,
+      "now_span": 9282366.5625
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 646,
+      "entries": 3404277365,
+      "single_run_calls": 646,
+      "single_run_entries": 3404277365,
+      "now_span": 212767335.3125
+     }
+    ]
+   },
+   "kcore.subround": {
+    "calls": 2189,
+    "keys": 2153,
+    "nodes": 37829649,
+    "entries": 2405026092,
+    "runs": 149388,
+    "single_run_calls": 1584,
+    "single_run_entries": 670230944,
+    "single_run_share": 0.2786792817880165,
+    "side_lists": 3822581,
+    "draws": 292489368,
+    "max_list": 2696902,
+    "span_now": 952885420.375,
+    "span_s3": 350547736.5625,
+    "span_ideal": 150314130.75,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 517,
+      "entries": 6848184,
+      "single_run_calls": 517,
+      "single_run_entries": 6848184,
+      "now_span": 6848184
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 1162,
+      "entries": 590920909,
+      "single_run_calls": 930,
+      "single_run_entries": 389027285,
+      "now_span": 506992904
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 510,
+      "entries": 1807256999,
+      "single_run_calls": 137,
+      "single_run_entries": 274355475,
+      "now_span": 439044332.375
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "twitter-sym",
+  "kernel": "sssp",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 41652230,
+  "entries": 2405026092,
+  "hash": "9a9edee011f2b13d",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 1651152058,
+   "1024": 1000041663,
+   "10240": 404962386,
+   "65536": 270109282
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 487,
+    "keys": 487,
+    "nodes": 41667230,
+    "entries": 2432665760,
+    "runs": 163110,
+    "single_run_calls": 276,
+    "single_run_entries": 33275302,
+    "single_run_share": 0.013678534284134455,
+    "side_lists": 1123,
+    "draws": 0,
+    "max_list": 2997487,
+    "span_now": 360664723.6875,
+    "span_s3": 175536276.625,
+    "span_ideal": 152041610.0,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 305,
+      "entries": 36554,
+      "single_run_calls": 270,
+      "single_run_entries": 16512,
+      "now_span": 27449
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 81,
+      "entries": 1314878,
+      "single_run_calls": 4,
+      "single_run_entries": 8434,
+      "now_span": 127003.6875
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 58,
+      "entries": 19073324,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 1193264.8125
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 43,
+      "entries": 2412241004,
+      "single_run_calls": 2,
+      "single_run_entries": 33250356,
+      "now_span": 359317006.1875
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "b",
+  "graph": "twitter-sym",
+  "kernel": "kcore",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 41652230,
+  "entries": 2405026092,
+  "hash": "edb915584fa80882",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 1651152058,
+   "1024": 1000041663,
+   "10240": 404962386,
+   "65536": 270109282
+  },
+  "frontier": {
+   "kcore.exact": {
+    "calls": 1173,
+    "keys": 1152,
+    "nodes": 10343,
+    "entries": 3525227305,
+    "runs": 1173,
+    "single_run_calls": 1173,
+    "single_run_entries": 3525227305,
+    "single_run_share": 1.0,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 2997487,
+    "span_now": 223933861.875,
+    "span_s3": 223933861.875,
+    "span_ideal": 220326706.5625,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 115,
+      "entries": 4977040,
+      "single_run_calls": 115,
+      "single_run_entries": 4977040,
+      "now_span": 1884160
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 412,
+      "entries": 115972900,
+      "single_run_calls": 412,
+      "single_run_entries": 115972900,
+      "now_span": 9282366.5625
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 646,
+      "entries": 3404277365,
+      "single_run_calls": 646,
+      "single_run_entries": 3404277365,
+      "now_span": 212767335.3125
+     }
+    ]
+   },
+   "kcore.subround": {
+    "calls": 2190,
+    "keys": 2153,
+    "nodes": 37829712,
+    "entries": 2405026092,
+    "runs": 149390,
+    "single_run_calls": 1584,
+    "single_run_entries": 663710049,
+    "single_run_share": 0.2759679203513606,
+    "side_lists": 3822518,
+    "draws": 292489368,
+    "max_list": 2696902,
+    "span_now": 951947326.25,
+    "span_s3": 349629168.4375,
+    "span_ideal": 150314130.75,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 517,
+      "entries": 6874283,
+      "single_run_calls": 517,
+      "single_run_entries": 6874283,
+      "now_span": 6874283
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 1163,
+      "entries": 590961676,
+      "single_run_calls": 931,
+      "single_run_entries": 389068052,
+      "now_span": 506838375
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 510,
+      "entries": 1807190133,
+      "single_run_calls": 136,
+      "single_run_entries": 267767714,
+      "now_span": 438234668.25
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "b",
+  "graph": "twitter-sym",
+  "kernel": "sssp",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 41652230,
+  "entries": 2405026092,
+  "hash": "9a9edee011f2b13d",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 1651152058,
+   "1024": 1000041663,
+   "10240": 404962386,
+   "65536": 270109282
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 485,
+    "keys": 485,
+    "nodes": 41667228,
+    "entries": 2432665671,
+    "runs": 163107,
+    "single_run_calls": 274,
+    "single_run_entries": 33275244,
+    "single_run_share": 0.013678510942410549,
+    "side_lists": 1123,
+    "draws": 0,
+    "max_list": 2997487,
+    "span_now": 360664663.75,
+    "span_s3": 175536185.6875,
+    "span_ideal": 152041604.4375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 303,
+      "entries": 36465,
+      "single_run_calls": 268,
+      "single_run_entries": 16423,
+      "now_span": 27360
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 81,
+      "entries": 1314909,
+      "single_run_calls": 4,
+      "single_run_entries": 8465,
+      "now_span": 127034.6875
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 58,
+      "entries": 19072455,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 1193210.5
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 43,
+      "entries": 2412241842,
+      "single_run_calls": 2,
+      "single_run_entries": 33250356,
+      "now_span": 359317058.5625
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "twitter-sym",
+  "kernel": "bfs",
+  "source": "compressed",
+  "threads": 16,
+  "nodes": 41652230,
+  "entries": 2405026092,
+  "hash": "34743d244ef857af",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 1651152058,
+   "1024": 1000041663,
+   "10240": 404962386,
+   "65536": 270109282
+  },
+  "frontier": {
+   "bfs.top-down": {
+    "calls": 12,
+    "keys": 12,
+    "nodes": 377561,
+    "entries": 3589886,
+    "runs": 1485,
+    "single_run_calls": 9,
+    "single_run_entries": 2997664,
+    "single_run_share": 0.8350304160076393,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 2997487,
+    "span_now": 3034973.3125,
+    "span_s3": 225490.25,
+    "span_ideal": 224367.875,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 8,
+      "entries": 177,
+      "single_run_calls": 8,
+      "single_run_entries": 177,
+      "now_span": 177
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 2,
+      "entries": 21200,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 1620.4375
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 1,
+      "entries": 571022,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 35688.875
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 1,
+      "entries": 2997487,
+      "single_run_calls": 1,
+      "single_run_entries": 2997487,
+      "now_span": 2997487
+     }
+    ]
+   }
+  },
+  "steps": {
+   "bfs.top-down": {
+    "steps": 12,
+    "decoded": 3589886,
+    "handed": 3589886,
+    "examined": 3589886
+   },
+   "bfs.bottom-up": {
+    "steps": 3,
+    "decoded": 5154855670,
+    "handed": 2030583067,
+    "examined": 313907262
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "twitter-sym",
+  "kernel": "wcc",
+  "source": "compressed",
+  "threads": 16,
+  "nodes": 41652230,
+  "entries": 2405026092,
+  "hash": "68408ee011f2b13d",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 1651152058,
+   "1024": 1000041663,
+   "10240": 404962386,
+   "65536": 270109282
+  },
+  "frontier": {},
+  "steps": {
+   "wcc.sample": {
+    "steps": 1,
+    "decoded": 2405026092,
+    "handed": 2405026092,
+    "examined": 1243340528
+   },
+   "wcc.finish": {
+    "steps": 1,
+    "decoded": 57293684,
+    "handed": 7080,
+    "examined": 7080
+   }
+  },
+  "wcc_sample_touched": 81402904
+ },
+ {
+  "run": "a",
+  "graph": "friendster",
+  "kernel": "kcore",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 65608366,
+  "entries": 3612134270,
+  "hash": "404d8f5a5cbbad2b",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 2433702673,
+   "1024": 336328929,
+   "10240": 0,
+   "65536": 0
+  },
+  "frontier": {
+   "kcore.subround": {
+    "calls": 597,
+    "keys": 304,
+    "nodes": 54009464,
+    "entries": 3612134270,
+    "runs": 211349,
+    "single_run_calls": 296,
+    "single_run_entries": 108396599,
+    "single_run_share": 0.03000901707898029,
+    "side_lists": 11598902,
+    "draws": 0,
+    "max_list": 5214,
+    "span_now": 449416257.4375,
+    "span_s3": 232286953.9375,
+    "span_ideal": 225758391.875,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 2,
+      "entries": 894,
+      "single_run_calls": 2,
+      "single_run_entries": 894,
+      "now_span": 894
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 117,
+      "entries": 3058770,
+      "single_run_calls": 117,
+      "single_run_entries": 3058770,
+      "now_span": 3058770
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 188,
+      "entries": 76788592,
+      "single_run_calls": 154,
+      "single_run_entries": 52203466,
+      "now_span": 73480598
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 290,
+      "entries": 3532286014,
+      "single_run_calls": 23,
+      "single_run_entries": 53133469,
+      "now_span": 372875995.4375
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "friendster",
+  "kernel": "sssp",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 65608366,
+  "entries": 3612134270,
+  "hash": "d32c3c76c743eb5d",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 2433702673,
+   "1024": 336328929,
+   "10240": 0,
+   "65536": 0
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 1050,
+    "keys": 1050,
+    "nodes": 65710164,
+    "entries": 3640587393,
+    "runs": 257450,
+    "single_run_calls": 643,
+    "single_run_entries": 383167,
+    "single_run_share": 0.00010524867518267539,
+    "side_lists": 972,
+    "draws": 0,
+    "max_list": 5214,
+    "span_now": 228379514.8125,
+    "span_s3": 227801388.375,
+    "span_ideal": 227536712.0625,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 700,
+      "entries": 79274,
+      "single_run_calls": 636,
+      "single_run_entries": 39972,
+      "now_span": 63245
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 215,
+      "entries": 2094746,
+      "single_run_calls": 5,
+      "single_run_entries": 43419,
+      "now_span": 264487.3125
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 83,
+      "entries": 30140647,
+      "single_run_calls": 2,
+      "single_run_entries": 299776,
+      "now_span": 2534737.125
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 52,
+      "entries": 3608272726,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 225517045.375
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "b",
+  "graph": "friendster",
+  "kernel": "kcore",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 65608366,
+  "entries": 3612134270,
+  "hash": "404d8f5a5cbbad2b",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 2433702673,
+   "1024": 336328929,
+   "10240": 0,
+   "65536": 0
+  },
+  "frontier": {
+   "kcore.subround": {
+    "calls": 607,
+    "keys": 304,
+    "nodes": 54009777,
+    "entries": 3612134270,
+    "runs": 211357,
+    "single_run_calls": 308,
+    "single_run_entries": 108016432,
+    "single_run_share": 0.02990376988394731,
+    "side_lists": 11598589,
+    "draws": 0,
+    "max_list": 5214,
+    "span_now": 446824012.5625,
+    "span_s3": 232374617.75,
+    "span_ideal": 225758391.875,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 5,
+      "entries": 3316,
+      "single_run_calls": 5,
+      "single_run_entries": 3316,
+      "now_span": 3316
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 117,
+      "entries": 2774867,
+      "single_run_calls": 117,
+      "single_run_entries": 2774867,
+      "now_span": 2774867
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 193,
+      "entries": 75981569,
+      "single_run_calls": 160,
+      "single_run_entries": 51701420,
+      "now_span": 72604360
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 292,
+      "entries": 3533374518,
+      "single_run_calls": 26,
+      "single_run_entries": 53536829,
+      "now_span": 371441469.5625
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "b",
+  "graph": "friendster",
+  "kernel": "sssp",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 65608366,
+  "entries": 3612134270,
+  "hash": "d32c3c76c743eb5d",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 2433702673,
+   "1024": 336328929,
+   "10240": 0,
+   "65536": 0
+  },
+  "frontier": {
+   "sssp.step": {
+    "calls": 1050,
+    "keys": 1050,
+    "nodes": 65710162,
+    "entries": 3640583211,
+    "runs": 257449,
+    "single_run_calls": 643,
+    "single_run_entries": 378940,
+    "single_run_share": 0.00010408771837848263,
+    "side_lists": 972,
+    "draws": 0,
+    "max_list": 5214,
+    "span_now": 228375451.25,
+    "span_s3": 227801076.8125,
+    "span_ideal": 227536450.6875,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 700,
+      "entries": 79221,
+      "single_run_calls": 636,
+      "single_run_entries": 39919,
+      "now_span": 63192
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 215,
+      "entries": 2096918,
+      "single_run_calls": 5,
+      "single_run_entries": 45370,
+      "now_span": 266558.3125
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 83,
+      "entries": 30133803,
+      "single_run_calls": 2,
+      "single_run_entries": 293651,
+      "now_span": 2528621.625
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 52,
+      "entries": 3608273269,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 225517079.3125
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "friendster",
+  "kernel": "bfs",
+  "source": "compressed",
+  "threads": 16,
+  "nodes": 65608366,
+  "entries": 3612134270,
+  "hash": "fc88086f9c388dda",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 2433702673,
+   "1024": 336328929,
+   "10240": 0,
+   "65536": 0
+  },
+  "frontier": {
+   "bfs.top-down": {
+    "calls": 19,
+    "keys": 19,
+    "nodes": 4373487,
+    "entries": 15364713,
+    "runs": 17095,
+    "single_run_calls": 8,
+    "single_run_entries": 5502,
+    "single_run_share": 0.00035809324912219317,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 5214,
+    "span_now": 966329.625,
+    "span_s3": 963975.0625,
+    "span_ideal": 960294.5625,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 9,
+      "entries": 1697,
+      "single_run_calls": 7,
+      "single_run_entries": 288,
+      "now_span": 1049
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 5,
+      "entries": 92211,
+      "single_run_calls": 1,
+      "single_run_entries": 5214,
+      "now_span": 10855.3125
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 2,
+      "entries": 577440,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 36090.0
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 3,
+      "entries": 14693365,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 918335.3125
+     }
+    ]
+   }
+  },
+  "steps": {
+   "bfs.top-down": {
+    "steps": 19,
+    "decoded": 15364713,
+    "handed": 15364713,
+    "examined": 15364713
+   },
+   "bfs.bottom-up": {
+    "steps": 3,
+    "decoded": 10836402810,
+    "handed": 3051393956,
+    "examined": 511396313
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "friendster",
+  "kernel": "wcc",
+  "source": "compressed",
+  "threads": 16,
+  "nodes": 65608366,
+  "entries": 3612134270,
+  "hash": "7bc22c76c743eb5d",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 2433702673,
+   "1024": 336328929,
+   "10240": 0,
+   "65536": 0
+  },
+  "frontier": {},
+  "steps": {
+   "wcc.sample": {
+    "steps": 1,
+    "decoded": 3612134270,
+    "handed": 3612134270,
+    "examined": 1864640743
+   },
+   "wcc.finish": {
+    "steps": 1,
+    "decoded": 1506841674,
+    "handed": 26112,
+    "examined": 26112
+   }
+  },
+  "wcc_sample_touched": 117560470
+ },
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "kcore",
+  "source": "raw",
+  "threads": 1,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "ebea627d802a1caf",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "kcore.exact": {
+    "calls": 16,
+    "keys": 16,
+    "nodes": 21,
+    "entries": 526999,
+    "runs": 16,
+    "single_run_calls": 16,
+    "single_run_entries": 526999,
+    "single_run_share": 1.0,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 33313,
+    "span_now": 262144,
+    "span_s3": 262144,
+    "span_ideal": 32937.4375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 15,
+      "entries": 458180,
+      "single_run_calls": 15,
+      "single_run_entries": 458180,
+      "now_span": 245760
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 1,
+      "entries": 68819,
+      "single_run_calls": 1,
+      "single_run_entries": 68819,
+      "now_span": 16384
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 0,
+      "entries": 0,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 0
+     }
+    ]
+   },
+   "kcore.subround": {
+    "calls": 420,
+    "keys": 253,
+    "nodes": 1782453,
+    "entries": 234370166,
+    "runs": 7203,
+    "single_run_calls": 248,
+    "single_run_entries": 36490557,
+    "single_run_share": 0.15569625444562768,
+    "side_lists": 1289988,
+    "draws": 128581,
+    "max_list": 22226,
+    "span_now": 72564513.3125,
+    "span_s3": 18662219.5,
+    "span_ideal": 14648135.375,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 3,
+      "entries": 2043,
+      "single_run_calls": 3,
+      "single_run_entries": 2043,
+      "now_span": 2043
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 75,
+      "entries": 2060554,
+      "single_run_calls": 75,
+      "single_run_entries": 2060554,
+      "now_span": 2060554
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 272,
+      "entries": 63992917,
+      "single_run_calls": 168,
+      "single_run_entries": 26496760,
+      "now_span": 43384557.6875
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 70,
+      "entries": 168314652,
+      "single_run_calls": 2,
+      "single_run_entries": 7931200,
+      "now_span": 27117358.625
+     }
+    ]
+   }
+  }
+ },
+ {
+  "run": "a",
+  "graph": "orkut",
+  "kernel": "leiden",
+  "source": "raw",
+  "threads": 16,
+  "nodes": 3072441,
+  "entries": 234370166,
+  "hash": "d5685ea3c94fd514",
+  "restarts": 0,
+  "entries_in_lists_ge": {
+   "128": 120015222,
+   "1024": 9205799,
+   "10240": 1390880,
+   "65536": 0
+  },
+  "frontier": {
+   "leiden": {
+    "calls": 1053,
+    "keys": 1,
+    "nodes": 25819502,
+    "entries": 2512432332,
+    "runs": 101282,
+    "single_run_calls": 305,
+    "single_run_entries": 56021462,
+    "single_run_share": 0.022297699837115454,
+    "side_lists": 0,
+    "draws": 0,
+    "max_list": 278364,
+    "span_now": 233091050.75,
+    "span_s3": 157052042.0625,
+    "span_ideal": 157027020.75,
+    "classes": [
+     {
+      "class": "[0, 1Ki)",
+      "calls": 22,
+      "entries": 7896,
+      "single_run_calls": 22,
+      "single_run_entries": 7896,
+      "now_span": 7896
+     },
+     {
+      "class": "[1Ki, 64Ki)",
+      "calls": 81,
+      "entries": 2650547,
+      "single_run_calls": 81,
+      "single_run_entries": 2650547,
+      "now_span": 2650547
+     },
+     {
+      "class": "[64Ki, 1Mi)",
+      "calls": 203,
+      "entries": 54304024,
+      "single_run_calls": 202,
+      "single_run_entries": 53363019,
+      "now_span": 53796962
+     },
+     {
+      "class": "[1Mi, inf)",
+      "calls": 747,
+      "entries": 2455469865,
+      "single_run_calls": 0,
+      "single_run_entries": 0,
+      "now_span": 176635645.75
+     }
+    ]
+   }
+  }
+ }
+]
