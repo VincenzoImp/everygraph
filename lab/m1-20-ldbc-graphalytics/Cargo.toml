@@ -1,0 +1,19 @@
+[package]
+name = "ldbc-lab"
+version = "0.0.1"
+edition = "2021"
+description = "Experiment #177 (m1-20): the lab kernels of lab/b1-core against the LDBC Graphalytics reference outputs"
+publish = false
+
+# Standalone research package: not a member of the product workspace at the repository root.
+[workspace]
+
+[dependencies]
+glab-core = { path = "../b1-core/crates/glab-core" }
+everygraph-oracle = { path = "../../crates/everygraph-oracle" }
+rayon = "1"
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+debug = 1

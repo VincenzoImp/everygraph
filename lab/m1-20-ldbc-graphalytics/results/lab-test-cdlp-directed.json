@@ -1,0 +1,22 @@
+{
+  "chunk_entries": 65536,
+  "graph": "test-cdlp-directed",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11591680,
+  "rows": [
+    {
+      "algorithm": "cdlp",
+      "checked": 8,
+      "examples": [],
+      "graph": "test-cdlp-directed",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 4.157e-6,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}

@@ -1,0 +1,22 @@
+{
+  "chunk_entries": 65536,
+  "graph": "test-lcc-directed",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11481088,
+  "rows": [
+    {
+      "algorithm": "lcc",
+      "checked": 10,
+      "examples": [],
+      "graph": "test-lcc-directed",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 2.0000667788582193e-12,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 1.753e-6,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}

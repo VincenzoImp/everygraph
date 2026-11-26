@@ -21,6 +21,7 @@
 //! | [`external`] | the protocol for kernels in another process (the lab prototypes) |
 //! | [`toy`] | a toy kernel with seeded bugs, the proof that the checks catch them |
 //! | [`golden`] | known answers on small real graphs, with provenance |
+//! | [`ldbc`] | LDBC Graphalytics data sets, the six algorithms as its specification defines them, its match rules |
 //!
 //! The Python references (NetworkX, python-igraph, scipy) live in `oracle/` at the root of
 //! the repository; `oracle/README.md` describes the whole workflow and
@@ -66,6 +67,7 @@ pub mod golden;
 pub mod graph;
 pub mod invariants;
 pub mod kernel;
+pub mod ldbc;
 pub mod plugin;
 pub mod projection;
 pub mod reference;

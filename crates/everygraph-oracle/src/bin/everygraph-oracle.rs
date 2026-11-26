@@ -32,6 +32,9 @@ const USAGE: &str = "usage:
   everygraph-oracle seeded-bugs [--corpus DIR]
   everygraph-oracle golden --dir DIR [--data-root ROOT] [--cache DIR] [--only NAME]... [--require-all]
         [--max-memory GIB]
+  everygraph-oracle ldbc --graphs DIR [--only NAME]... [--algorithms bfs,pr,...]
+        [--implementations spec,first-seen,oracle] [--expect FILE] [--json FILE]
+        [--max-memory GIB]
 
 Commands that load graphs refuse one whose estimated memory exceeds --max-memory
 (GiB, default 4).";
@@ -104,6 +107,7 @@ fn main() -> ExitCode {
         "check" => cmd_check(&mut args),
         "seeded-bugs" => cmd_seeded_bugs(&mut args),
         "golden" => cmd_golden(&mut args),
+        "ldbc" => cmd_ldbc(&mut args),
         _ => Err(format!("unknown command {cmd}\n{USAGE}")),
     };
     match result {
@@ -378,6 +382,125 @@ fn cmd_golden(a: &mut Args) -> Result<bool, String> {
                 println!("{}: MISMATCH {e}", r.name);
             }
         }
+    }
+    Ok(ok)
+}
+
+/// Memory the LDBC reader and the algorithms may need: the lists both ways with
+/// weights, the merged lists of a directed graph, the algorithms' arrays and one
+/// reference output.
+fn ldbc_estimate(vertices: u64, edges: u64) -> u64 {
+    edges
+        .saturating_mul(40)
+        .saturating_add(vertices.saturating_mul(80))
+}
+
+/// `--expect FILE`: `{"outcomes": {"graph/algorithm/implementation": "match", ...}}`.
+fn ldbc_expected(path: Option<&Path>) -> Result<BTreeMap<String, String>, String> {
+    let Some(p) = path else {
+        return Ok(BTreeMap::new());
+    };
+    let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
+    let outcomes = v["outcomes"]
+        .as_object()
+        .ok_or("the expect file has no \"outcomes\" object")?;
+    Ok(outcomes
+        .iter()
+        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned()))
+        .collect())
+}
+
+fn cmd_ldbc(a: &mut Args) -> Result<bool, String> {
+    use everygraph_oracle::ldbc::run::{self, Implementation};
+    use everygraph_oracle::ldbc::{Algorithm, Dataset};
+    let root = PathBuf::from(a.value("--graphs").ok_or("--graphs is required")?);
+    let only = a.values("--only");
+    let algorithms: Vec<Algorithm> = match a.value("--algorithms") {
+        None => Algorithm::ALL.to_vec(),
+        Some(v) => v
+            .split(',')
+            .map(|x| Algorithm::parse(x).ok_or(format!("unknown algorithm {x}")))
+            .collect::<Result<_, _>>()?,
+    };
+    let implementations: Vec<Implementation> = match a.value("--implementations") {
+        None => Implementation::ALL.to_vec(),
+        Some(v) => v
+            .split(',')
+            .map(|x| Implementation::parse(x).ok_or(format!("unknown implementation {x}")))
+            .collect::<Result<_, _>>()?,
+    };
+    let expected = ldbc_expected(a.value("--expect").map(PathBuf::from).as_deref())?;
+    let json = a.value("--json").map(PathBuf::from);
+    let max_memory = a.value("--max-memory").map_or(Ok(4 << 30), |m| gib(&m))?;
+    a.finish()?;
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+        .map_err(|e| format!("{}: {e}", root.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    let mut rows = Vec::new();
+    let mut ok = true;
+    for dir in dirs {
+        let ds = Dataset::open(&dir).map_err(|e| e.to_string())?;
+        if !only.is_empty() && !only.contains(&ds.name) {
+            continue;
+        }
+        let (vertices, edges) = ds.declared_size().map_err(|e| e.to_string())?;
+        let need = ldbc_estimate(vertices, edges);
+        if need > max_memory {
+            println!(
+                "{}: skipped, needs about {} GiB (--max-memory)",
+                ds.name,
+                need >> 30
+            );
+            continue;
+        }
+        let t = Instant::now();
+        let g = ds.load().map_err(|e| format!("{}: {e}", ds.name))?;
+        println!(
+            "{}: {} vertices, {} edges, read in {:.1} s",
+            ds.name,
+            g.ids.len(),
+            g.edges(),
+            t.elapsed().as_secs_f64()
+        );
+        for note in ds.notes() {
+            println!("  note: {note}");
+        }
+        for row in run::run(&ds, &g, &algorithms, &implementations, 1 << 20) {
+            let key = format!(
+                "{}/{}/{}",
+                row.graph,
+                row.algorithm.name(),
+                row.implementation
+            );
+            // The specification's own algorithms must always match.
+            let want = expected
+                .get(&key)
+                .map(String::as_str)
+                .or((row.implementation == "spec").then_some("match"));
+            let verdict = match want {
+                Some(w) if w != row.status() => {
+                    ok = false;
+                    format!("UNEXPECTED, expected {w}")
+                }
+                Some(_) => "as expected".to_owned(),
+                None => "not gated".to_owned(),
+            };
+            println!("  {}  [{verdict}]", row.describe());
+            rows.push(row);
+        }
+    }
+    if let Some(p) = json {
+        let v = serde_json::json!({
+            "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory.",
+            "rows": rows.iter().map(run::Row::to_json).collect::<Vec<_>>(),
+        });
+        let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+        std::fs::write(&p, text + "\n").map_err(|e| format!("{}: {e}", p.display()))?;
     }
     Ok(ok)
 }

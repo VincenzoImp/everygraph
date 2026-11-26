@@ -3,6 +3,9 @@ name = "f1q"
 version = "0.1.0"
 edition = "2024"
 
+# Standalone research package: not a member of the product workspace at the repository root.
+[workspace]
+
 [dependencies]
 fst = "0.4.7"
 hashbrown = "0.17.2"

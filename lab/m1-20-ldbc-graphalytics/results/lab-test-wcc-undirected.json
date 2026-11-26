@@ -1,0 +1,46 @@
+{
+  "chunk_entries": 65536,
+  "graph": "test-wcc-undirected",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11616256,
+  "rows": [
+    {
+      "algorithm": "wcc",
+      "checked": 8,
+      "examples": [],
+      "graph": "test-wcc-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 1.042e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 8,
+      "examples": [],
+      "graph": "test-wcc-undirected",
+      "implementation": "lab-wcc-afforest/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.000057397,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 8,
+      "examples": [],
+      "graph": "test-wcc-undirected",
+      "implementation": "lab-wcc-stream/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.000010981,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}

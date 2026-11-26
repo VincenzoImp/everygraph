@@ -28,3 +28,8 @@ const kernels = instance.exports.everygraph_toy_kernels_hash(
   BigInt(seed),
 );
 console.log(`kernels-hash nodes=${nodes} edges=${edges} seed=${seed} hash=${hex(kernels)}`);
+// The names and order of `golden::digests()` (crates/everygraph-core/tests/numerics_golden.rs).
+const GOLDEN = ["sin", "cos", "exp", "ln", "log2", "sqrt", "mul_add", "exact_sum", "rng", "canonical"];
+GOLDEN.forEach((name, index) => {
+  console.log(`golden ${name}=${hex(instance.exports.everygraph_toy_golden_digest(index))}`);
+});

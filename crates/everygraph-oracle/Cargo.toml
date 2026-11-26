@@ -22,6 +22,9 @@ flate2 = "1"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 serde_json = { version = "1", features = ["float_roundtrip"] }
+# The power-law generator's weights: the same pinned version as everygraph-core's
+# `math`, so that a generated graph is the same on every platform.
+libm = { version = "=0.2.16", default-features = false }
 
 [lints]
 workspace = true
