@@ -9,7 +9,7 @@
 //! ```
 //!
 //! `--mmap STORE` reads the graph from a compressed store written by `leiden_bench
-//! encode`, memory-mapped, instead of the CSR in the heap (`--store` then does nothing).
+//! encode`, memory-mapped, instead of the CSR in the heap.
 //!
 //! Prints one JSON line: the times, the fan-out distribution, the cover and the super
 //! level, the kinds, the modularity of the partition and of the drawn top level, and a
@@ -75,12 +75,18 @@ fn hash(t: &MapTree) -> u64 {
     fnv(h, t.leaf.iter().copied())
 }
 
-/// Writes the graph and the tree into a new graph file, and checks it.
-fn store(path: &Path, offsets: &[u64], targets: &[u32], o: &MapOptions, t: &MapTree) -> String {
+/// Writes the graph (its adjacency `index` and `data`, read as `source`) and the tree
+/// into a new graph file, and checks it.
+fn store<S: Source>(
+    path: &Path,
+    index: &[u8],
+    data: &[u8],
+    source: &S,
+    o: &MapOptions,
+    t: &MapTree,
+) -> String {
     let memory = Memory::unlimited();
-    let csr = Csr::new(offsets, targets).expect("a CSR");
     let start = Instant::now();
-    let encoded = encode(offsets, targets).expect("encode");
     let mut w = Writer::create(FileSink::create(path).expect("the file")).expect("a container");
     let record = Provenance {
         engine: "map_bench".into(),
@@ -94,12 +100,8 @@ fn store(path: &Path, offsets: &[u64], targets: &[u32], o: &MapOptions, t: &MapT
     w.add_provenance("provenance/ingest", &record)
         .expect("record");
     for (name, kind, bytes) in [
-        (
-            "adjacency.out.index",
-            Section::ADJACENCY_INDEX,
-            &encoded.index,
-        ),
-        ("adjacency.out.data", Section::ADJACENCY_DATA, &encoded.data),
+        ("adjacency.out.index", Section::ADJACENCY_INDEX, index),
+        ("adjacency.out.data", Section::ADJACENCY_DATA, data),
     ] {
         w.add_section(name, kind, bytes, Some("provenance/ingest"))
             .expect("section");
@@ -111,7 +113,16 @@ fn store(path: &Path, offsets: &[u64], targets: &[u32], o: &MapOptions, t: &MapT
         ..Provenance::default()
     };
     let written = Instant::now();
-    map::store(&mut w, &key, &about, &csr, &memory, Settings::default(), t).expect("stored");
+    map::store(
+        &mut w,
+        &key,
+        &about,
+        source,
+        &memory,
+        Settings::default(),
+        t,
+    )
+    .expect("stored");
     w.commit().expect("commit");
     drop(w);
     let write = written.elapsed().as_secs_f64();
@@ -129,7 +140,7 @@ fn store(path: &Path, offsets: &[u64], targets: &[u32], o: &MapOptions, t: &MapT
          \"stored_regions\": {regions}, \"sibling_entries\": {siblings}, \
          \"verify_seconds\": {}, \"problems\": {}, \"unchecked\": {}, \
          \"total_store_seconds\": {}",
-        encoded.data.len() + encoded.index.len(),
+        index.len() + data.len(),
         checked.elapsed().as_secs_f64(),
         report.problems.len(),
         report.unchecked.len(),
@@ -294,15 +305,19 @@ fn main() {
         if let Some(dir) = a.get("mmap") {
             // A store written by `leiden_bench encode`, memory-mapped.
             let dir = Path::new(dir);
-            let index = std::fs::read(dir.join("adjacency.index")).expect("the index");
-            let index = AdjacencyIndex::parse(&index).expect("an index");
+            let bytes = std::fs::read(dir.join("adjacency.index")).expect("the index");
+            let index = AdjacencyIndex::parse(&bytes).expect("an index");
             let data = MmapSource::open(dir.join("adjacency.data")).expect("the data");
             let source = Compressed::mapped(&index, &data).expect("the data part");
             let (line, t) = shape(&source, &o, threads);
             if let Some(d) = a.get("export") {
                 export(Path::new(d), &t);
             }
-            return line;
+            let stored = a.get("store").map_or_else(String::new, |p| {
+                let all = everygraph_core::ByteSource::as_slice(&data).expect("mapped");
+                store(Path::new(p), &bytes, all, &source, &o, &t)
+            });
+            return format!("{line}{stored}");
         }
         let offsets = read_words(&graph.join("offsets.u64"), u64::from_le_bytes);
         let targets = read_words(&graph.join("targets.u32"), u32::from_le_bytes);
@@ -312,7 +327,8 @@ fn main() {
             export(Path::new(d), &t);
         }
         let stored = a.get("store").map_or_else(String::new, |p| {
-            store(Path::new(p), &offsets, &targets, &o, &t)
+            let encoded = encode(&offsets, &targets).expect("encode");
+            store(Path::new(p), &encoded.index, &encoded.data, &csr, &o, &t)
         });
         format!("{line}{stored}")
     })
