@@ -21,13 +21,15 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 **Merged on the night of 25–26 November (23 PRs):** ADR 0028 pairs + `.events` (#184); research wave 2 plan (#185); `.eg` container (#170, closes #28); dictionary memory (#203; #34 closed with the official build-500m, 76.4 s under 5 GiB); docs consistency (#206); safe parallel scatter (#201, closes #189); edge-map framework (#202, #44 open: compressed official rows and WCC overhead); Leiden sub-round lab (#208); core numerics (#210, closes #187, #188); sweep 1 (#211); verify + fault injection + fuzz CI (#212, #41/#190/#191 open for items that need later issues); property columns (#213, closes #37); MSRV 1.100 (#214); build text → `.eg` and `everygraph ingest` (#215, #35 open for speed); results in the graph file, range maps, one writer (#216, closes #39, #204, #205); LDBC oracle (#217, closes #177); mmap hints lab (#221); ADR 0029 proposed (#222); edge-map spec fix (#224); hierarchy shaping (#225, closes #19); PageRank family + BFS/SSSP (#220, #47/#49 open for official numbers); CI Miri limit (#227); sweep 2 (#228).
 
 **Open PRs:**
-- #218 components + k-core + degrees: second review running (k-core must-fix fixed; ported to #220's kernels).
-- #219 page backend (#167): approved; author merging main after #215.
-- #229 Python slice (#81), draft: waits for #218.
+- #229 Python slice (#81): #218 and #219 merged 07:55; author finishing, then review.
 
 **Agents running:** production Leiden (#57), Louvain collapse (#17), ordering bake-off (#23), layout baseline (#175), CLI (#98, moving to clap, will reuse `everygraph_ingest::native` from #229).
 
-**Next when they land:** in-adjacency (#38) then SCC (m3-20); #229 out of draft after #218; m2-31 (#200) code-size half with per-crate targets (sweep 2: format 2,706 → 9,453, ingest 10,584 → 14,171, core 3,640 → 6,079 src lines); the second measurement window.
+**ADR 0017 amended (PR #234, #175 closed):** disc packing kept; stress solve per parent adopted for m5-01; claim narrowed (distance between large regions means little); re-decision trigger is now NP@10 per level, ground-truth 10-NN, Spearman and top-region edge length against DRGraph.
+
+**#17 answered (PR #235):** the async Louvain collapse is concurrent moves of heavy coarse vertices; the fast mode ships in #57 only with the heavy-vertex rule (k_u > 0.001·2m visited by one thread after the parallel sweep). FINDINGS § M1-03.
+
+**Merged after 07:45:** #219 page backend (part of #167), #218 components + k-core + degrees (#48/#50 open for official speed). **Next:** in-adjacency (#38) then SCC (m3-20); #229 out of draft after #218; m2-31 (#200) code-size half with per-crate targets (sweep 2: format 2,706 → 9,453, ingest 10,584 → 14,171, core 3,640 → 6,079 src lines); the second measurement window.
 
 **Decided by the coordinator tonight (records in DECISIONS, ADRs or issue files):** S1 lost-generation warning in `verify` (exit 0, `--strict` 5); dictionary dense form chosen from the data only, never the budget; `find_result` reads key and provenance only; MSRV 1.100 for a safe page backend; arrow-rs in the py crate with three deny exceptions; clap for the CLI; window splitting; merge order #220 before #218.
 
@@ -40,6 +42,7 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 - #172 mmap hints / block cache (PR #221, merged): six `everygraph-bench run mmap-hints --official --only …` cases, ~3.5 h total, 44 GiB available needed — too long for one night window; run as its own window. Exploratory: MADV_RANDOM cuts bytes read 0.16× (layout 16G) and 0.08–0.15× (Leiden local moving 4–8G); harmful when the graph fits (32G: 8.7× more bytes). ADR 0029 (proposed, PR #222 merged): accepted after this official run.
 - #47/#49 PageRank family and traversals (PR #220, after review): `everygraph-bench run kernels --official --data /home/tux/graphlab/data` (~25 min + the Friendster store once; GAP rows need the network once).
 - #48/#50 components and k-core (PR #218, after review): `everygraph-bench run components-kcore --official --data /home/tux/graphlab/data` (~50 min, estimate; Friendster/twitter-sym rows at 40G).
+- #167 page backend (PR #219, merged): `everygraph-bench run id-dictionary --official --only build-500m` and `--only hex-65m` (without the GLIBC_TUNABLES stopgap; compare with 20261126T042659Z-c0d7f248bb47.jsonl).
 - #18 deterministic Leiden (PR #208, merged): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 

@@ -64,6 +64,7 @@ use std::collections::BinaryHeap;
 
 use everygraph_core::{ExactSum, Memory, MemoryKind, SegVec};
 
+use crate::degrees::{Loop, scaled_strengths};
 use crate::edge_map::{
     Error, NodeSet, PerNode, Plan, Row, Source, all, one_segment, one_segment_mut,
 };
@@ -224,28 +225,8 @@ pub fn strength<S: Source>(
         Some(w) => column_scale(w, out.source().entries(), f64::EXPONENTS)?,
         None => 1.0,
     };
-    let mut s = SegVec::try_with_len(memory, "out-strength", ix(out.nodes()), 0.0)?;
-    out.scan(
-        one_segment_mut(&mut s)?,
-        all,
-        |(): &mut (), s, i, row, _| {
-            let v = row.node;
-            s[i] = match weights {
-                Some(w) => row
-                    .list
-                    .iter()
-                    .zip(&w[row.entries()])
-                    .fold(0.0, |sum, (&u, &w)| {
-                        let w = w * scale;
-                        sum + if !directed && u == v { 2.0 * w } else { w }
-                    }),
-                None => row.list.iter().fold(0.0, |sum, &u| {
-                    sum + if !directed && u == v { 2.0 } else { 1.0 }
-                }),
-            };
-        },
-    )?;
-    Ok(s)
+    let own = if directed { Loop::Once } else { Loop::Twice };
+    scaled_strengths(out, memory, weights, scale, own)
 }
 
 /// `PageRank` by pull power iteration (module documentation): `strength` is

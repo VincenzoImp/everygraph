@@ -1,0 +1,45 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=8G",
+  "-p",
+  "MemorySwapMax=0",
+  "nice",
+  "-n",
+  "10",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/env/rapids/bin/python",
+  "-I",
+  "/home/tux/projects/everygraph/.claude/worktrees/agent-a13dfa14d9e691867/lab/m1-18-layout-baseline/fa2_cugraph.py",
+  "/home/tux/graphlab/data/csr/lj",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/pos/fa2_lj.f32",
+  "500"
+ ],
+ "rc": 0,
+ "timed_out": false,
+ "wall_s": 25.82,
+ "user_s": 24.3,
+ "sys_s": 1.4,
+ "peak_rss_mb": 1749,
+ "peak_anon_mb_sampled": 1286,
+ "memory_limit": "8G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  26.0,
+  25.11,
+  15.69
+ ],
+ "loadavg_end": [
+  24.8,
+  24.92,
+  15.88
+ ],
+ "started_utc": "2026-11-26T05:12:58Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "cuGraph force_atlas2 (GPU, RTX 4090)",
+ "threads": "GPU",
+ "options": "cuGraph defaults, max_iter=500"
+}

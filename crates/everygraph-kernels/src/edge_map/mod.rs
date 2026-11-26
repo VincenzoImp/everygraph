@@ -27,6 +27,9 @@
 //! value per node, or a tuple of them. Each task gets the part of `out` for its own
 //! nodes, indexed from 0, so the writes need no atomics.
 //!
+//! [`Buckets`] order nodes by an integer key that goes down (peeling, bucketed shortest
+//! paths); [`Buckets::pop`] gives the frontier of the smallest key.
+//!
 //! # Nodes
 //!
 //! A plan exists only inside [`Plan::with`]. Its node ids are [`Node`]s of its own
@@ -88,6 +91,7 @@
 
 #![allow(unsafe_code)]
 
+mod buckets;
 mod node;
 mod source;
 
@@ -101,6 +105,7 @@ use std::sync::{Mutex, PoisonError};
 use everygraph_core::{ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, SegVec, par};
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
+pub use buckets::Buckets;
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
 pub use source::{Compressed, Csr, DecodeReader, Source, Stream, StreamReader};
 

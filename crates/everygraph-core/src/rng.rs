@@ -84,6 +84,17 @@ impl Purpose {
     /// Tests and golden vectors of the core. Counter: `[index, stream, 0, 0]`.
     pub const TEST: Self = Self(*b"TEST");
 
+    /// Components: the sampled neighbour of a node. Counter: `[node, 0, 0, 0]`.
+    pub const COMPONENTS_NEIGHBOUR: Self = Self(*b"wcck");
+
+    /// Components: the nodes whose labels find the giant component. Counter:
+    /// `[sample index, 0, 0, 0]`.
+    pub const COMPONENTS_GIANT: Self = Self(*b"wccg");
+
+    /// Core numbers: whether peeling a node takes a sample of its neighbour in sample
+    /// mode. Counter: `[neighbour, peeled node, 0, 0]`.
+    pub const CORE_SAMPLE: Self = Self(*b"kcor");
+
     /// The block order of a sweep of Leiden's fast mode: the sort key of a block of 64
     /// nodes. Counter: `[block, level, iteration, stage]`.
     pub const LEIDEN_ORDER: Self = Self(*b"LORD");
@@ -105,8 +116,11 @@ impl Purpose {
     pub const LEIDEN_REFINE: Self = Self(*b"LREF");
 
     /// Every purpose, so that the test below can check that they are distinct.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 9] = [
         Self::TEST,
+        Self::COMPONENTS_NEIGHBOUR,
+        Self::COMPONENTS_GIANT,
+        Self::CORE_SAMPLE,
         Self::LEIDEN_ORDER,
         Self::LEIDEN_ROUND,
         Self::LEIDEN_REFINE_ROUND,

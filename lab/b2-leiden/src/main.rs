@@ -82,10 +82,11 @@ pub struct Tls {
     scanned: u64,
     processed: u64,
     nmoves: u64,
+    back: u64,
 }
 fn new_tls(t: usize) -> Vec<Mutex<Tls>> {
     (0..t)
-        .map(|_| Mutex::new(Tls { tab: Tab::new(), moves: Vec::new(), act: Vec::new(), gain: 0.0, gain_fx: 0, scanned: 0, processed: 0, nmoves: 0 }))
+        .map(|_| Mutex::new(Tls { tab: Tab::new(), moves: Vec::new(), act: Vec::new(), gain: 0.0, gain_fx: 0, scanned: 0, processed: 0, nmoves: 0, back: 0 }))
         .collect()
 }
 
@@ -118,6 +119,14 @@ pub struct Opts {
     indep: bool,
     iterations: usize,
     cap_stall: f64,
+    // m1-03 (#17): per-iteration trace and stop rules of async local moving
+    trace: bool,
+    trace_q0: bool,
+    true_stop: bool,
+    rollback: bool,
+    order_seed: u64,
+    dump_level1: Option<String>,
+    heavy: f64,
 }
 
 #[derive(Clone, Default)]
@@ -134,6 +143,21 @@ pub struct PassStat {
     sub_seq: u64,
     scanned: u64,
     moves: u64,
+    trace: Vec<IterTrace>,
+}
+
+/// One local-moving iteration (m1-03): claimed gain is the sum of the gains each move saw when it was
+/// decided; `q` is the modularity recomputed after the iteration, so `claimed - dq` is the loss to races.
+#[derive(Clone, Default)]
+pub struct IterTrace {
+    processed: u64,
+    moves: u64,
+    claimed: f64,
+    q_before: f64,
+    q: f64,
+    top_share: f64,
+    back: u64,
+    rolled_back: bool,
 }
 
 struct Cx<'a> {
@@ -150,6 +174,8 @@ struct Cx<'a> {
     tie_hash: bool,
     want: &'a [AtomicU32],
     indep: bool,
+    left: &'a [AtomicU32],
+    left_it: &'a [AtomicU32],
 }
 
 #[inline(always)]
@@ -172,11 +198,12 @@ struct Order {
     nb: usize,
     n: usize,
     permute: bool,
+    seed: u64,
 }
 impl Order {
     fn new(n: usize, o: &Opts) -> Order {
         let ob = o.order_block.max(1);
-        Order { ob, nb: n.div_ceil(ob), n, permute: o.permute }
+        Order { ob, nb: n.div_ceil(ob), n, permute: o.permute, seed: o.order_seed }
     }
     fn chunk(&self, vertices: usize) -> usize {
         (vertices / self.ob).max(1)
@@ -184,7 +211,9 @@ impl Order {
     #[inline(always)]
     fn block(&self, j: usize) -> std::ops::Range<usize> {
         const P: u64 = 2_654_435_761; // prime > any block count we handle (nb < 2^31)
-        let jj = if self.permute { ((j as u64 * P) % self.nb as u64) as usize } else { j };
+        let nb = self.nb as u64;
+        // seed 0 is the original order; another seed rotates the permutation (m1-03 order seeds)
+        let jj = if self.permute { (((j as u64 * P) % nb + self.seed.wrapping_mul(0x9E37_79B9) % nb) % nb) as usize } else { j };
         jj * self.ob..((jj + 1) * self.ob).min(self.n)
     }
 }
@@ -310,8 +339,35 @@ fn sample_anon() {
     PEAK_ANON_KB.fetch_max(rss_kb().1, Relaxed);
 }
 
+/// Modularity of the current labels on this level's graph (equal to that of the composed partition on the
+/// input graph) and the largest community's share of the total volume.
+fn level_q(cx: &Cx, pool: &rayon::ThreadPool) -> (f64, f64) {
+    let n = cx.g.n;
+    let sin = par_sum(pool, n, |u| {
+        let c = cx.comm[u].load(Relaxed);
+        let mut s = 0.0;
+        cx.g.for_edges(u, |v, w| {
+            if cx.comm[v as usize].load(Relaxed) == c {
+                s += w
+            }
+        });
+        s
+    });
+    let mut tot = vec![0f64; n];
+    for u in 0..n {
+        tot[cx.comm[u].load(Relaxed) as usize] += cx.k[u];
+    }
+    let (mut sq, mut mx) = (0.0, 0.0f64);
+    for &t in &tot {
+        sq += t * t;
+        mx = mx.max(t);
+    }
+    (sin * cx.minv - cx.gamma * sq * cx.minv * cx.minv, mx * cx.minv)
+}
+
 /// Local-moving phase. Returns (iterations, moves, scanned entries).
-fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, tol: f64, sub_rounds: usize, shift: u32) -> (usize, u64, u64) {
+/// With `trace_on`, records one `IterTrace` per iteration and applies the m1-03 stop rules.
+fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, tol: f64, sub_rounds: usize, shift: u32, trace_on: bool, tr: &mut Vec<IterTrace>) -> (usize, u64, u64) {
     let n = cx.g.n;
     let use_size = cx.det || cx.cap > 0;
     let ord = Order::new(n, o);
@@ -322,43 +378,95 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
     let mut iters = 0;
     let mut tot_moves = 0u64;
     let mut tot_scanned = 0u64;
+    let mut q_prev = f64::NAN;
+    let mut saved: Vec<u32> = Vec::new();
+    // --heavy θ (m1-03): vertices holding more than θ of the total volume are visited by one thread after
+    // the parallel sweep, so no two of them move concurrently. A race between u and v deciding on stale
+    // totals misjudges the gain by at most 2·k_u·k_v/(2m)², so the bound for light pairs is 2θ².
+    let heavy: Vec<u32> = if o.heavy > 0.0 && !cx.det { (0..n as u32).filter(|&u| cx.k[u as usize] * cx.minv > o.heavy).collect() } else { Vec::new() };
+    let mut is_heavy = vec![false; if heavy.is_empty() { 0 } else { n }];
+    for &u in &heavy {
+        is_heavy[u as usize] = true;
+    }
+    let is_heavy = |u: usize| !is_heavy.is_empty() && is_heavy[u];
+    if trace_on {
+        par_for(pool, n, 8192, |_, r| {
+            for u in r {
+                cx.left[u].store(NONE, Relaxed);
+                cx.left_it[u].store(0, Relaxed);
+            }
+        });
+        q_prev = level_q(cx, pool).0;
+    }
     for _it in 0..o.max_iters {
+        let mut moves_before = 0;
         for t in tls {
             let mut t = t.lock().unwrap();
             t.gain = 0.0;
             t.gain_fx = 0;
             t.processed = 0;
+            t.back = 0;
+            moves_before += t.nmoves;
         }
+        if trace_on && o.rollback {
+            saved.clear();
+            saved.extend(cx.comm.iter().map(|c| c.load(Relaxed)));
+        }
+        let it_no = iters as u32 + 1;
+        let note_move = |t: &mut u64, u: usize, c: u32, d: u32| {
+            if trace_on {
+                if cx.left[u].load(Relaxed) == d && it_no - cx.left_it[u].load(Relaxed) <= 2 {
+                    *t += 1;
+                }
+                cx.left[u].store(c, Relaxed);
+                cx.left_it[u].store(it_no, Relaxed);
+            }
+        };
         if !cx.det {
+            let visit = |t: &mut Tls, u: usize| {
+                if cx.flag[u].load(Relaxed) == 0 {
+                    return;
+                }
+                cx.flag[u].store(0, Relaxed);
+                t.scanned += cx.g.deg(u) as u64;
+                t.processed += 1;
+                if let Some((c, d, gain)) = decide(cx, u, &mut t.tab) {
+                    if cx.cap > 0 {
+                        let s = cx.size[d as usize].fetch_add(1, Relaxed);
+                        if s >= cx.cap {
+                            cx.size[d as usize].fetch_sub(1, Relaxed);
+                            return;
+                        }
+                        cx.size[c as usize].fetch_sub(1, Relaxed);
+                    }
+                    let ku = cx.k[u];
+                    let sc = fadd(&cx.sigma[c as usize], -ku);
+                    let sd = fadd(&cx.sigma[d as usize], ku);
+                    cx.comm[u].store(d, Relaxed);
+                    note_move(&mut t.back, u, c, d);
+                    if trace_on && o.verbose && ku * cx.minv > 0.01 {
+                        // totals just before this move was applied; the decision read them earlier
+                        eprintln!("      heavy u {} k {:.4} it {} {} -> {} vol(c) {:.4} vol(d) {:.4} claimed {:.5}", u, ku * cx.minv, it_no, c, d, sc * cx.minv, sd * cx.minv, gain);
+                    }
+                    mark_neighbors(cx, u);
+                    t.gain += gain;
+                    t.nmoves += 1;
+                }
+            };
             par_for(pool, ord.nb, ord.chunk(o.chunk), |tid, r| {
                 let mut guard = tls[tid].lock().unwrap();
-                let t = &mut *guard;
                 for u in r.flat_map(|j| ord.block(j)) {
-                    if cx.flag[u].load(Relaxed) == 0 {
-                        continue;
-                    }
-                    cx.flag[u].store(0, Relaxed);
-                    t.scanned += cx.g.deg(u) as u64;
-                    t.processed += 1;
-                    if let Some((c, d, gain)) = decide(cx, u, &mut t.tab) {
-                        if cx.cap > 0 {
-                            let s = cx.size[d as usize].fetch_add(1, Relaxed);
-                            if s >= cx.cap {
-                                cx.size[d as usize].fetch_sub(1, Relaxed);
-                                continue;
-                            }
-                            cx.size[c as usize].fetch_sub(1, Relaxed);
-                        }
-                        let ku = cx.k[u];
-                        fadd(&cx.sigma[c as usize], -ku);
-                        fadd(&cx.sigma[d as usize], ku);
-                        cx.comm[u].store(d, Relaxed);
-                        mark_neighbors(cx, u);
-                        t.gain += gain;
-                        t.nmoves += 1;
+                    if !is_heavy(u) {
+                        visit(&mut guard, u);
                     }
                 }
             });
+            if !heavy.is_empty() {
+                let mut guard = tls[0].lock().unwrap();
+                for &u in &heavy {
+                    visit(&mut guard, u as usize);
+                }
+            }
         } else {
             {
                 let shared = std::sync::RwLock::new((Vec::<Vec<u32>>::new(), Vec::<usize>::new(), 0usize));
@@ -396,7 +504,7 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
                         // independent set; the neighbour with the smaller hashed priority wins, losers retry.
                         let b = shared.read().unwrap().2;
                         let mut guard = tls[tid].lock().unwrap();
-                        let Tls { moves, act, gain_fx, nmoves, .. } = &mut *guard;
+                        let Tls { moves, act, gain_fx, nmoves, back, .. } = &mut *guard;
                         let prio = |x: u32| x.wrapping_mul(0x85EB_CA6B);
                         for &(u32_, d, gfx) in moves.iter() {
                             let u = u32_ as usize;
@@ -424,6 +532,7 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
                                 cx.size[d as usize].fetch_add(1, Relaxed);
                             }
                             cx.comm[u].store(d, Relaxed);
+                            note_move(back, u, c, d);
                             cx.g.for_edges(u, |v, _| {
                                 let f = &cx.flag[v as usize];
                                 if f.load(Relaxed) == 0 && f.swap(1, Relaxed) == 0 {
@@ -461,7 +570,34 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
         if o.verbose {
             eprintln!("    iter {} processed {} gain {:.6}", iters, processed, g);
         }
-        if g <= tol || processed == 0 {
+        let mut stop_gain = g;
+        if trace_on {
+            let (mut q, top_share) = level_q(cx, pool);
+            let (mut moves, mut back) = (0, 0);
+            for t in tls {
+                let t = t.lock().unwrap();
+                moves += t.nmoves;
+                back += t.back;
+            }
+            moves -= moves_before;
+            let rolled_back = o.rollback && q < q_prev;
+            if o.verbose {
+                eprintln!("    iter {} moves {} back {} dq {:.6} q {:.6} top {:.4}{}", iters, moves, back, q - q_prev, q, top_share, if rolled_back { " rolled back" } else { "" });
+            }
+            tr.push(IterTrace { processed, moves, claimed: g, q_before: q_prev, q, top_share, back, rolled_back });
+            if rolled_back {
+                restore_labels(cx, pool, &saved);
+                q = q_prev;
+            }
+            if o.true_stop {
+                stop_gain = q - q_prev;
+            }
+            q_prev = q;
+            if rolled_back {
+                break;
+            }
+        }
+        if stop_gain <= tol || processed == 0 {
             break;
         }
     }
@@ -474,6 +610,29 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
         t.act.iter_mut().for_each(|v| v.clear());
     }
     (iters, tot_moves, tot_scanned)
+}
+
+/// Undo one iteration: labels from `saved`, community totals and sizes recomputed from them.
+fn restore_labels(cx: &Cx, pool: &rayon::ThreadPool, saved: &[u32]) {
+    let n = cx.g.n;
+    let use_size = cx.det || cx.cap > 0;
+    par_for(pool, n, 8192, |_, r| {
+        for u in r {
+            cx.comm[u].store(saved[u], Relaxed);
+            cx.sigma[u].store(0f64.to_bits(), Relaxed);
+            if use_size {
+                cx.size[u].store(0, Relaxed);
+            }
+        }
+    });
+    par_for(pool, n, 8192, |_, r| {
+        for u in r {
+            fadd(&cx.sigma[saved[u] as usize], cx.k[u]);
+            if use_size {
+                cx.size[saved[u] as usize].fetch_add(1, Relaxed);
+            }
+        }
+    });
 }
 
 /// Leiden refinement: greedy constrained merging of isolated vertices inside their bound community.
@@ -803,6 +962,10 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
     let mut rsigma_v = vec![0u64; if o.leiden { n0 } else { 0 }];
     let mut prop_v = vec![NONE; if o.det { n0 } else { 0 }];
     let mut tmp_v = vec![0u32; if o.leiden { n0 } else { 0 }];
+    let mut left_v = vec![NONE; if o.trace { n0 } else { 0 }];
+    let mut left_it_v = vec![0u32; if o.trace { n0 } else { 0 }];
+    let left = as_atomic_u32(&mut left_v);
+    let left_it = as_atomic_u32(&mut left_it_v);
     let comm = as_atomic_u32(&mut comm_v);
     let sigma = as_atomic_u64(&mut sigma_v);
     let size = as_atomic_u32(&mut size_v);
@@ -894,7 +1057,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
                 });
             }
         }
-        let cx = Cx { g, k: kk, comm: &comm[..n], sigma: &sigma[..n], size, flag: &flag[..n], minv, gamma: o.gamma, cap: cur_cap, det: o.det, tie_hash: o.tie_hash, want: prop, indep: o.indep };
+        let cx = Cx { g, k: kk, comm: &comm[..n], sigma: &sigma[..n], size, flag: &flag[..n], minv, gamma: o.gamma, cap: cur_cap, det: o.det, tie_hash: o.tie_hash, want: prop, indep: o.indep, left: if o.trace { &left[..n] } else { left }, left_it: if o.trace { &left_it[..n] } else { left_it } };
         let sub = if o.sub_rounds > 0 {
             o.sub_rounds
         } else {
@@ -903,7 +1066,8 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         };
         st.sub = sub;
         let (sp0, ss0) = (SUBROUNDS_PAR.load(Relaxed), SUBROUNDS_SEQ.load(Relaxed));
-        let (iters, moves, scanned) = local_move(&cx, pool, &tls, o, tol, sub, if pass == 0 { BUCKET_SHIFT.load(Relaxed) } else { 0 });
+        let trace_on = o.trace && (pass > 0 || o.trace_q0);
+        let (iters, moves, scanned) = local_move(&cx, pool, &tls, o, tol, sub, if pass == 0 { BUCKET_SHIFT.load(Relaxed) } else { 0 }, trace_on, &mut st.trace);
         st.iters = iters;
         st.moves = moves;
         st.scanned = scanned;
@@ -1007,6 +1171,9 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         sample_anon();
         let (gq, kq, dm) = aggregate(g, kk, lab, pool, &tls, o);
         sample_anon();
+        if let (Some(dir), 0, 0) = (&o.dump_level1, pass, iter) {
+            dump_graph(dir, &gq, &dm).expect("--dump-level1");
+        }
         next_bound = None;
         if o.leiden {
             // initial labels of supervertices: bound community, relabeled to min refined id inside it
@@ -1048,6 +1215,23 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
     next_bound = Some(flat_membership(&levels));
     }
     RunOut { levels, graphs: owned, stats, total_s: t_start.elapsed().as_secs_f64(), state_bytes_per_node: state_bytes as f64, split_extra }
+}
+
+/// Write a quotient graph as glab-csr-v0 with f64 weights, plus the input-vertex count of each vertex
+/// (m1-03: replay the coarse levels of one level-0 result).
+fn dump_graph(dir: &str, g: &Graph, dm: &[u32]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    write_slice(&format!("{}/offsets.u64", dir), g.off())?;
+    write_slice(&format!("{}/targets.u32", dir), g.tgt())?;
+    let w: Vec<f64> = g.wgt().expect("quotient graphs are weighted").iter().map(|&x| x as f64).collect();
+    write_slice(&format!("{}/weights.f64", dir), &w)?;
+    let mut nodes = vec![0u32; g.n];
+    for &c in dm {
+        nodes[c as usize] += 1;
+    }
+    write_slice(&format!("{}/nodes.u32", dir), &nodes)?;
+    let meta = format!("{{\"format\":\"glab-csr-v0\",\"n\":{},\"entries\":{},\"weight_bits_at_dump\":{}}}", g.n, g.entries(), std::mem::size_of::<W>() * 8);
+    std::fs::write(format!("{}/meta.json", dir), meta)
 }
 
 fn count_distinct(lab: &[u32], space: usize) -> usize {
@@ -1408,6 +1592,13 @@ fn main() {
         indep: has("--indep"),
         iterations: get("--iterations").map(|s| s.parse().unwrap()).unwrap_or(1),
         cap_stall: get("--cap-stall").map(|s| s.parse().unwrap()).unwrap_or(0.5),
+        trace: has("--trace") || has("--true-stop") || has("--rollback"),
+        trace_q0: has("--trace-q0"),
+        true_stop: has("--true-stop"),
+        rollback: has("--rollback"),
+        order_seed: get("--order-seed").map(|s| s.parse().unwrap()).unwrap_or(0),
+        dump_level1: get("--dump-level1"),
+        heavy: get("--heavy").map(|s| s.parse().unwrap()).unwrap_or(0.0),
     };
     for v in [o.sub_rounds, o.sub_min, o.sub_max] {
         assert!(v == 0 || v.is_power_of_two(), "sub-round counts must be powers of two");
@@ -1439,6 +1630,18 @@ fn main() {
     let do_eval = !has("--no-eval");
     let e = if do_eval { eval(&g0, &memb, gamma, &pool, true) } else { Eval { modularity: f64::NAN, communities: 0, disconnected: 0, largest: 0 } };
     let q0 = if do_eval && (get("--out-hier").is_some() || has("--eval-level0")) { eval(&g0, &out.levels[0], gamma, &pool, false).modularity } else { f64::NAN };
+    let largest_nodes: u64 = match get("--node-weights") {
+        Some(f) if do_eval => {
+            let nw: Vec<u32> = read_vec(&f);
+            assert_eq!(nw.len(), g0.n);
+            let mut acc = vec![0u64; g0.n];
+            for u in 0..g0.n {
+                acc[memb[u] as usize] += nw[u] as u64;
+            }
+            acc.into_iter().max().unwrap_or(0)
+        }
+        _ => e.largest as u64,
+    };
     let sizes: Vec<usize> = out.levels.iter().map(|l| l.iter().copied().max().unwrap() as usize + 1).collect();
     let (rss_peak, rss_anon_peak) = rss_kb();
     let scanned0 = out.stats[0].scanned;
@@ -1450,7 +1653,7 @@ fn main() {
         .iter()
         .map(|s| {
             format!(
-                "{{\"n\":{},\"sub\":{},\"sub_par\":{},\"sub_seq\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2}}}",
+                "{{\"n\":{},\"sub\":{},\"sub_par\":{},\"sub_seq\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2},\"trace\":[{}]}}",
                 s.n,
                 s.sub,
                 s.sub_par,
@@ -1462,7 +1665,15 @@ fn main() {
                 s.t_lm,
                 s.t_ref,
                 s.t_agg,
-                s.scanned as f64 / s.entries.max(1) as f64
+                s.scanned as f64 / s.entries.max(1) as f64,
+                s.trace
+                    .iter()
+                    .map(|t| format!(
+                        "{{\"processed\":{},\"moves\":{},\"claimed\":{:.7},\"q_before\":{:.7},\"q\":{:.7},\"top_share\":{:.5},\"back\":{},\"rolled_back\":{}}}",
+                        t.processed, t.moves, t.claimed, t.q_before, t.q, t.top_share, t.back, t.rolled_back
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
             )
         })
         .collect();
@@ -1512,8 +1723,15 @@ fn main() {
     let stat = cgread("memory.stat");
     let sget = |k: &str| stat.lines().find(|l| l.starts_with(k)).and_then(|l| l.split_whitespace().nth(1)).unwrap_or("0").to_string();
     let json = format!(
-        "{},\"hash_levels_low53\":{},\"subrounds_par\":{},\"subrounds_seq\":{},\"sub_rule\":{{\"div\":{},\"min\":{},\"max\":{},\"seq_below\":{}}},\"cgroup\":{{\"memory_peak\":{},\"memory_max\":\"{}\",\"anon_now\":{},\"file_now\":{},\"pgmajfault\":{},\"workingset_refault_file\":{}}},\"lowmem\":{},\"populate\":{}}}",
+        "{},\"largest_nodes\":{},\"max_iters\":{},\"tol\":{},\"order_seed\":{},\"true_stop\":{},\"rollback\":{},\"heavy\":{},\"hash_levels_low53\":{},\"subrounds_par\":{},\"subrounds_seq\":{},\"sub_rule\":{{\"div\":{},\"min\":{},\"max\":{},\"seq_below\":{}}},\"cgroup\":{{\"memory_peak\":{},\"memory_max\":\"{}\",\"anon_now\":{},\"file_now\":{},\"pgmajfault\":{},\"workingset_refault_file\":{}}},\"lowmem\":{},\"populate\":{}}}",
         &json[..json.len() - 1],
+        largest_nodes,
+        o.max_iters,
+        o.tol,
+        o.order_seed,
+        o.true_stop,
+        o.rollback,
+        o.heavy,
         h & ((1u64 << 53) - 1),
         SUBROUNDS_PAR.load(Relaxed),
         SUBROUNDS_SEQ.load(Relaxed),
