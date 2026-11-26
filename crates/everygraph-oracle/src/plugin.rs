@@ -55,6 +55,9 @@ pub enum Regime {
     Mmap,
     /// Adjacency streamed sequentially from disk, O(n) state in memory.
     Stream,
+    /// Adjacency read by random access through a budgeted block cache smaller than it
+    /// (ADR 0029).
+    Cached,
 }
 
 /// One configuration a kernel can run under. Results must not depend on it.

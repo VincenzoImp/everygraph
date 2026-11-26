@@ -131,8 +131,8 @@ pub unsafe trait Source: Sync {
     /// As [`scan`](Self::scan).
     fn list<'r>(&'r self, reader: &'r mut Self::Reader, v: u32) -> Result<(u64, &'r [u32]), Error>;
 
-    /// Tells the backend that the lists of `nodes` (increasing) will be read soon. Advice
-    /// only; the default ignores it.
+    /// Tells the backend that the lists of `nodes`, in any order, will be read soon.
+    /// Advice only; the default ignores it.
     fn prefetch(&self, nodes: &[u32]) {
         let _ = nodes;
     }
@@ -785,7 +785,8 @@ unsafe impl Source for Compressed<'_> {
 pub(super) const COALESCE_GAP: u64 = 16 << 10;
 
 /// Passes [`AccessHint::WillNeed`] to `source` for the byte ranges of `nodes`, merged
-/// where they are less than [`COALESCE_GAP`] apart.
+/// where one starts less than [`COALESCE_GAP`] after the last; a range before the last
+/// starts a run of its own, so that no range of a frontier in any order is lost.
 pub(super) fn advise_runs(
     source: &dyn ByteSource,
     nodes: &[u32],
@@ -798,7 +799,9 @@ pub(super) fn advise_runs(
             continue;
         }
         run = match run {
-            Some(cur) if r.start <= cur.end + COALESCE_GAP => Some(cur.start..r.end.max(cur.end)),
+            Some(cur) if (cur.start..=cur.end + COALESCE_GAP).contains(&r.start) => {
+                Some(cur.start..r.end.max(cur.end))
+            }
             Some(cur) => {
                 source.advise(cur, AccessHint::WillNeed);
                 Some(r)
