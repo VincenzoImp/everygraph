@@ -21,12 +21,11 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 **Merged on the night of 25–26 November (23 PRs):** ADR 0028 pairs + `.events` (#184); research wave 2 plan (#185); `.eg` container (#170, closes #28); dictionary memory (#203; #34 closed with the official build-500m, 76.4 s under 5 GiB); docs consistency (#206); safe parallel scatter (#201, closes #189); edge-map framework (#202, #44 open: compressed official rows and WCC overhead); Leiden sub-round lab (#208); core numerics (#210, closes #187, #188); sweep 1 (#211); verify + fault injection + fuzz CI (#212, #41/#190/#191 open for items that need later issues); property columns (#213, closes #37); MSRV 1.100 (#214); build text → `.eg` and `everygraph ingest` (#215, #35 open for speed); results in the graph file, range maps, one writer (#216, closes #39, #204, #205); LDBC oracle (#217, closes #177); mmap hints lab (#221); ADR 0029 proposed (#222); edge-map spec fix (#224); hierarchy shaping (#225, closes #19); PageRank family + BFS/SSSP (#220, #47/#49 open for official numbers); CI Miri limit (#227); sweep 2 (#228).
 
 **Open PRs:**
-- #218 components + k-core + degrees: second review running (k-core must-fix fixed; ported to #220's kernels).
-- #229 Python slice (#81), draft: waits for #218.
+- #229 Python slice (#81): #218 and #219 merged 07:55; author finishing, then review.
 
 **Agents running:** production Leiden (#57), Louvain collapse (#17), ordering bake-off (#23), layout baseline (#175), CLI (#98, moving to clap, will reuse `everygraph_ingest::native` from #229).
 
-**Next when they land:** in-adjacency (#38) then SCC (m3-20); #229 out of draft after #218; m2-31 (#200) code-size half with per-crate targets (sweep 2: format 2,706 → 9,453, ingest 10,584 → 14,171, core 3,640 → 6,079 src lines); the second measurement window.
+**Merged after 07:45:** #219 page backend (part of #167), #218 components + k-core + degrees (#48/#50 open for official speed). **Next:** in-adjacency (#38) then SCC (m3-20); #229 out of draft after #218; m2-31 (#200) code-size half with per-crate targets (sweep 2: format 2,706 → 9,453, ingest 10,584 → 14,171, core 3,640 → 6,079 src lines); the second measurement window.
 
 **Decided by the coordinator tonight (records in DECISIONS, ADRs or issue files):** S1 lost-generation warning in `verify` (exit 0, `--strict` 5); dictionary dense form chosen from the data only, never the budget; `find_result` reads key and provenance only; MSRV 1.100 for a safe page backend; arrow-rs in the py crate with three deny exceptions; clap for the CLI; window splitting; merge order #220 before #218.
 
