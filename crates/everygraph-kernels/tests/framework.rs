@@ -130,9 +130,8 @@ impl Stored {
 
 /// What one run of the probe returns, bit for bit: the scan's float sum, the per-node
 /// outputs, the filtered scans and vertex map, the frontier's float sum, the common
-/// neighbours counted through random access, the float sum of a frontier with its long
-/// lists cut into parts, and the pieces of a scan that stops early.
-type Seen = (u64, Vec<u64>, u64, u64, u64, u64, u64);
+/// neighbours counted through random access, and the pieces of a scan that stops early.
+type Seen = (u64, Vec<u64>, u64, u64, u64, u64);
 
 /// A small number that changes with each entry of `list` and with `first`, its first
 /// entry: sums of it do not overflow.
@@ -228,15 +227,6 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                     *acc += w.scratch.len() as u64;
                 })
                 .unwrap();
-            let parts: f64 = plan
-                .push_with(
-                    &frontier,
-                    || (),
-                    |acc: &mut f64, row, _| {
-                        *acc += value(row.first_entry as u32, ids(row.list));
-                    },
-                )
-                .unwrap();
             let until: u64 = plan
                 .scan_until(
                     (),
@@ -252,15 +242,7 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                 )
                 .unwrap();
             let rest = filtered ^ far << 24 ^ degrees << 44;
-            (
-                sum.to_bits(),
-                out,
-                rest,
-                pushed.to_bits(),
-                common,
-                parts.to_bits(),
-                until,
-            )
+            (sum.to_bits(), out, rest, pushed.to_bits(), common, until)
         })
         .unwrap()
     })
@@ -284,10 +266,9 @@ fn runs<'a>(s: &Stored, group: &'a [u32]) -> Vec<&'a [u32]> {
 
 /// The probe's float sums and its early-stopping scan computed as documented: per block
 /// of `block` nodes in node order, then the blocks in order; per run of each group of
-/// `FRONTIER_GRAIN` frontier nodes in order, then the groups in order, with the parts of
-/// a long list added in order; the pieces of a list, ending at `PREFIX`, then at four
-/// times the end before.
-fn reference(s: &Stored, block: u32) -> (u64, u64, u64, u64) {
+/// `FRONTIER_GRAIN` frontier nodes in order, then the groups in order; the pieces of a
+/// list, ending at `PREFIX`, then at four times the end before.
+fn reference(s: &Stored, block: u32) -> (u64, u64, u64) {
     let n = (s.offsets.len() - 1) as u32;
     let mut scanned = 0.0;
     for b in (0..n).step_by(block as usize) {
@@ -298,29 +279,17 @@ fn reference(s: &Stored, block: u32) -> (u64, u64, u64, u64) {
         scanned += acc;
     }
     let frontier: Vec<u32> = (0..n).filter(|&v| in_frontier(v)).collect();
-    let (mut pushed, mut parted) = (0.0, 0.0);
+    let mut pushed = 0.0;
     for group in frontier.chunks(FRONTIER_GRAIN) {
-        let (mut g, mut p) = (0.0, 0.0);
+        let mut g = 0.0;
         for run in runs(s, group) {
-            let (mut acc, mut parts) = (0.0, 0.0);
+            let mut acc = 0.0;
             for &v in run {
-                let (list, first) = (s.list(v), s.offsets[v as usize]);
-                acc += value(v, list);
-                if list.len() > RUN_ENTRIES {
-                    let mut sum = 0.0;
-                    for (k, part) in list.chunks(RUN_ENTRIES).enumerate() {
-                        sum += value((first + (k * RUN_ENTRIES) as u64) as u32, part);
-                    }
-                    parts += sum;
-                } else {
-                    parts += value(first as u32, list);
-                }
+                acc += value(v, s.list(v));
             }
             g += acc;
-            p += parts;
         }
         pushed += g;
-        parted += p;
     }
     let mut until = 0;
     for v in (0..n).filter(|&v| until_filter(v)) {
@@ -334,7 +303,7 @@ fn reference(s: &Stored, block: u32) -> (u64, u64, u64, u64) {
             (at, to) = (to, list.len().min(4 * to));
         }
     }
-    (scanned.to_bits(), pushed.to_bits(), parted.to_bits(), until)
+    (scanned.to_bits(), pushed.to_bits(), until)
 }
 
 fn settings(chunk: u64, batch: usize) -> Settings {
@@ -365,7 +334,7 @@ fn every_source_thread_count_chunk_and_batch_give_the_same_bits() {
             p.block_nodes()
         });
         let expected = probe(&csr, Settings::default(), 1);
-        let documented = (expected.0, expected.3, expected.5, expected.6);
+        let documented = (expected.0, expected.3, expected.5);
         assert_eq!(documented, reference(&s, block), "n {n}");
         let configurations: &[(u64, usize)] = if sparse {
             &[(64, 7), (u64::MAX, usize::MAX)]

@@ -46,9 +46,9 @@ const UNSET: u32 = u32::MAX;
 const QUEUE: usize = 128;
 
 /// Entries of a list that a local queue does not take: 16 parts of [`RUN_ENTRIES`].
-/// Lower, the subrounds add up to more than the parts save: on twitter-sym, 1,024
-/// gave 5.4 times the subrounds of no limit, and a slower peel than 16,384
-/// (exploratory, interleaved; the pull request that added it).
+/// Lower, the subrounds add up to more than the parts save: on twitter-sym a limit of
+/// 1,024 gave 11,741 subrounds against 2,185 without one, and a slower peel than this
+/// limit (counters, and an interleaved A/B, exploratory: PR #291).
 const LONG: usize = 16 * RUN_ENTRIES;
 
 /// Nodes per task of the passes outside the drivers.

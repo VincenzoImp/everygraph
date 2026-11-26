@@ -12,8 +12,7 @@
 //! - [`Plan::scan`] calls it for every node that passes a filter, with the node's list
 //!   (pull, scan-shaped). Lists are decoded or read in batches of about
 //!   [`Settings::batch_entries`] entries before the body runs on them. A compressed
-//!   source decodes only the records of the nodes that pass, and of short gaps between
-//!   them.
+//!   source decodes only the records of the nodes that pass.
 //! - [`Plan::vertices`] calls it for every node, with its degree, without its list.
 //! - [`Plan::scan_until`] is a scan whose body reads each list from its start, in
 //!   pieces, and may stop early (bottom-up BFS stops at the first parent). A compressed
@@ -158,6 +157,19 @@ const MIN_BLOCK: u32 = 64;
 const MAX_BLOCK: u32 = 4096;
 /// About this many blocks per graph, between the two bounds.
 const BLOCKS: u32 = 4096;
+
+/// Entries of the long lists that [`Plan::push_with`] holds copied out at a time, if the
+/// longest list of the frontier is shorter: 256 KiB of nodes.
+const WAVE: usize = 1 << 16;
+
+/// The runs of a frontier ([`Plan::frontier_with`]).
+struct Cuts {
+    /// Positions in the frontier, in order.
+    runs: Vec<Range<usize>>,
+    /// The number of runs of each group, in order.
+    groups: Vec<usize>,
+    _held: [Reservation; 2],
+}
 
 /// How the frontier drivers run.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1092,14 +1104,19 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     /// [`RUN_ENTRIES`] entries is cut into parts at multiples of [`RUN_ENTRIES`], and the
     /// parts run in parallel: `body` is called once per part, with the part as
     /// `row.list` and the part's first entry as `row.first_entry`, and with scratch and
-    /// random access of its own. For push bodies whose updates commute (an atomic
-    /// minimum, an atomic decrement), so that a frontier of a few hubs runs on every
-    /// thread.
+    /// random access of its own. So that a frontier of a few hubs runs on every thread.
+    ///
+    /// A body may not assume that it is called once per node, that `row.list` is the
+    /// whole list or its length the degree, or that its scratch holds what an earlier
+    /// part of the same node left there. Its updates must commute (an atomic minimum,
+    /// an atomic decrement), a write it makes once per node must give the same value
+    /// from every part, and a value that another part of the same node changes may be
+    /// read stale. k-core's peel and SSSP's relaxation are such bodies.
     ///
     /// # Errors
     ///
     /// As [`scan_with`](Self::scan_with).
-    pub fn push_with<A, W>(
+    pub(crate) fn push_with<A, W>(
         &self,
         frontier: &[Node<'g>],
         init: impl Fn() -> W + Sync,
@@ -1112,7 +1129,11 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         self.drive(frontier, Mode::Parts, init, body)
     }
 
-    /// The frontier drivers.
+    /// The frontier drivers (module documentation, "Frontiers"). A task that holds a
+    /// reader slot runs to its end and waits for no other task, so no more slots are in
+    /// use than there are workers. A run reads its lists and calls the body on each. In
+    /// [`Mode::Parts`], a long list is a run of its own: it is copied out of a slot,
+    /// which is given back, and its parts then take a slot each.
     fn drive<A, W>(
         &self,
         frontier: &[Node<'g>],
@@ -1128,49 +1149,22 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         let scratch = Mutex::new(Vec::new());
         #[cfg(feature = "frontier-counters")]
         let tasks = Mutex::new(Vec::new());
-        // The parts of a long list, each with a slot's side reader for `Lists::get`.
-        let parts = |node: Node<'g>, first_entry: u64, list: &[Node<'g>]| {
-            let _held = self.hold::<Result<(A, Work), Error>>(list.len().div_ceil(RUN_ENTRIES))?;
-            par::map_ranges(list.len(), RUN, |r| {
-                let mut w = take(&scratch, &init);
-                let result = self.with_slot(|Slot { side, .. }| {
-                    let (mut acc, mut work) = (A::ZERO, Work::ZERO);
-                    let first_entry = first_entry + r.start as u64;
-                    let part = &list[r];
-                    let row = Row {
-                        node,
-                        list: part,
-                        first_entry,
-                    };
-                    let mut worker = Worker {
-                        scratch: &mut w,
-                        lists: Lists {
-                            reader: side,
-                            work: &mut work,
-                            plan: self,
-                        },
-                    };
-                    body(&mut acc, row, &mut worker);
-                    #[cfg(feature = "frontier-counters")]
-                    tasks
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push(counters::Run {
-                            entries: part.len() as u64 + work.entries,
-                            max_list: part.len() as u64,
-                            max_chain: work.entries,
-                            side_lists: work.lists,
-                            draws: counters::flush(),
-                        });
-                    Ok((acc, work))
-                });
-                give(&scratch, w);
-                result
-            })
-            .into_iter()
-            .try_fold(<(A, Work)>::ZERO, |sum, part| Ok(sum.add(part?)))
+        // One call of the body with a worker's scratch and a slot's side reader; returns
+        // what the body read through `Lists::get`.
+        let call = |acc: &mut A, row: Row<'_, 'g>, w: &mut W, side: &mut Option<S::Reader>| {
+            let mut work = Work::ZERO;
+            let mut worker = Worker {
+                scratch: w,
+                lists: Lists {
+                    reader: side,
+                    work: &mut work,
+                    plan: self,
+                },
+            };
+            body(acc, row, &mut worker);
+            work
         };
-        // A run: lists read by one reader.
+        // A run: lists read by one reader, each handed to the body whole.
         let run = |nodes: &[u32]| {
             let mut w = take(&scratch, &init);
             let result = self.with_slot(|Slot { reader, side }| {
@@ -1182,51 +1176,27 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     lists: nodes.len() as u64,
                     entries: 0,
                 };
-                let mut failed = None;
                 #[cfg(feature = "frontier-counters")]
                 let mut tally = counters::Run::default();
                 self.source.lists(reader, nodes, |v, first_entry, list| {
-                    if failed.is_some() {
-                        return;
-                    }
                     // SAFETY: `v` is a node of the frontier (`Source`'s contract).
                     let node = unsafe { Node::new_unchecked(v) };
                     // SAFETY: the source hands out lists of its nodes only.
                     let list = unsafe { as_nodes(list) };
-                    work.entries += list.len() as u64;
-                    if mode == Mode::Parts && list.len() > RUN_ENTRIES {
-                        match parts(node, first_entry, list) {
-                            Ok((a, more)) => {
-                                acc = std::mem::replace(&mut acc, A::ZERO).add(a);
-                                work = work.add(more);
-                            }
-                            Err(e) => failed = Some(e),
-                        }
-                        return;
-                    }
                     let row = Row {
                         node,
                         list,
                         first_entry,
                     };
-                    #[cfg(feature = "frontier-counters")]
-                    let (before, lists_before) = (work.entries, work.lists);
-                    let mut worker = Worker {
-                        scratch: &mut w,
-                        lists: Lists {
-                            reader: &mut *side,
-                            work: &mut work,
-                            plan: self,
-                        },
-                    };
-                    body(&mut acc, row, &mut worker);
+                    let side_work = call(&mut acc, row, &mut w, side);
+                    work.entries += list.len() as u64;
+                    work = work.add(side_work);
                     #[cfg(feature = "frontier-counters")]
                     {
-                        let chain = work.entries - before;
-                        tally.entries += list.len() as u64 + chain;
+                        tally.entries += list.len() as u64 + side_work.entries;
                         tally.max_list = tally.max_list.max(list.len() as u64);
-                        tally.max_chain = tally.max_chain.max(chain);
-                        tally.side_lists += work.lists - lists_before;
+                        tally.max_chain = tally.max_chain.max(side_work.entries);
+                        tally.side_lists += side_work.lists;
                     }
                 })?;
                 #[cfg(feature = "frontier-counters")]
@@ -1237,35 +1207,133 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         .unwrap_or_else(PoisonError::into_inner)
                         .push(tally);
                 }
-                failed.map_or(Ok((acc, work)), Err)
+                Ok((acc, work))
             });
             give(&scratch, w);
             result
         };
-        // A group: its runs, in parallel if there are several.
-        let group = |g: Range<usize>| {
-            let nodes = &frontier[g];
-            let cuts = self.runs(nodes);
-            if cuts.len() <= 2 {
-                return run(nodes);
-            }
-            mode.map_ranges(cuts.len() - 1, NonZeroUsize::MIN, |r| {
-                run(&nodes[cuts[r.start]..cuts[r.end]])
-            })
-            .into_iter()
-            .try_fold(<(A, Work)>::ZERO, |sum, part| Ok(sum.add(part?)))
+        // One part of a list that was copied out.
+        let part = |node: Node<'g>, first_entry: u64, list: &[Node<'g>]| {
+            let mut w = take(&scratch, &init);
+            let result = self.with_slot(|Slot { side, .. }| {
+                let mut acc = A::ZERO;
+                let row = Row {
+                    node,
+                    list,
+                    first_entry,
+                };
+                let work = call(&mut acc, row, &mut w, side);
+                #[cfg(feature = "frontier-counters")]
+                tasks
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(counters::Run {
+                        entries: list.len() as u64 + work.entries,
+                        max_list: list.len() as u64,
+                        max_chain: work.entries,
+                        side_lists: work.lists,
+                        draws: counters::flush(),
+                    });
+                Ok((acc, work))
+            });
+            give(&scratch, w);
+            result
         };
-        let (acc, work) = if frontier.len() <= FRONTIER_GRAIN {
-            group(0..frontier.len())?
-        } else {
-            // One result per group, and an accumulator can be large (Leiden's).
-            let groups = frontier.len().div_ceil(FRONTIER_GRAIN);
-            let _held = self.hold::<Result<(A, Work), Error>>(groups)?;
-            mode.map_ranges(frontier.len(), GRAIN, group)
-                .into_iter()
-                .try_fold(<(A, Work)>::ZERO, |sum, part| {
-                    Ok::<_, Error>(sum.add(part?))
-                })?
+        let degree = |i: usize| ix(self.source.degree(frontier[i]).into());
+        let cuts = self.cut(frontier, mode)?;
+        let long =
+            |t: &Range<usize>| mode == Mode::Parts && t.len() == 1 && degree(t.start) > RUN_ENTRIES;
+        let (acc, work) = match &cuts.runs[..] {
+            // A frontier of one run is done on the calling thread.
+            [one] if !long(one) => run(&frontier[one.clone()])?,
+            runs => {
+                let _held = self.hold::<Option<Result<(A, Work), Error>>>(runs.len())?;
+                let mut results = mode.map_ranges(runs.len(), NonZeroUsize::MIN, |r| {
+                    let t = &runs[r.start];
+                    (!long(t)).then(|| run(&frontier[t.clone()]))
+                });
+                let hubs: Vec<usize> = (0..runs.len()).filter(|&i| long(&runs[i])).collect();
+                // The long lists, a wave at a time: copied out, then all their parts in
+                // parallel. A wave holds no more entries than the longest of them, or
+                // `WAVE`, so the copies stay within one reader's longest buffer.
+                let most = hubs
+                    .iter()
+                    .map(|&h| degree(runs[h].start))
+                    .max()
+                    .unwrap_or(0);
+                let most = most.max(WAVE);
+                let mut at = 0;
+                while at < hubs.len() {
+                    let (mut end, mut entries) = (at, 0);
+                    while end < hubs.len()
+                        && (end == at || entries + degree(runs[hubs[end]].start) <= most)
+                    {
+                        entries += degree(runs[hubs[end]].start);
+                        end += 1;
+                    }
+                    let wave = &hubs[at..end];
+                    let copies = mode.map_ranges(wave.len(), NonZeroUsize::MIN, |r| {
+                        let v = frontier[runs[wave[r.start]].start];
+                        self.with_slot(|Slot { reader, .. }| {
+                            let mut copy = SegVec::new(&self.memory, "edge-map long list");
+                            let (mut first, mut copied) = (0, Ok(()));
+                            self.source.lists(reader, &[v], |_, first_entry, list| {
+                                first = first_entry;
+                                // SAFETY: the source hands out lists of its nodes only.
+                                copied = copy.try_extend_from_slice(unsafe { as_nodes(list) });
+                            })?;
+                            copied?;
+                            Ok((first, copy))
+                        })
+                    });
+                    let copies = copies.into_iter().collect::<Result<Vec<_>, Error>>()?;
+                    let copies = copies
+                        .iter()
+                        .map(|(first, copy)| Ok((*first, one_segment(copy)?)))
+                        .collect::<Result<Vec<_>, Error>>()?;
+                    let pieces: Vec<(usize, Range<usize>)> = copies
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(h, (_, list))| {
+                            (0..list.len())
+                                .step_by(RUN_ENTRIES)
+                                .map(move |s| (h, s..(s + RUN_ENTRIES).min(list.len())))
+                        })
+                        .collect();
+                    let _parts = self.hold::<Result<(A, Work), Error>>(pieces.len())?;
+                    let done = mode.map_ranges(pieces.len(), NonZeroUsize::MIN, |r| {
+                        let (h, range) = &pieces[r.start];
+                        let (first_entry, list) = &copies[*h];
+                        // SAFETY: a node of the frontier.
+                        let node = unsafe { Node::new_unchecked(frontier[runs[wave[*h]].start]) };
+                        part(node, first_entry + range.start as u64, &list[range.clone()])
+                    });
+                    let mut done = done.into_iter();
+                    for (h, (_, list)) in copies.iter().enumerate() {
+                        let whole = Work {
+                            lists: 1,
+                            entries: list.len() as u64,
+                        };
+                        let mut sum = Ok((A::ZERO, whole));
+                        for next in done.by_ref().take(list.len().div_ceil(RUN_ENTRIES)) {
+                            sum = sum.and_then(|s: (A, Work)| Ok(s.add(next?)));
+                        }
+                        results[wave[h]] = Some(sum);
+                    }
+                    at = end;
+                }
+                // Runs add in order within their group, the groups in order.
+                let mut results = results.into_iter().map(|r| r.expect("every run is done"));
+                let mut total = <(A, Work)>::ZERO;
+                for &count in &cuts.groups {
+                    let mut group = <(A, Work)>::ZERO;
+                    for r in results.by_ref().take(count) {
+                        group = group.add(r?);
+                    }
+                    total = total.add(group);
+                }
+                total
+            }
         };
         self.count(work);
         #[cfg(feature = "frontier-counters")]
@@ -1284,22 +1352,39 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             .reserve("edge-map frontier results", MemoryKind::Anonymous, bytes)?)
     }
 
-    /// Where the runs of a frontier group `nodes` start, then its end: a run ends before
-    /// the node that would take it past [`RUN_ENTRIES`] (a node counts its degree plus
-    /// one), and holds at least one node.
-    fn runs(&self, nodes: &[u32]) -> Vec<usize> {
-        let mut cuts = vec![0];
-        let mut entries = 0;
-        for (i, &v) in nodes.iter().enumerate() {
-            let cost = ix(self.source.degree(v).into()) + 1;
-            if entries > 0 && entries + cost > RUN_ENTRIES {
-                cuts.push(i);
-                entries = 0;
+    /// The runs of `frontier`, as ranges of positions in it, and the number of runs of
+    /// each group of [`FRONTIER_GRAIN`] nodes. A run ends before the node that would take
+    /// it past [`RUN_ENTRIES`] (a node counts its degree plus one), and holds at least one
+    /// node: a node of more than [`RUN_ENTRIES`] entries is a run of its own.
+    fn cut(&self, frontier: &[u32], mode: Mode) -> Result<Cuts, Error> {
+        let groups = frontier.len().div_ceil(FRONTIER_GRAIN).max(1);
+        let held = self.hold::<Vec<Range<usize>>>(groups)?;
+        let per_group = mode.map_ranges(frontier.len().max(1), GRAIN, |g| {
+            let g = g.start..g.end.min(frontier.len());
+            let mut runs = Vec::new();
+            let (mut start, mut entries) = (g.start, 0);
+            for i in g.clone() {
+                let cost = ix(self.source.degree(frontier[i]).into()) + 1;
+                if entries > 0 && entries + cost > RUN_ENTRIES {
+                    runs.push(start..i);
+                    (start, entries) = (i, 0);
+                }
+                entries += cost;
             }
-            entries += cost;
+            runs.push(start..g.end);
+            runs
+        });
+        let count: usize = per_group.iter().map(Vec::len).sum();
+        let mut cuts = Cuts {
+            runs: Vec::new(),
+            groups: Vec::new(),
+            _held: [held, self.hold::<Range<usize>>(count)?],
+        };
+        for runs in per_group {
+            cuts.groups.push(runs.len());
+            cuts.runs.extend(runs);
         }
-        cuts.push(nodes.len());
-        cuts
+        Ok(cuts)
     }
 
     /// Calls `body(acc, out, i, row)` for every node with `filter(node)`, as
@@ -1401,207 +1486,4 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
 }
 
 #[cfg(test)]
-mod tests {
-    use everygraph_core::MemorySource;
-    use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
-
-    use super::*;
-
-    #[test]
-    fn blocks_follow_the_node_count_only() {
-        assert_eq!(block_nodes(0), MIN_BLOCK);
-        assert_eq!(block_nodes(1000), MIN_BLOCK);
-        assert_eq!(block_nodes(64 * 4096 + 1), 128);
-        assert_eq!(block_nodes(3_072_441), 1024);
-        assert_eq!(block_nodes(u32::MAX), MAX_BLOCK);
-    }
-
-    /// Tasks are whole blocks, in order, covering every node, whatever the chunk size.
-    #[test]
-    fn tasks_are_whole_blocks_covering_the_graph() {
-        let n: u32 = 1000;
-        let offsets: Vec<u64> = (0..=u64::from(n))
-            .scan(0, |sum, v| {
-                let at = *sum;
-                *sum += v % 7;
-                Some(at)
-            })
-            .collect();
-        let targets: Vec<u32> = (0..offsets[ix(n.into())])
-            .map(|e| u32::try_from(e % 1000).unwrap())
-            .collect();
-        let csr = Csr::new(&offsets, &targets).unwrap();
-        for chunk in [1, 64, 1000, 1 << 16, u64::MAX] {
-            let settings = Settings {
-                chunk_entries: chunk,
-                ..Settings::default()
-            };
-            Plan::with(&csr, &Memory::unlimited(), settings, |plan| {
-                let mut at = 0;
-                for t in &plan.tasks {
-                    assert_eq!(t.start, at);
-                    assert!(t.end > t.start && (t.end % plan.block == 0 || t.end == n));
-                    at = t.end;
-                }
-                assert_eq!(at, n, "chunk {chunk}");
-            });
-        }
-    }
-
-    /// A small graph: node `v` lists `v + 1 .. v + 1 + v % 4` (mod `n`), and node `bad`
-    /// lists `n + 5` if `bad` is given.
-    fn lists(n: u32, bad: Option<u32>) -> (Vec<u64>, Vec<u32>) {
-        let (mut offsets, mut targets) = (vec![0], Vec::new());
-        for v in 0..n {
-            if bad == Some(v) {
-                targets.push(n + 5);
-            } else {
-                let mut list: Vec<u32> = (1..=v % 4).map(|k| (v + k) % n).collect();
-                list.sort_unstable();
-                list.dedup();
-                targets.extend(list);
-            }
-            offsets.push(targets.len() as u64);
-        }
-        (offsets, targets)
-    }
-
-    /// Every driver, over every source built in memory: each target indexes a
-    /// `PerNode`, so Miri sees every unchecked read the drivers allow.
-    /// [`lists`] with node 7 listing every node: longer than a run and than a prefix.
-    fn with_hub(n: u32) -> (Vec<u64>, Vec<u32>) {
-        let (offsets, targets) = lists(n, None);
-        let (mut o, mut t) = (vec![0], Vec::new());
-        for v in 0..ix(n.into()) {
-            if v == 7 {
-                t.extend(0..n);
-            } else {
-                t.extend_from_slice(&targets[ix(offsets[v])..ix(offsets[v + 1])]);
-            }
-            o.push(t.len() as u64);
-        }
-        (o, t)
-    }
-
-    fn drive<S: Source>(source: &S, offsets: &[u64]) -> Result<[u64; 5], Error> {
-        let memory = Memory::unlimited();
-        let settings = Settings {
-            chunk_entries: 16,
-            batch_entries: 5,
-            prefetch: true,
-        };
-        Plan::with(source, &memory, settings, |plan| {
-            let values: Vec<u64> = (0..u64::from(plan.nodes())).collect();
-            let per = plan.per_node(&values)?;
-            let mut out: Vec<u64> = values.iter().map(|_| 0).collect();
-            let scanned: u64 = plan.scan(&mut out[..], all, |acc: &mut u64, out, i, row, w| {
-                out[i] = row.list.iter().map(|&u| per[u]).sum();
-                *acc += out[i];
-                if let Some(&u) = row.list.first() {
-                    let side = w.lists.get(u).expect("a good list");
-                    *acc += side.list.iter().map(|&t| per[t]).sum::<u64>();
-                }
-                assert_eq!(row.first_entry, offsets[row.node.index()]);
-            })?;
-            let frontier: Vec<Node<'_>> = plan.all_nodes().filter(|v| v.get() % 3 != 0).collect();
-            let pushed: u64 = plan.frontier(&frontier, |acc: &mut u64, row, _| {
-                *acc += row.list.iter().map(|&u| per[u]).sum::<u64>();
-            })?;
-            let degrees: u64 = plan.vertices((), |acc: &mut u64, (), _, v, d| {
-                *acc += per[v] * u64::from(d);
-            })?;
-            let parts: u64 = plan.push_with(
-                &frontier,
-                || (),
-                |acc: &mut u64, row, w| {
-                    *acc += row.list.iter().map(|&u| per[u]).sum::<u64>() + row.first_entry;
-                    if let Some(&u) = row.list.last() {
-                        *acc += w.lists.get(u).expect("a good list").list.len() as u64;
-                    }
-                },
-            )?;
-            let until: u64 = plan.scan_until((), all, |acc: &mut u64, (), _, row| {
-                *acc += row.list.iter().map(|&u| per[u]).sum::<u64>() + row.first_entry;
-                if row.node.get() % 2 == 1 {
-                    ControlFlow::Continue(())
-                } else {
-                    ControlFlow::Break(())
-                }
-            })?;
-            Ok([scanned, pushed, degrees, parts, until])
-        })
-    }
-
-    #[test]
-    fn drivers_over_every_source_in_memory() {
-        let n = 1100;
-        let (offsets, targets) = with_hub(n);
-        let encoded = encode(&offsets, &targets).unwrap();
-        let index = AdjacencyIndex::parse(&encoded.index).unwrap();
-        let bytes: Vec<u8> = targets.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let stream_bytes = MemorySource::new(bytes);
-        let data = MemorySource::new(encoded.data.clone());
-        let csr = drive(&Csr::new(&offsets, &targets).unwrap(), &offsets).unwrap();
-        let heap = Adjacency::new(&index, &encoded.data).unwrap();
-        assert_eq!(drive(&Compressed::new(heap), &offsets).unwrap(), csr);
-        let mapped = Compressed::mapped(&index, &data).unwrap();
-        assert_eq!(drive(&mapped, &offsets).unwrap(), csr);
-        let stream = Stream::new(&offsets, &stream_bytes).unwrap();
-        assert_eq!(drive(&stream, &offsets).unwrap(), csr);
-    }
-
-    /// One corrupt list: the scan and the frontier that reach it fail and hand out no
-    /// list of it; a scan that skips its block, and a frontier without it, then succeed
-    /// with the same reader.
-    #[test]
-    fn a_corrupt_list_is_refused_and_the_reader_stays_usable() {
-        let (n, bad) = (70, 40);
-        let (offsets, targets) = lists(n, Some(bad));
-        let encoded = encode(&offsets, &targets).unwrap();
-        let index = AdjacencyIndex::parse(&encoded.index).unwrap();
-        let bytes: Vec<u8> = targets.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let stream_bytes = MemorySource::new(bytes);
-        let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
-        let stream = Stream::new(&offsets, &stream_bytes).unwrap();
-        check_corrupt(&heap, bad);
-        check_corrupt(&stream, bad);
-    }
-
-    fn check_corrupt<S: Source>(source: &S, bad: u32) {
-        let memory = Memory::unlimited();
-        Plan::with(source, &memory, Settings::default(), |plan| {
-            let values: Vec<u8> = (0..plan.nodes()).map(|_| 0).collect();
-            let per = plan.per_node(&values).unwrap();
-            fn sum<'g>(per: PerNode<'_, 'g, u8>, acc: &mut u64, row: Row<'_, 'g>) {
-                *acc += row.list.iter().map(|&u| u64::from(per[u])).sum::<u64>();
-            }
-            let good: Vec<Node<'_>> = (0..10).filter_map(|v| plan.node(v)).collect();
-            let with_bad: Vec<Node<'_>> = (bad - 2..bad + 2).filter_map(|v| plan.node(v)).collect();
-            for _ in 0..2 {
-                assert!(
-                    plan.frontier(&good, |a: &mut u64, r, _| sum(per, a, r))
-                        .is_ok()
-                );
-                let e = plan
-                    .frontier(&with_bad, |a: &mut u64, r, _| sum(per, a, r))
-                    .unwrap_err();
-                assert!(
-                    matches!(e, Error::Target { node, .. } if node == bad),
-                    "{e}"
-                );
-                let e = plan
-                    .scan((), all, |a: &mut u64, (), _, r, _| sum(per, a, r))
-                    .unwrap_err();
-                assert!(
-                    matches!(e, Error::Target { node, .. } if node == bad),
-                    "{e}"
-                );
-                let far = |v: Node<'_>| v.get().abs_diff(bad) > 64;
-                assert!(
-                    plan.scan((), far, |a: &mut u64, (), _, r, _| sum(per, a, r))
-                        .is_ok()
-                );
-            }
-        });
-    }
-}
+mod tests;

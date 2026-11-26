@@ -576,7 +576,9 @@ impl<'a> Adjacency<'a> {
     ///
     /// `select` is called once for each node of the batch, in order, and once more for
     /// the node a batch stops before. A record decoded in full is checked to end where
-    /// the index says; a prefix is not, so a damaged byte after it goes unseen.
+    /// the index says; a prefix is not, so a damaged byte after it goes unseen. On
+    /// damaged input, a prefix may also read past its own record, into the records
+    /// after it, but never past the bytes this adjacency holds.
     ///
     /// # Errors
     ///
@@ -671,7 +673,10 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Untrusted input
     ///
-    /// As [`decode_nodes`](Self::decode_nodes). A wrong `prev` gives wrong targets.
+    /// As [`decode_nodes`](Self::decode_nodes). A wrong `prev` gives wrong targets. A
+    /// part that does not end the list is not checked against the record's end: on
+    /// damaged input it may read past the record, but never past the bytes this
+    /// adjacency holds.
     ///
     /// # Errors
     ///

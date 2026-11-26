@@ -92,7 +92,9 @@ pub unsafe trait Source: Sync {
     /// Calls `f(v, first_entry, list)` for each node `v` of `nodes` with `filter(v)`, in
     /// order. A batch of consecutive lists is decoded or read before the calls on it,
     /// never list by list. Nothing is decoded or read when `filter` passes no node.
-    /// `filter` may be called twice for a node.
+    /// `filter` may be called more than once for a node. It is decided when the node's
+    /// batch is decoded or read, so a filter must not depend on what the bodies of the
+    /// same batch do.
     ///
     /// # Errors
     ///
@@ -591,6 +593,16 @@ unsafe impl Source for Compressed<'_> {
         filter: impl Fn(u32) -> bool,
         mut f: impl FnMut(u32, u64, &[u32]),
     ) -> Result<(), Error> {
+        // A block where every node passes (a full scan) decodes its lists whole, without
+        // a selection per node.
+        if nodes.clone().all(&filter) {
+            let mut at = nodes.start;
+            while at < nodes.end {
+                at = self.decode(r, at..nodes.end, None)?;
+                self.hand_out(r, &mut f);
+            }
+            return Ok(());
+        }
         self.some(r, nodes, filter, usize::MAX, |v, entry, list, _| {
             f(v, entry, list);
         })
