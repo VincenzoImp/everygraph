@@ -167,10 +167,10 @@ What is mutated:
   shared queue.
 - **Capacity arithmetic is kept.** cargo-mutants skips the arguments of `with_capacity`
   by default, as Google treats capacity arithmetic as arid. Here a wrong capacity breaks
-  the memory promise, so `skip_calls_defaults = false`. The tests that kill them compare
-  the budget's ledger with what a counting allocator saw
-  (`everygraph-kernels/tests/heap.rs`, `everygraph-ingest/tests/heap_peak.rs`); a crate
-  without such a test leaves them missed.
+  the memory promise, so `skip_calls_defaults = false`. Only a test that compares the
+  budget's ledger with what a counting allocator saw can kill them
+  (`everygraph-kernels/tests/heap.rs`, `everygraph-ingest/tests/heap_peak.rs`); most of
+  them are still missed, and each milestone audit lists them.
 - **Arid code is not mutated**: `Display` and `Debug` implementations (message text) and
   the build's progress output (`exclude_re` in `.cargo/mutants.toml`). Add a pattern
   there, with its reason, rather than `#[mutants::skip]` in product code.
