@@ -17,3 +17,5 @@ labels: type:feature, area:ingest, P1, risk:medium, size:M
 - Estimates within ±30% of actuals on the tier-2 datasets, for wall time, peak memory, scratch and output size, measured by the benchmark harness on an idle machine (`docs/ux-contract.md` P-7, P-9); no test in the suite asserts a wall time
 - `kill -9` at ten random points during a Friendster ingest: every resume completes and the result is byte-identical to an uninterrupted run
 - The ingest report's identities (`rows = rejected + dropped.self_loops + dropped.duplicates + merged + edges`, `edges = pairs + repeated`) hold on every oracle graph after an interruption and resume at each phase (`docs/spec/graph-semantics.md` § 2.8; shared with #35)
+
+**Depends on** {{#m2-08-csr-build}}

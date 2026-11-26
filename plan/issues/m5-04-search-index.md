@@ -14,3 +14,5 @@ labels: type:feature, area:map, P1, risk:low, size:S, lab-evidence
 **Acceptance**
 - Cold lookup ≤ 3 range requests and ≤ 64 KiB on a 100 M-node map
 - Works from static hosting with no server code
+
+**Depends on** {{#m5-03-tile-builder}}

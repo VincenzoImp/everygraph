@@ -20,6 +20,8 @@ labels: type:spec, area:map, P0, risk:medium, size:M, lab-evidence
 - The official PMTiles JS and Python clients open an `.egmap` file and fetch tiles
 - A third party could implement a reader from the spec alone (validated by the independent Python reader)
 
+**Depends on** {{#m1-06-edge-rendering}}
+
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** What a tile must carry follows from the approved viewer (`design/preview/style/viewer.html`, `data.html`): region kind (community / subdivision / aggregate), exact counts, the colour index of the top-level region from the five-colour assignment (computed once at build time by graph colouring of touching regions), label and count, shown-versus-omitted figures for the caption strip, and per-node adjacency for links drawn on selection. Links are not pre-drawn into tiles beyond what the selection needs.
 
 **Patent note (`docs/legal/patent-check.md`, 2026-11-25).** Two granted patents have elements near a tile pyramid for graphs. Without drawing legal conclusions, prefer these engineering choices where they cost nothing: decide what a tile shows from the community hierarchy and exact aggregates rather than from a per-region quota of nodes ranked by importance; do not add shared edge-route segments carrying zoom levels; keep the index a plain tile directory, not a manifest of per-tile point counts negotiated against client resources. The specification from this issue is what goes to the attorney in {{#m8-10-legal-opinions}}.

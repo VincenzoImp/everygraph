@@ -13,3 +13,5 @@ labels: type:feature, area:viewer, P2, risk:low, size:L
 
 **Acceptance**
 - A non-programmer goes from a CSV to a shared map with no terminal
+
+**Depends on** {{#m8-01-cli}}, {{#m5-08-live-mode}}, {{#m5-04-search-index}}
