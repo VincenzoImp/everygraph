@@ -470,6 +470,19 @@ fn an_in_adjacency_must_be_the_transpose_of_its_out_adjacency() {
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].section.as_deref(), Some("adjacency.in.data"));
     }
+    // The same pairs over one more node: only the node counts differ.
+    let mut w = Writer::create(Mem::default()).unwrap();
+    let params = [("directed", "true"), ("self_loops", "drop")];
+    w.add_provenance("provenance/ingest", &built_with(&params))
+        .unwrap();
+    let lists = vec![vec![1, 2], vec![2], vec![0]];
+    let reversed = vec![vec![2], vec![0], vec![0, 1], vec![]];
+    add_adjacency(&mut w, "adjacency.out", &lists, "provenance/ingest");
+    add_adjacency(&mut w, "adjacency.in", &reversed, "provenance/ingest");
+    w.commit().unwrap();
+    let found = problems(&w.into_sink().into_inner());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].what.contains("is not the transpose"), "{found:?}");
 }
 
 /// Adds adjacency `name` with the pairs of `arcs` and their stored events (the times a

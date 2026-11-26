@@ -16,7 +16,10 @@ use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, FormatError}
 use everygraph_format::container::{Container, ContainerError, Section};
 use everygraph_format::verify::{Depth, verify};
 
-use crate::build::{IN_DATA, IN_EVENTS, IN_INDEX, OUT_DATA, OUT_EVENTS, OUT_INDEX, PROVENANCE};
+use crate::build::{
+    BuildError, IN_DATA, IN_EVENTS, IN_INDEX, OUT_DATA, OUT_EVENTS, OUT_INDEX, PROVENANCE,
+    read_section,
+};
 use crate::ids::{Dictionary, DictionaryError};
 
 /// Why a graph file cannot be opened.
@@ -89,13 +92,13 @@ impl Lists {
         [index_name, data, events]: [&'static str; 3],
         memory: &Memory,
     ) -> Result<Self, OpenError> {
-        let section = file.section(index_name)?;
-        let len = usize::try_from(section.len()).map_err(|_| corrupt(index_name, "too large"))?;
-        let mut held = memory
-            .reserve("adjacency index", MemoryKind::Anonymous, section.len())
-            .map_err(OpenError::Budget)?;
-        let mut bytes = vec![0_u8; len];
-        section.read_at(0, &mut bytes).map_err(OpenError::Read)?;
+        let mut held = Reservation::empty(memory, "adjacency index", MemoryKind::Anonymous);
+        let bytes = read_section(file.source(), file.get(index_name), index_name, &mut held)
+            .map_err(|e| match e {
+                BuildError::Budget(b) => OpenError::Budget(b),
+                BuildError::Container(ContainerError::Read(e)) => OpenError::Read(e),
+                other => corrupt(index_name, other),
+            })?;
         let index =
             AdjacencyIndex::parse(&bytes).map_err(|e: FormatError| corrupt(index_name, e))?;
         drop(bytes);
@@ -169,11 +172,14 @@ impl<S: ByteSource + Sync> Graph<S> {
             Some(_) => Some(Lists::open(&file, [IN_INDEX, IN_DATA, IN_EVENTS], memory)?),
             None => None,
         };
-        if inn
-            .as_ref()
-            .is_some_and(|i| i.index.nodes() != out.index.nodes())
-        {
-            return Err(corrupt(IN_INDEX, "its nodes are not the out-adjacency's"));
+        let agree = |i: &AdjacencyIndex, o: &AdjacencyIndex| {
+            (i.nodes(), i.entries(), i.has_events()) == (o.nodes(), o.entries(), o.has_events())
+        };
+        if inn.as_ref().is_some_and(|i| !agree(&i.index, &out.index)) {
+            return Err(corrupt(
+                IN_INDEX,
+                "its nodes, entries or events flag are not the out-adjacency's",
+            ));
         }
         Ok(Self {
             file,

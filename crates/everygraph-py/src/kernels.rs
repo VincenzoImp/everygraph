@@ -14,10 +14,11 @@ use std::sync::atomic::AtomicU32;
 use arrow_array::ArrayRef;
 use arrow_array::types::{Float32Type, Float64Type, UInt32Type};
 use everygraph_core::MemoryError;
-use everygraph_core::{Budget, ByteSource, Memory, MemoryKind, Reservation, SegVec};
+use everygraph_core::{Budget, ByteSource, Memory, MemoryKind, SegVec};
 use everygraph_format::adjacency::{
-    Adjacency, AdjacencyEvents, AdjacencyIndex, EncodeError, Encoded, merge,
+    Adjacency, AdjacencyEvents, AdjacencyIndex, EncodeError, merge, union_degrees,
 };
+use everygraph_format::container::Section;
 use everygraph_kernels::components::{self, WccOptions};
 use everygraph_kernels::degrees::{self, Loop};
 use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, Source, one_segment_mut};
@@ -92,6 +93,29 @@ impl Call<'_> {
         .map_err(|e| self.fail(e))
     }
 
+    /// Runs `f` on the out- and in-adjacency of the directed graph `g`, both in memory.
+    fn on_both<R>(
+        &self,
+        g: &Shared,
+        f: impl FnOnce(&Adjacency<'_>, &Adjacency<'_>) -> Result<R, EncodeError>,
+    ) -> Result<R, Failure> {
+        let file = g.file();
+        let in_index = file.in_index().ok_or_else(|| self.needs_in_edges())?;
+        let out_data = file.data().map_err(|e| corrupt("adjacency.out", &e))?;
+        let in_data = file.in_data().map_err(|e| corrupt("adjacency.in", &e))?;
+        let out = in_memory(file.index(), &out_data, "adjacency.out")?;
+        let inn = in_memory(in_index, &in_data, "adjacency.in")?;
+        f(&out, &inn).map_err(|e| match e {
+            EncodeError::OutOfMemory { bytes } => {
+                self.fail(Error::Memory(MemoryError::AllocationFailed {
+                    purpose: "undirected projection",
+                    bytes,
+                }))
+            }
+            other => corrupt("adjacency", &other),
+        })
+    }
+
     /// Runs `f` on a plan over the undirected projection of the directed graph `g`,
     /// merged in memory from its out- and in-adjacency.
     fn on_projection<R>(
@@ -99,34 +123,16 @@ impl Call<'_> {
         g: &Shared,
         f: impl for<'g> FnOnce(&Plan<'_, 'g, Compressed<'_>>) -> Result<R, Error>,
     ) -> Result<R, Failure> {
-        let file = g.file();
-        let in_index = file.in_index().ok_or_else(|| self.needs_in_edges())?;
-        let out_data = file.data().map_err(|e| corrupt("adjacency.out", &e))?;
-        let in_data = file.in_data().map_err(|e| corrupt("adjacency.in", &e))?;
-        let in_memory = |name| corrupt(name, &"not held in memory");
-        let out_bytes = out_data
-            .as_slice()
-            .ok_or_else(|| in_memory("adjacency.out"))?;
-        let in_bytes = in_data
-            .as_slice()
-            .ok_or_else(|| in_memory("adjacency.in"))?;
-        let out =
-            Adjacency::new(file.index(), out_bytes).map_err(|e| corrupt("adjacency.out", &e))?;
-        let inn = Adjacency::new(in_index, in_bytes).map_err(|e| corrupt("adjacency.in", &e))?;
-        let (merged, _held): (Encoded, Reservation) =
-            merge(&out, &inn, self.memory).map_err(|e| match e {
-                EncodeError::OutOfMemory { bytes } => {
-                    self.fail(Error::Memory(MemoryError::AllocationFailed {
-                        purpose: "undirected projection",
-                        bytes,
-                    }))
-                }
-                other => corrupt("adjacency", &other),
-            })?;
-        let index = AdjacencyIndex::parse(&merged.index)
-            .map_err(|e| corrupt("undirected projection", &e))?;
-        let adjacency = Adjacency::new(&index, &merged.data)
-            .map_err(|e| corrupt("undirected projection", &e))?;
+        let (merged, mut held) = self.on_both(g, |out, inn| merge(out, inn, self.memory))?;
+        let corrupt = |e: &dyn std::fmt::Display| corrupt("undirected projection", e);
+        // The parsed index beside its bytes, then alone.
+        let bytes = u64::try_from(merged.index.len()).unwrap_or(u64::MAX);
+        held.try_grow(bytes.saturating_mul(2))
+            .map_err(|e| self.fail(Error::Memory(e.into())))?;
+        let index = AdjacencyIndex::parse(&merged.index).map_err(|e| corrupt(&e))?;
+        let parsed = u64::try_from(index.heap_bytes()).unwrap_or(u64::MAX);
+        held.shrink(bytes.saturating_mul(2).saturating_sub(parsed));
+        let adjacency = Adjacency::new(&index, &merged.data).map_err(|e| corrupt(&e))?;
         let lists = Compressed::new(adjacency);
         Plan::with(&lists, self.memory, Settings::default(), |plan| f(&plan))
             .map_err(|e| self.fail(e))
@@ -171,6 +177,18 @@ impl Call<'_> {
         }
         Ok(Some(w))
     }
+}
+
+/// The adjacency of `index` over `data`, a section held in memory.
+fn in_memory<'a, S: ByteSource>(
+    index: &'a AdjacencyIndex,
+    data: &'a Section<'_, S>,
+    name: &str,
+) -> Result<Adjacency<'a>, Failure> {
+    let bytes = data
+        .as_slice()
+        .ok_or_else(|| corrupt(name, &"not held in memory"))?;
+    Adjacency::new(index, bytes).map_err(|e| corrupt(name, &e))
 }
 
 fn corrupt(section: &str, e: &dyn std::fmt::Display) -> Failure {
@@ -382,7 +400,12 @@ pub(crate) fn degrees(call: &Call<'_>, g: &Shared) -> Result<Output, Failure> {
     let (in_degree, out_degree) = call.on_pair(g, |out, inn| {
         Ok((count(inn, Loop::Once)?, count(out, Loop::Once)?))
     })?;
-    let degree = call.on_projection(g, |plan| count(plan, Loop::Twice))?;
+    let n = usize::try_from(g.file().nodes()).unwrap_or(usize::MAX);
+    let mut d = SegVec::try_with_len(memory, "degrees", n, 0_u32)
+        .map_err(|e| call.fail(Error::Memory(e)))?;
+    let slots = one_segment_mut(&mut d).map_err(|e| call.fail(e))?;
+    call.on_both(g, |out, inn| union_degrees(out, inn, memory, slots))?;
+    let degree = table::lend::<UInt32Type>(d);
     Ok(output(vec![
         ("in_degree", in_degree),
         ("out_degree", out_degree),

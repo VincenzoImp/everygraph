@@ -12,7 +12,7 @@ use everygraph_core::{
     Budget, ByteSink, ByteSource, Memory, MemorySource, NodeId, ReadError, WriteError,
 };
 use everygraph_format::adjacency::{Adjacency, AdjacencyEvents, AdjacencyIndex};
-use everygraph_format::container::{Container, Provenance};
+use everygraph_format::container::{Container, Provenance, ResultKey, Writer};
 use everygraph_format::verify::{Depth, verify};
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
@@ -29,6 +29,7 @@ const SMALL: Tuning = Tuning {
     spill_batch: 7,
     resident_items: u64::MAX,
     cache_rows: false,
+    transpose_block: 16,
 };
 
 /// [`SMALL`], holding at most 40 items in memory: every graph with more spills.
@@ -867,44 +868,84 @@ fn direction_is_inferred_from_the_column_names() {
 }
 
 /// The plan's estimate follows the build's rules: more threads need a larger smallest
-/// budget, and a budget at which the estimate spills half the items does spill.
+/// budget, and a budget at which the estimate spills half the items does spill, no less
+/// than it says, undirected and directed, with events and with pairs collapsed. The
+/// in-adjacency doubles the output, and only when it is written.
 #[test]
 fn the_estimate_spills_no_sooner_than_the_build() {
-    let text = mixed_text(400_000, 0);
-    let rows = 400_000 + 400_000_u64.div_ceil(13);
     let block = 1 << 16;
-    let blocks = u64::try_from(text.len().div_ceil(block)).unwrap();
-    let sample = Sample::new(rows, rows / blocks + 512, 1 << 16, blocks);
-    let threads = |n| NonZeroUsize::new(n).unwrap();
-    let one = estimate(&sample, false, threads(1), 1 << 30);
-    let eight = estimate(&sample, false, threads(8), 1 << 30);
+    // A directed graph has one item per row: it takes twice the rows to spill as much.
+    let input = |n: u64| {
+        let text = mixed_text(n, 0);
+        let rows = n + n.div_ceil(13);
+        let blocks = u64::try_from(text.len().div_ceil(block)).unwrap();
+        (
+            text,
+            Sample::new(rows, rows / blocks + 512, 1 << 16, blocks),
+        )
+    };
+    let (text, sample) = input(400_000);
+    let options = |graph, n| BuildOptions::new(graph, NonZeroUsize::new(n).unwrap());
+    let undirected = GraphOptions::default();
+    let one = estimate(&sample, &options(undirected, 1), 1 << 30);
+    let eight = estimate(&sample, &options(undirected, 8), 1 << 30);
     assert!(eight.smallest_budget > one.smallest_budget);
     assert_eq!(one.regime, Regime::InMemory);
     assert_eq!(one.scratch_bytes, 0);
-    let mut checked = 0;
-    for budget in (12..64).map(|k| k << 18) {
-        let planned = estimate(&sample, false, threads(1), budget);
-        let clear = planned.scratch_bytes * 2 >= planned.working_bytes;
-        if !clear || budget < planned.smallest_budget {
-            continue;
-        }
-        let run = Run {
-            budget,
-            chunk: block,
-            threads: 1,
-            tuning: &TUNING,
-            ..Run::new(GraphOptions::default())
+    let directed = |duplicates| GraphOptions {
+        directed: true,
+        duplicates,
+        ..GraphOptions::default()
+    };
+    let mut without = options(directed(Duplicates::Events), 1);
+    without.in_adjacency = false;
+    let with = estimate(&sample, &options(directed(Duplicates::Events), 1), 1 << 30);
+    assert_eq!(
+        with.output_bytes,
+        2 * estimate(&sample, &without, 1 << 30).output_bytes
+    );
+    let twice = input(800_000);
+    for graph in [
+        undirected,
+        directed(Duplicates::Events),
+        directed(Duplicates::Collapse),
+    ] {
+        let (text, sample) = if graph.directed {
+            (&twice.0, &twice.1)
+        } else {
+            (&text, &sample)
         };
-        match run.bytes(&text) {
-            Ok((_, report)) => {
-                assert_eq!(report.regime, Regime::OnDisk, "budget {budget}");
-                checked += 1;
+        let mut checked = 0;
+        for budget in (12..64).map(|k| k << 18) {
+            let planned = estimate(sample, &options(graph, 1), budget);
+            let clear = planned.scratch_bytes * 2 >= planned.working_bytes;
+            if !clear || budget < planned.smallest_budget {
+                continue;
             }
-            Err(BuildError::Budget(_)) => {}
-            Err(e) => panic!("budget {budget}: {e}"),
+            let run = Run {
+                budget,
+                chunk: block,
+                threads: 1,
+                tuning: &TUNING,
+                ..Run::new(graph)
+            };
+            match run.bytes(text) {
+                Ok((_, report)) => {
+                    assert_eq!(report.regime, Regime::OnDisk, "{graph:?}, budget {budget}");
+                    assert!(
+                        report.spilled_bytes >= planned.scratch_bytes,
+                        "{graph:?}, budget {budget}: {} < {}",
+                        report.spilled_bytes,
+                        planned.scratch_bytes
+                    );
+                    checked += 1;
+                }
+                Err(BuildError::Budget(_)) => {}
+                Err(e) => panic!("{graph:?}, budget {budget}: {e}"),
+            }
         }
+        assert!(checked > 0, "{graph:?}");
     }
-    assert!(checked > 0);
 }
 
 /// Integer keys spread over `0..2^32` take the hashed form at a small budget, with the
@@ -979,10 +1020,20 @@ fn the_in_adjacency_added_later_is_the_one_the_build_writes() {
                 .unwrap()
                 .graph_identity()
         };
+        // One identity with or without the in-adjacency, and a result stored before it
+        // is added is served after.
+        assert_eq!(identity(&without), identity(&reference));
+        let key = ResultKey::new(identity(&without), "pagerank", 1, true).unwrap();
+        let mut writer = Writer::update(MemorySource::new(without.clone())).unwrap();
+        writer
+            .add_result(&key, &Provenance::default(), &[0.25_f64, 0.75])
+            .unwrap();
+        writer.commit().unwrap();
+        let with_result = writer.into_sink().into_inner();
         for (budget, tuning) in [(1 << 30, &TUNING), (3 << 20, &SPILLING)] {
             let memory = Memory::from(Arc::new(Budget::new(budget)));
             let threads = NonZeroUsize::new(4).unwrap();
-            let sink = MemorySource::new(without.clone());
+            let sink = MemorySource::new(with_result.clone());
             let (sink, added) =
                 transpose::add_tuned(sink, &memory, &MemoryScratch, threads, &Silent, tuning)
                     .unwrap();
@@ -995,6 +1046,14 @@ fn the_in_adjacency_added_later_is_the_one_the_build_writes() {
                 );
             }
             assert_eq!(identity(&bytes), identity(&reference));
+            let kept = Container::open(MemorySource::new(&bytes[..])).unwrap();
+            let served = kept
+                .find_result(&key)
+                .unwrap()
+                .expect("the result stored before");
+            let mut values = [0.0_f64; 2];
+            served.read(0, &mut values).unwrap();
+            assert_eq!(values, [0.25, 0.75]);
             let checked = check(MemorySource::new(&bytes[..]), &Memory::unlimited()).unwrap();
             assert!(checked.in_adjacency);
             let file = Container::open(MemorySource::new(&bytes[..])).unwrap();

@@ -190,7 +190,12 @@ impl Plan {
             .threads
             .unwrap_or(NonZeroUsize::new(machine.hardware_threads).unwrap_or(NonZeroUsize::MIN));
         let sample = sample(reader).map_err(|e| failure::text(&args.input, e))?;
-        let estimate = build::estimate(&sample.build, directed.0, threads, budget);
+        let graph = build::GraphOptions {
+            directed: directed.0,
+            ..build::GraphOptions::default()
+        };
+        let options = build::BuildOptions::new(graph, threads);
+        let estimate = build::estimate(&sample.build, &options, budget);
         let text_bytes = match reader.layout().compression {
             Compression::None => reader.source().len(),
             _ => reader.source().len() * MODEL_COMPRESSION_RATIO,

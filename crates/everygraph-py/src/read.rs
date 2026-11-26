@@ -388,8 +388,9 @@ impl Job<'_> {
     ) -> Result<(Written, Report), Fail> {
         let (ask, run) = (self.ask, self.run);
         let limit = run.budget.limit();
-        let directed = self.options.graph.directed;
-        let estimate = build::estimate(sample, directed, run.threads, limit);
+        let mut options = *self.options;
+        options.threads = run.threads;
+        let estimate = build::estimate(sample, &options, limit);
         if limit < estimate.smallest_budget {
             let refused =
                 InsufficientBudget::new("the blocks read at once", estimate.smallest_budget, limit);

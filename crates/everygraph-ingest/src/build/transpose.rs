@@ -28,7 +28,7 @@ use super::lists::{Context, Names, fill_lists, write_lists};
 use super::rows::{BlockCounts, Items};
 use super::{
     BuildError, Duplicates, GraphOptions, IN_DATA, IN_EVENTS, IN_INDEX, OUT_DATA, OUT_EVENTS,
-    OUT_INDEX, PROVENANCE, Phase, Progress, SelfLoops, TUNING, Tuning, widen,
+    OUT_INDEX, PROVENANCE, Phase, Progress, SelfLoops, TUNING, Tuning, read_section, widen,
 };
 use crate::ids::Scratch;
 
@@ -38,9 +38,6 @@ pub(super) const IN: Names = Names {
     index: IN_INDEX,
     events: IN_EVENTS,
 };
-
-/// A block of out-lists holds at least this many entries, unless the lists run out.
-const BLOCK_ENTRIES: u64 = 1 << 18;
 
 /// What the transposition wrote.
 #[derive(Clone, Copy, Debug)]
@@ -76,13 +73,14 @@ impl<'a, R: ByteSource + Sync> Reversed<'a, R> {
         data: &Entry,
         memory: &Memory,
         threads: usize,
+        block_entries: u64,
     ) -> Result<Self, BuildError> {
         let entry = |v: u32| index.entry_offset(NodeId::new(v)).get();
         let mut starts = vec![0];
         for b in 0..index.blocks() {
             let end = index.block_nodes(b).end;
             let first = *starts.last().expect("a start");
-            if entry(end) - entry(first) >= BLOCK_ENTRIES || end == index.nodes() {
+            if entry(end) - entry(first) >= block_entries || end == index.nodes() {
                 starts.push(end);
             }
         }
@@ -170,30 +168,6 @@ impl<R: ByteSource + Sync> Items for Reversed<'_, R> {
     }
 }
 
-/// Reads section `name` of the container in `sink` into memory reserved in `held`.
-fn read_section<R: ByteSource>(
-    source: &R,
-    entry: Option<&Entry>,
-    name: &str,
-    held: &mut Reservation,
-) -> Result<Vec<u8>, BuildError> {
-    let entry = entry.ok_or_else(|| ContainerError::NoSuchSection(name.into()))?;
-    let len = usize::try_from(entry.len).map_err(|_| BuildError::TooLarge("a section"))?;
-    held.try_grow(entry.len)?;
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(len)
-        .map_err(|_| everygraph_core::MemoryError::AllocationFailed {
-            purpose: "out-adjacency section",
-            bytes: entry.len,
-        })?;
-    bytes.resize(len, 0);
-    source
-        .read_at(entry.offset, &mut bytes)
-        .map_err(|e| BuildError::Container(ContainerError::Read(e)))?;
-    Ok(bytes)
-}
-
 /// Writes the in-adjacency of the directed graph whose out-adjacency `writer` holds
 /// into `writer`, without committing.
 pub(super) fn transpose_into<K: ByteSink + Sync, Sc: Scratch>(
@@ -255,6 +229,7 @@ pub(super) fn transpose_into<K: ByteSink + Sync, Sc: Scratch>(
             &data,
             memory,
             cx.threads,
+            cx.tuning.transpose_block,
         )?;
         fill_lists(&items, index.nodes(), false, &cx)?
     };

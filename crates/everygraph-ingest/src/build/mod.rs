@@ -57,9 +57,11 @@ use std::fmt;
 use std::io;
 use std::num::NonZeroUsize;
 
-use everygraph_core::{ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind};
+use everygraph_core::{
+    ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, Reservation,
+};
 use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError};
-use everygraph_format::container::{Container, ContainerError, Kind, Provenance, Writer};
+use everygraph_format::container::{Container, ContainerError, Entry, Kind, Provenance, Writer};
 
 use crate::ids::{
     self, Dictionary, DictionaryError, IdOrder, InvalidKeys, Scratch, build_dictionary,
@@ -209,6 +211,8 @@ pub(crate) struct Tuning {
     pub(crate) resident_items: u64,
     /// Whether the mapped rows may be kept between passes.
     pub(crate) cache_rows: bool,
+    /// Entries of the out-lists the transposition reads at least per block.
+    pub(crate) transpose_block: u64,
 }
 
 const TUNING: Tuning = Tuning {
@@ -217,6 +221,7 @@ const TUNING: Tuning = Tuning {
     spill_batch: 1 << 16,
     resident_items: u64::MAX,
     cache_rows: true,
+    transpose_block: 1 << 18,
 };
 
 /// The phases of a build (`docs/ux-contract.md` § 4.1).
@@ -637,6 +642,7 @@ where
     let (pass, isolates) = (filled.pass, filled.isolates);
     let mut spilled_bytes = filled.spilled_bytes;
     let (mut regime, buckets) = (filled.layout().regime(), filled.layout().buckets());
+    let mut made = buckets;
     let mut writer = Writer::create(out)?;
     let Written {
         pairs,
@@ -646,11 +652,12 @@ where
     if in_adjacency {
         let transposed = transpose::transpose_into(&mut writer, &cx)?;
         spilled_bytes += transposed.spilled_bytes;
+        made += transposed.buckets;
         if !transposed.in_memory {
             regime = Regime::OnDisk;
         }
     }
-    progress.end(Phase::Building, widen(buckets));
+    progress.end(Phase::Building, widen(made));
     copy_dictionary(&dictionary, &mut writer, memory)?;
 
     let events = graph.duplicates == Duplicates::Events;
@@ -832,24 +839,14 @@ fn check_adjacency<S: ByteSource>(
     names: Names,
     memory: &Memory,
 ) -> Result<(u32, u64, Option<u64>), BuildError> {
-    let read = |name: &str| -> Result<Vec<u8>, BuildError> {
-        let section = file.section(name)?;
-        let len = usize::try_from(section.len()).map_err(|_| BuildError::TooLarge("a section"))?;
-        let mut bytes = vec![0_u8; len];
-        section.read_at(0, &mut bytes)?;
-        Ok(bytes)
+    let mut held = Reservation::empty(memory, "checking", MemoryKind::Anonymous);
+    let read = |name: &str, held: &mut Reservation| {
+        read_section(file.source(), file.get(name), name, held)
     };
-    let entry = |name: &str| {
-        file.get(name)
-            .ok_or_else(|| BuildError::from(ContainerError::NoSuchSection(name.into())))
-    };
-    let _held = memory.reserve(
-        "checking",
-        MemoryKind::Anonymous,
-        entry(names.index)?.len.saturating_mul(3),
-    )?;
-    let index = AdjacencyIndex::parse(&read(names.index)?)?;
-    let data = entry(names.data)?;
+    let index = AdjacencyIndex::parse(&read(names.index, &mut held)?)?;
+    let data = file
+        .get(names.data)
+        .ok_or_else(|| ContainerError::NoSuchSection(names.data.into()))?;
     if data.len != index.data_bytes() {
         return Err(FormatError::Length {
             expected: index.data_bytes(),
@@ -858,13 +855,8 @@ fn check_adjacency<S: ByteSource>(
         .into());
     }
     let events = match (index.has_events(), file.get(names.events)) {
-        (true, Some(entry)) => {
-            let _events = memory.reserve(
-                "checking",
-                MemoryKind::Anonymous,
-                entry.len.saturating_mul(3),
-            )?;
-            let bytes = read(names.events)?;
+        (true, Some(_)) => {
+            let bytes = read(names.events, &mut held)?;
             let events = AdjacencyEvents::parse(&bytes, &index)?;
             events.check()?;
             Some(events.events())
@@ -877,6 +869,32 @@ fn check_adjacency<S: ByteSource>(
         }
     };
     Ok((index.nodes(), index.entries(), events))
+}
+
+/// Section `name` of the container in `source` (`entry` its entry) read whole into
+/// memory, for which `held` grows by three times its length: the bytes and what a parser
+/// builds beside them (an index's sequences, the copy of an `.events` sequence).
+pub(crate) fn read_section<R: ByteSource>(
+    source: &R,
+    entry: Option<&Entry>,
+    name: &str,
+    held: &mut Reservation,
+) -> Result<Vec<u8>, BuildError> {
+    let entry = entry.ok_or_else(|| ContainerError::NoSuchSection(name.into()))?;
+    let len = usize::try_from(entry.len).map_err(|_| BuildError::TooLarge("a section"))?;
+    held.try_grow(entry.len.saturating_mul(3))?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(len)
+        .map_err(|_| MemoryError::AllocationFailed {
+            purpose: "a section read whole",
+            bytes: entry.len,
+        })?;
+    bytes.resize(len, 0);
+    source
+        .read_at(entry.offset, &mut bytes)
+        .map_err(|e| BuildError::Container(ContainerError::Read(e)))?;
+    Ok(bytes)
 }
 
 fn widen(x: usize) -> u64 {

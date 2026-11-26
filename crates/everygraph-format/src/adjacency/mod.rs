@@ -23,7 +23,8 @@
 //! index and [`encode_events`] for the events.
 //!
 //! [`merge`] encodes the union of two adjacencies, list by list: the undirected
-//! projection of a directed graph from its out- and in-adjacency.
+//! projection of a directed graph from its out- and in-adjacency. [`union_degrees`]
+//! counts it without building it.
 //!
 //! ```
 //! use everygraph_core::NodeId;
@@ -60,7 +61,7 @@ pub use decode::{Adjacency, Batch};
 pub use encode::{Encoded, encode};
 pub use events::AdjacencyEvents;
 pub use index::AdjacencyIndex;
-pub use merge::merge;
+pub use merge::{merge, union_degrees};
 pub use simd::Decoder;
 pub use stream::{
     IndexBuilder, append_record, encode_events, events_section_bytes, index_bytes_bound,

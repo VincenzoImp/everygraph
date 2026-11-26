@@ -25,7 +25,8 @@ const NOT_IN_KEY: [&str; 4] = ["memory", "progress", "temp_dir", "threads"];
 
 /// What a result was computed on: BLAKE3 over the sections that define the graph
 /// (spec § 6). Two files whose graph sections differ in kind, name or content never
-/// share one; results, provenance and anything else do not enter it.
+/// share one; results, provenance, the in-adjacency (derived from the out-adjacency,
+/// [`IN_ADJACENCY`](super::IN_ADJACENCY)) and anything else do not enter it.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GraphIdentity([u8; 32]);
 
@@ -34,7 +35,8 @@ impl GraphIdentity {
     /// increasing byte order of name.
     fn of<'a>(entries: impl IntoIterator<Item = &'a Entry>) -> Self {
         let mut hasher = blake3::Hasher::new();
-        for entry in entries.into_iter().filter(|e| e.kind.defines_graph()) {
+        let graph = |e: &&Entry| e.kind.defines_graph() && !e.name.starts_with(super::IN_ADJACENCY);
+        for entry in entries.into_iter().filter(graph) {
             // Names are at most 1024 bytes (spec § 4).
             let name_len = u32::try_from(entry.name.len()).unwrap_or(u32::MAX);
             hasher.update(&entry.kind.code().to_le_bytes());

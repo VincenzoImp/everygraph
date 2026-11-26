@@ -20,7 +20,7 @@ const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero")
 pub(super) struct Job<'a> {
     data: &'a [u8],
     /// Offset in the data part of `data[0]`.
-    base: usize,
+    base: u64,
     /// Entry offsets.
     entries: &'a EliasFano,
     /// Byte offsets.
@@ -40,7 +40,8 @@ pub(super) struct Done {
 }
 
 /// Where each list of a run ends: in the output (`entries`, relative to the run's first
-/// entry) and in the data (`bytes`, absolute). Reused from run to run.
+/// entry) and in the data (`bytes`, from the start of the job's data). Reused from run to
+/// run.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Ends {
     pub(super) entries: Vec<usize>,
@@ -99,13 +100,13 @@ pub(super) fn run(
     let (mut at, mut started) = (0, false);
     bytes.scan_from(first, |x| {
         if !started {
-            (at, started) = (to_usize(x), true);
+            (at, started) = (to_usize(x - data_base), true);
             return true;
         }
         if ends.bytes.len() == lists {
             return false;
         }
-        ends.bytes.push(to_usize(x));
+        ends.bytes.push(to_usize(x - data_base));
         true
     });
     let stop = nodes.start + u32::try_from(lists).expect("at most one list per node");
@@ -117,7 +118,7 @@ pub(super) fn run(
                 first: v,
                 end: v + 1,
             };
-            let rec = data.get(at - data_base..).ok_or(Corrupt).map_err(corrupt)?;
+            let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
             let used = kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
             if at + used != record_end {
                 return Err(corrupt(Corrupt));
@@ -378,7 +379,7 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Panics
     ///
-    /// If `v` is not below the number of nodes.
+    /// If `v` is not a node of [`nodes`](Self::nodes).
     pub fn neighbors<'b>(
         &self,
         v: NodeId,
@@ -400,7 +401,7 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Panics
     ///
-    /// If `v` is not below the number of nodes.
+    /// If `v` is not a node of [`nodes`](Self::nodes).
     pub fn neighbors_prefix<'b>(
         &self,
         v: NodeId,
@@ -459,7 +460,7 @@ impl<'a> Adjacency<'a> {
     ) -> Result<Done, DecodeError> {
         let job = Job {
             data: self.data,
-            base: to_usize(self.base),
+            base: self.base,
             entries: self.index.entry_offsets(),
             bytes: self.index.byte_offsets(),
             nodes,

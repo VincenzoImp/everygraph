@@ -179,8 +179,9 @@ entry `v` in both lists of `v`. Each entry has the stored events of the same pai
 same order, so its `.events` section exists exactly when the out-adjacency's does, with
 the same `events` (§ 5). It is a function of the out-adjacency alone: the build writes it
 unless asked not to, and it can be added to a file later, by an update of the container;
-the bytes are the same either way, so the graph keeps its identity
-(`docs/spec/eg-container.md` § 6). An undirected graph has no in-adjacency.
+the bytes are the same either way. It does not enter the graph identity
+(`docs/spec/eg-container.md` § 6): adding it keeps the identity and the results stored
+before. An undirected graph has no in-adjacency.
 
 ## 4. Blocks
 
