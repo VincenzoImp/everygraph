@@ -89,6 +89,7 @@ Tell the owner when each becomes due, with everything prepared.
 - 2026-11-25 — Experiment reports overstate in predictable places (a check that cannot fail counted as evidence; a memory peak attributed to the wrong phase). An independent review of lab PRs catches these before they reach FINDINGS; keep it even for lab code.
 - 2026-11-25: `setsid nohup … & echo $!` can print the PID of a `setsid` that forked and exited at once, so a script waiting on that PID went ahead and two official runs started together; the harness lock refused the second. Chain official runs in one script, or wait on the PID of the real process (`pgrep -f <script path>`), never on `$!` of `setsid`.
 
+- 2026-11-26 02:54 self-check: the main slowdown tonight is serial review rounds on product PRs (author waits for review, reviewer waits for CI, author waits for review again; #170 took three rounds). Mitigation: send both reviews' findings to the author in one message, and skip a further round when no must-fix touches correctness. Second cause: a commit without Signed-off-by after the DCO check was turned on; agents now get the sign-off rule in their brief.
 ## Journal
 
 - **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner
