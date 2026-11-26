@@ -429,7 +429,7 @@ impl Op {
                 let job = JobScratch::create(scratch, "dictionary").map_err(other)?;
                 match build_dictionary(&Keys { input }, &options, memory.accountant(), &job) {
                     Ok(built) if !built.dictionary.is_empty() => Ok(()),
-                    Ok(_) => Err(other("no keys")),
+                    Ok(built) => Err(other(format!("no keys, {} invalid", built.invalid.count))),
                     Err(e) => Err(Failure::of(matches!(e, DictionaryError::Budget(_)), e)),
                 }
             }

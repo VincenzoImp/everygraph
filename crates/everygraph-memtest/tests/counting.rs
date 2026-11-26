@@ -19,6 +19,10 @@ static HEAP: Counting = Counting;
 #[test]
 fn every_block_is_counted_and_each_phase_keeps_its_untracked_bytes() {
     assert!(counting::installed());
+    // The first block counted beyond the ledger reads this thread's phase tag, whose
+    // first use may allocate (it does under Miri): before the counts below.
+    counting::start();
+    drop(std::hint::black_box(vec![0_u8; 1]));
     let base = counting::start();
     let mut v: Vec<u8> = Vec::with_capacity(1000);
     assert_eq!(counting::live() - base, 1000);

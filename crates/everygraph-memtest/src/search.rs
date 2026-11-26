@@ -56,7 +56,7 @@ pub fn growth(ops: &[Op], recipe: &Recipe, sizes: &[u32], dir: &Path) -> Vec<Gro
                     op.run(&input, memory, scratch)
                 })
             };
-            let name = (op.name(), recipe.name, n);
+            let name = (op.name(), recipe.at(n));
             let unlimited = at(None);
             assert_eq!(unlimited.outcome, Outcome::Done, "{name:?}");
             let (budget, run) = if op.budgeted() {

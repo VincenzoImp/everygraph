@@ -23,11 +23,16 @@ use std::cell::Cell;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-/// Phases told apart; later purposes share the last one.
-const PHASES: usize = 64;
+/// Phases told apart: the purposes of all operations of the suite fit, and any further
+/// one shares the last phase, [`OTHER`].
+const PHASES: usize = 512;
 
 /// The name of phase 0: no reservation made yet.
 const NONE: &str = "(before any reservation)";
+
+/// The name of the last phase, shared by the purposes beyond the others. No known
+/// finding exempts it.
+const OTHER: &str = "(other phases)";
 
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
@@ -88,7 +93,11 @@ pub fn untracked_by_phase() -> Vec<(&'static str, u64)> {
     (0..PHASES)
         .filter_map(|i| {
             let max = maxima[i];
-            let name = if i == 0 { Some(&NONE) } else { NAMES[i].get() };
+            let name = match i {
+                0 => Some(&NONE),
+                i if i == PHASES - 1 => Some(&OTHER),
+                i => NAMES[i].get(),
+            };
             Some((*name?, u64::try_from(max).ok()?)).filter(|&(_, b)| b > 0)
         })
         .collect()
@@ -110,12 +119,12 @@ pub(crate) fn enter(purpose: &'static str) {
 /// The phase that `purpose` names, claimed if new. Allocates nothing: this runs inside
 /// reservations, which may be made while the allocator counts.
 fn phase_of(purpose: &'static str) -> usize {
-    let claimed = CLAIMED.load(Relaxed).min(PHASES);
+    let claimed = CLAIMED.load(Relaxed).min(PHASES - 1);
     if let Some(i) = (1..claimed).find(|&i| NAMES[i].get() == Some(&purpose)) {
         return i;
     }
     let i = CLAIMED.fetch_add(1, Relaxed);
-    if i >= PHASES {
+    if i >= PHASES - 1 {
         return PHASES - 1;
     }
     let _ = NAMES[i].set(purpose);
