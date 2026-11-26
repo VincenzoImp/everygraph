@@ -494,7 +494,19 @@ fn every_failure_has_its_exit_status_and_one_document() {
         ),
         (&["run", "degrees", "g.eg", "--json=yes"], 2, "UsageError"),
     ];
-    for &(args, status, class) in cases {
+    // The machine's memory is known where the probe is (Linux): a budget above it is a
+    // usage error (P-16).
+    let too_much: &[(&[&str], u8, &str)] = &[(
+        &["run", "degrees", "g.eg", "--memory", "900TB"],
+        2,
+        "UsageError",
+    )];
+    let cases = if cfg!(target_os = "linux") {
+        [cases, too_much].concat()
+    } else {
+        cases.to_vec()
+    };
+    for &(args, status, class) in &cases {
         let mut with_json = args.to_vec();
         with_json.push("--json");
         let out = run(&dir, &with_json);
@@ -647,7 +659,10 @@ fn golden(name: &str, md: &str) {
         std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
         std::fs::write(&golden, md).unwrap();
     }
-    let stored = std::fs::read_to_string(&golden).unwrap_or_default();
+    // A checkout may have written the file with CRLF line ends (Windows).
+    let stored = std::fs::read_to_string(&golden)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert_eq!(
         md, stored,
         "run with EVERYGRAPH_BLESS=1 to write the new transcripts"
