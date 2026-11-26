@@ -16,9 +16,10 @@
 //! - `kcore`: core numbers (Liu et al. SIGMOD 2025);
 //! - `bfs`: direction-optimizing BFS with parents (the output of GAP's and GBBS's BFS),
 //!   from each source of the file;
-//! - `sssp`: Δ-stepping from each source, the bucket width of the data rule, on the
-//!   costs of `edge_map_bench --costs uniform` (the weights `run.py convert wsg` gives
-//!   GAP).
+//! - `sssp`: Δ-stepping from each source, the bucket width of the data rule (computed
+//!   once, before the timed searches), on the costs of the undirected pairs: an integer
+//!   from 1 to 255 drawn from {min(u, v), max(u, v)}, as `run.py pair_costs` gives every
+//!   other tool.
 //!
 //! Prints one JSON line: `load_seconds` (reading the arrays into the heap),
 //! `seconds_all`, and `seconds`: the median of `--reps` runs for the whole-graph
@@ -102,9 +103,10 @@ impl Output {
     }
 }
 
-/// `cost(e, false)` of `edge_map_bench`.
-fn cost(e: u64) -> f64 {
-    let mut z = e.wrapping_add(0x9E37_79B9_7F4A_7C15);
+/// The cost of the pair {u, v}: `pair_costs` of `bench/runners/run.py`.
+fn cost(u: u32, v: u32) -> f64 {
+    let key = (u64::from(u.min(v)) << 32) | u64::from(u.max(v));
+    let mut z = key.wrapping_add(0x9E37_79B9_7F4A_7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^= z >> 31;
@@ -177,7 +179,13 @@ fn main() {
     let csr = Csr::new(&offsets, &targets).expect("a CSR");
     let load = t.elapsed().as_secs_f64();
     let costs: Vec<f64> = if kernel == "sssp" {
-        (0..targets.len() as u64).map(cost).collect()
+        let rows = offsets.windows(2).zip(0_u32..);
+        rows.flat_map(|(w, u)| {
+            let list = &targets[usize::try_from(w[0]).expect("an offset")
+                ..usize::try_from(w[1]).expect("an offset")];
+            list.iter().map(move |&v| cost(u, v))
+        })
+        .collect()
     } else {
         Vec::new()
     };

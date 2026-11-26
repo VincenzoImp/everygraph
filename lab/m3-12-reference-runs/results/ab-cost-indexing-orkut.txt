@@ -1,0 +1,20 @@
+# Exploratory interleaved A/B (2026-11-26 16:34, machine shared, load about 4-7):
+# bench/references/cost-line with safe indexing (safe) against COST's own get_unchecked
+# indexing (unchecked), orkut, raw CSR in the heap, one thread, taskset -c 0-15, 3 runs per
+# process (median, min), the variants alternating over 3 rounds:
+#   cost-line --graph csr/orkut --kernel uf|pr --reps 3
+# Safe over unchecked, per round: union-find 1.18, 1.27, 1.47; PageRank 1.23, 1.02, 1.31.
+# The line uses the unchecked form, as COST does.
+# round variant kernel seconds_median seconds_min
+1 safe uf 0.326055593 0.316888896
+1 safe pr 6.3455005270000004 6.105871779
+1 unchecked uf 0.275601462 0.262713187
+1 unchecked pr 5.1722823 4.959864744
+2 safe uf 0.329628839 0.327399532
+2 safe pr 6.579755638 6.563820488
+2 unchecked uf 0.25874856 0.250253979
+2 unchecked pr 6.456219047 5.762544277
+3 safe uf 0.38257383 0.336567058
+3 safe pr 6.9695722700000005 5.98517039
+3 unchecked uf 0.260857818 0.255910219
+3 unchecked pr 5.324144013 5.223356964

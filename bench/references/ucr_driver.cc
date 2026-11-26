@@ -8,9 +8,10 @@
 //
 // - kcore: `KCore(G).kcore()`, -rounds times; one "### Round Time: s" each.
 // - bfs, sssp: one search from each source of -sources; one "### Source Time: s" each.
-//   SSSP is PASGAL's rho-stepping (its default) on uint32 costs set to those of
-//   `edge_map_bench --costs uniform` (integers 1 to 255, a function of the entry), the
-//   costs every tool gets, on the graph taken as directed (the costs are per entry).
+//   SSSP is PASGAL's rho-stepping (its default) on uint32 costs set to those every tool
+//   gets: an integer from 1 to 255 drawn from the undirected pair {min(u, v), max(u, v)}
+//   (`pair_costs` of bench/runners/run.py), so the graph stays symmetric and PASGAL keeps
+//   its pull step.
 // -dump FILE writes the last core numbers, or the distances from the first source, as
 // little-endian uint32.
 //
@@ -20,6 +21,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -42,9 +44,9 @@ void dump(const std::string& path, const Seq& s) {
   out.write(reinterpret_cast<const char*>(s.data()), s.size() * sizeof(s[0]));
 }
 
-// `cost(e, false)` of crates/everygraph-kernels/examples/edge_map_bench.rs.
-uint32_t cost(uint64_t e) {
-  uint64_t z = e + 0x9E3779B97F4A7C15ULL;
+// The cost of the pair {u, v}: `pair_costs` of bench/runners/run.py.
+uint32_t cost(uint32_t u, uint32_t v) {
+  uint64_t z = ((uint64_t(std::min(u, v)) << 32) | std::max(u, v)) + 0x9E3779B97F4A7C15ULL;
   z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
   z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
   z ^= z >> 31;
@@ -110,12 +112,12 @@ int main(int argc, char* argv[]) {
     each(solver, [](auto& s, uint32_t v) { return s.bfs(v); }, sources, out);
   } else if (kernel == "sssp") {
     auto G = read<Graph<uint32_t, uint64_t, uint32_t>>(input, kernel);
-    parlay::parallel_for(0, G.m, [&](size_t e) { G.edges[e].w = cost(e); });
+    parlay::parallel_for(0, G.n, [&](size_t u) {
+      for (size_t e = G.offsets[u]; e < G.offsets[u + 1]; e++) {
+        G.edges[e].w = cost(u, G.edges[e].v);
+      }
+    });
     G.weighted = true;
-    // Each entry has its own cost, so (u, v) and (v, u) may differ: the graph is
-    // directed for SSSP. Marked symmetric, PASGAL would also relax v -> u at the cost
-    // of u -> v (its pull step).
-    G.symmetrized = false;
     Rho_Stepping solver(G);
     each(solver, [](auto& s, uint32_t v) { return s.sssp(v); }, sources, out);
   } else {

@@ -1,12 +1,14 @@
-// SPDX-License-Identifier: Apache-2.0 OR MIT
+// SPDX-License-Identifier: MIT
 //
-// The loops are those of github.com/frankmcsherry/COST, src/bin/union_find.rs and
-// src/bin/pagerank.rs (MIT licence, Copyright (c) 2015 Frank McSherry), over the edges
-// in CSR order, which is COST's `vertex` mode. Changes: safe indexing instead of
-// `get_unchecked`; PageRank in f64 (the protocol's precision; COST uses f32) and started
-// from rank 1 instead of 0, so that its 20 iterations are the 20 of every other tool
-// (COST's first iteration only sets the start); the union-find also returns each node's
-// root, for validation.
+// Derived from github.com/frankmcsherry/COST, src/bin/union_find.rs and
+// src/bin/pagerank.rs, Copyright (c) 2015 Frank McSherry, under the MIT licence in
+// LICENSE-COST next to this crate. The loops run over the edges in CSR order, which is
+// COST's `vertex` mode, with COST's unchecked indexing (safe indexing took 1.2–1.3 times
+// as long: lab/m3-12-reference-runs/results/ab-cost-indexing-orkut.txt). Changes:
+// PageRank in f64 (the protocol's precision; COST uses f32) and started from rank 1
+// instead of 0, so that its 20 iterations are the 20 of every other tool (COST's first
+// iteration only sets the start); the union-find also returns each node's root, for
+// validation.
 
 //! A competent single thread (McSherry et al., HotOS'15), the COST line:
 //!
@@ -18,7 +20,7 @@
 //! `seconds_all`, `seconds` (the median) and `seconds_min`. `--dump` writes the last
 //! result: the root of every node (u32) or the ranks divided by n (f64).
 
-#![forbid(unsafe_code)]
+#![allow(unsafe_code)]
 #![allow(clippy::print_stdout, clippy::cast_precision_loss)]
 
 use std::collections::HashMap;
@@ -67,18 +69,21 @@ fn union_find(offsets: &[u64], targets: &[u32]) -> Vec<u32> {
     let mut roots: Vec<u32> = (0..u32::try_from(nodes).expect("node ids")).collect();
     let mut ranks = vec![0_u8; nodes];
     map_edges(offsets, targets, |mut x, mut y| {
-        while x != roots[x as usize] {
-            x = roots[x as usize];
-        }
-        while y != roots[y as usize] {
-            y = roots[y as usize];
+        // SAFETY: every node id of a valid CSR, and every root, is below n = roots.len().
+        unsafe {
+            while x != *roots.get_unchecked(x as usize) {
+                x = *roots.get_unchecked(x as usize);
+            }
+            while y != *roots.get_unchecked(y as usize) {
+                y = *roots.get_unchecked(y as usize);
+            }
         }
         if x != y {
             match ranks[x as usize].cmp(&ranks[y as usize]) {
-                std::cmp::Ordering::Less => roots[x as usize] = y,
-                std::cmp::Ordering::Greater => roots[y as usize] = x,
+                std::cmp::Ordering::Less => unsafe { *roots.get_unchecked_mut(x as usize) = y },
+                std::cmp::Ordering::Greater => unsafe { *roots.get_unchecked_mut(y as usize) = x },
                 std::cmp::Ordering::Equal => {
-                    roots[y as usize] = x;
+                    unsafe { *roots.get_unchecked_mut(y as usize) = x };
                     ranks[x as usize] += 1;
                 }
             }
@@ -98,7 +103,10 @@ fn pagerank(offsets: &[u64], targets: &[u32], alpha: f64) -> Vec<f64> {
             src[node] = alpha * dst[node] / deg[node];
             dst[node] = 1.0 - alpha;
         }
-        map_edges(offsets, targets, |x, y| dst[y as usize] += src[x as usize]);
+        // SAFETY: x and y are node ids of a valid CSR, below n.
+        map_edges(offsets, targets, |x, y| unsafe {
+            *dst.get_unchecked_mut(y as usize) += *src.get_unchecked(x as usize)
+        });
     }
     dst
 }

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIT
+# SPDX-License-Identifier: MIT
 #
 # The COST line of bench/specs/references.toml: the single-thread union-find and PageRank
 # of github.com/frankmcsherry/COST (MIT, McSherry, Isard and Murray, HotOS'15), on the
@@ -8,7 +8,7 @@
 name = "cost-line"
 version = "0.0.0"
 edition = "2024"
-license = "Apache-2.0 OR MIT"
+license = "MIT"
 publish = false
 
 [workspace]

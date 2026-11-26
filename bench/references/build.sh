@@ -29,6 +29,14 @@ pasgal=f7817baf0826803bfee157bd25fcbc1768387c4a pasgal_parlay=c655b8f3c127bd3c93
 # github.com/puzzlef/leiden-communities-openmp (MIT), as bench/specs/baselines.toml.
 gve=f741a40717a1b207d53289c5cdda36ce858477a7
 
+# A build is redone when its pinned commit or the source of its driver changes.
+src_id() {
+  cat "$@" | sha256sum | cut -c1-12
+}
+gap_id="$gap (drivers $(src_id "$repo/bench/references/gap_dump.cc" "$repo/bench/references/gap_sources.cc"))"
+gbbs_id="$gbbs (parlaylib $gbbs_parlay; PageRank.h return patched; driver $(src_id "$repo/bench/references/gbbs_driver.cc"))"
+ucr_src=$(src_id "$repo/bench/references/ucr_driver.cc")
+
 fetch() {  # fetch OWNER/REPO COMMIT: the tree at REFS/src/REPO-COMMIT
   d=$refs/src/${1#*/}-$2
   if [ ! -d "$d" ]; then
@@ -53,7 +61,7 @@ done_() {  # done_ TOOL COMMIT
 
 # --- GAP: its own kernels; PageRank with ScoreT = double; SSSP also with WeightT = double;
 # the dump drivers and the source list of bench/references.
-if fresh gapbs $gap; then
+if fresh gapbs "$gap_id"; then
   src=$(fetch sbeamer/gapbs $gap)
   o=$refs/$flavour/gapbs.part
   cp -r "$src/." "$o/"
@@ -75,22 +83,28 @@ if fresh gapbs $gap; then
   done
   g++ $flags -I"$o/src64" '-DKERNEL="sssp.cc"' -DGAP_SSSP "$repo/bench/references/gap_dump.cc" -o "$o/dump_sssp_f64"
   g++ $flags -I"$o/src" "$repo/bench/references/gap_sources.cc" -o "$o/gap_sources"
-  done_ gapbs $gap
+  done_ gapbs "$gap_id"
 fi
 
 # --- GBBS and ConnectIt, through bench/references/gbbs_driver.cc. GBBS's makefile adds
-# -march=native; the generic flavour removes it.
-if fresh gbbs "$gbbs (parlaylib $gbbs_parlay)"; then
+# -march=native; the generic flavour removes it. One line of PageRank.h is patched (below).
+if fresh gbbs "$gbbs_id"; then
   o=$refs/$flavour/gbbs.part
   cp -r "$(fetch ldhulipala/gbbs $gbbs)/." "$o/"
   rm -rf "$o/external/parlaylib"
   cp -r "$(fetch cmuparlay/parlaylib $gbbs_parlay)" "$o/external/parlaylib"
   [ -z "$arch" ] && sed -i 's/-march=native//' "$o/makefile.variables"
+  # PageRank() zeroes p_curr while it sums the change and then swaps, so when the loop ends
+  # at the iteration cap the result is in p_curr, not in the p_next it returns (zeros).
+  # The patch returns the right buffer; the timed iterations do not change.
+  sed -i '/^sequence<double> PageRank(Graph& G/,/^}/ s/^  return p_next;$/  return iter > max_iters ? p_curr : p_next;/' \
+    "$o/benchmarks/PageRank/PageRank.h"
+  grep -q 'return iter > max_iters ? p_curr : p_next;' "$o/benchmarks/PageRank/PageRank.h"
   cp "$repo/bench/references/gbbs_driver.cc" "$o/benchmarks/Connectivity/WorkEfficientSDB14/gbbs_driver.cc"
   make -s -C "$o/gbbs"
   make -s -C "$o/gbbs/encodings"
   make -s -C "$o/benchmarks/Connectivity/WorkEfficientSDB14" ROOTDIR="$o/" gbbs_driver
-  done_ gbbs "$gbbs (parlaylib $gbbs_parlay)"
+  done_ gbbs "$gbbs_id"
 fi
 
 # --- Parallel-KCore and PASGAL, through bench/references/ucr_driver.cc, with their own
@@ -98,14 +112,14 @@ fi
 ucr() {  # ucr TOOL REPO COMMIT PARLAY DEFINE INCLUDES...
   tool=$1 repo_name=$2 commit=$3 parlay=$4 define=$5
   shift 5
-  if fresh "$tool" "$commit (parlaylib $parlay)"; then
+  if fresh "$tool" "$commit (parlaylib $parlay; driver $ucr_src)"; then
     t=$(fetch "$repo_name" "$commit")
     p=$(fetch cmuparlay/parlaylib "$parlay")
     inc="-I$p/include"
     for d in "$@"; do inc="$inc -I$t/$d"; done
     g++ -std=c++20 -O3 -mcx16 $arch -pthread $inc "$define" "$repo/bench/references/ucr_driver.cc" \
       -o "$refs/$flavour/$tool.part/ucr_driver"
-    done_ "$tool" "$commit (parlaylib $parlay)"
+    done_ "$tool" "$commit (parlaylib $parlay; driver $ucr_src)"
   fi
 }
 ucr pkc ucrparlay/Parallel-KCore $pkc $pkc_parlay -DUCR_KCORE . KCore

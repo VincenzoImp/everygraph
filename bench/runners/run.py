@@ -22,9 +22,10 @@ measures the whole process around it and stores `tool`, `version`, `algorithm` a
 `seconds_min` the fastest. `--dump FILE` writes the result for `validate`.
 
 Also `python run.py convert mtx --graph DIR --out FILE`: MatrixMarket for GVE; `sg`,
-`wsg` and `wsg64`: GAP's serialized graphs, the last two with the costs of
-`edge_map_bench --kernel sssp` (integers 1 to 255, a function of the entry) as int32 or
-f64; `ldbc-csr --input DATASET --out DIR`: a weighted LDBC data set as a CSR directory
+`wsg`, `wsg-sym` and `wsg-sym64`: GAP's serialized graphs, the last three weighted:
+`wsg` with the costs of `edge_map_bench --kernel sssp` (integers 1 to 255, a function of
+the entry), the `-sym` ones with the same draw on the undirected pair (`pair_costs`), as
+int32 or f64; `ldbc-csr --input DATASET --out DIR`: a weighted LDBC data set as a CSR directory
 with its costs; `gbbs`: GBBS's binary symmetric format (also Parallel-KCore's and
 PASGAL's `.bin`). And `python run.py gap|gbbs|pkc|pasgal TASK --graph DIR --work DIR
 [--trees DIR]`: the C++ reference tools that bench/references/build.sh builds, on the
@@ -168,8 +169,8 @@ def networkit(task, csr, args):
                       lambda a: {"triangles": int(sum(a.scores()) // 3)}),
         "plm": ("networkit.community.PLM(refine=False) (parallel Louvain)",
                 *partition(lambda: nk.community.PLM(g, refine=False))),
-        "leiden": ("networkit.community.ParallelLeiden (defaults)",
-                   *partition(lambda: nk.community.ParallelLeiden(g))),
+        "leiden": ("networkit.community.ParallelLeiden(iterations=2), defaults otherwise",
+                   *partition(lambda: nk.community.ParallelLeiden(g, iterations=2))),
     }
     unreached = np.finfo(np.float64).max  # NetworKit's distance of an unreached node
     dumps = {
@@ -226,9 +227,8 @@ def igraph(task, csr, args):
         "bfs": ("igraph.Graph.bfs(source = highest-degree node)", lambda: {"reached": len(g.bfs(csr.hub())[0])}),
         "bfs64": ("igraph.Graph.bfs (returns Python lists of n) from each source of --sources, mean per source",
                   lambda: each_source(lambda s: len(g.bfs(s)[0]), read_sources(args))),
-        "bfs1": ("igraph.Graph.distances(source = the first source of --sources)",
-                 lambda: g.distances(source=read_sources(args)[0])[0],
-                 lambda d: {"source": read_sources(args)[0]}),
+        "bfs1": ("igraph.Graph.bfs(source = the first source of --sources), the call bfs64 times",
+                 lambda: g.bfs(read_sources(args)[0]), lambda r: {"source": read_sources(args)[0]}),
         # No triangles task: igraph's Python API lists them (a tuple each, 177 M on lj)
         # rather than counting, and transitivity is a different quantity.
         "multilevel": ("igraph.Graph.community_multilevel (Louvain)", lambda: g.community_multilevel(),
@@ -241,9 +241,18 @@ def igraph(task, csr, args):
     dumps = {
         "components": lambda c: np.asarray(c.membership, dtype=np.uint32),
         "kcore": lambda c: np.asarray(c, dtype=np.uint32),
-        "bfs1": lambda d: np.asarray(d, dtype=np.float64),
+        "bfs1": lambda r: igraph_parents(r[2], read_sources(args)[0]),
     }
     return ig.__version__, load, tasks, "igraph.Graph.Read_Edgelist(text, each edge once), undirected", dumps
+
+
+def igraph_parents(parents, source):
+    """igraph's BFS parents as a parent array: the root its own parent, -1 where unreached
+    (igraph gives -1 for the root and a smaller negative number where unreached)."""
+    p = np.asarray(parents, dtype=np.int64)
+    p[p < 0] = -1
+    p[source] = source
+    return p.astype(np.int32)
 
 
 def rustworkx(task, csr, args):
@@ -424,6 +433,25 @@ def uniform_costs(m, start=0):
     return (np.uint64(1) + z % np.uint64(255)).astype(np.int32)
 
 
+def mix(z):
+    """SplitMix64's finalizer, as edge_map_bench's `cost` applies it."""
+    z = z + np.uint64(0x9E3779B97F4A7C15)
+    z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return z ^ (z >> np.uint64(31))
+
+
+def pair_costs(u, v):
+    """The cost of the undirected pair {u, v}, the same both ways: an integer from 1 to 255
+    drawn from min(u, v) * 2^32 + max(u, v). bench/specs/references.toml gives every tool
+    these costs (bench/references/eg-driver and ucr_driver.cc compute the same), so a tool
+    may use that the graph is symmetric (PASGAL's pull step)."""
+    u, v = np.asarray(u, dtype=np.uint64), np.asarray(v, dtype=np.uint64)
+    with np.errstate(over="ignore"):
+        key = (np.minimum(u, v) << np.uint64(32)) | np.maximum(u, v)
+        return (np.uint64(1) + mix(key) % np.uint64(255)).astype(np.int32)
+
+
 CHUNK = 1 << 26  # entries per write: the converters stream Friendster's 3.6 G entries
 
 
@@ -433,7 +461,9 @@ WNODE = {"int32": np.dtype([("v", "<i4"), ("w", "<i4")]),
          "f64": np.dtype([("v", "<i4"), ("pad", "<i4"), ("w", "<f8")])}
 
 
-def write_targets(csr, f, weights=None):
+def write_targets(csr, f, weights=None, pairs=False):
+    """The targets, or (target, cost) records: entry costs (`uniform_costs`) or, with
+    `pairs`, the costs of the undirected pairs (`pair_costs`)."""
     m = len(csr.targets)
     with np.errstate(over="ignore"):
         for lo in range(0, m, CHUNK):
@@ -441,13 +471,18 @@ def write_targets(csr, f, weights=None):
             if weights:
                 rec = np.zeros(len(t), dtype=WNODE[weights])
                 rec["v"] = t.view(np.int32)
-                rec["w"] = uniform_costs(len(t), lo)
+                if pairs:
+                    entries = np.arange(lo, lo + len(t), dtype=np.uint64)
+                    u = np.searchsorted(csr.offsets, entries, side="right") - 1
+                    rec["w"] = pair_costs(u, t)
+                else:
+                    rec["w"] = uniform_costs(len(t), lo)
                 rec.tofile(f)
             else:
                 t.tofile(f)
 
 
-def gap_serialized(csr, weights, out):
+def gap_serialized(csr, weights, out, pairs=False):
     """GAP's .sg / .wsg (src/reader.h, ReadSerializedGraph), undirected: a bool, the
     number of entries and of nodes as int64, the int64 offsets, then the int32 targets,
     or (target, weight) records (`WNODE`)."""
@@ -457,7 +492,7 @@ def gap_serialized(csr, weights, out):
         f.write(np.array([0], dtype=np.uint8).tobytes())
         f.write(np.array([m, csr.n], dtype=np.int64).tobytes())
         csr.offsets.astype(np.int64).tofile(f)
-        write_targets(csr, f, weights)
+        write_targets(csr, f, weights, pairs)
     os.replace(tmp, out)
 
 
@@ -502,11 +537,13 @@ def ldbc_csr(dataset, out):
 def convert(csr, kind, out):
     """`mtx`: MatrixMarket 'pattern symmetric', each edge once, 1-based (as
     lab/a-baselines/csr2mtx.py, for GVE). `edges`: "u v" lines, each edge once, 0-based
-    (for igraph and rustworkx, as lab/f2-python). `sg`, `wsg`, `wsg64`: GAP's (above),
-    the last for a GAP built with WeightT = double."""
-    if kind in ("sg", "wsg", "wsg64"):
+    (for igraph and rustworkx, as lab/f2-python). `sg`, `wsg`: GAP's (above), `wsg`
+    with entry costs (bench/specs/kernels.toml); `wsg-sym` and `wsg-sym64` with pair costs,
+    int32 or f64 (for a GAP built with WeightT = double)."""
+    kinds = {"sg": (None, False), "wsg": ("int32", False), "wsg-sym": ("int32", True), "wsg-sym64": ("f64", True)}
+    if kind in kinds:
         os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-        gap_serialized(csr, {"sg": None, "wsg": "int32", "wsg64": "f64"}[kind], out)
+        gap_serialized(csr, kinds[kind][0], out, kinds[kind][1])
         return
     if kind == "gbbs":
         os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -525,7 +562,7 @@ def convert(csr, kind, out):
         cols = {"u": src[keep].astype(np.int64), "v": csr.targets[keep].astype(np.int64)}
         header = ""
     else:
-        raise SystemExit(f"convert {kind}: use mtx, edges, sg, wsg, wsg64 or gbbs")
+        raise SystemExit(f"convert {kind}: use mtx, edges, sg, wsg, wsg-sym, wsg-sym64 or gbbs")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     tmp = out + ".part"
     with open(tmp, "wb") as f:
@@ -539,23 +576,24 @@ def convert(csr, kind, out):
 # are those of bench/specs/references.toml: whole-graph kernels 5 trials, their median;
 # `bfs64` and `sssp64` from GAP's own 64 seeded non-zero-degree sources (no -r:
 # SourcePicker, the list that bench/references/gap_sources.cc prints), one trial each,
-# their mean. `pr` is pr_spmv.cc (Jacobi) with ScoreT changed from float to double, 20
-# iterations, tol 0; `sssp64-f64` is sssp.cc with WeightT changed from int32 to double,
-# on the same costs (the references spec builds both).
+# their mean, on the pair costs (`<g>-sym.wsg`). `pr` is pr_spmv.cc (Jacobi) with ScoreT
+# changed from float to double, 20 iterations, tol 0: its constants (kDamp, 1.0f / n) stay
+# float; `sssp64-f64` is sssp.cc with WeightT changed from int32 to double, on the same
+# costs (the references spec builds both).
 GAP_TASKS = {
     "bfs": ("bfs", "sg", lambda c: ["-r", str(c.hub()), "-n", "5"], min, "bfs.cc direction-optimizing, from the hub"),
     "sssp": ("sssp", "wsg", lambda c: ["-r", str(c.hub()), "-n", "5", "-d", "2"], min,
              "sssp.cc delta-stepping, -d 2, from the hub"),
     "bfs64": ("bfs", "sg", lambda c: ["-n", "64"], statistics.mean,
               "bfs.cc direction-optimizing, parents, 64 sources of SourcePicker, mean per source"),
-    "sssp64": ("sssp", "wsg", lambda c: ["-n", "64", "-d", "2"], statistics.mean,
-               "sssp.cc delta-stepping -d 2, int32 costs 1..255, 64 sources of SourcePicker, mean per source"),
-    "sssp64-f64": ("sssp_f64", "f64.wsg", lambda c: ["-n", "64", "-d", "2"], statistics.mean,
-                   "sssp.cc delta-stepping -d 2, WeightT=double, costs 1..255, 64 sources of SourcePicker, "
+    "sssp64": ("sssp", "sym.wsg", lambda c: ["-n", "64", "-d", "2"], statistics.mean,
+               "sssp.cc delta-stepping -d 2, int32 pair costs 1..255, 64 sources of SourcePicker, mean per source"),
+    "sssp64-f64": ("sssp_f64", "sym-f64.wsg", lambda c: ["-n", "64", "-d", "2"], statistics.mean,
+                   "sssp.cc delta-stepping -d 2, WeightT=double, pair costs 1..255, 64 sources of SourcePicker, "
                    "mean per source"),
     "cc": ("cc", "sg", lambda c: ["-n", "5"], statistics.median, "cc.cc Afforest (neighbour rounds 2, sampled skip)"),
     "pr": ("pr_spmv64", "sg", lambda c: ["-n", "5", "-i", "20", "-t", "0"], statistics.median,
-           "pr_spmv.cc Jacobi pull, ScoreT=double, 20 iterations, tol 0"),
+           "pr_spmv.cc Jacobi pull, ScoreT=double (kDamp and 1.0f / n stay float), 20 iterations, tol 0"),
     "tc": ("tc", "sg", lambda c: ["-n", "5"], statistics.median,
            "tc.cc ordered count, relabels by degree when its heuristic says so"),
 }
@@ -582,7 +620,7 @@ def gap(task, csr, args):
     import subprocess
 
     binary, kind, extra, reduce, algorithm = GAP_TASKS[task]
-    graph = os.path.join(args.work, f"{csr.name}-f64.wsg" if kind == "f64.wsg" else f"{csr.name}.{kind}")
+    graph = os.path.join(args.work, f"{csr.name}-{kind}" if kind.startswith("sym") else f"{csr.name}.{kind}")
     tree = tool_tree(args, "gapbs")
     cmd = [os.path.join(tree, binary), "-f", graph, *extra(csr)]
     out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
@@ -598,7 +636,8 @@ GBBS_TASKS = {
     "bfs64": ("bfs", "NonDeterministicBFS BFS(G, src), parents, from each source of --sources, mean per source"),
     "cc": ("cc", "WorkEfficientSDB14 connectivity (beta 0.2)"),
     "connectit": ("connectit", "ConnectIt UF-Rem-CAS, k-out sampling, FindAtomicSplit, SplitAtomicOne"),
-    "pr": ("pr", "PageRank (dense edgeMapReduce, double), 20 iterations, eps 0"),
+    "pr": ("pr", "PageRank (dense edgeMapReduce, double), 20 iterations, eps 0; returns p_curr at the cap "
+           "(bench/references/build.sh patches the return)"),
     "kcore": ("kcore", "JulienneDBS17 KCore (bucketing, 16 buckets)"),
     "tc": ("tc", "ShunTangwongsan15 Triangle (degree ordering)"),
 }
@@ -626,7 +665,7 @@ def gbbs(task, csr, args):
 
 UCR = {
     "pkc": ("pkc", "Parallel-KCore (Liu et al., SIGMOD'25) KCore::kcore()"),
-    "pasgal": ("pasgal", "PASGAL BFS (distances) and rho-stepping SSSP (uint32 costs 1..255)"),
+    "pasgal": ("pasgal", "PASGAL BFS (distances) and rho-stepping SSSP (uint32 pair costs 1..255, symmetric)"),
 }
 
 
@@ -676,9 +715,9 @@ def canonical_labels(labels):
 
 
 def depths_from_parents(csr, parents, source, unreached):
-    """BFS depths from a parent array (the root its own parent), checking on a sample
-    that each parent is a neighbour: a valid tree of shortest paths has the depths of
-    the BFS distances."""
+    """BFS depths from a parent array (the root its own parent), checking that every
+    parent is a neighbour: a valid tree of shortest paths has the depths of the BFS
+    distances."""
     p = np.asarray(parents).astype(np.int64)
     reached = p != unreached if unreached is not None else p >= 0
     depth = np.full(csr.n, -1, dtype=np.int64)
@@ -691,13 +730,21 @@ def depths_from_parents(csr, parents, source, unreached):
             return None, "the parents do not form a tree"
         depth[ready] = depth[p[ready]] + 1
         todo &= ~ready
-    rng = np.random.default_rng(1)
-    for v in rng.choice(np.flatnonzero(reached), size=min(20000, int(reached.sum())), replace=False):
-        if v == source:
-            continue
-        row = csr.targets[csr.offsets[v]:csr.offsets[v + 1]]
-        i = np.searchsorted(row, p[v])
-        if i >= len(row) or row[i] != p[v]:
+    # Every (v, parent) must be an entry of v's sorted list: keys (row << 32 | target),
+    # sorted because the lists are, searched per block of nodes to bound the memory.
+    child = reached.copy()
+    child[source] = False
+    for a in range(0, csr.n, 1 << 22):
+        b = min(csr.n, a + (1 << 22))
+        lo, hi = int(csr.offsets[a]), int(csr.offsets[b])
+        rows = np.repeat(np.arange(b - a, dtype=np.uint64), csr.degrees[a:b])
+        keys = (rows << np.uint64(32)) | np.asarray(csr.targets[lo:hi], dtype=np.uint64)
+        vs = np.flatnonzero(child[a:b]).astype(np.uint64)
+        want = (vs << np.uint64(32)) | p[a:b][child[a:b]].astype(np.uint64)
+        at = np.minimum(np.searchsorted(keys, want), max(len(keys) - 1, 0))
+        bad = np.flatnonzero(len(keys) == 0 or keys[at] != want) if len(want) else []
+        if len(bad):
+            v = a + int(vs[bad[0]])
             return None, f"parent {p[v]} of {v} is not a neighbour"
     return np.where(depth >= 0, depth.astype(np.float64), np.inf), None
 
@@ -712,10 +759,13 @@ def as_distances(a, unreached_at=None):
 def validate(csr, args):
     """Runs each tool once with its result written out and compares it with
     Everygraph's: the partition (components), every core number (k-core), every
-    distance from the first source (BFS, SSSP: a parent array becomes depths, its
-    edges checked on a sample), PageRank by L1 distance (at most 1e-6), triangle counts
-    between the tools. One JSON line: every check, and `invalid`, the number that
-    failed. A tool absent from the work directory is skipped and listed."""
+    distance from the first source (BFS, SSSP: a parent array becomes depths, every
+    parent checked to be a neighbour), PageRank by L1 distance (at most 1e-6), triangle
+    counts between the tools, and with `--leiden` a modularity floor: every Leiden or
+    Louvain run within `LEIDEN_FLOOR` of the best one on the graph (their partitions
+    legitimately differ). One JSON line: every check, `invalid` (the number that failed)
+    and `skipped_count` (checks whose tool or input is absent; `--without` names the
+    tools not run on this graph, which are not counted)."""
     import subprocess
     import tempfile
 
@@ -737,6 +787,7 @@ def validate(csr, args):
     py = lambda tool, task: run + [tool, task, "--graph", args.graph, "--threads", str(args.threads),
                                    "--sources", sources] + (["--edges", os.path.join(w, f"{g}.edges")]
                                                             if tool == "igraph" else [])
+    without = set(filter(None, args.without.split(",")))
     i32_max = np.iinfo(np.int32).max
     u32_max = np.iinfo(np.uint32).max
     # (kernel, tool, command, how the output is written: dtype and its reading; None:
@@ -751,18 +802,17 @@ def validate(csr, args):
         ("kcore", "pkc", ucr_args("pkc", "kcore"), np.uint32, "exact", "-o"),
         ("pr64", "gap", [os.path.join(gap_bin, "dump_pr"), "-f", os.path.join(w, f"{g}.sg"), "-i", "20", "-t", "0"],
          np.float64, "ranks", None),
-        # Not GBBS PageRank: at the iteration cap it returns its zeroed work buffer
-        # (PageRank.h); bench/specs/references.toml marks it unavailable.
+        ("pr64", "gbbs", gbbs_args("pr"), np.float64, "ranks", "-dump"),
         ("pr64", "cost", [args.cost, "--graph", args.graph, "--kernel", "pr", "--reps", "1"], np.float64, "ranks",
          "--dump"),
         ("bfs", "gap", [os.path.join(gap_bin, "dump_bfs"), "-f", os.path.join(w, f"{g}.sg")], np.int32,
          ("parents", None), None),
         ("bfs", "gbbs", gbbs_args("bfs"), np.uint32, ("parents", u32_max), "-dump"),
         ("bfs", "pasgal", ucr_args("pasgal", "bfs"), np.uint32, ("distances", u32_max), "-o"),
-        ("sssp", "gap", [os.path.join(gap_bin, "dump_sssp"), "-f", os.path.join(w, f"{g}.wsg"), "-d", "2"], np.int32,
-         ("distances", i32_max // 2), None),
-        ("sssp", "gap-f64", [os.path.join(gap_bin, "dump_sssp_f64"), "-f", os.path.join(w, f"{g}-f64.wsg"), "-d", "2"],
-         np.float64, ("distances", np.finfo(np.float64).max / 2), None),
+        ("sssp", "gap", [os.path.join(gap_bin, "dump_sssp"), "-f", os.path.join(w, f"{g}-sym.wsg"), "-d", "2"],
+         np.int32, ("distances", i32_max // 2), None),
+        ("sssp", "gap-f64", [os.path.join(gap_bin, "dump_sssp_f64"), "-f", os.path.join(w, f"{g}-sym-f64.wsg"),
+                             "-d", "2"], np.float64, ("distances", np.finfo(np.float64).max / 2), None),
         ("sssp", "pasgal", ucr_args("pasgal", "sssp"), np.uint32, ("distances", u32_max), "-o"),
     ]
     if args.python:
@@ -773,7 +823,7 @@ def validate(csr, args):
             ("kcore", "igraph", py("igraph", "kcore"), np.uint32, "exact", "--dump"),
             ("pr64", "networkit", py("networkit", "pagerank"), np.float64, "ranks", "--dump"),
             ("bfs", "networkit", py("networkit", "bfs1"), np.float64, ("distances", np.inf), "--dump"),
-            ("bfs", "igraph", py("igraph", "bfs1"), np.float64, ("distances", np.inf), "--dump"),
+            ("bfs", "igraph", py("igraph", "bfs1"), np.int32, ("parents", None), "--dump"),
         ]
     results, skipped = [], []
     with tempfile.TemporaryDirectory(dir=w) as tmp:
@@ -791,7 +841,7 @@ def validate(csr, args):
         ours = {k: output(f"eg.{k}", eg + ["--kernel", k], dt, "--dump")
                 for k, dt in (("cc", np.uint32), ("kcore", np.uint32), ("pr64", np.float64), ("bfs", np.uint32),
                               ("sssp", np.float64)) if k in kernels}
-        checks = [c for c in checks if c[0] in kernels]
+        checks = [c for c in checks if c[0] in kernels and c[1] not in without]
         convert_ours = {"cc": canonical_labels, "kcore": lambda a: a, "pr64": lambda a: a,
                         "bfs": lambda a: as_distances(a, u32_max), "sssp": as_distances}
         base = {k: convert_ours[k](a) for k, a in ours.items()}
@@ -845,13 +895,55 @@ def validate(csr, args):
         for tool in counts:
             results.append({"kernel": "tc", "tool": tool, "valid": len(set(counts.values())) == 1,
                             "detail": f"counts {counts}"})
+    if args.leiden:
+        results += leiden_checks(csr, args, run, without)
     line = {"graph": g, "threads": args.threads, "source": src, "checked": len(results),
-            "invalid": sum(not r["valid"] for r in results), "results": results, "skipped": skipped}
+            "invalid": sum(not r["valid"] for r in results), "results": results, "skipped": skipped,
+            "skipped_count": len(skipped)}
     if args.out:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
         with open(args.out, "w") as f:
             f.write(json.dumps(line) + "\n")
     print(json.dumps(line), flush=True)
+
+
+# A Leiden or Louvain run whose modularity is further than this below the best run on the
+# graph is broken, not just another local optimum: on lj and orkut the tools of the
+# references spec are within 0.033 of each other (lab/m3-12-reference-runs).
+LEIDEN_FLOOR = 0.05
+
+
+def leiden_checks(csr, args, run, without):
+    """One run of each Leiden and Louvain tool of the references spec, its modularity as
+    the tool reports it (NetworKit's and igraph's by `modularity`), against the floor."""
+    import subprocess
+
+    w, g, t = args.work, csr.name, str(args.threads)
+    gve = os.path.join(tool_tree(args, "gve"), "leiden-{}-t" + t)
+    gve_q = r"([0-9.]+) modularity[^}]*\} leidenStaticOmp"
+    b2 = [args.b2, "run", "--graph", args.graph, "--algo", "leiden", "--threads", t, "--iterations", "2"]
+    runs = {
+        "lab": (b2, r'"modularity":([0-9.]+)'),
+        "lab-det": (b2 + ["--det"], r'"modularity":([0-9.]+)'),
+        "gve-f32": ([gve.format("f32"), os.path.join(w, f"{g}.mtx"), "1", "0"], gve_q),
+        "gve-f64": ([gve.format("f64"), os.path.join(w, f"{g}.mtx"), "1", "0"], gve_q),
+    }
+    if args.python:
+        for tool, task in (("networkit-leiden", "leiden"), ("networkit-plm", "plm")):
+            runs[tool] = (run + ["networkit", task, "--graph", args.graph, "--threads", t], r'"modularity": ([0-9.]+)')
+        runs["igraph"] = (run + ["igraph", "leiden", "--graph", args.graph, "--threads", "1", "--edges",
+                                 os.path.join(w, f"{g}.edges")], r'"modularity": ([0-9.]+)')
+    found = {}
+    for tool, (cmd, pattern) in runs.items():
+        if tool in without:
+            continue
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        hit = re.search(pattern, p.stdout)
+        found[tool] = float(hit.group(1)) if p.returncode == 0 and hit else None
+    best = max((q for q in found.values() if q is not None), default=0.0)
+    return [{"kernel": "leiden", "tool": tool, "valid": q is not None and q >= best - LEIDEN_FLOOR,
+             "detail": f"modularity {q:.4f} (best {best:.4f}, floor {best - LEIDEN_FLOOR:.4f})" if q is not None
+             else "no modularity in the output"} for tool, q in found.items()]
 
 
 def read_sources(args):
@@ -892,6 +984,9 @@ def main():
     p.add_argument("--python", action="store_true", help="validate: NetworKit and igraph too")
     p.add_argument("--tc", action="store_true", help="validate: triangle counts too")
     p.add_argument("--kernels", default="cc,kcore,pr64,bfs,sssp", help="validate: the kernels to check")
+    p.add_argument("--without", default="", help="validate: tools not run on this graph, comma-separated")
+    p.add_argument("--leiden", action="store_true", help="validate: the modularity floor of the Leiden tools")
+    p.add_argument("--b2", help="validate --leiden: the lab Leiden program")
     args = p.parse_args()
     if args.tool == "convert" and args.task == "ldbc-csr":
         if not (args.input and args.out):
@@ -903,7 +998,7 @@ def main():
     csr = Csr(args.graph, mapped=args.tool in ("convert", "validate")) if args.graph else None
     if args.tool == "convert":
         if not args.out:
-            p.error("convert mtx|edges|sg|wsg|wsg64|gbbs --graph DIR --out FILE")
+            p.error("convert mtx|edges|sg|wsg|wsg-sym|wsg-sym64|gbbs --graph DIR --out FILE")
         convert(csr, args.task, args.out)
         return
     if args.tool in ("gap", "gbbs"):
