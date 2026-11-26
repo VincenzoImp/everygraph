@@ -28,7 +28,7 @@ use everygraph_bench::harness::procfs::Host;
 use everygraph_bench::harness::run::{
     self, Context, RunError, RunOptions, dataset_path, path_safe,
 };
-use everygraph_bench::harness::spec::{Interrupt, Program, Spec, StopSignal};
+use everygraph_bench::harness::spec::{CacheMode, Case, Interrupt, Program, Spec, StopSignal};
 use everygraph_bench::harness::template::Scope;
 use everygraph_bench::harness::units::human_size;
 use everygraph_bench::harness::{cache, lock, report, row, selftest, units};
@@ -632,6 +632,10 @@ fn check(registry: Registry, data: DataRoot, args: &CheckArgs) -> Result<ExitCod
                 ),
             };
             out!("  {:<48} {state}", c.id);
+            if let Some(problem) = out_of_core_lint(&ctx, c)? {
+                out!("      LINT: {problem}");
+                bad += 1;
+            }
             if args.commands {
                 let mut scope = Scope::new(spec.vars.clone());
                 scope.set("repo", ctx.repo.display().to_string());
@@ -669,9 +673,35 @@ fn check(registry: Registry, data: DataRoot, args: &CheckArgs) -> Result<ExitCod
         }
     }
     if bad > 0 {
-        return Err(format!("{bad} of {} specs failed the check", paths.len()));
+        return Err(format!(
+            "{bad} problems in {} specs (parse errors and lint findings)",
+            paths.len()
+        ));
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// A case whose memory limit is below its dataset's size claims to run out of core, so it
+/// must start cold: warm, the page cache may hold the data and nothing is read from
+/// storage (#265). Rows record `read_bytes`, `pgmajfault` and `refaults` to show it.
+/// A dataset absent on this machine is not checked.
+fn out_of_core_lint(ctx: &Context, c: &Case) -> Result<Option<String>, String> {
+    let (Some(d), None) = (&c.dataset, &c.unavailable) else {
+        return Ok(None);
+    };
+    let path = dataset_path(ctx, d)?;
+    if c.cache == CacheMode::Cold || c.warm_ok.is_some() || !path.exists() {
+        return Ok(None);
+    }
+    let size = cache::size_of(&path)?;
+    Ok((c.memory_limit < size).then(|| {
+        format!(
+            "memory limit {} is below the size of {} ({}): set cache = \"cold\"",
+            human_size(c.memory_limit),
+            d.label(),
+            human_size(size)
+        )
+    }))
 }
 
 fn report_files(args: &ReportArgs) -> Result<ExitCode, String> {

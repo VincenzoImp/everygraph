@@ -326,6 +326,39 @@ fn every_spec_in_the_repository_passes_the_check() {
 }
 
 #[test]
+fn a_warm_case_below_its_datasets_size_fails_the_lint() {
+    let dir = scratch("lint");
+    std::fs::create_dir_all(dir.join("data/g")).expect("data");
+    std::fs::write(dir.join("data/g/targets.u32"), vec![0_u8; 8192]).expect("dataset");
+    let case = |extra: &str| {
+        format!(
+            "schema = 1\nname = \"selftest\"\ndescription = \"lint\"\n[defaults]\n\
+             memory_limit = \"4K\"\n[[benchmark]]\nname = \"scan\"\ndataset_path = \"g\"\n\
+             {extra}\ncommand = [\"true\"]\nmetric = [{{ name = \"seconds\", json = \"/s\" }}]\n"
+        )
+    };
+    let check = |extra: &str| {
+        let p = write_spec(&dir, &case(extra));
+        let data = dir.join("data");
+        bench(
+            &["check", s(&p), "--repo", s(&repo()), "--data", s(&data)],
+            &dir.join("l"),
+        )
+    };
+    let warm = check("");
+    assert_eq!(warm.status.code(), Some(1));
+    assert!(
+        text(&warm.stdout).contains("LINT: memory limit 4 KiB is below the size of g (8 KiB)"),
+        "{}",
+        text(&warm.stdout)
+    );
+    for extra in ["cache = \"cold\"", "warm_ok = \"reads with O_DIRECT\""] {
+        let out = check(extra);
+        assert!(out.status.success(), "{extra}: {}", text(&out.stdout));
+    }
+}
+
+#[test]
 fn a_spec_without_a_memory_limit_is_refused_before_anything_runs() {
     let dir = scratch("nolimit");
     let p = write_spec(&dir, &SPEC.replace("memory_limit = \"256M\"", ""));

@@ -90,6 +90,10 @@ pub struct Measurement {
     pub file_peak_bytes: u64,
     /// How many samples were taken.
     pub memory_samples: u64,
+    /// Page-fault and refault counters of `memory.stat` at the end: the evidence that a
+    /// run under a limit below its data's size read from storage (out of core).
+    #[serde(default)]
+    pub faults: Faults,
     /// The sampling interval in milliseconds.
     pub sample_interval_ms: f64,
     /// `memory.events` at the end (`max`, `oom`, `oom_kill`, …).
@@ -119,6 +123,17 @@ pub struct Measurement {
     pub left_processes: Vec<u32>,
     /// What went wrong in the helper itself, if anything.
     pub error: Option<String>,
+}
+
+/// Counters of the scope's `memory.stat`, which starts at zero with the scope.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Faults {
+    /// `pgmajfault`: page faults that waited for storage.
+    pub major_faults: u64,
+    /// `workingset_refault_file`: file pages read again soon after their eviction.
+    pub refaults_file: u64,
+    /// `workingset_refault_anon`: the same for anonymous pages (swap).
+    pub refaults_anon: u64,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -377,6 +392,13 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     (m.anon_peak_bytes, m.file_peak_bytes, m.memory_samples) = (p.anon, p.file, p.samples);
     m.memory_peak_bytes = cg.memory_peak()?;
+    if let Ok(stat) = cg.memory_stat() {
+        m.faults = Faults {
+            major_faults: usec(&stat, "pgmajfault"),
+            refaults_file: usec(&stat, "workingset_refault_file"),
+            refaults_anon: usec(&stat, "workingset_refault_anon"),
+        };
+    }
     m.memory_events = cg.memory_events()?;
     let cpu1 = cg.cpu_stat()?;
     #[allow(

@@ -41,6 +41,8 @@ pub const BUILTIN_METRICS: &[(&str, &str)] = &[
     ("memory_peak_bytes", "B"),
     ("anon_peak_bytes", "B"),
     ("file_peak_bytes", "B"),
+    ("pgmajfault", "faults"),
+    ("refaults", "pages"),
     ("read_bytes", "B"),
     ("write_bytes", "B"),
     ("stop_seconds", "s"),
@@ -301,6 +303,10 @@ pub struct BenchmarkDef {
     /// Set when the benchmark cannot run on this machine: the reason. It is recorded
     /// as a skipped row, never silently dropped.
     pub unavailable: Option<String>,
+    /// Why a warm case whose memory limit is below its dataset's size is right (it
+    /// reads with `O_DIRECT`, or reads other files than the dataset): it silences the
+    /// out-of-core lint of `check`.
+    pub warm_ok: Option<String>,
 }
 
 /// Fields that the runner of a comparison benchmark must record (CLAUDE.md § 3: "check
@@ -531,6 +537,8 @@ pub struct Case {
     pub binaries: Vec<String>,
     /// Why it cannot run, if so.
     pub unavailable: Option<String>,
+    /// Why warm is right below the dataset's size ([`BenchmarkDef::warm_ok`]).
+    pub warm_ok: Option<String>,
 }
 
 /// A resolved preparation step.
@@ -1031,6 +1039,9 @@ fn expand_benchmark(
                 continue;
             }
             let mut scope = Scope::default();
+            // A dataset may live in the work directory, known only at run time:
+            // `{work}` stays in the path for `run::dataset_path`.
+            scope.set("work", "{work}");
             scope.set("threads", t_text.clone());
             for (k, v) in &vars {
                 scope.set(k, v.clone());
@@ -1107,6 +1118,7 @@ fn expand_benchmark(
                 interrupt,
                 runner: b.runner.clone(),
                 unavailable: b.unavailable.clone(),
+                warm_ok: b.warm_ok.clone(),
             });
         }
     }

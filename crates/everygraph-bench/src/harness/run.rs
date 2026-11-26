@@ -150,6 +150,9 @@ pub fn dataset_path(ctx: &Context, d: &DatasetRef) -> Result<PathBuf, String> {
             Ok(ctx.data.dataset_dir(ds))
         }
         DatasetRef::Path(p) => {
+            if let Some(rest) = p.strip_prefix("{work}/") {
+                return Ok(ctx.work.join(rest));
+            }
             let p = Path::new(p);
             Ok(if p.is_absolute() {
                 p.to_path_buf()
@@ -811,6 +814,9 @@ impl Runner<'_> {
             file_peak_bytes: m.file_peak_bytes,
             samples: m.memory_samples,
             sample_interval_ms: m.sample_interval_ms,
+            major_faults: Some(m.faults.major_faults),
+            refaults_file: Some(m.faults.refaults_file),
+            refaults_anon: Some(m.faults.refaults_anon),
         });
         let event = |k: &str| m.memory_events.get(k).copied().unwrap_or(0);
         row.oom = Some(OomRecord {

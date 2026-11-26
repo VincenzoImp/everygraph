@@ -149,6 +149,16 @@ pub struct MemoryRecord {
     pub file_peak_bytes: u64,
     /// Number of samples.
     pub samples: u64,
+    /// `pgmajfault` of the scope's `memory.stat` at the end. Absent in rows written
+    /// before it existed.
+    #[serde(default)]
+    pub major_faults: Option<u64>,
+    /// `workingset_refault_file` at the end.
+    #[serde(default)]
+    pub refaults_file: Option<u64>,
+    /// `workingset_refault_anon` at the end.
+    #[serde(default)]
+    pub refaults_anon: Option<u64>,
     /// Sampling interval.
     pub sample_interval_ms: f64,
 }
@@ -386,6 +396,12 @@ impl Row {
             "memory_peak_bytes" => self.memory.as_ref().map(|m| b(m.peak_bytes)),
             "anon_peak_bytes" => self.memory.as_ref().map(|m| b(m.anon_peak_bytes)),
             "file_peak_bytes" => self.memory.as_ref().map(|m| b(m.file_peak_bytes)),
+            "pgmajfault" => self.memory.as_ref().and_then(|m| m.major_faults).map(b),
+            "refaults" => self
+                .memory
+                .as_ref()
+                .and_then(|m| Some(m.refaults_file? + m.refaults_anon?))
+                .map(b),
             "read_bytes" => self.known_io().map(|i| b(i.read_bytes)),
             "write_bytes" => self.known_io().map(|i| b(i.write_bytes)),
             "stop_seconds" => self.stop.as_ref().and_then(|s| s.stop_seconds),
@@ -632,6 +648,9 @@ pub(crate) mod tests {
                 file_peak_bytes: 100 << 20,
                 samples: 40,
                 sample_interval_ms: 20.0,
+                major_faults: Some(3),
+                refaults_file: Some(2),
+                refaults_anon: Some(0),
             }),
             oom: Some(OomRecord {
                 max_events: 0,
