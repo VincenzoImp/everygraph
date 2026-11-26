@@ -44,9 +44,9 @@
 //! The crate never opens files: a native file is an `everygraph_io::FileSink` (writing)
 //! or any `ByteSource` of `everygraph-io` (reading).
 
-mod layout;
+pub(crate) mod layout;
 mod provenance;
-mod read;
+pub(crate) mod read;
 mod write;
 
 use std::error::Error;
@@ -104,6 +104,12 @@ impl Kind {
     /// The segment manifest of a segmented file (`segments`, spec § 13). Reserved:
     /// version 1.0 neither writes nor reads segments.
     pub const SEGMENTS: Self = Self(6);
+    /// A property column: a complete Arrow IPC file (`docs/spec/eg-columns.md` § 3).
+    pub const COLUMN: Self = Self(7);
+    /// Where the buffers of a property column lie (`docs/spec/eg-columns.md` § 4).
+    pub const COLUMN_LAYOUT: Self = Self(8);
+    /// The statistics of a numeric property column (`docs/spec/eg-columns.md` § 5).
+    pub const COLUMN_STATS: Self = Self(9);
     /// The first of the kinds reserved for private and experimental use, which no
     /// specification will ever assign.
     pub const PRIVATE: Self = Self(0x8000_0000);
@@ -123,7 +129,7 @@ impl Kind {
     /// Whether this version of the specification defines the kind.
     #[must_use]
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 1..=6)
+        matches!(self.0, 1..=9)
     }
 }
 
@@ -363,6 +369,51 @@ impl From<ReadError> for ContainerError {
 impl From<WriteError> for ContainerError {
     fn from(e: WriteError) -> Self {
         Self::Write(e)
+    }
+}
+
+/// Entry points for the fuzz targets (`crates/everygraph-format/fuzz`), built only by
+/// `cargo fuzz`, which sets `cfg(fuzzing)`: the decoders of the table of contents and of
+/// provenance records, without the hashes that keep a fuzzer's bytes from reaching them.
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzzing {
+    use super::{ContainerError, Entry, Provenance};
+
+    /// Decodes a table of contents that starts at `toc_offset`.
+    ///
+    /// # Errors
+    ///
+    /// As `Container::open` for a table that breaks the specification.
+    pub fn decode_toc(bytes: &[u8], toc_offset: u64) -> Result<Vec<Entry>, ContainerError> {
+        super::layout::decode_toc(bytes, toc_offset)
+    }
+
+    /// Encodes entries that [`decode_toc`] returned.
+    ///
+    /// # Errors
+    ///
+    /// A table that would exceed 16 MiB.
+    pub fn encode_toc(entries: &[Entry]) -> Result<Vec<u8>, ContainerError> {
+        super::layout::encode_toc(entries.iter())
+    }
+
+    /// Decodes a provenance record.
+    ///
+    /// # Errors
+    ///
+    /// As `Container::read_provenance` for a record that cannot be decoded.
+    pub fn decode_provenance(bytes: &[u8]) -> Result<Provenance, ContainerError> {
+        Provenance::decode(bytes)
+    }
+
+    /// Encodes a provenance record.
+    ///
+    /// # Errors
+    ///
+    /// As `Writer::add_provenance` for a record that cannot be encoded.
+    pub fn encode_provenance(record: &Provenance) -> Result<Vec<u8>, ContainerError> {
+        record.encode()
     }
 }
 

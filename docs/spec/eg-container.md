@@ -178,6 +178,8 @@ Kinds 2–5 define the graph and are not optional for a reader that reads the gr
 added after 1.0 that a reader must understand is announced with a required feature.
 (Within the adjacency format, whether an adjacency has `.events` is announced by its
 index's own flags, `eg-adjacency.md`; the container needs no bit for it.)
+Kinds 7–9 hold property columns (`eg-columns.md`): a reader that reads a column reads
+its sections of all three kinds, and one that uses no column may leave them unread.
 
 | Kind | Meaning | Specified in |
 |---|---|---|
@@ -188,7 +190,10 @@ index's own flags, `eg-adjacency.md`; the container needs no bit for it.)
 | 4 | one section of an identifier dictionary (the name, `ids.*`, says which) | `everygraph_ingest::ids` (#34) |
 | 5 | event offsets of an adjacency (`<name>.events`): where each pair's events start, for graphs that keep repeated pairs as events | `eg-adjacency.md` |
 | 6 | segment manifest (`segments`, one per file); reserved, not written by 1.0 | § 13 |
-| 7 … 0x7FFFFFFF | assigned by later specifications (columns #37, results #39, hierarchy, layout, indexes) | — |
+| 7 | a property column: a complete Arrow IPC file (`<scope>/arrow/<column>`) | `eg-columns.md` § 3 |
+| 8 | the layout of a property column (`<scope>/layout/<column>`) | `eg-columns.md` § 4 |
+| 9 | the statistics of a numeric property column (`<scope>/stats/<column>`) | `eg-columns.md` § 5 |
+| 10 … 0x7FFFFFFF | assigned by later specifications (results #39, hierarchy, layout, indexes) | — |
 | 0x80000000 … 0xFFFFFFFF | private and experimental use; never assigned | — |
 
 The **codec** says how the stored bytes encode the content. Version 1.0 defines only 0:
@@ -236,10 +241,11 @@ name order, over every section that defines the graph, of `kind` (`u32`), the na
 length in bytes (`u32`), the name, and the section's 32-byte hash. So two files whose
 graph sections differ in kind, name or content never share an identity. The kinds that
 define the graph are those 1.0 defines as such — 2 to 5 (adjacency index and data,
-`.events`, dictionary) and the property-column kinds #37 assigns before 1.0 is
-released. A kind added later that defines the graph is announced with a required
-feature bit (§ 10), so that a reader that does not know it refuses the file instead of
-computing an identity without it. For a segmented file (§ 13) the identity is BLAKE3 of
+`.events`, dictionary) and 7 (property columns, `eg-columns.md` § 8; their layouts
+and statistics, kinds 8 and 9, follow from kind 7 and are left out). A kind added
+later that defines the graph is announced with a required feature bit (§ 10), so that a
+reader that does not know it refuses the file instead of computing an identity without
+it. For a segmented file (§ 13) the identity is BLAKE3 of
 the manifest's `(kind, name length, name, hash)` alone, since the manifest lists the
 hashes of every run's sections. A reader serves a stored result only for a graph with
 that identity: after an append the graph has a new identity, and results stored before
@@ -250,7 +256,10 @@ the new one.
 measurement review asks a build to record (`docs/research/sota-measurement.md`, § 4,
 challenge 7). These keys are conventional, so that every operation writes them the same
 way: `order` (the vertex-ordering method: `input`, `first-appearance`, `sorted-key`,
-`degree`, `seeded-relabel`), `order_seed` (its seed, when it has one), `id_min` and
+`degree`, `seeded-relabel`), `order_seed` (its seed, when it has one), `directed`
+(`true` or `false`) and `self_loops` (`drop` or `keep`) on the record of an adjacency's
+sections, which `everygraph verify --deep` checks the lists against (symmetric lists,
+no loop), `id_min` and
 `id_max` (the range of the original identifiers, when they are integers),
 `isolated_kept` and `isolated_dropped` (nodes with no edge kept in the graph, and
 dropped by the build). The content hash of the source file is an input's fingerprint
@@ -309,7 +318,13 @@ least 32 and at most 16 MiB.
 **Length and padding.** A valid file is at least as long as its committed end (the TOC's
 padded end, § 8), and every padding byte, after sections and after the TOC, is zero.
 Opening checks neither (it reads only the header and the TOC); verification checks
-both.
+both. Verification also checks bytes 128 to 4095 of both header blocks. The other
+block — not the one the file reads from — holds a valid header or is empty, unless a
+commit was cut short while it was being written: such a block, which no reader can
+tell from a damaged one, is reported as a note, not as damage. When the file reads as
+an older commit than one it holds — the newest table of contents is unusable, or the
+newest header block is not valid while the table it names is whole — verification
+names the lost generation; that too is not damage of what the file reads as.
 
 A section is checked against its hash when it is used for something that must be right
 (`everygraph verify`, compaction, a provenance record) — not when the file is opened,

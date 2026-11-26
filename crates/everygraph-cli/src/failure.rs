@@ -14,23 +14,14 @@ use everygraph_ingest::text::TextError;
 
 use crate::render::{Style, count, counted, json_string, rough_size, size, typed};
 
-/// What the last line of an error says was left.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Left {
-    /// `Nothing was written.`: a new file was to be made.
-    Nothing,
-    /// No last line: nothing was to be written (a usage error of the command line).
-    Unsaid,
-}
-
-/// An error of the command, with its class (§ 6.1), its text and its exit status.
+/// An error of `ingest`, with its class (§ 6.1), its text and its exit status. Its last
+/// line is `Nothing was written.`: a new file was to be made.
 #[derive(Debug)]
 pub(crate) struct Failure {
     class: &'static str,
     headline: String,
     why: Vec<String>,
     ways: Vec<(String, String)>,
-    left: Left,
     status: u8,
     bytes: Option<Box<Refused>>,
 }
@@ -52,7 +43,6 @@ impl Failure {
             headline,
             why: Vec::new(),
             ways: Vec::new(),
-            left: Left::Nothing,
             status,
             bytes: None,
         }
@@ -67,11 +57,6 @@ impl Failure {
     /// The ways forward: what can be typed, and what it does.
     pub(crate) fn ways(mut self, ways: Vec<(String, String)>) -> Self {
         self.ways = ways;
-        self
-    }
-
-    pub(crate) fn left(mut self, left: Left) -> Self {
-        self.left = left;
         self
     }
 
@@ -110,9 +95,7 @@ impl Failure {
                 }
             }
         }
-        if let Left::Nothing = self.left {
-            text.push_str("\nNothing was written.\n");
-        }
+        text.push_str("\nNothing was written.\n");
         let _ = io::stderr().write_all(text.as_bytes());
     }
 
