@@ -43,7 +43,7 @@ Tell the owner when each becomes due, with everything prepared.
   commits made by agents under the owner's account, then set the repository variable
   `DCO_ALL_PULL_REQUESTS=true`.
 - Accounts with 2FA on PyPI, crates.io and npm — at the first release.
-- **Published 2026-11-26 ~00:40:** the owner made the repository public; private vulnerability reporting enabled by Claude. CI minutes are free from now on. Still to do: `DCO_ALL_PULL_REQUESTS=true` once the owner authorizes sign-offs; names reserved 2026-11-26 by the owner from his Mac, verified on the registries: crates `everygraph` and `everygraph-cli` 0.0.0, PyPI `everygraph` 0.0.0, npm `everygraph` (listed as 0.0.0-stage) (placeholders, no code); local copies deleted.
+- **Published 2026-11-26 ~00:40:** the owner made the repository public; private vulnerability reporting enabled by Claude. CI minutes are free from now on. Sign-offs authorized by the owner 2026-11-26 (agents sign `Signed-off-by` with his identity); `DCO_ALL_PULL_REQUESTS=true` set; names reserved 2026-11-26 by the owner from his Mac, verified on the registries: crates `everygraph` and `everygraph-cli` 0.0.0, PyPI `everygraph` 0.0.0, npm `everygraph` (listed as 0.0.0-stage) (placeholders, no code); local copies deleted.
 - Package names: placeholders ready in `/home/tux/graphlab/name-reservation` (crates `everygraph`, `everygraph-cli`; PyPI `everygraph`; npm `everygraph`); publishing needs the owner's accounts with 2FA — all four names were free on 2026-11-25.
 - A trademark and patent professional (#122) — before anything is public.
 
