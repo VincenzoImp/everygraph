@@ -259,17 +259,16 @@ fn kernels<S: Source>(source: &S, memory: &Memory, settings: Settings) -> [u64; 
 }
 
 /// Under a budget of half the data part, with 4 threads and 4 KiB windows, the kernels
-/// give the in-memory bits, and the heap above what was in use before never exceeds the
-/// budget by more than the slack.
+/// give the in-memory bits; the heap in use never exceeds the budget's peak use by more
+/// than the slack, and it is all given back after the run.
 #[test]
 #[cfg_attr(
     miri,
     ignore = "minutes under Miri; the test above reaches the same `unsafe` code"
 )]
-fn kernels_on_a_stream_hold_no_more_heap_than_the_budget() {
+fn kernels_on_a_stream_hold_no_more_heap_than_they_reserve() {
     let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-    let n = 10_000;
-    let (offsets, targets) = symmetric(n);
+    let (offsets, targets) = symmetric(20_000);
     let encoded = encode(&offsets, &targets).unwrap();
     let index = AdjacencyIndex::parse(&encoded.index).unwrap();
     let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
@@ -277,16 +276,31 @@ fn kernels_on_a_stream_hold_no_more_heap_than_the_budget() {
     let data = MemorySource::new(&encoded.data[..]);
     let streamed = CompressedStream::new(&index, &data, 0).unwrap();
     let limit = encoded.data.len() as u64 / 2;
-    let memory = Memory::from(Arc::new(Budget::new(limit)));
-    let threads = NonZeroUsize::new(4).unwrap();
-    let base = counting::live();
-    counting::reset_peak();
-    let got =
-        par::with_threads(threads, || kernels(&streamed, &memory, streamed.settings())).unwrap();
-    let over = counting::peak() - base;
+    let budget = Arc::new(Budget::new(limit));
+    let memory = Memory::from(budget.clone());
+    // Inside the thread pool, after one run, so that the heap its threads keep for good
+    // is in the baseline.
+    let (got, over, after) = par::with_threads(NonZeroUsize::new(4).unwrap(), || {
+        kernels(&streamed, &memory, streamed.settings());
+        let base = counting::live();
+        counting::reset_peak();
+        let got = kernels(&streamed, &memory, streamed.settings());
+        (
+            got,
+            counting::peak() - base,
+            counting::live().abs_diff(base),
+        )
+    })
+    .unwrap();
     assert_eq!(got, expected);
+    let peak = usize::try_from(budget.peak()).unwrap();
     assert!(
-        over <= usize::try_from(limit).unwrap() + SLACK,
-        "{over} B of heap, budget {limit} B"
+        over <= peak + SLACK,
+        "{over} B of heap, {peak} B reserved at most"
+    );
+    assert_eq!(
+        (after, budget.used()),
+        (0, 0),
+        "heap and budget after the run"
     );
 }

@@ -358,6 +358,11 @@ impl DecodeReader {
         self.max_entries
     }
 
+    /// Lists per call at most.
+    pub(super) fn lists(&self) -> usize {
+        self.lists
+    }
+
     /// The only list of the batch, after a decode of one node.
     pub(super) fn only(&self) -> &[u32] {
         self.batch.list(0)

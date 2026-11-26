@@ -25,6 +25,7 @@ cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-feat
 cargo build -p everygraph-ingest --target wasm32-unknown-unknown
 cargo build -p everygraph-wasm --target wasm32-unknown-unknown
 cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets -- -D warnings
+cargo clippy -p everygraph-kernels --target i686-unknown-linux-gnu --all-targets -- -D warnings
 cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-community --target wasm32-unknown-unknown -- -D warnings

@@ -545,3 +545,43 @@ fn proof_kernels_and_their_work_do_not_depend_on_source_or_threads() {
         }
     }
 }
+
+/// With scans in alternating order, the second scan runs its tasks from the last, and
+/// still reports the first corrupt list in node order, not the first one it reached.
+#[test]
+fn an_alternating_scan_reports_the_first_corrupt_list_in_node_order() {
+    let n = 2000_u32;
+    let (mut offsets, mut targets) = (vec![0_u64], Vec::new());
+    for v in 0..n {
+        targets.push(if v == 100 || v == 1900 {
+            n + v
+        } else {
+            (v + 1) % n
+        });
+        offsets.push(targets.len() as u64);
+    }
+    let encoded = encode(&offsets, &targets).unwrap();
+    let index = AdjacencyIndex::parse(&encoded.index).unwrap();
+    let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
+    let settings = Settings {
+        chunk_entries: 64,
+        alternate: true,
+        ..Settings::default()
+    };
+    for threads in [1, 4] {
+        Plan::with(&heap, &Memory::unlimited(), settings, |plan| {
+            par::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                for scan in 0..2 {
+                    let e = plan
+                        .scan((), all, |(): &mut (), (), _, _, _| ())
+                        .unwrap_err();
+                    assert!(
+                        matches!(e, Error::Target { node: 100, .. }),
+                        "scan {scan}, {threads} threads: {e}"
+                    );
+                }
+            })
+            .unwrap();
+        });
+    }
+}

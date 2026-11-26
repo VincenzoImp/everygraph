@@ -12,13 +12,16 @@
 //! on raw arrays (FINDINGS § B1, lab). Iterative kernels such as `PageRank` lose less.
 //!
 //! - **Scans read ahead.** When a task needs a record outside the window, one read fills
-//!   the window from that record, up to the window's size or the task's end. A task of
-//!   about one window ([`CompressedStream::settings`]) then costs one read.
+//!   the window from that record, up to the window's size or the task's end. The bytes
+//!   the window already holds from there on are moved, not read again. So a scan reads
+//!   about the data part once: at most 1.05 times it at the smallest window, counted at
+//!   the source in `tests/framework.rs`.
 //! - **Only active lists.** In a block where at most half the nodes pass the filter,
 //!   only the records of the nodes that pass are read, merged where they are less than
 //!   16 KiB apart. So a kernel whose active set shrinks (bottom-up BFS, the finish of
 //!   components) reads less as it goes (on-demand reads through the offsets: Seraph,
-//!   FAST 2024).
+//!   FAST 2024). Reads are whole 4 KiB pages, so this saves bytes only where the active
+//!   nodes are sparser than about one per page of records.
 //! - **Frontiers and random access** read the records asked for, merged in the same way.
 //!
 //! Whether reads go through the page cache or around it is the [`ByteSource`]'s choice:
@@ -36,7 +39,7 @@ use everygraph_core::{
     AccessHint, AlignedBuf, ByteSource, DEFAULT_SEGMENT_SIZE, Memory, MemoryError, MemoryKind,
     NodeId, Reservation, SEGMENT_ALIGN, SegVec,
 };
-use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, Batch, FormatError};
+use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, Batch, FormatError, record_bound};
 
 use super::source::{COALESCE_GAP, DecodeReader, advise_runs};
 use super::{Error, FRONTIER_GRAIN, Settings, Source, block_nodes, ix, one_segment};
@@ -45,6 +48,11 @@ const ALIGN: u64 = SEGMENT_ALIGN as u64;
 
 /// Largest window: 8 MiB, the lab's per-worker read (FINDINGS § B1).
 const MAX_WINDOW: u64 = DEFAULT_SEGMENT_SIZE;
+
+/// Fewest bytes of records in a task of [`CompressedStream::settings`]. A task's first
+/// read starts at a 4 KiB boundary, so it may read again up to 4 KiB that the task
+/// before it read; at 256 KiB a task, that is less than 2%.
+const MIN_TASK: u64 = 256 << 10;
 
 /// The last advice given to the data part.
 const NONE: u8 = 0;
@@ -76,9 +84,8 @@ impl fmt::Debug for CompressedStream<'_> {
 #[derive(Debug)]
 pub struct WindowReader {
     io: Window,
-    /// Capacity reserved for `lists` nodes, so that it is one segment.
+    /// Capacity reserved for the decode batch's lists, so that it is one segment.
     active: SegVec<u32>,
-    lists: usize,
 }
 
 #[derive(Debug)]
@@ -89,32 +96,36 @@ struct Window {
     bytes: Range<u64>,
     /// Invariant: `held.bytes()` is the heap of `buf`.
     held: Reservation,
+    /// The size `buf` keeps: a window and the records of one batch, so that a batch
+    /// needs a larger buffer only when its first list alone does.
+    usual: usize,
     /// Where a scan reads ahead to: the end of the records of its task.
     task_end: u64,
 }
 
 impl Window {
-    /// Makes `buf` at least `len` bytes long, and at least `usual`; reserved first.
-    fn make_room(&mut self, len: usize, usual: usize) -> Result<(), Error> {
+    /// Moves `buf[keep]` to the start of a buffer of at least `len` bytes; a larger
+    /// buffer, of at least `usual` bytes, is reserved before it is made.
+    fn shift(&mut self, len: usize, keep: Range<usize>) -> Result<(), Error> {
+        self.bytes = 0..0;
         if len <= self.buf.len() {
+            self.buf.as_mut_slice().copy_within(keep, 0);
             return Ok(());
         }
-        let want = len.max(usual);
+        let want = len.max(self.usual);
         // `AlignedBuf` holds its length and less than `ALIGN` bytes of padding.
         let heap = want as u64 + ALIGN;
-        // The old buffer is freed only after the new one exists.
         self.held.try_grow(heap)?;
-        self.bytes = 0..0;
-        match AlignedBuf::try_zeroed(want) {
-            Ok(buf) => self.buf = buf,
-            Err(_) => {
-                self.held.shrink(heap);
-                return Err(Error::Memory(MemoryError::AllocationFailed {
-                    purpose: "edge-map stream window",
-                    bytes: heap,
-                }));
-            }
-        }
+        let Ok(mut buf) = AlignedBuf::try_zeroed(want) else {
+            self.held.shrink(heap);
+            return Err(Error::Memory(MemoryError::AllocationFailed {
+                purpose: "edge-map stream window",
+                bytes: heap,
+            }));
+        };
+        let kept = keep.len();
+        buf.as_mut_slice()[..kept].copy_from_slice(&self.buf.as_slice()[keep]);
+        self.buf = buf;
         self.held.shrink(self.held.bytes() - heap);
         Ok(())
     }
@@ -151,9 +162,10 @@ impl<'a> CompressedStream<'a> {
         })
     }
 
-    /// The window that lets `readers` readers take at most half of `available` bytes,
-    /// between 4 KiB and 8 MiB. The other half is left for the readers' decode batches
-    /// and for lists longer than a window.
+    /// The window that gives `readers` readers at most half of `available` bytes,
+    /// between 4 KiB and 8 MiB; the other half is left for their decode batches. At the
+    /// 4 KiB floor the readers may need more than half: a planner checks
+    /// [`reader_memory`](Self::reader_memory) against the budget.
     #[must_use]
     pub fn window_for(available: u64, readers: usize) -> usize {
         let share = available / 2 / (readers.max(1) as u64);
@@ -166,12 +178,13 @@ impl<'a> CompressedStream<'a> {
         ix(self.window)
     }
 
-    /// Settings for this source: tasks of about one window of records, and every second
-    /// scan in reverse order ([`Settings::alternate`]).
+    /// Settings for this source: tasks of about one window of records (and at least
+    /// 256 KiB), and every second scan in reverse order ([`Settings::alternate`]).
     #[must_use]
     pub fn settings(&self) -> Settings {
         let data = u128::from(self.index.data_bytes().max(1));
-        let entries = u128::from(self.window) * u128::from(self.index.entries()) / data;
+        let task = u128::from(self.window.max(MIN_TASK));
+        let entries = task * u128::from(self.index.entries()) / data;
         Settings {
             chunk_entries: u64::try_from(entries).unwrap_or(u64::MAX).max(1),
             alternate: true,
@@ -179,19 +192,40 @@ impl<'a> CompressedStream<'a> {
         }
     }
 
-    /// The memory that the readers of a plan over this source reserve with `settings`,
-    /// when `workers` workers run its drivers: two readers per worker (one for the
-    /// driver, one for [`Lists::get`](super::Lists::get)). A list longer than the window
-    /// or than a batch makes its reader take more while it is read.
+    /// The most memory that the readers of a plan over this source reserve with
+    /// `settings`, when `workers` workers run its drivers: two readers per worker (one
+    /// for the driver, one for [`Lists::get`](super::Lists::get)), each with its buffer
+    /// and its decode batch while the batch grows. A list longer than a batch makes its
+    /// reader take more while it is read.
     #[must_use]
     pub fn reader_memory(&self, settings: &Settings, workers: usize) -> u64 {
         let lists = ix(block_nodes(self.n).into()).max(FRONTIER_GRAIN);
-        let batch = settings.batch_entries.max(1).saturating_add(8);
-        let reader = self.window
-            + ALIGN
-            + Batch::bytes_for(batch, lists) as u64
-            + (lists * size_of::<u32>()) as u64;
+        // A batch holds no more entries than the graph.
+        let entries = self.index.entries().saturating_add(8);
+        let batch = (settings.batch_entries.max(1) as u64).min(entries);
+        let decode = Batch::bytes_for(0, lists) as u64
+            + (batch + 8) * size_of::<u32>() as u64
+            + Batch::bytes_for(0, lists) as u64;
+        let reader =
+            self.usual(ix(batch)) as u64 + ALIGN + decode + (lists * size_of::<u32>()) as u64;
         reader.saturating_mul(2 * workers as u64)
+    }
+
+    /// The buffer a reader keeps for batches of about `batch` entries: one window and
+    /// the records of one batch (at most `⌈e/4⌉ + 4e` bytes for `e` entries, and one
+    /// more control byte for each list, and no more than the data part), across 4 KiB
+    /// boundaries on both sides.
+    fn usual(&self, batch: usize) -> usize {
+        let entries = batch as u64;
+        let records = record_bound(entries)
+            .saturating_add(entries)
+            .min(self.index.data_bytes());
+        let bytes = self
+            .window
+            .saturating_add(records)
+            .saturating_add(2 * ALIGN);
+        let bytes = bytes.checked_next_multiple_of(ALIGN).unwrap_or(u64::MAX);
+        usize::try_from(bytes).unwrap_or(usize::MAX)
     }
 
     /// The offset in the data part of the record of `v`, for `v` in `0..=nodes`.
@@ -263,21 +297,17 @@ impl<'a> CompressedStream<'a> {
             .min(self.data.len());
         let len = ix(end - start);
         let held = io.bytes.clone();
-        let keep = if len <= io.buf.len() && held.contains(&start) {
-            // `held.end` is a multiple of 4 KiB: it is below `need.end`, so not the end
-            // of the data part.
-            let from = ix(start - held.start);
-            io.buf
-                .as_mut_slice()
-                .copy_within(from..ix(held.end - held.start), 0);
-            held.end - start
+        // On a miss `need.end` is past `held.end`, so `held.end` is not the end of the
+        // data part and is a multiple of 4 KiB.
+        let keep = if held.contains(&start) {
+            ix(start - held.start)..ix(held.end - held.start)
         } else {
-            io.make_room(len, ix(self.window))?;
-            0
+            0..0
         };
-        io.bytes = 0..0;
-        let read = &mut io.buf.as_mut_slice()[ix(keep)..len];
-        self.data.read_at(start + keep, read)?;
+        let kept = keep.len();
+        io.shift(len, keep)?;
+        let read = &mut io.buf.as_mut_slice()[kept..len];
+        self.data.read_at(start + kept as u64, read)?;
         io.bytes = start..end;
         Ok(())
     }
@@ -368,10 +398,10 @@ unsafe impl Source for CompressedStream<'_> {
                 buf: AlignedBuf::default(),
                 bytes: 0..0,
                 held: Reservation::empty(memory, "edge-map stream window", MemoryKind::Anonymous),
+                usual: self.usual(batch),
                 task_end: 0,
             },
             active,
-            lists: lists.max(1),
         })
     }
 
@@ -387,7 +417,7 @@ unsafe impl Source for CompressedStream<'_> {
         filter: impl Fn(u32) -> bool,
         mut f: impl FnMut(u32, u64, &[u32]),
     ) -> Result<(), Error> {
-        let piece = u32::try_from(r.lists).unwrap_or(u32::MAX);
+        let piece = u32::try_from(r.io.decode.lists().max(1)).unwrap_or(u32::MAX);
         let mut at = nodes.start;
         while at < nodes.end {
             let stop = at.saturating_add(piece).min(nodes.end);
@@ -429,7 +459,7 @@ unsafe impl Source for CompressedStream<'_> {
 
     fn idle(&self, r: &mut WindowReader) {
         r.io.decode.release();
-        if r.io.buf.len() as u64 > self.window {
+        if r.io.buf.len() > r.io.usual {
             r.io.buf = AlignedBuf::default();
             r.io.bytes = 0..0;
             r.io.held.shrink(r.io.held.bytes());

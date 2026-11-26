@@ -9,9 +9,11 @@
 
 mod support;
 
+use everygraph_core::Memory;
 use everygraph_core::NodeId;
 use everygraph_format::adjacency::{
-    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode,
+    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, IndexBuilder, append_record,
+    encode,
 };
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
@@ -168,6 +170,38 @@ fn a_part_is_checked_against_the_index() {
     assert!(Adjacency::part(&index, 0..len, data).is_ok());
     assert!(Adjacency::part(&index, 1..len + 1, data).is_err());
     assert!(Adjacency::part(&index, 0..len - 1, data).is_err());
+}
+
+/// A part of a data part of more than 4 GiB: its offsets do not fit a 32-bit `usize`
+/// until they are made relative to the part, and then they decode. Node 0 has a record
+/// of 5 GB that no test holds; node 1's record is the part.
+#[test]
+fn a_part_past_4_gib_decodes_on_every_target() {
+    let hub: u32 = 4_000_000_000;
+    let mut builder = IndexBuilder::new(&Memory::unlimited(), 3).unwrap();
+    builder
+        .push(hub, u64::from(hub.div_ceil(4)) + u64::from(hub))
+        .unwrap();
+    let mut record = Vec::new();
+    let degree = append_record(1, [0, 2], &mut record).unwrap();
+    builder.push(degree, record.len() as u64).unwrap();
+    builder.push(0, 0).unwrap();
+    let (bytes, _held) = builder.finish(false).unwrap();
+    let index = AdjacencyIndex::parse(&bytes).unwrap();
+    let start = index.record_range(id(1)).start;
+    assert!(start > u64::from(u32::MAX));
+    let range = start..start + record.len() as u64;
+    let mut buf = Vec::new();
+    let mut batch = Batch::default();
+    for decoder in Decoder::available() {
+        let part = Adjacency::part(&index, range.clone(), &record)
+            .unwrap()
+            .with_decoder(decoder);
+        assert_eq!(part.neighbors(id(1), &mut buf).unwrap(), &[0, 2]);
+        assert_eq!(part.decode_nodes(1..3, 8192, &mut batch).unwrap(), 3);
+        assert_eq!(batch.list(0), &[0, 2]);
+        assert!(part.neighbors_prefix(id(0), 1, &mut buf).is_err());
+    }
 }
 
 /// The tests above go through `Decoder::available()`; this makes sure a run with a SIMD

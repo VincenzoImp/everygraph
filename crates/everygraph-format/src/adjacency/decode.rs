@@ -20,7 +20,7 @@ const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero")
 pub(super) struct Job<'a> {
     data: &'a [u8],
     /// The offset of `data` in the data part.
-    data_start: usize,
+    data_start: u64,
     /// Entry offsets.
     entries: &'a EliasFano,
     /// Byte offsets.
@@ -40,7 +40,8 @@ pub(super) struct Done {
 }
 
 /// Where each list of a run ends: in the output (`entries`, relative to the run's first
-/// entry) and in the data (`bytes`, absolute). Reused from run to run.
+/// entry) and in `data` (`bytes`, [`NOT_HELD`] past what `usize` holds). Reused from
+/// run to run.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Ends {
     pub(super) entries: Vec<usize>,
@@ -96,16 +97,23 @@ pub(super) fn run(
         true
     });
     let lists = ends.entries.len();
+    // Byte offsets of the data part are `u64`: on a 32-bit target a part of a data part
+    // of 4 GiB or more has offsets that only become `usize` relative to its start.
+    let held = |x: u64| {
+        x.checked_sub(data_start)
+            .and_then(|i| usize::try_from(i).ok())
+            .unwrap_or(NOT_HELD)
+    };
     let (mut at, mut started) = (0, false);
     bytes.scan_from(first, |x| {
         if !started {
-            (at, started) = (to_usize(x), true);
+            (at, started) = (held(x), true);
             return true;
         }
         if ends.bytes.len() == lists {
             return false;
         }
-        ends.bytes.push(to_usize(x));
+        ends.bytes.push(held(x));
         true
     });
     let stop = nodes.start + u32::try_from(lists).expect("at most one list per node");
@@ -117,8 +125,7 @@ pub(super) fn run(
                 first: v,
                 end: v + 1,
             };
-            let rec = at.checked_sub(data_start).and_then(|i| data.get(i..));
-            let rec = rec.ok_or(Corrupt).map_err(corrupt)?;
+            let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
             let used = kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
             if at + used != record_end {
                 return Err(corrupt(Corrupt));
@@ -132,6 +139,9 @@ pub(super) fn run(
         entries: s,
     })
 }
+
+/// A byte offset outside what `usize` holds, or before the part: no record there is read.
+const NOT_HELD: usize = usize::MAX;
 
 fn to_usize(x: u64) -> usize {
     usize::try_from(x).expect("an offset inside data held in memory")
@@ -406,7 +416,8 @@ impl<'a> Adjacency<'a> {
             end: v.get() + 1,
         };
         let range = self.index.record_range(v);
-        let rec = range.start.checked_sub(self.base).map(to_usize);
+        let rec = range.start.checked_sub(self.base);
+        let rec = rec.and_then(|i| usize::try_from(i).ok());
         let rec = rec.and_then(|i| self.data.get(i..)).ok_or(corrupt)?;
         grow(buf, k + SLACK);
         let used = self
@@ -430,7 +441,7 @@ impl<'a> Adjacency<'a> {
     ) -> Result<Done, DecodeError> {
         let job = Job {
             data: self.data,
-            data_start: to_usize(self.base),
+            data_start: self.base,
             entries: self.index.entry_offsets(),
             bytes: self.index.byte_offsets(),
             nodes,
