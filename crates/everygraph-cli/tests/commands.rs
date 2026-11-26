@@ -1015,3 +1015,34 @@ fn golden_transcripts() {
     }
     golden("terminal.md", &md);
 }
+
+#[test]
+fn a_reader_that_closes_the_pipe_ends_the_command_quietly() {
+    use std::io::Read;
+    let dir = dir("commands", "closed-pipe");
+    let mut text = String::new();
+    for i in 0..100_000_u32 {
+        text.push_str(&format!("{i} {}\n", i + 1));
+    }
+    std::fs::write(dir.join("p.txt"), text).unwrap();
+    assert_eq!(
+        run(&dir, &["ingest", "p.txt", "--undirected"])
+            .status
+            .code(),
+        Some(0)
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_everygraph"))
+        .current_dir(&dir)
+        .args(["run", "degrees", "p.eg"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // As `head -1` does: read the first line, then close the pipe.
+    let mut first = [0_u8; 64];
+    let n = child.stdout.take().unwrap().read(&mut first).unwrap();
+    assert!(n > 0);
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(out.stderr.is_empty(), "{}", stderr(&out));
+}
