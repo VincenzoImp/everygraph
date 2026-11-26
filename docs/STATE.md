@@ -112,3 +112,4 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
   requests in one day, and each cost a CI rerun.
 - When every stream waits on CI or review at once, the machine is idle. Keep a queue of
   ready experiments (M1 issues that need no merge) to start when the load drops.
+- Runs on `main` shared one CI concurrency group, so GitHub cancelled every pending run when a newer merge queued: most merged commits were never tested on `main` (fixed in PR #262). After the dev profile changed (#256), caches were cold and an advisory mutants shard hit its job limit and showed red.
