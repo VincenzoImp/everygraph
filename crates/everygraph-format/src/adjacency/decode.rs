@@ -17,7 +17,7 @@ use super::{DecodeError, FormatError};
 const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
 
 /// A run of consecutive lists to decode.
-pub(super) struct Job<'a> {
+pub(super) struct Job<'a, 'f> {
     data: &'a [u8],
     /// Offset in the data part of `data[0]`.
     base: u64,
@@ -31,6 +31,8 @@ pub(super) struct Job<'a> {
     limit: usize,
     /// Entries decoded of each list, at most: its prefix.
     prefix: usize,
+    /// Whether to decode the record of a node; `None`: every record.
+    select: Option<&'f mut dyn FnMut(u32) -> bool>,
 }
 
 /// Where a [`run`] stopped.
@@ -53,8 +55,8 @@ pub(super) struct Ends {
 /// Decodes the lists of `job.nodes` one after the other into `out`, until the next one
 /// would not fit in `job.limit` entries (the first list always does; `out` has room for
 /// what can be written), and leaves where each list ends in `ends`. Of each list only the
-/// first `job.prefix` entries are decoded; a record decoded in full is checked, a prefix
-/// is not.
+/// first `job.prefix` entries are decoded, and none of the lists that `job.select`
+/// leaves out; a record decoded in full is checked, a prefix is not.
 ///
 /// Two passes: where every list ends, in entries and in bytes, from the two Elias–Fano
 /// sequences; then the records, each checked to end exactly where the index says
@@ -67,7 +69,7 @@ pub(super) struct Ends {
 #[inline(always)]
 pub(super) fn run(
     kernel: impl Fn(&[u8], u32, usize, usize, &mut [u32]) -> Result<usize, Corrupt>,
-    job: Job<'_>,
+    job: Job<'_, '_>,
     out: &mut [u32],
     ends: &mut Ends,
 ) -> Result<Done, DecodeError> {
@@ -79,6 +81,7 @@ pub(super) fn run(
         nodes,
         limit,
         prefix,
+        mut select,
     } = job;
     ends.entries.clear();
     ends.bytes.clear();
@@ -93,9 +96,19 @@ pub(super) fn run(
             (prev, started) = (x, true);
             return true;
         }
-        let next = end + to_usize(x - prev).min(prefix);
         let lists = ends.entries.len();
-        if lists == count || (lists > 0 && next > limit) {
+        if lists == count {
+            return false;
+        }
+        let v = nodes.start + u32::try_from(lists).expect("at most one list per node");
+        let wanted = select.as_mut().is_none_or(|f| f(v));
+        let next = end
+            + if wanted {
+                to_usize(x - prev).min(prefix)
+            } else {
+                0
+            };
+        if lists > 0 && next > limit {
             return false;
         }
         (prev, end) = (x, next);
@@ -131,7 +144,7 @@ pub(super) fn run(
         }
         Ok(())
     };
-    if prefix == usize::MAX {
+    if prefix == usize::MAX && select.is_none() {
         for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
             if end > s {
                 record(v, at, s, end, end - s, record_end)?;
@@ -141,7 +154,7 @@ pub(super) fn run(
         }
     } else {
         // The degrees are needed only here: whole lists keep the loop above free of a
-        // third Elias–Fano iteration.
+        // third Elias–Fano iteration. A list left out has `end == s`.
         let mut offsets = entries.iter_from(first);
         let mut from = offsets.next().unwrap_or(0);
         for ((v, (&end, &record_end)), to) in (nodes.start..).zip(lists).zip(offsets) {
@@ -480,7 +493,7 @@ impl<'a> Adjacency<'a> {
         &self,
         nodes: Range<u32>,
         limit: usize,
-        prefix: usize,
+        (prefix, select): (usize, Option<&mut dyn FnMut(u32) -> bool>),
         out: &mut [u32],
         ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
@@ -492,6 +505,7 @@ impl<'a> Adjacency<'a> {
             nodes,
             limit,
             prefix,
+            select,
         };
         self.decoder.run(job, out, ends)
     }
@@ -527,16 +541,20 @@ impl<'a> Adjacency<'a> {
         max_entries: usize,
         batch: &mut Batch,
     ) -> Result<u32, DecodeError> {
-        self.decode_prefixes(nodes, usize::MAX, max_entries, batch)
+        self.decode_into_batch(nodes, (usize::MAX, None), max_entries, batch)
     }
 
-    /// As [`decode_nodes`](Self::decode_nodes), but of each list only its first `prefix`
-    /// entries (all of them if it has fewer): list `i` of the batch is then that prefix,
-    /// and `max_entries` counts prefix entries. A reader that needs only the start of
-    /// each list does not decode the rest (bottom-up BFS stops at the first parent).
+    /// As [`decode_nodes`](Self::decode_nodes), but only of the lists of the nodes that
+    /// `select` passes, and of each only its first `prefix` entries (all of them if it
+    /// has fewer): list `i` of the batch is then that prefix, empty for a node left out,
+    /// and `max_entries` counts the entries decoded. The record of a node left out is
+    /// not read. A reader that needs only some lists, or only the start of each, does
+    /// not decode the rest (bottom-up BFS skips the nodes it reached and stops at the
+    /// first parent).
     ///
-    /// A record decoded in full is checked to end where the index says; a prefix is not,
-    /// so a damaged byte after it goes unseen.
+    /// `select` is called once for each node of the batch, in order, and once more for
+    /// the node a batch stops before. A record decoded in full is checked to end where
+    /// the index says; a prefix is not, so a damaged byte after it goes unseen.
     ///
     /// # Errors
     ///
@@ -549,6 +567,17 @@ impl<'a> Adjacency<'a> {
         &self,
         nodes: Range<u32>,
         prefix: usize,
+        mut select: impl FnMut(u32) -> bool,
+        max_entries: usize,
+        batch: &mut Batch,
+    ) -> Result<u32, DecodeError> {
+        self.decode_into_batch(nodes, (prefix, Some(&mut select)), max_entries, batch)
+    }
+
+    fn decode_into_batch(
+        &self,
+        nodes: Range<u32>,
+        (prefix, select): (usize, Option<&mut dyn FnMut(u32) -> bool>),
         max_entries: usize,
         batch: &mut Batch,
     ) -> Result<u32, DecodeError> {
@@ -567,7 +596,7 @@ impl<'a> Adjacency<'a> {
             self.prefix_entries(nodes.clone(), prefix, max_entries),
         );
         let (targets, ends) = (&mut batch.targets, &mut batch.ends);
-        match self.decode_into(nodes, max_entries, prefix, targets, ends) {
+        match self.decode_into(nodes, max_entries, (prefix, select), targets, ends) {
             Ok(done) => {
                 batch.entries = done.entries;
                 Ok(done.node)
@@ -730,7 +759,7 @@ impl<'a> Adjacency<'a> {
                     .decode_into(
                         nodes.clone(),
                         usize::MAX,
-                        usize::MAX,
+                        (usize::MAX, None),
                         out,
                         &mut Ends::default(),
                     )

@@ -151,12 +151,18 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                     "{name} {r:?} budget {budget}"
                 );
             }
-            // Prefixes, in batches whose budget counts prefix entries.
-            let prefixes: &[usize] = if MIRI { &[3] } else { &[1, 3, 4, 8, 64] };
-            for (&prefix, &budget) in prefixes
+            // Prefixes of some lists, in batches whose budget counts the entries decoded.
+            let prefixes: &[usize] = if MIRI {
+                &[3]
+            } else {
+                &[1, 3, 4, 8, 64, usize::MAX]
+            };
+            for (k, (&prefix, &budget)) in prefixes
                 .iter()
                 .zip([usize::MAX, 5, 0, 9, 64].iter().cycle())
+                .enumerate()
             {
+                let chosen = |v: u32| k == 0 || (v % 3 != 1);
                 let mut at = r.start;
                 while at < r.end {
                     batch.reserve(
@@ -165,14 +171,19 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                     );
                     let held = batch.heap_bytes();
                     let next = adj
-                        .decode_prefixes(at..r.end, prefix, budget, &mut batch)
+                        .decode_prefixes(at..r.end, prefix, chosen, budget, &mut batch)
                         .unwrap();
                     assert_eq!(batch.heap_bytes(), held, "{name} prefix batch {r:?} grew");
                     assert_eq!((batch.first(), ix(next - at)), (at, batch.len()));
                     assert!(batch.len() == 1 || batch.targets().len() <= budget);
                     for (v, l) in batch.iter() {
                         let want = list(offsets, targets, v.index());
-                        assert_eq!(l, &want[..prefix.min(want.len())], "{name} prefix {prefix}");
+                        let len = if chosen(v.get()) {
+                            prefix.min(want.len())
+                        } else {
+                            0
+                        };
+                        assert_eq!(l, &want[..len], "{name} prefix {prefix}");
                     }
                     at = next;
                 }
@@ -380,8 +391,14 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Result<Vec<u32>, DecodeError>> {
     for b in 0..index.blocks() {
         for prefix in [usize::MAX, 1, 4, 6] {
             out.push(
-                adj.decode_prefixes(index.block_nodes(b), prefix, usize::MAX, &mut batch)
-                    .map(|_| batch.targets().to_vec()),
+                adj.decode_prefixes(
+                    index.block_nodes(b),
+                    prefix,
+                    |v| v % 3 != 1,
+                    usize::MAX,
+                    &mut batch,
+                )
+                .map(|_| batch.targets().to_vec()),
             );
         }
     }
@@ -457,7 +474,7 @@ fn apis_agree(adj: Adjacency<'_>) {
                         .map(<[u32]>::to_vec)
                 })
                 .collect();
-            let got = adj.decode_prefixes(nodes.clone(), k, usize::MAX, &mut batch);
+            let got = adj.decode_prefixes(nodes.clone(), k, |_| true, usize::MAX, &mut batch);
             assert_eq!(
                 got.is_ok(),
                 alone.iter().all(Result::is_ok),

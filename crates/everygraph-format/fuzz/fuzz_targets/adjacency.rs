@@ -41,7 +41,7 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Outcome> {
         for prefix in [usize::MAX, 6] {
             let mut at = nodes.start;
             while at < nodes.end {
-                match adj.decode_prefixes(at..nodes.end, prefix, 7, &mut batch) {
+                match adj.decode_prefixes(at..nodes.end, prefix, |v| v % 3 != 1, 7, &mut batch) {
                     Ok(next) => {
                         out.push(Ok(batch.targets().to_vec()));
                         at = next;

@@ -147,7 +147,7 @@ impl Decoder {
     /// Consecutive records; see [`decode::run`].
     pub(super) fn run(
         self,
-        job: Job<'_>,
+        job: Job<'_, '_>,
         out: &mut [u32],
         ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
@@ -492,7 +492,7 @@ mod x86 {
     /// The CPU supports SSSE3.
     #[target_feature(enable = "ssse3")]
     pub(super) unsafe fn run(
-        job: Job<'_>,
+        job: Job<'_, '_>,
         out: &mut [u32],
         ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
@@ -613,7 +613,7 @@ mod neon {
     /// The CPU supports NEON.
     #[target_feature(enable = "neon")]
     pub(super) unsafe fn run(
-        job: Job<'_>,
+        job: Job<'_, '_>,
         out: &mut [u32],
         ends: &mut Ends,
     ) -> Result<Done, DecodeError> {

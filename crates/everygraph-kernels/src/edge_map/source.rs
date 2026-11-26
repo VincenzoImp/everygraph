@@ -438,17 +438,28 @@ impl<'a> Compressed<'a> {
         })
     }
 
-    /// Decodes the first `prefix` entries of each list from `nodes.start`, as far as the
-    /// reader's batch size allows, and checks what the batch hands out; returns the first
-    /// node not decoded. A batch that fails a check is emptied.
-    fn decode(&self, r: &mut DecodeReader, nodes: Range<u32>, prefix: usize) -> Result<u32, Error> {
-        let entries = self
-            .adjacency
-            .prefix_entries(nodes.clone(), prefix, r.max_entries);
+    /// Decodes from `nodes.start`, as far as the reader's batch size allows, and checks
+    /// what the batch hands out; returns the first node not decoded. With `some`, only
+    /// the first `some.0` entries of the lists that `some.1` passes are decoded. A batch
+    /// that fails a check is emptied.
+    fn decode(
+        &self,
+        r: &mut DecodeReader,
+        nodes: Range<u32>,
+        some: Option<(usize, &mut dyn FnMut(u32) -> bool)>,
+    ) -> Result<u32, Error> {
+        let adjacency = &self.adjacency;
+        let prefix = some.as_ref().map_or(usize::MAX, |s| s.0);
+        let entries = adjacency.prefix_entries(nodes.clone(), prefix, r.max_entries);
         r.make_room(entries, nodes.len())?;
-        let checked = self
-            .adjacency
-            .decode_prefixes(nodes.clone(), prefix, r.max_entries, &mut r.batch)
+        let decoded = match some {
+            None => adjacency.decode_nodes(nodes.clone(), r.max_entries, &mut r.batch),
+            Some((prefix, select)) => {
+                let batch = &mut r.batch;
+                adjacency.decode_prefixes(nodes.clone(), prefix, select, r.max_entries, batch)
+            }
+        };
+        let checked = decoded
             .map_err(Error::from)
             .and_then(|end| self.check(&r.batch, nodes.start, end).map(|()| end));
         if checked.is_err() {
@@ -489,49 +500,42 @@ impl<'a> Compressed<'a> {
         }
     }
 
-    /// Calls `decode` on runs of `nodes` that hold every node with `filter`, in order. Two
-    /// such nodes are in one run when the nodes between them hold at most [`GAP`] entries,
-    /// `cost(degree)` each: those records are decoded and not handed out.
-    fn runs(
+    /// Calls `f(v, first_entry, list, degree)` for the first `len` entries of the list
+    /// of each node `v` of `nodes` with `filter(v)`, in order. Only those lists, and
+    /// those entries, are decoded.
+    fn some(
         &self,
+        r: &mut DecodeReader,
         nodes: Range<u32>,
-        filter: &impl Fn(u32) -> bool,
-        cost: impl Fn(u32) -> usize,
-        mut decode: impl FnMut(Range<u32>) -> Result<(), Error>,
+        filter: impl Fn(u32) -> bool,
+        len: usize,
+        mut f: impl FnMut(u32, u64, &[u32], u32),
     ) -> Result<(), Error> {
-        // Where every node passes (a scan of the whole graph), no degree is read.
-        let Some(fail) = nodes.clone().find(|&v| !filter(v)) else {
-            return if nodes.is_empty() {
-                Ok(())
-            } else {
-                decode(nodes)
-            };
-        };
-        let mut run = (nodes.start < fail).then_some(nodes.start..fail);
-        let mut gap = 0_usize;
-        let rest = fail..nodes.end;
-        for (v, d) in rest.clone().zip(self.adjacency.index().degrees(rest)) {
-            if !filter(v) {
-                gap = gap.saturating_add(cost(d));
-                continue;
-            }
-            run = match run {
-                Some(r) if gap <= GAP => Some(r.start..v + 1),
-                Some(r) => {
-                    decode(r)?;
-                    Some(v..v + 1)
-                }
-                None => Some(v..v + 1),
-            };
-            gap = 0;
+        if !nodes.clone().any(&filter) {
+            return Ok(());
         }
-        run.map_or(Ok(()), decode)
+        let index = self.adjacency.index();
+        let mut at = nodes.start;
+        while at < nodes.end {
+            let next = self.decode(r, at..nodes.end, Some((len.max(1), &mut |v| filter(v))))?;
+            let mut entry = self.entry_offset(at);
+            for ((v, list), d) in r.batch.iter().zip(index.degrees(at..next)) {
+                // A list left out is empty in the batch. An empty list is the list of a
+                // node of degree 0, whatever `filter` says now.
+                if if d == 0 {
+                    filter(v.get())
+                } else {
+                    !list.is_empty()
+                } {
+                    f(v.get(), entry, list, d);
+                }
+                entry += u64::from(d);
+            }
+            at = next;
+        }
+        Ok(())
     }
 }
-
-/// Entries of nodes that a scan's filter leaves out, between two nodes it passes, that
-/// are decoded rather than skipped: a new decode starts with two Elias–Fano selects.
-const GAP: usize = 64;
 
 // SAFETY: every list handed out comes from the reader's batch after `check` accepted it
 // in the same call: the batch holds the lists asked for, they lie inside
@@ -582,24 +586,9 @@ unsafe impl Source for Compressed<'_> {
         filter: impl Fn(u32) -> bool,
         mut f: impl FnMut(u32, u64, &[u32]),
     ) -> Result<(), Error> {
-        self.runs(
-            nodes,
-            &filter,
-            |d| ix(d.into()),
-            |run| {
-                let mut at = run.start;
-                while at < run.end {
-                    let next = self.decode(r, at..run.end, usize::MAX)?;
-                    self.hand_out(r, |v, entry, list| {
-                        if filter(v) {
-                            f(v, entry, list);
-                        }
-                    });
-                    at = next;
-                }
-                Ok(())
-            },
-        )
+        self.some(r, nodes, filter, usize::MAX, |v, entry, list, _| {
+            f(v, entry, list)
+        })
     }
 
     fn scan_prefixes(
@@ -608,29 +597,9 @@ unsafe impl Source for Compressed<'_> {
         nodes: Range<u32>,
         filter: impl Fn(u32) -> bool,
         len: usize,
-        mut f: impl FnMut(u32, u64, &[u32], u32),
+        f: impl FnMut(u32, u64, &[u32], u32),
     ) -> Result<(), Error> {
-        let index = self.adjacency.index();
-        self.runs(
-            nodes,
-            &filter,
-            |d| ix(d.into()).min(len),
-            |run| {
-                let mut at = run.start;
-                while at < run.end {
-                    let next = self.decode(r, at..run.end, len)?;
-                    let mut entry = self.entry_offset(at);
-                    for ((v, list), d) in r.batch.iter().zip(index.degrees(at..next)) {
-                        if filter(v.get()) {
-                            f(v.get(), entry, list, d);
-                        }
-                        entry += u64::from(d);
-                    }
-                    at = next;
-                }
-                Ok(())
-            },
-        )
+        self.some(r, nodes, filter, len, f)
     }
 
     fn lists(
@@ -647,7 +616,7 @@ unsafe impl Source for Compressed<'_> {
             while end < nodes.len() && nodes[end] == nodes[end - 1] + 1 {
                 end += 1;
             }
-            let stop = self.decode(r, start..nodes[end - 1] + 1, usize::MAX)?;
+            let stop = self.decode(r, start..nodes[end - 1] + 1, None)?;
             self.hand_out(r, &mut f);
             i += ix(u64::from(stop - start));
         }
@@ -655,7 +624,7 @@ unsafe impl Source for Compressed<'_> {
     }
 
     fn list<'r>(&'r self, r: &'r mut DecodeReader, v: u32) -> Result<(u64, &'r [u32]), Error> {
-        self.decode(r, v..v + 1, usize::MAX)?;
+        self.decode(r, v..v + 1, None)?;
         Ok((self.entry_offset(v), r.batch.list(0)))
     }
 
