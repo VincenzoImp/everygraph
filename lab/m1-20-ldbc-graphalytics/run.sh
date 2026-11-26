@@ -12,8 +12,8 @@
 # com-friendster, about 15.5 GB, default /home/tux/graphlab/scratch/m1-20-ldbc-graphalytics).
 #
 # Memory limits: 8 GB for everything except building the com-friendster CSR (22 GB:
-# its symmetric lists alone are 14.4 GB) and the in-RAM friendster checks (20 GB).
-# The "stream" and "mmap" friendster checks run under 8 GB, below the 14.4 GB of lists.
+# its symmetric lists alone are 14.4 GB) and the in-RAM friendster check (20 GB).
+# The "stream" friendster check runs under 8 GB, below the 14.4 GB of lists.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -63,8 +63,9 @@ if [[ $what == friendster || $what == all ]]; then
     limit 20G "$LAB" check --graph "$FR" --csr "$CSR" --load heap --spec bfs,wcc,pr,cdlp \
         --json "$OUT/lab-com-friendster-heap.json"
     # Under a budget below the lists' 14.4 GB: semi-external PageRank and WCC, BFS on a map.
+    # Rows carry a hash of the result bits, to compare with the heap run.
+    # Not run: the specification's sequential BFS on the map under 8 GB. It visits lists in
+    # queue order and read 175 GB in 10 minutes without finishing (killed).
     limit 8G "$LAB" check --graph "$FR" --csr "$CSR" --load stream \
         --json "$OUT/lab-com-friendster-stream-8g.json"
-    limit 8G "$LAB" check --graph "$FR" --csr "$CSR" --load mmap --spec bfs,wcc,pr \
-        --json "$OUT/lab-com-friendster-mmap-8g.json"
 fi

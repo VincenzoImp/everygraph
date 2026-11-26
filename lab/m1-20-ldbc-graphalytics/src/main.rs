@@ -8,7 +8,8 @@
 //!   ldbc-lab check --graph DIR [--csr CSR --load heap|mmap|stream] [--lab pr,wcc,bfs]
 //!       [--spec bfs,pr,wcc,cdlp,lcc,sssp] [--chunk ENTRIES] [--json FILE]
 //!       Without --csr the graph is read from the LDBC files into RAM.
-//!       heap: CSR files read into RAM; mmap: CSR files mapped; stream: PageRank and WCC
+//!       The CSR files are evicted from the page cache first. heap: CSR files read into
+//!       RAM; mmap: CSR files mapped; stream: PageRank and WCC
 //!       from extmem.rs (targets read in chunks, O(n) state in RAM), BFS on the map.
 //!
 //! These are not LDBC Benchmark Results. Times are exploratory.
@@ -123,6 +124,21 @@ fn run_spec(ds: &Dataset, g: &Loaded, a: Algorithm) -> Result<Values, String> {
     })
 }
 
+/// FNV-1a over the result's bit patterns: equal hashes across loads mean the same bits.
+fn bits_hash(v: &Values) -> String {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    let mut eat = |x: u64| {
+        for b in x.to_le_bytes() {
+            h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    match v {
+        Values::Ints(x) => x.iter().for_each(|&y| eat(y)),
+        Values::Reals(x) => x.iter().for_each(|y| eat(y.to_bits())),
+    }
+    format!("{h:016x}")
+}
+
 fn atomics(v: &[AtomicU32]) -> impl Iterator<Item = u32> + '_ {
     v.iter().map(|x| x.load(Relaxed))
 }
@@ -217,25 +233,32 @@ fn check(a: &Args) {
                 "mmap" | "stream" => LoadMode::Mmap,
                 other => die(format!("unknown --load {other}")),
             };
+            // Page-cache pages stay charged to the cgroup that first read them: without
+            // eviction, a budget run would use the cache of an earlier, larger run.
+            for f in ["offsets.u64", "targets.u32"] {
+                glab_core::evict_file(&Path::new(&dir).join(f)).unwrap_or_else(|e| die(format!("evict {f}: {e}")));
+            }
             Loaded::from_csr(Path::new(&dir), mode)
         }
     };
     eprintln!("{}: loaded ({load}) in {:.1} s; threads {}", ds.name, t.elapsed().as_secs_f64(), rayon::current_num_threads());
     let available = ds.algorithms();
-    let mut rows: Vec<Row> = Vec::new();
-    let mut emit = |row: Row| {
-        eprintln!("  {}", row.describe());
-        rows.push(row);
+    let mut rows: Vec<(Row, Option<String>)> = Vec::new();
+    let mut emit = |row: Row, hash: Option<String>| {
+        eprintln!("  {}  {}", row.describe(), hash.as_deref().unwrap_or(""));
+        rows.push((row, hash));
     };
     for &alg in available.iter() {
         if specs.contains(&alg) {
             let t = Instant::now();
             let got = run_spec(&ds, &g, alg);
-            emit(run::row(&ds, &g.ids, alg, &format!("spec/{load}"), got, t.elapsed().as_secs_f64()));
+            let h = got.as_ref().ok().map(bits_hash);
+            emit(run::row(&ds, &g.ids, alg, &format!("spec/{load}"), got, t.elapsed().as_secs_f64()), h);
         }
         if lab.contains(&alg) {
             for (name, got, secs) in run_lab(&ds, &g, alg, &load, chunk) {
-                emit(run::row(&ds, &g.ids, alg, &name, got, secs));
+                let h = got.as_ref().ok().map(bits_hash);
+                emit(run::row(&ds, &g.ids, alg, &name, got, secs), h);
             }
         }
     }
@@ -244,7 +267,7 @@ fn check(a: &Args) {
             "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
             "graph": ds.name, "load": load, "chunk_entries": chunk, "threads": rayon::current_num_threads(),
             "peak_rss_bytes": glab_core::peak_rss(),
-            "rows": rows.iter().map(Row::to_json).collect::<Vec<_>>(),
+            "rows": rows.iter().map(|(r, h)| { let mut j = r.to_json(); j["bits_fnv1a64"] = h.clone().into(); j }).collect::<Vec<_>>(),
         });
         std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap_or_else(|e| die(format!("{p}: {e}")));
     }
