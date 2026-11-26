@@ -513,7 +513,7 @@ fn a_result_keeps_its_parts_and_is_replaced_with_them() {
     let nodes = file.result_part(&root, "1/nodes").unwrap().unwrap();
     let mut values = vec![0_u32; 5000];
     nodes.read(0, &mut values).unwrap();
-    assert!(values.iter().enumerate().all(|(i, &x)| x == 3 * i as u32));
+    assert!((0..5000_u32).zip(&values).all(|(i, &x)| x == 3 * i));
     assert_eq!(nodes.provenance(), root.provenance());
     assert!(file.result_part(&root, "2/nodes").unwrap().is_none());
     assert!(matches!(
