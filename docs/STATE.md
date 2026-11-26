@@ -98,6 +98,7 @@ Tell the owner when each becomes due, with everything prepared.
 
 - 2026-11-26 02:54 self-check: the main slowdown tonight is serial review rounds on product PRs (author waits for review, reviewer waits for CI, author waits for review again; #170 took three rounds). Mitigation: send both reviews' findings to the author in one message, and skip a further round when no must-fix touches correctness. Second cause: a commit without Signed-off-by after the DCO check was turned on; agents now get the sign-off rule in their brief.
 - 2026-11-26 03:54 self-check: load average 45 on 32 hardware threads with about nine code agents (kernels ×2, allocator, results cache, columns fixes, verify fixes, mmap experiment, LDBC, one review). CPU, not the network, is now the limit: more compiling agents would slow all of them. Rule of thumb for this machine: at most about 8 agents that compile at once (with `CARGO_BUILD_JOBS=6`), research and reviews on top.
+- 2026-11-26 05:15: a 2.5-hour window idles every code agent (seven had their fixes written and waited to compile). Split long windows: run the short official cases first, let agents build and push, then run the long ones (det-leiden, mmap-hints) in a second window when few agents compile.
 ## Journal
 
 - **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner
