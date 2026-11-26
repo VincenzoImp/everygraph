@@ -216,7 +216,7 @@ mod tests {
 
     use super::*;
     use crate::edge_map::{Csr, Settings};
-    use crate::rng::{below, draw};
+    use everygraph_core::rng::{Purpose, below, draw};
 
     #[test]
     fn buckets_follow_the_hierarchy_of_liu_et_al() {
@@ -232,14 +232,18 @@ mod tests {
 
     /// Random decreases of random keys, popped against an ordered set of (key, node).
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "safe code; Miri checks the unsafe code, which the framework tests reach"
+    )]
     fn pops_match_an_ordered_set() {
-        let n: u32 = if cfg!(miri) { 300 } else { 3000 };
+        let n = 3000_u32;
         let offsets: Vec<u64> = (0..=n).map(|_| 0).collect();
         let csr = Csr::new(&offsets, &[]).unwrap();
         let memory = Memory::unlimited();
-        for seed in 0..if cfg!(miri) { 1 } else { 4 } {
+        for seed in 0..4 {
             Plan::with(&csr, &memory, Settings::default(), |plan| {
-                let r = |i: u32, j: u32, m: u64| below(draw(seed, *b"bktt", [i, j, 0]), m);
+                let r = |i: u32, j: u32, m: u64| below(draw(seed, Purpose::TEST, [i, j, 0, 0]), m);
                 let keys: Vec<AtomicU32> = (0..n)
                     .map(|v| AtomicU32::new(u32::try_from(r(v, 0, 1 << (v % 20))).unwrap()))
                     .collect();

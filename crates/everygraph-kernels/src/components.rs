@@ -24,17 +24,17 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
+use everygraph_core::rng::{Purpose, below, draw};
 use everygraph_core::{Memory, MemoryKind, SegVec, par};
 
 use crate::Atomics;
 use crate::edge_map::{Error, Node, NodeCells, Plan, Source, ix};
-use crate::rng::{below, draw};
 
 /// Nodes per task of the passes outside the drivers.
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");
 
-/// The key of the sampling's draws. Labels do not depend on it.
-const SEED: u64 = 0x5743_4320_6b6f_7574;
+/// The seed of the sampling's draws. Labels do not depend on it.
+const SEED: u64 = 0;
 
 /// How [`wcc`] reads the graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,7 +94,11 @@ fn giant<'g, S: Source>(plan: &Plan<'_, 'g, S>, parent: &NodeCells<'g>) -> Optio
     let n = u64::from(plan.nodes());
     let mut labels: Vec<Node<'g>> = (0..1024)
         .filter_map(|i| {
-            let v = u32::try_from(below(draw(SEED, *b"wccg", [i, 0, 0]), n)).ok()?;
+            let v = u32::try_from(below(
+                draw(SEED, Purpose::COMPONENTS_GIANT, [i, 0, 0, 0]),
+                n,
+            ))
+            .ok()?;
             Some(parent.load(plan.node(v)?, Relaxed))
         })
         .collect();
@@ -132,7 +136,10 @@ pub fn wcc<S: Source>(
                 };
                 unite(&parent, u, first);
                 if let Some(rest) = list.len().checked_sub(1).filter(|&r| r > 0) {
-                    let at = below(draw(SEED, *b"wcck", [u.get(), 0, 0]), rest as u64);
+                    let at = below(
+                        draw(SEED, Purpose::COMPONENTS_NEIGHBOUR, [u.get(), 0, 0, 0]),
+                        rest as u64,
+                    );
                     unite(&parent, u, list[1 + ix(at)]);
                 }
             },

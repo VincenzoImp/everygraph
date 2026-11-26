@@ -27,11 +27,11 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 use std::sync::{Mutex, PoisonError};
 
+use everygraph_core::rng::{Purpose, draw};
 use everygraph_core::{Memory, MemoryKind, SegVec, par};
 
 use crate::Atomics;
 use crate::edge_map::{Buckets, Error, Node, NodeList, NodeSet, PerNode, Plan, Source, all, ix};
-use crate::rng::draw;
 
 /// A node without a core number yet.
 const UNSET: u32 = u32::MAX;
@@ -43,8 +43,8 @@ const QUEUE: usize = 128;
 /// Nodes per task of the passes outside the drivers.
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");
 
-/// The key of the sampling's draws. Core numbers do not depend on it.
-const SEED: u64 = 0x6b63_6f72_6520_7376;
+/// The seed of the sampling's draws. Core numbers do not depend on it.
+const SEED: u64 = 0;
 
 /// The sampling parameters of Liu et al. § 4.1, with `r = 1/10`: a node leaves sample
 /// mode when its degree may have dropped to a tenth.
@@ -148,7 +148,7 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
 
     /// The nodes of `sampled` still in sample mode that may not stay in it through round
     /// `k`, and those still in sample mode.
-    fn unsafe_at(&self, sampled: &NodeList<'g>, k: u32) -> Result<[NodeList<'g>; 2], Error> {
+    fn at_risk(&self, sampled: &NodeList<'g>, k: u32) -> Result<[NodeList<'g>; 2], Error> {
         let mut out = [NodeList::new(self.memory), NodeList::new(self.memory)];
         if let Some(s) = self.samples {
             for &v in sampled.as_slice()? {
@@ -225,7 +225,7 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
                 }
                 if now & SAMPLED != 0 {
                     if let Some(s) = self.samples {
-                        let coin = draw(SEED, *b"kcor", [u.get(), v.get(), 0]) >> 32;
+                        let coin = draw(SEED, Purpose::CORE_SAMPLE, [u.get(), v.get(), 0, 0]) >> 32;
                         let hit = coin < u64::from(s.rate[u].load(Relaxed));
                         if hit && s.taken[u].fetch_add(1, Relaxed) + 1 == s.sampler.mu {
                             self.recount.insert(u);
@@ -347,7 +347,7 @@ fn peel<'g, S: Source>(
         // The round: the smallest key, once no node in sample mode may be below it.
         let k = loop {
             let k = buckets.peek(|v| p.key(v))?;
-            let [late, still] = p.unsafe_at(&sampled, k.unwrap_or(UNSET))?;
+            let [late, still] = p.at_risk(&sampled, k.unwrap_or(UNSET))?;
             if late.is_empty() {
                 break k;
             }
@@ -373,7 +373,7 @@ fn peel<'g, S: Source>(
                 p.next.clear();
             }
             // Nodes in sample mode whose degree may have fallen to `k` in this round.
-            let [late, still] = p.unsafe_at(&sampled, k)?;
+            let [late, still] = p.at_risk(&sampled, k)?;
             if late.is_empty() {
                 break;
             }
@@ -441,7 +441,7 @@ mod tests {
 
     use super::*;
     use crate::edge_map::{Csr, Settings};
-    use crate::rng::below;
+    use everygraph_core::rng::below;
 
     /// Core numbers by removing a node of least degree, one at a time.
     fn reference(offsets: &[u64], targets: &[u32]) -> Vec<u32> {
@@ -474,8 +474,8 @@ mod tests {
             let cluster = v % 5;
             let tries = 4 + 6 * cluster;
             for i in 0..tries {
-                let u =
-                    u32::try_from(below(draw(seed, *b"test", [v, i, 0]), u64::from(n))).unwrap();
+                let u = u32::try_from(below(draw(seed, Purpose::TEST, [v, i, 0, 0]), u64::from(n)))
+                    .unwrap();
                 if u % 5 == cluster || i == 0 {
                     pairs.insert((v.min(u), v.max(u)));
                 }
@@ -552,12 +552,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "safe code; Miri checks the unsafe code, which the framework tests reach"
+    )]
     fn sampled_peels_are_exact_or_restart() {
-        // Under Miri, which checks only the framework's `unsafe` code, one graph of each.
-        let (seeds, stars) = if cfg!(miri) { (1, 401) } else { (6, 420) };
-        let graphs = (0..seeds)
+        let graphs = (0..6)
             .map(|seed| graph(seed, 600))
-            .chain((400..stars).map(star));
+            .chain((400..420).map(star));
         let (mut exact, mut restarts) = (0, 0);
         for (offsets, targets) in graphs {
             let want = reference(&offsets, &targets);
@@ -575,7 +577,7 @@ mod tests {
             }
         }
         assert!(
-            exact > 0 && (restarts > 0 || cfg!(miri)),
+            exact > 0 && restarts > 0,
             "{exact} exact, {restarts} restarts"
         );
     }
@@ -584,11 +586,12 @@ mod tests {
     fn the_sampler_follows_the_paper() {
         let s = Sampler::for_nodes(65_608_366);
         assert_eq!((s.mu, s.min_degree), (234, 20_000));
-        assert!(f64::from(s.mu) > 12.0 * 65_608_366_f64.ln());
+        // 12 ln(65,608,366) = 216.0.
+        assert!(s.mu > 216);
         assert_eq!(s.rate(19_999, 0), None);
         assert_eq!(s.rate(30_000, 3000), None);
         let r = s.rate(30_000, 2999).unwrap();
-        assert!(f64::from(r) / 2f64.powi(32) < 1.0 / 8.0);
+        assert!(u64::from(r) < (1 << 32) / 8);
         assert!(Sampler::safe(30_000, r, 0, 2999));
         assert!(!Sampler::safe(30_000, r, 0, 3000));
         assert!(!Sampler::safe(30_000, r, 230, 0));

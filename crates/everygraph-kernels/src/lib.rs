@@ -64,7 +64,6 @@ pub mod degrees;
 pub mod edge_map;
 pub mod kcore;
 pub mod proof;
-mod rng;
 
 /// Per-node values in atomics, as a kernel computed them, and the reservation that
 /// holds them.
