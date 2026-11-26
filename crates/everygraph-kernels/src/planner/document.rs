@@ -38,15 +38,28 @@ fn size(bytes: u64) -> String {
 }
 
 /// A budget that can be typed, rounded up (P-14): a multiple of 1 GB from 4 GB, of
-/// 0.5 GB from 1 GB, of 100 MB below.
+/// 0.5 GB from 1 GB, of 100 MB from 100 MB; below, two significant digits.
 #[must_use]
 pub fn typed(bytes: u64) -> String {
+    if bytes < 100_000_000 {
+        let bytes = bytes.max(1);
+        let step = 10_u64.pow(bytes.ilog10().saturating_sub(1));
+        let up = bytes.div_ceil(step) * step;
+        let (scale, unit) = match up {
+            u if u < 1000 => (1, "B"),
+            u if u < 1_000_000 => (1000, "kB"),
+            _ => (1_000_000, "MB"),
+        };
+        let whole = up / scale;
+        let decimals = if scale == 1 || whole >= 10 { 0 } else { 1 };
+        return format!("{:.decimals$}{unit}", to_f64(up) / to_f64(scale));
+    }
     let step = match bytes {
         b if b < 1_000_000_000 => 100_000_000,
         b if b < 4_000_000_000 => 500_000_000,
         _ => 1_000_000_000,
     };
-    let up = bytes.div_ceil(step).max(1) * step;
+    let up = bytes.div_ceil(step) * step;
     if up % 1_000_000_000 == 0 {
         format!("{}GB", up / 1_000_000_000)
     } else if up >= 1_000_000_000 {
@@ -70,7 +83,8 @@ fn count(n: u64) -> String {
 }
 
 /// A time estimate whose interval is wide: "about" and two significant digits (P-8).
-fn about(seconds: f64) -> String {
+#[must_use]
+pub fn about(seconds: f64) -> String {
     let round = |x: f64| {
         let digits = if x >= 10.0 { 0 } else { 1 };
         format!("{x:.digits$}")
@@ -113,14 +127,15 @@ fn advice_name(a: AccessHint) -> &'static str {
 }
 
 /// How the Python call of `op` starts, before its keywords.
-fn python(op: &Operation) -> String {
+fn python(op: &Operation<'_>) -> String {
     match op {
         Operation::Bfs { .. } => "g.bfs(source, ".to_owned(),
+        Operation::Components { strong: true } => "g.components(strong=True, ".to_owned(),
         other => format!("g.{}(", other.name()),
     }
 }
 
-fn budget_way(op: &Operation, bytes: u64, note: &str) -> Way {
+fn budget_way(op: &Operation<'_>, bytes: u64, note: &str) -> Way {
     let typed = typed(bytes);
     Way {
         command: format!("--memory {typed}"),
@@ -131,7 +146,7 @@ fn budget_way(op: &Operation, bytes: u64, note: &str) -> Way {
 }
 
 /// P-16: a budget above the machine's memory in all.
-pub(super) fn too_much(op: &Operation, bytes: u64, memory: &SystemMemory) -> Refusal {
+pub(super) fn too_much(op: &Operation<'_>, bytes: u64, memory: &SystemMemory) -> Refusal {
     let free = memory.available();
     Refusal {
         error: "UsageError",
@@ -159,7 +174,7 @@ pub(super) fn too_much(op: &Operation, bytes: u64, memory: &SystemMemory) -> Ref
 /// A plan that serves a kept result the file does not hold: it was made for another
 /// file, or told of a result `run::kept` did not find.
 impl Refusal {
-    pub(crate) fn not_kept(op: &Operation) -> Self {
+    pub(crate) fn not_kept(op: &Operation<'_>) -> Self {
         Self {
             error: "Unsupported",
             operation: op.name(),
@@ -173,7 +188,7 @@ impl Refusal {
 }
 
 /// An operation that this graph, or this version, cannot run.
-pub(super) fn unsupported(op: &Operation, reason: &'static str) -> Refusal {
+pub(super) fn unsupported(op: &Operation<'_>, reason: &'static str) -> Refusal {
     Refusal {
         error: "Unsupported",
         operation: op.name(),
@@ -187,11 +202,13 @@ pub(super) fn unsupported(op: &Operation, reason: &'static str) -> Refusal {
 
 /// P-13: the plan's state and buffers do not fit its budget, even on one thread when
 /// the planner chose `first` threads.
-pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
+pub(super) fn refusal(plan: &Plan<'_>, first: std::num::NonZeroUsize) -> Refusal {
     let cost = &plan.cost;
     let machine = plan.machine.memory.map(|m| m.total());
     let smallest = plan.peak;
     let possible = machine.is_none_or(|m| smallest <= m);
+    // Without a bound, the peak is the least the run needs, not a budget that works.
+    let known = possible && cost.bounded;
     let op = &plan.op;
     let state = if plan.graph.kept {
         plan.peak
@@ -200,12 +217,20 @@ pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
     };
     let bytes_each = state / cost.nodes.max(1);
     let mut ways = Vec::new();
-    if possible {
+    if !cost.bounded {
+        ways.push(budget_way(
+            op,
+            smallest,
+            "the least it needs; the pairs its searches find need more, by the graph",
+        ));
+    } else if possible {
         let note = if plan.threads < first {
-            format!(
-                "the smallest budget that works, on {} threads",
-                plan.threads
-            )
+            let unit = if plan.threads.get() == 1 {
+                "thread"
+            } else {
+                "threads"
+            };
+            format!("the smallest budget that works, on {} {unit}", plan.threads)
         } else {
             "the smallest budget that works".to_owned()
         };
@@ -222,11 +247,13 @@ pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
     if let Operation::PageRank {
         params,
         precision: Precision::Full,
+        weight,
     } = *op
     {
         let low = Operation::PageRank {
             params,
             precision: Precision::Low,
+            weight,
         };
         let low = super::cost::Cost::of(&low, &plan.graph, plan.threads, plan.tier).peak();
         let low = (plan.graph.held + low).max(plan.graph.opened);
@@ -241,16 +268,30 @@ pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
     }
     let what = if cost.raw > 0 {
         "per-node state and the raw copy of the edges"
+    } else if cost.projection > 0 {
+        "per-node state and the edges of both directions merged"
     } else {
         "per-node state"
     };
+    // The rest of what it needs: the readers' buffers, what the open graph and the
+    // session hold.
+    let rest = smallest.saturating_sub(state);
     let mut why = format!(
-        "{} needs {} for {what} ({} nodes × {} bytes).",
+        "{} needs {}: {} for {what} ({} nodes × {} bytes)",
         op.name(),
+        size(smallest),
         size(state),
         count(cost.nodes),
         bytes_each
     );
+    if rest > 0 {
+        why.push_str(&format!(
+            ", and {} for buffers and the graph's indexes",
+            size(rest)
+        ));
+    }
+    why.push('.');
+    let on_disk = cost.raw == 0 && cost.projection == 0;
     match machine {
         Some(m) if !possible => why.push_str(&format!(
             " The budget is {}, and this machine has {} of memory in all, so no budget \
@@ -260,7 +301,7 @@ pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
         )),
         _ => why.push_str(&format!(" The budget is {}.", size(plan.budget))),
     }
-    if cost.raw == 0 {
+    if on_disk {
         why.push_str(" The edges stay on disk either way.");
     }
     Refusal {
@@ -269,9 +310,12 @@ pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
         message: "Not enough memory for this step.".to_owned(),
         why,
         shortfall: Some(Shortfall {
-            needs_bytes: state,
+            needs_bytes: smallest,
+            state_bytes: state,
+            what,
+            on_disk,
             budget_bytes: plan.budget,
-            smallest_budget_bytes: possible.then_some(smallest),
+            smallest_budget_bytes: known.then_some(smallest),
             nodes: cost.nodes,
             bytes_each,
         }),
@@ -348,7 +392,7 @@ struct Step {
     work: Option<String>,
 }
 
-impl Plan {
+impl Plan<'_> {
     fn steps(&self) -> Vec<Step> {
         let cost = &self.cost;
         if self.graph.kept {
@@ -362,9 +406,17 @@ impl Plan {
         let mut steps = vec![Step {
             what: "keep per-node state",
             place: "memory",
-            memory: Some(cost.state() - cost.raw),
-            work: None,
+            memory: Some(cost.state() - cost.raw - cost.projection),
+            work: (!cost.bounded).then(|| "and the pairs found: no bound".to_owned()),
         }];
+        if cost.projection > 0 {
+            steps.push(Step {
+                what: "merge both directions into memory",
+                place: "memory",
+                memory: Some(cost.projection),
+                work: Some("once".to_owned()),
+            });
+        }
         if self.tier == Tier::Raw {
             steps.push(Step {
                 what: "decode the edges into memory",
@@ -388,7 +440,11 @@ impl Plan {
             Operation::PageRank { params, .. } => {
                 ("compute ranks", format!("{} iterations", params.max_iter))
             }
-            Operation::Components => ("join components", "2 passes".to_owned()),
+            Operation::Components { strong: false } => ("join components", "2 passes".to_owned()),
+            Operation::Components { strong: true } => (
+                "search both ways from sources",
+                "rounds that double".to_owned(),
+            ),
             Operation::KCore => ("peel cores", "a round per core number".to_owned()),
             Operation::Degrees => ("count degrees", "1 pass".to_owned()),
             Operation::Bfs { .. } => ("search from the source", "a level at a time".to_owned()),
@@ -404,7 +460,7 @@ impl Plan {
             memory: Some(cost.buffers),
             work: Some(work),
         });
-        if self.op.stored() {
+        if self.op.stored(self.graph.directed) && self.graph.path.is_some() {
             steps.push(Step {
                 what: "write the result",
                 place: "disk",
@@ -428,8 +484,19 @@ impl Plan {
         }
     }
 
+    /// The peak as an estimate: exact as the model gives it, or, without a bound, from
+    /// what it surely holds up to the whole budget, which the run never passes.
+    fn peak_estimate(&self) -> Value {
+        let high = if self.cost.bounded {
+            self.peak
+        } else {
+            self.peak.max(self.budget)
+        };
+        json!({"value": self.peak, "low": self.peak, "high": high, "basis": "model"})
+    }
+
     fn ratio(&self) -> f64 {
-        to_f64(self.graph.data_bytes) / to_f64(self.budget.max(1))
+        to_f64(self.cost.data) / to_f64(self.budget.max(1))
     }
 
     fn parameters(&self) -> Value {
@@ -470,7 +537,7 @@ impl Plan {
                 })
             })
             .collect();
-        let output_path = (self.op.stored() && !g.kept)
+        let output_path = (self.op.stored(g.directed) && !g.kept)
             .then(|| g.path.clone())
             .flatten();
         let output = if output_path.is_some() {
@@ -519,14 +586,14 @@ impl Plan {
             "regime": {
                 "name": regime_name(self.regime),
                 "reason": self.reason(),
-                "working_bytes": g.data_bytes,
+                "working_bytes": self.cost.data,
                 "ratio": self.ratio(),
             },
             "steps": steps,
             "phases": phases,
             "estimate": {
                 "seconds": estimate(self.seconds),
-                "peak_memory_bytes": bytes(self.peak, "model"),
+                "peak_memory_bytes": self.peak_estimate(),
                 "scratch_bytes": bytes(0, "exact"),
                 "output_bytes": bytes(if output_path.is_some() { self.cost.output } else { 0 }, "model"),
             },
@@ -544,7 +611,7 @@ impl Plan {
     }
 }
 
-impl fmt::Display for Plan {
+impl fmt::Display for Plan<'_> {
     /// The step table of `explain` and `--dry-run` (ux-contract § 3.4).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = self
@@ -565,6 +632,11 @@ impl fmt::Display for Plan {
         writeln!(f)?;
         let budget = size(self.budget);
         match &self.refusal {
+            None if !self.cost.bounded => writeln!(
+                f,
+                "  fits     peak at least {} of {budget} budget: no bound",
+                size(self.peak)
+            )?,
             None => writeln!(f, "  fits     peak {} of {budget} budget", size(self.peak))?,
             Some(r) if r.shortfall.is_some() => writeln!(
                 f,
@@ -594,7 +666,7 @@ impl fmt::Display for Plan {
             c.state() / c.nodes.max(1),
             size(c.state())
         )?;
-        let edges = size(self.graph.data_bytes);
+        let edges = size(self.cost.data);
         match self.regime {
             Regime::InMemory => {
                 writeln!(f, "           the edges ({edges}) fit the memory budget")?;

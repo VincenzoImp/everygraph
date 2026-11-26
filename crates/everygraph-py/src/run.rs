@@ -39,6 +39,8 @@ pub(crate) enum Event {
     Advance(&'static str, u64),
     /// A phase ended, having made this many of its unit.
     End(&'static str, u64),
+    /// A phase is served by a kept result.
+    Kept(&'static str),
 }
 
 /// Where the engine sends its events, from any thread.
@@ -99,7 +101,8 @@ impl Stop {
 }
 
 /// Runs `work` on a pool of `threads` threads. `on_event(kind, phase, value, t, peak)`
-/// is called on this thread for each event, `kind` being `begin`, `advance` or `end`,
+/// is called on this thread for each event, `kind` being `begin`, `advance`, `end` or
+/// `kept`,
 /// `value` the count (or `None`), `t` the seconds since the start, `peak` the most bytes
 /// `budget` has held.
 ///
@@ -140,6 +143,7 @@ pub(crate) fn run<T: Send>(
                         Event::Begin(p, total) => ("begin", p, total),
                         Event::Advance(p, done) => ("advance", p, Some(done)),
                         Event::End(p, made) => ("end", p, Some(made)),
+                        Event::Kept(p) => ("kept", p, None),
                     };
                     if let Err(e) = on_event.call1((kind, phase, value, t, budget.peak())) {
                         stop.exception(e);

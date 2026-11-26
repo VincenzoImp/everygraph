@@ -146,6 +146,7 @@ fn refinement_against_a_reference(n: u32, seed: u64, resolution: f64) -> (usize,
             level: 0,
             iteration: 0,
             stage: 0,
+            coarsening: crate::leiden::Coarsening::USUAL,
         };
         let ranks = Ranks::new(&k.of);
         let one: Vec<u32> = (0..n).map(|_| 0).collect();
@@ -305,6 +306,7 @@ fn local_moving_skips_a_candidate_with_no_weight() {
             level: 0,
             iteration: 0,
             stage: 0,
+            coarsening: crate::leiden::Coarsening::USUAL,
         };
         let ranks = Ranks::new(&k.of);
         let bound = [0, 0, 0, 0, 0, 0, 6];
