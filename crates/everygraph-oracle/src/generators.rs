@@ -279,7 +279,9 @@ fn skeleton(f: &Family, rng: &mut SplitMix64) -> Skeleton {
                 let mut cum = Vec::with_capacity(ix(n));
                 let mut total = 0.0;
                 for i in 0..n {
-                    total += f64::from(i + 1).powf(-1.0 / (gamma - 1.0));
+                    // (i + 1)^(-1 / (gamma - 1)) through the pinned libm, not `powf`: the
+                    // platform's maths library would make the graph platform-dependent.
+                    total += libm::exp(-libm::log(f64::from(i + 1)) / (gamma - 1.0));
                     cum.push(total);
                 }
                 let draw = |rng: &mut SplitMix64| {

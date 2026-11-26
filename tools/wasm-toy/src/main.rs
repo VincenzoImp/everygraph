@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The native side of the wasm toy check: prints the same line as `run.mjs`.
+//! The native side of the wasm toy check: prints the same lines as `run.mjs`.
 //!
 //! Usage: everygraph-wasm-toy NODES EDGES SEED
 
@@ -22,5 +22,15 @@ fn main() -> ExitCode {
     };
     let hash = everygraph_wasm_toy::degree_hash(nodes, edges, seed);
     println!("degree-hash nodes={nodes} edges={edges} seed={seed} hash={hash:016x}");
+    let hash = everygraph_wasm_toy::kernels_hash(nodes, edges, seed);
+    println!("kernels-hash nodes={nodes} edges={edges} seed={seed} hash={hash:016x}");
+    let digests = everygraph_wasm_toy::golden::digests();
+    for (name, digest) in digests {
+        println!("golden {name}={digest:016x}");
+    }
+    if digests != everygraph_wasm_toy::golden::EXPECTED {
+        eprintln!("the golden digests differ from the frozen ones in numerics_golden.rs");
+        return ExitCode::FAILURE;
+    }
     ExitCode::SUCCESS
 }

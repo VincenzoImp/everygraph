@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The acceptance numbers of the edge-map framework (issue #44, plan/issues/m3-01-edge-map.md),
+# on orkut, kernel time inside the process (best of 5 repetitions in one process, the way
+# the lab's `glab run` times; loading is reported apart):
+#
+# - `lab`: the hand-written lab kernels, lab/b1-core (`glab run`), built here with the
+#   workspace's flags, i.e. without the lab's `target-cpu=native`, so that both sides
+#   are the same build (exploratory: the native build was within 4% either way); graph
+#   read into anonymous memory (`--load heap`).
+# - `edge-map`: the same algorithms written once on the framework
+#   (crates/everygraph-kernels, `proof`), through the example `edge_map_bench`: raw CSR
+#   arrays read into the heap (`raw`), and the compressed format of #30 with its data
+#   part read into the heap (`compressed`).
+# - `edge-map-sources`: the other two sources at 16 threads, for the record — the data
+#   part memory-mapped (`mmap`) and the raw targets streamed through positional reads
+#   (`stream`). Every row records the hash of the result; the hash is the same for every
+#   source and thread count of one kernel (the oracle test checks this on the CI corpus).
+#
+# Kernels: PageRank 20 iterations with f32 and f64 state (`pr32`, `pr64`), WCC by
+# Afforest (`wcc`), direction-optimizing BFS from the highest-degree node (`bfs`).
+#
+# Acceptance (#44), computed from the medians of the rows:
+# - framework / lab ≤ 1.05 for each kernel on `raw`, at 1 and 16 threads;
+# - `pr32` at 16 threads: compressed / raw ≤ 1.0 (lab #118: 0.73).
+#
+# Run (about 15 minutes, an estimate: the exploratory run with one repetition took
+# 6.6 minutes of command time on a loaded machine, and an official run has four processes
+# per case instead of two; the orkut store is encoded once under {work}/stores, about
+# 2 s more):
+#   everygraph-bench run edge-map --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "edge-map"
+description = "Issue #44: the proof kernels on the edge-map framework against the lab's hand-written loops, raw and compressed"
+reference = "plan/issues/m3-01-edge-map.md; docs/FINDINGS.md § B1, § M1-13"
+binaries = ["{bench}", "{glab}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+warmup = 1
+threads = [1, 16]
+timeout = "15m"
+
+[vars]
+bench = "{repo}/target/release/examples/edge_map_bench"
+glab = "{work}/lab-b1/release/glab"
+store = "{work}/stores/orkut"
+
+[[prepare]]
+name = "build-bench"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-kernels", "--example", "edge_map_bench"]
+needed_by = ["edge-map", "edge-map-sources"]
+
+[[prepare]]
+name = "build-lab"
+cwd = "{repo}/lab/b1-core"
+# An empty RUSTFLAGS replaces the lab's `.cargo/config.toml` (`target-cpu=native`).
+shell = "RUSTFLAGS= CARGO_TARGET_DIR={work}/lab-b1 cargo build --release --offline --locked"
+needed_by = ["lab"]
+
+[[prepare]]
+name = "store-orkut"
+shell = "{bench} encode --graph {data}/csr/orkut --out {store}.part > /dev/null && mv {store}.part {store}"
+creates = "{store}"
+needed_by = ["edge-map", "edge-map-sources"]
+
+[[benchmark]]
+name = "lab"
+group = "kernels"
+description = "lab/b1-core hand-written kernels (glab run), graph in anonymous memory"
+dataset_path = "csr/orkut"
+matrix = { kernel = ["pr32", "pr64", "wcc", "bfs"] }
+command = ["{glab}", "run", "--graph", "{dataset}", "--algo", "{kernel}", "--threads", "{threads}", "--reps", "5", "--load", "heap"]
+conditions = { graph = "orkut", code = "lab/b1-core, hand-written", kernel = "{kernel}", storage = "raw CSR in anonymous memory", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "edge-map"
+group = "kernels"
+description = "the same kernels written once on the edge-map framework, raw and compressed sources in the heap"
+dataset_path = "csr/orkut"
+matrix = { kernel = ["pr32", "pr64", "wcc", "bfs"], source = ["raw", "compressed"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{store}", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "orkut", code = "everygraph-kernels proof kernels on the edge-map framework", kernel = "{kernel}", storage = "{source}, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "edge-map-sources"
+group = "sources"
+description = "the same kernels on the memory-mapped compressed source and on the streamed raw source"
+dataset_path = "csr/orkut"
+threads = [16]
+matrix = { kernel = ["pr32", "wcc", "bfs"], source = ["mmap", "stream"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{store}", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "orkut", code = "everygraph-kernels proof kernels on the edge-map framework", kernel = "{kernel}", storage = "{source} (mmap: compressed data part mapped, warm after the first repetition; stream: raw targets by positional reads through the page cache)", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
