@@ -19,6 +19,7 @@ something different without one is drift.
 | `accepted` | The evidence supports the decision as written. Nothing is pending. |
 | `accepted, partly validated` | We build on it, but part of it is unmeasured or was measured narrowly (one graph family, one kernel, a prototype, a shared machine). The ADR names the experiment or issue that closes the gap. |
 | `open — needs experiment` | The evidence does not support the decision as `DESIGN.md` states it. The unsupported part is not built until the named experiment or issue reports. |
+| `proposed` | Written from exploratory evidence and not yet in force. `docs/DESIGN.md` points to it from the decision's status, but its decision text does not change until the ADR is accepted. The ADR names the run or issue that accepts it. |
 | `superseded by ADR NNNN` | Replaced; kept for the record. |
 
 ## Evidence rules
@@ -43,7 +44,7 @@ extrapolation is labelled as one every time.
 ```markdown
 # ADR NNNN — <title>
 
-- **Status:** accepted | accepted, partly validated | open — needs experiment
+- **Status:** accepted | accepted, partly validated | open — needs experiment | proposed
 - **Decision:** DN in [DESIGN.md](../DESIGN.md#4-decisions)  (from ADR 0026 on, when not a D-row: promise N in [DESIGN.md § 2](../DESIGN.md#2-the-product), or the section)
 - **Date:** YYYY-MM-DD
 
@@ -100,6 +101,7 @@ A measurable condition.
 | [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #35 |
 | [0027](0027-single-file-builds.md) | A graph is one file in every state; builds in progress use the job's scratch | accepted | — |
 | [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #35, #37 |
+| [0029](0029-random-access-under-a-budget.md) | Random access under a budget: an explicit cache, not plain mmap (amends 0011, regime 2) | proposed | #172, #178 |
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of
 `docs/DESIGN.md` agree, that each ADR has the required sections and a known status, that
