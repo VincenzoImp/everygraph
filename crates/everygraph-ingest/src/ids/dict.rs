@@ -917,6 +917,36 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         Ok(self.header.kind.render(self.header.column, &buf))
     }
 
+    /// Checks that ids and keys are a bijection: the key of every id is looked up and
+    /// must give that id back, which also proves no two ids share a key
+    /// (`everygraph verify --deep`). Reads every key once, in parallel.
+    ///
+    /// # Errors
+    ///
+    /// [`DictionaryError::Corrupt`] for the first id, in id order, whose key does not;
+    /// read errors.
+    pub fn verify(&self) -> Result<(), DictionaryError>
+    where
+        S: Sync,
+    {
+        const GRAIN: std::num::NonZeroUsize = std::num::NonZeroUsize::new(1 << 14).expect("> 0");
+        let chunks = everygraph_core::par::map_ranges(index(self.header.n), GRAIN, |ids| {
+            let mut key = KeyBuf::new();
+            for id in ids {
+                // `n` is below 2^32 (checked when the header was decoded).
+                let id = NodeId::new(u32::try_from(id).unwrap_or(u32::MAX));
+                self.normalized_key(id, &mut key)?;
+                if self.lookup_normalized(&key, true)? != Some(id) {
+                    return Err(DictionaryError::Corrupt(
+                        "the key of an id does not look up to that id",
+                    ));
+                }
+            }
+            Ok(())
+        });
+        chunks.into_iter().collect()
+    }
+
     /// The position of `id` in graph order: equal to the id until the dictionary is
     /// renumbered, and unchanged by renumbering.
     ///

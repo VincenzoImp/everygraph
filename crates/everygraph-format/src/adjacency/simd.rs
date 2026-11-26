@@ -96,7 +96,7 @@ impl Decoder {
     }
 
     /// One record; see [`svb::decode`].
-    pub(super) fn list(
+    pub(crate) fn list(
         self,
         bytes: &[u8],
         v: u32,

@@ -25,6 +25,10 @@
 //!   the accountant's [`Pages`], which a native build points at an allocator that maps
 //!   large blocks on their own pages. [`MemoryProbe`] is the
 //!   interface through which the layers above read what the machine has.
+//! - Numerics that give the same bits on every platform (DESIGN D14): [`math`], the
+//!   pinned transcendentals and the canonical form of floats; [`ExactSum`], an exact
+//!   accumulator for global scalars; [`rng`], the counter-based random numbers and
+//!   their key schema.
 //!
 //! # The portability rule
 //!
@@ -63,15 +67,19 @@
 
 mod byte_sink;
 mod byte_source;
+mod exact_sum;
 mod ids;
+pub mod math;
 mod memory;
 pub mod par;
+pub mod rng;
 mod scratch;
 mod seg_vec;
 mod segment;
 
 pub use byte_sink::{ByteSink, WriteError};
 pub use byte_source::{AccessHint, ByteSource, MemorySource, ReadError};
+pub use exact_sum::ExactSum;
 pub use ids::{EdgeOffset, NodeId, NodeIdOverflow, OffsetOverflow};
 pub use memory::{
     Budget, InsufficientBudget, Memory, MemoryAccountant, MemoryError, MemoryKind, MemoryProbe,

@@ -491,6 +491,7 @@ fn main() {
             let nq = ncold(qt);
             let mut lat = Vec::with_capacity(nq);
             let mut faults = 0f64;
+            let mut rbytes = 0f64;
             let mut max_res = 0f64;
             for i in 0..nq as u64 {
                 let (a, b) = params(&g, qt, i + 20_000_000);
@@ -499,9 +500,11 @@ fn main() {
                     max_res = max_res.max(g.resident()).max(gin.resident());
                 }
                 let f0 = minflt_majflt();
+                let b0 = read_bytes();
                 let t = now();
                 let r = run1(&mut c, qt, a, b);
                 lat.push(t.elapsed().as_nanos() as f64 / 1000.0);
+                rbytes += (read_bytes() - b0) as f64;
                 faults += (minflt_majflt() - f0) as f64;
                 sink += r;
             }
@@ -509,6 +512,8 @@ fn main() {
             eprintln!("cold {nm}: {s}");
             res["cold"][nm] = s;
             res["cold"][nm]["avg_major_faults"] = json!(faults / nq as f64);
+            // issue #172: storage bytes read per cold query (/proc/self/io read_bytes)
+            res["cold"][nm]["avg_read_bytes"] = json!(rbytes / nq as f64);
             res["cold"][nm]["max_resident_fraction_after_evict"] = json!(max_res);
             // cold throughput: evict once then T threads run queries on an initially cold cache
             if matches!(qt, QT::Nbrs | QT::TwoHop | QT::BiBfs) {
@@ -516,6 +521,7 @@ fn main() {
                 let ps: Vec<(u32, u32)> = (0..nt as u64).map(|i| params(&g, qt, i + 30_000_000)).collect();
                 evict_all();
                 let tp = pool(threads);
+                let b0 = read_bytes();
                 let t = now();
                 let s: usize = tp.install(|| {
                     ps.par_iter()
@@ -526,7 +532,8 @@ fn main() {
                 sink += s;
                 let qps = nt as f64 / secs(t);
                 eprintln!("  cold tput {threads}t: {qps:.0} q/s");
-                res["tput_cold"][nm] = json!({"threads": threads, "queries": nt, "qps": qps});
+                let rb = (read_bytes() - b0) as f64 / nt as f64;
+                res["tput_cold"][nm] = json!({"threads": threads, "queries": nt, "qps": qps, "read_bytes_per_query": rb});
             }
         }
     }
@@ -535,6 +542,13 @@ fn main() {
     if !out.is_empty() {
         save_json(&out, &res);
     }
+}
+
+/// Bytes this process caused to be read from storage (`read_bytes` of /proc/self/io),
+/// page-fault reads of mapped files included.
+fn read_bytes() -> u64 {
+    let s = std::fs::read_to_string("/proc/self/io").unwrap();
+    s.lines().find_map(|l| l.strip_prefix("read_bytes: ")).unwrap().trim().parse().unwrap()
 }
 
 fn minflt_majflt() -> u64 {

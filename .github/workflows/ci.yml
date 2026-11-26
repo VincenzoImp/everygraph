@@ -125,6 +125,8 @@ jobs:
         run: cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets --locked -- -D warnings
       - name: Portability checks of the core
         run: python3 tools/check_core_portability.py
+      - name: The numerics lint list is the same in every clippy.toml
+        run: python3 tools/numerics_lint.py --check
       # The advisory database is fetched from the network on every run (the runner has
       # it): a newly published advisory against a dependency fails the next run, which
       # is the point; the nightly run hears of one without a push.
@@ -331,14 +333,17 @@ jobs:
         with:
           path: ~/.cache/miri
           key: miri-sysroot-${{ env.NIGHTLY }}
+      # Tests named `*full_size` are skipped: the numerics golden vectors and the exact
+      # sum over chunks of 65,536 take minutes under Miri. They run natively on every
+      # target instead.
       - name: Miri, no default features
-        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --locked
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --locked -- --skip full_size
       - name: Miri, no default features, i686 (the 32-bit usize run)
-        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu --locked
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu --locked -- --skip full_size
       - name: Miri, default features (rayon), Tree Borrows
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked -- --skip full_size
       - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
         run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
       - name: Miri, the page backend (everygraph-io/src/pages.rs)
