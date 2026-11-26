@@ -30,7 +30,7 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 - PageRank from Python within 3% of the native binary: needs `everygraph run pagerank` ({{#m8-01-cli}}); an interleaved A/B closes it (CLAUDE.md § 6)
 - `explain()`, `dry_run`, the `plan` and `result` events and the smallest budget of `InsufficientBudget`: need the planner ({{#m3-02-planner}})
 - Cancellation inside a kernel (`docs/ux-contract.md` C-4): the engine has none, so `Ctrl-C` is raised when the kernel ends
-- The disagreements with `docs/api-sketch.md` and `docs/ux-contract.md` listed in the sweep of 2026-11-26 (third), each fixed in the code or in the documents
+- The disagreements with `docs/api-sketch.md` and `docs/ux-contract.md` listed in PR #243 (the third sweep of 2026-11-26), each fixed in the code or in the documents
 
 **Depends on** {{#m2-08-csr-build}}
 
