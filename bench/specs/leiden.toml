@@ -21,7 +21,8 @@
 # - `quality`: the experiments of #57 on prod, det, 16 threads, lj and orkut: 1
 #   iteration with prolongation against 3 iterations; greedy against randomized
 #   refinement at 3 and 10 iterations; split every level against split last; iterations
-#   until stable.
+#   until stable; heavy nodes in their own sequential step (#17's rule, which the fast
+#   mode always applies) against none.
 # - `friendster`: prod in RAM, det and fast, 1 and 3 iterations, 16 threads, under
 #   48 GiB (graph 15 GB in the heap; Leiden's own reservations bounded at 30 GiB, which
 #   selects the two-pass aggregation when the one-pass room does not fit).
@@ -139,8 +140,8 @@ dataset_path = "csr/{graph}"
 threads = [16]
 repetitions = 1
 warmup = 0
-matrix = { graph = ["lj", "orkut"], variant = ["it1", "it1-prolong", "it3", "it3-prolong", "it3-random", "it10", "it10-random", "it1-split-every", "it3-split-every", "converge"] }
-shell = "case {variant} in it1) a='--iterations 1';; it1-prolong) a='--iterations 1 --prolong 1';; it3) a='--iterations 3';; it3-prolong) a='--iterations 3 --prolong 1';; it3-random) a='--iterations 3 --refine random';; it10) a='--iterations 10';; it10-random) a='--iterations 10 --refine random';; it1-split-every) a='--iterations 1 --split every';; it3-split-every) a='--iterations 3 --split every';; converge) a='--iterations converge';; esac; exec {bench} run --graph {dataset} --threads {threads} --check 1 $a"
+matrix = { graph = ["lj", "orkut"], variant = ["it1", "it1-prolong", "it3", "it3-prolong", "it3-random", "it10", "it10-random", "it1-split-every", "it3-split-every", "converge", "it1-heavy-alone", "it3-heavy-alone"] }
+shell = "case {variant} in it1-heavy-alone) a='--iterations 1 --heavy-alone 1';; it3-heavy-alone) a='--iterations 3 --heavy-alone 1';; it1) a='--iterations 1';; it1-prolong) a='--iterations 1 --prolong 1';; it3) a='--iterations 3';; it3-prolong) a='--iterations 3 --prolong 1';; it3-random) a='--iterations 3 --refine random';; it10) a='--iterations 10';; it10-random) a='--iterations 10 --refine random';; it1-split-every) a='--iterations 1 --split every';; it3-split-every) a='--iterations 3 --split every';; converge) a='--iterations converge';; esac; exec {bench} run --graph {dataset} --threads {threads} --check 1 $a"
 conditions = { graph = "{graph}", code = "everygraph-community", algorithm = "Leiden, det, {variant}", storage = "raw CSR in the heap" }
 metric = [
   { name = "seconds", json = "/seconds_best", unit = "s" },

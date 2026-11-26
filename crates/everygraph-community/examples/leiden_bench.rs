@@ -9,7 +9,7 @@
 //! leiden_bench run --graph DIR [--store STORE] [--source raw|compressed|mmap|stream]
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
 //!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
-//!     [--split last|every]
+//!     [--split last|every] [--heavy-alone 1]
 //!     [--chunk ENTRIES] [--budget-gib G] [--check 1]
 //! ```
 //!
@@ -99,6 +99,7 @@ fn options(a: &Args) -> Options {
         _ => {}
     }
     o.prolong = a.get("prolong").is_some_and(|p| p == "1");
+    o.heavy_alone = a.get("heavy-alone").is_some_and(|p| p == "1");
     if a.get("split").is_some_and(|s| s == "every") {
         o.split = SplitAt::EveryLevel;
     }
@@ -175,7 +176,7 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
             format!(
                 "{{\"iteration\": {}, \"level\": {}, \"nodes\": {}, \"entries\": {}, \"sweeps\": {}, \
                  \"moves\": {}, \"parallel_rounds\": {}, \"serial_rounds\": {}, \"communities\": {}, \
-                 \"split_added\": {}}}",
+                 \"split_added\": {}, \"heavy\": {}}}",
                 s.iteration,
                 s.level,
                 s.nodes,
@@ -185,7 +186,8 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
                 s.parallel_rounds,
                 s.serial_rounds,
                 s.communities,
-                s.split_added
+                s.split_added,
+                s.heavy
             )
         })
         .collect();
@@ -202,7 +204,8 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
     let best = secs.iter().copied().fold(f64::INFINITY, f64::min);
     format!(
         "\"mode\": \"{:?}\", \"iterations\": \"{:?}\", \"iterations_run\": {}, \"seed\": {}, \
-         \"refinement\": \"{:?}\", \"prolong\": {}, \"split\": \"{:?}\", \"seconds_all\": [{}], \
+         \"refinement\": \"{:?}\", \"prolong\": {}, \"split\": \"{:?}\", \"heavy_alone\": {}, \
+         \"seconds_all\": [{}], \
          \"seconds_best\": {best}, \"modularity\": {}, \"communities\": {}, \"level_sizes\": [{}], \
          \"hash_levels\": \"{levels:016x}\", \"hash_levels_low53\": {}, \"hash_membership\": \
          \"{flat:016x}\", \"stats\": [{}]{check}",
@@ -213,6 +216,7 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         o.refinement,
         o.prolong,
         o.split,
+        o.heavy_alone,
         all.join(", "),
         c.modularity,
         c.count,

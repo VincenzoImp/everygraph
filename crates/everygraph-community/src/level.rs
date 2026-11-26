@@ -30,7 +30,8 @@
 //! # Fast mode
 //!
 //! A sweep visits blocks of 64 consecutive ids in a seeded random order and applies
-//! each move at once. Its result depends on the schedule.
+//! each move at once; the heavy nodes are visited after it by one thread ([`heavy`]).
+//! Its result depends on the schedule.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering::Relaxed;
@@ -52,6 +53,8 @@ const NONE: u32 = u32::MAX;
 const MAX_SWEEPS: u32 = 20;
 /// Sub-rounds with fewer nodes run on the calling thread.
 const SERIAL: usize = 1024;
+/// A node is heavy when its strength is above `2W / HEAVY` ([`heavy`]).
+const HEAVY: u64 = 1000;
 /// Gains are added as fixed-point integers with this unit, 2^-50: exact in any order.
 const GAIN_SCALE: f64 = 1_125_899_906_842_624.0;
 /// Ids per block of the fast mode's visiting order (ADR 0015).
@@ -358,6 +361,7 @@ pub(crate) struct Moved {
     pub(crate) moves: u64,
     pub(crate) parallel_rounds: u64,
     pub(crate) serial_rounds: u64,
+    pub(crate) heavy: u32,
 }
 
 /// The nodes of `ids` that pass `keep`, in order, filtered in parallel.
@@ -477,7 +481,29 @@ fn relocate<'g>(st: &Moving<'g>, u: Node<'g>, d: Node<'g>, k: u64, det: bool) {
     st.comm.store(u, d, Relaxed);
 }
 
+/// The heavy nodes of a level, in id order: a strength above [`HEAVY`] of `2W`, so at
+/// most 1,000. Two of them deciding at once can each join a community that does not yet
+/// hold the other, and lose `2·k_u·k_v / (2W)²` together; on Friendster's coarse levels
+/// such pairs cycled until the sweep cap and made the asynchronous result collapse
+/// (#17, `lab/m1-03-louvain-collapse`).
+fn heavy<'g, S: Source>(g: Graph<'_, '_, 'g, S>, total: u64) -> Vec<Node<'g>> {
+    let n = g.plan.nodes() as usize;
+    let parts = par::map_ranges(n, GRAIN, |r| {
+        r.filter_map(|v| u32::try_from(v).ok().and_then(|v| g.plan.node(v)))
+            .filter(|&v| g.k[v.index()] > total / HEAVY)
+            .collect::<Vec<_>>()
+    });
+    parts.concat()
+}
+
 /// Local moving until a sweep gains at most `tol` in modularity, or [`MAX_SWEEPS`].
+///
+/// Heavy nodes ([`heavy`]) are left out of the parallel part of a sweep and visited
+/// after it, one at a time in the sweep's order, each move applied before the next
+/// decision. (On a small graph most nodes are heavy, and id order would cost the order's
+/// quality, ADR 0015.) That is done
+/// always in the fast mode, and in the deterministic mode with
+/// [`Options::heavy_alone`](crate::Options::heavy_alone).
 pub(crate) fn local_move<'g, S: Source>(
     g: Graph<'_, '_, 'g, S>,
     st: &Moving<'g>,
@@ -487,7 +513,34 @@ pub(crate) fn local_move<'g, S: Source>(
     tol: f64,
 ) -> Result<Moved, Error> {
     let (plan, k, det) = (g.plan, g.k, ctx.det());
-    let mut done = Moved::default();
+    let heavy = if det && !ctx.options.heavy_alone {
+        Vec::new()
+    } else {
+        heavy(g, ctx.total)
+    };
+    let light = |v: Node<'g>| heavy.binary_search(&v).is_err();
+    let heavy_in_order = match schedule {
+        _ if heavy.is_empty() => Vec::new(),
+        Schedule::Rounds { ids, .. } | Schedule::Order { ids } => take(plan, ids, |v| !light(v)),
+    };
+    // A sequential visit: each move is applied before the next node decides.
+    let visit =
+        |acc: &mut (u64, u64), row: Row<'_, 'g>, worker: &mut Worker<'_, 'g, S, Lent<'_>>| {
+            let u = row.node;
+            st.active[u.index()].store(false, Relaxed);
+            let Some(table) = worker.scratch.begin(row.list.len()) else {
+                return;
+            };
+            if let Some((d, gain)) = decide(g, &row, st, table, ctx) {
+                relocate(st, u, d, k[u.index()], det);
+                wake(&st.active, row.list);
+                *acc = acc.add((fixed(gain), 1));
+            }
+        };
+    let mut done = Moved {
+        heavy: u32::try_from(heavy.len()).expect("at most 1,000"),
+        ..Moved::default()
+    };
     for _ in 0..MAX_SWEEPS {
         done.sweeps += 1;
         let (mut gain, mut processed) = (0_u64, 0_usize);
@@ -495,7 +548,7 @@ pub(crate) fn local_move<'g, S: Source>(
             Schedule::Rounds { ids, starts } => {
                 for r in starts.windows(2) {
                     let frontier = take(plan, &ids[r[0]..r[1]], |v| {
-                        st.active[v.index()].swap(false, Relaxed)
+                        light(v) && st.active[v.index()].swap(false, Relaxed)
                     });
                     if frontier.is_empty() {
                         continue;
@@ -535,29 +588,26 @@ pub(crate) fn local_move<'g, S: Source>(
                 }
             }
             Schedule::Order { ids } => {
-                let frontier = take(plan, ids, |v| st.active[v.index()].load(Relaxed));
+                let frontier = take(plan, ids, |v| {
+                    light(v) && st.active[v.index()].load(Relaxed)
+                });
                 processed = frontier.len();
-                let (sum, m) = drive(
-                    plan,
-                    &frontier,
-                    tables,
-                    |acc: &mut (u64, u64), row, worker| {
-                        let u = row.node;
-                        st.active[u.index()].store(false, Relaxed);
-                        let Some(table) = worker.scratch.begin(row.list.len()) else {
-                            return;
-                        };
-                        if let Some((d, gain)) = decide(g, &row, st, table, ctx) {
-                            relocate(st, u, d, k[u.index()], false);
-                            wake(&st.active, row.list);
-                            *acc = acc.add((fixed(gain), 1));
-                        }
-                    },
-                )?;
+                let (sum, m) = drive(plan, &frontier, tables, visit)?;
                 gain += sum;
                 done.moves += m;
             }
         }
+        let alone: Vec<Node<'g>> = heavy_in_order
+            .iter()
+            .copied()
+            .filter(|v| st.active[v.index()].load(Relaxed))
+            .collect();
+        for &u in &alone {
+            let (sum, m) = drive(plan, &[u], tables, visit)?;
+            gain += sum;
+            done.moves += m;
+        }
+        processed += alone.len();
         if processed == 0 || gain as f64 <= tol * GAIN_SCALE {
             break;
         }
@@ -838,4 +888,58 @@ pub(crate) fn count<'g, S: Source>(
     plan.vertices((), |acc: &mut u32, (), _, v, _| {
         *acc += u32::from(seen[v.index()].load(Relaxed));
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use everygraph_kernels::edge_map::{Csr, Settings};
+
+    use super::*;
+
+    /// The heavy nodes of a star with `leaves` leaves, and of a cycle of `n` nodes.
+    fn heavy_ids(offsets: &[u64], targets: &[u32]) -> Vec<u32> {
+        let csr = Csr::new(offsets, targets).unwrap();
+        let memory = Memory::unlimited();
+        Plan::with(&csr, &memory, Settings::default(), |plan| {
+            let k = strengths(&plan, &memory, Weights(None)).unwrap();
+            let g = Graph {
+                plan: &plan,
+                w: Weights(None),
+                k: &k.of,
+            };
+            heavy(g, k.total).iter().map(|v| v.get()).collect()
+        })
+    }
+
+    #[test]
+    fn heavy_nodes_hold_more_than_a_thousandth_of_the_volume() {
+        // A star: the hub holds half of 2W, a leaf 1 / (2 * leaves).
+        for leaves in [10_u32, 600, 3000] {
+            let offsets: Vec<u64> = std::iter::once(0)
+                .chain((0..=leaves).map(|i| u64::from(leaves + i)))
+                .collect();
+            let targets: Vec<u32> = (1..=leaves)
+                .chain(std::iter::repeat_n(0, leaves as usize))
+                .collect();
+            let heavy = heavy_ids(&offsets, &targets);
+            let expected: Vec<u32> = if leaves < 500 {
+                (0..=leaves).collect()
+            } else {
+                vec![0]
+            };
+            assert_eq!(heavy, expected, "{leaves} leaves");
+        }
+        // A cycle of n nodes: each holds 1 / n of 2W, heavy only below 1,000 nodes.
+        for (n, count) in [(999_u32, 999), (1000, 0), (4000, 0)] {
+            let offsets: Vec<u64> = (0..=u64::from(n)).map(|i| 2 * i).collect();
+            let targets: Vec<u32> = (0..n)
+                .flat_map(|v| {
+                    let mut l = [(v + n - 1) % n, (v + 1) % n];
+                    l.sort_unstable();
+                    l
+                })
+                .collect();
+            assert_eq!(heavy_ids(&offsets, &targets).len(), count, "cycle of {n}");
+        }
+    }
 }

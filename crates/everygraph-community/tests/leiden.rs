@@ -646,6 +646,61 @@ fn isolated_nodes_change_nothing_else() {
     }
 }
 
+/// Galaxies of 100 nodes in pairs: each node has most of its edges in its galaxy and a
+/// few to the partner galaxy, so the two only merge on a coarse level, where each galaxy
+/// is one heavy node. 3,000 triangles around them keep that level larger than one
+/// frontier run, so its nodes are decided by several threads at once.
+fn paired_galaxies() -> Pairs {
+    let mut rng = SplitMix64(11);
+    let (galaxies, size) = (20_u32, 100_u32);
+    let mut edges = Vec::new();
+    for u in 0..galaxies * size {
+        for v in u + 1..galaxies * size {
+            let (a, b) = (u / size, v / size);
+            let p = if a == b {
+                200
+            } else if a / 2 == b / 2 {
+                50
+            } else {
+                0
+            };
+            if rng.next() % 1000 < p {
+                edges.push((u, v));
+            }
+        }
+    }
+    let base = galaxies * size;
+    for t in 0..3000 {
+        let x = base + 3 * t;
+        edges.extend([(x, x + 1), (x + 1, x + 2), (x, x + 2)]);
+    }
+    (base + 9000, edges)
+}
+
+/// #17: with the heavy-node rule the fast mode's worst result over 20 runs at 16 threads
+/// is within 0.001 of its result at one thread (`lab/m1-03-louvain-collapse`, the test it
+/// recommends). This graph has heavy coarse nodes but does not reproduce the collapse:
+/// the test passed with the rule removed too (checked by hand). The reproduction is the
+/// lab's Friendster level-1 dump, 11 M entries, too large for CI.
+#[test]
+fn heavy_nodes_do_not_race_in_the_fast_mode() {
+    let (n, pairs) = paired_galaxies();
+    let s = store(&Lists::from_pairs(n, &pairs));
+    let fast = Options {
+        mode: Mode::Fast,
+        ..Options::default()
+    };
+    let one = run(&s, Kind::Raw, 1, 1 << 16, &fast).modularity;
+    let runs = if cfg!(debug_assertions) { 4 } else { 20 };
+    let worst = (0..runs)
+        .map(|_| run(&s, Kind::Raw, 16, 1 << 16, &fast).modularity)
+        .fold(f64::MAX, f64::min);
+    eprintln!(
+        "paired galaxies, fast: one thread {one:.6}, worst of {runs} at 16 threads {worst:.6}"
+    );
+    assert!(worst >= one - 0.001, "{worst} against {one}");
+}
+
 #[test]
 fn edge_cases() {
     let memory = Memory::unlimited();

@@ -109,6 +109,10 @@ pub struct Options {
     pub prolong: bool,
     /// After the last level by default.
     pub split: SplitAt,
+    /// Deterministic mode: visit the heavy nodes (strength above 0.1% of `2W`) one at a
+    /// time after each sweep, as the fast mode always does (#17). Off by default: it
+    /// changes the result, and is measured first (`bench/specs/leiden.toml`).
+    pub heavy_alone: bool,
 }
 
 impl Default for Options {
@@ -121,6 +125,7 @@ impl Default for Options {
             refinement: Refinement::Greedy,
             prolong: false,
             split: SplitAt::Last,
+            heavy_alone: false,
         }
     }
 }
@@ -159,6 +164,9 @@ pub struct LevelStats {
     pub communities: u32,
     /// Communities the split added.
     pub split_added: u32,
+    /// Heavy nodes visited one at a time after each sweep (fast mode, or
+    /// [`Options::heavy_alone`]).
+    pub heavy: u32,
 }
 
 /// The result of [`leiden`].
@@ -236,6 +244,7 @@ fn level<S: Source>(
     (stats.sweeps, stats.moves) = (moved.sweeps, moved.moves);
 
     (stats.parallel_rounds, stats.serial_rounds) = (moved.parallel_rounds, moved.serial_rounds);
+    stats.heavy = moved.heavy;
     if ctx.options.split == SplitAt::EveryLevel {
         let before = count(plan, memory, &st.comm)?;
         let parts = split(plan, memory, &st.comm)?;
@@ -364,6 +373,7 @@ fn polish<S: Source>(
         moves: moved.moves,
         parallel_rounds: moved.parallel_rounds,
         serial_rounds: moved.serial_rounds,
+        heavy: moved.heavy,
         ..LevelStats::default()
     };
     Ok((out, stats))
