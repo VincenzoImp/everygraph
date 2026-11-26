@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! [`check`]: the conservation checks of `everygraph verify --deep` on every stored
-//! hierarchy (`docs/spec/eg-communities.md` § 3).
+//! hierarchy and map tree (`docs/spec/eg-communities.md` § 3, § 6).
 
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicU32, AtomicU64};
@@ -16,6 +16,7 @@ use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, Source, al
 use super::{Hierarchy, HierarchyError, OPERATION};
 use crate::column::{Column, GRAIN};
 use crate::level::Weights;
+use crate::map;
 use crate::quality::{Table, tally};
 
 /// Checks every hierarchy stored for the graph of `file` (held in memory: a memory
@@ -33,6 +34,9 @@ use crate::quality::{Table, tally};
 ///   entries against the same sum over the level below, mapped. A changed entry passes
 ///   with probability about `2^-64`. The weights are drawn from a fixed seed, so the
 ///   check is the same on every run.
+///
+/// A map tree (`map` results) is checked as a hierarchy, and against the rules of its
+/// kinds (`docs/spec/eg-communities.md` § 6).
 ///
 /// What the budget does not hold, and results whose records cannot be read, are listed
 /// as unchecked.
@@ -55,15 +59,22 @@ pub fn check<S: ByteSource + Sync>(
             return Ok(());
         }
     };
+    let stored = |operation: &str| operation == OPERATION || operation == map::OPERATION;
     for result in listed
         .iter()
-        .filter(|r| r.provenance.operation == OPERATION && r.of_this_graph)
+        .filter(|r| stored(&r.provenance.operation) && r.of_this_graph)
     {
         let outcome = file
             .listed_result(result)
             .map_err(HierarchyError::File)
             .and_then(|root| Hierarchy::of(file, root))
-            .and_then(|h| levels(file, &h, memory, report));
+            .and_then(|h| {
+                levels(file, &h, memory, report)?;
+                if result.provenance.operation == map::OPERATION {
+                    map::check(&h, &result.provenance, memory)?;
+                }
+                Ok(())
+            });
         match outcome {
             Ok(()) => {}
             Err(HierarchyError::File(ContainerError::Read(e @ ReadError::Backend(_))))

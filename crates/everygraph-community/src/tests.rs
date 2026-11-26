@@ -81,7 +81,7 @@ fn stored(csr: &Csr<'_>, c: &crate::Communities, window: u64) -> Vec<u8> {
         window,
     };
     let maps: Vec<&[u32]> = c.levels.iter().map(|l| &l[..]).collect();
-    write::store_with(&mut w, &k, &Provenance::default(), &run, &maps).unwrap();
+    write::store_with(&mut w, &k, &Provenance::default(), &run, &maps, &[]).unwrap();
     w.commit().unwrap();
     w.into_sink().into_inner()
 }

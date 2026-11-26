@@ -14,7 +14,7 @@ use everygraph_format::adjacency::{
 use everygraph_format::container::{Kind, Provenance, ResultKey, Writer};
 use everygraph_kernels::edge_map::{Error, Plan, Settings, Source};
 
-use super::{HierarchyError, INTERNAL, MEMBERSHIP, NODES, PARENT, QUOTIENT, VOLUME, part};
+use super::{HierarchyError, INTERNAL, KIND, MEMBERSHIP, NODES, PARENT, QUOTIENT, VOLUME, part};
 use crate::Communities;
 use crate::aggregate::{Members, Parts, Quotient, ix, quotient};
 use crate::column::{Column, GRAIN};
@@ -24,7 +24,7 @@ use crate::table::Tables;
 
 /// Entries of a quotient encoded at a time, about: the window's buffers hold about 30
 /// bytes per entry.
-const WINDOW: u64 = 1 << 21;
+pub(crate) const WINDOW: u64 = 1 << 21;
 
 /// One level, finest first: the map from the level below and its numbering.
 struct Level<'c> {
@@ -89,7 +89,7 @@ pub fn store_levels<G: Source, K: ByteSink>(
         settings,
         window: WINDOW,
     };
-    store_with(writer, key, about, &run, maps)
+    store_with(writer, key, about, &run, maps, &[])
 }
 
 /// The graph a hierarchy is stored from, and how.
@@ -101,20 +101,32 @@ pub(crate) struct Run<'a, G> {
     pub(crate) window: u64,
 }
 
-/// [`store_levels`] with the encoding window of `run`.
+/// [`store_levels`] with the encoding window of `run`, and, unless `kinds` is empty, a
+/// part `<level>/kind` per level: `kinds[j]` holds a value per community of `maps[j]`.
 pub(crate) fn store_with<G: Source, K: ByteSink>(
     writer: &mut Writer<K>,
     key: &ResultKey,
     about: &Provenance,
     run: &Run<'_, G>,
     maps: &[&[u32]],
+    kinds: &[&[u32]],
 ) -> Result<(), HierarchyError> {
     let n = run.source.nodes();
     if maps.is_empty() {
         return Err(HierarchyError::Invalid("communities: no level".into()));
     }
     let levels = numbered(run.memory, &chain(n, maps)?)?;
-    let written = write_levels(writer, key, about, run, &levels);
+    let fits = kinds.len() == levels.len()
+        && kinds
+            .iter()
+            .zip(&levels)
+            .all(|(k, l)| k.len() == l.parts.count as usize);
+    if !(kinds.is_empty() || fits) {
+        return Err(HierarchyError::Invalid(
+            "communities: kinds that are not one per community of each level".into(),
+        ));
+    }
+    let written = write_levels(writer, key, about, run, &levels, kinds);
     if written.is_err() {
         writer.poison();
     }
@@ -128,6 +140,7 @@ fn write_levels<G: Source, K: ByteSink>(
     about: &Provenance,
     run: &Run<'_, G>,
     levels: &[Level<'_>],
+    kinds: &[&[u32]],
 ) -> Result<(), HierarchyError> {
     let (n, memory, settings) = (run.source.nodes(), run.memory, run.settings);
     let top = u32::try_from(levels.len())
@@ -162,6 +175,13 @@ fn write_levels<G: Source, K: ByteSink>(
             )));
         }
         write_level(writer, key, level, at, levels.get(j + 1), &table)?;
+        if let Some(kinds) = kinds.get(j) {
+            writer.add_result_part(
+                key,
+                &part(level, KIND),
+                at.old_of.iter().map(|&r| kinds[r as usize]),
+            )?;
+        }
         write_quotient(writer, key, run, level, &q, at, &table)?;
         below = Some(q);
     }

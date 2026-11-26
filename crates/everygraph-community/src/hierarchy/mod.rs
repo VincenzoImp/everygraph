@@ -40,7 +40,7 @@ pub const OPERATION: &str = "communities";
 pub const VERSION: u32 = 1;
 
 /// The parts of a level `level` (`<level>/nodes` and so on), and of the result.
-fn part(level: u32, name: &str) -> String {
+pub(crate) fn part(level: u32, name: &str) -> String {
     format!("{level}/{name}")
 }
 const MEMBERSHIP: &str = "membership";
@@ -49,6 +49,8 @@ const INTERNAL: &str = "internal";
 const VOLUME: &str = "volume";
 const PARENT: &str = "parent";
 const QUOTIENT: &str = "quotient";
+/// The kind of each region of a map tree (§ 6).
+pub(crate) const KIND: &str = "kind";
 
 /// The key of the hierarchy of a Leiden run with `options` on the graph `graph`: every
 /// option that can change the result, none that cannot.
@@ -57,6 +59,16 @@ const QUOTIENT: &str = "quotient";
 ///
 /// None in practice: the names are valid.
 pub fn key(graph: GraphIdentity, options: &Options) -> Result<ResultKey, ContainerError> {
+    leiden_key(graph, OPERATION, VERSION, options)
+}
+
+/// The key of a result of `operation` made from a Leiden run with `options`.
+pub(crate) fn leiden_key(
+    graph: GraphIdentity,
+    operation: &str,
+    version: u32,
+    options: &Options,
+) -> Result<ResultKey, ContainerError> {
     let iterations = match options.iterations {
         Iterations::Fixed(k) => k.to_string(),
         Iterations::Converge { max } => format!("converge {max}"),
@@ -72,8 +84,8 @@ pub fn key(graph: GraphIdentity, options: &Options) -> Result<ResultKey, Contain
     };
     ResultKey::new(
         graph,
-        OPERATION,
-        VERSION,
+        operation,
+        version,
         options.mode == Mode::Deterministic,
     )?
     .with("method", "leiden")?

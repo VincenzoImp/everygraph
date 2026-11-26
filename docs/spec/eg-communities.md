@@ -11,7 +11,7 @@ the level below. Level 1 is the coarsest (the partition, `docs/api-sketch.md` §
 level `L` the finest. Every level holds exact counts and its **quotient graph**.
 
 Contents: 1 Names · 2 Numbering · 3 What a writer and a checker guarantee · 4 Versions ·
-5 Decided here.
+5 Decided here · 6 The map tree.
 
 ---
 
@@ -98,3 +98,54 @@ fills it is a new version, and so a new key (`eg-container.md` § 6).
   partition whatever the depth.
 - **The cut is derived, not stored**: `S(c) − 2·L(c)` is exact, and a stored copy could
   only disagree.
+
+## 6. The map tree
+
+The **map tree** of a partition (DESIGN D16, ADR 0016) is kept as a hierarchy with one
+more part per level. It is the result `results/map/<key>` (operation `map`, version 1).
+Its key holds the options of the Leiden run that found the partition (as in § 1), and
+`fan_out` (the most children of a region), `leaf` (the most nodes of a region that is
+not split) and `super` (`auto`, `auto, built before`, `auto, not built before`,
+`always` or `never`).
+
+**Levels by depth.** The tree's root is the graph and is not stored. Level `ℓ` holds the
+regions at depth `ℓ` below the root, and every leaf of a smaller depth again: a leaf is
+repeated on each level below its own, as the only child of itself. In a map tree every
+region that has children has two or more, so a region with one child at the next level
+is always that same region. The parts of § 1 and their guarantees (§ 2, § 3) hold for
+every level, so the counts and the quotient graph of every region are exact.
+
+| Section | Kind, type | Values |
+|---|---|---|
+| `<result>/<ℓ>/kind` | 10, `u32` | one per region of level `ℓ`: its kind |
+
+| Code | Kind | Drawn as (`design/preview/style/SPEC.md`, "The map") |
+|---|---|---|
+| 1 | super: a group of communities of the partition, found by Leiden on the whole graph at a lower resolution | solid outline |
+| 2 | community: a community of the partition | solid outline |
+| 3 | subcommunity: a part of a community, split again for the map | dashed outline |
+| 4 | aggregate: the smaller children of one parent, "+N smaller communities" | hatched; not drawn when its parent is an aggregate |
+
+**The partition** is read from the kinds: on the path from the root to any node there is
+exactly one region of kind 2, and these regions are the communities of the partition.
+
+`everygraph verify --deep` checks a map tree as every hierarchy (§ 3), and also:
+
+1. Level 1 holds at most `fan_out` regions, and every region at most `fan_out` children
+   at the next level.
+2. A region with one child at the next level has the kind of that child.
+3. On every path, a super region and a community follow no community, a subcommunity
+   follows one, an aggregate follows anything; a region of the finest level has a
+   community on its path.
+
+**Decided here.**
+
+- **Levels by depth, leaves repeated**, not a tree format of its own: the counts, the
+  quotient graphs, their checks and the reader of § 1–3 serve the map unchanged, and the
+  children of a region at level `ℓ` and the graph between them are a level `ℓ + 1` and
+  its quotient. The cost is the repeated leaves and their quotient graphs: the map tree
+  takes 1.92 times the bytes of the graph's compressed adjacency on lj (8 levels), 1.80
+  on orkut (9) and 1.12 on web-google (10) (exploratory, PR for #63).
+- **The kind is stored, the aggregate's count is not**: the communities under an
+  aggregate are its descendants of another kind through aggregates, and a stored copy
+  could only disagree.

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Decision:** D16 in [DESIGN.md](../DESIGN.md#4-decisions)
-- **Date:** 2026-11-25; amended by #19 on 2026-11-26
+- **Date:** 2026-11-25; amended by #19 on 2026-11-26 and by #63 on 2026-11-26
 
 ## Context
 
@@ -98,13 +98,23 @@ exploratory-deterministic (shared machine, deterministic metrics) under
 
 - The partition is the analysis result, read from the tree's flags. The other regions of
   the map tree are never reported as "the communities".
-- #63 stores a tree with parent pointers and, per region: role, kind, aggregate count and a
-  "nested aggregate, not drawn" flag. It does not store per-level parent maps.
+- The map tree is stored as the levels of a hierarchy by depth, a leaf repeated on each
+  level below its own, with the kind of every region (`docs/spec/eg-communities.md` § 6;
+  amended by #63). The roles are read from the kinds; an aggregate's count and whether it
+  is nested are read from the tree. So the exact counts, the quotient graphs and their
+  checks serve the map unchanged.
 - The production Leiden (#57) leaves vertices of strength 0 out of its pass-stopping test.
-- In production, the region filter runs inside the Leiden kernel; the lab builds a cut graph
-  per round, which streams the whole store every round.
-- Follow-ups: #181 (m4-10, each oversized region solved as its own job), #182 (m4-11,
-  labelled binning for leaves that cannot be split).
+- In production (#63), each oversized region is solved alone, by Leiden on its own
+  induced subgraph: so a region alone and the same region in the union of its round give
+  the same split by construction. Small regions are solved several at a time, a region of
+  2^16 nodes or more by all threads, one at a time.
+- The super level's Leiden runs coarsen while a level shrinks the graph by 1% or more, up
+  to 60 levels, as the lab's `upward` did (`--agg-tol 0.99`). With the usual rule of the
+  production Leiden, roadnet-ca reached no cover of 63 down to `2^-16` and its drawn top
+  level fell to Q 0.728; with this rule, 0.9815 at `2^-4` (exploratory, PR for #63).
+- Follow-ups: #181 (m4-10, what is left of per-region jobs: seeds per region, the
+  independence and stability runs), #182 (m4-11, labelled binning for leaves that cannot
+  be split).
 
 ## What would change our mind
 

@@ -31,13 +31,34 @@ use crate::table::Tables;
 const QUALITY_ITERATIONS: NonZeroU32 = NonZeroU32::new(3).expect("non-zero");
 /// The largest resolution: see `check`.
 const MAX_RESOLUTION: f64 = 8191.0;
-/// Levels per iteration, at most.
-const MAX_LEVELS: u32 = 10;
 /// Local moving stops when a sweep gains at most this much modularity: `0.01` on level
 /// 0 of iteration 0, ten times less for each level and each iteration after.
 const TOLERANCE: [f64; 12] = [
     1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13,
 ];
+
+/// When a level ends an iteration, besides a level where nothing moved: at the level
+/// `levels`, or when refinement leaves more communities than `keep.0 / keep.1` of its
+/// nodes (nodes without a neighbour other than themselves are left out of both
+/// counts).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Coarsening {
+    levels: u32,
+    keep: (u64, u64),
+}
+
+impl Coarsening {
+    /// The rule of [`leiden`]: 10 levels, 80%.
+    pub(crate) const USUAL: Self = Self {
+        levels: 10,
+        keep: (4, 5),
+    };
+    /// 60 levels, 99%: [`coarse_leiden`](crate::map::coarse_leiden).
+    pub(crate) const DEEP: Self = Self {
+        levels: 60,
+        keep: (99, 100),
+    };
+}
 
 /// Whether the result must not depend on the schedule.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -262,9 +283,10 @@ fn level<S: Source>(
     stats.communities = d.count;
     let alone = k.alone;
     let first_of_later = ctx.iteration > 0 && ctx.level == 0;
+    let (levels, (kept, of)) = (ctx.coarsening.levels, ctx.coarsening.keep);
     let last = (stats.moves == 0 && !first_of_later)
-        || ctx.level + 1 == MAX_LEVELS
-        || u64::from(stats.communities - alone) * 5 > u64::from(n - alone) * 4;
+        || ctx.level + 1 == levels
+        || u64::from(stats.communities - alone) * of > u64::from(n - alone) * kept;
     if last {
         let d = if louvain {
             d
@@ -409,6 +431,17 @@ pub fn leiden<S: Source>(
     settings: Settings,
     options: &Options,
 ) -> Result<Communities, Error> {
+    leiden_with(source, memory, settings, options, Coarsening::USUAL)
+}
+
+/// [`leiden`] with the rule that ends an iteration.
+pub(crate) fn leiden_with<S: Source>(
+    source: &S,
+    memory: &Memory,
+    settings: Settings,
+    options: &Options,
+    coarsening: Coarsening,
+) -> Result<Communities, Error> {
     check(options)?;
     let n = source.nodes();
     let k0 = Plan::with(source, memory, settings, |plan| {
@@ -447,6 +480,7 @@ pub fn leiden<S: Source>(
             level: 0,
             iteration,
             stage: 0,
+            coarsening,
         };
         let bound = previous.as_ref().map(|p| &p.0[..]);
         let mut out = Plan::with(source, memory, settings, |plan| {

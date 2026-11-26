@@ -134,7 +134,7 @@ impl<'f, S: ByteSource> Hierarchy<'f, S> {
     }
 
     /// Part `name`, read whole into a column.
-    fn column<T: Value + Default + Send>(
+    pub(crate) fn column<T: Value + Default + Send>(
         &self,
         memory: &Memory,
         name: &str,

@@ -11,6 +11,8 @@
 //!   modularity, with kept loops as `docs/spec/graph-semantics.md` § 5.5 counts them.
 //! - [`hierarchy`]: every level of a result with exact counts and its quotient graph,
 //!   kept in the graph file (`docs/spec/eg-communities.md`), read back, and checked.
+//! - [`map`]: the map tree of a partition (DESIGN D16): fan-out bounded for the map,
+//!   every region of a known kind, kept in the graph file as a hierarchy.
 //!
 //! In memory only: level 0 is read through the source, coarser levels are held in RAM
 //! (out of core: #60). The crate builds for wasm32 and has no `unsafe`; it is under
@@ -42,6 +44,7 @@ mod column;
 pub mod hierarchy;
 mod leiden;
 mod level;
+pub mod map;
 mod quality;
 mod table;
 #[cfg(test)]
