@@ -262,9 +262,13 @@ fn kernels<S: Source>(source: &S, memory: &Memory, settings: Settings) -> [u64; 
 /// give the in-memory bits, and the heap above what was in use before never exceeds the
 /// budget by more than the slack.
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "minutes under Miri; the test above reaches the same `unsafe` code"
+)]
 fn kernels_on_a_stream_hold_no_more_heap_than_the_budget() {
     let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-    let n = if cfg!(miri) { 200 } else { 10_000 };
+    let n = 10_000;
     let (offsets, targets) = symmetric(n);
     let encoded = encode(&offsets, &targets).unwrap();
     let index = AdjacencyIndex::parse(&encoded.index).unwrap();
