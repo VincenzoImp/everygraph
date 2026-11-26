@@ -2,6 +2,9 @@
 
 //! Tests of the private steps of a level.
 
+// Small generated graphs and draws: casts cannot truncate, and counts are exact floats.
+#![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+
 use everygraph_kernels::edge_map::{Csr, Settings};
 
 use super::*;
@@ -69,7 +72,7 @@ fn ranks_count_the_nodes_with_an_entry_across_blocks() {
     let k: Vec<u64> = (0..n)
         .map(|v| {
             let draw = step(&mut x);
-            if (120_000..270_000).contains(&v) || draw % 5 == 0 {
+            if (120_000..270_000).contains(&v) || draw.is_multiple_of(5) {
                 0
             } else {
                 1 + draw % 3
@@ -89,7 +92,7 @@ fn ranks_count_the_nodes_with_an_entry_across_blocks() {
     let ranks = Ranks::new(&k);
     assert_eq!(ranks.count(), next);
     assert_eq!(ranks.blocks(), n.div_ceil(RANK_BLOCK.get()));
-    let mut seen = vec![None; n];
+    let mut seen: Vec<Option<u32>> = (0..n).map(|_| None).collect();
     for b in 0..ranks.blocks() {
         ranks.each(b, |v, r| {
             assert!(seen[v as usize].replace(r).is_none(), "node {v} twice");
@@ -106,7 +109,7 @@ fn ranks_count_the_nodes_with_an_entry_across_blocks() {
 /// Sorted lists of a random graph of `n` nodes and about `3n` pairs, loops dropped.
 fn random_lists(n: u32, seed: u64) -> (Vec<u64>, Vec<u32>) {
     let mut x = seed;
-    let mut lists = vec![Vec::new(); n as usize];
+    let mut lists: Vec<Vec<u32>> = (0..n).map(|_| Vec::new()).collect();
     for _ in 0..3 * n {
         let (u, v) = (step(&mut x) as u32 % n, step(&mut x) as u32 % n);
         if u != v {
@@ -147,7 +150,7 @@ fn refinement_against_a_reference(n: u32, seed: u64, resolution: f64) -> (usize,
             stage: 0,
         };
         let ranks = Ranks::new(&k.of);
-        let one = vec![0_u32; n as usize];
+        let one: Vec<u32> = (0..n).map(|_| 0).collect();
         let st = Moving::new(&plan, &memory, &k.of, &ranks, Some(&one), &ctx).unwrap();
         let schedule = Schedule::new(&ranks, &memory, &ctx, true).unwrap();
         let g = Graph {
@@ -157,15 +160,19 @@ fn refinement_against_a_reference(n: u32, seed: u64, resolution: f64) -> (usize,
         };
         let tables = Tables::new(&memory);
         let r = refine(g, &memory, &ranks, &st, &schedule, &tables, &ctx).unwrap();
-        let got: Vec<u32> = plan.all_nodes().map(|v| r.rcomm.load(v, Relaxed).get()).collect();
+        let got: Vec<u32> = plan
+            .all_nodes()
+            .map(|v| r.rcomm.load(v, Relaxed).get())
+            .collect();
 
         let Schedule::Rounds { ids, starts } = &schedule else {
             unreachable!("the deterministic mode")
         };
-        let list = |u: u32| &targets[offsets[u as usize] as usize..offsets[u as usize + 1] as usize];
+        let list =
+            |u: u32| &targets[offsets[u as usize] as usize..offsets[u as usize + 1] as usize];
         let gamma = resolution * (1.0 / k.total as f64);
         let mut rcomm: Vec<u32> = (0..n).collect();
-        let mut rsigma: Vec<u64> = k.of.to_vec();
+        let mut rsigma: Vec<u64> = k.of.iter().copied().collect();
         for w in starts.windows(2) {
             let picks: Vec<(u32, u32)> = ids[w[0]..w[1]]
                 .iter()
@@ -183,7 +190,8 @@ fn refinement_against_a_reference(n: u32, seed: u64, resolution: f64) -> (usize,
                     for (&d, &kud) in &sums {
                         let value = kud as f64 - f * rsigma[d as usize] as f64;
                         let better = best.is_none_or(|(b, bd)| {
-                            value > b || (value == b && before(&st.salt, st.salt[u as usize], d, bd))
+                            value > b
+                                || (value == b && before(&st.salt, st.salt[u as usize], d, bd))
                         });
                         if value > 0.0 && d != u && better {
                             best = Some((value, d));
@@ -202,7 +210,10 @@ fn refinement_against_a_reference(n: u32, seed: u64, resolution: f64) -> (usize,
                 }
             }
         }
-        assert_eq!(got, rcomm, "{n} nodes, seed {seed}, resolution {resolution}");
+        assert_eq!(
+            got, rcomm,
+            "{n} nodes, seed {seed}, resolution {resolution}"
+        );
         let joins = (0..n).filter(|&v| rcomm[v as usize] != v).count();
         let alone = (0..n)
             .filter(|&v| rcomm[v as usize] == v && !list(v).is_empty())
@@ -215,6 +226,9 @@ fn refinement_against_a_reference(n: u32, seed: u64, resolution: f64) -> (usize,
 fn greedy_refinement_follows_its_sequential_reference() {
     for (n, seed, resolution) in [(300, 1, 1.0), (300, 2, 4.0), (2000, 3, 1.0), (2000, 4, 8.0)] {
         let (joins, alone) = refinement_against_a_reference(n, seed, resolution);
-        assert!(joins > 0 && alone > 0, "{n}, {seed}: {joins} joins, {alone} alone");
+        assert!(
+            joins > 0 && alone > 0,
+            "{n}, {seed}: {joins} joins, {alone} alone"
+        );
     }
 }

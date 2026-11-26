@@ -161,11 +161,10 @@ fn compare(what: &str, masked: (&Lists, &[bool]), other: (&Lists, &[Option<u32>]
     }
 }
 
-#[test]
-fn a_view_as_a_mask_and_materialized_give_the_same_communities() {
-    let g = sensitive();
+/// Compares the view of `g` that keeps the nodes `keep` as a mask and materialized.
+fn view(what: &str, g: &Lists, keep: impl Fn(u32) -> bool) {
     let n = g.nodes();
-    let keep: Vec<bool> = (0..n).map(|v| v % 5 != 2).collect();
+    let keep: Vec<bool> = (0..n).map(keep).collect();
     let mut rank = 0;
     let to: Vec<Option<u32>> = keep
         .iter()
@@ -177,13 +176,23 @@ fn a_view_as_a_mask_and_materialized_give_the_same_communities() {
         })
         .collect();
     let same_ids: Vec<Option<u32>> = (0..n).map(|v| keep[v as usize].then_some(v)).collect();
-    let masked = g.renamed(n, &same_ids);
-    let materialized = g.renamed(rank, &to);
     compare(
-        "mask vs materialized",
-        (&masked, &keep),
-        (&materialized, &to),
+        what,
+        (&g.renamed(n, &same_ids), &keep),
+        (&g.renamed(rank, &to), &to),
     );
+}
+
+/// 10,000 nodes, every fifth left out; then 200,000 nodes without a run of 70,000 ids
+/// and every seventh node, so the mask and the materialized view cut the blocks of
+/// 65,536 nodes where Leiden counts its draws at other ids.
+#[test]
+fn a_view_as_a_mask_and_materialized_give_the_same_communities() {
+    view("10,000 nodes", &sensitive(), |v| v % 5 != 2);
+    let large = planted(200, 1000, 2, 2, 13);
+    view("200,000 nodes", &large, |v| {
+        !(70_000..140_000).contains(&v) && v % 7 != 3
+    });
 }
 
 /// The graph padded with nodes without edges to 327,679 and to 327,680 nodes: `n /
