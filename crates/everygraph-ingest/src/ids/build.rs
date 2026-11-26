@@ -804,13 +804,21 @@ impl<'a, Sc: Scratch> Worker<'_, 'a, Sc> {
         norm: &[u8],
     ) -> Result<(), DictionaryError> {
         let hash = KeyHash::of(norm, c.seed);
-        if st.table.insert(hash, position, norm, Some(&mut st.credit))? == Inserted::Done {
+        if st
+            .table
+            .insert(hash, position, norm, Some(&mut st.credit))?
+            == Inserted::Done
+        {
             return Ok(());
         }
         // The budget is taken (by this table or by others): spill, keep the base, retry.
         // The base holds a table for any key up to MAX_KEY_BYTES, so this succeeds.
         c.flush(st)?;
-        if st.table.insert(hash, position, norm, Some(&mut st.credit))? == Inserted::Done {
+        if st
+            .table
+            .insert(hash, position, norm, Some(&mut st.credit))?
+            == Inserted::Done
+        {
             return Ok(());
         }
         Err(DictionaryError::Budget(InsufficientBudget::new(

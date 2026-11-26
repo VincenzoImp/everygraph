@@ -372,7 +372,8 @@ mod tests {
                 let key = (i % 1234).to_string();
                 let h = KeyHash::of(key.as_bytes(), 0);
                 assert_eq!(
-                    t.insert(h, 10_000 - i - round, key.as_bytes(), None).unwrap(),
+                    t.insert(h, 10_000 - i - round, key.as_bytes(), None)
+                        .unwrap(),
                     Inserted::Done
                 );
             }
@@ -428,7 +429,10 @@ mod tests {
         let mut inserted = 0;
         for i in 0..100_000_u64 {
             let key = i.to_le_bytes();
-            match t.insert(KeyHash::of(&key, 0), i, &key, Some(&mut r)).unwrap() {
+            match t
+                .insert(KeyHash::of(&key, 0), i, &key, Some(&mut r))
+                .unwrap()
+            {
                 Inserted::Done => inserted += 1,
                 Inserted::Full => break,
             }
@@ -441,7 +445,8 @@ mod tests {
         assert!(t.is_empty());
         let key = 7_u64.to_le_bytes();
         assert_eq!(
-            t.insert(KeyHash::of(&key, 0), 0, &key, Some(&mut r)).unwrap(),
+            t.insert(KeyHash::of(&key, 0), 0, &key, Some(&mut r))
+                .unwrap(),
             Inserted::Done
         );
     }

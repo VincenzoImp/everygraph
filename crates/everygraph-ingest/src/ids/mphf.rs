@@ -589,7 +589,10 @@ mod tests {
     #[test]
     fn inseparable_hash_sets_are_unsolvable() {
         let same_lo = [KeyHash { hi: 1, lo: 7 }, KeyHash { hi: 2, lo: 7 }];
-        assert_eq!(build_part(&same_lo, Pages::HEAP), Err(PartError::Unsolvable));
+        assert_eq!(
+            build_part(&same_lo, Pages::HEAP),
+            Err(PartError::Unsolvable)
+        );
     }
 
     /// The solver's memory estimate covers what it allocates for a full part.
