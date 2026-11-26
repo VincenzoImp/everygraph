@@ -22,14 +22,15 @@
 //!
 //! When everything fits, nothing is written but the output: no spill.
 //!
-//! Property columns are not carried: each entry's multiplicity, kept in module
-//! `finish`, gives its pair's range of events.
+//! A weight or a time column is carried by every item through these passes and stored
+//! beside the lists, per event or per pair (module `columns`, `docs/spec/eg-columns.md`
+//! § 6); the in-adjacency's items carry the out-adjacency's stored values.
 //!
 //! # Determinism
 //!
 //! Every boundary that depends on the budget (buckets, rounds, what spills) or on the
 //! schedule (the order of spill chunks) is followed by a sort of each list, whose key is
-//! total; the scatter is stable; the dictionary's form depends on its keys alone. So
+//! total (an item with columns carries its input position); the scatter is stable; the dictionary's form depends on its keys alone. So
 //! the sections are a function of the input and the options: a budget gives these
 //! bytes or a refusal, never other bytes (DESIGN D14).
 //!
@@ -40,12 +41,17 @@
 //! between passes is refused ([`BuildError::InputChanged`]), never built from two
 //! files.
 
+mod columns;
 mod estimate;
 mod fill;
 mod finish;
 mod layout;
+mod lists;
 mod rows;
+mod transpose;
 
+#[cfg(test)]
+mod column_tests;
 #[cfg(test)]
 mod tests;
 
@@ -54,26 +60,24 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::num::NonZeroUsize;
-use std::sync::{Mutex, PoisonError};
 
 use everygraph_core::{
-    ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, widen,
+    ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, Reservation, widen,
 };
-use everygraph_format::adjacency::{
-    AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError, IndexBuilder, encode_events,
-    events_section_bytes,
-};
-use everygraph_format::container::{Container, ContainerError, Kind, Provenance, Writer};
+use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError};
+use everygraph_format::columns::ColumnError;
+use everygraph_format::container::{Container, ContainerError, Entry, Kind, Provenance, Writer};
 
 use crate::ids::{
     self, Dictionary, DictionaryError, IdOrder, InvalidKeys, Scratch, build_dictionary,
 };
 use crate::text::{IdType, Layout as TextLayout, OnInvalid, Tally, TextError, TextReader};
 
+use columns::{FromRow, Out, Tagged};
 pub use estimate::{Estimate, Sample, estimate};
-use finish::{Multiplicities, Output, PairCounts, finish_round, multiplicities};
-use layout::Layout;
-use rows::{ItemCounts, Rows, TextKeys, each_block};
+use lists::{Context, Names, Written, fill_lists, write_lists};
+use rows::{Flight, Rows, TextKeys};
+pub use transpose::add_in_adjacency;
 
 pub(crate) const ONE: NonZeroUsize = NonZeroUsize::MIN;
 
@@ -83,8 +87,23 @@ pub const OUT_DATA: &str = "adjacency.out.data";
 pub const OUT_INDEX: &str = "adjacency.out.index";
 /// The `.events` section of the out-adjacency, when some pair has more than one event.
 pub const OUT_EVENTS: &str = "adjacency.out.events";
+/// The data of the in-adjacency of a directed graph: the transpose of the out-adjacency
+/// (DESIGN D6), derived from it.
+pub const IN_DATA: &str = "adjacency.in.data";
+/// The index of the in-adjacency.
+pub const IN_INDEX: &str = "adjacency.in.index";
+/// The `.events` section of the in-adjacency: present exactly when the out-adjacency
+/// has one.
+pub const IN_EVENTS: &str = "adjacency.in.events";
 /// The provenance record of the build.
 pub const PROVENANCE: &str = "provenance/ingest";
+
+const OUT: Names = Names {
+    adjacency: "adjacency.out",
+    data: OUT_DATA,
+    index: OUT_INDEX,
+    events: OUT_EVENTS,
+};
 
 /// What happens to a row from a node to itself (`docs/spec/graph-semantics.md` § 2.3).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -168,6 +187,8 @@ pub struct BuildOptions {
     /// Buffers held per block in flight are reserved for this many. A larger pool
     /// than this makes the process hold more than the budget says.
     pub threads: NonZeroUsize,
+    /// On a directed graph, write the in-adjacency too (the default).
+    pub in_adjacency: bool,
 }
 
 impl BuildOptions {
@@ -178,6 +199,7 @@ impl BuildOptions {
             graph,
             ids: ids::BuildOptions::default(),
             threads,
+            in_adjacency: true,
         }
     }
 }
@@ -196,6 +218,8 @@ pub(crate) struct Tuning {
     pub(crate) resident_items: u64,
     /// Whether the mapped rows may be kept between passes.
     pub(crate) cache_rows: bool,
+    /// Entries of the out-lists the transposition reads at least per block.
+    pub(crate) transpose_block: u64,
 }
 
 const TUNING: Tuning = Tuning {
@@ -204,6 +228,7 @@ const TUNING: Tuning = Tuning {
     spill_batch: 1 << 16,
     resident_items: u64::MAX,
     cache_rows: true,
+    transpose_block: 1 << 18,
 };
 
 /// The phases of a build (`docs/ux-contract.md` § 4.1).
@@ -299,6 +324,11 @@ pub struct Report {
     pub events: u64,
     /// Bytes of the `.events` section; 0 when there is none.
     pub events_bytes: u64,
+    /// The largest multiplicity of a pair (`docs/spec/graph-semantics.md` § 2.7); 0
+    /// without a pair.
+    pub multiplicity_max: u64,
+    /// Whether the in-adjacency was written.
+    pub in_adjacency: bool,
     /// In memory, or with spills.
     pub regime: Regime,
     /// Buckets the items were cut into.
@@ -357,6 +387,14 @@ pub enum BuildError {
     Encode(EncodeError),
     /// A section read back is not valid ([`check`]).
     Format(FormatError),
+    /// The graph is undirected: it has no in-adjacency.
+    Undirected,
+    /// A property column could not be written.
+    Column(ColumnError),
+    /// Two stored columns would have this name: a weight column named `edges`, `first`
+    /// or `last` under `duplicates="sum"`, or one column read as the weight and the time
+    /// (`docs/spec/eg-columns.md` § 6). Refused before any work.
+    ColumnClash(String),
 }
 
 impl fmt::Display for BuildError {
@@ -378,6 +416,9 @@ impl fmt::Display for BuildError {
             Self::Container(e) => e.fmt(f),
             Self::Encode(e) => e.fmt(f),
             Self::Format(e) => e.fmt(f),
+            Self::Undirected => f.write_str("an undirected graph has no in-adjacency"),
+            Self::Column(e) => e.fmt(f),
+            Self::ColumnClash(name) => write!(f, "two stored columns would be named {name}"),
         }
     }
 }
@@ -393,6 +434,7 @@ impl Error for BuildError {
             Self::Container(e) => Some(e),
             Self::Encode(e) => Some(e),
             Self::Format(e) => Some(e),
+            Self::Column(e) => Some(e),
             _ => None,
         }
     }
@@ -452,6 +494,7 @@ impl From<EncodeError> for BuildError {
                 purpose: "adjacency encoder",
                 bytes,
             }),
+            EncodeError::Budget(refused) => Self::Budget(refused),
             other => Self::Encode(other),
         }
     }
@@ -460,6 +503,15 @@ impl From<EncodeError> for BuildError {
 impl From<FormatError> for BuildError {
     fn from(e: FormatError) -> Self {
         Self::Format(e)
+    }
+}
+
+impl From<ColumnError> for BuildError {
+    fn from(e: ColumnError) -> Self {
+        match e {
+            ColumnError::Container(e) => Self::Container(e),
+            other => Self::Column(other),
+        }
     }
 }
 
@@ -535,7 +587,7 @@ pub fn build<S, Sc, K>(
 where
     S: ByteSource + Sync,
     Sc: Scratch,
-    K: ByteSink,
+    K: ByteSink + Sync,
 {
     build_tuned(reader, options, memory, scratch, out, progress, &TUNING)
 }
@@ -544,30 +596,27 @@ where
 /// rounding, thread stacks): a sixteenth of what is available.
 const SLACK_SHIFT: u32 = 4;
 
-/// Buffers of the spill files and of the multiplicities, held whatever the input.
-fn fixed_bytes(threads: usize, tuning: &Tuning) -> u64 {
-    widen(threads) * widen(tuning.spill_batch) * 8
-        + 8 * fill::SPILL_BUFFER
-        + widen(finish::MULTIPLICITY_BUFFER)
-}
-
 fn build_tuned<S, Sc, K>(
     reader: &TextReader<S>,
     options: &BuildOptions,
     memory: &Memory,
     scratch: &Sc,
-    out: K,
+    sink: K,
     progress: &dyn Progress,
     tuning: &Tuning,
 ) -> Result<Unfinished<K>, BuildError>
 where
     S: ByteSource + Sync,
     Sc: Scratch,
-    K: ByteSink,
+    K: ByteSink + Sync,
 {
     let blocks = reader.blocks()?.ok_or(BuildError::Compressed)?;
     let threads = options.threads.get();
     let graph = options.graph;
+    let columns = columns::outputs(reader.layout(), graph.duplicates);
+    if let Some(name) = columns::clash(&columns) {
+        return Err(BuildError::ColumnClash(name.to_owned()));
+    }
 
     progress.begin(Phase::Reading, Some(widen(blocks)));
     let fingerprints = rows::Fingerprints::new(blocks);
@@ -592,113 +641,52 @@ where
     progress.end(Phase::Identifiers, u64::from(nodes));
 
     progress.begin(Phase::Building, None);
-    // The mapped rows are kept for the next passes when they take at most an eighth of
-    // what is left: they are freed before the lists are finished, but the buckets
-    // filled in memory live beside them.
-    let cache_bytes = summary.rows.saturating_mul(rows::CACHE_BYTES_PER_ROW);
-    let cached_rows = (cache_bytes <= memory.available() / 8).then_some(summary.rows);
-    let flight = rows::Flight {
+    let cx = Context {
+        graph,
+        memory,
+        scratch,
+        tuning,
         threads,
-        blocks,
-        block_bytes: widen(reader.block_bytes()),
+        progress,
+    };
+    let input = Input {
+        reader,
+        dictionary: &dictionary,
+        fingerprints: &fingerprints,
+        rows: summary.rows,
         most_rows,
     };
-    let cached_rows = cached_rows.filter(|_| tuning.cache_rows);
-    let mut rows = Rows::new(
-        reader,
-        &dictionary,
-        graph,
-        &fingerprints,
-        &flight,
-        memory,
-        cached_rows,
-    )?;
-    let counts = ItemCounts::new(memory, nodes, graph.directed)?;
-    let pass = each_block(blocks, |block| {
-        rows.items(block, |u, v| {
-            counts.add(u);
-            if graph.directed {
-                counts.target(v);
-            }
-        })
-    })?;
-    let isolates = counts.isolates();
-    let index = IndexBuilder::new(memory, nodes)?;
-
-    let events = graph.duplicates == Duplicates::Events;
-    let available = memory.available() + counts.bytes();
-    let fixed = fixed_bytes(threads, tuning);
-    let work = (available - (available >> SLACK_SHIFT)).saturating_sub(fixed);
-    let values = counts
-        .values()
-        .ok_or(BuildError::TooLarge("a node with 2^32 items or more"))?;
-    let layout = Layout::new(values, nodes, blocks, work, events, tuning)?;
-    drop(counts);
-
-    let (mut resident, spills, spilled_bytes) =
-        fill::fill(&rows, &layout, memory, scratch, tuning, threads)?;
-    rows.release_cache();
-
-    let mut writer = Writer::create(out)?;
-    let mut output = Output {
-        data: writer.begin_section(OUT_DATA, Kind::ADJACENCY_DATA, None)?,
-        index,
-        multiplicities: Multiplicities::new(memory),
-        counts: PairCounts::default(),
+    let layout = reader.layout();
+    let (mut writer, out) = if layout.weight.is_none() && layout.time.is_none() {
+        out_lists::<u32, _, _, _, _>(&input, &columns, &cx, sink)?
+    } else {
+        out_lists::<Tagged, _, _, _, _>(&input, &columns, &cx, sink)?
     };
-    for round in 0..layout.resident_rounds {
-        for bucket in finish_round(&mut resident, 0, &layout, round, graph, memory)? {
-            output.take(bucket, scratch)?;
+    let OutLists {
+        pass,
+        isolates,
+        written: Written {
+            pairs,
+            events_bytes,
+        },
+        mut regime,
+        buckets,
+        mut spilled_bytes,
+    } = out;
+    let mut made = buckets;
+    let in_adjacency = graph.directed && options.in_adjacency;
+    if in_adjacency {
+        let transposed = transpose::transpose_into(&mut writer, &columns, &cx)?;
+        spilled_bytes += transposed.spilled_bytes;
+        made += transposed.buckets;
+        if !transposed.in_memory {
+            regime = Regime::OnDisk;
         }
-        progress.advance(Phase::Building, 1);
     }
-    drop(resident);
-    for (round, spill) in (layout.resident_rounds..layout.round_count()).zip(&spills) {
-        let mut columns = fill::load_round(spill, &layout, round, memory, tuning)?;
-        let held_from = layout.offsets[layout.rounds[round]];
-        for bucket in finish_round(&mut columns, held_from, &layout, round, graph, memory)? {
-            output.take(bucket, scratch)?;
-        }
-        progress.advance(Phase::Building, 1);
-    }
-    drop(spills);
-    drop(rows);
-    progress.end(Phase::Building, widen(layout.buckets()));
-
-    let Output {
-        data,
-        index,
-        multiplicities: stored,
-        counts: pairs,
-    } = output;
-    data.finish()?;
-    let stored = stored.finish(scratch)?;
-    let (index, held) = index.finish(stored.is_some())?;
-    writer.add_section(OUT_INDEX, Kind::ADJACENCY_INDEX, &index, None)?;
-    drop((index, held));
-    let mut events_bytes = 0;
-    if let Some((ones, file)) = &stored {
-        let section_bytes = events_section_bytes(pairs.entries, pairs.events)
-            .ok_or(BuildError::TooLarge("the .events section"))?;
-        // The sequence, then its bytes beside it.
-        let mut held = memory.reserve(
-            "events section",
-            MemoryKind::Anonymous,
-            section_bytes.saturating_mul(2),
-        )?;
-        let error = Mutex::new(None);
-        let sequence = multiplicities(*ones, file, memory, &error)?;
-        let section = encode_events(pairs.entries, pairs.events, sequence);
-        if let Some(e) = error.into_inner().unwrap_or_else(PoisonError::into_inner) {
-            return Err(e);
-        }
-        let section = section?;
-        held.shrink(section_bytes);
-        events_bytes = widen(section.len());
-        writer.add_section(OUT_EVENTS, Kind::ADJACENCY_EVENTS, &section, None)?;
-    }
+    progress.end(Phase::Building, widen(made));
     copy_dictionary(&dictionary, &mut writer, memory)?;
 
+    let events = graph.duplicates == Duplicates::Events;
     let rejected = summary.invalid_rows + pass.rejected;
     let (dropped_duplicates, merged, repeated) = match graph.duplicates {
         Duplicates::Events => (0, 0, pairs.repeats),
@@ -724,8 +712,13 @@ where
         entries: pairs.entries,
         events: pairs.events,
         events_bytes,
-        regime: layout.regime(),
-        buckets: layout.buckets(),
+        multiplicity_max: match graph.duplicates {
+            Duplicates::Collapse => pairs.most.min(1),
+            _ => pairs.most,
+        },
+        in_adjacency,
+        regime,
+        buckets,
         spilled_bytes,
     };
     let mut parameters = parameters(&graph, reader.layout());
@@ -739,6 +732,7 @@ where
         .into(),
     );
     put("isolated_kept", report.isolates.to_string());
+    put("multiplicity.max", report.multiplicity_max.to_string());
     put("isolated_dropped", "0".into());
     Ok(Unfinished {
         writer,
@@ -747,12 +741,91 @@ where
     })
 }
 
+/// The input of the passes, after the dictionary.
+struct Input<'a, 'd, S, D> {
+    reader: &'a TextReader<S>,
+    dictionary: &'a Dictionary<'d, D>,
+    fingerprints: &'a rows::Fingerprints,
+    /// Rows of the input.
+    rows: u64,
+    /// Rows of its largest block.
+    most_rows: u64,
+}
+
+/// What [`out_lists`] found and wrote.
+struct OutLists {
+    pass: rows::BlockCounts,
+    isolates: u64,
+    written: Written,
+    regime: Regime,
+    buckets: usize,
+    spilled_bytes: u64,
+}
+
+/// The out-adjacency of `input`, with items `T` and its `columns`, written into a new
+/// container in `sink`.
+fn out_lists<T, S, D, Sc, K>(
+    input: &Input<'_, '_, S, D>,
+    columns: &[Out],
+    cx: &Context<'_, Sc>,
+    sink: K,
+) -> Result<(Writer<K>, OutLists), BuildError>
+where
+    T: FromRow,
+    S: ByteSource + Sync,
+    D: ByteSource + Sync,
+    Sc: Scratch,
+    K: ByteSink,
+{
+    let memory = cx.memory;
+    // The mapped rows are kept for the next passes when they take at most an eighth of
+    // what is left: they are freed before the lists are finished, but the buckets
+    // filled in memory live beside them.
+    let cache_bytes = input.rows.saturating_mul(rows::cache_bytes_per_row::<T>());
+    let cached_rows = (cache_bytes <= memory.available() / 8).then_some(input.rows);
+    let flight = Flight {
+        threads: cx.threads,
+        blocks: input.fingerprints.blocks(),
+        block_bytes: widen(input.reader.block_bytes()),
+        most_rows: input.most_rows,
+        row_bytes: rows::block_bytes_per_row::<T>(),
+    };
+    let cached_rows = cached_rows.filter(|_| cx.tuning.cache_rows);
+    let rows: Rows<'_, '_, S, D, T> = Rows::new(
+        input.reader,
+        input.dictionary,
+        cx.graph,
+        input.fingerprints,
+        &flight,
+        memory,
+        cached_rows,
+    )?;
+    let nodes = input.dictionary.len();
+    let filled = fill_lists(&rows, nodes, cx.graph.directed, columns.len(), cx)?;
+    drop(rows);
+    let (pass, isolates, spilled_bytes) = (filled.pass, filled.isolates, filled.spilled_bytes);
+    let (regime, buckets) = (filled.layout().regime(), filled.layout().buckets());
+    let mut writer = Writer::create(sink)?;
+    let written = write_lists(filled, &mut writer, OUT, columns, cx)?;
+    Ok((
+        writer,
+        OutLists {
+            pass,
+            isolates,
+            written,
+            regime,
+            buckets,
+            spilled_bytes,
+        },
+    ))
+}
+
 /// The parameters that a build of the text read as `layout` with `graph` records in its
 /// provenance, before what the build itself finds (graph order, isolated nodes): the
-/// direction, self-loops, duplicates, the identifier type and the source and target
-/// columns. Two builds with the same parameters from the same input make the same graph,
-/// so a file whose provenance holds these is the cache of that build
-/// (`docs/api-sketch.md` § 2.7).
+/// direction, self-loops, duplicates, the identifier type, the source and target
+/// columns, and the weight and time columns when there are. Two builds with the same
+/// parameters from the same input make the same graph, so a file whose provenance holds
+/// these is the cache of that build (`docs/api-sketch.md` § 2.7).
 #[must_use]
 pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String, String> {
     let self_loops = match graph.self_loops {
@@ -769,6 +842,7 @@ pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String,
         IdType::Hex => "hex",
         _ => "integer",
     };
+    let columns = [("weight", layout.weight), ("time", layout.time)];
     [
         ("directed", graph.directed.to_string()),
         ("self_loops", self_loops.into()),
@@ -778,6 +852,11 @@ pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String,
         ("target", layout.column_name(layout.target)),
     ]
     .into_iter()
+    .chain(
+        columns
+            .into_iter()
+            .filter_map(|(role, at)| Some((role, layout.column_name(at?)))),
+    )
     .map(|(k, v)| (k.to_owned(), v))
     .collect()
 }
@@ -817,12 +896,17 @@ pub struct Checked {
     pub entries: u64,
     /// Stored events, when the graph has a `.events` section.
     pub events: Option<u64>,
+    /// Whether the file holds the in-adjacency.
+    pub in_adjacency: bool,
 }
 
 /// Reads a graph file back and checks it: every section against its hash, the index of
 /// the out-adjacency, its `.events` section whole when the index announces one (and
 /// none otherwise, under any name of kind 5), and the dictionary's sections, which
-/// must have as many keys as the adjacency has nodes.
+/// must have as many keys as the adjacency has nodes. An in-adjacency is checked the
+/// same way, and must have the nodes, the entries and the events of the out-adjacency
+/// (`docs/spec/eg-adjacency.md` § 5); that it is the transpose is for
+/// `everygraph_format::verify`.
 ///
 /// # Errors
 ///
@@ -832,26 +916,53 @@ pub struct Checked {
 pub fn check<S: ByteSource>(source: S, memory: &Memory) -> Result<Checked, BuildError> {
     let file = Container::open(source)?;
     file.verify_all()?;
-    let read = |name: &str| -> Result<Vec<u8>, BuildError> {
-        let section = file.section(name)?;
-        let len = usize::try_from(section.len()).map_err(|_| BuildError::TooLarge(OUT_INDEX))?;
-        let mut bytes = vec![0_u8; len];
-        section.read_at(0, &mut bytes)?;
-        Ok(bytes)
+    let stray = file.entries().iter().any(|e| {
+        (e.kind == Kind::ADJACENCY_EVENTS) != (&*e.name == OUT_EVENTS || &*e.name == IN_EVENTS)
+    });
+    if stray {
+        return Err(FormatError::Invalid(
+            "a section of kind 5 that is not adjacency.out.events or adjacency.in.events",
+        )
+        .into());
+    }
+    let (nodes, entries, events) = check_adjacency(&file, OUT, memory)?;
+    let in_adjacency = file.get(IN_INDEX).is_some() || file.get(IN_DATA).is_some();
+    if in_adjacency && check_adjacency(&file, transpose::IN, memory)? != (nodes, entries, events) {
+        return Err(FormatError::Invalid(
+            "the in-adjacency differs from the out-adjacency in nodes, entries or events",
+        )
+        .into());
+    }
+    let dictionary = Dictionary::open(memory.accountant(), |name| file.section(name).ok())?;
+    if dictionary.len() != nodes {
+        return Err(
+            DictionaryError::Corrupt("the dictionary and the adjacency differ in nodes").into(),
+        );
+    }
+    Ok(Checked {
+        sections: file.entries().len(),
+        nodes,
+        entries,
+        events,
+        in_adjacency,
+    })
+}
+
+/// The nodes, entries and stored events (with a `.events` section) of the adjacency
+/// `names`, whose index and `.events` section are checked.
+fn check_adjacency<S: ByteSource>(
+    file: &Container<S>,
+    names: Names,
+    memory: &Memory,
+) -> Result<(u32, u64, Option<u64>), BuildError> {
+    let mut held = Reservation::empty(memory, "checking", MemoryKind::Anonymous);
+    let read = |name: &str, held: &mut Reservation| {
+        read_section(file.source(), file.get(name), name, held)
     };
-    let index_len = file
-        .get(OUT_INDEX)
-        .ok_or_else(|| ContainerError::NoSuchSection(OUT_INDEX.into()))?
-        .len;
-    let _held = memory.reserve(
-        "checking",
-        MemoryKind::Anonymous,
-        index_len.saturating_mul(3),
-    )?;
-    let index = AdjacencyIndex::parse(&read(OUT_INDEX)?)?;
+    let index = AdjacencyIndex::parse(&read(names.index, &mut held)?)?;
     let data = file
-        .get(OUT_DATA)
-        .ok_or_else(|| ContainerError::NoSuchSection(OUT_DATA.into()))?;
+        .get(names.data)
+        .ok_or_else(|| ContainerError::NoSuchSection(names.data.into()))?;
     if data.len != index.data_bytes() {
         return Err(FormatError::Length {
             expected: index.data_bytes(),
@@ -859,23 +970,9 @@ pub fn check<S: ByteSource>(source: S, memory: &Memory) -> Result<Checked, Build
         }
         .into());
     }
-    let stray = file
-        .entries()
-        .iter()
-        .any(|e| (e.kind == Kind::ADJACENCY_EVENTS) != (&*e.name == OUT_EVENTS));
-    if stray {
-        return Err(
-            FormatError::Invalid("a section of kind 5 that is not adjacency.out.events").into(),
-        );
-    }
-    let events = match (index.has_events(), file.get(OUT_EVENTS)) {
-        (true, Some(entry)) => {
-            let _events = memory.reserve(
-                "checking",
-                MemoryKind::Anonymous,
-                entry.len.saturating_mul(3),
-            )?;
-            let bytes = read(OUT_EVENTS)?;
+    let events = match (index.has_events(), file.get(names.events)) {
+        (true, Some(_)) => {
+            let bytes = read(names.events, &mut held)?;
             let events = AdjacencyEvents::parse(&bytes, &index)?;
             events.check()?;
             Some(events.events())
@@ -887,16 +984,31 @@ pub fn check<S: ByteSource>(source: S, memory: &Memory) -> Result<Checked, Build
             );
         }
     };
-    let dictionary = Dictionary::open(memory.accountant(), |name| file.section(name).ok())?;
-    if dictionary.len() != index.nodes() {
-        return Err(
-            DictionaryError::Corrupt("the dictionary and the adjacency differ in nodes").into(),
-        );
-    }
-    Ok(Checked {
-        sections: file.entries().len(),
-        nodes: index.nodes(),
-        entries: index.entries(),
-        events,
-    })
+    Ok((index.nodes(), index.entries(), events))
+}
+
+/// Section `name` of the container in `source` (`entry` its entry) read whole into
+/// memory, for which `held` grows by three times its length: the bytes and what a parser
+/// builds beside them (an index's sequences, the copy of an `.events` sequence).
+pub(crate) fn read_section<R: ByteSource>(
+    source: &R,
+    entry: Option<&Entry>,
+    name: &str,
+    held: &mut Reservation,
+) -> Result<Vec<u8>, BuildError> {
+    let entry = entry.ok_or_else(|| ContainerError::NoSuchSection(name.into()))?;
+    let len = usize::try_from(entry.len).map_err(|_| BuildError::TooLarge("a section"))?;
+    held.try_grow(entry.len.saturating_mul(3))?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(len)
+        .map_err(|_| MemoryError::AllocationFailed {
+            purpose: "a section read whole",
+            bytes: entry.len,
+        })?;
+    bytes.resize(len, 0);
+    source
+        .read_at(entry.offset, &mut bytes)
+        .map_err(|e| BuildError::Container(ContainerError::Read(e)))?;
+    Ok(bytes)
 }

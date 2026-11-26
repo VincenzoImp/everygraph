@@ -14,6 +14,7 @@
 //! - [`traversal`]: direction-optimizing BFS and bit-parallel multi-source BFS (#49).
 //! - [`sssp`]: weighted shortest distances by Δ*-stepping with bucket fusion (#49).
 //! - [`components`]: weakly connected components and their numbering (#48).
+//! - [`scc`]: strongly connected components of a directed graph, by BGSS (#223).
 //! - [`kcore`]: core numbers and shells (#50).
 //! - [`degrees`]: degree and strength columns (#50).
 //! - [`proof`]: the lab's Afforest on the framework, the first-neighbour baseline of
@@ -73,6 +74,7 @@ pub mod kcore;
 pub mod pagerank;
 pub mod proof;
 pub mod run;
+pub mod scc;
 pub mod sssp;
 pub mod traversal;
 mod weights;

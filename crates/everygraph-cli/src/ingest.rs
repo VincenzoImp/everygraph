@@ -61,11 +61,10 @@ pub(crate) struct Args {
     pub(crate) temp_dir: Option<PathBuf>,
     #[arg(long)]
     pub(crate) dry_run: bool,
-    /// A weight or time column, which this version cannot store.
-    #[arg(long, hide = true, value_name = "NAME")]
-    weight: Option<String>,
-    #[arg(long, hide = true, value_name = "NAME")]
-    time: Option<String>,
+    #[arg(long, value_name = "NAME")]
+    pub(crate) weight: Option<String>,
+    #[arg(long, value_name = "NAME")]
+    pub(crate) time: Option<String>,
     #[command(flatten)]
     pub(crate) common: Common,
 }
@@ -83,23 +82,7 @@ impl Args {
 
 /// Runs the command; returns the exit status.
 pub(crate) fn main(args: &Args) -> u8 {
-    let unsupported = [("--weight", &args.weight), ("--time", &args.time)]
-        .into_iter()
-        .find(|(_, v)| v.is_some());
-    let outcome = match unsupported {
-        Some((option, _)) => Err(Failure::new(
-            "Unsupported",
-            format!("{option} cannot be stored yet."),
-            failure::USAGE,
-        )
-        .why(vec!["This version stores no weight or time column.".into()])
-        .ways(vec![(
-            format!("leave out {option}"),
-            "the edges are read without it".into(),
-        )])),
-        None => run(args),
-    };
-    outcome.unwrap_or_else(|failure| failure.report(args.common.json))
+    run(args).unwrap_or_else(|failure| failure.report(args.common.json))
 }
 
 const HELP: &str = "\
@@ -111,6 +94,8 @@ Usage
 Options
   --source NAME         the source column (default: from, source, or the first)
   --target NAME         the target column (default: to, target, or the second)
+  --weight NAME         a weight column, stored with the edges
+  --time NAME           a time column, stored with the edges
   --directed            the edges have a direction
   --undirected          they do not (default unless the columns say from/to)
   --self-loops drop|keep    edges from a node to itself (default: drop)
@@ -137,6 +122,8 @@ fn run(args: &Args) -> Result<u8, Failure> {
     let options = TextOptions {
         source: args.source.as_deref().map(Column::from),
         target: args.target.as_deref().map(Column::from),
+        weight: args.weight.as_deref().map(Column::from),
+        time: args.time.as_deref().map(Column::from),
         ids: args.ids,
         ..TextOptions::default()
     };

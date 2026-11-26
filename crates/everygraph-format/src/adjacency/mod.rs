@@ -22,6 +22,10 @@
 //! the same bytes list by list: [`append_record`] for the data, [`IndexBuilder`] for the
 //! index and [`encode_events`] for the events.
 //!
+//! [`merge`] encodes the union of two adjacencies, list by list: the undirected
+//! projection of a directed graph from its out- and in-adjacency. [`union_degrees`]
+//! counts it without building it.
+//!
 //! ```
 //! use everygraph_core::NodeId;
 //! use everygraph_format::adjacency::{AdjacencyIndex, Adjacency, Batch, encode};
@@ -45,6 +49,7 @@ mod ef;
 mod encode;
 mod events;
 mod index;
+mod merge;
 mod simd;
 mod stream;
 mod svb;
@@ -52,10 +57,13 @@ mod svb;
 use std::error::Error;
 use std::fmt;
 
+use everygraph_core::InsufficientBudget;
+
 pub use decode::{Adjacency, Batch};
 pub use encode::{Encoded, encode};
 pub use events::AdjacencyEvents;
 pub use index::AdjacencyIndex;
+pub use merge::{merge, union_degrees};
 pub use simd::Decoder;
 pub use stream::{
     IndexBuilder, append_record, encode_events, events_section_bytes, index_bytes_bound,
@@ -140,6 +148,10 @@ pub enum EncodeError {
         /// Its size.
         bytes: u64,
     },
+    /// The budget has no room for a buffer of the encoder; nothing was allocated.
+    Budget(InsufficientBudget),
+    /// The records of an input adjacency do not decode ([`merge`]).
+    Decode(DecodeError),
 }
 
 impl fmt::Display for EncodeError {
@@ -150,6 +162,8 @@ impl fmt::Display for EncodeError {
                 write!(f, "the list of node {node} is not strictly increasing")
             }
             Self::OutOfMemory { bytes } => write!(f, "could not allocate {bytes} bytes to encode"),
+            Self::Budget(refused) => refused.fmt(f),
+            Self::Decode(e) => e.fmt(f),
         }
     }
 }

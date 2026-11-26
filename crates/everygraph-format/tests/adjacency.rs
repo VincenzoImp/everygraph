@@ -9,11 +9,10 @@
 
 mod support;
 
-use everygraph_core::Memory;
-use everygraph_core::NodeId;
+use everygraph_core::{Memory, NodeId};
 use everygraph_format::adjacency::{
     Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, IndexBuilder, append_record,
-    encode,
+    encode, merge, union_degrees,
 };
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
@@ -135,73 +134,29 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
             assert_eq!(batch.targets(), all);
-            // The same lists from a part that holds their records only; a list before
-            // the part is an error.
-            if let Some(last) = r.end.checked_sub(1).filter(|&l| l >= r.start) {
-                let bytes =
-                    index.record_range(id(ix(r.start))).start..index.record_range(id(ix(last))).end;
-                let piece = &encoded.data[to_usize(bytes.start)..to_usize(bytes.end)];
-                let part = Adjacency::part(&index, bytes, piece)
-                    .unwrap()
-                    .with_decoder(decoder);
-                part.decode_nodes(r.clone(), usize::MAX, &mut batch)
-                    .unwrap();
-                assert_eq!(batch.targets(), all, "{name} part {r:?}");
-                if let Some(v) = r.start.checked_sub(1).filter(|&v| degree(v) > 0) {
-                    assert!(part.neighbors(id(ix(v)), &mut buf).is_err(), "{name} {v}");
-                    assert!(part.decode_nodes(v..r.end, usize::MAX, &mut batch).is_err());
-                }
+            // A window over the range's records alone decodes the same lists.
+            let bytes = index.data_range(r.clone());
+            let records = &encoded.data[to_usize(bytes.start)..to_usize(bytes.end)];
+            let window = Adjacency::window(&index, r.clone(), records)
+                .unwrap()
+                .with_decoder(decoder);
+            assert_eq!(window.nodes(), r);
+            window
+                .decode_nodes(r.clone(), usize::MAX, &mut batch)
+                .unwrap();
+            assert_eq!(batch.targets(), all, "{name} window {r:?}");
+            for v in r.clone() {
+                let got = window.neighbors(NodeId::new(v), &mut buf).unwrap();
+                assert_eq!(got, list(offsets, targets, ix(v)), "{name} window {r:?}");
             }
+            let short = &records[..records.len().saturating_sub(1)];
+            assert!(records.is_empty() || Adjacency::window(&index, r.clone(), short).is_err());
         }
         let (mut o, mut t) = (vec![u64::MAX; n + 1], vec![0u32; targets.len()]);
         adj.decode_all(&mut o, &mut t).unwrap();
         assert_eq!((&o[..], &t[..]), (offsets, targets), "{name} decode_all");
     }
     encoded
-}
-
-/// A part must lie inside the data part and be as long as its range.
-#[test]
-fn a_part_is_checked_against_the_index() {
-    let encoded = encode(&[0, 1, 2], &[1, 0]).unwrap();
-    let index = AdjacencyIndex::parse(&encoded.index).unwrap();
-    let len = index.data_bytes();
-    let data = &encoded.data;
-    assert!(Adjacency::part(&index, 0..len, data).is_ok());
-    assert!(Adjacency::part(&index, 1..len + 1, data).is_err());
-    assert!(Adjacency::part(&index, 0..len - 1, data).is_err());
-}
-
-/// A part of a data part of more than 4 GiB: its offsets do not fit a 32-bit `usize`
-/// until they are made relative to the part, and then they decode. Node 0 has a record
-/// of 5 GB that no test holds; node 1's record is the part.
-#[test]
-fn a_part_past_4_gib_decodes_on_every_target() {
-    let hub: u32 = 4_000_000_000;
-    let mut builder = IndexBuilder::new(&Memory::unlimited(), 3).unwrap();
-    builder
-        .push(hub, u64::from(hub.div_ceil(4)) + u64::from(hub))
-        .unwrap();
-    let mut record = Vec::new();
-    let degree = append_record(1, [0, 2], &mut record).unwrap();
-    builder.push(degree, record.len() as u64).unwrap();
-    builder.push(0, 0).unwrap();
-    let (bytes, _held) = builder.finish(false).unwrap();
-    let index = AdjacencyIndex::parse(&bytes).unwrap();
-    let start = index.record_range(id(1)).start;
-    assert!(start > u64::from(u32::MAX));
-    let range = start..start + record.len() as u64;
-    let mut buf = Vec::new();
-    let mut batch = Batch::default();
-    for decoder in Decoder::available() {
-        let part = Adjacency::part(&index, range.clone(), &record)
-            .unwrap()
-            .with_decoder(decoder);
-        assert_eq!(part.neighbors(id(1), &mut buf).unwrap(), &[0, 2]);
-        assert_eq!(part.decode_nodes(1..3, 8192, &mut batch).unwrap(), 3);
-        assert_eq!(batch.list(0), &[0, 2]);
-        assert!(part.neighbors_prefix(id(0), 1, &mut buf).is_err());
-    }
 }
 
 /// The tests above go through `Decoder::available()`; this makes sure a run with a SIMD
@@ -490,6 +445,47 @@ proptest! {
         round_trip(&offsets, &targets);
     }
 
+    /// `merge` gives the bytes `encode` gives for the union of the lists.
+    #[test]
+    fn a_merge_is_the_encoded_union((a, b) in (arb_csr(), arb_csr())) {
+        let n = (a.0.len()).min(b.0.len()) - 1;
+        let cut = |(o, t): &(Vec<u64>, Vec<u32>)| (o[..=n].to_vec(), t[..to_usize(o[n])].to_vec());
+        let (a, b) = (cut(&a), cut(&b));
+        let (mut offsets, mut targets) = (vec![0u64], Vec::new());
+        for v in 0..n {
+            let mut union: Vec<u32> = list(&a.0, &a.1, v).iter().chain(list(&b.0, &b.1, v)).copied().collect();
+            union.sort_unstable();
+            union.dedup();
+            targets.extend(union);
+            offsets.push(targets.len() as u64);
+        }
+        let (ea, eb) = (encode(&a.0, &a.1).unwrap(), encode(&b.0, &b.1).unwrap());
+        let (ia, ib) = (AdjacencyIndex::parse(&ea.index).unwrap(), AdjacencyIndex::parse(&eb.index).unwrap());
+        let (merged, held) = merge(
+            &Adjacency::new(&ia, &ea.data).unwrap(),
+            &Adjacency::new(&ib, &eb.data).unwrap(),
+            &Memory::unlimited(),
+        ).unwrap();
+        prop_assert!(merged == encode(&offsets, &targets).unwrap());
+        prop_assert!(held.bytes() >= merged.data.len() as u64);
+        // The degrees of the union, a node's own entry counted twice.
+        let mut degrees = vec![0_u32; n];
+        union_degrees(
+            &Adjacency::new(&ia, &ea.data).unwrap(),
+            &Adjacency::new(&ib, &eb.data).unwrap(),
+            &Memory::unlimited(),
+            &mut degrees,
+        ).unwrap();
+        let want: Vec<u32> = (0..n)
+            .map(|v| {
+                let l = list(&offsets, &targets, v);
+                let own = l.contains(&u32::try_from(v).unwrap());
+                u32::try_from(l.len() + usize::from(own)).unwrap()
+            })
+            .collect();
+        prop_assert_eq!(degrees, want);
+    }
+
     #[test]
     fn decoders_agree_on_corrupted_records(
         (offsets, targets) in arb_csr(),
@@ -520,5 +516,33 @@ proptest! {
         let cut = cut.index(e.index.len());
         prop_assert!(AdjacencyIndex::parse(&e.index[..cut]).is_err());
         prop_assert!(AdjacencyIndex::parse(&e.index).and_then(|ix| Adjacency::new(&ix, &e.data[..e.data.len().saturating_sub(1)]).map(|_| ())).is_err() || e.data.is_empty());
+    }
+}
+
+/// A window of a data part of more than 4 GiB: node 1's record starts past 2^32, so its
+/// offsets fit a 32-bit `usize` only relative to the window, and they decode there.
+/// Node 0 has a record of 5 GB that no test holds.
+#[test]
+fn a_window_past_4_gib_decodes_on_every_target() {
+    let hub: u32 = 4_000_000_000;
+    let mut builder = IndexBuilder::new(&Memory::unlimited(), 3).unwrap();
+    builder
+        .push(hub, u64::from(hub.div_ceil(4)) + u64::from(hub))
+        .unwrap();
+    let mut record = Vec::new();
+    let degree = append_record(1, [0, 2], &mut record).unwrap();
+    builder.push(degree, record.len() as u64).unwrap();
+    builder.push(0, 0).unwrap();
+    let (bytes, _held) = builder.finish(false).unwrap();
+    let index = AdjacencyIndex::parse(&bytes).unwrap();
+    assert!(index.data_range(1..2).start > u64::from(u32::MAX));
+    let (mut buf, mut batch) = (Vec::new(), Batch::default());
+    for decoder in Decoder::available() {
+        let window = Adjacency::window(&index, 1..3, &record)
+            .unwrap()
+            .with_decoder(decoder);
+        assert_eq!(window.neighbors(id(1), &mut buf).unwrap(), &[0, 2]);
+        assert_eq!(window.decode_nodes(1..3, 8192, &mut batch).unwrap(), 3);
+        assert_eq!(batch.list(0), &[0, 2]);
     }
 }

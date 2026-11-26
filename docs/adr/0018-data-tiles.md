@@ -64,4 +64,4 @@ load; `lab/e-map/results/tiles_lj_t32.json`, `lab/e-map/results/tiles_orkut_t32.
 
 ## Closed by
 
-#26 (viewer without a discrete GPU, Firefox, Safari), #69 (the tile pyramid of a 1.8 B-edge graph under a budget).
+#77 (the viewer on an integrated GPU, Firefox and Safari; WebGL 2 is the minimum, `design/DECISIONS.md`), #69 (the tile pyramid of a 1.8 B-edge graph under a budget).

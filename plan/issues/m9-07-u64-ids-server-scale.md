@@ -11,7 +11,9 @@ labels: type:feature, area:engine, P2, risk:medium, size:L, lab-evidence
 - [ ] NUMA-aware allocation and scheduling; huge pages for state arrays (≤ 10% in the lab on one socket)
 - [ ] Validation on a ≥ 10 B-edge public web graph on a rented large-memory server. The Web Data Commons 2012 page graph (3,563 M nodes, 128,736 M arcs) is a near-limit u32 test, not a test above 2^32 nodes: 3.56 B is 83% of 2^32 (`docs/research/memory-bounded-algorithms.md`, addendum item 18)
 - [ ] The graph for the acceptance below, named: a synthetic RMAT graph above 2^32 nodes, generated deterministically from a seed (Seraph, FAST 2024, ran RMAT with 8.6 B nodes and 112 B edges on 8-byte ids, their machine), or the Software Heritage graph (tens of billions of nodes); the choice and its download or generation cost recorded here before work starts
-- [ ] Fully external regime when even the O(n) state does not fit (not measured in the lab)
+- [ ] Fully external regime when even the O(n) state does not fit (not measured in the lab). Deferred; design note below
+
+**Design note: a deterministic fully external regime** (2026-11-26, `docs/research/sota-review-2026-11.md` § 5; deferred, nothing to build now). If this regime is built, the form that keeps D14 is 2-D streaming over a derived grid artifact. Destination ranges are held in RAM in turn, and source state is read per block. Each destination adds its in-neighbours in ascending source order, and each term's lane is fixed by its position in the list. Then the sums are bit-identical to the in-RAM pull kernel for any grid size, so the grid size may follow the budget. The alternative, vertex passing through spill buckets (Seraph style), writes about 8 B per entry per iteration: about 29 GB per PageRank iteration on Friendster (arithmetic, not measured), and its sum order depends on the buckets. At u32 ids the planner's refusal is honest and rare, so the regime waits.
 
 **Acceptance**
 - A graph with > 2^32 nodes (the synthetic RMAT graph or Software Heritage, as named above; not Web Data Commons) ingests and runs WCC and PageRank; u32 graphs show no regression

@@ -230,11 +230,7 @@ impl<'a> CompressedStream<'a> {
 
     /// The offset in the data part of the record of `v`, for `v` in `0..=nodes`.
     fn byte_at(&self, v: u32) -> u64 {
-        if v == self.n {
-            self.index.data_bytes()
-        } else {
-            self.index.record_range(NodeId::new(v)).start
-        }
+        self.index.data_range(v..v).start
     }
 
     fn advise(&self, phase: u8, hint: AccessHint) {
@@ -313,11 +309,21 @@ impl<'a> CompressedStream<'a> {
     }
 
     /// Decodes the lists of `nodes` from the window into the batch, and checks them;
-    /// returns the first node not decoded.
+    /// returns the first node not decoded. The window must hold their records
+    /// ([`fill`](Self::fill)).
     fn decode(&self, io: &mut Window, nodes: Range<u32>) -> Result<u32, Error> {
-        let held = &io.buf.as_slice()[..ix(io.bytes.end - io.bytes.start)];
-        let part = Adjacency::part(self.index, io.bytes.clone(), held).map_err(Error::Format)?;
-        io.decode.decode(&part, nodes)
+        let bytes = self.index.data_range(nodes.clone());
+        let records = if bytes.is_empty() {
+            Some(&[][..])
+        } else {
+            let at = |x: u64| usize::try_from(x.checked_sub(io.bytes.start)?).ok();
+            let (a, b) = (at(bytes.start), at(bytes.end));
+            a.zip(b).and_then(|(a, b)| io.buf.as_slice().get(a..b))
+        };
+        let records = records.ok_or(Error::Invalid("records outside the read window"))?;
+        let window =
+            Adjacency::window(self.index, nodes.clone(), records).map_err(Error::Format)?;
+        io.decode.decode(&window, nodes)
     }
 
     /// Calls `f` for each node of `nodes` with its list, in order. Runs of consecutive
@@ -340,7 +346,7 @@ impl<'a> CompressedStream<'a> {
             let mut at = nodes[i];
             while at < end {
                 let stop = self.batch_end(at, end, io.decode.max_entries());
-                let need = self.byte_at(at)..self.byte_at(stop);
+                let need = self.index.data_range(at..stop);
                 let task_end = io.task_end;
                 self.fill(io, need, |cap| {
                     if ahead {

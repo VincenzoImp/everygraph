@@ -140,7 +140,7 @@ attributed to lost locality; order-free floating-point summation costs 3–7× (
 | Automatic direction switch helper (Ligra: |U| + Σdeg > |E|/20) | BFS, BC, radii, CC | one threshold "worked well across all applications" (1) | yes |
 | Pull with early exit inside a list (decode a prefix) | bottom-up BFS, LPA | – (our #118 BFS slowdown 1.20–1.52× is partly whole-list decode) | yes |
 | filter / pack (edge deletion, also on compressed lists) | TC orientation build, MSF, matching | enabling | yes |
-| VGC (local search of ≥ τ vertices per task) + hash bags | SCC/CC reachability, k-core peeling on high-diameter graphs | SCC 4–19×, k-core up to 31.2× (GRID), 1.7–1.9× on roads (33, 39) | yes for reachability and peeling; **not for BFS levels** (breaks level order, 39) |
+| VGC (local search of ≥ τ vertices per task) + hash bags | SCC/CC reachability, k-core peeling on high-diameter graphs | SCC 4–19×, k-core up to 31.2× (GRID), 1.7–1.9× on roads (33, 39) | yes for reachability and peeling; for BFS on high-diameter graphs too: the levels stay exact (see the correction in § 6) |
 
 ## 4. Challenges (ranked)
 
@@ -190,5 +190,5 @@ cheaper — keep them, and keep fixed-point totals for modularity.
 - **Label-propagation connectivity**: 478–590× slower on road (9, 27).
 - **GraphBLAS as an engine**: C dependency, 64-bit indices, 1.1–220× slower than GAP on most GAP kernels (13).
 - **NUMA partitioning** (GraphIt, Galois, Optane study): single-socket target; at most a CCD-aware tweak.
-- **VGC for BFS levels and parents**: breaks level order (39); use it for reachability and peeling only.
+- **Correction (2026-11-26, [sota-review-2026-11.md](sota-review-2026-11.md)): VGC keeps BFS levels exact.** An earlier line here said VGC breaks level order and is not for BFS. PASGAL's BFS uses VGC (a local search of up to 128 nodes, `write_min` on the distance). A node may hold a distance that is too large for a while; it is corrected later, at the cost of extra work. The final distances are the unique hop counts, so D14 holds, and parents found from the distances hold too. PASGAL keeps frontiers by distance range and turns the local queue off when the frontier grows more than 10×, so on social graphs it behaves like a plain BFS. On road graphs it is 4–5× faster than GAP (PASGAL Table 5, their machine). A VGC BFS mode for high-diameter graphs is to be measured first.
 - **Batch-dynamic k-core** (34), **UpDown / processing-in-memory** work: different problem or hardware.

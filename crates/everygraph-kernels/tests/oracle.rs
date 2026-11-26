@@ -2,7 +2,8 @@
 
 //! The kernels of the crate through the correctness oracle: `PageRank` (weighted,
 //! directed, personalized, with kept loops) and eigenvector centrality (#47), BFS with
-//! its parents and SSSP (#49), weak components (#48), core numbers and degrees (#50).
+//! its parents and SSSP (#49), weak components (#48), strong components (#223), core
+//! numbers and degrees (#50).
 //! Each runs on the CI corpus under every configuration that must not change a result —
 //! 1, 3 and 8 threads,
 //! chunks of 64 and 65,536 entries, and five sources: raw arrays, the compressed format
@@ -13,7 +14,9 @@
 //!
 //! The adjacency is stored as the engine stores it: a kept loop is the entry `v` in the
 //! list of `v`, with the loop's weight, and a cost of 0, which must never shorten a
-//! path.
+//! path. On a directed graph the in-lists are the in-adjacency that `everygraph-ingest`
+//! derives from the out-adjacency (#38), and the undirected projection (core numbers,
+//! degrees) merges the out-lists with it; both are checked equal to the oracle's own.
 //!
 //! With `EVERYGRAPH_ORACLE_CORPUS` set to a corpus directory that `oracle-ref run` has
 //! filled (`oracle/run-ci.sh` does), the graphs are read from there and compared with
@@ -37,7 +40,7 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use everygraph_core::{Memory, par};
-use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
+use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode, merge};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::components::{WccOptions, wcc};
 use everygraph_kernels::degrees::{Loop, degrees};
@@ -46,6 +49,7 @@ use everygraph_kernels::edge_map::{
 };
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{self, Eigenvector, Graph, PageRank};
+use everygraph_kernels::scc::scc;
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs};
 use everygraph_oracle::corpus::{Tier, entries};
@@ -54,6 +58,8 @@ use everygraph_oracle::plugin::{
 };
 use everygraph_oracle::projection::{Adjacency as Analytic, Projection};
 use everygraph_oracle::{Kernel, Output};
+
+mod support;
 
 /// Iterated to well inside the oracle's 1e-9: the error after stopping is at most
 /// `tol · α / (1 − α)`.
@@ -103,6 +109,39 @@ fn with_loops(adj: &Analytic, p: &Projection) -> Lists {
         l.offsets.push(l.targets.len() as u64);
     }
     l
+}
+
+/// The lists a kernel reads on a directed graph: the in-adjacency derived from the
+/// out-adjacency, or the undirected projection merged from both, checked byte-equal to
+/// the encoding of the oracle's lists; those lists, with the oracle's per-entry columns.
+fn derived(which: Which, p: &Projection) -> Lists {
+    let out = with_loops(&p.out, p);
+    let out = encode(&out.offsets, &out.targets).unwrap();
+    let inn = support::in_adjacency(&out);
+    let lists = match which {
+        Which::In => inn,
+        _ => {
+            let (io, ii) = (
+                AdjacencyIndex::parse(&out.index).unwrap(),
+                AdjacencyIndex::parse(&inn.index).unwrap(),
+            );
+            let (a, b) = (
+                Adjacency::new(&io, &out.data).unwrap(),
+                Adjacency::new(&ii, &inn.data).unwrap(),
+            );
+            merge(&a, &b, &Memory::unlimited()).unwrap().0
+        }
+    };
+    let expected = with_loops(
+        if which == Which::In {
+            &p.inn
+        } else {
+            &p.undirected
+        },
+        p,
+    );
+    assert!(lists == encode(&expected.offsets, &expected.targets).unwrap());
+    expected
 }
 
 /// One adjacency in every storage the sources read.
@@ -176,7 +215,12 @@ impl Kernels {
             Which::In => &p.inn,
             Which::Undirected => &p.undirected,
         };
-        let s = Arc::new(store(with_loops(adj, p)));
+        let lists = if p.directed && which != Which::Out {
+            derived(which, p)
+        } else {
+            with_loops(adj, p)
+        };
+        let s = Arc::new(store(lists));
         cache.push(((graph.to_owned(), which), s.clone()));
         s
     }
@@ -268,6 +312,9 @@ fn run_kernel<S: Source>(
                     .map_err(e)
                     .map(|(l, _)| Output::Labels(load(l)))
             }
+            Kernel::Scc => scc(&po, &pi, &memory)
+                .map_err(e)
+                .map(|(l, _)| Output::Labels(load(l))),
             Kernel::CoreNumber => kcore(&po, &memory)
                 .map_err(e)
                 .map(|(c, _)| Output::Ints(load(c).into_iter().map(|c| Some(c.into())).collect())),
@@ -315,6 +362,7 @@ impl KernelUnderTest for Kernels {
             Kernel::PageRank { .. }
                 | Kernel::Eigenvector { .. }
                 | Kernel::Wcc
+                | Kernel::Scc
                 | Kernel::CoreNumber
                 | Kernel::Degree
                 | Kernel::DegreeOut

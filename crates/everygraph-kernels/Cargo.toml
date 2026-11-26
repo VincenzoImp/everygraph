@@ -15,10 +15,17 @@ publish.workspace = true
 everygraph-core = { path = "../everygraph-core", default-features = false }
 everygraph-format = { path = "../everygraph-format" }
 
+[features]
+# Global work counters of the frontier driver and the decoder, for experiment #266
+# (`lab/m3-27-frontier-counters`). Off in every product build.
+frontier-counters = []
+
 [dev-dependencies]
 # Tests and the benchmark run the kernels on threads (`par::with_threads`).
 everygraph-core = { path = "../everygraph-core" }
 everygraph-io = { path = "../everygraph-io" }
+# The in-adjacency of directed graphs, derived as a graph file stores it (tests/oracle.rs).
+everygraph-ingest = { path = "../everygraph-ingest" }
 everygraph-oracle = { path = "../everygraph-oracle" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 

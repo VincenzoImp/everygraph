@@ -12,6 +12,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use everygraph_community::hierarchy;
 use everygraph_core::{InsufficientBudget, Memory, MemoryProbe, ReadError};
 use everygraph_format::container::Container;
 use everygraph_format::verify::{Depth, Problem, Report, verify};
@@ -142,6 +143,9 @@ fn check(path: &Path, options: &Args, memory: &Memory) -> Result<Report, Stop> {
     let mut report = verify(&source, depth, memory).map_err(|e| io(&e))?;
     if options.deep {
         check_dictionary(&source, memory, &mut report)?;
+        if let Ok(file) = Container::open(&source) {
+            hierarchy::check(&file, memory, &mut report).map_err(|e| io(&e))?;
+        }
     }
     Ok(report)
 }

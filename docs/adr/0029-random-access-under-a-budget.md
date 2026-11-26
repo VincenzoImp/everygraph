@@ -168,6 +168,11 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 - The documentation must not say "mmap under pressure" for random access. Until m2-23
   lands it says: random access under a budget smaller than its working set uses
   `MADV_RANDOM`, and costs a few reads of the data per pass.
+- **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))): SPDK (it takes the drive from the kernel's
+  driver and file system), and an io_uring runtime (Glommio, tokio-uring and the like).
+  The read-ahead of #178 is a pool of `pread` threads; io_uring is at most an optional
+  Linux backend of the same interface, through the plain `io-uring` crate, kept only on
+  the evidence of #263 and with a fallback to the pool on `EPERM` or `ENOSYS`.
 - A comment in the M1-02 lab code (`leiden.rs`) says `/proc/self/io` does not count page
   faults on a mapped file. The m1-15 rows show it does. The lab is frozen; the product's
   measurement code must not repeat the claim.

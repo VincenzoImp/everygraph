@@ -4,6 +4,8 @@ promise: one row per node in graph order, types, ties, zero copy."""
 
 from __future__ import annotations
 
+import random
+
 import networkx as nx
 import pyarrow as pa
 import pytest
@@ -145,15 +147,56 @@ def test_a_kernel_that_does_not_fit_is_refused_with_the_smallest_budget(small, v
     assert str(e.value).splitlines()[-1] == "Nothing was changed."
 
 
-def test_a_directed_graph_answers_what_its_out_edges_can(tmp_path):
-    path = write_edges(tmp_path / "d.csv", [(0, 1), (1, 2), (3, 2)], header="from,to")
-    g = eg.read(path, progress=False)
-    t = pa.table(g.bfs(0, progress=False))
-    assert t["distance"].to_pylist() == [0, 1, 2, None]
-    with pytest.raises(eg.Unsupported):
-        g.pagerank(progress=False)
-    with pytest.raises(eg.Unsupported):
-        g.bfs(0, direction="in", progress=False)
+def directed_graphs():
+    """Small directed graphs with sinks, cycles, reciprocal pairs, repeated edges and a
+    loop, seeded."""
+    rng = random.Random(11)
+    graphs = [("cycle", nx.cycle_graph(9, create_using=nx.MultiDiGraph))]
+    for i in range(4):
+        g = nx.gnm_random_graph(30, 70, seed=rng.randrange(10**6), directed=True)
+        multi = nx.MultiDiGraph(g)
+        multi.add_edges_from(list(g.edges())[:5])
+        multi.add_edge(3, 3)
+        graphs.append((f"gnm{i}", multi))
+    return graphs
+
+
+@pytest.mark.parametrize("name,multi", directed_graphs())
+def test_a_directed_graph_matches_networkx_through_its_in_edges(tmp_path, name, multi):
+    multi = nx.MultiDiGraph(list(multi.edges()))  # the nodes of the edge list only
+    path = write_edges(tmp_path / f"{name}.csv", list(multi.edges()), header="from,to")
+    g = eg.read(path, self_loops="keep", progress=False)
+    assert g.directed
+    simple = nx.DiGraph(multi)
+    got = by_node(g.pagerank(tol=1e-13, max_iter=10_000, progress=False), "pagerank")
+    want = nx.pagerank(multi, tol=1e-15, max_iter=10_000)
+    assert max(abs(got[v] - want[v]) for v in want) < 1e-9
+    pairs = by_node(g.pagerank(weight=False, tol=1e-13, max_iter=10_000, progress=False), "pagerank")
+    want = nx.pagerank(simple, tol=1e-15, max_iter=10_000)
+    assert max(abs(pairs[v] - want[v]) for v in want) < 1e-9
+    source = min(simple.nodes())
+    for direction, view in [("out", simple), ("in", simple.reverse()), ("both", simple.to_undirected())]:
+        want = nx.single_source_shortest_path_length(view, source)
+        got = by_node(g.bfs(source, direction=direction, progress=False), "distance")
+        assert got == {v: want.get(v) for v in simple.nodes()}, direction
+    projection = nx.Graph(simple.to_undirected())
+    projection.remove_edges_from(nx.selfloop_edges(projection))
+    assert by_node(g.kcore(progress=False), "core") == nx.core_number(projection)
+    t = pa.table(g.degrees(progress=False))
+    assert t.column_names == ["node", "in_degree", "out_degree", "degree"]
+    for column, want in [
+        ("in_degree", dict(simple.in_degree())),
+        ("out_degree", dict(simple.out_degree())),
+        ("degree", dict(simple.to_undirected().degree())),
+    ]:
+        assert by_node(t, column) == want, column
+    assert g.top("in_degree", 1).num_rows == 1
+    strong = g.components(strong=True, progress=False)
+    order = {v: i for i, v in enumerate(pa.table(strong)["node"].to_pylist())}
+    parts = sorted(nx.strongly_connected_components(simple), key=lambda c: (-len(c), min(order[v] for v in c)))
+    got = by_node(strong, "component")
+    assert [{got[v] for v in part} for part in parts] == [{number} for number in range(len(parts))]
+    assert strong.meta["components"] == len(parts)
 
 
 def test_an_empty_graph_gives_typed_empty_tables(tmp_path):
@@ -225,6 +268,8 @@ def test_components_match_networkx_and_are_numbered_by_size(small):
     assert sizes.column_names == ["component", "nodes"]
     assert sizes["nodes"].to_pylist() == [len(p) for p in parts]
     assert wcc.meta["components"] == len(parts)
+    with pytest.raises(eg.Unsupported):
+        g.components(strong=True, progress=False)
 
 
 def test_components_of_a_directed_graph_are_weak(tmp_path):

@@ -341,6 +341,8 @@ impl DecodeReader {
         if checked.is_err() {
             self.batch.clear();
         }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(self.batch.targets().len());
         checked
     }
 

@@ -90,6 +90,11 @@ pub const REQUIRED_SEGMENTS: u64 = 1 << 0;
 /// `seg/` + 8 lowercase hexadecimal digits + `/` + the unsegmented name. This version
 /// does not write them.
 pub const SEGMENT_PREFIX: &str = "seg/";
+/// Sections whose names begin with this hold the in-adjacency of a directed graph
+/// (`docs/spec/eg-adjacency.md` § 3.2). It is derived from the out-adjacency, so it
+/// does not enter the graph identity (spec § 6): a file has one identity with or
+/// without it.
+pub const IN_ADJACENCY: &str = "adjacency.in.";
 
 /// What a section holds (spec § 5). A reader skips sections whose kind it does not
 /// know; that is how later issues add artifacts without a new version.
@@ -121,6 +126,15 @@ impl Kind {
     /// A result kept in the graph file: typed values, with a provenance record that
     /// holds its key (spec § 6, "Results"), written by [`Writer::add_result`].
     pub const RESULT: Self = Self(10);
+    /// The index of an adjacency that belongs to a result, such as a quotient graph of
+    /// a community hierarchy (spec § 6, "Parts of a result"): laid out as
+    /// [`ADJACENCY_INDEX`](Self::ADJACENCY_INDEX), and not part of the graph.
+    pub const RESULT_ADJACENCY_INDEX: Self = Self(11);
+    /// The data of an adjacency that belongs to a result.
+    pub const RESULT_ADJACENCY_DATA: Self = Self(12);
+    /// The event offsets of an adjacency that belongs to a result: its weights, when
+    /// some entry weighs more than 1.
+    pub const RESULT_ADJACENCY_EVENTS: Self = Self(13);
     /// The first of the kinds reserved for private and experimental use, which no
     /// specification will ever assign.
     pub const PRIVATE: Self = Self(0x8000_0000);
@@ -140,11 +154,12 @@ impl Kind {
     /// Whether this version of the specification defines the kind.
     #[must_use]
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 1..=10)
+        matches!(self.0, 1..=13)
     }
 
     /// Whether sections of this kind define the graph, and so enter its identity
-    /// ([`GraphIdentity`], spec § 6).
+    /// ([`GraphIdentity`], spec § 6), but for those of the in-adjacency
+    /// ([`IN_ADJACENCY`]).
     #[must_use]
     pub const fn defines_graph(self) -> bool {
         matches!(self.0, 2..=5 | 7)

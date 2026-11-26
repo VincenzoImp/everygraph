@@ -41,7 +41,8 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
 
 use everygraph_core::rng::{Purpose, draw, unit_f64};
-use everygraph_core::{Memory, math, par};
+use everygraph_core::{Memory, MemoryKind, Reservation, math, par};
+use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
     Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all,
 };
@@ -69,23 +70,47 @@ const ROUND_SHIFT: u32 = 4;
 /// sub-round of 1,024 nodes or more is spread over every thread.
 const ROUND_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 10).expect("non-zero");
 
-/// Per-entry weights of a level: `None` at level 0 (unweighted).
+/// The weights of a level's entries, in the units of `A`.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Weights<'a>(pub(crate) Option<&'a [u64]>);
+pub(crate) enum Weights<'a> {
+    /// 1 per entry and 2 per loop: level 0, an unweighted graph.
+    Unit,
+    /// One value per entry: a quotient graph in memory.
+    Entries(&'a [u64]),
+    /// A stored quotient graph, whose entries hold their weight as events: `w(p)`
+    /// events, so `A` is that and twice that for a loop. Checked whole before use.
+    Events(&'a AdjacencyEvents<'a>),
+}
 
 impl Weights<'_> {
     /// Calls `f(v, A[u][v])` for each entry of `row`, where `u = row.node`.
     #[inline(always)]
     pub(crate) fn each<'g>(self, row: &Row<'_, 'g>, mut f: impl FnMut(Node<'g>, u64)) {
-        match self.0 {
-            None => {
+        match self {
+            Self::Unit => {
                 for &v in row.list {
                     f(v, if v == row.node { 2 } else { 1 });
                 }
             }
-            Some(w) => {
+            Self::Entries(w) => {
                 for (&v, &x) in row.list.iter().zip(&w[row.entries()]) {
                     f(v, x);
+                }
+            }
+            Self::Events(events) => {
+                for (&v, e) in row.list.iter().zip(row.first_entry..) {
+                    let r = events.event_range(e).expect("the events were checked");
+                    let x = r.end - r.start;
+                    // A reader refuses a stored quotient of 2^62 events or more
+                    // (`hierarchy::check`): its sums never reach 2^64.
+                    f(
+                        v,
+                        if v == row.node {
+                            x.saturating_mul(2)
+                        } else {
+                            x
+                        },
+                    );
                 }
             }
         }
@@ -371,9 +396,17 @@ pub(crate) struct Moved {
 /// The nodes of `ids` that pass `keep`, in order, filtered in parallel.
 fn take<'g, S: Source>(
     plan: &Plan<'_, 'g, S>,
+    tables: &Tables,
     ids: &[u32],
     keep: impl Fn(Node<'g>) -> bool + Send + Sync,
-) -> Vec<Node<'g>> {
+) -> Result<(Vec<Node<'g>>, Reservation), Error> {
+    // The parts grow by doubling, each with its old block beside the new one while it
+    // moves (3×), then are joined into one copy (1×), which alone stays held.
+    let mut held = tables.memory().reserve(
+        "frontier",
+        MemoryKind::Anonymous,
+        (ids.len() as u64).saturating_mul(4 * size_of::<Node<'g>>() as u64),
+    )?;
     let parts = par::map_ranges(ids.len(), ROUND_GRAIN, |r| {
         ids[r]
             .iter()
@@ -381,7 +414,10 @@ fn take<'g, S: Source>(
             .filter(|&v| keep(v))
             .collect::<Vec<_>>()
     });
-    parts.concat()
+    let frontier = parts.concat();
+    drop(parts);
+    held.shrink(held.bytes() - (frontier.len() * size_of::<Node<'g>>()) as u64);
+    Ok((frontier, held))
 }
 
 /// Runs `body` on the rows of `frontier` and adds up its values. Fewer than [`SERIAL`]
@@ -520,9 +556,12 @@ pub(crate) fn local_move<'g, S: Source>(
         Schedule::Order { .. } => heavy(g, ctx.total),
     };
     let light = |v: Node<'g>| heavy.binary_search(&v).is_err();
-    let heavy_in_order = match schedule {
-        Schedule::Order { ids } if !heavy.is_empty() => take(plan, ids, |v| !light(v)),
-        _ => Vec::new(),
+    let (heavy_in_order, _heavy_held) = match schedule {
+        Schedule::Order { ids } if !heavy.is_empty() => take(plan, tables, ids, |v| !light(v))?,
+        _ => (
+            Vec::new(),
+            Reservation::empty(tables.memory(), "frontier", MemoryKind::Anonymous),
+        ),
     };
     // A sequential visit: each move is applied before the next node decides.
     let visit =
@@ -548,9 +587,9 @@ pub(crate) fn local_move<'g, S: Source>(
         match schedule {
             Schedule::Rounds { ids, starts } => {
                 for r in starts.windows(2) {
-                    let frontier = take(plan, &ids[r[0]..r[1]], |v| {
+                    let (frontier, _held) = take(plan, tables, &ids[r[0]..r[1]], |v| {
                         st.active[v.index()].swap(false, Relaxed)
-                    });
+                    })?;
                     if frontier.is_empty() {
                         continue;
                     }
@@ -589,9 +628,9 @@ pub(crate) fn local_move<'g, S: Source>(
                 }
             }
             Schedule::Order { ids } => {
-                let frontier = take(plan, ids, |v| {
+                let (frontier, _held) = take(plan, tables, ids, |v| {
                     light(v) && st.active[v.index()].load(Relaxed)
-                });
+                })?;
                 processed = frontier.len();
                 let (sum, m) = drive(plan, &frontier, tables, visit)?;
                 gain += sum;
@@ -689,7 +728,7 @@ pub(crate) fn refine<'g, S: Source>(
     match schedule {
         Schedule::Rounds { ids, starts } => {
             for (stamp, b) in (0_u64..).zip(starts.windows(2)) {
-                let frontier = take(plan, &ids[b[0]..b[1]], alive);
+                let (frontier, _held) = take(plan, tables, &ids[b[0]..b[1]], alive)?;
                 if frontier.is_empty() {
                     continue;
                 }
@@ -723,7 +762,7 @@ pub(crate) fn refine<'g, S: Source>(
             }
         }
         Schedule::Order { ids } => {
-            let frontier = take(plan, ids, alive);
+            let (frontier, _held) = take(plan, tables, ids, alive)?;
             let (): () = drive(plan, &frontier, tables, |(), row, worker| {
                 let u = row.node;
                 let Some(table) = worker.scratch.begin(row.list.len()) else {
@@ -890,10 +929,10 @@ mod tests {
         let csr = Csr::new(offsets, targets).unwrap();
         let memory = Memory::unlimited();
         Plan::with(&csr, &memory, Settings::default(), |plan| {
-            let k = strengths(&plan, &memory, Weights(None)).unwrap();
+            let k = strengths(&plan, &memory, Weights::Unit).unwrap();
             let g = Graph {
                 plan: &plan,
-                w: Weights(None),
+                w: Weights::Unit,
                 k: &k.of,
             };
             heavy(g, k.total).iter().map(|v| v.get()).collect()

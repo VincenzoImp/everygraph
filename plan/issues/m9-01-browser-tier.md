@@ -18,11 +18,11 @@ labels: type:feature, area:wasm, P1, risk:medium, size:L, lab-evidence
 - [ ] Static page (no server): drop a CSV/Parquet → map; export `.eg`/`.egmap`
 - [ ] Memory planner for the 4 GiB/2 GiB limits with a clear refusal message
 - [ ] Reader path: open a remote `.eg` via HTTP range requests for neighbour queries without downloading it
-- [ ] Browser matrix: Chromium, Firefox, Safari (not measured in the lab), mobile
+- [ ] Browser matrix through Playwright: Chromium, Firefox, mobile by device emulation; Safari (WebKit, not measured in the lab) if its system libraries are present on this host, otherwise advisable, not a gate
 - [ ] Optional WebGPU compute for layout (adapter not available by default in headless Chromium — treat as an accelerator only)
 
 **Acceptance**
-- 10 M-edge CSV → interactive map in < 10 s on a mid-range laptop in Chromium and Firefox, entirely client-side
+- 10 M-edge CSV → interactive map in < 10 s, entirely client-side, in Chromium and Firefox on this host, and in Chromium with CPU throttling that stands for a mid-range laptop (the rate recorded with the result; a model, not a laptop)
 - Results hash-identical to native
 
 **Lab estimate.** Browser shell 2–3 weeks, segmented arrays + planner ~2 weeks (the segmented arrays are done, #31 in M2; the planner is {{#m3-02-planner}}), CI ~1 week.

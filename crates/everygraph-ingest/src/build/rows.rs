@@ -6,9 +6,12 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use everygraph_core::{ByteSource, Memory, MemoryError, MemoryKind, ReadError, Reservation, par};
+use everygraph_core::{
+    ByteSource, Memory, MemoryError, MemoryKind, ReadError, Reservation, par, widen,
+};
 use xxhash_rust::xxh3::xxh3_64;
 
+use super::columns::FromRow;
 use super::{BuildError, GraphOptions, ONE, Phase, Progress, SelfLoops};
 use crate::ids::{ColumnType, Dictionary, DictionaryError, Key, KeySource};
 use crate::text::{Batch, IdType, Ids, OnInvalid, Tally, TextError, TextReader};
@@ -141,7 +144,7 @@ impl Fingerprints {
         Self((0..blocks).map(|_| AtomicU64::new(0)).collect())
     }
 
-    fn blocks(&self) -> usize {
+    pub(super) fn blocks(&self) -> usize {
         self.0.len()
     }
 
@@ -182,8 +185,9 @@ pub(super) struct BlockCounts {
     pub(super) dropped_loops: u64,
 }
 
-/// The rows of the input as pairs of node ids, block by block.
-pub(super) struct Rows<'a, 'd, S, D> {
+/// The rows of the input as pairs of node ids, with what their items carry (`T`),
+/// block by block.
+pub(super) struct Rows<'a, 'd, S, D, T: FromRow> {
     reader: &'a TextReader<S>,
     dictionary: &'a Dictionary<'d, D>,
     graph: GraphOptions,
@@ -194,16 +198,25 @@ pub(super) struct Rows<'a, 'd, S, D> {
     /// The mapped pairs of each block, kept by the first pass when the budget holds
     /// them, so that the next passes neither parse nor look up again; with what they
     /// hold reserved.
-    cache: Option<(Vec<OnceLock<Vec<u64>>>, Reservation)>,
+    cache: Option<(Vec<OnceLock<Mapped<T>>>, Reservation)>,
 }
 
-/// Bytes the cache of [`Rows`] holds per row.
-pub(super) const CACHE_BYTES_PER_ROW: u64 = 8;
+/// The rows of a block whose two keys are in the dictionary: `source << 32 | target`,
+/// and what the row's items carry.
+type Mapped<T> = Vec<(u64, <T as FromRow>::Payload)>;
 
-/// Memory one block in flight holds per row: two ids (or two string ends) in its batch
-/// and a mapped pair. Besides, it holds its text twice: the reader's chunk and the
-/// bytes of string ids.
-const BLOCK_BYTES_PER_ROW: u64 = 16 + 8;
+/// Bytes the cache of [`Rows`] holds per row.
+pub(super) fn cache_bytes_per_row<T: FromRow>() -> u64 {
+    widen(size_of::<(u64, T::Payload)>())
+}
+
+/// Memory one block in flight holds per row: two ids (or two string ends) in its batch,
+/// a weight and a time when items carry them, and a mapped row. Besides, it holds its
+/// text twice: the reader's chunk and the bytes of string ids.
+pub(super) fn block_bytes_per_row<T: FromRow>() -> u64 {
+    let columns = if size_of::<T::Payload>() > 0 { 16 } else { 0 };
+    16 + columns + cache_bytes_per_row::<T>()
+}
 
 /// The blocks of a pass and what each holds while it is read.
 pub(super) struct Flight {
@@ -215,17 +228,19 @@ pub(super) struct Flight {
     pub(super) block_bytes: u64,
     /// Rows of the largest block.
     pub(super) most_rows: u64,
+    /// Bytes a block in flight holds per row ([`block_bytes_per_row`]).
+    pub(super) row_bytes: u64,
 }
 
 impl Flight {
     /// Bytes the blocks in flight hold at most.
     pub(super) fn bytes(&self) -> u64 {
-        let per_block = 2 * self.block_bytes + self.most_rows.saturating_mul(BLOCK_BYTES_PER_ROW);
+        let per_block = 2 * self.block_bytes + self.most_rows.saturating_mul(self.row_bytes);
         per_block.saturating_mul(u64::try_from(self.threads).unwrap_or(u64::MAX))
     }
 }
 
-impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
+impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync, T: FromRow> Rows<'a, 'd, S, D, T> {
     pub(super) fn new(
         reader: &'a TextReader<S>,
         dictionary: &'a Dictionary<'d, D>,
@@ -240,7 +255,7 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         let buffers = memory.reserve("text blocks in flight", MemoryKind::Anonymous, bytes)?;
         let cache = match cached_rows {
             Some(rows) => {
-                let bytes = rows.saturating_mul(CACHE_BYTES_PER_ROW);
+                let bytes = rows.saturating_mul(cache_bytes_per_row::<T>());
                 let reservation = memory.reserve("mapped rows", MemoryKind::Anonymous, bytes)?;
                 Some(((0..blocks).map(|_| OnceLock::new()).collect(), reservation))
             }
@@ -256,28 +271,60 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         })
     }
 
-    /// Frees the mapped pairs kept by the first pass.
-    pub(super) fn release_cache(&mut self) {
-        self.cache = None;
+    fn send(&self, rows: &Mapped<T>, counts: &mut BlockCounts, mut f: impl FnMut(u32, T)) {
+        for &(pair, payload) in rows {
+            let (u, v) = (high(pair), low(pair));
+            if u == v {
+                match self.graph.self_loops {
+                    SelfLoops::Keep => f(u, T::new(u, payload)),
+                    SelfLoops::Drop => counts.dropped_loops += 1,
+                }
+            } else {
+                f(u, T::new(v, payload));
+                if !self.graph.directed {
+                    f(v, T::new(u, payload));
+                }
+            }
+        }
     }
 
+    /// The rows of block `block`, `batch`, whose two keys are in the dictionary.
+    fn map(&self, block: usize, batch: &Batch) -> Result<Mapped<T>, BuildError> {
+        let mut rows = Vec::with_capacity(batch.len());
+        for row in 0..batch.len() {
+            let source = self.dictionary.id_of_member(key(&batch.source, row))?;
+            let target = self.dictionary.id_of_member(key(&batch.target, row))?;
+            if let (Some(u), Some(v)) = (source, target) {
+                let pair = u64::from(u.get()) << 32 | u64::from(v.get());
+                rows.push((pair, T::payload(batch, block, row)));
+            }
+        }
+        Ok(rows)
+    }
+}
+
+/// Where the items of an adjacency come from: blocks that a pass reads in parallel, as
+/// often as the passes need, each sending the same items in the same order every time.
+pub(super) trait Items<T>: Sync {
     /// Number of blocks.
-    pub(super) fn blocks(&self) -> usize {
+    fn blocks(&self) -> usize;
+
+    /// Calls `f(source, item)` for every item of block `block`, in order.
+    fn items(&self, block: usize, f: impl FnMut(u32, T)) -> Result<BlockCounts, BuildError>;
+}
+
+impl<S: ByteSource + Sync, D: ByteSource + Sync, T: FromRow> Items<T> for Rows<'_, '_, S, D, T> {
+    fn blocks(&self) -> usize {
         self.fingerprints.blocks()
     }
 
-    /// Calls `f(source, target)` for every item of block `block`: one per loop row kept,
-    /// one per other row on a directed graph, and one in each direction on an
-    /// undirected one, in input order.
-    pub(super) fn items(
-        &self,
-        block: usize,
-        f: impl FnMut(u32, u32),
-    ) -> Result<BlockCounts, BuildError> {
+    /// One item per loop row kept, one per other row on a directed graph, and one in
+    /// each direction on an undirected one, in input order.
+    fn items(&self, block: usize, f: impl FnMut(u32, T)) -> Result<BlockCounts, BuildError> {
         let cached = self.cache.as_ref().map(|(blocks, _)| &blocks[block]);
-        if let Some(pairs) = cached.and_then(OnceLock::get) {
+        if let Some(rows) = cached.and_then(OnceLock::get) {
             let mut counts = BlockCounts::default();
-            self.send(pairs, &mut counts, f);
+            self.send(rows, &mut counts, f);
             return Ok(counts);
         }
         let (batch, _) = self.reader.read_block(block).map_err(|e| {
@@ -290,52 +337,22 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         if !self.fingerprints.check(block, &batch) {
             return Err(BuildError::InputChanged);
         }
-        let pairs = self.map(&batch)?;
+        let rows = self.map(block, &batch)?;
         let mut counts = BlockCounts {
             rows: u64::try_from(batch.len()).unwrap_or(u64::MAX),
             ..BlockCounts::default()
         };
-        counts.rejected = counts.rows - u64::try_from(pairs.len()).unwrap_or(u64::MAX);
+        counts.rejected = counts.rows - u64::try_from(rows.len()).unwrap_or(u64::MAX);
         // Identifiers that do not fit their kind were refused after the first pass, so
         // under `Refuse` a row left out here was not there then.
         if counts.rejected > 0 && self.reader.on_invalid() == OnInvalid::Refuse {
             return Err(BuildError::InputChanged);
         }
-        self.send(&pairs, &mut counts, f);
+        self.send(&rows, &mut counts, f);
         if let Some(slot) = cached {
-            let _ = slot.set(pairs);
+            let _ = slot.set(rows);
         }
         Ok(counts)
-    }
-
-    fn send(&self, pairs: &[u64], counts: &mut BlockCounts, mut f: impl FnMut(u32, u32)) {
-        for &pair in pairs {
-            let (u, v) = (high(pair), low(pair));
-            if u == v {
-                match self.graph.self_loops {
-                    SelfLoops::Keep => f(u, u),
-                    SelfLoops::Drop => counts.dropped_loops += 1,
-                }
-            } else {
-                f(u, v);
-                if !self.graph.directed {
-                    f(v, u);
-                }
-            }
-        }
-    }
-
-    /// The rows of `batch` whose two keys are in the dictionary, as `source << 32 | target`.
-    fn map(&self, batch: &Batch) -> Result<Vec<u64>, BuildError> {
-        let mut pairs = Vec::with_capacity(batch.len());
-        for row in 0..batch.len() {
-            let source = self.dictionary.id_of_member(key(&batch.source, row))?;
-            let target = self.dictionary.id_of_member(key(&batch.target, row))?;
-            if let (Some(u), Some(v)) = (source, target) {
-                pairs.push(u64::from(u.get()) << 32 | u64::from(v.get()));
-            }
-        }
-        Ok(pairs)
     }
 }
 

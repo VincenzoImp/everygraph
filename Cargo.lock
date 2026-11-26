@@ -477,6 +477,7 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "clap",
+ "everygraph-community",
  "everygraph-core",
  "everygraph-format",
  "everygraph-ingest",
@@ -509,6 +510,22 @@ dependencies = [
  "libm",
  "rayon",
  "xsum",
+]
+
+[[package]]
+name = "everygraph-determinism"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "everygraph-community",
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-ingest",
+ "everygraph-io",
+ "everygraph-kernels",
+ "everygraph-oracle",
+ "flate2",
+ "ruzstd",
 ]
 
 [[package]]
@@ -559,6 +576,7 @@ version = "0.0.0"
 dependencies = [
  "everygraph-core",
  "everygraph-format",
+ "everygraph-ingest",
  "everygraph-io",
  "everygraph-oracle",
  "proptest",
@@ -567,6 +585,18 @@ dependencies = [
 [[package]]
 name = "everygraph-map"
 version = "0.0.0"
+
+[[package]]
+name = "everygraph-memtest"
+version = "0.0.0"
+dependencies = [
+ "everygraph-community",
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-ingest",
+ "everygraph-io",
+ "everygraph-kernels",
+]
 
 [[package]]
 name = "everygraph-oracle"

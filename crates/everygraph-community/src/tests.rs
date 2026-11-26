@@ -63,3 +63,49 @@ fn every_level_has_the_modularity_of_its_quotient() {
 fn csr_nodes(offsets: &[u64]) -> u32 {
     u32::try_from(offsets.len() - 1).unwrap()
 }
+
+/// The hierarchy of `c` on `csr` in a new container, encoded `window` entries at a time.
+fn stored(csr: &Csr<'_>, c: &crate::Communities, window: u64) -> Vec<u8> {
+    use everygraph_core::MemorySource;
+    use everygraph_format::container::{Provenance, Writer};
+
+    use crate::hierarchy::{key, write};
+
+    let memory = Memory::unlimited();
+    let mut w = Writer::create(MemorySource::new(Vec::new())).unwrap();
+    let k = key(w.graph_identity(), &Options::default()).unwrap();
+    let run = write::Run {
+        source: csr,
+        memory: &memory,
+        settings: Settings::default(),
+        window,
+    };
+    let maps: Vec<&[u32]> = c.levels.iter().map(|l| &l[..]).collect();
+    write::store_with(&mut w, &k, &Provenance::default(), &run, &maps).unwrap();
+    w.commit().unwrap();
+    w.into_sink().into_inner()
+}
+
+/// The quotient graphs are encoded a window of rows at a time; windows of one row and
+/// of three entries give the bytes of one window per level on every corpus graph (whose
+/// default-window hierarchy `tests/hierarchy.rs` checks against the oracle).
+#[test]
+fn the_encoding_window_does_not_change_the_bytes() {
+    let memory = Memory::unlimited();
+    for e in entries(Tier::Ci) {
+        let (offsets, targets) = lists(&Projection::new(&e.graph));
+        let csr = Csr::new(&offsets, &targets).unwrap();
+        let c = leiden(&csr, &memory, Settings::default(), &Options::default()).unwrap();
+        if c.levels.is_empty() {
+            continue;
+        }
+        let whole = stored(&csr, &c, u64::MAX);
+        for window in [1, 3] {
+            assert!(
+                stored(&csr, &c, window) == whole,
+                "{}: window {window}",
+                e.graph.name
+            );
+        }
+    }
+}

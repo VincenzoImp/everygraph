@@ -3,13 +3,13 @@
 //! What a build will need, from a sample of its input, by the rules the build itself
 //! applies (`docs/ux-contract.md` § 3, the plan before any work).
 
-use std::num::NonZeroUsize;
-
 use everygraph_core::ByteSource;
 
-use super::layout::ITEM_BYTES;
-use super::rows::Flight;
-use super::{Regime, SLACK_SHIFT, TUNING, fixed_bytes};
+use super::columns::{FromRow, Tagged};
+use super::layout::Costs;
+use super::lists::fixed_bytes;
+use super::rows::{Flight, block_bytes_per_row};
+use super::{BuildOptions, Regime, SLACK_SHIFT, TUNING};
 use crate::text::{TextError, TextReader};
 
 /// The identifier dictionary's smallest working set: the table of its dense bitmap
@@ -31,6 +31,8 @@ pub struct Sample {
     pub block_bytes: u64,
     /// Blocks of the input.
     pub blocks: u64,
+    /// Whether a weight or a time column is read, which makes every item larger.
+    pub edge_columns: bool,
 }
 
 impl Sample {
@@ -43,6 +45,16 @@ impl Sample {
             rows_per_block,
             block_bytes,
             blocks,
+            edge_columns: false,
+        }
+    }
+
+    /// This sample, of an input read with a weight or a time column when `yes`.
+    #[must_use]
+    pub fn with_edge_columns(self, yes: bool) -> Self {
+        Self {
+            edge_columns: yes,
+            ..self
         }
     }
 
@@ -64,11 +76,10 @@ impl Sample {
         }
         let rows = wide(reader.read_block(0)?.0.len());
         let blocks = wide(blocks);
-        Ok(Some(Self::new(
-            rows.saturating_mul(blocks),
-            rows,
-            block_bytes,
-            blocks,
+        let layout = reader.layout();
+        let sample = Self::new(rows.saturating_mul(blocks), rows, block_bytes, blocks);
+        Ok(Some(sample.with_edge_columns(
+            layout.weight.is_some() || layout.time.is_some(),
         )))
     }
 }
@@ -79,7 +90,8 @@ impl Sample {
 pub struct Estimate {
     /// In memory, or with spills.
     pub regime: Regime,
-    /// The items the build sorts, 6 bytes each (`regime.working_bytes`).
+    /// The items the build sorts, 6 bytes each, or 30 with edge columns
+    /// (`regime.working_bytes`).
     pub working_bytes: u64,
     /// The smallest budget that can hold the blocks in flight and the fixed buffers;
     /// a budget below it is refused before any work.
@@ -92,23 +104,46 @@ pub struct Estimate {
     pub output_bytes: u64,
 }
 
-/// What a build of `sample` will need with `threads` threads and `budget` bytes. The
+/// What a build of `sample` with `options` will need under `budget` bytes. The
 /// per-node state is left out: the number of nodes is not known before the input is
 /// read, and the build refuses, before it writes anything, a budget that cannot hold it.
 /// So the build holds no more items in memory than this estimate says, and spills no
-/// less.
+/// less. The in-adjacency of a directed graph is counted in the output only: its items
+/// (one per pair or per event) and the memory left to sort them are not known before
+/// the out-adjacency is built, so what it spills may be anything from nothing up.
 #[must_use]
-pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: u64) -> Estimate {
+pub fn estimate(sample: &Sample, options: &BuildOptions, budget: u64) -> Estimate {
+    if sample.edge_columns {
+        // At most four stored columns (`duplicates="sum"` with a weight and a time).
+        estimate_for::<Tagged>(sample, options, budget, 4)
+    } else {
+        estimate_for::<u32>(sample, options, budget, 0)
+    }
+}
+
+fn estimate_for<T: FromRow>(
+    sample: &Sample,
+    options: &BuildOptions,
+    budget: u64,
+    columns: usize,
+) -> Estimate {
+    let (threads, directed) = (options.threads, options.graph.directed);
     let flight = Flight {
         threads: threads.get(),
         blocks: usize::try_from(sample.blocks).unwrap_or(usize::MAX),
         block_bytes: sample.block_bytes,
         most_rows: sample.rows_per_block,
+        row_bytes: block_bytes_per_row::<T>(),
     };
-    let held = flight.bytes() + fixed_bytes(threads.get(), &TUNING);
+    let held = flight.bytes() + fixed_bytes::<T>(threads.get(), &TUNING, columns);
     let smallest_budget = held + DICTIONARY_BYTES;
     let items = sample.rows.saturating_mul(if directed { 1 } else { 2 });
-    let working_bytes = items.saturating_mul(ITEM_BYTES);
+    let adjacencies = if directed && options.in_adjacency {
+        2
+    } else {
+        1
+    };
+    let working_bytes = items.saturating_mul(Costs::of::<T>(true, columns).item);
     // The dictionary's working set is given back before the items are counted.
     let available = budget.saturating_sub(held);
     let work = available - (available >> SLACK_SHIFT);
@@ -125,6 +160,6 @@ pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: 
         smallest_budget,
         peak_bytes: (held + working_bytes.min(resident) + work / 4).min(budget),
         scratch_bytes: working_bytes.saturating_sub(resident),
-        output_bytes: items.saturating_mul(OUTPUT_BYTES_PER_ENTRY),
+        output_bytes: items.saturating_mul(OUTPUT_BYTES_PER_ENTRY * adjacencies),
     }
 }

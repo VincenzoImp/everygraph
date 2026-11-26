@@ -45,7 +45,7 @@ impl Ask {
     fn new(
         path: PathBuf,
         out: Option<PathBuf>,
-        [source, target]: [Option<&str>; 2],
+        [source, target, weight, time]: [Option<&str>; 4],
         directed: Option<bool>,
         [self_loops, duplicates, ids]: [&str; 3],
     ) -> Self {
@@ -53,6 +53,8 @@ impl Ask {
             text: TextOptions {
                 source: source.map(Column::from),
                 target: target.map(Column::from),
+                weight: weight.map(Column::from),
+                time: time.map(Column::from),
                 ids: if ids == "string" {
                     IdType::String
                 } else {
@@ -143,10 +145,11 @@ fn open_input(ask: &Ask) -> Result<Opened, Fail> {
 
 /// What the first lines of the text edge list at `path` say, before any work (the
 /// summary of `docs/ux-contract.md` § 3.4): size, compression, header, the columns of
-/// the source and the target, the kind of identifier, the direction and why, and the
+/// the source, the target, the weight and the time, the kind of identifier, the direction and why, and the
 /// job's fingerprint.
 #[pyfunction]
-#[pyo3(signature = (path, *, out, source, target, directed, self_loops, duplicates, ids))]
+#[pyo3(signature = (path, *, out, source, target, weight, time, directed, self_loops, duplicates,
+                    ids))]
 #[expect(clippy::too_many_arguments, reason = "the keywords of eg.read")]
 pub(crate) fn inspect<'py>(
     py: Python<'py>,
@@ -154,12 +157,14 @@ pub(crate) fn inspect<'py>(
     out: Option<PathBuf>,
     source: Option<&str>,
     target: Option<&str>,
+    weight: Option<&str>,
+    time: Option<&str>,
     directed: Option<bool>,
     self_loops: &str,
     duplicates: &str,
     ids: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let columns = [source, target];
+    let columns = [source, target, weight, time];
     let ask = Ask::new(path, out, columns, directed, [self_loops, duplicates, ids]);
     let opened = open_input(&ask).map_err(|e| e.into_err(py))?;
     let layout = opened.reader.layout();
@@ -169,6 +174,9 @@ pub(crate) fn inspect<'py>(
     info.set_item("header", layout.header.clone())?;
     for key in ["source", "target", "ids"] {
         info.set_item(key, &opened.parameters[key])?;
+    }
+    for key in ["weight", "time"] {
+        info.set_item(key, opened.parameters.get(key))?;
     }
     info.set_item("directed", opened.graph.directed)?;
     let from = match opened.from {
@@ -184,8 +192,8 @@ pub(crate) fn inspect<'py>(
 /// Reads the text edge list at `path`; the arguments are those of the package's
 /// `everygraph.read`, already checked by it. Returns the graph and what was read.
 #[pyfunction]
-#[pyo3(signature = (path, *, out, source, target, directed, self_loops, duplicates, ids,
-                    memory, threads, temp_dir, overwrite, on_event))]
+#[pyo3(signature = (path, *, out, source, target, weight, time, directed, self_loops, duplicates,
+                    ids, memory, threads, temp_dir, overwrite, on_event))]
 #[expect(clippy::too_many_arguments, reason = "the keywords of eg.read")]
 pub(crate) fn read<'py>(
     py: Python<'py>,
@@ -193,6 +201,8 @@ pub(crate) fn read<'py>(
     out: Option<PathBuf>,
     source: Option<&str>,
     target: Option<&str>,
+    weight: Option<&str>,
+    time: Option<&str>,
     directed: Option<bool>,
     self_loops: &str,
     duplicates: &str,
@@ -203,7 +213,7 @@ pub(crate) fn read<'py>(
     overwrite: bool,
     on_event: Bound<'py, PyAny>,
 ) -> PyResult<(Graph, Bound<'py, PyDict>)> {
-    let columns = [source, target];
+    let columns = [source, target, weight, time];
     let ask = Ask::new(path, out, columns, directed, [self_loops, duplicates, ids]);
     let budget = graph::budget(memory);
     let run_on = Run {
@@ -388,8 +398,9 @@ impl Job<'_> {
     ) -> Result<(Written, Report), Fail> {
         let (ask, run) = (self.ask, self.run);
         let limit = run.budget.limit();
-        let directed = self.options.graph.directed;
-        let estimate = build::estimate(sample, directed, run.threads, limit);
+        let mut options = *self.options;
+        options.threads = run.threads;
+        let estimate = build::estimate(sample, &options, limit);
         if limit < estimate.smallest_budget {
             let refused =
                 InsufficientBudget::new("the blocks read at once", estimate.smallest_budget, limit);

@@ -24,4 +24,10 @@ labels: type:feature, area:community, P0, risk:low, size:M, lab-evidence
 
 **Pointers.** `--out-hier` in `lab/b2-leiden`; its output files are listed in the `files` field the lab writes (`lab/b2-leiden/src/main.rs`).
 
+**Left after PR #268** (which builds the artifact, its checks and its Rust API)
+- The per-community summary statistics: {{#m4-16-community-summary-stats}}.
+- The community table as an Arrow table and `subgraph(community)` as a `View`, in the Python API: {{#m6-10-communities-python}}.
+- The Friendster acceptance criterion: {{#m4-17-friendster-hierarchy}}.
+- Taking the quotient graphs from Leiden's driver instead of building them again (the write took 0.5× of Leiden's time on lj and orkut, exploratory): {{#m4-12-performance-pass}}.
+
 **Depends on** {{#m4-01-leiden-production}}, {{#m2-12-artifact-cache}}

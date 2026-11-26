@@ -19,6 +19,7 @@ path = "src/main.rs"
 # benchmark harness uses already.
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 # The binary decides that threads exist: the core's `parallel` feature (its default).
+everygraph-community = { path = "../everygraph-community" }
 everygraph-core = { path = "../everygraph-core" }
 everygraph-format = { path = "../everygraph-format" }
 everygraph-ingest = { path = "../everygraph-ingest", features = ["native"] }

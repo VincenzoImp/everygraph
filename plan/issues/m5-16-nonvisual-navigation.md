@@ -11,11 +11,11 @@ labels: type:feature, area:viewer, P1, risk:medium, size:M
 - [ ] A description template: kind, exact count, position among siblings, strongest connection with its weight, "shown X of Y"; the level spoken only when it changes
 - [ ] "Children as a table" for every region (the table stays necessary because it is familiar: Zong et al.'s 13 participants)
 - [ ] The canvas highlights the focused region, so a sighted helper and a screen-reader user see the same place
-- [ ] A formative cooperative session (Zong et al.'s protocol) with 3–5 screen-reader users on lj with the tasks of {{#m5-06-viewer-ux}}; findings filed as issues. Formative only: no success rate is claimed from it
+- [ ] A formative agent-driven session on lj with the tasks of {{#m5-06-viewer-ux}} (`design/DECISIONS.md`, "Usability, accessibility and hardware checks"): 3–5 Claude agent sessions use only the keyboard, the accessibility tree and the announced text, through Playwright, as a screen-reader user would; task success, steps, time and errors recorded; findings filed as issues. Formative only: no success rate is claimed from it. A cooperative session with screen-reader users (Zong et al.'s protocol) is advisable after 0.1, not a gate
 
 **Acceptance**
-- Every region of the lj map can be reached and described with the keyboard alone, with a screen reader announcing position and counts (NVDA or VoiceOver, scripted in Playwright where possible)
-- The formative session is held and its findings recorded; the docs say "usable with a screen reader" only after it
+- Every region of the lj map can be reached and described with the keyboard alone, checked in Playwright: at every step the accessibility tree and the live region give the position ("3 of 64") and the counts, and axe-core reports no violation. A run with a real screen reader (NVDA, VoiceOver) is advisable after 0.1
+- The agent-driven session is held and its findings recorded. The docs say "navigable with the keyboard and the accessibility tree", and "usable with a screen reader" only after a session with screen-reader users
 
 **Pointers.** `docs/research/sota-human-factors.md` § 2 ("Non-visual access"), § 3 (D16, D18 and m5-11 rows), § 4 challenge 2, § 5; WAI-ARIA tree view pattern.
 

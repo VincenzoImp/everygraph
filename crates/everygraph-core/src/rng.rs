@@ -115,8 +115,16 @@ impl Purpose {
     /// `[node, level, iteration, stage]`.
     pub const LEIDEN_REFINE: Self = Self(*b"LREF");
 
+    /// Strong components: a node's place in the random order of sources. Counter:
+    /// `[node, 0, 0, 0]`.
+    pub const SCC_ORDER: Self = Self(*b"sccr");
+
+    /// The weight of a community in the check of a stored community hierarchy
+    /// (`everygraph_community::hierarchy::check`). Counter: `[community, level, 0, 0]`.
+    pub const HIERARCHY_CHECK: Self = Self(*b"HCHK");
+
     /// Every purpose, so that the test below can check that they are distinct.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::TEST,
         Self::COMPONENTS_NEIGHBOUR,
         Self::COMPONENTS_GIANT,
@@ -126,6 +134,8 @@ impl Purpose {
         Self::LEIDEN_REFINE_ROUND,
         Self::LEIDEN_TIE,
         Self::LEIDEN_REFINE,
+        Self::SCC_ORDER,
+        Self::HIERARCHY_CHECK,
     ];
 }
 

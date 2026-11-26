@@ -1,0 +1,69 @@
+{
+ "map": "/home/tux/graphlab/scratch/m1-06-edge-rendering/maps/lj.pmtiles",
+ "zmax": 10,
+ "tiles": 203941,
+ "nodes": {
+  "shown_at_some_zoom": 3997962,
+  "vanish_events": 36293,
+  "entities_that_vanish_before_zmax": 0,
+  "entities_with_popping": 36293,
+  "popping_gap_levels": 36336,
+  "first_zoom_histogram": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   5768,
+   221430,
+   3271754,
+   497530,
+   1480
+  ],
+  "vanish_events_by_zoom": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   234,
+   36059,
+   0,
+   0
+  ]
+ },
+ "regions": {
+  "shown_at_some_zoom": 1579901,
+  "vanish_events": 0,
+  "entities_that_vanish_before_zmax": 0,
+  "entities_with_popping": 0,
+  "popping_gap_levels": 0,
+  "first_zoom_histogram": [
+   185,
+   384,
+   1695,
+   5015,
+   13878,
+   37999,
+   97182,
+   286736,
+   945940,
+   190864,
+   23
+  ],
+  "vanish_events_by_zoom": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ]
+ }
+}

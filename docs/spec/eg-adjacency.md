@@ -7,7 +7,8 @@ flag bit 1 (§ 3); flag bit 0 is reserved (§ 3); the block rule no longer fixes
 reductions (§ 4); merged runs are byte-identical to encoded ones (§ 4). For a graph without
 repeated pairs the index and the data are byte for byte those of revision 1; their version
 field stays 1 (§ 6). Implemented by
-`crates/everygraph-format/src/adjacency/` (the `.events` section by #35). The decision it
+`crates/everygraph-format/src/adjacency/` (the `.events` section by #35; the in-adjacency of
+§ 3.2 by #38, in `crates/everygraph-ingest/src/build/transpose.rs`). The decision it
 implements is DESIGN D4 with the conditions of ADR 0004; the measurements behind it are
 FINDINGS § C and § M1-13 and the pull request of #30.
 
@@ -18,7 +19,7 @@ keeps each as a section; nothing in them refers to the container, and each can b
 from any positional byte source. All integers are little-endian.
 
 Contents: 1 Records (the data) · 2 Elias–Fano sequences · 3 The index (3.1 Pairs and
-events) · 4 Blocks · 5 What a reader checks · 6 Versions · 7 Sizes measured · 8 Decided
+events, 3.2 The in-adjacency) · 4 Blocks · 5 What a reader checks · 6 Versions · 7 Sizes measured · 8 Decided
 here.
 
 ---
@@ -129,7 +130,8 @@ pair, in increasing internal id of the neighbour (§ 1) — which is graph order
 renumbering (`plan/issues/m2-07-id-mapping.md`, `m2-24-bp-ordering.md`). When the graph
 has more than one event for some pair, the index sets flag bit 1 and the section
 `<name>.events`
-(container kind 5; `<name>` is the adjacency's name, so `adjacency.out.events` beside
+(container kind 5, or 13 for the adjacency of a result part, `eg-container.md` § 6;
+`<name>` is the adjacency's name, so `adjacency.out.events` beside
 `adjacency.out.index` and `adjacency.out.data`) holds, for each entry in entry order, the
 number of events of the entries before it, then `events`:
 
@@ -167,6 +169,20 @@ that of `v`), in the same order, so `events` of the out-adjacency is `2·num_edg
 the events of kept loops. Each adjacency of a graph (out, and in on a directed graph,
 ADR 0006) has its own `.events` section when it has repeated pairs, and its own event
 offsets.
+
+### 3.2 The in-adjacency
+
+A directed graph also stores its **in-adjacency** (DESIGN D6, ADR 0006): the adjacency
+named `adjacency.in` (sections `adjacency.in.index`, `adjacency.in.data` and, when the
+out-adjacency has one, `adjacency.in.events`), in the format of this document. The list of
+`v` holds, in increasing order, every `u` whose out-list holds `v`; a kept loop is the
+entry `v` in both lists of `v`. Each entry has the stored events of the same pair, in the
+same order, so its `.events` section exists exactly when the out-adjacency's does, with
+the same `events` (§ 5). It is a function of the out-adjacency alone: the build writes it
+unless asked not to, and it can be added to a file later, by an update of the container;
+the bytes are the same either way. It does not enter the graph identity
+(`docs/spec/eg-container.md` § 6): adding it keeps the identity and the results stored
+before. An undirected graph has no in-adjacency.
 
 ## 4. Blocks
 
@@ -226,7 +242,9 @@ that takes multiplicities from a per-pair column never pays them.
 
 Across sections (the graph layer, when it opens a graph): a section named `<adj>.events`
 has container kind 5, and a section of kind 5 is named `<adj>.events` for an adjacency
-`<adj>` of the file; on a directed graph, the out- and in-adjacency both have a `.events`
+`<adj>` of the file. The adjacency of a result part (a quotient graph of a community
+hierarchy) has the same three sections with kinds 11, 12 and 13 instead of 2, 3 and 5,
+and the same rules between them (`eg-container.md` § 6, "Parts of a result"); on a directed graph, the out- and in-adjacency both have a `.events`
 section or neither has, and their `events` are equal (each event lies once in each);
 every per-event column has `events` rows, or `entries` rows when there is no `.events`
 section.

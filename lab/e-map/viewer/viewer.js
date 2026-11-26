@@ -95,8 +95,16 @@ function color(rank) {
 // ---------- GL ----------
 const cv = document.getElementById('gl'), ov = document.getElementById('ov'), ctx2 = ov.getContext('2d');
 const gl = cv.getContext('webgl2', { antialias: true, alpha: false, powerPreference: 'high-performance' });
+// m1-12 (#26): the minimum is WebGL 2. Without it the viewer says so and stops; on a software renderer it says so and
+// starts with adaptive caps.
+if (!gl) {
+  document.getElementById('hud').textContent = 'This map needs WebGL 2, and this browser cannot create it here. Graphics acceleration may be turned off, or the browser runs without a display. Turn acceleration on in the browser settings, or open the map in another browser.';
+  window.__gm = { noWebGL2: true };
+  throw new Error('no WebGL2');
+}
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
 const RENDERER = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+const SOFTWARE = /SwiftShader|llvmpipe|softpipe|Software/i.test(RENDERER);
 function prog(vs, fs) {
   const p = gl.createProgram();
   for (const [t, s] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)); gl.attachShader(p, sh); }
@@ -170,30 +178,87 @@ function rebuild() {
   const s0 = scale(); let hidden = 0; view.rbz = view.zf;
   const bl = [...bset.values()].filter(b => { const k = KIND(b); if (k === 'inner') return false; if (k !== 'community' && b.r * s0 < AID_LABEL_MIN_PX) { hidden++; return false; } return true; }).sort((a, b) => b.r - a.r);
   view.aidsHidden = hidden;
-  for (const b of bl) { const c = color(b.top); nb.push(b.x, b.y, b.r, c[0], c[1], c[2], KALPHA[KIND(b)]); }
-  const agg = [];
+  for (const b of bl.slice(0, caps.bubbles)) { const c = color(b.top); nb.push(b.x, b.y, b.r, c[0], c[1], c[2], KALPHA[KIND(b)]); }
+  const agg = [], single = [], nodes = [];
   const tw = 1 / 2 ** tileZoom();
   for (const t of tiles) {
-    for (const n of t.nodes) { const c = color(n.top); nn.push(n.x, n.y, n.r, c[0], c[1], c[2], 1.0); }
+    for (const n of t.nodes) nodes.push(n);
     for (const e of t.edges) {
       const l = e.src, isNode = l >= t.bub.length, s = isNode ? t.nodes[l - t.bub.length] : t.bub[l];
-      if (isNode && e.w === 1) { const len = Math.hypot(s.x - e.x, s.y - e.y); ne.push(s.x, s.y, e.x, e.y, 0.3, len < tw * 0.6 ? 0.42 : 0.07); }
+      if (isNode && e.w === 1) { const len = Math.hypot(s.x - e.x, s.y - e.y); single.push([s.x, s.y, e.x, e.y, 0.3, len < tw * 0.6 ? 0.42 : 0.07]); }
       else agg.push([e.w, s.x, s.y, e.x, e.y]);
     }
   }
-  // aggregated edges: only the strongest ones in view are drawn (the rest stay available in the tile data / tooltips)
-  agg.sort((a, b) => b[0] - a[0]); const keep = agg.slice(0, 220), wmax = keep.length ? keep[0][0] : 1, wmin = keep.length ? keep[keep.length - 1][0] : 1;
+  // m1-12 (#26): per-frame caps. Nodes: the largest first. Edges: the strongest aggregated ones (at most 220), then
+  // single node-to-node edges in tile order (the tile ranks them by weight, shorter first).
+  view.nodesTotal = nodes.length; view.singleTotal = single.length;
+  if (nodes.length > caps.nodes) nodes.sort((a, b) => b.r - a.r).length = caps.nodes;
+  for (const n of nodes) { const c = color(n.top); nn.push(n.x, n.y, n.r, c[0], c[1], c[2], 1.0); }
+  agg.sort((a, b) => b[0] - a[0]); const keep = agg.slice(0, Math.min(220, caps.edges)), wmax = keep.length ? keep[0][0] : 1, wmin = keep.length ? keep[keep.length - 1][0] : 1;
+  for (const e of single.slice(0, Math.max(0, caps.edges - keep.length))) ne.push(...e);
   for (const e of keep) { const rel = wmax > wmin ? Math.log(e[0] / wmin) / Math.log(wmax / wmin) : 1; ne.push(e[1], e[2], e[3], e[4], 0.2 + 3.2 * rel, 0.10 + 0.45 * rel); }
   view.aggShown = keep.length; view.aggTotal = agg.length;
   for (const [v, arr, per] of [[bubV, nb, 7], [nodeV, nn, 7], [edgeV, ne, 6]]) { gl.bindBuffer(gl.ARRAY_BUFFER, v.buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.DYNAMIC_DRAW); v.n = arr.length / per; }
   view.bl = bl; dirty = false;
 }
 function fmt(n) { return n.toLocaleString('en-US'); }
+// m1-12 (#26): ?edges=N&nodes=N&bubbles=N fix the per-frame caps and ?scale=S the resolution of the WebGL canvas
+// (S of the CSS size; labels stay sharp). ?adaptive=1 moves them to hold 30 frames per second: every 30 frames, the
+// 75th percentile of the frame interval decides. Above 33.4 ms it cuts edges and nodes to 60% (not under 20 and 200),
+// then bubbles to 60% (not under 300), then halves the scale (not under 0.5); below 22 ms it undoes the same steps in
+// reverse, up to the fixed values. Off by default: it oscillated in the lab (lab/m1-12-viewer-no-gpu/results).
+// On a software renderer the defaults follow design/DECISIONS.md (2026-11-26, "The viewer without a usable GPU").
+const num = (k, dflt) => P.has(k) ? +P.get(k) : dflt;
+const caps = { edges: num('edges', SOFTWARE ? 600 : 1e9), nodes: num('nodes', SOFTWARE ? 600 : 1e9), bubbles: num('bubbles', 1e9), scale: num('scale', 1),
+  adaptive: P.get('adaptive') === '1', log: [] };
+const capMax = { edges: caps.edges, nodes: caps.nodes, bubbles: caps.bubbles, scale: caps.scale }, recent = [];
+function adapt(dt) {
+  recent.push(dt); if (recent.length < 30) return;
+  const p75 = [...recent].sort((a, b) => a - b)[22]; recent.length = 0;
+  const e = Math.min(caps.edges, edgeV.n), n = Math.min(caps.nodes, nodeV.n), b = Math.min(caps.bubbles, bubV.n);
+  if (p75 > 33.4) {
+    if (e > 20 || n > 200) { caps.edges = Math.max(20, Math.floor(e * 0.6)); caps.nodes = Math.max(200, Math.floor(n * 0.6)); }
+    else if (b > 300) caps.bubbles = Math.max(300, Math.floor(b * 0.6));
+    else if (caps.scale > 0.5) caps.scale = Math.max(0.5, caps.scale / 2);
+    else return;
+  } else if (p75 < 22) {
+    if (caps.scale < capMax.scale) caps.scale = Math.min(capMax.scale, caps.scale * 2);
+    else if (caps.bubbles < capMax.bubbles) caps.bubbles = Math.min(capMax.bubbles, Math.ceil(caps.bubbles * 1.25));
+    else if (caps.edges < capMax.edges || caps.nodes < capMax.nodes) { caps.edges = Math.min(capMax.edges, Math.ceil(caps.edges * 1.25)); caps.nodes = Math.min(capMax.nodes, Math.ceil(caps.nodes * 1.25)); }
+    else return;
+  } else return;
+  caps.log.push({ t: Math.round(performance.now()), p75: +p75.toFixed(1), edges: caps.edges, nodes: caps.nodes, bubbles: caps.bubbles, scale: caps.scale }); dirty = true;
+}
 let lastT = 0;
+// m1-12 (#26): ?motion=S draws at canvas scale S while the view moves and at full scale once it stops;
+// ?onchange=1 draws a frame only when something on screen changed (the view, a loaded tile, the hover).
+caps.motion = num('motion', SOFTWARE ? 0.5 : 0); caps.onchange = num('onchange', SOFTWARE ? 1 : 0) === 1;
+let lastDrawKey = '';
 function frame(t) {
-  if (stats.recording && lastT) stats.frames.push(t - lastT); lastT = t;
+  const moving = !!view.anim || Math.abs(view.tz - view.zf) > 2e-3 || !!drag;
+  if (caps.motion) caps.scale = moving ? caps.motion : capMax.scale;
+  const key = [view.cx, view.cy, view.zf, caps.scale, hover ? hover.x + ',' + hover.y : '', cv.clientWidth, cv.clientHeight].join();
+  if (caps.onchange && !moving && !dirty && key === lastDrawKey) { requestAnimationFrame(frame); return; }
+  lastDrawKey = key;
+  if (stats.recording && lastT) stats.frames.push(t - lastT);
+  if (caps.adaptive && lastT) adapt(t - lastT);
+  lastT = t; stats.rendered = (stats.rendered || 0) + 1;
+  render(t);
+  requestAnimationFrame(frame);
+}
+// m1-12 (#26): the cost of one frame to the end of the GPU work (readPixels waits for it). A frame interval shows
+// either the display's period (with vsync) or, without it, may end before the GPU has finished.
+const px1 = new Uint8Array(4);
+function renderCost(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) { const t0 = performance.now(); render(t0); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px1); out.push(performance.now() - t0); }
+  return out;
+}
+function render(t) {
   const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
-  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; ov.width = W * dpr; ov.height = H * dpr; }
+  const gw = Math.round(W * dpr * caps.scale), gh = Math.round(H * dpr * caps.scale);
+  if (cv.width !== gw || cv.height !== gh) { cv.width = gw; cv.height = gh; }
+  if (ov.width !== W * dpr || ov.height !== H * dpr) { ov.width = W * dpr; ov.height = H * dpr; }
   if (view.anim) {
     const a = view.anim, u = Math.min(1, (t - a.t0) / a.dur), e = u * u * (3 - 2 * u);
     view.cx = a.x0 + (a.x1 - a.x0) * e; view.cy = a.y0 + (a.y1 - a.y0) * e; view.zf = a.z0 + (a.z1 - a.z0) * e - a.dip * 4 * u * (1 - u); view.tz = view.zf;
@@ -244,8 +309,7 @@ function frame(t) {
     put(b, lines, x, y); nl++;
   }
   view.aids = aids; view.aidsUnlabelled = aidsUnlabelled;
-  document.getElementById('stat').textContent = `zoom ${view.zf.toFixed(2)} (tile z${tileZoom()}/${pm.maxZoom}) · ${drawn.length} tiles drawn · ${bubV.n} bubbles ${nodeV.n} nodes ${edgeV.n} edges\n${stats.requests} requests · ${(stats.bytes / 1024).toFixed(0)} KiB transferred\ndrawing aids on screen: ${aids}, labelled ${aids - aidsUnlabelled}${aidsUnlabelled ? ' (' + aidsUnlabelled + ' under ' + AID_LABEL_MIN_PX + ' px)' : ''}; ${view.aidsHidden || 0} too small to draw (under ${AID_LABEL_MIN_PX} px)`;
-  requestAnimationFrame(frame);
+  document.getElementById('stat').textContent = `zoom ${view.zf.toFixed(2)} (tile z${tileZoom()}/${pm.maxZoom}) · ${drawn.length} tiles drawn · ${bubV.n} of ${(view.bl || []).length} bubbles, ${nodeV.n} of ${view.nodesTotal ?? 0} nodes, ${edgeV.n} of ${(view.aggTotal ?? 0) + (view.singleTotal ?? 0)} edges drawn\n${stats.requests} requests · ${(stats.bytes / 1024).toFixed(0)} KiB transferred\ndrawing aids on screen: ${aids}, labelled ${aids - aidsUnlabelled}${aidsUnlabelled ? ' (' + aidsUnlabelled + ' under ' + AID_LABEL_MIN_PX + ' px)' : ''}; ${view.aidsHidden || 0} too small to draw (under ${AID_LABEL_MIN_PX} px)`;
 }
 // ---------- interaction ----------
 function setHi(ent) { const a = ent ? [ent.x, ent.y, ent.deg !== undefined ? Math.max(ent.r * 0.55, 3 / scale()) : ent.r, 1, 1, 1, 2.0] : []; gl.bindBuffer(gl.ARRAY_BUFFER, hiV.buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(a), gl.DYNAMIC_DRAW); hiV.n = a.length / 7; }
@@ -292,5 +356,5 @@ async function go() {
   setHi({ x: r.x, y: r.y, r: 0, deg: 0 }); flyTo(r.x, r.y, pm.maxZoom + 1.2); return r;
 }
 document.getElementById('go').onclick = go; document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-window.__gm = { stats, view, flyTo, go, search, renderer: RENDERER, idle: () => pending === 0 && !view.anim && Math.abs(view.tz - view.zf) < 2e-3 && !dirty, pm };
-pmOpen().then(() => { document.getElementById('title').textContent = `${pm.meta.name.split('/').pop()} — ${fmt(pm.meta.n)} nodes, ${fmt(pm.meta.m)} edges`; document.getElementById('tile').textContent = `${fmt(pm.nTiles)} tiles · ${RENDERER.slice(0, 60)}`; requestAnimationFrame(frame); });
+window.__gm = { stats, view, flyTo, go, search, renderer: RENDERER, caps, setCaps: (e, n, b = 1e9, sc = 1) => { caps.edges = capMax.edges = e; caps.nodes = capMax.nodes = n; caps.bubbles = capMax.bubbles = b; caps.scale = capMax.scale = sc; dirty = true; }, drawnBubbles: () => bubV.n, drawn: () => ({ bubbles: bubV.n, nodes: nodeV.n, edges: edgeV.n }), renderCost, idle: () => pending === 0 && !view.anim && Math.abs(view.tz - view.zf) < 2e-3 && !dirty, pm };
+pmOpen().then(() => { document.getElementById('title').textContent = `${pm.meta.name.split('/').pop()} — ${fmt(pm.meta.n)} nodes, ${fmt(pm.meta.m)} edges`; document.getElementById('tile').textContent = `${fmt(pm.nTiles)} tiles · ${RENDERER.slice(0, 60)}` + (SOFTWARE ? '\nDrawing without graphics acceleration: the map shows fewer links and nodes to stay responsive.' : ''); requestAnimationFrame(frame); });

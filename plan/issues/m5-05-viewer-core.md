@@ -6,7 +6,7 @@ labels: type:feature, area:viewer, P0, risk:medium, size:L, lab-evidence
 **Why.** The lab viewer shows a dependency-free WebGL2 page is enough for regions, nodes and edges with smooth zoom. It also showed what to fix: animated zooms fetch every intermediate level (up to 146 tiles per step) and there is no usable software-rendering path.
 
 **Scope**
-- [ ] TypeScript package with no runtime dependencies in the core; instanced rendering of regions, nodes and edges; text labels with collision avoidance
+- [ ] TypeScript package with no runtime dependencies in the core; instanced rendering of regions, nodes and edges; text labels drawn as the tile says: the tile format ({{#m5-02-tile-format}}) stores labels chosen at build time with their zoom intervals, so the viewer only fades them in and out and runs no collision engine (decided 2026-11-26, `docs/research/sota-review-2026-11.md` S12)
 - [ ] Tile loader over HTTP range requests with request coalescing, an LRU cache, cancellation of stale requests and throttling during animation
 - [ ] Level-of-detail transitions (cross-fade parent → children) so zooming feels continuous
 - [ ] Pluggable data source: static file, local file via `File` API, live engine ({{#m5-08-live-mode}})

@@ -119,6 +119,11 @@ impl fmt::Debug for Tables {
 }
 
 impl Tables {
+    /// The budget the tables, and the frontiers they serve, are reserved in.
+    pub(crate) fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
     pub(crate) fn new(memory: &Memory) -> Self {
         Self {
             free: Mutex::new(Vec::new()),
