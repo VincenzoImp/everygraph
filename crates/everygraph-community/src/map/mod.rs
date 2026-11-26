@@ -6,21 +6,22 @@
 //! - **The partition T** is kept exactly: its communities are regions of kind
 //!   [`Kind::Community`], at whatever depth.
 //! - **Above T**, a super level when T needs more than `F − 1` communities to cover
-//!   90% of the nodes: Leiden on the whole graph at the largest resolution `2^-j` whose
-//!   groups need at most `F − 1`, each community of T in the group that holds most of
-//!   its nodes.
+//!   90% of its nodes with edges: Leiden on the whole graph at the largest resolution
+//!   `2^-j` whose groups need at most `F − 1` (or, when none does, the try of the
+//!   smallest cover), each community of T in the group that holds most of its nodes.
 //! - **Below T**, every region of more than `leaf` nodes is split again by Leiden on
 //!   its own induced subgraph (its own null model: local modularity, resolution 1),
 //!   until regions are that small or Leiden finds one community. Each region is solved
 //!   alone, so its split does not depend on the rest of the graph or on the order of
 //!   the work.
 //! - **Tails:** a region with more than `F` children keeps its `F − 1` largest and one
-//!   aggregate of the others, "+N smaller communities".
+//!   aggregate of the others, "+N smaller communities". The communities without an
+//!   edge are one aggregate of their own under the root.
 //!
 //! Every region has a [`Kind`], so the map never draws a drawing aid as a community.
-//! [`store`] keeps the tree as the levels of a hierarchy, with the kind of every region
-//! (`docs/spec/eg-communities.md` § 6). In memory, the shaping holds the tree, one
-//! column per node, and one region's subgraph and Leiden run at a time.
+//! [`store`] keeps the tree in the graph file by its parents, with the exact counts of
+//! every region and the graph between siblings (`docs/spec/eg-communities.md` § 6);
+//! [`StoredMap`] reads it back.
 
 mod check;
 mod read;

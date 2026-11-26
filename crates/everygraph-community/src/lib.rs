@@ -12,7 +12,8 @@
 //! - [`hierarchy`]: every level of a result with exact counts and its quotient graph,
 //!   kept in the graph file (`docs/spec/eg-communities.md`), read back, and checked.
 //! - [`map`]: the map tree of a partition (DESIGN D16): fan-out bounded for the map,
-//!   every region of a known kind, kept in the graph file as a hierarchy.
+//!   every region of a known kind, kept in the graph file as a tree with the graph
+//!   between siblings, read back, and checked.
 //!
 //! In memory only: level 0 is read through the source, coarser levels are held in RAM
 //! (out of core: #60). The crate builds for wasm32 and has no `unsafe`; it is under
