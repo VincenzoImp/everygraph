@@ -90,6 +90,9 @@ pub struct AdjacencyFacts {
     pub entries: u64,
     /// Its stored events, when it has a `.events` section (some pair has more than one).
     pub events: Option<u64>,
+    /// The most stored events of one entry: 1 without a `.events` section, 0 without
+    /// an entry.
+    pub multiplicity_max: u64,
 }
 
 /// What [`verify`] found.
@@ -607,7 +610,7 @@ fn check_adjacency<S: ByteSource + Sync>(
     };
     // Index flag bit 1 is set exactly when the `.events` section exists (spec § 3, § 5).
     let events = match (index.has_events(), file.get(&events_name)) {
-        (false, None) => None,
+        (false, None) => None::<(u64, u64)>,
         (false, Some(_)) => {
             report.problem(
                 Some(&events_name),
@@ -628,8 +631,8 @@ fn check_adjacency<S: ByteSource + Sync>(
                 return Ok(None);
             };
             match AdjacencyEvents::parse(&bytes, &index).and_then(|e| {
-                e.check()?;
-                Ok(e.events())
+                let most = e.multiplicities()?.max().unwrap_or(0);
+                Ok((e.events(), most))
             }) {
                 Ok(events) => Some(events),
                 Err(e) => {
@@ -698,7 +701,8 @@ fn check_adjacency<S: ByteSource + Sync>(
             name: base.to_owned(),
             nodes: index.nodes(),
             entries: index.entries(),
-            events,
+            events: events.map(|e| e.0),
+            multiplicity_max: events.map_or(u64::from(index.entries() > 0), |e| e.1),
         },
         scan,
     }))

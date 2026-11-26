@@ -3,11 +3,13 @@
 //! Reading every value of a column: what `verify --deep` checks beyond § 7 of
 //! `docs/spec/eg-columns.md`, which leaves the values to the section hash.
 
+use std::collections::BTreeMap;
+
 use everygraph_core::le::array;
 use everygraph_core::math::{canonical, canonical_f32};
-use everygraph_core::{ByteSource, Memory, MemoryKind, ReadError};
+use everygraph_core::{ByteSource, Memory, MemoryKind, ReadError, widen};
 
-use super::stats::{Accumulator, magnitude, pow10, widen};
+use super::stats::{Accumulator, STATS_LEN, magnitude, pow10, widen as sign_extend};
 use super::{
     Column, ColumnError, ColumnLayout, ColumnStats, ColumnType, MAX_LAYOUT_BYTES, SectionNames,
 };
@@ -115,7 +117,7 @@ fn check_value(
             magnitude(wide) < pow10(precision)
         }
         _ => {
-            let v = i128::from_le_bytes(array(&widen(wide, ty), 0));
+            let v = i128::from_le_bytes(array(&sign_extend(wide, ty), 0));
             if let Some(s) = stats {
                 s.int(v, wide);
             }
@@ -140,8 +142,11 @@ fn check_value(
 /// The column sections of `file`, for `verify` (`docs/spec/eg-columns.md` § 6, § 7):
 /// each column with its layout and, when numeric, its statistics, under the names of
 /// § 6; the framing against the layout; every value read and the statistics recomputed
-/// from them; and the rows of a column of an adjacency's scope against the facts of
-/// that adjacency. The layout of one column at a time is held, reserved in `memory`.
+/// from them; the rows of a column of an adjacency's scope against the facts of that
+/// adjacency; and what the build derives from the events, against the columns and the
+/// adjacency (§ 6: `multiplicity.max`, and `edges`, `first` and `last` under
+/// `duplicates="sum"`). The layout of one column at a time is held, reserved in
+/// `memory`.
 pub(crate) fn verify_columns<S: ByteSource>(
     file: &Container<S>,
     adjacencies: &[AdjacencyFacts],
@@ -149,6 +154,7 @@ pub(crate) fn verify_columns<S: ByteSource>(
     report: &mut Report,
 ) -> Result<(), ReadError> {
     let has = |name: &str, kind: Kind| file.get(name).is_some_and(|e| e.kind == kind);
+    let mut checked = BTreeMap::new();
     for e in file.entries() {
         let name = &*e.name;
         let role = match e.kind {
@@ -179,8 +185,8 @@ pub(crate) fn verify_columns<S: ByteSource>(
             report.problem(Some(name), format!("there is no layout {}", names.layout));
             continue;
         }
-        let rows = match check_column(file, &names, column, memory) {
-            Ok(Some(rows)) => rows,
+        let (rows, stats) = match check_column(file, &names, column, memory) {
+            Ok(Some(found)) => found,
             Ok(None) => {
                 report.unchecked.push(format!(
                     "{name}: its values (not enough memory for its layout)"
@@ -193,35 +199,169 @@ pub(crate) fn verify_columns<S: ByteSource>(
                 continue;
             }
         };
-        let expected = scope.rsplit_once('.').and_then(|(adj, part)| {
-            let facts = adjacencies.iter().find(|a| a.name == adj)?;
-            match part {
-                "pair" => Some(facts.entries),
-                "event" => Some(facts.events.unwrap_or(facts.entries)),
-                _ => None,
+        if let Some((adj, part @ ("pair" | "event"))) = scope.rsplit_once('.') {
+            match adjacencies.iter().find(|a| a.name == adj) {
+                Some(facts) => {
+                    let expected = match part {
+                        "pair" => facts.entries,
+                        _ => facts.events.unwrap_or(facts.entries),
+                    };
+                    if rows != expected {
+                        report.problem(
+                            Some(name),
+                            format!("{rows} rows, but its adjacency gives its scope {expected}"),
+                        );
+                    }
+                }
+                None if has(&format!("{adj}.index"), Kind::ADJACENCY_INDEX) => {
+                    report.unchecked.push(format!(
+                        "{name}: its rows (its adjacency {adj} was not checked)"
+                    ));
+                }
+                None => report.problem(
+                    Some(name),
+                    format!("its scope names the adjacency {adj}, which the file does not hold"),
+                ),
             }
-        });
-        if let Some(expected) = expected.filter(|&r| r != rows) {
-            report.problem(
-                Some(name),
-                format!("{rows} rows, but its adjacency gives its scope {expected}"),
-            );
+        }
+        checked.insert((scope.to_owned(), column.to_owned()), stats);
+    }
+    // Each provenance record is decoded once, however many adjacencies refer to it.
+    let mut declared = BTreeMap::new();
+    for facts in adjacencies {
+        let index = format!("{}.index", facts.name);
+        let Some(record) = file.get(&index).and_then(|e| e.provenance.clone()) else {
+            continue;
+        };
+        let parameters = declared
+            .entry(record)
+            .or_insert_with_key(|record| file.read_provenance(record).ok().map(|p| p.parameters));
+        if let Some(parameters) = parameters {
+            check_derived(file, facts, parameters, &checked, report)?;
         }
     }
     Ok(())
 }
 
-/// Checks one column, its layout and its statistics; its rows, or `None` when its
-/// layout does not fit `memory`.
+/// The statistics of each column that was checked, by scope and name.
+type Checked = BTreeMap<(String, String), Option<ColumnStats>>;
+
+/// `multiplicity.max` of `parameters`, the provenance of adjacency `facts`, and under
+/// `duplicates="sum"` its `edges` (at least 1), `first` and `last` (never after).
+fn check_derived<S: ByteSource>(
+    file: &Container<S>,
+    facts: &AdjacencyFacts,
+    parameters: &BTreeMap<String, String>,
+    checked: &Checked,
+    report: &mut Report,
+) -> Result<(), ReadError> {
+    let index = format!("{}.index", facts.name);
+    let Some(declared) = parameters.get("multiplicity.max") else {
+        return Ok(());
+    };
+    let scope = format!("{}.pair", facts.name);
+    let get = |column: &str| checked.get(&(scope.clone(), column.to_owned()));
+    let as_u64 = |b: [u8; 32]| u64::from_le_bytes(array(&b, 0));
+    let sum = parameters.get("duplicates").map(String::as_str) == Some("sum");
+    let expected = if sum {
+        let Some(edges) = get("edges") else {
+            report.problem(
+                Some(&index),
+                format!("the graph sums its duplicates, and {scope}/arrow/edges is missing"),
+            );
+            return Ok(());
+        };
+        let range = edges.as_ref().and_then(|s| s.range);
+        if range.is_some_and(|(min, _)| as_u64(min) == 0) {
+            report.problem(Some(&format!("{scope}/arrow/edges")), "a pair of 0 edges");
+        }
+        range.map_or(0, |(_, max)| as_u64(max))
+    } else {
+        facts.multiplicity_max
+    };
+    if declared.parse::<u64>().ok() != Some(expected) {
+        report.problem(
+            Some(&index),
+            format!("its provenance gives multiplicity.max {declared}, its pairs {expected}"),
+        );
+    }
+    if sum && get("first").is_some() && get("last").is_some() {
+        let first = SectionNames::new(&scope, "first");
+        match first_after_last(file, &first, &SectionNames::new(&scope, "last")) {
+            Ok(Some(row)) => report.problem(
+                Some(&first.column),
+                format!("row {row}: the first time is after the last"),
+            ),
+            Ok(None) => {}
+            Err(ColumnError::Read(e @ ReadError::Backend(_))) => return Err(e),
+            Err(e) => report.problem(Some(&first.column), e.to_string()),
+        }
+    }
+    Ok(())
+}
+
+/// The first row at which column `first` holds a later time than column `last`, two
+/// timestamp columns of the same rows without nulls, already checked.
+fn first_after_last<S: ByteSource>(
+    file: &Container<S>,
+    first: &SectionNames,
+    last: &SectionNames,
+) -> Result<Option<u64>, ColumnError> {
+    let layout = |names: &SectionNames| -> Result<ColumnLayout, ColumnError> {
+        let section = file.section(&names.layout)?;
+        let mut bytes = vec![0; small(section.len())];
+        section.read_at(0, &mut bytes)?;
+        ColumnLayout::parse(&bytes)
+    };
+    let (a, b) = (layout(first)?, layout(last)?);
+    let nulls = a
+        .batches()
+        .iter()
+        .chain(b.batches())
+        .any(|x| x.null_count > 0);
+    if a.rows() != b.rows() || a.batch_rows() != b.batch_rows() || a.ty() != b.ty() || nulls {
+        return Err(ColumnError::Invalid(
+            "first and last are not timestamps of the same rows without nulls",
+        ));
+    }
+    let (sa, sb) = (file.section(&first.column)?, file.section(&last.column)?);
+    let (mut x, mut y) = (Vec::new(), Vec::new());
+    let mut left = a.rows();
+    let mut row = 0;
+    for (ba, bb) in a.batches().iter().zip(b.batches()) {
+        let rows = left.min(a.batch_rows());
+        left -= rows;
+        for start in (0..rows).step_by(small(ROWS)) {
+            let n = ROWS.min(rows - start);
+            x.resize(small(n * 8), 0);
+            y.resize(small(n * 8), 0);
+            sa.read_at(ba.values.start + start * 8, &mut x)?;
+            sb.read_at(bb.values.start + start * 8, &mut y)?;
+            let time = |c: &[u8]| i64::from_le_bytes(array(c, 0));
+            let later = x
+                .chunks_exact(8)
+                .zip(y.chunks_exact(8))
+                .position(|(p, q)| time(p) > time(q));
+            if let Some(i) = later {
+                return Ok(Some(row + widen(i)));
+            }
+            row += n;
+        }
+    }
+    Ok(None)
+}
+
+/// Checks one column, its layout and its statistics; its rows and the statistics of its
+/// values, or `None` when its layout does not fit `memory`.
 fn check_column<S: ByteSource>(
     file: &Container<S>,
     names: &SectionNames,
     column: &str,
     memory: &Memory,
-) -> Result<Option<u64>, ColumnError> {
+) -> Result<Option<(u64, Option<ColumnStats>)>, ColumnError> {
     let read = |name: &str| -> Result<Vec<u8>, ColumnError> {
         let section = file.section(name)?;
-        let mut bytes = vec![0; usize::try_from(section.len()).unwrap_or(usize::MAX)];
+        let mut bytes = vec![0; small(section.len())];
         section.read_at(0, &mut bytes)?;
         Ok(bytes)
     };
@@ -240,9 +380,15 @@ fn check_column<S: ByteSource>(
     }
     let values = Column::open(&layout, file.section(&names.column)?)?;
     let stats = values.check_values()?;
-    match (stats, file.get(&names.stats)) {
+    match (&stats, file.get(&names.stats)) {
         (None, None) => {}
         (Some(computed), Some(entry)) if entry.kind == Kind::COLUMN_STATS => {
+            // Its length first: a reader allocates nothing larger than the record.
+            if entry.len != widen(STATS_LEN) {
+                return Err(ColumnError::Invalid(
+                    "a statistics section that is not 112 bytes",
+                ));
+            }
             let stored = read(&names.stats)?;
             ColumnStats::parse(&stored, &layout)?;
             if computed.encode()[..] != stored[..] {
@@ -258,5 +404,5 @@ fn check_column<S: ByteSource>(
             ));
         }
     }
-    Ok(Some(layout.rows()))
+    Ok(Some((layout.rows(), stats)))
 }

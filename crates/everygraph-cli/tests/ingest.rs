@@ -371,13 +371,22 @@ fn a_graph_with_repeated_pairs_passes_the_deep_check() {
 }
 
 /// `--weight` and `--time` store their columns beside the lists, the plan names them,
-/// and `everygraph verify --deep` reads every value and finds the file intact.
+/// `everygraph verify --deep` reads every value and finds the file intact, and the
+/// operations that would weigh the edges refuse.
 #[test]
 fn weight_and_time_columns_are_stored() {
     let dir = dir("columns");
     let text = "from,to,amount,at\n1,2,0.5,2024-01-01T00:00:00Z\n2,3,1.5,10\n1,2,2.0,5\n";
     std::fs::write(dir.join("edges.csv"), text).unwrap();
-    let args = ["ingest", "edges.csv", "--weight", "amount", "--time", "at"];
+    let args = [
+        "ingest",
+        "edges.csv",
+        "--weight",
+        "amount",
+        "--time",
+        "at",
+        "--undirected",
+    ];
     let out = run(&dir, &args);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert!(
@@ -390,10 +399,48 @@ fn weight_and_time_columns_are_stored() {
         "adjacency.out.event/arrow/amount",
         "adjacency.out.event/arrow/at",
         "adjacency.out.pair/arrow/amount",
-        "adjacency.out.degrees/arrow/degree",
     ] {
         assert!(file.get(name).is_some(), "{name}");
     }
     let out = run(&dir, &["verify", "--deep", "edges.eg"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    // The weight column is not read by the operations yet: those that would weigh the
+    // edges refuse, as the Python package does, rather than count the edges instead.
+    for name in ["pagerank", "degrees"] {
+        let out = run(&dir, &["run", name, "edges.eg"]);
+        assert_eq!(out.status.code(), Some(2), "{name}: {}", stderr(&out));
+        assert!(
+            stderr(&out).contains("weight column amount"),
+            "{}",
+            stderr(&out)
+        );
+    }
+    let out = run(&dir, &["run", "components", "edges.eg"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}
+
+/// A weight column named like a column that `--duplicates sum` stores is refused before
+/// any work, naming the clash, and no graph is written.
+#[test]
+fn a_weight_column_named_like_a_stored_one_is_refused() {
+    let dir = dir("clash");
+    std::fs::write(dir.join("edges.csv"), "from,to,edges\n1,2,0.5\n2,3,1.5\n").unwrap();
+    let args = [
+        "ingest",
+        "edges.csv",
+        "--weight",
+        "edges",
+        "--duplicates",
+        "sum",
+    ];
+    let out = run(&dir, &args);
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("two stored columns would be named edges"),
+        "{}",
+        stderr(&out)
+    );
+    only(&dir, &["edges.csv"]);
+    let out = run(&dir, &["ingest", "edges.csv", "--weight", "edges"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
 }

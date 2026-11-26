@@ -24,7 +24,7 @@
 //!
 //! A weight or a time column is carried by every item through these passes and stored
 //! beside the lists, per event or per pair (module `columns`, `docs/spec/eg-columns.md`
-//! § 6), with the histogram of the degrees.
+//! § 6).
 //!
 //! # Determinism
 //!
@@ -303,7 +303,7 @@ pub struct Report {
     pub events_bytes: u64,
     /// The largest multiplicity of a pair (`docs/spec/graph-semantics.md` § 2.7); 0
     /// without a pair.
-    pub most_events: u64,
+    pub multiplicity_max: u64,
     /// In memory, or with spills.
     pub regime: Regime,
     /// Buckets the items were cut into.
@@ -364,6 +364,10 @@ pub enum BuildError {
     Format(FormatError),
     /// A property column could not be written.
     Column(ColumnError),
+    /// Two stored columns would have this name: a weight column named `edges`, `first`
+    /// or `last` under `duplicates="sum"`, or one column read as the weight and the time
+    /// (`docs/spec/eg-columns.md` § 6). Refused before any work.
+    ColumnClash(String),
 }
 
 impl fmt::Display for BuildError {
@@ -386,6 +390,7 @@ impl fmt::Display for BuildError {
             Self::Encode(e) => e.fmt(f),
             Self::Format(e) => e.fmt(f),
             Self::Column(e) => e.fmt(f),
+            Self::ColumnClash(name) => write!(f, "two stored columns would be named {name}"),
         }
     }
 }
@@ -587,6 +592,10 @@ where
 {
     let blocks = reader.blocks()?.ok_or(BuildError::Compressed)?;
     let graph = options.graph;
+    let columns = columns::outputs(reader.layout(), graph.duplicates);
+    if let Some(name) = columns::clash(&columns) {
+        return Err(BuildError::ColumnClash(name.to_owned()));
+    }
 
     progress.begin(Phase::Reading, Some(widen(blocks)));
     let fingerprints = rows::Fingerprints::new(blocks);
@@ -617,7 +626,7 @@ where
         fingerprints: &fingerprints,
         rows: summary.rows,
         most_rows,
-        columns: columns::outputs(reader.layout(), graph.duplicates),
+        columns,
     };
     let cx = Context {
         options,
@@ -669,7 +678,7 @@ where
         entries: pairs.entries,
         events: pairs.events,
         events_bytes,
-        most_events: match graph.duplicates {
+        multiplicity_max: match graph.duplicates {
             Duplicates::Collapse => pairs.most.min(1),
             _ => pairs.most,
         },
@@ -688,7 +697,7 @@ where
         .into(),
     );
     put("isolated_kept", report.isolates.to_string());
-    put("multiplicity.max", report.most_events.to_string());
+    put("multiplicity.max", report.multiplicity_max.to_string());
     put("isolated_dropped", "0".into());
     Ok(Unfinished {
         writer,

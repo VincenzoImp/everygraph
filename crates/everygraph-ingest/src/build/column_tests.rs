@@ -29,12 +29,14 @@ struct Row {
     t: i64,
 }
 
-/// The rows of a corpus graph with weights that are multiples of 1/16 (so that any
-/// order of summation is exact), some negative and some −0.0, and times from a small
-/// range (so that many events tie on time and are ordered by input position).
+/// The rows of a corpus graph with weights that are multiples of 1/16, some negative
+/// and some −0.0, and times from a small range (so that many events tie on time and are
+/// ordered by input position). One pair also gets the rows 10^16, 1 and −10^16, first,
+/// in the middle and last: their exact sum is 1, a sum in `f64` in any order 0 or 2.
 fn rows_of(src: &[u32], dst: &[u32], seed: u64) -> Vec<Row> {
     let mut rng = SplitMix64::new(seed);
-    src.iter()
+    let mut rows: Vec<Row> = src
+        .iter()
         .zip(dst)
         .map(|(&u, &v)| {
             let w = match rng.below(10) {
@@ -45,7 +47,27 @@ fn rows_of(src: &[u32], dst: &[u32], seed: u64) -> Vec<Row> {
             let t = i64::try_from(rng.below(6)).unwrap();
             Row { u, v, w, t }
         })
-        .collect()
+        .collect();
+    if let Some((&u, &v)) = src.iter().zip(dst).find(|(u, v)| u != v) {
+        let row = |w| Row { u, v, w, t: 0 };
+        rows.insert(0, row(1e16));
+        rows.insert(rows.len() / 2, row(1.0));
+        rows.push(row(-1e16));
+    }
+    rows
+}
+
+/// The exact sum of weights that are multiples of 1/16 below 2^59, rounded once: added
+/// as integers.
+fn exact_sum(weights: impl Iterator<Item = f64>) -> f64 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "integers below 2^63, exact"
+    )]
+    let sixteenths: i128 = weights.map(|w| (w * 16.0) as i128).sum();
+    #[expect(clippy::cast_precision_loss, reason = "the one rounding")]
+    let sum = sixteenths as f64 / 16.0;
+    sum
 }
 
 fn text(rows: &[Row]) -> Vec<u8> {
@@ -146,8 +168,8 @@ fn check_stats(stats: &ColumnStats, values: &[u64], float: bool, what: &str) {
     assert_eq!(stats.count, u64::try_from(values.len()).unwrap(), "{what}");
     assert_eq!((stats.null_count, stats.nan_count), (0, 0), "{what}");
     if float {
-        let sum: f64 = values.iter().map(|&b| f(b)).sum();
-        assert_eq!(stats.sum, sum + 0.0, "{what}");
+        let sum = exact_sum(values.iter().map(|&b| f(b)));
+        assert_eq!(stats.sum, sum, "{what}");
         let lo = values.iter().map(|&b| f(b)).min_by(f64::total_cmp);
         let hi = values.iter().map(|&b| f(b)).max_by(f64::total_cmp);
         let range = stats.range.map(|(a, b)| {
@@ -174,8 +196,8 @@ fn check_stats(stats: &ColumnStats, values: &[u64], float: bool, what: &str) {
     }
 }
 
-/// Builds the rows and checks every stored column, the largest multiplicity and the
-/// degree histogram against the rows grouped by pair here.
+/// Builds the rows and checks every stored column and the largest multiplicity against
+/// the rows grouped by pair here.
 fn check_case(name: &str, rows: &[Row], case: &Case<'_>) -> Report {
     let graph = case.graph;
     let (bytes, report) = build_bytes(case, &text(rows)).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -200,9 +222,7 @@ fn check_case(name: &str, rows: &[Row], case: &Case<'_>) -> Report {
     // The oracle: each pair's rows in input order, keyed by its ends as the list of `x`
     // holds it.
     let mut pairs: BTreeMap<(u32, u32), Vec<Row>> = BTreeMap::new();
-    let mut nodes = std::collections::BTreeSet::new();
     for r in rows {
-        nodes.extend([r.u, r.v]);
         if r.u == r.v && graph.self_loops == SelfLoops::Drop {
             continue;
         }
@@ -260,7 +280,7 @@ fn check_case(name: &str, rows: &[Row], case: &Case<'_>) -> Report {
                     }
                 }
                 if let Some((s, _)) = &sums {
-                    let sum: f64 = rows.iter().map(|r| r.w).sum();
+                    let sum = exact_sum(rows.iter().map(|r| r.w));
                     assert_eq!(at(s, *e), stored(sum), "{name}: pair sum");
                 }
             }
@@ -299,7 +319,7 @@ fn check_case(name: &str, rows: &[Row], case: &Case<'_>) -> Report {
                     "{name}"
                 );
                 if let Some((s, _)) = &sums {
-                    let sum: f64 = rows.iter().map(|r| r.w).sum();
+                    let sum = exact_sum(rows.iter().map(|r| r.w));
                     assert_eq!(at(s, *e), stored(sum), "{name}: summed weight");
                 }
                 let times = rows.iter().map(us);
@@ -329,22 +349,11 @@ fn check_case(name: &str, rows: &[Row], case: &Case<'_>) -> Report {
         most.to_string(),
         "{name}"
     );
-    assert_eq!(report.most_events, u64::try_from(most).unwrap(), "{name}");
-    let mut degree: BTreeMap<u32, u64> = nodes.iter().map(|&v| (v, 0)).collect();
-    for &(a, b) in pairs.keys() {
-        *degree.get_mut(&a).unwrap() += 1;
-        if !graph.directed {
-            *degree.get_mut(&b).unwrap() += 1;
-        }
-    }
-    let mut histogram = BTreeMap::<u64, u64>::new();
-    for d in degree.values() {
-        *histogram.entry(*d).or_default() += 1;
-    }
-    let (values, _) = get("degrees", "degree");
-    let (counts, _) = get("degrees", "nodes");
-    let stored: BTreeMap<u64, u64> = values.into_iter().zip(counts).collect();
-    assert_eq!(stored, histogram, "{name}: degree histogram");
+    assert_eq!(
+        report.multiplicity_max,
+        u64::try_from(most).unwrap(),
+        "{name}"
+    );
     report
 }
 

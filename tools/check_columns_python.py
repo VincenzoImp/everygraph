@@ -28,8 +28,7 @@ Then it builds three graphs with `everygraph ingest --weight --time`, one per
 `duplicates` option, and reads every column the build stored the same way
 (docs/spec/eg-columns.md § 6). Besides, it checks them against the input, read here: the
 event weights and the pair sums add up to the input's weights, the event times are the
-input's, `edges` adds up to the rows, `first` is never after `last`, and the degree
-histogram counts every node once.
+input's, `edges` adds up to the rows, and `first` is never after `last`.
 
 With `--big` it runs instead the check of docs/research/sota-ingest-query.md C4: a
 float32 column of 2^27 rows in two batches and a dictionary-encoded uint8 column,
@@ -343,7 +342,6 @@ def built():
     csv.write_text("from,to,amount,at\n" + "".join(f"{u},{v},{w},{t}\n" for u, v, w, t in rows))
     weights = [Fraction(w) for u, v, w, t in rows if u != v]
     times = sorted(t * 10**6 for u, v, w, t in rows if u != v)
-    nodes = len({u for u, *_ in rows} | {v for _, v, *_ in rows})
     for duplicates in ("events", "sum", "collapse"):
         path = WORK / f"edges-{duplicates}.eg"
         run([*INGEST, csv, "--weight", "amount", "--time", "at", "--duplicates", duplicates, "--out", path])
@@ -367,7 +365,6 @@ def built():
             need(sum(value("pair", "edges")) == len(weights), "edges does not add up to the rows")
             need(total(value("pair", "amount")) == sum(weights), "the summed weights are not the input's")
             need(all(a <= b for a, b in zip(value("pair", "first"), value("pair", "last"))), "first after last")
-        need(sum(value("degrees", "nodes")) == nodes, "the degree histogram does not count every node once")
         print(f"ok: {path.name}: {len(columns)} columns built by everygraph ingest agree with the input")
 
 

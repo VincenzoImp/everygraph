@@ -321,3 +321,10 @@ def test_weight_and_time_columns_are_read_and_part_of_the_graph(tmp_path, capsys
     with pytest.raises(eg.Unsupported):
         g.degrees(progress=False)
     assert pa.table(g.degrees(weight=False, progress=False)).num_rows == 3
+
+
+def test_a_weight_column_named_like_a_stored_one_is_refused(tmp_path):
+    path = tmp_path / "s.csv"
+    path.write_text("a,b,edges\n1,2,0.5\n")
+    with pytest.raises(eg.InvalidInput, match="two stored columns would be named edges"):
+        eg.read(path, weight="edges", duplicates="sum", progress=False)

@@ -91,7 +91,7 @@ impl Sample {
 pub struct Estimate {
     /// In memory, or with spills.
     pub regime: Regime,
-    /// The items the build sorts, 6 bytes each, or 34 with edge columns
+    /// The items the build sorts, 6 bytes each, or 30 with edge columns
     /// (`regime.working_bytes`).
     pub working_bytes: u64,
     /// The smallest budget that can hold the blocks in flight and the fixed buffers;

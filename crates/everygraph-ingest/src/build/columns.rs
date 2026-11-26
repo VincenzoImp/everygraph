@@ -82,12 +82,16 @@ pub(super) struct Row {
     pub(super) time: i64,
 }
 
-/// A target with its row.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// A target with its row: 28 bytes, as in a spill record, without the padding that
+/// aligning the row to 8 bytes would add. Fields are only read and written by value.
+#[derive(Clone, Copy, Default)]
+#[repr(C, packed(4))]
 pub(super) struct Tagged {
     target: u32,
     row: Row,
 }
+
+const _: () = assert!(size_of::<Tagged>() == Tagged::BYTES);
 
 impl Item for Tagged {
     type Payload = Row;
@@ -243,6 +247,16 @@ pub(super) fn outputs(layout: &TextLayout, duplicates: Duplicates) -> Vec<Out> {
     columns
 }
 
+/// A name that two of `columns` would be stored under in the same scope: a weight
+/// column named `edges`, `first` or `last` under `duplicates="sum"`, or one column read
+/// as both the weight and the time.
+pub(super) fn clash(columns: &[Out]) -> Option<&str> {
+    columns.iter().enumerate().find_map(|(i, a)| {
+        let same = |b: &Out| b.name == a.name && b.per_event() == a.per_event();
+        columns[..i].iter().any(same).then_some(a.name.as_str())
+    })
+}
+
 /// The values of each column of [`outputs`], kept in a scratch file per column as
 /// they come, bucket by bucket, as little-endian `u64` (the bits of an `f64`, of an
 /// `i64`, or a `u64`).
@@ -299,7 +313,7 @@ impl<W: Write> Stored<W> {
         writer: &mut Writer<K>,
         memory: &Memory,
     ) -> Result<(), BuildError> {
-        let mut buf = Vec::new();
+        let mut buf = Decoded::default();
         for ((file, rows), column) in self.files.into_iter().zip(columns) {
             let (scope, expected) = if column.per_event() {
                 (format!("{adjacency}.event"), events)
@@ -324,13 +338,7 @@ impl<W: Write> Stored<W> {
                     let bytes = reader
                         .take(usize::try_from(n * 8).expect("small"))?
                         .ok_or_else(|| io::Error::other("a column file ends early"))?;
-                    buf.clear();
-                    buf.extend(
-                        bytes
-                            .chunks_exact(8)
-                            .map(|b| u64::from_le_bytes(b.try_into().expect("8 bytes"))),
-                    );
-                    push(&mut out, column.ty(), &buf)?;
+                    push(&mut out, column.ty(), bytes, &mut buf)?;
                 }
                 out.end_batch()?;
             }
@@ -341,61 +349,41 @@ impl<W: Write> Stored<W> {
     }
 }
 
-/// Hands `bits` to `out` as values of `ty`.
+/// Hands `bytes`, little-endian `u64`, to `out` as values of `ty`.
 fn push<K: ByteSink>(
     out: &mut ColumnWriter<'_, K>,
     ty: ColumnType,
-    bits: &[u64],
+    bytes: &[u8],
+    buf: &mut Decoded,
 ) -> Result<(), BuildError> {
+    let words = bytes
+        .chunks_exact(8)
+        .map(|b| u64::from_le_bytes(b.try_into().expect("8 bytes")));
     match ty {
         ColumnType::Float64 => {
-            let xs: Vec<f64> = bits.iter().map(|&b| f64::from_bits(b)).collect();
-            out.push(Values::F64(&xs))?;
+            buf.f64s.clear();
+            buf.f64s.extend(words.map(f64::from_bits));
+            out.push(Values::F64(&buf.f64s))?;
         }
-        ColumnType::UInt64 => out.push(Values::U64(bits))?,
+        ColumnType::UInt64 => {
+            buf.u64s.clear();
+            buf.u64s.extend(words);
+            out.push(Values::U64(&buf.u64s))?;
+        }
         _ => {
-            let xs: Vec<i64> = bits
-                .iter()
-                .map(|&b| i64::from_le_bytes(b.to_le_bytes()))
-                .collect();
-            out.push(Values::I64(&xs))?;
+            buf.i64s.clear();
+            buf.i64s
+                .extend(words.map(|w| i64::from_le_bytes(w.to_le_bytes())));
+            out.push(Values::I64(&buf.i64s))?;
         }
     }
     Ok(())
 }
 
-/// The degree of each node, as `docs/spec/graph-semantics.md` § 3 counts it, by value:
-/// `degree` on an undirected graph (a kept loop adds 2), `out_degree` on a directed one.
-#[derive(Debug, Default)]
-pub(super) struct Profile(pub(super) std::collections::BTreeMap<u64, u64>);
-
-impl Profile {
-    pub(super) fn add(&mut self, other: &Self) {
-        for (&degree, &nodes) in &other.0 {
-            *self.0.entry(degree).or_default() += nodes;
-        }
-    }
-
-    /// Writes the histogram as the columns `degree` (increasing) and `nodes` of scope
-    /// `<adjacency>.degrees`.
-    pub(super) fn write<K: ByteSink>(
-        &self,
-        adjacency: &str,
-        writer: &mut Writer<K>,
-    ) -> Result<(), BuildError> {
-        let scope = format!("{adjacency}.degrees");
-        let degrees: Vec<u64> = self.0.keys().copied().collect();
-        let nodes: Vec<u64> = self.0.values().copied().collect();
-        for (name, values) in [("degree", &degrees), ("nodes", &nodes)] {
-            let spec = ColumnSpec::new(name, ColumnType::UInt64, widen(values.len()));
-            everygraph_format::columns::write_column(writer, &scope, &spec, &values[..], None)?;
-        }
-        Ok(())
-    }
-}
-
-/// Bytes the histogram can hold: its distinct degrees `d` add up to at most
-/// `entries + nodes`, so there are fewer than `√(2 (entries + nodes)) + 2`.
-pub(super) fn profile_bytes(entries: u64, nodes: u64) -> u64 {
-    (2 * (entries + nodes)).isqrt().saturating_add(2) * 64
+/// The buffer [`push`] decodes a piece of a column file into, one per type.
+#[derive(Default)]
+struct Decoded {
+    f64s: Vec<f64>,
+    u64s: Vec<u64>,
+    i64s: Vec<i64>,
 }

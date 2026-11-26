@@ -13,7 +13,7 @@ use everygraph_core::{
 use everygraph_format::adjacency::{IndexBuilder, append_record};
 use everygraph_format::container::SectionWriter;
 
-use super::columns::{Item, Out, Profile, Stored};
+use super::columns::{Item, Out, Stored};
 use super::fill::{Chunked, Resident};
 use super::layout::{Layout, finish_bytes};
 use super::{BuildError, Duplicates, GraphOptions, ONE};
@@ -60,7 +60,6 @@ pub(super) struct BucketOut {
     multiplicities: Option<Vec<u32>>,
     /// The values of each stored column, in entry or event order.
     columns: Vec<Vec<u64>>,
-    profile: Profile,
     counts: PairCounts,
     /// What the buffers above hold, given back when they are written out.
     _held: Reservation,
@@ -127,7 +126,6 @@ fn finish_bucket<T: Item>(
         record_lens: buffer(nodes)?,
         multiplicities: if events { Some(buffer(n)?) } else { None },
         columns,
-        profile: Profile::default(),
         counts: PairCounts::default(),
         _held: Reservation::empty(held.memory(), held.purpose(), held.kind()),
     };
@@ -137,7 +135,6 @@ fn finish_bucket<T: Item>(
         let (s, e) = (usize_of(starts[local]), usize_of(starts[local + 1]));
         let run = &mut ordered[s..e];
         run.sort_unstable_by_key(|x| x.key(events));
-        let mut has_loop = false;
         let (mut distinct, mut j) = (0, 0);
         while j < run.len() {
             let t = run[j].target();
@@ -148,7 +145,6 @@ fn finish_bucket<T: Item>(
             run[distinct] = run[j];
             distinct += 1;
             j = k;
-            has_loop |= v == t;
             let c = &mut out.counts;
             c.entries += 1;
             c.events += if events { m } else { 1 };
@@ -175,8 +171,6 @@ fn finish_bucket<T: Item>(
         out.degrees.push(degree);
         out.record_lens
             .push(u64::try_from(out.records.len() - before).expect("64 bits"));
-        let loops = u64::from(has_loop && !graph.directed);
-        *out.profile.0.entry(u64::from(degree) + loops).or_default() += 1;
     }
     if !repeated {
         out.multiplicities = None;
@@ -365,7 +359,6 @@ pub(super) struct Output<'w, K: ByteSink, W: Write> {
     pub(super) index: IndexBuilder,
     pub(super) multiplicities: Multiplicities<W>,
     pub(super) columns: Stored<W>,
-    pub(super) profile: Profile,
     pub(super) counts: PairCounts,
 }
 
@@ -381,7 +374,6 @@ impl<K: ByteSink, W: Write> Output<'_, K, W> {
         }
         self.multiplicities.push(&out, scratch)?;
         self.columns.push(&out.columns)?;
-        self.profile.add(&out.profile);
         self.counts.add(&out.counts);
         Ok(())
     }

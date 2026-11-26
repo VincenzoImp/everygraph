@@ -242,7 +242,6 @@ empty and holds no `/`, says what its rows are:
 | `<adj>.pair` | one per entry of adjacency `<adj>` (`adjacency.out`, `adjacency.in`) | the entry offset (`eg-adjacency.md` § 3) |
 | `<adj>.event` | one per stored event of `<adj>` | the event offset (`eg-adjacency.md` § 3.1; the entry offset when there is no `.events` section) |
 | `edges` | one per stored edge (`num_edges`), in input order | the edge id |
-| `<adj>.degrees` | one per distinct degree of adjacency `<adj>`, in increasing degree | — |
 
 The role comes after a scope without `/` and before the column's name, so that no
 column name can make one section's name equal another's.
@@ -298,13 +297,10 @@ column name can make one section's name equal another's.
   a pair and 1 under `"collapse"`. It is a parameter because it is a fact of the
   commit, like the counts of the ingest report beside it, and because a statistics
   section belongs to a column.
-- **The degree histogram** (`<adj>.degrees`): two `uint64` columns, `degree` (the
-  distinct degrees, increasing) and `nodes` (how many nodes have that degree), over
-  every node. The degree is that of `graph-semantics.md` § 3: `degree` on an undirected
-  graph (a kept loop adds 2), `out_degree` in `adjacency.out` of a directed one. It is
-  exact; every quantile follows from it in one read of a small section, so none is
-  stored apart. The isolates are the report's `counts.isolates`. A graph has fewer
-  than `√(2 (entries + nodes)) + 2` distinct degrees, so the histogram is small.
+- **No degree histogram.** The degree of a node is `entry[v + 1] − entry[v]` of its
+  index (`eg-adjacency.md` § 3), so the exact histogram is one pass over the index, made
+  on read (`m3-07-kcore-degrees`); a stored one would cost six sections per graph and a
+  check of its own.
 
 ## 7. Reading
 
@@ -343,7 +339,11 @@ the node count, one of `edges` `num_edges`.
 of `nodes` and `edges`, and also what a reader leaves to the hash: it reads every value,
 refuses a float that is not canonical, a null row that is not zero, a code that names no
 string and a decimal past its precision, and recomputes the statistics from the values
-and compares them byte for byte with the stored ones (`everygraph_format::verify`).
+and compares them byte for byte with the stored ones. A column of scope `<adj>.pair` or
+`<adj>.event` whose adjacency is not in the file is an error. And it checks what the
+build derives: `multiplicity.max` against the largest `ev[e + 1] − ev[e]` of the
+adjacency, or under `duplicates="sum"` the largest `edges`; there, `edges ≥ 1` and
+`first ≤ last` on every row (`everygraph_format::verify`).
 
 ## 8. Versions
 

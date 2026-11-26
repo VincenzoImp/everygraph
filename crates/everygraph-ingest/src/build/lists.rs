@@ -9,7 +9,7 @@ use everygraph_core::{ByteSink, ByteSource, MAX_ALLOCATION_BYTES, Memory, Memory
 use everygraph_format::adjacency::{IndexBuilder, encode_events, events_section_bytes};
 use everygraph_format::container::{Kind, Writer};
 
-use super::columns::{Item, Out, Profile, Stored, profile_bytes};
+use super::columns::{Item, Out, Stored};
 use super::finish::{Finish, Multiplicities, Output, PairCounts, finish_round, multiplicities};
 use super::layout::{Costs, Layout};
 use super::rows::{self, BlockCounts, Fingerprints, ItemCounts, Items, Rows, each_block};
@@ -59,7 +59,7 @@ pub(super) struct Lists {
 }
 
 /// Builds the out-adjacency of `input` with items `T` into a new container in `out`:
-/// its data, index and `.events` sections, its columns and its degree histogram.
+/// its data, index and `.events` sections, and its columns.
 pub(super) fn write_lists<T, S, D, Sc, K>(
     input: &Input<'_, '_, S, D>,
     cx: &Context<'_, Sc>,
@@ -119,19 +119,14 @@ where
 
     let events = graph.duplicates == Duplicates::Events;
     let available = memory.available() + counts.bytes();
-    let values = || {
-        counts
-            .values()
-            .ok_or(BuildError::TooLarge("a node with 2^32 items or more"))
-    };
-    let items: u64 = values()?.map(u64::from).sum();
-    let histogram = profile_bytes(items, u64::from(nodes));
-    let fixed = fixed_bytes::<T>(threads, tuning, input.columns.len()) + histogram;
+    let values = counts
+        .values()
+        .ok_or(BuildError::TooLarge("a node with 2^32 items or more"))?;
+    let fixed = fixed_bytes::<T>(threads, tuning, input.columns.len());
     let work = (available - (available >> SLACK_SHIFT)).saturating_sub(fixed);
     let costs = Costs::of::<T>(events, input.columns.len());
-    let layout = Layout::new(values()?, nodes, blocks, work, (events, costs), tuning)?;
+    let layout = Layout::new(values, nodes, blocks, work, (events, costs), tuning)?;
     drop(counts);
-    let _histogram = memory.reserve("degree histogram", MemoryKind::Anonymous, histogram)?;
 
     let (mut resident, spills, spilled_bytes) =
         fill::fill(&rows, &layout, memory, scratch, tuning, threads)?;
@@ -143,7 +138,6 @@ where
         index,
         multiplicities: Multiplicities::new(memory),
         columns: Stored::new(&input.columns, scratch, memory)?,
-        profile: Profile::default(),
         counts: PairCounts::default(),
     };
     let how = Finish {
@@ -174,7 +168,6 @@ where
         index,
         multiplicities: stored,
         columns,
-        profile,
         counts: pairs,
     } = output;
     data.finish()?;
@@ -205,7 +198,6 @@ where
     }
     let shape = (pairs.entries, pairs.events);
     columns.write(&input.columns, OUT, shape, scratch, &mut writer, memory)?;
-    profile.write(OUT, &mut writer)?;
     let lists = Lists {
         pass,
         isolates,
