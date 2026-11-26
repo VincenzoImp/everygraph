@@ -9,13 +9,14 @@
 //! | `degree` of a directed graph | its undirected projection | [`Loop::Twice`] |
 //! | `out_degree`, `in_degree` | out- or in-adjacency | [`Loop::Once`] |
 //! | `weighted` of an undirected graph | the graph, with its weights | [`Loop::Twice`] |
-//! | `weighted` of a directed graph | out- plus in-adjacency, with their weights | [`Loop::Once`] each |
+//! | `weighted` of a directed graph | out- plus in-adjacency, with their weights, added by the caller | [`Loop::Once`] each |
 //!
 //! A list holds one entry per pair, so a degree counts distinct neighbours. A node's own
 //! entry is a kept loop, which adds 2 to the undirected degree and 1 to each directed
 //! one; its weight `w` adds `2w` to the undirected strength. Weights are summed in list
 //! order from `+0.0`, whatever their sign or value (§ 4.4), so a strength is the same at
-//! any thread count.
+//! any thread count. A directed strength, out plus in, is rounded twice, so it may
+//! differ in the last bits from a sum over the projection's pairs.
 
 use everygraph_core::{Memory, SegVec};
 

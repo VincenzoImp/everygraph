@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! [`Buckets`]: nodes ordered by an integer key whose values only go down while a node
-//! is held, for peeling (k-core) and bucketed shortest paths (Δ-stepping).
+//! is held, for peeling (k-core).
 //!
 //! The kernel owns the keys; the buckets read them through a closure when they need
 //! them. Bucket 0 holds the smallest key, `base`. Bucket `j ≥ 1` holds the keys whose
@@ -15,7 +15,8 @@
 //! when its bucket changes; the marks are applied at the next [`peek`](Buckets::peek)
 //! or [`pop`](Buckets::pop). A node may then sit in several buckets at once: each copy
 //! is checked against the node's key when its bucket is read, and dropped if it is out
-//! of date.
+//! of date. A key below `base` is refused: the buckets above would no longer hold the
+//! ranges they were filled for.
 //!
 //! **Determinism.** [`pop`](Buckets::pop) returns the nodes of the smallest key in
 //! increasing order, each once, whatever the order of the marks and the thread count.
@@ -24,6 +25,7 @@
 #![forbid(unsafe_code)]
 
 use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
 use everygraph_core::{Memory, MemoryKind, par};
 
@@ -32,16 +34,15 @@ use super::{Error, Node, NodeList, NodeSet, Plan, Source};
 /// Buckets 0 to 32: one per bit position of a `u32` key, and one for `base` itself.
 const BUCKETS: usize = 33;
 
-/// Nodes per task when buckets are filled in parallel.
+/// Nodes per task when buckets are filled in parallel; fewer are placed on the calling
+/// thread.
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");
 
-/// The bucket of `key` when the smallest key is `base`. Keys below `base` go to bucket 0.
+const BELOW: Error = Error::Invalid("buckets: a key below the smallest key");
+
+/// The bucket of `key`, at least `base`, when the smallest key is `base`.
 fn bucket(key: u32, base: u32) -> usize {
-    if key <= base {
-        0
-    } else {
-        32 - (key ^ base).leading_zeros() as usize
-    }
+    32 - (key ^ base).leading_zeros() as usize
 }
 
 /// Nodes of the plan of brand `'g` by key (module documentation). Made by
@@ -52,6 +53,11 @@ pub struct Buckets<'g> {
     open: Vec<NodeList<'g>>,
     /// Nodes whose bucket changed since the last `peek`.
     moved: NodeSet<'g>,
+    /// Some node was marked since the last `peek`.
+    marked: AtomicBool,
+    /// The last `peek` left bucket 0 holding nodes of key `base` only, and nothing was
+    /// marked since.
+    ready: bool,
     /// Scratch: the nodes of a bucket, once each.
     found: NodeSet<'g>,
     list: NodeList<'g>,
@@ -69,69 +75,82 @@ impl<'g> Buckets<'g> {
             base: 0,
             open: (0..BUCKETS).map(|_| NodeList::new(memory)).collect(),
             moved: plan.node_set(memory)?,
+            marked: AtomicBool::new(false),
+            ready: false,
             found: plan.node_set(memory)?,
             list: NodeList::new(memory),
             memory: memory.clone(),
         })
     }
 
-    /// The smallest key that [`pop`](Self::pop) may still return. Keys below it are
-    /// taken as equal to it.
+    /// The smallest key the buckets may hold: the last key [`peek`](Self::peek)
+    /// returned, or 0.
     #[must_use]
     pub fn base(&self) -> u32 {
         self.base
     }
 
     /// Adds `v`, or tells that its key changed. Its key is read at the next
-    /// [`peek`](Self::peek) or [`pop`](Self::pop). May be called from many workers.
+    /// [`peek`](Self::peek) or [`pop`](Self::pop), and must then be at least
+    /// [`base`](Self::base). May be called from many workers.
     pub fn insert(&self, v: Node<'g>) {
         self.moved.insert(v);
+        if !self.marked.load(Relaxed) {
+            self.marked.store(true, Relaxed);
+        }
     }
 
-    /// Tells that the key of `v`, which the buckets hold, went from `old` down to `new`.
-    /// Cheap when the bucket stays the same, which is the usual case.
+    /// Tells that the key of `v`, which the buckets hold, went from `old` down to `new`,
+    /// at least [`base`](Self::base). Cheap when the bucket stays the same, which is the
+    /// usual case.
     #[inline]
     pub fn decreased(&self, v: Node<'g>, old: u32, new: u32) {
         if bucket(new, self.base) != bucket(old, self.base) {
-            self.moved.insert(v);
+            self.insert(v);
         }
     }
 
     /// The smallest key of the nodes held, where `key(v)` is the key of node `v`, or
     /// `None` if `v` is no longer held. `None` if no node is held.
     ///
-    /// `key` must be at least [`base`](Self::base) for every node held, and must not
-    /// change while this runs. Every change of key since the last call was told by
-    /// [`insert`](Self::insert) or [`decreased`](Self::decreased).
+    /// `key` must not change while this runs. Every change of key since the last call
+    /// was told by [`insert`](Self::insert) or [`decreased`](Self::decreased).
     ///
     /// # Errors
     ///
-    /// [`Error::Memory`] if the buckets do not fit in the budget.
+    /// [`Error::Invalid`] if a key is below [`base`](Self::base); [`Error::Memory`] if
+    /// the buckets do not fit in the budget.
     pub fn peek(
         &mut self,
         key: impl Fn(Node<'g>) -> Option<u32> + Sync,
     ) -> Result<Option<u32>, Error> {
-        let mut list = std::mem::replace(&mut self.list, NodeList::new(&self.memory));
-        self.moved.list_into(&mut list)?;
-        self.moved.clear();
-        self.distribute(list.as_slice()?, &key, None)?;
-        self.list = list;
+        if self.ready && !self.marked.load(Relaxed) {
+            return Ok(Some(self.base));
+        }
+        self.ready = false;
+        if self.marked.swap(false, Relaxed) {
+            let mut list = std::mem::replace(&mut self.list, NodeList::new(&self.memory));
+            self.moved.list_into(&mut list)?;
+            self.moved.clear();
+            self.distribute(list.as_slice()?, &key, None)?;
+            self.list = list;
+        }
         loop {
             let Some(j) = self.open.iter().position(|b| !b.is_empty()) else {
                 return Ok(None);
             };
             let held = std::mem::replace(&mut self.open[j], NodeList::new(&self.memory));
             let nodes = held.as_slice()?;
+            let base = self.base;
             if j == 0 {
-                let base = self.base;
-                let kept = self.distribute(nodes, &|v| key(v).filter(|&k| k <= base), Some(0))?;
+                let kept = self.distribute(nodes, &|v| key(v).filter(|&k| k == base), Some(0))?;
                 if kept > 0 {
-                    return Ok(Some(self.base));
+                    self.ready = true;
+                    return Ok(Some(base));
                 }
                 continue;
             }
-            let base = self.base;
-            let held_here = |v| key(v).filter(|&k| bucket(k, base) == j);
+            let held_here = |v| key(v).filter(|&k| k < base || bucket(k, base) == j);
             let least = par::map_ranges(nodes.len(), GRAIN, |r| {
                 nodes[r].iter().filter_map(|&v| held_here(v)).min()
             })
@@ -139,6 +158,9 @@ impl<'g> Buckets<'g> {
             .flatten()
             .min();
             if let Some(least) = least {
+                if least < base {
+                    return Err(BELOW);
+                }
                 self.base = least;
                 self.distribute(nodes, &held_here, None)?;
             }
@@ -147,11 +169,11 @@ impl<'g> Buckets<'g> {
 
     /// The nodes of the smallest key, into `out` in increasing order, each once; that
     /// key, or `None` if no node is held. They are no longer held. As [`peek`](Self::peek)
-    /// otherwise.
+    /// otherwise, which it does not repeat if nothing changed since.
     ///
     /// # Errors
     ///
-    /// [`Error::Memory`] if the buckets or `out` do not fit in the budget.
+    /// As [`peek`](Self::peek), and [`Error::Memory`] if `out` does not fit.
     pub fn pop(
         &mut self,
         key: impl Fn(Node<'g>) -> Option<u32> + Sync,
@@ -171,11 +193,12 @@ impl<'g> Buckets<'g> {
         self.found.list_into(out)?;
         self.found.clear();
         self.open[0].clear();
+        self.ready = false;
         Ok(Some(k))
     }
 
     /// Appends each node of `nodes` with a key to the bucket of its key, or to bucket
-    /// `to` if given; returns how many were appended. In parallel, in chunk order.
+    /// `to` if given; returns how many were appended, in the order of `nodes`.
     fn distribute(
         &mut self,
         nodes: &[Node<'g>],
@@ -183,6 +206,19 @@ impl<'g> Buckets<'g> {
         to: Option<usize>,
     ) -> Result<usize, Error> {
         let base = self.base;
+        if nodes.len() <= GRAIN.get() {
+            let mut added = 0;
+            for &v in nodes {
+                if let Some(k) = key(v) {
+                    if k < base {
+                        return Err(BELOW);
+                    }
+                    self.open[to.unwrap_or_else(|| bucket(k, base))].push(v)?;
+                    added += 1;
+                }
+            }
+            return Ok(added);
+        }
         let _transient = self.memory.reserve(
             "buckets: nodes being moved",
             MemoryKind::Anonymous,
@@ -193,13 +229,17 @@ impl<'g> Buckets<'g> {
             let mut parts: Vec<Vec<Node<'g>>> = (0..BUCKETS).map(|_| Vec::new()).collect();
             for &v in &nodes[r] {
                 if let Some(k) = key(v) {
+                    if k < base {
+                        return None;
+                    }
                     parts[to.unwrap_or_else(|| bucket(k, base))].push(v);
                 }
             }
-            parts
+            Some(parts)
         });
         let mut added = 0;
         for parts in &chunks {
+            let parts = parts.as_ref().ok_or(BELOW)?;
             for (open, part) in self.open.iter_mut().zip(parts) {
                 open.extend_from_slice(part)?;
                 added += part.len();
@@ -227,7 +267,27 @@ mod tests {
         assert_eq!(ids(4, &[4, 5, 6, 7, 8, 15]), [0, 1, 2, 2, 4, 4]);
         assert_eq!(ids(8, &[8, 9, 10, 11, 12, 15, 16]), [0, 1, 2, 2, 3, 3, 5]);
         assert_eq!(bucket(u32::MAX, 0), 32);
-        assert_eq!(bucket(3, 5), 0);
+    }
+
+    /// A key below the smallest key is refused, small or large inputs alike.
+    #[test]
+    fn a_key_below_the_base_is_refused() {
+        for n in [4_u32, 40_000] {
+            let offsets: Vec<u64> = (0..=n).map(|_| 0).collect();
+            let csr = Csr::new(&offsets, &[]).unwrap();
+            let memory = Memory::unlimited();
+            Plan::with(&csr, &memory, Settings::default(), |plan| {
+                let low = AtomicU32::new(0);
+                let key = |v: Node<'_>| Some(if v.get() == 0 { low.load(Relaxed) } else { 10 });
+                let mut b = Buckets::new(&plan, &memory).unwrap();
+                b.insert(plan.node(1).unwrap());
+                assert_eq!(b.peek(key).unwrap(), Some(10));
+                plan.all_nodes().for_each(|v| b.insert(v));
+                low.store(9, Relaxed);
+                let e = b.peek(key).unwrap_err();
+                assert!(matches!(e, Error::Invalid(_)), "{e}");
+            });
+        }
     }
 
     /// Random decreases of random keys, popped against an ordered set of (key, node).
