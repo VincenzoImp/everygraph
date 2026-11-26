@@ -362,13 +362,16 @@ fn make(ask: &Ask, run: &Run, events: &Events) -> Result<(Shared, Option<Report>
     if ask.ids == IdType::String {
         options.ids = options.ids.with_kind(KeyKind::Bytes);
     }
+    // The graph takes its name only once the call is known not to be stopped, so that a
+    // stopped call leaves a file in the way as it was.
+    let staged = output.map(|o| PathBuf::from(format!("{}.staged", o.display())));
     let job = Job {
         ask,
         run,
         options: &options,
         memory: &memory,
         scratch: &scratch,
-        target: output.map_or(Output::Memory, Output::File),
+        target: staged.as_deref().map_or(Output::Memory, Output::File),
         events,
     };
     let reader = &opened.reader;
@@ -386,10 +389,15 @@ fn make(ask: &Ask, run: &Run, events: &Events) -> Result<(Shared, Option<Report>
         }
     };
     drop(scratch);
-    if events.stopped() {
-        if let Some(out) = output {
-            let _ = std::fs::remove_file(out);
+    if let (Some(staged), Some(out)) = (&staged, output) {
+        if events.stopped() {
+            let _ = std::fs::remove_file(staged);
+        } else {
+            everygraph_io::persist(staged, out)
+                .map_err(|e| Fail::Os(e, out.display().to_string()))?;
         }
+    }
+    if events.stopped() {
         return Err(Failure::new("EverygraphError")
             .text("message", "Stopped.")
             .into());

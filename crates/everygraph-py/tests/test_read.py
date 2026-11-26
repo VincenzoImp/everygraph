@@ -196,3 +196,9 @@ def test_an_exception_of_the_progress_function_stops_the_call(tmp_path):
     with pytest.raises(RuntimeError, match="stop here"):
         eg.read(path, out=tmp_path / "e.eg", progress=fail)
     assert not (tmp_path / "e.eg").exists()
+    eg.read(path, out=tmp_path / "e.eg", progress=False)
+    before = (tmp_path / "e.eg").read_bytes()
+    with pytest.raises(RuntimeError, match="stop here"):
+        eg.read(path, out=tmp_path / "e.eg", directed=True, overwrite=True, progress=fail)
+    assert (tmp_path / "e.eg").read_bytes() == before, "a stopped call changes nothing"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["e.csv", "e.eg"]
