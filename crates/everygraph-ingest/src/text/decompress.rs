@@ -71,6 +71,20 @@ pub(super) fn read_all(
         .map_err(|e| error(e, compression))
 }
 
+/// Reads at least one byte into `buf` unless the stream has ended; returns how many.
+pub(super) fn read_some(
+    reader: &mut dyn Read,
+    buf: &mut [u8],
+    compression: Compression,
+) -> Result<usize, TextError> {
+    loop {
+        match reader.read(buf) {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            other => return other.map_err(|e| error(e, compression)),
+        }
+    }
+}
+
 /// Reads and drops `n` bytes.
 pub(super) fn skip(
     reader: &mut dyn Read,

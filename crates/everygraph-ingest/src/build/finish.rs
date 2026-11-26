@@ -1,0 +1,329 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Finishing buckets: each node's items in one list, sorted, its pairs merged and
+//! counted, and the list encoded (`docs/spec/eg-adjacency.md` § 1, § 3.1); then the
+//! records, the index and the events written in node order.
+
+use std::io::{self, BufWriter, Write};
+use std::sync::{Mutex, PoisonError};
+
+use everygraph_core::{ByteSink, ByteSource, Memory, MemoryError, MemoryKind, SegColumns};
+use everygraph_format::adjacency::{IndexBuilder, append_record};
+use everygraph_format::container::SectionWriter;
+
+use super::fill::{Chunked, Resident};
+use super::layout::{Layout, finish_bytes};
+use super::{BuildError, Duplicates, GraphOptions, ONE};
+use crate::ids::Scratch;
+
+/// What the pairs of some buckets add up to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct PairCounts {
+    /// Pairs, kept loops included, each counted once (at its smaller end when
+    /// undirected).
+    pub(super) pairs: u64,
+    /// Rows of a pair beyond its first, loops included, each counted once.
+    pub(super) repeats: u64,
+    /// Pairs of a node with itself.
+    pub(super) loop_pairs: u64,
+    /// Rows of those pairs.
+    pub(super) loop_rows: u64,
+    /// Entries of the adjacency (pairs at both ends when undirected).
+    pub(super) entries: u64,
+    /// Stored events of the adjacency: the items of an entry under `"events"`, else 1.
+    pub(super) events: u64,
+}
+
+impl PairCounts {
+    fn add(&mut self, other: &Self) {
+        self.pairs += other.pairs;
+        self.repeats += other.repeats;
+        self.loop_pairs += other.loop_pairs;
+        self.loop_rows += other.loop_rows;
+        self.entries += other.entries;
+        self.events += other.events;
+    }
+}
+
+/// One finished bucket.
+pub(super) struct BucketOut {
+    records: Vec<u8>,
+    degrees: Vec<u32>,
+    record_lens: Vec<u64>,
+    /// Stored events of each entry, under `"events"` when some entry has more than one.
+    multiplicities: Option<Vec<u32>>,
+    counts: PairCounts,
+}
+
+fn buffer<T>(len: usize) -> Result<Vec<T>, BuildError> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len)
+        .map_err(|_| MemoryError::AllocationFailed {
+            purpose: "bucket being finished",
+            bytes: u64::try_from(len.saturating_mul(size_of::<T>())).unwrap_or(u64::MAX),
+        })?;
+    Ok(v)
+}
+
+/// Finishes the bucket of the `nodes` nodes from `first`: `targets` and `locals` are its
+/// items, in any order. `targets` is reordered in place.
+fn finish_bucket(
+    first: u32,
+    nodes: usize,
+    targets: &mut [u32],
+    locals: &[u16],
+    graph: GraphOptions,
+) -> Result<BucketOut, BuildError> {
+    let items = targets.len();
+    let events = graph.duplicates == Duplicates::Events;
+    // The items in node order (a counting sort by local source).
+    let mut starts: Vec<u32> = buffer(nodes + 1)?;
+    starts.resize(nodes + 1, 0);
+    for &l in locals {
+        starts[usize::from(l) + 1] += 1;
+    }
+    for v in 0..nodes {
+        starts[v + 1] += starts[v];
+    }
+    let mut ordered: Vec<u32> = buffer(items)?;
+    ordered.resize(items, 0);
+    {
+        let mut next = starts.clone();
+        for (&t, &l) in targets.iter().zip(locals) {
+            let at = &mut next[usize::from(l)];
+            ordered[usize::try_from(*at).expect("32 bits")] = t;
+            *at += 1;
+        }
+    }
+    targets.copy_from_slice(&ordered);
+    drop(ordered);
+
+    let mut out = BucketOut {
+        records: buffer(items * 4 + items.div_ceil(4) + nodes)?,
+        degrees: buffer(nodes)?,
+        record_lens: buffer(nodes)?,
+        multiplicities: if events { Some(buffer(items)?) } else { None },
+        counts: PairCounts::default(),
+    };
+    let mut repeated = false;
+    for local in 0..nodes {
+        let v = first + u32::try_from(local).expect("buckets hold 2^16 nodes");
+        let (s, e) = (to_index(starts[local]), to_index(starts[local + 1]));
+        let run = &mut targets[s..e];
+        run.sort_unstable();
+        let mut distinct = 0;
+        let mut j = 0;
+        while j < run.len() {
+            let t = run[j];
+            let k = j + run[j..].partition_point(|&x| x == t);
+            let m = u64::try_from(k - j).expect("64 bits");
+            run[distinct] = t;
+            distinct += 1;
+            j = k;
+            let c = &mut out.counts;
+            c.entries += 1;
+            c.events += if events { m } else { 1 };
+            if graph.directed || v <= t {
+                c.pairs += 1;
+                c.repeats += m - 1;
+                if v == t {
+                    c.loop_pairs += 1;
+                    c.loop_rows += m;
+                }
+            }
+            if let Some(ms) = &mut out.multiplicities {
+                ms.push(
+                    u32::try_from(m)
+                        .map_err(|_| BuildError::TooLarge("a pair with 2^32 events or more"))?,
+                );
+                repeated |= m > 1;
+            }
+        }
+        let before = out.records.len();
+        let degree = append_record(v, run[..distinct].iter().copied(), &mut out.records)?;
+        out.degrees.push(degree);
+        out.record_lens
+            .push(u64::try_from(out.records.len() - before).expect("64 bits"));
+    }
+    if !repeated {
+        out.multiplicities = None;
+    }
+    Ok(out)
+}
+
+fn to_index(x: u32) -> usize {
+    usize::try_from(x).expect("usize has at least 32 bits")
+}
+
+/// Finishes the buckets of round `round`, whose items are rows `base..` of `columns`
+/// (`base` being the items before the round's first bucket, counted from the first
+/// bucket the columns hold). Returns the buckets in order.
+pub(super) fn finish_round(
+    columns: &mut Resident,
+    held_from: u64,
+    layout: &Layout,
+    round: usize,
+    graph: GraphOptions,
+    memory: &Memory,
+) -> Result<Vec<BucketOut>, BuildError> {
+    let (first, end) = (layout.rounds[round], layout.rounds[round + 1]);
+    let events = graph.duplicates == Duplicates::Events;
+    let bytes: u64 = (first..end)
+        .map(|b| {
+            let items = layout.offsets[b + 1] - layout.offsets[b];
+            finish_bytes(
+                items,
+                u64::from(layout.starts[b + 1] - layout.starts[b]),
+                events,
+            )
+        })
+        .sum();
+    let _working = memory.reserve("buckets being finished", MemoryKind::Anonymous, bytes)?;
+    let offsets: Vec<u64> = layout.offsets[first..=end]
+        .iter()
+        .map(|o| o - held_from)
+        .collect();
+    let outs: Mutex<Vec<Option<Result<BucketOut, BuildError>>>> =
+        Mutex::new((first..end).map(|_| None).collect());
+    let pair = (&mut columns.targets, &mut columns.locals);
+    pair.for_each_range_mut(&offsets, ONE, |i, (targets, locals)| {
+        let b = first + i;
+        let nodes = to_index(layout.starts[b + 1] - layout.starts[b]);
+        let out = finish_bucket(layout.starts[b], nodes, targets, locals, graph);
+        outs.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(out);
+    })?;
+    outs.into_inner()
+        .unwrap_or_else(PoisonError::into_inner)
+        .into_iter()
+        .map(|out| out.expect("every bucket was finished"))
+        .collect()
+}
+
+/// The stored events of every entry, kept from the first bucket in which some pair
+/// repeats: before it every entry has one, so a graph without repeated pairs writes
+/// nothing. Coded as LEB128 in a scratch file.
+pub(super) struct Multiplicities<W: Write> {
+    ones: u64,
+    out: Option<BufWriter<W>>,
+}
+
+/// Write buffer in front of the multiplicities file.
+pub(super) const MULTIPLICITY_BUFFER: usize = 64 << 10;
+
+impl<W: Write> Multiplicities<W> {
+    pub(super) fn new() -> Self {
+        Self { ones: 0, out: None }
+    }
+
+    fn push<Sc: Scratch<Writer = W>>(&mut self, out: &BucketOut, scratch: &Sc) -> io::Result<()> {
+        if self.out.is_none() && out.multiplicities.is_some() {
+            let file = scratch.create("multiplicities")?;
+            self.out = Some(BufWriter::with_capacity(MULTIPLICITY_BUFFER, file));
+        }
+        let Some(file) = &mut self.out else {
+            self.ones += out.counts.entries;
+            return Ok(());
+        };
+        let mut code = [0_u8; 5];
+        match &out.multiplicities {
+            Some(ms) => {
+                for &m in ms {
+                    let n = leb128(m, &mut code);
+                    file.write_all(&code[..n])?;
+                }
+            }
+            None => {
+                for _ in 0..out.counts.entries {
+                    file.write_all(&[1])?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The entries that come before the file, and the file; `None` when no pair
+    /// repeats.
+    pub(super) fn finish<Sc: Scratch<Writer = W>>(
+        self,
+        scratch: &Sc,
+    ) -> io::Result<Option<(u64, Sc::Source)>> {
+        let Some(file) = self.out else {
+            return Ok(None);
+        };
+        let file = file.into_inner().map_err(io::IntoInnerError::into_error)?;
+        Ok(Some((self.ones, scratch.seal(file)?)))
+    }
+}
+
+fn leb128(mut m: u32, out: &mut [u8; 5]) -> usize {
+    let mut n = 0;
+    loop {
+        let byte = u8::try_from(m & 0x7f).expect("7 bits");
+        m >>= 7;
+        if m == 0 {
+            out[n] = byte;
+            return n + 1;
+        }
+        out[n] = byte | 0x80;
+        n += 1;
+    }
+}
+
+/// The multiplicities of [`Multiplicities::finish`] as a sequence: `ones` ones, then
+/// the file. A read error ends it early and is kept in `error`.
+pub(super) fn multiplicities<'a, R: ByteSource>(
+    ones: u64,
+    file: &'a R,
+    memory: &Memory,
+    error: &'a Mutex<Option<BuildError>>,
+) -> Result<impl Iterator<Item = u64> + 'a, BuildError> {
+    let mut reader = Chunked::new(file, memory)?;
+    let coded = std::iter::from_fn(move || {
+        let mut value = 0_u64;
+        for shift in (0..35).step_by(7) {
+            match reader.take(1) {
+                Ok(Some(b)) => {
+                    value |= u64::from(b[0] & 0x7f) << shift;
+                    if b[0] & 0x80 == 0 {
+                        return Some(value);
+                    }
+                }
+                Ok(None) if shift == 0 => return None,
+                Ok(None) => break,
+                Err(e) => {
+                    *error.lock().unwrap_or_else(PoisonError::into_inner) = Some(e);
+                    return None;
+                }
+            }
+        }
+        *error.lock().unwrap_or_else(PoisonError::into_inner) = Some(BuildError::Scratch(
+            io::Error::other("the multiplicities file is damaged"),
+        ));
+        None
+    });
+    Ok(std::iter::repeat_n(1, usize::try_from(ones).unwrap_or(usize::MAX)).chain(coded))
+}
+
+/// Where finished buckets go, in node order.
+pub(super) struct Output<'w, K: ByteSink, W: Write> {
+    pub(super) data: SectionWriter<'w, K>,
+    pub(super) index: IndexBuilder,
+    pub(super) multiplicities: Multiplicities<W>,
+    pub(super) counts: PairCounts,
+}
+
+impl<K: ByteSink, W: Write> Output<'_, K, W> {
+    pub(super) fn take<Sc: Scratch<Writer = W>>(
+        &mut self,
+        out: BucketOut,
+        scratch: &Sc,
+    ) -> Result<(), BuildError> {
+        self.data.write(&out.records)?;
+        for (&degree, &len) in out.degrees.iter().zip(&out.record_lens) {
+            self.index.push(degree, len)?;
+        }
+        self.multiplicities.push(&out, scratch)?;
+        self.counts.add(&out.counts);
+        Ok(())
+    }
+}

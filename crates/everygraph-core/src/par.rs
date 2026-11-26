@@ -340,6 +340,14 @@ enum Row<'s, D> {
 }
 
 impl<D: Columns> Sink<'_, D> {
+    /// Whether this is the first of the two calls of the block, which only counts: an
+    /// emitter with side effects of its own (writing the items of other buckets
+    /// elsewhere) does them once, in the second call.
+    #[must_use]
+    pub fn is_counting(&self) -> bool {
+        matches!(self.row, Row::Count(_))
+    }
+
     /// Sends `item` to `bucket`.
     ///
     /// # Panics
@@ -386,7 +394,9 @@ impl<D> fmt::Debug for Sink<'_, D> {
 /// `emit(k, sink)` sends the items of block `k`, for `k` in `0..blocks`, with
 /// [`Sink::push`]. It is called twice per block, to count and then to write, and must
 /// send the same items in the same order both times. A block can be a chunk of an input
-/// that is parsed again in each pass, so the items never need to be in memory.
+/// that is parsed again in each pass, so the items never need to be in memory. Reading
+/// it can fail: an `Err` from `emit` ends the call with the error of the first block
+/// that failed, after the pass in which it failed; the output is then unspecified.
 ///
 /// `out` is the output as consecutive pieces of [`Columns`] that hold exactly as many
 /// rows as items are sent: `[&mut v[..]]` for a slice, or
@@ -424,24 +434,26 @@ impl<D> fmt::Debug for Sink<'_, D> {
 ///
 /// [`MemoryError::AllocationFailed`] if an array of the table would be larger than
 /// `MAX_ALLOCATION_BYTES` or the allocator refused it, and [`MemoryError::Budget`] if
-/// the table does not fit in the budget; in both cases before `emit` is called.
+/// the table does not fit in the budget, in both cases before `emit` is called; the
+/// first error of `emit`.
 ///
 /// # Panics
 ///
 /// If `emit` sends an item to a bucket not below `buckets`, if the pieces of `out` do not
-/// hold exactly as many rows as items sent, or if a block sends other items in the
-/// second pass than in the first.
-pub fn scatter<D, E>(
+/// hold exactly as many rows as items sent, or if a block that did not fail sends other
+/// items in the second pass than in the first.
+pub fn scatter<D, E, X>(
     memory: &Memory,
     purpose: &'static str,
     blocks: usize,
     buckets: NonZeroUsize,
     emit: E,
     out: impl IntoIterator<Item = D>,
-) -> Result<Vec<usize>, MemoryError>
+) -> Result<Vec<usize>, X>
 where
     D: Columns,
-    E: Fn(usize, &mut Sink<'_, D>) + Send + Sync,
+    E: Fn(usize, &mut Sink<'_, D>) -> Result<(), X> + Send + Sync,
+    X: From<MemoryError> + Send,
 {
     let width = buckets.get();
     let failed = |bytes| MemoryError::AllocationFailed { purpose, bytes };
@@ -455,11 +467,13 @@ where
     ] {
         let array = widen(count).saturating_mul(widen(size));
         if array > MAX_ALLOCATION_BYTES {
-            return Err(failed(array));
+            return Err(failed(array).into());
         }
         bytes += array;
     }
-    let _reservation = memory.reserve(purpose, MemoryKind::Anonymous, bytes)?;
+    let _reservation = memory
+        .reserve(purpose, MemoryKind::Anonymous, bytes)
+        .map_err(MemoryError::from)?;
     let mut counts = filled(cells, || 0, failed)?;
     let mut parts: Vec<D> = filled(cells, D::default, failed)?;
     let mut more: Vec<Vec<(usize, D)>> = filled(blocks, Vec::new, failed)?;
@@ -467,14 +481,38 @@ where
     jobs.try_reserve_exact(blocks)
         .map_err(|_| failed(widen(blocks)))?;
 
+    let failed_blocks = std::sync::Mutex::new(Vec::new());
+    let fail = |block: usize, error: X| {
+        failed_blocks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((block, error));
+    };
+    let first_failure = |failed: std::sync::Mutex<Vec<(usize, X)>>| {
+        let failed = failed
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        failed.into_iter().min_by_key(|(block, _)| *block)
+    };
     for_each_chunk_mut(&mut counts, buckets, |start, row| {
-        emit(
-            start / width,
-            &mut Sink {
-                row: Row::Count(row),
-            },
-        );
+        let block = start / width;
+        let mut sink = Sink {
+            row: Row::Count(row),
+        };
+        if let Err(error) = emit(block, &mut sink) {
+            fail(block, error);
+        }
     });
+    if let Some((_, error)) = first_failure(failed_blocks) {
+        return Err(error);
+    }
+    let failed_blocks = std::sync::Mutex::new(Vec::new());
+    let fail = |block: usize, error: X| {
+        failed_blocks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((block, error));
+    };
 
     // Each cell gets its rows of the output: bucket by bucket, then block by block.
     let mut pieces = out.into_iter();
@@ -514,18 +552,22 @@ where
     jobs.extend(parts.chunks_mut(width).zip(more.iter_mut()));
     for_each_chunk_mut(&mut jobs, NonZeroUsize::MIN, |block, job| {
         let (row, more) = &mut job[0];
-        emit(
-            block,
-            &mut Sink {
-                row: Row::Place(row, more),
-            },
-        );
+        let mut sink = Sink {
+            row: Row::Place(row, more),
+        };
+        if let Err(error) = emit(block, &mut sink) {
+            fail(block, error);
+            return;
+        }
         assert!(
             row.iter().all(|cell| cell.rows() == 0) && more.is_empty(),
             "block {block} sent fewer items than in the first pass"
         );
     });
-    Ok(offsets)
+    match first_failure(failed_blocks) {
+        Some((_, error)) => Err(error),
+        None => Ok(offsets),
+    }
 }
 
 /// Pairs two sequences of pieces that hold the same rows but are cut at different
@@ -1044,6 +1086,7 @@ mod tests {
                     sink.push(bucket - buckets.start, value(i, v));
                 }
             }
+            Ok::<_, MemoryError>(())
         };
         scatter(&Memory::unlimited(), "s", blocks, width, emit, out).unwrap()
     }
@@ -1122,7 +1165,7 @@ mod tests {
         }
     }
 
-    fn no_items(_: usize, _: &mut Sink<'_, &mut [u8]>) {
+    fn no_items(_: usize, _: &mut Sink<'_, &mut [u8]>) -> Result<(), MemoryError> {
         panic!("called before the table was reserved");
     }
 
@@ -1176,6 +1219,7 @@ mod tests {
             for i in block * 2..items.min(block * 2 + 2) {
                 sink.push(bucket(i), 0);
             }
+            Ok::<_, MemoryError>(())
         };
         let blocks = items.div_ceil(2);
         let _ = scatter(&memory, "x", blocks, grain(buckets), emit, [&mut out[..]]);
@@ -1227,8 +1271,48 @@ mod tests {
             for _ in 0..if first_pass { 2 } else { 1 } {
                 sink.push(0, 0);
             }
+            Ok::<_, MemoryError>(())
         };
         let _ = scatter(&Memory::unlimited(), "x", 1, grain(1), emit, [&mut out[..]]);
+    }
+
+    /// An emitter that fails, in either pass, ends the call with the error of the first
+    /// failed block, without the checks that only a complete pass can pass.
+    #[test]
+    fn scatter_returns_the_first_error_of_the_emitter() {
+        #[derive(Debug, PartialEq)]
+        enum Failure {
+            Block(usize),
+            Memory,
+        }
+        impl From<MemoryError> for Failure {
+            fn from(_: MemoryError) -> Self {
+                Self::Memory
+            }
+        }
+        for failing_pass in [0_u64, 1] {
+            let passes: Vec<AtomicU64> = (0..6).map(|_| AtomicU64::new(0)).collect();
+            let mut out = [0_u8; 6];
+            let emit = |block: usize, sink: &mut Sink<'_, &mut [u8]>| {
+                let pass = passes[block].fetch_add(1, Ordering::Relaxed);
+                assert_eq!(sink.is_counting(), pass == 0);
+                if block >= 3 && pass == failing_pass {
+                    // Half of the block was sent: the second pass would see too few.
+                    return Err(Failure::Block(block));
+                }
+                sink.push(block % 2, 0);
+                Ok(())
+            };
+            let got = scatter(&Memory::unlimited(), "x", 6, grain(2), emit, [&mut out[..]]);
+            assert_eq!(
+                got,
+                Err(Failure::Block(3)),
+                "failing in pass {failing_pass}"
+            );
+            let calls: Vec<u64> = passes.iter().map(|p| p.load(Ordering::Relaxed)).collect();
+            let expected = if failing_pass == 0 { 1 } else { 2 };
+            assert!(calls.iter().all(|&c| c == expected), "{calls:?}");
+        }
     }
 
     /// The acceptance property of issue #189: each write helper gives the same bytes at
