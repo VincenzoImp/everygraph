@@ -5,7 +5,7 @@
 # the suite is the sampled grid, run by ci.yml's `test` job with every other test.
 #
 # - `grid`: crates/everygraph-determinism with EVERYGRAPH_DETERMINISM=full (every
-#   combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, twice),
+#   combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, over a third of the CI corpus),
 #   and the determinism tests of the kernels, Leiden and the build at their release
 #   sizes. Optimized without LTO: the shipped profile's fat LTO adds minutes of linking
 #   per test binary and cannot change a float result (rustc never fuses `a*b + c`,

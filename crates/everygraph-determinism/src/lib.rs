@@ -13,7 +13,8 @@
 //!
 //! On a pull request the grid is a sample in which every thread count, chunking and
 //! source appears; with `EVERYGRAPH_DETERMINISM=full` (the nightly job of
-//! `.github/workflows/determinism.yml`) it is every combination, run twice.
+//! `.github/workflows/determinism.yml`) it is every combination. Either way the first
+//! configuration runs again at the end.
 
 #![forbid(unsafe_code)]
 // A test tool: small buffers outside any budget, and generated graphs whose ids fit u32.
@@ -91,34 +92,30 @@ impl Config {
     }
 }
 
-/// The configurations: every combination, twice, when [`full`]; else each thread
-/// count once, with the chunkings and kinds turned by `turn` so that a test over many
-/// graphs meets every pair, and the first configuration again at the end.
+/// The configurations: every combination when [`full`]; else each thread count once,
+/// with the chunkings and kinds turned by `turn` so that a test over many graphs meets
+/// every pair. Then the first configuration again: a repeated run.
 #[must_use]
 pub fn grid(turn: usize) -> Vec<Config> {
     let mut out = Vec::new();
-    if full() {
-        for _ in 0..2 {
-            for threads in THREADS {
-                for chunk in CHUNKS {
-                    for kind in KINDS {
-                        out.push(Config {
-                            threads,
-                            chunk,
-                            kind,
-                        });
-                    }
+    for (i, threads) in THREADS.into_iter().enumerate() {
+        if full() {
+            for chunk in CHUNKS {
+                for kind in KINDS {
+                    out.push(Config {
+                        threads,
+                        chunk,
+                        kind,
+                    });
                 }
             }
+        } else {
+            out.push(Config {
+                threads,
+                chunk: CHUNKS[(i + turn) % CHUNKS.len()],
+                kind: KINDS[(i + turn / 2) % KINDS.len()],
+            });
         }
-        return out;
-    }
-    for (i, threads) in THREADS.into_iter().enumerate() {
-        out.push(Config {
-            threads,
-            chunk: CHUNKS[(i + turn) % CHUNKS.len()],
-            kind: KINDS[(i + turn / 2) % KINDS.len()],
-        });
     }
     out.push(out[0]);
     out

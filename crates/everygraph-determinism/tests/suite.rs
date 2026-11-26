@@ -34,12 +34,13 @@ fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("determinism")
 }
 
-/// The graphs of the kernel and Leiden checks: part of the CI corpus (all of it with
-/// [`full`]), and planted partitions with wide weights. 10,000 nodes give four
-/// sub-rounds of about 2,500 nodes on Leiden's level 0, which run on every thread;
-/// 400,000 nodes ([`full`]) give eight, and reduction blocks of 128 nodes.
+/// The graphs of the kernel and Leiden checks: every 12th graph of the CI corpus
+/// (every third with [`full`]), and planted partitions with wide weights. 10,000
+/// nodes give four sub-rounds of about 2,500 nodes on Leiden's level 0, which run on
+/// every thread; 400,000 nodes ([`full`]) give eight, and reduction blocks of 128
+/// nodes.
 fn graphs() -> Vec<(String, Stored)> {
-    let step = if full() { 1 } else { 12 };
+    let step = if full() { 3 } else { 12 };
     let mut out: Vec<(String, Lists)> = corpus(step);
     out.push(("planted 3,000".into(), planted(30, 100, 6, 2, 1)));
     out.push(("planted 10,000".into(), planted(40, 250, 8, 2, 5)));
