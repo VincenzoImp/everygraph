@@ -1111,7 +1111,7 @@ fn the_writer_refuses_what_breaks_the_spec() {
 }
 
 /// A dictionary layout whose string bytes, added up by the reader, would pass 2^64
-/// (review of #213): refused, not a panic or an inverted range.
+/// is refused, not a panic or an inverted range.
 #[test]
 fn a_dictionary_past_two_gib_is_refused() {
     let mut b = b"EGCOLLAY".to_vec();
