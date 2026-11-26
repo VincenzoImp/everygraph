@@ -9,7 +9,6 @@
 //! reports on standard output"). A newest commit that cannot be read is a warning on
 //! standard error, status 0, or 5 with `--strict` ("A lost newest commit").
 
-use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,7 +20,6 @@ use everygraph_ingest::ids::{Dictionary, DictionaryError};
 use everygraph_io::{MmapSource, ProcMemoryProbe};
 use serde_json::{Value, json};
 
-use crate::args::{self as cli, Arg};
 use crate::failure::{self, Failure};
 use crate::render::{Style, count, printable, wrap};
 
@@ -45,10 +43,16 @@ memory.
 ";
 
 /// What the command was asked.
-#[derive(Default)]
-struct Options {
+#[derive(Debug, clap::Args)]
+#[command(override_help = HELP)]
+pub(crate) struct Args {
+    #[arg(value_name = "FILE")]
+    file: PathBuf,
+    #[arg(long)]
     deep: bool,
+    #[arg(long)]
     strict: bool,
+    #[arg(long)]
     json: bool,
 }
 
@@ -59,41 +63,11 @@ enum Stop {
 }
 
 /// Runs the command; returns the exit status.
-pub(crate) fn main(raw: &[OsString]) -> u8 {
-    let json = raw.iter().any(|a| a == "--json");
-    let mut options = Options::default();
-    let mut file = None;
-    let mut it = cli::Args::new(raw, "verify");
-    let parsed = (|| {
-        while let Some(arg) = it.next()? {
-            match arg {
-                Arg::Option(help) if cli::is_help(help) => {
-                    print!("{HELP}");
-                    return Ok(false);
-                }
-                Arg::Option("--deep") => options.deep = true,
-                Arg::Option("--strict") => options.strict = true,
-                Arg::Option("--json") => options.json = true,
-                Arg::Option(other) => return Err(it.unknown(other)),
-                Arg::Plain(_) if file.is_some() => {
-                    return Err(it.usage("verify takes one file.".into()));
-                }
-                Arg::Plain(path) => file = Some(PathBuf::from(path)),
-            }
-        }
-        Ok(true)
-    })();
-    match parsed {
-        Ok(false) => 0,
-        Ok(true) => match file {
-            Some(file) => run(&file, &options),
-            None => it.usage("verify needs a FILE.".into()).report(json),
-        },
-        Err(failure) => failure.report(json),
-    }
+pub(crate) fn main(args: &Args) -> u8 {
+    run(&args.file, args)
 }
 
-fn run(path: &Path, options: &Options) -> u8 {
+fn run(path: &Path, options: &Args) -> u8 {
     let shown = path.display().to_string();
     // The structural check and the dictionary share half of the free memory.
     let free = ProcMemoryProbe::new()
@@ -115,7 +89,7 @@ fn run(path: &Path, options: &Options) -> u8 {
             )
             .key("path", shown)
             .ways(vec![(
-                "check the path and the permissions of the file".into(),
+                "check the path, and that the file can be read".into(),
                 String::new(),
             )])
             .on_existing_file()
@@ -154,8 +128,11 @@ fn run(path: &Path, options: &Options) -> u8 {
     }
 }
 
-fn check(path: &Path, options: &Options, budget: &Arc<Budget>) -> Result<Report, Stop> {
-    let io = |e: &dyn std::fmt::Display| Stop::Io(e.to_string());
+fn check(path: &Path, options: &Args, budget: &Arc<Budget>) -> Result<Report, Stop> {
+    let io = |e: &dyn std::fmt::Display| {
+        let text = e.to_string();
+        Stop::Io(text.split(" (os error").next().unwrap_or(&text).to_owned())
+    };
     let source = MmapSource::open(path).map_err(|e| io(&e))?;
     let depth = if options.deep {
         Depth::Deep

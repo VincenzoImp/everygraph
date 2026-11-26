@@ -12,6 +12,8 @@ pub(crate) struct Style {
     pub(crate) unicode: bool,
     /// Colour instructions (S-7).
     pub(crate) colour: bool,
+    /// The stream is a terminal: tables are aligned, not tab-separated (§ 5.3).
+    pub(crate) terminal: bool,
     /// Progress in the piped form: no bars, one line per finished phase (§ 4.5, S-10).
     pub(crate) piped: bool,
 }
@@ -41,6 +43,7 @@ impl Style {
         Self {
             unicode: terminal && utf8,
             colour: terminal && !dumb && var("NO_COLOR").is_empty(),
+            terminal,
             piped: !terminal || dumb,
         }
     }
@@ -499,6 +502,7 @@ mod tests {
         let terminal = Style {
             unicode: true,
             colour: true,
+            terminal: true,
             piped: false,
         };
         let line = terminal.phase_done("identifiers", "212,418,907 addresses", 38.0);
@@ -520,6 +524,7 @@ mod tests {
         let piped = Style {
             unicode: false,
             colour: false,
+            terminal: false,
             piped: true,
         };
         let line = piped.phase_done("reading", "1,830,402,118 rows", 101.0);

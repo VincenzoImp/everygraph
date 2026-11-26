@@ -5,7 +5,6 @@
 //! `--json`, the info document (`urn:everygraph:schema:info:1`, § 5.3), which also
 //! lists every section.
 
-use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,7 +17,7 @@ use everygraph_io::MmapSource;
 use everygraph_kernels::run::Operation;
 use serde_json::{Map, Value, json};
 
-use crate::args::{self as cli, Arg};
+use crate::args::Common;
 use crate::failure::Failure;
 use crate::graph;
 use crate::machine::{self, Machine};
@@ -35,38 +34,23 @@ Options
   -h, --help            this text
 ";
 
-/// Runs the command; returns the exit status.
-pub(crate) fn main(raw: &[OsString]) -> u8 {
-    let json = raw.iter().any(|a| a == "--json");
-    match parse(raw).and_then(|p| p.map_or(Ok(0), |(path, json)| run(&path, json))) {
-        Ok(status) => status,
-        Err(failure) => failure.report(json),
-    }
+/// What the command was asked.
+#[derive(Debug, clap::Args)]
+#[command(override_help = HELP)]
+pub(crate) struct Args {
+    #[arg(value_name = "GRAPH")]
+    graph: PathBuf,
+    #[arg(long)]
+    json: bool,
 }
 
-fn parse(raw: &[OsString]) -> Result<Option<(PathBuf, bool)>, Failure> {
-    let mut it = cli::Args::new(raw, "info");
-    let (mut path, mut json) = (None, false);
-    while let Some(arg) = it.next()? {
-        match arg {
-            Arg::Option(help) if cli::is_help(help) => {
-                print!("{HELP}");
-                return Ok(None);
-            }
-            Arg::Option("--json") => json = true,
-            Arg::Option(other) => return Err(it.unknown(other)),
-            Arg::Plain(_) if path.is_some() => {
-                return Err(it.usage("info takes one GRAPH.".into()));
-            }
-            Arg::Plain(p) => path = Some(PathBuf::from(p)),
-        }
-    }
-    let path = path.ok_or_else(|| it.usage("info needs a GRAPH.".into()))?;
-    Ok(Some((path, json)))
+/// Runs the command; returns the exit status.
+pub(crate) fn main(args: &Args) -> u8 {
+    run(&args.graph, args.json).unwrap_or_else(|failure| failure.report(args.json))
 }
 
 fn run(path: &Path, json: bool) -> Result<u8, Failure> {
-    let budget = Machine::probe().budget(&cli::Common::default())?;
+    let budget = Machine::probe().budget(&Common::default())?;
     let memory = machine::memory(budget);
     let graph = graph::open(path, &memory, budget)?;
     let results = graph
@@ -300,8 +284,8 @@ impl Info<'_> {
                 "nodes": self.graph.nodes(),
                 "edges": self.graph.edges(),
                 "directed": self.graph.directed(),
-                "self_loops": self.parameter("self_loops"),
-                "duplicates": self.parameter("duplicates"),
+                "self_loops": Some(self.parameter("self_loops")).filter(|p| !p.is_empty()),
+                "duplicates": Some(self.parameter("duplicates")).filter(|p| !p.is_empty()),
                 "ids": self.ids_text(),
             },
             "build": {

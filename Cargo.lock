@@ -413,12 +413,16 @@ dependencies = [
 name = "everygraph-cli"
 version = "0.0.0"
 dependencies = [
+ "arrow-array",
+ "arrow-ipc",
+ "clap",
  "everygraph-core",
  "everygraph-format",
  "everygraph-ingest",
  "everygraph-io",
  "everygraph-kernels",
  "flate2",
+ "parquet",
  "rustix",
  "serde_json",
  "xxhash-rust",

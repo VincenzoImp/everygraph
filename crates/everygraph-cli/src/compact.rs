@@ -10,7 +10,6 @@
 //! and a stop at any moment leaves `FILE` as it was (C-1). With `--out NEW`, `FILE` is
 //! not changed.
 
-use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -20,7 +19,7 @@ use everygraph_format::container::{ContainerError, compact};
 use everygraph_io::FileSink;
 use serde_json::json;
 
-use crate::args::{self as cli, Arg, Common};
+use crate::args::{Common, Progress};
 use crate::failure::{self, Failure};
 use crate::graph;
 use crate::ingest::is_graph;
@@ -43,40 +42,36 @@ Options
   --json                print the file document, with nothing around it
   --progress plain      progress as one line per finished phase, never redrawn
   -h, --help            this text
+
+Short form: -o for --out.
 ";
 
-/// Runs the command; returns the exit status.
-pub(crate) fn main(raw: &[OsString]) -> u8 {
-    let json = raw.iter().any(|a| a == "--json");
-    match parse(raw).and_then(|p| p.map_or(Ok(0), |(path, common)| run(&path, &common))) {
-        Ok(status) => status,
-        Err(failure) => failure.report(json),
-    }
+/// What the command was asked.
+#[derive(Debug, clap::Args)]
+#[command(override_help = HELP)]
+pub(crate) struct Args {
+    #[arg(value_name = "FILE")]
+    file: PathBuf,
+    #[arg(long, short = 'o', value_name = "NEW")]
+    out: Option<PathBuf>,
+    #[arg(long)]
+    overwrite: bool,
+    #[arg(long)]
+    json: bool,
+    #[arg(long, value_enum, default_value_t)]
+    progress: Progress,
 }
 
-fn parse(raw: &[OsString]) -> Result<Option<(PathBuf, Common)>, Failure> {
-    let mut it = cli::Args::new(raw, "compact");
-    let (mut path, mut common) = (None, Common::default());
-    while let Some(arg) = it.next()? {
-        match arg {
-            Arg::Option(help) if cli::is_help(help) => {
-                print!("{HELP}");
-                return Ok(None);
-            }
-            Arg::Option(o @ ("--memory" | "--threads")) => return Err(it.unknown(o)),
-            Arg::Option(option) => {
-                if !common.take(option, &mut it)? {
-                    return Err(it.unknown(option));
-                }
-            }
-            Arg::Plain(_) if path.is_some() => {
-                return Err(it.usage("compact takes one FILE.".into()));
-            }
-            Arg::Plain(p) => path = Some(PathBuf::from(p)),
-        }
-    }
-    let path = path.ok_or_else(|| it.usage("compact needs a FILE.".into()))?;
-    Ok(Some((path, common)))
+/// Runs the command; returns the exit status.
+pub(crate) fn main(args: &Args) -> u8 {
+    let common = Common {
+        out: args.out.clone(),
+        overwrite: args.overwrite,
+        json: args.json,
+        progress: args.progress,
+        ..Common::default()
+    };
+    run(&args.file, &common).unwrap_or_else(|failure| failure.report(args.json))
 }
 
 fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
@@ -112,7 +107,7 @@ fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
     let partial = PathBuf::from(format!("{}.partial", destination.display()));
     let sink = FileSink::create(&partial).map_err(|e| failure::io("write", &partial, &e))?;
     let mut guard = Partial(Some(partial.clone()));
-    let lines = Lines::new(Style::stderr().progress(common.plain));
+    let lines = Lines::new(Style::stderr().progress(common.plain()));
     lines.start("copying");
     let sink = compact(&file, sink).map_err(|e| match e {
         ContainerError::Write(e) => failure::io("write", &partial, &io::Error::other(e)),

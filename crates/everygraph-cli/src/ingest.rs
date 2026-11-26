@@ -7,7 +7,6 @@
 //! The graph is written as `NAME.eg.partial`, committed, read back and checked, then
 //! renamed (C-1): a stop at any moment leaves no `NAME.eg` that is not whole.
 
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::num::NonZeroUsize;
@@ -24,7 +23,9 @@ use everygraph_ingest::text::{Column, IdType, TextOptions, TextReader};
 use everygraph_io::{FileSink, FileSource, MmapSource};
 use serde_json::{Map, Value, json};
 
-use crate::args::{self as cli, Arg, Common};
+use clap::builder::{PossibleValuesParser, TypedValueParser};
+
+use crate::args::Common;
 use crate::failure::{self, Failure};
 use crate::machine;
 use crate::plan::Plan;
@@ -35,95 +36,71 @@ use crate::scratch::{self, JobScratch};
 use crate::table::Partial;
 
 /// What was asked.
-#[derive(Debug, Default)]
+#[derive(Debug, clap::Args)]
+#[command(override_help = HELP)]
 pub(crate) struct Args {
+    #[arg(value_name = "FILE")]
     pub(crate) input: PathBuf,
+    #[arg(long, value_name = "NAME")]
     pub(crate) source: Option<String>,
+    #[arg(long, value_name = "NAME")]
     pub(crate) target: Option<String>,
-    pub(crate) directed: Option<bool>,
+    #[arg(long)]
+    directed: bool,
+    #[arg(long, conflicts_with = "directed")]
+    undirected: bool,
+    #[arg(long = "self-loops", default_value = "drop", value_parser = PossibleValuesParser::new(["drop", "keep"])
+        .map(|s| if s == "keep" { SelfLoops::Keep } else { SelfLoops::Drop }))]
     pub(crate) self_loops: SelfLoops,
+    #[arg(long, default_value = "events", value_parser = PossibleValuesParser::new(["events", "collapse", "sum"])
+        .map(|s| match s.as_str() { "collapse" => Duplicates::Collapse, "sum" => Duplicates::Sum, _ => Duplicates::Events }))]
     pub(crate) duplicates: Duplicates,
+    #[arg(long, default_value = "auto", value_parser = PossibleValuesParser::new(["auto", "string"])
+        .map(|s| if s == "string" { IdType::String } else { IdType::Auto }))]
     pub(crate) ids: IdType,
+    #[arg(long, value_name = "DIR")]
     pub(crate) temp_dir: Option<PathBuf>,
+    #[arg(long)]
     pub(crate) dry_run: bool,
+    /// A weight or time column, which this version cannot store.
+    #[arg(long, hide = true, value_name = "NAME")]
+    weight: Option<String>,
+    #[arg(long, hide = true, value_name = "NAME")]
+    time: Option<String>,
+    #[command(flatten)]
     pub(crate) common: Common,
 }
 
-/// Runs the command; returns the exit status.
-pub(crate) fn main(args: &[OsString]) -> u8 {
-    let json = args.iter().any(|a| a == "--json");
-    match parse(args).and_then(|args| args.map_or(Ok(0), |args| run(&args))) {
-        Ok(status) => status,
-        Err(failure) => failure.report(json),
+impl Args {
+    /// `--directed`, `--undirected`, or neither.
+    pub(crate) fn directed(&self) -> Option<bool> {
+        match (self.directed, self.undirected) {
+            (true, _) => Some(true),
+            (_, true) => Some(false),
+            _ => None,
+        }
     }
 }
 
-/// What was asked, or `None` for the help.
-fn parse(raw: &[OsString]) -> Result<Option<Args>, Failure> {
-    let mut args = Args::default();
-    let mut input = None;
-    let mut it = cli::Args::new(raw, "ingest");
-    while let Some(arg) = it.next()? {
-        let option = match arg {
-            Arg::Plain(path) if input.is_none() => {
-                input = Some(PathBuf::from(path));
-                continue;
-            }
-            Arg::Plain(extra) => {
-                return Err(it.usage(format!(
-                    "ingest takes one FILE; {} is one more.",
-                    extra.to_string_lossy()
-                )));
-            }
-            Arg::Option(option) => option,
-        };
-        if args.common.take(option, &mut it)? {
-            continue;
-        }
-        match option {
-            "--source" => args.source = Some(it.value(option)?.to_owned()),
-            "--target" => args.target = Some(it.value(option)?.to_owned()),
-            "--directed" => args.directed = Some(true),
-            "--undirected" => args.directed = Some(false),
-            "--self-loops" => {
-                let choices = [("drop", SelfLoops::Drop), ("keep", SelfLoops::Keep)];
-                args.self_loops = it.choice(option, &choices)?;
-            }
-            "--duplicates" => {
-                let choices = [
-                    ("events", Duplicates::Events),
-                    ("collapse", Duplicates::Collapse),
-                    ("sum", Duplicates::Sum),
-                ];
-                args.duplicates = it.choice(option, &choices)?;
-            }
-            "--ids" => {
-                let choices = [("auto", IdType::Auto), ("string", IdType::String)];
-                args.ids = it.choice(option, &choices)?;
-            }
-            "--temp-dir" => args.temp_dir = Some(PathBuf::from(it.value(option)?)),
-            "--dry-run" => args.dry_run = true,
-            "--weight" | "--time" => {
-                return Err(Failure::new(
-                    "Unsupported",
-                    format!("{option} cannot be stored yet."),
-                    failure::USAGE,
-                )
-                .why(vec!["This version stores no weight or time column.".into()])
-                .ways(vec![(
-                    format!("leave out {option}"),
-                    "the edges are read without it".into(),
-                )]));
-            }
-            help if cli::is_help(help) => {
-                print!("{HELP}");
-                return Ok(None);
-            }
-            other => return Err(it.unknown(other)),
-        }
-    }
-    args.input = input.ok_or_else(|| it.usage("ingest needs a FILE of edges.".into()))?;
-    Ok(Some(args))
+/// Runs the command; returns the exit status.
+pub(crate) fn main(args: &Args) -> u8 {
+    let unsupported = [("--weight", &args.weight), ("--time", &args.time)]
+        .into_iter()
+        .find(|(_, v)| v.is_some());
+    let outcome = match unsupported {
+        Some((option, _)) => Err(Failure::new(
+            "Unsupported",
+            format!("{option} cannot be stored yet."),
+            failure::USAGE,
+        )
+        .why(vec!["This version stores no weight or time column.".into()])
+        .ways(vec![(
+            format!("leave out {option}"),
+            "the edges are read without it".into(),
+        )])),
+        None => run(args),
+    };
+    outcome.unwrap_or_else(|failure| failure.report(args.common.json))
 }
 
 const HELP: &str = "\
@@ -149,6 +126,9 @@ Options
   --json                print the result as JSON, with nothing around it
   --overwrite           replace a file that is in the way
   --progress plain      progress as one line per finished phase, never redrawn
+  -h, --help            this text
+
+Short forms: -o for --out, -m for --memory, -t for --threads.
 ";
 
 /// `NAME.eg` beside the input, `NAME` being its name without the extensions an edge
@@ -180,7 +160,7 @@ fn run(args: &Args) -> Result<u8, Failure> {
         ..TextOptions::default()
     };
     let reader = TextReader::open(source, &options).map_err(|e| failure::text(&args.input, e))?;
-    let directed = build::infer_direction(reader.layout(), args.directed);
+    let directed = build::infer_direction(reader.layout(), args.directed());
     let output = args
         .common
         .out
@@ -223,7 +203,7 @@ fn run(args: &Args) -> Result<u8, Failure> {
     };
     let scratch =
         JobScratch::create(&root, &job.id).map_err(|e| failure::io("write", &root, &e))?;
-    let lines = Lines::new(err.progress(args.common.plain));
+    let lines = Lines::new(err.progress(args.common.plain()));
     let blocks = reader.blocks().map_err(|e| failure::text(&args.input, e))?;
     if blocks.is_some() {
         return in_pool(plan.threads, || job.write(&reader, &scratch, &lines));
@@ -456,7 +436,7 @@ fn job_id(args: &Args, output: &Path, reader: &TextReader<FileSource>) -> String
         reader.source().len(),
         args.source,
         args.target,
-        args.directed,
+        args.directed(),
         args.self_loops,
         args.duplicates,
         args.ids,

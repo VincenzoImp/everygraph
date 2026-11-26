@@ -31,13 +31,16 @@ mod table;
 mod verify;
 
 use std::ffi::OsString;
-use std::io::Write;
 use std::process::ExitCode;
 
-use render::Style;
+use args::Command;
 
-const HELP: &str = "\
-Everygraph VERSION — ingest, analyze, query and map a graph on one machine.
+/// The help of `everygraph`: `docs/api-sketch.md` § 5.3, with the commands of this
+/// version.
+const HELP: &str = concat!(
+    "Everygraph ",
+    env!("CARGO_PKG_VERSION"),
+    " — ingest, analyze, query and map a graph on one machine.
 
 Usage
   everygraph COMMAND [OPTIONS]
@@ -51,40 +54,35 @@ Commands
   compact FILE          reclaim the bytes of replaced results
 
 Options
+  --memory SIZE         the memory budget, for example 8GB
+  --threads N           the most threads to use
+  --json                print the result as JSON, with nothing around it
+  --out FILE            write the result to a file, for example pr.parquet
+  --overwrite           replace a file that is in the way
   -h, --help            this text; after a command, the help for that command
   --version             print the version
-";
+
+Short forms: -o for --out, -m for --memory, -t for --threads.
+
+Start here
+  everygraph ingest FILE
+"
+);
 
 fn main() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    ExitCode::from(run(&args))
-}
-
-fn run(args: &[OsString]) -> u8 {
-    let help = HELP.replace("VERSION", env!("CARGO_PKG_VERSION"));
-    let Some((command, rest)) = args.split_first() else {
-        let _ = std::io::stderr().write_all(Style::stderr().symbols(&help).as_bytes());
-        return failure::USAGE;
+    let json = args.iter().any(|a| a == "--json");
+    let status = match args::parse(&args) {
+        Err(failure) => failure.report(json),
+        Ok(Err(status)) => status,
+        Ok(Ok(command)) => match command {
+            Command::Ingest(a) => ingest::main(&a),
+            Command::Run(a) => run::main(a),
+            Command::Info(a) => info::main(&a),
+            Command::Export(a) => export::main(&a),
+            Command::Verify(a) => verify::main(&a),
+            Command::Compact(a) => compact::main(&a),
+        },
     };
-    match command.to_str() {
-        Some("-h" | "--help") => {
-            print!("{}", Style::stdout().symbols(&help));
-            0
-        }
-        Some("--version") => {
-            println!("everygraph {}", env!("CARGO_PKG_VERSION"));
-            0
-        }
-        Some("ingest") => ingest::main(rest),
-        Some("info") => info::main(rest),
-        Some("export") => export::main(rest),
-        Some("compact") => compact::main(rest),
-        Some("run") => run::main(rest),
-        Some("verify") => verify::main(rest),
-        _ => failure::usage(
-            format!("Unknown command {}.", command.to_string_lossy()),
-            "",
-        )
-        .report(args.iter().any(|a| a == "--json")),
-    }
+    ExitCode::from(status)
 }

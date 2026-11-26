@@ -180,16 +180,26 @@ pub(crate) fn usage(what: String, command: &str) -> Failure {
     Failure::new("UsageError", what, USAGE).ways(vec![(help, String::new())])
 }
 
-/// An operating-system error on `path`.
-pub(crate) fn io(verb: &str, path: &Path, e: &io::Error) -> Failure {
+/// The operating system's reason, without its error number.
+pub(crate) fn reason(e: &io::Error) -> String {
     let text = e.to_string();
-    let reason = text.split(" (os error").next().unwrap_or(&text);
+    text.split(" (os error").next().unwrap_or(&text).to_owned()
+}
+
+/// An operating-system error on `path`; `verb` is `read` or `write`.
+pub(crate) fn io(verb: &str, path: &Path, e: &io::Error) -> Failure {
+    let way = if verb == "read" {
+        "check the path, and that the file can be read"
+    } else {
+        "check that the directory exists, can be written and has room"
+    };
     Failure::new(
         "IoError",
-        format!("Cannot {verb} {}: {reason}.", path.display()),
+        format!("Cannot {verb} {}: {}.", path.display(), reason(e)),
         FAILED,
     )
     .key("path", path.display().to_string())
+    .ways(vec![(way.into(), String::new())])
 }
 
 /// A graph file that is damaged or is not one.

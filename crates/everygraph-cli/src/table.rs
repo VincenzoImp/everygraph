@@ -512,6 +512,7 @@ mod tests {
         let style = Style {
             unicode: true,
             colour: false,
+            terminal: true,
             piped: false,
         };
         let id = "0x28c6c06298d514db089934071355e5743bf21d60";

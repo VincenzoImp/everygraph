@@ -15,6 +15,9 @@ name = "everygraph"
 path = "src/main.rs"
 
 [dependencies]
+# The command line (`design/DECISIONS.md`, "Reading the command line"); the features the
+# benchmark harness uses already.
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 # The binary decides that threads exist: the core's `parallel` feature (its default).
 everygraph-core = { path = "../everygraph-core" }
 everygraph-format = { path = "../everygraph-format" }
@@ -32,8 +35,11 @@ xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"
 rustix = { version = "1.1", default-features = false, features = ["std", "fs"] }
 
 [dev-dependencies]
-# The tests write a gzip input.
+# The tests write a gzip input, and read back the Parquet and Arrow files of `--out`.
+arrow-array = { version = "58.4", default-features = false }
+arrow-ipc = { version = "58.4", default-features = false }
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+parquet = { version = "58.4", default-features = false, features = ["arrow"] }
 
 [lints]
 workspace = true

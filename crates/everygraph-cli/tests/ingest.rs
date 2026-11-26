@@ -13,6 +13,9 @@ use std::process::{Command, Output, Stdio};
 use everygraph_format::container::{Container, Kind};
 use everygraph_io::FileSource;
 
+mod common;
+use common::schema;
+
 fn run(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_everygraph"))
         .current_dir(dir)
@@ -175,7 +178,7 @@ fn a_budget_that_cannot_hold_the_build_is_refused_before_any_work() {
     assert!(text.trim_end().ends_with("Nothing was written."), "{text}");
     let document: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(document["error"], "InsufficientBudget");
-    plan_schema::error(&document, "error").unwrap_or_else(|e| panic!("{e}: {document}"));
+    schema::error(&document, "error").unwrap_or_else(|e| panic!("{e}: {document}"));
     assert_eq!(document["budget_bytes"], 1_000_000);
     only(&dir, &["edges.txt"]);
 }
@@ -257,10 +260,10 @@ fn a_dry_run_prints_the_plan_and_writes_nothing() {
     let out = run(&dir, &["ingest", "edges.txt", "--dry-run", "--json"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    plan_schema::plan(&plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
+    schema::plan(&plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
     let mut misspelt = plan.clone();
     misspelt["machine"]["memroy_bytes"] = 1.into();
-    assert!(plan_schema::plan(&misspelt).is_err());
+    assert!(schema::plan(&misspelt).is_err());
     assert_eq!(plan["fits"], true);
     assert!(plan["refusal"].is_null());
     assert_eq!(plan["input"]["rows"]["value"], 100.0 + 6.0);
@@ -280,7 +283,7 @@ fn a_dry_run_prints_the_plan_and_writes_nothing() {
     );
     assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
     let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    plan_schema::plan(&plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
+    schema::plan(&plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
     assert_eq!(plan["fits"], false);
     assert_eq!(plan["refusal"]["error"], "InsufficientBudget");
     only(&dir, &["edges.txt"]);
@@ -354,388 +357,13 @@ fn a_killed_ingest_leaves_no_damaged_graph() {
     assert!(killed > 0, "every run finished before it was killed");
 }
 
-/// The keys and enumerations of `urn:everygraph:schema:plan:1` and of the error
-/// document it refers to (`docs/ux-contract.md` § 3.6, § 6.1), checked as closed:
-/// a missing required key, an unknown key or a value outside an enumeration is an
-/// error naming its path.
-mod plan_schema {
-    use serde_json::{Map, Value};
-
-    type Check = Result<(), String>;
-
-    fn object<'v>(
-        v: &'v Value,
-        at: &str,
-        required: &[&str],
-        optional: &[&str],
-    ) -> Result<&'v Map<String, Value>, String> {
-        let map = v.as_object().ok_or(format!("{at}: not an object"))?;
-        for key in required {
-            if !map.contains_key(*key) {
-                return Err(format!("{at}: {key} missing"));
-            }
-        }
-        for key in map.keys() {
-            if !required.contains(&key.as_str()) && !optional.contains(&key.as_str()) {
-                return Err(format!("{at}: unknown key {key}"));
-            }
-        }
-        Ok(map)
-    }
-
-    fn one_of(v: &Value, at: &str, values: &[&str]) -> Check {
-        match v.as_str() {
-            Some(s) if values.contains(&s) => Ok(()),
-            _ => Err(format!("{at}: {v} is not one of {values:?}")),
-        }
-    }
-
-    fn count(v: &Value, at: &str) -> Check {
-        v.as_u64()
-            .map(|_| ())
-            .ok_or(format!("{at}: {v} is not a count"))
-    }
-
-    fn string(v: &Value, at: &str) -> Check {
-        v.as_str()
-            .map(|_| ())
-            .ok_or(format!("{at}: {v} is not a string"))
-    }
-
-    fn boolean(v: &Value, at: &str) -> Check {
-        v.as_bool()
-            .map(|_| ())
-            .ok_or(format!("{at}: {v} is not a boolean"))
-    }
-
-    fn estimate(v: &Value, at: &str) -> Check {
-        let m = object(v, at, &["value", "low", "high", "basis"], &[])?;
-        for key in ["value", "low", "high"] {
-            if !m[key].as_f64().is_some_and(|x| x >= 0.0) {
-                return Err(format!("{at}.{key}: not a number at least 0"));
-            }
-        }
-        one_of(
-            &m["basis"],
-            &format!("{at}.basis"),
-            &["exact", "sampled", "model"],
-        )
-    }
-
-    const ORIGINS: &[&str] = &["argument", "graph", "environment", "default"];
-    const REGIMES: &[&str] = &["in_memory", "mapped", "streamed", "on_disk"];
-
-    /// Checks a plan document.
-    pub(super) fn plan(v: &Value) -> Check {
-        let m = object(
-            v,
-            "plan",
-            &[
-                "schema",
-                "operation",
-                "parameters",
-                "machine",
-                "budget",
-                "regime",
-                "phases",
-                "estimate",
-                "scratch",
-                "output",
-                "fits",
-                "refusal",
-            ],
-            &["call", "input", "graph", "detected", "steps"],
-        )?;
-        if m["schema"] != 1 {
-            return Err("plan.schema: not 1".into());
-        }
-        string(&m["operation"], "plan.operation")?;
-        if !m["parameters"].is_object() {
-            return Err("plan.parameters: not an object".into());
-        }
-        if let Some(input) = m.get("input").filter(|i| !i.is_null()) {
-            let i = object(
-                input,
-                "plan.input",
-                &["path", "bytes", "format", "rows"],
-                &["compression"],
-            )?;
-            string(&i["path"], "plan.input.path")?;
-            count(&i["bytes"], "plan.input.bytes")?;
-            string(&i["format"], "plan.input.format")?;
-            estimate(&i["rows"], "plan.input.rows")?;
-            if let Some(c) = i.get("compression") {
-                one_of(c, "plan.input.compression", &["none", "gzip", "zstd"])?;
-            }
-        }
-        if m.get("graph").is_some_and(|g| !g.is_null()) {
-            return Err("plan.graph: an ingest has no graph yet".into());
-        }
-        if let Some(detected) = m.get("detected").filter(|d| !d.is_null()) {
-            let d = object(detected, "plan.detected", &["ids", "edges", "columns"], &[])?;
-            let ids = object(
-                &d["ids"],
-                "plan.detected.ids",
-                &["kind", "distinct"],
-                &["width_bytes", "noun"],
-            )?;
-            one_of(
-                &ids["kind"],
-                "plan.detected.ids.kind",
-                &["integer", "hex", "text"],
-            )?;
-            estimate(&ids["distinct"], "plan.detected.ids.distinct")?;
-            let e = object(
-                &d["edges"],
-                "plan.detected.edges",
-                &["directed", "directed_from", "duplicates", "self_loops"],
-                &[],
-            )?;
-            boolean(&e["directed"], "plan.detected.edges.directed")?;
-            one_of(
-                &e["directed_from"],
-                "plan.detected.edges.directed_from",
-                &["caller", "column names", "default"],
-            )?;
-            one_of(
-                &e["duplicates"],
-                "plan.detected.edges.duplicates",
-                &["kept as events", "collapsed", "summed"],
-            )?;
-            one_of(
-                &e["self_loops"],
-                "plan.detected.edges.self_loops",
-                &["dropped", "kept"],
-            )?;
-            for (k, c) in d["columns"]
-                .as_array()
-                .ok_or("plan.detected.columns: not an array")?
-                .iter()
-                .enumerate()
-            {
-                let at = format!("plan.detected.columns[{k}]");
-                let c = object(c, &at, &["name", "role"], &["type"])?;
-                string(&c["name"], &at)?;
-                one_of(
-                    &c["role"],
-                    &at,
-                    &["source", "target", "weight", "time", "ignored"],
-                )?;
-            }
-        }
-        let machine = object(
-            &m["machine"],
-            "plan.machine",
-            &[
-                "cores",
-                "hardware_threads",
-                "memory_bytes",
-                "memory_free_bytes",
-                "memory_limit_bytes",
-                "storage",
-            ],
-            &[],
-        )?;
-        for key in [
-            "cores",
-            "hardware_threads",
-            "memory_bytes",
-            "memory_free_bytes",
-        ] {
-            count(&machine[key], &format!("plan.machine.{key}"))?;
-        }
-        if !machine["memory_limit_bytes"].is_null() {
-            count(
-                &machine["memory_limit_bytes"],
-                "plan.machine.memory_limit_bytes",
-            )?;
-        }
-        let storage = object(
-            &machine["storage"],
-            "plan.machine.storage",
-            &["kind", "free_bytes"],
-            &[],
-        )?;
-        string(&storage["kind"], "plan.machine.storage.kind")?;
-        count(&storage["free_bytes"], "plan.machine.storage.free_bytes")?;
-        let budget = object(
-            &m["budget"],
-            "plan.budget",
-            &[
-                "memory_bytes",
-                "memory_from",
-                "above_free",
-                "threads",
-                "threads_from",
-            ],
-            &[],
-        )?;
-        count(&budget["memory_bytes"], "plan.budget.memory_bytes")?;
-        one_of(&budget["memory_from"], "plan.budget.memory_from", ORIGINS)?;
-        boolean(&budget["above_free"], "plan.budget.above_free")?;
-        count(&budget["threads"], "plan.budget.threads")?;
-        one_of(&budget["threads_from"], "plan.budget.threads_from", ORIGINS)?;
-        let regime = object(
-            &m["regime"],
-            "plan.regime",
-            &["name", "reason", "working_bytes", "ratio"],
-            &[],
-        )?;
-        one_of(&regime["name"], "plan.regime.name", REGIMES)?;
-        string(&regime["reason"], "plan.regime.reason")?;
-        count(&regime["working_bytes"], "plan.regime.working_bytes")?;
-        if !regime["ratio"].as_f64().is_some_and(|r| r >= 0.0) {
-            return Err("plan.regime.ratio: not a number at least 0".into());
-        }
-        let phases = m["phases"]
-            .as_array()
-            .filter(|p| !p.is_empty())
-            .ok_or("plan.phases: not a non-empty array")?;
-        for (k, p) in phases.iter().enumerate() {
-            let at = format!("plan.phases[{k}]");
-            let p = object(p, &at, &["name", "kept", "seconds"], &["regime"])?;
-            let name = p["name"].as_str().unwrap_or_default();
-            if name.is_empty() || name.len() > 11 || !name.bytes().all(|b| b.is_ascii_lowercase()) {
-                return Err(format!("{at}.name: {name:?} is not ^[a-z]{{1,11}}$"));
-            }
-            boolean(&p["kept"], &at)?;
-            estimate(&p["seconds"], &format!("{at}.seconds"))?;
-            if let Some(r) = p.get("regime") {
-                one_of(r, &format!("{at}.regime"), REGIMES)?;
-            }
-        }
-        let e = object(
-            &m["estimate"],
-            "plan.estimate",
-            &[
-                "seconds",
-                "peak_memory_bytes",
-                "scratch_bytes",
-                "output_bytes",
-            ],
-            &[],
-        )?;
-        for (key, value) in e {
-            estimate(value, &format!("plan.estimate.{key}"))?;
-        }
-        let scratch = object(
-            &m["scratch"],
-            "plan.scratch",
-            &["path", "from", "memory_backed", "free_bytes"],
-            &[],
-        )?;
-        string(&scratch["path"], "plan.scratch.path")?;
-        one_of(&scratch["from"], "plan.scratch.from", ORIGINS)?;
-        boolean(&scratch["memory_backed"], "plan.scratch.memory_backed")?;
-        count(&scratch["free_bytes"], "plan.scratch.free_bytes")?;
-        let output = object(
-            &m["output"],
-            "plan.output",
-            &["path", "kind"],
-            &["free_bytes"],
-        )?;
-        if !output["path"].is_null() {
-            string(&output["path"], "plan.output.path")?;
-        }
-        one_of(
-            &output["kind"],
-            "plan.output.kind",
-            &["graph", "map", "result", "file", "none"],
-        )?;
-        if let Some(free) = output.get("free_bytes") {
-            count(free, "plan.output.free_bytes")?;
-        }
-        boolean(&m["fits"], "plan.fits")?;
-        if !m["refusal"].is_null() {
-            error(&m["refusal"], "plan.refusal")?;
-        }
-        Ok(())
-    }
-
-    /// Checks an error document (§ 6.1).
-    pub(super) fn error(v: &Value, at: &str) -> Check {
-        let m = object(
-            v,
-            at,
-            &["schema", "error", "message", "ways_forward", "changed"],
-            &[
-                "why",
-                "step",
-                "needs_bytes",
-                "budget_bytes",
-                "smallest_budget_bytes",
-                "available_bytes",
-                "machine_memory_bytes",
-                "arithmetic",
-                "path",
-                "holds",
-                "section",
-                "column",
-                "node",
-                "operation",
-                "reason",
-                "expression",
-                "position",
-                "problems",
-                "invalid_rows",
-                "rows_checked",
-                "kept",
-            ],
-        )?;
-        one_of(
-            &m["error"],
-            &format!("{at}.error"),
-            &[
-                "InsufficientBudget",
-                "InsufficientDisk",
-                "InvalidInput",
-                "InvalidExpression",
-                "UnknownNode",
-                "Unsupported",
-                "OutputExists",
-                "CorruptFile",
-                "IoError",
-                "UsageError",
-                "EverygraphError",
-            ],
-        )?;
-        string(&m["message"], &format!("{at}.message"))?;
-        boolean(&m["changed"], &format!("{at}.changed"))?;
-        for (k, w) in m["ways_forward"]
-            .as_array()
-            .ok_or(format!("{at}.ways_forward: not an array"))?
-            .iter()
-            .enumerate()
-        {
-            let wat = format!("{at}.ways_forward[{k}]");
-            let w = object(w, &wat, &["command", "python", "note"], &["needs_bytes"])?;
-            for key in ["command", "python", "note"] {
-                string(&w[key], &format!("{wat}.{key}"))?;
-            }
-        }
-        if m["error"] == "InsufficientBudget" {
-            for key in [
-                "step",
-                "needs_bytes",
-                "budget_bytes",
-                "smallest_budget_bytes",
-            ] {
-                if !m.contains_key(key) {
-                    return Err(format!("{at}: {key} missing for InsufficientBudget"));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 #[test]
 fn the_schema_check_refuses_what_the_schema_refuses() {
     let good: serde_json::Value = serde_json::from_str(
         r#"{"schema":1,"error":"UsageError","message":"m","ways_forward":[{"command":"c","python":"","note":""}],"changed":false}"#,
     )
     .unwrap();
-    assert!(plan_schema::error(&good, "e").is_ok());
+    assert!(schema::error(&good, "e").is_ok());
     for bad in [
         r#"{"schema":1,"error":"UsageError","message":"m","ways_forward":[],"changed":false,"mesage":"x"}"#,
         r#"{"schema":1,"error":"Oops","message":"m","ways_forward":[],"changed":false}"#,
@@ -743,6 +371,6 @@ fn the_schema_check_refuses_what_the_schema_refuses() {
         r#"{"schema":1,"error":"InsufficientBudget","message":"m","ways_forward":[],"changed":false}"#,
     ] {
         let bad: serde_json::Value = serde_json::from_str(bad).unwrap();
-        assert!(plan_schema::error(&bad, "e").is_err(), "{bad}");
+        assert!(schema::error(&bad, "e").is_err(), "{bad}");
     }
 }

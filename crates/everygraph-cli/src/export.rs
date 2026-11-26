@@ -8,7 +8,6 @@
 //! that the output is not anonymized (`design/DECISIONS.md`, "A structure-only
 //! export"; `docs/research/README.md` H7).
 
-use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -17,8 +16,8 @@ use everygraph_format::adjacency::{Adjacency, Batch};
 use everygraph_io::table::TableWriter;
 use serde_json::json;
 
-use crate::args::{self as cli, Arg, Common};
-use crate::failure::{self, Failure};
+use crate::args::Common;
+use crate::failure::{self, Failure, usage};
 use crate::graph;
 use crate::ingest::is_graph;
 use crate::machine::{self, Machine};
@@ -38,53 +37,41 @@ Options
   --topology-only       the edges alone, without any property column; the output
                         is not anonymized: structure alone can identify people
   --overwrite           replace FILE if it is in the way
+  --memory SIZE         the memory budget, for example 8GB
+  --threads N           the most threads to use
   --json                print the file document, with nothing around it
   --progress plain      progress as one line per finished phase, never redrawn
   -h, --help            this text
+
+Short forms: -o for --out, -m for --memory, -t for --threads.
 ";
 
 /// Pairs per batch written.
 const BATCH_ENTRIES: usize = 1 << 16;
 
-/// Runs the command; returns the exit status.
-pub(crate) fn main(raw: &[OsString]) -> u8 {
-    let json = raw.iter().any(|a| a == "--json");
-    match parse(raw).and_then(|p| {
-        p.map_or(Ok(0), |(path, common, topology)| {
-            run(&path, &common, topology)
-        })
-    }) {
-        Ok(status) => status,
-        Err(failure) => failure.report(json),
-    }
+/// What the command was asked.
+#[derive(Debug, clap::Args)]
+#[command(override_help = HELP)]
+pub(crate) struct Args {
+    #[arg(value_name = "GRAPH")]
+    graph: PathBuf,
+    #[arg(long)]
+    topology_only: bool,
+    #[command(flatten)]
+    common: Common,
 }
 
-fn parse(raw: &[OsString]) -> Result<Option<(PathBuf, Common, bool)>, Failure> {
-    let mut it = cli::Args::new(raw, "export");
-    let (mut path, mut common, mut topology) = (None, Common::default(), false);
-    while let Some(arg) = it.next()? {
-        match arg {
-            Arg::Option(help) if cli::is_help(help) => {
-                print!("{HELP}");
-                return Ok(None);
-            }
-            Arg::Option("--topology-only") => topology = true,
-            Arg::Option(option) => {
-                if !common.take(option, &mut it)? {
-                    return Err(it.unknown(option));
-                }
-            }
-            Arg::Plain(_) if path.is_some() => {
-                return Err(it.usage("export takes one GRAPH.".into()));
-            }
-            Arg::Plain(p) => path = Some(PathBuf::from(p)),
-        }
-    }
-    let path = path.ok_or_else(|| it.usage("export needs a GRAPH.".into()))?;
-    if common.out.is_none() {
-        return Err(it.usage("export needs --out FILE: the format follows its extension.".into()));
-    }
-    Ok(Some((path, common, topology)))
+/// Runs the command; returns the exit status.
+pub(crate) fn main(args: &Args) -> u8 {
+    let outcome = if args.common.out.is_none() {
+        Err(usage(
+            "export needs --out FILE: the format follows its extension.".into(),
+            "export",
+        ))
+    } else {
+        run(&args.graph, &args.common, args.topology_only)
+    };
+    outcome.unwrap_or_else(|failure| failure.report(args.common.json))
 }
 
 fn run(path: &Path, common: &Common, topology: bool) -> Result<u8, Failure> {
@@ -106,14 +93,14 @@ fn run(path: &Path, common: &Common, topology: bool) -> Result<u8, Failure> {
     if topology {
         let _ = writeln!(
             io::stderr(),
-            "The output is not anonymized: the structure of a graph alone can identify people."
+            "The output is not anonymized: structure alone can identify people."
         );
     }
     let data = graph.data().map_err(|e| graph::container_error(path, &e))?;
     let bytes = everygraph_core::ByteSource::as_slice(&data)
         .ok_or_else(|| failure::internal("The adjacency data is not in memory."))?;
     let adjacency = Adjacency::new(graph.index(), bytes).map_err(|e| failure::corrupt(path, &e))?;
-    let lines = Lines::new(Style::stderr().progress(common.plain));
+    let lines = Lines::new(Style::stderr().progress(common.plain()));
     lines.start("writing");
     let mut rows = 0_u64;
     let schema = [

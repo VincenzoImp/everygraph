@@ -21,10 +21,10 @@ use everygraph_ingest::ids::Key;
 use everygraph_io::{FileSink, MmapSource};
 use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings};
 use everygraph_kernels::pagerank::PageRank;
-use everygraph_kernels::run::{self, Column, NAMES, Operation, Output, Precision, RunError};
+use everygraph_kernels::run::{self, Column, Operation, Output, Precision, RunError};
 use serde_json::{Map, Value, json};
 
-use crate::args::{self as cli, Arg, Common};
+use crate::args::Common;
 use crate::failure::{self, Failure};
 use crate::graph;
 use crate::ingest::is_graph;
@@ -58,6 +58,7 @@ Options
   --json                print the result document, with nothing around it
   --progress plain      progress as one line per finished phase, never redrawn
   -h, --help            this text
+  Short forms: -o for --out, -m for --memory, -t for --threads.
 
 Options of pagerank
   --damping X           the probability of following an edge (default: 0.85)
@@ -80,13 +81,114 @@ struct Request {
     common: Common,
 }
 
+/// `everygraph run NAME …`.
+#[derive(Debug, clap::Args)]
+#[command(override_help = HELP)]
+pub(crate) struct Args {
+    #[command(subcommand)]
+    algorithm: Algorithm,
+}
+
+/// The names `run` takes.
+pub(crate) const NAMES: [&str; 5] = run::NAMES;
+
+#[derive(Debug, clap::Subcommand)]
+enum Algorithm {
+    #[command(override_help = HELP)]
+    Pagerank {
+        #[command(flatten)]
+        on: On,
+        #[arg(long, value_name = "X", default_value_t = PageRank::default().damping)]
+        damping: f64,
+        #[arg(long, value_name = "X", default_value_t = PageRank::default().tol)]
+        tol: f64,
+        #[arg(long, value_name = "N", default_value_t = PageRank::default().max_iter)]
+        max_iter: u32,
+        #[arg(long, value_enum, default_value = "full")]
+        precision: Bits,
+        #[arg(long, hide = true, value_name = "FILE")]
+        personalize: Option<PathBuf>,
+    },
+    #[command(override_help = HELP)]
+    Components {
+        #[command(flatten)]
+        on: On,
+        #[arg(long, hide = true)]
+        strong: bool,
+    },
+    #[command(override_help = HELP)]
+    Kcore {
+        #[command(flatten)]
+        on: On,
+    },
+    #[command(override_help = HELP)]
+    Degrees {
+        #[command(flatten)]
+        on: On,
+    },
+    #[command(override_help = HELP)]
+    Bfs {
+        #[command(flatten)]
+        on: On,
+        #[arg(value_name = "NODE")]
+        node: String,
+        #[arg(long, value_name = "N")]
+        max_hops: Option<u32>,
+        #[arg(long, value_enum, default_value = "out")]
+        direction: Direction,
+    },
+    /// Names of the API that this version cannot run.
+    #[command(hide = true)]
+    Triangles {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        rest: Vec<OsString>,
+    },
+    #[command(hide = true)]
+    Communities {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        rest: Vec<OsString>,
+    },
+}
+
+/// What every algorithm takes.
+#[derive(Debug, clap::Args)]
+struct On {
+    #[arg(value_name = "GRAPH")]
+    graph: PathBuf,
+    #[arg(long, value_name = "N")]
+    top: Option<usize>,
+    #[arg(long, hide = true)]
+    dry_run: bool,
+    #[command(flatten)]
+    common: Common,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum Bits {
+    Full,
+    Low,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum Direction {
+    Out,
+    In,
+    Both,
+}
+
 /// Runs the command; returns the exit status.
-pub(crate) fn main(raw: &[OsString]) -> u8 {
-    let json = raw.iter().any(|a| a == "--json");
-    match parse(raw).and_then(|r| r.map_or(Ok(0), |r| execute(&r))) {
-        Ok(status) => status,
-        Err(failure) => failure.report(json),
-    }
+pub(crate) fn main(args: Args) -> u8 {
+    let json = match &args.algorithm {
+        Algorithm::Pagerank { on, .. }
+        | Algorithm::Components { on, .. }
+        | Algorithm::Kcore { on }
+        | Algorithm::Degrees { on }
+        | Algorithm::Bfs { on, .. } => on.common.json,
+        Algorithm::Triangles { rest } | Algorithm::Communities { rest } => rest.iter().any(|a| a == "--json"),
+    };
+    request(args)
+        .and_then(|r| execute(&r))
+        .unwrap_or_else(|failure| failure.report(json))
 }
 
 fn unsupported(what: String, why: &str) -> Failure {
@@ -99,129 +201,67 @@ fn unsupported(what: String, why: &str) -> Failure {
         .on_existing_file()
 }
 
-fn parse(raw: &[OsString]) -> Result<Option<Request>, Failure> {
-    let mut it = cli::Args::new(raw, "run");
-    let mut plain = Vec::new();
-    let mut common = Common::default();
-    let mut top = None;
-    let mut pagerank = PageRank::default();
-    let mut precision = Precision::Full;
-    let mut max_hops = None;
-    let mut outward = true;
-    let mut given: Vec<&str> = Vec::new();
-    while let Some(arg) = it.next()? {
-        let option = match arg {
-            Arg::Plain(p) => {
-                plain.push(p);
-                continue;
-            }
-            Arg::Option(help) if cli::is_help(help) => {
-                print!("{HELP}");
-                return Ok(None);
-            }
-            Arg::Option(option) => option,
-        };
-        if common.take(option, &mut it)? {
-            continue;
-        }
-        match option {
-            "--top" => top = Some(it.parsed(option, "a count of rows")?),
-            "--damping" => pagerank.damping = it.parsed(option, "a number")?,
-            "--tol" => pagerank.tol = it.parsed(option, "a number")?,
-            "--max-iter" => pagerank.max_iter = it.parsed(option, "a count")?,
-            "--precision" => {
-                precision = it.choice(
-                    option,
-                    &[("full", Precision::Full), ("low", Precision::Low)],
-                )?;
-            }
-            "--max-hops" => max_hops = Some(it.parsed(option, "a count")?),
-            "--direction" => {
-                outward = it.choice(option, &[("out", true), ("in", false), ("both", false)])?;
-            }
-            "--strong" | "--personalize" | "--dry-run" | "--weight" | "--temp-dir" => {
-                return Err(unsupported(
-                    format!("{option} cannot be used with run yet."),
-                    "This version computes unweighted results on the whole graph, \
-                     with no planner and no strong components.",
-                ));
-            }
-            other => return Err(it.unknown(other)),
-        }
-        given.push(option);
-    }
-    let mut plain = plain.into_iter();
-    let name = plain
-        .next()
-        .ok_or_else(|| it.usage("run needs a NAME and a GRAPH.".into()))?
-        .to_string_lossy()
-        .into_owned();
-    let graph = PathBuf::from(
-        plain
-            .next()
-            .ok_or_else(|| it.usage(format!("run {name} needs a GRAPH.")))?,
-    );
-    let node = plain.next().map(|n| n.to_string_lossy().into_owned());
-    if let Some(extra) = plain.next() {
-        return Err(it.usage(format!(
-            "run takes a NAME, a GRAPH and, for bfs, a NODE; {} is one more.",
-            extra.to_string_lossy()
-        )));
-    }
-    let op = match name.as_str() {
-        "pagerank" => Operation::PageRank {
-            params: pagerank,
+/// What was asked, as one operation; the options this version cannot honour are
+/// refused here, before any work.
+fn request(args: Args) -> Result<Request, Failure> {
+    let not_yet = |option: &str| {
+        unsupported(
+            format!("{option} cannot be used with run yet."),
+            "This version computes unweighted results on the whole graph, with no \
+             planner and no strong components.",
+        )
+    };
+    let (op, on, node) = match args.algorithm {
+        Algorithm::Pagerank { personalize: Some(_), .. } => return Err(not_yet("--personalize")),
+        Algorithm::Pagerank {
+            on,
+            damping,
+            tol,
+            max_iter,
             precision,
-        },
-        "components" => Operation::Components,
-        "kcore" => Operation::KCore,
-        "degrees" => Operation::Degrees,
-        "bfs" => Operation::Bfs {
-            source: 0,
-            max_hops,
-        },
-        "triangles" | "communities" => {
+            ..
+        } => {
+            let params = PageRank {
+                damping,
+                tol,
+                max_iter,
+                personalize: None,
+            };
+            let precision = match precision {
+                Bits::Full => Precision::Full,
+                Bits::Low => Precision::Low,
+            };
+            (Operation::PageRank { params, precision }, on, None)
+        }
+        Algorithm::Components { strong: true, .. } => return Err(not_yet("--strong")),
+        Algorithm::Components { on, .. } => (Operation::Components, on, None),
+        Algorithm::Kcore { on } => (Operation::KCore, on, None),
+        Algorithm::Degrees { on } => (Operation::Degrees, on, None),
+        Algorithm::Bfs { direction: Direction::In | Direction::Both, .. } => {
+            return Err(unsupported(
+                "--direction in and both cannot be used yet.".into(),
+                "They need the in-adjacency, which no graph file holds yet.",
+            ));
+        }
+        Algorithm::Bfs { on, node, max_hops, .. } => (Operation::Bfs { source: 0, max_hops }, on, Some(node)),
+        Algorithm::Triangles { .. } | Algorithm::Communities { .. } => {
+            let name = if matches!(args.algorithm, Algorithm::Triangles { .. }) { "triangles" } else { "communities" };
             return Err(unsupported(
                 format!("{name} cannot be run yet."),
                 &format!("This version runs {}.", NAMES.join(", ")),
             ));
         }
-        other => {
-            return Err(it.usage(format!(
-                "Unknown algorithm {other}: run takes {}.",
-                NAMES.join(", ")
-            )));
-        }
     };
-    let own: &[&str] = match op {
-        Operation::PageRank { .. } => &["--damping", "--tol", "--max-iter", "--precision"],
-        Operation::Bfs { .. } => &["--max-hops", "--direction"],
-        _ => &[],
-    };
-    if let Some(stray) = given.iter().find(|o| **o != "--top" && !own.contains(o)) {
-        return Err(it.usage(format!("{stray} is not an option of run {name}.")));
+    if on.dry_run {
+        return Err(not_yet("--dry-run"));
     }
-    match (&op, &node) {
-        (Operation::Bfs { .. }, None) => return Err(it.usage("run bfs needs a NODE.".into())),
-        (Operation::Bfs { .. }, Some(_)) => {}
-        (_, Some(extra)) => {
-            return Err(it.usage(format!("run {name} takes no NODE; {extra} is one more.")));
-        }
-        _ => {}
-    }
-    if !outward {
-        return Err(unsupported(
-            "--direction in and both cannot be used yet.".into(),
-            "They need the in-adjacency, which no graph file holds yet.",
-        ));
-    }
-    Ok(Some(Request {
+    Ok(Request {
         op,
-        graph,
+        graph: on.graph,
         node,
-        top,
-        common,
-    }))
+        top: on.top,
+        common: on.common,
+    })
 }
 
 fn execute(req: &Request) -> Result<u8, Failure> {
@@ -251,7 +291,7 @@ fn execute(req: &Request) -> Result<u8, Failure> {
     let identity = graph.file().graph_identity();
     let key = result_key(identity, &op)
         .map_err(|e| failure::internal(&format!("The result key cannot be made: {e}.")))?;
-    let lines = Lines::new(Style::stderr().progress(req.common.plain));
+    let lines = Lines::new(Style::stderr().progress(req.common.plain()));
     let name = op.name();
     lines.start(name);
     let cached = if op.stored() {
@@ -326,7 +366,7 @@ fn execute(req: &Request) -> Result<u8, Failure> {
         .map_err(corrupt)?;
         println!("{doc}");
     } else if req.common.out.is_none() {
-        let text = if stdout.piped {
+        let text = if !stdout.terminal {
             shown.piped(&nodes).map_err(corrupt)?
         } else {
             let mut text = summary_text(&op, &output, stdout);
@@ -334,7 +374,7 @@ fn execute(req: &Request) -> Result<u8, Failure> {
             text
         };
         let _ = io::stdout().write_all(text.as_bytes());
-        if !stdout.piped {
+        if stdout.terminal {
             footer(
                 req,
                 &op,
@@ -506,7 +546,7 @@ fn ranked(op: &Operation) -> bool {
 /// the `N` largest values of a measure.
 fn shown<'o>(op: &Operation, output: &'o Output, nodes: u32, req: &Request) -> Shown<'o> {
     let rows = nodes as usize;
-    let piped = Style::stdout().piped && !req.common.json;
+    let piped = !Style::stdout().terminal && !req.common.json;
     let n = req.top.unwrap_or(if piped { rows } else { SHOWN });
     match (req.top, output.columns.first()) {
         (Some(_), Some((_, column))) if ranked(op) => Shown {

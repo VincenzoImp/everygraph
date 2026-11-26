@@ -61,13 +61,9 @@ pub(crate) fn open(
 /// The failure for a container that cannot be opened or read.
 pub(crate) fn container_error(path: &Path, e: &ContainerError) -> Failure {
     match e {
-        ContainerError::Read(ReadError::Backend(e)) => Failure::new(
-            "IoError",
-            format!("Cannot read {}: {e}.", path.display()),
-            failure::FAILED,
-        )
-        .key("path", path.display().to_string())
-        .on_existing_file(),
+        ContainerError::Read(ReadError::Backend(e)) => {
+            failure::io("read", path, &std::io::Error::other(e.to_string())).on_existing_file()
+        }
         ContainerError::NotAContainer | ContainerError::NotCommitted => Failure::new(
             "CorruptFile",
             format!("{} is not an Everygraph graph file.", path.display()),
