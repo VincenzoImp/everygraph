@@ -13,8 +13,8 @@ use std::process::{Command, Output, Stdio};
 use everygraph_format::container::{Container, Kind};
 use everygraph_io::FileSource;
 
-mod common;
-use common::schema;
+mod support;
+use support::schema;
 
 fn run(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_everygraph"))

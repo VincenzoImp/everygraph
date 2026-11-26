@@ -9,14 +9,14 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::print_stderr, reason = "a test says what it could not check")]
 
-mod common;
+mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
-use common::{dir, document, run, schema, stderr, stdout};
 use serde_json::Value;
+use support::{dir, document, run, schema, stderr, stdout};
 
 /// An undirected graph: the triangle a b c with i hanging from c, the path d e f, and
 /// h, whose only row is a loop (dropped, so h has no edge).
