@@ -25,10 +25,13 @@
 //! container), and [`persist`], the rename that makes a finished file take its name
 //! durably. See the [`sink`] module for which lab result each answers.
 //!
+//! **Read-ahead:** [`ReadPool`], threads that make blocking positional reads of one
+//! source for a `everygraph_core::BlockCache`, which then reads ahead the ranges advised
+//! with [`AccessHint::WillNeed`]: random access out of core (DESIGN D11, ADR 0029).
+//!
 //! **Later backends** need no change here or in the trait. An HTTP-range source
 //! implements `len` and `read_at` (one range request each, or served from a block
-//! cache) and may take [`AccessHint::WillNeed`] as the signal to prefetch; an
-//! `io_uring` source does the same with a submission queue. Both are planned, not built.
+//! cache) and may take [`AccessHint::WillNeed`] as the signal to prefetch.
 //!
 //! **Tests:** with the feature `faults`, `faults::Faulty` wraps any source or sink and
 //! fails its k-th operation (`ENOSPC`, `EIO`, a short read).
@@ -64,6 +67,7 @@ mod machine;
 mod memory_probe;
 mod mmap;
 mod pages;
+mod read_pool;
 mod sys;
 
 use std::io;
@@ -76,6 +80,7 @@ pub use machine::{physical_cores, storage};
 pub use memory_probe::{ProcMemoryProbe, memory_backed};
 pub use mmap::MmapSource;
 pub use pages::{LARGE_BLOCK, PAGES};
+pub use read_pool::{PoolSettings, ReadPool};
 pub use sink::{AppendSink, BlockWriter, FileSink, SpillLogs, persist};
 
 /// The error for a read of `len` bytes at `offset` outside a source of `source_len`.

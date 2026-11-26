@@ -82,6 +82,8 @@ everything prepared.
 
 **Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
 
+**Official window running** (from 2026-11-26 23:33): `/home/tux/graphlab/scratch/window/window.sh`, log `window.log` beside it. headline ×2, edge-map, semi-external, scc, transpose, components-kcore, references on orkut. No agent compiles on this host until it ends.
+
 ## Lessons that still change behaviour
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.
@@ -118,4 +120,5 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - #46 and #45 closed on merge although their PRs said `Part of`: an earlier commit message said `Closes #N`, and the squash merge kept it. After merging a `Part of` PR, the coordinator checks the issue is still open and reopens it if not.
 - Main's test job was red for about 90 minutes after #288: the map reader check found a partial `node_modules` in `target/`, which the Rust cache prunes (fixed in #306). The merges after #288 did not check main's run. Tools that install into `target/` check the installed version, not only that a directory exists.
 - Four pull requests changed the edge-map `Source` trait at once (#291 prefix decode, #303 cache, #307 `list_prefix`, #315 views), and two designed prefix decode twice. A shared core interface now has one owning stream at a time (CLAUDE.md § 6).
+- #46 closed a second time from PR #303's squash message: a squash lists every commit of the branch, including main's commits merged into it, so #254's `Closes #46` came along. The coordinator now merges with an explicit body (`gh pr merge --squash --body …`) that names only the PR's own closing keyword.
 

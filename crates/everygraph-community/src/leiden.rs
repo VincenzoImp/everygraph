@@ -153,6 +153,18 @@ pub struct Options {
     pub prolong: bool,
     /// After the last level by default.
     pub split: SplitAt,
+    /// How far ahead of the visits the source is told which lists will be read
+    /// ([`Source::prefetch`]): 0, the default, tells it nothing; `K` tells it, before
+    /// each window of 16,384 visits, the next window and `K - 1` blocks of 256 nodes past
+    /// it. For a source that reads ahead, such as a compressed stream over a
+    /// `BlockCache`: the visiting order is known before a sweep runs (ADR 0015), so the
+    /// reads of the next window overlap the work on this one. It changes no result of the
+    /// deterministic mode.
+    pub read_ahead: u32,
+    /// Levels per iteration, at most, below the rule's own (10 levels for [`leiden`]);
+    /// `None`, the default, adds no cap. One level is local moving and refinement on the
+    /// graph alone, with no quotient graph.
+    pub max_levels: Option<NonZeroU32>,
 }
 
 impl Default for Options {
@@ -167,6 +179,8 @@ impl Default for Options {
             refinement: Refinement::Greedy,
             prolong: false,
             split: SplitAt::Last,
+            read_ahead: 0,
+            max_levels: None,
         }
     }
 }
@@ -327,7 +341,7 @@ fn level<S: Source>(
     let first_of_later = ctx.iteration > 0 && ctx.level == 0;
     let (levels, (kept, of)) = (ctx.coarsening.levels, ctx.coarsening.keep);
     let last = (stats.moves == 0 && !first_of_later)
-        || ctx.level + 1 == levels
+        || ctx.level + 1 >= levels.min(ctx.options.max_levels.map_or(u32::MAX, NonZeroU32::get))
         || u64::from(stats.communities - alone) * of > u64::from(n - alone) * kept;
     if last {
         let d = if louvain {

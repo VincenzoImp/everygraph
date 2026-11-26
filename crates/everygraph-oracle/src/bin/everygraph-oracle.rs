@@ -192,6 +192,7 @@ fn regime(s: &str) -> Result<Regime, String> {
         "in_memory" => Ok(Regime::InMemory),
         "mmap" => Ok(Regime::Mmap),
         "stream" => Ok(Regime::Stream),
+        "cached" => Ok(Regime::Cached),
         _ => Err(format!("unknown regime {s}")),
     }
 }

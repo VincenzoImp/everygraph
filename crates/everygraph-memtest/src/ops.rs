@@ -10,7 +10,7 @@ use std::io::{BufWriter, Write as _};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
-use everygraph_core::{ByteSource, Memory, MemoryError, NodeId};
+use everygraph_core::{BlockCache, ByteSource, CacheSettings, Memory, MemoryError, NodeId};
 use everygraph_format::adjacency::Adjacency;
 use everygraph_format::container::{Container, Provenance, compact};
 use everygraph_format::verify::{Depth, verify};
@@ -21,10 +21,12 @@ use everygraph_ingest::graph::{Graph, OpenError};
 use everygraph_ingest::ids::{ColumnType, DictionaryError, Key, KeySource, build_dictionary};
 use everygraph_ingest::native::{JobScratch, Output, WriteError, write};
 use everygraph_ingest::text::{Delimiter, Header, TextOptions, TextReader};
-use everygraph_io::{FileSink, FileSource, MmapSource};
+use everygraph_io::{FileSink, FileSource, MmapSource, PoolSettings, ReadPool};
 use everygraph_kernels::components::{self, WccOptions};
 use everygraph_kernels::degrees::{self, Loop};
-use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, Source, Stream};
+use everygraph_kernels::edge_map::{
+    Compressed, CompressedStream, Error, Plan, Settings, Source, Stream,
+};
 use everygraph_kernels::kcore;
 use everygraph_kernels::pagerank::{self, PageRank};
 use everygraph_kernels::planner;
@@ -261,6 +263,10 @@ pub enum Regime {
     Mapped,
     /// Raw lists read from a file in batches (the semi-external mode).
     Streamed,
+    /// The compressed lists of the graph file, read through a block cache of a quarter
+    /// of them, read ahead by a pool of threads (random access out of core, ADR 0029).
+    /// The cache reads the mapped file.
+    Cached,
 }
 
 /// A kernel of `everygraph-kernels`.
@@ -344,9 +350,9 @@ pub fn known(op: Op) -> Option<&'static Known> {
 }
 
 /// Every operation, each kernel in both regimes.
-pub const OPS: [Op; 20] = {
+pub const OPS: [Op; 22] = {
     use Kernel::{Bfs, Degrees, Hops, KCore, Leiden, PageRank, Sssp, Wcc};
-    use Regime::{Mapped, Streamed};
+    use Regime::{Cached, Mapped, Streamed};
     [
         Op::Ingest,
         Op::Dictionary,
@@ -366,6 +372,8 @@ pub const OPS: [Op; 20] = {
         Op::Kernel(KCore, Streamed),
         Op::Kernel(Degrees, Streamed),
         Op::Kernel(Leiden, Streamed),
+        Op::Kernel(PageRank, Cached),
+        Op::Kernel(Leiden, Cached),
         Op::Verify,
         Op::Compact,
     ]
@@ -458,11 +466,31 @@ impl Op {
                 }
                 let data = g.data().map_err(other)?;
                 let lists = Compressed::mapped(g.index(), &data).map_err(other)?;
-                kernel.run(&lists, input, memory)
+                kernel.run(&lists, input, memory, false)
             }
             Self::Kernel(kernel, Regime::Streamed) => {
                 let lists = Stream::new(&input.offsets, &input.targets).map_err(other)?;
-                kernel.run(&lists, input, memory)
+                kernel.run(&lists, input, memory, false)
+            }
+            Self::Kernel(kernel, Regime::Cached) => {
+                // The data part of the mapped file: the cache copies from it as it would
+                // read a file, and the index is read as by the other regimes.
+                let g = Graph::open(&input.graph, memory)
+                    .map_err(|e| Failure::of(matches!(e, OpenError::Budget(_)), e))?;
+                let data = g.data().map_err(other)?;
+                let refused = |e: MemoryError| Failure::of(memory_refused(&e), e);
+                let pool = PoolSettings {
+                    threads: THREADS.get(),
+                    ..PoolSettings::default()
+                };
+                ReadPool::run(&data, memory, pool, |ahead| {
+                    let quarter = CacheSettings::new(data.len() / 4, THREADS.get());
+                    let cache =
+                        BlockCache::with_read_ahead(ahead, memory, quarter).map_err(refused)?;
+                    let lists = CompressedStream::new(g.index(), &cache, 0).map_err(other)?;
+                    kernel.run(&lists, input, memory, true)
+                })
+                .map_err(refused)?
             }
             Self::Verify => {
                 let report = verify(&input.graph, Depth::Deep, memory).map_err(other)?;
@@ -553,14 +581,29 @@ impl Kernel {
         planner::plan(&op, &facts, &machine, &request).ok()
     }
 
-    fn run<S: Source>(self, lists: &S, input: &Input, memory: &Memory) -> Result<(), Failure> {
+    /// Runs the kernel on `lists`; with `ahead`, it tells the source what it will read
+    /// (frontier prefetch, and Leiden's read-ahead).
+    fn run<S: Source>(
+        self,
+        lists: &S,
+        input: &Input,
+        memory: &Memory,
+        ahead: bool,
+    ) -> Result<(), Failure> {
+        let settings = Settings {
+            prefetch: ahead,
+            ..Settings::default()
+        };
         if self == Self::Leiden {
-            let options = everygraph_community::Options::default();
-            return everygraph_community::leiden(lists, memory, Settings::default(), &options)
+            let options = everygraph_community::Options {
+                read_ahead: if ahead { 8 } else { 0 },
+                ..everygraph_community::Options::default()
+            };
+            return everygraph_community::leiden(lists, memory, settings, &options)
                 .map(drop)
                 .map_err(kernel);
         }
-        Plan::with(lists, memory, Settings::default(), |plan| match self {
+        Plan::with(lists, memory, settings, |plan| match self {
             Self::PageRank => {
                 let strength = pagerank::strength(&plan, None, false, memory)?;
                 let s = strength.as_slice().ok_or(Error::Invalid("one segment"))?;
