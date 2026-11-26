@@ -18,10 +18,10 @@ labels: type:feature, area:viewer, P0, risk:medium, size:L, lab-evidence
 **Acceptance**
 - First view ≤ 250 KB transferred and ≤ 25 requests on a 4 M-node map
 - Zoom animation fetches ≤ 20 tiles per step
-- 60 fps on a discrete GPU and ≥ 30 fps on the integrated-GPU reference machine from {{#m1-12-viewer-no-gpu}}
+- 60 fps on a discrete GPU (the integrated-GPU and Safari budgets are checked in {{#m5-11-perf-accessibility}})
 
 **Pointers.** `lab/e-map` viewer; GPU in headless Chromium needed `--use-angle=gl-egl`.
 
-**Depends on** {{#m5-03-tile-builder}}, {{#m1-12-viewer-no-gpu}}, {{#m5-14-design-system}}
+**Depends on** {{#m5-03-tile-builder}}, {{#m5-14-design-system}}
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The visual target is `design/preview/style/viewer.html` (navigable) with the tokens in `design/system/tokens.css`: dark canvas by default, bubbles, region outline 1.5 px with a tint of 12% / 5% when open / none when covering the view, labels with the count in monospace and a canvas-colour halo, smallest map text 12 px, selection as a double ink ring with the rest dimmed to 60%.

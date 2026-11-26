@@ -13,7 +13,7 @@ labels: type:feature, area:viewer, P1, risk:low, size:M
 - [ ] The data palettes with their measurement and search tools (`design/system/tools/`), so any change is re-measured for colour-blind separation and contrast
 - [ ] Checks in CI: the generated files match `tokens.css`; the measurements pass; no product stylesheet hard-codes a colour instead of a token
 
-The rest of the brand files (wordmark outlines, lockups, app icon, social card, raster favicons, icon redraws and pixel tuning, font subsetting) are {{#m8-12-brand-files}}. Importing the package is part of each user's issue: the viewer ({{#m5-05-viewer-core}}), the docs site ({{#m8-02-docs-site}}) and the notebook cards ({{#m5-10-jupyter-widget}}).
+The rest of the brand files (wordmark outlines, lockups, app icon, social card, raster favicons, icon redraws and pixel tuning, font subsetting) are {{#m8-14-brand-files}}. Importing the package is part of each user's issue: the viewer ({{#m5-05-viewer-core}}), the docs site ({{#m8-02-docs-site}}) and the notebook cards ({{#m5-10-jupyter-widget}}).
 
 **Acceptance**
 - `design/system/tools/build.py --check` fails when `tokens.json` or a mark file differs from what `tokens.css` gives
