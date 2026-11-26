@@ -12,7 +12,7 @@
 //!
 //! The excess is read after the build, not at its peak. The ledger counts a block when
 //! it is reserved and the kernel counts a page when it is first written, so the two
-//! peaks fall at different moments. In exploratory runs (PR #NNN, with the kernel's
+//! peaks fall at different moments. In exploratory runs (PR #270, with the kernel's
 //! high-water mark `VmHWM`) the anonymous peak was 1.5–7.7 MB below the ledger's, by an
 //! amount that changed from run to run and was largest at the smallest build.
 //!
@@ -47,7 +47,7 @@ const SIZES: [u64; 3] = [250_000, 500_000, 1_000_000];
 /// Threads of every build: retention is kept per allocator arena, about one per thread.
 const THREADS: usize = 8;
 /// Most bytes the excess may grow from the smallest build to the largest. In
-/// exploratory runs of this test (a loaded machine, four cores, PR #NNN) it grew by
+/// exploratory runs of this test (a loaded machine, four cores, PR #270) it grew by
 /// 18–52 MB on glibc's heap in 5 runs and by 3 MB or less with the page backend in 50.
 const GROWTH_LIMIT: i64 = 8 << 20;
 
