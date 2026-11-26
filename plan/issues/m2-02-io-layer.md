@@ -21,6 +21,6 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 - [ ] Hooks for later `io_uring` and HTTP-range backends, without implementing them
 
 **Acceptance**
-- Sequential scan through the O_DIRECT backend reaches ≥ 80% of the device's sequential bandwidth on the lab NVMe
+- Sequential scan through the O_DIRECT backend reaches ≥ 80% of the device's sequential bandwidth on the lab NVMe. Met in the official run of 2026-11-25 (`bench/results/io/20261125T205022Z-21498df39590.jsonl`, `bench/specs/io.toml`, idle, medians of three): `direct` 7.10 GB/s at 32 threads against the device reference 7.08 GB/s (`raw`, 4 threads), Friendster `targets.u32` (14.4 GB)
 - All backends pass one conformance test-suite
 - `everygraph-core` still builds for wasm32 (backends live in `everygraph-io`)
