@@ -328,8 +328,9 @@ everygraph-oracle ldbc --graphs DIR --expect oracle/ldbc-expected.json [--json O
 `DIR` holds one unpacked data set per subdirectory. `spec` must always match. The other
 outcomes, mismatches included, are pinned in `oracle/ldbc-expected.json` with their
 causes, so a change either way fails the run. Kernels of other crates and the lab
-prototypes are checked by calling `ldbc::run::row` on their result
-(`lab/m1-20-ldbc-graphalytics`). Results checked this way are **not LDBC Benchmark
+prototypes are checked by calling `ldbc::run::row` on their result (the proof kernels:
+`crates/everygraph-kernels/tests/ldbc.rs`, run by both scripts;
+the lab: `lab/m1-20-ldbc-graphalytics`). Results checked this way are **not LDBC Benchmark
 Results**; the name is reserved for audited runs.
 
 ## Plugging in a kernel (issue #45 onwards)

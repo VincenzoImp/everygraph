@@ -65,6 +65,8 @@ ldbc_unpack "$ROOT/target/release/everygraph-bench" "$DATA" "$WORK/ldbc" \
 # graph500-22 needs about 3 GiB; LCC on dota-league (50 M edges on 61 k vertices) takes
 # a few minutes, sequential.
 "$ORACLE" ldbc --graphs "$WORK/ldbc" --expect "$ROOT/oracle/ldbc-expected.json" --max-memory 7
+EVERYGRAPH_LDBC_GRAPHS="$WORK/ldbc" cargo test -p everygraph-kernels --release --locked \
+    --test ldbc -- --nocapture
 
 if [[ -z "${ORACLE_SKIP_LAB:-}" ]]; then
     step "Lab prototype B1 through its adapter (undirected graphs; 3 regimes x 2 thread counts x 2 chunk sizes)"

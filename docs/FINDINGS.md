@@ -1112,6 +1112,7 @@ limit unless stated.
 | WCC, BFS, SSSP | oracle references | match | not run | not run | — |
 | BFS | lab direction-optimizing BFS | match (undirected); **mismatch** on example-directed (6 of 10) and test-bfs-directed (5 of 10): cause 3 | match | match | match in RAM, and on the mapped CSR under 8 GB |
 | LCC | oracle reference (clustering, S3) | match (undirected); **mismatch** on example-directed and test-lcc-directed (6 of 10 each): cause 4 | not run | not run | — |
+| BFS, WCC, PR | edge-map proof kernels (`everygraph-kernels::proof`, #202): raw arrays and streamed targets, 1 and 8 threads | match; BFS on directed graphs too (all steps top-down there); PR on undirected graphs only (cause 1, ported) | match, the same bits in all four configurations | match, the same bits | not run (the test reads the LDBC text: 26 min) |
 | CDLP | `spec` with labels in first-appearance order | **mismatch** on 3 of 4 graphs (cause 5) | **mismatch**, 2,395,176 of 2,396,657 | match | — |
 
 Causes of every mismatch:
@@ -1172,10 +1173,11 @@ Weekly, or before a release: com-friendster, BFS, WCC, PageRank and CDLP, in RAM
 8 GB. On the shared machine, exploratory: reading the 32 GB edge text took 26 min (the
 reader is sequential, so the CSR is built once and kept); the `spec` CDLP took 8–11 min and
 the `spec` PageRank 4–5 min; the lab kernels took seconds to minutes. Each product kernel
-joins the profile by calling `everygraph_oracle::ldbc::run::row` on its result.
+joins the profile by calling `everygraph_oracle::ldbc::run::row` on its result, as the proof
+kernels do in `crates/everygraph-kernels/tests/ldbc.rs` (CI and nightly run it).
 
 **Not done.** LCC on com-friendster (the `spec` LCC would need about 25 GB there, an
 estimate: 14.4 GB of lists and 9 GB of forward lists), and CDLP and PageRank `spec` under
 a budget; SSSP on a large graph other than dota-league; directed graphs
-above the test size (twitter_mpi, cit-Patents, wiki-Talk); the edge-map proof kernels of
-PR #202 (not merged); any timing for the record.
+above the test size (twitter_mpi, cit-Patents, wiki-Talk); the edge-map proof kernels on
+com-friendster; any timing for the record.

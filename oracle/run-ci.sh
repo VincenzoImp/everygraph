@@ -80,5 +80,7 @@ step "Golden files (karate and the generated tier-1 datasets)"
 step "LDBC Graphalytics test graphs against their reference outputs (downloads 10 kB)"
 ldbc_unpack "$ROOT/target/release/everygraph-bench" "$WORK/data" "$WORK/ldbc" ldbc-test
 "$ORACLE" ldbc --graphs "$WORK/ldbc" --expect "$ROOT/oracle/ldbc-expected.json"
+EVERYGRAPH_LDBC_GRAPHS="$WORK/ldbc" cargo test -p everygraph-kernels --release --locked \
+    --test ldbc -- --nocapture
 
 printf '\noracle CI suite passed in %d s\n' "$((SECONDS - START))"
