@@ -19,10 +19,12 @@ Look for, in this order:
    `everygraph-core`; an allocation that bypasses the memory accountant; results that
    depend on the thread count; a single allocation that can exceed 2 GiB.
 4. Acceptance criteria ticked without evidence, or evidence that does not show what it
-   claims (wrong graph, wrong precision, different measurement level, noisy machine).
+   claims: wrong graph, wrong precision, different measurement level, an A/B that was not
+   interleaved, an absolute time from a loaded machine, an exploratory number without its
+   label.
 5. Tests that cannot fail, or that test the implementation against itself.
-6. Scope creep beyond the issue, and code that is larger than the issue needs (product
-   code must be small: say which lines could go).
+6. Scope creep beyond the issue, and code that is larger than the issue needs. State the
+   lines added, and say which could go: product code must be small.
 7. Comments and docs: Simple Technical English; comments only where the code cannot say
    it; no history ("review of PR #N", "changed because"), no future plans, and every number
    cites a result file or is labelled an estimate. Check this again on review-fix commits,

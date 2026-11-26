@@ -105,25 +105,10 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - Review rounds in series are the main slowdown on product pull requests. Send the
   findings of both reviews to the author in one message, and skip a further round when no
   must-fix touches correctness.
-- CPU, not the network, limits the number of agents: at most about eight that run `cargo`
-  at once, each with `CARGO_BUILD_JOBS=6`. Reviewers and review-fix rounds count: they
-  build the whole workspace. Load reached 77 with eleven agents. Each agent builds cold in
-  its own worktree (24 worktrees held 149 GB, 10–28 GB of `target/` each) with no shared
-  compiler cache; build efficiency is being measured.
+- Each agent builds cold in its own worktree (24 worktrees held 149 GB, 10–28 GB of
+  `target/` each) with no shared compiler cache; load reached 77 with eleven agents that
+  ran `cargo`. Build efficiency is being measured.
 - Load-sensitive tests (heap and retention bounds, file locks; #230) failed on four pull
   requests in one day, and each cost a CI rerun.
-- A long measurement window idles every code agent. Run the short official cases first,
-  let agents build and push, then run the long ones when few agents compile.
 - When every stream waits on CI or review at once, the machine is idle. Keep a queue of
   ready experiments (M1 issues that need no merge) to start when the load drops.
-- When one agent holds the machine, schedule a wake-up to check that it is still alive,
-  and let long runs write a `done` line. An agent that died after its benchmark blocked
-  the machine for 2.5 hours.
-- `setsid nohup … & echo $!` can print the PID of a `setsid` that has already exited.
-  Chain official runs in one script, or wait on the PID of the real process.
-- A specification rule added late in one review never reached a pull request written in
-  parallel. Every writer's tests open their own output with the strictest reader (`verify
-  --deep`). When a specification changes, list the open pull requests that implement it
-  and send them the change.
-- After each merge, check the CI run of `main`. A failure seen on several pull requests
-  at once is checked on `main` first.
