@@ -171,6 +171,8 @@ def test_an_empty_graph_gives_typed_empty_tables(tmp_path):
         t = pa.table(table)
         assert t.num_rows == 0 and t.schema.field(column).type == kind
         assert len(table.head(3)) == 0
+        assert repr(table).splitlines()[-1] == "0 rows · in graph order"
+        assert repr(table.head(3)).splitlines()[-1].startswith("0 rows")
         assert column == "node" or len(table.top(3, by=column)) == 0
     assert len(g.components(progress=False).sizes()) == 0
 

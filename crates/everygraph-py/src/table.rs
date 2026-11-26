@@ -180,6 +180,7 @@ impl Table {
     /// The rows `start..end` of `column`, as one array.
     fn slice(&self, column: &Column, start: usize, end: usize) -> Result<ArrayRef, ArrowError> {
         match column {
+            Column::Values(chunks) if start == end => Ok(chunks[0].slice(0, 0)),
             Column::Values(chunks) => {
                 let mut parts = Vec::new();
                 let mut at = 0;
@@ -228,19 +229,30 @@ impl Table {
             .iter()
             .map(|column| match column {
                 Column::Values(chunks) => {
-                    let indices: UInt32Array =
-                        rows.iter().map(|&r| (r != NULL).then_some(r)).collect();
-                    let whole = match chunks.as_slice() {
-                        [one] => Arc::clone(one),
-                        _ => {
-                            let refs: Vec<&dyn Array> = chunks.iter().map(AsRef::as_ref).collect();
-                            arrow_select::concat::concat(&refs)?
-                        }
-                    };
-                    Ok(Column::Values(vec![arrow_select::take::take(
-                        whole.as_ref(),
-                        &indices,
-                        None,
+                    // The chunks, and after them one null: the source of a null row. Rows are
+                    // picked from where they are, so no column is ever joined or copied.
+                    let null = arrow_array::new_null_array(chunks[0].data_type(), 1);
+                    let mut starts = Vec::with_capacity(chunks.len());
+                    let mut at = 0;
+                    for c in chunks {
+                        starts.push(at);
+                        at += c.len();
+                    }
+                    let picks: Vec<(usize, usize)> = rows
+                        .iter()
+                        .map(|&r| {
+                            if r == NULL {
+                                return (chunks.len(), 0);
+                            }
+                            let r = r as usize;
+                            let chunk = starts.partition_point(|&s| s <= r) - 1;
+                            (chunk, r - starts[chunk])
+                        })
+                        .collect();
+                    let mut refs: Vec<&dyn Array> = chunks.iter().map(AsRef::as_ref).collect();
+                    refs.push(null.as_ref());
+                    Ok(Column::Values(vec![arrow_select::interleave::interleave(
+                        &refs, &picks,
                     )?]))
                 }
                 Column::Ids(Ids::All) => Ok(Column::Ids(Ids::Some(Arc::new(rows.to_vec())))),

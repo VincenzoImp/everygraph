@@ -331,7 +331,9 @@ fn make(ask: &Ask, run: &Run, events: &Events) -> Result<(Shared, Option<Report>
                 return Err(stopped());
             }
             let plain_bytes = plain.source().len();
-            // Scratch on a file system held in memory is memory (P-18).
+            // Scratch on a file system held in memory is memory (P-18). The plain size is
+            // known only once the copy is written, so it is reserved then, before the build
+            // allocates: the copy may pass the budget for as long as the decompression runs.
             let _copy = everygraph_io::memory_backed(&root)
                 .then(|| {
                     let purpose = "the plain copy of the input, in scratch held in memory";
