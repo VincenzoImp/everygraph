@@ -101,7 +101,7 @@ A measurable condition.
 | [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #35 |
 | [0027](0027-single-file-builds.md) | A graph is one file in every state; builds in progress use the job's scratch | accepted | — |
 | [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #35 |
-| [0029](0029-random-access-under-a-budget.md) | Random access under a budget: an explicit cache, not plain mmap (amends 0011, regime 2) | proposed | #172, #178 |
+| [0029](0029-random-access-under-a-budget.md) | Random access under a budget: an explicit cache, not plain mmap (amends 0011, regime 2) | accepted | #172, #178 |
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of
 `docs/DESIGN.md` agree, that each ADR has the required sections and a known status, that

@@ -132,6 +132,14 @@ network, not on this machine. So:
   its duration only. Decisions between two variants are taken from interleaved A/B runs
   in the same process or the same harness run (robust to background load); an empty
   machine is required only for absolute numbers that go into documents.
+- **Official runs only when a number is published (owner, 2026-11-26).** While the product
+  is being built, development comes first: an issue closes on its tests plus labelled
+  exploratory evidence (interleaved A/B ratios, load-independent counts such as bytes read
+  or written, deterministic quality metrics). Speed targets an issue misses move to the
+  milestone's performance-pass issue instead of keeping the issue open. Official idle-machine
+  runs happen once per milestone, in one planned window, and before any number goes into
+  README, DESIGN, a paper or a release; they are kept short (smallest graph set that answers
+  the question, the repetitions the harness statistics need, no long sweeps).
 - **Offload to CI.** Locally an agent runs the checks of the crates it touched; CI runs
   the whole matrix.
 - **Thin end to end first.** Production code builds a usable vertical slice — ingest →

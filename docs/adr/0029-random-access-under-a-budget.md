@@ -1,6 +1,7 @@
 # ADR 0029 — Random access under a budget: an explicit cache, not plain mmap
 
-- **Status:** proposed
+- **Status:** accepted
+- **Accepted:** 2026-11-26, on the load-independent byte counts of m1-15; times stay exploratory until the M3 milestone window (CLAUDE.md § 6).
 - **Decision:** D11 in [DESIGN.md](../DESIGN.md#4-decisions) (amends ADR 0011: regime 2, "mmap under pressure", for random access)
 - **Date:** 2026-11-26
 
