@@ -409,7 +409,7 @@ fn hexadecimal_keys_are_found_in_any_case_and_come_back_lowercase_with_0x() {
 }
 
 /// One stray value is an invalid row; it does not change the identity of the other
-/// nodes (the review of PR #158: one bad key turned 155,184 nodes into 205,047).
+/// nodes.
 #[test]
 fn a_stray_key_is_an_invalid_row_and_changes_no_other_node() {
     let clean = addresses(150_000, 200_000);
@@ -468,7 +468,7 @@ fn a_stray_key_is_an_invalid_row_and_changes_no_other_node() {
     ));
 }
 
-/// The review's case: 309 unsigned keys drawn from 0..3·10^9 are not dense; under a
+/// 309 unsigned keys drawn from 0..3·10^9 are not dense; under a
 /// 64 MiB budget they build through the hash function, with a small resident part.
 #[test]
 fn sparse_integers_below_2_to_the_32_take_the_hashed_form() {
@@ -802,7 +802,7 @@ fn probe_lookups<S: ByteSource>(
     Ok(())
 }
 
-/// The review's hostile files (M1, M2): offsets of 2^40, a truncated key store, ids of
+/// Hostile files: offsets of 2^40, a truncated key store, ids of
 /// `u32::MAX` in every array of ids, a remap outside its part, a huge header. Each is
 /// refused when opened or by the look-up that meets it, with an error.
 #[test]
@@ -850,7 +850,7 @@ fn hostile_sections_are_refused_without_aborting() {
             "{result:?}"
         );
     };
-    // M1: offsets past their section (2^40), and a key store cut in half.
+    // Offsets past their section (2^40), and a key store cut in half.
     refused(&split, &keys, &|b| {
         fill_u64(b.get_mut("ids.key_offsets").unwrap(), 8, 1 << 40);
     });
@@ -862,7 +862,7 @@ fn hostile_sections_are_refused_without_aborting() {
         k.truncate(k.len() / 2);
     });
     // A record shorter than its id (two equal offsets): refused by the look-up and by
-    // `renumber` (the second review of PR #158 made `renumber` panic with it).
+    // `renumber`, which must not panic.
     refused(&slot, &keys, &|b| {
         let o = b.get_mut("ids.record_offsets").unwrap();
         let first: [u8; 8] = o[0..8].try_into().unwrap();
@@ -880,7 +880,7 @@ fn hostile_sections_are_refused_without_aborting() {
             Err(DictionaryError::Corrupt(_))
         ));
     }
-    // M2: ids of u32::MAX.
+    // Ids of u32::MAX.
     refused(&split, &keys, &|b| {
         fill_u32(b.get_mut("ids.slot_to_id").unwrap(), u32::MAX);
     });
@@ -905,7 +905,7 @@ fn hostile_sections_are_refused_without_aborting() {
     refused(&dense_renumbered, &ints, &|b| {
         fill_u32(b.get_mut("ids.id_to_rank").unwrap(), u32::MAX);
     });
-    // A remap entry outside its part (the reviewer's surviving mutation).
+    // A remap entry outside its part.
     let big = build(
         utf8,
         &users(5000, 5000),
@@ -1059,7 +1059,7 @@ fn digest_probe() {
 }
 
 /// Builds succeed, and give the same bytes, at 1, 16 and 128 threads under a 12 MiB
-/// budget (the review of PR #158 made one fail at 128 threads).
+/// budget.
 #[test]
 fn ids_do_not_depend_on_the_thread_count() {
     let exe = std::env::current_exe().unwrap();
@@ -1172,8 +1172,7 @@ fn threshold_probe() {
 
 /// Whether a build fits a budget is a function of the budget alone: just below the
 /// smallest budget that works, every run at 1, 16 and 128 threads is refused, and at
-/// it every run succeeds (the second review of PR #158 found the outcome there
-/// varying from run to run).
+/// it every run succeeds.
 #[test]
 fn success_at_the_threshold_does_not_depend_on_threads_or_runs() {
     for layout in [Layout::Split, Layout::SlotOrdered] {

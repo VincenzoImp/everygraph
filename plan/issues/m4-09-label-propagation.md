@@ -15,3 +15,5 @@ labels: type:feature, area:community, P2, risk:low, size:S
 **Acceptance**
 - Friendster preview partition in < 30 s under a 4 GiB budget
 - Matches the LDBC Graphalytics CDLP reference outputs exactly on the LDBC test graphs and on com-friendster (the reference outputs from {{#m1-20-ldbc-graphalytics}})
+
+**Depends on** {{#m3-03-semi-external}}, {{#m1-20-ldbc-graphalytics}}

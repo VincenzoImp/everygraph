@@ -43,7 +43,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:XL, lab-evidence
 
 **Second research wave (2026-11-25, `docs/research/README.md` M1, R5).** The ranged writes of the build (list records by offset ranges) go through the safe helpers of {{#m2-28-par-scatter}}, not through a raw-pointer scatter copied from the lab.
 
-**Pass 2 with the helpers of {{#m2-28-par-scatter}} (2026-11-27).**
+**Pass 2 with the helpers of {{#m2-28-par-scatter}} (2026-11-26).**
 - Pass 2 calls `par::scatter` directly. The blocks are chunks of the input, parsed again in each pass. A bucket is a range of source nodes.
 - The output is two columns, paired with `par::zip_pieces`: the wave's part of the final targets array, and a column of source ids local to the bucket. Then `SegColumns::for_each_range_mut` over the buckets moves each bucket's targets to their nodes' lists and sorts each list, together with its property columns, with one bucket-sized buffer per thread.
 - Waves of buckets bound the temporary column. The emitter sends only the wave's edges, and each wave reads the input twice.

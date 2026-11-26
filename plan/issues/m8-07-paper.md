@@ -18,3 +18,5 @@ labels: type:docs, area:launch, P2, risk:medium, size:L
 
 **Acceptance**
 - Submitted draft with a reproducible artifact
+
+**Depends on** {{#m8-03-public-benchmarks}}

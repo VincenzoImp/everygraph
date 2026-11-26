@@ -13,3 +13,5 @@ labels: type:feature, area:interop, P2, risk:low, size:M, lab-evidence
 **Acceptance**
 - twitter-2010 BV → `.eg` in < 40 s; exported BV re-imports to an identical graph
 - Default build has no webgraph code or dependencies
+
+**Depends on** {{#m2-08-csr-build}}

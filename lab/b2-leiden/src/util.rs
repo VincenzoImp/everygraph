@@ -181,6 +181,16 @@ impl SpinBarrier {
 /// Small sub-rounds (< seq_below items) are executed entirely by that thread; otherwise all threads run
 /// f1 on dynamic chunks | barrier | f2 once per thread | barrier | f3 once per thread.
 /// The result must not (and does not) depend on which path is taken.
+/// Counters of non-empty sub-rounds (m1-04): run by all threads (3 barriers each, plus the one
+/// that runs `prepare`) or by one thread (below `seq_below`). The split depends only on the data,
+/// never on the thread count: a 1-thread run counts what a parallel run would do.
+pub static SUBROUNDS_PAR: AtomicU64 = AtomicU64::new(0);
+pub static SUBROUNDS_SEQ: AtomicU64 = AtomicU64::new(0);
+#[inline]
+fn count_subround(tot: usize, seq_below: usize) {
+    if tot < seq_below { &SUBROUNDS_SEQ } else { &SUBROUNDS_PAR }.fetch_add(1, Relaxed);
+}
+
 pub fn par_subrounds<P, F1, F2, F3>(pool: &rayon::ThreadPool, nsub: usize, chunk: usize, seq_below: usize, prepare: P, f1: F1, f2: F2, f3: F3)
 where
     P: Fn(usize) -> usize + Sync,
@@ -193,6 +203,7 @@ where
         for b in 0..nsub {
             let tot = prepare(b);
             if tot > 0 {
+                count_subround(tot, seq_below);
                 f1(0, 0..tot);
                 f2(0);
                 f3(0);
@@ -219,6 +230,7 @@ where
                 if tot == 0 {
                     continue;
                 }
+                count_subround(tot, seq_below);
                 if tot < seq_below {
                     f1(tid, 0..tot);
                     f2(tid);

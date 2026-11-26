@@ -286,8 +286,8 @@
 <pre class="tb">Cell In[7], line 1
 ----> 1 g.communities(memory="4GB")
 
-File …/everygraph/graph.py:412, in Graph.communities(self, memory, precision, deterministic)
-    410 plan = self._plan("communities", memory=memory, precision=precision)
+File …/everygraph/graph.py:412, in Graph.communities(self, memory, deterministic)
+    410 plan = self._plan("communities", memory=memory)
     411 if not plan.fits:
 --> 412     raise InsufficientBudget(plan)
 
@@ -392,7 +392,6 @@ shape: (5, 3)
 (212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
 
   • raise the budget:        <span class="acc">g.communities(memory="6GB")</span>     ← smallest that works
-  • or use less state:       <span class="acc">g.communities(precision="low")</span>  → needs 3.4 GB
   The edges themselves stay on disk either way.</div></div>
 
       <div class="txt"><h4>A result cut short <span>cell 8</span></h4>
@@ -575,13 +574,10 @@ pr.top(<span class="n">5</span>)</div>
               <div class="eg-need"><div class="eg-bar"><i style="width:66.67%"></i><i class="over" style="left:66.67%;width:18.33%"></i></div>
                 <span class="mark" style="left:66.67%"></span><span class="mlab" style="left:66.67%;transform:translateX(-100%);padding-right:6px">budget <span class="m">4.0<span class="u"> GB</span></span></span>
                 <span class="mlab eg-err" style="left:66.67%;padding-left:6px"><span class="m">1.1<span class="u"> GB</span></span> over</span><span class="mlab" style="left:0"><span class="m">0</span></span><span class="mlab" style="right:0"><span class="m">6<span class="u"> GB</span></span></span></div>
-              <div class="eg-ways">
+              <div class="eg-ways" style="grid-template-columns:1fr">
                 <div class="eg-way"><h4><i>1</i>Raise the budget</h4>
                   <div class="eg-cmd"><span>g.communities(memory="6GB")</span><button class="btn sm">Copy</button></div>
                   <p>The smallest budget that works.</p></div>
-                <div class="eg-way"><h4><i>2</i>Or use less state</h4>
-                  <div class="eg-cmd"><span>g.communities(precision="low")</span><button class="btn sm">Copy</button></div>
-                  <p>Needs <span class="m">3.4<span class="u"> GB</span></span>.</p></div>
               </div>
               <p class="eg-fine" style="margin-top:var(--space-3)">The edges themselves stay on disk either way.</p>
             </div>

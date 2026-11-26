@@ -2,7 +2,7 @@
 
 //! The heap a dictionary build uses, against the budget its accountant was given: the
 //! peak of the bytes the program holds from the allocator, above what it held before
-//! the build, must not exceed the budget (review of PR #158, S5/S6). Spilled bytes go
+//! the build, must not exceed the budget. Spilled bytes go
 //! to files, so they are not on the heap. And the heap of the text reader on zstd
 //! frames that declare a large window (issue #191).
 //!
@@ -10,7 +10,7 @@
 //! top of it is issue `m2-19-allocator-policy`.
 //!
 //! Counting needs a global allocator, which needs `unsafe` (module `counting`,
-//! CONTRIBUTING.md, "`unsafe`"). The cases here are small enough for CI; the review's
+//! CONTRIBUTING.md, "`unsafe`"). The cases here are small enough for CI; the large
 //! sizes run with `cargo test --release -p everygraph-ingest --test heap_peak --
 //! --ignored`.
 
@@ -468,10 +468,10 @@ fn the_heap_stays_within_the_budget() {
     }
 }
 
-/// The review's sizes (15.5 M short keys under 256 MiB, and the others scaled alike).
+/// Large sizes: 15.5 M short keys under 256 MiB, and the others scaled alike.
 #[test]
 #[ignore = "minutes in a release build: cargo test --release -p everygraph-ingest --test heap_peak -- --ignored"]
-fn the_heap_stays_within_the_budget_at_the_review_sizes() {
+fn the_heap_stays_within_the_budget_at_large_sizes() {
     check(&cases(16));
 }
 

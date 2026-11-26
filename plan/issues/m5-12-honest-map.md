@@ -16,4 +16,6 @@ labels: type:docs, area:map, P1, risk:low, size:S, lab-evidence
 - No screenshot can be exported without its caption
 - The documentation page is linked from the viewer
 
+**Depends on** {{#m5-06-viewer-ux}}
+
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The caption strip, the "About this map" panel and the distinct drawing of artefact regions are approved as shown in `design/preview/style/viewer.html`; exported figures always carry the caption (`export.html`).
