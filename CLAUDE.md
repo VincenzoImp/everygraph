@@ -159,6 +159,11 @@ network, not on this machine. So:
   they are needed; every milestone report lists source and test lines per crate, and a crate
   that grew more than its features justify gets a cleanup issue.
 
+- **Where tests live.** Rust's convention, kept strictly: tests of public behaviour go in
+  the crate's `tests/` directory; a source file may hold only a short `#[cfg(test)] mod
+  tests` for private helpers that `tests/` cannot reach. A unit-test module that grows past
+  about 150 lines moves to a sibling `tests.rs` submodule or to `tests/`. Shared test
+  helpers live once, in a `tests/support` module or a dev-only crate.
 - **Periodic sweep (owner's request, 2026-11-26).** Every few hours the coordinator runs a
   sweep agent over the whole repository and the GitHub project: drift, contradictions, old
   material (previews, style pages, lab write-ups, docs), dead files and code, stale issues
