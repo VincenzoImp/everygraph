@@ -515,6 +515,54 @@ fn choose(
     }
 }
 
+/// How a filtered view is held (ADR 0010; `edge_map::View`). Either gives the same
+/// bits (DESIGN D14).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewForm {
+    /// A mask over the parent's lists: the bitsets, the map to parent ids and the
+    /// offsets.
+    Mask,
+    /// The view's own lists, copied once into the budget.
+    Materialized,
+}
+
+/// How many times `op` reads every list, about: what a materialized view is paid back
+/// by.
+#[must_use]
+pub fn passes(op: &Operation) -> u32 {
+    match op {
+        Operation::PageRank { params, .. } => params.max_iter,
+        Operation::Components | Operation::KCore | Operation::Bfs { .. } => 1,
+        Operation::Degrees => 0,
+    }
+}
+
+/// Bytes of a materialized view of `nodes` nodes and `entries` entries: its offsets and
+/// targets (`edge_map::RawCopy`).
+#[must_use]
+pub fn materialized_bytes(nodes: u32, entries: u64) -> u64 {
+    8 * (u64::from(nodes) + 1) + 4 * entries
+}
+
+/// The form of a view of `nodes` nodes and `entries` entries for work that reads every
+/// list `passes` times, with `room` bytes of the budget free: materialized when the work
+/// reads its lists more than once and the copy takes at most the raw tier's share of
+/// `room`; a mask otherwise.
+///
+/// This rule is provisional (ADR 0010: the selectivity threshold is not ratified). In
+/// the lab the materialized view ran each `PageRank` iteration faster than the mask at
+/// every selectivity measured (1–90 %, orkut), and its build cost about one to two and a
+/// half unfiltered iterations; the mask was ahead for work of one pass (BFS at 50 %)
+/// and on memory. #93's crossover measurement replaces it.
+#[must_use]
+pub fn view_form(passes: u32, nodes: u32, entries: u64, room: u64) -> ViewForm {
+    if passes >= 2 && cost::fits_with_margin(materialized_bytes(nodes, entries), room) {
+        ViewForm::Materialized
+    } else {
+        ViewForm::Mask
+    }
+}
+
 /// Whether `op` is a traversal of the whole graph, which the raw copy speeds up
 /// (ADR 0004). A BFS cut at a depth reads a few lists: it never repays the decode.
 #[must_use]

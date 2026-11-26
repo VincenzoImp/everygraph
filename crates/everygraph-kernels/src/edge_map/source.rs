@@ -148,7 +148,7 @@ pub unsafe trait Source: Sync {
 const CHECK_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
 
 /// Whether every target is below `n`.
-fn in_range(targets: &[u32], n: u32) -> bool {
+pub(super) fn in_range(targets: &[u32], n: u32) -> bool {
     targets.is_empty() || targets.iter().fold(0, |m, &t| m.max(t)) < n
 }
 
@@ -374,6 +374,76 @@ impl RawCopy {
         Ok(Self { offsets, parts, n })
     }
 
+    /// Copies the lists of any `source` into arrays reserved against `memory`, part by
+    /// part, each read in parallel by tasks of about 2^16 entries, and checks that every
+    /// target is a node. This materializes a [`View`](super::View).
+    ///
+    /// # Errors
+    ///
+    /// As [`decode`](Self::decode); [`Error::Invalid`] for a list of another length
+    /// than the source's offsets say; the source's errors.
+    ///
+    /// # Panics
+    ///
+    /// If `source` breaks the contract of [`Source`].
+    pub fn copy<S: Source>(source: &S, memory: &Memory) -> Result<Self, Error> {
+        let n = source.nodes();
+        let mut offsets = SegVec::try_with_len(memory, "raw copy offsets", ix(n.into()) + 1, 0)?;
+        {
+            let all = offsets
+                .as_mut_slice()
+                .ok_or(Error::Invalid("raw copy: offsets longer than one segment"))?;
+            par::for_each_chunk_mut(all, CHECK_GRAIN, |first, chunk| {
+                for (v, o) in (first..).zip(chunk) {
+                    *o = source.entry_offset(u32::try_from(v).expect("a node or the end"));
+                }
+            });
+            check_offsets(all, source.entries())?;
+        }
+        let at = offsets.as_slice().ok_or(Error::Invalid("one segment"))?;
+        let mut parts = Vec::new();
+        for nodes in cut(at, Self::PART_ENTRIES)? {
+            let base = at[ix(nodes.start.into())];
+            let len = ix(at[ix(nodes.end.into())] - base);
+            let mut targets = SegVec::try_with_len(memory, "raw copy of the edges", len, 0)?;
+            let out = targets
+                .as_mut_slice()
+                .ok_or(Error::Invalid("raw copy: a part longer than one segment"))?;
+            super::view::by_chunks(out, at, nodes.clone(), |task, rows| {
+                let mut reader = source.reader(memory, 8192, 1024)?;
+                let task_base = at[ix(task.start.into())];
+                let mut wrong = false;
+                source.scan(
+                    &mut reader,
+                    task,
+                    |_| true,
+                    |v, _, list| {
+                        let v = ix(v.into());
+                        let (a, b) = (ix(at[v] - task_base), ix(at[v + 1] - task_base));
+                        match rows.get_mut(a..b) {
+                            Some(dst) if dst.len() == list.len() => dst.copy_from_slice(list),
+                            _ => wrong = true,
+                        }
+                    },
+                )?;
+                if wrong {
+                    Err(Error::Invalid(
+                        "a list of another length than its offsets say",
+                    ))
+                } else {
+                    Ok(())
+                }
+            })?;
+            if !in_range(out, n) {
+                return Err(Error::Invalid(
+                    "a copied list names a node outside the graph",
+                ));
+            }
+            parts.push((nodes.start, targets));
+        }
+        Ok(Self { offsets, parts, n })
+    }
+
     /// The node ranges of the parts of a copy whose entry offsets are `offsets`: each
     /// part ends at a list end and holds at most [`PART_ENTRIES`](Self::PART_ENTRIES)
     /// entries.
@@ -403,7 +473,7 @@ impl RawCopy {
 
     /// The first entry and the list of `v`, from the part `part` it is in.
     #[inline]
-    fn get_in(&self, part: usize, v: u32) -> (u64, &[u32]) {
+    pub(super) fn get_in(&self, part: usize, v: u32) -> (u64, &[u32]) {
         let at = self.at();
         let (first_node, targets) = &self.parts[part];
         let base = at[ix((*first_node).into())];
@@ -414,7 +484,7 @@ impl RawCopy {
 
     /// The part that holds the list of `v`.
     #[inline]
-    fn part_of(&self, v: u32) -> usize {
+    pub(super) fn part_of(&self, v: u32) -> usize {
         self.parts.partition_point(|(first, _)| *first <= v) - 1
     }
 }
