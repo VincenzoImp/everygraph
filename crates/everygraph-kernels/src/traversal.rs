@@ -113,13 +113,20 @@ pub fn bfs<'g, S: Source>(
                         (),
                         |v| at[v].load(Relaxed) == UNREACHED,
                         |found: &mut u64, (), _, row, _| {
-                            if row.list.iter().any(|&u| front.contains(u)) {
+                            let hit = row.list.iter().position(|&u| front.contains(u));
+                            #[cfg(feature = "frontier-counters")]
+                            crate::edge_map::counters::examined(
+                                hit.map_or(row.list.len(), |i| i + 1),
+                            );
+                            if hit.is_some() {
                                 at[row.node].store(level + 1, Relaxed);
                                 next.insert(row.node);
                                 *found += 1;
                             }
                         },
                     )?;
+                    #[cfg(feature = "frontier-counters")]
+                    crate::edge_map::counters::mark("bfs.bottom-up", level.into());
                     level += 1;
                     std::mem::swap(&mut front, &mut next);
                     next.clear();
@@ -138,7 +145,11 @@ pub fn bfs<'g, S: Source>(
             }
             _ => {
                 edges_to_check = edges_to_check.saturating_sub(scout);
+                #[cfg(feature = "frontier-counters")]
+                crate::edge_map::counters::tag("bfs.top-down", level.into());
                 scout = out.frontier(frontier.as_slice()?, |scout: &mut u64, row, _| {
+                    #[cfg(feature = "frontier-counters")]
+                    crate::edge_map::counters::examined(row.list.len());
                     for &v in row.list {
                         let d = &at[v];
                         if d.load(Relaxed) == UNREACHED
@@ -150,6 +161,8 @@ pub fn bfs<'g, S: Source>(
                         }
                     }
                 })?;
+                #[cfg(feature = "frontier-counters")]
+                crate::edge_map::counters::mark("bfs.top-down", level.into());
                 next.list_into(&mut frontier)?;
                 next.clear();
                 level += 1;
