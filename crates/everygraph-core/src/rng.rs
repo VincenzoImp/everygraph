@@ -33,7 +33,7 @@
 //! not use `rand` distributions: their algorithms are not promised to stay the same
 //! across versions and platforms (rand book, "Reproducibility").
 
-/// Multipliers and key increments of Philox4×32 (Salmon et al. 2011, § 5.4).
+/// Multipliers and key increments of Philox4×32 (Salmon et al. 2011).
 const M0: u32 = 0xD251_1F53;
 const M1: u32 = 0xCD9E_8D57;
 const W0: u32 = 0x9E37_79B9;
@@ -56,7 +56,7 @@ fn mul_hi_lo(a: u32, b: u32) -> (u32, u32) {
 
 /// Philox4×32 with 10 rounds: the block of four words for `counter` under `key`.
 fn philox4x32_10(counter: [u32; 4], key: [u32; 2]) -> [u32; 4] {
-    let [mut c, mut k] = [counter, [key[0], key[1], 0, 0]];
+    let (mut c, mut k) = (counter, key);
     for round in 0..10 {
         if round > 0 {
             k[0] = k[0].wrapping_add(W0);
@@ -86,8 +86,9 @@ pub fn unit_f64(bits: u64) -> f64 {
     (bits >> 11) as f64 * SCALE
 }
 
-/// An integer in `0..n` from `bits`, by multiply and shift (Lemire 2019). Each value
-/// has a probability within n / 2^64 of 1 / n. Returns 0 when `n` is 0.
+/// An integer in `0..n` from `bits`, by multiply and shift (Lemire, ACM TOMACS 2019).
+/// The probability of each value differs from 1 / n by less than 2^-64. Returns 0 when
+/// `n` is 0.
 #[must_use]
 pub fn below(bits: u64, n: u64) -> u64 {
     ((u128::from(bits) * u128::from(n)) >> 64) as u64

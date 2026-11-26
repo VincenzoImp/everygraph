@@ -17,8 +17,8 @@ const PENDING_LIMIT: u32 = 1 << 30;
 
 /// The exact sum of the `f64` values added to it, rounded to nearest only when read.
 ///
-/// For global scalars — a total weight, a modularity, the rank held by dangling
-/// nodes, a residual — whose parts are summed per chunk: each chunk adds its values into its own
+/// For global scalars — a total weight, a modularity, the rank held by dangling nodes, a
+/// residual — whose parts are summed per chunk: each chunk adds its values into its own
 /// `ExactSum`, and the parts are merged in any order. The value does not depend on the
 /// chunk size, the thread count or the merge order (rule R6 of
 /// `docs/research/sota-numerics.md`), so a reduction tree does not have to be fixed.

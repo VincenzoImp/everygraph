@@ -40,7 +40,7 @@ step wasm-toy python3 tools/check_wasm_toy.py
 step wasm-codec python3 tools/check_wasm_codec.py
 step msrv cargo +1.87 test --workspace --locked
 if [ $miri = 1 ]; then
-  step miri-core cargo +nightly miri test -p everygraph-core --no-default-features
+  step miri-core cargo +nightly miri test -p everygraph-core --no-default-features -- --skip golden_vectors
   step miri-format cargo +nightly miri test -p everygraph-format
   step tsan python3 tools/check_tsan.py
 fi

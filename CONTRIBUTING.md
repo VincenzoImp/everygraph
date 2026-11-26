@@ -70,9 +70,9 @@ machine without the 32-bit C runtime, and the required check for any module that
 contains `unsafe`:
 
 ```sh
-cargo +nightly miri test -p everygraph-core --no-default-features
-cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu
-MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core
+cargo +nightly miri test -p everygraph-core --no-default-features -- --skip golden_vectors
+cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu -- --skip golden_vectors
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core -- --skip golden_vectors
 cargo +nightly miri test -p everygraph-format
 RUSTFLAGS="-C target-feature=+ssse3" cargo +nightly miri test -p everygraph-format --test adjacency
 cargo +nightly miri test -p everygraph-io --test allocation_failure
@@ -81,6 +81,9 @@ cargo +nightly miri test -p everygraph-io --test allocation_failure
 The last two run the adjacency codec's tests on the scalar decoder, then on the SSSE3 one
 (compiled in, so that run-time detection finds it under Miri). Its tests run a sample under
 Miri (`cfg!(miri)`): the full corpus takes about 15 minutes there.
+
+The core's runs skip the numerics golden vectors (`tests/numerics_golden.rs`), which take
+too long under Miri; the native test runs on every target cover them.
 
 The third command runs the tests on rayon's thread pool. It needs the two flags because
 of rayon's dependencies, not because of this code: `crossbeam-epoch` keeps an intrusive
