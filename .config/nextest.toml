@@ -28,3 +28,9 @@ retries = 2
 # slower: the slowest took about 60 s on a loaded lab machine (2026-11-26).
 [profile.default-miri]
 slow-timeout = { period = "120s", terminate-after = 10 }
+
+# .github/workflows/determinism.yml: one test of the full grid runs every combination of
+# threads, chunkings and sources over a corpus, and Miri runs many schedules of a test in
+# one process.
+[profile.determinism]
+slow-timeout = { period = "120s", terminate-after = 15 }

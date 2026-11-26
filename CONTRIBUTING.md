@@ -181,7 +181,7 @@ What is mutated:
 
 ## CI
 
-GitHub Actions, six workflows under `.github/workflows/`, on GitHub-hosted runners. The
+GitHub Actions, seven workflows under `.github/workflows/`, on GitHub-hosted runners. The
 repository is public, so standard runners cost nothing. The queue is still shared by every
 agent's pull request, so on a pull request the expensive jobs run only when it changed
 what they check.
@@ -194,6 +194,7 @@ what they check.
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 | `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, `check_schemas.py docs/ux-contract.md docs/api-sketch.md` (with `jsonschema`, through `uv`), `plan/publish.py VincenzoImp/everygraph --dry-run`, and the design system: `design/system/tools/build.py --check`, `measure.mjs` (Node), `lint_colours.py`. Standard library only, except the schema check |
 | `dco.yml` | every pull request | the `Signed-off-by` check ("Sign-off" below) |
+| `determinism.yml` | nightly at 01:53 UTC; by hand; pull requests that change it | **grid**: `everygraph-determinism` with `EVERYGRAPH_DETERMINISM=full` (every combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, over a third of the CI corpus) and the determinism tests of the kernels, Leiden and the build, optimized. **schedules**: Miri with `-Zmiri-many-seeds` over seeds 0 to 15, in four jobs, on the tests of the core's `par`. A failed scheduled run opens an issue. The sampled grid runs in `ci.yml`'s test job |
 
 Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
 in the lint job, from `git diff` of GitHub's merge commit against its base (run it
@@ -295,6 +296,7 @@ describing it).
 | `everygraph-wasm` | browser bindings | #108 | yes, built in CI |
 | `everygraph-bench` | the `everygraph-bench` harness; the dataset registry and fetcher (`datasets/`) | #4, #5 | no |
 | `everygraph-oracle` | the correctness oracle: generators, references, comparators, invariants, the `KernelUnderTest` trait (a development crate, `publish = false`, used by other crates' tests only; see `oracle/README.md`) | #6 | no |
+| `everygraph-determinism` | the determinism suite of DESIGN D14: the build, the kernels and Leiden at every thread count, chunking, source and repetition; order probes; Leiden on views and renumbered ids (a development crate, `publish = false`) | #54 | no |
 
 The oracle's reference implementations are Python (NetworkX, python-igraph, scipy) in
 `oracle/`, a `uv` project with a lock file. Python lives there and nowhere else: no engine
@@ -393,6 +395,7 @@ checked:
 |---|---|
 | No std transcendental (`sin`, `exp`, `ln`, `powf`, `powi`, … on `f64` and `f32`), no `libm::pow`, and no `rand`, `getrandom` or `fastrand` generator in a crate that produces results; use `everygraph_core::math` and `everygraph_core::rng` | The same list in the `clippy.toml` of the core, the format and the four kernel crates, and in the root `clippy.toml`, which every other crate without a `clippy.toml` of its own reads. `tools/numerics_lint.py` writes the seven copies, and its `--check` (in the lint job) fails if one differs. The canary probes every product crate. The harness has its own empty `clippy.toml`: its statistics are not results |
 | No `rand` except through proptest, no `getrandom` except through `rand_core` and TLS, no `fastrand` | `deny.toml` |
+| A result does not depend on the thread count, chunking, source or repetition; the edge-map reduction and `par::map_ranges` add in their specified order | `crates/everygraph-determinism` (weighted graphs with weights over 2^-20 to 2^21; order probes, R15b), sampled on every pull request, in full in `determinism.yml` |
 | The pinned functions, `sqrt`, `mul_add`, `ExactSum` and the generator give the same bits on x86-64, i686, aarch64, macOS, Windows and wasm32 | `crates/everygraph-core/tests/numerics_golden.rs` in every test run of the core, and in Node through `tools/check_wasm_toy.py` |
 
 To change the numerics list, edit `tools/numerics_lint.py` and run it. Not checked by
