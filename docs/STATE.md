@@ -78,6 +78,8 @@ everything prepared.
 
 **Decision changes recorded:** ADR 0021 and DESIGN D21 amended on 2026-11-26 (PR #272): the query language comes by choosing an embedded engine (LadybugDB on Arrow CSR or Grafeo over a read-only `.eg` store) and bridging to it, not by our own parser; review in `docs/research/sota-review-2026-11.md`.
 
+**Pace from 2026-11-26 evening (owner):** finish the pull requests in flight, then no new implementation until an official measurement window has run (harness A/A, reference runs on orkut, the official specs of the merged kernels). Opus medium by default, high only for kernels, formats and concurrent code.
+
 ## Lessons that still change behaviour
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.
