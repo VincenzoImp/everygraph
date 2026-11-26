@@ -1,8 +1,8 @@
 # ADR 0016 — Two community outputs, one artifact: the partition T inside the map tree
 
-- **Status:** accepted; amended by #19 (2026-11-26)
+- **Status:** accepted
 - **Decision:** D16 in [DESIGN.md](../DESIGN.md#4-decisions)
-- **Date:** 2026-11-25; amended 2026-11-26
+- **Date:** 2026-11-25; amended by #19 on 2026-11-26
 
 ## Context
 
@@ -11,7 +11,7 @@ bounded number of children per region (for layout and tiles). One natural hierar
 not serve both: its parents have up to hundreds of thousands of children (evidence of
 2026-11-25, below). #19 compared five ways to shape a map hierarchy (FINDINGS § M1-05).
 
-## Decision (amended by #19)
+## Decision
 
 - Community detection produces the partition T (the best modularity found) and a map tree
   built from T.
@@ -34,9 +34,9 @@ not serve both: its parents have up to hundreds of thousands of children (eviden
 - **Drawing aids.** Aggregates, subdivisions and layout-derived groups are drawing aids.
   They are drawn and labelled as such and never reported as communities.
 
-## Evidence for the amendment (#19; FINDINGS § M1-05)
+## Evidence
 
-Official rows are in `bench/results/hierarchy-shaping/`. The other records are
+Measured by #19 (FINDINGS § M1-05). Official rows are in `bench/results/hierarchy-shaping/`. The other records are
 exploratory-deterministic (shared machine, deterministic metrics) under
 `lab/m1-05-hierarchy-shaping/results/`.
 - **Fan-out** is at most 64. Parents with 4–64 children:
@@ -173,4 +173,4 @@ Idle, 16 threads, async Leiden unless noted (FINDINGS § B2 "Hierarchy for the m
 
 ## Closed by
 
-#19 (hierarchy shaping, PR #162); productionized in #63.
+#19 (hierarchy shaping); productionized in #63.

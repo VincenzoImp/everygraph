@@ -88,7 +88,7 @@ A measurable condition.
 | [0013](0013-threads-per-kernel.md) | Thread count chosen per kernel | accepted, partly validated | #22 |
 | [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #18, #54, #60 |
 | [0015](0015-leiden-visiting-order.md) | Leiden with block-permuted order and a connectivity guarantee | accepted, partly validated | #24, #57 |
-| [0016](0016-two-community-outputs.md) | Two community outputs: partition and map hierarchy | accepted, partly validated | #19 |
+| [0016](0016-two-community-outputs.md) | Two community outputs, one artifact: the partition T inside the map tree | accepted | #19 |
 | [0017](0017-layout-disc-packing.md) | Layout by hierarchy-constrained disc packing | accepted, partly validated | #21 |
 | [0018](0018-data-tiles.md) | Data tiles in PMTiles v3 and a WebGL2 viewer | accepted, partly validated | #26, #15 |
 | [0019](0019-python-pyo3-arrow.md) | Python through PyO3 abi3 and Arrow PyCapsule | accepted | — |
