@@ -47,8 +47,8 @@ const SIZES: [u64; 3] = [250_000, 500_000, 1_000_000];
 /// Threads of every build: retention is kept per allocator arena, about one per thread.
 const THREADS: usize = 8;
 /// Most bytes the excess may grow from the smallest build to the largest. In
-/// exploratory runs of this test (a loaded machine, PR #NNN) it grew by 16–28 MB on
-/// glibc's heap and by 1 MB or less with the page backend.
+/// exploratory runs of this test (a loaded machine, four cores, PR #NNN) it grew by
+/// 18–52 MB on glibc's heap in 5 runs and by 3 MB or less with the page backend in 50.
 const GROWTH_LIMIT: i64 = 8 << 20;
 
 /// Set in a child: how many keys to build, and where the buffers come from.
