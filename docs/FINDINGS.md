@@ -177,7 +177,8 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   the first dedupe pass: 15 M keys/s (≈4 min per 3.6B endpoints, extrapolated).
   *Note 2026-11-25 (D8, ADR 0008, #34):* the product does not use the `ptr_hash` crate;
   it implements the same construction in the workspace. The MPHF numbers above belong to
-  the crate, not to that implementation.
+  the crate, not to that implementation. The implementation's official numbers are in
+  ADR 0008 (`bench/results/id-dictionary/`).
 - **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50), shared machine:**
   degree/neighbors 0.1–0.6 µs; common neighbors 0.4–0.8 µs; 3-hop with 10k budget
   56–115 µs; bidirectional BFS 0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter). p99 tails

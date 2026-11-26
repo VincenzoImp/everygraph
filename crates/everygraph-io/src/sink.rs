@@ -217,7 +217,7 @@ impl BlockWriter {
         if !self.direct || (aligned_in_memory && data.len().is_multiple_of(SEGMENT_ALIGN)) {
             return sys::write_all_at(&self.file, data, offset);
         }
-        // TODO(#31 integration): up to 1 MiB allocated per call, outside the memory
+        // TODO(#200): up to 1 MiB allocated per call, outside the memory
         // accountant.
         // Direct and not aligned in memory, or the last partial block: copy into an
         // aligned buffer, padding the last block with zeros (`finish` cuts it off).

@@ -171,7 +171,7 @@ impl FileSource {
     }
 }
 
-// TODO(#31 integration): 1 MiB per thread that ever bounced, kept until the thread
+// TODO(#200): 1 MiB per thread that ever bounced, kept until the thread
 // exits, outside the memory accountant.
 thread_local! {
     static BOUNCE_BUF: RefCell<Option<AlignedBuf>> = const { RefCell::new(None) };
