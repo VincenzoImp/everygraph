@@ -11,7 +11,7 @@ the level below. Level 1 is the coarsest (the partition, `docs/api-sketch.md` §
 level `L` the finest. Every level holds exact counts and its **quotient graph**.
 
 Contents: 1 Names · 2 Numbering · 3 What a writer and a checker guarantee · 4 Versions ·
-5 Decided here.
+5 Decided here · 6 The map tree.
 
 ---
 
@@ -100,3 +100,83 @@ fills it is a new version, and so a new key (`eg-container.md` § 6).
   partition whatever the depth.
 - **The cut is derived, not stored**: `S(c) − 2·L(c)` is exact, and a stored copy could
   only disagree.
+
+## 6. The map tree
+
+The **map tree** of a partition (DESIGN D16, ADR 0016) is a tree of regions: the root is
+the graph, and the regions without children, the leaves, partition its nodes. It is
+the result `results/map/<key>` (operation `map`, version 1). Its key holds the options
+of the Leiden run that found the partition (as in § 1), and `fan_out` (the most children
+of a region), `leaf` (the most nodes of a region that is not split) and `super` (`auto`,
+`always` or `never`). A rebuild with the same options replaces the map; whether the
+map it replaces had a super level is an input of the rebuild, not part of the key.
+
+**Numbering.** Region 0 is the root. The regions are numbered breadth first: every
+region after its parent, and the children of a region together, by decreasing node
+count, then by smallest node. So the numbering is a function of the tree.
+
+| Section | Kind, type | Values |
+|---|---|---|
+| `<result>` | 10, `u64` | the regions `R`, the nodes `n`, and 1 when the map has a super level, else 0 |
+| `<result>/parent` | 10, `u32` | `R` values: the parent of each region; 0 for the root |
+| `<result>/kind` | 10, `u32` | the kind of each region (below) |
+| `<result>/nodes` | 10, `u32` | the nodes inside each region |
+| `<result>/internal` | 10, `u64` | `L(r)`: the weight of the pairs inside each region, a kept loop once |
+| `<result>/volume` | 10, `u64` | `S(r)`: the sum of the strengths of its nodes, a kept loop's `2w` included |
+| `<result>/membership` | 10, `u32` | `n` values: the leaf holding each node |
+| `<result>/siblings.index`, `.data`, `.events` | 11, 12, 13 | the sibling graph |
+
+| Code | Kind | Drawn as (`design/preview/style/SPEC.md`, "The map") |
+|---|---|---|
+| 0 | root: the graph | — |
+| 1 | super: a group of communities of the partition, found by Leiden on the whole graph at a lower resolution | solid outline |
+| 2 | community: a community of the partition | solid outline |
+| 3 | subcommunity: a part of a community, split again for the map | dashed outline |
+| 4 | aggregate: the smaller children of one parent, "+N smaller communities"; or the communities without an edge, under the root | hatched; not drawn when its parent is an aggregate |
+
+The communities without an edge (their nodes have no neighbour other than themselves)
+are one aggregate under the root, and that aggregate takes one of the root's `fan_out`
+places: when the root would have more children, it keeps `fan_out − 2` of the others
+and puts the rest in its tail aggregate.
+
+**The sibling graph** is an undirected adjacency (`eg-adjacency.md`) over the `R`
+regions. It has an entry between two children `a ≠ b` of one region when some pair of
+nodes joins them, in both lists; its number of events is the weight of the pairs
+between them. A pair of nodes counts once: between the two children of its leaves'
+lowest common ancestor that hold its two nodes. A pair inside a leaf counts in that
+leaf's `internal` only. When every entry weighs 1 there is no `.events` section. The
+graph between the children of any region, which the layout places, is that region's
+part of it.
+
+The community of the partition that holds a node is the region of kind 2 on its path
+from the root; there is exactly one.
+
+`everygraph verify --deep` checks every stored map of the file's graph:
+
+1. The parents and the numbering are those above; no region has more than `fan_out`
+   children (from the record); kind 0 is the root's only.
+2. On every path from the root, a super region and a community follow no community, a
+   subcommunity follows one, an aggregate follows anything; every leaf has a community
+   on its path. `membership` names leaves only.
+3. The `nodes` of each leaf are its members in `membership`, and those of every other
+   region the sum of its children's; no region is empty.
+4. Every entry of the sibling graph joins two children of one region. For every region
+   `p` with children: `volume(p)` is the sum of its children's, and `internal(p)` the
+   sum of its children's plus half the weight of the entries between them. So the
+   root's are `W` and `2W`, with integer sums that hold bit for bit.
+5. Against the graph (`adjacency.out`, when undirected and in memory): the `internal`
+   and `volume` of every leaf equal those of `membership`; and for every region `a`,
+   the sum `Σ_b S[a][b]·h(b)` over its row equals that over the pairs
+   of nodes that the tree gives to `a`, with a random 64-bit `h` per region, modulo
+   `2^64 − 59`, as in § 3, from the purpose `HCHK`, counter `[region, 0, 0, 1]` and seed
+   0.
+
+**Decided here.**
+
+- **A tree with parent pointers and one sibling graph**, not a hierarchy by levels:
+  the map's levels are not partitions of the nodes, and the sibling graph is what the
+  layout reads. Every pair of nodes counts once, so its entries are at most the
+  graph's.
+- **The kind is stored, the aggregate's count is not**: the communities under an
+  aggregate are its descendants of another kind through aggregates, and a stored copy
+  could only disagree.

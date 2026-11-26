@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The check of a stored community hierarchy on untrusted bytes (issue #62): what
-//! `everygraph verify --deep` runs after the format's own checks. Nothing may panic.
+//! The check of a stored community hierarchy and map tree on untrusted bytes (issues #62,
+//! #63): what `everygraph verify --deep` runs after the format's own checks. Nothing may
+//! panic.
 //!
 //! The first byte picks the mode:
 //! - 0: a whole file, opened and checked;
 //! - 1: a decision seed: the first half of the input is a small graph, whose Leiden
-//!   hierarchy is stored in its graph file; the second half damages that file. The
-//!   undamaged file must check intact.
+//!   hierarchy and map tree are stored in its graph file; the second half damages that
+//!   file. The undamaged file must check intact.
 
 #![no_main]
 
 use everygraph_community::hierarchy::{self, store};
+use everygraph_community::map::{self, MapOptions};
 use everygraph_community::{Options, leiden};
 use everygraph_core::{Memory, MemorySource};
 use everygraph_format::adjacency::encode;
@@ -70,6 +72,11 @@ fn build(bytes: &[u8]) -> Option<Vec<u8>> {
     let key = hierarchy::key(w.graph_identity(), &options).expect("a key");
     store(&mut w, &key, &Provenance::default(), &csr, &memory, Settings::default(), &c)
         .expect("the hierarchy is stored");
+    let o = MapOptions { fan_out: 4..=4, leaf: 4, ..MapOptions::default() };
+    let tree = map::build(&csr, &memory, Settings::default(), &c.membership, &o).expect("a map");
+    let key = map::key(w.graph_identity(), &o).expect("a key");
+    map::store(&mut w, &key, &Provenance::default(), &csr, &memory, Settings::default(), &tree)
+        .expect("the map is stored");
     w.commit().expect("commit");
     Some(w.into_sink().into_inner())
 }

@@ -7,6 +7,8 @@ labels: type:feature, area:community, P1, risk:medium, size:M, lab-evidence
 
 Under the nesting constraint, the objective decomposes by region: modularity with full-graph degrees, the global m and a per-region resolution, as now, or CPM, which is unchanged on subgraphs (Traag et al. 2011). Solving each region alone therefore makes "region alone = region in the union" hold by construction. graspologic's `hierarchical_leiden` does this, serially (`docs/research/sota-communities.md` § 3 D16, § 4 challenge 4).
 
+**Built by PR #285 ({{#m4-07-map-hierarchy}}).** Each region is solved alone, by Leiden on its own induced subgraph with its own visiting order and stopping test; regions below 2^22 entries run several at a time, larger ones alone; results are committed in region order. So "region alone = region in the union" holds by construction, and the tree is the same at any thread count (`tests/map.rs`). Left: the seed per region and the measurements below.
+
 **Scope**
 - [ ] Each oversized region is one job, with seed = hash(seed, region id), its own visiting order and its own stopping test
 - [ ] Small regions batched into one job by a size threshold that depends on the region, never on the budget or the thread count; one large region at a time bounds memory
