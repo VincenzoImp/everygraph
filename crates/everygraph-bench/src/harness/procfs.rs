@@ -409,6 +409,36 @@ impl Cgroup {
         Ok(parse_flat_keyed(&self.read("cpu.stat")?))
     }
 
+    /// A new child cgroup `name`.
+    ///
+    /// # Errors
+    ///
+    /// It cannot be made (the cgroup is not this user's, or the child exists).
+    pub fn make_child(&self, name: &str) -> Result<Self, String> {
+        let dir = self.dir.join(name);
+        std::fs::create_dir(&dir).map_err(|e| format!("making {}: {e}", dir.display()))?;
+        Ok(Self { dir })
+    }
+
+    /// Writes `value` to the cgroup's file `name`.
+    ///
+    /// # Errors
+    ///
+    /// The kernel refuses it.
+    pub fn write(&self, name: &str, value: &str) -> Result<(), String> {
+        let p = self.dir.join(name);
+        std::fs::write(&p, value).map_err(|e| format!("writing {value:?} to {}: {e}", p.display()))
+    }
+
+    /// Moves process `pid`, with all its threads, into the cgroup.
+    ///
+    /// # Errors
+    ///
+    /// The kernel refuses the move.
+    pub fn add_process(&self, pid: u32) -> Result<(), String> {
+        self.write("cgroup.procs", &pid.to_string())
+    }
+
     /// The process ids in the cgroup.
     ///
     /// # Errors
