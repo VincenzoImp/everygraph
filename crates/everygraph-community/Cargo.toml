@@ -10,5 +10,18 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+# A library does not decide whether threads exist (CONTRIBUTING.md, "Crates").
+everygraph-core = { path = "../everygraph-core", default-features = false }
+everygraph-kernels = { path = "../everygraph-kernels" }
+
+[dev-dependencies]
+# Tests and the benchmark run on threads (`par::with_threads`).
+everygraph-core = { path = "../everygraph-core" }
+everygraph-format = { path = "../everygraph-format" }
+everygraph-io = { path = "../everygraph-io" }
+everygraph-oracle = { path = "../everygraph-oracle" }
+serde_json = "1"
+
 [lints]
 workspace = true

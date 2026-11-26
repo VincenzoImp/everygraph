@@ -1,0 +1,800 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The steps of one level of Leiden: strengths, local moving, refinement, and the split
+//! of disconnected communities.
+//!
+//! # Weights
+//!
+//! Every weight is an integer in the units of the adjacency matrix `A` of
+//! `docs/spec/graph-semantics.md` § 3: an entry to another node holds `A[u][v]`, an
+//! entry of a node to itself holds `A[v][v]` = twice the loop's weight. At level 0 the
+//! graph is unweighted (1 per entry, 2 per kept loop). At coarser levels each entry
+//! holds the sum of `A` between two communities, and the diagonal entry the sum inside
+//! one. So every sum here (strengths, community volumes, quotient weights) is exact in
+//! any order (`docs/research/README.md` N1), and the deterministic result does not
+//! depend on threads, chunking or the source. Gains are `f64` expressions of these
+//! exact integers.
+//!
+//! # Deterministic mode
+//!
+//! A sweep visits the nodes in sub-rounds. A node's sub-round is drawn from the seed:
+//! in local moving at level 0 for groups of 16 consecutive ids (so that a sub-round
+//! reads runs of neighbouring lists), otherwise for each id. The count of sub-rounds per level is
+//! `clamp(next_pow2(n / 65,536), 4, 1,024)`, a function of the level's node count only
+//! (`lab/m1-04-det-leiden-scaling`, rule L64k). In a sub-round every node decides
+//! against the state frozen at its start; the moves are then committed with
+//! commutative integer updates. A sub-round of fewer than 1,024 nodes runs on the
+//! calling thread. Two singletons never swap: one only joins the other if the other's
+//! label is smaller.
+//!
+//! # Fast mode
+//!
+//! A sweep visits blocks of 64 consecutive ids in a seeded random order and applies
+//! each move at once. Its result depends on the schedule.
+
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
+
+use everygraph_core::rng::{Purpose, draw, unit_f64};
+use everygraph_core::{Memory, math, par};
+use everygraph_kernels::edge_map::{
+    Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all,
+};
+
+use crate::column::{Column, GRAIN};
+use crate::leiden::{Mode, Options, Refinement};
+use crate::table::{Lent, Table, Tables};
+
+/// No community: a decision not to move.
+const NONE: u32 = u32::MAX;
+/// Sweeps of local moving per level, at most.
+const MAX_SWEEPS: u32 = 20;
+/// Sub-rounds with fewer nodes run on the calling thread.
+const SERIAL: usize = 1024;
+/// Gains are added as fixed-point integers with this unit, 2^-50: exact in any order.
+const GAIN_SCALE: f64 = 1_125_899_906_842_624.0;
+/// Ids per block of the fast mode's visiting order (ADR 0015).
+const ORDER_BLOCK: u32 = 64;
+/// In local moving at level 0, this many low bits of an id are dropped before its
+/// sub-round is drawn.
+const ROUND_SHIFT: u32 = 4;
+
+/// Per-entry weights of a level: `None` at level 0 (unweighted).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Weights<'a>(pub(crate) Option<&'a [u64]>);
+
+impl Weights<'_> {
+    /// Calls `f(v, A[u][v])` for each entry of `row`, where `u = row.node`.
+    #[inline(always)]
+    pub(crate) fn each<'g>(self, row: &Row<'_, 'g>, mut f: impl FnMut(Node<'g>, u64)) {
+        match self.0 {
+            None => {
+                for &v in row.list {
+                    f(v, if v == row.node { 2 } else { 1 });
+                }
+            }
+            Some(w) => {
+                for (&v, &x) in row.list.iter().zip(&w[row.entries()]) {
+                    f(v, x);
+                }
+            }
+        }
+    }
+}
+
+/// A level's graph: its plan, its weights and its strengths.
+pub(crate) struct Graph<'a, 's, 'g, S: Source> {
+    pub(crate) plan: &'a Plan<'s, 'g, S>,
+    pub(crate) w: Weights<'a>,
+    pub(crate) k: &'a [u64],
+}
+
+impl<S: Source> Clone for Graph<'_, '_, '_, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S: Source> Copy for Graph<'_, '_, '_, S> {}
+
+impl<'g, S: Source> Graph<'_, '_, 'g, S> {
+    /// The node of id `v`: a community label is always one.
+    fn node(&self, v: u32) -> Node<'g> {
+        node(self.plan, v)
+    }
+}
+
+/// Where a step runs: the options, the graph's total weight and the position of the
+/// level in the run. The last three name every random draw (`everygraph_core::rng`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Ctx<'o> {
+    pub(crate) options: &'o Options,
+    /// The sum of all strengths, `2W`.
+    pub(crate) total: u64,
+    pub(crate) level: u32,
+    pub(crate) iteration: u32,
+    /// 0 for the passes of an iteration, 1 for its prolongation.
+    pub(crate) stage: u32,
+}
+
+impl Ctx<'_> {
+    fn det(&self) -> bool {
+        self.options.mode == Mode::Deterministic
+    }
+
+    fn inv_total(&self) -> f64 {
+        1.0 / self.total as f64
+    }
+
+    fn counter(&self, entity: u32) -> [u32; 4] {
+        [entity, self.level, self.iteration, self.stage]
+    }
+}
+
+/// Whether candidate `a` goes before candidate `b` of equal value, for a node whose
+/// draw is `salt`: a bijection of the ids, so a total order that changes with the seed.
+fn before(salt: u32, a: u32, b: u32) -> bool {
+    let key = |x: u32| (x ^ salt).wrapping_mul(0x9E37_79B1);
+    (key(a), a) < (key(b), b)
+}
+
+/// A gain as a fixed-point integer; gains of moves are positive and below 2.
+fn fixed(gain: f64) -> u64 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a gain is positive and below 2, so below 2^51 once scaled"
+    )]
+    let units = (gain * GAIN_SCALE) as u64;
+    units
+}
+
+/// The node of id `v` of a plan: a community label is always one.
+fn node<'g, S: Source>(plan: &Plan<'_, 'g, S>, v: u32) -> Node<'g> {
+    plan.node(v).expect("a community label is a node")
+}
+
+/// Strengths `s(v)` of a level, their sum `2W`, and the nodes without a neighbour other
+/// than themselves: they stay alone at every level, so the stopping test leaves them
+/// out (#19, PR #162: counting them stopped aggregation one level early).
+pub(crate) struct Strengths {
+    pub(crate) of: Column<u64>,
+    pub(crate) total: u64,
+    pub(crate) alone: u32,
+}
+
+pub(crate) fn strengths<S: Source>(
+    plan: &Plan<'_, '_, S>,
+    memory: &Memory,
+    w: Weights<'_>,
+) -> Result<Strengths, Error> {
+    let n = plan.nodes() as usize;
+    let mut of = Column::new(memory, "strengths", n, |_| 0_u64)?;
+    let (total, alone): (u64, u32) =
+        plan.scan(&mut of[..], all, |acc: &mut (u64, u32), out, i, row, _| {
+            let (mut s, mut others) = (0, false);
+            w.each(&row, |v, x| {
+                s += x;
+                others |= v != row.node;
+            });
+            out[i] = s;
+            *acc = acc.add((s, u32::from(!others)));
+        })?;
+    if total >= 1 << 62 {
+        return Err(Error::Invalid("total weight of 2^62 or more"));
+    }
+    Ok(Strengths { of, total, alone })
+}
+
+/// The local-moving state of a level: each node's community, and per community its
+/// volume and (deterministic mode) its size.
+pub(crate) struct Moving<'g> {
+    pub(crate) comm: NodeCells<'g>,
+    /// Each node's draw for its ties, made once per level.
+    salt: Column<u32>,
+    pub(crate) sigma: Column<AtomicU64>,
+    size: Column<AtomicU32>,
+    active: Column<AtomicBool>,
+    /// The decision of each node in the current sub-round (deterministic mode).
+    target: Column<AtomicU32>,
+}
+
+impl<'g> Moving<'g> {
+    /// Every node in the community of `bound` (its own when `None`), every node active.
+    pub(crate) fn new<S: Source>(
+        plan: &Plan<'_, 'g, S>,
+        memory: &Memory,
+        k: &[u64],
+        bound: Option<&[u32]>,
+        ctx: &Ctx<'_>,
+    ) -> Result<Self, Error> {
+        let (n, det) = (plan.nodes() as usize, ctx.det());
+        let comm = plan.node_cells(memory)?;
+        let salt = Column::new(memory, "tie draws", n, |v| {
+            let v = u32::try_from(v).expect("a node id");
+            let bits = draw(ctx.options.seed, Purpose::LEIDEN_TIE, ctx.counter(v));
+            u32::try_from(bits >> 32).expect("32 bits")
+        })?;
+        let sigma = Column::new(memory, "community volumes", n, |_| AtomicU64::new(0))?;
+        let per = if det { n } else { 0 };
+        let size = Column::new(memory, "community sizes", per, |_| AtomicU32::new(0))?;
+        let target = Column::new(memory, "decisions", per, |_| AtomicU32::new(NONE))?;
+        let active = Column::new(memory, "active nodes", n, |_| AtomicBool::new(true))?;
+        plan.vertices((), |(): &mut (), (), _, v, _| {
+            let c = bound.map_or(v, |b| node(plan, b[v.index()]));
+            comm.store(v, c, Relaxed);
+            sigma[c.index()].fetch_add(k[v.index()], Relaxed);
+            if det {
+                size[c.index()].fetch_add(1, Relaxed);
+            }
+        })?;
+        Ok(Self {
+            comm,
+            salt,
+            sigma,
+            size,
+            active,
+            target,
+        })
+    }
+}
+
+/// Which nodes a sweep visits, in which order.
+pub(crate) enum Schedule {
+    /// Deterministic mode: the nodes of sub-round `r` are `ids[starts[r]..starts[r + 1]]`,
+    /// increasing.
+    Rounds {
+        ids: Column<u32>,
+        starts: Vec<usize>,
+    },
+    /// Fast mode: every node, blocks of [`ORDER_BLOCK`] ids in a drawn order.
+    Order { ids: Column<u32> },
+}
+
+impl Schedule {
+    /// The schedule of local moving or, with `refining`, of refinement.
+    pub(crate) fn new(
+        n: u32,
+        memory: &Memory,
+        ctx: &Ctx<'_>,
+        refining: bool,
+    ) -> Result<Self, Error> {
+        let seed = ctx.options.seed;
+        let len = n as usize;
+        let mut ids = Column::new(memory, "schedule", len, |_| 0_u32)?;
+        if ctx.det() {
+            let rounds = (n / 65_536).next_power_of_two().clamp(4, 1024);
+            let (purpose, shift) = match (refining, ctx.level) {
+                (true, _) => (Purpose::LEIDEN_REFINE_ROUND, 0),
+                (false, 0) => (Purpose::LEIDEN_ROUND, ROUND_SHIFT),
+                (false, _) => (Purpose::LEIDEN_ROUND, 0),
+            };
+            let bits = 64 - rounds.trailing_zeros();
+            let round = |v: u32| {
+                let r = draw(seed, purpose, ctx.counter(v >> shift)) >> bits;
+                usize::try_from(r).expect("below the round count")
+            };
+            const BLOCK: u32 = 1 << 16;
+            let blocks = n.div_ceil(BLOCK) as usize;
+            let buckets = std::num::NonZeroUsize::new(rounds as usize).expect("non-zero");
+            let starts = par::scatter(
+                memory,
+                "sub-rounds",
+                blocks,
+                buckets,
+                |b, sink| {
+                    let first = u32::try_from(b).expect("a block") * BLOCK;
+                    for v in first..first.saturating_add(BLOCK).min(n) {
+                        sink.push(round(v), v);
+                    }
+                },
+                [&mut ids[..]],
+            )?;
+            return Ok(Self::Rounds { ids, starts });
+        }
+        let whole = n / ORDER_BLOCK;
+        let mut blocks: Vec<(u64, u32)> = (0..whole)
+            .map(|b| (draw(seed, Purpose::LEIDEN_ORDER, ctx.counter(b)), b))
+            .collect();
+        blocks.sort_unstable();
+        par::for_each_chunk_mut(&mut ids[..], GRAIN, |first, chunk| {
+            for (i, id) in (first..).zip(chunk) {
+                let (b, at) = (i / ORDER_BLOCK as usize, i % ORDER_BLOCK as usize);
+                *id = match blocks.get(b) {
+                    Some(&(_, block)) => block * ORDER_BLOCK + u32::try_from(at).expect("below 64"),
+                    None => u32::try_from(i).expect("an id"),
+                };
+            }
+        });
+        Ok(Self::Order { ids })
+    }
+}
+
+/// What local moving did.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Moved {
+    pub(crate) sweeps: u32,
+    pub(crate) moves: u64,
+    pub(crate) parallel_rounds: u64,
+    pub(crate) serial_rounds: u64,
+}
+
+/// The nodes of `ids` that pass `keep`, in order, filtered in parallel.
+fn take<'g, S: Source>(
+    plan: &Plan<'_, 'g, S>,
+    ids: &[u32],
+    keep: impl Fn(Node<'g>) -> bool + Send + Sync,
+) -> Vec<Node<'g>> {
+    let parts = par::map_ranges(ids.len(), GRAIN, |r| {
+        ids[r]
+            .iter()
+            .filter_map(|&v| plan.node(v))
+            .filter(|&v| keep(v))
+            .collect::<Vec<_>>()
+    });
+    parts.concat()
+}
+
+/// Runs `body` on the rows of `frontier` and adds up its values. Fewer than [`SERIAL`]
+/// nodes run on the calling thread, in runs the framework does not split.
+fn drive<'g, 't, S: Source, A: Reduce>(
+    plan: &Plan<'_, 'g, S>,
+    frontier: &[Node<'g>],
+    tables: &'t Tables,
+    body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, Lent<'t>>) + Sync,
+) -> Result<A, Error> {
+    let mut sum = A::ZERO;
+    if frontier.len() < SERIAL {
+        for run in frontier.chunks(FRONTIER_GRAIN) {
+            sum = sum.add(plan.frontier_with(run, || tables.lend(), &body)?);
+        }
+    } else {
+        sum = plan.frontier_with(frontier, || tables.lend(), &body)?;
+    }
+    tables.check()?;
+    Ok(sum)
+}
+
+/// Calls `f` on each node of `frontier`, in parallel unless it is small.
+fn each<'g>(frontier: &[Node<'g>], f: impl Fn(Node<'g>) + Send + Sync) {
+    if frontier.len() < SERIAL {
+        frontier.iter().copied().for_each(f);
+    } else {
+        par::for_each_range(frontier.len(), GRAIN, |r| {
+            frontier[r].iter().copied().for_each(&f);
+        });
+    }
+}
+
+/// Marks the neighbours of a node that moved as active.
+#[inline]
+fn wake(active: &[AtomicBool], list: &[Node<'_>]) {
+    for &v in list {
+        let a = &active[v.index()];
+        if !a.load(Relaxed) {
+            a.store(true, Relaxed);
+        }
+    }
+}
+
+/// The best move of `row.node` against the current state, and its gain in modularity
+/// on that state; `None` to stay.
+#[inline]
+fn decide<'g, S: Source>(
+    g: Graph<'_, '_, 'g, S>,
+    row: &Row<'_, 'g>,
+    st: &Moving<'g>,
+    table: &mut Table,
+    ctx: &Ctx<'_>,
+) -> Option<(Node<'g>, f64)> {
+    let u = row.node;
+    let (w, k) = (g.w, g.k[u.index()]);
+    let c = st.comm.load(u, Relaxed).get();
+    w.each(row, |v, x| {
+        if v != u {
+            table.add(st.comm.load(v, Relaxed).get(), x);
+        }
+    });
+    let f = ctx.options.resolution * k as f64 * ctx.inv_total();
+    let sigma = |d: u32| st.sigma[d as usize].load(Relaxed);
+    let salt = st.salt[u.index()];
+    let (mut stay, mut best) = (0, None::<(f64, u32)>);
+    for (d, kud) in table.entries() {
+        if d == c {
+            stay = kud;
+            continue;
+        }
+        let value = kud as f64 - f * sigma(d) as f64;
+        let better = best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
+        if better {
+            best = Some((value, d));
+        }
+    }
+    let (value, d) = best?;
+    let stay = stay as f64 - f * sigma(c).saturating_sub(k) as f64;
+    if value <= stay {
+        return None;
+    }
+    if ctx.det() && d > c {
+        let size = |x: u32| st.size[x as usize].load(Relaxed);
+        if size(c) == 1 && size(d) == 1 {
+            return None;
+        }
+    }
+    Some((g.node(d), 2.0 * (value - stay) * ctx.inv_total()))
+}
+
+/// Moves `u` from community `c` to `d`.
+fn relocate<'g>(st: &Moving<'g>, u: Node<'g>, d: Node<'g>, k: u64, det: bool) {
+    let c = st.comm.load(u, Relaxed);
+    st.sigma[c.index()].fetch_sub(k, Relaxed);
+    st.sigma[d.index()].fetch_add(k, Relaxed);
+    if det {
+        st.size[c.index()].fetch_sub(1, Relaxed);
+        st.size[d.index()].fetch_add(1, Relaxed);
+    }
+    st.comm.store(u, d, Relaxed);
+}
+
+/// Local moving until a sweep gains at most `tol` in modularity, or [`MAX_SWEEPS`].
+pub(crate) fn local_move<'g, S: Source>(
+    g: Graph<'_, '_, 'g, S>,
+    st: &Moving<'g>,
+    schedule: &Schedule,
+    tables: &Tables,
+    ctx: &Ctx<'_>,
+    tol: f64,
+) -> Result<Moved, Error> {
+    let (plan, k, det) = (g.plan, g.k, ctx.det());
+    let mut done = Moved::default();
+    for _ in 0..MAX_SWEEPS {
+        done.sweeps += 1;
+        let (mut gain, mut processed) = (0_u64, 0_usize);
+        match schedule {
+            Schedule::Rounds { ids, starts } => {
+                for r in starts.windows(2) {
+                    let frontier = take(plan, &ids[r[0]..r[1]], |v| {
+                        st.active[v.index()].swap(false, Relaxed)
+                    });
+                    if frontier.is_empty() {
+                        continue;
+                    }
+                    processed += frontier.len();
+                    if frontier.len() < SERIAL {
+                        done.serial_rounds += 1;
+                    } else {
+                        done.parallel_rounds += 1;
+                    }
+                    let (sum, m) = drive(
+                        plan,
+                        &frontier,
+                        tables,
+                        |acc: &mut (u64, u64), row, worker| {
+                            let u = row.node;
+                            let target = &st.target[u.index()];
+                            target.store(NONE, Relaxed);
+                            let Some(table) = worker.scratch.begin(row.list.len()) else {
+                                return;
+                            };
+                            if let Some((d, gain)) = decide(g, &row, st, table, ctx) {
+                                target.store(d.get(), Relaxed);
+                                wake(&st.active, row.list);
+                                *acc = acc.add((fixed(gain), 1));
+                            }
+                        },
+                    )?;
+                    gain += sum;
+                    done.moves += m;
+                    each(&frontier, |u| {
+                        let d = st.target[u.index()].load(Relaxed);
+                        if d != NONE {
+                            relocate(st, u, node(plan, d), k[u.index()], det);
+                        }
+                    });
+                }
+            }
+            Schedule::Order { ids } => {
+                let frontier = take(plan, ids, |v| st.active[v.index()].load(Relaxed));
+                processed = frontier.len();
+                let (sum, m) = drive(
+                    plan,
+                    &frontier,
+                    tables,
+                    |acc: &mut (u64, u64), row, worker| {
+                        let u = row.node;
+                        st.active[u.index()].store(false, Relaxed);
+                        let Some(table) = worker.scratch.begin(row.list.len()) else {
+                            return;
+                        };
+                        if let Some((d, gain)) = decide(g, &row, st, table, ctx) {
+                            relocate(st, u, d, k[u.index()], false);
+                            wake(&st.active, row.list);
+                            *acc = acc.add((fixed(gain), 1));
+                        }
+                    },
+                )?;
+                gain += sum;
+                done.moves += m;
+            }
+        }
+        if processed == 0 || gain as f64 <= tol * GAIN_SCALE {
+            break;
+        }
+    }
+    Ok(done)
+}
+
+/// The refinement state: the refined partition inside the communities of local moving.
+pub(crate) struct Refining<'g> {
+    pub(crate) rcomm: NodeCells<'g>,
+    rsigma: Column<AtomicU64>,
+    /// Deterministic mode: `sub-round << 32 | target` of the nodes deciding to merge.
+    proposal: Column<AtomicU64>,
+    /// Randomized refinement: the weight between each refined community and the rest
+    /// of its community, and what a merging node adds to it.
+    cut: Column<AtomicI64>,
+    cut_change: Column<AtomicI64>,
+}
+
+/// The refinement of `st`'s partition: every node starts alone and may join, once, a
+/// refined community inside its own community. Greedy: the best positive gain.
+/// Randomized: a draw among the non-negative gains weighted by `exp(gain / θ)`, over the
+/// well-connected candidates (Traag, Waltman and van Eck 2019, Algorithm A.2). Joins
+/// follow edges, so every refined community is connected.
+///
+/// Randomized refinement updates a refined community's cut per joining node, so it
+/// counts twice the weight between two nodes that join it in the same sub-round
+/// (deterministic mode) or at the same time (fast mode).
+pub(crate) fn refine<'g, S: Source>(
+    g: Graph<'_, '_, 'g, S>,
+    memory: &Memory,
+    st: &Moving<'g>,
+    schedule: &Schedule,
+    tables: &Tables,
+    ctx: &Ctx<'_>,
+) -> Result<Refining<'g>, Error> {
+    let (plan, w, k) = (g.plan, g.w, g.k);
+    let n = plan.nodes() as usize;
+    let det = ctx.det();
+    let theta = match ctx.options.refinement {
+        Refinement::Greedy => None,
+        Refinement::Randomized { theta } => Some(theta),
+    };
+    let per = |on: bool| if on { n } else { 0 };
+    let r = Refining {
+        rcomm: plan.node_cells(memory)?,
+        rsigma: Column::new(memory, "refined volumes", n, |v| AtomicU64::new(k[v]))?,
+        proposal: Column::new(memory, "proposals", per(det), |_| AtomicU64::new(u64::MAX))?,
+        cut: Column::new(memory, "refined cuts", per(theta.is_some()), |_| {
+            AtomicI64::new(0)
+        })?,
+        cut_change: Column::new(memory, "cut changes", per(theta.is_some() && det), |_| {
+            AtomicI64::new(0)
+        })?,
+    };
+    if theta.is_some() {
+        plan.scan((), all, |(): &mut (), (), _, row, _| {
+            let (u, b) = (row.node, st.comm.load(row.node, Relaxed));
+            let mut e = 0;
+            w.each(&row, |v, x| {
+                if v != u && st.comm.load(v, Relaxed) == b {
+                    e += x;
+                }
+            });
+            r.cut[u.index()].store(i64::try_from(e).expect("below 2^62"), Relaxed);
+        })?;
+    }
+    let join = |u: Node<'g>, d: Node<'g>, change: i64| {
+        let ku = k[u.index()];
+        r.rcomm.store(u, d, Relaxed);
+        r.rsigma[d.index()].fetch_add(ku, Relaxed);
+        r.rsigma[u.index()].fetch_sub(ku, Relaxed);
+        if theta.is_some() {
+            r.cut[d.index()].fetch_add(change, Relaxed);
+        }
+    };
+    let alive = |v: Node<'g>| k[v.index()] > 0;
+    match schedule {
+        Schedule::Rounds { ids, starts } => {
+            for (stamp, b) in (0_u64..).zip(starts.windows(2)) {
+                let frontier = take(plan, &ids[b[0]..b[1]], alive);
+                if frontier.is_empty() {
+                    continue;
+                }
+                let (): () = drive(plan, &frontier, tables, |(), row, worker| {
+                    let u = row.node;
+                    let Some(table) = worker.scratch.begin(row.list.len()) else {
+                        return;
+                    };
+                    if let Some((d, change)) = pick(g, &row, st, &r, table, ctx, theta) {
+                        r.proposal[u.index()].store(stamp << 32 | u64::from(d.get()), Relaxed);
+                        if theta.is_some() {
+                            r.cut_change[u.index()].store(change, Relaxed);
+                        }
+                    }
+                })?;
+                each(&frontier, |u| {
+                    let p = r.proposal[u.index()].load(Relaxed);
+                    if p >> 32 != stamp {
+                        return;
+                    }
+                    let d = node(plan, u32::try_from(p & u64::from(u32::MAX)).expect("an id"));
+                    if r.proposal[d.index()].load(Relaxed) >> 32 != stamp {
+                        let change = if theta.is_some() {
+                            r.cut_change[u.index()].load(Relaxed)
+                        } else {
+                            0
+                        };
+                        join(u, d, change);
+                    }
+                });
+            }
+        }
+        Schedule::Order { ids } => {
+            let frontier = take(plan, ids, alive);
+            let (): () = drive(plan, &frontier, tables, |(), row, worker| {
+                let u = row.node;
+                let Some(table) = worker.scratch.begin(row.list.len()) else {
+                    return;
+                };
+                let Some((d, change)) = pick(g, &row, st, &r, table, ctx, theta) else {
+                    return;
+                };
+                let ku = k[u.index()];
+                let claimed = r.rsigma[u.index()].compare_exchange(ku, 0, Relaxed, Relaxed);
+                if claimed.is_err() {
+                    return;
+                }
+                if r.rsigma[d.index()].fetch_add(ku, Relaxed) == 0 {
+                    // `d`'s node left it: undo.
+                    r.rsigma[d.index()].fetch_sub(ku, Relaxed);
+                    r.rsigma[u.index()].fetch_add(ku, Relaxed);
+                } else {
+                    r.rcomm.store(u, d, Relaxed);
+                    if theta.is_some() {
+                        r.cut[d.index()].fetch_add(change, Relaxed);
+                    }
+                }
+            })?;
+        }
+    }
+    Ok(r)
+}
+
+/// The refined community `row.node` joins, and the change of that community's cut;
+/// `None` to stay alone.
+#[inline]
+fn pick<'g, S: Source>(
+    g: Graph<'_, '_, 'g, S>,
+    row: &Row<'_, 'g>,
+    st: &Moving<'g>,
+    r: &Refining<'g>,
+    table: &mut Table,
+    ctx: &Ctx<'_>,
+    theta: Option<f64>,
+) -> Option<(Node<'g>, i64)> {
+    let (u, w) = (row.node, g.w);
+    let ku = g.k[u.index()];
+    if r.rcomm.load(u, Relaxed) != u || r.rsigma[u.index()].load(Relaxed) != ku {
+        return None;
+    }
+    let b = st.comm.load(u, Relaxed);
+    let mut inside = 0;
+    w.each(row, |v, x| {
+        if v != u && st.comm.load(v, Relaxed) == b {
+            table.add(r.rcomm.load(v, Relaxed).get(), x);
+            inside += x;
+        }
+    });
+    let gamma = ctx.options.resolution * ctx.inv_total();
+    let f = gamma * ku as f64;
+    let rsigma = |d: u32| r.rsigma[d as usize].load(Relaxed) as f64;
+    let Some(theta) = theta else {
+        let salt = st.salt[u.index()];
+        let mut best = None::<(f64, u32)>;
+        for (d, kud) in table.entries() {
+            let value = kud as f64 - f * rsigma(d);
+            let better =
+                best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
+            if value > 0.0 && d != u.get() && better {
+                best = Some((value, d));
+            }
+        }
+        return best.map(|(_, d)| (g.node(d), 0));
+    };
+    // Traag et al.: only a node well connected to its community moves, and only into a
+    // refined community that is.
+    let total = st.sigma[b.index()].load(Relaxed) as f64;
+    if (inside as f64) < f * (total - ku as f64) {
+        return None;
+    }
+    table.sort();
+    let candidates = || {
+        table.sorted.iter().filter_map(|&(d, kud)| {
+            let (rs, cut) = (rsigma(d), r.cut[d as usize].load(Relaxed) as f64);
+            let value = kud as f64 - f * rs;
+            (d != u.get() && value >= 0.0 && cut >= gamma * rs * (total - rs))
+                .then_some((d, kud, value))
+        })
+    };
+    let top = candidates().fold(0.0_f64, |m, c| if c.2 > m { c.2 } else { m });
+    let weight = |value: f64| math::exp((value - top) / theta);
+    let sum = candidates().fold(weight(0.0), |s, c| s + weight(c.2));
+    let bits = draw(
+        ctx.options.seed,
+        Purpose::LEIDEN_REFINE,
+        [u.get(), ctx.level, ctx.iteration, 0],
+    );
+    let mut at = unit_f64(bits) * sum - weight(0.0);
+    for (d, kud, value) in candidates() {
+        if at < 0.0 {
+            break;
+        }
+        at -= weight(value);
+        if at < 0.0 {
+            let change = i64::try_from(inside).expect("below 2^62")
+                - 2 * i64::try_from(kud).expect("below 2^62");
+            return Some((g.node(d), change));
+        }
+    }
+    None
+}
+
+/// Joins the sets of `x` and `y` in a union-find whose parents only go down, so each
+/// root is the smallest node of its set (Rem's algorithm with splicing, as
+/// `everygraph_kernels` components).
+fn unite<'g>(parent: &NodeCells<'g>, mut x: Node<'g>, mut y: Node<'g>) {
+    loop {
+        let (mut px, mut py) = (parent.load(x, Relaxed), parent.load(y, Relaxed));
+        if px == py {
+            return;
+        }
+        if px < py {
+            (x, y, px, py) = (y, x, py, px);
+        }
+        if x == px {
+            if parent.compare_exchange(x, x, py, Relaxed).is_ok() {
+                return;
+            }
+        } else {
+            let _ = parent.compare_exchange(x, px, py, Relaxed);
+            x = px;
+        }
+    }
+}
+
+/// The connected components inside the communities of `label`: each node's label
+/// becomes the smallest node of its component, whatever order the joins land in.
+pub(crate) fn split<'g, S: Source>(
+    plan: &Plan<'_, 'g, S>,
+    memory: &Memory,
+    label: &NodeCells<'g>,
+) -> Result<NodeCells<'g>, Error> {
+    let parent = plan.node_cells(memory)?;
+    plan.scan((), all, |(): &mut (), (), _, row, _| {
+        let (u, c) = (row.node, label.load(row.node, Relaxed));
+        for &v in row.list {
+            if v < u && label.load(v, Relaxed) == c {
+                unite(&parent, u, v);
+            }
+        }
+    })?;
+    parent.flatten();
+    Ok(parent)
+}
+
+/// The number of distinct labels.
+pub(crate) fn count<'g, S: Source>(
+    plan: &Plan<'_, 'g, S>,
+    memory: &Memory,
+    label: &NodeCells<'g>,
+) -> Result<u32, Error> {
+    let n = plan.nodes() as usize;
+    let seen = Column::new(memory, "labels seen", n, |_| AtomicBool::new(false))?;
+    plan.vertices((), |(): &mut (), (), _, v, _| {
+        seen[label.load(v, Relaxed).index()].store(true, Relaxed);
+    })?;
+    plan.vertices((), |acc: &mut u32, (), _, v, _| {
+        *acc += u32::from(seen[v.index()].load(Relaxed));
+    })
+}

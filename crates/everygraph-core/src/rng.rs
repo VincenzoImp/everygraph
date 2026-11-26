@@ -84,8 +84,35 @@ impl Purpose {
     /// Tests and golden vectors of the core. Counter: `[index, stream, 0, 0]`.
     pub const TEST: Self = Self(*b"TEST");
 
+    /// The block order of a sweep of Leiden's fast mode: the sort key of a block of 64
+    /// nodes. Counter: `[block, level, iteration, stage]`.
+    pub const LEIDEN_ORDER: Self = Self(*b"LORD");
+
+    /// The sub-round of a group of nodes in the local moving of Leiden's deterministic
+    /// mode. Counter: `[group, level, iteration, stage]`.
+    pub const LEIDEN_ROUND: Self = Self(*b"LRND");
+
+    /// The sub-round of a node in the refinement of Leiden's deterministic mode.
+    /// Counter: `[node, level, iteration, stage]`.
+    pub const LEIDEN_REFINE_ROUND: Self = Self(*b"LRRN");
+
+    /// The order among a node's candidate communities of equal gain in Leiden. Counter:
+    /// `[node, level, iteration, stage]`.
+    pub const LEIDEN_TIE: Self = Self(*b"LTIE");
+
+    /// The choice of a node's community in Leiden's randomized refinement. Counter:
+    /// `[node, level, iteration, 0]`.
+    pub const LEIDEN_REFINE: Self = Self(*b"LREF");
+
     /// Every purpose, so that the test below can check that they are distinct.
-    pub const ALL: [Self; 1] = [Self::TEST];
+    pub const ALL: [Self; 6] = [
+        Self::TEST,
+        Self::LEIDEN_ORDER,
+        Self::LEIDEN_ROUND,
+        Self::LEIDEN_REFINE_ROUND,
+        Self::LEIDEN_TIE,
+        Self::LEIDEN_REFINE,
+    ];
 }
 
 /// 64 random bits for (`seed`, `purpose`, `counter`). See the key schema above.
