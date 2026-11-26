@@ -39,7 +39,7 @@ step canary python3 tools/check_portability_canary.py
 step wasm-toy python3 tools/check_wasm_toy.py
 step wasm-codec python3 tools/check_wasm_codec.py
 step container python3 tools/check_container_python.py
-step msrv cargo +1.87 test --workspace --locked
+step msrv cargo +1.100 test --workspace --locked
 if [ $miri = 1 ]; then
   step miri-core cargo +nightly miri test -p everygraph-core --no-default-features
   step miri-format cargo +nightly miri test -p everygraph-format
