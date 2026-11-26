@@ -159,6 +159,12 @@ network, not on this machine. So:
   they are needed; every milestone report lists source and test lines per crate, and a crate
   that grew more than its features justify gets a cleanup issue.
 
+- **Periodic sweep (owner's request, 2026-11-26).** Every few hours the coordinator runs a
+  sweep agent over the whole repository and the GitHub project: drift, contradictions, old
+  material (previews, style pages, lab write-ups, docs), dead files and code, stale issues
+  and milestones, narrating comments in product code. It deletes what has no reader and
+  opens one reviewable PR. Each sweep also says what kind of drift recurs and why, so the
+  cause gets fixed, not only the symptom.
 - Use them for independent work in parallel: separate issues, experiments, reviews.
   Brief them with the issue file path, the acceptance criteria and the rules in this file.
 - **Only one thing at a time may run benchmarks.** Development builds and tests can run in

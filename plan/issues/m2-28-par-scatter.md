@@ -14,10 +14,12 @@ The facade has no helper for the last two, which invites `unsafe` in exactly the
 - [ ] `par::for_each_range_mut(data, offsets, f)` in `everygraph-core::par`: checks that `offsets` increase and end within `data`, splits with `split_at_mut`, no `unsafe` (the core forbids it); chunk boundaries fixed by grain as the rest of the facade
 - [ ] A deterministic sorted scatter for single indirect writes: a parallel sort of (key, id) pairs — deterministic because the keys are distinct, safe, O(n log n) where the scatter was O(n) — or a two-pass counting sort over fixed blocks where few buckets exist
 - [ ] Documentation in the facade: which pattern each helper serves, and that `fetch_add` positions give a schedule-dependent order
-- [ ] Interleaved A/B in the lab Leiden aggregation on lj and orkut level 0, 16 threads: the `SyncPtr` scatter, the safe helper and the parallel sort; hashes identical, time reported (`docs/research/sota-approx-rust.md` challenge 5)
+- [ ] Several columns with the same offsets in one call (targets and weights, or property columns), flat and segmented; the input of the scatter sent block by block, so that a re-readable input is parsed in each pass and never held in memory, and so that a caller can place one wave of buckets at a time
+- [ ] Exploratory interleaved A/B against the lab Leiden's `SyncPtr` member scatter on synthetic labels at lj's and orkut's node counts, 16 threads: the `SyncPtr` scatter, the safe helper and the parallel sort; hashes identical, time and peak heap per variant reported (`docs/research/sota-approx-rust.md` challenge 5)
 
 **Acceptance**
-- The helpers are used by {{#m2-08-csr-build}}; no `SyncPtr` or raw-pointer scatter in the production crates
-- The A/B above recorded; outputs identical at 1, 4 and 16 threads
+- No `SyncPtr` or raw-pointer scatter in the production crates
+- Outputs identical at 1, 3 and 8 threads (unit test) and at 1, 4 and 16 threads (A/B), equal to a sequential model
+- The A/B above recorded under `lab/m2-28-par-scatter/results`. The measurement on real data, end to end, belongs to {{#m2-08-csr-build}}, which is the first user of the helpers (amended 2026-11-27: the lab Leiden aggregation on real level-0 labels moved there, with "the helpers are used by #35")
 
 **Pointers.** `docs/research/sota-approx-rust.md` § 2 B, § 3 B ("Ranged indirect writes" row), § 4 challenge 5; Abdi, Posluns, Zhang, Wang, Jeffrey, SPAA 2024, Table 3.
