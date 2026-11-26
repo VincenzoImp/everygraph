@@ -223,26 +223,27 @@ fn here(s: &Stored, kind: Kind, chunk: u64, o: &Options) -> Communities {
                 read_ahead: 8,
                 ..*o
             };
-            cached(s, &memory, st, &o).map(|(c, _)| c)
+            cached(s, &memory, st, &o, 4).map(|(c, _)| c)
         }
     };
     c.unwrap()
 }
 
-/// Leiden on the compressed lists of `s` through a block cache of a quarter of them,
+/// Leiden on the compressed lists of `s` through a block cache of `1/share` of them,
 /// read ahead by four threads, and what the cache did.
 fn cached(
     s: &Stored,
     memory: &Memory,
     st: Settings,
     o: &Options,
+    share: u64,
 ) -> Result<(Communities, CacheStats), Error> {
     let pool = PoolSettings {
         threads: 4,
         ..PoolSettings::default()
     };
     ReadPool::run(&s.file, memory, pool, |ahead| {
-        let bytes = (s.data.len() as u64 / 4).max(1);
+        let bytes = (s.data.len() as u64 / share).max(1);
         let cache = BlockCache::with_read_ahead(ahead, memory, CacheSettings::new(bytes, 16))?;
         let lists = CompressedStream::new(&s.index, &cache, 0)?;
         let c = leiden(&lists, memory, st, o)?;
@@ -699,7 +700,9 @@ fn parallel_sub_rounds_do_not_depend_on_threads() {
 /// sub-rounds of about 20,000 on level 0. Through a block cache, with no read-ahead and
 /// read ahead 1 and 64 blocks, the deterministic result is the one in memory. Read-ahead
 /// brings frames in, so that the readers miss fewer: the frontier runs advise nothing
-/// here (`prefetch` is off), so only Leiden's windows do.
+/// here (`prefetch` is off), so only Leiden's windows do. The cache holds all the lists:
+/// in a smaller one a frame read ahead can be evicted before its reader comes, which
+/// depends on timing (the test failed so on an arm64 runner).
 #[test]
 fn read_ahead_changes_no_deterministic_result() {
     let (n, pairs) = sparse_planted(80, 1000, 6, 1, 11);
@@ -709,12 +712,12 @@ fn read_ahead_changes_no_deterministic_result() {
     let st = settings(1 << 16);
     on(8, || {
         let expected = Outcome::from(&here(&s, Kind::Heap, 1 << 16, &o));
-        let (c, none) = cached(&s, &memory, st, &o).unwrap();
+        let (c, none) = cached(&s, &memory, st, &o, 1).unwrap();
         assert_eq!(Outcome::from(&c), expected, "no read-ahead");
         assert_eq!(none.prefetched, 0);
         for read_ahead in [1, 64] {
             let o = Options { read_ahead, ..o };
-            let (c, stats) = cached(&s, &memory, st, &o).unwrap();
+            let (c, stats) = cached(&s, &memory, st, &o, 1).unwrap();
             assert_eq!(Outcome::from(&c), expected, "{read_ahead} blocks ahead");
             assert!(
                 stats.prefetched > 0 && stats.misses < none.misses,
