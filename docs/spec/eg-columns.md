@@ -303,7 +303,7 @@ column name can make one section's name equal another's.
   section belongs to a column.
 - **No degree histogram.** The degree of a node is `entry[v + 1] − entry[v]` of its
   index (`eg-adjacency.md` § 3), so the exact histogram is one pass over the index, made
-  on read (`m3-07-kcore-degrees`); a stored one would cost six sections per graph and a
+  on read (`m6-09-api-gaps`); a stored one would cost six sections per graph and a
   check of its own.
 
 ## 7. Reading
