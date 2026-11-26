@@ -13,3 +13,5 @@ labels: type:infra, area:engine, P2, risk:low, size:S
 **Acceptance**
 - Adding a forbidden call to any portable crate fails CI with the shared message; the canary proves it per crate
 - The numerics lists flag the lab's known violations when pointed at them: `lab/e-map/gmap/src/layout.rs` l. 139–140 (`cos`/`sin`) and `crates/everygraph-oracle/src/generators.rs` l. 282 (`powf`) (`docs/research/sota-numerics.md` § 3.1)
+
+**Depends on** {{#m2-26-core-math}}, {{#m2-27-counter-rng}}

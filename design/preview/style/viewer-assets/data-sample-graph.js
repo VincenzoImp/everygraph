@@ -1,5 +1,5 @@
 /* Invented sample graph for the style preview (data.html).
-   Copied unchanged from the viewer mockup (../viewer/index.html, part 1: utilities, the seeded graph generator,
+   Copied unchanged from the first viewer mockup (branch design-previews-archive, design/preview/viewer/index.html, part 1: utilities, the seeded graph generator,
    circle packing, cells, links, lookups, search, scripted path). Every name and number is invented; nothing is a measurement.
    Loaded as a classic script: its top-level names (root, expand, linksOf, nodeById, …) are shared with the page script. */
 "use strict";

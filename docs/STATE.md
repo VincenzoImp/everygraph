@@ -35,7 +35,8 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
 - #34 id dictionary: done 2026-11-25 (build-500m OOM, re-run after the fix) (~20 min, ~45 GB disk).
 - #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
-- #18 deterministic Leiden (PR #208): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
+- #44 edge-map (merged as PR #202): `everygraph-bench run edge-map --official --data /home/tux/graphlab/data` (~15 min, estimate); closes #44 when the ≤ 5% overhead and compressed ≤ 1.0× raw criteria hold.
+- #18 deterministic Leiden (PR #208, merged): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
 - #34 build-500m after PR #203: `everygraph-bench run id-dictionary --official --only build-500m`.
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
@@ -89,6 +90,7 @@ Tell the owner when each becomes due, with everything prepared.
 - 2026-11-25 — Experiment reports overstate in predictable places (a check that cannot fail counted as evidence; a memory peak attributed to the wrong phase). An independent review of lab PRs catches these before they reach FINDINGS; keep it even for lab code.
 - 2026-11-25: `setsid nohup … & echo $!` can print the PID of a `setsid` that forked and exited at once, so a script waiting on that PID went ahead and two official runs started together; the harness lock refused the second. Chain official runs in one script, or wait on the PID of the real process (`pgrep -f <script path>`), never on `$!` of `setsid`.
 
+- 2026-11-26 02:54 self-check: the main slowdown tonight is serial review rounds on product PRs (author waits for review, reviewer waits for CI, author waits for review again; #170 took three rounds). Mitigation: send both reviews' findings to the author in one message, and skip a further round when no must-fix touches correctness. Second cause: a commit without Signed-off-by after the DCO check was turned on; agents now get the sign-off rule in their brief.
 ## Journal
 
 - **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner

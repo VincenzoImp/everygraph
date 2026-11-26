@@ -16,3 +16,5 @@ labels: type:feature, area:interop, P1, risk:low, size:M
 **Acceptance**
 - A community of 10^4 nodes exported to GEXF opens in Gephi with positions and colours
 - Importing a Neo4j CSV export of 100 M relationships works within the ingest performance envelope
+
+**Depends on** {{#m6-01-python-api}}, {{#m5-01-layout}}

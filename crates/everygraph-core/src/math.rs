@@ -10,13 +10,14 @@
 //!   the `libm` crate on wasm32; glibc also chooses a code path by CPU at run time).
 //!   [`sin`], [`cos`], [`exp`], [`ln`] and [`log2`] instead call the pure-Rust `libm`
 //!   crate at the exact version [`LIBM_VERSION`], compiled from the same source for
-//!   every target. They are not correctly rounded (`libm` stays below 1 ulp); identity
-//!   needs one implementation, not the most accurate one. The crate's `pow` is left
+//!   every target. They are not correctly rounded; identity needs one implementation,
+//!   not the most accurate one. The crate's `pow` is left
 //!   out on purpose: it comes from FreeBSD's `e_pow.c`, whose library shows 636 ulp
 //!   (Gladman et al. 2026, Table 3). Write `x * x` for `powi(2)`, precompute constants
 //!   such as `0.1^i`, and use `ilog2` or `leading_zeros` for integer decisions.
 //!   `sqrt`, `mul_add`, `+ − × ÷ %` and `as` casts are exact IEEE 754 operations in
-//!   Rust (RFC 3514) and need no wrapper. Clippy rejects the std transcendentals in the
+//!   Rust (RFC 3514) and need no wrapper; the golden vectors check `sqrt` and `mul_add`
+//!   on every target too. Clippy rejects the std transcendentals in the
 //!   crates that produce results (`clippy.toml`).
 //! - **Canonical bits.** Rust leaves the sign of a NaN open, x87 returns change its
 //!   payload, and wasm32 engines need not keep its bits. [`canonical`] and

@@ -21,7 +21,12 @@ Look for, in this order:
 4. Acceptance criteria ticked without evidence, or evidence that does not show what it
    claims (wrong graph, wrong precision, different measurement level, noisy machine).
 5. Tests that cannot fail, or that test the implementation against itself.
-6. Scope creep beyond the issue.
+6. Scope creep beyond the issue, and code that is larger than the issue needs (product
+   code must be small: say which lines could go).
+7. Comments and docs: Simple Technical English; comments only where the code cannot say
+   it; no history ("review of PR #N", "changed because"), no future plans, and every number
+   cites a result file or is labelled an estimate. Check this again on review-fix commits,
+   where history and copied exploratory numbers usually come in.
 
 Do not review style that `rustfmt` and `clippy` already enforce.
 

@@ -14,3 +14,5 @@ labels: type:feature, area:launch, P1, risk:medium, size:L
 
 **Acceptance**
 - Published map with search by DOI/title; build log showing no stage exceeded the budget
+
+**Depends on** {{#m8-01-cli}}, {{#m4-04-ooc-leiden}}, {{#m5-04-search-index}}

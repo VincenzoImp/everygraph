@@ -164,7 +164,7 @@ pub enum OnInvalid {
 pub enum Compression {
     /// Plain text.
     None,
-    /// gzip. Inflate runs on one core and is 10–20× slower than parsing.
+    /// gzip. Inflated on one core, which is the bottleneck of a gzip read (module docs).
     Gzip,
     /// Zstandard.
     Zstd,

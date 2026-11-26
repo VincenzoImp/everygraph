@@ -20,6 +20,8 @@ labels: type:experiment, area:format, P1, risk:medium, size:M, lab-evidence
 
 **Feeds.** `docs/spec/eg-adjacency.md` (a version 2 or a new codec value; version 1, from the closed {{#m2-03-adjacency-codec}}, never splits a list), {{#m3-01-edge-map}} (edge-balanced tasks that split one hub list), {{#m3-08-triangles}}.
 
+**Where it plugs in (edge-map, #44).** Splitting one hub list across tasks needs restart points in long compressed lists; in the framework it plugs into the task cut (`Plan::with`) plus an entry range on `Source::scan`.
+
 **Pointers.** `docs/research/sota-storage.md` § 4 challenge 3; `docs/research/sota-kernels.md` § 3 primitives table ("Edge-balanced tasks"), § 4 challenge 4; `lab/m1-13-compressed`.
 
 **Depends on** {{#m1-13-compressed-end-to-end}}

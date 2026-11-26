@@ -19,15 +19,17 @@ const hash = instance.exports.everygraph_toy_degree_hash(
   Number(edges),
   BigInt(seed),
 );
-// The export returns an `i64`, which JavaScript receives as a signed BigInt.
-const unsigned = BigInt.asUintN(64, hash);
-console.log(
-  `degree-hash nodes=${nodes} edges=${edges} seed=${seed} hash=${unsigned.toString(16).padStart(16, "0")}`,
+// The exports return an `i64`, which JavaScript receives as a signed BigInt.
+const hex = (h) => BigInt.asUintN(64, h).toString(16).padStart(16, "0");
+console.log(`degree-hash nodes=${nodes} edges=${edges} seed=${seed} hash=${hex(hash)}`);
+const kernels = instance.exports.everygraph_toy_kernels_hash(
+  Number(nodes),
+  Number(edges),
+  BigInt(seed),
 );
-// The names and order of tools/wasm-toy/src/main.rs, which prints
-// `golden::digests()` (crates/everygraph-core/tests/numerics_golden.rs).
-const GOLDEN = ["sin", "cos", "exp", "ln", "log2", "rng", "canonical"];
+console.log(`kernels-hash nodes=${nodes} edges=${edges} seed=${seed} hash=${hex(kernels)}`);
+// The names and order of `golden::digests()` (crates/everygraph-core/tests/numerics_golden.rs).
+const GOLDEN = ["sin", "cos", "exp", "ln", "log2", "sqrt", "mul_add", "exact_sum", "rng", "canonical"];
 GOLDEN.forEach((name, index) => {
-  const digest = BigInt.asUintN(64, instance.exports.everygraph_toy_golden_digest(index));
-  console.log(`golden ${name}=${digest.toString(16).padStart(16, "0")}`);
+  console.log(`golden ${name}=${hex(instance.exports.everygraph_toy_golden_digest(index))}`);
 });

@@ -213,7 +213,7 @@ mod tests {
 
     fn values(n: u32, f: impl Fn(u64) -> f64) -> Vec<f64> {
         (0..n)
-            .map(|i| f(rng::draw(7, *b"TEST", [i, 0, 0])))
+            .map(|i| f(rng::draw(7, rng::Purpose::TEST, [i, 0, 0, 0])))
             .collect()
     }
 
@@ -315,7 +315,7 @@ mod tests {
     fn dangling_mass_is_the_same_for_any_chunking_full_size() {
         let ranks: Vec<f64> = (0..70_000)
             .map(|i| match i % 3 {
-                0 => rng::unit_f64(rng::draw(7, *b"TEST", [i, 0, 0])) / 7e4,
+                0 => rng::unit_f64(rng::draw(7, rng::Purpose::TEST, [i, 1, 0, 0])) / 7e4,
                 _ => 0.0,
             })
             .collect();

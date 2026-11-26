@@ -14,12 +14,19 @@
 //! Every draw is named by what it is for, never by where or when it is computed:
 //!
 //! - `seed`: the seed the user gave the operation (the provenance parameter `seed`).
-//! - `purpose`: four ASCII bytes naming the use, such as `*b"LVIS"` for a visiting
-//!   order. Each use has its own tag, written next to the code that draws, together
-//!   with what goes into its counter. Two uses never share a tag.
-//! - `counter`: three words chosen from, in this order, the entity the draw belongs to
-//!   (a node, a community, a sample index), the level and the iteration or round, and
-//!   the index of the draw when one entity needs several. Unused words are 0.
+//! - `purpose`: a [`Purpose`], one per use. Every purpose is a constant of [`Purpose`],
+//!   listed in [`Purpose::ALL`], and a test checks that no two are equal; other crates
+//!   cannot make one. A new use adds its constant there, with what its counter holds.
+//! - `counter`: four words, `[entity, level, round, draw]`: the entity the draw belongs
+//!   to (a node, a community, a sample index), the level, the iteration or round, and
+//!   the index of the draw when one entity needs several. Unused words are 0. A 64-bit
+//!   entity (an edge offset, a sample index of 2^32 or more) takes words 0 and 1, low
+//!   word first: `[low, high, round, draw]`. A use that needs a level as well has one
+//!   purpose per level instead.
+//!
+//! The Philox key is `seed XOR (tag · 0x9E37_79B9_7F4A_7C15)`, the tag read as a
+//! little-endian `u32`. The multiplier is odd, so for one seed two purposes never share
+//! a key, and the four counter words are left to the use.
 //!
 //! A thread id, a chunk index, a memory budget, an execution regime, a position in a
 //! buffer or a count of earlier draws must never enter the key: each of those changes
@@ -69,12 +76,24 @@ fn philox4x32_10(counter: [u32; 4], key: [u32; 2]) -> [u32; 4] {
     c
 }
 
+/// What a draw is for: the second part of the key. See the key schema above.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Purpose([u8; 4]);
+
+impl Purpose {
+    /// Tests and golden vectors of the core. Counter: `[index, stream, 0, 0]`.
+    pub const TEST: Self = Self(*b"TEST");
+
+    /// Every purpose, so that the test below can check that they are distinct.
+    pub const ALL: [Self; 1] = [Self::TEST];
+}
+
 /// 64 random bits for (`seed`, `purpose`, `counter`). See the key schema above.
 #[must_use]
-pub fn draw(seed: u64, purpose: [u8; 4], counter: [u32; 3]) -> u64 {
-    let [c0, c1, c2] = counter;
-    let key = [low(seed), low(seed >> 32)];
-    let block = philox4x32_10([u32::from_le_bytes(purpose), c0, c1, c2], key);
+pub fn draw(seed: u64, purpose: Purpose, counter: [u32; 4]) -> u64 {
+    let tag = u64::from(u32::from_le_bytes(purpose.0));
+    let key = seed ^ tag.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let block = philox4x32_10(counter, [low(key), low(key >> 32)]);
     u64::from(block[0]) | (u64::from(block[1]) << 32)
 }
 
@@ -125,15 +144,24 @@ mod tests {
     }
 
     #[test]
+    fn purposes_are_distinct() {
+        for (i, a) in Purpose::ALL.iter().enumerate() {
+            assert!(Purpose::ALL[i + 1..].iter().all(|b| a != b), "{a:?} twice");
+        }
+    }
+
+    #[test]
     fn every_part_of_the_key_changes_the_draw() {
-        let base = draw(1, *b"TEST", [2, 3, 4]);
-        assert_ne!(base, draw(2, *b"TEST", [2, 3, 4]));
-        assert_ne!(base, draw(1 << 32 | 1, *b"TEST", [2, 3, 4]));
-        assert_ne!(base, draw(1, *b"TESU", [2, 3, 4]));
-        assert_ne!(base, draw(1, *b"TEST", [3, 3, 4]));
-        assert_ne!(base, draw(1, *b"TEST", [2, 4, 4]));
-        assert_ne!(base, draw(1, *b"TEST", [2, 3, 5]));
-        assert_eq!(base, draw(1, *b"TEST", [2, 3, 4]));
+        let other = Purpose(*b"TESU");
+        let base = draw(1, Purpose::TEST, [2, 3, 4, 5]);
+        assert_ne!(base, draw(2, Purpose::TEST, [2, 3, 4, 5]));
+        assert_ne!(base, draw(1 << 32 | 1, Purpose::TEST, [2, 3, 4, 5]));
+        assert_ne!(base, draw(1, other, [2, 3, 4, 5]));
+        assert_ne!(base, draw(1, Purpose::TEST, [3, 3, 4, 5]));
+        assert_ne!(base, draw(1, Purpose::TEST, [2, 4, 4, 5]));
+        assert_ne!(base, draw(1, Purpose::TEST, [2, 3, 5, 5]));
+        assert_ne!(base, draw(1, Purpose::TEST, [2, 3, 4, 6]));
+        assert_eq!(base, draw(1, Purpose::TEST, [2, 3, 4, 5]));
     }
 
     #[test]
@@ -146,7 +174,7 @@ mod tests {
         assert_eq!(below(u64::MAX, 0), 0);
         let mut counts = [0_u32; 6];
         for i in 0..6_000 {
-            let k = below(draw(9, *b"TEST", [i, 0, 0]), 6);
+            let k = below(draw(9, Purpose::TEST, [i, 0, 0, 0]), 6);
             counts[usize::try_from(k).expect("below 6")] += 1;
         }
         // 6,000 draws over 6 values: 1,000 each, standard deviation about 29.

@@ -30,7 +30,8 @@ const BOUNCE: usize = 1 << 20;
 /// Without the bound, more threads made the device slower. Exploratory, the lab's
 /// drive, orkut `targets.u32` read with `O_DIRECT`, one read per 8 MiB segment per thread:
 /// 4 threads 7.2–7.4 GB/s, 8 threads 5.5–5.8, 32 threads 5.0–5.5; 32 threads reading
-/// 1 MiB segments, 7.4. The official numbers come from `bench/specs/io.toml`.
+/// 1 MiB segments, 7.4 (not recorded). The official numbers, on Friendster, are in
+/// `bench/results/io/20261125T205022Z-21498df39590.jsonl`.
 const MAX_IN_FLIGHT: u64 = 32 << 20;
 
 /// A file read with positional reads, from any number of threads at once.
@@ -41,8 +42,8 @@ const MAX_IN_FLIGHT: u64 = 32 << 20;
 ///   files that are read more than once or that fit in memory.
 /// - [`open_direct`](Self::open_direct): direct I/O (`O_DIRECT` on Linux, `F_NOCACHE`
 ///   on macOS, `FILE_FLAG_NO_BUFFERING` on Windows). For a large input read once, front
-///   to back: in the lab, Friendster ingest pass 1 went from 19.0 to 11.1 s with it
-///   (FINDINGS § B1). Reads whose offset and buffer are aligned to [`SEGMENT_ALIGN`]
+///   to back: in the lab it made the input side of ingest faster (FINDINGS § B1).
+///   Reads whose offset and buffer are aligned to [`SEGMENT_ALIGN`]
 ///   go straight to the device into the caller's buffer, which is what
 ///   [`SegmentReader`](everygraph_core::SegmentReader) produces; other reads are
 ///   correct but go through a bounce buffer. At most 32 MiB of reads are in flight per

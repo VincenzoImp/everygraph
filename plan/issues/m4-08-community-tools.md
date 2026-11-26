@@ -13,3 +13,5 @@ labels: type:feature, area:community, P2, risk:low, size:S
 
 **Acceptance**
 - Metrics equal scikit-learn / igraph implementations on oracle partitions
+
+**Depends on** {{#m4-01-leiden-production}}

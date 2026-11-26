@@ -307,6 +307,12 @@ dependencies = [
 [[package]]
 name = "everygraph-kernels"
 version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-io",
+ "everygraph-oracle",
+]
 
 [[package]]
 name = "everygraph-map"
