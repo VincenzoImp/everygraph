@@ -22,7 +22,8 @@ use everygraph_kernels::edge_map::{Error, NodeCells, Plan, Settings, Source};
 use crate::aggregate::{Dense, Members, Quotient, dense, quotient};
 use crate::column::Column;
 use crate::level::{
-    Ctx, Graph, Moving, Schedule, Strengths, Weights, local_move, refine, split, strengths,
+    Ctx, Graph, Moving, Ranks, Schedule, Strengths, Weights, local_move, refine, split,
+    strengths,
 };
 use crate::quality::tally;
 use crate::table::Tables;
@@ -230,8 +231,9 @@ fn level<S: Source>(
         ..LevelStats::default()
     };
     let tables = Tables::new(memory);
-    let schedule = Schedule::new(n, memory, ctx, false)?;
-    let mut st = Moving::new(plan, memory, &k.of, bound, ctx)?;
+    let ranks = Ranks::new(&k.of);
+    let schedule = Schedule::new(&ranks, memory, ctx, false)?;
+    let mut st = Moving::new(plan, memory, &k.of, &ranks, bound, ctx)?;
     let tol = TOLERANCE[(ctx.iteration + ctx.level).min(11) as usize];
     let g = Graph { plan, w, k: &k.of };
     let moved = local_move(g, &st, &schedule, &tables, ctx, tol)?;
@@ -249,11 +251,11 @@ fn level<S: Source>(
         let schedule = match schedule {
             Schedule::Rounds { .. } => {
                 drop(schedule);
-                Schedule::new(n, memory, ctx, true)?
+                Schedule::new(&ranks, memory, ctx, true)?
             }
             order @ Schedule::Order { .. } => order,
         };
-        Some(refine(g, memory, &st, &schedule, &tables, ctx)?)
+        Some(refine(g, memory, &ranks, &st, &schedule, &tables, ctx)?)
     };
     let d = match &refined {
         Some(r) => dense(plan, memory, |v| r.rcomm.load(v, Relaxed).get())?,
@@ -335,8 +337,9 @@ fn polish<S: Source>(
 ) -> Result<(Column<u32>, LevelStats), Error> {
     let n = plan.nodes();
     let tables = Tables::new(memory);
-    let schedule = Schedule::new(n, memory, ctx, false)?;
-    let st = Moving::new(plan, memory, &k.of, Some(start), ctx)?;
+    let ranks = Ranks::new(&k.of);
+    let schedule = Schedule::new(&ranks, memory, ctx, false)?;
+    let st = Moving::new(plan, memory, &k.of, &ranks, Some(start), ctx)?;
     let tol = TOLERANCE[(ctx.iteration + ctx.level).min(11) as usize];
     let moved = local_move(
         Graph { plan, w, k: &k.of },
