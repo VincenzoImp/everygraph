@@ -49,7 +49,8 @@ From the map experiment (FINDINGS § E; shared machine; `lab/e-map/results/`):
 - The "pull towards external neighbours" term showed no measurable gain (mean ratio 0.226
   with it, 0.223 without; `lab/e-map/results/eval_lj_hcl_noext.json`) and is redesigned or
   dropped in #21.
-- The 1.8 B-edge layout is measured end to end by #15 before any claim about it.
+- #15 measured the 1.8 B-edge layout end to end (above); no claim about it goes beyond
+  that run until #67 bounds its memory.
 
 ## What would change our mind
 

@@ -2,14 +2,14 @@
 
 This file holds the coding rules of the Rust workspace. How work is planned, reviewed and
 merged is in [CLAUDE.md](CLAUDE.md); why the engine is shaped this way is in
-[docs/DESIGN.md](docs/DESIGN.md). Licence sign-off, the code of conduct and the security
-policy arrive with issue #9.
+[docs/DESIGN.md](docs/DESIGN.md). Licensing, sign-off, review, the code of conduct and the
+security policy are in the last section, "Licensing, sign-off and review".
 
 ## Checks
 
 Every pull request passes these on current stable Rust. Continuous integration runs
 all of them (see "CI" below); run them yourself before pushing, because a red run costs
-Actions minutes and a round trip.
+a place in the shared queue and a round trip.
 
 ```sh
 cargo fmt --all --check
@@ -96,10 +96,8 @@ own.
 
 ## CI
 
-GitHub Actions, two workflows under `.github/workflows/`, on GitHub-hosted runners.
-While the repository is private, Actions minutes are counted against the account's
-monthly quota, each job rounded up to a whole minute (macOS ten-fold, Windows two-fold);
-once it is public, standard runners are free. Either way the queue is shared by every
+GitHub Actions, two workflows under `.github/workflows/`, on GitHub-hosted runners. The
+repository is public, so standard runners cost nothing. The queue is still shared by every
 agent's pull request, so on a pull request the expensive jobs run only when it changed
 what they check.
 
@@ -132,19 +130,20 @@ request (CLAUDE.md § 4) before merging it. The test job runs even when lint fai
 that a red pull request still gets its test results; the conditional jobs wait for lint
 to pass.
 
-A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
-(and `astral-sh/setup-uv`'s cache of the oracle's Python packages) are written by runs on `main` and read by every branch. Third-party actions are pinned
+A new push to a pull request cancels the run it replaces. The caches (`Swatinem/rust-cache`,
+and `astral-sh/setup-uv`'s cache of the oracle's Python packages) are written by runs on
+`main` and read by every branch. Third-party actions are pinned
 to a commit, with the version in a comment; workflows get `contents: read` and nothing
 else (the lint job also reads Actions runs, for the nightly check).
 
 **Push when the branch is ready for CI, not after every commit.** Every push to an open
-pull request starts a run, which costs minutes while the repository is private and
-takes a place in the queue every agent shares, even when the next push cancels it. Run
+pull request starts a run, which takes a place in the queue every agent shares, even when
+the next push cancels it. Run
 the checks of the crates you touched locally ("Checks"), commit as often as you like,
 and push once the branch is ready to be checked — or push to a branch without a pull
 request, which starts nothing.
 
-What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is the wasm toy's pattern applied to the codec; `tools/check_container_python.py` has `everygraph-io`'s example `container_sample` write a container and requires `tools/eg_container.py`, a reader in Python written from `docs/spec/eg-container.md` alone, to agree with the Rust reader on the sample and on files patched to exercise the reading rules (fallback past a damaged or rule-breaking table, the tie between header blocks, required features of the older block), verify the hashes and report a damaged section):
+What the scripts at the end of "Checks" are for:
 
 - **`tools/check_portability_canary.py`** breaks the portability rule on purpose. Each
   file under `tools/canary/portability/` is a probe (direct `std::fs`, file access
@@ -161,6 +160,14 @@ What the scripts at the end of "Checks" are for (`tools/check_wasm_codec.py` is 
   through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
   as wasm32 in Node, and compares the hashes. Real kernels replace it with the
   determinism CI (m3-11).
+- **`tools/check_wasm_codec.py`** applies the wasm toy's pattern to the adjacency codec:
+  the `simd128` decoder in Node must agree with the scalar one.
+- **`tools/check_container_python.py`** has `everygraph-io`'s example `container_sample`
+  write a container. `tools/eg_container.py`, a reader in Python written from
+  `docs/spec/eg-container.md` alone, must then agree with the Rust reader, on the sample
+  and on files patched to exercise the reading rules (fallback past a damaged or
+  rule-breaking table, the tie between header blocks, required features of the older
+  block). It must also verify the hashes and report a damaged section.
 - **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
   ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
   `tools/canary/tsan/`, a toy kernel on `par` with a deliberate data race, which must be
@@ -177,14 +184,14 @@ describing it).
 | `everygraph-core` | id types, `ByteSource` and its writable counterpart `ByteSink`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
 | `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31, #28 | no — the one crate for OS I/O |
 | `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes, enforced (with and without `simd128`) |
-| `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
+| `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
 | `everygraph-community` | Leiden and the map hierarchy | #57 | yes |
 | `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
 | `everygraph-cli` | the `everygraph` command | #98 | no |
 | `everygraph-py` | Python bindings | #81, #82 | no |
-| `everygraph-wasm` | browser bindings | #108 | yes |
+| `everygraph-wasm` | browser bindings | #108 | yes, built in CI |
 | `everygraph-bench` | the `everygraph-bench` harness; the dataset registry and fetcher (`datasets/`) | #4, #5 | no |
 | `everygraph-oracle` | the correctness oracle: generators, references, comparators, invariants, the `KernelUnderTest` trait (a development crate, `publish = false`, used by other crates' tests only; see `oracle/README.md`) | #6 | no |
 
@@ -200,9 +207,10 @@ command, the Python extension, the threaded browser build) enable
 they link. `parallel` is a default feature of the core, so that someone who depends on
 `everygraph-core` alone gets threads without asking.
 
-"Must build for wasm32" is enforced for `everygraph-core` today. The other rows state the
-intent; each crate joins the wasm32 build, and gets a `clippy.toml` like the core's, in
-the pull request that gives it content.
+"Must build for wasm32" is enforced today for the crates CI builds for wasm32: the core,
+`everygraph-format` and `everygraph-ingest` (and the empty `everygraph-wasm`). The other
+rows state the intent; each crate joins the wasm32 build, and gets a `clippy.toml` like the
+core's, in the pull request that gives it content.
 
 ## The portability rule
 
@@ -242,9 +250,12 @@ Not checked at all: **blocking**. `Mutex::lock`, `Condvar::wait`, `Barrier::wait
 channel's `recv` compile everywhere and can block a browser's main thread, which is not
 allowed to wait. Code in the core must not block; today nothing verifies it.
 
-The rule is enforced for `everygraph-core` only. Clippy reads the `clippy.toml` nearest
-to the crate it checks, so the lists do not apply to `everygraph-io` or to any other
-crate (see "Crates").
+The rule is enforced in full for `everygraph-core` only. Clippy reads the `clippy.toml`
+nearest to the crate it checks, so the core's lists apply to no other crate.
+`everygraph-format` keeps a copy of them in its own `clippy.toml` and forbids the lints
+at its root; the script and the canary do not check that copy, and its dependencies are
+checked only by the wasm32 builds and by review. The lists do not apply to `everygraph-io`
+(see "Crates").
 
 ## The allocation rule
 
@@ -267,8 +278,8 @@ four lists are identical; `tools/check_portability_canary.py` checks that each s
 catches every entry. What no lint sees: growth through `push`, `extend`, `collect` and
 `clone`. Small vectors use those; a large one is a review finding, and what catches it
 is a counting global allocator in the kernel tests that asserts heap bytes ≤
-`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` join the
-rule once their first pull requests (#30, #32–#35) are in.
+`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` have
+code but not yet this `clippy.toml`; the M2 cleanup (#200) adds it.
 
 ## Integers
 
@@ -310,10 +321,18 @@ To add one, in a single pull request:
    the core, add its Miri run to that job in `ci.yml`. The pull request gets the independent review that CLAUDE.md § 4
    requires for `unsafe` code.
 
-Where we expect to need it, from the lab prototypes: SIMD in the adjacency codec (#30),
-disjoint parallel writes into shared arrays in the build pipeline and in Leiden (#35,
-#57), and the generated glue of the Python and
-browser bindings (#81, #108). `everygraph-core` is expected to stay free of it.
+Where we expect to need it next, from the lab prototypes: the generated glue of the Python
+and browser bindings (#81, #108). The lab's disjoint parallel writes into shared arrays
+(the build pipeline and Leiden, #35, #57) are to go through the safe helpers of `par`
+instead (#189). `everygraph-core` is expected to stay free of `unsafe`.
+
+## Comments and documents
+
+Everything written in the repository and on GitHub is in English, in Simple Technical
+English: short sentences, one idea each, common words, active voice. Go beyond it only
+where a precise term needs it. A code comment says only what the code cannot: why, an
+invariant, a reference to the specification or to a measurement. It does not narrate the
+next line or tell the history of the change ([CLAUDE.md](CLAUDE.md)).
 
 ## Rust version
 
@@ -388,10 +407,11 @@ git commit --amend -s               # adds it to the last commit
 git rebase --signoff origin/main    # adds it to every commit of the branch
 ```
 
-`.github/workflows/dco.yml` checks every commit of a pull request. While the repository
-is private it runs only on pull requests from forks; it runs on all pull requests once
-the repository variable `DCO_ALL_PULL_REQUESTS` is `true`. Commits made before this rule
-are unsigned and stay as they are.
+`.github/workflows/dco.yml` checks every commit of a pull request. It always runs on
+pull requests from forks, and on every pull request while the repository variable
+`DCO_ALL_PULL_REQUESTS` is `true` (it is, since 2026-11-26). When you merge `origin/main`
+into a branch, sign the merge commit too: `git merge --signoff origin/main`. Commits made
+before this rule are unsigned and stay as they are.
 
 ### AI-assisted contributions
 
@@ -405,12 +425,15 @@ is responsible for that work.)
 
 ### Review
 
-Every change reaches `main` through a pull request that follows
-`.github/pull_request_template.md`: it names the issue it closes and copies the issue's
-acceptance criteria, each ticked only with its evidence (a test, a result file, or a
-command and its output). It passes the checks under "Checks", and changes to kernels,
-on-disk formats, `unsafe` code, the planner or memory accounting get an independent
-review whose findings are fixed or answered before merge ([CLAUDE.md § 4](CLAUDE.md)).
+Every change of code or of a specification reaches `main` through a pull request that
+follows `.github/pull_request_template.md`. (Only coordination goes to `main` directly:
+`docs/STATE.md`, the plan and records of decisions, [CLAUDE.md § 2](CLAUDE.md).) The pull
+request names the issue it closes and copies the issue's acceptance criteria, each ticked
+only with its evidence (a test, a result file, or a command and its output). It passes the
+checks under "Checks". Changes to kernels, on-disk formats, `unsafe` code, the planner or
+memory accounting, and experiments whose result changes a decision or a public number, get
+an independent review whose findings are fixed or answered before merge
+([CLAUDE.md § 4](CLAUDE.md)).
 Pull requests are merged by squash. Who decides, and how that changes as more people
 join, is in [GOVERNANCE.md](GOVERNANCE.md). Behaviour in the project follows the
 [code of conduct](CODE_OF_CONDUCT.md); security problems are reported privately as

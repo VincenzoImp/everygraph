@@ -168,7 +168,7 @@ format, and the earlier measurement that still carries D9.
 - **Kernels** (#44 onwards) read pairs, multiplicities (from the `.events` sequence or a
   per-pair column, as #37 decides) and per-pair columns, never per-event columns; their
   reductions follow framework node ranges, never file blocks (A2).
-- **Time windows and views** (#93, #94, m7-05) filter events through the event offsets and
+- **Time windows and views** (#93, #94) filter events through the event offsets and
   recompute multiplicities and sums on the events they keep (`graph-semantics.md` § 6).
 - **Segments** (#111): an append writes a run with its own lists and `.events` for the
   pairs it touches; the base is not rewritten; a pair's aggregates are computed over its

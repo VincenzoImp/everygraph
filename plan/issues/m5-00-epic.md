@@ -7,7 +7,7 @@ Tracking issue for milestone M5.
 
 **Goal.** Any graph becomes a zoomable map — regions → sub-regions → nodes — with exact numbers at every level, exported as one static file and explorable in a browser, a notebook or against a live local engine.
 
-**Lab baseline.** lj (4.0 M nodes): layout 3.3 s, tiles 8.5 s, 173,017 tiles in an 851 MB PMTiles v3 file; first view 152 KB in 18 requests; full zoom-to-node session 5.0 MB; search in 2 requests; frames 16.67 ms on a discrete GPU; byte-identical output across thread counts. Weak points: artificial regions, edge fog, 97% of the area empty, no software-rendering path, tile builder holds everything in RAM.
+**Lab baseline.** lj (4.0 M nodes): layout 3.3 s, tiles 8.5 s, 173,017 tiles in an 851 MB PMTiles v3 file; first view 152 KB in 18 requests; full zoom-to-node session 5.0 MB; search in 2 requests; frames 16.67 ms on a discrete GPU; byte-identical output across thread counts. Weak points: artificial regions, edge fog, node discs covering only about 1–3% of the map (estimate, not measured; DESIGN D17), no software-rendering path, tile builder holds everything in RAM.
 
 **Exit criteria**
 - [ ] {{#m5-01-layout}}, {{#m5-02-tile-format}}, {{#m5-03-tile-builder}}, {{#m5-04-search-index}}

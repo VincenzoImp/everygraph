@@ -524,7 +524,7 @@ the command line and the Python layer, which own the file, keep writers apart.
   reading.
 - **Single file for every state of a graph, in-progress builds included** — ADR 0027.
 - **Segments are reserved now, built later** (§ 13): required bit 0, the `seg/` names,
-  kinds 5 and 6 and the graph identity cost nothing in an unsegmented file, and let
+  kind 6 and the graph identity cost nothing in an unsegmented file, and let
   appends (m9-04) arrive without a new major version
   (`docs/research/sota-dynamic.md` § 0.2). One commit may add a segment and drop the
   runs a merge replaced; a reader of an earlier commit keeps reading those runs (§ 11).
