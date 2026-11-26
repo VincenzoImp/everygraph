@@ -15,3 +15,5 @@ labels: type:feature, area:format, P1, risk:low, size:S, lab-evidence
 **Acceptance**
 - twitter-2010 transpose ≤ 15 s at 16 threads in RAM
 - For every arc (u,v) in the out-adjacency, v's in-list contains u (verified by {{#m2-14-verify}})
+
+**Depends on** {{#m2-08-csr-build}}

@@ -46,8 +46,10 @@ const MIN_GROWTH: usize = 4;
 /// the compiler removes bounds checks as for any slice. Indexing (`v[i]`) costs what a
 /// slice index costs within the first segment; beyond it, a shift, a mask, a load of
 /// the segment's address and two bounds checks. Random access spread over many
-/// segments is much slower than over one (1.7–1.8× in `PageRank` on orkut with segments
-/// of 2^16 elements, exploratory): arrays of up to 1 GiB are one segment.
+/// segments is much slower than over one (1.71–1.84× in `PageRank` on lj and orkut with
+/// segments of 2^16 elements; ADR 0002,
+/// `bench/results/segvec/20261125T210132Z-14b90a211e8d.jsonl`): arrays of up to 1 GiB are
+/// one segment.
 ///
 /// A result must not depend on where segments end: their length depends on
 /// `size_of::<T>()`, and code that reduces per segment would change its answer with it
@@ -1041,7 +1043,7 @@ mod tests {
     }
 
     /// Shrinking reserves the smaller buffer before it releases the old one, and keeps
-    /// the capacity when the budget has no room for both (review of #154).
+    /// the capacity when the budget has no room for both.
     #[test]
     fn shrinking_keeps_the_capacity_when_both_buffers_do_not_fit() {
         for (limit, capacity, peak) in [(60, 60, 60), (70, 10, 70)] {

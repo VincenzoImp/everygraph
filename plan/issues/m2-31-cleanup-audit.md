@@ -19,3 +19,5 @@ labels: type:infra, area:engine, P1, risk:low, size:M
 **Feeds.** The M2 milestone report; the same issue shape for M3–M9.
 
 **Pointers.** CLAUDE.md § 6 "Keep the code small" and "Quality gates"; `docs/research/sota-testing.md` (Just et al. on what mutants cannot represent).
+
+**Depends on** {{#m3-17-cargo-mutants}}

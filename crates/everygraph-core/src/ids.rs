@@ -6,7 +6,7 @@
 //! Three integer widths meet in a graph engine, and mixing them silently is how a kernel
 //! that passes on x86-64 corrupts data on wasm32:
 //!
-//! - a **node id** is 32 bits (u64 targets cost 70–85% on `PageRank` in the lab; D3);
+//! - a **node id** is 32 bits (u64 targets cost +71% to +87% on `PageRank` in the lab; D3);
 //! - an **edge offset** is 64 bits wherever it is stored or computed, because a graph
 //!   with more than 2^32 adjacency entries is ordinary;
 //! - an **index into memory** is `usize`, which is 32 bits in the browser.

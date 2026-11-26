@@ -406,8 +406,8 @@ impl Plan {
     /// Parses `text`, whole lines the last of which may lack its line end, then counts
     /// `overlong` as one more line, too long to have been read whole.
     pub(super) fn parse(&self, text: &[u8], overlong: Option<&[u8]>) -> Partial {
-        // Edge lines of SNAP files average 14–15 bytes; the room is reserved, and only
-        // touched when used.
+        // Edge lines of SNAP files average about 14–15 bytes (an estimate); the room is
+        // reserved, and only touched when used.
         let mut part = Partial {
             batch: self.empty_batch(text.len() / 8),
             lines: 0,

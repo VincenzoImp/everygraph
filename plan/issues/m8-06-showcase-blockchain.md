@@ -14,3 +14,5 @@ labels: type:feature, area:launch, P1, risk:medium, size:L
 
 **Acceptance**
 - A reproducible notebook plus a recorded walkthrough; all stages within a 16 GiB budget
+
+**Depends on** {{#m5-13-attribute-overlays}}, {{#m5-10-jupyter-widget}}

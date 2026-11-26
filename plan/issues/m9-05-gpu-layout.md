@@ -11,3 +11,5 @@ labels: type:experiment, area:map, P2, risk:medium, size:L
 - [ ] The engine never requires a GPU
 
 **Done when.** Speed-up measured on lj/orkut and Friendster-size layouts on integrated and discrete GPUs, with a go/no-go.
+
+**Depends on** {{#m5-01-layout}}

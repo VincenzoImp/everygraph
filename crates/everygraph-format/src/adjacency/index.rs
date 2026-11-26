@@ -325,7 +325,7 @@ impl AdjacencyIndex {
 
 #[cfg(test)]
 mod tests {
-    //! Hostile indexes (review of #30, S2): each breaks one rule of `parse`, and each
+    //! Hostile indexes: each breaks one rule of `parse`, and each
     //! must be refused. The good index is built field by field, so that the header
     //! may disagree with the parts.
 

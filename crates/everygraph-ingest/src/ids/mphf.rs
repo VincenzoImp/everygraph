@@ -563,8 +563,8 @@ mod tests {
     }
 
     /// Hash sets no pilot can separate end in `Unsolvable`, which the builder turns into
-    /// a retry with the next seed (the review of PR #158 built them directly as hashes:
-    /// real keys would need a partial XXH3-128 collision).
+    /// a retry with the next seed. The test builds them directly as hashes: real keys
+    /// would need a partial XXH3-128 collision.
     #[test]
     fn inseparable_hash_sets_are_unsolvable() {
         let same_lo = [KeyHash { hi: 1, lo: 7 }, KeyHash { hi: 2, lo: 7 }];

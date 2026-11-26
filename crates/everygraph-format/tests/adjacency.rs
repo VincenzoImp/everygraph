@@ -359,9 +359,9 @@ fn apis_agree(adj: Adjacency<'_>) {
     }
 }
 
-/// Review of #30, M1: with records checked only where a batch ends, one damaged byte
-/// made `decode_nodes` and `decode_all` return `[128, 0]` while `neighbors(0)` failed.
-/// Every API must report the damage at node 0.
+/// One damaged byte in node 0's record: every API must report the damage at node 0.
+/// With records checked only where a batch ends, `decode_nodes` and `decode_all` would
+/// return `[128, 0]` while `neighbors(0)` failed.
 #[test]
 fn one_damaged_byte_is_an_error_at_its_node_in_every_api() {
     let mut e = encode(&[0, 1, 2], &[0, 129]).unwrap();

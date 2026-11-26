@@ -32,5 +32,6 @@
  {"name": "size:M", "color": "ededed", "description": "About 1 week"},
  {"name": "size:L", "color": "ededed", "description": "2-3 weeks"},
  {"name": "size:XL", "color": "ededed", "description": "A month or more; split before starting"},
- {"name": "lab-evidence", "color": "5ebeff", "description": "Design backed by a graphlab measurement"}
+ {"name": "lab-evidence", "color": "5ebeff", "description": "Design backed by a graphlab measurement"},
+ {"name": "full-ci", "color": "b60205", "description": "Pull requests: run every CI job (CONTRIBUTING.md, CI)"}
 ]

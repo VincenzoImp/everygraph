@@ -786,8 +786,7 @@ mod tests {
         ));
     }
 
-    /// A long key is refused by its length, before the quadratic decoding (one
-    /// 200,000-character key took 5.6 s in the review of PR #158).
+    /// A long key is refused by its length, before the quadratic decoding.
     #[test]
     fn long_base58_text_is_refused_before_decoding() {
         let b58 = KeyKind::Base58 { width: 25 };

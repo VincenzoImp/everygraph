@@ -1,5 +1,5 @@
 // Joint light+dark search: one hue per slot, own lightness and chroma per theme. Slot 9 is the neutral ("other").
-import { lch2hex, lin, simLin, oklabFromLin, contrast, oklch, deltaE, separation } from '/home/tux/projects/everygraph/design/preview/brand2/tools/color.mjs';
+import { lch2hex, lin, simLin, oklabFromLin, contrast, oklch, deltaE, separation } from './color.mjs';
 import { TOK } from './measure.mjs';
 function rng(seed) { let s = seed >>> 0; return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const hd = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));

@@ -15,3 +15,5 @@ labels: type:feature, area:python, P0, risk:low, size:M, lab-evidence
 **Acceptance**
 - Zero-copy tests pass for pyarrow, Polars and pandas (ArrowDtype)
 - Round trip Polars → Everygraph → Polars of a 100 M-row edge table without a full Python-side copy
+
+**Depends on** {{#m6-01-python-api}}, {{#m2-06-parquet-reader}}
