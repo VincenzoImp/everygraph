@@ -395,7 +395,8 @@ impl Op {
             Self::Ingest => {
                 let reader = TextReader::open(&input.text, &text_options()).expect("the edge list");
                 let sample = Sample::of(&reader).expect("a sample")?;
-                Some(estimate(&sample, false, THREADS, u64::MAX).smallest_budget)
+                let options = BuildOptions::new(GraphOptions::default(), THREADS);
+                Some(estimate(&sample, &options, u64::MAX).smallest_budget)
             }
             _ => None,
         }

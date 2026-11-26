@@ -69,12 +69,12 @@ fn check(index: &[u8], data: &[u8]) {
     for decoder in Decoder::available() {
         assert_eq!(outcomes(adj.with_decoder(decoder)), reference, "{}", decoder.name());
     }
-    apis_agree(adj);
+    apis_agree(adj, data);
 }
 
 /// A block, or the whole graph, decodes only if each of its lists decodes on its own,
-/// and then to the same lists.
-fn apis_agree(adj: Adjacency<'_>) {
+/// and then to the same lists; a window over a block's records decodes as the block.
+fn apis_agree(adj: Adjacency<'_>, data: &[u8]) {
     let index = adj.index();
     let mut buf = Vec::new();
     let lists: Vec<Outcome> = (0..index.nodes())
@@ -84,10 +84,21 @@ fn apis_agree(adj: Adjacency<'_>) {
     for b in 0..index.blocks() {
         let nodes = index.block_nodes(b);
         let own = &lists[nodes.start as usize..nodes.end as usize];
-        let got = adj.decode_nodes(nodes, usize::MAX, &mut batch);
+        let got = adj.decode_nodes(nodes.clone(), usize::MAX, &mut batch);
         assert_eq!(got.is_ok(), own.iter().all(Result::is_ok), "block {b}");
         for ((_, l), want) in batch.iter().zip(own) {
             assert_eq!(Ok(l.to_vec()), *want, "block {b}");
+        }
+        let bytes = index.data_range(nodes.clone());
+        let records = &data[bytes.start as usize..bytes.end as usize];
+        let window = Adjacency::window(index, nodes.clone(), records)
+            .expect("the records of a block")
+            .with_decoder(adj.decoder());
+        let mut part = Batch::default();
+        let alone = window.decode_nodes(nodes, usize::MAX, &mut part);
+        assert_eq!(alone.is_ok(), got.is_ok(), "window of block {b}");
+        if alone.is_ok() {
+            assert_eq!(part.targets(), batch.targets(), "window of block {b}");
         }
     }
     if index.entries() <= 1 << 20 {

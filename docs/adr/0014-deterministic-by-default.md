@@ -72,6 +72,11 @@ silently.
   "deterministic mode works out of core with the same hash as in RAM"). Streaming
   aggregation combines (community, community, weight) triples in bucket order; with
   non-integer weights the totals are exact only with the fixed-point scheme not yet built.
+- **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))): asynchronous execution, which processes active
+  blocks in any order and lets updates of one block feed the next (ACGraph, Grafu), for
+  kernels whose result depends on that order: PageRank, Leiden, label propagation.
+  An asynchronous I/O pipeline is allowed: reductions follow fixed node blocks, not
+  tasks, so the order in which reads complete does not change a result.
 - The price for community detection is above the target of #18 (≤ 1.5× async at 16
   threads); it is stated with the numbers above wherever the default is explained.
 

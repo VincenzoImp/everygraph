@@ -244,7 +244,11 @@ length in bytes (`u32`), the name, and the section's 32-byte hash. So two files 
 graph sections differ in kind, name or content never share an identity. The kinds that
 define the graph are those 1.0 defines as such — 2 to 5 (adjacency index and data,
 `.events`, dictionary) and 7 (property columns, `eg-columns.md` § 8; their layouts
-and statistics, kinds 8 and 9, follow from kind 7 and are left out). A kind added
+and statistics, kinds 8 and 9, follow from kind 7 and are left out). Sections whose
+names begin with `adjacency.in.` are left out too: they hold the in-adjacency of a
+directed graph, a function of `adjacency.out` (`eg-adjacency.md` § 3.2), so a file has
+the same identity with or without it, and results stored before it was added are still
+served after. A kind added
 later that defines the graph is announced with a required feature bit (§ 10), so that a
 reader that does not know it refuses the file instead of computing an identity without
 it. For a segmented file (§ 13) the identity is BLAKE3 of

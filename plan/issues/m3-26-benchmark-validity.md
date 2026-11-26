@@ -3,7 +3,7 @@ title: Comparisons that hold: validated outputs, equal measurement, intervals, t
 milestone: M3 · Engine and kernels
 labels: type:infra, area:bench, P0, risk:medium, size:M
 ---
-**Why.** The state-of-the-art review of 2026-11-26 (`/home/tux/graphlab/sota-2026-11-26/synthesis.md` § 1 rows 9, 10, 12; § 8; `benchmarks.md`) found that no speed comparison with the best codes holds today:
+**Why.** The state-of-the-art review of 2026-11-26 (`docs/research/sota-review-2026-11.md` § 1 rows 9, 10, 12; § 8; `benchmarks.md`) found that no speed comparison with the best codes holds today:
 - The reference runs (#55, PR #250) do not check that the tools computed the same result.
 - The tools are measured differently: best of 5 against one run; f64 against int32 SSSP; f32 GVE-Leiden; `-march=native` for one tool only; no thread pinning.
 - Ratios between tools on a loaded machine change sign: WCC, GAP ÷ ours on lj, went from 2.53 to 0.83 between rounds (`lab/m3-12-reference-runs/results/rounds.jsonl` on the PR #250 branch).

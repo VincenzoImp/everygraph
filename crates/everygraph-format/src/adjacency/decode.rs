@@ -19,6 +19,8 @@ const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero")
 /// A run of consecutive lists to decode.
 pub(super) struct Job<'a> {
     data: &'a [u8],
+    /// Offset in the data part of `data[0]`.
+    base: u64,
     /// Entry offsets.
     entries: &'a EliasFano,
     /// Byte offsets.
@@ -38,7 +40,8 @@ pub(super) struct Done {
 }
 
 /// Where each list of a run ends: in the output (`entries`, relative to the run's first
-/// entry) and in the data (`bytes`, absolute). Reused from run to run.
+/// entry) and in the data (`bytes`, from the start of the job's data). Reused from run to
+/// run.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Ends {
     pub(super) entries: Vec<usize>,
@@ -66,6 +69,7 @@ pub(super) fn run(
 ) -> Result<Done, DecodeError> {
     let Job {
         data,
+        base: data_base,
         entries,
         bytes,
         nodes,
@@ -96,13 +100,13 @@ pub(super) fn run(
     let (mut at, mut started) = (0, false);
     bytes.scan_from(first, |x| {
         if !started {
-            (at, started) = (to_usize(x), true);
+            (at, started) = (to_usize(x - data_base), true);
             return true;
         }
         if ends.bytes.len() == lists {
             return false;
         }
-        ends.bytes.push(to_usize(x));
+        ends.bytes.push(to_usize(x - data_base));
         true
     });
     let stop = nodes.start + u32::try_from(lists).expect("at most one list per node");
@@ -256,10 +260,18 @@ impl Batch {
 /// A compressed adjacency: its index and its data part, in memory (a heap buffer or a
 /// memory map). Cheap to create and to copy; every method takes `&self`, so one value
 /// can be shared by many threads.
+///
+/// A [`window`](Self::window) holds the records of a range of nodes only, for a data
+/// part that is read piece by piece.
 #[derive(Clone, Copy, Debug)]
 pub struct Adjacency<'a> {
     index: &'a AdjacencyIndex,
     data: &'a [u8],
+    /// The nodes whose records `data` holds: `first..end`.
+    first: u32,
+    end: u32,
+    /// Offset in the data part of `data[0]`.
+    base: u64,
     decoder: Decoder,
 }
 
@@ -280,6 +292,48 @@ impl<'a> Adjacency<'a> {
         Ok(Self {
             index,
             data,
+            first: 0,
+            end: index.nodes(),
+            base: 0,
+            decoder: Decoder::best(),
+        })
+    }
+
+    /// The lists of `nodes` alone, from `records`: the bytes of the data part from the
+    /// start of the record of `nodes.start` to the end of the record of `nodes.end − 1`.
+    /// Only nodes of the window may be decoded.
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::Length`] if `records` is not as long as the index says.
+    ///
+    /// # Panics
+    ///
+    /// If `nodes` is not a range within `0..nodes()`.
+    pub fn window(
+        index: &'a AdjacencyIndex,
+        nodes: Range<u32>,
+        records: &'a [u8],
+    ) -> Result<Self, FormatError> {
+        assert!(
+            nodes.start <= nodes.end && nodes.end <= index.nodes(),
+            "nodes {nodes:?} outside 0..{}",
+            index.nodes()
+        );
+        let bytes = index.data_range(nodes.clone());
+        let actual = u64::try_from(records.len()).unwrap_or(u64::MAX);
+        if actual != bytes.end - bytes.start {
+            return Err(FormatError::Length {
+                expected: bytes.end - bytes.start,
+                actual,
+            });
+        }
+        Ok(Self {
+            index,
+            data: records,
+            first: nodes.start,
+            end: nodes.end,
+            base: bytes.start,
             decoder: Decoder::best(),
         })
     }
@@ -288,6 +342,13 @@ impl<'a> Adjacency<'a> {
     #[must_use]
     pub fn with_decoder(self, decoder: Decoder) -> Self {
         Self { decoder, ..self }
+    }
+
+    /// The nodes whose lists can be decoded: all of them, or those of a
+    /// [`window`](Self::window).
+    #[must_use]
+    pub fn nodes(&self) -> Range<u32> {
+        self.first..self.end
     }
 
     /// The decoder in use.
@@ -318,7 +379,7 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Panics
     ///
-    /// If `v` is not below the number of nodes.
+    /// If `v` is not a node of [`nodes`](Self::nodes).
     pub fn neighbors<'b>(
         &self,
         v: NodeId,
@@ -340,7 +401,7 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Panics
     ///
-    /// If `v` is not below the number of nodes.
+    /// If `v` is not a node of [`nodes`](Self::nodes).
     pub fn neighbors_prefix<'b>(
         &self,
         v: NodeId,
@@ -366,11 +427,21 @@ impl<'a> Adjacency<'a> {
             first: v.get(),
             end: v.get() + 1,
         };
+        assert!(
+            (self.first..self.end).contains(&v.get()),
+            "node {v} outside the window"
+        );
         let range = self.index.record_range(v);
         grow(buf, k + SLACK);
         let used = self
             .decoder
-            .list(&self.data[to_usize(range.start)..], v.get(), d, k, buf)
+            .list(
+                &self.data[to_usize(range.start - self.base)..],
+                v.get(),
+                d,
+                k,
+                buf,
+            )
             .map_err(|_| corrupt)?;
         if k == d && used as u64 != range.end - range.start {
             return Err(corrupt);
@@ -389,6 +460,7 @@ impl<'a> Adjacency<'a> {
     ) -> Result<Done, DecodeError> {
         let job = Job {
             data: self.data,
+            base: self.base,
             entries: self.index.entry_offsets(),
             bytes: self.index.byte_offsets(),
             nodes,
@@ -420,7 +492,7 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Panics
     ///
-    /// If `nodes` is not a range within `0..nodes()`, or the batch does not fit in
+    /// If `nodes` is not a range within [`nodes`](Self::nodes), or the batch does not fit in
     /// memory on this target.
     pub fn decode_nodes(
         &self,
@@ -429,9 +501,9 @@ impl<'a> Adjacency<'a> {
         batch: &mut Batch,
     ) -> Result<u32, DecodeError> {
         assert!(
-            nodes.start <= nodes.end && nodes.end <= self.index.nodes(),
-            "nodes {nodes:?} outside 0..{}",
-            self.index.nodes()
+            self.first <= nodes.start && nodes.start <= nodes.end && nodes.end <= self.end,
+            "nodes {nodes:?} outside {:?}",
+            self.first..self.end
         );
         batch.first = nodes.start;
         batch.clear();
@@ -490,9 +562,14 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Panics
     ///
-    /// If the two slices do not have those lengths.
+    /// If the two slices do not have those lengths, or the adjacency is a
+    /// [`window`](Self::window) of some of the nodes.
     pub fn decode_all(&self, offsets: &mut [u64], targets: &mut [u32]) -> Result<(), DecodeError> {
         let index = self.index;
+        assert!(
+            self.first == 0 && self.end == index.nodes(),
+            "decode_all of a window"
+        );
         assert_eq!(
             offsets.len() as u64,
             u64::from(index.nodes()) + 1,

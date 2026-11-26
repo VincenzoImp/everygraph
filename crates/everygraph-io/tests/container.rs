@@ -102,7 +102,7 @@ fn a_file_sink_writes_in_place_extends_with_zeros_and_truncates() {
     // Opening keeps the bytes.
     let sink = FileSink::open(&path).unwrap();
     assert_eq!(sink.len(), 6);
-    drop(sink.into_file());
+    drop(sink);
     assert_eq!(fs::read(&path).unwrap(), b"xy\0\0\0a");
     fs::remove_dir_all(dir).unwrap();
 }
