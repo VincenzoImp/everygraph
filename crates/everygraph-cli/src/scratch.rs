@@ -11,8 +11,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use everygraph_ingest::ids::Scratch;
 use everygraph_io::MmapSource;
 
-/// The scratch directory of one job. Its files are unlinked as soon as they are made,
-/// so a hard stop leaves the directory and nothing in it; it is removed on drop.
+/// The scratch directory of one job, removed on drop. On Unix its files are unlinked as
+/// soon as they are made, so a hard stop leaves at most the empty directory, which the
+/// next run of the same job takes over.
 #[derive(Debug)]
 pub(crate) struct JobScratch {
     dir: PathBuf,

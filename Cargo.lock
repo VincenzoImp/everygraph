@@ -263,7 +263,6 @@ dependencies = [
  "everygraph-ingest",
  "everygraph-io",
  "flate2",
- "rayon",
  "serde_json",
 ]
 

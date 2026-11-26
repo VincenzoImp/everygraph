@@ -128,11 +128,16 @@ mod bench {
             "{{\"budget\":{budget},\"regime\":\"{:?}\",\"build_seconds\":{built:.3},\
              \"commit_seconds\":{committed:.3},\"write_bytes\":{written},\
              \"spilled_bytes\":{},\"output_bytes\":{output},\"edges\":{},\"nodes\":{},\
+             \"pairs\":{},\"entries\":{},\"events\":{},\"events_bytes\":{},\
              \"buckets\":{},\"peak_budget_bytes\":{},\"bytes_per_edge\":{:.2}}}",
             report.regime,
             report.spilled_bytes,
             report.edges,
             report.nodes,
+            report.pairs,
+            report.entries,
+            report.events,
+            report.events_bytes,
             report.buckets,
             accountant.peak(),
             written as f64 / report.edges.max(1) as f64,

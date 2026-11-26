@@ -831,9 +831,7 @@ fn run(args: &Args) -> Result<(), Failure> {
     }
 
     // Threads are the binary's to decide; the library only reserves for them.
-    let _ = rayon::ThreadPoolBuilder::new()
-        .num_threads(plan.threads.get())
-        .build_global();
+    everygraph_core::par::set_threads(plan.threads);
     let root = match &args.temp_dir {
         Some(dir) => dir.clone(),
         None => output

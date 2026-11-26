@@ -11,20 +11,20 @@
 //!    on a directed graph, one in each direction on an undirected one
 //!    (`docs/spec/graph-semantics.md` § 2.3). This pass counts the items of each node.
 //! 3. **Buckets.** Buckets are ranges of at most 2^16 source nodes, cut at exact
-//!    boundaries from those counts ([`layout`]). The longest prefix of buckets that
+//!    boundaries from those counts (module `layout`). The longest prefix of buckets that
 //!    fits the budget is filled in memory by `par::scatter`; the items of the other
-//!    buckets go to spill files as 6-byte records ([`fill`]). The rows are parsed again
+//!    buckets go to spill files as 6-byte records (module `fill`). The rows are parsed again
 //!    for this pass, twice when something is in memory (the scatter counts first).
 //! 4. **Lists.** Bucket after bucket, in node order, each node's items are sorted; equal
 //!    targets are one pair, with their number of items as its events; the list is
-//!    encoded ([`finish`]). Records go straight to the data section; the index and the
+//!    encoded (module `finish`). Records go straight to the data section; the index and the
 //!    `.events` section (ADR 0028) are written at the end.
 //!
 //! When everything fits, nothing is written but the output: no spill.
 //!
 //! Property columns (weights, times; issue #37) are not carried yet: the hook is the
 //! second column of the buckets, which holds the local source and would hold a row
-//! number to fetch them, and the per-entry multiplicities of [`finish`], which give
+//! number to fetch them, and the per-entry multiplicities of module `finish`, which give
 //! each pair's range of events for per-pair aggregates.
 //!
 //! # Determinism

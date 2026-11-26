@@ -19,9 +19,6 @@ everygraph-core = { path = "../everygraph-core" }
 everygraph-format = { path = "../everygraph-format" }
 everygraph-ingest = { path = "../everygraph-ingest" }
 everygraph-io = { path = "../everygraph-io" }
-# The binary decides how many threads exist (CONTRIBUTING.md, "Crates"): it sizes the
-# pool that `everygraph_core::par` runs on.
-rayon = { workspace = true }
 
 [dev-dependencies]
 everygraph-format = { path = "../everygraph-format" }

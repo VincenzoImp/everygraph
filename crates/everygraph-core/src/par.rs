@@ -68,6 +68,25 @@ use std::ops::Range;
 use crate::memory::{Memory, MemoryError, MemoryKind};
 use crate::{MAX_ALLOCATION_BYTES, widen};
 
+/// Sets the number of threads the parallel functions of this module run on, for the
+/// whole process. A binary calls it once, before any parallel work: libraries never
+/// do. Returns `false` when the pool exists already (it keeps its size), and always
+/// without the `parallel` feature, which has no pool.
+pub fn set_threads(threads: NonZeroUsize) -> bool {
+    #[cfg(feature = "parallel")]
+    {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads.get())
+            .build_global()
+            .is_ok()
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        let _ = threads;
+        false
+    }
+}
+
 /// Calls `f` once for each chunk of `0..len`, possibly in parallel.
 ///
 /// Use it for work whose only output goes through `f`'s captured state (atomics, for
