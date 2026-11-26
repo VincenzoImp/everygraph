@@ -86,6 +86,7 @@ struct Case<'t> {
     time: bool,
     budget: u64,
     tuning: &'t Tuning,
+    in_adjacency: bool,
 }
 
 fn build_bytes(case: &Case<'_>, text: &[u8]) -> Result<(Vec<u8>, Report), BuildError> {
@@ -93,7 +94,7 @@ fn build_bytes(case: &Case<'_>, text: &[u8]) -> Result<(Vec<u8>, Report), BuildE
     Ok((sink.into_inner(), report))
 }
 
-fn build_into<K: ByteSink>(
+fn build_into<K: ByteSink + Sync>(
     case: &Case<'_>,
     text: &[u8],
     sink: K,
@@ -107,7 +108,8 @@ fn build_into<K: ByteSink>(
     };
     let reader = TextReader::open_with_chunk(MemorySource::new(text), &options, 96).unwrap();
     let memory = Memory::from(Arc::new(Budget::new(case.budget)));
-    let options = BuildOptions::new(case.graph, NonZeroUsize::new(4).unwrap());
+    let mut options = BuildOptions::new(case.graph, NonZeroUsize::new(4).unwrap());
+    options.in_adjacency = case.in_adjacency;
     let unfinished = build_tuned(
         &reader,
         &options,
@@ -243,95 +245,110 @@ fn check_case(name: &str, rows: &[Row], case: &Case<'_>) -> Report {
     };
     let us = |r: &Row| r.t * 1_000_000;
 
-    let scope = |s: &str| format!("adjacency.out.{s}");
-    let get = |s: &str, n: &str| column(&file, &scope(s), n);
-    let (wn, tn) = ("column 3", "column 4");
-    let mut entry = 0;
-    let mut event = 0;
-    let mut checked = Vec::new();
-    for (id, list) in back.lists.iter().enumerate() {
-        let x: u32 = back.keys[id].parse().unwrap();
-        for &(target, m) in list {
-            let y: u32 = back.keys[usize::try_from(target).unwrap()].parse().unwrap();
-            let rows = pair_of(x, y);
-            checked.push((entry, event, rows.clone(), m));
-            entry += 1;
-            event += usize::try_from(m).unwrap();
+    // The out-adjacency, and the in-adjacency whose entry (y, x) is the pair (x, y): the
+    // same values, each in its adjacency's order.
+    let adjacencies = [
+        ("adjacency.out", Some(&back.lists), false),
+        ("adjacency.in", back.in_lists.as_ref(), true),
+    ];
+    assert_eq!(back.in_lists.is_some(), graph.directed, "{name}");
+    for (adjacency, lists, reversed) in adjacencies {
+        let Some(lists) = lists else { continue };
+        let name = &format!("{name}: {adjacency}");
+        let scope = |s: &str| format!("{adjacency}.{s}");
+        let get = |s: &str, n: &str| column(&file, &scope(s), n);
+        let (wn, tn) = ("column 3", "column 4");
+        let mut entry = 0;
+        let mut event = 0;
+        let mut checked = Vec::new();
+        for (id, list) in lists.iter().enumerate() {
+            let x: u32 = back.keys[id].parse().unwrap();
+            for &(target, m) in list {
+                let y: u32 = back.keys[usize::try_from(target).unwrap()].parse().unwrap();
+                let rows = if reversed {
+                    pair_of(y, x)
+                } else {
+                    pair_of(x, y)
+                };
+                checked.push((entry, event, rows.clone(), m));
+                entry += 1;
+                event += usize::try_from(m).unwrap();
+            }
         }
-    }
-    let at = |values: &[u64], i: usize| values[i];
-    match graph.duplicates {
-        Duplicates::Events => {
-            let weights = case.weight.then(|| get("event", wn));
-            let sums = case.weight.then(|| get("pair", wn));
-            let times = case.time.then(|| get("event", tn));
-            for (e, ev, rows, m) in &checked {
-                let mut order = rows.clone();
-                if case.time {
-                    order.sort_by_key(|r| r.t);
+        let at = |values: &[u64], i: usize| values[i];
+        match graph.duplicates {
+            Duplicates::Events => {
+                let weights = case.weight.then(|| get("event", wn));
+                let sums = case.weight.then(|| get("pair", wn));
+                let times = case.time.then(|| get("event", tn));
+                for (e, ev, rows, m) in &checked {
+                    let mut order = rows.clone();
+                    if case.time {
+                        order.sort_by_key(|r| r.t);
+                    }
+                    assert_eq!(*m, u64::try_from(rows.len()).unwrap(), "{name}");
+                    for (k, r) in order.iter().enumerate() {
+                        if let Some((w, _)) = &weights {
+                            assert_eq!(at(w, ev + k), stored(r.w), "{name}: event weight");
+                        }
+                        if let Some((ts, _)) = &times {
+                            assert_eq!(t(at(ts, ev + k)), us(r), "{name}: event time");
+                        }
+                    }
+                    if let Some((s, _)) = &sums {
+                        let sum = exact_sum(rows.iter().map(|r| r.w));
+                        assert_eq!(at(s, *e), stored(sum), "{name}: pair sum");
+                    }
                 }
-                assert_eq!(*m, u64::try_from(rows.len()).unwrap(), "{name}");
-                for (k, r) in order.iter().enumerate() {
-                    if let Some((w, _)) = &weights {
-                        assert_eq!(at(w, ev + k), stored(r.w), "{name}: event weight");
+                for (column, float) in [(weights, true), (sums, true), (times, false)] {
+                    if let Some((values, stats)) = column {
+                        check_stats(&stats, &values, float, name);
+                    }
+                }
+            }
+            Duplicates::Collapse => {
+                let kept = case.weight.then(|| get("pair", wn));
+                let times = case.time.then(|| get("pair", tn));
+                for (e, _, rows, _) in &checked {
+                    if let Some((w, _)) = &kept {
+                        assert_eq!(at(w, *e), stored(rows[0].w), "{name}: kept weight");
                     }
                     if let Some((ts, _)) = &times {
-                        assert_eq!(t(at(ts, ev + k)), us(r), "{name}: event time");
+                        assert_eq!(t(at(ts, *e)), us(&rows[0]), "{name}: kept time");
                     }
                 }
-                if let Some((s, _)) = &sums {
-                    let sum = exact_sum(rows.iter().map(|r| r.w));
-                    assert_eq!(at(s, *e), stored(sum), "{name}: pair sum");
+                for (column, float) in [(kept, true), (times, false)] {
+                    if let Some((values, stats)) = column {
+                        check_stats(&stats, &values, float, name);
+                    }
                 }
             }
-            for (column, float) in [(weights, true), (sums, true), (times, false)] {
-                if let Some((values, stats)) = column {
-                    check_stats(&stats, &values, float, name);
+            Duplicates::Sum => {
+                let sums = case.weight.then(|| get("pair", wn));
+                let edges = get("pair", "edges");
+                let first = case.time.then(|| get("pair", "first"));
+                let last = case.time.then(|| get("pair", "last"));
+                for (e, _, rows, _) in &checked {
+                    assert_eq!(
+                        at(&edges.0, *e),
+                        u64::try_from(rows.len()).unwrap(),
+                        "{name}"
+                    );
+                    if let Some((s, _)) = &sums {
+                        let sum = exact_sum(rows.iter().map(|r| r.w));
+                        assert_eq!(at(s, *e), stored(sum), "{name}: summed weight");
+                    }
+                    let times = rows.iter().map(us);
+                    if let (Some((a, _)), Some((b, _))) = (&first, &last) {
+                        assert_eq!(t(at(a, *e)), times.clone().min().unwrap(), "{name}: first");
+                        assert_eq!(t(at(b, *e)), times.max().unwrap(), "{name}: last");
+                    }
                 }
-            }
-        }
-        Duplicates::Collapse => {
-            let kept = case.weight.then(|| get("pair", wn));
-            let times = case.time.then(|| get("pair", tn));
-            for (e, _, rows, _) in &checked {
-                if let Some((w, _)) = &kept {
-                    assert_eq!(at(w, *e), stored(rows[0].w), "{name}: kept weight");
-                }
-                if let Some((ts, _)) = &times {
-                    assert_eq!(t(at(ts, *e)), us(&rows[0]), "{name}: kept time");
-                }
-            }
-            for (column, float) in [(kept, true), (times, false)] {
-                if let Some((values, stats)) = column {
-                    check_stats(&stats, &values, float, name);
-                }
-            }
-        }
-        Duplicates::Sum => {
-            let sums = case.weight.then(|| get("pair", wn));
-            let edges = get("pair", "edges");
-            let first = case.time.then(|| get("pair", "first"));
-            let last = case.time.then(|| get("pair", "last"));
-            for (e, _, rows, _) in &checked {
-                assert_eq!(
-                    at(&edges.0, *e),
-                    u64::try_from(rows.len()).unwrap(),
-                    "{name}"
-                );
-                if let Some((s, _)) = &sums {
-                    let sum = exact_sum(rows.iter().map(|r| r.w));
-                    assert_eq!(at(s, *e), stored(sum), "{name}: summed weight");
-                }
-                let times = rows.iter().map(us);
-                if let (Some((a, _)), Some((b, _))) = (&first, &last) {
-                    assert_eq!(t(at(a, *e)), times.clone().min().unwrap(), "{name}: first");
-                    assert_eq!(t(at(b, *e)), times.max().unwrap(), "{name}: last");
-                }
-            }
-            check_stats(&edges.1, &edges.0, false, name);
-            for (column, float) in [(sums, true), (first, false), (last, false)] {
-                if let Some((values, stats)) = column {
-                    check_stats(&stats, &values, float, name);
+                check_stats(&edges.1, &edges.0, false, name);
+                for (column, float) in [(sums, true), (first, false), (last, false)] {
+                    if let Some((values, stats)) = column {
+                        check_stats(&stats, &values, float, name);
+                    }
                 }
             }
         }
@@ -367,6 +384,7 @@ fn cases(directed: bool, budget: u64, tuning: &Tuning) -> Vec<Case<'_>> {
                 time,
                 budget,
                 tuning,
+                in_adjacency: true,
             });
         }
     }
@@ -427,6 +445,7 @@ fn columns_do_not_depend_on_threads_or_budget() {
                     time: true,
                     budget,
                     tuning,
+                    in_adjacency: true,
                 };
                 for threads in [1, 4, 16] {
                     let threads = NonZeroUsize::new(threads).unwrap();
@@ -448,8 +467,8 @@ fn columns_do_not_depend_on_threads_or_budget() {
     }
 }
 
-/// A write that fails at any point of the output, columns included, ends the build
-/// with an error and leaves no graph in the sink.
+/// A write that fails at any point of the output, the columns of both adjacencies
+/// included, ends the build with an error and leaves no graph in the sink.
 #[test]
 fn a_failed_write_of_a_column_leaves_no_graph() {
     let rows = rows_of(&[1, 2, 2, 3, 1, 4], &[2, 3, 3, 1, 2, 4], 9);
@@ -457,6 +476,7 @@ fn a_failed_write_of_a_column_leaves_no_graph() {
     for duplicates in [Duplicates::Events, Duplicates::Sum] {
         let case = Case {
             graph: GraphOptions {
+                directed: true,
                 duplicates,
                 ..GraphOptions::default()
             },
@@ -464,6 +484,7 @@ fn a_failed_write_of_a_column_leaves_no_graph() {
             time: true,
             budget: 1 << 30,
             tuning: &TUNING,
+            in_adjacency: true,
         };
         let sink = |ok| FailingSink {
             inner: MemorySource::new(Vec::new()),
@@ -482,6 +503,74 @@ fn a_failed_write_of_a_column_leaves_no_graph() {
                 Container::open(failing.inner).is_err(),
                 "failing after {ok} bytes"
             );
+        }
+    }
+}
+
+/// The in-adjacency added to a file built without it, columns included, is the one the
+/// build writes: in memory and with spills, under every `duplicates` option.
+#[test]
+fn the_in_adjacency_added_later_has_the_columns_the_build_writes() {
+    let mut rng = SplitMix64::new(11);
+    let (src, dst): (Vec<u32>, Vec<u32>) = (0..400)
+        .map(|_| (rng.below_u32(40), rng.below_u32(40)))
+        .unzip();
+    let text = text(&rows_of(&src, &dst, 5));
+    for duplicates in [Duplicates::Events, Duplicates::Collapse, Duplicates::Sum] {
+        let case = Case {
+            graph: GraphOptions {
+                directed: true,
+                duplicates,
+                ..GraphOptions::default()
+            },
+            weight: true,
+            time: true,
+            budget: 1 << 30,
+            tuning: &SMALL,
+            in_adjacency: true,
+        };
+        let (reference, _) = build_bytes(&case, &text).unwrap();
+        let without = Case {
+            in_adjacency: false,
+            ..case
+        };
+        let (without, _) = build_bytes(&without, &text).unwrap();
+        let sections = |bytes: &[u8]| -> Vec<(String, [u8; 32])> {
+            let file = Container::open(MemorySource::new(bytes)).unwrap();
+            file.entries()
+                .iter()
+                .filter(|e| e.name.starts_with("adjacency.in."))
+                .map(|e| (e.name.to_string(), e.hash))
+                .collect()
+        };
+        assert!(
+            sections(&reference)
+                .iter()
+                .any(|(n, _)| n.contains("/arrow/"))
+        );
+        for (budget, tuning) in [(1 << 30, &TUNING), (3 << 20, &SPILLING)] {
+            let memory = Memory::from(Arc::new(Budget::new(budget)));
+            let threads = NonZeroUsize::new(4).unwrap();
+            let sink = MemorySource::new(without.clone());
+            let (sink, added) = super::transpose::add_tuned(
+                sink,
+                &memory,
+                &MemoryScratch,
+                threads,
+                &Silent,
+                tuning,
+            )
+            .unwrap();
+            assert!(added);
+            let bytes = sink.into_inner();
+            assert_eq!(sections(&bytes), sections(&reference), "{duplicates:?}");
+            let verified = verify(
+                &MemorySource::new(&bytes[..]),
+                Depth::Deep,
+                &Memory::unlimited(),
+            )
+            .unwrap();
+            assert!(verified.problems.is_empty(), "{:?}", verified.problems);
         }
     }
 }

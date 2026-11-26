@@ -65,4 +65,4 @@ All idle, 16 threads, async mode unless noted (FINDINGS § B2 and "Idle-machine 
 
 ## Closed by
 
-#24 (graph families beyond social networks), #57 (default number of iterations).
+#24 (graph families beyond social networks), #259 (default number of iterations, measured on production Leiden).

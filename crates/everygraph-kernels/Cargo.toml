@@ -19,6 +19,8 @@ everygraph-format = { path = "../everygraph-format" }
 # Tests and the benchmark run the kernels on threads (`par::with_threads`).
 everygraph-core = { path = "../everygraph-core" }
 everygraph-io = { path = "../everygraph-io" }
+# The in-adjacency of directed graphs, derived as a graph file stores it (tests/oracle.rs).
+everygraph-ingest = { path = "../everygraph-ingest" }
 everygraph-oracle = { path = "../everygraph-oracle" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 

@@ -246,3 +246,55 @@ fn a_statistics_section_of_another_length_is_refused_before_it_is_read() {
         "{found:?}"
     );
 }
+
+#[test]
+fn a_column_of_an_in_adjacency_must_hold_the_values_of_its_out_adjacency() {
+    let directed = |w_in: Vec<f64>| {
+        let mut w = Writer::create(Mem::default()).unwrap();
+        for side in ["out", "in"] {
+            // 0→1, 0→2, 1→2, and its transpose.
+            let (offsets, targets): (&[u64], &[u32]) = if side == "out" {
+                (&[0, 2, 3, 3], &[1, 2, 2])
+            } else {
+                (&[0, 0, 1, 3], &[0, 0, 1])
+            };
+            let e = encode(offsets, targets).unwrap();
+            w.add_section(
+                &format!("adjacency.{side}.index"),
+                Kind::ADJACENCY_INDEX,
+                &e.index,
+                None,
+            )
+            .unwrap();
+            w.add_section(
+                &format!("adjacency.{side}.data"),
+                Kind::ADJACENCY_DATA,
+                &e.data,
+                None,
+            )
+            .unwrap();
+        }
+        let spec = ColumnSpec::new("w", ColumnType::Float64, 3);
+        write_column(&mut w, PAIR, &spec, &[1.0, 2.0, 3.0][..], None).unwrap();
+        write_column(&mut w, "adjacency.in.pair", &spec, &w_in[..], None).unwrap();
+        w.commit().unwrap();
+        let bytes = w.into_sink().into_inner();
+        let report = verify(
+            &MemorySource::new(&bytes[..]),
+            Depth::Deep,
+            &Memory::unlimited(),
+        )
+        .unwrap();
+        report
+            .problems
+            .into_iter()
+            .map(|p| p.what)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(directed(vec![1.0, 2.0, 3.0]), Vec::<String>::new());
+    let found = directed(vec![1.0, 2.0, 4.0]);
+    assert!(
+        found.iter().any(|p| p.contains("out-adjacency")),
+        "{found:?}"
+    );
+}

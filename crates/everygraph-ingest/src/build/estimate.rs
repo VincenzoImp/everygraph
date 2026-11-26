@@ -3,14 +3,13 @@
 //! What a build will need, from a sample of its input, by the rules the build itself
 //! applies (`docs/ux-contract.md` § 3, the plan before any work).
 
-use std::num::NonZeroUsize;
-
 use everygraph_core::ByteSource;
 
-use super::columns::{Item, Tagged};
+use super::columns::{FromRow, Tagged};
 use super::layout::Costs;
+use super::lists::fixed_bytes;
 use super::rows::{Flight, block_bytes_per_row};
-use super::{Regime, SLACK_SHIFT, TUNING, fixed_bytes};
+use super::{BuildOptions, Regime, SLACK_SHIFT, TUNING};
 use crate::text::{TextError, TextReader};
 
 /// The identifier dictionary's smallest working set: the table of its dense bitmap
@@ -105,28 +104,30 @@ pub struct Estimate {
     pub output_bytes: u64,
 }
 
-/// What a build of `sample` will need with `threads` threads and `budget` bytes. The
+/// What a build of `sample` with `options` will need under `budget` bytes. The
 /// per-node state is left out: the number of nodes is not known before the input is
 /// read, and the build refuses, before it writes anything, a budget that cannot hold it.
 /// So the build holds no more items in memory than this estimate says, and spills no
-/// less.
+/// less. The in-adjacency of a directed graph is counted in the output only: its items
+/// (one per pair or per event) and the memory left to sort them are not known before
+/// the out-adjacency is built, so what it spills may be anything from nothing up.
 #[must_use]
-pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: u64) -> Estimate {
+pub fn estimate(sample: &Sample, options: &BuildOptions, budget: u64) -> Estimate {
     if sample.edge_columns {
         // At most four stored columns (`duplicates="sum"` with a weight and a time).
-        estimate_for::<Tagged>(sample, directed, threads, budget, 4)
+        estimate_for::<Tagged>(sample, options, budget, 4)
     } else {
-        estimate_for::<u32>(sample, directed, threads, budget, 0)
+        estimate_for::<u32>(sample, options, budget, 0)
     }
 }
 
-fn estimate_for<T: Item>(
+fn estimate_for<T: FromRow>(
     sample: &Sample,
-    directed: bool,
-    threads: NonZeroUsize,
+    options: &BuildOptions,
     budget: u64,
     columns: usize,
 ) -> Estimate {
+    let (threads, directed) = (options.threads, options.graph.directed);
     let flight = Flight {
         threads: threads.get(),
         blocks: usize::try_from(sample.blocks).unwrap_or(usize::MAX),
@@ -137,6 +138,11 @@ fn estimate_for<T: Item>(
     let held = flight.bytes() + fixed_bytes::<T>(threads.get(), &TUNING, columns);
     let smallest_budget = held + DICTIONARY_BYTES;
     let items = sample.rows.saturating_mul(if directed { 1 } else { 2 });
+    let adjacencies = if directed && options.in_adjacency {
+        2
+    } else {
+        1
+    };
     let working_bytes = items.saturating_mul(Costs::of::<T>(true, columns).item);
     // The dictionary's working set is given back before the items are counted.
     let available = budget.saturating_sub(held);
@@ -154,6 +160,6 @@ fn estimate_for<T: Item>(
         smallest_budget,
         peak_bytes: (held + working_bytes.min(resident) + work / 4).min(budget),
         scratch_bytes: working_bytes.saturating_sub(resident),
-        output_bytes: items.saturating_mul(OUTPUT_BYTES_PER_ENTRY),
+        output_bytes: items.saturating_mul(OUTPUT_BYTES_PER_ENTRY * adjacencies),
     }
 }

@@ -143,9 +143,10 @@ fn check_value(
 /// each column with its layout and, when numeric, its statistics, under the names of
 /// § 6; the framing against the layout; every value read and the statistics recomputed
 /// from them; the rows of a column of an adjacency's scope against the facts of that
-/// adjacency; and what the build derives from the events, against the columns and the
-/// adjacency (§ 6: `multiplicity.max`, and `edges`, `first` and `last` under
-/// `duplicates="sum"`). The layout of one column at a time is held, reserved in
+/// adjacency; a column of an in-adjacency against the same column of its
+/// out-adjacency (the same statistics); and what the build derives from the events,
+/// against the columns and the adjacency (§ 6: `multiplicity.max`, and `edges`, `first`
+/// and `last` under `duplicates="sum"`). The layout of one column at a time is held, reserved in
 /// `memory`.
 pub(crate) fn verify_columns<S: ByteSource>(
     file: &Container<S>,
@@ -225,6 +226,36 @@ pub(crate) fn verify_columns<S: ByteSource>(
             }
         }
         checked.insert((scope.to_owned(), column.to_owned()), stats);
+    }
+    // A column of an in-adjacency holds the values of the same column of its
+    // out-adjacency, in another order: the same statistics.
+    for ((scope, column), stats) in &checked {
+        let Some((base, part)) = scope.rsplit_once('.') else {
+            continue;
+        };
+        let Some(base) = base.strip_suffix(".in") else {
+            continue;
+        };
+        let out = (format!("{base}.out.{part}"), column.clone());
+        let name = SectionNames::new(scope, column).column;
+        match checked.get(&out) {
+            None => report.problem(
+                Some(&name),
+                format!(
+                    "its out-adjacency has no column {}",
+                    SectionNames::new(&out.0, column).column
+                ),
+            ),
+            Some(theirs) => {
+                let encoded = |s: &Option<ColumnStats>| s.as_ref().map(ColumnStats::encode);
+                if encoded(stats) != encoded(theirs) {
+                    report.problem(
+                        Some(&name),
+                        "its values are not those of the same column of its out-adjacency",
+                    );
+                }
+            }
+        }
     }
     // Each provenance record is decoded once, however many adjacencies refer to it.
     let mut declared = BTreeMap::new();

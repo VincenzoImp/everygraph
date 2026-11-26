@@ -71,7 +71,7 @@ section are reported in their own README (`lab/README.md` lists them).
    deterministic. Deterministic sub-round local moving is itself prior art (Mt-KaHyPar-SDet
    2022, DSLM 2018). What no work read offers is a Leiden, refinement included, that gives
    identical bytes for any thread count, platform and memory budget.
-4. **Beyond-RAM is backed by literature.** ACGraph (SIGMOD'25): semi-external, 4 KB blocks,
+4. **Beyond-RAM is backed by literature.** ACGraph (PACMMOD 3(6), December 2025, presented at SIGMOD 2026; its PageRank is forward push, not power iteration, so its numbers are not comparable with ours): semi-external, 4 KB blocks,
    async io_uring. GBBS: compression lets 225B edges fit in 330 GB. Cologni & Vigna (WAW
    2026): new webgraph-rs codecs up to 15% smaller than BV, up to 54% faster random access
    than Zuckerli.
@@ -131,7 +131,8 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
 | Neo4j 5.26 CE + GDS | 51 | 2.6 | 11.4 | 6.4 | 10.0 s (+5 s projection) |
 | lab Rust kernel | – | – | – | – | 1.07–1.33 s |
 
-- DuckPGQ does not work on DuckDB 2.0.1 (parser error); GFQL scans the whole edge frame
+- **Out of date; to re-run** (2026-11-26, `docs/research/sota-review-2026-11.md`): the DuckPGQ and LadybugDB rows are from older versions. DuckPGQ moved to DuckDB 2.0.1 on 2026-11-19, and LadybugDB 0.23.0 (2026-11-25) fixes the algorithm extension load. Do not cite these two rows as a reason until they are re-run with pinned current versions.
+- DuckPGQ did not work on DuckDB 2.0.1 when measured (parser error); GFQL scans the whole edge frame
   per hop. Embedded engines are weakest at shortest path.
 - **Python binding (PyO3, abi3-py310, maturin):** zero-copy verified by buffer address for
   NumPy views into the mmap and for Arrow PyCapsule export into pyarrow / Polars / pandas

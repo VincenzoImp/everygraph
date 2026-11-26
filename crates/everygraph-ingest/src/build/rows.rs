@@ -11,7 +11,7 @@ use everygraph_core::{
 };
 use xxhash_rust::xxh3::xxh3_64;
 
-use super::columns::Item;
+use super::columns::FromRow;
 use super::{BuildError, GraphOptions, ONE, Phase, Progress, SelfLoops};
 use crate::ids::{ColumnType, Dictionary, DictionaryError, Key, KeySource};
 use crate::text::{Batch, IdType, Ids, OnInvalid, Tally, TextError, TextReader};
@@ -187,7 +187,7 @@ pub(super) struct BlockCounts {
 
 /// The rows of the input as pairs of node ids, with what their items carry (`T`),
 /// block by block.
-pub(super) struct Rows<'a, 'd, S, D, T: Item> {
+pub(super) struct Rows<'a, 'd, S, D, T: FromRow> {
     reader: &'a TextReader<S>,
     dictionary: &'a Dictionary<'d, D>,
     graph: GraphOptions,
@@ -203,17 +203,17 @@ pub(super) struct Rows<'a, 'd, S, D, T: Item> {
 
 /// The rows of a block whose two keys are in the dictionary: `source << 32 | target`,
 /// and what the row's items carry.
-type Mapped<T> = Vec<(u64, <T as Item>::Payload)>;
+type Mapped<T> = Vec<(u64, <T as FromRow>::Payload)>;
 
 /// Bytes the cache of [`Rows`] holds per row.
-pub(super) fn cache_bytes_per_row<T: Item>() -> u64 {
+pub(super) fn cache_bytes_per_row<T: FromRow>() -> u64 {
     widen(size_of::<(u64, T::Payload)>())
 }
 
 /// Memory one block in flight holds per row: two ids (or two string ends) in its batch,
 /// a weight and a time when items carry them, and a mapped row. Besides, it holds its
 /// text twice: the reader's chunk and the bytes of string ids.
-pub(super) fn block_bytes_per_row<T: Item>() -> u64 {
+pub(super) fn block_bytes_per_row<T: FromRow>() -> u64 {
     let columns = if size_of::<T::Payload>() > 0 { 16 } else { 0 };
     16 + columns + cache_bytes_per_row::<T>()
 }
@@ -240,7 +240,7 @@ impl Flight {
     }
 }
 
-impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync, T: Item> Rows<'a, 'd, S, D, T> {
+impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync, T: FromRow> Rows<'a, 'd, S, D, T> {
     pub(super) fn new(
         reader: &'a TextReader<S>,
         dictionary: &'a Dictionary<'d, D>,
@@ -269,11 +269,6 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync, T: Item> Rows<'a, 'd, S
             _buffers: buffers,
             cache,
         })
-    }
-
-    /// Frees the mapped pairs kept by the first pass.
-    pub(super) fn release_cache(&mut self) {
-        self.cache = None;
     }
 
     fn send(&self, rows: &Mapped<T>, counts: &mut BlockCounts, mut f: impl FnMut(u32, T)) {
@@ -318,7 +313,7 @@ pub(super) trait Items<T>: Sync {
     fn items(&self, block: usize, f: impl FnMut(u32, T)) -> Result<BlockCounts, BuildError>;
 }
 
-impl<S: ByteSource + Sync, D: ByteSource + Sync, T: Item> Items<T> for Rows<'_, '_, S, D, T> {
+impl<S: ByteSource + Sync, D: ByteSource + Sync, T: FromRow> Items<T> for Rows<'_, '_, S, D, T> {
     fn blocks(&self) -> usize {
         self.fingerprints.blocks()
     }

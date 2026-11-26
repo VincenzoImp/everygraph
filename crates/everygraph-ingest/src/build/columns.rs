@@ -25,17 +25,13 @@ use crate::text::{Batch, Layout as TextLayout};
 
 /// What the lists of the build are made of.
 pub(super) trait Item: Copy + Default + Send + Sync + 'static {
-    /// What a row gives each of its items besides the target.
-    type Payload: Copy + Default + Send + Sync + 'static;
     /// The order of a node's items: target first.
     type Key: Ord;
     /// Bytes of a spill record of the item.
     const BYTES: usize;
 
-    fn new(target: u32, payload: Self::Payload) -> Self;
     fn target(self) -> u32;
     fn key(self, by_time: bool) -> Self::Key;
-    fn payload(batch: &Batch, block: usize, row: usize) -> Self::Payload;
     fn write(self, out: &mut [u8]);
     fn read(bytes: &[u8]) -> Self;
     /// Appends what the events `group` of one pair store to `values`, one vector per
@@ -43,21 +39,34 @@ pub(super) trait Item: Copy + Default + Send + Sync + 'static {
     fn pair(group: &[Self], columns: &[Out], values: &mut [Vec<u64>]);
 }
 
-impl Item for u32 {
+/// An item made from an input row (module `rows`).
+pub(super) trait FromRow: Item {
+    /// What a row gives each of its items besides the target.
+    type Payload: Copy + Default + Send + Sync + 'static;
+
+    fn new(target: u32, payload: Self::Payload) -> Self;
+    fn payload(batch: &Batch, block: usize, row: usize) -> Self::Payload;
+}
+
+impl FromRow for u32 {
     type Payload = ();
-    type Key = u32;
-    const BYTES: usize = 4;
 
     fn new(target: u32, (): ()) -> Self {
         target
     }
+    fn payload(_: &Batch, _: usize, _: usize) {}
+}
+
+impl Item for u32 {
+    type Key = u32;
+    const BYTES: usize = 4;
+
     fn target(self) -> u32 {
         self
     }
     fn key(self, _: bool) -> u32 {
         self
     }
-    fn payload(_: &Batch, _: usize, _: usize) {}
     fn write(self, out: &mut [u8]) {
         out.copy_from_slice(&self.to_le_bytes());
     }
@@ -93,20 +102,11 @@ pub(super) struct Tagged {
 
 const _: () = assert!(size_of::<Tagged>() == Tagged::BYTES);
 
-impl Item for Tagged {
+impl FromRow for Tagged {
     type Payload = Row;
-    type Key = (u32, i64, u64);
-    const BYTES: usize = 4 + 8 + 8 + 8;
 
     fn new(target: u32, row: Row) -> Self {
         Self { target, row }
-    }
-    fn target(self) -> u32 {
-        self.target
-    }
-    fn key(self, by_time: bool) -> Self::Key {
-        let time = if by_time { self.row.time } else { 0 };
-        (self.target, time, self.row.at)
     }
     fn payload(batch: &Batch, block: usize, row: usize) -> Row {
         Row {
@@ -114,6 +114,19 @@ impl Item for Tagged {
             weight: batch.weight.as_ref().map_or(0.0, |w| w[row]),
             time: batch.time.as_ref().map_or(0, |t| t[row]),
         }
+    }
+}
+
+impl Item for Tagged {
+    type Key = (u32, i64, u64);
+    const BYTES: usize = 4 + 8 + 8 + 8;
+
+    fn target(self) -> u32 {
+        self.target
+    }
+    fn key(self, by_time: bool) -> Self::Key {
+        let time = if by_time { self.row.time } else { 0 };
+        (self.target, time, self.row.at)
     }
     fn write(self, out: &mut [u8]) {
         out[..4].copy_from_slice(&self.target.to_le_bytes());
@@ -145,6 +158,69 @@ impl Item for Tagged {
                 What::Edges => out.push(widen(group.len())),
                 What::First => out.push(bits_of(times().min().unwrap_or(0))),
                 What::Last => out.push(bits_of(times().max().unwrap_or(0))),
+            }
+        }
+    }
+}
+
+/// An item of the in-adjacency (module `transpose`): the target, the offset of the
+/// out-adjacency's event it reverses, and the values the out-adjacency stores for that
+/// event, one per column of its `N` (a per-pair value is that of the event's entry). A
+/// list is sorted by (target, offset): the events of a pair keep the out-adjacency's
+/// order, and the values are copied, never computed again.
+#[derive(Clone, Copy)]
+#[repr(C, packed(4))]
+pub(super) struct Copied<const N: usize> {
+    pub(super) target: u32,
+    pub(super) at: u64,
+    pub(super) values: [u64; N],
+}
+
+impl<const N: usize> Default for Copied<N> {
+    fn default() -> Self {
+        Self {
+            target: 0,
+            at: 0,
+            values: [0; N],
+        }
+    }
+}
+
+impl<const N: usize> Item for Copied<N> {
+    type Key = (u32, u64);
+    const BYTES: usize = {
+        assert!(size_of::<Self>() == 12 + 8 * N);
+        12 + 8 * N
+    };
+
+    fn target(self) -> u32 {
+        self.target
+    }
+    fn key(self, _: bool) -> Self::Key {
+        (self.target, self.at)
+    }
+    fn write(self, out: &mut [u8]) {
+        out[..4].copy_from_slice(&self.target.to_le_bytes());
+        out[4..12].copy_from_slice(&self.at.to_le_bytes());
+        let values = self.values;
+        for (k, v) in values.iter().enumerate() {
+            out[12 + 8 * k..20 + 8 * k].copy_from_slice(&v.to_le_bytes());
+        }
+    }
+    fn read(b: &[u8]) -> Self {
+        let u64_at = |i: usize| u64::from_le_bytes(b[i..i + 8].try_into().expect("8 bytes"));
+        Self {
+            target: u32::from_le_bytes(b[..4].try_into().expect("4 bytes")),
+            at: u64_at(4),
+            values: std::array::from_fn(|k| u64_at(12 + 8 * k)),
+        }
+    }
+    fn pair(group: &[Self], columns: &[Out], values: &mut [Vec<u64>]) {
+        for (k, (column, out)) in columns.iter().zip(values).enumerate() {
+            if column.per_event() {
+                out.extend(group.iter().map(|e| e.values[k]));
+            } else {
+                out.push(group[0].values[k]);
             }
         }
     }
@@ -192,11 +268,11 @@ enum What {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Out {
     what: What,
-    name: String,
+    pub(super) name: String,
 }
 
 impl Out {
-    fn per_event(&self) -> bool {
+    pub(super) fn per_event(&self) -> bool {
         matches!(self.what, What::EventWeight | What::EventTime)
     }
 
@@ -214,8 +290,17 @@ impl Out {
 /// `docs/spec/graph-semantics.md` § 2.4). Text gives `float64` weights and times in
 /// microseconds, never null.
 pub(super) fn outputs(layout: &TextLayout, duplicates: Duplicates) -> Vec<Out> {
-    let weight = layout.weight.map(|c| layout.column_name(c));
-    let time = layout.time.map(|c| layout.column_name(c));
+    let name = |c: Option<usize>| c.map(|c| layout.column_name(c));
+    let (weight, time) = (name(layout.weight), name(layout.time));
+    outputs_of(weight.as_deref(), time.as_deref(), duplicates)
+}
+
+/// The columns of [`outputs`] for a weight and a time column of these names.
+pub(super) fn outputs_of(
+    weight: Option<&str>,
+    time: Option<&str>,
+    duplicates: Duplicates,
+) -> Vec<Out> {
     let out = |what, name: &str| Out {
         what,
         name: name.to_owned(),

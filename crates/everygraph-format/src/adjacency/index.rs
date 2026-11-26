@@ -331,6 +331,18 @@ impl AdjacencyIndex {
         a..b
     }
 
+    /// The bytes of the data part that hold the records of `nodes`.
+    ///
+    /// # Panics
+    ///
+    /// If `nodes` is not a range within `0..nodes()`.
+    #[must_use]
+    pub fn data_range(&self, nodes: Range<u32>) -> Range<u64> {
+        assert!(nodes.start <= nodes.end, "nodes {nodes:?}");
+        let at = |v: u32| self.byte_offsets.get(usize::try_from(v).expect("32 bits"));
+        at(nodes.start)..at(nodes.end)
+    }
+
     /// Number of blocks: node-aligned runs of lists, the unit of parallel work and of
     /// I/O (about 64 Ki entries each; a list longer than that has a block of its own).
     #[must_use]

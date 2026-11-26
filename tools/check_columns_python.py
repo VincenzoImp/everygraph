@@ -24,8 +24,9 @@ specification:
 - reads the same bytes with Polars and requires the same values (decimal256, which
   Polars does not read, excepted and reported).
 
-Then it builds three graphs with `everygraph ingest --weight --time`, one per
-`duplicates` option, and reads every column the build stored the same way
+Then it builds three directed graphs with `everygraph ingest --weight --time`, one per
+`duplicates` option, and reads every column the build stored the same way, in the
+out-adjacency and the in-adjacency
 (docs/spec/eg-columns.md § 6). Besides, it checks them against the input, read here: the
 event weights and the pair sums add up to the input's weights, the event times are the
 input's, `edges` adds up to the rows, and `first` is never after `last`.
@@ -355,16 +356,19 @@ def built():
                 layout = parse_layout(data[lo:lo + ll])
                 columns.append({"scope": scope, "name": column, "type": type_of(layout), "nullable": False})
         _, _, read = read_columns(path, columns)
-        value = lambda scope, name: read[f"adjacency.out.{scope}/arrow/{name}"]
         total = lambda xs: sum((Fraction(as_float(b)) for b in xs), Fraction(0))
-        if duplicates == "events":
-            need(total(value("event", "amount")) == sum(weights), "the event weights are not the input's")
-            need(total(value("pair", "amount")) == sum(weights), "the pair sums do not add up to the weights")
-            need(sorted(value("event", "at")) == times, "the event times are not the input's")
-        if duplicates == "sum":
-            need(sum(value("pair", "edges")) == len(weights), "edges does not add up to the rows")
-            need(total(value("pair", "amount")) == sum(weights), "the summed weights are not the input's")
-            need(all(a <= b for a, b in zip(value("pair", "first"), value("pair", "last"))), "first after last")
+        # The in-adjacency of this directed graph holds the same values in its order.
+        for adjacency in ("adjacency.out", "adjacency.in"):
+            value = lambda scope, name: read[f"{adjacency}.{scope}/arrow/{name}"]
+            if duplicates == "events":
+                need(total(value("event", "amount")) == sum(weights), f"{adjacency}: event weights")
+                need(total(value("pair", "amount")) == sum(weights), f"{adjacency}: pair sums")
+                need(sorted(value("event", "at")) == times, f"{adjacency}: event times")
+            if duplicates == "sum":
+                need(sum(value("pair", "edges")) == len(weights), f"{adjacency}: edges")
+                need(total(value("pair", "amount")) == sum(weights), f"{adjacency}: summed weights")
+                need(all(a <= b for a, b in zip(value("pair", "first"), value("pair", "last"))),
+                     f"{adjacency}: first after last")
         print(f"ok: {path.name}: {len(columns)} columns built by everygraph ingest agree with the input")
 
 

@@ -270,6 +270,10 @@ column name can make one section's name equal another's.
   each pair's multiplicity, with or without a weight; `first` and `last` are per-pair
   too, under these names. Under `duplicates="collapse"` the kept row's weight and time
   are per-pair columns under their own names.
+- **The in-adjacency's columns** are those of the out-adjacency, with the same names and
+  types, each row the value of the reversed entry or event: the transposition carries
+  the stored values, it does not compute them again. They are left out of the graph
+  identity with the rest of `adjacency.in.*` (`eg-container.md` § 6).
 - **The columns of a text input.** The text reader gives a `float64` weight and a time
   in microseconds, never null: the build stores `float64` and `timestamp[us]` columns,
   named as the input's header names them (`column N` without a header). So a directed
@@ -340,7 +344,9 @@ of `nodes` and `edges`, and also what a reader leaves to the hash: it reads ever
 refuses a float that is not canonical, a null row that is not zero, a code that names no
 string and a decimal past its precision, and recomputes the statistics from the values
 and compares them byte for byte with the stored ones. A column of scope `<adj>.pair` or
-`<adj>.event` whose adjacency is not in the file is an error. And it checks what the
+`<adj>.event` whose adjacency is not in the file is an error; a column of an
+in-adjacency must have the statistics of the same column of its out-adjacency, whose
+values it holds in its own order. And it checks what the
 build derives: `multiplicity.max` against the largest `ev[e + 1] − ev[e]` of the
 adjacency, or under `duplicates="sum"` the largest `edges`; there, `edges ≥ 1` and
 `first ≤ last` on every row (`everygraph_format::verify`).

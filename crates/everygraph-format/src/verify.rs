@@ -11,22 +11,23 @@
 //!   table's padding, the names and kinds of the adjacency sections, and the hash and
 //!   padding of every section of at most [`FAST_SECTION_BYTES`].
 //! - [`Depth::Deep`] reads everything: the hash and padding of every section, and the
-//!   structure of every adjacency — its index, its `.events` section exactly when the
-//!   index announces one (whole, § 5), every record, lists strictly increasing
+//!   structure of every adjacency — its index, every record, lists strictly increasing
 //!   with every neighbour below the node count; no self-loops and symmetric lists when
 //!   its provenance declares `self_loops` = `drop` and `directed` = `false` (spec § 6);
-//!   and an in-adjacency (`<base>.in`) that is the transpose of its out-adjacency;
+//!   the `.events` section whole when the index announces one; and an in-adjacency
+//!   (`<base>.in`) that is the transpose of its out-adjacency, events included, with a
+//!   `.events` section exactly when the out-adjacency has one (adjacency spec § 5);
 //!   and every property column (`docs/spec/eg-columns.md` § 7): its layout and
 //!   statistics under the names of § 6, its framing, every value, statistics that are
-//!   those of its values, and the rows its adjacency gives a scope `<adj>.pair` or
-//!   `<adj>.event`.
+//!   those of its values, the rows its adjacency gives a scope `<adj>.pair` or
+//!   `<adj>.event`, and what the build derives from the events.
 //!
 //! Sections are hashed in parallel (`everygraph_core::par`), each in 1 MiB pieces unless
 //! the source is in memory or mapped. Lists are decoded block by block, in parallel; from
 //! a source that is not mapped, each block's bytes are read into a buffer reserved
 //! against the caller's [`Memory`], so the memory used is that of the largest blocks, not
-//! of the file. Symmetry and transposition are compared through a sum of pair hashes, in
-//! constant memory per block. Each provenance record is decoded once.
+//! of the file. Symmetry and transposition are compared through a sum of pair hashes, each
+//! times the pair's stored events, in constant memory per block. Each provenance record is decoded once.
 //!
 //! The identifier dictionary (`ids.*`) is checked by `everygraph_ingest::ids`, which this
 //! crate does not depend on.
@@ -88,7 +89,7 @@ pub struct AdjacencyFacts {
     pub nodes: u32,
     /// Its number of entries (pairs).
     pub entries: u64,
-    /// Its stored events, when it has a `.events` section (some pair has more than one).
+    /// Its stored events, when it has a `.events` section.
     pub events: Option<u64>,
     /// The most stored events of one entry: 1 without a `.events` section, 0 without
     /// an entry.
@@ -353,7 +354,8 @@ fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
 #[derive(Clone, Copy, Debug, Default)]
 struct Scan {
     loops: u64,
-    /// The sum of `pair(v, t)` over every entry `t` of the list of `v`.
+    /// The sum of `pair(v, t)` times its stored events over every entry `t` of the list
+    /// of `v`.
     forward: u64,
     /// The sum of `pair(t, v)` over the same entries.
     backward: u64,
@@ -444,6 +446,7 @@ impl<'f, S: ByteSource> Bytes<'f, S> {
 fn scan<S: ByteSource + Sync>(
     index: &AdjacencyIndex,
     data: &Bytes<'_, S>,
+    events: Option<&AdjacencyEvents<'_>>,
     memory: &Memory,
 ) -> Result<Scan, Stop> {
     let nodes = index.nodes();
@@ -458,6 +461,14 @@ fn scan<S: ByteSource + Sync>(
             let start = index.record_range(NodeId::new(block.start)).start;
             let end = index.record_range(NodeId::new(block.end - 1)).end;
             let bytes = data.get(start, end, &mut piece, &mut piece_held)?;
+            let first = index.entry_offset(NodeId::new(block.start)).get();
+            let mut multiplicities = match events {
+                Some(e) => Some(
+                    e.multiplicities_from(first)
+                        .map_err(|_| Stop::Bad(block.start, "its events do not read"))?,
+                ),
+                None => None,
+            };
             for v in block {
                 let d = index.degree(NodeId::new(v));
                 if d == 0 {
@@ -490,9 +501,13 @@ fn scan<S: ByteSource + Sync>(
                         return Err(Stop::Bad(v, "its list is not strictly increasing"));
                     }
                     previous = Some(t);
+                    let m = match multiplicities.as_mut() {
+                        Some(m) => m.next().ok_or(Stop::Bad(v, "its events end early"))?,
+                        None => 1,
+                    };
                     found.loops += u64::from(t == v);
-                    found.forward = found.forward.wrapping_add(pair(v, t));
-                    found.backward = found.backward.wrapping_add(pair(t, v));
+                    found.forward = found.forward.wrapping_add(pair(v, t).wrapping_mul(m));
+                    found.backward = found.backward.wrapping_add(pair(t, v).wrapping_mul(m));
                 }
             }
         }
@@ -538,9 +553,13 @@ fn check_adjacencies<S: ByteSource + Sync>(
         let Some(inn) = checked.get(&format!("{base}.in")) else {
             continue;
         };
-        if out.facts.nodes != inn.facts.nodes
+        if out.facts.events != inn.facts.events {
+            report.problem(
+                Some(&format!("{base}.in.index")),
+                format!("the in-adjacency and {base}.out differ in their events"),
+            );
+        } else if out.facts.nodes != inn.facts.nodes
             || out.facts.entries != inn.facts.entries
-            || out.facts.events != inn.facts.events
             || out.scan.forward != inn.scan.backward
         {
             report.problem(
@@ -553,8 +572,7 @@ fn check_adjacencies<S: ByteSource + Sync>(
     Ok(())
 }
 
-/// The bytes of section `entry` (an index or a `.events` section), whole, as their
-/// parsers read them; `None` when they do not fit in `held`.
+/// The bytes of the section `entry`, whole; `None` when they do not fit in `held`.
 fn section_bytes<'f, S: ByteSource>(
     file: &'f Container<S>,
     entry: &Entry,
@@ -608,9 +626,9 @@ fn check_adjacency<S: ByteSource + Sync>(
             return Ok(None);
         }
     };
-    // Index flag bit 1 is set exactly when the `.events` section exists (spec § 3, § 5).
-    let events = match (index.has_events(), file.get(&events_name)) {
-        (false, None) => None::<(u64, u64)>,
+    let mut events_held = Reservation::empty(memory, PURPOSE, MemoryKind::Anonymous);
+    let events_bytes = match (index.has_events(), file.get(&events_name)) {
+        (false, None) => None,
         (false, Some(_)) => {
             report.problem(
                 Some(&events_name),
@@ -623,24 +641,32 @@ fn check_adjacency<S: ByteSource + Sync>(
                 Some(&index_name),
                 format!("it announces an events section, and {events_name} is missing"),
             );
-            None
+            return Ok(None);
         }
         (true, Some(entry)) => {
-            let Some(bytes) = section_bytes(file, entry, &mut held)? else {
+            let Some(bytes) = section_bytes(file, entry, &mut events_held)? else {
                 unchecked(report);
                 return Ok(None);
             };
-            match AdjacencyEvents::parse(&bytes, &index).and_then(|e| {
-                let most = e.multiplicities()?.max().unwrap_or(0);
-                Ok((e.events(), most))
-            }) {
-                Ok(events) => Some(events),
-                Err(e) => {
-                    report.problem(Some(&events_name), e.to_string());
-                    None
-                }
-            }
+            Some(bytes)
         }
+    };
+    let events = match events_bytes
+        .as_deref()
+        .map(|b| AdjacencyEvents::parse(b, &index))
+    {
+        Some(Ok(events)) => match events.check() {
+            Ok(()) => Some(events),
+            Err(e) => {
+                report.problem(Some(&events_name), e.to_string());
+                return Ok(None);
+            }
+        },
+        Some(Err(e)) => {
+            report.problem(Some(&events_name), e.to_string());
+            return Ok(None);
+        }
+        None => None,
     };
     let data = Bytes::of(file, data_entry);
     if data.len != index.data_bytes() {
@@ -651,7 +677,7 @@ fn check_adjacency<S: ByteSource + Sync>(
         report.problem(Some(&data_name), e.to_string());
         return Ok(None);
     }
-    let scan = match scan(&index, &data, memory) {
+    let scan = match scan(&index, &data, events.as_ref(), memory) {
         Ok(scan) => scan,
         Err(Stop::Bad(node, what)) => {
             report.problem(Some(&data_name), format!("node {node}: {what}"));
@@ -701,8 +727,11 @@ fn check_adjacency<S: ByteSource + Sync>(
             name: base.to_owned(),
             nodes: index.nodes(),
             entries: index.entries(),
-            events: events.map(|e| e.0),
-            multiplicity_max: events.map_or(u64::from(index.entries() > 0), |e| e.1),
+            events: events.as_ref().map(AdjacencyEvents::events),
+            multiplicity_max: match &events {
+                Some(e) => e.multiplicities().map_or(0, |m| m.max().unwrap_or(0)),
+                None => u64::from(index.entries() > 0),
+            },
         },
         scan,
     }))
