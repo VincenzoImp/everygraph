@@ -25,7 +25,7 @@ one distribution. The memory limit, `--min-ratio` and f32 weights are not the ca
 
 `results/heavy-moves-replay.log` shows the cycle: in replay pass 0 (original pass 1), vertices
 47665 (26.6% of 2m) and 126570 (2.3%) move into community 41887 in the same iteration
-(Q 0.6034 → 0.5811), leave it in the next (→ 0.6034), and repeat until the cap.
+(Q 0.6033 → 0.5811), leave it in the next (→ 0.6034), and repeat until the cap.
 
 **Guard (recommended for #57):** a vertex whose volume is above θ·2m, with θ = 0.001, is
 visited by one thread after each parallel sweep. At most 1/θ = 1,000 vertices qualify. No two
@@ -55,15 +55,17 @@ FINDINGS and tracer flags interleaved, 16G and 24G interleaved, 5 rounds. Warm p
 
 The collapse reproduces with both flag sets and under both limits. The worst run, Q 0.2913,
 ended with one community of 41.0 M nodes (75% of 2m). The 16G vs 24G and FINDINGS vs tracer
-differences are inside the run-to-run spread (5 runs each). In every unguarded run the coarse
-passes swing up and down: the lowest Q seen inside a pass is 0.24–0.60, with the top
-community's share rising to 0.47–0.80 (per-iteration `trace` in each row).
+differences are inside the run-to-run spread (5 runs each). In 17 of the 20 unguarded runs, two
+giants merge at some iteration of a coarse pass: the top community's share of 2m rises from
+0.27 to 0.46–0.80, and the lowest Q seen inside a pass is 0.24–0.60 (per-iteration `trace` in
+each row). Whether the run ends low depends on the iteration at which the pass stops.
 
 ### 2. Minimal reproduction: replaying the coarse levels
 
 One full run (f64 build, 16 threads, 24G; `results/dump.jsonl`, Q 0.6020) wrote its level-1
-graph: 1,163,162 vertices, 11,254,644 entries, f64 weights (`results/L1-t16-meta.json`; the
-graph itself, 145 MB, stays in scratch). A replay runs passes 1… of the same schedule on it in
+graph: 1,163,162 vertices, 11,254,644 entries, f64 weights (`results/L1-t16-meta.json`). The
+graph itself (145 MB) was deleted with the scratch directory; `run.py --plan dump` writes a new
+one, from a new pass-0 result. A replay runs passes 1… of the same schedule on it in
 under 2 s:
 
     b2 run --graph L1-t16 --algo louvain --threads 16 --tol 0.001 --max-passes 9 \
@@ -97,17 +99,17 @@ are ruled out.**
 `results/replay-t16-guards.jsonl`, `replay-t16-guards-q0.jsonl` (rollback and true-stop need
 the trace on every pass, so they come from the second file), `replay-heavy-threads.jsonl`.
 
-| guard | Q mean [min, max] | passes at the cap (mean) | median kernel time, exploratory |
-|---|---|---|---|
-| none | 0.5755 [0.4456, 0.6037] | 2.2 | 0.51 s |
-| `--max-iters 5` (iteration cap) | 0.5643 [0.4134, 0.6036] | 3.6 | 0.18 s |
-| `--true-stop` (stop on the true gain) | 0.5325 [0.2289, 0.6016] | 0 | 0.33 s |
-| `--rollback` (undo an iteration that lowers Q, end the pass) | 0.6011 [0.5923, 0.6036] | 0 | 0.49 s |
-| `--heavy 0.01` | 0.6034 [0.6033, 0.6036] | 0 | 0.16 s |
-| `--heavy 0.001` | 0.6034 [0.6034, 0.6034] | 0 | 0.17 s |
-| `--heavy 0.001`, 4 and 8 threads, f64 and w32 (80 runs) | 0.6034 [0.6034, 0.6034] | 0 | – |
-| `--heavy 0.01`, 4 and 8 threads, f64 and w32 (80 runs) | 0.6034 [0.6033, 0.6036] | 0.03 | – |
-| `--det` (deterministic, auto sub-rounds) | 0.6036, one result | 0 | 0.38 s |
+| guard | Q mean [min, max] | passes at the cap (mean) |
+|---|---|---|
+| none (50 runs) | 0.5755 [0.4456, 0.6037] | 2.2 |
+| `--max-iters 5` (iteration cap) | 0.5643 [0.4134, 0.6036] | 3.6 |
+| `--true-stop` (stop on the true gain) | 0.5325 [0.2289, 0.6016] | 0 |
+| `--rollback` (undo an iteration that lowers Q, end the pass) | 0.6011 [0.5923, 0.6036] | 0 |
+| `--heavy 0.01` | 0.6034 [0.6033, 0.6036] | 0 |
+| `--heavy 0.001` | 0.6034 [0.6034, 0.6034] | 0 |
+| `--heavy 0.001`, 4 and 8 threads, f64 and w32 (80 runs) | 0.6034 [0.6034, 0.6034] | 0 |
+| `--heavy 0.01`, 4 and 8 threads, f64 and w32 (80 runs) | 0.6034 [0.6033, 0.6036] | 0.03 |
+| `--det` (deterministic, auto sub-rounds) | 0.6036, one result | 0 |
 
 - A lower iteration cap does not help: it only picks another point of the cycle.
 - Stopping on the true gain is worse: it stops right after a merge, inside the bad state.
@@ -115,9 +117,10 @@ the trace on every pass, so they come from the second file), `replay-heavy-threa
 - The heavy rule removes the cause. The passes converge (no cap), so coarse local moving gets
   faster, not slower. On level 0 of Friendster no vertex qualifies (largest degree 5,214, a
   share of 1.4·10⁻⁶), so pass 0 is unchanged.
-- Times include the trace (a modularity evaluation per iteration), come from different
-  `run.py` calls on a loaded machine, and cover the coarse levels only (under 2 s of a
-  70–230 s run). They are not a measurement of the guard's cost.
+- Exploratory time of the replay (coarse levels only, under 2 s of a 70–230 s run; trace on,
+  so one modularity evaluation per iteration is included; separate `run.py` calls): median
+  0.17 s with `--heavy 0.001` against 0.51 s without. This is not a measurement of the guard's
+  cost.
 - Deterministic mode with few sub-rounds (1 run each, it is deterministic): 2, 4, 16, 64
   sub-rounds give Q 0.6036, 0.6036, 0.6036, 0.6036 (0.603582–0.603596); 2 sub-rounds hit the
   cap in 3 of 4 passes with 1.1 M back moves in the first, 4 sub-rounds in 1 of 4. #18's
@@ -147,7 +150,22 @@ it 0 and does not change Q beyond the seed spread. 32 threads were not run (shar
 
 ### 5. Leiden on Friendster
 
-LEIDEN-SECTION
+Async Leiden, 1 iteration, 16 threads, `m102` (f64, compressed level 0 mapped lazily, coarse
+levels spilled to scratch, the m1-04 command), `MemoryMax=24G`, variants interleaved, 3 rounds.
+`results/leiden-ooc.jsonl`.
+
+| variant | Q per run | passes at the cap |
+|---|---|---|
+| none | 0.6066, 0.6044, 0.6062 | 0 |
+| `--heavy 0.001` | 0.6056, 0.6047, 0.6045 | 0 |
+
+**Leiden did not show the collapse in these 6 runs**, and no pass reached the cap. A likely
+reason, not tested: Leiden aggregates the refined partition and starts each pass from the
+parent communities, so a giant community is not one vertex that has to move; its refined pieces
+are already in it. The guard changes nothing measurable here (3 runs each; the spread is 0.002).
+Six runs cannot exclude a rare collapse. The earlier in-RAM run at 32 threads
+(`lab/b2-leiden/results/big/friendster_leiden_inram34g.json`) has its last pass at the cap with
+6,652 moves, the same symptom on a level of 38,852 vertices, with Q 0.6033.
 
 ## Hypotheses of the issue
 
@@ -159,23 +177,24 @@ LEIDEN-SECTION
 | Iteration cap, tolerance schedule and graph size | **Part of the mechanism, not the cause**: the claimed gain stays above the tolerance, so passes run to the cap; a lower cap makes it worse (section 3). |
 | Page-cache thrash under 16 GiB | **Ruled out**: collapses under 24G as under 16G; replays have the graph in RAM (11 M entries) and collapse too. Unlimited runs were not made (the brief caps limits at 24G). |
 | `--min-ratio 3` | **Ruled out by the code**: level compaction runs after `run()` and composes levels; the flat partition is the same. |
-| Machine state | **Not a separate cause**: replays at load average ~2 and full runs at 15–50 both collapse. Load changes how often races happen, not whether they happen. |
+| Machine state | **Not a separate cause**: collapses happen in replays at load average ~2 and in full runs at 15–50. |
 
 ## Recommendation for #57
 
-1. **Ship the asynchronous `fast` mode only with the heavy-vertex rule.** In every
-   asynchronous local-moving sweep, vertices with k_u > θ·2m (θ = 0.001) are skipped by the
-   parallel sweep and visited after it by one thread, in id order. This covers both
-   local moving and any other asynchronous move phase that can see heavy vertices. It is a few
-   lines, needs one flag array or a sorted list of at most 1,000 ids per level, and leaves
-   level 0 of every graph we have unchanged.
+1. **Ship the asynchronous `fast` mode, but only with the heavy-vertex rule.** Leiden showed no
+   collapse here, but its local moving is the same code as Louvain's, so the rule belongs in it.
+   In every asynchronous move sweep, vertices with k_u > θ·2m (θ = 0.001) are skipped by the
+   parallel sweep and visited after it by one thread, in id order. It is a few lines and a list
+   of at most 1,000 ids per level. It changes nothing on a level whose largest vertex volume is below
+   0.1% of 2m, such as level 0 of Friendster.
 2. Keep the 20-iteration cap only as a bound on work. Do not use it, a true-gain stop or a
    rollback as the guard: none of them removes the cycle (section 3).
 3. Add a test that would catch a regression: on a graph with two or more vertices of large
    volume joined by few edges (a coarse level is enough: two stars, or the level-1 dump of a
    real graph), asynchronous mode at 16 threads must give, over 20 runs, a minimum Q within
-   0.001 of the 1-thread result. Without the rule this test fails on the Friendster dump in
-   about one run out of four.
+   0.001 of the 1-thread result. Without the rule this test fails on the Friendster dump: 25 of
+   140 unguarded replays at 16 threads ended below 0.55. A small synthetic graph that triggers
+   the race was not built here.
 4. The deterministic mode is not affected in these runs, but #18's sub-round oscillation on
    coarse levels is the same family (vertices of one sub-round do not see each other). The
    same rule — heavy vertices in their own sequential step — is deterministic and is the
