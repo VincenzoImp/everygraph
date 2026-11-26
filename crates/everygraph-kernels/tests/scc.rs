@@ -103,7 +103,7 @@ fn labels<S: Source>(out: &S, inn: &S, threads: usize, chunk: u64) -> (Vec<u32>,
     let settings = Settings {
         chunk_entries: chunk,
         batch_entries: 7,
-        prefetch: false,
+        ..Settings::default()
     };
     let threads = NonZeroUsize::new(threads).unwrap();
     // One type for both lists, as `scc` takes them.

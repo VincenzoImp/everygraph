@@ -4,6 +4,9 @@
 //! `everygraph_kernels::planner::plan` and carried out by `run::execute` on the lists
 //! the file holds (`run` says which each reads), in the session of its graph.
 //!
+//! The streamed regime reads the data part by positional reads of the file; the other
+//! regimes read the memory map.
+//!
 //! A result on the whole graph of a file is looked up in the file before it is computed
 //! and kept there after (`docs/api-sketch.md` § 2.8). The lookup reads the file's table
 //! of contents again, by positional reads, since a result committed after the graph was
@@ -17,6 +20,7 @@ use arrow_array::types::{Float32Type, Float64Type};
 use everygraph_core::{ByteSource, Memory, MemoryError, MemoryProbe, Reservation, SegVec};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_format::container::{Container, Provenance, Section, Writer};
+use everygraph_ingest::build::OUT_DATA;
 use everygraph_ingest::graph::OpenError;
 use everygraph_kernels::planner::{self, Machine, Origin, Request};
 use everygraph_kernels::run::{self, Column, Lists, Operation, Output, RunError, Session, Weight};
@@ -213,7 +217,23 @@ pub(crate) fn execute(
     let op = plan.operation();
     let begin = |p: &planner::Phase| events.send(Event::Begin(p.name, None));
     let fail = |e| failure(op, e, plan.budget());
-    let output = run::execute(plan, &parts.lists(g), memory, session, &begin).map_err(fail)?;
+    // A stream reads the data part by positional reads of the file, not through the map.
+    let streamed = match &parts.results {
+        Some(file) if plan.regime() == planner::Regime::Streamed => {
+            Some(file.section(OUT_DATA).map_err(|e| {
+                Failure::new("CorruptFile")
+                    .text("section", OUT_DATA)
+                    .text("why", e)
+            })?)
+        }
+        _ => None,
+    };
+    let lists = parts.lists(g);
+    let lists = match &streamed {
+        Some(data) => Lists { data, ..lists },
+        None => lists,
+    };
+    let output = run::execute(plan, &lists, memory, session, &begin).map_err(fail)?;
     let directed = g.file().directed();
     let unkept = match g.path() {
         Some(path) if op.stored(directed) && !plan.kept() => {

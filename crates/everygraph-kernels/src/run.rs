@@ -39,7 +39,9 @@ use everygraph_format::container::{
 
 use crate::components::{self, WccOptions};
 use crate::degrees::{self, Loop};
-use crate::edge_map::{Compressed, Error, Plan, RawCopy, Source, one_segment_mut};
+use crate::edge_map::{
+    Compressed, CompressedStream, Error, Plan, RawCopy, Source, one_segment_mut,
+};
 use crate::kcore;
 use crate::pagerank::{self, PageRank};
 use crate::planner::{self, Request, Tier};
@@ -376,10 +378,11 @@ pub struct Lists<'a, S: ByteSource> {
     pub file: &'a Container<S>,
     /// The index of its out-adjacency.
     pub index: &'a AdjacencyIndex,
-    /// The data part, held in memory: a memory map or a buffer.
+    /// The data part: held in memory (a memory map or a buffer), or in the streamed
+    /// regime any source, read by positional reads (a file, for direct reads).
     pub data: &'a (dyn ByteSource + Sync),
     /// The index and data part of the in-adjacency of a directed graph, when the file
-    /// holds one; the data part is held as `data` is.
+    /// holds one, held in memory: the streamed regime reads the out-lists only.
     pub inn: Option<(&'a AdjacencyIndex, &'a (dyn ByteSource + Sync))>,
     /// The events of the entries of the out- and of the in-adjacency, when some pair
     /// repeats; `None`: every entry is one edge. [`Weight::Edges`] counts them.
@@ -451,7 +454,8 @@ impl Session {
 ///
 /// [`RunError::Refused`] for a plan that does not fit, and for a kept result that the
 /// file no longer serves; [`RunError::Threads`]; [`RunError::Kernel`] with
-/// [`Error::Invalid`] when a data part is not in memory; the errors of [`run`] and
+/// [`Error::Invalid`] when a data part is not in memory and the plan does not stream
+/// it; the errors of [`run`] and
 /// [`stored`].
 pub fn execute<S: ByteSource + Sync>(
     plan: &planner::Plan<'_>,
@@ -484,7 +488,8 @@ pub fn execute<S: ByteSource + Sync>(
 }
 
 /// Runs the kernel of `plan` on its tier: the raw copy of the out-lists in `raw`, built
-/// first if the plan builds it, or the compressed lists of `lists`.
+/// first if the plan builds it, or the compressed lists of `lists`, held in memory or
+/// streamed.
 fn compute<S: ByteSource + Sync>(
     plan: &planner::Plan<'_>,
     lists: &Lists<'_, S>,
@@ -532,6 +537,16 @@ fn compute<S: ByteSource + Sync>(
             run(op, &lanes, memory)
         });
         return out;
+    }
+    if plan.regime() == planner::Regime::Streamed {
+        // The stream advises its own reads, by phase.
+        next(false);
+        let source = CompressedStream::new(lists.index, lists.data, plan.window())?;
+        let weights = edge_weights(op, lists.events[0], memory)?;
+        return Plan::with(&source, memory, plan.settings(), |p| {
+            let lanes = Lanes::out(&p, directed).weighted([weights.as_ref(), None]);
+            run(op, &lanes, memory)
+        });
     }
     let out = Compressed::mapped(lists.index, lists.data)?;
     let output = match inn {

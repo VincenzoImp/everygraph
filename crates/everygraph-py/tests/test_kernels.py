@@ -463,3 +463,19 @@ def test_a_stop_prints_the_stop_block(capsys):
         "",
         "  continue:  run the same call again",
     ]
+
+
+def test_edges_that_do_not_fit_are_streamed_from_the_file(tmp_path):
+    n = 200_000
+    path = write_edges(tmp_path / "path.csv", [(i, i + 1) for i in range(n - 1)])
+    g = eg.read(path, out=tmp_path / "path.eg", progress=False)
+    held = g.explain("pagerank", threads=4).to_dict()
+    assert held["regime"]["name"] == "in_memory"
+    budget = held["estimate"]["peak_memory_bytes"]["value"] + held["regime"]["working_bytes"] - 1
+    plan = g.explain("pagerank", threads=4, memory=budget).to_dict()
+    assert plan["regime"]["name"] == "streamed" and plan["fits"], plan["regime"]
+    streamed = g.pagerank(threads=4, memory=budget, progress=False)
+    assert streamed.meta["plan"]["regime"]["name"] == "streamed"
+    assert streamed.meta["peak_memory_bytes"] <= plan["estimate"]["peak_memory_bytes"]["value"] <= budget
+    reference = eg.read(path, progress=False).pagerank(progress=False)
+    assert pa.table(streamed).equals(pa.table(reference))

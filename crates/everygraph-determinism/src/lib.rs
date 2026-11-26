@@ -31,7 +31,7 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use everygraph_community::{Communities, Options, leiden};
+use everygraph_community::{Communities, EdgeWeights, Options, leiden, leiden_weighted};
 use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
@@ -87,7 +87,7 @@ impl Config {
         Settings {
             chunk_entries: self.chunk.0,
             batch_entries: self.chunk.1,
-            prefetch: false,
+            ..Settings::default()
         }
     }
 }
@@ -504,7 +504,7 @@ pub fn kernels<S: Source>(
 }
 
 /// The hash of what two deterministic runs of Leiden must share: the membership, every
-/// level, the count and the modularity's bits.
+/// level, the count, and the bits of the modularity and the quality.
 #[must_use]
 pub fn communities_hash(c: &Communities) -> String {
     let mut h = Hash::default();
@@ -512,7 +512,7 @@ pub fn communities_hash(c: &Communities) -> String {
     for level in &c.levels {
         h.u64s([level.len() as u64]).u32s(level.iter().copied());
     }
-    h.u32s([c.count]).f64s([c.modularity]);
+    h.u32s([c.count]).f64s([c.modularity, c.quality]);
     h.hex()
 }
 
@@ -520,4 +520,16 @@ pub fn communities_hash(c: &Communities) -> String {
 #[must_use]
 pub fn communities<S: Source>(source: &S, settings: Settings, options: &Options) -> Communities {
     leiden(source, &Memory::unlimited(), settings, options).unwrap()
+}
+
+/// Leiden with `options` on `source`, with the per-entry `weights`.
+#[must_use]
+pub fn weighted_communities<S: Source>(
+    source: &S,
+    weights: &[f64],
+    settings: Settings,
+    options: &Options,
+) -> Communities {
+    let w = EdgeWeights::Pairs(weights);
+    leiden_weighted(source, w, &Memory::unlimited(), settings, options).unwrap()
 }

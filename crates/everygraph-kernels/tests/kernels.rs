@@ -3,7 +3,7 @@
 //! `PageRank`, eigenvector centrality, BFS, multi-source BFS and SSSP on generated
 //! graphs: the probe values of `docs/spec/graph-semantics.md` § 5.1, metamorphic
 //! relations (relabelling, disjoint union, one traversal against another), the same bits
-//! under any threads, chunks, source and budget, and the refusals. The oracle test
+//! under any threads, chunks, source, scan order and budget, and the refusals. The oracle test
 //! (`tests/oracle.rs`) compares the same kernels with the references on the corpus.
 
 #![forbid(unsafe_code)]
@@ -25,7 +25,9 @@ use std::sync::atomic::{AtomicU32, AtomicU64};
 
 use everygraph_core::{Budget, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
-use everygraph_kernels::edge_map::{Compressed, Csr, Error, Plan, Settings, Source, Stream};
+use everygraph_kernels::edge_map::{
+    Compressed, CompressedStream, Csr, Error, Plan, Settings, Source, Stream,
+};
 use everygraph_kernels::pagerank::{
     self, Eigenvector, Graph, PageRank, Real, eigenvector, strength, top,
 };
@@ -275,6 +277,13 @@ fn results_do_not_depend_on_threads_chunks_sources_or_budget() {
             Stream::new(&g.out.offsets, &out_bytes).unwrap(),
             Stream::new(&g.inn.offsets, &in_bytes).unwrap(),
         ];
+        let data: Vec<MemorySource<&[u8]>> = encoded
+            .iter()
+            .map(|e| MemorySource::new(&e.data[..]))
+            .collect();
+        let streamed: Vec<CompressedStream<'_>> = (0..2)
+            .map(|k| CompressedStream::new(&index[k], &data[k], 0).unwrap())
+            .collect();
         let unlimited = Memory::unlimited();
         let expected = run_all(
             &g.out.csr(),
@@ -298,6 +307,7 @@ fn results_do_not_depend_on_threads_chunks_sources_or_budget() {
                     chunk_entries: chunk,
                     batch_entries: 7,
                     prefetch: false,
+                    alternate: chunk == 64,
                 };
                 let what = format!("directed {directed}, threads {threads}, chunk {chunk}");
                 assert_eq!(
@@ -314,6 +324,11 @@ fn results_do_not_depend_on_threads_chunks_sources_or_budget() {
                     run_all(&stream[0], &stream[1], &g, &unlimited, c, threads),
                     expected,
                     "stream, {what}"
+                );
+                assert_eq!(
+                    run_all(&streamed[0], &streamed[1], &g, &tight, c, threads),
+                    expected,
+                    "compressed stream, {what}"
                 );
             }
         }

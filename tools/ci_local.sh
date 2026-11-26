@@ -31,6 +31,7 @@ step wasm-core cargo build -p everygraph-core --target wasm32-unknown-unknown --
 step wasm-ingest cargo build -p everygraph-ingest --target wasm32-unknown-unknown
 step wasm-crate cargo build -p everygraph-wasm --target wasm32-unknown-unknown
 step clippy-format-i686 cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets -- -D warnings
+step clippy-kernels-i686 cargo clippy -p everygraph-kernels --target i686-unknown-linux-gnu --all-targets -- -D warnings
 step clippy-format-wasm cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 step clippy-format-simd128 env RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings

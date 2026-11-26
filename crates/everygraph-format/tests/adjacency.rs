@@ -11,7 +11,8 @@ mod support;
 
 use everygraph_core::{Memory, NodeId};
 use everygraph_format::adjacency::{
-    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode, merge, union_degrees,
+    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, IndexBuilder, append_record,
+    encode, merge, union_degrees,
 };
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
@@ -518,5 +519,33 @@ proptest! {
         let cut = cut.index(e.index.len());
         prop_assert!(AdjacencyIndex::parse(&e.index[..cut]).is_err());
         prop_assert!(AdjacencyIndex::parse(&e.index).and_then(|ix| Adjacency::new(&ix, &e.data[..e.data.len().saturating_sub(1)]).map(|_| ())).is_err() || e.data.is_empty());
+    }
+}
+
+/// A window of a data part of more than 4 GiB: node 1's record starts past 2^32, so its
+/// offsets fit a 32-bit `usize` only relative to the window, and they decode there.
+/// Node 0 has a record of 5 GB that no test holds.
+#[test]
+fn a_window_past_4_gib_decodes_on_every_target() {
+    let hub: u32 = 4_000_000_000;
+    let mut builder = IndexBuilder::new(&Memory::unlimited(), 3).unwrap();
+    builder
+        .push(hub, u64::from(hub.div_ceil(4)) + u64::from(hub))
+        .unwrap();
+    let mut record = Vec::new();
+    let degree = append_record(1, [0, 2], &mut record).unwrap();
+    builder.push(degree, record.len() as u64).unwrap();
+    builder.push(0, 0).unwrap();
+    let (bytes, _held) = builder.finish(false).unwrap();
+    let index = AdjacencyIndex::parse(&bytes).unwrap();
+    assert!(index.data_range(1..2).start > u64::from(u32::MAX));
+    let (mut buf, mut batch) = (Vec::new(), Batch::default());
+    for decoder in Decoder::available() {
+        let window = Adjacency::window(&index, 1..3, &record)
+            .unwrap()
+            .with_decoder(decoder);
+        assert_eq!(window.neighbors(id(1), &mut buf).unwrap(), &[0, 2]);
+        assert_eq!(window.decode_nodes(1..3, 8192, &mut batch).unwrap(), 3);
+        assert_eq!(batch.list(0), &[0, 2]);
     }
 }

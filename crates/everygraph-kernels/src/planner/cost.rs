@@ -26,7 +26,7 @@ use everygraph_core::{
 use everygraph_format::adjacency::{Batch, index_bytes_bound};
 
 use super::{Estimate, Graph, InLists, Regime, Tier};
-use crate::edge_map::{Error, FRONTIER_GRAIN, RawCopy, Settings};
+use crate::edge_map::{CompressedStream, Error, FRONTIER_GRAIN, RawCopy, Settings};
 use crate::run::{self, Direction, Operation, Precision, Weight};
 
 // ---- The constants of the model, with their sources ------------------------------
@@ -132,6 +132,8 @@ pub(super) struct Cost {
     pub sets: u64,
     /// The readers' buffers (P-14's fixed buffers).
     pub buffers: u64,
+    /// The readers at once that `buffers` holds.
+    pub readers: u64,
     /// The raw copy of the adjacency, decoded into the budget.
     pub raw: u64,
     /// Bytes of the result kept in the graph file.
@@ -294,6 +296,7 @@ impl Cost {
             per_node,
             sets: sets + partials,
             buffers: buffers + readers * workers * reader,
+            readers: readers * workers * (1 + u64::from(inn.is_some())),
             raw,
             output,
             projection: 0,
@@ -367,6 +370,32 @@ fn union_lists(graph: &Graph, inn: InLists) -> u64 {
     (u64::from(graph.max_degree) + u64::from(inn.max_degree)) * 8 + 32
 }
 
+/// `cost` with the readers of a stream (`CompressedStream`, the streamed regime) in place
+/// of decode readers, and their window: half of what `budget` leaves beside the open
+/// file, the state and the readers' smallest size, shared among them.
+pub(super) fn streamed(mut cost: Cost, graph: &Graph, budget: u64) -> (Cost, usize) {
+    let batch = Settings::default().batch_entries;
+    let each = |window| {
+        CompressedStream::reader_bytes(
+            graph.nodes,
+            graph.entries,
+            graph.data_bytes,
+            graph.max_degree,
+            window,
+            batch,
+        )
+    };
+    // What the readers hold besides their windows comes first.
+    let fixed = cost.readers.saturating_mul(each(0));
+    let left = budget
+        .saturating_sub(graph.held.saturating_add(cost.state()))
+        .saturating_sub(fixed);
+    let readers = usize::try_from(cost.readers).unwrap_or(usize::MAX);
+    let window = CompressedStream::window_for(left, readers);
+    cost.buffers = cost.readers.saturating_mul(each(window));
+    (cost, window)
+}
+
 /// Bytes of a `NodeSet` of `n` nodes: a word per 64 nodes, and a summary word per 64
 /// words (`edge_map::node`).
 fn node_set_bytes(n: u32) -> u64 {
@@ -424,12 +453,15 @@ pub(super) fn threads(graph: &Graph, cap: NonZeroUsize) -> NonZeroUsize {
 
 /// The advice for a phase in `regime` (ADR 0029): a graph that fits is warmed; a phase
 /// of random access only (`random`) whose working set exceeds what the budget leaves
-/// (`room`) gets `MADV_RANDOM`; a phase that scans, alone or between frontiers, keeps
-/// the kernel's read-ahead. Every kernel of this crate scans, so only the first and the
-/// last case occur for them.
+/// (`room`) gets `MADV_RANDOM`; a stream's phase is shown as read in order, the advice its
+/// source gives itself before scans; a phase that scans, alone or between frontiers, keeps
+/// the kernel's read-ahead; a stream reads in order. Every kernel of this crate scans,
+/// so only the first, the second and the last case occur for them.
 pub fn advice(random: bool, regime: Regime, working_set: u64, room: u64) -> AccessHint {
     match regime {
         Regime::InMemory => AccessHint::WillNeed,
+        // The stream advises its own reads, by phase (`CompressedStream`).
+        Regime::Streamed => AccessHint::Sequential,
         _ if random && working_set > room => AccessHint::Random,
         _ => AccessHint::Normal,
     }
@@ -505,7 +537,7 @@ pub(super) fn seconds(
     let work = |passes: f64| on_threads(entries * per_entry * passes, cost.threads, speedup);
     let uncached = cost.data.saturating_sub(budget.saturating_sub(cost.peak()));
     let reads = |passes: f64| match regime {
-        Regime::Mapped if !raw => to_f64(uncached) * passes / read_rate(storage),
+        Regime::Mapped | Regime::Streamed if !raw => to_f64(uncached) * passes / read_rate(storage),
         _ => 0.0,
     };
     model(work(passes) + reads(passes), work(most) + reads(most))

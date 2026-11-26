@@ -1,0 +1,163 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The semi-external regime (issue #46, plan/issues/m3-03-semi-external.md): the kernels on
+# the compressed format read through `CompressedStream`, the O(n) state and the index in
+# memory, the data part read by positional reads, under hard memory limits below its size.
+# Kernel time inside the process (`edge_map_bench`); bytes read are the process's own
+# `read_bytes` from /proc/self/io for the first repetition. Each case starts from a data
+# part evicted from the page cache (`posix_fadvise` DONTNEED), so the first pass is cold.
+# The cases read the stores under {stores}, not a dataset of the registry, so they name
+# no `dataset_path` and evict what they read themselves.
+#
+# - `pr-ram`: PageRank f32, 10 iterations, data part read into the heap (`compressed`),
+#   under a limit that holds it: the in-RAM reference on the same format.
+# - `pr-stream`: the same through `CompressedStream` (4 MiB windows, every second scan in
+#   reverse order) under 2, 4 and 8 GiB.
+# - `pr-order`: forward-only against alternating scans at 8 GiB, where the page cache
+#   holds part of the data part (B14 in docs/research/README.md).
+# - `twitter-scan`: twitter-sym under 8 GiB, where the compressed data part (about
+#   4.8 GB) stays cached and the raw targets (9.6 GB) do not: PageRank and one-pass
+#   components on the compressed stream against the raw `stream` source.
+# - `wcc-ram`, `wcc-stream`: components with sampling (`cc`), whose finish reads only the
+#   lists outside the giant component, in RAM and streamed under 8 GiB.
+#
+# Acceptance (#46), from the medians:
+# - `pr-stream` at 2G ≤ 1.35 × `pr-ram`, both s/iteration at 16 threads, with
+#   `rss_peak` ≤ 1.6 GB;
+# - `twitter-scan`: raw stream ÷ compressed stream ≥ 4 for PageRank.
+#
+# Run (about 45 minutes, an estimate: 36 runs of 10–90 s, plus the stores once, encoded
+# under {work}/stores like kernels.toml):
+#   everygraph-bench run semi-external --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "semi-external"
+description = "Issue #46: kernels on the compressed format streamed under memory limits below its size"
+reference = "plan/issues/m3-03-semi-external.md; docs/FINDINGS.md § B1"
+binaries = ["{bench}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+warmup = 0
+threads = [16]
+timeout = "15m"
+
+[vars]
+bench = "{repo}/target/release/examples/edge_map_bench"
+stores = "{work}/stores"
+evict = "python3 -I -c 'import os,sys; fd=os.open(sys.argv[1], os.O_RDONLY); os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)'"
+
+[[prepare]]
+name = "build-bench"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-kernels", "--example", "edge_map_bench"]
+needed_by = ["pr-ram", "pr-stream", "pr-order", "twitter-scan", "wcc-ram", "wcc-stream"]
+
+[[prepare]]
+name = "store-friendster"
+memory_limit = "32G"
+shell = """
+set -e
+if [ ! -d {stores}/friendster ]; then
+  {bench} encode --graph {data}/csr/friendster --out {stores}/friendster.part > /dev/null
+  mv {stores}/friendster.part {stores}/friendster
+fi
+"""
+needed_by = ["pr-ram", "pr-stream", "pr-order", "wcc-ram", "wcc-stream"]
+
+[[prepare]]
+name = "store-twitter-sym"
+memory_limit = "24G"
+shell = """
+set -e
+if [ ! -d {stores}/twitter-sym ]; then
+  {bench} encode --graph {data}/csr/twitter-sym --out {stores}/twitter-sym.part > /dev/null
+  mv {stores}/twitter-sym.part {stores}/twitter-sym
+fi
+"""
+needed_by = ["twitter-scan"]
+
+[[benchmark]]
+name = "pr-ram"
+group = "friendster"
+description = "PageRank f32 on Friendster, compressed data part in the heap"
+memory_limit = "20G"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source compressed --kernel pr32 --iters 10 --threads {threads} --reps 1"
+conditions = { graph = "friendster", kernel = "PageRank f32, 10 iterations", storage = "compressed, in the heap", limit = "20G", level = "in-process kernel time" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "rss_peak", json = "/rss_peak_bytes", unit = "B" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "pr-stream"
+group = "friendster"
+description = "PageRank f32 on Friendster through CompressedStream under limits below the data part"
+matrix = { limit = ["2G", "4G", "8G"] }
+memory_limit = "{limit}"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source streamed --kernel pr32 --iters 10 --threads {threads} --reps 1"
+conditions = { graph = "friendster", kernel = "PageRank f32, 10 iterations", storage = "compressed, streamed, 4 MiB windows, alternating scans", limit = "{limit}", level = "in-process kernel time" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "kernel_read_bytes", json = "/read_bytes_all/0", unit = "B" },
+  { name = "rss_peak", json = "/rss_peak_bytes", unit = "B" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "pr-order"
+group = "friendster"
+description = "PageRank f32 on Friendster streamed under 8G: forward-only scans against alternating ones"
+matrix = { alternate = ["0", "1"] }
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source streamed --kernel pr32 --iters 10 --threads {threads} --reps 1 --alternate {alternate}"
+conditions = { graph = "friendster", kernel = "PageRank f32, 10 iterations", storage = "compressed, streamed, 4 MiB windows", order = "alternate={alternate}", limit = "8G", level = "in-process kernel time" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "kernel_read_bytes", json = "/read_bytes_all/0", unit = "B" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "twitter-scan"
+group = "twitter-sym"
+description = "Repeated scans of twitter-sym under 8G: compressed stream against raw stream"
+matrix = { kernel = ["pr32", "cc-one-pass"], source = ["streamed", "stream"] }
+shell = "{evict} {stores}/twitter-sym/adjacency.data && {evict} {data}/csr/twitter-sym/targets.u32 && exec {bench} run --graph {data}/csr/twitter-sym --store {stores}/twitter-sym --source {source} --kernel {kernel} --iters 10 --threads {threads} --reps 3"
+conditions = { graph = "twitter-sym", kernel = "{kernel}", storage = "{source} (streamed: compressed; stream: raw targets), positional reads through the page cache", limit = "8G", level = "in-process kernel time, best of 3 in one process" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "kernel_read_bytes_last", json = "/read_bytes_all/2", unit = "B" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "wcc-ram"
+group = "friendster"
+description = "Components with sampling on Friendster, compressed data part in the heap"
+memory_limit = "20G"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source compressed --kernel cc --threads {threads} --reps 3"
+conditions = { graph = "friendster", kernel = "components, sampled (cc)", storage = "compressed, in the heap", limit = "20G", level = "in-process kernel time, best of 3 in one process" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "wcc-stream"
+group = "friendster"
+description = "Components with sampling on Friendster through CompressedStream under 8G"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source streamed --kernel cc --threads {threads} --reps 3"
+conditions = { graph = "friendster", kernel = "components, sampled (cc)", storage = "compressed, streamed, 4 MiB windows", limit = "8G", level = "in-process kernel time, best of 3 in one process" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "kernel_read_bytes", json = "/read_bytes_all/0", unit = "B" },
+]
+primary = "seconds"

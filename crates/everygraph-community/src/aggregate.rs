@@ -240,7 +240,7 @@ fn combine<'t, 'g, S: Source>(
 
 /// Writes the row of each community at its smallest node `v`, into `rows` at
 /// `offsets[v]`, and its sum into `strength`. Returns the number of communities whose
-/// row names no other community.
+/// row gives no weight to another community.
 fn write<S: Source>(
     plan: &Plan<'_, '_, S>,
     w: Weights<'_>,
@@ -265,7 +265,7 @@ fn write<S: Source>(
                     s += sum;
                 }
                 strength[c as usize].store(s, Relaxed);
-                *alone += u32::from(table.entries().all(|(key, _)| key == c));
+                *alone += u32::from(table.entries().all(|(key, sum)| key == c || sum == 0));
             }
         },
     )?;
@@ -325,32 +325,29 @@ pub(crate) fn quotient<S: Source>(
             of: strength,
             total,
             alone,
+            mass: None,
+            skew: None,
         },
     ))
 }
 
-/// The quotient graph of a partition of an unweighted graph (`membership` as
+/// The quotient graph of a partition of a graph with `weights` (`membership` as
 /// [`table`](crate::table) takes it). Node `c` of the quotient is the `c`-th community
 /// in the order of its smallest node.
 #[cfg(test)]
 pub(crate) fn quotient_of<S: Source>(
     source: &S,
+    weights: crate::EdgeWeights<'_>,
     memory: &Memory,
     settings: everygraph_kernels::edge_map::Settings,
     membership: &[u32],
 ) -> Result<Quotient, Error> {
     crate::quality::communities(source.nodes(), membership)?;
+    let w = crate::weights::scaled(source, weights)?.w;
     Plan::with(source, memory, settings, |plan| {
         let d = dense(&plan, memory, |v| membership[v.index()])?;
         let members = Members::new(memory, d.parts())?;
-        let q = quotient(
-            &plan,
-            memory,
-            Weights::Unit,
-            d.parts(),
-            &members,
-            &Tables::new(memory),
-        )?;
+        let q = quotient(&plan, memory, w, d.parts(), &members, &Tables::new(memory))?;
         Ok(q.0)
     })
 }
