@@ -28,6 +28,7 @@ cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets 
 cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-community --target wasm32-unknown-unknown -- -D warnings
+cargo clippy -p everygraph-map --target wasm32-unknown-unknown -- -D warnings
 RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo deny check                            # offline: cargo deny check bans licenses sources
@@ -43,6 +44,7 @@ python3 tools/check_wasm_toy.py             # toy kernel and the edge-map kernel
 python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
 python3 tools/check_container_python.py     # .eg container: the Python reader reads what Rust wrote
 uv run --script tools/check_columns_python.py  # columns: pyarrow and Polars read what Rust wrote
+uv run --script tools/check_egmap_readers.py  # map file: the Python reader and the official PMTiles readers read what Rust wrote
 tools/check_python_package.sh               # the Python package: maturin build, pytest against NetworkX
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
@@ -115,7 +117,8 @@ own.
 
 Code that parses bytes has a fuzz target (CLAUDE.md § 6, issue #191), in a `fuzz/`
 package of its crate that is not part of the workspace: `everygraph-format` has
-`adjacency`, `container` and `columns`, `everygraph-ingest` has `text`. Each target's corpus is
+`adjacency`, `container`, `columns`, `hierarchy` and `egmap` (the map file of
+`everygraph-map`), `everygraph-ingest` has `text`. Each target's corpus is
 committed under `fuzz/corpus/TARGET`. With `cargo-fuzz` and the pinned nightly:
 
 ```sh
@@ -289,7 +292,7 @@ describing it).
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes, built and linted in CI |
 | `everygraph-community` | Leiden, the community table and modularity; the map hierarchy | #57, #62, #63 | yes, built and linted in CI |
-| `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
+| `everygraph-map` | layout, the `.egmap` file format, tile builder | #67–#69 | yes, built and linted in CI |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
 | `everygraph-cli` | the `everygraph` command | #41 (`verify`), #98 | no |
 | `everygraph-py` | Python bindings | #81, #82 | no |

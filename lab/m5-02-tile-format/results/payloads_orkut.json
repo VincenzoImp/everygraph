@@ -1,0 +1,144 @@
+{
+ "map": "$S/maps/orkut.pmtiles",
+ "tiles": 142710,
+ "tiles_encoded": 142710,
+ "refused": {},
+ "regions_added_as_ancestors": 607508,
+ "payloads": {
+  "egmap": {
+   "raw": {
+    "total": 651350376,
+    "median": 2904,
+    "p99": 26896,
+    "max": 39240
+   },
+   "gzip": {
+    "total": 324747200,
+    "median": 1477,
+    "p99": 13148,
+    "max": 17998
+   }
+  },
+  "arrow_ipc": {
+   "raw": {
+    "total": 1091095368,
+    "median": 6288,
+    "p99": 28368,
+    "max": 40784
+   },
+   "gzip": {
+    "total": 396739204,
+    "median": 2056,
+    "p99": 12842,
+    "max": 17675
+   }
+  },
+  "mlt_web_4g": {
+   "raw": {
+    "total": 404539429,
+    "median": 1893,
+    "p99": 15579,
+    "max": 21140
+   },
+   "gzip": {
+    "total": 330475585,
+    "median": 1613,
+    "p99": 12177,
+    "max": 17024
+   }
+  },
+  "mlt_min_size": {
+   "raw": {
+    "total": 396027253,
+    "median": 1889,
+    "p99": 14171,
+    "max": 19506
+   },
+   "gzip": {
+    "total": 325567866,
+    "median": 1607,
+    "p99": 11570,
+    "max": 16375
+   }
+  }
+ },
+ "gzip_by_zoom": [
+  {
+   "z": 0,
+   "egmap": 5420,
+   "arrow_ipc": 5942,
+   "mlt_web_4g": 5268,
+   "mlt_min_size": 5241
+  },
+  {
+   "z": 1,
+   "egmap": 16660,
+   "arrow_ipc": 18794,
+   "mlt_web_4g": 16658,
+   "mlt_min_size": 16565
+  },
+  {
+   "z": 2,
+   "egmap": 46322,
+   "arrow_ipc": 54133,
+   "mlt_web_4g": 47260,
+   "mlt_min_size": 47125
+  },
+  {
+   "z": 3,
+   "egmap": 141986,
+   "arrow_ipc": 168294,
+   "mlt_web_4g": 144908,
+   "mlt_min_size": 143921
+  },
+  {
+   "z": 4,
+   "egmap": 424537,
+   "arrow_ipc": 501175,
+   "mlt_web_4g": 434711,
+   "mlt_min_size": 432197
+  },
+  {
+   "z": 5,
+   "egmap": 1165929,
+   "arrow_ipc": 1398722,
+   "mlt_web_4g": 1203162,
+   "mlt_min_size": 1197867
+  },
+  {
+   "z": 6,
+   "egmap": 2989221,
+   "arrow_ipc": 3708493,
+   "mlt_web_4g": 3148092,
+   "mlt_min_size": 3139756
+  },
+  {
+   "z": 7,
+   "egmap": 9456838,
+   "arrow_ipc": 11827077,
+   "mlt_web_4g": 10038690,
+   "mlt_min_size": 10041600
+  },
+  {
+   "z": 8,
+   "egmap": 83838214,
+   "arrow_ipc": 85254037,
+   "mlt_web_4g": 78572852,
+   "mlt_min_size": 75719797
+  },
+  {
+   "z": 9,
+   "egmap": 103194777,
+   "arrow_ipc": 117759751,
+   "mlt_web_4g": 101948553,
+   "mlt_min_size": 100464766
+  },
+  {
+   "z": 10,
+   "egmap": 123467296,
+   "arrow_ipc": 176042786,
+   "mlt_web_4g": 134915431,
+   "mlt_min_size": 134359031
+  }
+ ]
+}

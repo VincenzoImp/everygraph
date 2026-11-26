@@ -585,6 +585,13 @@ dependencies = [
 [[package]]
 name = "everygraph-map"
 version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-io",
+ "flate2",
+ "proptest",
+ "serde_json",
+]
 
 [[package]]
 name = "everygraph-oracle"

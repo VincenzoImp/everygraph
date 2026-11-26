@@ -2,13 +2,26 @@
 
 [package]
 name = "everygraph-map"
-description = "The map of Everygraph: layout and tile pyramid."
+description = "The map of Everygraph: layout, the .egmap tile format and the tile pyramid."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+
+[dependencies]
+# A library does not decide whether threads exist (CONTRIBUTING.md, "Crates").
+everygraph-core = { path = "../everygraph-core", default-features = false }
+# Gzip, the compression of PMTiles directories, metadata, tiles and chunks, through
+# zlib-rs: pure Rust (DESIGN D1), and it builds for wasm32.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+
+[dev-dependencies]
+# The fault-injecting sink of the writer's error-path sweep (tests/egmap.rs).
+everygraph-io = { path = "../everygraph-io", features = ["faults"] }
+proptest = { version = "1.7", default-features = false, features = ["std"] }
+serde_json = "1"
 
 [lints]
 workspace = true
