@@ -27,6 +27,8 @@ xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"
 # The tests and the examples run the parallel facade on threads (and the dictionary's
 # tests check that its results do not depend on how many).
 everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
+# The page backend of native builds, for the dictionary benchmark and the retention test.
+everygraph-io = { path = "../everygraph-io" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 
 # The dictionary benchmark evicts its scratch files from the page cache for cold look-ups.

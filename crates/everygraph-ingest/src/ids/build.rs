@@ -13,7 +13,7 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
-use everygraph_core::{ByteSource, InsufficientBudget, MemoryAccountant, par};
+use everygraph_core::{ByteSource, InsufficientBudget, MemoryAccountant, Pages, par};
 
 use super::dense::{DenseBits, RankBitmap};
 use super::dict::{Dictionary, Header, Repr, SectionWriters};
@@ -23,7 +23,8 @@ use super::kind::{
 };
 use super::mphf::{Mphf, Part, PartError, build_part, part_bits_for};
 use super::scratch::{
-    Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, in_rounds, read_all, widen,
+    Buf, Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, buf, filled, in_rounds, read_all,
+    widen,
 };
 use super::table::{Credit, Inserted, Table};
 use super::{DictionaryError, IdOrder, Layout, check_node_count};
@@ -432,10 +433,9 @@ impl<S: ByteSource> Run<S> {
 }
 
 /// Keys whose hash has its low `SAMPLE_BITS` bits zero, with their first position.
-#[derive(Default)]
 struct Sample {
-    items: Vec<(KeyHash, u64, usize, usize)>,
-    arena: Vec<u8>,
+    items: Buf<(KeyHash, u64, usize, usize)>,
+    arena: Buf<u8>,
 }
 
 /// Bytes a sample of `items` entries and `arena` key bytes holds.
@@ -579,7 +579,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         let mut base = base;
         let flush = base.split_off(FLUSH_BYTES);
         Ok(self.lend(WorkerState {
-            table: Table::default(),
+            table: Table::new(self.accountant.pages()),
             credit: Credit::from_reservation(base),
             _flush: flush,
             invalid: InvalidKeys::default(),
@@ -638,7 +638,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         lock(&self.runs).push(Run { source, index_at });
         let sample = sample.seal(self.scratch)?;
         lock(&self.sample_runs).push(sample);
-        st.table = Table::default();
+        st.table = Table::new(self.accountant.pages());
         st.credit.reset();
         Ok(())
     }
@@ -663,7 +663,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         let mut credit = Credit::new(self.accountant, "id dictionary sample", 0)?;
         credit.require(widen(READ_WINDOW))?;
         let mut window = vec![0_u8; READ_WINDOW];
-        let mut table = Table::default();
+        let mut table = Table::new(self.accountant.pages());
         for run in std::mem::take(&mut *lock(&self.sample_runs)) {
             for_each_record(&run, 0, run.len(), fixed, &mut window, |hash, pos, key| {
                 if table.insert(hash, pos, key, Some(&mut credit)) == Inserted::Full {
@@ -679,9 +679,10 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             "id dictionary sample",
             sample_bytes(table.len(), key_bytes),
         )?;
+        let pages = self.accountant.pages();
         let mut sample = Sample {
-            items: Vec::with_capacity(table.len()),
-            arena: Vec::with_capacity(key_bytes),
+            items: buf(pages, table.len()),
+            arena: buf(pages, key_bytes),
         };
         for e in table.entries() {
             let key = table.key(e);
@@ -996,6 +997,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         debug_assert_eq!(acc, n);
         let bucket_tasks: Vec<usize> = (0..bucket_count).collect();
         let order = self.order;
+        let pages = self.accountant.pages();
         let (range_len, range_count) = (scatter.range_len(), scatter.range_count());
         let header_bytes = |order: IdOrder| -> u64 {
             (if order == IdOrder::SortedKey { 0 } else { 8 })
@@ -1033,8 +1035,8 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             |&r| phase_c_bytes(r),
             |&r, grant| {
                 let count = index(bucket_counts[r]);
-                let bytes = read_all(&bucket_sources[r])?;
-                let mut items = parse_located(&bytes, order, width, count)?;
+                let bytes = read_all(&bucket_sources[r], pages)?;
+                let mut items = parse_located(&bytes, order, width, count, pages)?;
                 match order {
                     IdOrder::SortedKey => items.sort_unstable_by(|a, b| a.key.cmp(b.key)),
                     _ => items.sort_unstable_by(|a, b| (a.pos, a.key).cmp(&(b.pos, b.key))),
@@ -1054,15 +1056,17 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
                 for it in &items {
                     range_sizes[index(u64::from(slot_of(it)) / range_len)] += record_len(it);
                 }
-                let mut ranges: Vec<Vec<u8>> =
-                    range_sizes.iter().map(|&s| Vec::with_capacity(s)).collect();
-                let mut keys = Vec::with_capacity(if slot_layout { 0 } else { key_bytes });
-                let mut lens = Vec::with_capacity(if slot_layout || width.is_some() {
-                    0
-                } else {
-                    count
-                });
-                let mut id_to_slot = Vec::with_capacity(if slot_layout { 4 * count } else { 0 });
+                let mut ranges: Vec<Buf<u8>> = range_sizes.iter().map(|&s| buf(pages, s)).collect();
+                let mut keys = buf(pages, if slot_layout { 0 } else { key_bytes });
+                let mut lens = buf(
+                    pages,
+                    if slot_layout || width.is_some() {
+                        0
+                    } else {
+                        count
+                    },
+                );
+                let mut id_to_slot = buf(pages, if slot_layout { 4 * count } else { 0 });
                 let mut payload = Vec::with_capacity(4 + MAX_KEY_BYTES);
                 for (i, it) in items.iter().enumerate() {
                     let id = u32::try_from(bucket_base[r] + widen(i)).expect("checked below 2^32");
@@ -1182,7 +1186,8 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         // Memory beyond the round's estimate is taken as the task goes; a refusal
         // defers the task to a smaller round (`in_rounds`).
         let mut credit = Credit::from_reservation(grant);
-        let mut table = Table::default();
+        let pages = self.accountant.pages();
+        let mut table = Table::new(pages);
         credit.require(widen(READ_WINDOW))?;
         let mut window = vec![0_u8; READ_WINDOW];
         for run in &self.runs {
@@ -1250,10 +1255,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             parts.push(part);
         }
         drop(by_part);
-        let mut buckets: Vec<Vec<u8>> = bucket_sizes
-            .iter()
-            .map(|&s| Vec::with_capacity(s))
-            .collect();
+        let mut buckets: Vec<Buf<u8>> = bucket_sizes.iter().map(|&s| buf(pages, s)).collect();
         let mut counts = vec![0_u64; splitters.len() + 1];
         let unit_u32 = u32::try_from(unit).expect("at most 2^10 units");
         for e in table.entries() {
@@ -1397,7 +1399,7 @@ struct Splitter {
 struct UnitOut<'a> {
     parts: Vec<Part>,
     n: u32,
-    buckets: Vec<Vec<u8>>,
+    buckets: Vec<Buf<u8>>,
     counts: Vec<u64>,
     resident: Reservation<'a>,
 }
@@ -1407,8 +1409,9 @@ fn parse_located(
     order: IdOrder,
     width: Option<usize>,
     count: usize,
-) -> Result<Vec<Located<'_>>, DictionaryError> {
-    let mut items = Vec::with_capacity(count);
+    pages: Pages,
+) -> Result<Buf<Located<'_>>, DictionaryError> {
+    let mut items = buf(pages, count);
     let mut at = 0;
     let truncated = || DictionaryError::Corrupt("truncated order bucket");
     while at < bytes.len() {
@@ -1445,15 +1448,17 @@ fn parse_located(
 }
 
 /// Reads `source` in pieces of `record` bytes (a few thousand at a time) and calls `f`
-/// with each piece's first record index and bytes. Holds a buffer of about 1 MiB.
+/// with each piece's first record index and bytes. Holds a buffer of about 1 MiB, from
+/// `pages`.
 pub(crate) fn for_each_record_chunk(
     source: &dyn ByteSource,
     record: usize,
+    pages: Pages,
     mut f: impl FnMut(u64, &[u8]) -> Result<(), DictionaryError>,
 ) -> Result<(), DictionaryError> {
     let per_read = ((1 << 20) / record.max(1)).max(1);
     let total = source.len() / widen(record.max(1));
-    let mut buf = vec![0_u8; per_read * record];
+    let mut buf = filled(pages, per_read * record, 0_u8);
     let mut i = 0_u64;
     while i < total {
         let count = index((total - i).min(widen(per_read)));

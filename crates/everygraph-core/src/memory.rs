@@ -31,7 +31,21 @@
 //!
 //! What the machine has (physical memory, a container's limit) is read outside this
 //! crate, through [`MemoryProbe`]: the core does not read `/proc` or cgroups.
+//!
+//! # Where the buffers come from
+//!
+//! The budget bounds the process's anonymous memory, not only the ledger
+//! (`design/DECISIONS.md`, "The memory promise covers the process"). A general
+//! allocator keeps blocks that were freed, so the process can hold more than the
+//! ledger says: glibc kept 1.2–2.3× the budget in the dictionary builds of PR #158 and
+//! PR #203. So the buffers that [`SegVec`](crate::SegVec) and
+//! [`ScratchPool`](crate::ScratchPool) allocate come from the accountant's [`Pages`]: an
+//! allocator that a native build points at `everygraph_io::PAGES`, which maps every
+//! large block on its own and unmaps it when the block is freed. The core makes no
+//! system call: it only holds the allocator it is given. [`Pages::HEAP`], the global
+//! allocator, is the default and what wasm32 uses.
 
+use std::alloc::{Allocator, Global};
 use std::error::Error;
 use std::fmt;
 use std::io;
@@ -40,6 +54,43 @@ use std::sync::Arc;
 mod budget;
 
 pub use budget::{Budget, MemoryReport, PurposeUsage};
+
+/// The allocator that buffers held through an accountant come from, with a name for
+/// reports. Copying it is cheap: it is a reference to a static allocator.
+#[derive(Clone, Copy)]
+pub struct Pages {
+    name: &'static str,
+    allocator: &'static (dyn Allocator + Sync),
+}
+
+impl Pages {
+    /// The global allocator, as `Vec::new` uses.
+    pub const HEAP: Self = Self::new("heap", &Global);
+
+    /// Buffers from `allocator`, reported as `name`.
+    #[must_use]
+    pub const fn new(name: &'static str, allocator: &'static (dyn Allocator + Sync)) -> Self {
+        Self { name, allocator }
+    }
+
+    /// The name given to [`new`](Self::new).
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// The allocator, to give to `Vec::new_in`.
+    #[must_use]
+    pub const fn allocator(&self) -> &'static (dyn Allocator + Sync) {
+        self.allocator
+    }
+}
+
+impl fmt::Debug for Pages {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name)
+    }
+}
 
 /// What a reservation will be backed by. The two kinds behave differently when memory
 /// runs short, which is why every reservation states its kind.
@@ -86,6 +137,13 @@ pub trait MemoryAccountant: Send + Sync {
 
     /// Bytes of [`MemoryKind::Anonymous`] memory that can still be reserved.
     fn available(&self) -> u64;
+
+    /// Where the buffers reserved through this accountant are allocated (module
+    /// documentation, "Where the buffers come from"). It must not change while any
+    /// buffer is held.
+    fn pages(&self) -> Pages {
+        Pages::HEAP
+    }
 }
 
 /// A reservation was refused because it does not fit in what is left of the budget.
@@ -224,6 +282,12 @@ impl Memory {
     #[must_use]
     pub fn available(&self) -> u64 {
         self.0.available()
+    }
+
+    /// Where the buffers held through this handle are allocated.
+    #[must_use]
+    pub fn pages(&self) -> Pages {
+        self.0.pages()
     }
 }
 

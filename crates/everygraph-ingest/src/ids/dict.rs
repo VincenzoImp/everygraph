@@ -486,7 +486,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                     RankBitmap::bytes(words_len),
                 )?;
                 let mut words = Vec::with_capacity(words_len);
-                for_each_record_chunk(source, 8, |_, bytes| {
+                for_each_record_chunk(source, 8, accountant.pages(), |_, bytes| {
                     words.extend(
                         bytes
                             .chunks_exact(8)
@@ -1031,7 +1031,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         let mut sections: [Option<Sc::Source>; 14] = Default::default();
         let copy = |src: &S| -> Result<Sc::Source, DictionaryError> {
             let mut s = Spill::new(scratch, "id dictionary section")?;
-            for_each_record_chunk(src, 1, |_, b| Ok(s.write(b)?))?;
+            for_each_record_chunk(src, 1, accountant.pages(), |_, b| Ok(s.write(b)?))?;
             Ok(s.seal(scratch)?)
         };
         // Old id -> u32 value, scattered to new ids: graph positions, ranks, slots.
@@ -1061,7 +1061,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                 Ok(())
             };
             match source {
-                Some(src) => for_each_record_chunk(src, 4, |first, bytes| {
+                Some(src) => for_each_record_chunk(src, 4, accountant.pages(), |first, bytes| {
                     for (i, raw) in bytes.chunks_exact(4).enumerate() {
                         emit(first + widen(i), raw)?;
                     }
@@ -1086,7 +1086,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         // old id -> new id, applied to a stream of ids.
         let map_ids = |src: &S| -> Result<Sc::Source, DictionaryError> {
             let mut s = Spill::new(scratch, "id dictionary section")?;
-            for_each_record_chunk(src, 4, |_, bytes| {
+            for_each_record_chunk(src, 4, accountant.pages(), |_, bytes| {
                 let mut mapped = Vec::with_capacity(bytes.len());
                 for c in bytes.chunks_exact(4) {
                     let old = self.checked_id(as_u32(c))?;
@@ -1199,16 +1199,21 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                         let records = self.need(Sec::Records)?;
                         let mut s = Spill::new(scratch, "id dictionary section")?;
                         match width {
-                            Some(w) => for_each_record_chunk(records, w + 4, |_, bytes| {
-                                let mut chunk = bytes.to_vec();
-                                for rec in chunk.chunks_exact_mut(w + 4) {
-                                    let old = self.checked_id(as_u32(&rec[w..]))?;
-                                    rec[w..].copy_from_slice(
-                                        &permutation[index(u64::from(old))].to_le_bytes(),
-                                    );
-                                }
-                                Ok(s.write(&chunk)?)
-                            })?,
+                            Some(w) => for_each_record_chunk(
+                                records,
+                                w + 4,
+                                accountant.pages(),
+                                |_, bytes| {
+                                    let mut chunk = bytes.to_vec();
+                                    for rec in chunk.chunks_exact_mut(w + 4) {
+                                        let old = self.checked_id(as_u32(&rec[w..]))?;
+                                        rec[w..].copy_from_slice(
+                                            &permutation[index(u64::from(old))].to_le_bytes(),
+                                        );
+                                    }
+                                    Ok(s.write(&chunk)?)
+                                },
+                            )?,
                             None => {
                                 let offsets = self.need(Sec::RecordOffsets)?;
                                 let mut rec = Vec::new();

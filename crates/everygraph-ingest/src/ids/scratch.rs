@@ -4,10 +4,11 @@
 //! rounds every phase runs in, and the external scatter that writes arrays in the order
 //! of an index the records arrive out of.
 
+use std::alloc::Allocator;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
 
-use everygraph_core::{ByteSource, MemoryAccountant, MemoryKind, MemorySource, par};
+use everygraph_core::{ByteSource, MemoryAccountant, MemoryKind, MemorySource, Pages, par};
 
 use super::DictionaryError;
 use super::hash::index;
@@ -101,6 +102,22 @@ pub(crate) fn widen(len: usize) -> u64 {
     u64::try_from(len).expect("usize fits in u64")
 }
 
+/// A buffer of the build, allocated from the accountant's [`Pages`]: a large one is
+/// given back to the system when it is dropped (`everygraph_core::Pages`).
+pub(crate) type Buf<T> = Vec<T, &'static (dyn Allocator + Sync)>;
+
+/// An empty buffer with room for `capacity` elements.
+pub(crate) fn buf<T>(pages: Pages, capacity: usize) -> Buf<T> {
+    Vec::with_capacity_in(capacity, pages.allocator())
+}
+
+/// A buffer of `len` copies of `value`.
+pub(crate) fn filled<T: Clone>(pages: Pages, len: usize, value: T) -> Buf<T> {
+    let mut v = buf(pages, len);
+    v.resize(len, value);
+    v
+}
+
 /// Reads `len` bytes at `offset` of `source` into a new buffer.
 pub(crate) fn read_range(
     source: &dyn ByteSource,
@@ -114,9 +131,13 @@ pub(crate) fn read_range(
     Ok(buf)
 }
 
-/// Reads a whole source.
-pub(crate) fn read_all(source: &dyn ByteSource) -> Result<Vec<u8>, DictionaryError> {
-    read_range(source, 0, source.len())
+/// Reads a whole source into a buffer from `pages`.
+pub(crate) fn read_all(source: &dyn ByteSource, pages: Pages) -> Result<Buf<u8>, DictionaryError> {
+    let len = usize::try_from(source.len())
+        .map_err(|_| DictionaryError::Corrupt("a section larger than memory"))?;
+    let mut bytes = filled(pages, len, 0);
+    source.read_at(0, &mut bytes)?;
+    Ok(bytes)
 }
 
 /// Memory reserved against the accountant, released on drop.
@@ -263,7 +284,7 @@ where
         if done < window.len() {
             cap = (window.len() / 2).max(1);
         } else {
-            cap = cap.saturating_mul(2);
+            cap = cap.saturating_mul(2).min(tasks.len());
         }
         next += done;
     }
@@ -330,7 +351,12 @@ impl<'a, Sc: Scratch> Scatter<'a, Sc> {
     }
 
     /// Encodes one record into `out` (the caller groups records by range).
-    pub(crate) fn encode(width: Option<usize>, target: u32, payload: &[u8], out: &mut Vec<u8>) {
+    pub(crate) fn encode<A: Allocator>(
+        width: Option<usize>,
+        target: u32,
+        payload: &[u8],
+        out: &mut Vec<u8, A>,
+    ) {
         out.extend_from_slice(&target.to_le_bytes());
         if width.is_none() {
             let len = u32::try_from(payload.len()).expect("a key shorter than 4 GiB");
@@ -378,7 +404,11 @@ impl<'a, Sc: Scratch> Scatter<'a, Sc> {
             |&r, grant| {
                 let base = widen(r) * range_len;
                 let len = range_len.min(n - base);
-                Ok((place(&read_all(&sources[r])?, width, base, len)?, grant))
+                let records = read_all(&sources[r], accountant.pages())?;
+                Ok((
+                    place(&records, width, base, len, accountant.pages())?,
+                    grant,
+                ))
             },
             |_, (bytes, lens)| {
                 out.write(&bytes)?;
@@ -401,7 +431,8 @@ fn place(
     width: Option<usize>,
     base: u64,
     len: u64,
-) -> Result<(Vec<u8>, Vec<u32>), DictionaryError> {
+    pages: Pages,
+) -> Result<(Buf<u8>, Buf<u32>), DictionaryError> {
     let len = index(len);
     let missing = || DictionaryError::Corrupt("scatter: a target got no record or two");
     let mut at = 0;
@@ -430,22 +461,22 @@ fn place(
     };
     match width {
         Some(w) => {
-            let mut out = vec![0_u8; len * w];
-            let mut filled = vec![false; len];
+            let mut out = filled(pages, len * w, 0_u8);
+            let mut seen = filled(pages, len, false);
             while at < records.len() {
                 let (t, payload) = next(&mut at)?;
-                if std::mem::replace(&mut filled[t], true) {
+                if std::mem::replace(&mut seen[t], true) {
                     return Err(missing());
                 }
                 out[t * w..(t + 1) * w].copy_from_slice(payload);
             }
-            if filled.iter().any(|f| !f) {
+            if seen.iter().any(|f| !f) {
                 return Err(missing());
             }
-            Ok((out, Vec::new()))
+            Ok((out, buf(pages, 0)))
         }
         None => {
-            let mut items: Vec<(usize, &[u8])> = Vec::with_capacity(len);
+            let mut items: Buf<(usize, &[u8])> = buf(pages, len);
             while at < records.len() {
                 items.push(next(&mut at)?);
             }
@@ -453,9 +484,9 @@ fn place(
             if items.len() != len || items.iter().enumerate().any(|(i, (t, _))| i != *t) {
                 return Err(missing());
             }
-            let mut out = Vec::with_capacity(items.iter().map(|(_, p)| p.len()).sum());
-            let mut lens = Vec::with_capacity(len);
-            for (_, p) in items {
+            let mut out = buf(pages, items.iter().map(|(_, p)| p.len()).sum());
+            let mut lens = buf(pages, len);
+            for &(_, p) in &items {
                 out.extend_from_slice(p);
                 lens.push(u32::try_from(p.len()).expect("a key shorter than 4 GiB"));
             }
@@ -510,9 +541,33 @@ mod tests {
         .unwrap();
         assert_eq!(budget.available(), budget.total(), "everything released");
         let expected: Vec<u8> = (0..n).flat_map(payload).collect();
-        let out = read_all(&out.seal(&scratch).unwrap()).unwrap();
-        assert_eq!(out, expected);
-        (out, read_all(&offsets.seal(&scratch).unwrap()).unwrap())
+        let out = read_all(&out.seal(&scratch).unwrap(), Pages::HEAP).unwrap();
+        assert_eq!(*out, expected);
+        let offsets = read_all(&offsets.seal(&scratch).unwrap(), Pages::HEAP).unwrap();
+        (out.to_vec(), offsets.to_vec())
+    }
+
+    /// A budget that holds one task at a time: a hundred rounds, each complete, so the
+    /// round size grows after each of them and must stay a valid bound.
+    #[test]
+    fn rounds_limited_by_the_budget_run_every_task_in_order() {
+        let budget = Budget::new(10);
+        let tasks: Vec<usize> = (0..100).collect();
+        let mut seen = Vec::new();
+        in_rounds(
+            &budget,
+            "task",
+            &tasks,
+            |_| 10,
+            |&t, grant| Ok((t, grant)),
+            |i, t| {
+                seen.push((i, t));
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(seen.iter().copied().eq((0..100).map(|i| (i, i))));
+        assert_eq!(budget.available(), 10);
     }
 
     #[test]

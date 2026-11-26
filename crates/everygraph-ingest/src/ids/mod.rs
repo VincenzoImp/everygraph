@@ -70,10 +70,12 @@
 //!
 //! Every phase runs its tasks in parallel rounds whose memory is reserved through the
 //! [`MemoryAccountant`](everygraph_core::MemoryAccountant) first; a budget that cannot
-//! hold one task is refused with [`DictionaryError::Budget`]. What is reserved is the
-//! accountant's ledger; the process's real memory also includes the allocator's own
-//! retention (`design/DECISIONS.md`, "The memory promise covers the process"; issue
-//! `m2-19-allocator-policy`).
+//! hold one task is refused with [`DictionaryError::Budget`]. The large buffers of the
+//! build come from the accountant's
+//! [`Pages`](everygraph_core::MemoryAccountant::pages): with `everygraph_io::PAGES` a
+//! freed buffer goes back to the system, so the process's anonymous memory follows the
+//! ledger instead of the allocator's retention (`design/DECISIONS.md`, "The memory
+//! promise covers the process").
 //!
 //! # The stored form, for a reader
 //!

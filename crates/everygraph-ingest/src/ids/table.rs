@@ -6,9 +6,11 @@
 
 use std::mem::size_of;
 
+use everygraph_core::Pages;
+
 use super::DictionaryError;
 use super::hash::{KeyHash, index};
-use super::scratch::{Reservation, widen};
+use super::scratch::{Buf, Reservation, buf, widen};
 
 /// Memory a table may use: a reservation of which `used` bytes are taken, never
 /// shrinking below `base`.
@@ -117,11 +119,11 @@ pub(crate) struct Entry {
 const EMPTY: u32 = u32::MAX;
 
 /// A set of distinct keys with their first positions.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Table {
-    entries: Vec<Entry>,
-    arena: Vec<u8>,
-    slots: Vec<u32>,
+    entries: Buf<Entry>,
+    arena: Buf<u8>,
+    slots: Buf<u32>,
 }
 
 /// What [`Table::insert`] did.
@@ -134,6 +136,15 @@ pub(crate) enum Inserted {
 }
 
 impl Table {
+    /// An empty table whose arrays will come from `pages`.
+    pub(crate) fn new(pages: Pages) -> Self {
+        Self {
+            entries: buf(pages, 0),
+            arena: buf(pages, 0),
+            slots: buf(pages, 0),
+        }
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
@@ -269,7 +280,8 @@ impl Table {
         self.entries.reserve_exact(entries_cap - self.entries.len());
         self.arena.reserve_exact(arena_cap - self.arena.len());
         if slots_len != self.slots.len() {
-            self.slots = vec![EMPTY; slots_len];
+            self.slots = Vec::new_in(*self.slots.allocator());
+            self.slots.resize(slots_len, EMPTY);
             let mask = slots_len - 1;
             for (i, e) in self.entries.iter().enumerate() {
                 let mut at = index(e.hash.lo) & mask;
@@ -335,7 +347,7 @@ mod tests {
 
     #[test]
     fn keys_are_kept_once_with_their_first_position() {
-        let mut t = Table::default();
+        let mut t = Table::new(Pages::HEAP);
         for round in 0..3_u64 {
             for i in 0..5000_u64 {
                 let key = (i % 1234).to_string();
@@ -357,7 +369,7 @@ mod tests {
     /// Two different keys with the same hash stay two keys.
     #[test]
     fn equal_hashes_of_different_keys_are_kept_apart() {
-        let mut t = Table::default();
+        let mut t = Table::new(Pages::HEAP);
         let h = KeyHash { hi: 1, lo: 2 };
         t.insert(h, 5, b"a", None);
         t.insert(h, 3, b"b", None);
@@ -369,7 +381,7 @@ mod tests {
 
     #[test]
     fn grouping_puts_every_entry_in_its_bucket_in_order() {
-        let mut t = Table::default();
+        let mut t = Table::new(Pages::HEAP);
         for i in 0..10_000_u64 {
             let key = i.to_le_bytes();
             t.insert(KeyHash::of(&key, 0), i, &key, None);
@@ -393,7 +405,7 @@ mod tests {
     fn a_table_reports_full_when_its_reservation_cannot_grow() {
         let budget = Budget::new(200_000);
         let mut r = Credit::new(&budget, "table", 1000).unwrap();
-        let mut t = Table::default();
+        let mut t = Table::new(Pages::HEAP);
         let mut inserted = 0;
         for i in 0..100_000_u64 {
             let key = i.to_le_bytes();
