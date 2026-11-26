@@ -1,4 +1,5 @@
-// Colour maths for the round-2 identity mockups. No dependencies.
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+// Colour maths for the palette tools. No dependencies.
 // CVD model: Machado, Oliveira & Fernandes (2009), severity 1.0, applied in linear RGB.
 // Delta E everywhere: Euclidean distance in OKLab x 100.
 export const MACHADO = {

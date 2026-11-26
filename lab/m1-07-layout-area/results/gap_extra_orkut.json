@@ -1,0 +1,45 @@
+{
+ "graph": "/home/tux/graphlab/data/csr/orkut",
+ "level": 6,
+ "regions": 84,
+ "crossing_edges": 28474368,
+ "share_of_edges": 0.24298628520833152,
+ "layouts": {
+  "hclsb3": {
+   "L_median": 0.8935814166018573,
+   "C_median": 0.8280544610015433,
+   "G_median": 0.19247297863695037,
+   "L_mean": 0.9280761088655283,
+   "C_mean": 0.9026504624222158,
+   "G_mean": 0.3622931544723946,
+   "share_to_3_nearest_regions": 0.08358450659905779,
+   "median_rank_of_other_region": 42.0,
+   "region_R_median_per_node": 0.36939130270382137,
+   "facing_mean": 0.010937726135820428
+  },
+  "hclsb10": {
+   "L_median": 0.8881194310740884,
+   "C_median": 0.8322087254260245,
+   "G_median": 0.17789847667798178,
+   "L_mean": 0.92811226467001,
+   "C_mean": 0.9013734590473653,
+   "G_mean": 0.359568325902632,
+   "share_to_3_nearest_regions": 0.08358450659905779,
+   "median_rank_of_other_region": 43.0,
+   "region_R_median_per_node": 0.3797789618888341,
+   "facing_mean": 0.009512294823598194
+  },
+  "hclsb100": {
+   "L_median": 0.8829400600911886,
+   "C_median": 0.8334361647371972,
+   "G_median": 0.18357609227401317,
+   "L_mean": 0.9254442563500004,
+   "C_mean": 0.8965766607665686,
+   "G_mean": 0.3551666904586287,
+   "share_to_3_nearest_regions": 0.08358450659905779,
+   "median_rank_of_other_region": 43.0,
+   "region_R_median_per_node": 0.3753006855245142,
+   "facing_mean": 0.008558257941488106
+  }
+ }
+}
