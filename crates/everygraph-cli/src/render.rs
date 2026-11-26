@@ -3,7 +3,11 @@
 //! Text for people (`docs/ux-contract.md` § 2): the rendering of a stream, symbols and
 //! their ASCII forms, and numbers, sizes and durations.
 
-use std::io::IsTerminal;
+use std::fmt::Write as _;
+use std::io::{IsTerminal, Write as _};
+use std::path::Path;
+
+use everygraph_ingest::build::Report;
 
 /// How one stream is rendered (§ 2.2).
 #[derive(Clone, Copy, Debug)]
@@ -206,6 +210,171 @@ pub(crate) fn to_f64(x: u64) -> f64 {
     x
 }
 
+/// `n` and its noun, singular for one: `1 self-loop`, `4,201 self-loops`.
+pub(crate) fn counted(n: u64, one: &str, many: &str) -> String {
+    if n == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{} {many}", count(n))
+    }
+}
+
+/// An estimated count in a label-and-value line: four significant digits at most and
+/// a suffix (`~212.4 M`).
+pub(crate) fn rough_count(n: u64) -> String {
+    let (value, suffix) = match n {
+        n if n >= 1_000_000_000 => (to_f64(n) / 1e9, " B"),
+        n if n >= 1_000_000 => (to_f64(n) / 1e6, " M"),
+        n if n >= 1_000 => (to_f64(n) / 1e3, "k"),
+        n => return n.to_string(),
+    };
+    let digits = match value {
+        v if v < 10.0 => 2,
+        v if v < 100.0 => 1,
+        _ => 0,
+    };
+    format!("{value:.digits$}{suffix}")
+}
+
+/// `8GB`, `512MB`, `1.5GB`, `6G`, `256MiB`, or bytes: powers of 10 for `kB`, `MB`,
+/// `GB`, `TB` (§ 2.6) and of 2 for the `i` forms.
+pub(crate) fn parse_size(text: &str) -> Option<u64> {
+    let at = text
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(text.len());
+    let (number, unit) = text.split_at(at);
+    let number: f64 = number.parse().ok()?;
+    let scale: f64 = match unit.trim().to_ascii_lowercase().as_str() {
+        "" | "b" => 1.0,
+        "k" | "kb" => 1e3,
+        "m" | "mb" => 1e6,
+        "g" | "gb" => 1e9,
+        "t" | "tb" => 1e12,
+        "kib" => 1024.0,
+        "mib" => 1024.0 * 1024.0,
+        "gib" => 1024.0 * 1024.0 * 1024.0,
+        _ => return None,
+    };
+    let bytes = (number * scale).round();
+    // Finite, non-negative and below 2^63: exact enough for a budget.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "checked range"
+    )]
+    (bytes.is_finite() && (0.0..9.2e18).contains(&bytes)).then_some(bytes as u64)
+}
+
+/// A budget as it can be typed: rounded up to 100 MB below 1 GB, 0.5 GB from 1 GB,
+/// 1 GB from 4 GB (P-14).
+pub(crate) fn typed(bytes: u64) -> String {
+    let step = match bytes {
+        b if b < 1_000_000_000 => 100_000_000,
+        b if b < 4_000_000_000 => 500_000_000,
+        _ => 1_000_000_000,
+    };
+    let up = bytes.div_ceil(step).max(1) * step;
+    if up % 1_000_000_000 == 0 {
+        format!("{}GB", up / 1_000_000_000)
+    } else if up >= 1_000_000_000 {
+        format!("{:.1}GB", to_f64(up) / 1e9)
+    } else {
+        format!("{}MB", up / 1_000_000)
+    }
+}
+
+/// The result block of a graph made (G-11 to G-13), on standard error.
+pub(crate) fn result_block(output: &Path, bytes: u64, report: &Report, seconds: f64, style: Style) {
+    let dot = style.dot();
+    let name = output
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let mut text = format!(
+        "\n{} {}{dot}{}{dot}{}{dot}{}{dot}{}\n",
+        style.ok(),
+        style.bold(&name),
+        size(bytes),
+        counted(report.nodes, "node", "nodes"),
+        counted(report.edges, "edge", "edges"),
+        duration(seconds)
+    );
+    let mut dropped = Vec::new();
+    if report.dropped_self_loops > 0 {
+        dropped.push(counted(
+            report.dropped_self_loops,
+            "self-loop",
+            "self-loops",
+        ));
+    }
+    if report.dropped_duplicates > 0 {
+        dropped.push(counted(
+            report.dropped_duplicates,
+            "duplicate",
+            "duplicates",
+        ));
+    }
+    if report.rejected > 0 {
+        dropped.push(counted(report.rejected, "rejected row", "rejected rows"));
+    }
+    if !dropped.is_empty() {
+        let _ = writeln!(text, "  dropped: {}", dropped.join(dot));
+    }
+    if report.merged > 0 {
+        let merged = counted(report.merged, "duplicate", "duplicates");
+        let _ = writeln!(text, "  merged: {merged}, summed into their pairs");
+    }
+    let next = format!("everygraph map {}", output.display());
+    let _ = writeln!(text, "  next: {}", style.bold(&next));
+    let _ = std::io::stderr().write_all(text.as_bytes());
+}
+
+/// The file document of `docs/ux-contract.md` § 4.7.
+pub(crate) fn file_document(
+    job: &str,
+    output: &Path,
+    bytes: u64,
+    report: &Report,
+    seconds: f64,
+) -> String {
+    let keys = report.counts();
+    let counts: Vec<String> = keys
+        .iter()
+        .filter_map(|(k, v)| k.strip_prefix("counts.").map(|k| format!("\"{k}\":{v}")))
+        .collect();
+    let dropped: Vec<String> = keys
+        .iter()
+        .filter(|(_, v)| *v > 0)
+        .filter_map(|(k, v)| k.strip_prefix("dropped.").map(|k| format!("\"{k}\":{v}")))
+        .collect();
+    format!(
+        "{{\"schema\":1,\"job\":\"{job}\",\"operation\":\"ingest\",\"made\":{{\"path\":{},\
+         \"kind\":\"graph\",\"bytes\":{bytes}}},\"counts\":{{{}}},\"dropped\":{{{}}},\
+         \"kept\":[],\"elapsed_seconds\":{seconds:.3}}}",
+        json_string(&output.display().to_string()),
+        counts.join(","),
+        dropped.join(",")
+    )
+}
+
+/// `text` as a JSON string.
+pub(crate) fn json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            c if u32::from(c) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +396,36 @@ mod tests {
         assert_eq!(duration(7500.0), "2 h 5 min");
         assert_eq!(about(220.0), "about 3 min 40 s");
         assert_eq!(about(2.0), "about 5 s");
+        assert_eq!(counted(1, "self-loop", "self-loops"), "1 self-loop");
+        assert_eq!(counted(4201, "self-loop", "self-loops"), "4,201 self-loops");
+        assert_eq!(rough_count(212_400_000), "212 M");
+        assert_eq!(rough_count(45_400_000), "45.4 M");
+    }
+
+    #[test]
+    fn sizes_are_read_as_the_contract_writes_them() {
+        assert_eq!(parse_size("8GB"), Some(8_000_000_000));
+        assert_eq!(parse_size("1.5GB"), Some(1_500_000_000));
+        assert_eq!(parse_size("512MB"), Some(512_000_000));
+        assert_eq!(parse_size("256MiB"), Some(256 << 20));
+        assert_eq!(parse_size("6G"), Some(6_000_000_000));
+        assert_eq!(parse_size("100"), Some(100));
+        assert_eq!(parse_size("GB"), None);
+        assert_eq!(parse_size("8 parsecs"), None);
+    }
+
+    #[test]
+    fn budgets_are_rounded_up_to_a_value_that_can_be_typed() {
+        assert_eq!(typed(5_598_053_768), "6GB");
+        assert_eq!(typed(1_200_000_000), "1.5GB");
+        assert_eq!(typed(230_000_000), "300MB");
+        assert_eq!(typed(4_000_000_000), "4GB");
+        assert_eq!(typed(0), "100MB");
+    }
+
+    #[test]
+    fn json_strings_are_escaped() {
+        assert_eq!(json_string("a\"b\\c\n\u{1}"), r#""a\"b\\c\n\u0001""#);
     }
 
     #[test]

@@ -120,9 +120,30 @@ fn ingest_writes_a_graph_and_says_so() {
 #[test]
 fn the_graph_does_not_depend_on_threads_or_the_budget() {
     let dir = dir("threads");
-    std::fs::write(dir.join("edges.txt"), edges(40_000)).unwrap();
+    // More than three blocks of 4 MiB of text.
+    let text = edges(1_400_000);
+    assert!(text.len() > 3 * (4 << 20));
+    std::fs::write(dir.join("edges.txt"), text).unwrap();
+    // At this budget the plan, which spills less readily than the build, spills.
+    let small = "50MB";
+    let out = run(
+        &dir,
+        &[
+            "ingest",
+            "edges.txt",
+            "--threads",
+            "2",
+            "--memory",
+            small,
+            "--dry-run",
+            "--json",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(plan["regime"]["name"], "on_disk", "{plan}");
     let mut seen = Vec::new();
-    for (threads, memory) in [("1", "2GB"), ("3", "2GB"), ("8", "2GB"), ("2", "80MB")] {
+    for (threads, memory) in [("1", "2GB"), ("3", "2GB"), ("8", "2GB"), ("2", small)] {
         let name = format!("t{threads}-{memory}.eg");
         let out = run(
             &dir,
@@ -229,6 +250,49 @@ fn a_dry_run_prints_the_plan_and_writes_nothing() {
     ] {
         assert!(plan.contains(line), "{plan}");
     }
+    only(&dir, &["edges.txt"]);
+
+    // With --json, standard output is the plan document (§ 3.6) and nothing else.
+    let out = run(&dir, &["ingest", "edges.txt", "--dry-run", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    for key in [
+        "schema",
+        "operation",
+        "parameters",
+        "machine",
+        "budget",
+        "regime",
+        "phases",
+        "estimate",
+        "scratch",
+        "output",
+        "fits",
+        "refusal",
+    ] {
+        assert!(plan.get(key).is_some(), "{key} missing: {plan}");
+    }
+    assert_eq!(plan["fits"], true);
+    assert!(plan["refusal"].is_null());
+    assert_eq!(plan["input"]["rows"]["value"], 100.0 + 6.0);
+    assert_eq!(plan["input"]["rows"]["basis"], "exact");
+
+    // A plan that does not fit is returned, with its refusal, and exits with 4.
+    let out = run(
+        &dir,
+        &[
+            "ingest",
+            "edges.txt",
+            "--dry-run",
+            "--json",
+            "--memory",
+            "1MB",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(plan["fits"], false);
+    assert_eq!(plan["refusal"]["error"], "InsufficientBudget");
     only(&dir, &["edges.txt"]);
 }
 

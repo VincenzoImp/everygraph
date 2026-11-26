@@ -11,6 +11,7 @@
 
 mod failure;
 mod ingest;
+mod plan;
 mod render;
 mod scratch;
 

@@ -40,6 +40,7 @@
 //! between passes is refused ([`BuildError::InputChanged`]), never built from two
 //! files.
 
+mod estimate;
 mod fill;
 mod finish;
 mod layout;
@@ -67,6 +68,7 @@ use crate::ids::{
 };
 use crate::text::{Layout as TextLayout, OnInvalid, Tally, TextError, TextReader};
 
+pub use estimate::{Estimate, Sample, estimate};
 use finish::{Multiplicities, Output, PairCounts, finish_round, multiplicities};
 use layout::Layout;
 use rows::{ItemCounts, Rows, TextKeys, each_block};
@@ -540,6 +542,13 @@ where
 /// rounding, thread stacks): a sixteenth of what is available.
 const SLACK_SHIFT: u32 = 4;
 
+/// Buffers of the spill files and of the multiplicities, held whatever the input.
+fn fixed_bytes(threads: usize, tuning: &Tuning) -> u64 {
+    widen(threads) * widen(tuning.spill_batch) * 8
+        + 8 * fill::SPILL_BUFFER
+        + widen(finish::MULTIPLICITY_BUFFER)
+}
+
 fn build_tuned<S, Sc, K>(
     reader: &TextReader<S>,
     options: &BuildOptions,
@@ -612,9 +621,7 @@ where
 
     let events = graph.duplicates == Duplicates::Events;
     let available = memory.available() + counts.bytes();
-    let fixed = widen(threads) * widen(tuning.spill_batch) * 8
-        + 8 * fill::SPILL_BUFFER
-        + widen(finish::MULTIPLICITY_BUFFER);
+    let fixed = fixed_bytes(threads, tuning);
     let work = (available - (available >> SLACK_SHIFT)).saturating_sub(fixed);
     let values = counts
         .values()

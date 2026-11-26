@@ -263,7 +263,9 @@ dependencies = [
  "everygraph-ingest",
  "everygraph-io",
  "flate2",
+ "rustix",
  "serde_json",
+ "xxhash-rust",
 ]
 
 [[package]]

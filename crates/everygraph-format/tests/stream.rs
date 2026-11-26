@@ -244,3 +244,36 @@ fn a_damaged_sequence_is_refused_at_first_use() {
     }
     assert!(refused > 0);
 }
+
+/// Lists long enough, and runs of empty lists many enough, to close blocks by entries,
+/// by nodes and by a list longer than a block: the list-by-list index is still the one
+/// `encode` writes.
+#[test]
+fn list_by_list_matches_encode_across_block_boundaries() {
+    if MIRI {
+        return;
+    }
+    let sizes: [&[usize]; 4] = [
+        &[40_000, 30_000, 1, 70_000, 0, 65_536, 65_535, 2],
+        &[0; 70_000],
+        &[1; 140_000],
+        &[65_537, 0, 0, 65_536, 1],
+    ];
+    for lens in sizes {
+        let lists: Vec<Vec<u32>> = lens
+            .iter()
+            .enumerate()
+            .map(|(v, &len)| {
+                let step = u32::try_from(v % 3 + 1).unwrap();
+                (0..u32::try_from(len).unwrap()).map(|x| x * step).collect()
+            })
+            .collect();
+        let (offsets, targets) = csr(&lists);
+        let whole = encode(&offsets, &targets).unwrap();
+        let index = AdjacencyIndex::parse(&whole.index).unwrap();
+        assert!(index.blocks() > 1);
+        let (data, streamed) = stream(&lists, false);
+        assert!(data == whole.data);
+        assert!(streamed == whole.index);
+    }
+}

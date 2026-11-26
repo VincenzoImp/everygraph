@@ -217,6 +217,14 @@ pub(super) struct Flight {
     pub(super) most_rows: u64,
 }
 
+impl Flight {
+    /// Bytes the blocks in flight hold at most.
+    pub(super) fn bytes(&self) -> u64 {
+        let per_block = 2 * self.block_bytes + self.most_rows.saturating_mul(BLOCK_BYTES_PER_ROW);
+        per_block.saturating_mul(u64::try_from(self.threads).unwrap_or(u64::MAX))
+    }
+}
+
 impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
     pub(super) fn new(
         reader: &'a TextReader<S>,
@@ -227,10 +235,7 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         memory: &Memory,
         cached_rows: Option<u64>,
     ) -> Result<Self, MemoryError> {
-        let per_block =
-            2 * flight.block_bytes + flight.most_rows.saturating_mul(BLOCK_BYTES_PER_ROW);
-        let threads = u64::try_from(flight.threads).unwrap_or(u64::MAX);
-        let bytes = per_block.saturating_mul(threads);
+        let bytes = flight.bytes();
         let blocks = flight.blocks;
         let buffers = memory.reserve("text blocks in flight", MemoryKind::Anonymous, bytes)?;
         let cache = match cached_rows {
