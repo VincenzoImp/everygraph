@@ -428,12 +428,13 @@ of the same page). Text and card must agree fact for fact.
 A refusal is a plan with `fits = false`. It is decided before any work (P-5), so its
 last line can always say that nothing happened.
 
-- **P-13** A refusal for memory states: the step; what it needs and for what; the
-  arithmetic (count × bytes each); the budget; what stays on disk regardless; the
+- **P-13** A refusal for memory states: the step; what it needs in all, and of that
+  its state and what the state is; the arithmetic (count × bytes each); the budget; what stays on disk regardless; the
   smallest budget that would work; and every other way forward the engine knows.
 - **P-14** The smallest budget is the per-node state plus the fixed buffers of the plan,
   rounded **up** to a value that can be typed: a multiple of 1 GB from 4 GB, of 0.5 GB
-  from 1 GB, of 100 MB below. The exact figure is in the machine-readable form.
+  from 1 GB, of 100 MB from 100 MB, and below 100 MB two significant digits (`2.9MB`).
+  The exact figure is in the machine-readable form.
 - **P-15** A way forward is listed only if it would work: an option the operation does
   not have, or a lower-memory variant that does not exist for it, is not offered.
   Community detection has no lower-memory variant in 0.1 (`design/DECISIONS.md`, "A
@@ -446,8 +447,9 @@ last line can always say that nothing happened.
 $ everygraph run communities transfers.eg --memory 4GB
 ✗ Not enough memory for this step.
 
-  communities needs 5.1 GB for per-node state (212,418,907 nodes × 24 bytes).
-  The budget is 4.0 GB. The edges stay on disk either way.
+  communities needs 5.6 GB: 5.1 GB for per-node state (212,418,907 nodes × 24
+  bytes), and 0.5 GB for buffers and the graph's indexes. The budget is 4.0 GB.
+  The edges stay on disk either way.
 
   Ways forward:
     --memory 6GB            the smallest budget that works
@@ -466,9 +468,10 @@ When no budget on this machine is enough (an invented graph of 2.6 B nodes: 2.6 
 $ everygraph run communities web.eg
 ✗ Not enough memory for this step.
 
-  communities needs 62.4 GB for per-node state (2,600,000,000 nodes × 24 bytes).
-  The budget is 8.0 GB, and this machine has 61 GB of memory in all, so no
-  budget on it is enough. The edges stay on disk either way.
+  communities needs 62.9 GB: 62.4 GB for per-node state (2,600,000,000 nodes ×
+  24 bytes), and 0.5 GB for buffers and the graph's indexes. The budget is
+  8.0 GB, and this machine has 61 GB of memory in all, so no budget on it is
+  enough. The edges stay on disk either way.
 
   Ways forward:
     a machine with at least 63 GB of memory
@@ -888,9 +891,9 @@ error schema:
   "schema": 1,
   "error": "InsufficientBudget",
   "message": "Not enough memory for this step.",
-  "why": "communities needs 5.1 GB for per-node state.",
+  "why": "communities needs 5.6 GB: 5.1 GB for per-node state.",
   "step": "communities",
-  "needs_bytes": 5098053768,
+  "needs_bytes": 5598053768,
   "budget_bytes": 4000000000,
   "smallest_budget_bytes": 5598053768,
   "arithmetic": {"count": 212418907, "unit": "nodes", "bytes_each": 24},
@@ -1840,8 +1843,9 @@ Three patterns, and no others.
   text, so a log or a traceback carries everything:
 
 ```text
-InsufficientBudget: communities() needs 5.1 GB for per-node state
-(212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
+InsufficientBudget: communities() needs 5.6 GB: 5.1 GB for per-node state
+(212,418,907 nodes × 24 bytes), and 0.5 GB for buffers and the graph's indexes;
+the budget is 4.0 GB.
 The edges stay on disk either way.
 
   Ways forward:
@@ -1856,7 +1860,7 @@ Nothing was changed.
 - **M-5** With `--json` the error is one document on standard output. This is the only
   definition of an error or a refusal: the plan's `refusal` (§ 3.6), the `error` event
   (§ 4.6) and `to_dict()` of every Python exception are this document. Its key names
-  are fixed: `budget_bytes` is the memory budget; `needs_bytes` what the step needs;
+  are fixed: `budget_bytes` is the memory budget; `needs_bytes` all the step needs (its state, its buffers and what the open graph holds), so never less than the budget it was refused;
   `smallest_budget_bytes` the exact smallest budget that would work (P-14), or null when
   it is not known: either no budget on this machine would work, or the step does not go
   through the planner (#45) yet, which gives the exact value for the operations it plans; `available_bytes` only ever free disk (for
@@ -2012,9 +2016,9 @@ where no budget on the machine is enough:
   "schema": 1,
   "error": "InsufficientBudget",
   "message": "Not enough memory for this step.",
-  "why": "communities needs 62.4 GB for per-node state.",
+  "why": "communities needs 62.9 GB: 62.4 GB for per-node state.",
   "step": "communities",
-  "needs_bytes": 62400000000,
+  "needs_bytes": 62900000000,
   "budget_bytes": 8000000000,
   "smallest_budget_bytes": null,
   "machine_memory_bytes": 61000000000,

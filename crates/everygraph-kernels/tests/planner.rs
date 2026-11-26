@@ -4,7 +4,8 @@
 //!
 //! - every choice it can make — tier, regime, threads, advice — gives the bits of the
 //!   in-memory run on raw arrays (DESIGN D14), the mapped regime reading a memory map of
-//!   a file;
+//!   a file; a directed graph's operations read its in-lists as a graph file stores
+//!   them, and its undirected projection, merged in memory;
 //! - a plan's peak bounds what the run reserves, and at a budget of exactly the
 //!   smallest budget it names the run fits, while one byte less is refused before any
 //!   work; the smallest budget is the one of the fewest threads;
@@ -29,12 +30,15 @@ use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use everygraph_core::{
     AccessHint, Budget, ByteSource, Memory, MemorySource, Storage, StorageKind, SystemMemory, par,
 };
-use everygraph_format::adjacency::{AdjacencyIndex, encode};
+use everygraph_format::adjacency::{
+    AdjacencyEvents, AdjacencyIndex, Encoded, IndexBuilder, append_record, encode, encode_events,
+    merge,
+};
 use everygraph_format::container::{Container, Kind, Provenance, Writer};
 use everygraph_io::MmapSource;
 use everygraph_kernels::edge_map::{Csr, Plan as Lanes, RawCopy, Settings};
@@ -43,7 +47,8 @@ use everygraph_kernels::planner::{
     self, Force, Graph, Machine, Origin, Plan, Regime, Request, Tier, advice, break_even,
 };
 use everygraph_kernels::run::{
-    self, Column, Lists, Operation, Output, Precision, RunError, Session, execute,
+    self, Column, Direction, Lists, Operation, Output, Precision, RunError, Session, Weight,
+    execute,
 };
 use everygraph_oracle::corpus::{Tier as Corpus, entries};
 use everygraph_oracle::projection::Projection;
@@ -72,7 +77,7 @@ type File = Container<MemorySource<Vec<u8>>>;
 
 /// A graph file in memory whose graph is the adjacency index `index`, keeping the
 /// result `kept` of an operation.
-fn graph_file(index: &[u8], kept: Option<(&Operation, &Output)>) -> File {
+fn graph_file(index: &[u8], kept: Option<(&Operation<'_>, &Output)>) -> File {
     let mut w = Writer::create(MemorySource::new(Vec::new())).unwrap();
     w.add_section("adjacency.out.index", Kind::ADJACENCY_INDEX, index, None)
         .unwrap();
@@ -84,30 +89,45 @@ fn graph_file(index: &[u8], kept: Option<(&Operation, &Output)>) -> File {
     Container::open(w.into_sink()).unwrap()
 }
 
-/// The adjacency of a test graph, encoded as a graph file holds it: its data part in
-/// the heap, and memory-mapped from a file.
-struct Stored {
+/// One adjacency of a test graph, encoded as a graph file holds it: its lists, its
+/// index, and its data part in the heap and memory-mapped from a file.
+struct Side {
     offsets: Vec<u64>,
     targets: Vec<u32>,
     index_bytes: Vec<u8>,
     index: AdjacencyIndex,
-    file: File,
     data: MemorySource<Vec<u8>>,
     map: MmapSource,
     path: PathBuf,
-    directed: bool,
 }
 
-impl Drop for Stored {
+impl Drop for Side {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
 }
 
-impl Stored {
-    fn new(offsets: Vec<u64>, targets: Vec<u32>, directed: bool) -> Self {
+impl Side {
+    fn new(offsets: Vec<u64>, targets: Vec<u32>) -> Self {
+        Self::of(offsets, targets, encode)
+    }
+
+    /// The in-adjacency of the out-lists `out`, built as the ingest builds it.
+    fn inn(out: &Self) -> Self {
+        let (offsets, targets) = support::in_lists(&out.offsets, &out.targets);
+        Self::of(offsets, targets, |_, _| {
+            let encoded = encode(&out.offsets, &out.targets)?;
+            Ok::<_, everygraph_format::adjacency::EncodeError>(support::in_adjacency(&encoded))
+        })
+    }
+
+    fn of<E: std::fmt::Debug>(
+        offsets: Vec<u64>,
+        targets: Vec<u32>,
+        encoder: impl FnOnce(&[u64], &[u32]) -> Result<everygraph_format::adjacency::Encoded, E>,
+    ) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let encoded = encode(&offsets, &targets).unwrap();
+        let encoded = encoder(&offsets, &targets).unwrap();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("kernels-planner");
         std::fs::create_dir_all(&dir).unwrap();
         let k = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -115,13 +135,138 @@ impl Stored {
         std::fs::write(&path, &encoded.data).unwrap();
         Self {
             index: AdjacencyIndex::parse(&encoded.index).unwrap(),
-            file: graph_file(&encoded.index, None),
             index_bytes: encoded.index,
             data: MemorySource::new(encoded.data),
             map: MmapSource::open(&path).unwrap(),
             path,
             offsets,
             targets,
+        }
+    }
+
+    fn data(&self, mapped: bool) -> &(dyn ByteSource + Sync) {
+        if mapped { &self.map } else { &self.data }
+    }
+
+    fn csr(&self) -> Csr<'_> {
+        Csr::new(&self.offsets, &self.targets).unwrap()
+    }
+}
+
+/// The lists of `offsets` and `targets`, encoded with the flag of an adjacency that
+/// has a `.events` section, and that section, of `counts` events an entry.
+fn counted(offsets: &[u64], targets: &[u32], counts: &[u64]) -> (Encoded, &'static [u8]) {
+    let nodes = (offsets.len() - 1) as u32;
+    let mut builder = IndexBuilder::new(&Memory::unlimited(), nodes).unwrap();
+    let mut data = Vec::new();
+    for v in 0..nodes as usize {
+        let before = data.len();
+        let list = targets[offsets[v] as usize..offsets[v + 1] as usize]
+            .iter()
+            .copied();
+        let degree = append_record(v as u32, list, &mut data).unwrap();
+        builder.push(degree, (data.len() - before) as u64).unwrap();
+    }
+    let (index, _) = builder.finish(true).unwrap();
+    let total = counts.iter().sum();
+    let events = encode_events(targets.len() as u64, total, counts.iter().copied()).unwrap();
+    (
+        Encoded { index, data },
+        Box::leak(events.into_boxed_slice()),
+    )
+}
+
+/// The events of an adjacency: the section, parsed, and its counts as weights.
+struct Events {
+    bytes: &'static [u8],
+    parsed: AdjacencyEvents<'static>,
+    weights: everygraph_core::SegVec<f64>,
+}
+
+impl Events {
+    fn of(bytes: &'static [u8], index: &AdjacencyIndex, counts: &[u64]) -> Self {
+        let mut weights = everygraph_core::SegVec::try_with_len(
+            &Memory::unlimited(),
+            "weights",
+            counts.len(),
+            0.0,
+        )
+        .unwrap();
+        for (w, &c) in weights.segments_mut().flatten().zip(counts) {
+            *w = c as f64;
+        }
+        Self {
+            bytes,
+            parsed: AdjacencyEvents::parse(bytes, index).unwrap(),
+            weights,
+        }
+    }
+}
+
+/// A test graph as a graph file holds it: its out-adjacency and, for a directed graph,
+/// its in-adjacency; with the events of each when some pair repeats.
+struct Stored {
+    out: Side,
+    inn: Option<Side>,
+    events: [Option<Events>; 2],
+    file: File,
+    directed: bool,
+}
+
+impl Stored {
+    fn new(offsets: Vec<u64>, targets: Vec<u32>, directed: bool) -> Self {
+        let out = Side::new(offsets, targets);
+        Self {
+            file: graph_file(&out.index_bytes, None),
+            inn: directed.then(|| Side::inn(&out)),
+            events: [None, None],
+            out,
+            directed,
+        }
+    }
+
+    /// The graph whose lists are `lists`, each entry with its number of edges (some
+    /// above 1), and, for a directed graph, its in-lists with the same counts.
+    fn with_counts(lists: &[Vec<(u32, u64)>], directed: bool) -> Self {
+        let csr = |lists: &[Vec<(u32, u64)>]| {
+            let mut offsets = vec![0];
+            let (mut targets, mut counts) = (Vec::new(), Vec::new());
+            for list in lists {
+                for &(t, c) in list {
+                    targets.push(t);
+                    counts.push(c);
+                }
+                offsets.push(targets.len() as u64);
+            }
+            (offsets, targets, counts)
+        };
+        let side = |lists: &[Vec<(u32, u64)>]| {
+            let (offsets, targets, counts) = csr(lists);
+            let (encoded, bytes) = counted(&offsets, &targets, &counts);
+            let side = Side::of(offsets, targets, |_, _| {
+                Ok::<_, std::convert::Infallible>(encoded)
+            });
+            let events = Events::of(bytes, &side.index, &counts);
+            (side, events)
+        };
+        let (out, out_events) = side(lists);
+        let (inn, in_events) = if directed {
+            let mut back = vec![Vec::new(); lists.len()];
+            for (u, list) in lists.iter().enumerate() {
+                for &(v, c) in list {
+                    back[v as usize].push((u as u32, c));
+                }
+            }
+            let (side, events) = side(&back);
+            (Some(side), Some(events))
+        } else {
+            (None, None)
+        };
+        Self {
+            file: graph_file(&out.index_bytes, None),
+            inn,
+            events: [Some(out_events), in_events],
+            out,
             directed,
         }
     }
@@ -136,38 +281,116 @@ impl Stored {
         Self::new(l.offsets, l.targets, p.directed)
     }
 
-    /// The lists, their data part in the heap or `mapped` from the file.
+    fn nodes(&self) -> u32 {
+        self.out.index.nodes()
+    }
+
+    /// The lists, their data parts in the heap or `mapped` from the files.
     fn lists(&self, mapped: bool) -> Lists<'_, MemorySource<Vec<u8>>> {
-        let data: &(dyn ByteSource + Sync) = if mapped { &self.map } else { &self.data };
         Lists {
             file: &self.file,
-            index: &self.index,
-            data,
+            index: &self.out.index,
+            data: self.out.data(mapped),
+            inn: self.inn.as_ref().map(|i| (&i.index, i.data(mapped))),
+            events: [0, 1].map(|i| self.events[i].as_ref().map(|e| &e.parsed)),
             directed: self.directed,
         }
     }
 
     fn graph(&self) -> Graph {
-        let bytes = self.index.data_bytes();
-        Graph {
+        let bytes = self.out.index.data_bytes();
+        let graph = Graph {
             directed: self.directed,
             ..Graph::of(
-                &self.index,
+                &self.out.index,
                 Some("graphs/test.eg".into()),
                 bytes,
-                self.index.entries(),
+                self.out.index.entries(),
             )
-        }
+        };
+        let mut graph = match &self.inn {
+            Some(inn) => graph.with_in(&inn.index),
+            None => graph,
+        };
+        // A caller opens the events in the graph's budget, twice their section.
+        graph.held += self
+            .events
+            .iter()
+            .flatten()
+            .map(|e| 2 * e.bytes.len() as u64)
+            .sum::<u64>();
+        graph
     }
 
-    /// `op` on raw arrays in the heap, 1 thread, no budget: the reference.
-    fn in_memory(&self, op: &Operation) -> Result<Output, RunError> {
-        let csr = Csr::new(&self.offsets, &self.targets).unwrap();
+    /// The weights of the entries of each adjacency, for `op` if it counts edges.
+    fn weights(&self, op: &Operation<'_>) -> [Option<&everygraph_core::SegVec<f64>>; 2] {
+        let counts = matches!(
+            op,
+            Operation::PageRank {
+                weight: Weight::Edges,
+                ..
+            }
+        );
+        [0, 1].map(|i| {
+            self.events[i]
+                .as_ref()
+                .filter(|_| counts)
+                .map(|e| &e.weights)
+        })
+    }
+
+    /// The undirected projection of a directed graph: the sorted union of each node's
+    /// two lists.
+    fn projection(&self, inn: &Side) -> Side {
+        let mut offsets = vec![0];
+        let mut targets = Vec::new();
+        for v in 0..self.nodes() as usize {
+            let list =
+                |s: &Side| s.targets[s.offsets[v] as usize..s.offsets[v + 1] as usize].to_vec();
+            let mut union = list(&self.out);
+            union.extend(list(inn));
+            union.sort_unstable();
+            union.dedup();
+            targets.extend(union);
+            offsets.push(targets.len() as u64);
+        }
+        Side::new(offsets, targets)
+    }
+
+    /// `op` on raw arrays in the heap, 1 thread, no budget: the reference. A directed
+    /// graph's projection is merged here by sorting, its degrees counted on it.
+    fn in_memory(&self, op: &Operation<'_>) -> Result<Output, RunError> {
         let memory = Memory::unlimited();
-        par::with_threads(threads(1), || {
+        let alone = |side: &Side, op: &Operation<'_>, directed, weights| {
+            let csr = side.csr();
             Lanes::with(&csr, &memory, Settings::default(), |p| {
-                run::run(op, &p, self.directed, &memory)
+                let lanes = run::Lanes::out(&p, directed).weighted([weights, None]);
+                run::run(op, &lanes, &memory)
             })
+        };
+        let weights = self.weights(op);
+        par::with_threads(threads(1), || {
+            let Some(inn) = self.inn.as_ref() else {
+                return alone(&self.out, op, self.directed, weights[0]);
+            };
+            if run::projects(op) {
+                let undirected = op.undirected();
+                return alone(&self.projection(inn), &undirected, false, None);
+            }
+            let (out, back) = (self.out.csr(), inn.csr());
+            let mut output = Lanes::with_pair(&out, &back, &memory, Settings::default(), |o, i| {
+                let lanes = run::Lanes {
+                    inn: Some(&i),
+                    ..run::Lanes::out(&o, true).weighted(weights)
+                };
+                run::run(op, &lanes, &memory)
+            })
+            .unwrap()?;
+            if matches!(op, Operation::Degrees) {
+                let mut both = alone(&self.projection(inn), op, false, None)?;
+                output.columns.push(("degree", both.columns.remove(0).1));
+            }
+            Ok(output)
         })
         .unwrap()
     }
@@ -193,26 +416,42 @@ fn bits(o: &Output) -> Vec<u64> {
     out
 }
 
-fn operations(nodes: u32) -> Vec<Operation> {
-    let params = PageRank::default();
+fn pagerank(precision: Precision) -> Operation<'static> {
+    Operation::PageRank {
+        params: PageRank::default(),
+        precision,
+        weight: Weight::Pairs,
+    }
+}
+
+fn search(source: u32, max_hops: Option<u32>, direction: Direction) -> Operation<'static> {
+    Operation::Bfs {
+        source,
+        max_hops,
+        direction,
+    }
+}
+
+const WCC: Operation<'static> = Operation::Components { strong: false };
+
+fn operations(nodes: u32) -> Vec<Operation<'static>> {
     let mut ops = vec![
+        pagerank(Precision::Full),
+        pagerank(Precision::Low),
         Operation::PageRank {
-            params,
+            params: PageRank::default(),
             precision: Precision::Full,
+            weight: Weight::Edges,
         },
-        Operation::PageRank {
-            params,
-            precision: Precision::Low,
-        },
-        Operation::Components,
+        WCC,
+        Operation::Components { strong: true },
         Operation::KCore,
         Operation::Degrees,
     ];
     if nodes > 0 {
-        ops.push(Operation::Bfs {
-            source: nodes / 2,
-            max_hops: None,
-        });
+        for direction in [Direction::Out, Direction::In, Direction::Both] {
+            ops.push(search(nodes / 2, None, direction));
+        }
     }
     ops
 }
@@ -226,15 +465,16 @@ fn request(memory: u64, force: Force) -> Request {
 }
 
 /// Plans `op` under `budget` with `force` for `session`, and runs it in `memory`; the
-/// mapped regime reads the memory map.
-fn planned_in(
+/// mapped regime reads the memory maps. Each phase that begins is named in `began`.
+fn planned_with<'a>(
     s: &Stored,
-    op: &Operation,
+    op: &Operation<'a>,
     budget: u64,
     force: Force,
     session: &mut Session,
     memory: &Memory,
-) -> (Plan, Result<Vec<u64>, RunError>) {
+    began: &Mutex<Vec<&'static str>>,
+) -> (Plan<'a>, Result<Vec<u64>, RunError>) {
     let heap = s.lists(false);
     let plan = planner::plan(
         op,
@@ -244,19 +484,40 @@ fn planned_in(
     )
     .unwrap();
     let lists = s.lists(plan.regime() == Regime::Mapped);
-    let out = execute(&plan, &lists, memory, session).map(|o| bits(&o));
+    let begin = |p: &planner::Phase| began.lock().unwrap().push(p.name);
+    let out = execute(&plan, &lists, memory, session, &begin).map(|o| bits(&o));
+    (plan, out)
+}
+
+/// As [`planned_with`], checking that the phases began in the plan's order.
+fn planned_in<'a>(
+    s: &Stored,
+    op: &Operation<'a>,
+    budget: u64,
+    force: Force,
+    session: &mut Session,
+    memory: &Memory,
+) -> (Plan<'a>, Result<Vec<u64>, RunError>) {
+    let began = Mutex::new(Vec::new());
+    let (plan, out) = planned_with(s, op, budget, force, session, memory, &began);
+    if out.is_ok() && !plan.kept() {
+        let names: Vec<&str> = plan.phases().iter().map(|p| p.name).collect();
+        assert_eq!(began.into_inner().unwrap(), names, "{}", op.name());
+    }
     (plan, out)
 }
 
 /// As [`planned_in`], in a budget of `budget` bytes of its own; with the budget's peak.
-fn planned(
+fn planned<'a>(
     s: &Stored,
-    op: &Operation,
+    op: &Operation<'a>,
     budget: u64,
     force: Force,
     session: &mut Session,
-) -> (Plan, Result<Vec<u64>, RunError>, u64) {
-    let accountant = Arc::new(Budget::new(budget));
+) -> (Plan<'a>, Result<Vec<u64>, RunError>, u64) {
+    // As Python does, the run's own budget leaves out what the plan counts of the open
+    // graph (`held`), which the graph holds in its own.
+    let accountant = Arc::new(Budget::new(budget.saturating_sub(s.graph().held)));
     let memory = Memory::from(Arc::clone(&accountant));
     let (plan, out) = planned_in(s, op, budget, force, session, &memory);
     (plan, out, accountant.peak())
@@ -265,10 +526,11 @@ fn planned(
 const PLENTY: u64 = 1 << 40;
 
 /// Checks one graph: every forced choice against the reference, the plan's peak, and
-/// the smallest budget.
+/// the smallest budget. A raw copy holds the out-lists only, so an operation that reads
+/// the in-lists is refused on it; strong components have no bound to check.
 fn check(name: &str, s: &Stored) -> usize {
     let mut checked = 0;
-    for op in operations(s.index.nodes()) {
+    for op in operations(s.nodes()) {
         let reference = s.in_memory(&op);
         if let Err(RunError::Unsupported(_)) = reference {
             let plan = planner::plan(
@@ -286,6 +548,8 @@ fn check(name: &str, s: &Stored) -> usize {
             continue;
         }
         let reference = bits(&reference.unwrap_or_else(|e| panic!("{name} {}: {e}", op.name())));
+        let no_raw = s.inn.is_some() && run::reads_in(&op);
+        let no_stream = s.inn.is_some() && !matches!(op, Operation::Components { strong: false });
         for tier in [Tier::Compressed, Tier::Raw] {
             for regime in [Regime::InMemory, Regime::Mapped, Regime::Streamed] {
                 for t in [1, 3] {
@@ -296,10 +560,13 @@ fn check(name: &str, s: &Stored) -> usize {
                         advice: None,
                     };
                     let (plan, got, peak) = planned(s, &op, PLENTY, force, &mut Session::new());
-                    if (tier, regime) == (Tier::Raw, Regime::Streamed) {
+                    let refused = (tier, regime) == (Tier::Raw, Regime::Streamed)
+                        || (tier == Tier::Raw && no_raw)
+                        || (regime == Regime::Streamed && no_stream);
+                    if refused {
                         let r = plan.refusal().map(|r| r.error);
                         assert_eq!(r, Some("Unsupported"), "{name} {}", op.name());
-                        assert!(matches!(got, Err(RunError::Refused(_))), "{name}");
+                        assert!(matches!(got, Err(RunError::Refused(_))) && peak == 0);
                         continue;
                     }
                     let got = got.unwrap_or_else(|e| panic!("{name} {}: {e}", op.name()));
@@ -309,7 +576,7 @@ fn check(name: &str, s: &Stored) -> usize {
                         op.name()
                     );
                     assert!(
-                        peak <= plan.peak_bytes(),
+                        peak + s.graph().held <= plan.peak_bytes() || !plan.bounded(),
                         "{name} {} {tier:?} {t} threads: reserved {peak}, planned {}",
                         op.name(),
                         plan.peak_bytes()
@@ -329,7 +596,7 @@ fn check(name: &str, s: &Stored) -> usize {
         let (plan, got, _) = planned(s, &op, smallest, Force::default(), &mut Session::new());
         assert!(plan.fits(), "{name} {}", op.name());
         assert!(
-            got.as_ref().is_ok_and(|g| *g == reference),
+            !plan.bounded() || got.as_ref().is_ok_and(|g| *g == reference),
             "{name} {} at its smallest budget {smallest}: {:?}",
             op.name(),
             got.err()
@@ -338,7 +605,8 @@ fn check(name: &str, s: &Stored) -> usize {
             let (plan, got, peak) =
                 planned(s, &op, smallest - 1, Force::default(), &mut Session::new());
             let r = plan.refusal().expect("refused");
-            assert_eq!(r.shortfall.unwrap().smallest_budget_bytes, Some(smallest));
+            let named = plan.bounded().then_some(smallest);
+            assert_eq!(r.shortfall.unwrap().smallest_budget_bytes, named);
             assert!(
                 matches!(got, Err(RunError::Refused(_))) && peak == 0,
                 "{name}"
@@ -347,6 +615,88 @@ fn check(name: &str, s: &Stored) -> usize {
         checked += 1;
     }
     checked
+}
+
+/// A directed graph of `n` nodes with `m` seeded arcs, a kept loop, and every arc
+/// sorted into its list.
+fn directed(n: u32, m: usize, seed: u64) -> Stored {
+    let mut x = seed;
+    let mut next = || {
+        x = x
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (x >> 33) as u32 % n
+    };
+    let mut lists = vec![Vec::new(); n as usize];
+    for _ in 0..m {
+        let (u, v) = (next(), next());
+        lists[u as usize].push(v);
+    }
+    lists[1].push(1);
+    let mut offsets = vec![0];
+    let mut targets = Vec::new();
+    for mut l in lists {
+        l.sort_unstable();
+        l.dedup();
+        targets.extend(l);
+        offsets.push(targets.len() as u64);
+    }
+    Stored::new(offsets, targets, true)
+}
+
+/// Directed graphs read their in-lists and their projection, small enough for a debug
+/// build: every choice gives the in-memory bits, and the bounds hold.
+#[test]
+fn every_choice_gives_the_bits_of_the_in_memory_run_on_directed_graphs() {
+    for (n, m, seed) in [(40, 120, 1), (300, 900, 2), (1, 0, 3)] {
+        let s = directed(n.max(2), m, seed);
+        assert!(check(&format!("directed {n}"), &s) > 0);
+    }
+}
+
+/// A directed graph's core numbers merge the projection in a phase of its own, which
+/// the plan counts; strong components plan their per-node state only and name no
+/// smallest budget.
+#[test]
+fn a_directed_graph_plans_its_merge_and_its_strong_components() {
+    let s = directed(300, 900, 4);
+    let one = Force {
+        threads: Some(threads(1)),
+        ..Force::default()
+    };
+    let (plan, got, _) = planned(&s, &Operation::KCore, PLENTY, one, &mut Session::new());
+    let names: Vec<&str> = plan.phases().iter().map(|p| p.name).collect();
+    assert_eq!(names, ["merging", "kcore"]);
+    assert!(
+        got.is_ok()
+            && plan
+                .to_string()
+                .contains("merge both directions into memory")
+    );
+    let strong = Operation::Components { strong: true };
+    let plan = planner::plan(&strong, &s.graph(), &machine(), &request(10, one)).unwrap();
+    assert!(!plan.bounded());
+    let r = plan.refusal().unwrap();
+    assert_eq!(r.shortfall.unwrap().smallest_budget_bytes, None);
+    assert_eq!(r.ways_forward.len(), 1);
+    assert!(
+        r.ways_forward[0]
+            .python
+            .starts_with("g.components(strong=True, memory=")
+    );
+    // Without its in-adjacency the file answers what the out-lists answer.
+    let mut bare = s.graph();
+    bare.inn = None;
+    let plan = planner::plan(&Operation::KCore, &bare, &machine(), &request(PLENTY, one)).unwrap();
+    assert_eq!(plan.refusal().map(|r| r.error), Some("Unsupported"));
+    let plan = planner::plan(
+        &Operation::Degrees,
+        &bare,
+        &machine(),
+        &request(PLENTY, one),
+    )
+    .unwrap();
+    assert!(plan.fits());
 }
 
 #[test]
@@ -426,10 +776,7 @@ fn small() -> Stored {
 #[test]
 fn a_session_decodes_the_raw_copy_after_the_break_even_count_of_traversals() {
     let s = small();
-    let bfs = Operation::Bfs {
-        source: 0,
-        max_hops: None,
-    };
+    let bfs = search(0, None, Direction::Out);
     let reference = bits(&s.in_memory(&bfs).unwrap());
     let t = threads(4);
     let k = break_even(t);
@@ -446,12 +793,9 @@ fn a_session_decodes_the_raw_copy_after_the_break_even_count_of_traversals() {
         assert_eq!(plan.builds_raw(), run == k, "run {run}");
     }
     // A scan never reads the copy, nor does a BFS cut at a depth.
-    let (plan, _, _) = planned(&s, &Operation::Components, PLENTY, force, &mut session);
+    let (plan, _, _) = planned(&s, &WCC, PLENTY, force, &mut session);
     assert_eq!(plan.tier(), Tier::Compressed);
-    let near = Operation::Bfs {
-        source: 0,
-        max_hops: Some(1),
-    };
+    let near = search(0, Some(1), Direction::Out);
     let mut shallow = Session::new();
     for _ in 0..k + 2 {
         let (plan, got, _) = planned(&s, &near, PLENTY, force, &mut shallow);
@@ -494,14 +838,8 @@ fn the_break_even_follows_the_cost_model() {
 #[test]
 fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
     let s = path(20_001);
-    let bfs = Operation::Bfs {
-        source: 0,
-        max_hops: None,
-    };
-    let pagerank = Operation::PageRank {
-        params: PageRank::default(),
-        precision: Precision::Full,
-    };
+    let bfs = search(0, None, Direction::Out);
+    let pagerank = pagerank(Precision::Full);
     let one = Force {
         threads: Some(threads(1)),
         ..Force::default()
@@ -550,10 +888,7 @@ fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
 #[test]
 fn a_forced_choice_is_checked_as_an_automatic_one() {
     let s = path(1000);
-    let bfs = Operation::Bfs {
-        source: 0,
-        max_hops: None,
-    };
+    let bfs = search(0, None, Direction::Out);
     let raw = Force {
         tier: Some(Tier::Raw),
         threads: Some(threads(1)),
@@ -569,7 +904,7 @@ fn a_forced_choice_is_checked_as_an_automatic_one() {
     };
     let mut kept = s.graph();
     kept.kept = true;
-    let op = Operation::Components;
+    let op = WCC;
     let at = |force, held| {
         let r = Request {
             held,
@@ -591,10 +926,7 @@ fn a_forced_choice_is_checked_as_an_automatic_one() {
 #[test]
 fn a_session_belongs_to_one_graph() {
     let (p, s) = (path(1000), star(1000));
-    let bfs = Operation::Bfs {
-        source: 0,
-        max_hops: None,
-    };
+    let bfs = search(0, None, Direction::Out);
     let force = Force {
         threads: Some(threads(2)),
         ..Force::default()
@@ -616,16 +948,16 @@ fn a_session_belongs_to_one_graph() {
 #[test]
 fn a_kept_result_is_served_by_the_lookup_the_plan_was_made_with() {
     let mut s = path(20_001);
-    let op = Operation::Components;
+    let op = WCC;
     let reference = s.in_memory(&op).unwrap();
     let one = Force {
         threads: Some(threads(1)),
         ..Force::default()
     };
-    assert!(!run::kept(&s.file, &op, s.index.nodes()).unwrap());
-    s.file = graph_file(&s.index_bytes, Some((&op, &reference)));
-    assert!(run::kept(&s.file, &op, s.index.nodes()).unwrap());
-    assert!(!run::kept(&s.file, &Operation::KCore, s.index.nodes()).unwrap());
+    assert!(!run::kept(&s.file, &op, false, s.nodes()).unwrap());
+    s.file = graph_file(&s.out.index_bytes, Some((&op, &reference)));
+    assert!(run::kept(&s.file, &op, false, s.nodes()).unwrap());
+    assert!(!run::kept(&s.file, &Operation::KCore, false, s.nodes()).unwrap());
     let mut graph = s.graph();
     graph.kept = true;
     let heap = s.lists(false);
@@ -635,14 +967,14 @@ fn a_kept_result_is_served_by_the_lookup_the_plan_was_made_with() {
     assert!(plan.fits() && plan.kept());
     let accountant = Arc::new(Budget::new(served));
     let memory = Memory::from(Arc::clone(&accountant));
-    let got = execute(&plan, &heap, &memory, &mut Session::new()).unwrap();
+    let got = execute(&plan, &heap, &memory, &mut Session::new(), &|_| {}).unwrap();
     assert_eq!(bits(&got), bits(&reference));
     // A kept result the file does not hold: refused before any reservation.
-    let other = Stored::new(s.offsets.clone(), s.targets.clone(), false);
+    let other = Stored::new(s.out.offsets.clone(), s.out.targets.clone(), false);
     let accountant = Arc::new(Budget::new(served));
     let memory = Memory::from(Arc::clone(&accountant));
     let lists = other.lists(false);
-    let refused = execute(&plan, &lists, &memory, &mut Session::new());
+    let refused = execute(&plan, &lists, &memory, &mut Session::new(), &|_| {});
     assert!(matches!(refused, Err(RunError::Refused(_))), "{refused:?}");
     assert_eq!(accountant.peak(), 0);
 }
@@ -674,7 +1006,7 @@ fn the_smallest_budget_is_the_one_of_the_fewest_threads() {
     let r = refused.refusal().unwrap();
     assert_eq!(r.shortfall.unwrap().smallest_budget_bytes, Some(one));
     assert!(
-        r.ways_forward[0].note.ends_with("on 1 threads"),
+        r.ways_forward[0].note.ends_with("on 1 thread"),
         "{:?}",
         r.ways_forward
     );
@@ -683,7 +1015,7 @@ fn the_smallest_budget_is_the_one_of_the_fewest_threads() {
 #[test]
 fn threads_are_the_physical_cores_and_fewer_for_a_small_graph() {
     let s = small();
-    let op = Operation::Components;
+    let op = WCC;
     let plan = |r: Request| planner::plan(&op, &s.graph(), &machine(), &r).unwrap();
     assert_eq!(
         plan(request(PLENTY, Force::default())).threads(),
@@ -715,7 +1047,7 @@ fn the_regime_follows_the_edges_beside_the_state() {
     let plan =
         |b| planner::plan(&op, &s.graph(), &machine(), &request(b, Force::default())).unwrap();
     let state = plan(PLENTY).peak_bytes();
-    let edges = s.index.data_bytes();
+    let edges = s.out.index.data_bytes();
     assert_eq!(plan(state + edges).regime(), Regime::InMemory);
     assert_eq!(plan(state + edges - 1).regime(), Regime::Mapped);
     assert!(plan(state).fits() && !plan(state - 1).fits());
@@ -729,10 +1061,7 @@ fn the_regime_follows_the_edges_beside_the_state() {
 #[test]
 fn edges_that_do_not_fit_are_streamed_within_the_planned_peak() {
     let s = path(200_000);
-    let op = Operation::PageRank {
-        params: PageRank::default(),
-        precision: Precision::Full,
-    };
+    let op = pagerank(Precision::Full);
     let reference = bits(&s.in_memory(&op).unwrap());
     // On 4 threads: on fewer, the decode readers are smaller and the edges fit.
     let four = Force {
@@ -741,7 +1070,7 @@ fn edges_that_do_not_fit_are_streamed_within_the_planned_peak() {
     };
     let in_memory = planner::plan(&op, &s.graph(), &machine(), &request(PLENTY, four)).unwrap();
     assert_eq!(in_memory.regime(), Regime::InMemory);
-    let budget = in_memory.peak_bytes() + s.index.data_bytes() - 1;
+    let budget = in_memory.peak_bytes() + s.out.index.data_bytes() - 1;
     let (plan, got, peak) = planned(&s, &op, budget, four, &mut Session::new());
     assert_eq!(plan.regime(), Regime::Streamed, "{plan}");
     assert!(plan.fits() && plan.window() > 0, "{plan}");
@@ -798,15 +1127,9 @@ fn a_budget_above_the_machine_is_a_usage_error_and_above_free_memory_is_honoured
 #[test]
 fn a_refusal_offers_only_what_works() {
     let s = small();
-    let full = Operation::PageRank {
-        params: PageRank::default(),
-        precision: Precision::Full,
-    };
-    let low = Operation::PageRank {
-        params: PageRank::default(),
-        precision: Precision::Low,
-    };
-    let plan = |op: &Operation, b| {
+    let full = pagerank(Precision::Full);
+    let low = pagerank(Precision::Low);
+    let plan = |op: &Operation<'static>, b| {
         planner::plan(op, &s.graph(), &machine(), &request(b, Force::default())).unwrap()
     };
     let need_low = plan(&low, PLENTY).peak_bytes();
@@ -839,7 +1162,12 @@ fn a_refusal_offers_only_what_works() {
 fn smallest_budgets_are_typed_rounded_up() {
     assert_eq!(planner::typed(5_598_053_768), "6GB");
     assert_eq!(planner::typed(1_200_000_001), "1.5GB");
-    assert_eq!(planner::typed(1), "100MB");
+    assert_eq!(planner::typed(100_000_001), "200MB");
+    // Below 100 MB, two significant digits.
+    assert_eq!(planner::typed(2_860_001), "2.9MB");
+    assert_eq!(planner::typed(64), "64B");
+    assert_eq!(planner::typed(1_501), "1.6kB");
+    assert_eq!(planner::typed(99_000_001), "100MB");
 }
 
 // ---- Documents ----------------------------------------------------------------------
@@ -935,7 +1263,7 @@ fn plans_and_refusals_are_valid_against_the_closed_schemas() {
 #[test]
 fn a_refusal_states_its_arithmetic() {
     let s = small();
-    let op = Operation::Components;
+    let op = WCC;
     let plan = planner::plan(&op, &s.graph(), &machine(), &request(10, Force::default())).unwrap();
     let doc = json(&plan.refusal().unwrap().to_json());
     assert_eq!(doc["error"], "InsufficientBudget");
@@ -986,10 +1314,7 @@ fn the_plan_bounds_what_runs_reserve_on_real_graphs() {
             ..Force::default()
         };
         // A session of traversals switches to the raw copy after the break-even count.
-        let bfs = Operation::Bfs {
-            source: 0,
-            max_hops: None,
-        };
+        let bfs = search(0, None, Direction::Out);
         let mut session = Session::new();
         let mut first = None;
         for run in 0..=break_even(threads(16)) + 1 {
@@ -1003,7 +1328,7 @@ fn the_plan_bounds_what_runs_reserve_on_real_graphs() {
                 plan.peak_bytes()
             );
         }
-        for op in operations(s.index.nodes()) {
+        for op in operations(s.nodes()) {
             let (plan, out, peak) = planned(&s, &op, PLENTY, force, &mut Session::new());
             assert!(
                 out.is_ok() && peak <= plan.peak_bytes(),
@@ -1086,11 +1411,9 @@ fn twitter_sym_switches_to_a_raw_copy_in_parts_of_one_allocation() {
         kept: false,
         held: 0,
         opened: 0,
+        inn: None,
     };
-    let bfs = Operation::Bfs {
-        source: 0,
-        max_hops: None,
-    };
+    let bfs = search(0, None, Direction::Out);
     let budget = 16 << 30;
     let k = break_even(threads(16));
     for before in 0..=k {
@@ -1110,4 +1433,109 @@ fn twitter_sym_switches_to_a_raw_copy_in_parts_of_one_allocation() {
         assert!(plan.fits() && plan.peak_bytes() <= budget);
     }
     eprintln!("twitter-sym raw copy: {} parts", parts.len());
+}
+
+/// Lists of `n` nodes from `m` seeded arcs (both ways when not `directed`), each pair
+/// with the number of its arcs, a loop at node 1 among them.
+fn multigraph(n: u32, m: usize, seed: u64, directed: bool) -> Vec<Vec<(u32, u64)>> {
+    let mut x = seed;
+    let mut next = || {
+        x = x
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (x >> 33) as u32 % n
+    };
+    let mut pairs = BTreeMap::new();
+    let mut add = |u: u32, v: u32| {
+        *pairs.entry((u, v)).or_insert(0_u64) += 1;
+        if !directed && u != v {
+            *pairs.entry((v, u)).or_insert(0) += 1;
+        }
+    };
+    for _ in 0..m {
+        let (u, v) = (next(), next());
+        add(u, v);
+        // A pair in three of every four arcs repeats.
+        if next() % 4 != 0 {
+            add(u, v);
+        }
+    }
+    add(1, 1);
+    let mut lists = vec![Vec::new(); n as usize];
+    for ((u, v), c) in pairs {
+        lists[u as usize].push((v, c));
+    }
+    lists
+}
+
+/// `PageRank` that counts the edges of a pair reads the `.events` of both lists: every
+/// choice gives the bits of the in-memory run with the counts as weights, within the
+/// plan's peak.
+#[test]
+fn counted_edges_give_the_bits_of_the_in_memory_run() {
+    for directed in [true, false] {
+        let s = Stored::with_counts(&multigraph(200, 700, 5, directed), directed);
+        assert!(s.events[0].is_some() && s.events[1].is_some() == directed);
+        let edges = Operation::PageRank {
+            params: PageRank::default(),
+            precision: Precision::Full,
+            weight: Weight::Edges,
+        };
+        let pairs = bits(&s.in_memory(&pagerank(Precision::Full)).unwrap());
+        assert_ne!(
+            bits(&s.in_memory(&edges).unwrap()),
+            pairs,
+            "the counts change the ranks"
+        );
+        assert!(check(&format!("counted, directed {directed}"), &s) > 0);
+    }
+}
+
+/// The projection's data is at most both data parts and 3 bytes a node: here an even
+/// node's out-list starts just above it and its in-list far below, so the first entry of
+/// each union becomes a long gap. The plan's step holds the merged data and index.
+#[test]
+fn the_projection_bound_holds_where_first_entries_become_gaps() {
+    let n: u32 = 1 << 19;
+    let mut offsets = vec![0];
+    let mut targets = Vec::new();
+    for v in 0..n {
+        let base = if v % 2 == 0 { v } else { v + (1 << 17) };
+        targets.extend(
+            [1, 3, 5, 7]
+                .map(|d| base + d)
+                .into_iter()
+                .filter(|&t| t < n),
+        );
+        offsets.push(targets.len() as u64);
+    }
+    let s = Stored::new(offsets, targets, true);
+    let inn = s.inn.as_ref().unwrap();
+    let [out, back] = [&s.out, inn].map(|side| {
+        everygraph_format::adjacency::Adjacency::new(&side.index, side.data.as_slice().unwrap())
+            .unwrap()
+    });
+    let (merged, _) = merge(&out, &back, &Memory::unlimited()).unwrap();
+    let both = s.out.index.data_bytes() + inn.index.data_bytes();
+    assert!(
+        merged.data.len() as u64 > both,
+        "the graph must defeat the old bound"
+    );
+    assert!(merged.data.len() as u64 <= both + 3 * u64::from(n));
+    let plan = planner::plan(
+        &Operation::KCore,
+        &s.graph(),
+        &machine(),
+        &request(PLENTY, Force::default()),
+    )
+    .unwrap();
+    let doc = json(&plan.to_json());
+    let step = doc["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["step"] == "merge both directions into memory")
+        .unwrap();
+    let held = (merged.data.len() + merged.index.len()) as u64;
+    assert!(step["memory_bytes"].as_u64().unwrap() >= held);
 }

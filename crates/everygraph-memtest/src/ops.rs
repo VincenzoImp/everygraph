@@ -28,7 +28,7 @@ use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, Source, St
 use everygraph_kernels::kcore;
 use everygraph_kernels::pagerank::{self, PageRank};
 use everygraph_kernels::planner;
-use everygraph_kernels::run::{Operation, Precision};
+use everygraph_kernels::run::{Direction, Operation, Precision, Weight};
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_kernels::traversal::{Bfs, bfs};
 
@@ -492,17 +492,19 @@ impl Op {
 
 impl Kernel {
     /// The operation of `run` this kernel is, as [`Kernel::run`] calls it.
-    fn operation(self) -> Option<Operation> {
+    fn operation(self) -> Option<Operation<'static>> {
         match self {
             Self::PageRank => Some(Operation::PageRank {
                 params: PageRank::default(),
                 precision: Precision::Full,
+                weight: Weight::Pairs,
             }),
             Self::Bfs => Some(Operation::Bfs {
                 source: 0,
                 max_hops: None,
+                direction: Direction::Out,
             }),
-            Self::Wcc => Some(Operation::Components),
+            Self::Wcc => Some(Operation::Components { strong: false }),
             Self::KCore => Some(Operation::KCore),
             Self::Degrees => Some(Operation::Degrees),
             Self::Hops | Self::Sssp | Self::Leiden => None,
@@ -527,7 +529,7 @@ impl Kernel {
         input: &Input,
         budget: u64,
         opened: u64,
-    ) -> Option<planner::Plan> {
+    ) -> Option<planner::Plan<'static>> {
         let op = self.operation()?;
         if g.directed() {
             return None;
