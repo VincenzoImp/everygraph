@@ -3,6 +3,8 @@
 - **Status:** accepted, partly validated
 - **Decision:** D17 in [DESIGN.md](../DESIGN.md#4-decisions)
 - **Date:** 2026-11-25
+- **Amended:** 2026-11-26, with the result of #175 (comparison with published layouts,
+  narrower claim, stress solve per parent, new re-decision trigger)
 
 ## Context
 
@@ -55,8 +57,61 @@ From the map experiment (FINDINGS § E; shared machine; `lab/e-map/results/`):
 ## What would change our mind
 
 - #21 finds a layout with the same cost and determinism that occupies at least 10× more of
-  the map, or improves the edge-length ratio on orkut below 0.05; disc packing is then
-  replaced in #67.
+  the map; disc packing is then replaced in #67.
+- A layout with the same cost and determinism beats ours on the four measures of the
+  amendment below (NP@10 per quotient level, ground-truth 10-NN agreement, Spearman, length
+  of edges between top regions), each measured against DRGraph. The earlier trigger
+  "edge-length ratio on orkut below 0.05" is withdrawn: no layout tested reaches it.
+
+## Amendment (2026-11-26, #175): compared with published layouts
+
+The decision stays: hierarchy-constrained disc packing. Four things change.
+
+**1. The evidence now includes published layouts** (FINDINGS § M1-18;
+`lab/m1-18-layout-baseline/results/README.md`, `lab/m1-18-layout-baseline/results/table.md`).
+Same hierarchy (`data/hier/<g>`), lj and orkut, 8 threads unless stated, hard memory
+limits. The baselines are DRGraph@4f3fda2 with its README options, and ForceAtlas2 in
+cuGraph 26.10 on the GPU (a reference only; the product needs no GPU). The metrics are
+deterministic (fixed seeds, one script for every layout). All times and memory figures are
+exploratory: the machine was shared, load average 14–62.
+
+- **Ahead on local and community structure.** NP₁ is 16–50× DRGraph's and FA2's (lj 0.247
+  against 0.015; orkut 0.102 against 0.002). NP@10 per quotient level is 4–50× DRGraph's
+  on lj L0–L4 and 2–90× on orkut L0–L3. Agreement of the 10 nearest nodes with SNAP's
+  ground-truth communities is 0.79 against 0.55 (lj) and 0.52 against 0.04 (orkut).
+- **Behind on global structure.** Spearman's ρ between layout distance and hop distance is
+  0.03 on both graphs, the same as a random layout; DRGraph gives 0.31 (lj) and 0.55
+  (orkut). 21% (lj) and 24% (orkut) of edges cross between top regions. In our layout
+  their median length is 0.98 and 1.27 of a random pair; in DRGraph 0.23 and 0.16. On
+  orkut even the median edge ratio is behind (0.088 against 0.070).
+- **Not completed under 24 GiB on lj:** Graphviz sfdp 14.1.2 and OGDF FM³
+  (foxglove-202510) were killed before they produced a layout. BatchLayout@d2e260d with its
+  default greedy start was killed at 16 GiB. With a random start it ran 4,795 s and stayed
+  close to random (median edge ratio 0.80). This is not a fair picture of the method.
+- **Cost, exploratory:** ours 4–12 s and at most 1.2 GB; DRGraph 700 s and 7.0 GB (lj),
+  919 s and 18.4 GB (orkut).
+
+**2. The claim is narrower.** The layout places nodes near their neighbours and
+communities near their strongest neighbours. Distance between large regions carries
+little meaning. The map's text and legend must not suggest otherwise. Do not judge the
+layout on the mean or p90 edge ratio alone.
+
+**3. The per-parent solve becomes stress on the quotient graph** (`--solve stress`,
+`lab/e-map/gmap/src/stress.rs`). It is deterministic: the output is byte-identical at 3
+and 8 threads on lj. It costs about 1.8× the solve CPU (interleaved A/B on lj,
+`lab/m1-18-layout-baseline/results/ab_lj.jsonl`). It raises NP₁ and NP@10 on both graphs.
+On orkut it brings Spearman from 0.03 to 0.33 and the top crossing edges from 1.27 to 0.88
+of a random pair. On lj, where each top region links to 44 of the other 70, it gives no
+global gain. #67 adopts it, once #21 has settled the area question.
+
+**4. The re-decision trigger changes** (see "What would change our mind"). It is now four
+measures, each against DRGraph: NP@10 per quotient level, ground-truth 10-NN agreement,
+Spearman, and the length of edges between top regions.
+
+**Open.** The remaining global gap is a method item in #21. Hypothesis, not measured: it
+comes from where members with outside links sit inside each region. On orkut DRGraph's
+top regions are as compact as ours (0.14 against 0.12 of a random pair), yet its edges
+between them are much shorter. A rigid rotation per sibling group did not help.
 
 ## Closed by
 
