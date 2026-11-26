@@ -4,10 +4,9 @@
 //! crate.
 //!
 //! Why safe code is not enough: std has no memory maps, no way to preallocate a file,
-//! no `posix_fadvise`, no `F_NOCACHE`, and no file lock before Rust 1.89 (the minimum
-//! supported version is 1.87). Each `unsafe` block below is one call into the C library
-//! (or memmap2's `MmapOptions::map`, which is one `mmap`). None of them passes a
-//! pointer: their arguments are a file descriptor this module borrows from a live
+//! no `posix_fadvise` and no `F_NOCACHE`. Each `unsafe` block below is one call into
+//! the C library (or memmap2's `MmapOptions::map`, which is one `mmap`). None of them
+//! passes a pointer: their arguments are a file descriptor this module borrows from a live
 //! `File`, and integers. Miri cannot run foreign calls, so these blocks are reached by
 //! the crate's tests natively (`tests/conformance.rs`), not under Miri.
 //!
@@ -253,25 +252,20 @@ pub(crate) fn map(file: &File, offset: u64, len: usize) -> io::Result<Mmap> {
     unsafe { options.map(file) }
 }
 
-/// Takes the exclusive, advisory lock of `file` without waiting: `flock(LOCK_EX |
-/// LOCK_NB)`. The lock belongs to the open file and ends when it is closed, or when the
-/// process dies. `Ok(false)` when another open file holds it. Elsewhere than on Unix
-/// there is no such lock (Windows locks through the share mode, [`lock_options`]).
+/// Takes the exclusive, advisory lock of `file` without waiting (`File::try_lock`, which
+/// is `flock(LOCK_EX | LOCK_NB)` on Unix). The lock belongs to the open file and ends
+/// when it is closed, or when the process dies. `Ok(false)` when another open file holds
+/// it. Not on Windows: there `File::try_lock` is `LockFileEx`, a mandatory lock under
+/// which other processes cannot even read the file, so Windows locks through the share
+/// mode instead ([`lock_options`]).
 pub(crate) fn try_lock(file: &File) -> io::Result<bool> {
     #[cfg(unix)]
     {
-        use std::os::fd::AsRawFd;
-        // SAFETY: `flock` takes the descriptor of `file`, open for the whole call, and
-        // an integer; it touches no memory of ours.
-        let status = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-        if status == 0 {
-            return Ok(true);
+        match file.try_lock() {
+            Ok(()) => Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+            Err(std::fs::TryLockError::Error(e)) => Err(e),
         }
-        let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
-            return Ok(false);
-        }
-        Err(error)
     }
     #[cfg(not(unix))]
     {
@@ -300,6 +294,12 @@ pub(crate) fn lock_options(options: &mut OpenOptions) {
 /// [`lock_options`] returns.
 pub(crate) fn is_sharing_violation(error: &io::Error) -> bool {
     cfg!(windows) && error.raw_os_error() == Some(32)
+}
+
+/// Whether `error` is Windows' `ERROR_USER_MAPPED_FILE` (1224): a file that a process
+/// maps cannot be shortened.
+pub(crate) fn is_user_mapped(error: &io::Error) -> bool {
+    cfg!(windows) && error.raw_os_error() == Some(1224)
 }
 
 /// The process that holds the `flock` of `file`, where the system tells: Linux lists

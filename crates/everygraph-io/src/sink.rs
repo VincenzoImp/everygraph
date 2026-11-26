@@ -261,10 +261,11 @@ impl BlockWriter {
 /// long as it lives, and a second `FileSink` on the file, in this process or another,
 /// is refused at once with [`io::ErrorKind::ResourceBusy`]; nothing waits. The
 /// operating system releases the lock when the file is closed or the process dies, so
-/// a crash never leaves a stale lock. On Unix it is `flock`, which is **advisory**: a
-/// program that does not take it (an editor, `cp`, `dd`) is not stopped. On Windows it
-/// is the share mode of the open: no other handle may open the file for writing while
-/// the sink is open, whichever program asks. Within the process no other sink of this
+/// a crash never leaves a stale lock. On Unix it is `File::try_lock` (`flock`), which
+/// is **advisory**: a program that does not take it (an editor, `cp`, `dd`) is not
+/// stopped. On Windows it is the share mode of the open (not `File::try_lock`, whose
+/// mandatory lock would stop readers too): no other handle may open the file for
+/// writing while the sink is open, whichever program asks. Within the process no other sink of this
 /// crate may open the file either.
 ///
 /// **Memory maps.** The sink may be open on a file that a live
@@ -332,10 +333,20 @@ impl FileSink {
     }
 
     /// Sets the length, unless that would cut off or extend into a mapped range.
+    ///
+    /// Windows refuses to shorten a file that another process maps. The bytes past
+    /// `len` then stay in the file, never read through the sink, until a later length
+    /// change cuts them off: a container allows a file longer than its committed end
+    /// (`docs/spec/eg-container.md` § 7, § 8).
     fn resize(&mut self, len: u64) -> io::Result<()> {
         let file = &self.file;
-        self.claim
-            .guard(self.len.min(len)..u64::MAX, || file.set_len(len))?;
+        match self
+            .claim
+            .guard(self.len.min(len)..u64::MAX, || file.set_len(len))
+        {
+            Err(e) if sys::is_user_mapped(&e) && file.metadata()?.len() > len => {}
+            result => result?,
+        }
         self.len = len;
         Ok(())
     }

@@ -510,11 +510,14 @@ off an uncommitted tail it covers (touching those pages then ends the reader wit
 change that would reach a mapped range (`ResourceBusy`): a commit goes through beside a
 map of that range, and fails beside a whole-file map. What a range map leaves out (the
 header blocks, a later commit's sections and table) is read with positional reads.
+Windows refuses to shorten a file that another process maps: there step 1 leaves the
+bytes past the new committed end in place, which § 7 allows and a later commit or
+`compact` removes.
 
 One writer at a time: two writers appending to one file at once would write over each
 other's sections. The container itself does not lock. `everygraph_io::FileSink` holds
-an exclusive lock on its file while it lives (`flock` on Unix, the share mode on
-Windows), and a second sink, in this process or another, is refused with `ResourceBusy`
+an exclusive lock on its file while it lives (`File::try_lock` on Unix, the share mode
+on Windows, where `File::try_lock` would stop readers too), and a second sink, in this process or another, is refused with `ResourceBusy`
 without waiting. On Unix the lock is advisory: a program that does not take it is not
 stopped. The operating system releases it when the writer dies, so a crash leaves no
 stale lock.
@@ -562,9 +565,10 @@ stale lock.
   does not change an algorithm keeps its stored results; one that does changes the
   version and so the key (`docs/api-sketch.md` § 2.10).
 - **One writer at a time is a lock that refuses, not one that waits**
-  (`design/DECISIONS.md`, "A second writer on a graph file is refused"). Taken with
-  `flock` rather than `File::try_lock`, which needs Rust 1.89 (the minimum supported
-  version is 1.87).
+  (`design/DECISIONS.md`, "A second writer on a graph file is refused"). On Windows it
+  is the share mode of the writer's open (no other handle may write), not
+  `File::try_lock`: that is `LockFileEx`, a mandatory lock, under which readers in
+  other processes could not read the file either.
 - **Segments are reserved now, built later** (§ 13): required bit 0, the `seg/` names,
   kind 6 and the graph identity cost nothing in an unsegmented file, and let
   appends (m9-04) arrive without a new major version
