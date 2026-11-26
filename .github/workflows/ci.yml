@@ -44,12 +44,14 @@ permissions:
   contents: read
 
 concurrency:
-  # A new push to a pull request cancels the run it supersedes; runs on main all finish.
+  # A new push to a pull request cancels the run it supersedes. Each push to main gets a
+  # group of its own: in a shared group GitHub cancels a pending run when a newer one queues.
   # A label other than full-ci gets a group of its own, so that it cancels nothing.
   group: >-
     ${{ github.workflow }}-${{ github.ref }}${{
     github.event.action == 'labeled' && github.event.label.name != 'full-ci'
-    && format('-label-{0}', github.run_id) || '' }}
+    && format('-label-{0}', github.run_id) || '' }}${{
+    github.event_name == 'push' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
