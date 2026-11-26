@@ -13,7 +13,9 @@
 //!   `everygraph-io`. [`Segments`] and [`SegmentReader`] cut a source into the bounded,
 //!   aligned chunks that readers and kernels loop over. [`ByteSink`] is its writable
 //!   counterpart for formats updated in place (the `.eg` container): positional
-//!   writes, a length and a durability barrier.
+//!   writes, a length and a durability barrier. [`BlockCache`] is a `ByteSource` over
+//!   another: fixed-size frames in budgeted memory, for random access out of core
+//!   (DESIGN D11), read ahead by the [`ReadAhead`] threads a native build supplies.
 //! - [`widen`], [`usize_of`] and [`le`]: the lossless integer conversions and the
 //!   little-endian field readers that every format parser uses.
 //! - [`par`]: the only place where work is split across threads. It runs on rayon with
@@ -67,6 +69,7 @@
     clippy::disallowed_macros
 )]
 
+mod block_cache;
 mod byte_sink;
 mod byte_source;
 mod exact_sum;
@@ -82,6 +85,7 @@ mod segment;
 #[cfg(test)]
 mod test_support;
 
+pub use block_cache::{BlockCache, CacheSettings, CacheStats, Fetch, ReadAhead};
 pub use byte_sink::{ByteSink, WriteError};
 pub use byte_source::{AccessHint, ByteSource, MemorySource, ReadError};
 pub use exact_sum::ExactSum;

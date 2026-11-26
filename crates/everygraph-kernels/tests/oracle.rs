@@ -39,9 +39,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use everygraph_core::{Memory, par};
+use everygraph_core::{BlockCache, CacheSettings, Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode, merge};
-use everygraph_io::{FileSource, MmapSource};
+use everygraph_io::{FileSource, MmapSource, PoolSettings, ReadPool};
 use everygraph_kernels::components::{WccOptions, wcc};
 use everygraph_kernels::degrees::{Loop, degrees};
 use everygraph_kernels::edge_map::{
@@ -379,12 +379,13 @@ impl KernelUnderTest for Kernels {
             (Storage::Compressed, Regime::Mmap),
             (Storage::Raw, Regime::Stream),
             (Storage::Compressed, Regime::Stream),
+            (Storage::Compressed, Regime::Cached),
         ];
         Config::grid(
             &[1, 3, 8],
             &[64, 1 << 16],
             &[Storage::Raw, Storage::Compressed],
-            &[Regime::InMemory, Regime::Mmap, Regime::Stream],
+            &[Regime::InMemory, Regime::Mmap, Regime::Stream, Regime::Cached],
         )
         .into_iter()
         .filter(|c| sources.contains(&(c.storage, c.regime)))
@@ -413,6 +414,9 @@ impl KernelUnderTest for Kernels {
             (Storage::Compressed, Regime::Stream) => {
                 run_kernel(&streamed(&so)?, &streamed(&si)?, stored, p, k, config)
             }
+            (Storage::Compressed, Regime::Cached) => cached(&so, |o| {
+                cached(&si, |i| run_kernel(o, i, stored, p, k, config))
+            }),
             (Storage::Compressed, _) => run_kernel(&heap(&so)?, &heap(&si)?, stored, p, k, config),
             (Storage::Raw, _) => run_kernel(&stream(&so)?, &stream(&si)?, stored, p, k, config),
         }
@@ -435,6 +439,26 @@ fn heap(s: &Stored) -> Result<Compressed<'_>, String> {
 
 fn streamed(s: &Stored) -> Result<CompressedStream<'_>, String> {
     CompressedStream::new(&s.index, &s.file, 0).map_err(|e| e.to_string())
+}
+
+/// Calls `f` with the lists of `s` read through a block cache of a quarter of the data
+/// part, read ahead by two threads.
+fn cached<R>(
+    s: &Stored,
+    f: impl FnOnce(&CompressedStream<'_>) -> Result<R, String>,
+) -> Result<R, String> {
+    let memory = Memory::unlimited();
+    let pool = PoolSettings {
+        threads: 2,
+        ..PoolSettings::default()
+    };
+    ReadPool::run(&s.file, &memory, pool, |ahead| {
+        let bytes = (s.data.len() as u64 / 4).max(1);
+        let cache = BlockCache::with_read_ahead(ahead, &memory, CacheSettings::new(bytes, 8))
+            .map_err(|e| e.to_string())?;
+        f(&CompressedStream::new(&s.index, &cache, 0).map_err(|e| e.to_string())?)
+    })
+    .map_err(|e| e.to_string())?
 }
 
 fn stream(s: &Stored) -> Result<Stream<'_>, String> {
@@ -478,7 +502,7 @@ fn kernels_pass_the_oracle_under_every_configuration() {
         shown.join("\n")
     );
     assert!(report.checked > 3 * graphs.len(), "{report:?}");
-    assert_eq!(report.runs, report.checked * 30);
+    assert_eq!(report.runs, report.checked * 36);
     if python {
         assert!(
             report.python_comparisons > 0 && report.python_missing == 0,

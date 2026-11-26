@@ -111,6 +111,13 @@ pub struct Options {
     pub prolong: bool,
     /// After the last level by default.
     pub split: SplitAt,
+    /// Blocks of 256 nodes of each frontier that the source is told about
+    /// ([`Source::prefetch`]) ahead of the nodes being visited; 0, the default, tells it
+    /// nothing. For a source that reads ahead, such as a compressed stream over a
+    /// `BlockCache`: the visiting order is known before a sweep runs (ADR 0015), so the
+    /// reads of the next blocks overlap the work on this one. It changes no result of
+    /// the deterministic mode.
+    pub read_ahead: u32,
 }
 
 impl Default for Options {
@@ -123,6 +130,7 @@ impl Default for Options {
             refinement: Refinement::Greedy,
             prolong: false,
             split: SplitAt::Last,
+            read_ahead: 0,
         }
     }
 }

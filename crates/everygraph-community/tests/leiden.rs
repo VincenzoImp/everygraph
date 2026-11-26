@@ -39,10 +39,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use everygraph_community::{
     Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity, table,
 };
-use everygraph_core::{Budget, Memory, par};
+use everygraph_core::{BlockCache, Budget, CacheSettings, Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
-use everygraph_io::{FileSource, MmapSource};
-use everygraph_kernels::edge_map::{Compressed, Csr, Error, Settings, Stream};
+use everygraph_io::{FileSource, MmapSource, PoolSettings, ReadPool};
+use everygraph_kernels::edge_map::{Compressed, CompressedStream, Csr, Error, Settings, Stream};
 use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::projection::Projection;
 use everygraph_oracle::reference;
@@ -116,6 +116,8 @@ struct Stored {
     index: AdjacencyIndex,
     data: Vec<u8>,
     map: MmapSource,
+    /// The data part, read by positional reads.
+    file: FileSource,
     stream: FileSource,
     files: [PathBuf; 2],
 }
@@ -146,6 +148,7 @@ fn store(lists: &Lists) -> Stored {
         index: AdjacencyIndex::parse(&encoded.index).unwrap(),
         data: encoded.data,
         map: MmapSource::open(&files[0]).unwrap(),
+        file: FileSource::open(&files[0]).unwrap(),
         stream: FileSource::open(&files[1]).unwrap(),
         files,
     }
@@ -157,6 +160,8 @@ enum Kind {
     Heap,
     Mapped,
     Streamed,
+    /// The compressed lists through a block cache of a quarter of them, read ahead.
+    Cached,
 }
 
 /// What must be equal between two deterministic runs.
@@ -210,8 +215,28 @@ fn here(s: &Stored, kind: Kind, chunk: u64, o: &Options) -> Communities {
             let stream = Stream::new(&s.lists.offsets, &s.stream).unwrap();
             leiden(&stream, &memory, st, o)
         }
+        Kind::Cached => cached(s, &memory, st, o),
     };
     c.unwrap()
+}
+
+/// Leiden on the compressed lists of `s` through a block cache of a quarter of them,
+/// read ahead by four threads, 8 blocks ahead unless `o` says otherwise.
+fn cached(s: &Stored, memory: &Memory, st: Settings, o: &Options) -> Result<Communities, Error> {
+    let pool = PoolSettings {
+        threads: 4,
+        ..PoolSettings::default()
+    };
+    ReadPool::run(&s.file, memory, pool, |ahead| {
+        let bytes = (s.data.len() as u64 / 4).max(1);
+        let cache = BlockCache::with_read_ahead(ahead, memory, CacheSettings::new(bytes, 16))?;
+        let lists = CompressedStream::new(&s.index, &cache, 0)?;
+        let o = Options {
+            read_ahead: if o.read_ahead == 0 { 8 } else { o.read_ahead },
+            ..*o
+        };
+        leiden(&lists, memory, st, &o)
+    })?
 }
 
 /// `f` on a pool of `threads` threads.
@@ -359,7 +384,7 @@ fn deterministic_results_do_not_depend_on_threads_chunks_or_sources() {
             })
             .collect()
     });
-    let all = [Kind::Raw, Kind::Heap, Kind::Mapped, Kind::Streamed];
+    let all = [Kind::Raw, Kind::Heap, Kind::Mapped, Kind::Streamed, Kind::Cached];
     let mut runs = 0;
     for t in [1, 3, 8] {
         runs += on(t, || {
@@ -372,7 +397,9 @@ fn deterministic_results_do_not_depend_on_threads_chunks_or_sources() {
                     for kind in all {
                         let usual = matches!(
                             (t, chunk, kind),
-                            (8, 64, Kind::Streamed) | (3, 65_536, Kind::Heap)
+                            (8, 64, Kind::Streamed)
+                                | (3, 65_536, Kind::Heap)
+                                | (3, 64, Kind::Cached)
                         );
                         if !(grid || usual) {
                             continue;
@@ -727,6 +754,31 @@ fn parallel_sub_rounds_do_not_depend_on_threads() {
             );
         }
     }
+}
+
+/// Sub-rounds larger than a window of read-ahead (16,384 nodes): 200,000 nodes give 4
+/// sub-rounds of about 50,000 on level 0. Through a block cache read ahead 0, 1 and 64
+/// blocks of 256 nodes, the deterministic result is the one in memory.
+#[test]
+fn read_ahead_changes_no_deterministic_result() {
+    let (n, pairs) = sparse_planted(200, 1000, 6, 1, 11);
+    let s = store(&Lists::from_pairs(n, &pairs));
+    let o = Options::default();
+    let memory = Memory::unlimited();
+    let st = Settings {
+        prefetch: true,
+        ..settings(1 << 16)
+    };
+    on(8, || {
+        let expected = Outcome::from(&here(&s, Kind::Heap, 1 << 16, &o));
+        for read_ahead in [1, 64] {
+            let o = Options { read_ahead, ..o };
+            let c = cached(&s, &memory, st, &o).unwrap();
+            assert_eq!(Outcome::from(&c), expected, "{read_ahead} blocks ahead");
+            let heap = here(&s, Kind::Heap, 1 << 16, &o);
+            assert_eq!(Outcome::from(&heap), expected, "{read_ahead} blocks ahead, in memory");
+        }
+    });
 }
 
 /// Stars whose hubs form a ring: many leaves try to join their hub's refined community

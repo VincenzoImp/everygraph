@@ -6,12 +6,21 @@
 //!
 //! ```text
 //! leiden_bench encode --graph DIR --out STORE
-//! leiden_bench run --graph DIR [--store STORE] [--source raw|compressed|mmap|stream|eg]
+//! leiden_bench run --graph DIR [--store STORE]
+//!     [--source raw|compressed|mmap|stream|eg|cached]
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
 //!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
 //!     [--split last|every]
 //!     [--chunk ENTRIES] [--budget-gib G] [--check 1] [--hier FILE]
+//!     [--cache-mib M] [--read-ahead K] [--pool-threads P] [--direct 1] [--prefetch 1]
 //! ```
+//!
+//! `--source cached` reads the store's data part through a block cache of `--cache-mib`
+//! MiB (1024 by default), read ahead by a pool of `--pool-threads` threads (64), `K`
+//! blocks of 256 nodes ahead of the visits (`Options::read_ahead`, 0 by default), from
+//! the file opened for direct reads with `--direct 1`; it adds the cache's counts to the
+//! line. Every run reports `read_bytes`, the process's bytes read from storage while
+//! Leiden ran (`/proc/self/io`, Linux), and `peak_reserved`, the budget's peak.
 //!
 //! `run` prints one JSON line: the times of every repetition, the modularity, the
 //! number of communities, the hash of the levels (the same for every source, thread
@@ -46,11 +55,11 @@ use everygraph_community::hierarchy::Hierarchy;
 use everygraph_community::{
     Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity,
 };
-use everygraph_core::{Budget, ByteSource, Memory, MemorySource, par};
+use everygraph_core::{BlockCache, Budget, ByteSource, CacheSettings, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_format::container::{Container, Provenance, Writer};
-use everygraph_io::{FileSink, FileSource, MmapSource};
-use everygraph_kernels::edge_map::{Compressed, Csr, Settings, Source, Stream};
+use everygraph_io::{FileSink, FileSource, MmapSource, PoolSettings, ReadPool};
+use everygraph_kernels::edge_map::{Compressed, CompressedStream, Csr, Settings, Source, Stream};
 
 type Args = HashMap<String, String>;
 
@@ -111,7 +120,23 @@ fn options(a: &Args) -> Options {
     if let Some(g) = a.get("gamma") {
         o.resolution = g.parse().expect("--gamma");
     }
+    if let Some(k) = a.get("read-ahead") {
+        o.read_ahead = k.parse().expect("--read-ahead");
+    }
     o
+}
+
+/// The process's bytes read from storage so far (`read_bytes` of `/proc/self/io`), 0
+/// where that file does not exist.
+fn read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines()
+                .find_map(|l| l.strip_prefix("read_bytes: "))
+                .and_then(|n| n.trim().parse().ok())
+        })
+        .unwrap_or(0)
 }
 
 /// Communities with more than one component, by a union-find over the edges inside.
@@ -207,6 +232,7 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
     let o = options(a);
     let mut secs = Vec::new();
     let mut last: Option<Communities> = None;
+    let read_before = read_bytes();
     for _ in 0..reps {
         drop(last.take());
         let t = Instant::now();
@@ -214,6 +240,7 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         secs.push(t.elapsed().as_secs_f64());
         last = Some(c);
     }
+    let read = read_bytes() - read_before;
     let c = last.expect("one repetition");
     let levels = c
         .levels
@@ -266,7 +293,7 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
          \"seconds_all\": [{}], \
          \"seconds_best\": {best}, \"modularity\": {}, \"communities\": {}, \"level_sizes\": [{}], \
          \"hash_levels\": \"{levels:016x}\", \"hash_levels_low53\": {}, \"hash_membership\": \
-         \"{flat:016x}\", \"stats\": [{}]{check}{hier}",
+         \"{flat:016x}\", \"read_bytes\": {read}, \"peak_reserved\": {}, \"stats\": [{}]{check}{hier}",
         c.mode,
         o.iterations,
         c.iterations,
@@ -279,8 +306,58 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         c.count,
         sizes.join(", "),
         levels & ((1 << 53) - 1),
+        budget.peak(),
         stats.join(", "),
     )
+}
+
+/// Leiden through a block cache over the store's data part (`--source cached`).
+fn cached(a: &Args, threads: NonZeroUsize, settings: Settings, t: Instant) -> (f64, String) {
+    let (index, data) = store_paths(Path::new(&a["store"]));
+    let index = std::fs::read(&index)
+        .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
+    let index = AdjacencyIndex::parse(&index).expect("an index");
+    let file = if a.get("direct").is_some_and(|d| d == "1") {
+        FileSource::open_direct(&data)
+    } else {
+        FileSource::open(&data)
+    }
+    .expect("data");
+    let mib: u64 = a
+        .get("cache-mib")
+        .map_or(1024, |m| m.parse().expect("--cache-mib"));
+    let pool = PoolSettings {
+        threads: a
+            .get("pool-threads")
+            .map_or(64, |p| p.parse().expect("--pool-threads")),
+        ..PoolSettings::default()
+    };
+    let memory = Memory::unlimited();
+    ReadPool::run(&file, &memory, pool, |ahead| {
+        let layout = CacheSettings::new(mib << 20, threads.get());
+        let cache = BlockCache::with_read_ahead(ahead, &memory, layout).expect("a cache");
+        let lists = CompressedStream::new(&index, &cache, 0).expect("the data part");
+        let load = t.elapsed().as_secs_f64();
+        let out = time(&lists, a, settings);
+        let c = cache.stats();
+        let line = format!(
+            "{out}, \"cache\": {{\"frame_bytes\": {}, \"pool_threads\": {}, \"direct\": {}, \
+             \"hits\": {}, \"misses\": {}, \"waits\": {}, \"prefetched\": {}, \"reads\": {}, \
+             \"bytes_read\": {}, \"bytes_scanned\": {}}}",
+            cache.frame_bytes(),
+            pool.threads,
+            file.is_direct(),
+            c.hits,
+            c.misses,
+            c.waits,
+            c.prefetched,
+            c.reads,
+            c.bytes_read,
+            c.bytes_scanned
+        );
+        (load, line)
+    })
+    .expect("the read pool")
 }
 
 fn store_paths(store: &Path) -> (PathBuf, PathBuf) {
@@ -299,12 +376,15 @@ fn run(a: &Args) {
         chunk_entries: a
             .get("chunk")
             .map_or(1 << 16, |s| s.parse().expect("--chunk")),
+        prefetch: a.get("prefetch").is_some_and(|p| p == "1"),
         ..Settings::default()
     };
     let t = Instant::now();
-    let offsets = read_words(&graph.join("offsets.u64"), u64::from_le_bytes);
+    // Only the raw sources need the offsets: the others must not hold them in the heap.
+    let offsets = || read_words(&graph.join("offsets.u64"), u64::from_le_bytes);
     let (load, result) = par::with_threads(threads, || match source {
         "raw" => {
+            let offsets = offsets();
             let targets = read_words(&graph.join("targets.u32"), u32::from_le_bytes);
             let csr = Csr::new(&offsets, &targets).expect("a CSR");
             (t.elapsed().as_secs_f64(), time(&csr, a, settings))
@@ -346,10 +426,12 @@ fn run(a: &Args) {
             (t.elapsed().as_secs_f64(), time(&adj, a, settings))
         }
         "stream" => {
+            let offsets = offsets();
             let file = FileSource::open(graph.join("targets.u32")).expect("targets");
             let stream = Stream::new(&offsets, &file).expect("a CSR");
             (t.elapsed().as_secs_f64(), time(&stream, a, settings))
         }
+        "cached" => cached(a, threads, settings, t),
         other => panic!("unknown --source {other}"),
     })
     .expect("a thread pool");
