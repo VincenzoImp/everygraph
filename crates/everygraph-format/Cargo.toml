@@ -11,6 +11,10 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The content hash of container sections (#28). `pure`: Rust code only, no C or
+# assembly to compile on any target (wasm32 and i686 included); `std` for run-time
+# detection of SSE4.1 and AVX2.
+blake3 = { version = "1.8", default-features = false, features = ["std", "pure"] }
 # A library does not decide whether threads exist (CONTRIBUTING.md, "Crates").
 everygraph-core = { path = "../everygraph-core", default-features = false }
 

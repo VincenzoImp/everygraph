@@ -11,7 +11,9 @@
 //! - [`ByteSource`]: positional, re-readable access to bytes, read in bounded chunks.
 //!   [`MemorySource`] is the in-memory backend; files, mmap and HTTP ranges live in
 //!   `everygraph-io`. [`Segments`] and [`SegmentReader`] cut a source into the bounded,
-//!   aligned chunks that readers and kernels loop over.
+//!   aligned chunks that readers and kernels loop over. [`ByteSink`] is its writable
+//!   counterpart for formats updated in place (the `.eg` container): positional
+//!   writes, a length and a durability barrier.
 //! - [`par`]: the only place where work is split across threads. It runs on rayon with
 //!   the `parallel` feature and on the calling thread without it, with equal results.
 //! - Memory accounting: [`Budget`] (the accountant), [`Memory`] (the handle kernels
@@ -57,6 +59,7 @@
     clippy::disallowed_macros
 )]
 
+mod byte_sink;
 mod byte_source;
 mod ids;
 mod memory;
@@ -65,6 +68,7 @@ mod scratch;
 mod seg_vec;
 mod segment;
 
+pub use byte_sink::{ByteSink, WriteError};
 pub use byte_source::{AccessHint, ByteSource, MemorySource, ReadError};
 pub use ids::{EdgeOffset, NodeId, NodeIdOverflow, OffsetOverflow};
 pub use memory::{

@@ -974,11 +974,11 @@ The exact text of a refusal, as an example of the pattern, is in story 8.
   a window, `g.subgraph(g.khop(…))` — never make it grow (#39: "large temporary
   results should not bloat the graph file"). `bfs()` is kept for the session too: it is
   one table per source node. `g.top()` derives from the stored measure.
-- A result is looked up before it is computed. The key is the graph's content, the
-  view's definition, the algorithm and its version, every parameter that can change the
-  result, `seed`, `precision`, and whether it is deterministic. `memory`, `threads`,
-  `temp_dir` and `progress` are not part of the key, because they cannot change the
-  result (§ 2.11).
+- A result is looked up before it is computed. The key is the graph's content (its
+  identity, `docs/spec/eg-container.md` § 6), the view's definition, the algorithm and
+  its version, every parameter that can change the result, `seed`, `precision`, and
+  whether it is deterministic. `memory`, `threads`, `temp_dir` and `progress` are not
+  part of the key, because they cannot change the result (§ 2.11).
 - A hit is not silent: the phase is shown as `kept`, `meta["cached"]` is `True`, and the
   command prints `full result: transfers.eg (cached)`.
 - There is no hidden cache directory in a home folder (`api.md` Choice 1).

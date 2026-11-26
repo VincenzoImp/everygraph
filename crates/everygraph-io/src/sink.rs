@@ -2,7 +2,7 @@
 
 //! Sinks: where graphs and spill files are written.
 //!
-//! Three shapes, one per way the lab wrote files:
+//! Three shapes, one per way the lab wrote files, and one for formats updated in place:
 //!
 //! - [`AppendSink`]: one writer, front to back, through a large buffer.
 //! - [`BlockWriter`]: a file of known length filled in place by many threads, in aligned
@@ -13,16 +13,19 @@
 //!   [`FileSource`]s. Through the page cache, never direct: for small appending temp
 //!   writes `O_DIRECT` cost 74.6–81.4 s against 33.2–45.3 s (Friendster, 8 GB budget;
 //!   FINDINGS § B1).
+//! - [`FileSink`]: a file read and written at any offset, with durable syncs: the
+//!   [`ByteSink`] of the `.eg` container's update protocol
+//!   (`docs/spec/eg-container.md` § 8).
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::sync::Mutex;
 
-use everygraph_core::{AlignedBuf, SEGMENT_ALIGN};
+use everygraph_core::{AlignedBuf, ByteSink, ByteSource, ReadError, SEGMENT_ALIGN, WriteError};
 
 use crate::claim::{Claim, Use};
-use crate::{FileSource, sys};
+use crate::{FileSource, backend_error, check_bounds, sys};
 
 /// Buffer of an [`AppendSink`]: 1 MiB.
 const APPEND_BUFFER: usize = 1 << 20;
@@ -51,7 +54,8 @@ impl AppendSink {
     /// The file cannot be created, or a live `MmapSource` of this process maps it
     /// ([`io::ErrorKind::ResourceBusy`]; nothing is truncated then).
     pub fn create(path: impl AsRef<Path>) -> io::Result<Self> {
-        let (file, claim) = open_claimed(OpenOptions::new().write(true), path.as_ref())?;
+        let (file, claim) =
+            open_claimed(OpenOptions::new().write(true), path.as_ref(), Use::Write)?;
         file.set_len(0)?;
         Ok(Self::with_claim(file, claim))
     }
@@ -149,7 +153,7 @@ impl BlockWriter {
             let claim = Claim::take(&file, Use::Write)?;
             (file, claim, direct)
         } else {
-            let (file, claim) = open_claimed(&mut options, path.as_ref())?;
+            let (file, claim) = open_claimed(&mut options, path.as_ref(), Use::Write)?;
             (file, claim, false)
         };
         // Truncate only once the claim is held: no map can exist from here on.
@@ -245,12 +249,156 @@ impl BlockWriter {
     }
 }
 
+/// A file read and written in place, at any offset, by one writer: the
+/// [`ByteSink`] that `everygraph_format::container::Writer` commits through.
+///
+/// [`sync`](ByteSink::sync) is `fsync` (`File::sync_all`: data and length). Writes go
+/// straight to the file (`pwrite`), unbuffered: the container writes sections in
+/// pieces the caller chose, and a commit in a few large writes.
+///
+/// Like the other sinks it holds the file against mapping: it refuses a file that a
+/// live [`MmapSource`](crate::MmapSource) of this process maps
+/// ([`io::ErrorKind::ResourceBusy`]), and the file cannot be mapped while the sink is
+/// open. So a graph that this process holds mapped cannot be committed to until the
+/// map is dropped. It also holds the file alone: a second `FileSink`, or any other
+/// sink, of this process on the same file is refused while it is open (one writer at a
+/// time updates a container). Other processes are not stopped (see `MmapSource`).
+#[derive(Debug)]
+pub struct FileSink {
+    // Declared before the claim: the file is closed first.
+    file: File,
+    len: u64,
+    claim: Claim,
+}
+
+impl FileSink {
+    /// Creates `path`, or empties it — at once and without a sync. Never point it at
+    /// a live `NAME.eg`: write a new graph or a compacted copy to a temporary name and
+    /// [`persist`] it over the old one.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be created, or a live `MmapSource` or another sink of this
+    /// process holds it ([`io::ErrorKind::ResourceBusy`]; nothing is truncated then).
+    pub fn create(path: impl AsRef<Path>) -> io::Result<Self> {
+        let (file, claim) = open_claimed(
+            OpenOptions::new().read(true).write(true),
+            path.as_ref(),
+            Use::WriteAlone,
+        )?;
+        file.set_len(0)?;
+        Ok(Self {
+            file,
+            len: 0,
+            claim,
+        })
+    }
+
+    /// Opens the existing file `path` for reading and writing; nothing is changed.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be opened, or a live `MmapSource` or another sink of this
+    /// process holds it ([`io::ErrorKind::ResourceBusy`]).
+    pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        let file = OpenOptions::new().read(true).write(true).open(path)?;
+        let claim = Claim::take(&file, Use::WriteAlone)?;
+        let len = file.metadata()?.len();
+        Ok(Self { file, len, claim })
+    }
+
+    /// Gives the file back. From here on it may be mapped; the caller must not write
+    /// through the returned handle while it is.
+    #[must_use]
+    pub fn into_file(self) -> File {
+        let Self { file, claim, .. } = self;
+        drop(claim);
+        file
+    }
+}
+
+impl ByteSource for FileSink {
+    fn len(&self) -> u64 {
+        self.len
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        check_bounds(offset, buf.len(), self.len)?;
+        sys::read_exact_at(&self.file, buf, offset).map_err(backend_error)
+    }
+}
+
+impl ByteSink for FileSink {
+    fn write_at(&mut self, offset: u64, data: &[u8]) -> Result<(), WriteError> {
+        let end = offset
+            .checked_add(data.len() as u64)
+            .ok_or(WriteError::TooLarge { len: u64::MAX })?;
+        if data.is_empty() && end > self.len {
+            // A write of nothing past the end still extends the sink (the contract).
+            self.file.set_len(end).map_err(write_error)?;
+        }
+        sys::write_all_at(&self.file, data, offset).map_err(write_error)?;
+        self.len = self.len.max(end);
+        Ok(())
+    }
+
+    fn set_len(&mut self, len: u64) -> Result<(), WriteError> {
+        self.file.set_len(len).map_err(write_error)?;
+        self.len = len;
+        Ok(())
+    }
+
+    fn sync(&mut self) -> Result<(), WriteError> {
+        self.file.sync_all().map_err(write_error)
+    }
+}
+
+fn write_error(error: io::Error) -> WriteError {
+    WriteError::Backend(Box::new(error))
+}
+
 /// Opens `path` with `options`, creating it if needed but not truncating it, and claims
 /// it for writing: a file that a live map holds is refused before anything changes.
-fn open_claimed(options: &mut OpenOptions, path: &Path) -> io::Result<(File, Claim)> {
+fn open_claimed(
+    options: &mut OpenOptions,
+    path: &Path,
+    used_for: Use,
+) -> io::Result<(File, Claim)> {
     let file = options.create(true).truncate(false).open(path)?;
-    let claim = Claim::take(&file, Use::Write)?;
+    let claim = Claim::take(&file, used_for)?;
     Ok((file, claim))
+}
+
+/// Gives the file `partial` the name `destination`, replacing what had that name, and
+/// makes the new name durable: the last step of writing a graph (`NAME.eg.partial` →
+/// `NAME.eg`, ux-contract C-1) or of a compaction. At every instant `destination` is
+/// either the old file or the new one, whole.
+///
+/// The caller has made the file's content durable first (a container's commit does).
+/// Both paths must be on the same file system. On Unix the rename is `rename(2)` and
+/// the directory holding `destination` is then synced, which is what makes the rename
+/// itself survive a power cut. On Windows the rename is `MoveFileExW` with
+/// `MOVEFILE_REPLACE_EXISTING` (std's `rename`); std offers no write-through flag and
+/// no way to sync a directory there, so the rename is durable only once NTFS commits
+/// its journal (a power cut just after may leave the old file under the name; never a
+/// mixture).
+///
+/// # Errors
+///
+/// The rename failed (nothing changed), or the directory could not be synced (the
+/// rename happened; it may not survive a power cut).
+pub fn persist(partial: impl AsRef<Path>, destination: impl AsRef<Path>) -> io::Result<()> {
+    let destination = destination.as_ref();
+    std::fs::rename(partial.as_ref(), destination)?;
+    #[cfg(unix)]
+    {
+        let dir = match destination.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => dir,
+            _ => Path::new("."),
+        };
+        File::open(dir)?.sync_all()?;
+    }
+    Ok(())
 }
 
 /// Sharded temporary logs: append-only files that an out-of-core build spills into and
