@@ -244,7 +244,7 @@ pub const HELPER_RESERVE: u64 = 64 << 20;
 /// the command, its memory is freed some time after the kill; a page fault of the
 /// helper in between makes the helper the next victim, and the run is lost with no
 /// report (seen on GitHub's ubuntu-24.04-arm runners, kernel 7.0: the helper killed
-/// 2 ms after the command).
+/// 2 ms after the command, PR #299).
 fn split_scope(scope: &Cgroup, memory_max: u64) -> Result<(Cgroup, Cgroup), String> {
     let me = std::process::id();
     let procs = scope.procs()?;

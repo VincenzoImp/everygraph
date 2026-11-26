@@ -509,7 +509,7 @@ fn reference_graphs() -> Vec<(&'static str, Pairs)> {
 /// modes are pinned with a small margin: default 0.2714, quality 0.2914, against 0.2909.
 /// The fast mode is not deterministic (ADR 0014) and on this graph moves with the
 /// schedule: 0.2422-0.2849 in local runs, down to 0.216 on loaded and arm64 CI runners
-/// (PR text). Its gate there asks only for two thirds of the best: the structure is
+/// (PR #299). Its gate there asks only for two thirds of the best: the structure is
 /// found, the last sweeps may not be.
 #[test]
 fn modularity_is_within_the_gates_of_networkx_and_igraph() {
