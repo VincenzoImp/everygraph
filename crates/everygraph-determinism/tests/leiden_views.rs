@@ -1,44 +1,75 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Three cases where DESIGN D14 may not hold for Leiden (#54; the state-of-the-art
-//! review of 2026-11-26; issue m4-15-determinism-contract decides the promise):
+//! What DESIGN D14 promises for Leiden on the same graph stored or viewed in other ways
+//! (ADR 0014, "Reproducibility"):
 //!
 //! - a view as a mask (the graph's ids, the other nodes without edges) and the same
-//!   view materialized (its nodes renumbered in order);
-//! - a mask that keeps a prefix of the ids, where the two node counts fall on either
-//!   side of a boundary of Leiden's sub-round rule `clamp(next_pow2(n / 65,536), 4,
-//!   1,024)`;
-//! - the ids renumbered by a locality order, as `compact --order` would store them
-//!   (m2-24: the order of the Leiden hierarchy), with the result read back in the old
-//!   ids.
+//!   view materialized (its nodes renumbered in order) give the same communities;
+//! - nodes without edges change nothing, also past a boundary of the sub-round rule
+//!   `clamp(next_pow2(m / 65,536), 4, 1,024)`: `m` counts the nodes with edges;
+//! - `compact` keeps the communities of a graph file.
 //!
-//! Each compares the communities of the view's nodes, numbered in the order of their
-//! smallest node. The graph is one whose communities change with the seed, so a pass
-//! is not an accident of a graph with one clear answer.
+//! The same graph with its ids in another order (`compact --order`, m2-24) is another
+//! input: D14 does not promise its communities.
+//!
+//! The views are compared on the communities of the view's nodes, numbered in the
+//! order of their smallest node. The graph is one whose communities change with the
+//! seed, so a pass is not an accident of a graph with one clear answer.
 
 #![forbid(unsafe_code)]
 #![allow(
     clippy::disallowed_methods,
     clippy::disallowed_types,
-    clippy::print_stderr,
     clippy::cast_possible_truncation
 )]
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
-use everygraph_community::Options;
-use everygraph_determinism::{Lists, SplitMix, communities, on, planted};
-use everygraph_kernels::edge_map::{Csr, Settings};
+use everygraph_community::{Communities, Options, Refinement, hierarchy};
+use everygraph_core::{ByteSource, Memory, MemorySource};
+use everygraph_determinism::{Lists, communities, communities_hash, on, planted};
+use everygraph_format::adjacency::{Adjacency, AdjacencyIndex};
+use everygraph_format::container::{Container, Provenance, Writer, compact};
+use everygraph_ingest::build::{BuildOptions, Duplicates, GraphOptions, SelfLoops, Silent};
+use everygraph_ingest::native::{self, JobScratch, Output, Written};
+use everygraph_ingest::text::{TextOptions, TextReader};
+use everygraph_kernels::edge_map::{Compressed, Csr, Settings};
 
-/// Leiden's communities of `lists`, default options and `seed`, at 3 threads.
-fn membership(lists: &Lists, seed: u64) -> (Vec<u32>, f64) {
+/// Leiden's result on `lists` at 3 threads.
+fn run(lists: &Lists, o: &Options) -> Communities {
+    let csr = Csr::new(&lists.offsets, &lists.targets).unwrap();
+    on(3, || communities(&csr, Settings::default(), o))
+}
+
+/// The options compared, seed 1: the default, the quality mode (iterations after the
+/// first start from the communities found), randomized refinement, and prolongation
+/// (finer levels start from the communities of coarser ones).
+fn variants() -> [(&'static str, Options); 4] {
     let o = Options {
-        seed,
+        seed: 1,
         ..Options::default()
     };
-    let csr = Csr::new(&lists.offsets, &lists.targets).unwrap();
-    let c = on(3, || communities(&csr, Settings::default(), &o));
-    (c.membership.to_vec(), c.modularity)
+    [
+        ("default", o),
+        (
+            "quality",
+            Options {
+                seed: 1,
+                ..Options::quality()
+            },
+        ),
+        (
+            "randomized",
+            Options {
+                refinement: Refinement::Randomized { theta: 0.01 },
+                ..o
+            },
+        ),
+        ("prolonged", Options { prolong: true, ..o }),
+    ]
 }
 
 /// `labels` renumbered from 0 in the order of first appearance.
@@ -69,37 +100,68 @@ fn moved(a: &[u32], b: &[u32]) -> usize {
 
 /// A planted partition whose Leiden communities change with the seed.
 fn sensitive() -> Lists {
-    let g = planted(40, 250, 6, 5, 11);
+    let g = planted(40, 250, 2, 2, 11);
     assert_ne!(
-        membership(&g, 1).0,
-        membership(&g, 2).0,
+        run(&g, &variants()[0].1).membership[..],
+        run(
+            &g,
+            &Options {
+                seed: 2,
+                ..Options::default()
+            }
+        )
+        .membership[..],
         "the communities do not depend on the seed: the probe would prove nothing"
     );
     g
 }
 
-/// Compares the communities of a view of `g` given as a mask (`mask[v]`: kept) with
-/// those of the same view given as `lists` over `n` nodes, where `to[v]` is the id of
-/// kept node `v` there, and reports both.
-fn compare(what: &str, masked: (&Lists, &[bool]), other: (&Lists, &[Option<u32>])) -> bool {
-    let (a, qa) = membership(masked.0, 1);
-    let (b, qb) = membership(other.0, 1);
-    let kept: Vec<usize> = (0..a.len()).filter(|&v| masked.1[v]).collect();
-    let left = canonical(kept.iter().map(|&v| a[v]));
-    let right = canonical(kept.iter().map(|&v| b[other.1[v].unwrap() as usize]));
-    let same = left == right;
-    eprintln!(
-        "{what}: {} kept nodes, same communities: {same}, {} nodes moved, modularity {qa:.6} \
-         as a mask and {qb:.6} the other way",
-        kept.len(),
-        moved(&left, &right)
-    );
-    same
+/// The work of each level: what the sub-round count changes when the communities do
+/// not.
+fn work(c: &Communities) -> Vec<[u64; 4]> {
+    c.stats
+        .iter()
+        .map(|s| {
+            [
+                u64::from(s.sweeps),
+                s.moves,
+                s.parallel_rounds,
+                s.serial_rounds,
+            ]
+        })
+        .collect()
+}
+
+/// Compares the result on a view of a graph given as a mask (`mask[v]`: kept) with the
+/// result on the same view given as other lists, where `to[v]` is the id of kept node
+/// `v` there, for each of [`variants`]: the same communities of the kept nodes, the
+/// same modularity and the same work on every level.
+fn compare(what: &str, masked: (&Lists, &[bool]), other: (&Lists, &[Option<u32>])) {
+    let kept: Vec<usize> = (0..masked.1.len()).filter(|&v| masked.1[v]).collect();
+    for (variant, o) in variants() {
+        let (a, b) = (run(masked.0, &o), run(other.0, &o));
+        let left = canonical(kept.iter().map(|&v| a.membership[v]));
+        let right = canonical(
+            kept.iter()
+                .map(|&v| b.membership[other.1[v].unwrap() as usize]),
+        );
+        let what = format!("{what}, {variant}");
+        assert!(
+            left == right,
+            "{what}: {} of {} kept nodes moved",
+            moved(&left, &right),
+            kept.len()
+        );
+        assert_eq!(a.modularity.to_bits(), b.modularity.to_bits(), "{what}");
+        assert_eq!(
+            work(&a),
+            work(&b),
+            "{what}: sweeps, moves and sub-rounds per level"
+        );
+    }
 }
 
 #[test]
-#[ignore = "fails: the masked and the materialized view give other communities (#54 finding \
-            1; Leiden draws sub-rounds and ties from stored ids; m4-15 decides)"]
 fn a_view_as_a_mask_and_materialized_give_the_same_communities() {
     let g = sensitive();
     let n = g.nodes();
@@ -117,76 +179,110 @@ fn a_view_as_a_mask_and_materialized_give_the_same_communities() {
     let same_ids: Vec<Option<u32>> = (0..n).map(|v| keep[v as usize].then_some(v)).collect();
     let masked = g.renamed(n, &same_ids);
     let materialized = g.renamed(rank, &to);
-    assert!(compare(
+    compare(
         "mask vs materialized",
         (&masked, &keep),
-        (&materialized, &to)
-    ));
+        (&materialized, &to),
+    );
 }
 
-/// A prefix of `k` nodes of `g` padded with nodes without edges to `n` nodes, against
-/// the prefix alone.
-fn padded_prefix(n: u32) -> bool {
+/// The graph padded with nodes without edges to 327,679 and to 327,680 nodes: `n /
+/// 65,536` is 4 and then 5, so a rule on `n` would run four and then eight sub-rounds.
+/// On its 10,000 nodes with edges, Leiden runs four, as on the graph alone.
+#[test]
+fn nodes_without_edges_change_neither_the_sub_rounds_nor_the_communities() {
     let g = sensitive();
     let k = g.nodes();
-    let keep: Vec<bool> = (0..n).map(|v| v < k).collect();
-    let to: Vec<Option<u32>> = (0..n).map(|v| (v < k).then_some(v)).collect();
-    let padded = g.renamed(n, &to[..k as usize]);
-    compare(
-        &format!("prefix of {k} in {n} nodes"),
-        (&padded, &keep),
-        (&g, &to),
+    let to: Vec<Option<u32>> = (0..k).map(Some).collect();
+    for n in [5 * 65_536 - 1, 5 * 65_536] {
+        let keep: Vec<bool> = (0..n).map(|v| v < k).collect();
+        compare(
+            &format!("{k} nodes in {n}"),
+            (&g.renamed(n, &to), &keep),
+            (&g, &to),
+        );
+    }
+}
+
+/// `f` on the undirected adjacency of the graph file `bytes`.
+fn in_file<R>(bytes: &[u8], f: impl FnOnce(&Compressed<'_>) -> R) -> R {
+    let held = MemorySource::new(bytes);
+    let file = Container::open(&held).unwrap();
+    let part = |name: &str| {
+        let e = file.get(name).unwrap();
+        file.source().slice(e.offset..e.offset + e.len).unwrap()
+    };
+    let index = AdjacencyIndex::parse(part("adjacency.out.index")).unwrap();
+    f(&Compressed::new(
+        Adjacency::new(&index, part("adjacency.out.data")).unwrap(),
+    ))
+}
+
+/// The graph built into a graph file, its hierarchy stored twice (the first copy is
+/// replaced), and `compact`: the copy gives the communities of the file.
+#[test]
+fn compact_keeps_the_communities() {
+    let mut text = String::new();
+    for (u, v, _) in sensitive().pairs() {
+        writeln!(text, "{u}\t{v}").unwrap();
+    }
+    let reader =
+        TextReader::open(MemorySource::new(text.as_bytes()), &TextOptions::default()).unwrap();
+    let graph = GraphOptions {
+        directed: false,
+        self_loops: SelfLoops::Drop,
+        duplicates: Duplicates::Collapse,
+    };
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("leiden-views");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = JobScratch::create(&dir, &format!("compact-{}", std::process::id())).unwrap();
+    let memory = Memory::unlimited();
+    let about = Provenance {
+        engine: "everygraph determinism suite".into(),
+        ..Provenance::default()
+    };
+    let built = native::write(
+        &reader,
+        &BuildOptions::new(graph, NonZeroUsize::new(2).unwrap()),
+        &memory,
+        &scratch,
+        Output::Memory,
+        about.clone(),
+        &Silent,
+        &|| true,
+    );
+    let Ok((Written::Memory(original), _, _)) = built else {
+        panic!("the build: {:?}", built.err())
+    };
+    let o = Options::default();
+    let first = in_file(&original, |s| communities(s, Settings::default(), &o));
+    let mut bytes = original.clone();
+    for _ in 0..2 {
+        let mut w = Writer::update(MemorySource::new(bytes)).unwrap();
+        let key = hierarchy::key(w.graph_identity(), &o).unwrap();
+        in_file(&original, |s| {
+            hierarchy::store(
+                &mut w,
+                &key,
+                &about,
+                s,
+                &memory,
+                Settings::default(),
+                &first,
+            )
+        })
+        .unwrap();
+        w.commit().unwrap();
+        bytes = w.into_sink().into_inner();
+    }
+    let held = MemorySource::new(&bytes[..]);
+    let copy = compact(
+        &Container::open(&held).unwrap(),
+        MemorySource::new(Vec::new()),
     )
-}
-
-/// 327,679 nodes: `n / 65,536 = 4`, four sub-rounds, as for the 10,000 nodes alone.
-#[test]
-fn nodes_without_edges_below_a_sub_round_boundary_change_nothing() {
-    assert!(padded_prefix(5 * 65_536 - 1));
-}
-
-/// 327,680 nodes: `n / 65,536 = 5`, eight sub-rounds where the prefix alone has four.
-#[test]
-#[ignore = "fails: past n = 327,680 Leiden runs eight sub-rounds, not four, and the \
-            prefix's communities change (#54 finding 2; m4-15 decides)"]
-fn nodes_without_edges_past_a_sub_round_boundary_change_nothing() {
-    assert!(padded_prefix(5 * 65_536));
-}
-
-/// The order of the communities of a Leiden run with `seed`, ids in order inside each.
-fn hierarchy_order(g: &Lists, seed: u64) -> Vec<u32> {
-    let (c, _) = membership(g, seed);
-    let mut order: Vec<u32> = (0..g.nodes()).collect();
-    order.sort_by_key(|&v| (c[v as usize], v));
-    order
-}
-
-/// Five orders: the hierarchy orders of the runs with seeds 0 to 3, and a random one.
-#[test]
-#[ignore = "fails: Leiden on the ids renumbered by a locality order gives other communities \
-            (#54 finding 3; `compact --order` would change the result; m4-15 decides)"]
-fn a_locality_order_of_the_ids_gives_the_same_communities() {
-    let g = sensitive();
-    let n = g.nodes();
-    let mut rng = SplitMix(5);
-    let mut random: Vec<u32> = (0..n).collect();
-    for i in (1..random.len()).rev() {
-        random.swap(i, rng.below(i as u64 + 1) as usize);
-    }
-    let orders = (0..4).map(|seed| hierarchy_order(&g, seed)).chain([random]);
-    let all = vec![true; n as usize];
-    let mut same = 0;
-    for (k, order) in orders.enumerate() {
-        let mut to = vec![None; n as usize];
-        for (new, &old) in order.iter().enumerate() {
-            to[old as usize] = Some(new as u32);
-        }
-        let renumbered = g.renamed(n, &to);
-        same += usize::from(compare(
-            &format!("order {k}"),
-            (&g, &all),
-            (&renumbered, &to),
-        ));
-    }
-    assert_eq!(same, 5, "orders that keep the communities");
+    .unwrap()
+    .into_inner();
+    assert!(copy.len() < bytes.len(), "compact reclaimed nothing");
+    let after = in_file(&copy, |s| communities(s, Settings::default(), &o));
+    assert_eq!(communities_hash(&first), communities_hash(&after));
 }

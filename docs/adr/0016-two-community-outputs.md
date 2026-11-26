@@ -28,7 +28,9 @@ not serve both: its parents have up to hundreds of thousands of children (eviden
   - Each community of T goes to the group that holds most of its nodes, so the levels nest.
   - When a dataset's map is rebuilt: built above 72, removed below 56, otherwise the
     previous decision is kept (`design/DECISIONS.md`, "The map's super level"). This rule
-    is a heuristic; no prior art was found.
+    is a heuristic; no prior art was found. The previous decision is an input of the
+    build, so a rebuilt map depends on the map before it (D14, ADR 0014,
+    "Reproducibility").
 - **Tails.** A region with more than 64 children keeps its 63 largest children and one
   aggregate. The map draws the aggregate as one hatched area, "+N smaller communities".
 - **Drawing aids.** Aggregates, subdivisions and layout-derived groups are drawing aids.
