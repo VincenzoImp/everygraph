@@ -10,5 +10,33 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+# An extension module does not link to libpython, so no Rust test binary can run; the
+# package is tested from Python (`crates/everygraph-py/tests`, pytest).
+test = false
+doctest = false
+
+[dependencies]
+# The extension decides that threads exist: the core's `parallel` feature (its default).
+everygraph-core = { path = "../everygraph-core" }
+everygraph-format = { path = "../everygraph-format" }
+everygraph-ingest = { path = "../everygraph-ingest", features = ["native"] }
+everygraph-io = { path = "../everygraph-io" }
+everygraph-kernels = { path = "../everygraph-kernels" }
+# One wheel for CPython 3.10 and later (DESIGN D19).
+pyo3 = { version = "0.30", features = ["abi3-py310", "extension-module"] }
+# Results cross into Python through the Arrow C stream interface (D19, #83): the arrays,
+# their FFI structs and the stream; `arrow-select` takes rows (head, top) and joins
+# chunks. No compute kernels.
+arrow-array = { version = "58", default-features = false, features = ["ffi"] }
+arrow-buffer = { version = "58", default-features = false }
+arrow-schema = { version = "58", default-features = false, features = ["ffi"] }
+arrow-select = { version = "58", default-features = false }
+# A numeric column is lent to Arrow without a copy: its segment, owned by a shared
+# result, as `bytes::Bytes::from_owner`.
+bytes = "1.9"
+
 [lints]
 workspace = true
