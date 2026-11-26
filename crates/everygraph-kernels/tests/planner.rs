@@ -897,8 +897,9 @@ fn a_refusal_states_its_arithmetic() {
     let doc = json(&plan.refusal().unwrap().to_json());
     assert_eq!(doc["error"], "InsufficientBudget");
     assert_eq!(doc["arithmetic"]["count"], 7);
-    // 7 × 24 bytes, 12 bytes and one partial value of 8: 188 bytes, 26 a node.
-    assert_eq!(doc["arithmetic"]["bytes_each"], 26);
+    // 7 × 24 bytes, 12 bytes, the roots' offsets (24) and one partial value (8): 212
+    // bytes, 30 a node.
+    assert_eq!(doc["arithmetic"]["bytes_each"], 30);
     assert_eq!(doc["smallest_budget_bytes"], plan.peak_bytes());
     assert_eq!(doc["changed"], Value::Bool(false));
 }
@@ -1040,6 +1041,8 @@ fn twitter_sym_switches_to_a_raw_copy_in_parts_of_one_allocation() {
         max_degree: offsets.windows(2).map(|w| w[1] - w[0]).max().unwrap() as u32,
         directed: false,
         kept: false,
+        held: 0,
+        opened: 0,
     };
     let bfs = Operation::Bfs {
         source: 0,

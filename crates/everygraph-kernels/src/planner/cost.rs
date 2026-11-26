@@ -3,7 +3,10 @@
 //! The cost model: the memory each operation of [`crate::run`] reserves, and its time.
 //!
 //! **Memory** is an upper bound of what the run reserves against its budget, read from
-//! the code of each kernel and of `run::run`, term by term (below). Every per-node
+//! the code of each kernel and of `run::run`, term by term (below), and of what the open
+//! graph file holds beside it ([`Graph::held`](super::Graph::held)). `run`'s operations
+//! read no events column, so `everygraph_ingest::graph::Graph::events` (twice its
+//! section) is not in the bound. Every per-node
 //! array is exact. A frontier is bounded by the nodes it can hold, with the moment its
 //! buffer moves (`SegVec`'s growth keeps the old buffer and the new one). The readers'
 //! buffers are the edge-map framework's decode batches, one per worker. The bound is
@@ -23,7 +26,7 @@ use everygraph_core::{
 use everygraph_format::adjacency::Batch;
 
 use super::{Estimate, Graph, Regime, Tier};
-use crate::edge_map::{FRONTIER_GRAIN, RawCopy, Settings};
+use crate::edge_map::{Error, FRONTIER_GRAIN, RawCopy, Settings};
 use crate::run::{Operation, Precision};
 
 // ---- The constants of the model, with their sources ------------------------------
@@ -133,7 +136,15 @@ impl Cost {
     pub fn of(op: &Operation, graph: &Graph, threads: NonZeroUsize, tier: Tier) -> Self {
         let n = u64::from(graph.nodes);
         let set = node_set_bytes(graph.nodes);
-        let workers = threads.get() as u64;
+        // A reader per task running at once: the tasks of a scan hold `chunk_entries`
+        // entries each but the last, and a frontier runs in pieces of
+        // `FRONTIER_GRAIN` nodes.
+        let tasks = graph.entries / Settings::default().chunk_entries.max(1) + 1;
+        let pieces = match op {
+            Operation::Bfs { .. } | Operation::KCore => n.div_ceil(FRONTIER_GRAIN as u64),
+            _ => 0,
+        };
+        let workers = (threads.get() as u64).min(tasks.max(pieces).max(1));
         let reader = match tier {
             Tier::Compressed => reader_bytes(graph),
             Tier::Raw => 0,
@@ -155,8 +166,19 @@ impl Cost {
             // At numbering, the labels, the sizes by node and the numbers (4 bytes each),
             // and per component a root (8), a size (4) and a count by size (4, up to the
             // largest): `12 c + 4 (largest + 2)`, at most `12 n + 12` since a graph of
-            // `c` components has one of at most `n + 1 - c` nodes.
-            Operation::Components => ("components", Access::Scan, 24, 12, 1, 4 * n),
+            // `c` components has one of at most `n + 1 - c` nodes; and the roots' offsets,
+            // two words per range of 2^14 nodes and one more (`components::number`).
+            Operation::Components => {
+                let ranges = n.div_ceil(1 << 14);
+                (
+                    "components",
+                    Access::Scan,
+                    24,
+                    12 + (2 * ranges + 1) * 8,
+                    1,
+                    4 * n,
+                )
+            }
             // Degrees and core numbers, the sample counters when a list is long enough
             // to sample, and four node sets (`kcore::peel`, `Buckets`). The buckets hold
             // each node once, in vectors that double (2 n ids), while one more list moves
@@ -204,7 +226,13 @@ impl Cost {
             Operation::PageRank { .. } => 2 * size_of::<ExactSum>() as u64,
             _ => 8,
         };
-        let partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * partial;
+        let mut partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * partial;
+        // A frontier driver holds one result per run of `FRONTIER_GRAIN` nodes, and a
+        // frontier holds at most every node.
+        if access == Access::Mixed {
+            let results = n.div_ceil(FRONTIER_GRAIN as u64);
+            partials += results * size_of::<Result<u64, Error>>() as u64;
+        }
         Self {
             phase,
             access,
@@ -242,8 +270,10 @@ fn node_set_bytes(n: u32) -> u64 {
 fn reader_bytes(graph: &Graph) -> u64 {
     // The decoders' slack (`decode.rs`, `SLACK`).
     const SLACK: usize = 3;
-    let usual = Settings::default().batch_entries + SLACK;
-    let longest = usual.max(graph.max_degree as usize + SLACK);
+    // A batch holds no more entries than the graph has.
+    let entries = usize::try_from(graph.entries).unwrap_or(usize::MAX);
+    let usual = Settings::default().batch_entries.min(entries) + SLACK;
+    let longest = usual.max((graph.max_degree as usize).min(entries) + SLACK);
     let lists = (block_nodes(graph.nodes) as usize).max(FRONTIER_GRAIN);
     (Batch::bytes_for(usual, lists) + Batch::bytes_for(longest, lists)) as u64
 }

@@ -228,6 +228,7 @@ pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
             precision: Precision::Low,
         };
         let low = super::cost::Cost::of(&low, &plan.graph, plan.threads, plan.tier).peak();
+        let low = (plan.graph.held + low).max(plan.graph.opened);
         if low <= plan.budget {
             ways.push(Way {
                 command: "--precision low".to_owned(),

@@ -120,6 +120,15 @@ pub struct Graph {
     /// Whether the file serves this operation's result: `run::kept`, the lookup that
     /// `run::execute` serves it by.
     pub kept: bool,
+    /// Bytes the open graph file holds of the same budget for the whole run: its
+    /// adjacency indexes, which `everygraph_ingest::graph::Graph` keeps reserved. `of`
+    /// sets the heap of the index it reads; a directed graph's caller adds its
+    /// in-adjacency's.
+    pub held: u64,
+    /// The most the budget held while the file was opened: `Graph::open` reads an index
+    /// section whole and parses it, three times its length. A smallest budget below it
+    /// cannot open the graph. 0 when the caller does not count the opening.
+    pub opened: u64,
 }
 
 impl Graph {
@@ -138,6 +147,8 @@ impl Graph {
             max_degree: index.degrees(0..n).max().unwrap_or(0),
             directed: false,
             kept: false,
+            held: u64::try_from(index.heap_bytes()).unwrap_or(u64::MAX),
+            opened: 0,
         }
     }
 }
@@ -365,7 +376,10 @@ fn choose(
         None => {
             let wanted = traverses(op)
                 && (usable.is_some() || request.traversals_before >= break_even(threads));
-            if wanted && cost::raw_fits(graph) && cost::fits_with_margin(raw.peak(), budget) {
+            if wanted
+                && cost::raw_fits(graph)
+                && cost::fits_with_margin(graph.held + raw.peak(), budget)
+            {
                 Tier::Raw
             } else {
                 Tier::Compressed
@@ -374,8 +388,9 @@ fn choose(
     };
     let cost = if tier == Tier::Raw { raw } else { compressed };
     let build_raw = tier == Tier::Raw && usable.is_none() && !graph.kept;
-    // A kept result is read into the budget instead of computed.
-    let own = if graph.kept { cost.output } else { cost.peak() };
+    // A kept result is read into the budget instead of computed; the open file holds its
+    // indexes beside either.
+    let own = graph.held + if graph.kept { cost.output } else { cost.peak() };
     // A copy the session holds counts beside the run, unless it is the run's own tier;
     // when it does not fit beside it, or is of another graph, the run drops it first.
     let (peak, drop_raw) = match request.held {
@@ -384,6 +399,7 @@ fn choose(
         Some(h) if h.usable && own.saturating_add(h.bytes) <= budget => (own + h.bytes, false),
         Some(_) => (own, true),
     };
+    let peak = peak.max(graph.opened);
 
     // The raw copy is in memory, and the kernel does not read the map.
     let room = budget.saturating_sub(peak);
