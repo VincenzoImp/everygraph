@@ -358,6 +358,9 @@ impl Graph {
     pub fn comp(&self) -> Option<&crate::store::Comp> {
         self.comp.as_ref()
     }
+    pub fn comp_mut(&mut self) -> Option<&mut crate::store::Comp> {
+        self.comp.as_mut()
+    }
     #[inline(always)]
     pub fn off(&self) -> &[u64] {
         assert!(self.comp.is_none(), "no raw offsets on a compressed graph");

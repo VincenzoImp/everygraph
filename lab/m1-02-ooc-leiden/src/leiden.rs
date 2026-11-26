@@ -994,6 +994,9 @@ fn diskstats() -> (u64, u64) {
     }
     (r, w)
 }
+/// m1-15: `--advise random-lm`: MADV_RANDOM on the level-0 map for local moving and
+/// refinement, back to MADV_NORMAL for the aggregation scan.
+static PHASE_ADVICE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn io_read_bytes() -> u64 {
     diskstats().0
 }
@@ -1185,6 +1188,15 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         st.t_ref = t1.elapsed().as_secs_f64();
         st.io_lm_read = io_read_bytes() - io_p0;
         st.io_lm_read_self = proc_io("read_bytes:") - io_p0_self;
+        if let Some(c) = g.comp() {
+            // m1-15: the random-access phases of the level are over; aggregation scans
+            if let Some(bc) = &c.cache {
+                bc.release();
+            }
+            if PHASE_ADVICE.load(Relaxed) {
+                c.advise(memmap2::Advice::Normal);
+            }
+        }
         if o.ooc {
             for t in tls.iter() {
                 t.lock().unwrap().tab = Tab::new(); // the aggregation's own tables come next
@@ -1718,7 +1730,7 @@ pub fn main_leiden(args: Vec<String>) {
     let mem = get("--mem").unwrap_or_else(|| "mmap".into());
     let t_load = Instant::now();
     // raw + mmap is the lab loader (lab/b2-leiden); the other combinations are new in this experiment
-    let g0 = pool.install(|| match (config.as_str(), mem.as_str()) {
+    let mut g0 = pool.install(|| match (config.as_str(), mem.as_str()) {
         ("raw", "mmap") => Graph::load(&gdir, !has("--no-populate")),
         ("raw", "heap") => Graph::from_raw(crate::adj::Raw::load(std::path::Path::new(&gdir), crate::adj::Mem::Heap).expect("load raw")),
         ("comp", m) => Graph::from_comp(crate::store::Comp::open(std::path::Path::new(&get("--store").expect("--store DIR")), crate::adj::Mem::parse(m)).expect("open store")),
@@ -1729,12 +1741,24 @@ pub fn main_leiden(args: Vec<String>) {
         (c, m) => panic!("bad --config {c} / --mem {m}"),
     });
     let load_s = t_load.elapsed().as_secs_f64();
+    // m1-15: --cache-gb G reads level-0 records through a budgeted block cache
+    // (frames of --cache-frame-kb, default 16; O_DIRECT unless --cache-buffered)
+    if let Some(gb) = get("--cache-gb") {
+        let frame = get("--cache-frame-kb").map(|s| s.parse::<usize>().expect("--cache-frame-kb")).unwrap_or(16) << 10;
+        let bytes = (gb.parse::<f64>().expect("--cache-gb") * (1u64 << 30) as f64) as u64;
+        let path = std::path::Path::new(&get("--store").expect("--cache-gb needs --store")).join("adj.bin");
+        let c = g0.comp_mut().expect("--cache-gb needs --config comp");
+        c.cache = Some(crate::bcache::BlockCache::open(&path, bytes, frame, !has("--cache-buffered")).expect("block cache"));
+    }
     // m1-02: the level-0 graph in the accountant (anonymous if read into the heap, else file-backed)
     let _r_g0: Vec<Res> = match g0.comp() {
         Some(c) => {
             if let Some(a) = get("--advise") {
+                if a == "random-lm" {
+                    PHASE_ADVICE.store(true, Relaxed);
+                }
                 c.advise(match a.as_str() {
-                    "random" => memmap2::Advice::Random,
+                    "random" | "random-lm" => memmap2::Advice::Random,
                     "sequential" => memmap2::Advice::Sequential,
                     "normal" => memmap2::Advice::Normal,
                     x => panic!("bad --advise {x}"),
@@ -1961,7 +1985,10 @@ pub fn main_leiden(args: Vec<String>) {
         h & ((1u64 << 53) - 1)
     );
     // m1-02: valid JSON for the harness (the lab printed NaN for values not computed)
-    let json = json.replace(":NaN", ":null").replace(":inf", ":null");
+    let mut json = json.replace(":NaN", ":null").replace(":inf", ":null");
+    if let Some(bc) = g0.comp().and_then(|c| c.cache.as_ref()) {
+        json = format!("{},\"block_cache\":{}}}", &json[..json.len() - 1], bc.report());
+    }
     println!("{}", json);
     if let Some(p) = get("--json") {
         use std::io::Write;

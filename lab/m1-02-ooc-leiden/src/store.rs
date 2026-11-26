@@ -134,12 +134,14 @@ pub struct CompCur {
     starts: Vec<u32>,
     /// m1-02: weights of the list in buf (weighted stores)
     wbuf: Vec<u32>,
+    /// m1-15: the record bytes of one list, copied out of the block cache
+    cbytes: Vec<u8>,
 }
 thread_local! { static POOL: std::cell::RefCell<Vec<(Vec<u32>, Vec<u32>)>> = const { std::cell::RefCell::new(Vec::new()) }; }
 impl CompCur {
     pub fn new() -> CompCur {
         let (buf, starts) = POOL.try_with(|p| p.borrow_mut().pop()).ok().flatten().unwrap_or_default();
-        CompCur { buf, src: 0, last: usize::MAX, len: 0, starts, wbuf: Vec::new() }
+        CompCur { buf, src: 0, last: usize::MAX, len: 0, starts, wbuf: Vec::new(), cbytes: Vec::new() }
     }
     /// m1-02: length of the cached list.
     #[inline(always)]
@@ -197,6 +199,8 @@ pub struct Comp {
     pub max_deg: usize,
     /// m1-02: the largest degrees, descending (up to 64; empty = unknown, use max_deg)
     pub top_degs: Vec<u32>,
+    /// m1-15: when set, `deg` and `nbrs` read records through this cache, not the mapping
+    pub cache: Option<crate::bcache::BlockCache>,
 }
 unsafe impl Send for Comp {}
 unsafe impl Sync for Comp {}
@@ -273,7 +277,7 @@ impl Comp {
         let ef_s = t.elapsed().as_secs_f64();
         let data = Buf::Vec(data);
         let dp = data.as_ptr();
-        (Comp { n, entries, data, data_len: total, boff, chunks, eoff: None, dp, weighted: false, max_deg: 0, top_degs: Vec::new() }, EncodeStats { encode_s, concat_s, ef_s })
+        (Comp { n, entries, data, data_len: total, boff, chunks, eoff: None, dp, weighted: false, max_deg: 0, top_degs: Vec::new(), cache: None }, EncodeStats { encode_s, concat_s, ef_s })
     }
 
     pub fn from_raw(g: &Raw) -> (Comp, EncodeStats) {
@@ -326,7 +330,7 @@ impl Comp {
         let dp = data.as_ptr();
         let weighted = meta["weighted"].as_bool().unwrap_or(false);
         let max_deg = meta["max_deg"].as_u64().unwrap_or(0) as usize;
-        let mut c = Comp { n, entries, data, data_len, boff, chunks, eoff: None, dp, weighted, max_deg, top_degs: Vec::new() };
+        let mut c = Comp { n, entries, data, data_len, boff, chunks, eoff: None, dp, weighted, max_deg, top_degs: Vec::new(), cache: None };
         if DEG_INDEX.load(Relaxed) {
             c.build_degree_index();
         }
@@ -469,6 +473,15 @@ impl Adj for Comp {
             let (a, b) = e.get2(v);
             return (b - a) as usize;
         }
+        if let Some(bc) = self.cache.as_ref().filter(|b| b.on()) {
+            let a = self.boff.get(v);
+            let b = self.boff.get(v + 1).min(a + 10);
+            let mut t = Vec::with_capacity(16);
+            bc.read_into(a, b, &mut t);
+            t.resize(16, 0);
+            let mut pos = 0;
+            return unsafe { get_varint(t.as_ptr(), &mut pos) };
+        }
         let mut pos = self.boff.get(v) as usize;
         unsafe { get_varint(self.dptr(), &mut pos) }
     }
@@ -478,8 +491,17 @@ impl Adj for Comp {
             return unsafe { c.buf.get_unchecked(..c.len) };
         }
         let mut pos = self.boff.get(v) as usize;
+        let cached = self.cache.as_ref().filter(|b| b.on());
+        if let Some(bc) = cached {
+            // the decoder may read up to 64 bytes past a record (adj.bin carries the same padding)
+            c.cbytes.clear();
+            bc.read_into(pos as u64, self.boff.get(v + 1), &mut c.cbytes);
+            let len = c.cbytes.len();
+            c.cbytes.resize(len + 64, 0);
+            pos = 0;
+        }
         unsafe {
-            let d = self.dptr();
+            let d = if cached.is_some() { c.cbytes.as_ptr() } else { self.dptr() };
             let deg = get_varint(d, &mut pos);
             if deg > 0 {
                 let out = c.reserve(deg);
@@ -786,7 +808,7 @@ impl StoreWriter {
             std::fs::remove_file(&self.path)?;
         }
         let dp = data.as_ptr();
-        Ok(Comp { n: self.n, entries: self.entries as usize, data, data_len, boff, chunks, eoff: None, dp, weighted: self.weighted, max_deg, top_degs })
+        Ok(Comp { n: self.n, entries: self.entries as usize, data, data_len, boff, chunks, eoff: None, dp, weighted: self.weighted, max_deg, top_degs, cache: None })
     }
     /// For a store meant to be reopened with `Comp::open`: writes boff.ef, blocks.u32 and meta.json
     /// next to adj.bin (the writer's file must be `dir/adj.bin`).
