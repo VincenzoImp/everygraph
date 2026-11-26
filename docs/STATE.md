@@ -43,7 +43,7 @@ Tell the owner when each becomes due, with everything prepared.
   commits made by agents under the owner's account, then set the repository variable
   `DCO_ALL_PULL_REQUESTS=true`.
 - Accounts with 2FA on PyPI, crates.io and npm — at the first release.
-- **Publication (owner's decision, 2026-11-25; within hours, commit email exposure accepted; secrets scan of the whole history clean; the November private Actions quota is nearly spent, so CI may pause until then):** the owner runs `gh repo edit VincenzoImp/everygraph --visibility public --accept-visibility-change-consequences`. Then Claude enables private vulnerability reporting, sets `DCO_ALL_PULL_REQUESTS=true` after the owner authorizes sign-offs, and keeps CI on GitHub-hosted runners (free once public). GitHub Actions: no spending.
+- **Published 2026-11-26 ~00:40:** the owner made the repository public; private vulnerability reporting enabled by Claude. CI minutes are free from now on. Still to do: `DCO_ALL_PULL_REQUESTS=true` once the owner authorizes sign-offs; name placeholders being published by the owner from his Mac (crates `everygraph`, `everygraph-cli`; PyPI and npm `everygraph`) — verify on the registries, then delete `/home/tux/graphlab/name-reservation` and `everygraph-names.tgz`.
 - Package names: placeholders ready in `/home/tux/graphlab/name-reservation` (crates `everygraph`, `everygraph-cli`; PyPI `everygraph`; npm `everygraph`); publishing needs the owner's accounts with 2FA — all four names were free on 2026-11-25.
 - A trademark and patent professional (#122) — before anything is public.
 
