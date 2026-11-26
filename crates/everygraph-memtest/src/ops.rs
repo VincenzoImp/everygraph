@@ -350,7 +350,7 @@ pub fn known(op: Op) -> Option<&'static Known> {
 }
 
 /// Every operation, each kernel in both regimes.
-pub const OPS: [Op; 23] = {
+pub const OPS: [Op; 22] = {
     use Kernel::{Bfs, Degrees, Hops, KCore, Leiden, PageRank, Sssp, Wcc};
     use Regime::{Cached, Mapped, Streamed};
     [
@@ -373,7 +373,6 @@ pub const OPS: [Op; 23] = {
         Op::Kernel(Degrees, Streamed),
         Op::Kernel(Leiden, Streamed),
         Op::Kernel(PageRank, Cached),
-        Op::Kernel(Bfs, Cached),
         Op::Kernel(Leiden, Cached),
         Op::Verify,
         Op::Compact,

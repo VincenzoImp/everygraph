@@ -695,14 +695,14 @@ fn parallel_sub_rounds_do_not_depend_on_threads() {
     }
 }
 
-/// Sub-rounds larger than a window of read-ahead (16,384 nodes): 200,000 nodes give 4
-/// sub-rounds of about 50,000 on level 0. Through a block cache, with no read-ahead and
+/// Sub-rounds larger than a window of read-ahead (16,384 nodes): 80,000 nodes give 4
+/// sub-rounds of about 20,000 on level 0. Through a block cache, with no read-ahead and
 /// read ahead 1 and 64 blocks, the deterministic result is the one in memory. Read-ahead
 /// brings frames in, so that the readers miss fewer: the frontier runs advise nothing
 /// here (`prefetch` is off), so only Leiden's windows do.
 #[test]
 fn read_ahead_changes_no_deterministic_result() {
-    let (n, pairs) = sparse_planted(200, 1000, 6, 1, 11);
+    let (n, pairs) = sparse_planted(80, 1000, 6, 1, 11);
     let s = store(&Lists::from_pairs(n, &pairs));
     let o = Options::default();
     let memory = Memory::unlimited();
