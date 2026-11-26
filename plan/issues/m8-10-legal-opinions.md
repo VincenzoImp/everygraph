@@ -9,6 +9,8 @@ labels: type:decision, area:launch, P1, risk:high, size:S
 - [ ] Trademark: once the final name is chosen, a clearance search in the US, EU and UK (classes 9 and 42) by a professional, and a filing if advised
 - [ ] Patents: the questions listed at the end of `docs/legal/patent-check.md`, put to a patent attorney with the tile-format specification in hand
 - [ ] Record the answers and any resulting design change as an ADR
+- [ ] Taken over from {{#m0-09-name-trademark}}: reserve with the owner the domains `everygraph.dev` and `everygraph.org` (both appeared unregistered on 2026-11-25; `.com` is parked by someone else), a GitHub organization (`everygraph` is taken; candidates `everygraph-dev`, `everygraph-project`) and the npm scope `@everygraph`
+- [ ] Taken over from {{#m0-09-name-trademark}}: re-check the status of US serial 50223142 at every milestone and record it in `docs/legal/name-check.md`
 
 **Acceptance**
 - Written answers on file, or the opinions skipped with the reason written down; the release checklist ({{#m8-08-release}}) has the box "legal opinions recorded or skipped with the reason" ticked

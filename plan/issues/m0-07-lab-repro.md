@@ -5,6 +5,8 @@ labels: type:infra, area:bench, P1, risk:low, size:M, lab-evidence
 ---
 **Why.** The evidence behind the design lives in eight lab prototypes whose `bench.sh` scripts were written under time pressure: B2's takes the lab lock itself (it deadlocked a wrapped re-run), C's and F2's were never run end to end, B1's Friendster half was only run piecewise, and several agents could not write their `REPORT.md`.
 
+**Not needed any more (2026-11-26).** The lab prototypes are frozen once their production counterpart lands (CLAUDE.md § 6), so they are not ported to benchmark specs. Numbers are published from product code by {{#m8-03-public-benchmarks}}, from official runs; every number already in DESIGN § 2 and § 6 names its result file. The first lab's shared-machine numbers stay in `docs/FINDINGS.md` with their label. This issue is closed without the boxes below.
+
 **Scope**
 - [ ] Port each lab `bench.sh` to an `everygraph-bench` spec ({{#m0-03-bench-harness}}); remove all per-script locking
 - [ ] Replace absolute `/home/tux/graphlab` paths with a configurable data root

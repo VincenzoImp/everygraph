@@ -15,5 +15,6 @@ Tracking issue for milestone M7.
 - [ ] {{#m7-06-duckdb-arrow}}; optional {{#m7-07-distance-index}}
 - [ ] On the map: live mode {{#m5-08-live-mode}}; optional overlays {{#m5-13-attribute-overlays}} (both need the viewer from M5)
 - [ ] Neighbours < 1.5 µs p99 in RAM and < 0.3 ms p50 cold; shortest path p50 < 2 ms in RAM on twitter-2010
+- [ ] Milestone close (CLAUDE.md § 6, § 10): the dogfood pass, the cleanup and test audit, the official measurement window, and the report `docs/reports/M7.md`. Its issues are filed when the last P0 of the milestone starts
 
 **Not in v0.1:** a query language (see {{#m9-03-gql-subset}}).

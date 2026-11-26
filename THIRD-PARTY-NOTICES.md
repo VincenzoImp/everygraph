@@ -8,15 +8,15 @@ checked by `cargo deny check` against `deny.toml`.
 None of these files is part of a crate, so none of them ends up in a build of the
 engine.
 
-## Fonts of the design previews
+## Fonts of the design system
 
-Used by the HTML mockups under `design/preview/`, through
-`design/preview/style/assets/fonts.css`. Unmodified.
+Shipped with the design system (`design/system/`) and used by the previews under
+`design/preview/`, through `design/system/fonts.css`. Unmodified.
 
 | Files | Font | Copyright | Licence | Licence text |
 |---|---|---|---|---|
-| `design/preview/style/assets/fonts/InterVariable.woff2`, `InterVariable-Italic.woff2` | Inter | 2016 The Inter Project Authors (<https://github.com/rsms/inter>) | SIL Open Font License 1.1 (`OFL-1.1`) | `design/preview/style/assets/fonts/Inter-LICENSE.txt` |
-| `design/preview/style/assets/fonts/JetBrainsMono-Regular.woff2`, `-Medium`, `-Bold`, `-Italic` | JetBrains Mono | 2020 The JetBrains Mono Project Authors (<https://github.com/JetBrains/JetBrainsMono>) | SIL Open Font License 1.1 (`OFL-1.1`) | `design/preview/style/assets/fonts/JetBrainsMono-OFL.txt` |
+| `design/system/fonts/InterVariable.woff2`, `InterVariable-Italic.woff2` | Inter | 2016 The Inter Project Authors (<https://github.com/rsms/inter>) | SIL Open Font License 1.1 (`OFL-1.1`) | `design/system/fonts/Inter-LICENSE.txt` |
+| `design/system/fonts/JetBrainsMono-Regular.woff2`, `-Medium`, `-Bold`, `-Italic` | JetBrains Mono | 2020 The JetBrains Mono Project Authors (<https://github.com/JetBrains/JetBrainsMono>) | SIL Open Font License 1.1 (`OFL-1.1`) | `design/system/fonts/JetBrainsMono-OFL.txt` |
 
 The OFL allows the fonts to be used, embedded and redistributed with other software,
 provided that the licence text travels with them and the fonts are not sold on their

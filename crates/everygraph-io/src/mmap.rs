@@ -168,12 +168,6 @@ impl MmapSource {
     pub fn mapped(&self) -> &[u8] {
         self.map.as_deref().unwrap_or_default()
     }
-
-    /// Where the mapped bytes start in the file.
-    #[must_use]
-    pub const fn mapped_offset(&self) -> u64 {
-        self.start
-    }
 }
 
 impl ByteSource for MmapSource {

@@ -19,6 +19,8 @@ BP is too slow for the ingest path: 149 min on Twitter-sym in the paper, about 3
 - On the graphs of {{#m1-09-hierarchy-order}}, bits/entry and reorder time reported against that experiment's prototype
 - Never run by the ingest unless asked for
 
+**Decided after m1-09 (#23, PR #241, exploratory, `lab/m1-09-hierarchy-order/results/README.md`).** The default storage order stays the input order; random ids are never used. `compact --order` offers two orders: the Leiden-hierarchy DFS (−12% to −17% bits on lj, orkut, Friendster; +8% to +12% on twitter-sym, whose input ids are already good) and seeded BP (−8% to −16%, the only one that helps twitter-sym; 74 s lj, 282 s orkut, 9,714 s twitter-sym — budget its time, the top levels dominate). Each is applied only when its log-gap cost is lower than the input's (log-gap cost correlates 0.998–1.000 with our bits). Never inside the ingest. Judge BP against the hierarchy DFS, not the input order.
+
 **Pointers.** `docs/research/sota-storage.md` § 2 (ordering table), § 4 challenge 1, § 5; Mackenzie, Petri, Moffat, SIGIR 2021.
 
 **Depends on** {{#m1-09-hierarchy-order}}, {{#m2-08-csr-build}}

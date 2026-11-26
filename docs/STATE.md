@@ -1,109 +1,114 @@
 # State of the project
 
-Updated at the end of every session. Read this first.
+Read this first. It says where the project is now; it is not a journal. At the end of a
+session, replace what is no longer true.
 
-## Where we are (2026-11-24)
+## Where we are (2026-11-26)
 
-- **Phase:** preparation complete; no production code yet. Next milestone: M0.
-- **Plan:** 118 issues in 10 milestones on GitHub (`VincenzoImp/everygraph`, private),
-  board `users/VincenzoImp/projects/7`. Source of truth: `plan/issues/*.md`.
-- **Evidence:** first feasibility lab done; results in `docs/FINDINGS.md`, raw result
-  files in `lab/*/results`, prototypes in `lab/`.
-- **Owner's standing instructions:** every decision is delegated (2026-11-24); the owner
-  helps where hands are needed (2FA, credentials, payments). Keep the machine clean;
-  coordinate subagents. Safeguards Claude keeps: CLAUDE.md § 8. The owner wants to see
-  previews of everything that is a matter of taste before it is built (`design/preview/`).
+- **The repository** is public (`VincenzoImp/everygraph`). The board is
+  `users/VincenzoImp/projects/7`. Every commit is signed off; the DCO check runs on every
+  pull request.
+- **The plan** is `plan/issues/*.md`: 169 issue files in 10 milestones, 43 closed. The
+  order of work and the critical path are in `docs/ROADMAP.md`.
+- **The product** so far: the `.eg` container, the compressed adjacency and the property
+  columns; the I/O layer and the memory accountant; the text reader, the identifier
+  dictionary and the graph build; the edge-map framework with PageRank, BFS, SSSP,
+  components, core numbers and degrees; `everygraph ingest`, `verify`, `run`, `info`,
+  `export` and `compact`; a first slice of the Python package. Nothing is released.
+- **Milestones.**
+  - M0: done, but for two issues to close by hand (#8 dropped, #10 merged into #122).
+  - M1: 11 experiments closed, 11 open.
+  - M2: 16 closed. Open and P0: the build carrying columns (#246), the allocator policy
+    (#167), the Parquet reader (#33).
+  - M3: the kernels are merged. Open and P0: the planner (#45), the semi-external source
+    (#46), the no-OOM and determinism checks in CI (#53, #54).
+  - M4: production Leiden is in review (#57).
+  - M5–M8: not started, except the design system (#121) and the first command-line slice.
+- **Decisions in force** are in `docs/DESIGN.md` and `docs/adr/`; user-facing choices in
+  `design/DECISIONS.md`.
 
 ## In flight
 
-As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6).
+Open pull requests:
 
-**Merged on the night of 25–26 November (23 PRs):** ADR 0028 pairs + `.events` (#184); research wave 2 plan (#185); `.eg` container (#170, closes #28); dictionary memory (#203; #34 closed with the official build-500m, 76.4 s under 5 GiB); docs consistency (#206); safe parallel scatter (#201, closes #189); edge-map framework (#202, #44 open: compressed official rows and WCC overhead); Leiden sub-round lab (#208); core numerics (#210, closes #187, #188); sweep 1 (#211); verify + fault injection + fuzz CI (#212, #41/#190/#191 open for items that need later issues); property columns (#213, closes #37); MSRV 1.100 (#214); build text → `.eg` and `everygraph ingest` (#215, #35 open for speed); results in the graph file, range maps, one writer (#216, closes #39, #204, #205); LDBC oracle (#217, closes #177); mmap hints lab (#221); ADR 0029 proposed (#222); edge-map spec fix (#224); hierarchy shaping (#225, closes #19); PageRank family + BFS/SSSP (#220, #47/#49 open for official numbers); CI Miri limit (#227); sweep 2 (#228).
+| PR | Issue | What |
+|---|---|---|
+| #232 | #57 | Production Leiden on the edge-map framework |
+| #236 | #200 | M2 cleanup: product code size |
+| #239 | #38 | In-adjacency for directed graphs |
+| #244 | #121 | Design system as shared assets |
+| #245 | #193 | cargo-mutants on pull-request diffs |
+| #249 | #45 | Planner |
 
-**Open PRs:**
-- #229 Python slice (#81): #218 and #219 merged 07:55; author finishing, then review.
+Agents with a scratch directory and no pull request yet: edge rendering (#20), layout area
+(#21), the semi-external source (#46), the reference runs (#55).
 
-**Agents running:** production Leiden (#57), Louvain collapse (#17), ordering bake-off (#23), layout baseline (#175), CLI (#98, moving to clap, will reuse `everygraph_ingest::native` from #229).
+To close on GitHub by hand, because the plan merged or dropped them and no pull request
+closes them: #8 (dropped), #10 (into #122), #59 (into the M4 performance pass, after
+#232), #98 (into #247), then the M0 epic #1.
 
-**ADR 0017 amended (PR #234, #175 closed):** disc packing kept; stress solve per parent adopted for m5-01; claim narrowed (distance between large regions means little); re-decision trigger is now NP@10 per level, ground-truth 10-NN, Spearman and top-region edge length against DRGraph.
-
-**#17 answered (PR #235):** the async Louvain collapse is concurrent moves of heavy coarse vertices; the fast mode ships in #57 only with the heavy-vertex rule (k_u > 0.001·2m visited by one thread after the parallel sweep). FINDINGS § M1-03.
-
-**Merged after 07:45:** #219 page backend (part of #167), #218 components + k-core + degrees (#48/#50 open for official speed). **Next:** in-adjacency (#38) then SCC (m3-20); #229 out of draft after #218; m2-31 (#200) code-size half with per-crate targets (sweep 2: format 2,706 → 9,453, ingest 10,584 → 14,171, core 3,640 → 6,079 src lines); the second measurement window.
-
-**Decided by the coordinator tonight (records in DECISIONS, ADRs or issue files):** S1 lost-generation warning in `verify` (exit 0, `--strict` 5); dictionary dense form chosen from the data only, never the budget; `find_result` reads key and provenance only; MSRV 1.100 for a safe page backend; arrow-rs in the py crate with three deny exceptions; clap for the CLI; window splitting; merge order #220 before #218.
+Next, when these merge: strong components (#223) after #239; the build's columns (#246);
+out-of-core Leiden (#60) after #232 and #46; the M3 close (`m3-23-milestone-close`).
 
 ## Measurement queue
 
-Rule since 2026-11-26 (owner): official runs only when a number is published — once per milestone and before README/DESIGN/paper/release numbers (CLAUDE.md § 6). Issues close on tests plus labelled exploratory evidence; missed speed targets go to the milestone performance pass (M3: #240). The per-issue official commands are kept in each PR body and in the issue files; the M3 window will run the smallest set that answers the M3 exit criteria.
+Official runs happen once per milestone and before a number is published (CLAUDE.md § 6).
+Issues close on tests plus labelled exploratory evidence. Missed speed targets go to the
+milestone's performance pass (M2 and M3: #240). The official commands of each issue are in
+its pull request and its issue file. The M3 window runs the smallest set that answers the
+M3 exit criteria.
 
-## Needs the owner's hands (nothing here blocks development)
+## Needs the owner's hands
 
-Tell the owner when each becomes due, with everything prepared.
+Nothing here blocks development today. Tell the owner when each becomes due, with
+everything prepared.
 
-- At publication: enable GitHub private vulnerability reporting; authorize `Signed-off-by` on
-  commits made by agents under the owner's account, then set the repository variable
-  `DCO_ALL_PULL_REQUESTS=true`.
-- Accounts with 2FA on PyPI, crates.io and npm — at the first release.
-- **Published 2026-11-26 ~00:40:** the owner made the repository public; private vulnerability reporting enabled by Claude. CI minutes are free from now on. Sign-offs authorized by the owner 2026-11-26 (agents sign `Signed-off-by` with his identity); `DCO_ALL_PULL_REQUESTS=true` set; names reserved 2026-11-26 by the owner from his Mac, verified on the registries: crates `everygraph` and `everygraph-cli` 0.0.0, PyPI `everygraph` 0.0.0, npm `everygraph` (listed as 0.0.0-stage) (placeholders, no code); local copies deleted.
-- Package names: placeholders ready in `/home/tux/graphlab/name-reservation` (crates `everygraph`, `everygraph-cli`; PyPI `everygraph`; npm `everygraph`); publishing needs the owner's accounts with 2FA — all four names were free on 2026-11-25.
-- A trademark and patent professional (#122) — before anything is public.
+- **Accounts with 2FA** on PyPI, crates.io and npm, at the first release. The names are
+  reserved as 0.0.0 placeholders (crates `everygraph` and `everygraph-cli`, PyPI
+  `everygraph`, npm `everygraph`).
+- **Domains, a GitHub organization and the npm scope** `@everygraph` (#122).
+- **A trademark and patent professional** (#122): advisable before the first release, not
+  a blocker (`design/DECISIONS.md`, "When the repository becomes public").
+- **Hardware this host does not have:** a laptop with an integrated GPU and an Apple
+  laptop with Safari for #26, which the viewer's frame budgets wait for; a 16 GB laptop
+  for the public benchmarks (#100).
+- **People:** three to five users for the edge tasks of #20 and the usability check of
+  #72; three to five screen-reader users for #197; outside reviewers before the release
+  (#105).
+- **A decision on CI runners:** see "Open questions for the owner".
 
-## Lessons (append, never delete)
+## Open questions for the owner
 
-- 2026-11-25 — The name was chosen after checking package registries only; a trademark
-  application for the identical name had been filed a week earlier. Screen trademark
-  registers (USPTO via TSDR, TMview through a headless browser) before proposing any name.
+- CI runs on GitHub-hosted runners, which cost nothing for a public repository. Four
+  issues (#53, #54, #55, #77) ask for nightly jobs on a self-hosted runner on this host.
+  No runner is registered, and no issue owns setting one up. A self-hosted runner on a
+  public repository runs the code of any pull request on a host with a public IP, so it
+  must take jobs from `main` and schedules only.
+- Is Graphalytics eligibility (#209) a gate of the 0.1 release, or a goal beside it? The
+  plan treats it as a goal beside it: the release (#105) does not depend on #209.
 
-- 2026-11-25 — A colour palette chosen by eye failed measurement (two pairs invisible to
-  colour-blind readers, one colour equal to the accent). Measure palettes and contrast.
-- 2026-11-25 — Text that looked fine in Markdown broke when typeset (lines over 80 columns,
-  one word with two meanings). Typeset user-facing text before calling it done.
+## Lessons that still change behaviour
 
-- 2026-11-24 — Timings taken while eight experiments shared the machine were off by up to
-  2–3× in comparisons (GVE) and hid real effects (SMT). Idle machine only.
-- 2026-11-24 — A baseline labelled "triangles" was NetworKit's local clustering
-  coefficient in non-turbo mode. Read what the reference actually runs.
-- 2026-11-24 — "Out of core costs 10–35%" generalized one kernel; components were 10×.
-- 2026-11-24 — Headline numbers were measured on uncompressed arrays while the design
-  makes compressed storage the default. Measure the configuration you will ship (#118).
-- 2026-11-24 — `pkill -f`/`kill $(pgrep -f …)` killed the calling shell twice and another
-  experiment's processes once. PIDs only.
-- 2026-11-24 — Wrapping a script that takes `flock` in the same lock deadlocked silently.
-- 2026-11-24 — Subagents cannot write `.md` report files; one bypassed the block through
-  the shell. Reports come back as text and the coordinator records them.
-- 2026-11-24 — The short name `eg` is taken on PyPI, crates.io and npm.
-- 2026-11-24 — Effort estimates quoted without adding them up were 30% too low.
-- 2026-11-25 — An oracle reference run (`--jobs 6`, no limit) reached 61.5 GB resident,
-  the host swapped 25 GB (other people's services included) and experiment #118 had to
-  discard its rows and restart. Cause of the damage: the brief said "no benchmarks" but set
-  no memory limit. Now a rule (CLAUDE.md § 7): every data-loading run under `MemoryMax`,
-  and the limit is stated in each brief.
-- 2026-11-25 — An agent that owned the machine died on a server error after its
-  benchmark had finished; nothing else was allowed to run and 2.5 hours were lost. When one
-  agent holds the machine, the coordinator schedules a fallback wake-up to check that the
-  holder is still alive, and long runs write a `done` line the coordinator can see.
-- 2026-11-25 — The coordinator merged PR #138 with five CI jobs still pending (two green). Merge only on a green CI, read with `gh pr checks` immediately before `gh pr merge`; `gh pr merge --auto` can wait for it.
-- 2026-11-25 — Experiment reports overstate in predictable places (a check that cannot fail counted as evidence; a memory peak attributed to the wrong phase). An independent review of lab PRs catches these before they reach FINDINGS; keep it even for lab code.
-- 2026-11-25: `setsid nohup … & echo $!` can print the PID of a `setsid` that forked and exited at once, so a script waiting on that PID went ahead and two official runs started together; the harness lock refused the second. Chain official runs in one script, or wait on the PID of the real process (`pgrep -f <script path>`), never on `$!` of `setsid`.
+Lessons that became rules are in CLAUDE.md and are not repeated here.
 
-- 2026-11-26 02:54 self-check: the main slowdown tonight is serial review rounds on product PRs (author waits for review, reviewer waits for CI, author waits for review again; #170 took three rounds). Mitigation: send both reviews' findings to the author in one message, and skip a further round when no must-fix touches correctness. Second cause: a commit without Signed-off-by after the DCO check was turned on; agents now get the sign-off rule in their brief.
-- 2026-11-26 03:54 self-check: load average 45 on 32 hardware threads with about nine code agents (kernels ×2, allocator, results cache, columns fixes, verify fixes, mmap experiment, LDBC, one review). CPU, not the network, is now the limit: more compiling agents would slow all of them. Rule of thumb for this machine: at most about 8 agents that compile at once (with `CARGO_BUILD_JOBS=6`), research and reviews on top.
-- 2026-11-26 05:15: a 2.5-hour window idles every code agent (seven had their fixes written and waited to compile). Split long windows: run the short official cases first, let agents build and push, then run the long ones (det-leiden, mmap-hints) in a second window when few agents compile.
-- 2026-11-26 05:54 self-check: after the window the machine fell to load 1.6 with four authors waiting on CI and two new agents starting — idle capacity again. Cause: every stream had reached a CI or review wait at once. Mitigation: keep a queue of ready experiments (M1 issues that need no merge) to start whenever load drops; started #23 and #175.
-- 2026-11-26 08:40: a spec rule added in a late review round (index flag bit 1 `events`, second review of PR #184) never reached `verify` (PR #212, written in parallel): it ignored the flag and called every graph with repeated pairs damaged (the build was right; fixed in PR #237). Neither review caught it because no test ran the build's output through `verify`. Rule: every writer's tests open their own output with the strictest reader (`verify --deep`); when a spec changes, the coordinator lists the open PRs that implement it and sends them the change.
-## Journal
-
-- **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner
-  keeps it. Model policy: Opus by default, Fable by escalation. Wave 2 launched (#3, #5, #6, #9).
-- **2026-11-25 (later)** — Owner approved the previews. #119 merged; M0 started (#2, #10, #11)
-  together with the M1 experiment #118.
-- **2026-11-25** — Detailed style guide built (nine pages, three subagents). Measurements
-  overturned Claude's hand-picked data palette and five contrast values; tokens corrected.
-- **2026-11-24 (later)** — Owner delegated every decision and asked for previews of all
-  matters of taste. Added #119; produced the previews with three subagents.
-- **2026-11-24** — Project conceived as a rethink of `largegraph`. Feasibility lab (8
-  experiments), design baseline, 117-issue plan published. Full review of the plan found
-  ten errors; fixed, one issue added (#118), three issues moved between milestones.
-  Owner delegated execution. Machine cleaned (239 GB → 54 GB), toolchain installed,
-  operating rules written.
+- Screen trademark registers (USPTO through TSDR, TMview) before proposing any name. The
+  name was chosen from package registries only, and an application for it had been filed a
+  week earlier.
+- Measure palettes and contrast; a palette chosen by eye failed for colour-blind readers.
+  Typeset user-facing text before calling it done: text that looked fine in Markdown broke
+  when typeset.
+- Measure the configuration that ships. The first headline numbers were taken on
+  uncompressed arrays while the default storage is compressed.
+- Experiment reports overstate in predictable places: a check that cannot fail counted as
+  evidence, a memory peak given to the wrong phase. Keep the independent review for lab
+  pull requests whose numbers reach FINDINGS.
+- Review rounds in series are the main slowdown on product pull requests. Send the
+  findings of both reviews to the author in one message, and skip a further round when no
+  must-fix touches correctness.
+- Each agent builds cold in its own worktree (24 worktrees held 149 GB, 10–28 GB of
+  `target/` each) with no shared compiler cache; load reached 77 with eleven agents that
+  ran `cargo`. Build efficiency is being measured.
+- Load-sensitive tests (heap and retention bounds, file locks; #230) failed on four pull
+  requests in one day, and each cost a CI rerun.
+- When every stream waits on CI or review at once, the machine is idle. Keep a queue of
+  ready experiments (M1 issues that need no merge) to start when the load drops.

@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Opening a graph file for the commands that read one: the committed part is mapped
+//! by range (`docs/spec/eg-container.md` § 11), so that a result committed meanwhile,
+//! by this process or another, never touches what is mapped.
+
+use std::fs::File;
+use std::path::Path;
+
+use everygraph_core::{Memory, ReadError};
+use everygraph_format::container::{Container, ContainerError};
+use everygraph_ingest::graph::{Graph, OpenError};
+use everygraph_io::{FileSource, MmapSource};
+
+use crate::failure::{self, Failure};
+use everygraph_ingest::native;
+
+/// The committed part of the file at `path`, mapped: the range a probe of its header
+/// and table of contents gives.
+fn map(path: &Path) -> Result<(Container<FileSource>, MmapSource), Failure> {
+    let io = |e: &std::io::Error| failure::io("read", path, e).on_existing_file();
+    if path.is_dir() {
+        let e = std::io::Error::new(std::io::ErrorKind::IsADirectory, "it is a directory");
+        return Err(io(&e));
+    }
+    let file = File::open(path).map_err(|e| io(&e))?;
+    let probe = file
+        .try_clone()
+        .and_then(FileSource::from_file)
+        .map_err(|e| io(&e))?;
+    let probe = Container::open(probe).map_err(|e| container_error(path, &e))?;
+    let map = MmapSource::from_file_range(&file, probe.stable_range()).map_err(|e| io(&e))?;
+    Ok((probe, map))
+}
+
+/// The container of the file at `path`, on a map of its committed part.
+///
+/// # Errors
+///
+/// `IoError` when the file cannot be read; `CorruptFile` when it is not a container.
+pub(crate) fn container(path: &Path) -> Result<Container<MmapSource>, Failure> {
+    let (probe, map) = map(path)?;
+    probe
+        .with_source(map)
+        .map_err(|e| container_error(path, &e))
+}
+
+/// The graph file at `path`, its index held under `memory`, a budget of `budget`.
+///
+/// # Errors
+///
+/// As [`container`]; `CorruptFile` when the graph's sections are not valid;
+/// `InsufficientBudget` when its index does not fit.
+pub(crate) fn open(
+    path: &Path,
+    memory: &Memory,
+    budget: u64,
+) -> Result<Graph<MmapSource>, Failure> {
+    let (_, map) = map(path)?;
+    Graph::open(map, memory).map_err(|e| match e {
+        OpenError::Read(e) => {
+            failure::io("read", path, &std::io::Error::other(e.to_string())).on_existing_file()
+        }
+        OpenError::Budget(e) => {
+            failure::memory("Opening the graph", budget, None, &e).on_existing_file()
+        }
+        other => failure::corrupt(path, &other),
+    })
+}
+
+/// The failure for a container that cannot be opened or read.
+pub(crate) fn container_error(path: &Path, e: &ContainerError) -> Failure {
+    match e {
+        ContainerError::Read(ReadError::Backend(e)) => {
+            failure::io("read", path, &std::io::Error::other(e.to_string())).on_existing_file()
+        }
+        ContainerError::NotAContainer | ContainerError::NotCommitted => Failure::new(
+            "CorruptFile",
+            format!("{} is not an Everygraph graph file.", path.display()),
+            failure::DAMAGED,
+        )
+        .ways(vec![if path.extension().is_some_and(|e| e == "eg") {
+            (
+                format!("everygraph verify {}", path.display()),
+                "what the file holds".into(),
+            )
+        } else {
+            (
+                format!("everygraph ingest {}", path.display()),
+                format!(
+                    "if it is a file of edges: builds {}",
+                    native::default_output(path).display()
+                ),
+            )
+        }])
+        .on_existing_file(),
+        ContainerError::NoSuchSection(_) => Failure::new(
+            "CorruptFile",
+            format!("{} holds no graph.", path.display()),
+            failure::DAMAGED,
+        )
+        .ways(vec![(
+            format!("everygraph verify {}", path.display()),
+            "what the file holds".into(),
+        )])
+        .on_existing_file(),
+        other => failure::corrupt(path, other),
+    }
+}

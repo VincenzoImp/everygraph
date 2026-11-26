@@ -14,9 +14,10 @@ Tracking issue for milestone M5.
 - [ ] {{#m5-05-viewer-core}}, {{#m5-06-viewer-ux}}, {{#m5-07-edge-strategy}}
 - [ ] {{#m5-09-static-export}}, {{#m5-11-perf-accessibility}}, {{#m5-12-honest-map}}, {{#m5-14-design-system}}
 - [ ] {{#m5-15-summary-export}}, {{#m5-16-nonvisual-navigation}} (from the second literature review, 2026-11-25, `docs/research/README.md` H1, H2)
+- [ ] Milestone close (CLAUDE.md § 6, § 10): the dogfood pass, the cleanup and test audit, the official measurement window, and the report `docs/reports/M5.md`. Its issues are filed when the last P0 of the milestone starts
 
 **Scope note.** M5 is the static map and depends only on M4. Three map features need other milestones and are tracked there: the Jupyter widget {{#m5-10-jupyter-widget}} in M6 (needs the Python API), live mode {{#m5-08-live-mode}} and attribute/time overlays {{#m5-13-attribute-overlays}} in M7 (need queries and views).
 
 - [ ] A 1 B-edge graph opens from a static URL: first view < 250 KB, exact numbers at every level, no artificial region presented as a community
 
-**Blocked by M1 results:** {{#m1-05-hierarchy-shaping}}, {{#m1-06-edge-rendering}}, {{#m1-07-layout-area}}, {{#m1-12-viewer-no-gpu}}; legal check {{#m0-10-patent-check}}.
+**M1 results it waits for:** {{#m1-06-edge-rendering}} (the edge content of tiles), {{#m1-07-layout-area}} (the area question of the layout), {{#m1-12-viewer-no-gpu}} (frame budgets; needs hardware this host does not have). {{#m1-05-hierarchy-shaping}} and the legal check {{#m0-10-patent-check}} are closed.

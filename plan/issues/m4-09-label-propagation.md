@@ -1,9 +1,9 @@
 ---
 title: Label propagation as an instant preview
 milestone: M4 · Communities and hierarchy
-labels: type:feature, area:community, P2, risk:low, size:S
+labels: type:feature, area:community, P1, risk:low, size:S
 ---
-**Why.** On very large graphs, or for a first look, a partition in a couple of scans is useful — for example to produce a quick preview map while Leiden runs, or as a locality ordering. It is a preview only, never a low-budget fallback: our out-of-core Leiden already runs Friendster under 4 GiB (3.49× the in-RAM time, Q about 0.60, FINDINGS § M1-02).
+**Why.** CDLP is one of the six LDBC Graphalytics algorithms, so {{#m8-11-graphalytics-eligibility}} needs this kernel. On very large graphs, or for a first look, a partition in a couple of scans is useful — for example to produce a quick preview map while Leiden runs, or as a locality ordering. It is a preview only, never a low-budget fallback: our out-of-core Leiden already runs Friendster under 4 GiB (3.49× the in-RAM time, Q about 0.60, FINDINGS § M1-02).
 
 **Scope**
 - [ ] Deterministic synchronous label propagation with **LDBC Graphalytics CDLP semantics** (decided 2026-11-25, `design/DECISIONS.md`, "Label propagation follows LDBC CDLP"): the initial label of a node is its position in the original key order, ties go to the smallest label, a fixed number of iterations; on the edge-map framework, semi-external capable. Not the earlier tie-break by label hash, which differs from the only standard deterministic LPA

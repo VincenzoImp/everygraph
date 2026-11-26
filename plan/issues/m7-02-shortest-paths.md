@@ -15,6 +15,7 @@ labels: type:feature, area:query, P0, risk:medium, size:M, lab-evidence
 - [ ] Constraints: maximum hops, node/edge filters (a view), avoid-set; these are what make paths useful in investigations (e.g. "not through the exchange hub")
 - [ ] Budgets and timeouts — tails reach 113 ms p99 on twitter-2010 because of hubs (shared machine; idle, #118: 32.3 ms raw, 27.3 ms default storage, graph in heap)
 - [ ] Batch pairs API
+- [ ] A parent column for single-source SSSP, as BFS has (moved from {{#m3-06-traversal}}, whose Δ*-stepping kernel returns distances only), and its tie rule added to `docs/api-sketch.md` § 2.12
 
 **Acceptance**
 - Verified against plain BFS on 1,000 random pairs per tier-2 graph
@@ -22,4 +23,4 @@ labels: type:feature, area:query, P0, risk:medium, size:M, lab-evidence
 - A constrained query (max 4 hops, avoid top-100 hubs) works on Friendster
 - Among several shortest paths the one returned, and the order of the alternatives, follow a documented rule and are the same at any thread count, regime and budget (tested). A step reports the earliest edge of its pair inside the view — for a weighted path the cheapest, earliest among equal costs — and the pair's number of edges (`docs/api-sketch.md` § 2.12)
 
-**Depends on** {{#m7-01-point-queries}}
+**Depends on** {{#m7-01-point-queries}}, {{#m2-11-in-adjacency}} (directed paths), {{#m2-34-build-columns}} (weighted paths)

@@ -37,13 +37,16 @@ STOP = "urn:everygraph:schema:stop:1"
 FILE = "urn:everygraph:schema:file:1"
 RESULT = "urn:everygraph:schema:result:1"
 VERIFY = "urn:everygraph:schema:verify:1"
-KNOWN = (PLAN, ERROR, EVENT, STOP, FILE, RESULT, VERIFY)
+INFO = "urn:everygraph:schema:info:1"
+KNOWN = (PLAN, ERROR, EVENT, STOP, FILE, RESULT, VERIFY, INFO)
 
 
 def kind_of(doc):
     """Which schema an example belongs to, from its keys."""
     if "verify" in doc and "intact" in doc:
         return VERIFY
+    if "info" in doc and "sections" in doc:
+        return INFO
     if "event" in doc:
         return EVENT
     if "stopped" in doc:
@@ -153,6 +156,10 @@ def main(paths):
         report = dict(by_kind[VERIFY][0])
         report["problem"] = report.pop("problems")
         controls.append(("verify report with 'problem'", VERIFY, report))
+    if INFO in by_kind:
+        info = copy.deepcopy(by_kind[INFO][0])
+        info["results"][0]["stale"] = "old"
+        controls.append(("info document with stale 'old'", INFO, info))
     for label, sid, doc in controls:
         rejected = bool(errors(sid, doc))
         print(f"negative control, {label} rejected:", rejected)

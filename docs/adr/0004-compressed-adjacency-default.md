@@ -179,6 +179,6 @@ within 1.35× of in-RAM on this format.
 
 ## Closed by
 
-#46 (streaming reader on the compressed format), #35 (ingest writing the format under a
-budget), #24 (web, weighted and directed graphs); #90 for point-query throughput at
-16 threads. Implementation: #30, #44, #45. #118 reported on 2026-11-25 (above).
+#46 (streaming reader on the compressed format), #240 (the speed of ingest writing the format
+under a budget), #24 (web, weighted and directed graphs); #90 for point-query throughput at
+16 threads. Implementation: #45.
