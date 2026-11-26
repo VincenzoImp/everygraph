@@ -138,7 +138,11 @@ impl<'s, S: Source> View<'s, S> {
     /// # Errors
     ///
     /// [`Error::Argument`] for a bitset with fewer bits than nodes or entries;
-    /// [`Error::Memory`] if the view's state does not fit; the parent's errors.
+    /// [`Error::Memory`] if the view's state does not fit (the arrays that grow with the
+    /// nodes are refused before the parent is read);
+    /// [`Error::Invalid`] for a parent of more than about 2^29 nodes or a view of more
+    /// than about 2^28, whose node arrays would take more than one segment (#m3-15);
+    /// the parent's errors.
     pub fn new(
         parent: &'s S,
         memory: &Memory,
@@ -160,6 +164,14 @@ impl<'s, S: Source> View<'s, S> {
             ));
         }
         let (allow_nodes, allow_entries) = (allowed(nodes.as_ref())?, allowed(entries.as_ref())?);
+
+        // Every array that grows with the nodes is reserved before any list is read, at
+        // its largest for those whose size the pass decides, so that a budget too small
+        // refuses before the parent is read. The exact arrays, no larger, take the place
+        // of `largest` after the pass.
+        let mut keep = empty_bits(memory, "view nodes", n.into())?;
+        let largest = 4 * keep.len() as u64 + 12 * u64::from(n) + 8;
+        let largest = memory.reserve("view node state", MemoryKind::Anonymous, largest)?;
 
         // One pass: each allowed node's kept entries, and which nodes have one.
         let mut degrees = SegVec::try_with_len(memory, "view degrees", ix(n.into()), 0_u32)?;
@@ -194,7 +206,6 @@ impl<'s, S: Source> View<'s, S> {
         })?;
 
         // The kept nodes: the allowed ones, and with an entry bitset only those touched.
-        let mut keep = empty_bits(memory, "view nodes", n.into())?;
         let all_words = one_segment_mut(&mut keep)?;
         par::for_each_chunk_mut(all_words, GRAIN, |first, chunk| {
             for (w, word) in (first..).zip(chunk) {
@@ -213,6 +224,7 @@ impl<'s, S: Source> View<'s, S> {
         let kept_bits = keep.as_slice().ok_or(SEGMENT)?;
         let count: u64 = kept_bits.iter().map(|w| u64::from(w.count_ones())).sum();
         let view_n = u32::try_from(count).map_err(|_| SEGMENT)?;
+        drop(largest);
         let nodes = if view_n == n {
             drop(keep);
             None
@@ -270,6 +282,18 @@ impl<'s, S: Source> View<'s, S> {
             None => Some(p),
             Some(s) => s.has(p).then(|| s.rank(p)),
         }
+    }
+
+    /// Whether `other` keeps the same parent nodes under the same ids: what the out-
+    /// and the in-view that one kernel reads must share.
+    #[must_use]
+    pub fn same_nodes<T: Source>(&self, other: &View<'_, T>) -> bool {
+        self.n == other.n
+            && match (&self.nodes, &other.nodes) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.parents() == b.parents(),
+                _ => false,
+            }
     }
 
     /// Bytes the mask holds of its budget: the node and entry bitsets, the rank
@@ -346,11 +370,15 @@ impl<'s, S: Source> View<'s, S> {
             };
             match &self.nodes {
                 None => {
+                    self.parent.begin_task(&mut reader, nodes.clone());
                     self.parent
                         .scan(&mut reader, nodes.clone(), |_| true, |_, f, l| each(f, l))?;
                 }
                 Some(s) => {
                     let parents = &s.parents()[ix(nodes.start.into())..ix(nodes.end.into())];
+                    if let (Some(&a), Some(&b)) = (parents.first(), parents.last()) {
+                        self.parent.begin_task(&mut reader, a..b + 1);
+                    }
                     self.parent
                         .lists(&mut reader, parents, |_, f, l| each(f, l))?;
                 }
@@ -390,10 +418,13 @@ impl<'s, S: Source> View<'s, S> {
         }
     }
 
-    /// The kept entries of a parent list, as view ids, written into `buf` and checked
-    /// to name nodes of the view.
+    /// The kept entries of the parent list of view node `v`, as view ids, written into
+    /// `buf` and checked to name nodes of the view and to be as many as the view's
+    /// offsets say: a parent whose lists changed since the view was made would
+    /// otherwise shift every per-entry column.
     fn filter<'b>(
         &self,
+        v: u32,
         first: u64,
         list: &[u32],
         buf: &'b mut SegVec<u32>,
@@ -408,7 +439,11 @@ impl<'s, S: Source> View<'s, S> {
             k += 1;
         });
         let kept = &out[..k];
-        if in_range(kept, self.n) {
+        let at = self.at();
+        let degree = at.get(ix(v.into()) + 1).map(|end| end - at[ix(v.into())]);
+        if degree != Some(k as u64) {
+            Err(Error::Invalid("the parent's lists changed under the view"))
+        } else if in_range(kept, self.n) {
             Ok(kept)
         } else {
             Err(Error::Invalid("a view list names a node outside the view"))
@@ -594,7 +629,7 @@ unsafe impl<S: Source> Source for View<'_, S> {
         let mut failed = None;
         match &self.nodes {
             None => self.parent.scan(inner, nodes, &filter, |v, first, l| {
-                match self.filter(first, l, list) {
+                match self.filter(v, first, l, list) {
                     Ok(kept) => f(v, self.at()[ix(v.into())], kept),
                     Err(e) => {
                         failed.get_or_insert(e);
@@ -617,7 +652,7 @@ unsafe impl<S: Source> Source for View<'_, S> {
                     let parents = &s.parents()[ix(start.into())..ix(v.into())];
                     self.parent.lists(inner, parents, |p, first, l| {
                         let w = s.rank(p);
-                        match self.filter(first, l, list) {
+                        match self.filter(w, first, l, list) {
                             Ok(kept) if run.contains(&w) => f(w, self.at()[ix(w.into())], kept),
                             Ok(_) => {
                                 failed.get_or_insert(FORM);
@@ -652,7 +687,7 @@ unsafe impl<S: Source> Source for View<'_, S> {
         let mut failed = None;
         match &self.nodes {
             None => self.parent.lists(inner, nodes, |v, first, l| {
-                match self.filter(first, l, list) {
+                match self.filter(v, first, l, list) {
                     Ok(kept) => f(v, self.at()[ix(v.into())], kept),
                     Err(e) => {
                         failed.get_or_insert(e);
@@ -667,7 +702,7 @@ unsafe impl<S: Source> Source for View<'_, S> {
                 }
                 self.parent.lists(inner, parents, |p, first, l| {
                     let w = s.rank(p);
-                    match self.filter(first, l, list) {
+                    match self.filter(w, first, l, list) {
                         Ok(kept) if nodes.binary_search(&w).is_ok() => {
                             f(w, self.at()[ix(w.into())], kept);
                         }
@@ -693,7 +728,7 @@ unsafe impl<S: Source> Source for View<'_, S> {
         let ViewReader { inner, list, .. } = r;
         let inner = inner.as_mut().ok_or(FORM)?;
         let (first, l) = self.parent.list(inner, p)?;
-        Ok((self.at()[ix(v.into())], self.filter(first, l, list)?))
+        Ok((self.at()[ix(v.into())], self.filter(v, first, l, list)?))
     }
 
     fn prefetch(&self, nodes: &[u32]) {

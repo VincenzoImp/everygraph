@@ -92,13 +92,10 @@ fn every_kernel_gives_the_same_bits_on_a_view_as_a_mask_and_materialized() {
         .nodes(Predicate::new(Values::U32(&labels), Test::In(&[0, 2, 3])))
         .node_set(&set);
     let pair = ViewSpec::new().pairs(Predicate::new(Values::F64(weights), Test::Lt(1.0.into())));
-    let window = ViewSpec::new().events(
-        &offsets,
-        Predicate::new(
-            Values::I64(&times),
-            Test::Between(20_i64.into(), 59_i64.into()),
-        ),
-    );
+    let window = ViewSpec::new().with_events(&offsets).events(Predicate::new(
+        Values::I64(&times),
+        Test::Between(20_i64.into(), 59_i64.into()),
+    ));
     let cases = [
         ("node view", node),
         ("pair view", pair),
@@ -112,7 +109,7 @@ fn every_kernel_gives_the_same_bits_on_a_view_as_a_mask_and_materialized() {
                 both(&mut f, c.settings(), |f| {
                     let memory = Memory::unlimited();
                     let w = if events {
-                        f.event_sums(&offsets, &event_weights, &memory)
+                        f.event_sums(&event_weights, &memory)
                     } else {
                         f.pair_values(weights, &memory)
                     };

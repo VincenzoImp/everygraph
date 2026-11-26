@@ -1400,11 +1400,11 @@ class View(Graph):
 
 | Made by | Keeps | Notes | Implemented by |
 |---|---|---|---|
-| `g.filter(edges="value > 10")` | The edges for which the expression is true, and the nodes that still have an edge. | The expression language is below. | #93, #37 |
+| `g.filter(edges="value > 10")` | The edges for which the expression is true, and the nodes that still have an edge. A node left without a kept edge is not in the view, so no result on the view has a row for it. | The expression language is below. | #93, #37 |
 | `g.filter(nodes="in_degree > 100")` | The nodes for which it is true, and the edges with both ends among them. | Names available in 0.1: the graph's node columns, and `in_degree`, `out_degree`, `degree` — the degrees of the graph or view the filter is applied to. | #93 |
 | `g.window(start, end)` | The edges whose time is from `start` to `end`, both included, and the nodes that still have an edge. | Times as in § 2.3: a date means its whole day. Either bound may be `None`. Needs a time column and a graph not read with `duplicates="sum"`, else `Unsupported` (§ 2.13). | #94 |
 | `g.subgraph(nodes)` | The given nodes and the edges with both ends among them. | Accepts any node set (§ 2.2): `g.subgraph(c[0])`, `g.subgraph(m.selection)`, `g.subgraph(g.khop(a, k=2))`. | #87, #93 |
-| `a & b` | The edges both keep, and the nodes both keep; when either filters edges, only those of these nodes that still have an edge. | Both must be views of the same graph, and each part keeps its meaning on that graph. A chain (`g.window(…).filter(…)`) applies each part to the view before it: the same thing as `&`, except that a node filter on degrees reads the degrees of the view it is applied to, and that a node filter applied after an edge filter keeps the nodes it leaves without edges. | #93 |
+| `a & b` | The edges both keep, and the nodes both keep; when either filters edges, only those of these nodes that still have an edge. | Both must be views of the same graph, and each part keeps its meaning on that graph. A chain (`g.window(…).filter(…)`) applies each part to the view before it. `a & b` is the chain with its node filters first, `g.filter(nodes=…).filter(edges=…)`; in the other order the node filter keeps its nodes that the edge filter left with edges leading outside it only, without edges. A node filter on degrees reads the degrees of the view it is applied to. | #93 |
 
 **Counts.** A view's `num_nodes` and `num_edges` are not known when it is made. The
 first access to either computes both with one planned pass — the phase `counting`,

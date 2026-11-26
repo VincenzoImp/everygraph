@@ -14,10 +14,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use everygraph_core::Budget;
-use everygraph_core::Memory;
+use everygraph_core::{Budget, ByteSource, Memory, ReadError};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
-use everygraph_kernels::edge_map::{Compressed, Csr, Error, Plan, Settings, Source, all, ids};
+use everygraph_kernels::edge_map::{
+    Compressed, Csr, Error, Plan, Settings, Source, Stream, all, ids,
+};
 use everygraph_kernels::planner::{self, ViewForm};
 use everygraph_query::{Column, Predicate, Scalar, Test, Values, ViewSpec};
 use proptest::prelude::*;
@@ -81,7 +82,13 @@ impl Graph {
             score: (0..n).map(|_| score(rng)).collect(),
             value,
             time: (0..rows).map(|_| rng.below(100) as i64 - 50).collect(),
-            amount: (0..rows).map(|_| rng.below(64) as f64 / 8.0).collect(),
+            amount: (0..rows)
+                .map(|_| match rng.below(6) {
+                    0 => 1e16,
+                    1 => -1e16,
+                    k => (k * rng.below(64)) as f64 / 8.0,
+                })
+                .collect(),
             offsets,
             targets,
             events,
@@ -153,7 +160,7 @@ fn model(g: &Graph, ask: &Ask) -> (Vec<u32>, Vec<Vec<(u64, u32)>>) {
 }
 
 fn spec<'a>(g: &'a Graph, ask: &'a Ask) -> ViewSpec<'a> {
-    let mut s = ViewSpec::new();
+    let mut s = ViewSpec::new().with_events(&g.events);
     if let Some(l) = &ask.labels {
         s = s.nodes(Predicate::new(Values::U32(&g.label), Test::In(l)));
     }
@@ -168,7 +175,7 @@ fn spec<'a>(g: &'a Graph, ask: &'a Ask) -> ViewSpec<'a> {
     }
     if let Some((a, b)) = ask.window {
         let t = Predicate::new(Values::I64(&g.time), Test::Between(a.into(), b.into()));
-        s = s.events(&g.events, t);
+        s = s.events(t);
     }
     s
 }
@@ -270,14 +277,19 @@ fn check_on<S: Source>(
     let counts: Vec<u64> = kept.iter().map(|&e| events(e).count() as u64).collect();
     let sums: Vec<f64> = kept
         .iter()
-        .map(|&e| events(e).map(|i| g.amount[i as usize]).sum::<f64>())
+        .map(|&e| {
+            let eighths: i128 = events(e)
+                .map(|i| (g.amount[i as usize] * 8.0) as i128)
+                .sum();
+            eighths as f64 / 8.0
+        })
         .collect();
     let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
     let pair = f.pair_values(&g.value, &memory).unwrap();
     assert_eq!(bits(pair.as_slice().unwrap()), bits(&values));
-    let m = f.multiplicity(&g.events, &memory).unwrap();
+    let m = f.multiplicity(&memory).unwrap();
     assert_eq!(m.as_slice().unwrap(), &counts[..]);
-    let s = f.event_sums(&g.events, &g.amount, &memory).unwrap();
+    let s = f.event_sums(&g.amount, &memory).unwrap();
     assert_eq!(s.as_slice().unwrap(), &sums[..]);
     assert_eq!(lists(f.view()), want, "mask, {ask:?}");
     assert_eq!(f.hold(2, &memory).unwrap(), ViewForm::Materialized);
@@ -391,7 +403,7 @@ fn hostile_predicates_keep_what_the_comparison_rules_say() {
     // A window with its ends swapped is empty; one at the ends of i64 keeps every time.
     let time = |a: i64, b: i64| {
         let t = Predicate::new(Values::I64(&g.time), Test::Between(a.into(), b.into()));
-        ViewSpec::new().events(&g.events, t)
+        ViewSpec::new().with_events(&g.events).events(t)
     };
     assert_eq!(counts(&time(5, 0), &g).unwrap(), (0, 0));
     assert_eq!(counts(&time(i64::MIN, i64::MAX), &g).unwrap(), (4, 9));
@@ -420,6 +432,27 @@ fn hostile_predicates_keep_what_the_comparison_rules_say() {
     );
     assert_eq!(counts(&ints(Test::Eq(u64::MAX.into())), &g).unwrap().0, 1);
     assert_eq!(counts(&ints(Test::Gt(f(0.5))), &g).unwrap().0, 3);
+    // Where only the fraction decides: 0 and 1 against 0.5, −1 and 0 against −0.5, and
+    // the integer 2 against floats around it.
+    let small = [0_u64, 1, 0, 1];
+    let small = |test| ViewSpec::new().nodes(Predicate::new(Values::U64(&small), test));
+    assert_eq!(counts(&small(Test::Ge(f(0.5))), &g).unwrap().0, 2);
+    assert_eq!(counts(&small(Test::Gt(f(0.5))), &g).unwrap().0, 2);
+    assert_eq!(counts(&small(Test::Lt(f(0.5))), &g).unwrap().0, 2);
+    assert_eq!(counts(&small(Test::Le(f(0.5))), &g).unwrap().0, 2);
+    assert_eq!(counts(&small(Test::Eq(f(0.5))), &g).unwrap().0, 0);
+    let negative = [-1_i64, 0, -1, 0];
+    let negative = |test| ViewSpec::new().nodes(Predicate::new(Values::I64(&negative), test));
+    assert_eq!(counts(&negative(Test::Ge(f(-0.5))), &g).unwrap().0, 2);
+    assert_eq!(counts(&negative(Test::Le(f(-0.5))), &g).unwrap().0, 2);
+    assert_eq!(counts(&negative(Test::Lt(f(-0.5))), &g).unwrap().0, 2);
+    let around = [2.5, 1.5, 2.0, 1.0];
+    let around = |test| ViewSpec::new().nodes(Predicate::new(Values::F64(&around), test));
+    assert_eq!(counts(&around(Test::Gt(2_i64.into())), &g).unwrap().0, 1);
+    assert_eq!(counts(&around(Test::Ge(2_i64.into())), &g).unwrap().0, 2);
+    assert_eq!(counts(&around(Test::Lt(2_i64.into())), &g).unwrap().0, 2);
+    assert_eq!(counts(&around(Test::Le(2_i64.into())), &g).unwrap().0, 3);
+    assert_eq!(counts(&around(Test::Eq(2_i64.into())), &g).unwrap().0, 1);
     // A null is never kept, whatever the test: node 1 is null.
     let valid = [0b1101_u8];
     let column = Column {
@@ -464,11 +497,60 @@ fn hostile_definitions_are_refused() {
     late[0] = 1;
     for bad in [&g.events[1..], &decreasing[..], &late[..]] {
         let p = Predicate::new(Values::I64(&g.time), Test::Ge(0_i64.into()));
-        refused(ViewSpec::new().events(bad, p));
+        refused(ViewSpec::new().with_events(bad).events(p));
     }
     let copy = g.events.clone();
     let p = Predicate::new(Values::I64(&g.time), Test::Ge(0_i64.into()));
-    refused(ViewSpec::new().events(&g.events, p).events(&copy, p));
+    refused(ViewSpec::new().events(p));
+    refused(
+        ViewSpec::new()
+            .with_events(&g.events)
+            .with_events(&copy)
+            .events(p),
+    );
+    // A view without event offsets has no event counts or sums.
+    let csr = Csr::new(&g.offsets, &g.targets).unwrap();
+    let memory = Memory::unlimited();
+    let f = ViewSpec::new()
+        .build(&csr, &memory, Settings::default())
+        .unwrap();
+    assert!(matches!(f.multiplicity(&memory), Err(Error::Argument(_))));
+    assert!(matches!(
+        f.event_sums(&g.amount, &memory),
+        Err(Error::Argument(_))
+    ));
+    let f = ViewSpec::new()
+        .with_events(&g.events)
+        .build(&csr, &memory, Settings::default());
+    let short = f.unwrap().event_sums(&g.amount[1..], &memory);
+    assert!(matches!(short, Err(Error::Argument(_))));
+}
+
+/// The sum of a pair's kept events is exact: `1e16 + 1 − 1e16` is 1, where a running
+/// float sum gives 0, and dropping the 1 gives 0.
+#[test]
+fn event_sums_are_exact() {
+    let (offsets, targets) = ([0, 1, 2], [1, 0]);
+    let events = [0, 3, 6];
+    let amount = [1e16, 1.0, -1e16, 1e16, 1.0, -1e16];
+    let time = [0_i64, 1, 2, 0, 1, 2];
+    let csr = Csr::new(&offsets, &targets).unwrap();
+    let memory = Memory::unlimited();
+    for (window, sum) in [
+        ((0, 2), 1.0),
+        ((0, 0), 1e16),
+        ((1, 1), 1.0),
+        ((2, 2), -1e16),
+    ] {
+        let t = Predicate::new(
+            Values::I64(&time),
+            Test::Between(window.0.into(), window.1.into()),
+        );
+        let spec = ViewSpec::new().with_events(&events).events(t);
+        let f = spec.build(&csr, &memory, Settings::default()).unwrap();
+        let sums = f.event_sums(&amount, &memory).unwrap();
+        assert_eq!(sums.as_slice().unwrap(), &[sum, sum], "{window:?}");
+    }
 }
 
 /// What a view holds is reserved: the budget's use is the view's bytes, a budget one
@@ -546,4 +628,162 @@ fn kernels_run_on_empty_and_tiny_views() {
             }
         });
     }
+}
+
+/// The in-lists of `g` with their own per-entry and per-event columns: what a graph
+/// file stores as its in-adjacency.
+fn transpose(g: &Graph) -> Graph {
+    let mut rows: Vec<(u32, u32, usize)> = Vec::new();
+    for u in 0..g.n() {
+        for e in g.list(u) {
+            rows.push((g.targets[e], u, e));
+        }
+    }
+    rows.sort_unstable();
+    let (mut offsets, mut events) = (vec![0; g.n() as usize + 1], vec![0]);
+    let (mut time, mut amount) = (Vec::new(), Vec::new());
+    for &(v, _, e) in &rows {
+        offsets[v as usize + 1] += 1;
+        let r = g.events[e] as usize..g.events[e + 1] as usize;
+        time.extend_from_slice(&g.time[r.clone()]);
+        amount.extend_from_slice(&g.amount[r]);
+        events.push(time.len() as u64);
+    }
+    for v in 0..g.n() as usize {
+        offsets[v + 1] += offsets[v];
+    }
+    Graph {
+        offsets,
+        targets: rows.iter().map(|r| r.1).collect(),
+        events,
+        label: g.label.clone(),
+        score: g.score.clone(),
+        value: rows.iter().map(|r| g.value[r.2]).collect(),
+        time,
+        amount,
+    }
+}
+
+/// A directed view from one definition: the out-view and the in-view keep the same
+/// nodes under the same ids, the in-view's lists are the transpose of the out-view's,
+/// and in-adjacency columns that do not belong to the same graph are refused.
+#[test]
+fn a_directed_view_has_one_node_map_for_its_out_and_in_lists() {
+    let mut rng = Rng(11);
+    for _ in 0..20 {
+        let g = Graph::random(&mut rng, 300, false);
+        let t = transpose(&g);
+        let ask = ask(&mut rng, 300);
+        let (out_csr, in_csr) = (
+            Csr::new(&g.offsets, &g.targets).unwrap(),
+            Csr::new(&t.offsets, &t.targets).unwrap(),
+        );
+        let out_spec = spec(&g, &ask);
+        let inn = ViewSpec::new().with_events(&t.events);
+        let inn = match ask.value_below {
+            Some(x) => inn.pairs(Predicate::new(Values::F64(&t.value), Test::Lt(x.into()))),
+            None => inn,
+        };
+        let inn = match ask.window {
+            Some((a, b)) => inn.events(Predicate::new(
+                Values::I64(&t.time),
+                Test::Between(a.into(), b.into()),
+            )),
+            None => inn,
+        };
+        let memory = Memory::unlimited();
+        let (o, i) = out_spec
+            .build_directed(&inn, (&out_csr, &in_csr), &memory, Settings::default())
+            .unwrap();
+        assert!(o.view().same_nodes(i.view()));
+        let mut back: Vec<Vec<u32>> = vec![Vec::new(); o.view().nodes() as usize];
+        for (u, (_, list)) in lists(o.view()).into_iter().enumerate() {
+            for v in list {
+                back[v as usize].push(u as u32);
+            }
+        }
+        let got: Vec<Vec<u32>> = lists(i.view()).into_iter().map(|l| l.1).collect();
+        assert_eq!(got, back, "{ask:?}");
+        let sums = |f: &everygraph_query::Filtered<'_, '_, Csr<'_>>, g: &Graph| {
+            let mut s: Vec<u64> = f
+                .event_sums(&g.amount, &memory)
+                .unwrap()
+                .iter()
+                .map(|x| x.to_bits())
+                .collect();
+            s.sort_unstable();
+            s
+        };
+        assert_eq!(sums(&o, &g), sums(&i, &t));
+    }
+    // The in-adjacency's part with another threshold keeps other edges.
+    let g = Graph::random(&mut rng, 300, true);
+    let t = transpose(&g);
+    let (out_csr, in_csr) = (
+        Csr::new(&g.offsets, &g.targets).unwrap(),
+        Csr::new(&t.offsets, &t.targets).unwrap(),
+    );
+    let out_spec =
+        ViewSpec::new().pairs(Predicate::new(Values::F64(&g.value), Test::Lt(1.0.into())));
+    let inn = ViewSpec::new().pairs(Predicate::new(Values::F64(&t.value), Test::Lt(0.5.into())));
+    let memory = Memory::unlimited();
+    let refused = out_spec.build_directed(&inn, (&out_csr, &in_csr), &memory, Settings::default());
+    assert!(matches!(refused, Err(Error::Argument(_))));
+    let nodes = ViewSpec::new().node_set(&[0]);
+    let refused =
+        out_spec.build_directed(&nodes, (&out_csr, &in_csr), &memory, Settings::default());
+    assert!(matches!(refused, Err(Error::Argument(_))));
+}
+
+/// The targets of a graph, read through positional reads: it notes how much of the
+/// budget was reserved when the first read came.
+struct Watched<'b> {
+    bytes: Vec<u8>,
+    budget: &'b Budget,
+    at_first_read: Mutex<Option<u64>>,
+}
+
+impl ByteSource for Watched<'_> {
+    fn len(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        self.at_first_read
+            .lock()
+            .unwrap()
+            .get_or_insert(self.budget.used());
+        let at = offset as usize;
+        buf.copy_from_slice(&self.bytes[at..at + buf.len()]);
+        Ok(())
+    }
+}
+
+/// Every array of a view that grows with the nodes is reserved before the parent is
+/// read: at the first read the budget already holds the view's mask, so a budget too
+/// small for it refuses before any list is read.
+#[test]
+fn a_view_reserves_its_node_state_before_it_reads() {
+    let mut rng = Rng(5);
+    let g = Graph::random(&mut rng, 4000, false);
+    let budget = Arc::new(Budget::unlimited());
+    let memory = Memory::from(Arc::clone(&budget));
+    let source = Watched {
+        bytes: g.targets.iter().flat_map(|t| t.to_le_bytes()).collect(),
+        budget: &budget,
+        at_first_read: Mutex::new(None),
+    };
+    let stream = Stream::new(&g.offsets, &source).unwrap();
+    let test = Predicate::new(Values::F64(&g.value), Test::Lt(1.0.into()));
+    let spec = ViewSpec::new()
+        .nodes(Predicate::new(Values::U32(&g.label), Test::In(&[0, 1, 2])))
+        .pairs(test);
+    let f = spec.build(&stream, &memory, Settings::default()).unwrap();
+    let first = source.at_first_read.lock().unwrap().expect("a read");
+    assert!(f.view().nodes() > 0);
+    assert!(
+        first >= f.view().mask_bytes(),
+        "{first} < {}",
+        f.view().mask_bytes()
+    );
 }

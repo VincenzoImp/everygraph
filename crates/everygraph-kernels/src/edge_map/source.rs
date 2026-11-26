@@ -412,6 +412,7 @@ impl RawCopy {
                 .ok_or(Error::Invalid("raw copy: a part longer than one segment"))?;
             super::view::by_chunks(out, at, nodes.clone(), |task, rows| {
                 let mut reader = source.reader(memory, 8192, 1024)?;
+                source.begin_task(&mut reader, task.clone());
                 let task_base = at[ix(task.start.into())];
                 let mut wrong = false;
                 source.scan(

@@ -59,7 +59,10 @@ PageRank iteration and one BFS; time relative to the unfiltered graph;
   on a 5% edge view (2.39 M of 3.07 M nodes, 11.7 M entries) the mask took 1.20–1.31×
   the time of the whole graph, and the materialized view 0.20–0.22× for the kernel and
   0.32–0.35× with its build and materialization. The view keeps 78% of the nodes, whose
-  per-node work each iteration does not shrink with the edges.
+  per-node work each iteration does not shrink with the edges. The command, once per
+  form and round: `target/release/examples/view_bench --graph
+  /home/tux/graphlab/data/csr/orkut --select edges --keep 5 --form whole|mask|materialized
+  --kernel pr64 --threads 16 --reps 3`.
 - The determinism promise covers views either way (ADR 0014): a kernel returns the same
   result on a mask or a materialized view.
 

@@ -26,7 +26,12 @@
 //! The kernels' per-entry columns of a view are the parent's, gathered in the view's
 //! entry order ([`Filtered::pair_values`]). On a view with event predicates, a pair's
 //! multiplicity and sums are those of the events it keeps ([`Filtered::multiplicity`],
-//! [`Filtered::event_sums`]; ADR 0028).
+//! [`Filtered::event_sums`]; ADR 0028), read through the event offsets the definition
+//! names ([`ViewSpec::with_events`]).
+//!
+//! A kernel of a directed graph reads an out-view and an in-view, which must keep the
+//! same nodes under the same ids. [`ViewSpec::build_directed`] makes both from one
+//! definition and checks that they do.
 
 use std::cmp::Ordering::{self, Equal, Greater, Less};
 use std::num::NonZeroUsize;
@@ -371,7 +376,8 @@ pub struct ViewSpec<'a> {
     nodes: Vec<Predicate<'a>>,
     sets: Vec<&'a [u32]>,
     pairs: Vec<Predicate<'a>>,
-    events: Vec<(&'a [u64], Predicate<'a>)>,
+    offsets: Vec<&'a [u64]>,
+    events: Vec<Predicate<'a>>,
 }
 
 impl<'a> ViewSpec<'a> {
@@ -402,13 +408,21 @@ impl<'a> ViewSpec<'a> {
         self
     }
 
-    /// Keeps only the events whose row of a per-event column passes `p`, and the pairs
-    /// with a kept event. `offsets` are the event offsets of the parent's adjacency
-    /// (`docs/spec/eg-adjacency.md` § 3.1): the events of entry `e` are the rows
-    /// `offsets[e]..offsets[e + 1]`. Every event predicate reads the same offsets.
+    /// The event offsets of the parent's adjacency (`docs/spec/eg-adjacency.md`
+    /// § 3.1): the events of entry `e` are the rows `offsets[e]..offsets[e + 1]` of a
+    /// per-event column. Event predicates and the view's per-pair event counts and
+    /// sums read them; a definition names one set of offsets.
     #[must_use]
-    pub fn events(mut self, offsets: &'a [u64], p: Predicate<'a>) -> Self {
-        self.events.push((offsets, p));
+    pub fn with_events(mut self, offsets: &'a [u64]) -> Self {
+        self.offsets.push(offsets);
+        self
+    }
+
+    /// Keeps only the events whose row of a per-event column passes `p`, and the pairs
+    /// with a kept event. Needs [`with_events`](Self::with_events).
+    #[must_use]
+    pub fn events(mut self, p: Predicate<'a>) -> Self {
+        self.events.push(p);
         self
     }
 
@@ -418,6 +432,7 @@ impl<'a> ViewSpec<'a> {
         self.nodes.extend(other.nodes);
         self.sets.extend(other.sets);
         self.pairs.extend(other.pairs);
+        self.offsets.extend(other.offsets);
         self.events.extend(other.events);
         self
     }
@@ -429,8 +444,9 @@ impl<'a> ViewSpec<'a> {
     ///
     /// [`Error::Argument`] for a column that does not have one row per node, pair or
     /// event, labels that do not increase, a node set that names a node outside the
-    /// graph, or event offsets that are not those of the parent's entries;
-    /// [`Error::Memory`] when the bitsets or the view do not fit; the parent's errors.
+    /// graph, event predicates without event offsets, two sets of event offsets, or
+    /// event offsets that are not those of the parent's entries; [`Error::Memory`]
+    /// when the bitsets or the view do not fit; the parent's errors.
     pub fn build<'s, S: Source>(
         &self,
         parent: &'s S,
@@ -448,35 +464,44 @@ impl<'a> ViewSpec<'a> {
             }
             Some(bits)
         };
-        let events = match self.events.first() {
-            None => None,
-            Some(&(offsets, _)) => {
-                let same = |o: &[u64]| o.as_ptr() == offsets.as_ptr() && o.len() == offsets.len();
-                if !self.events.iter().all(|(o, _)| same(o)) {
+        let events = match (self.offsets.first(), self.events.is_empty()) {
+            (None, true) => None,
+            (None, false) => {
+                return Err(Error::Argument(
+                    "event predicates without the event offsets they read",
+                ));
+            }
+            (Some(&offsets), _) => {
+                let same = |o: &&[u64]| o.as_ptr() == offsets.as_ptr() && o.len() == offsets.len();
+                if !self.offsets.iter().all(same) {
                     return Err(Error::Argument(
-                        "the event predicates of a view read other event offsets",
+                        "a view defined over two sets of event offsets",
                     ));
                 }
                 let rows = check_events(offsets, m)?;
-                let tests: Vec<Predicate<'a>> = self.events.iter().map(|&(_, p)| p).collect();
-                Some(Events {
-                    offsets,
-                    kept: select(memory, "view event bitset", rows, &tests)?,
-                })
+                let kept = if self.events.is_empty() {
+                    None
+                } else {
+                    Some(select(memory, "view event bitset", rows, &self.events)?)
+                };
+                Some(Events { offsets, kept })
             }
         };
-        let entries = if self.pairs.is_empty() && events.is_none() {
+        let kept_events = events
+            .as_ref()
+            .and_then(|ev| Some((ev.offsets, ev.kept.as_ref()?)));
+        let entries = if self.pairs.is_empty() && kept_events.is_none() {
             None
         } else {
             let mut bits = select(memory, "view entry bitset", m, &self.pairs)?;
-            if let Some(ev) = &events {
+            if let Some((offsets, kept)) = kept_events {
                 let words = bits.as_mut_slice().ok_or(SEGMENT)?;
-                let kept = ev.kept.as_slice().ok_or(SEGMENT)?;
+                let kept = kept.as_slice().ok_or(SEGMENT)?;
                 par::for_each_chunk_mut(words, GRAIN, |first, chunk| {
                     for (w, word) in (first as u64..).zip(chunk) {
                         let mut x = 0;
                         for e in (64 * w..m).take(64) {
-                            let r = ev.offsets[row(e)]..ev.offsets[row(e) + 1];
+                            let r = offsets[row(e)]..offsets[row(e) + 1];
                             x |= u64::from(any(kept, r)) << (e % 64);
                         }
                         *word &= x;
@@ -487,6 +512,45 @@ impl<'a> ViewSpec<'a> {
         };
         let view = View::new(parent, memory, settings, nodes, entries)?;
         Ok(Filtered { view, events })
+    }
+
+    /// The out-view and the in-view of a directed graph, as a kernel reads them both:
+    /// `self` on the out-adjacency `parents.0`, and on the in-adjacency `parents.1` the
+    /// node filters of `self` with the edge filters of `inn`, which name the
+    /// in-adjacency's own pair and event columns and event offsets.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Argument`] when `inn` filters nodes, or when the two views do not keep
+    /// the same nodes under the same ids and the same number of edges: then the two
+    /// adjacencies, or their columns, are not those of one graph; as
+    /// [`build`](Self::build).
+    pub fn build_directed<'s, S: Source, T: Source>(
+        &self,
+        inn: &ViewSpec<'a>,
+        parents: (&'s S, &'s T),
+        memory: &Memory,
+        settings: Settings,
+    ) -> Result<(Filtered<'s, 'a, S>, Filtered<'s, 'a, T>), Error> {
+        if !inn.nodes.is_empty() || !inn.sets.is_empty() {
+            return Err(Error::Argument(
+                "the in-adjacency's part of a view filters edges only",
+            ));
+        }
+        let in_spec = ViewSpec {
+            nodes: self.nodes.clone(),
+            sets: self.sets.clone(),
+            ..inn.clone()
+        };
+        let out = self.build(parents.0, memory, settings)?;
+        let back = in_spec.build(parents.1, memory, settings)?;
+        if out.view.same_nodes(&back.view) && out.view.entries() == back.view.entries() {
+            Ok((out, back))
+        } else {
+            Err(Error::Argument(
+                "the out- and in-views keep other nodes or edges: they are not of one graph",
+            ))
+        }
     }
 }
 
@@ -506,12 +570,12 @@ fn and_set(memory: &Memory, n: u32, ids: &[u32], words: &mut [u64]) -> Result<()
     Ok(())
 }
 
-/// The events a view keeps.
+/// The event offsets of a view, and the events it keeps.
 #[derive(Debug)]
 struct Events<'a> {
     offsets: &'a [u64],
-    /// Bit `i`: event `i` passes every event predicate.
-    kept: SegVec<u64>,
+    /// Bit `i`: event `i` passes every event predicate; `None` without one.
+    kept: Option<SegVec<u64>>,
 }
 
 /// A view built from a [`ViewSpec`]: the [`View`] the kernels run on, and the events it
@@ -568,14 +632,13 @@ impl<'s, S: Source> Filtered<'s, '_, S> {
     }
 
     /// The number of events of each pair of the view that the view keeps: all of them
-    /// without event predicates. `offsets` are the event offsets of the parent's
-    /// adjacency.
+    /// without event predicates.
     ///
     /// # Errors
     ///
     /// As [`event_sums`](Self::event_sums).
-    pub fn multiplicity(&self, offsets: &[u64], memory: &Memory) -> Result<SegVec<u64>, Error> {
-        let kept = self.kept(offsets)?;
+    pub fn multiplicity(&self, memory: &Memory) -> Result<SegVec<u64>, Error> {
+        let (offsets, kept) = self.events()?;
         self.view.gather(memory, "view multiplicity", |e| {
             let r = offsets[row(e)]..offsets[row(e) + 1];
             r.filter(|&i| kept.is_none_or(|k| has(k, i))).count() as u64
@@ -587,16 +650,10 @@ impl<'s, S: Source> Filtered<'s, '_, S> {
     ///
     /// # Errors
     ///
-    /// [`Error::Argument`] for offsets that are not those of the parent's entries or
-    /// differ in their events from the view's, or a column of another length than the
-    /// events; as [`View::gather`].
-    pub fn event_sums(
-        &self,
-        offsets: &[u64],
-        column: &[f64],
-        memory: &Memory,
-    ) -> Result<SegVec<f64>, Error> {
-        let kept = self.kept(offsets)?;
+    /// [`Error::Argument`] for a view defined without event offsets, or a column of
+    /// another length than the events; as [`View::gather`].
+    pub fn event_sums(&self, column: &[f64], memory: &Memory) -> Result<SegVec<f64>, Error> {
+        let (offsets, kept) = self.events()?;
         if column.len() as u64 != offsets[offsets.len() - 1] {
             return Err(Error::Argument(
                 "a per-event column of another length than the events",
@@ -613,18 +670,16 @@ impl<'s, S: Source> Filtered<'s, '_, S> {
         })
     }
 
-    /// Checks `offsets` against the parent and the view's events; the kept events'
-    /// bits, if the view filters events.
-    fn kept(&self, offsets: &[u64]) -> Result<Option<&[u64]>, Error> {
-        let events = check_events(offsets, self.view.parent().entries())?;
-        match &self.events {
-            None => Ok(None),
-            Some(ev) if ev.offsets.last() == Some(&events) => {
-                ev.kept.as_slice().map(Some).ok_or(SEGMENT)
-            }
-            Some(_) => Err(Error::Argument(
-                "event offsets other than those the view was built with",
-            )),
-        }
+    /// The view's event offsets, and the kept events' bits if it filters events.
+    fn events(&self) -> Result<(&[u64], Option<&[u64]>), Error> {
+        let ev = self.events.as_ref().ok_or(Error::Argument(
+            "the view was defined without event offsets",
+        ))?;
+        let kept = ev
+            .kept
+            .as_ref()
+            .map(|k| k.as_slice().ok_or(SEGMENT))
+            .transpose()?;
+        Ok((ev.offsets, kept))
     }
 }
