@@ -91,7 +91,7 @@ def open_container(f):  # § 7: two reads
 
 
 def identity(found):  # § 6: BLAKE3 of (kind, name length, name, hash) of the graph's sections
-    graph = [e for e in found if 2 <= e[1] <= 5]  # in name order, as the TOC holds them
+    graph = [e for e in found if e[1] in (2, 3, 4, 5, 7)]  # in name order, as the TOC holds them
     return blake3(b"".join(struct.pack("<II", e[1], len(e[0].encode())) + e[0].encode() + e[5] for e in graph)).hex()
 
 

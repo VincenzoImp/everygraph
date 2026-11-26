@@ -12,9 +12,9 @@
 //! fell back to an older commit, the graph identity, and every section.
 //!
 //! The sample has two commits: a small graph (a provenance record, the two sections of
-//! a compressed adjacency, an empty section, one of a kind no specification defines,
-//! and sections of 0 to 70,000 bytes, so that BLAKE3's tree has one and several
-//! chunks), then a result appended with its own record and one section removed — so
+//! a compressed adjacency, a property column with its layout and statistics, an empty
+//! section, one of a kind no specification defines, and sections of 0 to 70,000 bytes,
+//! so that BLAKE3's tree has one and several chunks), then a result appended with its own record and one section removed — so
 //! it also holds a replaced table of contents and bytes no commit refers to.
 //!
 //! ```sh
@@ -32,6 +32,7 @@ use std::io::Write;
 use std::path::Path;
 
 use everygraph_format::adjacency;
+use everygraph_format::columns::{ColumnSpec, ColumnType, write_column};
 use everygraph_format::container::{Container, Input, Kind, Provenance, ResultKey, Writer};
 use everygraph_io::{FileSink, FileSource, persist};
 use support::bytes;
@@ -90,6 +91,11 @@ fn write(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         ingest,
     )?;
     w.add_section("ids.header", Kind::ID_DICTIONARY, &bytes(1, 64), ingest)?;
+    // A property column: kind 7 enters the graph identity, its layout (kind 8) and
+    // statistics (kind 9) do not.
+    let degrees: Vec<u64> = (0..n).map(|v| u64::from(v % 3 + 2)).collect();
+    let spec = ColumnSpec::new("degree", ColumnType::UInt64, u64::from(n));
+    write_column(&mut w, "nodes", &spec, &degrees[..], ingest)?;
     w.add_section("empty", private, &[], None)?;
     w.add_section("x.chunk-boundary", private, &bytes(2, 1024), None)?;
     w.add_section("x.many-chunks", private, &bytes(3, 70_000), None)?;

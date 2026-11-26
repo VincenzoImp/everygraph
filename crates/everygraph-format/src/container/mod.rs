@@ -112,6 +112,12 @@ impl Kind {
     /// The segment manifest of a segmented file (`segments`, spec § 13). Reserved:
     /// version 1.0 neither writes nor reads segments.
     pub const SEGMENTS: Self = Self(6);
+    /// A property column: a complete Arrow IPC file (`docs/spec/eg-columns.md` § 3).
+    pub const COLUMN: Self = Self(7);
+    /// Where the buffers of a property column lie (`docs/spec/eg-columns.md` § 4).
+    pub const COLUMN_LAYOUT: Self = Self(8);
+    /// The statistics of a numeric property column (`docs/spec/eg-columns.md` § 5).
+    pub const COLUMN_STATS: Self = Self(9);
     /// A result kept in the graph file: typed values, with a provenance record that
     /// holds its key (spec § 6, "Results"), written by [`Writer::add_result`].
     pub const RESULT: Self = Self(10);
@@ -134,14 +140,14 @@ impl Kind {
     /// Whether this version of the specification defines the kind.
     #[must_use]
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 1..=6 | 10)
+        matches!(self.0, 1..=10)
     }
 
     /// Whether sections of this kind define the graph, and so enter its identity
     /// ([`GraphIdentity`], spec § 6).
     #[must_use]
     pub const fn defines_graph(self) -> bool {
-        matches!(self.0, 2..=5)
+        matches!(self.0, 2..=5 | 7)
     }
 }
 

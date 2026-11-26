@@ -285,6 +285,13 @@ impl BlockWriter {
 /// blocks and the bytes from the committed end on, so it goes through beside a map of
 /// `8192 … committed end`, and on Unix fails beside a whole-file map (on Windows there
 /// is no guard). Other processes are not guarded (see `MmapSource`).
+///
+/// **Windows and maps of other processes.** Windows refuses to shorten a file that
+/// another process maps. The sink then takes a [`set_len`](ByteSink::set_len) to 8192
+/// bytes or more for a container's cut of its uncommitted tail, and leaves the bytes
+/// past the new length in place (the container allows them, spec § 7). Any user of a
+/// `FileSink` that shortens a file to 8192 bytes or more gets that behaviour too; a
+/// shorter length, and [`create`](Self::create), fail with the system's error.
 #[derive(Debug)]
 pub struct FileSink {
     // Declared before the claim: the file is closed, and its lock released, first.

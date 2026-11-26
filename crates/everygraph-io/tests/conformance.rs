@@ -618,6 +618,15 @@ fn a_map_never_reaches_past_the_end_while_another_thread_shortens_the_file() {
                 let _ = sink.set_len(A as u64);
             }
         });
+        // Set however this thread ends, so that a failed assertion ends the test
+        // instead of leaving the other thread to spin.
+        struct Stop<'a>(&'a AtomicBool);
+        impl Drop for Stop<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+        let _stop = Stop(&stop);
         let until = Instant::now() + Duration::from_secs(2);
         while Instant::now() < until {
             let map = MmapSource::from_file(&File::open(&path).unwrap()).unwrap();
@@ -626,7 +635,6 @@ fn a_map_never_reaches_past_the_end_while_another_thread_shortens_the_file() {
             }
             maps += 1;
         }
-        stop.store(true, Ordering::Relaxed);
     });
     assert!(maps > 0);
     fs::remove_dir_all(dir).unwrap();

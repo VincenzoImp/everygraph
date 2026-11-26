@@ -85,13 +85,14 @@ fn pagerank(graph: GraphIdentity, version: u32, deterministic: bool) -> ResultKe
 }
 
 /// Spec § 6, computed here from the TOC as the spec states it, independently of the
-/// crate's code: BLAKE3 over (kind, name length, name, hash) of kinds 2–5, in name order.
+/// crate's code: BLAKE3 over (kind, name length, name, hash) of kinds 2–5 and 7, in name
+/// order.
 fn identity_by_hand<S: ByteSource>(file: &Container<S>) -> [u8; 32] {
     let mut input = Vec::new();
     for e in file
         .entries()
         .iter()
-        .filter(|e| (2..=5).contains(&e.kind.code()))
+        .filter(|e| [2, 3, 4, 5, 7].contains(&e.kind.code()))
     {
         input.extend_from_slice(&e.kind.code().to_le_bytes());
         input.extend_from_slice(&u32::try_from(e.name.len()).unwrap().to_le_bytes());
@@ -105,9 +106,14 @@ fn identity_by_hand<S: ByteSource>(file: &Container<S>) -> [u8; 32] {
 fn the_identity_covers_the_graph_sections_and_nothing_else() {
     let mut w = graph();
     let id = w.graph_identity();
-    // Results, provenance and private sections do not change it.
+    // Results, provenance, private sections and a column's layout and statistics
+    // (kinds 8 and 9, which follow from the column) do not change it.
     w.add_provenance("p", &about()).unwrap();
     w.add_section("x.more", Kind::PRIVATE, b"x", Some("p"))
+        .unwrap();
+    w.add_section("nodes/layout/age", Kind::COLUMN_LAYOUT, b"layout", None)
+        .unwrap();
+    w.add_section("nodes/stats/age", Kind::COLUMN_STATS, b"stats", None)
         .unwrap();
     let key = pagerank(id, 1, true);
     w.add_result(&key, &about(), &[1.0_f64]).unwrap();
@@ -125,9 +131,10 @@ fn the_identity_covers_the_graph_sections_and_nothing_else() {
         id.to_string()
     );
 
-    // Each change to a graph section — content, name, kind, one added, one removed —
+    // Each change to a graph section — content, name, kind, one added (a dictionary
+    // section or a property column, kind 7), one removed —
     // gives a new identity.
-    let changes: [fn(&mut Writer<Mem>); 5] = [
+    let changes: [fn(&mut Writer<Mem>); 6] = [
         |w| {
             w.remove("ids.keys").unwrap();
             w.add_section("ids.keys", Kind::ID_DICTIONARY, &bytes(3, 41), None)
@@ -149,6 +156,10 @@ fn the_identity_covers_the_graph_sections_and_nothing_else() {
         },
         |w| {
             w.remove("ids.keys").unwrap();
+        },
+        |w| {
+            w.add_section("nodes/arrow/age", Kind::COLUMN, b"column", None)
+                .unwrap();
         },
     ];
     let mut seen = vec![id];
