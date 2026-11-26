@@ -183,7 +183,7 @@ fn settings(chunk: u64) -> Settings {
     Settings {
         chunk_entries: chunk,
         batch_entries: 5,
-        prefetch: false,
+        ..Settings::default()
     }
 }
 

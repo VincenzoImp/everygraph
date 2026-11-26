@@ -16,7 +16,9 @@ use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 use everygraph_core::{Budget, Memory, MemorySource};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
-use everygraph_kernels::edge_map::{Compressed, Node, Plan, Settings, Source, Stream, all};
+use everygraph_kernels::edge_map::{
+    Compressed, CompressedStream, Node, Plan, Settings, Source, Stream, all,
+};
 use everygraph_memtest::counting::{self, Counting};
 use everygraph_memtest::probe::alone;
 
@@ -95,9 +97,12 @@ fn readers_hold_no_more_heap_than_they_reserve() {
                 .collect::<Vec<u8>>(),
         );
         let stream = Stream::new(&offsets, &bytes).unwrap();
+        let data = MemorySource::new(&encoded.data[..]);
+        let streamed = CompressedStream::new(&index, &data, 0).unwrap();
         for (name, over) in [
             ("compressed", excess(&compressed)),
             ("stream", excess(&stream)),
+            ("compressed stream", excess(&streamed)),
         ] {
             assert!(
                 over <= SLACK,

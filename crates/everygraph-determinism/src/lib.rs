@@ -87,7 +87,7 @@ impl Config {
         Settings {
             chunk_entries: self.chunk.0,
             batch_entries: self.chunk.1,
-            prefetch: false,
+            ..Settings::default()
         }
     }
 }
