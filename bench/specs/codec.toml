@@ -90,6 +90,7 @@ name = "scan-twitter-sym"
 group = "scan"
 description = "warm sequential decode of every list of twitter-sym, batches of 8,192 entries"
 dataset_path = "csr/twitter-sym"
+warm_ok = "reads the compressed store into the heap, not the CSR"
 threads = [1, 16]
 command = ["{m203}", "scan", "--store", "{stores}/twitter-sym", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
 conditions = { graph = "twitter-sym", storage = "compressed (default), store in the heap", level = "in-process decode loop, best of 7" }

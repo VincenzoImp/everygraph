@@ -326,6 +326,108 @@ fn every_spec_in_the_repository_passes_the_check() {
 }
 
 #[test]
+fn a_dataset_in_the_work_directory_is_made_by_a_preparation_step_first() {
+    let dir = scratch("workdata");
+    // The cold case needs util-linux fincore for its copies; the warm one runs anywhere.
+    let cold = Command::new("fincore").arg("--version").output().is_ok();
+    let mut text_spec = String::from(
+        "schema = 1\nname = \"selftest\"\ndescription = \"probe\"\n[defaults]\n\
+         memory_limit = \"256M\"\nrepetitions = 1\nwarmup = 0\nsettle = \"100ms\"\n\
+         [[prepare]]\nname = \"store\"\n\
+         shell = \"mkdir -p {work}/stores/g && head -c 8192 /dev/zero > {work}/stores/g/x\"\n\
+         [[benchmark]]\nname = \"warm\"\ndataset_path = \"{work}/stores/g\"\n\
+         command = [\"true\"]\n",
+    );
+    if cold {
+        text_spec.push_str(
+            "[[benchmark]]\nname = \"cold\"\ndataset_path = \"{work}/stores/g\"\n\
+             cache = \"cold\"\ncommand = [\"cat\", \"{dataset}/x\"]\n",
+        );
+    }
+    let spec = write_spec(&dir, &text_spec);
+    let (root, work, rows) = (repo(), dir.join("w"), dir.join("rows.jsonl"));
+    let run = |extra: &[&str]| {
+        let mut args = vec!["run", s(&spec), "--repo", s(&root), "--work", s(&work)];
+        args.extend(["--out", s(&rows)]);
+        args.extend_from_slice(extra);
+        bench(&args, &dir.join("l"))
+    };
+    // Preparation steps run under systemd-run, which a CI runner may not offer.
+    if systemd_run_works() {
+        let prepared = run(&["--prepare-only"]);
+        assert!(prepared.status.success(), "{}", text(&prepared.stderr));
+        let measured = run(&["--skip-prepare"]);
+        assert!(measured.status.success(), "{}", text(&measured.stderr));
+        std::fs::remove_dir_all(dir.join("w/stores")).expect("remove the store");
+    }
+    // Without the step, the case names the missing dataset after the preparation.
+    let missing = run(&["--skip-prepare"]);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(
+        text(&missing.stderr).contains("no preparation step made it"),
+        "{}",
+        text(&missing.stderr)
+    );
+}
+
+#[test]
+fn a_warm_case_below_its_datasets_size_fails_the_lint() {
+    let dir = scratch("lint");
+    std::fs::create_dir_all(dir.join("data/g")).expect("data");
+    std::fs::write(dir.join("data/g/targets.u32"), vec![0_u8; 8192]).expect("dataset");
+    let case = |extra: &str| {
+        format!(
+            "schema = 1\nname = \"selftest\"\ndescription = \"lint\"\n[defaults]\n\
+             memory_limit = \"4K\"\n[[benchmark]]\nname = \"scan\"\ndataset_path = \"g\"\n\
+             {extra}\ncommand = [\"true\"]\nmetric = [{{ name = \"seconds\", json = \"/s\" }}]\n"
+        )
+    };
+    let check = |extra: &str| {
+        let p = write_spec(&dir, &case(extra));
+        let data = dir.join("data");
+        bench(
+            &["check", s(&p), "--repo", s(&repo()), "--data", s(&data)],
+            &dir.join("l"),
+        )
+    };
+    let warm = check("");
+    assert_eq!(warm.status.code(), Some(1));
+    assert!(
+        text(&warm.stdout).contains("LINT: memory limit 4 KiB is below the size of g (8 KiB)"),
+        "{}",
+        text(&warm.stdout)
+    );
+    for extra in ["cache = \"cold\"", "warm_ok = \"reads with O_DIRECT\""] {
+        let out = check(extra);
+        assert!(out.status.success(), "{extra}: {}", text(&out.stdout));
+    }
+    // Absent from the data root: the size comes from the registry's counts (orkut's CSR,
+    // about 1 GB, above a 512 MiB limit).
+    let absent = case("").replace("dataset_path = \"g\"", "dataset_path = \"csr/orkut\"");
+    let p = write_spec(
+        &dir,
+        &absent.replace("memory_limit = \"4K\"", "memory_limit = \"512M\""),
+    );
+    let out = bench(
+        &[
+            "check",
+            s(&p),
+            "--repo",
+            s(&repo()),
+            "--data",
+            s(&dir.join("none")),
+        ],
+        &dir.join("l"),
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        text(&out.stdout).contains("LINT: memory limit 512 MiB is below the size of csr/orkut"),
+        "{}",
+        text(&out.stdout)
+    );
+}
+
+#[test]
 fn a_spec_without_a_memory_limit_is_refused_before_anything_runs() {
     let dir = scratch("nolimit");
     let p = write_spec(&dir, &SPEC.replace("memory_limit = \"256M\"", ""));

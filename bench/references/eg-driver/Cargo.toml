@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Benchmark driver of bench/specs/references.toml: Everygraph's kernels next to GAP, GBBS,
+# NetworKit and igraph, including BFS and SSSP from a list of sources, which the kernels'
+# own example (`edge_map_bench`) cannot take. Not part of the product workspace; it calls
+# the product kernels unchanged.
+
+[package]
+name = "eg-driver"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+everygraph-core = { path = "../../../crates/everygraph-core" }
+everygraph-kernels = { path = "../../../crates/everygraph-kernels" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

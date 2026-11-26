@@ -22,6 +22,8 @@ labels: type:infra, area:bench, P1, risk:low, size:M, lab-evidence
   Cost: about 50 lines in the harness and one official window (about 3 h, estimate).
 - [ ] Published dashboard page generated from result files ({{#m8-03-public-benchmarks}})
 
+**Progress.** PR #250 (part of this issue and of {{#m3-26-benchmark-validity}}) adds `bench/specs/references.toml`: GAP, GBBS, ConnectIt, Parallel-KCore, PASGAL, the COST line, NetworKit, python-igraph, GVE-Leiden (f32 and f64) and the lab Leiden, built from pinned sources under `bench/` (`bench/references/build.sh`), on lj, orkut, roadnet-ca, web-google, twitter-sym and Friendster, at 1 and 16 threads, every output checked against Everygraph's first (`lab/m3-12-reference-runs`). Left: the official run of the spec and the tables from it (ratios only from official rows, with the intervals of {{#m3-18-harness-statistics}}); scipy, DuckDB and the F2 query engines in this spec (they are in `baselines` and `engines`); GBBS SSSP; the degree and reverse-degree orders of the protocol; the regression gate; the dashboard.
+
 **Acceptance**
 - Weekly run produces the comparison tables automatically
 - Every claim in the README links to a spec and a result file

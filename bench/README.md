@@ -11,6 +11,7 @@ and result formats.
 | `results/<spec>/<timestamp>-<revision>.jsonl` | Rows of **official** runs | yes: every number quoted in a document cites one of these files |
 | `exploratory/<spec>/…` | Rows of exploratory runs | no (ignored) |
 | `runners/` | Comparison runners for other tools: a `uv`-locked Python project | yes (not `.venv/`) |
+| `references/` | What the `references` spec builds and runs: `build.sh` (the C++ tools from pinned sources), drivers for GAP, GBBS and ConnectIt, Parallel-KCore and PASGAL, `eg-driver` (Everygraph's kernels), `cost-line` (the COST line) and `pin.sh` | yes |
 
 The **work directory** holds builds, decompressed inputs, cold-cache copies and logs
 (after `headline`, about 80 GB). It is `--work`, else `$EVERYGRAPH_BENCH_WORK`, else
@@ -24,7 +25,7 @@ directory the harness has marked as its own; `--spec NAME` for one spec's part,
 ## Running
 
 ```sh
-everygraph-bench check                       # every spec parses; list the cases
+everygraph-bench check                       # every spec parses and passes the lint; list the cases
 everygraph-bench check headline --commands   # the expanded commands, for this machine
 everygraph-bench selftest                    # on an idle machine, before official runs
 everygraph-bench run headline --only kernels-orkut --repetitions 1   # exploratory
@@ -34,6 +35,15 @@ everygraph-bench report --compare A.jsonl B.jsonl --max-diff 0.05
 everygraph-bench run SPEC --interleave --seed 1 --compare-by build=main   # an A/B
 everygraph-bench clean
 ```
+
+**The out-of-core lint.** `check` fails a case whose memory limit is below the size of
+its dataset unless it is cold (`cache = "cold"`): warm, the page cache may hold the data
+and nothing is read from storage, so the case is not out of core (#265). A benchmark
+that is right warm says why in `warm_ok` (it reads with `O_DIRECT`, or reads other files
+than its dataset). A dataset absent from the machine is checked with the size the
+registry implies (its files, or for `csr/<graph>` the arrays its counts imply), so the lint
+also runs in CI. A dataset in the work directory (`{work}/…`) is checked to exist after the
+preparation steps, which make it.
 
 `--data` (or `$EVERYGRAPH_DATA`) is the data root; on the lab machine
 `/home/tux/graphlab/data`. Progress goes to standard error, the report of the run to
@@ -248,7 +258,7 @@ needed_by = ["k"]          # skipped unless a selected case belongs to these ben
 [[benchmark]]
 name = "k"
 group = "kernels"          # one report table per group
-dataset_path = "csr/orkut" # under the data root, or absolute; or dataset = "<registry name>"
+dataset_path = "csr/orkut" # under the data root, or absolute, or "{work}/…"; or dataset = "<registry name>"
 matrix = { algo = ["pr32", "wcc"] }          # cartesian product, with threads
 exclude = [{ algo = "wcc", threads = 1 }]
 memory_limit = "{algo}"    # limits and dataset names may use matrix values
@@ -273,6 +283,7 @@ record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", 
 # or record = { tool = "GVE-Leiden", … }  (literal templates, for tools that print no JSON)
 binaries = ["{repo}/bench/runners/run.py"]
 unavailable = "why it cannot run here"   # recorded as a skipped row, never dropped
+warm_ok = "why warm is right"            # silences the out-of-core lint (above)
 ```
 
 Placeholders: `{repo}`, `{data}`, `{work}`, `{spec}` everywhere; in benchmarks also
@@ -282,7 +293,9 @@ keys; `{{` and `}}` are literal braces. Metric patterns are not templates.
 
 Metrics the harness measures for every row: `wall_seconds`, `user_seconds`,
 `system_seconds`, `memory_peak_bytes`, `anon_peak_bytes`, `file_peak_bytes`,
-`read_bytes`, `write_bytes`, and `stop_seconds` for interrupted runs.
+`pgmajfault` and `refaults` (the scope's `memory.stat` at the end: major page faults,
+and file and anonymous pages read again after their eviction), `read_bytes`,
+`write_bytes`, and `stop_seconds` for interrupted runs.
 
 ## Rows
 
@@ -358,9 +371,14 @@ the first time). The F2 engines run on cores 0–2 (`taskset`), as the lab pinne
 
 | Tool | Spec | Version | Status |
 |---|---|---|---|
-| NetworKit | `baselines` | 11.3 (FINDINGS § A) | runs |
-| python-igraph | `baselines`, `engines` | 1.0.0 | runs |
-| GVE-Louvain, GVE-Leiden | `baselines` | commits of 2025-04-08, pinned in the spec | built by the spec from source |
+| NetworKit | `baselines`, `references` | 11.3 (FINDINGS § A) | runs |
+| python-igraph | `baselines`, `engines`, `references` | 1.0.0 | runs |
+| GVE-Louvain, GVE-Leiden | `baselines`, `references` | commits of 2025-04-08, pinned in the spec | built by the spec from source |
+| GAP Benchmark Suite | `kernels`, `references` | commit 941462c (2026-11-26) | built from source (`references/build.sh`); PageRank with `ScoreT = double`, SSSP also with `WeightT = double` |
+| GBBS, ConnectIt | `references` | GBBS commit b1a90f5 (2023-05-18), the last with makefiles | built from source, through `references/gbbs_driver.cc` |
+| Parallel-KCore | `references` | commit b4966c8 | built from source, through `references/ucr_driver.cc`; **no licence**: downloaded and built on the machine only, never committed |
+| PASGAL | `references` | commit f7817ba | built from source, through `references/ucr_driver.cc` |
+| COST line | `references` | frankmcsherry/COST d5bef75 (MIT) | `references/cost-line`: its union-find and PageRank loops |
 | DuckDB (ingest) | `baselines` | 2.0.1 | runs |
 | rustworkx | `engines` | 0.18.1 | runs |
 | LadybugDB | `engines` | 0.22.3 (PyPI `ladybug`) | runs |
@@ -368,7 +386,12 @@ the first time). The F2 engines run on cores 0–2 (`taskset`), as the lab pinne
 | DuckDB + DuckPGQ | `engines` | — | **unavailable**: needs DuckDB 1.3.2 next to 2.0.1 |
 | Neo4j 5.26 + GDS | `engines` | — | **unavailable**: a server lifecycle not written yet |
 
-Known traps, kept in the runners: igraph's PageRank is an exact PRPACK solve, not 20
-iterations; NetworKit's triangle count is `TriangleEdgeScore` summed and divided by 3
+`runners/run.py validate` runs each reference tool once with its result written out
+and compares it with Everygraph's (the `references` spec does so before timing); the
+`references` spec says what each check is. Known traps, kept in the runners: igraph's
+PageRank is an exact PRPACK solve, not 20 iterations; GBBS's PageRank returns a zeroed
+buffer when it stops at its iteration cap (`references/build.sh` patches the return);
+PASGAL's SSSP on a graph marked symmetric assumes that (u, v) and (v, u) cost the same
+(the `references` spec gives every tool costs of the undirected pairs); NetworKit's triangle count is `TriangleEdgeScore` summed and divided by 3
 (not `LocalClusteringCoefficient`); rustworkx's 2-hop is a Python loop over a native
 `neighbors()`; GFQL has no shortest-path operator.
