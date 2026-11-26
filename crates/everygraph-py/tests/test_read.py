@@ -197,8 +197,8 @@ def test_wrong_arguments_are_type_and_value_errors(tmp_path):
         eg.read(path, progress="yes")
     with pytest.raises(TypeError):
         eg.read(path, colour="blue")
-    with pytest.raises(eg.Unsupported):
-        eg.read(path, weight="value")
+    with pytest.raises(ValueError, match="no column named value"):
+        eg.read(path, weight="value", progress=False)
 
 
 def test_the_budget_refuses_before_any_work(tmp_path):
@@ -304,3 +304,27 @@ def test_an_exception_of_the_progress_function_stops_the_call(tmp_path):
         eg.read(path, out=tmp_path / "e.eg", directed=True, overwrite=True, progress=fail)
     assert (tmp_path / "e.eg").read_bytes() == before, "a stopped call changes nothing"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["e.csv", "e.eg"]
+
+
+def test_weight_and_time_columns_are_read_and_part_of_the_graph(tmp_path, capsys):
+    path = tmp_path / "t.csv"
+    path.write_text("a,b,value,at\n1,2,0.5,3\n2,3,1.5,1\n1,2,2.0,2\n")
+    g = eg.read(path, out=tmp_path / "t.eg", weight="value", time="at")
+    assert "value → weight · at → time" in capsys.readouterr().err
+    assert (g.num_nodes, g.num_edges) == (3, 3)
+    # The same input and options open the file; another weight column is another graph.
+    again = eg.read(path, out=tmp_path / "t.eg", weight="value", time="at", progress=False)
+    assert again._info.get("cached")
+    with pytest.raises(eg.OutputExists):
+        eg.read(path, out=tmp_path / "t.eg", weight="at", progress=False)
+    # The operations do not read weight columns yet: asking for one is refused, not ignored.
+    with pytest.raises(eg.Unsupported):
+        g.degrees(progress=False)
+    assert pa.table(g.degrees(weight=False, progress=False)).num_rows == 3
+
+
+def test_a_weight_column_named_like_a_stored_one_is_refused(tmp_path):
+    path = tmp_path / "s.csv"
+    path.write_text("a,b,edges\n1,2,0.5\n")
+    with pytest.raises(eg.InvalidInput, match="two stored columns would be named edges"):
+        eg.read(path, weight="edges", duplicates="sum", progress=False)

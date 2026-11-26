@@ -395,7 +395,7 @@ fn top_byte(ty: ColumnType) -> usize {
 
 /// A stored integer of `ty` (an integer, a timestamp or a decimal) as a 256-bit two's
 /// complement integer: sign-extended for signed types.
-fn widen(b: [u8; 32], ty: ColumnType) -> [u8; 32] {
+pub(super) fn widen(b: [u8; 32], ty: ColumnType) -> [u8; 32] {
     let mut x = b;
     if is_signed(ty) && b[top_byte(ty)] & 0x80 != 0 {
         x[top_byte(ty) + 1..].fill(0xFF);

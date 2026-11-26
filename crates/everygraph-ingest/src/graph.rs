@@ -123,6 +123,7 @@ pub struct Graph<S> {
     inn: Option<Lists>,
     directed: bool,
     edges: u64,
+    weight: Option<String>,
 }
 
 impl<S> fmt::Debug for Graph<S> {
@@ -187,6 +188,7 @@ impl<S: ByteSource + Sync> Graph<S> {
             inn,
             directed,
             edges,
+            weight: provenance.parameters.get("weight").cloned(),
         })
     }
 
@@ -206,6 +208,12 @@ impl<S: ByteSource + Sync> Graph<S> {
     #[must_use]
     pub fn directed(&self) -> bool {
         self.directed
+    }
+
+    /// The weight column declared when the graph was read, if one was.
+    #[must_use]
+    pub fn weight(&self) -> Option<&str> {
+        self.weight.as_deref()
     }
 
     /// The index of the out-adjacency: the lists of an undirected graph.

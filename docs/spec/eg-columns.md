@@ -267,7 +267,20 @@ column name can make one section's name equal another's.
   it, when it is not `float64`) and what reported sums show; the same stored value
   serves both, so they cannot disagree. Under `duplicates="sum"` it is the weight column
   itself (`graph-semantics.md` § 2.4), and the per-pair `edges` column (`uint64`) holds
-  each pair's multiplicity; `first` and `last` are per-pair too.
+  each pair's multiplicity, with or without a weight; `first` and `last` are per-pair
+  too, under these names. Under `duplicates="collapse"` the kept row's weight and time
+  are per-pair columns under their own names.
+- **The in-adjacency's columns** are those of the out-adjacency, with the same names and
+  types, each row the value of the reversed entry or event: the transposition carries
+  the stored values, it does not compute them again. They are left out of the graph
+  identity with the rest of `adjacency.in.*` (`eg-container.md` § 6).
+- **The columns of a text input.** The text reader gives a `float64` weight and a time
+  in microseconds, never null: the build stores `float64` and `timestamp[us]` columns,
+  named as the input's header names them (`column N` without a header). So a directed
+  graph read with `--weight value --time at` stores, under `"events"`,
+  `adjacency.out.event/…/value`, `adjacency.out.event/…/at` and
+  `adjacency.out.pair/…/value`; under `"sum"`, `adjacency.out.pair/…/value`, `edges`,
+  `first` and `last`; under `"collapse"`, `adjacency.out.pair/…/value` and `…/at`.
 - **Computed from the events when asked, not stored**: everything else over a pair's
   events — the smallest event cost of `path()` (`graph-semantics.md` § 4.2), counts and
   sums in a time window (§ 6 there), and the multiplicity under `duplicates="events"`,
@@ -282,8 +295,16 @@ column name can make one section's name equal another's.
 - **Nulls**: a null weight is skipped by sums, a null time is in no window
   (`graph-semantics.md` § 2.6); in storage, a null is a cleared validity bit (§ 3.3).
 - **Statistics** are written for every numeric column of every scope. The largest
-  multiplicity of a pair (`graph-semantics.md` § 2.7) is a property of the adjacency, not
-  of a column: the build records it, where #35 (`m2-08-csr-build`) decides.
+  multiplicity of a pair (`graph-semantics.md` § 2.7) is a property of the graph, not
+  of a column: the build records it in the parameters of its provenance record
+  (`provenance/ingest`) as `multiplicity.max`, a decimal count, 0 for a graph without
+  a pair and 1 under `"collapse"`. It is a parameter because it is a fact of the
+  commit, like the counts of the ingest report beside it, and because a statistics
+  section belongs to a column.
+- **No degree histogram.** The degree of a node is `entry[v + 1] − entry[v]` of its
+  index (`eg-adjacency.md` § 3), so the exact histogram is one pass over the index, made
+  on read (`m3-07-kcore-degrees`); a stored one would cost six sections per graph and a
+  check of its own.
 
 ## 7. Reading
 
@@ -317,6 +338,18 @@ Across sections (the graph layer): the three sections of a column have kinds 7, 
 the names of § 6; a column of scope `<adj>.pair` has the adjacency's `entries` rows, one
 of `<adj>.event` its `events` (or `entries` without a `.events` section), one of `nodes`
 the node count, one of `edges` `num_edges`.
+
+`everygraph verify --deep` checks all of this for every column of the file but the rows
+of `nodes` and `edges`, and also what a reader leaves to the hash: it reads every value,
+refuses a float that is not canonical, a null row that is not zero, a code that names no
+string and a decimal past its precision, and recomputes the statistics from the values
+and compares them byte for byte with the stored ones. A column of scope `<adj>.pair` or
+`<adj>.event` whose adjacency is not in the file is an error; a column of an
+in-adjacency must have the statistics of the same column of its out-adjacency, whose
+values it holds in its own order. And it checks what the
+build derives: `multiplicity.max` against the largest `ev[e + 1] − ev[e]` of the
+adjacency, or under `duplicates="sum"` the largest `edges`; there, `edges ≥ 1` and
+`first ≤ last` on every row (`everygraph_format::verify`).
 
 ## 8. Versions
 

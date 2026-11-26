@@ -7,11 +7,31 @@
 use everygraph_core::{InsufficientBudget, MemoryError, widen};
 use everygraph_format::adjacency::{events_section_bytes, index_bytes_bound, record_bound};
 
+use super::columns::Item;
+use super::fill::record;
 use super::{BuildError, Regime, Tuning};
 
-/// Bytes of memory per item while its bucket waits: the target (`u32`) and the source
-/// local to the bucket (`u16`), in memory or in a spill record.
-pub(super) const ITEM_BYTES: u64 = 6;
+/// Bytes per item, which depend on what an item carries.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Costs {
+    /// While its bucket waits: the item and its source local to the bucket (`u16`), in
+    /// memory or in a spill record.
+    pub(super) item: u64,
+    /// While its bucket is finished: the item sorted, the record bytes (at most 4), the
+    /// multiplicity when events are kept (`u32`), and a `u64` per stored column.
+    pub(super) finish: u64,
+}
+
+impl Costs {
+    /// The costs of items `T` with `columns` stored columns.
+    pub(super) fn of<T: Item>(events: bool, columns: usize) -> Self {
+        let size = widen(size_of::<T>());
+        Self {
+            item: (2 + size).max(widen(record::<T>())),
+            finish: size + 4 + if events { 4 } else { 0 } + 8 * widen(columns),
+        }
+    }
+}
 /// Bytes of a cell of the scatter table: a count and a part of two columns.
 const CELL_BYTES: u64 = 8 + 32;
 /// The scatter table is kept below this by grouping text blocks.
@@ -20,12 +40,11 @@ const TABLE_LIMIT: u64 = 1 << 28;
 /// bucket directory stays small next to the items.
 const MIN_BUCKET_ITEMS: u64 = 1 << 12;
 
-/// Bytes a bucket needs while it is finished: the targets reordered (`u32`), the
-/// records (at most `⌈d/4⌉ + 4d` per list), the multiplicities when events are kept
-/// (`u32`), and per node two counts, a degree and a record length.
-pub(super) fn finish_bytes(items: u64, nodes: u64, events: bool) -> u64 {
-    let per_item = if events { 4 + 4 + 4 } else { 4 + 4 };
-    items * per_item + items.div_ceil(4) + nodes * (4 + 4 + 4 + 8 + 1) + 64
+/// Bytes a bucket needs while it is finished: [`Costs::finish`] per item, the control
+/// bytes of the records (`⌈d/4⌉` per list), and per node two counts, a degree and a
+/// record length.
+pub(super) fn finish_bytes(items: u64, nodes: u64, costs: Costs) -> u64 {
+    items * costs.finish + items.div_ceil(4) + nodes * (4 + 4 + 4 + 8 + 1) + 64
 }
 
 /// The cut of the items.
@@ -43,6 +62,8 @@ pub(super) struct Layout {
     pub(super) group: usize,
     /// The first bucket of each window of `2^WINDOW_BITS` nodes.
     windows: Vec<u32>,
+    /// Bytes per item.
+    pub(super) costs: Costs,
 }
 
 const WINDOW_BITS: u32 = 16;
@@ -63,11 +84,11 @@ impl Layout {
         nodes: u32,
         blocks: usize,
         work: u64,
-        events: bool,
+        (events, costs): (bool, Costs),
         tuning: &Tuning,
     ) -> Result<Self, BuildError> {
         let round_bytes = work / 4;
-        let per_item = finish_bytes(1 << 20, 0, events) >> 20;
+        let per_item = finish_bytes(1 << 20, 0, costs) >> 20;
         let round_items = (round_bytes / per_item.max(1)).max(MIN_BUCKET_ITEMS);
         // A bucket is lent as one slice of the bucket columns, so it is cut at a
         // segment's rows unless one node has more.
@@ -104,7 +125,7 @@ impl Layout {
         if let Some(b) = (0..buckets).find(|&b| size(b).0 > 1 << tuning.segment_bits) {
             return Err(BuildError::Memory(MemoryError::AllocationFailed {
                 purpose: "the items of one node",
-                bytes: ITEM_BYTES * size(b).0,
+                bytes: costs.item * size(b).0,
             }));
         }
         // After the lists: the index, then the `.events` section built in memory and
@@ -136,7 +157,7 @@ impl Layout {
         let largest = (0..buckets)
             .map(|b| {
                 let (items, nodes) = size(b);
-                ITEM_BYTES * items + finish_bytes(items, nodes, events)
+                costs.item * items + finish_bytes(items, nodes, costs)
             })
             .max()
             .unwrap_or(0);
@@ -155,7 +176,7 @@ impl Layout {
         while resident < buckets {
             let next = resident + 1;
             let table = scatter_table(blocks, next).1;
-            if ITEM_BYTES * offsets[next] + table > resident_limit
+            if costs.item * offsets[next] + table > resident_limit
                 || offsets[next] > tuning.resident_items
             {
                 break;
@@ -169,7 +190,7 @@ impl Layout {
             let (items, nodes) = size(b);
             let spilled = b >= resident;
             let cost =
-                finish_bytes(items, nodes, events) + if spilled { ITEM_BYTES * items } else { 0 };
+                finish_bytes(items, nodes, costs) + if spilled { costs.item * items } else { 0 };
             let limit = if spilled {
                 work
             } else {
@@ -203,6 +224,7 @@ impl Layout {
             rounds,
             resident_rounds,
             windows,
+            costs,
         })
     }
 

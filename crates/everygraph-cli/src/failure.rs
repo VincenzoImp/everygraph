@@ -341,6 +341,27 @@ pub(crate) fn build(input: &Path, budget: u64, machine: Option<u64>, e: BuildErr
             )])
         }
         BuildError::Scratch(e) => io("write", Path::new("the scratch files"), &e),
+        BuildError::ColumnClash(name) => Failure::new(
+            "InvalidInput",
+            format!(
+                "Cannot read {}: two stored columns would be named {name}.",
+                input.display()
+            ),
+            INVALID,
+        )
+        .why(vec![
+            "With --duplicates sum the graph stores edges, first and last; a weight \
+             column of one of these names, or one column read as the weight and the time, \
+             would take the same name."
+                .to_owned(),
+        ])
+        .ways(vec![
+            ("rename the column in the header".into(), String::new()),
+            (
+                "--duplicates events".into(),
+                "keep each row as an event".into(),
+            ),
+        ]),
         other => internal(&format!("The build failed: {other}.")),
     }
 }

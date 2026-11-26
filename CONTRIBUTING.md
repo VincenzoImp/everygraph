@@ -266,7 +266,10 @@ What the scripts at the end of "Checks" are for:
   a multiple of 4096 where the layout section says; the statistics must equal those it
   recomputes exactly (`fractions.Fraction`); Polars must read the same values; and the
   sections pinned by the golden test of `crates/everygraph-format/tests/columns.rs` must
-  be among those read. `--big` runs the 2^27-row check of the research decision B17
+  be among those read. Then the same reading of every column of three graphs built by
+  `everygraph ingest --weight --time` (one per `duplicates` option), which must also
+  agree with the input as the script reads it. `--big` runs the 2^27-row check of the
+  research decision B17
   (about 3 GB of memory, two minutes).
 - **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
   ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then

@@ -13,7 +13,7 @@ Tracking issue for milestone M6.
 
 **Exit criteria**
 - [ ] {{#m6-01-python-api}}, {{#m6-02-wheels}}, {{#m6-03-arrow-interop}}, {{#m6-04-in-memory-constructors}}
-- [ ] {{#m6-05-import-export}}, {{#m6-07-subgraph-bridge}}
+- [ ] {{#m6-05-import-export}}, {{#m6-07-subgraph-bridge}}, {{#m6-10-communities-python}}
 - The NetworkX backend ({{#m6-06-networkx-backend}}) was moved to M9 by an approved design choice
 - [ ] {{#m6-08-tutorials}}
 - [ ] {{#m6-09-api-gaps}} — names for the API gaps the literature review found, before the 0.1 freeze
