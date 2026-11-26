@@ -356,6 +356,23 @@ impl Projection {
         }
     }
 
+    /// The teleport vector of PageRank: uniform over the distinct `seeds`, or over every
+    /// node when there are none (`docs/spec/graph-semantics.md` § 5.1).
+    #[must_use]
+    pub fn teleport(&self, seeds: &[u32]) -> Vec<f64> {
+        if seeds.is_empty() {
+            return vec![1.0 / f64::from(self.n); self.len()];
+        }
+        let mut t = vec![0.0; self.len()];
+        let set: std::collections::BTreeSet<u32> = seeds.iter().copied().collect();
+        #[expect(clippy::cast_precision_loss, reason = "a small count")]
+        let share = 1.0 / set.len() as f64;
+        for s in set {
+            t[to_usize(s.into())] = share;
+        }
+        t
+    }
+
     /// Number of pairs of the undirected projection.
     #[must_use]
     pub fn undirected_m(&self) -> u64 {

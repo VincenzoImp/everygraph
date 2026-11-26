@@ -9,8 +9,12 @@
 //!   arrays, the compressed format in the heap or memory-mapped, streams), the
 //!   [`Plan`](edge_map::Plan) whose drivers run a kernel body over them, and the rules
 //!   that keep every result independent of threads, chunking and source.
-//! - [`proof`]: `PageRank`, components and BFS, written once on the framework. The
-//!   production kernels (#47–#52) replace them.
+//! - [`pagerank`]: `PageRank` (f32 and f64 state, weighted, personalized) and
+//!   eigenvector centrality, by pull power iteration (#47).
+//! - [`traversal`]: direction-optimizing BFS and bit-parallel multi-source BFS (#49).
+//! - [`sssp`]: weighted shortest distances by Δ*-stepping with bucket fusion (#49).
+//! - [`proof`]: connected components, written once on the framework; the production
+//!   kernel (#48) replaces it.
 //!
 //! A kernel body is a closure over one node and its list:
 //!
@@ -53,4 +57,8 @@
 )]
 
 pub mod edge_map;
+pub mod pagerank;
 pub mod proof;
+pub mod sssp;
+pub mod traversal;
+mod weights;

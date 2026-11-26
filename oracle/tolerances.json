@@ -2,6 +2,7 @@
   "_comment": "Floating-point tolerances of the correctness oracle, read by the Rust crate (everygraph-oracle, compare.rs) and by the Python references (compare.py). A value a passes against a reference b when |a - b| <= abs + abs_over_n / n + rel * |b|. The reasoning for each number is in oracle/README.md, section Tolerances. Integer results, labels and partitions are always compared exactly; results across configurations of the same kernel are compared bit for bit (DESIGN D14).",
   "pagerank": { "abs": 0.0, "abs_over_n": 1e-9, "rel": 1e-9 },
   "pagerank_sum": { "abs": 1e-9, "abs_over_n": 0.0, "rel": 0.0 },
+  "eigenvector": { "abs": 1e-9, "abs_over_n": 0.0, "rel": 0.0 },
   "clustering": { "abs": 1e-12, "abs_over_n": 0.0, "rel": 0.0 },
   "transitivity": { "abs": 1e-12, "abs_over_n": 0.0, "rel": 0.0 },
   "modularity": { "abs": 1e-10, "abs_over_n": 0.0, "rel": 0.0 },
