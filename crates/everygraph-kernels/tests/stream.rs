@@ -239,3 +239,49 @@ fn a_reader_never_holds_more_than_reader_bytes() {
         budget.peak()
     );
 }
+
+/// Records the ranges advised with `WillNeed`.
+struct Advised {
+    bytes: MemorySource<Vec<u8>>,
+    ranges: std::sync::Mutex<Vec<std::ops::Range<u64>>>,
+}
+
+impl ByteSource for Advised {
+    fn len(&self) -> u64 {
+        self.bytes.len()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        self.bytes.read_at(offset, buf)
+    }
+
+    fn advise(&self, range: std::ops::Range<u64>, hint: everygraph_core::AccessHint) {
+        if hint == everygraph_core::AccessHint::WillNeed {
+            self.ranges.lock().unwrap().push(range);
+        }
+    }
+}
+
+/// A frontier in any order (Leiden's fast mode visits blocks of nodes in a drawn order)
+/// has every record advised: a record before the last one advised starts a range of its
+/// own instead of being taken into it.
+#[test]
+fn prefetch_advises_every_record_of_a_frontier_in_any_order() {
+    let (encoded, index) = encoded(20_000);
+    let data = Advised {
+        bytes: MemorySource::new(encoded.data.clone()),
+        ranges: std::sync::Mutex::new(Vec::new()),
+    };
+    let stream = CompressedStream::new(&index, &data, 0).unwrap();
+    let mut state = 3;
+    let nodes: Vec<u32> = (0..2000)
+        .map(|_| (splitmix(&mut state) % 20_000) as u32)
+        .collect();
+    stream.prefetch(&nodes);
+    let ranges = data.ranges.into_inner().unwrap();
+    for &v in &nodes {
+        let r = index.record_range(everygraph_core::NodeId::new(v));
+        let covered = r.is_empty() || ranges.iter().any(|a| a.start <= r.start && r.end <= a.end);
+        assert!(covered, "the record of {v}, {r:?}, is not advised");
+    }
+}
