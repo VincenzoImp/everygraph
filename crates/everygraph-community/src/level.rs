@@ -683,9 +683,10 @@ fn drive<'g, 't, S: Source, A: Reduce>(
 }
 
 /// [`drive`], with the source told ahead which lists will be read: before each window
-/// of [`AHEAD_WINDOW`] nodes, the nodes not yet announced up to `ahead` blocks of
-/// [`AHEAD_BLOCK`] nodes past the window's end ([`Options::read_ahead`]). The windows
-/// change no result: the bodies read only state that their sub-round does not change.
+/// of [`AHEAD_WINDOW`] nodes, the nodes not yet announced up to the end of the next
+/// window and `ahead - 1` blocks of [`AHEAD_BLOCK`] nodes past it ([`Options::read_ahead`]).
+/// So the next window is always read while this one runs. The windows change no result:
+/// the bodies read only state that their sub-round does not change.
 fn drive_ahead<'g, 't, S: Source, A: Reduce>(
     plan: &Plan<'_, 'g, S>,
     frontier: &[Node<'g>],
@@ -702,7 +703,7 @@ fn drive_ahead<'g, 't, S: Source, A: Reduce>(
     for start in (0..frontier.len()).step_by(AHEAD_WINDOW) {
         let end = (start + AHEAD_WINDOW).min(frontier.len());
         let reach = end
-            .saturating_add(ahead.saturating_mul(AHEAD_BLOCK))
+            .saturating_add(AHEAD_WINDOW + (ahead - 1) * AHEAD_BLOCK)
             .min(frontier.len());
         if reach > told {
             plan.source().prefetch(&list[told..reach]);

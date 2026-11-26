@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use everygraph_community::{
     Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity, table,
 };
-use everygraph_core::{BlockCache, Budget, CacheSettings, Memory, par};
+use everygraph_core::{BlockCache, Budget, CacheSettings, CacheStats, Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource, PoolSettings, ReadPool};
 use everygraph_kernels::edge_map::{Compressed, CompressedStream, Csr, Error, Settings, Stream};
@@ -218,14 +218,25 @@ fn here(s: &Stored, kind: Kind, chunk: u64, o: &Options) -> Communities {
             let stream = Stream::new(&s.lists.offsets, &s.stream).unwrap();
             leiden(&stream, &memory, st, o)
         }
-        Kind::Cached => cached(s, &memory, st, o),
+        Kind::Cached => {
+            let o = Options {
+                read_ahead: 8,
+                ..*o
+            };
+            cached(s, &memory, st, &o).map(|(c, _)| c)
+        }
     };
     c.unwrap()
 }
 
 /// Leiden on the compressed lists of `s` through a block cache of a quarter of them,
-/// read ahead by four threads, 8 blocks ahead unless `o` says otherwise.
-fn cached(s: &Stored, memory: &Memory, st: Settings, o: &Options) -> Result<Communities, Error> {
+/// read ahead by four threads, and what the cache did.
+fn cached(
+    s: &Stored,
+    memory: &Memory,
+    st: Settings,
+    o: &Options,
+) -> Result<(Communities, CacheStats), Error> {
     let pool = PoolSettings {
         threads: 4,
         ..PoolSettings::default()
@@ -234,11 +245,8 @@ fn cached(s: &Stored, memory: &Memory, st: Settings, o: &Options) -> Result<Comm
         let bytes = (s.data.len() as u64 / 4).max(1);
         let cache = BlockCache::with_read_ahead(ahead, memory, CacheSettings::new(bytes, 16))?;
         let lists = CompressedStream::new(&s.index, &cache, 0)?;
-        let o = Options {
-            read_ahead: if o.read_ahead == 0 { 8 } else { o.read_ahead },
-            ..*o
-        };
-        leiden(&lists, memory, st, &o)
+        let c = leiden(&lists, memory, st, o)?;
+        Ok((c, cache.stats()))
     })?
 }
 
@@ -688,24 +696,30 @@ fn parallel_sub_rounds_do_not_depend_on_threads() {
 }
 
 /// Sub-rounds larger than a window of read-ahead (16,384 nodes): 200,000 nodes give 4
-/// sub-rounds of about 50,000 on level 0. Through a block cache read ahead 0, 1 and 64
-/// blocks of 256 nodes, the deterministic result is the one in memory.
+/// sub-rounds of about 50,000 on level 0. Through a block cache, with no read-ahead and
+/// read ahead 1 and 64 blocks, the deterministic result is the one in memory. Read-ahead
+/// brings frames in, so that the readers miss fewer: the frontier runs advise nothing
+/// here (`prefetch` is off), so only Leiden's windows do.
 #[test]
 fn read_ahead_changes_no_deterministic_result() {
     let (n, pairs) = sparse_planted(200, 1000, 6, 1, 11);
     let s = store(&Lists::from_pairs(n, &pairs));
     let o = Options::default();
     let memory = Memory::unlimited();
-    let st = Settings {
-        prefetch: true,
-        ..settings(1 << 16)
-    };
+    let st = settings(1 << 16);
     on(8, || {
         let expected = Outcome::from(&here(&s, Kind::Heap, 1 << 16, &o));
+        let (c, none) = cached(&s, &memory, st, &o).unwrap();
+        assert_eq!(Outcome::from(&c), expected, "no read-ahead");
+        assert_eq!(none.prefetched, 0);
         for read_ahead in [1, 64] {
             let o = Options { read_ahead, ..o };
-            let c = cached(&s, &memory, st, &o).unwrap();
+            let (c, stats) = cached(&s, &memory, st, &o).unwrap();
             assert_eq!(Outcome::from(&c), expected, "{read_ahead} blocks ahead");
+            assert!(
+                stats.prefetched > 0 && stats.misses < none.misses,
+                "{read_ahead} blocks ahead: {stats:?} against {none:?}"
+            );
             let heap = here(&s, Kind::Heap, 1 << 16, &o);
             assert_eq!(
                 Outcome::from(&heap),

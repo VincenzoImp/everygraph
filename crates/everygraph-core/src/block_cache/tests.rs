@@ -147,7 +147,7 @@ impl Deferred<'_> {
         fetches
             .into_iter()
             .map(|fetch| {
-                let range = fetch.range.clone();
+                let range = fetch.range();
                 fetch.run(self.source, &mut buf).unwrap();
                 range
             })
@@ -234,7 +234,7 @@ fn a_dropped_fetch_gives_its_frames_back() {
     assert_eq!(cache.stats().misses, 8);
 }
 
-/// Half of a shard's slots at most are claimed ahead, so reads always find a slot.
+/// Read-ahead claims at most half of a shard's slots and leaves the rest to reads.
 #[test]
 fn read_ahead_leaves_half_the_slots() {
     let bytes = sample(64 * 4096);
@@ -325,25 +325,122 @@ fn the_cache_is_in_the_ledger() {
     assert_eq!(budget.used(), 0);
 }
 
-/// The bytes read after `Sequential` are counted as a scan's, until `Normal`.
+/// A cache asked for more than its source holds at most the source's frames, and each
+/// shard's frames stay one allocation: 1.5 GiB asked over 64 KiB (the review's probe,
+/// which panicked on the first read).
 #[test]
-fn scan_bytes_are_counted_apart() {
-    let bytes = sample(64 * 4096);
+fn a_cache_larger_than_its_source_holds_the_source() {
+    let bytes = sample(64 << 10);
     let source = MemorySource::new(bytes.as_slice());
-    let cache = BlockCache::new(&source, &Memory::unlimited(), settings(8, 4096, 1)).unwrap();
-    let mut buf = vec![0_u8; 100];
-    cache.read_at(0, &mut buf).unwrap();
-    cache.advise(0..1, AccessHint::Sequential);
+    let budget = Arc::new(Budget::unlimited());
+    let memory = Memory::from(Arc::clone(&budget));
+    let cache = BlockCache::new(&source, &memory, CacheSettings::new(1536 << 20, 2)).unwrap();
+    assert_eq!(cache.frame_bytes(), 64 << 10);
+    assert!(budget.used() < 1 << 20, "{}", budget.used());
+    check_reads(&cache, &bytes, 9, 100);
     let mut all = vec![0_u8; bytes.len()];
     cache.read_at(0, &mut all).unwrap();
     assert_eq!(all, bytes);
-    cache.advise(0..1, AccessHint::Normal);
+}
+
+/// A frame read ahead earns its reference bit on its second read, not its first: read
+/// once, it is the first to go, as a frame a read brought in itself.
+#[test]
+fn a_frame_read_ahead_and_read_once_is_not_referenced() {
+    let bytes = sample(64 * 4096);
+    let source = MemorySource::new(bytes.as_slice());
+    let ahead = Deferred {
+        source: &source,
+        queue: Mutex::new(Vec::new()),
+        capacity: 100,
+    };
+    // One shard of four slots; read-ahead may claim two.
+    let cache =
+        BlockCache::with_read_ahead(&ahead, &Memory::unlimited(), settings(4, 4096, 1)).unwrap();
+    cache.advise(0..2 * 4096, AccessHint::WillNeed);
+    ahead.run_all();
+    let mut buf = [0_u8; 8];
     cache.read_at(0, &mut buf).unwrap();
-    let stats = cache.stats();
+    // Three misses fill the two free slots, then take the oldest unreferenced one.
+    for f in 10..13 {
+        cache.read_at(f * 4096, &mut buf).unwrap();
+    }
+    let before = cache.stats();
+    cache.read_at(4096, &mut buf).unwrap();
     assert_eq!(
-        stats.bytes_read,
-        4096 * (1 + 63 + 1),
-        "frame 0 was held, then pushed out by the scan"
+        cache.stats().hits,
+        before.hits + 1,
+        "frame 1, never read, stays"
     );
-    assert_eq!(stats.scan_bytes, 4096 * 63);
+    cache.read_at(0, &mut buf).unwrap();
+    assert_eq!(
+        cache.stats().misses,
+        before.misses + 1,
+        "frame 0, read once, went first"
+    );
+}
+
+/// Read-ahead threads whose queue panics.
+struct Panicking<'a> {
+    source: &'a (dyn ByteSource + Sync),
+}
+
+impl ReadAhead for Panicking<'_> {
+    fn source(&self) -> &(dyn ByteSource + Sync) {
+        self.source
+    }
+
+    fn submit(&self, _: Fetch) -> Result<(), Fetch> {
+        panic!("the queue failed");
+    }
+
+    fn max_read(&self) -> usize {
+        4 * 4096
+    }
+}
+
+/// Fails, by panicking, the first read.
+struct PanicsOnce<'a> {
+    bytes: &'a [u8],
+    panicked: AtomicBool,
+}
+
+impl ByteSource for PanicsOnce<'_> {
+    fn len(&self) -> u64 {
+        widen(self.bytes.len())
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        assert!(self.panicked.swap(true, Relaxed), "the device failed");
+        MemorySource::new(self.bytes).read_at(offset, buf)
+    }
+}
+
+/// A panic while frames are claimed, in the read-ahead's queue or in the source, gives
+/// the claims back: the reads that follow read the frames instead of waiting forever.
+#[test]
+fn a_panic_gives_the_claimed_frames_back() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    let bytes = sample(16 * 4096);
+    let source = MemorySource::new(bytes.as_slice());
+    let ahead = Panicking { source: &source };
+    let cache =
+        BlockCache::with_read_ahead(&ahead, &Memory::unlimited(), settings(16, 4096, 4)).unwrap();
+    let advised = catch_unwind(AssertUnwindSafe(|| {
+        cache.advise(0..8 * 4096, AccessHint::WillNeed);
+    }));
+    assert!(advised.is_err());
+    let mut all = vec![0_u8; 8 * 4096];
+    cache.read_at(0, &mut all).unwrap();
+    assert_eq!(all, bytes[..8 * 4096]);
+
+    let once = PanicsOnce {
+        bytes: &bytes,
+        panicked: AtomicBool::new(false),
+    };
+    let cache = BlockCache::new(&once, &Memory::unlimited(), settings(16, 4096, 4)).unwrap();
+    let read = catch_unwind(AssertUnwindSafe(|| cache.read_at(0, &mut all)));
+    assert!(read.is_err());
+    cache.read_at(0, &mut all).unwrap();
+    assert_eq!(all, bytes[..8 * 4096]);
 }

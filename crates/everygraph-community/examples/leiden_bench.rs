@@ -12,17 +12,19 @@
 //!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
 //!     [--split last|every] [--levels L] [--gamma X] [--objective modularity|cpm]
 //!     [--weights ones|wide|f32]
-//!     [--chunk ENTRIES] [--budget-gib G] [--check 1] [--hier FILE]
+//!     [--chunk ENTRIES] [--budget-gib G | --budget-mib M] [--check 1] [--hier FILE]
 //!     [--cache-mib M] [--read-ahead K] [--pool-threads P] [--direct 1] [--prefetch 1]
 //! ```
 //!
 //! `--source cached` reads the store's data part through a block cache of `--cache-mib`
 //! MiB (1024 by default), read ahead by a pool of `--pool-threads` threads (64), `K`
-//! blocks of 256 nodes ahead of the visits (`Options::read_ahead`, 0 by default), from
-//! the file opened for direct reads with `--direct 1`; it adds the cache's counts to the
-//! line. `--advise random` gives the memory map `MADV_RANDOM` for the whole run. Every
-//! run reports `read_bytes`, the process's bytes read from storage while Leiden ran
-//! (`/proc/self/io`, Linux), and `peak_reserved`, the budget's peak.
+//! ahead (`Options::read_ahead`, 0 by default), from the file opened for direct reads
+//! with `--direct 1`. The cache and the pool reserve in the budget of `--budget-gib`
+//! with Leiden. It adds the cache's counts to the line, and `scan_bytes`, the bytes read
+//! from the file after the stream advised a scan. `--advise random` gives the memory map
+//! `MADV_RANDOM` for the whole run. Every run reports `read_bytes`, the process's bytes
+//! read from storage while Leiden ran (`/proc/self/io`, Linux), `peak_reserved`, the
+//! budget's peak, and `rss_peak`, the process's peak resident memory (`VmHWM`).
 //!
 //! `--weights` gives each pair a weight drawn from a hash of the pair: 1.0, log-uniform
 //! over 2^-20 to 2^20, or an `f32` in (0, 1].
@@ -54,6 +56,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::time::Instant;
 
 use everygraph_community::hierarchy::Hierarchy;
@@ -62,7 +65,7 @@ use everygraph_community::{
     leiden_weighted, weighted_table,
 };
 use everygraph_core::{
-    AccessHint, BlockCache, Budget, ByteSource, CacheSettings, Memory, MemorySource, par,
+    AccessHint, BlockCache, Budget, ByteSource, CacheSettings, Memory, MemorySource, ReadError, par,
 };
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_format::container::{Container, Provenance, Writer};
@@ -259,14 +262,37 @@ fn pair_weights<S: Source>(source: &S, kind: &str) -> Vec<f64> {
     out
 }
 
+/// The budget of `--budget-mib` or `--budget-gib`, unlimited without either.
+fn budget(a: &Args) -> Arc<Budget> {
+    let mib = |m: &String| m.parse::<u64>().expect("--budget-mib") << 20;
+    let gib = |g: &String| g.parse::<u64>().expect("--budget-gib") << 30;
+    Arc::new(
+        a.get("budget-mib")
+            .map(mib)
+            .or_else(|| a.get("budget-gib").map(gib))
+            .map_or_else(Budget::unlimited, Budget::new),
+    )
+}
+
+/// The process's peak resident memory so far (`VmHWM` of `/proc/self/status`), in
+/// bytes; 0 where that file does not exist.
+fn rss_peak() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("VmHWM:"))
+                .and_then(|kb| kb.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+        })
+        .map_or(0, |kb| kb << 10)
+}
+
 fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
-    let budget = Arc::new(match a.get("budget-gib") {
-        Some(g) => {
-            let gib: u64 = g.parse().expect("--budget-gib");
-            Budget::new(gib << 30)
-        }
-        None => Budget::unlimited(),
-    });
+    time_in(source, a, settings, &budget(a))
+}
+
+/// As [`time`], within `budget`, which may already hold what the source reserved.
+fn time_in<S: Source>(source: &S, a: &Args, settings: Settings, budget: &Arc<Budget>) -> String {
     let memory = Memory::new(budget.clone());
     let reps: usize = a.get("reps").map_or(1, |s| s.parse().expect("--reps"));
     let o = options(a);
@@ -343,7 +369,8 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
          \"seconds_best\": {best}, \"modularity\": {}, \"quality\": {}, \"weight_scale\": {}, \
          \"communities\": {}, \"level_sizes\": [{}], \
          \"hash_levels\": \"{levels:016x}\", \"hash_levels_low53\": {}, \"hash_membership\": \
-         \"{flat:016x}\", \"read_bytes\": {read}, \"peak_reserved\": {}, \"stats\": [{}]{check}{hier}",
+         \"{flat:016x}\", \"read_bytes\": {read}, \"peak_reserved\": {}, \"rss_peak\": {}, \
+         \"stats\": [{}]{check}{hier}",
         c.mode,
         o.iterations,
         c.iterations,
@@ -359,8 +386,52 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         sizes.join(", "),
         levels & ((1 << 53) - 1),
         budget.peak(),
+        rss_peak(),
         stats.join(", "),
     )
+}
+
+/// The phase that the last advice to a source named: a scan (`Sequential`) or not.
+static SCANNING: AtomicBool = AtomicBool::new(false);
+/// Bytes read from the data file while [`SCANNING`].
+static SCAN_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// The cache as the stream sees it: notes the phase of each advice and passes it on.
+struct Phases<'a>(&'a BlockCache<'a>);
+
+impl ByteSource for Phases<'_> {
+    fn len(&self) -> u64 {
+        self.0.len()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        self.0.read_at(offset, buf)
+    }
+
+    fn advise(&self, range: std::ops::Range<u64>, hint: AccessHint) {
+        match hint {
+            AccessHint::Sequential => SCANNING.store(true, Relaxed),
+            AccessHint::WillNeed => {}
+            _ => SCANNING.store(false, Relaxed),
+        }
+        self.0.advise(range, hint);
+    }
+}
+
+/// The data file as the cache reads it: counts the bytes read in scans.
+struct ScanCounted(FileSource);
+
+impl ByteSource for ScanCounted {
+    fn len(&self) -> u64 {
+        self.0.len()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        if SCANNING.load(Relaxed) {
+            SCAN_BYTES.fetch_add(buf.len() as u64, Relaxed);
+        }
+        self.0.read_at(offset, buf)
+    }
 }
 
 /// Leiden through a block cache over the store's data part (`--source cached`).
@@ -369,12 +440,14 @@ fn cached(a: &Args, threads: NonZeroUsize, settings: Settings, t: Instant) -> (f
     let index = std::fs::read(&index)
         .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
     let index = AdjacencyIndex::parse(&index).expect("an index");
-    let file = if a.get("direct").is_some_and(|d| d == "1") {
-        FileSource::open_direct(&data)
-    } else {
-        FileSource::open(&data)
-    }
-    .expect("data");
+    let file = ScanCounted(
+        if a.get("direct").is_some_and(|d| d == "1") {
+            FileSource::open_direct(&data)
+        } else {
+            FileSource::open(&data)
+        }
+        .expect("data"),
+    );
     let mib: u64 = a
         .get("cache-mib")
         .map_or(1024, |m| m.parse().expect("--cache-mib"));
@@ -384,13 +457,16 @@ fn cached(a: &Args, threads: NonZeroUsize, settings: Settings, t: Instant) -> (f
             .map_or(64, |p| p.parse().expect("--pool-threads")),
         ..PoolSettings::default()
     };
-    let memory = Memory::unlimited();
+    // One budget for the cache, its pool and Leiden.
+    let budget = budget(a);
+    let memory = Memory::new(budget.clone());
     ReadPool::run(&file, &memory, pool, |ahead| {
         let layout = CacheSettings::new(mib << 20, threads.get());
         let cache = BlockCache::with_read_ahead(ahead, &memory, layout).expect("a cache");
-        let lists = CompressedStream::new(&index, &cache, 0).expect("the data part");
+        let phases = Phases(&cache);
+        let lists = CompressedStream::new(&index, &phases, 0).expect("the data part");
         let load = t.elapsed().as_secs_f64();
-        let out = time(&lists, a, settings);
+        let out = time_in(&lists, a, settings, &budget);
         let c = cache.stats();
         let line = format!(
             "{out}, \"cache\": {{\"frame_bytes\": {}, \"pool_threads\": {}, \"direct\": {}, \
@@ -398,14 +474,14 @@ fn cached(a: &Args, threads: NonZeroUsize, settings: Settings, t: Instant) -> (f
              \"bytes_read\": {}, \"scan_bytes\": {}}}",
             cache.frame_bytes(),
             pool.threads,
-            file.is_direct(),
+            file.0.is_direct(),
             c.hits,
             c.misses,
             c.waits,
             c.prefetched,
             c.reads,
             c.bytes_read,
-            c.scan_bytes
+            SCAN_BYTES.load(Relaxed)
         );
         (load, line)
     })

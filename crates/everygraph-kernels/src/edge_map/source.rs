@@ -131,8 +131,8 @@ pub unsafe trait Source: Sync {
     /// As [`scan`](Self::scan).
     fn list<'r>(&'r self, reader: &'r mut Self::Reader, v: u32) -> Result<(u64, &'r [u32]), Error>;
 
-    /// Tells the backend that the lists of `nodes` (increasing) will be read soon. Advice
-    /// only; the default ignores it.
+    /// Tells the backend that the lists of `nodes`, in any order, will be read soon.
+    /// Advice only; the default ignores it.
     fn prefetch(&self, nodes: &[u32]) {
         let _ = nodes;
     }

@@ -66,6 +66,33 @@ fn lock(queue: &Mutex<Queue>) -> MutexGuard<'_, Queue> {
     queue.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// A running thread of the pool. When the thread ends, normally or by a panic, it is no
+/// longer counted, and when it was the last, the fetches queued are dropped, so that they
+/// give their frames back: the reads waiting for them read the frames themselves. The
+/// panic itself comes out of [`ReadPool::run`] when the threads are joined.
+struct Serving<'p, 's>(&'p ReadPool<'s>);
+
+impl Serving<'_, '_> {
+    fn stop(&self) {
+        let dropped = {
+            let mut q = lock(&self.0.queue);
+            q.running -= 1;
+            if q.running == 0 {
+                std::mem::take(&mut q.fetches)
+            } else {
+                VecDeque::new()
+            }
+        };
+        drop(dropped);
+    }
+}
+
+impl Drop for Serving<'_, '_> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// Closes the pool when `run`'s closure returns or unwinds, so its threads end.
 struct Close<'p, 's>(&'p ReadPool<'s>);
 
@@ -137,11 +164,13 @@ impl<'s> ReadPool<'s> {
             let close = Close(&pool);
             for buf in buffers {
                 let pool = &pool;
+                // Counted before it starts, so that its guard never counts below zero.
+                lock(&pool.queue).running += 1;
                 let started = std::thread::Builder::new()
                     .name("everygraph-read".into())
                     .spawn_scoped(scope, move || pool.serve(buf));
-                if started.is_ok() {
-                    lock(&pool.queue).running += 1;
+                if started.is_err() {
+                    drop(Serving(pool));
                 }
             }
             let result = f(&pool);
@@ -152,6 +181,7 @@ impl<'s> ReadPool<'s> {
 
     /// A thread's loop: runs queued fetches until the pool is closed.
     fn serve(&self, mut buf: AlignedBuf) {
+        let _serving = Serving(self);
         loop {
             let fetch = {
                 let mut q = lock(&self.queue);

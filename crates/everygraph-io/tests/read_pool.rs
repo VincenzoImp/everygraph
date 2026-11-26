@@ -11,9 +11,13 @@ mod scratch_dir;
 #[path = "support/bytes.rs"]
 mod support;
 
-use std::sync::Arc;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::{Arc, Mutex};
 
-use everygraph_core::{AccessHint, BlockCache, Budget, ByteSource, CacheSettings, Memory};
+use everygraph_core::{
+    AccessHint, BlockCache, Budget, ByteSource, CacheSettings, Memory, MemorySource, ReadError,
+};
 use everygraph_io::{FileSource, PoolSettings, ReadPool};
 use everygraph_oracle::rng::SplitMix64;
 use scratch_dir::scratch;
@@ -88,14 +92,14 @@ fn advised_frames_are_read_ahead_once() {
     ReadPool::run(&source, &memory, pool(4), |ahead| {
         let cache =
             BlockCache::with_read_ahead(ahead, &memory, CacheSettings::new(8 << 20, 1)).unwrap();
-        // A quarter of the file, in 16 ranges: fewer frames than the half of each shard
-        // that read-ahead may claim at once.
+        // A quarter of the file, in 16 ranges of one group of frames each, each on its own
+        // shard: fewer frames than the half of a shard that read-ahead may claim at once.
         for r in 0..16_u64 {
-            cache.advise(r * 64 * FRAME..(r * 64 + 16) * FRAME, AccessHint::WillNeed);
+            cache.advise(r * 16 * FRAME..(r + 1) * 16 * FRAME, AccessHint::WillNeed);
         }
         let mut buf = vec![0_u8; 16 * FRAME_BYTES];
         for r in 0..16_u64 {
-            let at = r * 64 * FRAME;
+            let at = r * 16 * FRAME;
             cache.read_at(at, &mut buf).unwrap();
             let a = usize::try_from(at).unwrap();
             assert_eq!(buf, data[a..a + buf.len()]);
@@ -124,4 +128,49 @@ fn the_pool_is_in_the_ledger() {
     assert_eq!(budget.used(), 0);
     assert!(ReadPool::run(&source, &memory, pool(64), |_| ()).is_err());
     assert_eq!(budget.used(), 0);
+}
+
+/// Panics on its first read, then reads `bytes`.
+struct PanicsOnce {
+    bytes: Vec<u8>,
+    panicked: AtomicBool,
+}
+
+impl ByteSource for PanicsOnce {
+    fn len(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        assert!(self.panicked.swap(true, Relaxed), "the device failed");
+        MemorySource::new(&self.bytes[..]).read_at(offset, buf)
+    }
+}
+
+/// The pool's only thread panics on its first read (the review's probe). The fetches it
+/// held or had queued give their frames back, a read of them reads them itself instead of
+/// waiting forever, and the panic comes out of `ReadPool::run`.
+#[test]
+fn a_panicking_pool_thread_hangs_no_read() {
+    let data = bytes(5, 64 * FRAME_BYTES);
+    let source = PanicsOnce {
+        bytes: data.clone(),
+        panicked: AtomicBool::new(false),
+    };
+    let memory = Memory::unlimited();
+    let read = Mutex::new(Vec::new());
+    let run = catch_unwind(AssertUnwindSafe(|| {
+        ReadPool::run(&source, &memory, pool(1), |ahead| {
+            let layout = CacheSettings::new(1 << 20, 2);
+            let cache = BlockCache::with_read_ahead(ahead, &memory, layout).unwrap();
+            cache.advise(0..FRAME, AccessHint::WillNeed);
+            cache.advise(16 * FRAME..17 * FRAME, AccessHint::WillNeed);
+            let mut buf = vec![0_u8; FRAME_BYTES];
+            cache.read_at(16 * FRAME, &mut buf).unwrap();
+            cache.read_at(0, &mut buf[..10]).unwrap();
+            read.lock().unwrap().extend_from_slice(&buf[..10]);
+        })
+    }));
+    assert!(run.is_err(), "the thread's panic is reported");
+    assert_eq!(*read.lock().unwrap(), data[..10]);
 }

@@ -132,12 +132,13 @@ pub struct Options {
     pub prolong: bool,
     /// After the last level by default.
     pub split: SplitAt,
-    /// Blocks of 256 nodes of each frontier that the source is told about
-    /// ([`Source::prefetch`]) ahead of the nodes being visited; 0, the default, tells it
-    /// nothing. For a source that reads ahead, such as a compressed stream over a
+    /// How far ahead of the visits the source is told which lists will be read
+    /// ([`Source::prefetch`]): 0, the default, tells it nothing; `K` tells it, before
+    /// each window of 16,384 visits, the next window and `K - 1` blocks of 256 nodes past
+    /// it. For a source that reads ahead, such as a compressed stream over a
     /// `BlockCache`: the visiting order is known before a sweep runs (ADR 0015), so the
-    /// reads of the next blocks overlap the work on this one. It changes no result of
-    /// the deterministic mode.
+    /// reads of the next window overlap the work on this one. It changes no result of the
+    /// deterministic mode.
     pub read_ahead: u32,
     /// Levels per iteration, at most; 10, the default, is also the largest. One level
     /// is local moving and refinement on the graph alone, with no quotient graph.
