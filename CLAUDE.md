@@ -132,6 +132,14 @@ network, not on this machine. So:
   its duration only. Decisions between two variants are taken from interleaved A/B runs
   in the same process or the same harness run (robust to background load); an empty
   machine is required only for absolute numbers that go into documents.
+- **Official runs only when a number is published (owner, 2026-11-26).** While the product
+  is being built, development comes first: an issue closes on its tests plus labelled
+  exploratory evidence (interleaved A/B ratios, load-independent counts such as bytes read
+  or written, deterministic quality metrics). Speed targets an issue misses move to the
+  milestone's performance-pass issue instead of keeping the issue open. Official idle-machine
+  runs happen once per milestone, in one planned window, and before any number goes into
+  README, DESIGN, a paper or a release; they are kept short (smallest graph set that answers
+  the question, the repetitions the harness statistics need, no long sweeps).
 - **Offload to CI.** Locally an agent runs the checks of the crates it touched; CI runs
   the whole matrix.
 - **Thin end to end first.** Production code builds a usable vertical slice — ingest →
@@ -159,6 +167,11 @@ network, not on this machine. So:
   they are needed; every milestone report lists source and test lines per crate, and a crate
   that grew more than its features justify gets a cleanup issue.
 
+- **Where tests live.** Rust's convention, kept strictly: tests of public behaviour go in
+  the crate's `tests/` directory; a source file may hold only a short `#[cfg(test)] mod
+  tests` for private helpers that `tests/` cannot reach. A unit-test module that grows past
+  about 150 lines moves to a sibling `tests.rs` submodule or to `tests/`. Shared test
+  helpers live once, in a `tests/support` module or a dev-only crate.
 - **Periodic sweep (owner's request, 2026-11-26).** Every few hours the coordinator runs a
   sweep agent over the whole repository and the GitHub project: drift, contradictions, old
   material (previews, style pages, lab write-ups, docs), dead files and code, stale issues
