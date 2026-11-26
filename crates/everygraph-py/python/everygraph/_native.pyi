@@ -26,6 +26,7 @@ class Graph:
     directed: bool
     file: str | None
     bytes: int
+    pages: tuple[str, bool]
     def nodes(self) -> Table: ...
     def lookup(self, keys: list[Any]) -> list[int | None]: ...
     def pagerank(

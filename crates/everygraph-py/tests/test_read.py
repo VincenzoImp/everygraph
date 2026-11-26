@@ -31,6 +31,14 @@ def test_out_writes_a_file_that_open_reads_back(tmp_path):
     assert not list(tmp_path.glob("*.partial"))
 
 
+def test_the_budget_gives_large_buffers_pages_of_their_own(tmp_path):
+    path = write_edges(tmp_path / "e.csv", [(1, 2)])
+    eg.read(path, out=tmp_path / "e.eg", progress=False)
+    for g in (eg.read(path, progress=False), eg.open(tmp_path / "e.eg")):
+        name, is_pages = g._native.pages
+        assert is_pages, name
+
+
 def test_the_same_read_again_opens_the_cache(tmp_path, capsys):
     path = write_edges(tmp_path / "e.csv", [(1, 2), (2, 3)])
     eg.read(path, out=tmp_path / "e.eg", progress=False)

@@ -30,10 +30,11 @@ use crate::run::{Event, run};
 use crate::source::Bytes;
 use crate::table::{NULL, Table};
 
-/// The memory budget of a graph's calls: `limit` bytes, its large buffers on pages of
-/// their own once the allocator policy (PR #219) is merged.
+/// The memory budget of every call of the module: `limit` bytes, its large buffers on
+/// pages of their own, given back when freed (`design/DECISIONS.md`, "Large buffers get
+/// pages of their own").
 pub(crate) fn budget(limit: u64) -> Arc<Budget> {
-    Arc::new(Budget::new(limit))
+    Arc::new(Budget::new(limit).with_pages(everygraph_io::PAGES))
 }
 
 /// What a graph and its results share.
@@ -310,6 +311,13 @@ impl Graph {
     #[getter]
     fn file(&self) -> Option<PathBuf> {
         self.0.path.clone()
+    }
+
+    /// Where the budget's buffers come from, and whether that is `everygraph_io::PAGES`.
+    #[getter]
+    fn pages(&self) -> (&'static str, bool) {
+        let pages = everygraph_core::MemoryAccountant::pages(self.0.budget.as_ref());
+        (pages.name(), pages.name() == everygraph_io::PAGES.name())
     }
 
     /// Bytes of the graph: the file, or what is held in memory.
