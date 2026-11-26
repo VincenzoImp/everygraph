@@ -212,4 +212,11 @@ def raise_native(
             holds=f["holds"],
             **common,
         ) from None
+    if cls == "Unsupported":
+        raise Unsupported(
+            f"{f['operation']}() is not available here: {f['reason']}.",
+            operation=f["operation"],
+            reason=f["reason"],
+            **common,
+        ) from None
     raise EverygraphError(f.get("message", str(fields)), **common) from None

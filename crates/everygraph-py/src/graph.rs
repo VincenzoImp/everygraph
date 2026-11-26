@@ -14,14 +14,19 @@ use arrow_array::builder::{BinaryBuilder, FixedSizeBinaryBuilder, StringBuilder}
 use arrow_array::{ArrayRef, Int8Array, Int16Array, Int32Array, Int64Array};
 use arrow_array::{UInt8Array, UInt16Array, UInt32Array, UInt64Array};
 use arrow_schema::DataType;
+use everygraph_core::ByteSource;
 use everygraph_core::{Budget, Memory, MemorySource, NodeId};
 use everygraph_format::container::Container;
 use everygraph_ingest::graph::Graph as GraphFile;
 use everygraph_ingest::ids::{ColumnType, Key, OwnedKey};
 use everygraph_io::{FileSource, MmapSource};
+use everygraph_kernels::pagerank::PageRank;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use crate::error::{self, Fail, Failure};
+use crate::kernels::{self, Call, Extra, Output};
+use crate::run::{Event, run};
 use crate::source::Bytes;
 use crate::table::{NULL, Table};
 
@@ -36,7 +41,6 @@ pub(crate) struct Shared {
     file: GraphFile<Bytes>,
     budget: Arc<Budget>,
     memory: Memory,
-    threads: NonZeroUsize,
     path: Option<PathBuf>,
     ids: ColumnType,
 }
@@ -47,7 +51,6 @@ impl Shared {
         bytes: Bytes,
         path: Option<PathBuf>,
         budget: Arc<Budget>,
-        threads: NonZeroUsize,
     ) -> Result<Self, Fail> {
         let limit = budget.limit();
         let memory = Memory::from(Arc::clone(&budget));
@@ -61,10 +64,14 @@ impl Shared {
             file,
             budget,
             memory,
-            threads,
             path,
             ids,
         })
+    }
+
+    /// The graph file.
+    pub(crate) fn file(&self) -> &GraphFile<Bytes> {
+        &self.file
     }
 
     /// Nodes, as a row count.
@@ -206,15 +213,10 @@ impl Shared {
 #[pyclass(frozen, module = "everygraph._native")]
 pub(crate) struct Graph(pub(crate) Arc<Shared>);
 
-/// Opens the graph file at `path` with a budget of `memory` bytes and `threads` threads.
+/// Opens the graph file at `path` with a budget of `memory` bytes.
 #[pyfunction]
-pub(crate) fn open(
-    py: Python<'_>,
-    path: PathBuf,
-    memory: u64,
-    threads: NonZeroUsize,
-) -> PyResult<Graph> {
-    let opened = py.detach(|| open_path(&path, budget(memory), threads));
+pub(crate) fn open(py: Python<'_>, path: PathBuf, memory: u64) -> PyResult<Graph> {
+    let opened = py.detach(|| open_path(&path, budget(memory)));
     opened
         .map(|s| Graph(Arc::new(s)))
         .map_err(|e| e.into_err(py))
@@ -222,11 +224,7 @@ pub(crate) fn open(
 
 /// Opens the graph file at `path`, mapped by its stable range (`docs/spec/eg-container.md`
 /// § 11), so that a commit by another writer never changes a mapped byte.
-pub(crate) fn open_path(
-    path: &Path,
-    budget: Arc<Budget>,
-    threads: NonZeroUsize,
-) -> Result<Shared, Fail> {
+pub(crate) fn open_path(path: &Path, budget: Arc<Budget>) -> Result<Shared, Fail> {
     let os = |e| Fail::Os(e, path.display().to_string());
     let file = File::open(path).map_err(os)?;
     let source = FileSource::from_file(file.try_clone().map_err(os)?).map_err(os)?;
@@ -234,21 +232,58 @@ pub(crate) fn open_path(
         .map_err(|e| error::open(path, e.into(), budget.limit()))?
         .stable_range();
     let map = MmapSource::from_file_range(&file, range).map_err(os)?;
-    Shared::open(Bytes::File(map), Some(path.to_path_buf()), budget, threads)
+    Shared::open(Bytes::File(map), Some(path.to_path_buf()), budget)
 }
 
 /// A graph of the bytes `bytes`, built in memory.
-pub(crate) fn in_memory(
-    bytes: Vec<u8>,
-    budget: Arc<Budget>,
-    threads: NonZeroUsize,
-) -> Result<Shared, Fail> {
-    Shared::open(
-        Bytes::Memory(MemorySource::new(bytes)),
-        None,
-        budget,
-        threads,
-    )
+pub(crate) fn in_memory(bytes: Vec<u8>, budget: Arc<Budget>) -> Result<Shared, Fail> {
+    Shared::open(Bytes::Memory(MemorySource::new(bytes)), None, budget)
+}
+
+impl Graph {
+    /// Runs the kernel `f` of `operation` as one phase, on `threads` threads with a
+    /// budget of `memory` bytes for its state; returns its table and what its `meta`
+    /// gains, with the budget's peak.
+    fn call<'py>(
+        &self,
+        py: Python<'py>,
+        operation: &'static str,
+        memory: u64,
+        threads: NonZeroUsize,
+        on_event: &Bound<'py, PyAny>,
+        f: impl FnOnce(&Call<'_>, &Shared) -> Result<Output, Failure> + Send,
+    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
+        let budget = budget(memory);
+        let out = run(py, threads, on_event, |events| {
+            let memory = Memory::from(Arc::clone(&budget));
+            let call = Call {
+                operation,
+                budget: &budget,
+                memory: &memory,
+            };
+            events.send(Event::Begin(operation, None));
+            let out = f(&call, &self.0);
+            if out.is_ok() {
+                events.send(Event::End(operation, 0));
+            }
+            out
+        })?
+        .map_err(|e| e.into_err(py))?;
+        let mut table = Table::per_node(Arc::clone(&self.0), out.columns);
+        for (name, ids) in out.ids {
+            table = table.with_ids(name, ids);
+        }
+        let info = PyDict::new(py);
+        for (key, value) in out.extra {
+            match value {
+                Extra::Count(c) => info.set_item(key, c)?,
+                Extra::Real(r) => info.set_item(key, r)?,
+                Extra::Flag(b) => info.set_item(key, b)?,
+            }
+        }
+        info.set_item("peak_memory_bytes", budget.peak())?;
+        Ok((table, info))
+    }
 }
 
 #[pymethods]
@@ -277,28 +312,9 @@ impl Graph {
         self.0.path.clone()
     }
 
-    /// The memory budget, in bytes.
-    #[getter]
-    fn memory(&self) -> u64 {
-        self.0.budget.limit()
-    }
-
-    /// The most bytes the graph's budget has held so far.
-    #[getter]
-    fn peak_memory(&self) -> u64 {
-        self.0.budget.peak()
-    }
-
-    /// The threads its calls use.
-    #[getter]
-    fn threads(&self) -> usize {
-        self.0.threads.get()
-    }
-
     /// Bytes of the graph: the file, or what is held in memory.
     #[getter]
     fn bytes(&self) -> u64 {
-        use everygraph_core::ByteSource;
         self.0.file.container().source().len()
     }
 
@@ -314,14 +330,49 @@ impl Graph {
         }
         self.0.lookup(&keys)
     }
-}
 
-impl Graph {
-    pub(crate) fn failure(
+    /// `PageRank` (`everygraph.Graph.pagerank`); `personalize` holds dense ids.
+    #[pyo3(signature = (damping, tol, max_iter, weight, personalize, low, memory, threads, on_event))]
+    #[expect(clippy::too_many_arguments, reason = "the keywords of Graph.pagerank")]
+    fn pagerank<'py>(
         &self,
-        operation: &str,
-        e: everygraph_kernels::edge_map::Error,
-    ) -> Failure {
-        error::kernel(operation, e, self.0.budget.limit())
+        py: Python<'py>,
+        damping: f64,
+        tol: f64,
+        max_iter: u32,
+        weight: bool,
+        personalize: Option<Vec<u32>>,
+        low: bool,
+        memory: u64,
+        threads: NonZeroUsize,
+        on_event: Bound<'py, PyAny>,
+    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
+        self.call(py, "pagerank", memory, threads, &on_event, |call, g| {
+            let p = PageRank {
+                damping,
+                tol,
+                max_iter,
+                personalize: personalize.as_deref(),
+            };
+            kernels::pagerank(call, g, &p, weight, low)
+        })
+    }
+
+    /// Breadth-first search from the dense id `source` (`everygraph.Graph.bfs`).
+    #[pyo3(signature = (source, direction, max_hops, memory, threads, on_event))]
+    #[expect(clippy::too_many_arguments, reason = "the keywords of Graph.bfs")]
+    fn bfs<'py>(
+        &self,
+        py: Python<'py>,
+        source: u32,
+        direction: &str,
+        max_hops: Option<u32>,
+        memory: u64,
+        threads: NonZeroUsize,
+        on_event: Bound<'py, PyAny>,
+    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
+        self.call(py, "bfs", memory, threads, &on_event, |call, g| {
+            kernels::bfs(call, g, source, direction, max_hops)
+        })
     }
 }

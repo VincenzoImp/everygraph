@@ -16,7 +16,7 @@ use arrow_array::{
     Array, ArrayRef, ArrowPrimitiveType, PrimitiveArray, RecordBatch, RecordBatchReader,
     UInt32Array,
 };
-use arrow_buffer::{Buffer, ScalarBuffer, ToByteSlice};
+use arrow_buffer::{Buffer, NullBuffer, ScalarBuffer, ToByteSlice};
 use arrow_schema::ffi::FFI_ArrowSchema;
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use everygraph_core::{Reservation, SegVec};
@@ -43,11 +43,14 @@ impl<T: Copy + arrow_buffer::ArrowNativeType> AsRef<[u8]> for Segment<T> {
 }
 
 /// An array owned with the reservation that holds it.
-struct Held<T>(Vec<T>, Reservation);
+struct Held<T> {
+    values: Vec<T>,
+    _held: Reservation,
+}
 
 impl<T: arrow_buffer::ArrowNativeType> AsRef<[u8]> for Held<T> {
     fn as_ref(&self) -> &[u8] {
-        self.0.to_byte_slice()
+        self.values.to_byte_slice()
     }
 }
 
@@ -72,12 +75,21 @@ where
         .collect()
 }
 
-/// The column of `values`, owned with `held`, without a copy.
-pub(crate) fn own<A: ArrowPrimitiveType>(values: Vec<A::Native>, held: Reservation) -> Vec<ArrayRef>
-where
-    A::Native: Send,
-{
-    vec![primitive::<A>(Held(values, held))]
+/// The column of `values`, owned with `held`, without a copy of the values; `null`
+/// marks a null.
+pub(crate) fn own_u32(values: Vec<u32>, null: u32, held: Reservation) -> Vec<ArrayRef> {
+    let valid: Vec<bool> = values.iter().map(|&v| v != null).collect();
+    let nulls = NullBuffer::from(valid);
+    let buffer = Buffer::from(bytes::Bytes::from_owner(Held {
+        values,
+        _held: held,
+    }));
+    let len = buffer.len() / 4;
+    let values = ScalarBuffer::new(buffer, 0, len);
+    vec![Arc::new(UInt32Array::new(
+        values,
+        Some(nulls).filter(|n| n.null_count() > 0),
+    ))]
 }
 
 /// Which nodes an identifier column names, by their dense ids.

@@ -180,7 +180,8 @@ def open(  # noqa: A001 - the approved name (docs/api-sketch.md § 3.1)
         >>> g = eg.open("friends.eg")
     """
     try:
-        native = _native.open(pathlib.Path(path), _memory(memory), _threads(threads))
+        _threads(threads)
+        native = _native.open(pathlib.Path(path), _memory(memory))
     except _native.NativeError as e:
         _errors.raise_native(e, "open", _caller("open", repr(str(path))))
         raise
@@ -299,7 +300,7 @@ class Graph:
         parameters = {"damping": damping, "tol": tol, "max_iter": max_iter, "weight": weight,
                       "personalize": personalize is not None, "precision": precision}
         return self._call("pagerank", parameters, memory, threads, progress,
-                          lambda m, t, e: self._native.pagerank(damping, tol, max_iter, seeds,
+                          lambda m, t, e: self._native.pagerank(damping, tol, max_iter, weight is True, seeds,
                                                                 precision == "low", m, t, e))
 
     def components(

@@ -11,11 +11,11 @@
 use std::fmt;
 
 use everygraph_core::{ByteSource, InsufficientBudget, Memory, MemoryKind, ReadError, Reservation};
-use everygraph_format::adjacency::{AdjacencyIndex, FormatError};
+use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, FormatError};
 use everygraph_format::container::{Container, ContainerError, Section};
 use everygraph_format::verify::{Depth, verify};
 
-use crate::build::{OUT_DATA, OUT_INDEX, PROVENANCE};
+use crate::build::{OUT_DATA, OUT_EVENTS, OUT_INDEX, PROVENANCE};
 use crate::ids::{Dictionary, DictionaryError};
 
 /// Why a graph file cannot be opened.
@@ -184,6 +184,31 @@ impl<S: ByteSource + Sync> Graph<S> {
     /// otherwise.
     pub fn data(&self) -> Result<Section<'_, S>, ContainerError> {
         self.file.section(OUT_DATA)
+    }
+
+    /// The number of events of each entry of the out-adjacency, from its `.events`
+    /// section; `None` when no pair repeats, so that every entry has one event.
+    ///
+    /// # Errors
+    ///
+    /// [`OpenError::Corrupt`] for a section that is not the index's, or that is not
+    /// held in memory (a map or a heap buffer).
+    pub fn events(&self) -> Result<Option<AdjacencyEvents<'_>>, OpenError> {
+        if !self.index.has_events() {
+            return Ok(None);
+        }
+        let entry = self
+            .file
+            .get(OUT_EVENTS)
+            .ok_or_else(|| corrupt(OUT_EVENTS, "missing, though the index announces it"))?;
+        let bytes = self
+            .file
+            .source()
+            .slice(entry.offset..entry.offset + entry.len)
+            .ok_or_else(|| corrupt(OUT_EVENTS, "not held in memory"))?;
+        let events =
+            AdjacencyEvents::parse(bytes, &self.index).map_err(|e| corrupt(OUT_EVENTS, e))?;
+        Ok(Some(events))
     }
 
     /// The identifier dictionary, whose resident part is held under `memory`.

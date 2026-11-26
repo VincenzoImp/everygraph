@@ -7,11 +7,13 @@
 //!
 //! The engine has no cancellation yet (`Run::cancel` of § 4), so a `KeyboardInterrupt`,
 //! or an exception of the progress function, is raised once the work has ended, and its
-//! result is dropped: no file is written by a stopped build.
+//! result is dropped. The work sees the stop through [`Events::stopped`], and a build
+//! removes the file it made.
 
 use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use everygraph_core::par;
@@ -36,11 +38,20 @@ pub(crate) enum Event {
 
 /// Where the engine sends its events, from any thread.
 #[derive(Debug)]
-pub(crate) struct Events(Sender<(Event, f64)>, Instant);
+pub(crate) struct Events {
+    to: Sender<(Event, f64)>,
+    start: Instant,
+    stop: Arc<AtomicBool>,
+}
 
 impl Events {
     pub(crate) fn send(&self, event: Event) {
-        let _ = self.0.send((event, self.1.elapsed().as_secs_f64()));
+        let _ = self.to.send((event, self.start.elapsed().as_secs_f64()));
+    }
+
+    /// Whether the caller asked to stop: its result will be dropped.
+    pub(crate) fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
     }
 }
 
@@ -79,7 +90,12 @@ pub(crate) fn run<T: Send>(
             .unwrap_or_else(PoisonError::into_inner)
             .recv_timeout(TICK)
     };
-    let events = Events(tx, Instant::now());
+    let stopping = Arc::new(AtomicBool::new(false));
+    let events = Events {
+        to: tx,
+        start: Instant::now(),
+        stop: Arc::clone(&stopping),
+    };
     let mut stop: Option<PyErr> = None;
     let outcome = std::thread::scope(|s| {
         let worker = s.spawn(move || {
@@ -104,6 +120,7 @@ pub(crate) fn run<T: Send>(
             if stop.is_none() {
                 stop = py.check_signals().err();
             }
+            stopping.store(stop.is_some(), Ordering::Relaxed);
         }
         py.detach(|| worker.join())
     });

@@ -236,7 +236,7 @@ fn make(ask: &Ask, events: &Events) -> Result<Made, Fail> {
     if let Some(out) = output.as_deref().filter(|_| !ask.overwrite) {
         match cached(ask, out, &graph_options, &columns) {
             Some(Ok(true)) => {
-                let graph = graph::open_path(out, budget, ask.threads)?;
+                let graph = graph::open_path(out, budget)?;
 
                 return Ok(Made {
                     graph,
@@ -306,9 +306,17 @@ fn make(ask: &Ask, events: &Events) -> Result<Made, Fail> {
         }
     };
     drop(scratch);
+    if events.stopped() {
+        if let Some(out) = &output {
+            let _ = std::fs::remove_file(out);
+        }
+        return Err(Failure::new("EverygraphError")
+            .text("message", "Stopped.")
+            .into());
+    }
     let graph = match (written, &output) {
-        (Written::File(_), Some(out)) => graph::open_path(out, budget, ask.threads)?,
-        (Written::Memory(bytes), _) => graph::in_memory(bytes, budget, ask.threads)?,
+        (Written::File(_), Some(out)) => graph::open_path(out, budget)?,
+        (Written::Memory(bytes), _) => graph::in_memory(bytes, budget)?,
         (Written::File(_), None) => unreachable!("a file is written only to an output"),
     };
     Ok(Made {

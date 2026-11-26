@@ -14,6 +14,7 @@
 
 mod error;
 mod graph;
+mod kernels;
 mod read;
 mod run;
 mod source;
