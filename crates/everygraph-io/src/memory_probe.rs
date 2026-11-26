@@ -295,8 +295,8 @@ mod tests {
     }
 
     /// tmpfs and `/dev/shm` pages are counted in `file` (v2) and `total_cache` (v1) but
-    /// sit on the anonymous LRU lists: without swap they free nothing (review of #154:
-    /// 400 MiB in `/dev/shm` was reported as free).
+    /// sit on the anonymous LRU lists: without swap they free nothing, so 400 MiB in
+    /// `/dev/shm` must not count as free.
     #[test]
     fn shared_memory_is_not_reclaimable() {
         let root = Root::new();
