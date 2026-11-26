@@ -7,7 +7,8 @@ using all the hardware it is given, and staying inside the memory budget it is g
 > **Status: early development.** There is no installable software here yet. This
 > repository holds the product and architecture baseline, the evidence from a feasibility
 > lab, the prototypes that produced it, the full work plan as GitHub milestones and
-> issues, and the first production crates (file format, I/O, readers).
+> issues, and the first production crates: the file format, I/O, the readers and the
+> graph build, the first kernels, and a command line with `ingest` and `verify`.
 
 ![A map of com-Orkut (3.1 M nodes, 117 M edges) from the lab prototype](docs/img/map-overview-orkut.png)
 
@@ -81,7 +82,8 @@ iteration on the 1.8 B-edge graph runs under a 16 GiB limit at 1.17× and under 
 2.34× the time of the same algorithm in RAM (idle machine, 16 threads, default storage,
 0 disconnected communities, the deterministic partition identical to the in-RAM one), but
 only that graph and one iteration were measured. Also open: the quality of the map's
-hierarchy and edges on dense graphs, and the cost of determinism. The headline
+edges on dense graphs, and the cost of determinism. A map hierarchy with bounded fan-out
+works in the lab (`docs/FINDINGS.md` § M1-05), not yet in the product. The headline
 "1.8 B edges to a map on a 16 GB laptop" has not been run end to end: the tile builder
 does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. The second lab
 round (milestone M1) took these on first; see [docs/DESIGN.md § 5](docs/DESIGN.md#5-what-is-not-solved-yet).
@@ -89,10 +91,12 @@ round (milestone M1) took these on first; see [docs/DESIGN.md § 5](docs/DESIGN.
 ## Building
 
 The Rust workspace holds the crate layout, the coding rules, the portable core
-(`crates/everygraph-core`), and the first product pieces: the `.eg` container and the
-compressed adjacency (`everygraph-format`), the I/O layer (`everygraph-io`), and the text
-reader and identifier dictionary (`everygraph-ingest`). It needs Rust 1.100 or newer and
-nothing else.
+(`crates/everygraph-core`), and the first product pieces: the `.eg` container, the
+compressed adjacency and the property columns (`everygraph-format`), the I/O layer
+(`everygraph-io`), the text reader, the identifier dictionary and the graph build
+(`everygraph-ingest`), the edge-map framework with PageRank and BFS
+(`everygraph-kernels`), and the `everygraph` command with `ingest` and `verify`
+(`everygraph-cli`). It needs Rust 1.100 or newer and nothing else.
 
 ```sh
 cargo build --workspace

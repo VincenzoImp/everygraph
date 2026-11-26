@@ -5,7 +5,7 @@ usage: uv run --no-project --with jsonschema \
            python docs/tools/check_schemas.py FILE.md [FILE.md ...]
 
 For example `docs/ux-contract.md` (plan, error, event, stop and file
-documents) and `docs/api-sketch.md` (the result document); given together,
+documents) and `docs/api-sketch.md` (the result and verify documents); given together,
 the schemas of both files are checked as one set.
 
 Every ```json block that carries "$schema" must be a valid draft 2020-12
@@ -13,13 +13,13 @@ schema; the schemas refer to each other by their "$id", and those references
 must resolve. Every other ```json block is an example and must validate
 against the schema it belongs to, recognized by its keys: a plan, an error
 document (also the form of a refusal inside a plan), an event, a stop
-document, a file document or a result document. A refusal is also checked
+document, a file document, a result document or a verify report. A refusal is also checked
 inside a plan with "fits": false, through the plan's reference to the error
 schema. Negative controls, for each schema that is present, show that the
 schemas reject a missing key, an unknown error class, a misspelt key, a way
 forward without its "python" key, an `OutputExists` without "holds", an
 unknown progress unit, an unknown stop reason, and a misspelt key in a file
-document and in a result document. Exit status 0 when everything holds.
+document, in a result document and in a verify report. Exit status 0 when everything holds.
 """
 import copy
 import json
@@ -36,11 +36,14 @@ EVENT = "urn:everygraph:schema:event:1"
 STOP = "urn:everygraph:schema:stop:1"
 FILE = "urn:everygraph:schema:file:1"
 RESULT = "urn:everygraph:schema:result:1"
-KNOWN = (PLAN, ERROR, EVENT, STOP, FILE, RESULT)
+VERIFY = "urn:everygraph:schema:verify:1"
+KNOWN = (PLAN, ERROR, EVENT, STOP, FILE, RESULT, VERIFY)
 
 
 def kind_of(doc):
     """Which schema an example belongs to, from its keys."""
+    if "verify" in doc and "intact" in doc:
+        return VERIFY
     if "event" in doc:
         return EVENT
     if "stopped" in doc:
@@ -94,7 +97,7 @@ def main(paths):
             print(f"  {sid}: {e.json_path}: {e.message}")
         failed = failed or bool(problems)
         name = (d.get("event") or d.get("operation") or d.get("error")
-                or d.get("result"))
+                or d.get("result") or d.get("verify"))
         print(f"{sid.split(':')[3]} example validates: {name}:", not problems)
         by_kind.setdefault(sid, []).append(d)
     for sid in schemas:
@@ -146,6 +149,10 @@ def main(paths):
         controls.append(("result document with 'rows_totl'", RESULT, result))
         result = dict(by_kind[RESULT][0], extra=1)
         controls.append(("result document with an unknown key", RESULT, result))
+    if VERIFY in by_kind:
+        report = dict(by_kind[VERIFY][0])
+        report["problem"] = report.pop("problems")
+        controls.append(("verify report with 'problem'", VERIFY, report))
     for label, sid, doc in controls:
         rejected = bool(errors(sid, doc))
         print(f"negative control, {label} rejected:", rejected)
