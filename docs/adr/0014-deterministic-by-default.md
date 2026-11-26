@@ -48,7 +48,7 @@ The tests named are in `crates/everygraph-determinism/tests/` unless a path is g
 | Bitwise | guaranteed | every test above compares bits: hashes of the output columns, floats by their bits |
 | Partition up to renumbering | guaranteed, as bits | the membership is numbered by each community's smallest node, so the same partition has the same bits: `everygraph-community/tests/leiden.rs`, `check` (l. 259), which every result of `deterministic_results_do_not_depend_on_threads_chunks_or_sources` and `every_option_gives_valid_and_repeatable_communities` passes |
 | Same stored order vs a permuted one | not promised | `compact` without `--order` keeps the communities: `leiden_views.rs` `compact_keeps_the_communities`. With the ids renumbered by a locality order, 3 of 5 orders moved 2–3 of 10,000 nodes (#54's probe, on the code before #267) |
-| View as a mask vs materialized | Leiden: guaranteed; other kernels: not yet tested (#93) | `leiden_views.rs` `a_view_as_a_mask_and_materialized_give_the_same_communities` (default, quality, randomized and prolonged), on 10,000 nodes and on 200,000 nodes with holes across rank blocks; `level.rs` `ranks_count_the_nodes_with_an_entry_across_blocks` |
+| View as a mask vs materialized | guaranteed for every kernel of `everygraph run`, weighted PageRank, eigenvector centrality, SSSP and Leiden; a saved view: not yet (#93) | `views.rs` `every_kernel_gives_the_same_bits_on_a_view_as_a_mask_and_materialized` (a node view, a pair view and an event view whose pair weights are summed again from the events it keeps, wide weights, every configuration of the grid and every kind of parent source) and `views_of_the_corpus_give_the_same_bits_as_a_mask_and_materialized`; `everygraph-kernels/tests/oracle.rs` `kernels_on_views_pass_the_oracle` (every kernel of the oracle plug-in on views of padded corpus graphs, both forms, against the references, NetworkX's among them); exploratory on orkut: PageRank f64 on a 10 % edge view and a 10 % node view gave one hash for both forms at 1 and 16 threads (#93's pull request). Leiden alone, also with the parent's ids kept and the other nodes without edges: `leiden_views.rs` `a_view_as_a_mask_and_materialized_give_the_same_communities` (default, quality, randomized and prolonged), on 10,000 nodes and on 200,000 nodes with holes across rank blocks; `level.rs` `ranks_count_the_nodes_with_an_entry_across_blocks`. Both forms hand the kernels the same lists in the same ids (`everygraph_kernels::edge_map::View`), so they share their reduction blocks |
 | Nodes without edges | guaranteed for Leiden | `leiden_views.rs` `nodes_without_edges_change_neither_the_sub_rounds_nor_the_communities`: the sub-round count counts nodes with edges |
 | A map after a rebuild | not promised: depends on the previous map | ADR 0016: the super level keeps the previous map's choice while the partition needs 56 to 72 communities to cover 90% of its nodes; a first map depends on the graph and the seed only |
 | `fast` mode, `timeout` | not promised | — |
@@ -115,8 +115,8 @@ asynchronous prototype, not against production `fast` mode. The price of the def
   8, 16 GiB and unlimited, and on a view either way; f32 only on request.
 - #48: component labels identical across threads, Afforest vs streaming union-find,
   budgets and views.
-- #93: PageRank, components and communities identical on a view as mask or materialized,
-  and after `save()`.
+- #93: every kernel identical on a view as a mask or materialized (`views.rs`); left:
+  after `save()`, which no view has yet.
 - #45: the result hash is the same in every regime the planner can choose.
 
 ## Consequences
@@ -128,8 +128,9 @@ asynchronous prototype, not against production `fast` mode. The price of the def
   file built by appends, results depend on its batches, not on how its runs are merged
   (ADR 0028, S4; `design/DECISIONS.md`). No float reduces over these blocks: a float
   that carries a result goes through the exact accumulator, whose value does not depend
-  on the grouping. So the blocks, which a mask and a materialized view cut differently,
-  change no bit.
+  on the grouping. So the cut of the blocks, a choice of this version, changes no bit. A
+  view hands the kernels the same lists in the same ids as a mask and materialized, so
+  both forms have the same blocks anyway.
 - Leiden counts its draws by a node's place among the nodes with edges, and compares
   labels only by their order ("Reproducibility"). A view runs as a mask or materialized
   with the same result. A kernel whose result depends on its draws counts them the
