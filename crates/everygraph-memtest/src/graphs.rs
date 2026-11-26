@@ -77,6 +77,10 @@ impl Recipe {
             }
         }
         rows.extend((linked..n).map(|v| (v, v)));
+        if rows.is_empty() {
+            // A recipe of no parts still makes a graph: an empty input has no dictionary.
+            rows.push((0, 1));
+        }
         let repeats = self.repeats.max(1) as usize;
         rows.into_iter()
             .flat_map(|r| std::iter::repeat_n(r, repeats))

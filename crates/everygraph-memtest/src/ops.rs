@@ -321,13 +321,15 @@ pub const KNOWN: [Known; 1] = [Known {
     op: Op::Ingest,
     // The first pass is the dictionary's read of the text: its phases, and the time
     // before its first reservation. The dictionary alone is checked as `Op::Dictionary`.
-    phases: &["(before any reservation)", "id dictionary"],
+    // And the rounds read back from spill files, at a budget that spills.
+    phases: &["(before any reservation)", "id dictionary", "spill reader"],
     // One parsed block per thread: 2 × 4 MiB of text and 24 bytes for each of at most
     // 4 MiB / 4 rows (a row is at least `0 0` and a line end; `build/rows.rs`, `Flight`).
     bound: THREADS.get() as u64 * ((8 << 20) + (1 << 20) * 24),
     refuses_late: true,
     why: "the first pass holds each text block's parsed rows outside the ledger, before the \
-          dictionary's first reservation and during its read, and a budget below the build's own estimate is \
+          dictionary's first reservation and during its read, and while it reads spilled \
+          rounds back; a budget below the build's own estimate is \
           refused only after the first pass (plan/issues/m3-28-ingest-first-pass.md)",
 }];
 

@@ -2,7 +2,8 @@
 
 //! A search for graphs on which an operation holds more untracked heap per node: a hill
 //! climb over [`Recipe`]s with a fixed seed (targeted property-based testing). A recipe
-//! is kept when it raises, for some operation, the fitted slope or the maximum of any
+//! is kept when it raises, for some operation, the slope between its two largest sizes
+//! ([`top_slope`]) or the maximum of any
 //! phase, even if nothing failed (`MemLock`, `PerfFuzz`;
 //! `docs/research/sota-testing.md` challenge 3, items 2 and 3). Fitness is counted in
 //! bytes, never in time or resident memory.
@@ -12,7 +13,7 @@ use std::path::Path;
 
 use crate::graphs::{Recipe, splitmix};
 use crate::ops::{Input, Op, known};
-use crate::probe::{Boundary, Outcome, measure, slope};
+use crate::probe::{Boundary, Outcome, measure, top_slope};
 
 /// What an operation holds untracked at each size of one recipe.
 #[derive(Clone, Debug, Default)]
@@ -74,6 +75,17 @@ pub fn growth(ops: &[Op], recipe: &Recipe, sizes: &[u32], dir: &Path) -> Vec<Gro
                 (None, unlimited)
             };
             let exempt = known(op).map_or(&[][..], |k| k.phases);
+            // Twice, and the lesser: heap one run holds for a moment and the next does
+            // not is not growth (the search saw 1.7 B/node once on a hubs recipe that
+            // measures 0.02 again, PR #251); untracked heap that grows is in both.
+            let again = at(budget);
+            let run = if again.outcome == Outcome::Done
+                && again.untracked_outside(exempt) < run.untracked_outside(exempt)
+            {
+                again
+            } else {
+                run
+            };
             let inside = run
                 .phases
                 .iter()
@@ -120,7 +132,7 @@ pub fn climb(
     let raises = |recipe: Recipe, worst: &mut BTreeMap<String, Worst>| {
         let mut raised = false;
         for (&op, g) in ops.iter().zip(growth(ops, &recipe, sizes, dir)) {
-            let s = slope(&g.points);
+            let s = top_slope(&g.points);
             let w = worst.entry(op.name()).or_insert_with(|| Worst {
                 slope: f64::NEG_INFINITY,
                 recipe,

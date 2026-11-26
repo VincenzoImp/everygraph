@@ -167,6 +167,14 @@ pub fn measure(
     }
 }
 
+/// The slope between the two largest sizes of `points` (size, bytes, by increasing
+/// size), in bytes per unit of size: a growth with the size counts, a growth that
+/// stopped below the largest size (a sample of fixed size filling up) does not.
+#[must_use]
+pub fn top_slope(points: &[(f64, f64)]) -> f64 {
+    slope(&points[points.len().saturating_sub(2)..])
+}
+
 /// The least-squares slope of `points` (size, bytes): bytes per unit of size.
 #[must_use]
 pub fn slope(points: &[(f64, f64)]) -> f64 {
@@ -205,16 +213,26 @@ pub enum Declared {
 }
 
 impl Boundary {
-    /// Bisects between 0 and twice the unlimited peak, to within `1 / parts` of it.
-    /// `run(budget)` says whether the operation completes with that budget; it must also
-    /// have checked that a run which does not complete refused cleanly.
+    /// Bisects between 0 and the first of 2, 4, … 64 times the unlimited peak that
+    /// completes, to within `1 / parts` of the peak. `run(budget)` says whether the
+    /// operation completes with that budget; it must also have checked that a run which
+    /// does not complete refused cleanly. A run under a limit can need more than the
+    /// unlimited peak, as concurrent reservations race.
     ///
     /// # Panics
     ///
-    /// If the operation does not complete at twice the unlimited peak.
+    /// If the operation does not complete at 64 times the unlimited peak.
     pub fn search(unlimited_peak: u64, parts: u64, mut run: impl FnMut(u64) -> bool) -> Self {
-        let (mut lo, mut hi) = (0_u64, unlimited_peak.max(1) * 2);
-        assert!(run(hi), "no completion at twice the unlimited peak, {hi} B");
+        let peak = unlimited_peak.max(1);
+        let mut hi = peak * 2;
+        while !run(hi) {
+            assert!(
+                hi < peak * 64,
+                "no completion at 64 times the unlimited peak, {peak} B"
+            );
+            hi *= 2;
+        }
+        let mut lo = 0_u64;
         let step = (unlimited_peak / parts.max(1)).max(64);
         while hi - lo > step {
             let mid = lo + (hi - lo) / 2;

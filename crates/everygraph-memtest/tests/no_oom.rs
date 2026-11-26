@@ -26,7 +26,7 @@ use everygraph_memtest::counting::Counting;
 use everygraph_memtest::graphs::{FAMILIES, Recipe};
 use everygraph_memtest::ops::{Input, Kernel, OPS, Op, Regime, known};
 use everygraph_memtest::probe::{
-    Boundary, Declared, Outcome, Run, alone, measure, refuse_each, slope,
+    Boundary, Declared, Outcome, Run, alone, measure, refuse_each, top_slope,
 };
 use everygraph_memtest::search::{climb, growth};
 
@@ -79,7 +79,7 @@ fn slopes(ops: &[Op], recipes: &[Recipe], sizes: &[u32], dir: &Path) -> Vec<Stri
     let mut failures = Vec::new();
     for recipe in recipes {
         for (&op, g) in ops.iter().zip(growth(ops, recipe, sizes, dir)) {
-            let s = slope(&g.points);
+            let s = top_slope(&g.points);
             let largest = g.points.iter().map(|p| p.1).fold(0.0, f64::max);
             eprintln!(
                 "{:>18} {:>20}: {s:7.3} B/node, untracked {:?} B at budgets {:?}; at the largest size by phase {:?}",
@@ -96,7 +96,7 @@ fn slopes(ops: &[Op], recipes: &[Recipe], sizes: &[u32], dir: &Path) -> Vec<Stri
                     recipe.name
                 ));
             }
-            let exempt = slope(&g.exempt);
+            let exempt = top_slope(&g.exempt);
             if let Some(k) = known(op).filter(|_| recipe.name == FAMILIES[0].name) {
                 eprintln!(
                     "{:>18} {:>20}: known, {exempt:.3} B/node in {:?}",
@@ -151,7 +151,7 @@ fn the_slope_test_catches_the_lab_wcc_state() {
             with.push((f64::from(input.nodes), canary.untracked() as f64));
             without.push((f64::from(input.nodes), clean.untracked() as f64));
         }
-        let (canary, clean) = (slope(&with), slope(&without));
+        let (canary, clean) = (top_slope(&with), top_slope(&without));
         eprintln!("WCC with the lab's state: {canary:.3} B/node; without: {clean:.3} B/node");
         assert!(
             (3.5..=8.0).contains(&canary),
