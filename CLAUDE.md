@@ -48,6 +48,9 @@ them with `plan/publish.py`); coding rules and CI in `CONTRIBUTING.md`.
 - If a criterion cannot be met, do not quietly relax it. Record the measured value and the
   reason; then change the issue text and republish, or open a follow-up. A missed speed
   target moves to the milestone's performance-pass issue (§ 6).
+- A pull request that closes an issue, or a slice of one, also updates every forward-looking
+  reference to it (`rg '#N|<issue-file>'`), and moves each leftover criterion to a named open
+  issue.
 - New ideas become new issue files, not code. Nothing outside the plan gets built.
 - An issue file's name is a stable identifier; its front matter gives the milestone. A
   file is not removed or renamed while anything cites it: an issue merged into another
@@ -108,7 +111,8 @@ drift by implementing something different.
 ### Which model, which effort
 
 Opus subagents carry development wherever a detailed issue makes that possible. Choose by
-the issue's labels, and escalate on evidence:
+the issue's labels, and escalate on evidence. Set the effort explicitly in every brief;
+high is not the default:
 
 | Work | Model, effort |
 |---|---|
@@ -116,6 +120,7 @@ the issue's labels, and escalate on evidence:
 | `risk:medium` features: codec, ingest, kernels, planner, viewer, Python API | Opus, high |
 | `risk:high` features and all M1 experiments | Opus, high first |
 | Web research | Opus, medium |
+| Final check of review fixes; plan or document edits from a decided list; experiments that only count | Opus, medium |
 | Review (`reviewer`) | Opus, high; for `risk:high` code touching `unsafe`, parallel state or the on-disk formats, a second review by Fable, medium |
 | The short hard list — edge-map framework (#44), production Leiden (#57), out-of-core Leiden (#16, #60), map-hierarchy shaping (#19, #63) | Opus, high first; hand to Fable, high if the escalation rule fires |
 

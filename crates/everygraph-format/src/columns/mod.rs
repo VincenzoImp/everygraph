@@ -46,6 +46,9 @@
 //! ```
 
 mod arrow;
+mod check;
+
+pub(crate) use check::verify_columns;
 mod flatbuf;
 mod layout;
 mod read;

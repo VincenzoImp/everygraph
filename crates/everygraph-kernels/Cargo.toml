@@ -18,6 +18,11 @@ everygraph-format = { path = "../everygraph-format" }
 # order the schemas list them.
 serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
 
+[features]
+# Global work counters of the frontier driver and the decoder, for experiment #266
+# (`lab/m3-27-frontier-counters`). Off in every product build.
+frontier-counters = []
+
 [dev-dependencies]
 # Tests and the benchmark run the kernels on threads (`par::with_threads`).
 everygraph-core = { path = "../everygraph-core" }

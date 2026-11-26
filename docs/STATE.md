@@ -69,23 +69,12 @@ everything prepared.
 - **Domains, a GitHub organization and the npm scope** `@everygraph` (#122).
 - **A trademark and patent professional** (#122): advisable before the first release, not
   a blocker (`design/DECISIONS.md`, "When the repository becomes public").
-- **Hardware this host does not have:** a laptop with an integrated GPU and an Apple
-  laptop with Safari for #26, which the viewer's frame budgets wait for; a 16 GB laptop
-  for the public benchmarks (#100).
-- **People:** three to five users for the edge tasks of #20 and the usability check of
-  #72; three to five screen-reader users for #197; outside reviewers before the release
-  (#105).
-- **A decision on CI runners:** see "Open questions for the owner".
+- **Optional after 0.1, never a gate** (owner, 2026-11-26; `design/DECISIONS.md`, "Usability, accessibility and hardware checks"): a session with real users and screen-reader users, a run on an integrated GPU and on Safari, outside reviewers. Before 0.1 these checks are agent-driven sessions (Playwright) and rendering bounds (software renderers, the RTX 4090).
 
-## Open questions for the owner
+## Decided on 2026-11-26
 
-- CI runs on GitHub-hosted runners, which cost nothing for a public repository. Four
-  issues (#53, #54, #55, #77) ask for nightly jobs on a self-hosted runner on this host.
-  No runner is registered, and no issue owns setting one up. A self-hosted runner on a
-  public repository runs the code of any pull request on a host with a public IP, so it
-  must take jobs from `main` and schedules only.
-- Is Graphalytics eligibility (#209) a gate of the 0.1 release, or a goal beside it? The
-  plan treats it as a goal beside it: the release (#105) does not depend on #209.
+- CI runs on GitHub-hosted runners only; no self-hosted runner is registered on this public host. Nightly jobs are GitHub-hosted scheduled workflows; tier-2 graphs and GPU checks run in the coordinator's official window on this host.
+- Graphalytics eligibility (#209) is a goal beside 0.1, not a gate.
 
 **Decision changes recorded:** ADR 0021 and DESIGN D21 amended on 2026-11-26 (PR #272): the query language comes by choosing an embedded engine (LadybugDB on Arrow CSR or Grafeo over a read-only `.eg` store) and bridging to it, not by our own parser; review in `docs/research/sota-review-2026-11.md`.
 
@@ -118,4 +107,5 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - 12:42 sweep skipped on purpose: the Fable coherence pass (PRs #252, #253) went over the plan, rules and documents two hours earlier, and the usage window is the scarce resource. A sweep repeats only after a stretch of merges large enough to drift.
 - Closing #57 and #21 made `check_adrs.py` fail on every open pull request, because ADRs and DESIGN still named them as holding open work. Rule: after each merge that closes an issue, the coordinator runs `board.py sync` and `docs/tools/check_adrs.py` and re-points the citations in the same push.
 - Parallel authors picked the same next issue number (m3-25 to m3-28 three times, m8-12 twice). Rule: a subagent names a proposed issue file `mN-xx-<slug>.md`, and the coordinator gives it its number before the merge.
+- Two pull requests green alone broke `main` together: #270 removed `FileSink::into_file` and #239 added an example that called it (fixed in #276). CI on each push to `main` (#262) caught it within the hour. Before merging a PR that removes or renames a public item, grep the other open PRs for it.
 

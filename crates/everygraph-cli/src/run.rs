@@ -233,6 +233,14 @@ fn execute(mut op: Operation, on: &On, node: Option<&str>) -> Result<u8, Failure
     }
     let memory = machine::memory(budget);
     let graph = graph::open(&on.graph, &memory, budget)?;
+    // `--weight` defaults to the declared column (`docs/api-sketch.md` § 2.4), which no
+    // operation reads yet: the number of edges in its place would be another answer.
+    if let (Some(column), Operation::PageRank { .. } | Operation::Degrees) = (graph.weight(), &op) {
+        return Err(unsupported(
+            format!("{} cannot use the weight column {column} yet.", op.name()),
+            "The operations do not read weight columns yet.",
+        ));
+    }
     let corrupt = |e: everygraph_ingest::ids::DictionaryError| failure::corrupt(&on.graph, &e);
     let nodes = Nodes::new(graph.dictionary(&memory).map_err(corrupt)?);
     if let (Operation::Bfs { source, .. }, Some(node)) = (&mut op, node) {

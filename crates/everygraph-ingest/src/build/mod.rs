@@ -22,14 +22,15 @@
 //!
 //! When everything fits, nothing is written but the output: no spill.
 //!
-//! Property columns are not carried: each entry's multiplicity, kept in module
-//! `finish`, gives its pair's range of events.
+//! A weight or a time column is carried by every item through these passes and stored
+//! beside the lists, per event or per pair (module `columns`, `docs/spec/eg-columns.md`
+//! § 6); the in-adjacency's items carry the out-adjacency's stored values.
 //!
 //! # Determinism
 //!
 //! Every boundary that depends on the budget (buckets, rounds, what spills) or on the
 //! schedule (the order of spill chunks) is followed by a sort of each list, whose key is
-//! total; the scatter is stable; the dictionary's form depends on its keys alone. So
+//! total (an item with columns carries its input position); the scatter is stable; the dictionary's form depends on its keys alone. So
 //! the sections are a function of the input and the options: a budget gives these
 //! bytes or a refusal, never other bytes (DESIGN D14).
 //!
@@ -40,6 +41,7 @@
 //! between passes is refused ([`BuildError::InputChanged`]), never built from two
 //! files.
 
+mod columns;
 mod estimate;
 mod fill;
 mod finish;
@@ -48,6 +50,8 @@ mod lists;
 mod rows;
 mod transpose;
 
+#[cfg(test)]
+mod column_tests;
 #[cfg(test)]
 mod tests;
 
@@ -61,6 +65,7 @@ use everygraph_core::{
     ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, Reservation, widen,
 };
 use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError};
+use everygraph_format::columns::ColumnError;
 use everygraph_format::container::{Container, ContainerError, Entry, Kind, Provenance, Writer};
 
 use crate::ids::{
@@ -68,9 +73,10 @@ use crate::ids::{
 };
 use crate::text::{IdType, Layout as TextLayout, OnInvalid, Tally, TextError, TextReader};
 
+use columns::{FromRow, Out, Tagged};
 pub use estimate::{Estimate, Sample, estimate};
 use lists::{Context, Names, Written, fill_lists, write_lists};
-use rows::{Rows, TextKeys};
+use rows::{Flight, Rows, TextKeys};
 pub use transpose::add_in_adjacency;
 
 pub(crate) const ONE: NonZeroUsize = NonZeroUsize::MIN;
@@ -93,6 +99,7 @@ pub const IN_EVENTS: &str = "adjacency.in.events";
 pub const PROVENANCE: &str = "provenance/ingest";
 
 const OUT: Names = Names {
+    adjacency: "adjacency.out",
     data: OUT_DATA,
     index: OUT_INDEX,
     events: OUT_EVENTS,
@@ -317,6 +324,9 @@ pub struct Report {
     pub events: u64,
     /// Bytes of the `.events` section; 0 when there is none.
     pub events_bytes: u64,
+    /// The largest multiplicity of a pair (`docs/spec/graph-semantics.md` § 2.7); 0
+    /// without a pair.
+    pub multiplicity_max: u64,
     /// Whether the in-adjacency was written.
     pub in_adjacency: bool,
     /// In memory, or with spills.
@@ -379,6 +389,12 @@ pub enum BuildError {
     Format(FormatError),
     /// The graph is undirected: it has no in-adjacency.
     Undirected,
+    /// A property column could not be written.
+    Column(ColumnError),
+    /// Two stored columns would have this name: a weight column named `edges`, `first`
+    /// or `last` under `duplicates="sum"`, or one column read as the weight and the time
+    /// (`docs/spec/eg-columns.md` § 6). Refused before any work.
+    ColumnClash(String),
 }
 
 impl fmt::Display for BuildError {
@@ -401,6 +417,8 @@ impl fmt::Display for BuildError {
             Self::Encode(e) => e.fmt(f),
             Self::Format(e) => e.fmt(f),
             Self::Undirected => f.write_str("an undirected graph has no in-adjacency"),
+            Self::Column(e) => e.fmt(f),
+            Self::ColumnClash(name) => write!(f, "two stored columns would be named {name}"),
         }
     }
 }
@@ -416,6 +434,7 @@ impl Error for BuildError {
             Self::Container(e) => Some(e),
             Self::Encode(e) => Some(e),
             Self::Format(e) => Some(e),
+            Self::Column(e) => Some(e),
             _ => None,
         }
     }
@@ -475,6 +494,7 @@ impl From<EncodeError> for BuildError {
                 purpose: "adjacency encoder",
                 bytes,
             }),
+            EncodeError::Budget(refused) => Self::Budget(refused),
             other => Self::Encode(other),
         }
     }
@@ -483,6 +503,15 @@ impl From<EncodeError> for BuildError {
 impl From<FormatError> for BuildError {
     fn from(e: FormatError) -> Self {
         Self::Format(e)
+    }
+}
+
+impl From<ColumnError> for BuildError {
+    fn from(e: ColumnError) -> Self {
+        match e {
+            ColumnError::Container(e) => Self::Container(e),
+            other => Self::Column(other),
+        }
     }
 }
 
@@ -572,7 +601,7 @@ fn build_tuned<S, Sc, K>(
     options: &BuildOptions,
     memory: &Memory,
     scratch: &Sc,
-    out: K,
+    sink: K,
     progress: &dyn Progress,
     tuning: &Tuning,
 ) -> Result<Unfinished<K>, BuildError>
@@ -584,6 +613,10 @@ where
     let blocks = reader.blocks()?.ok_or(BuildError::Compressed)?;
     let threads = options.threads.get();
     let graph = options.graph;
+    let columns = columns::outputs(reader.layout(), graph.duplicates);
+    if let Some(name) = columns::clash(&columns) {
+        return Err(BuildError::ColumnClash(name.to_owned()));
+    }
 
     progress.begin(Phase::Reading, Some(widen(blocks)));
     let fingerprints = rows::Fingerprints::new(blocks);
@@ -608,27 +641,6 @@ where
     progress.end(Phase::Identifiers, u64::from(nodes));
 
     progress.begin(Phase::Building, None);
-    // The mapped rows are kept for the next passes when they take at most an eighth of
-    // what is left: they are freed before the lists are finished, but the buckets
-    // filled in memory live beside them.
-    let cache_bytes = summary.rows.saturating_mul(rows::CACHE_BYTES_PER_ROW);
-    let cached_rows = (cache_bytes <= memory.available() / 8).then_some(summary.rows);
-    let flight = rows::Flight {
-        threads,
-        blocks,
-        block_bytes: widen(reader.block_bytes()),
-        most_rows,
-    };
-    let cached_rows = cached_rows.filter(|_| tuning.cache_rows);
-    let rows = Rows::new(
-        reader,
-        &dictionary,
-        graph,
-        &fingerprints,
-        &flight,
-        memory,
-        cached_rows,
-    )?;
     let cx = Context {
         graph,
         memory,
@@ -637,20 +649,34 @@ where
         threads,
         progress,
     };
-    let filled = fill_lists(&rows, nodes, graph.directed, &cx)?;
-    drop(rows);
-    let (pass, isolates) = (filled.pass, filled.isolates);
-    let mut spilled_bytes = filled.spilled_bytes;
-    let (mut regime, buckets) = (filled.layout().regime(), filled.layout().buckets());
+    let input = Input {
+        reader,
+        dictionary: &dictionary,
+        fingerprints: &fingerprints,
+        rows: summary.rows,
+        most_rows,
+    };
+    let layout = reader.layout();
+    let (mut writer, out) = if layout.weight.is_none() && layout.time.is_none() {
+        out_lists::<u32, _, _, _, _>(&input, &columns, &cx, sink)?
+    } else {
+        out_lists::<Tagged, _, _, _, _>(&input, &columns, &cx, sink)?
+    };
+    let OutLists {
+        pass,
+        isolates,
+        written: Written {
+            pairs,
+            events_bytes,
+        },
+        mut regime,
+        buckets,
+        mut spilled_bytes,
+    } = out;
     let mut made = buckets;
-    let mut writer = Writer::create(out)?;
-    let Written {
-        pairs,
-        events_bytes,
-    } = write_lists(filled, &mut writer, OUT, &cx)?;
     let in_adjacency = graph.directed && options.in_adjacency;
     if in_adjacency {
-        let transposed = transpose::transpose_into(&mut writer, &cx)?;
+        let transposed = transpose::transpose_into(&mut writer, &columns, &cx)?;
         spilled_bytes += transposed.spilled_bytes;
         made += transposed.buckets;
         if !transposed.in_memory {
@@ -686,6 +712,10 @@ where
         entries: pairs.entries,
         events: pairs.events,
         events_bytes,
+        multiplicity_max: match graph.duplicates {
+            Duplicates::Collapse => pairs.most.min(1),
+            _ => pairs.most,
+        },
         in_adjacency,
         regime,
         buckets,
@@ -702,6 +732,7 @@ where
         .into(),
     );
     put("isolated_kept", report.isolates.to_string());
+    put("multiplicity.max", report.multiplicity_max.to_string());
     put("isolated_dropped", "0".into());
     Ok(Unfinished {
         writer,
@@ -710,12 +741,91 @@ where
     })
 }
 
+/// The input of the passes, after the dictionary.
+struct Input<'a, 'd, S, D> {
+    reader: &'a TextReader<S>,
+    dictionary: &'a Dictionary<'d, D>,
+    fingerprints: &'a rows::Fingerprints,
+    /// Rows of the input.
+    rows: u64,
+    /// Rows of its largest block.
+    most_rows: u64,
+}
+
+/// What [`out_lists`] found and wrote.
+struct OutLists {
+    pass: rows::BlockCounts,
+    isolates: u64,
+    written: Written,
+    regime: Regime,
+    buckets: usize,
+    spilled_bytes: u64,
+}
+
+/// The out-adjacency of `input`, with items `T` and its `columns`, written into a new
+/// container in `sink`.
+fn out_lists<T, S, D, Sc, K>(
+    input: &Input<'_, '_, S, D>,
+    columns: &[Out],
+    cx: &Context<'_, Sc>,
+    sink: K,
+) -> Result<(Writer<K>, OutLists), BuildError>
+where
+    T: FromRow,
+    S: ByteSource + Sync,
+    D: ByteSource + Sync,
+    Sc: Scratch,
+    K: ByteSink,
+{
+    let memory = cx.memory;
+    // The mapped rows are kept for the next passes when they take at most an eighth of
+    // what is left: they are freed before the lists are finished, but the buckets
+    // filled in memory live beside them.
+    let cache_bytes = input.rows.saturating_mul(rows::cache_bytes_per_row::<T>());
+    let cached_rows = (cache_bytes <= memory.available() / 8).then_some(input.rows);
+    let flight = Flight {
+        threads: cx.threads,
+        blocks: input.fingerprints.blocks(),
+        block_bytes: widen(input.reader.block_bytes()),
+        most_rows: input.most_rows,
+        row_bytes: rows::block_bytes_per_row::<T>(),
+    };
+    let cached_rows = cached_rows.filter(|_| cx.tuning.cache_rows);
+    let rows: Rows<'_, '_, S, D, T> = Rows::new(
+        input.reader,
+        input.dictionary,
+        cx.graph,
+        input.fingerprints,
+        &flight,
+        memory,
+        cached_rows,
+    )?;
+    let nodes = input.dictionary.len();
+    let filled = fill_lists(&rows, nodes, cx.graph.directed, columns.len(), cx)?;
+    drop(rows);
+    let (pass, isolates, spilled_bytes) = (filled.pass, filled.isolates, filled.spilled_bytes);
+    let (regime, buckets) = (filled.layout().regime(), filled.layout().buckets());
+    let mut writer = Writer::create(sink)?;
+    let written = write_lists(filled, &mut writer, OUT, columns, cx)?;
+    Ok((
+        writer,
+        OutLists {
+            pass,
+            isolates,
+            written,
+            regime,
+            buckets,
+            spilled_bytes,
+        },
+    ))
+}
+
 /// The parameters that a build of the text read as `layout` with `graph` records in its
 /// provenance, before what the build itself finds (graph order, isolated nodes): the
-/// direction, self-loops, duplicates, the identifier type and the source and target
-/// columns. Two builds with the same parameters from the same input make the same graph,
-/// so a file whose provenance holds these is the cache of that build
-/// (`docs/api-sketch.md` § 2.7).
+/// direction, self-loops, duplicates, the identifier type, the source and target
+/// columns, and the weight and time columns when there are. Two builds with the same
+/// parameters from the same input make the same graph, so a file whose provenance holds
+/// these is the cache of that build (`docs/api-sketch.md` § 2.7).
 #[must_use]
 pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String, String> {
     let self_loops = match graph.self_loops {
@@ -732,6 +842,7 @@ pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String,
         IdType::Hex => "hex",
         _ => "integer",
     };
+    let columns = [("weight", layout.weight), ("time", layout.time)];
     [
         ("directed", graph.directed.to_string()),
         ("self_loops", self_loops.into()),
@@ -741,6 +852,11 @@ pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String,
         ("target", layout.column_name(layout.target)),
     ]
     .into_iter()
+    .chain(
+        columns
+            .into_iter()
+            .filter_map(|(role, at)| Some((role, layout.column_name(at?)))),
+    )
     .map(|(k, v)| (k.to_owned(), v))
     .collect()
 }

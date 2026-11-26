@@ -46,8 +46,9 @@ pub struct Hops {
     /// With [`Bfs::parents`]: the smallest node one hop closer to the source with an
     /// edge to the node; [`UNREACHED`] at the source and where it is not reached.
     pub parent: Option<Vec<AtomicU32>>,
-    /// The number of nodes at each distance, from 0.
-    pub levels: Vec<u64>,
+    /// The number of nodes at each distance, from 0, reserved in the budget: a path has
+    /// as many levels as nodes.
+    pub levels: SegVec<u64>,
     /// The budget held by `distance` and `parent`.
     pub held: Reservation,
 }
@@ -87,7 +88,8 @@ pub fn bfs<'g, S: Source>(
     let at = out.per_node(&depth)?;
     at[source].store(0, Relaxed);
     let max_hops = p.max_hops.unwrap_or(u32::MAX - 1);
-    let mut levels = vec![1];
+    let mut levels = SegVec::new(memory, "bfs levels");
+    levels.try_push(1)?;
     let mut frontier = NodeList::new(memory);
     frontier.push(source)?;
     let mut next = out.node_set(memory)?;
@@ -111,18 +113,25 @@ pub fn bfs<'g, S: Source>(
                         (),
                         |v| at[v].load(Relaxed) == UNREACHED,
                         |found: &mut u64, (), _, row, _| {
-                            if row.list.iter().any(|&u| front.contains(u)) {
+                            let hit = row.list.iter().position(|&u| front.contains(u));
+                            #[cfg(feature = "frontier-counters")]
+                            crate::edge_map::counters::examined(
+                                hit.map_or(row.list.len(), |i| i + 1),
+                            );
+                            if hit.is_some() {
                                 at[row.node].store(level + 1, Relaxed);
                                 next.insert(row.node);
                                 *found += 1;
                             }
                         },
                     )?;
+                    #[cfg(feature = "frontier-counters")]
+                    crate::edge_map::counters::mark("bfs.bottom-up", level.into());
                     level += 1;
                     std::mem::swap(&mut front, &mut next);
                     next.clear();
                     if awake > 0 {
-                        levels.push(awake);
+                        levels.try_push(awake)?;
                     }
                     let shrunk = awake < old && awake <= u64::from(n) / BETA;
                     if awake == 0 || shrunk || level >= max_hops {
@@ -136,7 +145,11 @@ pub fn bfs<'g, S: Source>(
             }
             _ => {
                 edges_to_check = edges_to_check.saturating_sub(scout);
+                #[cfg(feature = "frontier-counters")]
+                crate::edge_map::counters::tag("bfs.top-down", level.into());
                 scout = out.frontier(frontier.as_slice()?, |scout: &mut u64, row, _| {
+                    #[cfg(feature = "frontier-counters")]
+                    crate::edge_map::counters::examined(row.list.len());
                     for &v in row.list {
                         let d = &at[v];
                         if d.load(Relaxed) == UNREACHED
@@ -148,11 +161,13 @@ pub fn bfs<'g, S: Source>(
                         }
                     }
                 })?;
+                #[cfg(feature = "frontier-counters")]
+                crate::edge_map::counters::mark("bfs.top-down", level.into());
                 next.list_into(&mut frontier)?;
                 next.clear();
                 level += 1;
                 if !frontier.is_empty() {
-                    levels.push(frontier.len() as u64);
+                    levels.try_push(frontier.len() as u64)?;
                 }
             }
         }

@@ -14,6 +14,7 @@
     reason = "doc comments on the clap types are the --help text, where backticks would print as such"
 )]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -23,6 +24,7 @@ use clap::{Args, Parser, Subcommand};
 use everygraph_bench::datasets::{
     self, DataRoot, FetchOptions, FileStatus, Outcome, Registry, human_bytes, markdown,
 };
+use everygraph_bench::harness::compare::{self, CompareOptions};
 use everygraph_bench::harness::measure::{MeasureOptions, measure};
 use everygraph_bench::harness::procfs::Host;
 use everygraph_bench::harness::run::{
@@ -211,8 +213,26 @@ struct RunArgs {
     /// Write the rows to FILE instead of the default results file.
     #[arg(long, value_name = "FILE", value_parser = non_empty_path)]
     out: Option<PathBuf>,
+    /// Run in rounds over the selected cases, in a seeded random order that the next
+    /// round reverses (every row records its round and place).
+    #[arg(long)]
+    interleave: bool,
+    /// The seed of --interleave (default: from the clock; the rows record it).
+    #[arg(long, value_name = "S", requires = "interleave")]
+    seed: Option<u64>,
+    /// After the run, compare the cases with VAR=VALUE against those that differ from
+    /// them only in VAR: ratios with 95% intervals (an A/B in one command).
+    #[arg(long, value_name = "VAR=VALUE", value_parser = var_value)]
+    compare_by: Option<(String, String)>,
     #[command(flatten)]
     place: Where,
+}
+
+fn var_value(s: &str) -> Result<(String, String), String> {
+    match s.split_once('=') {
+        Some((k, v)) if !k.is_empty() && !v.is_empty() => Ok((k.into(), v.into())),
+        _ => Err("expected VAR=VALUE, a matrix variable and its baseline value".into()),
+    }
 }
 
 #[derive(Args, Debug)]
@@ -241,11 +261,15 @@ struct ReportArgs {
     /// Also write chart-ready JSON to FILE.
     #[arg(long, value_name = "FILE", value_parser = non_empty_path)]
     json: Option<PathBuf>,
-    /// Compare the runs' primary metrics against the first run instead (exit status 1
-    /// when a difference reaches --max-diff).
+    /// The relative half-width that the "repetitions needed" column aims at.
+    #[arg(long, value_name = "FRACTION", default_value_t = report::TARGET_HALF_WIDTH)]
+    target: f64,
+    /// Compare primary metrics instead, as ratios of medians with 95% intervals: each
+    /// later run against the first, or within each run with --by. Exit status 1 when an
+    /// interval leaves 1 ± δ.
     #[arg(long)]
     compare: bool,
-    /// Largest relative difference --compare accepts.
+    /// δ of every case without one in --deltas.
     #[arg(
         long,
         value_name = "FRACTION",
@@ -253,6 +277,17 @@ struct ReportArgs {
         requires = "compare"
     )]
     max_diff: f64,
+    /// Compare within each run: cases with VAR=VALUE against those that differ from
+    /// them only in VAR.
+    #[arg(long, value_name = "VAR=VALUE", value_parser = var_value, requires = "compare")]
+    by: Option<(String, String)>,
+    /// δ by case id: a JSON object written by --write-deltas from an A/A comparison.
+    #[arg(long, value_name = "FILE", requires = "compare")]
+    deltas: Option<PathBuf>,
+    /// Write the smallest δ each case's interval meets, as JSON: run it on an A/A
+    /// comparison (two runs of one revision) to calibrate δ.
+    #[arg(long, value_name = "FILE", value_parser = non_empty_path, requires = "compare")]
+    write_deltas: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -556,6 +591,13 @@ fn run_spec(registry: Registry, data: DataRoot, args: &RunArgs) -> Result<ExitCo
         skip_prepare: args.skip_prepare,
         out: args.out.clone(),
         lock_path: lock::default_path(),
+        interleave: args.interleave.then(|| {
+            args.seed.unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() ^ u64::from(d.subsec_nanos()) << 32)
+            })
+        }),
     };
     let mut stderr = std::io::stderr();
     match run::run(&spec, &ctx, &opts, &mut stderr) {
@@ -567,7 +609,21 @@ fn run_spec(registry: Registry, data: DataRoot, args: &RunArgs) -> Result<ExitCo
         Ok(outcome) => {
             if let Some(path) = &outcome.results {
                 let rows = row::read_rows(path)?;
-                out!("{}", report::markdown(&rows).trim_end());
+                out!(
+                    "{}",
+                    report::markdown(&rows, report::TARGET_HALF_WIDTH).trim_end()
+                );
+                if let Some(by) = &args.compare_by {
+                    let c = compare::compare(
+                        &rows,
+                        &CompareOptions {
+                            max_diff: 0.05,
+                            by: Some(by.clone()),
+                            ..CompareOptions::default()
+                        },
+                    );
+                    out!("\n{}", c.text.trim_end());
+                }
             }
             Ok(if outcome.failed > 0 {
                 ExitCode::FAILURE
@@ -695,21 +751,39 @@ fn report_files(args: &ReportArgs) -> Result<ExitCode, String> {
         );
     }
     if let Some(path) = &args.json {
-        let text =
-            serde_json::to_string_pretty(&report::chart_json(&rows)).map_err(|e| e.to_string())?;
+        let text = serde_json::to_string_pretty(&report::chart_json(&rows, args.target))
+            .map_err(|e| e.to_string())?;
         std::fs::write(path, text + "\n")
             .map_err(|e| format!("writing {}: {e}", path.display()))?;
     }
     if args.compare {
-        let (text, ok) = report::compare(&rows, args.max_diff);
-        out!("{}", text.trim_end());
-        return Ok(if ok {
+        let deltas = match &args.deltas {
+            Some(p) => serde_json::from_str(
+                &std::fs::read_to_string(p).map_err(|e| format!("reading {}: {e}", p.display()))?,
+            )
+            .map_err(|e| format!("{}: not a JSON object of case ids and δ: {e}", p.display()))?,
+            None => BTreeMap::new(),
+        };
+        let c = compare::compare(
+            &rows,
+            &CompareOptions {
+                max_diff: args.max_diff,
+                deltas,
+                by: args.by.clone(),
+            },
+        );
+        if let Some(p) = &args.write_deltas {
+            let text = serde_json::to_string_pretty(&c.calibrated).map_err(|e| e.to_string())?;
+            std::fs::write(p, text + "\n").map_err(|e| format!("writing {}: {e}", p.display()))?;
+        }
+        out!("{}", c.text.trim_end());
+        return Ok(if c.passed {
             ExitCode::SUCCESS
         } else {
             ExitCode::FAILURE
         });
     }
-    out!("{}", report::markdown(&rows).trim_end());
+    out!("{}", report::markdown(&rows, args.target).trim_end());
     // A reference off, or one no counted repetition could check, fails the report.
     Ok(if report::verdict(&rows).passed() {
         ExitCode::SUCCESS

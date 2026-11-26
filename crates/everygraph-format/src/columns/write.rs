@@ -256,6 +256,9 @@ pub struct ColumnWriter<'w, S: ByteSink> {
     staging: Vec<u8>,
     /// The bits of a bitmap byte not yet staged, and their count.
     bits: (u8, u32),
+    /// The batch begun by [`begin_batch`](Self::begin_batch): its end in the section
+    /// and the rows it still needs.
+    open: Option<(u64, u64)>,
 }
 
 impl<'w, S: ByteSink> ColumnWriter<'w, S> {
@@ -306,6 +309,7 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
             nulls: Vec::new(),
             staging: Vec::with_capacity(STAGING),
             bits: (0, 0),
+            open: None,
         };
         this.section.write(&head)?;
         if let Some(d) = spec.dictionary {
@@ -350,8 +354,10 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
     ) -> Result<(), ColumnError> {
         let shape = self.plan.shape();
         let (ty, index) = (shape.ty, self.nulls.len() as u64);
-        if index >= shape.batches() {
-            return Err(ColumnError::Input("a batch after the last"));
+        if index >= shape.batches() || self.open.is_some() {
+            return Err(ColumnError::Input(
+                "a batch after the last, or inside another",
+            ));
         }
         let rows = shape.batch_len(index);
         if values.iter().any(|v| !v.fits(ty))
@@ -404,6 +410,74 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
         self.end_bits()?;
         self.fill_to(frame.end)?;
         self.nulls.push(nulls);
+        Ok(())
+    }
+
+    /// Begins the next batch, with no null, whose values then come in pieces of any
+    /// size through [`push`](Self::push), so that a batch never has to be held in
+    /// memory; [`end_batch`](Self::end_batch) ends it.
+    ///
+    /// # Errors
+    ///
+    /// [`ColumnError::Input`] for a batch after the last or inside another;
+    /// [`ColumnError::Container`] when the sink fails.
+    pub fn begin_batch(&mut self) -> Result<(), ColumnError> {
+        let shape = self.plan.shape();
+        let index = self.nulls.len() as u64;
+        if index >= shape.batches() || self.open.is_some() {
+            return Err(ColumnError::Input(
+                "a batch after the last, or inside another",
+            ));
+        }
+        let rows = shape.batch_len(index);
+        let frame = self.plan.batch(rows, 0);
+        self.section.write(&frame.metadata)?;
+        self.fill_to(frame.buffers[1].start)?;
+        self.open = Some((frame.end, rows));
+        Ok(())
+    }
+
+    /// The next values of the batch begun by [`begin_batch`](Self::begin_batch).
+    ///
+    /// # Errors
+    ///
+    /// [`ColumnError::Input`] outside a batch, for values of another type, more rows
+    /// than the batch has left, a dictionary code that names no string or a decimal with
+    /// more digits than its precision; [`ColumnError::Container`] when the sink fails.
+    pub fn push(&mut self, values: Values<'_>) -> Result<(), ColumnError> {
+        let shape = self.plan.shape();
+        let (ty, dictionary) = (shape.ty, shape.dictionary.map_or(0, |(v, _)| v));
+        let rows = values.rows(ty);
+        let left = match self.open {
+            Some((_, left)) if values.fits(ty) && rows <= left => left,
+            _ => {
+                return Err(ColumnError::Input(
+                    "values outside a batch, of another type, or past its rows",
+                ));
+            }
+        };
+        check_values(&[values], ty, dictionary, std::iter::repeat(true))?;
+        self.write_values(&values, ty, &mut std::iter::repeat(true))?;
+        self.open = self.open.map(|(end, _)| (end, left - rows));
+        Ok(())
+    }
+
+    /// Ends the batch begun by [`begin_batch`](Self::begin_batch).
+    ///
+    /// # Errors
+    ///
+    /// [`ColumnError::Input`] outside a batch or before it has its rows;
+    /// [`ColumnError::Container`] when the sink fails.
+    pub fn end_batch(&mut self) -> Result<(), ColumnError> {
+        let Some((end, 0)) = self.open else {
+            return Err(ColumnError::Input(
+                "a batch ended outside a batch or before its rows",
+            ));
+        };
+        self.end_bits()?;
+        self.fill_to(end)?;
+        self.open = None;
+        self.nulls.push(0);
         Ok(())
     }
 
@@ -535,7 +609,7 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
     /// [`ColumnError::Input`] when fewer batches were written than the rows need;
     /// [`ColumnError::Container`] when the sink fails.
     pub fn finish(mut self) -> Result<Option<ColumnStats>, ColumnError> {
-        if self.nulls.len() as u64 != self.plan.shape().batches() {
+        if self.nulls.len() as u64 != self.plan.shape().batches() || self.open.is_some() {
             return Err(ColumnError::Input("fewer batches than the rows need"));
         }
         let tail = self.plan.tail();

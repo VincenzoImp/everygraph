@@ -23,7 +23,7 @@ use super::*;
 use crate::ids::{KeyKind, MemoryScratch, OwnedKey};
 use crate::text::{Delimiter, Header, IdType, TextOptions};
 
-const SMALL: Tuning = Tuning {
+pub(super) const SMALL: Tuning = Tuning {
     segment_bits: 12,
     bucket_nodes: 5,
     spill_batch: 7,
@@ -33,7 +33,7 @@ const SMALL: Tuning = Tuning {
 };
 
 /// [`SMALL`], holding at most 40 items in memory: every graph with more spills.
-const SPILLING: Tuning = Tuning {
+pub(super) const SPILLING: Tuning = Tuning {
     resident_items: 40,
     ..SMALL
 };
@@ -125,12 +125,12 @@ impl Run<'_> {
 
 /// A graph read back: each node's key as text, and its list of (neighbour, stored
 /// events) in the out-adjacency and, when the file holds one, in the in-adjacency.
-struct Stored {
-    keys: Vec<String>,
-    lists: Vec<Vec<(u32, u64)>>,
-    in_lists: Option<Vec<Vec<(u32, u64)>>>,
+pub(super) struct Stored {
+    pub(super) keys: Vec<String>,
+    pub(super) lists: Vec<Vec<(u32, u64)>>,
+    pub(super) in_lists: Option<Vec<Vec<(u32, u64)>>>,
     events_section: bool,
-    parameters: BTreeMap<String, String>,
+    pub(super) parameters: BTreeMap<String, String>,
 }
 
 /// The lists of adjacency `names`, with each entry's stored events; `None` when the
@@ -162,7 +162,7 @@ fn lists_of(file: &Container<MemorySource<&[u8]>>, names: Names) -> Option<Vec<V
     Some(lists)
 }
 
-fn read_back(bytes: &[u8]) -> Stored {
+pub(super) fn read_back(bytes: &[u8]) -> Stored {
     let checked = check(MemorySource::new(bytes), &Memory::unlimited()).unwrap();
     let file = Container::open(MemorySource::new(bytes)).unwrap();
     let lists = lists_of(&file, OUT).unwrap();
@@ -191,7 +191,7 @@ fn read_back(bytes: &[u8]) -> Stored {
 
 /// The transpose of `lists`: entry `(v, m)` of the list of `u` becomes `(u, m)` in the
 /// list of `v`.
-fn transposed(lists: &[Vec<(u32, u64)>]) -> Vec<Vec<(u32, u64)>> {
+pub(super) fn transposed(lists: &[Vec<(u32, u64)>]) -> Vec<Vec<(u32, u64)>> {
     let mut out = vec![Vec::new(); lists.len()];
     for (u, list) in lists.iter().enumerate() {
         for &(v, m) in list {
@@ -350,7 +350,7 @@ fn compare_with_oracle(g: &Graph, run: &Run<'_>) {
     }
 }
 
-fn all_options(directed: bool) -> Vec<GraphOptions> {
+pub(super) fn all_options(directed: bool) -> Vec<GraphOptions> {
     let mut out = Vec::new();
     for self_loops in [SelfLoops::Drop, SelfLoops::Keep] {
         for duplicates in [Duplicates::Events, Duplicates::Collapse, Duplicates::Sum] {
@@ -452,7 +452,6 @@ fn digest_probe() {
     let mut digest = 0_u64;
     for ids in [IdType::Integer, IdType::String] {
         for directed in [false, true] {
-            let mut small = None;
             for graph in all_options(directed) {
                 let large = Run {
                     ids,
@@ -463,7 +462,9 @@ fn digest_probe() {
                 let (in_memory, report) = large.bytes(&text).unwrap();
                 assert_eq!(report.regime, Regime::InMemory);
                 assert_eq!(report.spilled_bytes, 0);
-                let budget = *small.get_or_insert_with(|| spilling_budget(&large, &text));
+                // Per option: under "sum" the in-adjacency carries the `edges` column,
+                // so its items are larger.
+                let budget = spilling_budget(&large, &text);
                 let run = Run {
                     budget,
                     tuning: &SMALL,
@@ -697,10 +698,10 @@ fn an_input_that_changes_while_it_is_read_is_refused() {
 
 /// A sink that fails every write after the first `ok` bytes.
 #[derive(Debug)]
-struct FailingSink {
-    inner: MemorySource<Vec<u8>>,
-    ok: u64,
-    written: u64,
+pub(super) struct FailingSink {
+    pub(super) inner: MemorySource<Vec<u8>>,
+    pub(super) ok: u64,
+    pub(super) written: u64,
 }
 
 impl ByteSource for FailingSink {

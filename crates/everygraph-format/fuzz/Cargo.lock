@@ -61,6 +61,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "everygraph-community"
+version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-kernels",
+]
+
+[[package]]
 name = "everygraph-core"
 version = "0.0.0"
 dependencies = [
@@ -79,9 +88,19 @@ dependencies = [
 name = "everygraph-format-fuzz"
 version = "0.0.0"
 dependencies = [
+ "everygraph-community",
  "everygraph-core",
  "everygraph-format",
+ "everygraph-kernels",
  "libfuzzer-sys",
+]
+
+[[package]]
+name = "everygraph-kernels"
+version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-format",
 ]
 
 [[package]]

@@ -2,7 +2,8 @@
 
 //! The kernels of the crate through the correctness oracle: `PageRank` (weighted,
 //! directed, personalized, with kept loops) and eigenvector centrality (#47), BFS with
-//! its parents and SSSP (#49), weak components (#48), core numbers and degrees (#50).
+//! its parents and SSSP (#49), weak components (#48), strong components (#223), core
+//! numbers and degrees (#50).
 //! Each runs on the CI corpus under every configuration that must not change a result —
 //! 1, 3 and 8 threads,
 //! chunks of 64 and 65,536 entries, and four sources: raw arrays, the compressed format
@@ -45,6 +46,7 @@ use everygraph_kernels::degrees::{Loop, degrees};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{self, Eigenvector, Graph, PageRank};
+use everygraph_kernels::scc::scc;
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs};
 use everygraph_oracle::corpus::{Tier, entries};
@@ -270,6 +272,9 @@ fn run_kernel<S: Source>(
                     .map_err(e)
                     .map(|(l, _)| Output::Labels(load(l)))
             }
+            Kernel::Scc => scc(&po, &pi, &memory)
+                .map_err(e)
+                .map(|(l, _)| Output::Labels(load(l))),
             Kernel::CoreNumber => kcore(&po, &memory)
                 .map_err(e)
                 .map(|(c, _)| Output::Ints(load(c).into_iter().map(|c| Some(c.into())).collect())),
@@ -317,6 +322,7 @@ impl KernelUnderTest for Kernels {
             Kernel::PageRank { .. }
                 | Kernel::Eigenvector { .. }
                 | Kernel::Wcc
+                | Kernel::Scc
                 | Kernel::CoreNumber
                 | Kernel::Degree
                 | Kernel::DegreeOut

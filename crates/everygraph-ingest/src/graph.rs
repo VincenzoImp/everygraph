@@ -123,6 +123,7 @@ pub struct Graph<S> {
     inn: Option<Lists>,
     directed: bool,
     edges: u64,
+    weight: Option<String>,
 }
 
 impl<S> fmt::Debug for Graph<S> {
@@ -187,6 +188,7 @@ impl<S: ByteSource + Sync> Graph<S> {
             inn,
             directed,
             edges,
+            weight: provenance.parameters.get("weight").cloned(),
         })
     }
 
@@ -208,6 +210,12 @@ impl<S: ByteSource + Sync> Graph<S> {
         self.directed
     }
 
+    /// The weight column declared when the graph was read, if one was.
+    #[must_use]
+    pub fn weight(&self) -> Option<&str> {
+        self.weight.as_deref()
+    }
+
     /// The index of the out-adjacency: the lists of an undirected graph.
     #[must_use]
     pub fn index(&self) -> &AdjacencyIndex {
@@ -225,14 +233,20 @@ impl<S: ByteSource + Sync> Graph<S> {
     }
 
     /// The number of events of each entry of the out-adjacency, from its `.events`
-    /// section; `None` when no pair repeats, so that every entry has one event.
+    /// section, with the reservation under `memory` of the sequence it decodes when first
+    /// read (twice the section: its words and their select samples); `None` when no pair
+    /// repeats, so that every entry has one event.
     ///
     /// # Errors
     ///
     /// [`OpenError::Corrupt`] for a section that is not the index's, or that is not
-    /// held in memory (a map or a heap buffer).
-    pub fn events(&self) -> Result<Option<AdjacencyEvents<'_>>, OpenError> {
-        self.events_of(&self.out)
+    /// held in memory (a map or a heap buffer); [`OpenError::Budget`] when the sequence
+    /// does not fit.
+    pub fn events(
+        &self,
+        memory: &Memory,
+    ) -> Result<Option<(AdjacencyEvents<'_>, Reservation)>, OpenError> {
+        self.events_of(&self.out, memory)
     }
 
     /// The index of the in-adjacency of a directed graph (DESIGN D6); `None` when the
@@ -258,11 +272,20 @@ impl<S: ByteSource + Sync> Graph<S> {
     /// # Errors
     ///
     /// As [`events`](Self::events).
-    pub fn in_events(&self) -> Result<Option<AdjacencyEvents<'_>>, OpenError> {
-        self.inn.as_ref().map_or(Ok(None), |l| self.events_of(l))
+    pub fn in_events(
+        &self,
+        memory: &Memory,
+    ) -> Result<Option<(AdjacencyEvents<'_>, Reservation)>, OpenError> {
+        self.inn
+            .as_ref()
+            .map_or(Ok(None), |l| self.events_of(l, memory))
     }
 
-    fn events_of<'a>(&'a self, lists: &'a Lists) -> Result<Option<AdjacencyEvents<'a>>, OpenError> {
+    fn events_of<'a>(
+        &'a self,
+        lists: &'a Lists,
+        memory: &Memory,
+    ) -> Result<Option<(AdjacencyEvents<'a>, Reservation)>, OpenError> {
         if !lists.index.has_events() {
             return Ok(None);
         }
@@ -276,8 +299,15 @@ impl<S: ByteSource + Sync> Graph<S> {
             .source()
             .slice(entry.offset..entry.offset + entry.len)
             .ok_or_else(|| corrupt(name, "not held in memory"))?;
+        let held = memory
+            .reserve(
+                "adjacency events",
+                MemoryKind::Anonymous,
+                entry.len.saturating_mul(2),
+            )
+            .map_err(OpenError::Budget)?;
         let events = AdjacencyEvents::parse(bytes, &lists.index).map_err(|e| corrupt(name, e))?;
-        Ok(Some(events))
+        Ok(Some((events, held)))
     }
 
     /// The identifier dictionary, whose resident part is held under `memory`.
@@ -350,14 +380,14 @@ mod tests {
             .map(|i| d.key(NodeId::new(i)).expect("a key"))
             .collect();
         assert_eq!(keys, [5, 7, 9].map(OwnedKey::UInt));
-        let events = g
-            .events()
+        let (events, _held) = g
+            .events(&memory)
             .expect("a sound section")
             .expect("a repeated pair");
         let counts: Vec<u64> = events.multiplicities().expect("counts").collect();
         assert_eq!(counts.iter().sum::<u64>(), 8);
         assert_eq!(counts.iter().filter(|&&m| m == 2).count(), 2);
-        assert!(g.in_index().is_none() && g.in_events().expect("none").is_none());
+        assert!(g.in_index().is_none() && g.in_events(&memory).expect("none").is_none());
         let bytes = built("1 2\n1 2\n3 1\n", true);
         let d = Graph::open(MemorySource::new(&bytes[..]), &memory).expect("a graph");
         assert!(d.directed());
@@ -367,13 +397,11 @@ mod tests {
             (1, 1)
         );
         assert_eq!(d.in_data().expect("its data").len(), inn.data_bytes());
-        let counts: Vec<u64> = d
-            .in_events()
+        let (events, _held) = d
+            .in_events(&memory)
             .expect("a sound section")
-            .expect("a repeated pair")
-            .multiplicities()
-            .expect("counts")
-            .collect();
+            .expect("a repeated pair");
+        let counts: Vec<u64> = events.multiplicities().expect("counts").collect();
         assert_eq!(counts, [1, 2]);
     }
 
@@ -381,7 +409,11 @@ mod tests {
     fn no_events_without_repeated_pairs() {
         let bytes = built("1 2\n2 3\n", false);
         let g = Graph::open(MemorySource::new(&bytes[..]), &Memory::unlimited()).expect("a graph");
-        assert!(g.events().expect("no section").is_none());
+        assert!(
+            g.events(&Memory::unlimited())
+                .expect("no section")
+                .is_none()
+        );
     }
 
     #[test]

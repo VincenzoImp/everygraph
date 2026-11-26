@@ -9,6 +9,7 @@
 //! starts with the part it implements.
 
 pub mod cache;
+pub mod compare;
 pub mod extract;
 pub mod gate;
 pub mod lock;
@@ -20,6 +21,7 @@ pub mod row;
 pub mod run;
 pub mod selftest;
 pub mod spec;
+pub mod stats;
 pub mod sys;
 pub mod template;
 pub mod units;

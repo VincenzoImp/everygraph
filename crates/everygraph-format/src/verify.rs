@@ -16,7 +16,11 @@
 //!   its provenance declares `self_loops` = `drop` and `directed` = `false` (spec § 6);
 //!   the `.events` section whole when the index announces one; and an in-adjacency
 //!   (`<base>.in`) that is the transpose of its out-adjacency, events included, with a
-//!   `.events` section exactly when the out-adjacency has one (adjacency spec § 5).
+//!   `.events` section exactly when the out-adjacency has one (adjacency spec § 5);
+//!   and every property column (`docs/spec/eg-columns.md` § 7): its layout and
+//!   statistics under the names of § 6, its framing, every value, statistics that are
+//!   those of its values, the rows its adjacency gives a scope `<adj>.pair` or
+//!   `<adj>.event`, and what the build derives from the events.
 //!
 //! Sections are hashed in parallel (`everygraph_core::par`), each in 1 MiB pieces unless
 //! the source is in memory or mapped. Lists are decoded block by block, in parallel; from
@@ -87,6 +91,9 @@ pub struct AdjacencyFacts {
     pub entries: u64,
     /// Its stored events, when it has a `.events` section.
     pub events: Option<u64>,
+    /// The most stored events of one entry: 1 without a `.events` section, 0 without
+    /// an entry.
+    pub multiplicity_max: u64,
 }
 
 /// What [`verify`] found.
@@ -166,6 +173,9 @@ pub fn verify<S: ByteSource + Sync>(
     check_names(&file, &mut report);
     if depth == Depth::Deep {
         check_adjacencies(&file, memory, &mut report)?;
+        let adjacencies = std::mem::take(&mut report.adjacencies);
+        crate::columns::verify_columns(&file, &adjacencies, memory, &mut report)?;
+        report.adjacencies = adjacencies;
     }
     Ok(report)
 }
@@ -308,7 +318,8 @@ fn check_section<S: ByteSource>(
 
 /// The names the adjacency format gives its sections, against their kinds (adjacency
 /// spec § 3.1, § 5): `<adj>.index` (kind 2) and `<adj>.data` (kind 3) in pairs, and
-/// `<adj>.events` (kind 5, and only that kind) beside an index.
+/// `<adj>.events` (kind 5, and only that kind) beside an index; the same for the
+/// adjacencies of results, kinds 11 to 13.
 fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
     let has = |name: &str, kind: Kind| file.get(name).is_some_and(|e| e.kind == kind);
     for e in file.entries() {
@@ -317,6 +328,9 @@ fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
             Kind::ADJACENCY_INDEX => (".index", (".data", Kind::ADJACENCY_DATA)),
             Kind::ADJACENCY_DATA => (".data", (".index", Kind::ADJACENCY_INDEX)),
             Kind::ADJACENCY_EVENTS => (".events", (".index", Kind::ADJACENCY_INDEX)),
+            Kind::RESULT_ADJACENCY_INDEX => (".index", (".data", Kind::RESULT_ADJACENCY_DATA)),
+            Kind::RESULT_ADJACENCY_DATA => (".data", (".index", Kind::RESULT_ADJACENCY_INDEX)),
+            Kind::RESULT_ADJACENCY_EVENTS => (".events", (".index", Kind::RESULT_ADJACENCY_INDEX)),
             _ if name.ends_with(".events") => {
                 report.problem(
                     Some(name),
@@ -420,16 +434,34 @@ impl<'f, S: ByteSource> Bytes<'f, S> {
         if let Some(all) = self.mapped {
             return Ok(&all[small(start)..small(end)]);
         }
-        let len = end - start;
-        if len > MAX_READ || held.try_resize(held.bytes().max(len)).is_err() {
-            return Err(Stop::NoMemory);
-        }
-        buf.resize(small(len), 0);
+        lengthen(buf, small(end - start), held)?;
         self.source
             .read_at(self.offset + start, buf)
             .map_err(Stop::Read)?;
         Ok(buf)
     }
+}
+
+/// Makes `buf` `len` long, `held` covering its capacity. A buffer that grows gets exactly
+/// `len`, and while it moves, `held` covers the old block beside the new one: a doubled
+/// capacity, or the old block, would be heap no reservation holds, as large as the
+/// longest list (a hub's).
+fn lengthen<T: Copy + Default>(
+    buf: &mut Vec<T>,
+    len: usize,
+    held: &mut Reservation,
+) -> Result<(), Stop> {
+    if len > buf.capacity() {
+        let size = size_of::<T>() as u64;
+        let (old, new) = (buf.capacity() as u64 * size, len as u64 * size);
+        if new > MAX_READ || held.try_resize(held.bytes().max(old + new)).is_err() {
+            return Err(Stop::NoMemory);
+        }
+        buf.reserve_exact(len - buf.len());
+        held.shrink(held.bytes().saturating_sub(buf.capacity() as u64 * size));
+    }
+    buf.resize(len, T::default());
+    Ok(())
 }
 
 /// Decodes every list of an adjacency, in parallel by blocks, and checks it.
@@ -466,12 +498,8 @@ fn scan<S: ByteSource + Sync>(
                 }
                 // Room for the SIMD decoders' last group (the codec's `Batch` keeps it).
                 let room = usize::try_from(d).map_or(usize::MAX, |d| d.saturating_add(3));
-                let need = (room as u64).saturating_mul(4);
-                if need > MAX_READ || list_held.try_resize(list_held.bytes().max(need)).is_err() {
-                    return Err(Stop::NoMemory);
-                }
                 if list.len() < room {
-                    list.resize(room, 0);
+                    lengthen(&mut list, room, &mut list_held)?;
                 }
                 let record = index.record_range(NodeId::new(v));
                 let corrupt = || Stop::Bad(v, "its record does not decode");
@@ -519,6 +547,8 @@ struct Checked {
 type Declared = BTreeMap<Arc<str>, Option<BTreeMap<String, String>>>;
 
 /// The structure of every adjacency, and the in-adjacencies against their out-adjacency.
+/// The adjacencies of results are checked for structure and symmetry, and left out of
+/// the report's list of the graph's adjacencies.
 fn check_adjacencies<S: ByteSource + Sync>(
     file: &Container<S>,
     memory: &Memory,
@@ -531,9 +561,11 @@ fn check_adjacencies<S: ByteSource + Sync>(
             continue;
         };
         if e.kind == Kind::ADJACENCY_INDEX {
-            if let Some(c) = check_adjacency(file, base, memory, &mut declared, report)? {
+            if let Some(c) = check_adjacency(file, base, memory, Some(&mut declared), report)? {
                 checked.insert(base.to_owned(), c);
             }
+        } else if e.kind == Kind::RESULT_ADJACENCY_INDEX {
+            check_adjacency(file, base, memory, None, report)?;
         }
     }
     for (name, out) in &checked {
@@ -584,7 +616,7 @@ fn check_adjacency<S: ByteSource + Sync>(
     file: &Container<S>,
     base: &str,
     memory: &Memory,
-    declared: &mut Declared,
+    declared: Option<&mut Declared>,
     report: &mut Report,
 ) -> Result<Option<Checked>, ReadError> {
     let (index_name, data_name) = (format!("{base}.index"), format!("{base}.data"));
@@ -605,10 +637,17 @@ fn check_adjacency<S: ByteSource + Sync>(
         ));
     };
     let mut held = Reservation::empty(memory, PURPOSE, MemoryKind::Anonymous);
+    // A parsed index or `.events` section holds its section's words and select samples
+    // that take fewer bytes than the words they sample.
+    let parsed = |entry: &Entry| entry.len.saturating_mul(2);
     let Some(index_bytes) = section_bytes(file, index_entry, &mut held)? else {
         unchecked(report);
         return Ok(None);
     };
+    if held.try_grow(parsed(index_entry)).is_err() {
+        unchecked(report);
+        return Ok(None);
+    }
     let index = match AdjacencyIndex::parse(&index_bytes) {
         Ok(index) => index,
         Err(e) => {
@@ -638,6 +677,10 @@ fn check_adjacency<S: ByteSource + Sync>(
                 unchecked(report);
                 return Ok(None);
             };
+            if events_held.try_grow(parsed(entry)).is_err() {
+                unchecked(report);
+                return Ok(None);
+            }
             Some(bytes)
         }
     };
@@ -679,6 +722,13 @@ fn check_adjacency<S: ByteSource + Sync>(
         }
         Err(Stop::Read(e)) => return Err(e),
     };
+    let Some(declared) = declared else {
+        // A result's adjacency is an undirected graph whose loops are kept.
+        if scan.forward != scan.backward {
+            report.problem(Some(&data_name), "the lists are not symmetric");
+        }
+        return Ok(None);
+    };
     let params = index_entry.provenance.as_ref().and_then(|record| {
         declared
             .entry(Arc::clone(record))
@@ -718,6 +768,10 @@ fn check_adjacency<S: ByteSource + Sync>(
             nodes: index.nodes(),
             entries: index.entries(),
             events: events.as_ref().map(AdjacencyEvents::events),
+            multiplicity_max: match &events {
+                Some(e) => e.multiplicities().map_or(0, |m| m.max().unwrap_or(0)),
+                None => u64::from(index.entries() > 0),
+            },
         },
         scan,
     }))
