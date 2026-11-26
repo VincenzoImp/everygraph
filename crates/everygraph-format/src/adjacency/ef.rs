@@ -122,11 +122,14 @@ impl EliasFano {
             return Err("Elias–Fano part has the wrong length");
         }
         let l = low_bits(len, universe);
+        // With the room for the last word made first: a push past `collect`'s exact
+        // capacity would double it, and the index would hold twice its `heap_bytes`.
         let words = |b: &[u8]| -> Vec<u64> {
-            let mut v: Vec<u64> = b
-                .chunks_exact(8)
-                .map(|c| u64::from_le_bytes(c.try_into().expect("chunks of 8")))
-                .collect();
+            let mut v = Vec::with_capacity(b.len() / 8 + 1);
+            v.extend(
+                b.chunks_exact(8)
+                    .map(|c| u64::from_le_bytes(c.try_into().expect("chunks of 8"))),
+            );
             v.push(0);
             v
         };

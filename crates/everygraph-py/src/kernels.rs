@@ -14,11 +14,12 @@ use std::sync::atomic::AtomicU32;
 use arrow_array::ArrayRef;
 use arrow_array::types::{Float32Type, Float64Type, UInt32Type};
 use everygraph_core::MemoryError;
-use everygraph_core::{Budget, ByteSource, Memory, MemoryKind, SegVec};
+use everygraph_core::{Budget, ByteSource, Memory, MemoryKind, Reservation, SegVec};
 use everygraph_format::adjacency::{
     Adjacency, AdjacencyEvents, AdjacencyIndex, EncodeError, merge, union_degrees,
 };
 use everygraph_format::container::Section;
+use everygraph_ingest::graph::OpenError;
 use everygraph_kernels::components::{self, WccOptions};
 use everygraph_kernels::degrees::{self, Loop};
 use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, Source, one_segment_mut};
@@ -152,15 +153,22 @@ impl Call<'_> {
 
     /// One weight per entry of an adjacency: the number of edges of its pair, when some
     /// pair repeats and `weight` is asked for (`docs/api-sketch.md` § 2.4); `None` when
-    /// every pair counts 1.
-    fn pair_weights(
+    /// every pair counts 1. `events` opens the adjacency's events, with the reservation
+    /// of their sequence, only when weights are asked for.
+    fn pair_weights<'a>(
         &self,
-        events: Result<Option<AdjacencyEvents<'_>>, impl std::fmt::Display>,
+        events: impl FnOnce() -> Result<Option<(AdjacencyEvents<'a>, Reservation)>, OpenError>,
         section: &str,
         weight: bool,
     ) -> Result<Option<SegVec<f64>>, Failure> {
-        let events = events.map_err(|e| corrupt(section, &e))?;
-        let Some(events) = events.filter(|_| weight) else {
+        if !weight {
+            return Ok(None);
+        }
+        let events = events().map_err(|e| match e {
+            OpenError::Budget(refused) => self.fail(Error::Memory(refused.into())),
+            e => corrupt(section, &e),
+        })?;
+        let Some((events, _held)) = events else {
             return Ok(None);
         };
         let entries =
@@ -207,7 +215,8 @@ pub(crate) fn pagerank(
     low: bool,
 ) -> Result<Output, Failure> {
     let file = g.file();
-    let out_weights = call.pair_weights(file.events(), "adjacency.out.events", weight)?;
+    let out_weights =
+        call.pair_weights(|| file.events(call.memory), "adjacency.out.events", weight)?;
     let out_weights = out_weights.as_ref().and_then(SegVec::as_slice);
     let run = Ranks {
         p,
@@ -217,7 +226,11 @@ pub(crate) fn pagerank(
     if !file.directed() {
         return call.on_lists(g, |plan| run.on(plan, plan, [out_weights; 2], false));
     }
-    let in_weights = call.pair_weights(file.in_events(), "adjacency.in.events", weight)?;
+    let in_weights = call.pair_weights(
+        || file.in_events(call.memory),
+        "adjacency.in.events",
+        weight,
+    )?;
     let in_weights = in_weights.as_ref().and_then(SegVec::as_slice);
     call.on_pair(g, |out, inn| {
         run.on(out, inn, [out_weights, in_weights], true)
