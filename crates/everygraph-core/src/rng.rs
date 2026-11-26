@@ -136,7 +136,6 @@ impl Purpose {
 
 /// 64 random bits for (`seed`, `purpose`, `counter`). See the key schema above.
 #[must_use]
-#[inline]
 pub fn draw(seed: u64, purpose: Purpose, counter: [u32; 4]) -> u64 {
     let tag = u64::from(u32::from_le_bytes(purpose.0));
     let key = seed ^ tag.wrapping_mul(0x9E37_79B9_7F4A_7C15);
