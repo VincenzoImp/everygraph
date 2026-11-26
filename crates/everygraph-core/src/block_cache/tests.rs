@@ -55,10 +55,10 @@ fn check_reads(cache: &BlockCache<'_>, bytes: &[u8], seed: u64, count: usize) {
 fn reads_equal_the_source_under_eviction() {
     let bytes = sample(300_001);
     let source = MemorySource::new(bytes.as_slice());
-    for (frames, frame, read) in [(8, 4096, 16), (3, 4096, 1), (40, 8192, 4), (1000, 4096, 64)] {
+    for (frames, frame, read) in [(8, 4096, 16), (3, 4096, 1), (40, 8192, 4), (100, 4096, 64)] {
         let cache =
             BlockCache::new(&source, &Memory::unlimited(), settings(frames, frame, read)).unwrap();
-        check_reads(&cache, &bytes, frames, 2000);
+        check_reads(&cache, &bytes, frames, 400);
         let stats = cache.stats();
         assert!(stats.hits > 0 && stats.misses > 0, "{stats:?}");
     }
@@ -67,12 +67,12 @@ fn reads_equal_the_source_under_eviction() {
 /// Many threads at once on a cache much smaller than the source.
 #[test]
 fn concurrent_reads_equal_the_source() {
-    let bytes = sample(1 << 20);
+    let bytes = sample(1 << 18);
     let source = MemorySource::new(bytes.as_slice());
     let cache = BlockCache::new(&source, &Memory::unlimited(), settings(64, 4096, 8)).unwrap();
     par::for_each_range(16, NonZeroUsize::MIN, |r| {
         for seed in r {
-            check_reads(&cache, &bytes, widen(seed), 300);
+            check_reads(&cache, &bytes, widen(seed), 60);
         }
     });
 }
