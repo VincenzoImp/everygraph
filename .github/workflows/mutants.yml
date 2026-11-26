@@ -1,0 +1,156 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Mutation testing (issue #193; CONTRIBUTING.md, "Mutation testing";
+# docs/research/sota-testing.md, challenge 8). Every job is a command of tools/mutants.sh.
+# Advisory: a missed mutant is a test gap to close or explain, not a failure, and a
+# mutation score is never an argument that the code is correct.
+#
+# - A pull request that changes product code (tools/mutants.sh's scope): the mutants of
+#   the lines it changed, over up to four parallel shards, each boxed to 10 minutes. The
+#   missed ones appear as annotations on the changed lines and in the run's summary.
+# - By hand, for the milestone audit: every mutant of one crate, over N shards
+#   (`gh workflow run mutants.yml -f package=everygraph-format -f shards=16`).
+
+name: Mutants
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "crates/everygraph-core/src/memory.rs"
+      - "crates/everygraph-core/src/memory/**"
+      - "crates/everygraph-format/src/**"
+      - "crates/everygraph-kernels/src/**"
+      - "crates/everygraph-ingest/src/**"
+      - "crates/everygraph-community/src/**"
+      - ".cargo/mutants.toml"
+      - "tools/mutants.sh"
+      - ".github/workflows/mutants.yml"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Crate whose every mutant is tested
+        required: true
+        type: choice
+        options:
+          - everygraph-core
+          - everygraph-format
+          - everygraph-io
+          - everygraph-kernels
+          - everygraph-ingest
+          - everygraph-community
+      shards:
+        description: Number of parallel jobs
+        required: true
+        default: "16"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # As in ci.yml: the cache key hashes these variables.
+  RUST_BACKTRACE: "1"
+
+jobs:
+  plan:
+    name: Mutants to test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      count: ${{ steps.plan.outputs.count }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # GitHub's merge commit and its parents: enough for `git diff HEAD^1 HEAD`.
+          fetch-depth: 2
+      - &rust
+        name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - &install
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-mutants@27.1.0,cargo-nextest@0.9.152
+      # Three mutants per shard: in the box go the build, one baseline run of the crate's
+      # tests, then an incremental build and the tests per mutant. On #193's PR the
+      # format crate's tests took 100 s on the runner, and the box ended after five
+      # of six mutants.
+      - name: tools/mutants.sh diff HEAD^1 (pull request), or the shards asked for
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            count="$(tools/mutants.sh diff HEAD^1)"
+            n=$(( (count + 2) / 3 )); [ "$n" -gt 4 ] && n=4
+          else
+            count=all; n="$SHARDS"
+          fi
+          echo "mutants: $count, shards: $n"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "shards=$(python3 -c 'import json, sys; print(json.dumps(list(range(int(sys.argv[1])))))' "$n")" >> "$GITHUB_OUTPUT"
+
+  shard:
+    name: Mutants, shard ${{ matrix.shard }} (advisory)
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 330 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - *rust
+      # The cache of ci.yml's test job, read only: the same dependencies, built the same way.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: false
+      - *install
+      # Exit statuses that are results, not failures: 2 (missed mutants), 3 (timeouts),
+      # 4 (the tests fail without a mutant: ci.yml's test job reports that), 124 (box).
+      - name: cargo mutants, shard ${{ matrix.shard }} of ${{ strategy.job-total }}
+        id: run
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PACKAGE: ${{ inputs.package }}
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: |
+          set +e
+          if [ "$EVENT_NAME" = pull_request ]; then
+            tools/mutants.sh diff HEAD^1
+            timeout -s INT -k 60 600 tools/mutants.sh pr "$SHARD"
+          else
+            tools/mutants.sh crate "$PACKAGE" "$SHARD"
+          fi
+          status=$?
+          echo "cargo-mutants exit status: $status"
+          case $status in 0|2|3|4|124) exit 0 ;; *) exit "$status" ;; esac
+      - name: Summary
+        if: ${{ !cancelled() }}
+        env:
+          TITLE: Mutants, shard ${{ matrix.shard }} of ${{ strategy.job-total }}
+        run: tools/mutants.sh report "$TITLE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload mutants.out
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: target/mutants/mutants.out/
+          if-no-files-found: ignore
