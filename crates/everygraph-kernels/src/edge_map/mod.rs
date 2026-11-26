@@ -548,13 +548,21 @@ fn block_nodes(n: u32) -> u32 {
 }
 
 /// Takes a value from `pool`, or makes one.
+/// A value of no size (no scratch, the reader of [`Csr`]) is made, not pooled: frontier
+/// runs are short, and every worker would take the one lock.
 fn take<T>(pool: &Mutex<Vec<T>>, make: impl FnOnce() -> T) -> T {
+    if size_of::<T>() == 0 {
+        return make();
+    }
     let taken = pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
     taken.unwrap_or_else(make)
 }
 
 /// Gives a value back to `pool`.
 fn give<T>(pool: &Mutex<Vec<T>>, value: T) {
+    if size_of::<T>() == 0 {
+        return;
+    }
     pool.lock()
         .unwrap_or_else(PoisonError::into_inner)
         .push(value);
@@ -828,11 +836,14 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         &self,
         f: impl FnOnce(&mut Slot<S::Reader>) -> Result<R, Error>,
     ) -> Result<R, Error> {
-        let taken = self
-            .pool
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .pop();
+        let taken = if size_of::<S::Reader>() == 0 {
+            None
+        } else {
+            self.pool
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .pop()
+        };
         let mut slot = match taken {
             Some(slot) => slot,
             None => Slot {
@@ -845,7 +856,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         if let Some(side) = &mut slot.side {
             self.source.idle(side);
         }
-        give(&self.pool, slot);
+        if size_of::<S::Reader>() != 0 {
+            give(&self.pool, slot);
+        }
         result
     }
 
