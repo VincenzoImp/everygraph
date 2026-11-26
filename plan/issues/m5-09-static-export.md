@@ -6,7 +6,7 @@ labels: type:feature, area:map, P1, risk:low, size:S
 **Why.** "Here is the map, open the link" is the feature that spreads. It must work from the cheapest static hosting.
 
 **Scope**
-- [ ] `everygraph map GRAPH --out FILE --reveal full|summary` and `m.export(path, reveal=…)` → `.egmap` file + `viewer.html` beside it; `reveal` is required, and leaving it out is an error that gives the two ways forward
+- [ ] The export behind `everygraph map GRAPH --out FILE --reveal full|summary` (the command is {{#m8-12-cli-rest}}'s) and `m.export(path, reveal=…)` → `.egmap` file + `viewer.html` beside it; `reveal` is required, and leaving it out is an error that gives the two ways forward
 - [ ] `reveal="summary"` writes what {{#m5-15-summary-export}} specifies (k-threshold merging into `aggregate` and "other", provenance reduced to a label, no node-level sections); the share dialog and the caption state k (decided 2026-11-25, `docs/research/README.md` H1)
 - [ ] Recipes tested end to end: GitHub Pages (file-size limits and LFS caveats), S3/R2/GCS with range requests and CORS, a plain nginx config
 - [ ] Offline bundle: a folder that opens from `file://` or a tiny local server

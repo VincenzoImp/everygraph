@@ -1,13 +1,10 @@
 # Everygraph — product and architecture
 
-Status: design baseline, 2026-11-24; D4 amended 2026-11-25 (ADR 0004, #118); promise 1
-restated 2026-11-25 with the harness's ingest measurements (ADR 0026); § 5 and § 6 annotated
-2026-11-25 with the tracer bullet (#15); prior art in § 2 and two § 6 targets restated
-2026-11-25 from the literature review (`docs/research/README.md`); D7 amended 2026-11-25
-(#28, ADR 0027: one file in every state); D9 amended 2026-11-25
-(ADR 0028: pairs in the adjacency, events beside it). Every decision below cites the measurement that
-supports it (see [FINDINGS.md](FINDINGS.md)); decisions without a measurement are marked
-**unvalidated**. Numbers are from one workstation (Ryzen 9 7950X, 61 GB RAM, NVMe).
+Every decision below cites the measurement that supports it (see [FINDINGS.md](FINDINGS.md));
+a decision without a measurement is marked **unvalidated**. The record of each decision,
+with its amendments, is its ADR under `docs/adr/`. Numbers are from one workstation (Ryzen 9
+7950X, 61 GB RAM, NVMe). A number labelled "exploratory" or "shared machine" was taken
+while other work ran; the others are from an idle machine.
 
 ## 1. The problem
 
@@ -175,77 +172,77 @@ exact page.
 
 ## 5. What is not solved yet
 
-These are the reasons the first milestone after foundations is a second lab round.
+Each item names the issue that owns it.
 
-1. **Out-of-core community detection: solved in the lab for one case, not yet in the
-   product** (rewritten 2026-11-25 from #16, FINDINGS § M1-02; idle machine;
-   `bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl` and
-   `…20261125T174959Z-b61036e59740.jsonl`). Case measured: one iteration of Leiden, async
-   and deterministic, on Friendster, 16 threads, f64 weights, level 0 in the D4 compressed
-   store, against the same algorithm in RAM (74.8 s). The earlier 22.6 GiB need was that
-   of member-order aggregation, which holds the level-1 graph in memory. With sequential
-   aggregation into budgeted buckets and every quotient graph spilled as a compressed
-   store:
-   - under 16 GiB: 87.4 s, 1.17×, 0 disconnected communities, async Q median 0.6014 (one
-     of two repetitions 0.5981, inside the run-to-run spread of 0.598–0.607); the
-     deterministic mode gives the in-RAM partition (same hash, Q 0.6055);
-   - under 8 GiB: 175.3 s, 2.34× — the smallest budget within 2.5×; under 4 GiB it still
-     completes, at 3.49×. Below 16 GiB the cost is level-0 local moving re-reading the
-     store 6–13× per sweep in ADR 0015's block-permuted order;
-   - map-shaped Leiden, which the tracer (#15) could not run even at 56 GiB, completes under
-     16 GiB: 164.1 s, Q 0.5900, 27 top communities.
-   What remains: the production implementation (#60); more than one iteration; the
-   deterministic mode below 16 GiB; other graph families (only Friendster at this scale,
-   orkut scaled down at 3.10×); and whether a seeded relabelling at ingest, which kept
-   Friendster at 1.28–1.43× under 8 and 4 GiB, should replace block-permuted order
-   (#146, `plan/issues/m1-14-relabel-at-ingest.md`; ADR 0015 unchanged).
-   The headline "1.8 B edges → map on a 16 GB laptop" has not been demonstrated end to
-   end. *Measured end to end on 2026-11-25 (#15, FINDINGS § M1-01; Friendster, lab
-   binaries, 32 threads, idle, uncompressed CSR,
-   `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`): the chain does not
-   complete under 16 GiB.* Three blockers, each with its owner:
-   - *Community detection with a map-shaped hierarchy* — addressed in the lab by #16
-     (above). In the tracer, Leiden and fan-out-capped Louvain were killed in the first
-     aggregation while thrashing on the mapped graph (1.8–2.7 TB read), and the prototype
-     kept every level's quotient graph in memory. Plain Louvain fits (4.2 GiB, Q 0.6038;
-     the § B2 Q 0.465 was not reproduced, #17) but has a parent with 18.7 M children, which
-     the layout cannot use even with 56 GiB. Owners now: #60 (out-of-core Leiden in the
-     product), #63 (shaping bounded in memory), #62 (levels streamed to disk). *Shaping
-     measured feasible in the lab, 2026-11-26 (#19, FINDINGS § M1-05, official):
-     recursive sub-clustering of the Friendster partition under `MemoryMax=16G` in
-     499–506 s, anonymous peak 10.0 GiB; the lab layout places every parent of the tree.*
-   - *The layout loads the graph into the heap.* Killed under 16 GiB that way; with the
-     graph memory-mapped it fits (3.7 GiB anonymous) at 5.8× the time, re-reading 733 GB.
-     Owner: #67.
-   - *The tile builder keeps every tile in RAM*, and each zoom level's working state:
-     29.1 GiB anonymous with 56 GiB; under 16 GiB (13.9 GiB anonymous, one pass over the
-     graph per zoom level), cut by the 60-minute timeout before the last zoom level.
-     Owner: #69.
-2. **Map hierarchy quality.** Top levels are star-shaped; derived regions carry no meaning.
-   *Answered in the lab on 2026-11-26 (#19, FINDINGS § M1-05; D16 amended):* recursive
-   sub-clustering of the partition T bounds fan-out at 64, with 90.7–99.9% of parents in
-   4–64 on five graphs, and keeps T exactly. Still open: levels below T are less stable
-   than T (#181), leaves that cannot be split (#182); the product is #63.
+1. **Community detection beyond RAM works in the lab for one case, not yet in the
+   product, and the headline has not been run end to end.**
+   - *The lab case* (#16, FINDINGS § M1-02; idle machine;
+     `bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl` and
+     `…20261125T174959Z-b61036e59740.jsonl`): one iteration of Leiden, async and
+     deterministic, on Friendster, 16 threads, f64 weights, level 0 in the D4 compressed
+     store, against the same algorithm in RAM (74.8 s). Aggregation is one sequential pass
+     into budgeted buckets, and every quotient graph is spilled as a compressed store.
+     - Under 16 GiB: 87.4 s, 1.17×, 0 disconnected communities, async Q median 0.6014 (one
+       of two repetitions 0.5981, inside the run-to-run spread of 0.598–0.607). The
+       deterministic mode gives the in-RAM partition (same hash, Q 0.6055).
+     - Under 8 GiB: 175.3 s, 2.34×, the smallest budget within 2.5×. Under 4 GiB it still
+       completes, at 3.49×. Below 16 GiB the cost is level-0 local moving, which re-reads
+       the store 6–13× per sweep in ADR 0015's block-permuted order.
+     - Map-shaped Leiden completes under 16 GiB: 164.1 s, Q 0.5900, 27 top communities.
+     - Not measured: more than one iteration; the deterministic mode below 16 GiB; other
+       graph families at this scale (orkut scaled down: 3.10×). A seeded relabelling at
+       ingest kept Friendster at 1.28–1.43× under 8 and 4 GiB (#146); ADR 0015 is
+       unchanged.
+     - Owner of the product: #60.
+   - *The headline "1.8 B edges → map on a 16 GB laptop"* (tracer, #15, FINDINGS § M1-01;
+     Friendster, lab binaries, 32 threads, idle, uncompressed CSR;
+     `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`): the lab chain does not
+     complete under 16 GiB. With 56 GiB it completes in 455.5 s of stage time (sum of
+     medians), with the capped Louvain hierarchy. Three blockers, each with its owner:
+     - *Communities with a map-shaped hierarchy.* In the tracer, Leiden and fan-out-capped
+       Louvain were killed in the first aggregation while thrashing on the mapped graph
+       (1.8–2.7 TB read), and every level's quotient graph was kept in memory. Plain
+       Louvain fits (4.2 GiB, Q 0.6038) but has a parent with 18.7 M children, which the
+       layout cannot use. Answered in the lab by the case above and by the shaping of #19
+       (FINDINGS § M1-05, official): recursive sub-clustering of the Friendster partition
+       under `MemoryMax=16G` in 499–506 s, anonymous peak 10.0 GiB. Owners of the product:
+       #60 (out-of-core Leiden), #62 (levels streamed to disk), #63 (shaping bounded in
+       memory).
+     - *The layout loads the graph into the heap.* Killed under 16 GiB that way. With the
+       graph memory-mapped it fits (3.7 GiB anonymous) at 5.8× the time, re-reading
+       733 GB. Owner: #67.
+     - *The tile builder keeps every tile in RAM,* and each zoom level's working state:
+       29.1 GiB anonymous with 56 GiB. Under 16 GiB (13.9 GiB anonymous, one pass over the
+       graph per zoom level) it was cut by the 60-minute timeout before the last zoom
+       level. Owner: #69.
+2. **Map hierarchy quality.** Recursive sub-clustering of the partition T bounds fan-out
+   at 64, with 90.7–99.9% of parents in 4–64 on five graphs, and keeps T exactly (#19,
+   FINDINGS § M1-05; D16). Open: levels below T are less stable than T (#181); some leaves
+   cannot be split (#182). The product is #63.
 3. **Edges on the map.** Fog inside giant communities; 90% of edge weight undrawn on orkut
-   at the deepest zoom.
-4. **Cost of determinism for Leiden** (2.4–3.0× at 16 threads on orkut and lj, idle
-   machine; stops scaling at ~8 threads).
-5. **Memory-bandwidth ceiling** on graphs whose state exceeds the cache.
-6. **The pieces measured together — in RAM only.** *Answered for analytics in RAM on
-   2026-11-25 (#118, FINDINGS § M1-13):* kernels, Leiden and single-thread point queries
-   now have idle numbers on the default compressed storage, against raw arrays in the same
-   binary, on four social graphs; the default holds with the conditions written into D4.
-   Still not measured on the default storage: ingest writing it (timings are from plain
-   text to raw arrays without `fsync`; with it, lj took 0.68 s instead of 0.37 s in one
-   run) and an encoder under a budget; a streaming reader out of core; point-query
-   throughput at 16 threads; web graphs; weighted and directed kernels. *Since PR #215
-   (#35) the build writes the default storage with a streaming encoder under a budget
-   (tests); in exploratory runs it misses its speed targets, which are #240's.*
+   at the deepest zoom (FINDINGS § E). Owners: #20, then #73.
+4. **Cost of determinism for Leiden:** 2.4–3.0× at 16 threads on orkut and lj (idle
+   machine); it stops scaling at about 8 threads. The sub-round rule of #18 takes
+   0.59–0.73× the time of the lab's first rule at 16 threads (exploratory,
+   `lab/m1-04-det-leiden-scaling/README.md`). Owner: #57.
+5. **Memory-bandwidth ceiling** on graphs whose state exceeds the cache. Owner: #22.
+6. **The default storage outside RAM, and in the build.** In RAM it is measured: kernels,
+   Leiden and single-thread point queries on the default compressed storage, against raw
+   arrays in the same binary, on four social graphs (#118, FINDINGS § M1-13); the default
+   holds with the conditions written into D4. Not measured on the default storage: a
+   streaming reader out of core (#46); point-query throughput at 16 threads (#90); web
+   graphs, weighted and directed kernels (#24). The lab's ingest timings are from plain
+   text to raw arrays without `fsync` (with it, lj took 0.68 s instead of 0.37 s in one
+   run). The product's build writes the default storage with a streaming encoder under a
+   budget (#35, tests); in exploratory runs it misses its speed targets, which are #240's.
 7. **Evidence is narrow:** two social graphs for community quality; no weighted, directed
-   or bipartite community runs; no string-id or Parquet ingest; no Firefox/Safari.
-8. **Non-technical:** a possible Uncharted patent on the tile-pyramid pipeline; trademark
-   check for the name; a solo maintainer. The short name `eg` is already a package on
-   PyPI, crates.io and npm, so the command is `everygraph` until a free alias is chosen.
+   or bipartite community runs (#24); no string-id input at Friendster scale and no
+   Parquet ingest (#25, #33); no Firefox or Safari (#26).
+8. **Non-technical.** Two granted patents have elements near the tile pyramid
+   (`docs/legal/patent-check.md`), and a US trademark application for the name is pending
+   (`docs/legal/name-check.md`); the owner accepted both risks, and professional opinions
+   are advisable before the release (#122). One maintainer (#115). The short name `eg` is
+   a package on PyPI, crates.io and npm, so the command is `everygraph`.
 
 ## 6. Success criteria for v0.1
 
@@ -254,73 +251,49 @@ These are the reasons the first milestone after foundations is a second lab roun
 | 1 M-edge CSV → first map, laptop | < 10 s |
 | Friendster ingest, 8 GB budget | < 60 s |
 | Friendster PageRank under a 2 GB limit | within 1.35× of in-RAM |
-| Friendster communities under a 16 GiB limit | no OOM; quality mode (3 iterations) within 1% of the modularity of the better of NetworKit PLM and GVE-Leiden, both run on this machine on the same graph with the same preprocessing; the fast mode's gap to that reference stated (restated 2026-11-25, see below) |
+| Friendster communities under a 16 GiB limit | no OOM; quality mode (3 iterations) within 1% of the modularity of the better of NetworKit PLM and GVE-Leiden, both run on this machine on the same graph with the same preprocessing; the fast mode's gap to that reference stated |
 | Same graph at 4 and 32 threads | identical partition, layout and map file |
 | Leiden quality (3 iterations) | within 1% of the best reference on 6 graph families; the reference is named per graph and run on this machine (lj: igraph Leiden, 0.7695 in one run, FINDINGS "Idle-machine re-runs") |
 | Map of a 1 B-edge graph from a static URL | first view < 250 KB; 60 fps on a discrete GPU, usable on integrated |
 | Any budgeted run | never OOM-killed |
 
-*Two targets restated 2026-11-25 after the literature review (`docs/research/README.md`, A2 and
-A3; `docs/research/sota-communities.md` § 3).* The Friendster target was "modularity ≥ 0.60".
-That is not a quality claim. The DSLM paper (Hamann et al. 2018, mean of 10 seeds, their
-2 × 14-core hosts) reports sequential Louvain 0.622 and NetworKit PLM 0.627 on Friendster.
-The communities review gives Grappolo 0.626. Our one-iteration results are 0.6038–0.6055
-(FINDINGS § M1-01, § M1-02). Three iterations have never been run on Friendster; #57 must
-measure them, together with the same-machine references.
+**Why the community references are same-machine runs** (`docs/research/README.md` A2, A3;
+`docs/research/sota-communities.md` § 3). A fixed modularity is not a quality claim. On
+Friendster, published values are 0.622 for sequential Louvain and 0.627 for NetworKit PLM
+(DSLM, Hamann et al. 2018, mean of 10 seeds, their 2 × 14-core hosts) and 0.626 for
+Grappolo; ours at one iteration are 0.6038–0.6055 (FINDINGS § M1-01, § M1-02). Three
+iterations have not been run on Friendster; #57 and #61 measure them with the references.
+On lj the reference is igraph's 0.7695 (one run of two iterations on this machine); our
+three-iteration 0.7647 is 0.6% below it. Traag et al.'s 0.7739 is the best of 10
+replications × 10 iterations on their machine, so it is shown beside the gate, not used
+as it.
 
-The lj reference for the 1% gate is igraph's 0.7695 (one run of two iterations on this
-machine). Traag et al.'s 0.7739 is the best of 10 replications × 10 iterations on their
-machine, so it is not like for like. Against it, our three-iteration 0.7647 is 1.2% below.
-The paragraphs below were written against the earlier wording.
+**Where each target stands.** The targets are unchanged.
 
-Measured against two of these targets on the default compressed storage (#118, 2026-11-25,
-idle machine, FINDINGS § M1-13) and, for the ingest, with the benchmark harness (#4,
-2026-11-25, idle machine, FINDINGS "Idle-machine re-runs"); the targets are unchanged:
-
-- *Friendster PageRank under a 2 GB limit, within 1.35× of in-RAM:* through plain mmap of
-  the compressed store, 16 threads, 4.31 s/iteration against 3.19 in RAM — 1.35×, no margin
-  (arithmetic on a one-repetition, 5-iteration capped run that includes the initial degree
-  pass; raw arrays the same way: 1.32×). The lab's raw-format streaming reader gave 1.08×
-  (3.64 vs 3.37 s/iteration, 32 threads). The gap: no streaming reader for the compressed
-  format exists yet (#46).
-- *Friendster ingest, 8 GB budget, under 60 s:* the ingest itself to raw arrays took
-  36.97 s (35.06–37.14, median of 3) at the drive's sustained write rate (benchmark
-  harness, idle machine, 32 threads, no `fsync`, one untimed warm-up repetition first;
+- *Friendster PageRank under a 2 GB limit, within 1.35× of in-RAM* (#118, idle, FINDINGS
+  § M1-13). Through plain mmap of the compressed store, 16 threads: 4.31 s/iteration
+  against 3.19 in RAM, 1.35×, no margin (arithmetic on a one-repetition, 5-iteration
+  capped run that includes the initial degree pass; raw arrays the same way: 1.32×). The
+  lab's raw-format streaming reader gave 1.08× (3.64 against 3.37 s/iteration, 32
+  threads). The gap is a streaming reader for the compressed format: #46.
+- *Friendster ingest, 8 GB budget, under 60 s* (benchmark harness, idle, 32 threads, no
+  `fsync`, one untimed warm-up first;
   `bench/results/headline/20261125T114658Z-0ffe756ac9ac.jsonl`, rows 4–6; ADR 0026). The
-  lab's single run, 52.4 s, is superseded. Encoding to the default format took 3.41 s at
-  16 threads plus 4.77 s to write it with `fsync`, measured separately (#118), so
-  36.97 + 3.41 = 40.4 s by addition before the write and 45.2 s with it. What remains
-  unmeasured is the part that decides the target: the encoder measured holds input and
-  output in RAM (about 14 GiB raw and 9.8 GiB compressed on Friendster), so it cannot run
-  under 8 GB as it is. The gap: an encoder that works under the budget (#35, ADR 0004),
-  and the build writing the default format directly, which changes the bytes written and
-  so, on this drive, the time (ADR 0026).
-
-Measured against the 16 GiB criteria by the tracer bullet (#15, 2026-11-25, idle machine,
-lab binaries, Friendster, 32 threads, uncompressed CSR, FINDINGS § M1-01,
-`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`); the targets are unchanged:
-
-- *Friendster communities under a 16 GiB limit, modularity ≥ 0.60, no OOM:* met only by
-  plain Louvain, whose hierarchy the map cannot use: 115.1 s, 4.2 GiB anonymous, Q 0.6038,
-  62 disconnected communities, a parent with 18.7 M children (row 15). Under 16 GiB every
-  map-shaped community run was killed: Leiden at 460.5 s, fan-out-capped Louvain at 648 s
-  (rows 9, 11–12). With 56 GiB and hierarchy output the capped Louvain completes (42.9 GiB
-  anonymous peak, Q 0.5757) and the capped Leiden is killed. Blockers and owners:
-  out-of-core aggregation (#16, #60), hierarchy shaping bounded in memory (#19, #63), the
-  hierarchy's quotient graphs kept in memory (#62).
-  *Communities part measured feasible, 2026-11-25 (#16, FINDINGS § M1-02, idle, lab code,
-  Friendster, 1 iteration, 16 threads, compressed level 0):* Leiden under 16 GiB completes
-  with 0 disconnected communities at 1.17× the same algorithm in RAM; Q 0.6055 in the
-  deterministic mode, async median 0.6014 with one repetition at 0.5981; map-shaped Leiden
-  completes under 16 GiB (Q 0.5900). Not yet in the product (#60); the layout (#67) and
-  the tile builder (#69) remain. The target is unchanged.
-- *The headline "1.8 B edges → map on a 16 GB laptop"* (§ 5, item 1) also needs the
-  layout never to load the graph into the heap (#67: killed in the heap; memory-mapped it
-  fits, at 5.8× the time, default readahead) and a tile builder that bounds what it holds
-  in RAM, tiles and per-zoom working state (#69: not finished in 60 minutes under 16 GiB).
-  With 56 GiB the chain completes in 455.5 s of stage time (sum of medians), with the
-  capped Louvain hierarchy.
-- *Map of a 1 B-edge graph from a static URL, first view < 250 KB:* 163,184 B in 18
-  requests on the Friendster map (RTX 4090, headless Chromium, row 31). Frames 16.67 ms
-  mean, none over 33 ms: vsync-capped, so 60 fps held on that GPU but the headroom is
-  unknown; integrated GPUs not measured (#26).
+  lab ingest to raw arrays took 36.97 s (35.06–37.14, median of 3) at the drive's
+  sustained write rate. Encoding to the default format took 3.41 s at 16 threads plus
+  4.77 s to write it with `fsync`, measured separately (#118): 40.4 s by addition before
+  the write and 45.2 s with it. That encoder holds input and output in RAM, so it cannot
+  run under 8 GB. The product's build encodes under the budget and writes the default
+  format directly (#35); its time on Friendster is not measured yet (#240).
+- *Friendster communities under a 16 GiB limit* (item 1 of § 5). In the lab, one iteration
+  completes under 16 GiB with 0 disconnected communities at 1.17× the same algorithm in
+  RAM; Q 0.6055 in the deterministic mode. The quality mode and the references are not
+  measured. Owners: #57, #60, #61.
+- *The headline "1.8 B edges → map on a 16 GB laptop"* (§ 5, item 1) also needs a layout
+  that never loads the graph into the heap (#67) and a tile builder that bounds what it
+  holds in RAM (#69).
+- *Map of a 1 B-edge graph from a static URL, first view < 250 KB* (tracer, #15,
+  `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`, row 31): 163,184 B in 18
+  requests on the Friendster map (RTX 4090, headless Chromium). Frames 16.67 ms mean, none
+  over 33 ms: capped by vsync, so 60 fps held on that GPU but the headroom is unknown.
+  Integrated GPUs are not measured (#26).
