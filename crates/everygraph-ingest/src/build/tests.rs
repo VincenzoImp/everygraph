@@ -462,7 +462,8 @@ fn digest_probe() {
                 let (in_memory, report) = large.bytes(&text).unwrap();
                 assert_eq!(report.regime, Regime::InMemory);
                 assert_eq!(report.spilled_bytes, 0);
-                // Per option: the items of an in-adjacency with columns are larger.
+                // Per option: under "sum" the in-adjacency carries the `edges` column,
+                // so its items are larger.
                 let budget = spilling_budget(&large, &text);
                 let run = Run {
                     budget,

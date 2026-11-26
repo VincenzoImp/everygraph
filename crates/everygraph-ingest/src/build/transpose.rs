@@ -326,12 +326,13 @@ impl<R: ByteSource + Sync, const N: usize> Items<Copied<N>> for Reversed<'_, R> 
         let mut bytes = Vec::new();
         let mut values = Vec::with_capacity(self.columns.len());
         for column in &self.columns {
-            let mut out = Vec::new();
             let rows = if column.per_event {
                 event0..event1
             } else {
                 entry0..entry1
             };
+            // Exactly the rows reserved for (`Reversed::new`): it never grows past them.
+            let mut out = Vec::with_capacity(to_usize(rows.end - rows.start));
             column.read(self.source, rows, &mut out, &mut bytes)?;
             values.push(out);
         }

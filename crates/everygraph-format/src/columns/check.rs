@@ -268,7 +268,7 @@ pub(crate) fn verify_columns<S: ByteSource>(
             .entry(record)
             .or_insert_with_key(|record| file.read_provenance(record).ok().map(|p| p.parameters));
         if let Some(parameters) = parameters {
-            check_derived(file, facts, parameters, &checked, report)?;
+            check_derived(file, facts, parameters, &checked, memory, report)?;
         }
     }
     Ok(())
@@ -284,6 +284,7 @@ fn check_derived<S: ByteSource>(
     facts: &AdjacencyFacts,
     parameters: &BTreeMap<String, String>,
     checked: &Checked,
+    memory: &Memory,
     report: &mut Report,
 ) -> Result<(), ReadError> {
     let index = format!("{}.index", facts.name);
@@ -318,12 +319,15 @@ fn check_derived<S: ByteSource>(
     }
     if sum && get("first").is_some() && get("last").is_some() {
         let first = SectionNames::new(&scope, "first");
-        match first_after_last(file, &first, &SectionNames::new(&scope, "last")) {
-            Ok(Some(row)) => report.problem(
+        match first_after_last(file, &first, &SectionNames::new(&scope, "last"), memory) {
+            Ok(Some(Some(row))) => report.problem(
                 Some(&first.column),
                 format!("row {row}: the first time is after the last"),
             ),
-            Ok(None) => {}
+            Ok(Some(None)) => {}
+            Ok(None) => report.unchecked.push(format!(
+                "{scope}: first and last (not enough memory for their layouts)"
+            )),
             Err(ColumnError::Read(e @ ReadError::Backend(_))) => return Err(e),
             Err(e) => report.problem(Some(&first.column), e.to_string()),
         }
@@ -332,12 +336,20 @@ fn check_derived<S: ByteSource>(
 }
 
 /// The first row at which column `first` holds a later time than column `last`, two
-/// timestamp columns of the same rows without nulls, already checked.
+/// timestamp columns of the same rows without nulls, already checked; `None` when their
+/// layouts do not fit `memory`.
 fn first_after_last<S: ByteSource>(
     file: &Container<S>,
     first: &SectionNames,
     last: &SectionNames,
-) -> Result<Option<u64>, ColumnError> {
+    memory: &Memory,
+) -> Result<Option<Option<u64>>, ColumnError> {
+    // The two layouts, already checked below 16 MiB, each read and parsed.
+    let len = |names: &SectionNames| file.get(&names.layout).map_or(0, |e| e.len);
+    let bytes = (len(first) + len(last)).saturating_mul(2);
+    let Ok(_held) = memory.reserve("verify", MemoryKind::Anonymous, bytes) else {
+        return Ok(None);
+    };
     let layout = |names: &SectionNames| -> Result<ColumnLayout, ColumnError> {
         let section = file.section(&names.layout)?;
         let mut bytes = vec![0; small(section.len())];
@@ -374,12 +386,12 @@ fn first_after_last<S: ByteSource>(
                 .zip(y.chunks_exact(8))
                 .position(|(p, q)| time(p) > time(q));
             if let Some(i) = later {
-                return Ok(Some(row + widen(i)));
+                return Ok(Some(Some(row + widen(i))));
             }
             row += n;
         }
     }
-    Ok(None)
+    Ok(Some(None))
 }
 
 /// Checks one column, its layout and its statistics; its rows and the statistics of its
