@@ -236,3 +236,93 @@ impl<S: ByteSource + Sync> Graph<S> {
         &self.file
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+
+    use everygraph_core::{MemorySource, NodeId};
+    use everygraph_format::container::Provenance;
+
+    use super::*;
+    use crate::build::{self, BuildOptions, GraphOptions, Silent};
+    use crate::ids::{MemoryScratch, OwnedKey};
+    use crate::text::{TextOptions, TextReader};
+
+    /// The bytes of the graph of the edge list `text`.
+    fn built(text: &str, directed: bool) -> Vec<u8> {
+        let reader = TextReader::open(MemorySource::new(text.as_bytes()), &TextOptions::default())
+            .expect("a text edge list");
+        let graph = GraphOptions {
+            directed,
+            ..GraphOptions::default()
+        };
+        let options = BuildOptions::new(graph, NonZeroUsize::MIN);
+        let memory = Memory::unlimited();
+        let sink = MemorySource::new(Vec::new());
+        let unfinished = build::build(&reader, &options, &memory, &MemoryScratch, sink, &Silent)
+            .expect("a build");
+        unfinished
+            .commit(Provenance::default())
+            .expect("a commit")
+            .0
+            .into_inner()
+    }
+
+    #[test]
+    fn opens_what_the_build_wrote() {
+        let bytes = built("5 7\n7 9\n9 5\n5 7\n", false);
+        let memory = Memory::unlimited();
+        let g = Graph::open(MemorySource::new(&bytes[..]), &memory).expect("a graph");
+        assert_eq!((g.nodes(), g.edges(), g.directed()), (3, 4, false));
+        assert_eq!(g.index().entries(), 6);
+        let d = g.dictionary(&memory).expect("its dictionary");
+        let keys: Vec<OwnedKey> = (0..3)
+            .map(|i| d.key(NodeId::new(i)).expect("a key"))
+            .collect();
+        assert_eq!(keys, [5, 7, 9].map(OwnedKey::UInt));
+        let events = g
+            .events()
+            .expect("a sound section")
+            .expect("a repeated pair");
+        let counts: Vec<u64> = events.multiplicities().expect("counts").collect();
+        assert_eq!(counts.iter().sum::<u64>(), 8);
+        assert_eq!(counts.iter().filter(|&&m| m == 2).count(), 2);
+        assert!(
+            Graph::open(MemorySource::new(&built("1 2\n", true)[..]), &memory)
+                .expect("a graph")
+                .directed()
+        );
+    }
+
+    #[test]
+    fn no_events_without_repeated_pairs() {
+        let bytes = built("1 2\n2 3\n", false);
+        let g = Graph::open(MemorySource::new(&bytes[..]), &Memory::unlimited()).expect("a graph");
+        assert!(g.events().expect("no section").is_none());
+    }
+
+    #[test]
+    fn refuses_what_is_not_a_whole_graph() {
+        let memory = Memory::unlimited();
+        let not_ours = Graph::open(MemorySource::new(&b"not a graph"[..]), &memory);
+        assert!(matches!(not_ours, Err(OpenError::Corrupt { .. })));
+        let mut bytes = built("1 2\n2 3\n", false);
+        let file = Container::open(MemorySource::new(&bytes[..])).expect("a container");
+        let at = usize::try_from(file.get(OUT_INDEX).expect("an index").offset).expect("small");
+        bytes[at] ^= 0xFF;
+        let damaged = Graph::open(MemorySource::new(&bytes[..]), &memory);
+        assert!(
+            matches!(&damaged, Err(OpenError::Corrupt { section: Some(s), .. }) if s == OUT_INDEX),
+            "{damaged:?}"
+        );
+    }
+
+    #[test]
+    fn the_index_is_held_under_the_budget() {
+        let bytes = built("1 2\n2 3\n", false);
+        let tiny = Memory::from(std::sync::Arc::new(everygraph_core::Budget::new(16)));
+        let refused = Graph::open(MemorySource::new(&bytes[..]), &tiny);
+        assert!(matches!(refused, Err(OpenError::Budget(_))), "{refused:?}");
+    }
+}

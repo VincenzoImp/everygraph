@@ -167,7 +167,7 @@ pub fn decompress<S: ByteSource + Sync>(
     TextReader::open(copy, options).map_err(|e: TextError| WriteError::Build(e.into()))
 }
 
-/// Where [`write`] puts the graph.
+/// Where [`write()`] puts the graph.
 #[derive(Clone, Copy, Debug)]
 pub enum Output<'a> {
     /// A file: written as `PATH.partial`, checked, then renamed to `PATH`.
@@ -176,7 +176,7 @@ pub enum Output<'a> {
     Memory,
 }
 
-/// What [`write`] made.
+/// What [`write()`] made.
 #[derive(Debug)]
 pub enum Written {
     /// The file, of this many bytes.
@@ -247,5 +247,105 @@ pub fn write<S: ByteSource + Sync>(
             let bytes = std::fs::metadata(path).map_or(0, |m| m.len());
             Ok((Written::File(bytes), report, done))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+
+    use everygraph_core::MemorySource;
+
+    use super::*;
+    use crate::build::{GraphOptions, Silent};
+
+    /// A directory of its own under the system's temporary directory, removed on drop.
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(name: &str) -> Self {
+            let pid = std::process::id();
+            let dir = std::env::temp_dir().join(format!("eg-native-{name}-{pid}"));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("a temporary directory");
+            Self(dir)
+        }
+
+        fn names(&self) -> Vec<std::ffi::OsString> {
+            let entries = std::fs::read_dir(&self.0).expect("the directory");
+            entries.map(|e| e.expect("an entry").file_name()).collect()
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write_text(
+        text: &str,
+        dir: &Dir,
+        output: Output<'_>,
+    ) -> Result<(Written, Report, Checked), WriteError> {
+        let source = MemorySource::new(text.as_bytes());
+        let reader = TextReader::open(source, &TextOptions::default()).expect("an edge list");
+        let options = BuildOptions::new(GraphOptions::default(), NonZeroUsize::MIN);
+        let scratch = JobScratch::create(&dir.0, &job_id(&["test"])).expect("scratch");
+        let memory = Memory::unlimited();
+        let provenance = Provenance::default();
+        write(
+            &reader, &options, &memory, &scratch, output, provenance, &Silent,
+        )
+    }
+
+    #[test]
+    fn the_output_drops_the_extensions_of_an_edge_list() {
+        let out = |p| default_output(Path::new(p));
+        assert_eq!(out("a/transfers.csv.gz"), Path::new("a/transfers.eg"));
+        assert_eq!(out("lj.txt"), Path::new("lj.eg"));
+        assert_eq!(out("graph.v2.tsv"), Path::new("graph.v2.eg"));
+        assert_eq!(out(".csv"), Path::new(".csv.eg"));
+    }
+
+    #[test]
+    fn a_job_is_sixteen_hex_digits_of_its_parts() {
+        let id = job_id(&["a", "b"]);
+        assert_eq!(id.len(), 16);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(id, job_id(&["a", "b"]));
+        assert_ne!(id, job_id(&["ab"]));
+    }
+
+    #[test]
+    fn a_file_appears_whole_and_the_scratch_goes() {
+        let dir = Dir::new("whole");
+        let out = dir.0.join("g.eg");
+        let (written, report, checked) =
+            write_text("1 2\n2 3\n", &dir, Output::File(&out)).expect("a graph");
+        let Written::File(bytes) = written else {
+            panic!("a file")
+        };
+        assert_eq!(bytes, std::fs::metadata(&out).expect("the file").len());
+        assert_eq!((report.nodes, report.edges, checked.nodes), (3, 2, 3));
+        assert_eq!(dir.names(), ["g.eg"], "no partial file and no scratch");
+    }
+
+    #[test]
+    fn a_failed_build_leaves_nothing() {
+        let dir = Dir::new("failed");
+        let out = dir.0.join("g.eg");
+        let failed = write_text("1 2\n3\n", &dir, Output::File(&out));
+        let refused = matches!(failed, Err(WriteError::Build(BuildError::Text(_))));
+        assert!(refused, "{failed:?}");
+        assert!(dir.names().is_empty(), "{:?}", dir.names());
+    }
+
+    #[test]
+    fn a_graph_in_memory_is_checked_too() {
+        let dir = Dir::new("memory");
+        let (written, _, checked) = write_text("1 2\n", &dir, Output::Memory).expect("a graph");
+        assert!(matches!(written, Written::Memory(b) if !b.is_empty()));
+        assert_eq!(checked.nodes, 2);
     }
 }

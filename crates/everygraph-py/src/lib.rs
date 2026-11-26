@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! The native module of the Python package, `everygraph._native` (`PyO3`, abi3; DESIGN
-//! D19). What lives here: graphs opened or built for Python ([`graph`], [`read`]),
+//! D19). What lives here: graphs opened or built for Python (modules `graph`, `read`),
 //! the kernels called on them with the interpreter released, and results handed over
-//! as Arrow C streams without copying their numeric columns ([`table`]).
+//! as Arrow C streams without copying their numeric columns (module `table`).
 //!
 //! The Python package (`python/everygraph`) owns the public API: names, arguments and
 //! their defaults, text forms, progress lines and exceptions (`docs/api-sketch.md` § 3).
