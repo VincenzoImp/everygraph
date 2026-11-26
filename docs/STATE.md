@@ -82,9 +82,11 @@ everything prepared.
 
 **Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
 
-**Official window running** (from 2026-11-26 23:33): `/home/tux/graphlab/scratch/window/window.sh`, log `window.log` beside it. headline ×2, edge-map, semi-external, scc, transpose, components-kcore, references on orkut. No agent compiles on this host until it ends.
+**Official window, 2026-11-26/27.** headline done (`bench/results/headline/20261126T223356Z-fd29f95d486e.jsonl`, 65 references within, 2 off: Friendster ingest at 32 GiB 36.7 s against 29.1 s, kcore orkut t16 bimodal). The other suites run in `window2.sh` after #291 and #318 merge.
 
 ## Lessons that still change behaviour
+- A window script that runs official suites back to back is refused from the second suite on: the first suite's own load trips the idle gate. Wait for the 1-minute load to fall between suites, and take `rc=$?` before any `$(…)` in the log line (2026-11-27).
+- A nested `Cargo.lock` that builds workspace crates goes stale when a workspace crate gains a dependency (#288 → the reference driver); CI now checks every nested lock outside `lab/` (#318).
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.
 
