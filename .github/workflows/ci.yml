@@ -278,7 +278,7 @@ jobs:
   # `incompatible_msrv` lint, which reads rust-version; newer *language* features are
   # caught on main and nightly.
   msrv:
-    name: Minimum supported Rust (1.87)
+    name: Minimum supported Rust (1.100)
     needs: lint
     if: needs.lint.outputs.msrv == 'true'
     runs-on: ubuntu-24.04
@@ -287,8 +287,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust 1.87
-        run: rustup toolchain install 1.87 --profile minimal
+      - name: Install Rust 1.100
+        run: rustup toolchain install 1.100 --profile minimal
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: msrv
@@ -298,10 +298,10 @@ jobs:
           tool: cargo-nextest@0.9.152
       # nextest, so that the retries of .config/nextest.toml apply here too; it does not
       # run doc tests, hence the second command.
-      - name: cargo +1.87 test
+      - name: cargo +1.100 test
         run: |
-          cargo +1.87 nextest run --workspace --locked
-          cargo +1.87 test --workspace --doc --locked
+          cargo +1.100 nextest run --workspace --locked
+          cargo +1.100 test --workspace --doc --locked
 
   # Miri and ThreadSanitizer share the pinned nightly and one job (ThreadSanitizer's
   # 30 s of work cost a second billed job of 1–2 minutes). On a pull request only when

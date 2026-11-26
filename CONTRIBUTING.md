@@ -68,7 +68,7 @@ reason, and every crate inherits them with `[lints] workspace = true`.
 On the minimum supported toolchain (see "Rust version"):
 
 ```sh
-cargo +1.87 test --workspace --locked
+cargo +1.100 test --workspace --locked
 ```
 
 And these on nightly, because Miri is the way to *run* tests with a 32-bit `usize` on a
@@ -349,11 +349,15 @@ next line or tell the history of the change ([CLAUDE.md](CLAUDE.md)).
 
 ## Rust version
 
-The minimum supported Rust version is **1.87**, recorded as `rust-version` in the
+The minimum supported Rust version is **1.100**, recorded as `rust-version` in the
 workspace manifest. It was 1.85 (the first release with edition 2024 and the MSRV-aware
-resolver, and Debian 13's toolchain) until 2026-11-25, when it was raised to 1.87 because
-the fix for RUSTSEC-2026-0344 in `ruzstd` (0.9.1, needed by the text reader, #32) requires
-it. Everything builds on stable. The
+resolver, and Debian 13's toolchain), then 1.87 from 2026-11-25 (the fix for
+RUSTSEC-2026-0344 in `ruzstd` 0.9.1, needed by the text reader, #32). It was raised to
+1.100 on 2026-11-26 because 1.100 stabilizes `std::alloc::Allocator` and `Vec::new_in`
+(release notes of 1.100.0, "Stabilize custom allocators"): the memory accountant's page
+backend (#167) gives `SegVec` segments an allocator, and the core cannot implement a
+container of its own over foreign memory without `unsafe`. `Vec::try_with_capacity_in` is
+not stable in 1.100; code uses `Vec::new_in` and `try_reserve_exact`. Everything builds on stable. The
 one planned exception is the threaded browser build (#108), which needs a nightly
 toolchain pinned by that build's own script, not by a `rust-toolchain.toml` at the root,
 which would move the whole workspace to nightly.
