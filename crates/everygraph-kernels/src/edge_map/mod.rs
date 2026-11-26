@@ -77,11 +77,11 @@
 //!
 //! # Memory
 //!
-//! The readers' buffers are reserved against the plan's [`Memory`], and a reader frees a
-//! buffer that a long list grew when it goes back to the pool. Some small allocations are
-//! not counted: the task list and one partial value per block (`O(n / block)` each),
-//! one result per frontier run (`O(frontier / 256)`), and the pool itself (one entry per
-//! worker).
+//! The readers' buffers, the blocks' partial values and the frontier runs' results are
+//! reserved against the plan's [`Memory`], and a reader frees a buffer that a long list
+//! grew when it goes back to the pool. Some small allocations are not counted: the task
+//! list (`O(n / block)`) and the pool itself (one entry per worker). The no-OOM suite
+//! (`everygraph-memtest`) checks that what is not counted does not grow with the graph.
 //!
 //! # `unsafe`
 //!
@@ -104,7 +104,9 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, SegVec, par};
+use everygraph_core::{
+    ExactSum, InsufficientBudget, Memory, MemoryError, MemoryKind, ReadError, SegVec, par,
+};
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use buckets::Buckets;
@@ -789,6 +791,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
     {
         let blocks = ix(self.nodes().div_ceil(self.block).into());
+        // An accumulator can be large (two `ExactSum`s are 1.2 KB), and below 2^18
+        // nodes a block is 64 of them.
+        let _held = self.memory.reserve(
+            "edge-map partial values",
+            MemoryKind::Anonymous,
+            (blocks as u64).saturating_mul(size_of::<A>() as u64),
+        )?;
         let mut partials: Vec<A> = (0..blocks).map(|_| A::ZERO).collect();
         let mut pieces = Vec::new();
         let (mut out, mut rest) = (out, partials.as_mut_slice());
@@ -1028,6 +1037,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         let result = if frontier.len() <= FRONTIER_GRAIN {
             run(0..frontier.len())
         } else {
+            // One result per run, and an accumulator can be large (Leiden's).
+            let count = frontier.len().div_ceil(GRAIN.get()) as u64;
+            let _held = self.memory.reserve(
+                "edge-map frontier results",
+                MemoryKind::Anonymous,
+                count.saturating_mul(size_of::<Result<A, Error>>() as u64),
+            )?;
             par::map_ranges(frontier.len(), GRAIN, run)
                 .into_iter()
                 .try_fold(A::ZERO, |sum, part| Ok(sum.add(part?)))

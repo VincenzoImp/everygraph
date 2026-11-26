@@ -494,6 +494,7 @@ impl From<EncodeError> for BuildError {
                 purpose: "adjacency encoder",
                 bytes,
             }),
+            EncodeError::Budget(refused) => Self::Budget(refused),
             other => Self::Encode(other),
         }
     }
