@@ -117,5 +117,5 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 ## Closed by
 
 #60 (production out-of-core Leiden) for community detection; #46 for iterative scans; the
-speed target of the block cache (#178, ADR 0029; open in #240) for random access under a
+speed target of the block cache (#240, ADR 0029; open in #240) for random access under a
 budget.

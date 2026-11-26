@@ -270,6 +270,6 @@ The in-RAM run took 115.2 s at load 16 (hash `753f4fff229657f6`, Q 0.57281).
 
 ## Closed by
 
-Accepted on 2026-11-26 on the bytes read of m1-15. #178 built the block cache, and D11's
+Accepted on 2026-11-26 on the bytes read of m1-15. #240 built the block cache, and D11's
 text names it. Its time target, level-0 local moving at 8 GiB within 1.5× of in RAM, is
 not shown: the official run of the milestone window decides it (#240).
