@@ -105,8 +105,13 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - Review rounds in series are the main slowdown on product pull requests. Send the
   findings of both reviews to the author in one message, and skip a further round when no
   must-fix touches correctness.
-- CPU, not the network, limits the number of agents: at most about eight that compile at
-  once, each with `CARGO_BUILD_JOBS=6`; research and reviews come on top.
+- CPU, not the network, limits the number of agents: at most about eight that run `cargo`
+  at once, each with `CARGO_BUILD_JOBS=6`. Reviewers and review-fix rounds count: they
+  build the whole workspace. Load reached 77 with eleven agents. Each agent builds cold in
+  its own worktree (24 worktrees held 149 GB, 10–28 GB of `target/` each) with no shared
+  compiler cache; build efficiency is being measured.
+- Load-sensitive tests (heap and retention bounds, file locks; #230) failed on four pull
+  requests in one day, and each cost a CI rerun.
 - A long measurement window idles every code agent. Run the short official cases first,
   let agents build and push, then run the long ones when few agents compile.
 - When every stream waits on CI or review at once, the machine is idle. Keep a queue of
