@@ -10,6 +10,7 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 - [ ] Algorithms as methods returning Arrow-backed tables: `pagerank()`, `components()`, `communities()`, `kcore()`, `triangles()`, `bfs()`, …
 - [ ] Point queries with batch variants: `neighbors(ids)`, `degrees(ids)`, `khop(id, k, limit=…, timeout=…)`, `path(a, b)` ({{#m7-01-point-queries}})
 - [ ] `explain()` / preflight on every long operation; progress callbacks; cancellation on `KeyboardInterrupt`
+- [ ] The whole-graph algorithms through `planner::plan` and `run::execute` ({{#m3-02-planner}}): `Plan` from the plan document, the refusal's `smallest_budget_bytes`, and one `run::Session` per `Graph`, so that the decode tier's raw copy is kept between traversals and counted in every later plan
 - [ ] Options: `threads`, `memory`, `deterministic=True`, `seed`
 - [ ] The budget behind `memory=` is `Budget::new(limit).with_pages(everygraph_io::PAGES)`: the engine's large buffers are mapped and given back when freed, which the interpreter's allocator cannot do for them (`design/DECISIONS.md`, "Large buffers get pages of their own"); a test checks that the module's accountant returns `PAGES` from `pages()`
 - [ ] External ids in, external ids out by default; dense ids available for performance

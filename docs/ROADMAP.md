@@ -56,17 +56,17 @@ The line is the order in which milestones can end, not the order in which they s
 To 0.1, the longest chain of issues that each wait for the one before:
 
 ```
-production Leiden (#57) ─► hierarchy artifact (#62) ─► map hierarchy (#63) ─► layout (#67)
+hierarchy artifact (#62) ─► map hierarchy (#63) ─► layout (#67)
   ─► tile builder (#69) ─► viewer core (#71) ─► viewer experience (#72) ─► honest map (#78)
   ─► showcase map (#101) ─► release (#105)
 ```
 
 Beside it, and needed before the release:
 
-- the engine under a budget: the build's columns (#246) and the allocator policy (#167);
+- the engine under a budget: the allocator policy (#167);
   the planner (#45) and the semi-external source (#46); the no-OOM and determinism checks
   in CI (#53, #54); weights (#58), then Leiden beyond RAM (#60);
-- the tile format (#68), which waits for the edge experiment (#20);
+- the tile format (#68);
 - queries: point queries (#90), shortest paths (#91), views (#93);
 - the packages: Python API (#81), Arrow interop (#83), wheels (#82), the rest of the
   command line (#247);
@@ -75,7 +75,7 @@ Beside it, and needed before the release:
 To Graphalytics eligibility (#209):
 
 ```
-in-adjacency (#38) + columns (#246) ─► semi-external source (#46)
+semi-external source (#46)
   ─► LCC (#51), CDLP (#65), BFS and SSSP past RAM (#240) ─► block cache (#178) ─► #209
 ```
 

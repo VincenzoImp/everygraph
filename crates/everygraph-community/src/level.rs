@@ -60,7 +60,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
 
 use everygraph_core::rng::{Purpose, draw, unit_f64};
-use everygraph_core::{Memory, math, par};
+use everygraph_core::{Memory, MemoryKind, Reservation, math, par};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
     Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all,
@@ -636,9 +636,17 @@ pub(crate) struct Moved {
 /// The nodes of `ids` that pass `keep`, in order, filtered in parallel.
 fn take<'g, S: Source>(
     plan: &Plan<'_, 'g, S>,
+    tables: &Tables,
     ids: &[u32],
     keep: impl Fn(Node<'g>) -> bool + Send + Sync,
-) -> Vec<Node<'g>> {
+) -> Result<(Vec<Node<'g>>, Reservation), Error> {
+    // The parts grow by doubling, each with its old block beside the new one while it
+    // moves (3×), then are joined into one copy (1×), which alone stays held.
+    let mut held = tables.memory().reserve(
+        "frontier",
+        MemoryKind::Anonymous,
+        (ids.len() as u64).saturating_mul(4 * size_of::<Node<'g>>() as u64),
+    )?;
     let parts = par::map_ranges(ids.len(), ROUND_GRAIN, |r| {
         ids[r]
             .iter()
@@ -646,7 +654,10 @@ fn take<'g, S: Source>(
             .filter(|&v| keep(v))
             .collect::<Vec<_>>()
     });
-    parts.concat()
+    let frontier = parts.concat();
+    drop(parts);
+    held.shrink(held.bytes() - (frontier.len() * size_of::<Node<'g>>()) as u64);
+    Ok((frontier, held))
 }
 
 /// Runs `body` on the rows of `frontier` and adds up its values. Fewer than [`SERIAL`]
@@ -817,9 +828,12 @@ pub(crate) fn local_move<'g, S: Source>(
         Schedule::Order { .. } => heavy(g, ctx.total),
     };
     let light = |v: Node<'g>| heavy.binary_search(&v).is_err();
-    let heavy_in_order = match schedule {
-        Schedule::Order { ids } if !heavy.is_empty() => take(plan, ids, |v| !light(v)),
-        _ => Vec::new(),
+    let (heavy_in_order, _heavy_held) = match schedule {
+        Schedule::Order { ids } if !heavy.is_empty() => take(plan, tables, ids, |v| !light(v))?,
+        _ => (
+            Vec::new(),
+            Reservation::empty(tables.memory(), "frontier", MemoryKind::Anonymous),
+        ),
     };
     // A sequential visit: each move is applied before the next node decides.
     let visit =
@@ -845,9 +859,9 @@ pub(crate) fn local_move<'g, S: Source>(
         match schedule {
             Schedule::Rounds { ids, starts } => {
                 for r in starts.windows(2) {
-                    let frontier = take(plan, &ids[r[0]..r[1]], |v| {
+                    let (frontier, _held) = take(plan, tables, &ids[r[0]..r[1]], |v| {
                         st.active[v.index()].swap(false, Relaxed)
-                    });
+                    })?;
                     if frontier.is_empty() {
                         continue;
                     }
@@ -886,9 +900,9 @@ pub(crate) fn local_move<'g, S: Source>(
                 }
             }
             Schedule::Order { ids } => {
-                let frontier = take(plan, ids, |v| {
+                let (frontier, _held) = take(plan, tables, ids, |v| {
                     light(v) && st.active[v.index()].load(Relaxed)
-                });
+                })?;
                 processed = frontier.len();
                 let (sum, m) = drive(plan, &frontier, tables, visit)?;
                 gain = gain.add(sum);
@@ -1010,7 +1024,7 @@ pub(crate) fn refine<'g, S: Source>(
     match schedule {
         Schedule::Rounds { ids, starts } => {
             for (stamp, b) in (0_u64..).zip(starts.windows(2)) {
-                let frontier = take(plan, &ids[b[0]..b[1]], alive);
+                let (frontier, _held) = take(plan, tables, &ids[b[0]..b[1]], alive)?;
                 if frontier.is_empty() {
                     continue;
                 }
@@ -1044,7 +1058,7 @@ pub(crate) fn refine<'g, S: Source>(
             }
         }
         Schedule::Order { ids } => {
-            let frontier = take(plan, ids, alive);
+            let (frontier, _held) = take(plan, tables, ids, alive)?;
             let (): () = drive(plan, &frontier, tables, |(), row, worker| {
                 let u = row.node;
                 let Some(table) = worker.scratch.begin(row.list.len()) else {
@@ -1223,53 +1237,4 @@ pub(crate) fn split<'g, S: Source>(
 }
 
 #[cfg(test)]
-mod tests {
-    use everygraph_kernels::edge_map::{Csr, Settings};
-
-    use super::*;
-
-    /// The heavy nodes of a star with `leaves` leaves, and of a cycle of `n` nodes.
-    fn heavy_ids(offsets: &[u64], targets: &[u32]) -> Vec<u32> {
-        let csr = Csr::new(offsets, targets).unwrap();
-        let memory = Memory::unlimited();
-        Plan::with(&csr, &memory, Settings::default(), |plan| {
-            let k = strengths(&plan, &memory, Weights::Unit, &Options::default()).unwrap();
-            heavy(Graph::new(&plan, Weights::Unit, &k), k.total)
-                .iter()
-                .map(|v| v.get())
-                .collect()
-        })
-    }
-
-    #[test]
-    fn heavy_nodes_hold_more_than_a_thousandth_of_the_volume() {
-        // A star: the hub holds half of 2W, a leaf 1 / (2 * leaves).
-        for leaves in [10_u32, 600, 3000] {
-            let offsets: Vec<u64> = std::iter::once(0)
-                .chain((0..=leaves).map(|i| u64::from(leaves + i)))
-                .collect();
-            let targets: Vec<u32> = (1..=leaves)
-                .chain(std::iter::repeat_n(0, leaves as usize))
-                .collect();
-            let heavy = heavy_ids(&offsets, &targets);
-            let expected: Vec<u32> = if leaves < 500 {
-                (0..=leaves).collect()
-            } else {
-                vec![0]
-            };
-            assert_eq!(heavy, expected, "{leaves} leaves");
-        }
-        // A cycle of n nodes: each holds 1 / n of 2W, heavy only below 1,000 nodes.
-        for (n, count) in [(999_u32, 999), (1000, 0), (4000, 0)] {
-            let offsets: Vec<u64> = (0..=u64::from(n)).map(|i| 2 * i).collect();
-            let targets: Vec<u32> = (0..n)
-                .flat_map(|v| {
-                    let mut l = [(v + n - 1) % n, (v + 1) % n];
-                    l.sort_unstable();
-                    l
-                })
-                .collect();
-            assert_eq!(heavy_ids(&offsets, &targets).len(), count, "cycle of {n}");
-        }
-    }
-}
+mod tests;

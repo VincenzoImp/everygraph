@@ -3,7 +3,7 @@ title: Per-community summary statistics of node properties, for map labels
 milestone: M4 · Communities and hierarchy
 labels: type:feature, area:community, P1, risk:low, size:M
 ---
-**Why.** A map label names a region by what is in it: the most common categories of its nodes and its most central nodes. {{#m4-06-hierarchy-artifact}} stores the exact counts of every community at every level, but not these summaries, because built graphs do not carry property columns yet ({{#m2-34-build-columns}}, pull request #269).
+**Why.** A map label names a region by what is in it: the most common categories of its nodes and its most central nodes. {{#m4-06-hierarchy-artifact}} stores the exact counts of every community at every level, but not these summaries. The build stores the property columns they read ({{#m2-34-build-columns}}).
 
 **Scope**
 - [ ] For each community of a level of a stored hierarchy: counts by category of a categorical node column (the top k categories and an "other" count), and the top k nodes by a score column (PageRank by default), ties in graph order.

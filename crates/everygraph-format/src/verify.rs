@@ -434,16 +434,34 @@ impl<'f, S: ByteSource> Bytes<'f, S> {
         if let Some(all) = self.mapped {
             return Ok(&all[small(start)..small(end)]);
         }
-        let len = end - start;
-        if len > MAX_READ || held.try_resize(held.bytes().max(len)).is_err() {
-            return Err(Stop::NoMemory);
-        }
-        buf.resize(small(len), 0);
+        lengthen(buf, small(end - start), held)?;
         self.source
             .read_at(self.offset + start, buf)
             .map_err(Stop::Read)?;
         Ok(buf)
     }
+}
+
+/// Makes `buf` `len` long, `held` covering its capacity. A buffer that grows gets exactly
+/// `len`, and while it moves, `held` covers the old block beside the new one: a doubled
+/// capacity, or the old block, would be heap no reservation holds, as large as the
+/// longest list (a hub's).
+fn lengthen<T: Copy + Default>(
+    buf: &mut Vec<T>,
+    len: usize,
+    held: &mut Reservation,
+) -> Result<(), Stop> {
+    if len > buf.capacity() {
+        let size = size_of::<T>() as u64;
+        let (old, new) = (buf.capacity() as u64 * size, len as u64 * size);
+        if new > MAX_READ || held.try_resize(held.bytes().max(old + new)).is_err() {
+            return Err(Stop::NoMemory);
+        }
+        buf.reserve_exact(len - buf.len());
+        held.shrink(held.bytes().saturating_sub(buf.capacity() as u64 * size));
+    }
+    buf.resize(len, T::default());
+    Ok(())
 }
 
 /// Decodes every list of an adjacency, in parallel by blocks, and checks it.
@@ -480,12 +498,8 @@ fn scan<S: ByteSource + Sync>(
                 }
                 // Room for the SIMD decoders' last group (the codec's `Batch` keeps it).
                 let room = usize::try_from(d).map_or(usize::MAX, |d| d.saturating_add(3));
-                let need = (room as u64).saturating_mul(4);
-                if need > MAX_READ || list_held.try_resize(list_held.bytes().max(need)).is_err() {
-                    return Err(Stop::NoMemory);
-                }
                 if list.len() < room {
-                    list.resize(room, 0);
+                    lengthen(&mut list, room, &mut list_held)?;
                 }
                 let record = index.record_range(NodeId::new(v));
                 let corrupt = || Stop::Bad(v, "its record does not decode");
@@ -623,10 +637,17 @@ fn check_adjacency<S: ByteSource + Sync>(
         ));
     };
     let mut held = Reservation::empty(memory, PURPOSE, MemoryKind::Anonymous);
+    // A parsed index or `.events` section holds its section's words and select samples
+    // that take fewer bytes than the words they sample.
+    let parsed = |entry: &Entry| entry.len.saturating_mul(2);
     let Some(index_bytes) = section_bytes(file, index_entry, &mut held)? else {
         unchecked(report);
         return Ok(None);
     };
+    if held.try_grow(parsed(index_entry)).is_err() {
+        unchecked(report);
+        return Ok(None);
+    }
     let index = match AdjacencyIndex::parse(&index_bytes) {
         Ok(index) => index,
         Err(e) => {
@@ -656,6 +677,10 @@ fn check_adjacency<S: ByteSource + Sync>(
                 unchecked(report);
                 return Ok(None);
             };
+            if events_held.try_grow(parsed(entry)).is_err() {
+                unchecked(report);
+                return Ok(None);
+            }
             Some(bytes)
         }
     };

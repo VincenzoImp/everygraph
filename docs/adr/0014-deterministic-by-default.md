@@ -43,12 +43,12 @@ The tests named are in `crates/everygraph-determinism/tests/` unless a path is g
 | Any thread count | guaranteed | `suite.rs` `the_build_gives_the_same_bytes_everywhere`, `kernels_give_the_same_bits_everywhere`, `leiden_gives_the_same_bits_everywhere`: 1, 2, 3, 8 and 32 threads (32 on 4 cores in CI); lab: Leiden and Louvain on lj and orkut at 1–32 threads |
 | Scheduling order: tasks, chunks, decode batches, the order threads finish | guaranteed | the same tests, at tasks of 64 and 65,536 entries; `everygraph-kernels/tests/framework.rs` `every_source_thread_count_chunk_and_batch_give_the_same_bits`; order probes `suite.rs` `order_probes_reveal_the_specified_summation_tree`. No float reduces over the framework's blocks: there is no `Reduce` for `f32` or `f64` |
 | In core vs out of core | build: guaranteed; kernels and Leiden: shown in the lab | build: `the_build_gives_the_same_bytes_everywhere` (in RAM and spilled, and at the smallest budget that builds); every source, the streamed one included: the suite's grid; budgets: `everygraph-community/tests/leiden.rs` `results_do_not_depend_on_the_budget`; out-of-core Leiden on Friendster gave the in-RAM hash (`lab/m1-02-ooc-leiden`); the product test is #60's |
-| Across CPUs: x86-64 with any `target-cpu`, aarch64, i686 with SSE2, wasm32 | primitives: guaranteed; kernels and Leiden: shown in the lab | `everygraph-core/tests/numerics_golden.rs` (the pinned math, the exact accumulator, the counter-based generator) on x86-64, i686 and wasm32 in CI; PageRank and components across native and wasm by sum and maximum (FINDINGS § G); Leiden ran on x86-64 only. A full hash across targets is #54's R15e |
+| Across CPUs: x86-64 with any `target-cpu`, aarch64, i686 with SSE2, wasm32 | primitives: guaranteed; PageRank and components: shown in the lab; Leiden: x86-64 only so far | `everygraph-core/tests/numerics_golden.rs` (the pinned math, the exact accumulator, the counter-based generator) on x86-64, i686 and wasm32 in CI; PageRank and components across native and wasm by sum and maximum, not by a hash (FINDINGS § G); Leiden has run on x86-64 only. Hashes of whole results across targets are #54's R15e |
 | CPU vs GPU | not promised | no kernel runs on a GPU |
 | Bitwise | guaranteed | every test above compares bits: hashes of the output columns, floats by their bits |
-| Partition up to renumbering | guaranteed, as bits | the membership is numbered by each community's smallest node, so the same partition has the same bits |
-| Same stored order vs a permuted one | not promised | `compact` without `--order` keeps the communities: `leiden_views.rs` `compact_keeps_the_communities`. With the ids renumbered by a locality order or at random, 4 of 5 orders changed the communities of a planted graph of 10,000 nodes, by 7 to 131 nodes (#54's probe; the pull request of #267) |
-| View as a mask vs materialized | guaranteed for Leiden | `leiden_views.rs` `a_view_as_a_mask_and_materialized_give_the_same_communities`, default, quality, randomized and prolonged; other kernels: #93 builds views, with this test |
+| Partition up to renumbering | guaranteed, as bits | the membership is numbered by each community's smallest node, so the same partition has the same bits: `everygraph-community/tests/leiden.rs`, `check` (l. 259), which every result of `deterministic_results_do_not_depend_on_threads_chunks_or_sources` and `every_option_gives_valid_and_repeatable_communities` passes |
+| Same stored order vs a permuted one | not promised | `compact` without `--order` keeps the communities: `leiden_views.rs` `compact_keeps_the_communities`. With the ids renumbered by a locality order, 3 of 5 orders moved 2–3 of 10,000 nodes (#54's probe, on the code before #267) |
+| View as a mask vs materialized | Leiden: guaranteed; other kernels: not yet tested (#93) | `leiden_views.rs` `a_view_as_a_mask_and_materialized_give_the_same_communities` (default, quality, randomized and prolonged), on 10,000 nodes and on 200,000 nodes with holes across rank blocks; `level.rs` `ranks_count_the_nodes_with_an_entry_across_blocks` |
 | Nodes without edges | guaranteed for Leiden | `leiden_views.rs` `nodes_without_edges_change_neither_the_sub_rounds_nor_the_communities`: the sub-round count counts nodes with edges |
 | A map after a rebuild | not promised: depends on the previous map | ADR 0016: the super level keeps the previous map's choice while the partition needs 56 to 72 communities to cover 90% of its nodes; a first map depends on the graph and the seed only |
 | `fast` mode, `timeout` | not promised | — |
@@ -132,7 +132,9 @@ asynchronous prototype, not against production `fast` mode. The price of the def
   change no bit.
 - Leiden counts its draws by a node's place among the nodes with edges, and compares
   labels only by their order ("Reproducibility"). A view runs as a mask or materialized
-  with the same result. A kernel that draws random numbers counts them the same way.
+  with the same result. A kernel whose result depends on its draws counts them the
+  same way. Components and k-core draw by node id, and their results do not depend on
+  the draws.
 - The case that could narrow the promise is **out-of-core Leiden** (#60, acceptance:
   "deterministic mode works out of core with the same hash as in RAM"). Streaming
   aggregation combines (community, community, weight) triples in bucket order; the
@@ -156,5 +158,5 @@ asynchronous prototype, not against production `fast` mode. The price of the def
 
 ## Closed by
 
-#267 (the exact contract: views, stored order, hysteresis, quality cost), #54 (the tests across threads, platforms, budgets and regimes), #60 (the case
+#54 (the tests across threads, platforms, budgets and regimes), #60 (the case
 that would narrow it).

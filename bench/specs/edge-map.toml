@@ -55,7 +55,7 @@ store = "{work}/{spec}/store-orkut"
 name = "build-bench"
 cwd = "{repo}"
 command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-kernels", "--example", "edge_map_bench"]
-needed_by = ["edge-map", "edge-map-sources"]
+needed_by = ["edge-map", "edge-map-sources", "planner-kernels", "planner-decode"]
 
 [[prepare]]
 name = "build-lab"
@@ -68,7 +68,7 @@ needed_by = ["lab"]
 name = "store-orkut"
 shell = "rm -rf {store}.part {store} && {bench} encode --graph {data}/csr/orkut --out {store}.part > /dev/null && mv {store}.part {store}"
 creates = "{store}/adjacency.data"
-needed_by = ["edge-map", "edge-map-sources"]
+needed_by = ["edge-map", "edge-map-sources", "planner-kernels", "planner-decode"]
 
 [[benchmark]]
 name = "lab"
@@ -108,6 +108,35 @@ threads = [16]
 matrix = { kernel = ["pr32", "wcc", "bfs"], source = ["mmap", "stream"] }
 command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{store}", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
 conditions = { graph = "orkut", code = "everygraph-kernels on the edge-map framework", kernel = "{kernel}", storage = "{source} (mmap: compressed data part mapped, warm after the first repetition; stream: raw targets by positional reads through the page cache)", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+# The constants of the planner's cost model (#45, crates/everygraph-kernels/src/planner/
+# cost.rs): the operations of `run::run` raw and compressed, and the decode tier.
+[[benchmark]]
+name = "planner-kernels"
+group = "planner"
+description = "the operations of run::run on the decode tier (RawCopy) and on the memory-mapped compressed source"
+dataset_path = "csr/orkut"
+matrix = { kernel = ["pr64", "cc", "kcore", "bfs-parents"], source = ["rawcopy", "mmap"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{store}", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "orkut", code = "everygraph-kernels on the edge-map framework", kernel = "{kernel}", storage = "{source} (rawcopy: the decode tier, decoded once from the map; mmap: compressed data part mapped, warm after the first repetition)", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "planner-decode"
+group = "planner"
+description = "the decode tier (ADR 0004): RawCopy::decode, new arrays from the page backend each repetition"
+dataset_path = "csr/orkut"
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{store}", "--source", "mmap", "--kernel", "decode", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "orkut", code = "everygraph-kernels RawCopy::decode", storage = "compressed data part mapped, warm after the first repetition", level = "in-process decode time, best of 5" }
 record_json = { hash = "/hash" }
 metric = [
   { name = "seconds", json = "/seconds_best", unit = "s" },
