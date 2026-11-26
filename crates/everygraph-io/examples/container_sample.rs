@@ -100,7 +100,7 @@ fn write(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
     w.commit()?;
-    let key = ResultKey::new(w.graph_identity(), "pagerank", 1, true).with("damping", "0.85")?;
+    let key = ResultKey::new(w.graph_identity(), "pagerank", 1, true)?.with("damping", "0.85")?;
     let ranks: Vec<f64> = (0..n).map(|v| f64::from(v + 1) / 500_500.0).collect();
     let about = Provenance {
         operation: String::new(),

@@ -260,14 +260,17 @@ hexadecimal digits: the first 16 bytes of BLAKE3 of the record encoded as above 
 its operation and parameters set (engine empty, times unknown, no inputs). A reader looks
 a result up by that name and serves it only when the record's operation and parameters
 are exactly the key it asks for and the file's identity is the key's `graph`; the name
-alone is never trusted. Storing a result under a key already stored removes the old
-section and record in the same commit. The section holds:
+alone is never trusted. A look-up reads the record (checked against its hash) and the
+section's first 16 bytes, not the values: like any section, a result is checked against
+its hash when it is verified (§ 7, § 12), not on every read. Storing a result under a key
+already stored removes the old section and record in the same commit. An operation name
+is not empty and holds no `/`. The section holds:
 
 ```
 offset  size  field
 0       8     magic        "EGRES\0\0\0"
 8       4     value type   1 u32, 2 u64, 3 f32, 4 f64
-12      4     reserved
+12      4     reserved (§ 1)
 16            the values, little-endian; (length − 16) is a whole number of values
 ```
 
@@ -502,25 +505,30 @@ the bytes from 8192 to that commit's committed end never change while it reads.
 That is what makes reading during an update safe, under the invariant of
 `design/DECISIONS.md` ("Memory-mapped files are read through a safe constructor"): a
 reader that maps a graph file maps only the range from 8192 to the committed end of the
-commit it opened (`Container::stable_range`, `everygraph_io::MmapSource::from_file_range`),
-and reads the header blocks with positional reads. A map of the whole file is not safe
+commit it opened (`Container::stable_range`,
+`everygraph_io::MmapSource::from_file_range`), and keeps the header and the table it read
+before mapping (`Container::with_source`): reading the header blocks again could find a
+newer commit, whose sections lie past the map. A map of the whole file is not safe
 against a commit by someone else: step 3 changes 128 bytes it covers, and step 1 may cut
 off an uncommitted tail it covers (touching those pages then ends the reader with
 `SIGBUS`). Within one process, `everygraph_io::FileSink` refuses each write or length
 change that would reach a mapped range (`ResourceBusy`): a commit goes through beside a
-map of that range, and fails beside a whole-file map. What a range map leaves out (the
-header blocks, a later commit's sections and table) is read with positional reads.
-Windows refuses to shorten a file that another process maps: there step 1 leaves the
-bytes past the new committed end in place, which § 7 allows and a later commit or
-`compact` removes.
+map of that range, and on Unix fails beside a whole-file map (on Windows there is no such
+guard). A map reads the file's length and registers its range in one step, so no sink of
+the process can shorten the file between the two. Windows refuses to shorten a file that
+another process maps: there step 1 leaves the bytes past the new committed end in place,
+which § 7 allows and a later commit or `compact` removes.
 
 One writer at a time: two writers appending to one file at once would write over each
-other's sections. The container itself does not lock. `everygraph_io::FileSink` holds
-an exclusive lock on its file while it lives (`File::try_lock` on Unix, the share mode
-on Windows, where `File::try_lock` would stop readers too), and a second sink, in this process or another, is refused with `ResourceBusy`
-without waiting. On Unix the lock is advisory: a program that does not take it is not
-stopped. The operating system releases it when the writer dies, so a crash leaves no
-stale lock.
+other's sections. The container itself does not lock. `everygraph_io::FileSink` holds an
+exclusive lock on its file while it lives (`File::try_lock` on Unix; on Windows the share
+mode, since `File::try_lock` there would stop readers too), and a second sink, in this
+process or another, is refused with `ResourceBusy` without waiting. The lock is on the
+open file, not on its name: a compaction in place holds a `FileSink` on the original
+until the rename over it has returned, and a sink that finds the name pointing to another
+file once it holds the lock opens it again. On Unix the lock is advisory: a program that
+does not take it is not stopped. The operating system releases it when the writer dies,
+so a crash leaves no stale lock.
 
 ## 12. Decided here
 

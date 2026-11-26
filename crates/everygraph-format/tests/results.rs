@@ -77,6 +77,7 @@ fn find<T: Value + Default>(file: &Container<Mem>, key: &ResultKey) -> Option<Ve
 
 fn pagerank(graph: GraphIdentity, version: u32, deterministic: bool) -> ResultKey {
     ResultKey::new(graph, "pagerank", version, deterministic)
+        .unwrap()
         .with("damping", "0.85")
         .unwrap()
         .with("iterations", "20")
@@ -190,15 +191,18 @@ fn a_result_is_served_only_under_its_own_key_and_graph() {
     let misses = [
         pagerank(id, 2, true),
         ResultKey::new(id, "pagerank", 1, true)
+            .unwrap()
             .with("damping", "0.9")
             .unwrap()
             .with("iterations", "20")
             .unwrap(),
         pagerank(id, 1, true).with("seed", "1").unwrap(),
         ResultKey::new(id, "pagerank", 1, true)
+            .unwrap()
             .with("damping", "0.85")
             .unwrap(),
         ResultKey::new(id, "katz", 1, true)
+            .unwrap()
             .with("damping", "0.85")
             .unwrap()
             .with("iterations", "20")
@@ -243,7 +247,7 @@ fn a_result_is_served_only_under_its_own_key_and_graph() {
 fn values_of_every_type_round_trip_and_floats_are_canonical() {
     let mut w = graph();
     let id = w.graph_identity();
-    let key = |op: &str| ResultKey::new(id, op, 1, true);
+    let key = |op: &str| ResultKey::new(id, op, 1, true).unwrap();
     let n = 10_000_u32;
     let labels: Vec<u32> = (0..n).map(|i| i.wrapping_mul(2_654_435_761)).collect();
     let counts: Vec<u64> = (0..u64::from(n)).map(|i| i << 40 | i).collect();
@@ -291,7 +295,7 @@ fn values_of_every_type_round_trip_and_floats_are_canonical() {
 #[test]
 fn storing_under_the_same_key_replaces_the_result() {
     let mut w = graph();
-    let key = ResultKey::new(w.graph_identity(), "degrees", 1, true);
+    let key = ResultKey::new(w.graph_identity(), "degrees", 1, true).unwrap();
     w.add_result(&key, &about(), &[1_u32, 2, 3]).unwrap();
     w.commit().unwrap();
     let mut w = Writer::update(reopen(w).into_source()).unwrap();
@@ -308,13 +312,29 @@ fn storing_under_the_same_key_replaces_the_result() {
 fn what_cannot_be_a_result_key_or_record_is_refused() {
     let mut w = graph();
     let id = w.graph_identity();
-    for reserved in ["graph", "version", "deterministic"] {
+    for reserved in [
+        "graph",
+        "version",
+        "deterministic",
+        "memory",
+        "threads",
+        "temp_dir",
+        "progress",
+    ] {
         assert!(matches!(
-            ResultKey::new(id, "pagerank", 1, true).with(reserved, "x"),
+            ResultKey::new(id, "pagerank", 1, true)
+                .unwrap()
+                .with(reserved, "x"),
             Err(ContainerError::InvalidResult(_))
         ));
     }
-    let key = ResultKey::new(id, "pagerank", 1, true);
+    for operation in ["", "page/rank"] {
+        assert!(matches!(
+            ResultKey::new(id, operation, 1, true),
+            Err(ContainerError::InvalidResult(_))
+        ));
+    }
+    let key = ResultKey::new(id, "pagerank", 1, true).unwrap();
     let named = Provenance {
         operation: "other".into(),
         ..about()
@@ -323,7 +343,7 @@ fn what_cannot_be_a_result_key_or_record_is_refused() {
         w.add_result(&key, &named, &[1_u32]),
         Err(ContainerError::InvalidResult(_))
     ));
-    let elsewhere = ResultKey::new(empty_graph(), "pagerank", 1, true);
+    let elsewhere = ResultKey::new(empty_graph(), "pagerank", 1, true).unwrap();
     assert!(matches!(
         w.add_result(&elsewhere, &about(), &[1_u32]),
         Err(ContainerError::InvalidResult(_))
@@ -332,12 +352,14 @@ fn what_cannot_be_a_result_key_or_record_is_refused() {
 }
 
 #[test]
-fn a_damaged_result_is_refused_not_served() {
+fn a_damaged_result_is_found_but_fails_its_check() {
     let mut w = graph();
-    let key = ResultKey::new(w.graph_identity(), "degrees", 1, true);
+    let key = ResultKey::new(w.graph_identity(), "degrees", 1, true).unwrap();
     w.add_result(&key, &about(), &[1_u32; 1000]).unwrap();
     w.commit().unwrap();
     let file = reopen(w);
+    let stored = file.find_result(&key).unwrap().unwrap();
+    file.verify_result(&stored).unwrap();
     let offset = file
         .entries()
         .iter()
@@ -347,8 +369,101 @@ fn a_damaged_result_is_refused_not_served() {
     let mut image = file.into_source().into_inner();
     image[usize::try_from(offset).unwrap() + 100] ^= 1;
     let file = Container::open(Mem::new(image)).unwrap();
+    // Found without reading the values (spec § 12), refused by the check.
+    let stored = file.find_result(&key).unwrap().unwrap();
     assert!(matches!(
-        file.find_result(&key),
+        file.verify_result(&stored),
         Err(ContainerError::Damaged { .. })
     ));
+}
+
+/// A section that another program wrote under `key`'s name, with `record` as its
+/// provenance and `bytes` as its content; every hash is right.
+fn planted(
+    key: &ResultKey,
+    kind: Kind,
+    record: Option<&Provenance>,
+    bytes: &[u8],
+) -> Container<Mem> {
+    let mut w = graph();
+    let name = key.section_name().unwrap();
+    let record_name = format!("{name}.provenance");
+    if let Some(record) = record {
+        w.add_provenance(&record_name, record).unwrap();
+    }
+    w.add_section(&name, kind, bytes, record.map(|_| record_name.as_str()))
+        .unwrap();
+    w.commit().unwrap();
+    reopen(w)
+}
+
+/// The record a result stored under `key` holds.
+fn record_of(key: &ResultKey) -> Provenance {
+    Provenance {
+        operation: key.operation().to_owned(),
+        parameters: key.parameters().clone(),
+        ..about()
+    }
+}
+
+/// A result section: magic, value type, reserved, values.
+fn result_bytes(code: u32, values: &[u8]) -> Vec<u8> {
+    let mut out = b"EGRES\0\0\0".to_vec();
+    out.extend_from_slice(&code.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(values);
+    out
+}
+
+#[test]
+fn a_planted_section_is_served_only_when_its_record_holds_the_key() {
+    let id = graph().graph_identity();
+    let wanted = pagerank(id, 1, true);
+    let other = pagerank(id, 2, true);
+    let values = result_bytes(4, &1.5_f64.to_le_bytes());
+    // Under the wanted key's name, with the wanted key's record: served.
+    let file = planted(&wanted, Kind::RESULT, Some(&record_of(&wanted)), &values);
+    assert_eq!(find::<f64>(&file, &wanted), Some(vec![1.5]));
+    // The same name, with a record of another key: the name alone is never trusted.
+    let file = planted(&wanted, Kind::RESULT, Some(&record_of(&other)), &values);
+    assert!(file.find_result(&wanted).unwrap().is_none());
+    assert!(file.find_result(&other).unwrap().is_none());
+    // Another kind under a result's name, or no record: not a result.
+    let file = planted(&wanted, Kind::PRIVATE, Some(&record_of(&wanted)), &values);
+    assert!(file.find_result(&wanted).unwrap().is_none());
+    let file = planted(&wanted, Kind::RESULT, None, &values);
+    assert!(file.find_result(&wanted).unwrap().is_none());
+}
+
+#[test]
+fn a_result_section_that_breaks_its_layout_is_refused() {
+    let id = graph().graph_identity();
+    let key = pagerank(id, 1, true);
+    let mut no_magic = result_bytes(4, &[0; 8]);
+    no_magic[0] = b'X';
+    for (what, bytes) in [
+        (
+            "shorter than its header",
+            result_bytes(4, &[])[..15].to_vec(),
+        ),
+        ("no magic", no_magic),
+        ("an unknown value type", result_bytes(9, &[0; 8])),
+        ("value type 0", result_bytes(0, &[0; 8])),
+        ("not a whole number of values", result_bytes(4, &[0; 12])),
+        ("not a whole number of u32", result_bytes(1, &[0; 6])),
+    ] {
+        let file = planted(&key, Kind::RESULT, Some(&record_of(&key)), &bytes);
+        assert!(
+            matches!(
+                file.find_result(&key),
+                Err(ContainerError::InvalidResult(_))
+            ),
+            "{what}"
+        );
+    }
+    // Reserved bytes are ignored (spec § 1).
+    let mut reserved = result_bytes(1, &7_u32.to_le_bytes());
+    reserved[12] = 1;
+    let file = planted(&key, Kind::RESULT, Some(&record_of(&key)), &reserved);
+    assert_eq!(find::<u32>(&file, &key), Some(vec![7]));
 }

@@ -204,11 +204,48 @@ fn a_container_written_to_a_file_reads_back_through_every_source() {
 
 /// Maps the committed sections of the graph file at `path`, as a reader should
 /// (`MmapSource`, spec § 11).
-fn map_by_range(path: &Path) -> MmapSource {
+fn map_by_range(path: &Path) -> Container<MmapSource> {
     let file = fs::File::open(path).unwrap();
-    let probe = FileSource::from_file(file.try_clone().unwrap()).unwrap();
-    let range = Container::open(probe).unwrap().stable_range();
-    MmapSource::from_file_range(&file, range).unwrap()
+    let probe = Container::open(FileSource::from_file(file.try_clone().unwrap()).unwrap()).unwrap();
+    let map = MmapSource::from_file_range(&file, probe.stable_range()).unwrap();
+    probe.with_source(map).unwrap()
+}
+
+/// Commits one section `s{i}` to the graph at `path`.
+fn commit_one(path: &Path, i: u64) {
+    let mut w = Writer::update(FileSink::open(path).unwrap()).unwrap();
+    w.add_section(&format!("s{i}"), kind(), &bytes(i, len_of(i)), None)
+        .unwrap();
+    w.commit().unwrap();
+}
+
+/// The recipe of spec § 11 reads the commit it probed, whatever is committed between
+/// the probe and the map: one commit could make the second header read fall back
+/// (the file then looks damaged), two could put the table past the map (review of
+/// PR #216).
+#[test]
+fn a_range_map_reads_the_commit_it_probed_even_after_more_commits() {
+    for between in [1, 2] {
+        let dir = scratch(&format!("probe-{between}"));
+        let path = dir.join("g.eg");
+        create_graph(&path);
+        let file = fs::File::open(&path).unwrap();
+        let probe =
+            Container::open(FileSource::from_file(file.try_clone().unwrap()).unwrap()).unwrap();
+        let map = MmapSource::from_file_range(&file, probe.stable_range()).unwrap();
+        for i in 1..=between {
+            commit_one(&path, i);
+        }
+        let graph = probe.with_source(map).unwrap();
+        assert_eq!(graph.generation(), 1);
+        assert_eq!(graph.recovered_from(), None);
+        graph.verify_all().unwrap();
+        let base = graph.section("base").unwrap();
+        assert!(base.as_slice().expect("mapped") == bytes(0, 10_000));
+        drop(graph);
+        assert_eq!(check_file(&path), 1 + between);
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[test]
@@ -216,9 +253,8 @@ fn a_process_commits_a_result_to_a_graph_it_holds_mapped() {
     let dir = scratch("mapped-commit");
     let path = dir.join("g.eg");
     create_graph(&path);
-    let map = map_by_range(&path);
-    let before = map.mapped().to_vec();
-    let graph = Container::open(&map).unwrap();
+    let graph = map_by_range(&path);
+    let before = graph.source().mapped().to_vec();
     // The result: the sum of each 1,000 bytes of `base`, read through the map.
     let base = graph.section("base").unwrap();
     let sums: Vec<u64> = base
@@ -228,6 +264,7 @@ fn a_process_commits_a_result_to_a_graph_it_holds_mapped() {
         .map(|c| c.iter().map(|&b| u64::from(b)).sum())
         .collect();
     let key = ResultKey::new(graph.graph_identity(), "block-sums", 1, true)
+        .unwrap()
         .with("block", "1000")
         .unwrap();
     let about = Provenance {
@@ -238,9 +275,12 @@ fn a_process_commits_a_result_to_a_graph_it_holds_mapped() {
     w.add_result(&key, &about, &sums).unwrap();
     w.commit().unwrap();
     drop(w);
-    assert!(map.mapped() == before, "the mapped bytes changed");
+    assert!(
+        graph.source().mapped() == before,
+        "the mapped bytes changed"
+    );
     assert_eq!(graph.generation(), 1);
-    let again = Container::open(map_by_range(&path)).unwrap();
+    let again = map_by_range(&path);
     assert_eq!(again.generation(), 2);
     let stored = again.find_result(&key).unwrap().expect("the stored result");
     let mut got = vec![0_u64; usize::try_from(stored.len()).unwrap()];
@@ -248,7 +288,6 @@ fn a_process_commits_a_result_to_a_graph_it_holds_mapped() {
     assert_eq!(got, sums);
     drop(graph);
     drop(again);
-    drop(map);
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -299,12 +338,14 @@ fn a_second_writer_is_refused_while_the_first_lives_and_not_after_kill_9() {
     assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
     let message = refused.to_string();
     assert!(message.contains("g.eg"), "{message}");
-    if cfg!(target_os = "linux") {
-        assert!(
-            message.contains(&format!("process {}", child.id())),
-            "{message}"
-        );
-    }
+    // Linux names the holder, unless the file system's device in `/proc/locks` is not
+    // the file's (btrfs, overlayfs).
+    assert!(
+        message.contains(&format!("process {} is writing", child.id()))
+            || message.contains("another process is writing")
+            || message.contains("another program has this file open"),
+        "{message}"
+    );
     let refused = FileSink::create(&path).unwrap_err();
     assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
     // Nothing was truncated, and readers are not stopped.
@@ -352,9 +393,9 @@ fn another_process_commits_100_times_to_a_file_this_one_maps_by_range() {
     let dir = scratch("range-map");
     let path = dir.join("g.eg");
     create_graph(&path);
-    let map = map_by_range(&path);
+    let graph = map_by_range(&path);
+    let map = graph.source();
     let before = map.mapped().to_vec();
-    let graph = Container::open(&map).unwrap();
     let base = graph.section("base").unwrap();
     let mut child = spawn_child(RANGE_TEST, COMMIT, &path);
     let mut reads = 0;
@@ -368,7 +409,6 @@ fn another_process_commits_100_times_to_a_file_this_one_maps_by_range() {
     assert!(map.mapped() == before, "the mapped bytes changed");
     assert!(reads > 0);
     drop(graph);
-    drop(map);
     assert_eq!(check_file(&path), 101);
     fs::remove_dir_all(dir).unwrap();
 }

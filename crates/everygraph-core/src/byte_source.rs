@@ -23,7 +23,9 @@ use crate::widen;
 /// - **Re-readable.** [`len`](Self::len) is constant, and reading the same range twice
 ///   yields the same bytes. Two-pass builders (count, then fill) depend on it. Something
 ///   that can be consumed only once, such as a pipe, must be spooled by its backend
-///   before it is offered as a `ByteSource`.
+///   before it is offered as a `ByteSource`. One backend states an exception: a memory
+///   map of one range of a file (`everygraph_io::MmapSource::from_file_range`) is
+///   re-readable inside that range only.
 ///
 /// The trait does not require `Send` or `Sync`, because a browser `File` handle is
 /// neither. Code that reads from several threads asks for `ByteSource + Sync`.

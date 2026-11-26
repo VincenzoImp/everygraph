@@ -1126,6 +1126,7 @@ fn add_a_result(w: &mut Writer<&mut Recording>) -> States {
 fn a_crash_while_storing_or_replacing_a_result_leaves_one_whole_state() {
     check_crashes(base_file(), |w| {
         let key = ResultKey::new(w.graph_identity(), "pagerank", 1, true)
+            .unwrap()
             .with("damping", "0.85")
             .unwrap();
         let mut states = States::new();

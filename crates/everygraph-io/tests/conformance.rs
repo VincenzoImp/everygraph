@@ -592,3 +592,42 @@ fn a_file_sink_writes_beside_a_range_map_and_never_into_it() {
     sink.set_len(0).unwrap();
     fs::remove_dir_all(dir).unwrap();
 }
+
+/// A map reads the file's length and registers its range in one step, so a `FileSink`
+/// of another thread that shortens the file can never leave a map past its end. Before
+/// that, this loop ended the process with `SIGBUS` within seconds (review of PR #216).
+#[cfg(unix)]
+#[test]
+fn a_map_never_reaches_past_the_end_while_another_thread_shortens_the_file() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    use everygraph_core::ByteSink;
+
+    let dir = scratch("map-race");
+    let path = dir.join("file");
+    write_file(&path, &[7; 16 * A]);
+    let stop = AtomicBool::new(false);
+    let mut maps = 0_u64;
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut sink = FileSink::open(&path).unwrap();
+            while !stop.load(Ordering::Relaxed) {
+                // Refused while a map covers the bytes cut off; that is the point.
+                let _ = sink.set_len(16 * A as u64);
+                let _ = sink.set_len(A as u64);
+            }
+        });
+        let until = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < until {
+            let map = MmapSource::from_file(&File::open(&path).unwrap()).unwrap();
+            if let Some(&last) = map.mapped().last() {
+                assert!(last == 7 || last == 0);
+            }
+            maps += 1;
+        }
+        stop.store(true, Ordering::Relaxed);
+    });
+    assert!(maps > 0);
+    fs::remove_dir_all(dir).unwrap();
+}

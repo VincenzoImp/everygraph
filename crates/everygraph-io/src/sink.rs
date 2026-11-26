@@ -27,6 +27,9 @@ use everygraph_core::{AlignedBuf, ByteSink, ByteSource, ReadError, SEGMENT_ALIGN
 use crate::claim::{Claim, Use};
 use crate::{FileSource, backend_error, check_bounds, sys};
 
+/// The two header blocks of a container (`docs/spec/eg-container.md` § 2).
+const HEADER_BLOCKS: u64 = 8192;
+
 /// Buffer of an [`AppendSink`]: 1 MiB.
 const APPEND_BUFFER: usize = 1 << 20;
 
@@ -263,18 +266,25 @@ impl BlockWriter {
 /// operating system releases the lock when the file is closed or the process dies, so
 /// a crash never leaves a stale lock. On Unix it is `File::try_lock` (`flock`), which
 /// is **advisory**: a program that does not take it (an editor, `cp`, `dd`) is not
-/// stopped. On Windows it is the share mode of the open (not `File::try_lock`, whose
-/// mandatory lock would stop readers too): no other handle may open the file for
-/// writing while the sink is open, whichever program asks. Within the process no other sink of this
-/// crate may open the file either.
+/// stopped; where the platform has no such lock (`File::try_lock` is `Unsupported`), only
+/// the guard within the process remains. On Windows it is the share mode of the open
+/// (not `File::try_lock`, whose mandatory lock would stop readers too): no other handle
+/// may open the file for writing while the sink is open, whichever program asks.
+/// Within the process no other sink of this crate may open the file either.
+///
+/// **Replacing the file.** The lock is on the open file, not on its name. A sink that
+/// finds the file at its path replaced while it opens opens it again; one that is open
+/// when the file is replaced by a rename writes to the old file, and its commits are
+/// lost. So an in-place compaction holds a `FileSink` on the original until [`persist`]
+/// has returned.
 ///
 /// **Memory maps.** The sink may be open on a file that a live
 /// [`MmapSource`](crate::MmapSource) of this process maps, and the file may be mapped
 /// while it is: each write or length change that would reach a mapped range is refused
 /// ([`io::ErrorKind::ResourceBusy`]). A container's commit touches only its header
 /// blocks and the bytes from the committed end on, so it goes through beside a map of
-/// `8192 … committed end`, and fails beside a whole-file map. Other processes are not
-/// guarded (see `MmapSource`).
+/// `8192 … committed end`, and on Unix fails beside a whole-file map (on Windows there
+/// is no guard). Other processes are not guarded (see `MmapSource`).
 #[derive(Debug)]
 pub struct FileSink {
     // Declared before the claim: the file is closed, and its lock released, first.
@@ -305,7 +315,7 @@ impl FileSink {
         )?;
         let len = file.metadata()?.len();
         let mut sink = Self { file, len, claim };
-        sink.resize(0)?;
+        sink.resize(0, false)?;
         Ok(sink)
     }
 
@@ -334,17 +344,18 @@ impl FileSink {
 
     /// Sets the length, unless that would cut off or extend into a mapped range.
     ///
-    /// Windows refuses to shorten a file that another process maps. The bytes past
-    /// `len` then stay in the file, never read through the sink, until a later length
-    /// change cuts them off: a container allows a file longer than its committed end
-    /// (`docs/spec/eg-container.md` § 7, § 8).
-    fn resize(&mut self, len: u64) -> io::Result<()> {
+    /// With `tail_cut`, the container's cut of what lies past its new committed end
+    /// (`docs/spec/eg-container.md` § 8, step 1): Windows refuses to shorten a file that
+    /// another process maps, and the bytes past `len` then stay in the file, never read
+    /// through the sink, until a later cut succeeds. A container allows a file longer
+    /// than its committed end (§ 7). Any other refused shortening is an error.
+    fn resize(&mut self, len: u64, tail_cut: bool) -> io::Result<()> {
         let file = &self.file;
         match self
             .claim
             .guard(self.len.min(len)..u64::MAX, || file.set_len(len))
         {
-            Err(e) if sys::is_user_mapped(&e) && file.metadata()?.len() > len => {}
+            Err(e) if tail_cut && sys::is_user_mapped(&e) && file.metadata()?.len() > len => {}
             result => result?,
         }
         self.len = len;
@@ -354,33 +365,42 @@ impl FileSink {
 
 /// Opens `path` with `options` for a [`FileSink`]: held alone in this process, and
 /// locked against writers in other processes.
+///
+/// A file replaced by a rename between the open and the lock (an in-place compaction,
+/// [`persist`]) is not the file at `path` any more, and a commit to it would be lost: so
+/// on Unix the locked file must still be the one at `path`, by device and inode, or it
+/// is opened again.
 fn open_alone(options: &mut OpenOptions, path: &Path) -> io::Result<(File, Claim)> {
-    let locked = |holder: Option<u32>| {
-        let who = holder.map_or_else(
-            || "another process".to_owned(),
-            |pid| format!("process {pid}"),
-        );
+    let refused = |who: String| {
         io::Error::new(
             io::ErrorKind::ResourceBusy,
-            format!(
-                "{}: {who} is writing this file; run again once it has finished",
-                path.display()
-            ),
+            format!("{}: {who}; run again once it has finished", path.display()),
         )
     };
     sys::lock_options(options);
-    let file = options.open(path).map_err(|e| {
-        if sys::is_sharing_violation(&e) {
-            locked(None)
-        } else {
-            e
+    for _ in 0..3 {
+        let file = options.open(path).map_err(|e| {
+            if sys::is_sharing_violation(&e) {
+                refused("another program has this file open".to_owned())
+            } else {
+                e
+            }
+        })?;
+        let claim = Claim::take(&file, Use::WriteAlone)?;
+        if !sys::try_lock(&file)? {
+            let who = sys::lock_holder(&file).map_or_else(
+                || "another process is writing this file".to_owned(),
+                |pid| format!("process {pid} is writing this file"),
+            );
+            return Err(refused(who));
         }
-    })?;
-    let claim = Claim::take(&file, Use::WriteAlone)?;
-    if !sys::try_lock(&file)? {
-        return Err(locked(sys::lock_holder(&file)));
+        if sys::same_file(&file, path)? {
+            return Ok((file, claim));
+        }
     }
-    Ok((file, claim))
+    Err(refused(
+        "the file was replaced while it was being opened".to_owned(),
+    ))
 }
 
 impl ByteSource for FileSink {
@@ -401,7 +421,7 @@ impl ByteSink for FileSink {
             .ok_or(WriteError::TooLarge { len: u64::MAX })?;
         if data.is_empty() && end > self.len {
             // A write of nothing past the end still extends the sink (the contract).
-            return self.resize(end).map_err(write_error);
+            return self.resize(end, false).map_err(write_error);
         }
         let file = &self.file;
         self.claim
@@ -412,7 +432,11 @@ impl ByteSink for FileSink {
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), WriteError> {
-        self.resize(len).map_err(write_error)
+        // A container's committed end is past its header blocks (spec § 2, § 8): only a
+        // cut at or past them can be its tail cut. `Writer::create` empties the file
+        // first, and that must fail if the file is mapped.
+        let tail_cut = len >= HEADER_BLOCKS;
+        self.resize(len, tail_cut).map_err(write_error)
     }
 
     fn sync(&mut self) -> Result<(), WriteError> {
@@ -440,6 +464,11 @@ fn open_claimed(
 /// makes the new name durable: the last step of writing a graph (`NAME.eg.partial` →
 /// `NAME.eg`, ux-contract C-1) or of a compaction. At every instant `destination` is
 /// either the old file or the new one, whole.
+///
+/// A writer that holds the old file open keeps writing to it after the rename, and its
+/// commits are lost. So a compaction in place holds a [`FileSink`] on `destination`
+/// (which refuses every other writer) from before it reads the original until this
+/// function has returned.
 ///
 /// The caller has made the file's content durable first (a container's commit does).
 /// Both paths must be on the same file system. On Unix the rename is `rename(2)` and

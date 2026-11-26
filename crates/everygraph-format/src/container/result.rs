@@ -19,6 +19,9 @@ const HEAD: usize = 16;
 const CHUNK: usize = 1 << 14;
 /// The parameters every result key holds (spec § 6).
 const RESERVED: [&str; 3] = ["deterministic", "graph", "version"];
+/// Settings that cannot change a result, and so never enter its key
+/// (`docs/api-sketch.md` § 2.8).
+const NOT_IN_KEY: [&str; 4] = ["memory", "progress", "temp_dir", "threads"];
 
 /// What a result was computed on: BLAKE3 over the sections that define the graph
 /// (spec § 6). Two files whose graph sections differ in kind, name or content never
@@ -80,8 +83,22 @@ impl ResultKey {
     /// The key of `operation` (such as `"pagerank"`) at algorithm version `version`,
     /// run deterministically or not, on the graph `graph`. Add the parameters with
     /// [`with`](Self::with).
-    #[must_use]
-    pub fn new(graph: GraphIdentity, operation: &str, version: u32, deterministic: bool) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::InvalidResult`] for an empty operation or one with a `/`,
+    /// which the section name could not hold as one part.
+    pub fn new(
+        graph: GraphIdentity,
+        operation: &str,
+        version: u32,
+        deterministic: bool,
+    ) -> Result<Self, ContainerError> {
+        if operation.is_empty() || operation.contains('/') {
+            return Err(ContainerError::InvalidResult(
+                "an operation name is not empty and holds no '/'",
+            ));
+        }
         let parameters = [
             ("deterministic", deterministic.to_string()),
             ("graph", graph.to_string()),
@@ -90,11 +107,11 @@ impl ResultKey {
         .into_iter()
         .map(|(k, v)| (k.to_owned(), v))
         .collect();
-        Self {
+        Ok(Self {
             graph,
             operation: operation.to_owned(),
             parameters,
-        }
+        })
     }
 
     /// Adds parameter `name` with `value`, written as spec § 6 says (counts and seeds
@@ -103,11 +120,17 @@ impl ResultKey {
     /// # Errors
     ///
     /// [`ContainerError::InvalidResult`] for `deterministic`, `graph` and `version`,
-    /// which [`new`](Self::new) sets.
+    /// which [`new`](Self::new) sets, and for `memory`, `threads`, `temp_dir` and
+    /// `progress`, which cannot change a result.
     pub fn with(mut self, name: &str, value: &str) -> Result<Self, ContainerError> {
         if RESERVED.contains(&name) {
             return Err(ContainerError::InvalidResult(
                 "deterministic, graph and version are set by ResultKey::new",
+            ));
+        }
+        if NOT_IN_KEY.contains(&name) {
+            return Err(ContainerError::InvalidResult(
+                "memory, threads, temp_dir and progress cannot change a result",
             ));
         }
         self.parameters.insert(name.to_owned(), value.to_owned());
@@ -133,8 +156,14 @@ impl ResultKey {
         &self.parameters
     }
 
-    /// `results/<operation>/<32 hexadecimal digits of the key's hash>`.
-    fn section_name(&self) -> Result<String, ContainerError> {
+    /// The name of the result's section (spec § 6): `results/<operation>/<32
+    /// hexadecimal digits of the key's hash>`. Its provenance record is that name and
+    /// `.provenance`.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::TooLarge`] for a key whose record would exceed 16 MiB.
+    pub fn section_name(&self) -> Result<String, ContainerError> {
         let key = Provenance {
             operation: self.operation.clone(),
             parameters: self.parameters.clone(),
@@ -245,6 +274,7 @@ value!(f64, F64, |v| if v.is_nan() {
 /// A result found in a graph file: see [`Container::find_result`].
 #[derive(Debug)]
 pub struct StoredResult<'a, S> {
+    name: String,
     section: Section<'a, S>,
     value_type: ValueType,
     len: u64,
@@ -318,13 +348,15 @@ impl<S: ByteSource> Container<S> {
         GraphIdentity::of(self.entries())
     }
 
-    /// The result stored under `key`, checked against its hash; `None` when there is
-    /// none, or when `key` is of another graph than this file's (a result is served
-    /// only for the graph it was computed on).
+    /// The result stored under `key`; `None` when there is none, or when `key` is of
+    /// another graph than this file's (a result is served only for the graph it was
+    /// computed on). Reads the provenance record (checked against its hash) and the
+    /// section's first 16 bytes, not the values: like every section, a result is checked
+    /// against its hash by [`verify_result`](Self::verify_result) or
+    /// [`verify`](Self::verify), not by reading it (spec § 12).
     ///
     /// # Errors
     ///
-    /// [`ContainerError::Damaged`] when the result does not match its hash;
     /// [`ContainerError::InvalidResult`] for a result section that breaks its layout;
     /// [`ContainerError::Read`] and the errors of [`provenance`](Self::provenance).
     pub fn find_result(
@@ -344,7 +376,6 @@ impl<S: ByteSource> Container<S> {
         if !key.matches(&provenance) {
             return Ok(None);
         }
-        self.verify(&name)?;
         let section = self.section(&name)?;
         let mut head = [0u8; HEAD];
         section
@@ -364,11 +395,25 @@ impl<S: ByteSource> Container<S> {
             ));
         }
         Ok(Some(StoredResult {
+            name,
             section,
             value_type,
             len: body / size,
             provenance,
         }))
+    }
+}
+
+impl<S: ByteSource> Container<S> {
+    /// Checks a result found by [`find_result`](Self::find_result) against its hash,
+    /// reading all of it.
+    ///
+    /// # Errors
+    ///
+    /// As [`verify`](Self::verify): [`ContainerError::Damaged`] when the bytes do not
+    /// match.
+    pub fn verify_result(&self, result: &StoredResult<'_, S>) -> Result<(), ContainerError> {
+        self.verify(&result.name)
     }
 }
 

@@ -10,7 +10,7 @@ use std::path::Path;
 use everygraph_core::{AccessHint, ByteSource, ReadError};
 use memmap2::Mmap;
 
-use crate::claim::{Claim, Use};
+use crate::claim::Claim;
 use crate::{backend_error, check_bounds, sys};
 
 /// A file mapped read-only into memory, whole or one range of it: the engine's in-RAM
@@ -48,16 +48,19 @@ use crate::{backend_error, check_bounds, sys};
 /// of a header block and bytes from the committed end on, and shortens the file only to
 /// a length at or past every earlier committed end. So a map of `8192 … committed end`
 /// of the commit a reader opened (`Container::stable_range`) is safe against every
-/// commit, by this process or any other that follows the container's protocol, and
-/// header blocks are read with positional reads:
+/// commit, by this process or any other that follows the container's protocol. The
+/// header blocks and the table are read once, by the probe:
 ///
 /// ```no_run
 /// use everygraph_format::container::Container;
 /// use everygraph_io::{FileSource, MmapSource};
 ///
 /// let file = std::fs::File::open("graph.eg")?;
-/// let range = Container::open(FileSource::from_file(file.try_clone()?)?)?.stable_range();
-/// let graph = Container::open(MmapSource::from_file_range(&file, range)?)?;
+/// let probe = Container::open(FileSource::from_file(file.try_clone()?)?)?;
+/// let map = MmapSource::from_file_range(&file, probe.stable_range())?;
+/// // The commit the probe opened, read through the map: not a second header read,
+/// // which could see a newer commit whose sections lie past the map.
+/// let graph = probe.with_source(map)?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
@@ -105,8 +108,7 @@ impl MmapSource {
     ///
     /// As [`open`](Self::open).
     pub fn from_file(file: &File) -> io::Result<Self> {
-        let len = file.metadata()?.len();
-        Self::map(file, 0..len, len, None)
+        Self::map(file, None, None)
     }
 
     /// Maps `range` of the file at `path`; see the type's docs.
@@ -127,18 +129,20 @@ impl MmapSource {
     /// cannot be mapped; a sink of this process other than a `FileSink` writes it
     /// ([`io::ErrorKind::ResourceBusy`]).
     pub fn from_file_range(file: &File, range: Range<u64>) -> io::Result<Self> {
-        let len = file.metadata()?.len();
-        if range.start > range.end || range.end > len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("cannot map bytes {range:?} of a file of {len} bytes"),
-            ));
-        }
-        Self::map(file, range, len, Some(file.try_clone()?))
+        Self::map(file, Some(range), Some(file.try_clone()?))
     }
 
-    fn map(file: &File, range: Range<u64>, len: u64, keep: Option<File>) -> io::Result<Self> {
-        let claim = Claim::take(file, Use::Map(range.clone()))?;
+    /// Maps `range`, or the whole file. The length is read and the range checked under
+    /// the claim, so no sink of this process can shorten the file in between.
+    fn map(file: &File, range: Option<Range<u64>>, keep: Option<File>) -> io::Result<Self> {
+        let (claim, range, len) = Claim::map(file, |len| match &range {
+            None => Ok(0..len),
+            Some(r) if r.start <= r.end && r.end <= len => Ok(r.clone()),
+            Some(r) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("cannot map bytes {r:?} of a file of {len} bytes"),
+            )),
+        })?;
         let map_len = usize::try_from(range.end - range.start).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,

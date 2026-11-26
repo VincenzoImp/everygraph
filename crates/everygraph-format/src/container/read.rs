@@ -337,6 +337,38 @@ impl<S: ByteSource> Container<S> {
         padded(self.header.toc_offset, self.header.toc_len)
     }
 
+    /// The same commit, read from `source` from now on: nothing is read again, so a
+    /// commit by another writer since this container was opened cannot make the two
+    /// disagree. For a map of [`stable_range`](Self::stable_range) (spec § 11):
+    ///
+    /// ```text
+    /// let probe = Container::open(FileSource::from_file(file.try_clone()?)?)?;
+    /// let graph = probe.with_source(MmapSource::from_file_range(&file, probe.stable_range())?)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::Read`] when `source` is shorter than the committed part of
+    /// the file.
+    pub fn with_source<T: ByteSource>(self, source: T) -> Result<Container<T>, ContainerError> {
+        let committed = self.committed_len();
+        if source.len() < committed {
+            return Err(ReadError::OutOfBounds {
+                offset: 0,
+                len: committed,
+                source_len: source.len(),
+            }
+            .into());
+        }
+        Ok(Container {
+            source,
+            header: self.header,
+            entries: self.entries,
+            recovered_from: self.recovered_from,
+            unreadable_block: self.unreadable_block,
+        })
+    }
+
     /// The bytes that no commit changes while this one is the file's state or an
     /// earlier one, by this writer or any other that follows the protocol: from the
     /// end of the header blocks to the committed end (spec § 11). What a reader maps

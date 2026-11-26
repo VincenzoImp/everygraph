@@ -247,8 +247,10 @@ pub(crate) fn map(file: &File, offset: u64, len: usize) -> io::Result<Mmap> {
     // truncation would make reading them raise SIGBUS. That is not enforced against
     // other processes or against `std::fs` writes in this one; it is the invariant
     // accepted by the decision above. Inside the process the sinks of this crate refuse
-    // to write a mapped range (`claim`), and the caller (`MmapSource`) holds that claim
-    // before calling this.
+    // to write a mapped range (`claim`). The caller (`MmapSource`) holds that claim
+    // before calling this, and read the file's length and checked the range under the
+    // claim's lock, so that `offset + len` is inside the file and no sink of this
+    // process can shorten the file into the range from then on.
     unsafe { options.map(file) }
 }
 
@@ -264,6 +266,11 @@ pub(crate) fn try_lock(file: &File) -> io::Result<bool> {
         match file.try_lock() {
             Ok(()) => Ok(true),
             Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+            // A Unix that std has no lock for (Solaris, Haiku): none of the release's
+            // platforms (D14). Only the in-process guard then keeps writers apart.
+            Err(std::fs::TryLockError::Error(e)) if e.kind() == io::ErrorKind::Unsupported => {
+                Ok(true)
+            }
             Err(std::fs::TryLockError::Error(e)) => Err(e),
         }
     }
@@ -296,6 +303,22 @@ pub(crate) fn is_sharing_violation(error: &io::Error) -> bool {
     cfg!(windows) && error.raw_os_error() == Some(32)
 }
 
+/// Whether `file` is still the file at `path`, by device and inode; always true where
+/// there is no inode (Windows).
+pub(crate) fn same_file(file: &File, path: &Path) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (held, named) = (file.metadata()?, std::fs::metadata(path)?);
+        Ok((held.dev(), held.ino()) == (named.dev(), named.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (file, path);
+        Ok(true)
+    }
+}
+
 /// Whether `error` is Windows' `ERROR_USER_MAPPED_FILE` (1224): a file that a process
 /// maps cannot be shortened.
 pub(crate) fn is_user_mapped(error: &io::Error) -> bool {
@@ -304,7 +327,8 @@ pub(crate) fn is_user_mapped(error: &io::Error) -> bool {
 
 /// The process that holds the `flock` of `file`, where the system tells: Linux lists
 /// every lock in `/proc/locks` with its process and its device and inode. `None`
-/// elsewhere, or when it is not found.
+/// elsewhere, or when it is not found: `/proc/locks` writes the device of the file
+/// system's superblock, which on btrfs and overlayfs is not the file's `st_dev`.
 pub(crate) fn lock_holder(file: &File) -> Option<u32> {
     #[cfg(target_os = "linux")]
     {
