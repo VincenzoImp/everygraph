@@ -150,6 +150,36 @@ const MAX_BLOCK: u32 = 4096;
 /// About this many blocks per graph, between the two bounds.
 const BLOCKS: u32 = 4096;
 
+/// How the frontier drivers run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Runs in parallel, lists whole.
+    Parallel,
+    /// Runs and the parts of long lists in parallel.
+    Parts,
+    /// Runs on the calling thread, lists whole.
+    Serial,
+}
+
+impl Mode {
+    /// [`par::map_ranges`], or the same chunks in order on the calling thread.
+    fn map_ranges<T: Send>(
+        self,
+        len: usize,
+        grain: NonZeroUsize,
+        f: impl Fn(Range<usize>) -> T + Send + Sync,
+    ) -> Vec<T> {
+        if self == Self::Serial {
+            let g = grain.get();
+            (0..len.div_ceil(g))
+                .map(|i| f(i * g..((i + 1) * g).min(len)))
+                .collect()
+        } else {
+            par::map_ranges(len, grain, f)
+        }
+    }
+}
+
 /// A `u64` as an index into memory.
 pub(crate) fn ix(x: u64) -> usize {
     usize::try_from(x).expect("an index into memory")
@@ -1002,7 +1032,27 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
         W: Send,
     {
-        self.drive(frontier, false, init, body)
+        self.drive(frontier, Mode::Parallel, init, body)
+    }
+
+    /// As [`frontier_with`](Self::frontier_with), with the same value, but every run on
+    /// the calling thread: for small frontiers whose kernel wants no fork-join and a
+    /// memory peak that does not depend on the schedule.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan_with`](Self::scan_with).
+    pub fn frontier_serial_with<A, W>(
+        &self,
+        frontier: &[Node<'g>],
+        init: impl Fn() -> W + Sync,
+        body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
+    ) -> Result<A, Error>
+    where
+        A: Reduce,
+        W: Send,
+    {
+        self.drive(frontier, Mode::Serial, init, body)
     }
 
     /// As [`frontier_with`](Self::frontier_with), but a list of more than
@@ -1026,14 +1076,14 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
         W: Send,
     {
-        self.drive(frontier, true, init, body)
+        self.drive(frontier, Mode::Parts, init, body)
     }
 
-    /// The frontier drivers; `split` cuts long lists into parts.
+    /// The frontier drivers.
     fn drive<A, W>(
         &self,
         frontier: &[Node<'g>],
-        split: bool,
+        mode: Mode,
         init: impl Fn() -> W + Sync,
         body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
     ) -> Result<A, Error>
@@ -1093,7 +1143,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     // SAFETY: the source hands out lists of its nodes only.
                     let list = unsafe { as_nodes(list) };
                     work.entries += list.len() as u64;
-                    if split && list.len() > RUN_ENTRIES {
+                    if mode == Mode::Parts && list.len() > RUN_ENTRIES {
                         match parts(node, first_entry, list) {
                             Ok((a, more)) => {
                                 acc = std::mem::replace(&mut acc, A::ZERO).add(a);
@@ -1130,7 +1180,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             if cuts.len() <= 2 {
                 return run(nodes);
             }
-            par::map_ranges(cuts.len() - 1, NonZeroUsize::MIN, |r| {
+            mode.map_ranges(cuts.len() - 1, NonZeroUsize::MIN, |r| {
                 run(&nodes[cuts[r.start]..cuts[r.end]])
             })
             .into_iter()
@@ -1139,7 +1189,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         let (acc, work) = if frontier.len() <= FRONTIER_GRAIN {
             group(0..frontier.len())?
         } else {
-            par::map_ranges(frontier.len(), GRAIN, group)
+            mode.map_ranges(frontier.len(), GRAIN, group)
                 .into_iter()
                 .try_fold(<(A, Work)>::ZERO, |sum, part| {
                     Ok::<_, Error>(sum.add(part?))

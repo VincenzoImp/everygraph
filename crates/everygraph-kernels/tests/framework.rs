@@ -204,6 +204,16 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                     *acc += value(row.node.get(), ids(row.list));
                 })
                 .unwrap();
+            let serial: f64 = plan
+                .frontier_serial_with(
+                    &frontier,
+                    || (),
+                    |acc: &mut f64, row, _| {
+                        *acc += value(row.node.get(), ids(row.list));
+                    },
+                )
+                .unwrap();
+            assert_eq!(serial.to_bits(), pushed.to_bits());
             let common: u64 = plan
                 .scan_with((), all, Vec::<u32>::new, |acc: &mut u64, (), _, row, w| {
                     let Some(&u) = row.list.first() else { return };
