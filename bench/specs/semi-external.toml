@@ -6,6 +6,8 @@
 # Kernel time inside the process (`edge_map_bench`); bytes read are the process's own
 # `read_bytes` from /proc/self/io for the first repetition. Each case starts from a data
 # part evicted from the page cache (`posix_fadvise` DONTNEED), so the first pass is cold.
+# The cases read the stores under {stores}, not a dataset of the registry, so they name
+# no `dataset_path` and evict what they read themselves.
 #
 # - `pr-ram`: PageRank f32, 10 iterations, data part read into the heap (`compressed`),
 #   under a limit that holds it: the in-RAM reference on the same format.
@@ -81,8 +83,7 @@ name = "pr-ram"
 group = "friendster"
 description = "PageRank f32 on Friendster, compressed data part in the heap"
 memory_limit = "20G"
-dataset_path = "csr/friendster"
-shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {dataset} --store {stores}/friendster --source compressed --kernel pr32 --iters 10 --threads {threads} --reps 1"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source compressed --kernel pr32 --iters 10 --threads {threads} --reps 1"
 conditions = { graph = "friendster", kernel = "PageRank f32, 10 iterations", storage = "compressed, in the heap", limit = "20G", level = "in-process kernel time" }
 record_json = { hash = "/hash" }
 metric = [
@@ -97,8 +98,7 @@ group = "friendster"
 description = "PageRank f32 on Friendster through CompressedStream under limits below the data part"
 matrix = { limit = ["2G", "4G", "8G"] }
 memory_limit = "{limit}"
-dataset_path = "csr/friendster"
-shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {dataset} --store {stores}/friendster --source streamed --kernel pr32 --iters 10 --threads {threads} --reps 1"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source streamed --kernel pr32 --iters 10 --threads {threads} --reps 1"
 conditions = { graph = "friendster", kernel = "PageRank f32, 10 iterations", storage = "compressed, streamed, 4 MiB windows, alternating scans", limit = "{limit}", level = "in-process kernel time" }
 record_json = { hash = "/hash" }
 metric = [
@@ -113,8 +113,7 @@ name = "pr-order"
 group = "friendster"
 description = "PageRank f32 on Friendster streamed under 8G: forward-only scans against alternating ones"
 matrix = { alternate = ["0", "1"] }
-dataset_path = "csr/friendster"
-shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {dataset} --store {stores}/friendster --source streamed --kernel pr32 --iters 10 --threads {threads} --reps 1 --alternate {alternate}"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source streamed --kernel pr32 --iters 10 --threads {threads} --reps 1 --alternate {alternate}"
 conditions = { graph = "friendster", kernel = "PageRank f32, 10 iterations", storage = "compressed, streamed, 4 MiB windows", order = "alternate={alternate}", limit = "8G", level = "in-process kernel time" }
 record_json = { hash = "/hash" }
 metric = [
@@ -128,8 +127,7 @@ name = "twitter-scan"
 group = "twitter-sym"
 description = "Repeated scans of twitter-sym under 8G: compressed stream against raw stream"
 matrix = { kernel = ["pr32", "cc-one-pass"], source = ["streamed", "stream"] }
-dataset_path = "csr/twitter-sym"
-shell = "{evict} {stores}/twitter-sym/adjacency.data && {evict} {dataset}/targets.u32 && exec {bench} run --graph {dataset} --store {stores}/twitter-sym --source {source} --kernel {kernel} --iters 10 --threads {threads} --reps 3"
+shell = "{evict} {stores}/twitter-sym/adjacency.data && {evict} {data}/csr/twitter-sym/targets.u32 && exec {bench} run --graph {data}/csr/twitter-sym --store {stores}/twitter-sym --source {source} --kernel {kernel} --iters 10 --threads {threads} --reps 3"
 conditions = { graph = "twitter-sym", kernel = "{kernel}", storage = "{source} (streamed: compressed; stream: raw targets), positional reads through the page cache", limit = "8G", level = "in-process kernel time, best of 3 in one process" }
 record_json = { hash = "/hash" }
 metric = [
@@ -143,8 +141,7 @@ name = "wcc-ram"
 group = "friendster"
 description = "Components with sampling on Friendster, compressed data part in the heap"
 memory_limit = "20G"
-dataset_path = "csr/friendster"
-shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {dataset} --store {stores}/friendster --source compressed --kernel cc --threads {threads} --reps 3"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source compressed --kernel cc --threads {threads} --reps 3"
 conditions = { graph = "friendster", kernel = "components, sampled (cc)", storage = "compressed, in the heap", limit = "20G", level = "in-process kernel time, best of 3 in one process" }
 record_json = { hash = "/hash" }
 metric = [
@@ -156,8 +153,7 @@ primary = "seconds"
 name = "wcc-stream"
 group = "friendster"
 description = "Components with sampling on Friendster through CompressedStream under 8G"
-dataset_path = "csr/friendster"
-shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {dataset} --store {stores}/friendster --source streamed --kernel cc --threads {threads} --reps 3"
+shell = "{evict} {stores}/friendster/adjacency.data && exec {bench} run --graph {data}/csr/friendster --store {stores}/friendster --source streamed --kernel cc --threads {threads} --reps 3"
 conditions = { graph = "friendster", kernel = "components, sampled (cc)", storage = "compressed, streamed, 4 MiB windows", limit = "8G", level = "in-process kernel time, best of 3 in one process" }
 record_json = { hash = "/hash" }
 metric = [
