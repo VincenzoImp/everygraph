@@ -64,8 +64,20 @@ impl Run {
         self.untracked_outside(&[])
     }
 
-    /// [`untracked`](Self::untracked), leaving out the phases whose names start with one
-    /// of `exempt`.
+    /// The most untracked bytes in the phases whose names start with one of `exempt`.
+    #[must_use]
+    pub fn untracked_in(&self, exempt: &[&str]) -> u64 {
+        self.phases
+            .iter()
+            .filter(|p| exempt.iter().any(|e| p.0.starts_with(e)))
+            .map(|p| p.1)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// [`untracked`](Self::untracked) in the other phases, less what the exempt phases
+    /// hold: what they allocated and later phases still hold is counted once, in them
+    /// (seen on macOS, PR #251), and what later phases add on top is counted.
     #[must_use]
     pub fn untracked_outside(&self, exempt: &[&str]) -> u64 {
         self.phases
@@ -74,6 +86,7 @@ impl Run {
             .map(|p| p.1)
             .max()
             .unwrap_or(0)
+            .saturating_sub(self.untracked_in(exempt))
     }
 }
 

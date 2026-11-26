@@ -18,7 +18,8 @@ use crate::probe::{Boundary, Outcome, measure, top_slope};
 /// What an operation holds untracked at each size of one recipe.
 #[derive(Clone, Debug, Default)]
 pub struct Growth {
-    /// (nodes, untracked bytes outside the phases [`KNOWN`](crate::ops::KNOWN) exempts), for the fit.
+    /// (nodes, untracked bytes outside the phases [`KNOWN`](crate::ops::KNOWN) exempts,
+    /// above what the exempt phases hold), for the fit.
     pub points: Vec<(f64, f64)>,
     /// (nodes, untracked bytes in the exempt phases).
     pub exempt: Vec<(f64, f64)>,
@@ -86,15 +87,9 @@ pub fn growth(ops: &[Op], recipe: &Recipe, sizes: &[u32], dir: &Path) -> Vec<Gro
             } else {
                 run
             };
-            let inside = run
-                .phases
-                .iter()
-                .filter(|p| exempt.iter().any(|e| p.0.starts_with(e)))
-                .map(|p| p.1)
-                .max()
-                .unwrap_or(0);
             let nodes = f64::from(input.nodes);
             g.points.push((nodes, run.untracked_outside(exempt) as f64));
+            let inside = run.untracked_in(exempt);
             g.exempt.push((nodes, inside as f64));
             g.budgets.push(budget);
             g.phases = run.phases;
