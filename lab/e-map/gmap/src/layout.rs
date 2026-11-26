@@ -496,6 +496,10 @@ pub struct Hier {
     pub levels: Vec<usize>,
     pub l0: Vec<u32>,
     pub parents: Vec<Vec<u32>>,
+    /// m1-05: per level, region kind (1 community, 2 aggregate, 3 subdivision) and, for an
+    /// aggregate, the number of communities it holds; empty when the hierarchy has no kinds
+    pub kinds: Vec<Vec<u8>>,
+    pub counts: Vec<Vec<u32>>,
 }
 pub fn load_hier(dir: &str) -> Hier {
     let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/hier.json")).unwrap()).unwrap();
@@ -507,7 +511,17 @@ pub fn load_hier(dir: &str) -> Hier {
         assert_eq!(p.len(), levels[k - 1]);
         parents.push(p);
     }
-    Hier { levels, l0, parents }
+    let (mut kinds, mut counts) = (vec![], vec![]);
+    if std::path::Path::new(&format!("{dir}/level_0.kind.u8")).exists() {
+        for k in 0..levels.len() {
+            let kk: Vec<u8> = read_vec(&format!("{dir}/level_{k}.kind.u8"));
+            let cc: Vec<u32> = read_vec(&format!("{dir}/level_{k}.count.u32"));
+            assert_eq!((kk.len(), cc.len()), (levels[k], levels[k]));
+            kinds.push(kk);
+            counts.push(cc);
+        }
+    }
+    Hier { levels, l0, parents, kinds, counts }
 }
 
 fn build_tree(n: usize, h: &Hier) -> (Vec<TNode>, Vec<Vec<u32>>, Vec<u32>, Vec<u32>) {
@@ -570,6 +584,16 @@ fn build_tree(n: usize, h: &Hier) -> (Vec<TNode>, Vec<Vec<u32>>, Vec<u32>, Vec<u
             let id = base[k] + c;
             tn[id].level = k as i8;
             tn[id].comm = c as u32;
+            if !h.kinds.is_empty() {
+                match h.kinds[k][c] {
+                    2 => {
+                        tn[id].flags |= F_AGG;
+                        tn[id].comm = h.counts[k][c]; // an aggregate's comm is its community count
+                    }
+                    3 => tn[id].flags |= F_SUBDIV,
+                    _ => {}
+                }
+            }
             if size[k][c] == 0 {
                 tn[id].flags |= F_DEAD;
                 continue;
@@ -608,11 +632,19 @@ fn build_tree(n: usize, h: &Hier) -> (Vec<TNode>, Vec<Vec<u32>>, Vec<u32>, Vec<u
             if id != 0 {
                 tn[id].level = tn[c].level;
                 tn[id].comm = tn[c].comm;
+                tn[id].flags = (tn[id].flags & !(F_AGG | F_SUBDIV)) | (tn[c].flags & (F_AGG | F_SUBDIV));
             }
             kids[id] = std::mem::take(&mut kids[c]);
             for &q in &kids[id] {
                 tn[q as usize].parent = id as u32;
             }
+        }
+    }
+    // m1-05: aggregates whose parent is an aggregate are drawn as part of it
+    for id in 1..ntn {
+        let p = tn[id].parent as usize;
+        if tn[id].flags & F_DEAD == 0 && tn[id].flags & F_AGG != 0 && tn[p].flags & F_AGG != 0 {
+            tn[id].flags |= F_AGG_INNER;
         }
     }
     // colour rank of each node's top-level community (0 = largest)
