@@ -1,0 +1,48 @@
+lj hcl pos.f32 1 vs 8 threads: identical a78e245819263747
+lj hcl tnodes.bin 1 vs 8 threads: identical abcebf4303c987e1
+lj hcl order.u32 1 vs 8 threads: identical c00a1bb4f32e6b75
+lj hcls pos.f32 1 vs 8 threads: identical be71b7f988c3d4fe
+lj hcls tnodes.bin 1 vs 8 threads: identical 468688f6b8a1ec7e
+lj hcls order.u32 1 vs 8 threads: identical c00a1bb4f32e6b75
+lj hclsb pos.f32 1 vs 8 threads: identical 29a68cf7d53c822f
+lj hclsb tnodes.bin 1 vs 8 threads: identical 2f98e9192d8b15b8
+lj hclsb order.u32 1 vs 8 threads: identical c00a1bb4f32e6b75
+lj cells pos.f32 1 vs 8 threads: identical e39af4187168b2c3
+lj cells tnodes.bin 1 vs 8 threads: identical dee524302fa5ec7a
+lj cells order.u32 1 vs 8 threads: identical c00a1bb4f32e6b75
+lj cellsb pos.f32 1 vs 8 threads: identical c14f60bea40fef05
+lj cellsb tnodes.bin 1 vs 8 threads: identical f964b04af30487c9
+lj cellsb order.u32 1 vs 8 threads: identical c00a1bb4f32e6b75
+lj cellsd pos.f32 1 vs 8 threads: identical 85f624f693b4ef7b
+lj cellsd tnodes.bin 1 vs 8 threads: identical 0ca56fed0a3afda1
+lj cellsd order.u32 1 vs 8 threads: identical c00a1bb4f32e6b75
+lj hcl t1 25.281
+lj hcls t1 39.871
+lj hclsb t1 45.731
+lj cells t1 116.376
+lj cellsb t1 137.661
+lj cellsd t1 215.844
+orkut hcl pos.f32 1 vs 8 threads: identical f260e93602967a73
+orkut hcl tnodes.bin 1 vs 8 threads: identical 88fb2056d8cd537e
+orkut hcl order.u32 1 vs 8 threads: identical 4579fddf8e0260e5
+orkut hcls pos.f32 1 vs 8 threads: identical be44827f83a1b364
+orkut hcls tnodes.bin 1 vs 8 threads: identical 90d3b9d2051ddcf2
+orkut hcls order.u32 1 vs 8 threads: identical 4579fddf8e0260e5
+orkut hclsb pos.f32 1 vs 8 threads: identical d830fdd81b9e9aa8
+orkut hclsb tnodes.bin 1 vs 8 threads: identical b8cfc36f8cae4410
+orkut hclsb order.u32 1 vs 8 threads: identical 4579fddf8e0260e5
+orkut cells pos.f32 1 vs 8 threads: identical f901239e6b52eaaf
+orkut cells tnodes.bin 1 vs 8 threads: identical 3efbea6ef26ad00a
+orkut cells order.u32 1 vs 8 threads: identical 4579fddf8e0260e5
+orkut cellsb pos.f32 1 vs 8 threads: identical 102500b788ce8afc
+orkut cellsb tnodes.bin 1 vs 8 threads: identical 067be9fe02eeb46b
+orkut cellsb order.u32 1 vs 8 threads: identical 4579fddf8e0260e5
+orkut cellsd pos.f32 1 vs 8 threads: identical e825820b4560ea2d
+orkut cellsd tnodes.bin 1 vs 8 threads: identical 94526358dc98f221
+orkut cellsd order.u32 1 vs 8 threads: identical 4579fddf8e0260e5
+orkut hcl t1 40.769
+orkut hcls t1 55.593
+orkut hclsb t1 61.662
+orkut cells t1 131.084
+orkut cellsb t1 183.084
+orkut cellsd t1 181.957

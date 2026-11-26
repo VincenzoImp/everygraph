@@ -14,6 +14,7 @@
 use std::collections::BinaryHeap;
 
 use everygraph_core::Pages;
+use everygraph_core::le::u32_at;
 
 use super::hash::{KeyHash, bucket, index, pilot_hash, slot, top_bits};
 use super::scratch::{Buf, NoMemory, buf, filled};
@@ -80,8 +81,7 @@ impl PartRow {
     }
 
     pub(crate) fn decode(bytes: &[u8]) -> Self {
-        let w =
-            |i: usize| u32::from_le_bytes(bytes[4 * i..4 * i + 4].try_into().expect("four bytes"));
+        let w = |i: usize| u32_at(bytes, 4 * i);
         Self {
             slot_base: w(0),
             n: w(1),

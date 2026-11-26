@@ -5,12 +5,12 @@
 //! of the prefix it shares with the one before and the rest), with the id of each key.
 //! Built from the key store on first use; held in memory.
 
-use everygraph_core::{ByteSource, MemoryAccountant, NodeId};
+use everygraph_core::{ByteSource, MemoryAccountant, NodeId, widen};
 
 use super::DictionaryError;
 use super::dict::Dictionary;
 use super::hash::index;
-use super::scratch::{Reservation, widen};
+use super::scratch::Reservation;
 
 const BLOCK: usize = 16;
 

@@ -40,6 +40,8 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 - No data race reported by TSan
 - On every oracle graph, kept loops included, the modularity of each level's partition equals the modularity of its quotient graph under the singleton partition (`docs/spec/graph-semantics.md` § 5.5)
 
+**Closed by PR #232 (2026-11-26) on correctness and exploratory evidence.** The official numbers (`everygraph-bench run leiden --official`: the time criteria, the deterministic hash at 1–16 threads on lj and orkut, the quality experiments, Friendster in RAM) go to the M4 window; the missed speed targets to {{#m4-12-performance-pass}}; the tolerance on low-modularity graphs to {{#m4-13-relative-tolerance}}; segmented columns (D2) to {{#m4-14-segmented-quotient}}; Friendster under 16 GiB to {{#m4-04-ooc-leiden}}; the same-machine references to {{#m4-05-quality-gates}}.
+
 **Pointers.** `lab/b2-leiden/src/main.rs`, FINDINGS § B2 and idle re-runs.
 
 **Depends on** {{#m3-01-edge-map}}, {{#m1-03-louvain-collapse}}, {{#m1-04-det-leiden-scaling}}, {{#m2-27-counter-rng}}

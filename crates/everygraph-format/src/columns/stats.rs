@@ -8,6 +8,7 @@
 use std::cmp::Ordering;
 
 use everygraph_core::ExactSum;
+use everygraph_core::le::{array, u32_at, u64_at};
 use everygraph_core::math::CANONICAL_NAN;
 
 use super::{ColumnError, ColumnLayout, ColumnType};
@@ -334,28 +335,21 @@ impl ColumnStats {
         if bytes.len() != STATS_LEN || &bytes[..8] != MAGIC {
             return Err(invalid("not a column statistics record"));
         }
-        let u64_at =
-            |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap_or_default());
-        let u32_at =
-            |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap_or_default());
-        if u32_at(8) != VERSION {
+        if u32_at(bytes, 8) != VERSION {
             return Err(ColumnError::Unsupported(
                 "a statistics version other than 1",
             ));
         }
-        if u32_at(12) & !HAS_RANGE != 0 {
+        if u32_at(bytes, 12) & !HAS_RANGE != 0 {
             return Err(ColumnError::Unsupported("statistics flags"));
         }
-        let mut min = [0; 32];
-        let mut max = [0; 32];
-        min.copy_from_slice(&bytes[48..80]);
-        max.copy_from_slice(&bytes[80..112]);
+        let (min, max) = (array(bytes, 48), array(bytes, 80));
         let stats = Self {
-            count: u64_at(16),
-            null_count: u64_at(24),
-            nan_count: u64_at(32),
-            sum: f64::from_bits(u64_at(40)),
-            range: (u32_at(12) & HAS_RANGE != 0).then_some((min, max)),
+            count: u64_at(bytes, 16),
+            null_count: u64_at(bytes, 24),
+            nan_count: u64_at(bytes, 32),
+            sum: f64::from_bits(u64_at(bytes, 40)),
+            range: (u32_at(bytes, 12) & HAS_RANGE != 0).then_some((min, max)),
         };
         let has_values = stats.nan_count < stats.count;
         if stats.count.checked_add(stats.null_count) != Some(layout.rows())
@@ -381,16 +375,10 @@ impl ColumnStats {
     }
 }
 
-fn take<const N: usize>(b: [u8; 32]) -> [u8; N] {
-    let mut out = [0; N];
-    out.copy_from_slice(&b[..N]);
-    out
-}
-
 fn as_f64(ty: ColumnType, b: [u8; 32]) -> f64 {
     match ty {
-        ColumnType::Float32 => f64::from(f32::from_le_bytes(take(b))),
-        _ => f64::from_le_bytes(take(b)),
+        ColumnType::Float32 => f64::from(f32::from_le_bytes(array(&b, 0))),
+        _ => f64::from_le_bytes(array(&b, 0)),
     }
 }
 

@@ -2,9 +2,11 @@
 #
 # The document checks: ADR headers and index, the API sketch, graph semantics, the
 # transcripts of the UX contract, the JSON Schemas of the UX contract and the API sketch,
-# and the plan (`publish.py --dry-run`, offline). Python standard library only, except
-# the schema check, which needs `jsonschema`; about a minute. They run on every pull
-# request and push, including documentation-only ones, which ci.yml skips.
+# the plan (`publish.py --dry-run`, offline), and the design system (generated files match
+# `tokens.css`, contrast and palette measured, no literal colours in product stylesheets).
+# Python standard library and the runner's Node only, except the schema check, which needs
+# `jsonschema`; about a minute. They run on every pull request and push, including
+# documentation-only ones, which ci.yml skips.
 
 name: Docs
 
@@ -36,3 +38,6 @@ jobs:
           version: "0.11.28"
       - run: uv run --no-project --with jsonschema==4.26.0 python3 docs/tools/check_schemas.py docs/ux-contract.md docs/api-sketch.md
       - run: python3 plan/publish.py VincenzoImp/everygraph --dry-run
+      - run: python3 design/system/tools/build.py --check
+      - run: node design/system/tools/measure.mjs
+      - run: python3 design/system/tools/lint_colours.py

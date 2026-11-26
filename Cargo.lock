@@ -493,6 +493,14 @@ dependencies = [
 [[package]]
 name = "everygraph-community"
 version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-io",
+ "everygraph-kernels",
+ "everygraph-oracle",
+ "serde_json",
+]
 
 [[package]]
 name = "everygraph-core"

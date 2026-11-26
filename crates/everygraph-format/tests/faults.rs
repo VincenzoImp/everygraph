@@ -17,24 +17,21 @@
 #![forbid(unsafe_code)]
 #![cfg(not(miri))]
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use everygraph_core::{ByteSink, ByteSource, Memory, MemorySource, ReadError};
 use everygraph_format::container::{Container, ContainerError, Kind, Provenance, Writer, compact};
 use everygraph_format::verify::{Depth, verify};
 use everygraph_io::faults::{AfterFailedSync, Faulty, Op, Plan};
+use support::bytes;
 
 type Mem = MemorySource<Vec<u8>>;
 /// The sections of a commit, by name.
 type State = BTreeMap<String, Vec<u8>>;
 
 const PRIVATE: Kind = Kind::PRIVATE;
-
-fn bytes(seed: u8, len: usize) -> Vec<u8> {
-    (0..len)
-        .map(|i| seed.wrapping_mul(31).wrapping_add(i.to_le_bytes()[0]))
-        .collect()
-}
 
 fn record() -> Provenance {
     Provenance {

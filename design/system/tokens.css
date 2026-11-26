@@ -1,0 +1,149 @@
+/* Everygraph design tokens — the "Vernier" system.
+   This file is the single source of truth for the viewer, the docs site, the notebook, the
+   terminal and the previews. Stylesheets use these variables and never hard-code a colour.
+   tokens.json and mark/ are generated from it: tools/build.py. */
+/* Rules that values cannot say: design/preview/style/SPEC.md.
+
+   Character: a calm measuring instrument. Warm paper and soft black, one ink-blue accent,
+   exact numbers in monospace, hairlines instead of boxes, almost no shadow, no gradients. */
+
+:root {
+  /* ---- type ---- */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* size / line-height. UI is set at 14; long-form reading at 16. */
+  --text-xs: 12px;   --lh-xs: 16px;
+  --text-sm: 13px;   --lh-sm: 18px;
+  --text-md: 14px;   --lh-md: 20px;
+  --text-lg: 16px;   --lh-lg: 24px;
+  --text-xl: 20px;   --lh-xl: 28px;
+  --text-2xl: 24px;  --lh-2xl: 32px;
+  --text-3xl: 32px;  --lh-3xl: 40px;
+  --text-4xl: 44px;  --lh-4xl: 48px;
+  --text-5xl: 60px;  --lh-5xl: 64px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --tracking-tight: -0.02em;   /* headings ≥ 24px */
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;     /* the rare overline */
+
+  /* ---- space: a 4px grid ---- */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+
+  /* ---- shape ---- */
+  --radius-xs: 2px;   /* tags, key caps */
+  --radius-sm: 3px;   /* controls: buttons, inputs */
+  --radius-md: 6px;   /* cards, popovers, dialogs */
+  --radius-round: 999px; /* only for dots, avatars, toggles */
+  --border: 1px;
+  --border-strong: 1.5px;
+
+  /* control heights */
+  --control-sm: 28px; --control-md: 32px; --control-lg: 40px;
+
+  /* ---- motion ---- */
+  --dur-fast: 120ms;   /* hover, press */
+  --dur-base: 190ms;   /* panels, fades between map levels */
+  --dur-slow: 320ms;   /* fly-to on the map */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- layout ---- */
+  --content: 720px;    /* long-form text column */
+  --page: 1200px;      /* marketing/docs page width */
+  --panel: 360px;      /* viewer inspection panel */
+  --topbar: 52px;
+}
+
+/* ================= light (default) ================= */
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f3ec;            /* page: warm paper */
+  --surface: #fdfbf7;       /* cards, panels, inputs */
+  --surface-2: #ece8dd;     /* wells, table header, code */
+  --ink: #22201c;           /* primary text */
+  --ink-2: #504b43;         /* secondary text */
+  --muted: #6e675c;         /* captions, placeholders — ≥ 4.5:1 on --bg, --surface-2 and --accent-soft */
+  --line: #dcd6c9;          /* hairlines */
+  --line-strong: #938c7f;   /* control borders — ≥ 3:1 against --surface and --bg */
+
+  --accent: #3346c7;        /* the one accent: ink blue */
+  --accent-ink: #2c3db3;    /* accent used as text/link */
+  --accent-soft: #e4e6f7;   /* selected rows, focus halo fill */
+  --on-accent: #ffffff;
+
+  --ok: #297649;    --ok-soft: #dfeee3;
+  --warn: #985a00;  --warn-soft: #f5e8cf;
+  --err: #ba342b;   --err-soft: #f7ddd8;
+  --info: #0b7285;  --info-soft: #d9ecef;
+
+  --focus: #3346c7;
+  --shadow-pop: 0 8px 24px rgba(34, 32, 28, 0.12), 0 0 0 1px var(--line);
+  --scrim: rgba(34, 32, 28, 0.32);
+
+  /* terminal and map keep their own surfaces in the light theme */
+  --term-bg: #22201c; --term-ink: #ece8dd; --term-dim: #9a9386;
+  --term-ok: #74c595; --term-warn: #e0ad55; --term-err: #f08273; --term-accent: #93a0ff;
+  --map-bg: #f1ede4;        /* light map canvas */
+  --map-ink: #22201c;
+
+  /* categorical data palette — measured (see data.html): worst pair ΔE 15.1 normal vision,
+     7.3 protan/deutan over all ten; d1–d5 (the region set) 16.0 / 14.0 / 11.6. All ten only
+     with labels; no data colour equals the accent or a status colour. */
+  --d1: #7861cb; --d2: #604100; --d3: #739400; --d4: #522e95; --d5: #c36f8b;
+  --d6: #0091bc; --d7: #007122; --d8: #005369; --d9: #8e1953; --d10: #766d5f;
+  /* sequential (even lightness steps) and diverging (symmetric arms, rust ↔ blue) */
+  --s1: #dde4f9; --s2: #b9c6ef; --s3: #97a8e4; --s4: #768ad8; --s5: #576bcb; --s6: #3d4cb8; --s7: #2a3590;
+  --v1: #8c3700; --v2: #c16d45; --v3: #e2ad96; --v4: #e8e4dc; --v5: #a7bae9; --v6: #6782ce; --v7: #324ca7;
+
+  /* syntax colours: their own hues, so code never borrows the accent or a status colour */
+  --syn-keyword: #5a3ea8; --syn-string: #1f6f5c; --syn-number: #8a4a12; --syn-comment: var(--muted);
+  /* figures for print: no chrome colours at all */
+  --print-paper: #ffffff; --print-ink: #000000;
+}
+
+/* ================= dark ================= */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b1a17;
+  --surface: #24221f;
+  --surface-2: #2e2c28;
+  --ink: #ece8dd;
+  --ink-2: #bdb7aa;
+  --muted: #9c968a;
+  --line: #3b3833;
+  --line-strong: #79756b;
+
+  --accent: #93a0ff;
+  --accent-ink: #a4afff;
+  --accent-soft: #2b2d4a;
+  --on-accent: #15142b;
+
+  --ok: #74c595;    --ok-soft: #1f3327;
+  --warn: #e0ad55;  --warn-soft: #3a2f18;
+  --err: #f08273;   --err-soft: #40231f;
+  --info: #5fc4d2;  --info-soft: #18343a;
+
+  --focus: #93a0ff;
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--line);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --term-bg: #131210; --term-ink: #ece8dd; --term-dim: #958e81;
+  --term-ok: #74c595; --term-warn: #e0ad55; --term-err: #f08273; --term-accent: #93a0ff;
+  --map-bg: #131210;        /* dark map canvas: the viewer's default */
+  --map-ink: #ece8dd;
+
+  /* categorical data palette, dark surfaces — same hue per slot as the light set;
+     worst pair ΔE 15.0 normal, 7.3 protan, 7.7 deutan; d1–d5: 15.3 / 14.2 / 9.7 */
+  --d1: #9383dc; --d2: #f1b959; --d3: #6e8a25; --d4: #d9d0ff; --d5: #c26083;
+  --d6: #52c0eb; --d7: #a0eca6; --d8: #008bad; --d9: #fa94bb; --d10: #a69b89;
+  --s1: #222741; --s2: #343b6a; --s3: #475195; --s4: #5c69bc; --s5: #7483e0; --s6: #90a0f9; --s7: #b3c0ff;
+  --v1: #f2ab83; --v2: #c67544; --v3: #864d2b; --v4: #35332e; --v5: #4a5996; --v6: #7186db; --v7: #a7baff;
+
+  --syn-keyword: #b79bff; --syn-string: #6fcfb0; --syn-number: #e6a86a; --syn-comment: var(--muted);
+  --print-paper: #ffffff; --print-ink: #000000;
+}

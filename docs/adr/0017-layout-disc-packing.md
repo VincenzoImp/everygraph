@@ -108,11 +108,16 @@ global gain. #67 adopts it, once #21 has settled the area question.
 measures, each against DRGraph: NP@10 per quotient level, ground-truth 10-NN agreement,
 Spearman, and the length of edges between top regions.
 
-**Open.** The remaining global gap is a method item in #21. Hypothesis, not measured: it
-comes from where members with outside links sit inside each region. On orkut DRGraph's
-top regions are as compact as ours (0.14 against 0.12 of a random pair), yet its edges
-between them are much shorter. A rigid rotation per sibling group did not help.
+**Area and the global gap (m1-07, `lab/m1-07-layout-area/results/README.md`,
+exploratory).** Power-diagram cells give node discs 39–40× the area of nested discs and
+3.1–3.4× smaller tile sets, but cost 2.4–2.9× the time at 1 thread and lower NP₁, NP@10
+and 10-NN on lj and orkut; they do not fit the approved bubble style. The global gap does
+not come from where members sit inside a region: members link outward in their region's
+own direction, and boundary-aware placement moves the region's centroid with its children
+(facing stays at about 0.02 on lj). It comes from which top regions are neighbours,
+together with compact regions. Nested discs with stress per parent stay; the narrowed
+claim above stands.
 
 ## Closed by
 
-#21 (layout area and meaningful distances).
+m5-01 (#67), the production layout.
