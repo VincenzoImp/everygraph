@@ -7,6 +7,8 @@
 
 #![forbid(unsafe_code)]
 
+mod support;
+
 use everygraph_core::{Memory, NodeId};
 use everygraph_format::adjacency::{
     Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode, merge,
@@ -17,22 +19,7 @@ use everygraph_oracle::invariants;
 use everygraph_oracle::projection::Projection;
 use everygraph_oracle::{Kernel, Output, ix, to_usize};
 use proptest::prelude::*;
-
-/// Miri interprets the tests about 1000 times slower: it runs a sample.
-const MIRI: bool = cfg!(miri);
-
-/// Few cases under Miri, and no failure file (Miri's isolation hides the file system).
-fn config() -> ProptestConfig {
-    ProptestConfig {
-        cases: if MIRI { 2 } else { 256 },
-        failure_persistence: if MIRI {
-            None
-        } else {
-            ProptestConfig::default().failure_persistence
-        },
-        ..ProptestConfig::default()
-    }
-}
+use support::{MIRI, config};
 
 fn id(v: usize) -> NodeId {
     NodeId::try_from(v).expect("test graphs have fewer than 2^32 nodes")

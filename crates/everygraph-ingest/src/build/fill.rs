@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Mutex, PoisonError};
 
 use everygraph_core::{
-    ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns, SegVec, par,
+    ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns, SegVec, par, widen,
 };
 
 use super::layout::Layout;
@@ -355,8 +355,4 @@ fn too_large() -> BuildError {
         purpose: "resident items",
         bytes: u64::MAX,
     })
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).unwrap_or(u64::MAX)
 }

@@ -58,7 +58,7 @@ use std::io;
 use std::num::NonZeroUsize;
 
 use everygraph_core::{
-    ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, Reservation,
+    ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, Reservation, widen,
 };
 use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError};
 use everygraph_format::container::{Container, ContainerError, Entry, Kind, Provenance, Writer};
@@ -895,8 +895,4 @@ pub(crate) fn read_section<R: ByteSource>(
         .read_at(entry.offset, &mut bytes)
         .map_err(|e| BuildError::Container(ContainerError::Read(e)))?;
     Ok(bytes)
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).unwrap_or(u64::MAX)
 }

@@ -7,11 +7,11 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use everygraph_core::MemoryAccountant;
+use everygraph_core::{MemoryAccountant, widen};
 
 use super::DictionaryError;
 use super::hash::index;
-use super::scratch::{Reservation, widen};
+use super::scratch::Reservation;
 
 /// Bits per segment of the bitmap: 2^16 (8 KiB), allocated when first touched, so that
 /// sparse keys cost about 8 KiB each at worst while they are read (a few hundred
@@ -278,7 +278,7 @@ impl RankBitmap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::test_support::Budget;
+    use everygraph_core::Budget;
 
     #[test]
     fn rank_and_select_are_inverse_over_a_bitmap_filled_from_threads() {
@@ -297,7 +297,7 @@ mod tests {
             },
         );
         let table = widen(SEGMENTS * std::mem::size_of::<OnceLock<Box<[AtomicU64]>>>());
-        let reserved = budget.total() - budget.available() - table;
+        let reserved = budget.limit() - budget.available() - table;
         assert_eq!(reserved % widen(SEGMENT_WORDS * 8), 0);
         let rb = RankBitmap::new(bits.into_words()).unwrap();
         let mut sorted = keys.clone();

@@ -65,7 +65,7 @@ use everygraph_core::{ReadError, WriteError};
 pub use layout::{MAJOR, MINOR};
 pub use provenance::{Input, Provenance};
 pub use read::{Container, Section};
-pub use result::{GraphIdentity, ResultKey, StoredResult, Value, ValueType};
+pub use result::{GraphIdentity, ListedResult, ResultKey, StoredResult, Value, ValueType};
 pub use write::{SectionWriter, Writer, compact};
 
 /// Sections, the TOC and the header blocks start at multiples of this.

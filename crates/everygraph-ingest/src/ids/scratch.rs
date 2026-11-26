@@ -8,7 +8,8 @@ use std::alloc::Allocator;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
 
-use everygraph_core::{ByteSource, MemoryAccountant, MemoryKind, MemorySource, Pages, par};
+use everygraph_core::le::u32_at;
+use everygraph_core::{ByteSource, MemoryAccountant, MemoryKind, MemorySource, Pages, par, widen};
 
 use super::DictionaryError;
 use super::hash::index;
@@ -88,6 +89,15 @@ impl<W: Write> Spill<W> {
         self.inner.write_all(bytes)
     }
 
+    /// Writes `values`, each as the bytes `le` gives.
+    pub(crate) fn write_le<T: Copy, const N: usize>(
+        &mut self,
+        values: &[T],
+        le: fn(T) -> [u8; N],
+    ) -> io::Result<()> {
+        values.iter().try_for_each(|&v| self.write(&le(v)))
+    }
+
     pub(crate) fn seal<Sc: Scratch<Writer = W>>(self, scratch: &Sc) -> io::Result<Sc::Source> {
         let inner = self
             .inner
@@ -95,11 +105,6 @@ impl<W: Write> Spill<W> {
             .map_err(io::IntoInnerError::into_error)?;
         scratch.seal(inner)
     }
-}
-
-/// `usize` to `u64`: lossless on every supported target.
-pub(crate) fn widen(len: usize) -> u64 {
-    u64::try_from(len).expect("usize fits in u64")
 }
 
 /// A buffer of the build, allocated from the accountant's [`Pages`]: a large one is
@@ -461,7 +466,7 @@ fn place(
                 .get(*at..*at + 4)
                 .ok_or(DictionaryError::Corrupt("scatter: truncated"))?;
             *at += 4;
-            Ok(u32::from_le_bytes(bytes.try_into().expect("four bytes")))
+            Ok(u32_at(bytes, 0))
         };
         let target = u64::from(field(at)?);
         let size = match width {
@@ -517,7 +522,7 @@ fn place(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::test_support::Budget;
+    use everygraph_core::Budget;
 
     fn scatter_and_read(
         n: u32,
@@ -558,7 +563,7 @@ mod tests {
             width.is_none().then_some(&mut offsets),
         )
         .unwrap();
-        assert_eq!(budget.available(), budget.total(), "everything released");
+        assert_eq!(budget.available(), budget.limit(), "everything released");
         let expected: Vec<u8> = (0..n).flat_map(payload).collect();
         let out = read_all(&out.seal(&scratch).unwrap(), Pages::HEAP).unwrap();
         assert_eq!(*out, expected);

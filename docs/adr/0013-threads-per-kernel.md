@@ -57,5 +57,5 @@ Evidence is two graphs for communities, one for the other kernels, one machine.
 
 ## Closed by
 
-#22 (memory-bandwidth ceiling, idle Friendster scaling); #18 for deterministic community
+#22 (memory-bandwidth ceiling, idle Friendster scaling); #57 for deterministic community
 detection.

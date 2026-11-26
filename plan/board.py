@@ -3,7 +3,8 @@
 
 usage: plan/board.py todo|doing|done ISSUE [ISSUE ...]
        plan/board.py sync        # plan issues missing from the board -> added; closed issues -> Done;
-                                 # open issues with an open PR -> In Progress
+                                 # open issues with an open PR -> In Progress;
+                                 # the closed plan issues -> plan/closed.json (read by docs/tools/check_adrs.py)
 
 The board is user project 7 of VincenzoImp. Status options: Todo, In Progress, Done.
 """
@@ -53,6 +54,8 @@ elif cmd == "sync":
     prs = json.loads(gh("pr", "list", "-R", REPO, "--state", "open", "--limit", "200", "--json", "closingIssuesReferences"))
     in_pr = {r["number"] for p in prs for r in p.get("closingIssuesReferences", [])}
     planned = set(json.loads((pathlib.Path(__file__).parent / "published.json").read_text()).values())
+    closed = sorted(i["number"] for i in issues if i["state"] == "CLOSED" and i["number"] in planned)
+    (pathlib.Path(__file__).parent / "closed.json").write_text(json.dumps(closed) + "\n")
     for i in issues:
         n = i["number"]
         if n not in board:
