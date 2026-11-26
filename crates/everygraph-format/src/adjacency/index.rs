@@ -6,6 +6,7 @@
 use std::num::NonZeroUsize;
 use std::ops::Range;
 
+use everygraph_core::le::{u32_at, u64_at};
 use everygraph_core::{EdgeOffset, NodeId, par};
 
 use super::FormatError;
@@ -44,14 +45,6 @@ pub struct AdjacencyIndex {
 
 fn pad8(n: usize) -> usize {
     n.div_ceil(8) * 8
-}
-
-fn read_u32(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().expect("four bytes"))
-}
-
-fn read_u64(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().expect("eight bytes"))
 }
 
 /// The block count and the byte lengths of the four parts after the header, or `None`
@@ -140,19 +133,19 @@ impl AdjacencyIndex {
         if header[..8] != MAGIC {
             return Err(FormatError::BadMagic);
         }
-        let version = read_u32(header, 8);
+        let version = u32_at(header, 8);
         if version != VERSION {
             return Err(FormatError::UnsupportedVersion(version));
         }
-        let flags = read_u32(header, 12);
+        let flags = u32_at(header, 12);
         if flags & !FLAG_EVENTS != 0 {
             return Err(FormatError::UnsupportedFlags(flags));
         }
         let (nodes, entries, data_bytes, blocks) = (
-            read_u64(header, 16),
-            read_u64(header, 24),
-            read_u64(header, 32),
-            read_u64(header, 40),
+            u64_at(header, 16),
+            u64_at(header, 24),
+            u64_at(header, 32),
+            u64_at(header, 40),
         );
         let nodes =
             u32::try_from(nodes).map_err(|_| FormatError::Invalid("more than 2^32 - 1 nodes"))?;
@@ -183,7 +176,7 @@ impl AdjacencyIndex {
             take(lengths[3]),
         );
 
-        let block_starts: Vec<u32> = (0..=blocks).map(|b| read_u32(starts, 4 * b)).collect();
+        let block_starts: Vec<u32> = (0..=blocks).map(|b| u32_at(starts, 4 * b)).collect();
         if starts[4 * (blocks + 1)..].iter().any(|&b| b != 0) {
             return Err(FormatError::Invalid("block directory padding"));
         }

@@ -56,7 +56,9 @@ use std::io;
 use std::num::NonZeroUsize;
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind};
+use everygraph_core::{
+    ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, widen,
+};
 use everygraph_format::adjacency::{
     AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError, IndexBuilder, encode_events,
     events_section_bytes,
@@ -883,8 +885,4 @@ pub fn check<S: ByteSource>(source: S, memory: &Memory) -> Result<Checked, Build
         entries: index.entries(),
         events,
     })
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).unwrap_or(u64::MAX)
 }

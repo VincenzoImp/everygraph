@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use everygraph_core::le::{array, u16_at, u32_at, u64_at};
+
 use super::{
     BLOCK, Codec, ContainerError, Entry, HEADER_BYTES, Kind, MAX_NAME_BYTES, MAX_TOC_BYTES,
     MIN_PADDING,
@@ -85,22 +87,6 @@ pub(crate) enum Block {
     Valid(Header),
 }
 
-fn u16_at(b: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([b[at], b[at + 1]])
-}
-
-fn u32_at(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().expect("4 bytes"))
-}
-
-fn u64_at(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().expect("8 bytes"))
-}
-
-fn hash32(b: &[u8], at: usize) -> [u8; 32] {
-    b[at..at + 32].try_into().expect("32 bytes")
-}
-
 /// `0x0A0B0C0D` as a big-endian writer would have written it.
 const BYTE_ORDER_SWAPPED: u32 = 0x0D0C_0B0A;
 
@@ -123,7 +109,7 @@ pub(crate) fn decode_header(b: &[u8], index: u32) -> Block {
     }
     if order != BYTE_ORDER
         || major != MAJOR
-        || *blake3::hash(&b[..HEADER_HASHED]).as_bytes() != hash32(b, HEADER_HASHED)
+        || *blake3::hash(&b[..HEADER_HASHED]).as_bytes() != array(b, HEADER_HASHED)
     {
         return Block::Torn;
     }
@@ -140,7 +126,7 @@ pub(crate) fn decode_header(b: &[u8], index: u32) -> Block {
         optional: u64_at(b, 40),
         toc_offset: u64_at(b, 48),
         toc_len: u64_at(b, 56),
-        toc_hash: hash32(b, 64),
+        toc_hash: array(b, 64),
     })
 }
 
@@ -222,7 +208,7 @@ pub(crate) fn decode_toc(b: &[u8], toc_offset: u64) -> Result<Vec<Entry>, Contai
         let codec = Codec::new(u16_at(e, 4));
         let offset = u64_at(e, 8);
         let len = u64_at(e, 16);
-        let hash = hash32(e, 24);
+        let hash = array(e, 24);
         let name_at = usize::try_from(u32_at(e, 56)).map_err(|_| corrupt("name offset"))?;
         let name_len = usize::try_from(u32_at(e, 60)).map_err(|_| corrupt("name length"))?;
         let provenance = u32_at(e, 64);

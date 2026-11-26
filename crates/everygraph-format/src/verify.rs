@@ -31,6 +31,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use everygraph_core::le::u64_at;
 use everygraph_core::{
     ByteSource, MAX_ALLOCATION_BYTES, Memory, MemoryKind, NodeId, ReadError, Reservation, par,
 };
@@ -234,8 +235,7 @@ fn newer_table<S: ByteSource>(
     if head.len() < HEADER_USED || head[..8] != MAGIC {
         return Ok(None);
     }
-    let u64_at = |at: usize| u64::from_le_bytes(head[at..at + 8].try_into().expect("8 bytes"));
-    let (named, offset, len) = (u64_at(24), u64_at(48), u64_at(56));
+    let (named, offset, len) = (u64_at(head, 24), u64_at(head, 48), u64_at(head, 56));
     let fits = offset
         .checked_add(len)
         .is_some_and(|end| end <= source.len());
