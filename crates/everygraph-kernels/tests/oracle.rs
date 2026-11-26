@@ -38,7 +38,7 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use everygraph_core::{Memory, par};
-use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
+use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode, merge};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::components::{WccOptions, wcc};
 use everygraph_kernels::degrees::{Loop, degrees};
@@ -54,7 +54,7 @@ use everygraph_oracle::plugin::{
 use everygraph_oracle::projection::{Adjacency as Analytic, Projection};
 use everygraph_oracle::{Kernel, Output};
 
-mod derived;
+mod support;
 
 /// Iterated to well inside the oracle's 1e-9: the error after stopping is at most
 /// `tol · α / (1 − α)`.
@@ -106,31 +106,25 @@ fn with_loops(adj: &Analytic, p: &Projection) -> Lists {
     l
 }
 
-/// The lists a kernel reads on a directed graph, from the out-adjacency and the
-/// in-adjacency derived from it, checked equal to the oracle's: those lists, with the
-/// oracle's per-entry columns.
+/// The lists a kernel reads on a directed graph: the in-adjacency derived from the
+/// out-adjacency, or the undirected projection merged from both, checked byte-equal to
+/// the encoding of the oracle's lists; those lists, with the oracle's per-entry columns.
 fn derived(which: Which, p: &Projection) -> Lists {
     let out = with_loops(&p.out, p);
-    let inn = derived::in_adjacency(&encode(&out.offsets, &out.targets).unwrap());
-    let (offsets, targets) = match which {
-        Which::In => {
-            let expected = with_loops(&p.inn, p);
-            assert!(inn == encode(&expected.offsets, &expected.targets).unwrap());
-            derived::decoded(&inn)
-        }
+    let out = encode(&out.offsets, &out.targets).unwrap();
+    let inn = support::in_adjacency(&out);
+    let lists = match which {
+        Which::In => inn,
         _ => {
-            let (in_offsets, in_targets) = derived::decoded(&inn);
-            let (mut offsets, mut targets) = (vec![0], Vec::new());
-            for v in 0..p.n as usize {
-                let a = &out.targets[out.offsets[v] as usize..out.offsets[v + 1] as usize];
-                let b = &in_targets[in_offsets[v] as usize..in_offsets[v + 1] as usize];
-                let mut both: Vec<u32> = a.iter().chain(b).copied().collect();
-                both.sort_unstable();
-                both.dedup();
-                targets.extend(both);
-                offsets.push(targets.len() as u64);
-            }
-            (offsets, targets)
+            let (io, ii) = (
+                AdjacencyIndex::parse(&out.index).unwrap(),
+                AdjacencyIndex::parse(&inn.index).unwrap(),
+            );
+            let (a, b) = (
+                Adjacency::new(&io, &out.data).unwrap(),
+                Adjacency::new(&ii, &inn.data).unwrap(),
+            );
+            merge(&a, &b, &Memory::unlimited()).unwrap().0
         }
     };
     let expected = with_loops(
@@ -141,7 +135,7 @@ fn derived(which: Which, p: &Projection) -> Lists {
         },
         p,
     );
-    assert_eq!((&offsets, &targets), (&expected.offsets, &expected.targets));
+    assert!(lists == encode(&expected.offsets, &expected.targets).unwrap());
     expected
 }
 

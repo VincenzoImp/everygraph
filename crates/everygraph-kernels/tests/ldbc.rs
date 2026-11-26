@@ -33,7 +33,7 @@ use everygraph_oracle::ldbc::read::{Lists, merge_directions};
 use everygraph_oracle::ldbc::run::{Row, row};
 use everygraph_oracle::ldbc::{Algorithm, Dataset, LdbcGraph, UNREACHABLE, Values};
 
-mod derived;
+mod support;
 
 /// One algorithm on one pair of sources: `out` (out-lists, or symmetric lists) and `inn`
 /// (in-lists; the same lists on an undirected graph). `sample` is WCC's.
@@ -135,7 +135,7 @@ fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
     // reader's own transpose.
     let derived_in = g.directed.then(|| {
         let out = g.out.lists();
-        let (offsets, targets) = derived::in_lists(out.offsets, out.targets);
+        let (offsets, targets) = support::in_lists(out.offsets, out.targets);
         let theirs = g.inn();
         assert!(
             offsets == theirs.offsets && targets == theirs.targets,

@@ -7,9 +7,9 @@
 
 #![forbid(unsafe_code)]
 
-use everygraph_core::NodeId;
+use everygraph_core::{Memory, NodeId};
 use everygraph_format::adjacency::{
-    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode,
+    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode, merge,
 };
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
@@ -455,6 +455,31 @@ proptest! {
     #[test]
     fn arbitrary_csrs_round_trip((offsets, targets) in arb_csr()) {
         round_trip(&offsets, &targets);
+    }
+
+    /// `merge` gives the bytes `encode` gives for the union of the lists.
+    #[test]
+    fn a_merge_is_the_encoded_union((a, b) in (arb_csr(), arb_csr())) {
+        let n = (a.0.len()).min(b.0.len()) - 1;
+        let cut = |(o, t): &(Vec<u64>, Vec<u32>)| (o[..=n].to_vec(), t[..to_usize(o[n])].to_vec());
+        let (a, b) = (cut(&a), cut(&b));
+        let (mut offsets, mut targets) = (vec![0u64], Vec::new());
+        for v in 0..n {
+            let mut union: Vec<u32> = list(&a.0, &a.1, v).iter().chain(list(&b.0, &b.1, v)).copied().collect();
+            union.sort_unstable();
+            union.dedup();
+            targets.extend(union);
+            offsets.push(targets.len() as u64);
+        }
+        let (ea, eb) = (encode(&a.0, &a.1).unwrap(), encode(&b.0, &b.1).unwrap());
+        let (ia, ib) = (AdjacencyIndex::parse(&ea.index).unwrap(), AdjacencyIndex::parse(&eb.index).unwrap());
+        let (merged, held) = merge(
+            &Adjacency::new(&ia, &ea.data).unwrap(),
+            &Adjacency::new(&ib, &eb.data).unwrap(),
+            &Memory::unlimited(),
+        ).unwrap();
+        prop_assert!(merged == encode(&offsets, &targets).unwrap());
+        prop_assert!(held.bytes() >= merged.data.len() as u64);
     }
 
     #[test]
