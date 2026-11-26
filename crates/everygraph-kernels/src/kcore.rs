@@ -10,7 +10,7 @@
 //!   in the same subround, the neighbours whose degree that drops to `k`, through a
 //!   queue that takes up to 128 nodes. What does not fit waits for the next subround, as
 //!   does a node of more than 16 × [`RUN_ENTRIES`] entries: there its list is cut into
-//!   parts that run in parallel ([`Plan::push_with`]).
+//!   parts that run in parallel (`Plan::push_with`).
 //! - **Sampled hubs** (§ 4.1). A node of high degree does not count its peeled
 //!   neighbours one by one, which would make every worker update one counter. Each
 //!   peeled neighbour adds to a sample counter with a small probability, drawn by a

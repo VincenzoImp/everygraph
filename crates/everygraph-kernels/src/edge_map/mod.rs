@@ -20,7 +20,7 @@
 //! - [`Plan::frontier`] calls it for the nodes of a frontier, with their lists, by random
 //!   access (push, traversal-shaped). Consecutive nodes are decoded together. If
 //!   [`Settings::prefetch`] is set, the frontier's byte ranges are advised first.
-//!   [`Plan::push_with`] may also cut a long list into parts that run in parallel, for
+//!   `Plan::push_with` may also cut a long list into parts that run in parallel, for
 //!   bodies whose updates commute; [`Plan::frontier_serial_with`] runs on the calling
 //!   thread.
 //!
@@ -57,12 +57,12 @@
 //!   thread.
 //! - **Frontiers.** [`Plan::frontier`] cuts the frontier into groups of
 //!   [`FRONTIER_GRAIN`] nodes, and each group into runs of about [`RUN_ENTRIES`] entries
-//!   by the degrees of its nodes. [`Plan::push_with`] also cuts a list of more than
+//!   by the degrees of its nodes. `Plan::push_with` also cuts a list of more than
 //!   [`RUN_ENTRIES`] entries into parts at multiples of [`RUN_ENTRIES`]. The cuts depend
 //!   on the frontier and the degrees alone; the values of parts, runs and groups add in
 //!   frontier order.
 //! - **Outputs.** The one task that owns a node writes its outputs.
-//! - **Lists are whole**, except in the parts of [`Plan::push_with`] and the pieces of
+//! - **Lists are whole**, except in the parts of `Plan::push_with` and the pieces of
 //!   [`Plan::scan_until`]. A batch, a read buffer or a task never cuts a list. So a
 //!   node's own sum over its list runs in one call of the body.
 //! - **Floats.** Accumulators start from `+0.0` ([`Reduce::ZERO`]); `Iterator::sum`
@@ -136,7 +136,7 @@ const GRAIN: NonZeroUsize = NonZeroUsize::new(256).expect("non-zero");
 
 /// Entries of a frontier run or of a part of a list, about: a run of [`Plan::frontier`]
 /// ends before the node that would take it past this many entries (a node counts its
-/// degree plus one), and [`Plan::push_with`] cuts a longer list at multiples of it.
+/// degree plus one), and `Plan::push_with` cuts a longer list at multiples of it.
 /// `PASGAL` cuts lists at 1,024 entries, Parallel-KCore at 128
 /// (`docs/research/sota-review-2026-11.md`, S3).
 pub const RUN_ENTRIES: usize = RUN.get();
@@ -158,7 +158,7 @@ const MAX_BLOCK: u32 = 4096;
 /// About this many blocks per graph, between the two bounds.
 const BLOCKS: u32 = 4096;
 
-/// Entries of the long lists that [`Plan::push_with`] holds copied out at a time, if the
+/// Entries of the long lists that `Plan::push_with` holds copied out at a time, if the
 /// longest list of the frontier is shorter: 256 KiB of nodes.
 const WAVE: usize = 1 << 16;
 
