@@ -6,7 +6,7 @@ labels: type:feature, area:engine, P1, risk:medium, size:M
 **Why.** The planner ({{#m3-02-planner}}, PR #249) bounds what a run reserves, term by term from the code, and the oracle corpus checks the bound. Two gaps remain.
 - *Allocations outside the budget.* BFS's `levels` (8 B a level: O(n) on a path), the per-chunk vectors of the roots in `components::number` (which may reach about twice the 8 bytes a component they reserve), `decode_all`'s pieces, the edge-map task lists and the stack of every thread `par::with_threads` starts. They are small on the corpus, but the planner's peak does not bound resident memory until they are counted.
 - *Loose bounds.* On lj and orkut at 16 threads the runs reserve 0.65–0.66 of the bound for components (it holds a root for every node) and 0.59–0.67 for k-core (every bucket and frontier at once). A budget between what runs need and the bound is refused.
-- *No bound.* Strong components (`scc.rs`) hold a set of the pairs (node, source) their searches find, which grows with the graph's structure, up to nodes × sources. Their plan counts the per-node state only and says it is not a bound (`Plan::bounded`); the refusal names no smallest budget, and a run may still stop on its budget (PR #PRNUM).
+- *No bound.* Strong components (`scc.rs`) hold a set of the pairs (node, source) their searches find, which grows with the graph's structure, up to nodes × sources. Their plan counts the per-node state only and says it is not a bound (`Plan::bounded`); the refusal names no smallest budget, and a run may still stop on its budget (PR #305).
 
 **Scope**
 - [ ] Reserve, or remove, each allocation above; the stack of a pool's threads counted once per pool
