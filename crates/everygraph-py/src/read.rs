@@ -30,7 +30,7 @@ use crate::run::{Event, Events, run};
 /// given; a smaller one stays in memory (`docs/api-sketch.md` § 2.8, a † value).
 const FILE_FROM_BYTES: u64 = 100_000_000;
 
-/// What was asked of `eg.read`.
+/// What was asked of `eg.read`; checked by the package.
 struct Ask {
     path: PathBuf,
     out: Option<PathBuf>,
@@ -39,18 +39,149 @@ struct Ask {
     self_loops: SelfLoops,
     duplicates: Duplicates,
     ids: IdType,
-    memory: u64,
-    threads: NonZeroUsize,
-    temp_dir: Option<PathBuf>,
-    overwrite: bool,
 }
 
-/// What `eg.read` made.
-struct Made {
-    graph: Shared,
-    /// `None` when the cache was opened.
-    report: Option<Report>,
-    directed: DirectedFrom,
+impl Ask {
+    fn new(
+        path: PathBuf,
+        out: Option<PathBuf>,
+        source: Option<&str>,
+        target: Option<&str>,
+        directed: Option<bool>,
+        [self_loops, duplicates, ids]: [&str; 3],
+    ) -> Self {
+        let ids = if ids == "string" {
+            IdType::String
+        } else {
+            IdType::Auto
+        };
+        Self {
+            text: TextOptions {
+                source: source.map(Column::from),
+                target: target.map(Column::from),
+                ids,
+                ..TextOptions::default()
+            },
+            self_loops: if self_loops == "keep" {
+                SelfLoops::Keep
+            } else {
+                SelfLoops::Drop
+            },
+            duplicates: match duplicates {
+                "collapse" => Duplicates::Collapse,
+                "sum" => Duplicates::Sum,
+                _ => Duplicates::Events,
+            },
+            ids,
+            path,
+            out,
+            directed,
+        }
+    }
+}
+
+/// The input opened, and what follows from its first lines.
+struct Opened {
+    reader: TextReader<FileSource>,
+    graph: GraphOptions,
+    from: DirectedFrom,
+    columns: [String; 2],
+    output: Option<PathBuf>,
+    /// The job's fingerprint (`docs/ux-contract.md` R-4, G-19): the input, the output and
+    /// every option that changes the graph, never the budget or the threads.
+    job: String,
+}
+
+fn open_input(ask: &Ask) -> Result<Opened, Fail> {
+    let input = &ask.path;
+    let source = FileSource::open(input).map_err(|e| Fail::Os(e, input.display().to_string()))?;
+    let bytes = source.len();
+    let reader = TextReader::open(source, &ask.text).map_err(|e| error::text(input, e))?;
+    let layout = reader.layout();
+    let (directed, from) = build::infer_direction(layout, ask.directed);
+    let graph = GraphOptions {
+        directed,
+        self_loops: ask.self_loops,
+        duplicates: ask.duplicates,
+    };
+    let columns = [
+        layout.column_name(layout.source),
+        layout.column_name(layout.target),
+    ];
+    let output = ask
+        .out
+        .clone()
+        .or_else(|| (bytes >= FILE_FROM_BYTES).then(|| native::default_output(input)));
+    let job = native::job_id(&[
+        &absolute(input),
+        &output
+            .as_deref()
+            .map_or_else(|| "memory".to_owned(), absolute),
+        &columns[0],
+        &columns[1],
+        &format!("{graph:?}"),
+        &format!("{:?}", ask.ids),
+    ]);
+    Ok(Opened {
+        reader,
+        graph,
+        from,
+        columns,
+        output,
+        job,
+    })
+}
+
+/// What the first lines of the text edge list at `path` say, before any work (the
+/// summary of `docs/ux-contract.md` § 3.4): size, compression, header, the columns of
+/// the source and the target, the kind of identifier, the direction and why, where the
+/// graph will go, and the job's fingerprint.
+#[pyfunction]
+#[pyo3(signature = (path, *, out, source, target, directed, self_loops, duplicates, ids))]
+#[expect(clippy::too_many_arguments, reason = "the keywords of eg.read")]
+pub(crate) fn inspect<'py>(
+    py: Python<'py>,
+    path: PathBuf,
+    out: Option<PathBuf>,
+    source: Option<&str>,
+    target: Option<&str>,
+    directed: Option<bool>,
+    self_loops: &str,
+    duplicates: &str,
+    ids: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let ask = Ask::new(
+        path,
+        out,
+        source,
+        target,
+        directed,
+        [self_loops, duplicates, ids],
+    );
+    let opened = open_input(&ask).map_err(|e| e.into_err(py))?;
+    let layout = opened.reader.layout();
+    let info = PyDict::new(py);
+    info.set_item("bytes", opened.reader.source().len())?;
+    info.set_item("compression", layout.compression.to_string())?;
+    info.set_item("header", layout.header.clone())?;
+    info.set_item("source", &opened.columns[0])?;
+    info.set_item("target", &opened.columns[1])?;
+    let kind = if layout.ids == IdType::String {
+        "text"
+    } else {
+        "integers"
+    };
+    info.set_item("ids", kind)?;
+    info.set_item("directed", opened.graph.directed)?;
+    let from = match opened.from {
+        DirectedFrom::Caller => "caller",
+        DirectedFrom::ColumnNames => "column names",
+        DirectedFrom::Default => "default",
+    };
+    info.set_item("directed_from", from)?;
+    info.set_item("output", opened.output)?;
+    info.set_item("job", opened.job)?;
+    Ok(info)
 }
 
 /// Reads the text edge list at `path`; the arguments are those of the package's
@@ -63,8 +194,8 @@ pub(crate) fn read<'py>(
     py: Python<'py>,
     path: PathBuf,
     out: Option<PathBuf>,
-    source: Option<String>,
-    target: Option<String>,
+    source: Option<&str>,
+    target: Option<&str>,
     directed: Option<bool>,
     self_loops: &str,
     duplicates: &str,
@@ -75,48 +206,25 @@ pub(crate) fn read<'py>(
     overwrite: bool,
     on_event: Bound<'py, PyAny>,
 ) -> PyResult<(Graph, Bound<'py, PyDict>)> {
-    let ids = if ids == "string" {
-        IdType::String
-    } else {
-        IdType::Auto
-    };
-    let ask = Ask {
-        text: TextOptions {
-            source: source.as_deref().map(Column::from),
-            target: target.as_deref().map(Column::from),
-            ids,
-            ..TextOptions::default()
-        },
-        self_loops: if self_loops == "keep" {
-            SelfLoops::Keep
-        } else {
-            SelfLoops::Drop
-        },
-        duplicates: match duplicates {
-            "collapse" => Duplicates::Collapse,
-            "sum" => Duplicates::Sum,
-            _ => Duplicates::Events,
-        },
-        ids,
+    let ask = Ask::new(
         path,
         out,
+        source,
+        target,
         directed,
+        [self_loops, duplicates, ids],
+    );
+    let run_on = Run {
         memory,
         threads,
         temp_dir,
         overwrite,
     };
-    let made = run(py, threads, &on_event, |events| make(&ask, events))?;
-    let made = made.map_err(|e| e.into_err(py))?;
+    let made = run(py, threads, &on_event, |events| make(&ask, &run_on, events))?;
+    let (graph, report) = made.map_err(|e| e.into_err(py))?;
     let info = PyDict::new(py);
-    let directed_from = match made.directed {
-        DirectedFrom::Caller => "caller",
-        DirectedFrom::ColumnNames => "column names",
-        DirectedFrom::Default => "default",
-    };
-    info.set_item("directed_from", directed_from)?;
-    info.set_item("cached", made.report.is_none())?;
-    if let Some(r) = made.report {
+    info.set_item("cached", report.is_none())?;
+    if let Some(r) = report {
         for (key, value) in [
             ("rows", r.rows),
             ("rejected", r.rejected),
@@ -128,7 +236,15 @@ pub(crate) fn read<'py>(
             info.set_item(key, value)?;
         }
     }
-    Ok((Graph(Arc::new(made.graph)), info))
+    Ok((Graph(Arc::new(graph)), info))
+}
+
+/// How the build runs: these never change the graph.
+struct Run {
+    memory: u64,
+    threads: NonZeroUsize,
+    temp_dir: Option<PathBuf>,
+    overwrite: bool,
 }
 
 fn ns(t: SystemTime) -> Option<i64> {
@@ -168,15 +284,10 @@ fn provenance(ask: &Ask) -> Provenance {
     provenance
 }
 
-/// What `output` holds, if it exists: `Some(true)` for the graph that `ask` would build
-/// from the same, unchanged input (the cache of `docs/api-sketch.md` § 2.7),
-/// `Some(false)` for another graph, and `Err` for a file that is not a graph.
-fn cached(
-    ask: &Ask,
-    output: &Path,
-    graph: &GraphOptions,
-    columns: &[String; 2],
-) -> Option<Result<bool, ()>> {
+/// What `output` holds, if it exists: `Ok(true)` for the graph that `ask` would build
+/// from the same, unchanged input (the cache of `docs/api-sketch.md` § 2.7), `Ok(false)`
+/// for another graph, and `Err` for a file that is not a graph.
+fn cached(ask: &Ask, opened: &Opened, output: &Path) -> Option<Result<bool, ()>> {
     let source = FileSource::open(output).ok()?;
     let Ok(file) = Container::open(source) else {
         return Some(Err(()));
@@ -191,6 +302,7 @@ fn cached(
             .map(|i| (i.name.clone(), i.bytes, i.modified))
     };
     let get = |key: &str| stored.parameters.get(key).map(String::as_str);
+    let graph = opened.graph;
     let self_loops = if graph.self_loops == SelfLoops::Drop {
         "drop"
     } else {
@@ -208,42 +320,19 @@ fn cached(
         && get("duplicates") == Some(duplicates)
         && get("ids")
             == wanted.parameters.get("ids").map(String::as_str)
-        && get("source") == Some(columns[0].as_str())
-        && get("target") == Some(columns[1].as_str())))
+        && get("source") == Some(opened.columns[0].as_str())
+        && get("target") == Some(opened.columns[1].as_str())))
 }
 
-fn make(ask: &Ask, events: &Events) -> Result<Made, Fail> {
+/// The graph of `ask`, and the build's report (`None` for the cache).
+fn make(ask: &Ask, run: &Run, events: &Events) -> Result<(Shared, Option<Report>), Fail> {
     let input = &ask.path;
-    let source = FileSource::open(input).map_err(|e| Fail::Os(e, input.display().to_string()))?;
-    let bytes = source.len();
-    let reader = TextReader::open(source, &ask.text).map_err(|e| error::text(input, e))?;
-    let (directed, directed_from) = build::infer_direction(reader.layout(), ask.directed);
-    let graph_options = GraphOptions {
-        directed,
-        self_loops: ask.self_loops,
-        duplicates: ask.duplicates,
-    };
-    let layout = reader.layout();
-    let columns = [
-        layout.column_name(layout.source),
-        layout.column_name(layout.target),
-    ];
-    let output = ask
-        .out
-        .clone()
-        .or_else(|| (bytes >= FILE_FROM_BYTES).then(|| native::default_output(input)));
-    let budget = graph::budget(ask.memory);
-    if let Some(out) = output.as_deref().filter(|_| !ask.overwrite) {
-        match cached(ask, out, &graph_options, &columns) {
-            Some(Ok(true)) => {
-                let graph = graph::open_path(out, budget)?;
-
-                return Ok(Made {
-                    graph,
-                    report: None,
-                    directed: directed_from,
-                });
-            }
+    let opened = open_input(ask)?;
+    let output = opened.output.as_deref();
+    let budget = graph::budget(run.memory);
+    if let Some(out) = output.filter(|_| !run.overwrite) {
+        match cached(ask, &opened, out) {
+            Some(Ok(true)) => return Ok((graph::open_path(out, budget)?, None)),
             Some(holds) => {
                 let holds = if holds.is_ok() {
                     "other graph"
@@ -258,7 +347,7 @@ fn make(ask: &Ask, events: &Events) -> Result<Made, Fail> {
             None => {}
         }
     }
-    let root = match (&ask.temp_dir, &output) {
+    let root = match (&run.temp_dir, output) {
         (Some(dir), _) => dir.clone(),
         (None, Some(out)) => out
             .parent()
@@ -266,39 +355,30 @@ fn make(ask: &Ask, events: &Events) -> Result<Made, Fail> {
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
         (None, None) => std::env::temp_dir(),
     };
-    let job = native::job_id(&[
-        &absolute(input),
-        &output
-            .as_deref()
-            .map_or_else(|| "memory".to_owned(), absolute),
-        &columns[0],
-        &columns[1],
-        &format!("{graph_options:?}"),
-        &format!("{:?}", ask.ids),
-    ]);
-    let scratch =
-        JobScratch::create(&root, &job).map_err(|e| Fail::Os(e, root.display().to_string()))?;
+    let scratch = JobScratch::create(&root, &opened.job)
+        .map_err(|e| Fail::Os(e, root.display().to_string()))?;
     let memory = Memory::from(Arc::clone(&budget));
-    let mut options = BuildOptions::new(graph_options, ask.threads);
+    let mut options = BuildOptions::new(opened.graph, run.threads);
     if ask.ids == IdType::String {
         options.ids = options.ids.with_kind(KeyKind::Bytes);
     }
-    let target = output.as_deref().map_or(Output::Memory, Output::File);
     let job = Job {
         ask,
+        run,
         options: &options,
         memory: &memory,
         scratch: &scratch,
-        target,
+        target: output.map_or(Output::Memory, Output::File),
         events,
     };
-    let (written, report) = match Sample::of(&reader).map_err(|e| error::text(input, e))? {
-        Some(sample) => job.build(&reader, &sample)?,
+    let reader = &opened.reader;
+    let (written, report) = match Sample::of(reader).map_err(|e| error::text(input, e))? {
+        Some(sample) => job.build(reader, &sample)?,
         None => {
-            events.send(Event::Begin("decompressing", None));
-            let plain = native::decompress(&reader, &scratch, &ask.text)
-                .map_err(|e| error::write(input, ask.memory, e))?;
-            events.send(Event::End("decompressing", plain.source().len()));
+            // A compressed input is first copied as plain text: part of `reading`.
+            events.send(Event::Begin("reading", None));
+            let plain = native::decompress(reader, &scratch, &ask.text)
+                .map_err(|e| error::write(input, run.memory, e))?;
             let sample = Sample::of(&plain)
                 .map_err(|e| error::text(input, e))?
                 .unwrap_or(Sample::new(0, 0, 0, 0));
@@ -307,28 +387,24 @@ fn make(ask: &Ask, events: &Events) -> Result<Made, Fail> {
     };
     drop(scratch);
     if events.stopped() {
-        if let Some(out) = &output {
+        if let Some(out) = output {
             let _ = std::fs::remove_file(out);
         }
         return Err(Failure::new("EverygraphError")
             .text("message", "Stopped.")
             .into());
     }
-    let graph = match (written, &output) {
-        (Written::File(_), Some(out)) => graph::open_path(out, budget)?,
-        (Written::Memory(bytes), _) => graph::in_memory(bytes, budget)?,
-        (Written::File(_), None) => unreachable!("a file is written only to an output"),
+    let graph = match written {
+        Written::File(_) => graph::open_path(output.unwrap_or(input), budget)?,
+        Written::Memory(bytes) => graph::in_memory(bytes, budget)?,
     };
-    Ok(Made {
-        graph,
-        report: Some(report),
-        directed: directed_from,
-    })
+    Ok((graph, Some(report)))
 }
 
 /// A build once its options are known.
 struct Job<'a> {
     ask: &'a Ask,
+    run: &'a Run,
     options: &'a BuildOptions,
     memory: &'a Memory,
     scratch: &'a JobScratch,
@@ -344,17 +420,17 @@ impl Job<'_> {
         reader: &TextReader<S>,
         sample: &Sample,
     ) -> Result<(Written, Report), Fail> {
-        let ask = self.ask;
+        let (ask, run) = (self.ask, self.run);
         let directed = self.options.graph.directed;
-        let estimate = build::estimate(sample, directed, ask.threads, ask.memory);
-        if ask.memory < estimate.smallest_budget {
+        let estimate = build::estimate(sample, directed, run.threads, run.memory);
+        if run.memory < estimate.smallest_budget {
             let refused = InsufficientBudget::new(
                 "the blocks read at once",
                 estimate.smallest_budget,
-                ask.memory,
+                run.memory,
             );
-            let threads = u64::try_from(ask.threads.get()).unwrap_or(u64::MAX);
-            return Err(error::budget(&refused, ask.memory)
+            let threads = u64::try_from(run.threads.get()).unwrap_or(u64::MAX);
+            return Err(error::budget(&refused, run.memory)
                 .count("threads", threads)
                 .into());
         }
@@ -367,7 +443,7 @@ impl Job<'_> {
             provenance(ask),
             self.events,
         )
-        .map_err(|e| error::write(&ask.path, ask.memory, e))?;
+        .map_err(|e| error::write(&ask.path, run.memory, e))?;
         Ok((written, report))
     }
 }

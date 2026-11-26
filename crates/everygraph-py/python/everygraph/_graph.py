@@ -48,21 +48,22 @@ def _threads(value: int | None) -> int:
     return value
 
 
-def _memory(value: Size | None) -> int:
-    """The budget in bytes: the argument, else `EVERYGRAPH_MEMORY`, else half of the
-    memory free now (`docs/api-sketch.md` § 2.4). A budget larger than the machine is a
-    `ValueError` (P-16)."""
+def _memory(value: Size | None, given: str = "memory=") -> tuple[int, str]:
+    """The budget in bytes and where it came from: the argument, else
+    `EVERYGRAPH_MEMORY`, else half of the memory free now (`docs/api-sketch.md` § 2.4).
+    A budget larger than the machine is a `ValueError` (P-16)."""
     machine = _machine()
+    origin = given
     if value is None:
-        value = os.environ.get("EVERYGRAPH_MEMORY")
+        value, origin = os.environ.get("EVERYGRAPH_MEMORY"), "EVERYGRAPH_MEMORY"
     if value is None:
-        return machine[1] // 2 if machine else 8 * 10**9
+        return (machine[1] // 2 if machine else 8 * 10**9), "default: half of free RAM"
     budget = _text.parse_size(value)
     if machine is not None and budget > machine[0]:
         raise ValueError(
             f"memory={value!r} is more than this machine has ({_text.size(machine[0])})"
         )
-    return budget
+    return budget, origin
 
 
 def _progress_arg(progress: ProgressArg) -> ProgressArg:
@@ -79,6 +80,7 @@ def _choice(name: str, value: str, options: tuple[str, ...]) -> str:
 
 
 def _job(*parts: object) -> str:
+    """16 hexadecimal digits that name a job (`docs/ux-contract.md` G-19)."""
     import hashlib
 
     return hashlib.blake2b("\0".join(map(str, parts)).encode(), digest_size=8).hexdigest()
@@ -126,7 +128,7 @@ def read(
             written=True,
         )
     path = pathlib.Path(data)
-    budget = _memory(memory)
+    budget, origin = _memory(memory)
     pool = _threads(threads)
     progress = _progress_arg(progress)
     for name, value, options in (
@@ -136,19 +138,25 @@ def read(
     ):
         _choice(name, value, options)
     temp = temp_dir if temp_dir is not None else os.environ.get("EVERYGRAPH_TEMP_DIR")
-    job = _job(path.resolve(), out, source, target, directed, self_loops, duplicates, ids)
-    events = Progress("ingest", _READ_PHASES, job, progress)
-    began = _clock()
+    asked = {
+        "out": None if out is None else str(out),
+        "source": source,
+        "target": target,
+        "directed": directed,
+        "self_loops": self_loops,
+        "duplicates": duplicates,
+        "ids": ids,
+    }
+    machine = _machine()
     try:
+        seen = _native.inspect(str(path), **asked)
+        events = Progress("ingest", _READ_PHASES, seen["job"], progress)
+        if progress is True:
+            print(_understood(path, seen, asked, budget, origin), file=sys.stderr)
+        began = _clock()
         native, info = _native.read(
             str(path),
-            out=None if out is None else str(out),
-            source=source,
-            target=target,
-            directed=directed,
-            self_loops=self_loops,
-            duplicates=duplicates,
-            ids=ids,
+            **asked,
             memory=budget,
             threads=pool,
             temp_dir=None if temp is None else str(temp),
@@ -156,7 +164,6 @@ def read(
             on_event=events,
         )
     except _native.NativeError as e:
-        machine = _machine()
         call = _caller("read", repr(str(data)))
         _errors.raise_native(e, "read", call, written=True, machine_memory=machine[0] if machine else None)
         raise
@@ -167,6 +174,35 @@ def read(
             events.flush()
         print(graph._read_summary(path, took), file=sys.stderr)
     return graph
+
+
+def _understood(path: pathlib.Path, seen: dict[str, Any], asked: dict[str, Any], budget: int, origin: str) -> str:
+    """What `eg.read` understood of its input, before any work (`docs/ux-contract.md`
+    § 3.4): the headline, `ids`, `edges`, `columns` and `budget` lines."""
+    direction = "directed" if seen["directed"] else "undirected"
+    if seen["directed_from"] == "column names":
+        direction += " (from the column names)"
+    elif seen["directed_from"] == "default":
+        direction += " (the column names give no direction)"
+    repeated = {"events": "duplicates kept as events", "collapse": "duplicates collapsed",
+                "sum": "duplicates summed"}[asked["duplicates"]]
+    loops = "self-loops dropped" if asked["self_loops"] == "drop" else "self-loops kept"
+    used = {seen["source"], seen["target"]}
+    ignored = [c for c in seen["header"] or [] if c not in used]
+    columns = f"{seen['source']} → source · {seen['target']} → target"
+    if ignored:
+        columns += f" · ignored: {', '.join(ignored)}" if len(ignored) <= 3 else f" · ignored: {len(ignored)} columns"
+    compression = "" if seen["compression"] == "plain text" else f" · {seen['compression']}"
+    return "\n".join([
+        f"{path.name} · {_text.size(seen['bytes'])}{compression}",
+        "",
+        f"  ids       {seen['ids']}",
+        f"  edges     {direction}",
+        f"            {repeated} · {loops}",
+        f"  columns   {columns}",
+        f"  budget    {_text.size(budget)} memory ({origin})",
+        "",
+    ])
 
 
 def _clock() -> float:
@@ -187,7 +223,7 @@ def open(  # noqa: A001 - the approved name (docs/api-sketch.md § 3.1)
     """
     try:
         _threads(threads)
-        native = _native.open(pathlib.Path(path), _memory(memory))
+        native = _native.open(pathlib.Path(path), _memory(memory)[0])
     except _native.NativeError as e:
         _errors.raise_native(e, "open", _caller("open", repr(str(path))))
         raise
@@ -417,7 +453,7 @@ class Graph:
 
     def _run(self, memory: Size | None, threads: int | None) -> tuple[int, int]:
         return (
-            _memory(memory if memory is not None else self._memory),
+            _memory(memory if memory is not None else self._memory)[0],
             _threads(threads if threads is not None else self._threads),
         )
 

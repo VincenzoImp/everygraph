@@ -31,6 +31,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<table::Table>()?;
     m.add_function(wrap_pyfunction!(graph::open, m)?)?;
     m.add_function(wrap_pyfunction!(read::read, m)?)?;
+    m.add_function(wrap_pyfunction!(read::inspect, m)?)?;
     m.add_function(wrap_pyfunction!(machine_memory, m)?)?;
     m.add_function(wrap_pyfunction!(default_threads, m)?)?;
     Ok(())
