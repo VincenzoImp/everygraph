@@ -14,6 +14,9 @@ publish.workspace = true
 # A library does not decide whether threads exist (CONTRIBUTING.md, "Crates").
 everygraph-core = { path = "../everygraph-core", default-features = false }
 everygraph-format = { path = "../everygraph-format" }
+# The plan and error documents of `docs/ux-contract.md` § 3.6 and § 6.1, keys in the
+# order the schemas list them.
+serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
 
 [features]
 # Global work counters of the frontier driver and the decoder, for experiment #266
@@ -27,6 +30,8 @@ everygraph-io = { path = "../everygraph-io" }
 # The in-adjacency of directed graphs, derived as a graph file stores it (tests/oracle.rs).
 everygraph-ingest = { path = "../everygraph-ingest" }
 everygraph-oracle = { path = "../everygraph-oracle" }
+# The planner's documents checked against the schemas of the docs.
+jsonschema = { version = "0.63", default-features = false }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 
 [lints]

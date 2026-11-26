@@ -21,11 +21,18 @@
 //!   [`components`].
 //! - [`run`]: the whole-graph operations by name, as the command line and Python ask
 //!   for them, and their results kept in the graph file.
+//! - [`planner`]: how each of those operations runs within its memory budget (regime,
+//!   decode tier, threads, access advice), its estimate, its refusal with the smallest
+//!   budget, and the plan documents of `docs/ux-contract.md` § 3 (#45). It lives here
+//!   because the cost of each kernel is read from the kernel's own reservations, which
+//!   change with it, and because the command line and Python reach both through
+//!   [`run::execute`]. It reads no file and starts no thread: the caller probes the
+//!   machine (`everygraph_io::physical_cores`, `storage`, `ProcMemoryProbe`).
 //!
 //! A kernel body is a closure over one node and its list:
 //!
 //! ```
-//! use everygraph_core::Memory;
+//! use everygraph_core::{ExactSum, Memory};
 //! use everygraph_kernels::edge_map::{Csr, Plan, Settings, all};
 //!
 //! // Node 0 lists 1 and 2; node 1 lists 0; node 2 lists 0.
@@ -34,18 +41,18 @@
 //! let weight = [1.0_f64, 10.0, 100.0];
 //!
 //! let mut heaviest = [0_u32; 3];
-//! let total: f64 = Plan::with(&csr, &Memory::unlimited(), Settings::default(), |plan| {
+//! let total: ExactSum = Plan::with(&csr, &Memory::unlimited(), Settings::default(), |plan| {
 //!     let w = plan.per_node(&weight).unwrap(); // indexed by nodes, without bounds checks
 //!     // For each node: its heaviest neighbour (an output), and the sum of the weights
-//!     // of the neighbours of all nodes (a reduction, in a fixed order).
-//!     plan.scan(&mut heaviest[..], all, |sum: &mut f64, out, i, row, _| {
+//!     // of the neighbours of all nodes (a reduction, exact in any order).
+//!     plan.scan(&mut heaviest[..], all, |sum: &mut ExactSum, out, i, row, _| {
 //!         let best = row.list.iter().max_by(|a, b| w[**a].total_cmp(&w[**b]));
 //!         out[i] = best.map_or(0, |u| u.get());
-//!         *sum = row.list.iter().fold(*sum, |s, &u| s + w[u]);
+//!         row.list.iter().for_each(|&u| sum.add(w[u]));
 //!     })
 //! })
 //! .unwrap();
-//! assert_eq!((heaviest, total), ([2, 0, 0], 112.0));
+//! assert_eq!((heaviest, total.value()), ([2, 0, 0], 112.0));
 //! ```
 //!
 //! The same closure runs over a [`Compressed`](edge_map::Compressed), a
@@ -72,6 +79,7 @@ pub mod degrees;
 pub mod edge_map;
 pub mod kcore;
 pub mod pagerank;
+pub mod planner;
 pub mod proof;
 pub mod run;
 pub mod scc;

@@ -631,9 +631,12 @@ fn communities_of(n: u32, pairs: &[(u32, u32)]) -> Vec<u32> {
 
 #[test]
 fn relabelling_and_disjoint_union_keep_a_clear_partition() {
+    // About 30 links inside its block and 1 out of it per node: blocks that one
+    // iteration finds from any labelling. Weaker blocks let a node or a block land
+    // elsewhere after a relabelling, which D14 does not promise against.
     let clear = [
-        planted(8, 100, 120, 4, 1),
-        planted(6, 120, 100, 3, 4),
+        planted(8, 100, 300, 1, 1),
+        planted(6, 120, 250, 1, 4),
         ring(10, 8),
     ];
     for (n, pairs) in &clear {

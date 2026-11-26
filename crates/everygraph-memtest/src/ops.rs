@@ -14,7 +14,9 @@ use everygraph_core::{BlockCache, ByteSource, CacheSettings, Memory, MemoryError
 use everygraph_format::adjacency::Adjacency;
 use everygraph_format::container::{Container, Provenance, compact};
 use everygraph_format::verify::{Depth, verify};
-use everygraph_ingest::build::{BuildError, BuildOptions, GraphOptions, Sample, Silent, estimate};
+use everygraph_ingest::build::{
+    BuildError, BuildOptions, GraphOptions, OUT_INDEX, Sample, Silent, estimate,
+};
 use everygraph_ingest::graph::{Graph, OpenError};
 use everygraph_ingest::ids::{ColumnType, DictionaryError, Key, KeySource, build_dictionary};
 use everygraph_ingest::native::{JobScratch, Output, WriteError, write};
@@ -27,6 +29,8 @@ use everygraph_kernels::edge_map::{
 };
 use everygraph_kernels::kcore;
 use everygraph_kernels::pagerank::{self, PageRank};
+use everygraph_kernels::planner;
+use everygraph_kernels::run::{Operation, Precision};
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_kernels::traversal::{Bfs, bfs};
 
@@ -393,9 +397,10 @@ impl Op {
     }
 
     /// The smallest budget the engine declares for the operation on `input` before it
-    /// runs, below which it refuses before any work: the planner's (`m3-02-planner`),
-    /// and today the build's own estimate (`everygraph_ingest::build::estimate`). `None`
-    /// where nothing is declared yet.
+    /// runs, below which it refuses before any work: the build's own estimate
+    /// (`everygraph_ingest::build::estimate`) for an ingest, and the planner's
+    /// (`everygraph_kernels::planner`) for a kernel that `run` has, on the mapped graph
+    /// file of an undirected graph. `None` where nothing is declared yet.
     ///
     /// # Panics
     ///
@@ -409,6 +414,7 @@ impl Op {
                 let options = BuildOptions::new(GraphOptions::default(), THREADS);
                 Some(estimate(&sample, &options, u64::MAX).smallest_budget)
             }
+            Self::Kernel(kernel, Regime::Mapped) => kernel.planned_minimum(input),
             _ => None,
         }
     }
@@ -448,6 +454,17 @@ impl Op {
             Self::Kernel(kernel, Regime::Mapped) => {
                 let g = Graph::open(&input.graph, memory)
                     .map_err(|e| Failure::of(matches!(e, OpenError::Budget(_)), e))?;
+                // Planned, as `run::execute` is: a budget below the plan's peak is
+                // refused before any work. The budget is what is left, and what the open
+                // file holds.
+                let held = u64::try_from(g.index().heap_bytes()).unwrap_or(u64::MAX);
+                let budget = memory.available().saturating_add(held);
+                if let Some(r) = kernel
+                    .plan(&g, input, budget, 0)
+                    .and_then(|p| p.refusal().cloned())
+                {
+                    return Err(Failure::Budget(r.why));
+                }
                 let data = g.data().map_err(other)?;
                 let lists = Compressed::mapped(g.index(), &data).map_err(other)?;
                 kernel.run(&lists, input, memory, false)
@@ -502,6 +519,66 @@ impl Op {
 }
 
 impl Kernel {
+    /// The operation of `run` this kernel is, as [`Kernel::run`] calls it.
+    fn operation(self) -> Option<Operation> {
+        match self {
+            Self::PageRank => Some(Operation::PageRank {
+                params: PageRank::default(),
+                precision: Precision::Full,
+            }),
+            Self::Bfs => Some(Operation::Bfs {
+                source: 0,
+                max_hops: None,
+            }),
+            Self::Wcc => Some(Operation::Components),
+            Self::KCore => Some(Operation::KCore),
+            Self::Degrees => Some(Operation::Degrees),
+            Self::Hops | Self::Sssp | Self::Leiden => None,
+        }
+    }
+
+    /// The planner's smallest budget for this kernel on [`THREADS`] threads, with the
+    /// opening of the graph file: what [`Op::run`] does in the mapped regime.
+    fn planned_minimum(self, input: &Input) -> Option<u64> {
+        let g = Graph::open(&input.graph, &Memory::unlimited()).ok()?;
+        let opened = g.container().get(OUT_INDEX)?.len.saturating_mul(3);
+        self.plan(&g, input, u64::MAX >> 2, opened)
+            .map(|p| p.peak_bytes())
+    }
+
+    /// The plan of this kernel on the open graph `g` of `input` within `budget`, the file
+    /// having needed `opened` bytes to open; `None` where the planner has no such
+    /// operation, or for a directed graph, whose lists `run` reads otherwise.
+    fn plan(
+        self,
+        g: &Graph<&MmapSource>,
+        input: &Input,
+        budget: u64,
+        opened: u64,
+    ) -> Option<planner::Plan> {
+        let op = self.operation()?;
+        if g.directed() {
+            return None;
+        }
+        let mut facts = planner::Graph::of(g.index(), None, input.graph.len(), g.edges());
+        facts.opened = opened;
+        let machine = planner::Machine {
+            cores: THREADS,
+            hardware_threads: THREADS,
+            memory: None,
+            storage: None,
+        };
+        let request = planner::Request {
+            memory: Some((budget, planner::Origin::Argument)),
+            force: planner::Force {
+                threads: Some(THREADS),
+                ..planner::Force::default()
+            },
+            ..planner::Request::default()
+        };
+        planner::plan(&op, &facts, &machine, &request).ok()
+    }
+
     /// Runs the kernel on `lists`; with `ahead`, it tells the source what it will read
     /// (frontier prefetch, and Leiden's read-ahead).
     fn run<S: Source>(

@@ -28,7 +28,8 @@
 //!   refused before anything is allocated (DESIGN D2, D11). Their buffers come from
 //!   the accountant's [`Pages`], which a native build points at an allocator that maps
 //!   large blocks on their own pages. [`MemoryProbe`] is the
-//!   interface through which the layers above read what the machine has.
+//!   interface through which the layers above read what the machine has, and
+//!   [`Storage`] what holds a file.
 //! - Numerics that give the same bits on every platform (DESIGN D14): [`math`], the
 //!   pinned transcendentals and the canonical form of floats; [`ExactSum`], an exact
 //!   accumulator for global scalars; [`rng`], the counter-based random numbers and
@@ -82,6 +83,7 @@ pub mod rng;
 mod scratch;
 mod seg_vec;
 mod segment;
+mod storage;
 #[cfg(test)]
 mod test_support;
 
@@ -97,6 +99,7 @@ pub use memory::{
 pub use scratch::ScratchPool;
 pub use seg_vec::{MAX_ALLOCATION_BYTES, SegColumns, SegRows, SegVec};
 pub use segment::{AlignedBuf, DEFAULT_SEGMENT_SIZE, SEGMENT_ALIGN, SegmentReader, Segments};
+pub use storage::{Storage, StorageKind};
 
 // Every conversion in this crate relies on these two facts: a `u32` always fits in a
 // `usize`, and a `usize` always fits in a `u64`. A target where either is false must

@@ -21,8 +21,8 @@ use everygraph_core::{Budget, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{
-    Compressed, CompressedStream, Csr, Error, FRONTIER_GRAIN, Node, NodeList, Plan, Settings,
-    Source, Stream, Work, all, ids,
+    Compressed, CompressedStream, Csr, Error, FRONTIER_GRAIN, Node, NodeList, Plan, Reduce,
+    Settings, Source, Stream, Work, all, ids,
 };
 use everygraph_kernels::{pagerank, proof, traversal};
 
@@ -70,6 +70,18 @@ fn value(v: u32, list: &[u32]) -> f64 {
     let scale = [1e-12, 1e-6, 1.0, 1e6, 1e12][(v % 5) as usize];
     let sign = if v.is_multiple_of(3) { -1.0 } else { 1.0 };
     sign * scale * (1.0 + f64::from(list.iter().fold(0_u32, |a, &t| a ^ t)) / 7.0)
+}
+
+/// A float added in the order of the reduction tree, which the framework gives only
+/// to tests: a float that carries a result reduces into `ExactSum`.
+#[derive(Clone, Copy, Debug, Default)]
+struct Tree(f64);
+
+impl Reduce for Tree {
+    const ZERO: Self = Self(0.0);
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
 }
 
 /// The per-entry column of the tests: a weight for each entry, in node order.
@@ -150,9 +162,9 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
     Plan::with(source, &memory, settings, |plan| {
         par::with_threads(threads, || {
             let mut out = vec![0_u64; plan.nodes() as usize];
-            let sum: f64 = plan
-                .scan(&mut out[..], all, |acc: &mut f64, out, i, row, _| {
-                    *acc += value(row.node.get(), ids(row.list));
+            let sum: Tree = plan
+                .scan(&mut out[..], all, |acc: &mut Tree, out, i, row, _| {
+                    acc.0 += value(row.node.get(), ids(row.list));
                     let w = weights[row.entries()].iter().fold(0.0, |s: f64, &x| s + x);
                     let total = ids(row.list).iter().map(|&t| u64::from(t)).sum::<u64>();
                     out[i] = (total << 8 | row.list.len() as u64) ^ w.to_bits();
@@ -175,9 +187,9 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                 .unwrap();
             let frontier: Vec<Node<'_>> =
                 plan.all_nodes().filter(|v| in_frontier(v.get())).collect();
-            let pushed: f64 = plan
-                .frontier(&frontier, |acc: &mut f64, row, _| {
-                    *acc += value(row.node.get(), ids(row.list));
+            let pushed: Tree = plan
+                .frontier(&frontier, |acc: &mut Tree, row, _| {
+                    acc.0 += value(row.node.get(), ids(row.list));
                 })
                 .unwrap();
             let common: u64 = plan
@@ -195,7 +207,7 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                 })
                 .unwrap();
             let rest = filtered ^ degrees << 20;
-            (sum.to_bits(), out, rest, pushed.to_bits(), common)
+            (sum.0.to_bits(), out, rest, pushed.0.to_bits(), common)
         })
         .unwrap()
     })

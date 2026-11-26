@@ -46,6 +46,9 @@
 //! the process gives them back to the system. [`memory_backed`]: whether a directory is
 //! on a file system held in memory, where scratch counts as memory.
 //!
+//! **The rest of the machine:** [`physical_cores`], and [`storage`], the kind of device
+//! that holds a directory and the bytes free there, as the planner reads them.
+//!
 //! The `unsafe` blocks of the crate are in two private modules. `sys`: the memory map
 //! of a file and three calls into the C library; the map is safe to offer under the
 //! invariant stated on [`MmapSource`], which the sinks enforce within the process, and
@@ -60,6 +63,7 @@ pub mod table;
 
 mod claim;
 mod file;
+mod machine;
 mod memory_probe;
 mod mmap;
 mod pages;
@@ -72,6 +76,7 @@ use everygraph_core::ReadError;
 pub use everygraph_core::{AccessHint, ByteSource, MemorySource};
 
 pub use file::FileSource;
+pub use machine::{physical_cores, storage};
 pub use memory_probe::{ProcMemoryProbe, memory_backed};
 pub use mmap::MmapSource;
 pub use pages::{LARGE_BLOCK, PAGES};
