@@ -112,4 +112,5 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - The 5-hour usage window ran out again at about 17:00, with 10–12 agents active since 12:20. The machine stood idle for 30 minutes (load 0). Keep about 6 agents at once and use medium effort where the table allows; resume in two waves (critical path and reviews first, then the rest).
 - Wait loops of the form `until ! pgrep -f "<pattern>"` never end: the loop's own command line contains the pattern. Nine such loops of one agent ran for 2–3 hours. Agents wait on a recorded PID or a `done` line, with a bound (in the implementer brief).
 - #46 and #45 closed on merge although their PRs said `Part of`: an earlier commit message said `Closes #N`, and the squash merge kept it. After merging a `Part of` PR, the coordinator checks the issue is still open and reopens it if not.
+- Main's test job was red for about 90 minutes after #288: the map reader check found a partial `node_modules` in `target/`, which the Rust cache prunes (fixed in #306). The merges after #288 did not check main's run. Tools that install into `target/` check the installed version, not only that a directory exists.
 
