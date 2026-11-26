@@ -76,15 +76,15 @@ This is a design decision; the evidence is about what each choice costs.
   same way.
 - A file that opened at an older commit (a damaged newest table, an unreadable header
   block) is not updated without the caller's consent (`Writer::update_recovered`).
-- Cross-process: one writer at a time is issue `m2-22-single-writer-lock`; a process
-  committing to a graph it holds mapped is issue `m2-21-range-maps`.
+- Cross-process: one writer at a time is the lock of `everygraph_io::FileSink` (#205);
+  a process commits to a graph it holds mapped, by range (#204).
 - #39 appends results with their provenance records and commits; a result that replaces
   another removes it in the same commit.
 - `compact` is a command over `everygraph_format::container::compact` (#98); `info`
   reports the reclaimable bytes.
-- A process that holds a graph mapped cannot commit to it until the map is dropped
-  (`everygraph-io`'s in-process guard). Mapping only the section range, which the
-  protocol makes safe (spec § 11), is issue `m2-21-range-maps`.
+- A graph is mapped by range, `8192 … committed end`, which the protocol never
+  changes (spec § 11); `everygraph-io`'s in-process guard refuses only writes that
+  would reach a mapped range (#204).
 
 ## What would change our mind
 

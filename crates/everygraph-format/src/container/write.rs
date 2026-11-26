@@ -32,7 +32,8 @@ const _: () = assert!(MIN_PADDING == 16);
 /// open the file again to go on.
 ///
 /// One writer at a time: two writers updating the same file at once overwrite each
-/// other's appended sections. The caller holds whatever lock keeps them apart.
+/// other's appended sections. The sink keeps them apart: `everygraph_io::FileSink`
+/// holds a lock on its file that refuses a second writer.
 #[derive(Debug)]
 pub struct Writer<S: ByteSink> {
     sink: S,
@@ -289,17 +290,9 @@ impl<S: ByteSink> Writer<S> {
         let mut at = 0;
         while at < source.len {
             let n = small((source.len - at).min(COPY_CHUNK as u64));
-            let piece = match from.source().as_slice() {
-                Some(all) => {
-                    let start = small(source.offset + at);
-                    all.get(start..start.saturating_add(n)).ok_or(
-                        everygraph_core::ReadError::OutOfBounds {
-                            offset: source.offset + at,
-                            len: n as u64,
-                            source_len: from.source().len(),
-                        },
-                    )?
-                }
+            let range = source.offset + at..source.offset + at + n as u64;
+            let piece = match from.source().slice(range) {
+                Some(bytes) => bytes,
                 None => {
                     buf.resize(n, 0);
                     from.source().read_at(source.offset + at, &mut buf)?;

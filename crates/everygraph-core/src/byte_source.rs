@@ -23,7 +23,9 @@ use crate::widen;
 /// - **Re-readable.** [`len`](Self::len) is constant, and reading the same range twice
 ///   yields the same bytes. Two-pass builders (count, then fill) depend on it. Something
 ///   that can be consumed only once, such as a pipe, must be spooled by its backend
-///   before it is offered as a `ByteSource`.
+///   before it is offered as a `ByteSource`. One backend states an exception: a memory
+///   map of one range of a file (`everygraph_io::MmapSource::from_file_range`) is
+///   re-readable inside that range only.
 ///
 /// The trait does not require `Send` or `Sync`, because a browser `File` handle is
 /// neither. Code that reads from several threads asks for `ByteSource + Sync`.
@@ -66,6 +68,16 @@ pub trait ByteSource {
         None
     }
 
+    /// The bytes of `range` as one slice, when the backend holds them in addressable
+    /// memory; `None` otherwise, and for a range that is not inside the source. The
+    /// default takes them from [`as_slice`](Self::as_slice). A backend that holds only
+    /// part of its bytes in memory (a memory map of one range of a file) overrides it.
+    fn slice(&self, range: Range<u64>) -> Option<&[u8]> {
+        let start = usize::try_from(range.start).ok()?;
+        let end = usize::try_from(range.end).ok()?;
+        self.as_slice()?.get(start..end)
+    }
+
     /// Tells the backend how `range` is about to be read. Advice only: it never fails,
     /// never changes what is read, and a backend may ignore it, which is the default.
     /// The part of `range` outside the source is ignored.
@@ -89,6 +101,10 @@ impl<S: ByteSource + ?Sized> ByteSource for &S {
 
     fn as_slice(&self) -> Option<&[u8]> {
         (**self).as_slice()
+    }
+
+    fn slice(&self, range: Range<u64>) -> Option<&[u8]> {
+        (**self).slice(range)
     }
 
     fn advise(&self, range: Range<u64>, hint: AccessHint) {
@@ -249,12 +265,17 @@ mod tests {
             for len in 0..=18_usize {
                 let mut buf = vec![0xAA_u8; len];
                 let result = source.read_at(widen(offset), &mut buf);
+                let range = widen(offset)..widen(offset + len);
                 match bytes.get(offset..offset + len) {
                     Some(expected) => {
                         result.unwrap();
                         assert_eq!(buf, expected, "offset {offset}, len {len}");
+                        assert_eq!(source.slice(range), Some(expected));
                     }
-                    None => assert_out_of_bounds(result, widen(offset), widen(len), 16),
+                    None => {
+                        assert_out_of_bounds(result, widen(offset), widen(len), 16);
+                        assert_eq!(source.slice(range), None);
+                    }
                 }
             }
         }
@@ -339,6 +360,7 @@ mod tests {
         assert_eq!(Minimal.as_slice(), None);
         let by_reference: &dyn ByteSource = &Minimal;
         assert_eq!(by_reference.as_slice(), None);
+        assert_eq!(by_reference.slice(0..1), None);
         for hint in [
             AccessHint::Normal,
             AccessHint::Sequential,
