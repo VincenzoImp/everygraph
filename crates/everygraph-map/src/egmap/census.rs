@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Zoom consistency (§ 3.1, § 6): the zoom rule, and the census that counts what breaks
-//! it in a set of tiles.
+//! Zoom consistency (§ 6): the census that counts what breaks § 3 in a set of tiles.
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -9,59 +8,7 @@ use std::hash::Hasher;
 
 use everygraph_core::{Memory, MemoryKind, Reservation, usize_of, widen};
 
-use super::{EgmapError, MAX_ZOOM, TILE_PX, Tile};
-
-/// The first zoom at which a disc of radius `r` (in units of the map's width) is at
-/// least `px` pixels across its radius: the least `z ≥ 0` with `r · 256 · 2^z ≥ px`, or
-/// `MAX_ZOOM + 1` when no zoom of a file reaches it. Exact: each side is a `f32` times a
-/// power of two, computed in `f64`.
-#[must_use]
-pub fn min_zoom(r: f32, px: f32) -> u8 {
-    let r = f64::from(r) * f64::from(TILE_PX);
-    let px = f64::from(px);
-    (0..=MAX_ZOOM)
-        .find(|&z| r * f64::from(1_u32 << z) >= px)
-        .unwrap_or(MAX_ZOOM + 1)
-}
-
-/// The pixel thresholds of the zoom rule (§ 3.1). The builder chooses them; the file
-/// records them in its metadata.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ZoomRule {
-    /// A region is drawn once its radius reaches this many pixels.
-    pub region_px: f32,
-    /// A region is open, and its children may be drawn, once its radius reaches this.
-    pub open_px: f32,
-    /// A node is drawn once its radius reaches this, and its region is open.
-    pub node_px: f32,
-    /// A region's label is no longer drawn once its radius reaches this.
-    pub label_off_px: f32,
-}
-
-impl ZoomRule {
-    /// The `zmin` of a region of radius `r`, given the radius and `zmin` of its parent
-    /// (`None` under the root), in a map of zooms 0 to `zmax`.
-    #[must_use]
-    pub fn region_zmin(&self, r: f32, parent: Option<(f32, u8)>, zmax: u8) -> u8 {
-        let own = min_zoom(r, self.region_px);
-        let after = parent.map_or(0, |(pr, pz)| pz.max(min_zoom(pr, self.open_px)));
-        own.max(after).min(zmax)
-    }
-
-    /// The `zmin` of a node of radius `r`, given the radius and `zmin` of its region.
-    #[must_use]
-    pub fn node_zmin(&self, r: f32, region: (f32, u8), zmax: u8) -> u8 {
-        let open = region.1.max(min_zoom(region.0, self.open_px));
-        min_zoom(r, self.node_px).max(open).min(zmax)
-    }
-
-    /// The `z_off` of the label of a region of radius `r`; a node's label has
-    /// `zmax + 1`.
-    #[must_use]
-    pub fn label_off(&self, r: f32, zmax: u8) -> u8 {
-        min_zoom(r, self.label_off_px).min(zmax + 1)
-    }
-}
+use super::{EgmapError, Tile};
 
 /// What a [`Census`] found (§ 6). Each count is of entities or labels, not of tiles.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -105,7 +52,8 @@ pub struct Census {
     reservation: Reservation,
 }
 
-/// What one map entry costs, as an estimate of a hash map's slot and its slack.
+/// What one map entry costs: an estimate of a hash map's slot and its slack. While the
+/// map grows it briefly holds two tables, so its peak can pass this.
 const BYTES_PER_ENTRY: u64 = 64;
 
 fn fingerprint(words: &[u64]) -> u64 {
@@ -174,18 +122,11 @@ impl Census {
         let mut keys = Vec::new();
         for g in &tile.regions {
             let f = fingerprint(&[
-                u64::from(g.parent),
                 u64::from(g.x.to_bits()),
                 u64::from(g.y.to_bits()),
                 u64::from(g.r.to_bits()),
                 g.nodes,
-                g.internal,
-                g.volume,
-                u64::from(g.communities),
-                u64::from(g.rank),
-                u64::from(g.partner),
                 g.kind as u64,
-                u64::from(g.depth),
                 u64::from(g.colour),
                 u64::from(g.zmin),
             ]);
@@ -213,6 +154,7 @@ impl Census {
                 u64::from(v.r.to_bits()),
                 name,
                 v.degree,
+                u64::from(v.colour),
                 u64::from(v.zmin),
             ]);
             let key = (true, v.id);

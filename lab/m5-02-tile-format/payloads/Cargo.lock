@@ -337,6 +337,7 @@ name = "everygraph-core"
 version = "0.0.0"
 dependencies = [
  "libm",
+ "rayon",
 ]
 
 [[package]]
@@ -345,6 +346,7 @@ version = "0.0.0"
 dependencies = [
  "everygraph-core",
  "flate2",
+ "serde_json",
 ]
 
 [[package]]
@@ -823,6 +825,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "everygraph-core",
  "everygraph-map",
  "flate2",
  "mlt-core",

@@ -21,8 +21,6 @@ const NAME: usize = 32;
 pub enum Element {
     /// `u8`.
     U8 = 1,
-    /// `u16`, little-endian.
-    U16 = 2,
     /// `u32`, little-endian.
     U32 = 3,
     /// `u64`, little-endian.
@@ -37,7 +35,6 @@ impl Element {
     pub const fn width(self) -> usize {
         match self {
             Self::U8 => 1,
-            Self::U16 => 2,
             Self::U32 | Self::F32 => 4,
             Self::U64 => 8,
         }
@@ -46,7 +43,6 @@ impl Element {
     fn from_code(code: u8) -> Option<Self> {
         Some(match code {
             1 => Self::U8,
-            2 => Self::U16,
             3 => Self::U32,
             4 => Self::U64,
             5 => Self::F32,
@@ -60,8 +56,6 @@ impl Element {
 pub enum Values<'a> {
     /// `u8` values.
     U8(&'a [u8]),
-    /// `u16` values.
-    U16(&'a [u16]),
     /// `u32` values.
     U32(&'a [u32]),
     /// `u64` values.
@@ -76,7 +70,6 @@ impl Values<'_> {
     pub const fn element(&self) -> Element {
         match self {
             Self::U8(_) => Element::U8,
-            Self::U16(_) => Element::U16,
             Self::U32(_) => Element::U32,
             Self::U64(_) => Element::U64,
             Self::F32(_) => Element::F32,
@@ -88,7 +81,6 @@ impl Values<'_> {
     pub const fn len(&self) -> usize {
         match self {
             Self::U8(v) => v.len(),
-            Self::U16(v) => v.len(),
             Self::U32(v) => v.len(),
             Self::U64(v) => v.len(),
             Self::F32(v) => v.len(),
@@ -105,9 +97,6 @@ impl Values<'_> {
     pub(super) fn append(&self, range: Range<usize>, out: &mut Vec<u8>) -> Result<(), EgmapError> {
         match self {
             Self::U8(v) => out.extend_from_slice(&v[range]),
-            Self::U16(v) => v[range]
-                .iter()
-                .for_each(|x| out.extend_from_slice(&x.to_le_bytes())),
             Self::U32(v) => v[range]
                 .iter()
                 .for_each(|x| out.extend_from_slice(&x.to_le_bytes())),
@@ -275,10 +264,29 @@ pub(super) fn parse_table(
 
 /// The arrays this version defines: their type and length, and which come together
 /// (§ 5.3).
+/// The arrays of the region table (§ 5.3), which every map has.
+pub(super) const REGION_TABLE: [&str; 7] = [
+    "regions.communities",
+    "regions.internal",
+    "regions.kind",
+    "regions.nodes",
+    "regions.parent",
+    "regions.partner",
+    "regions.volume",
+];
+
 pub(super) fn check_known(info: &MapInfo, sections: &[Section]) -> Result<(), EgmapError> {
     let get = |name: &str| sections.iter().find(|s| s.name == name);
     let plus_one = |n: u64| n.checked_add(1);
+    let regions = Some(info.regions);
     let expect = [
+        ("regions.parent", Element::U32, regions),
+        ("regions.kind", Element::U8, regions),
+        ("regions.nodes", Element::U64, regions),
+        ("regions.internal", Element::U64, regions),
+        ("regions.volume", Element::U64, regions),
+        ("regions.communities", Element::U32, regions),
+        ("regions.partner", Element::U32, regions),
         ("positions", Element::F32, info.nodes.checked_mul(2)),
         ("adjacency.offsets", Element::U64, plus_one(info.nodes)),
         ("adjacency.targets", Element::U32, None),
@@ -290,6 +298,9 @@ pub(super) fn check_known(info: &MapInfo, sections: &[Section]) -> Result<(), Eg
             get("matrix.pairs").map(|s| s.count),
         ),
     ];
+    if info.regions == 0 || REGION_TABLE.iter().any(|n| get(n).is_none()) {
+        return Err(malformed("the region table is missing"));
+    }
     for (name, element, count) in expect {
         if let Some(s) = get(name)
             && (s.element != element || count.is_some_and(|c| c != s.count))

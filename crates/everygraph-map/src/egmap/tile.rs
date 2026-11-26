@@ -13,37 +13,38 @@ const HEADER: usize = 48;
 const BLOCK_HEADER: usize = 16;
 /// A reader that does not know a block with this bit refuses the tile.
 const REQUIRED: u32 = 0x8000_0000;
-const REGIONS: u32 = REQUIRED | 1;
-const NODES: u32 = REQUIRED | 2;
-const LABELS: u32 = REQUIRED | 3;
 const STRINGS: u32 = REQUIRED | 4;
-/// Bytes per row of each block, over its columns.
-const REGION_WIDTHS: [usize; 15] = [4, 4, 4, 4, 4, 8, 8, 8, 4, 4, 4, 1, 1, 1, 1];
-const NODE_WIDTHS: [usize; 8] = [4, 4, 4, 4, 4, 4, 8, 1];
-const LABEL_WIDTHS: [usize; 5] = [4, 4, 1, 1, 1];
 /// The number of region colours of the approved style (`design/DECISIONS.md`).
 pub(super) const COLOURS: u8 = 5;
 
-/// What a region is (§ 3.2).
+/// What a region is (§ 3.2), with the codes of the files.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RegionKind {
-    /// A community of the hierarchy.
+    /// A community of the partition the map draws.
     Community = 0,
-    /// A part of a community that the map hierarchy split to keep regions small.
-    Subdivision = 1,
-    /// Small communities of one parent drawn as one region.
+    /// A part of a community that the map tree split again.
+    Subcommunity = 1,
+    /// The smaller communities of one parent drawn as one region.
     Aggregate = 2,
     /// In a summary map, the regions and pairs below its `k` (§ 7).
     Other = 3,
+    /// A region of the super level above the partition.
+    Super = 4,
+    /// Region 0, the whole graph; never in a tile.
+    Root = 5,
 }
 
 impl RegionKind {
-    fn from_code(code: u8) -> Option<Self> {
+    /// The kind of `code`, if it is one.
+    #[must_use]
+    pub fn from_code(code: u8) -> Option<Self> {
         Some(match code {
             0 => Self::Community,
-            1 => Self::Subdivision,
+            1 => Self::Subcommunity,
             2 => Self::Aggregate,
             3 => Self::Other,
+            4 => Self::Super,
+            5 => Self::Root,
             _ => return None,
         })
     }
@@ -58,13 +59,12 @@ pub enum Anchor {
     Below = 1,
 }
 
-/// A region of the map hierarchy, as a disc (§ 3.2).
+/// A region as a tile draws it (§ 3.2, § 4.2); its other facts are in the region
+/// table (§ 5.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Region {
-    /// Its id in the map's region tree; 0 is the root, which is never drawn.
+    /// Its id in the map tree.
     pub id: u32,
-    /// The region holding it; 0 at the top.
-    pub parent: u32,
     /// Centre and radius, in units of the map's width.
     pub x: f32,
     /// See `x`.
@@ -73,20 +73,8 @@ pub struct Region {
     pub r: f32,
     /// Its nodes, exactly.
     pub nodes: u64,
-    /// The weight of the pairs inside it, a loop once.
-    pub internal: u64,
-    /// The sum of its nodes' degrees, a loop twice. The cut is `volume − 2·internal`.
-    pub volume: u64,
-    /// For an aggregate or `Other`, the communities it holds; 0 otherwise.
-    pub communities: u32,
-    /// Its place among its siblings by node count, from 1: the `#3` of the key.
-    pub rank: u32,
-    /// The sibling it shares most weight with; 0 when it has none.
-    pub partner: u32,
-    /// What it is.
+    /// What it is; never [`RegionKind::Root`].
     pub kind: RegionKind,
-    /// 1 for a child of the root.
-    pub depth: u8,
     /// The colour index of its top region, below 5.
     pub colour: u8,
     /// The first zoom at which it is drawn (§ 3.1).
@@ -110,6 +98,8 @@ pub struct Node {
     pub name: u32,
     /// Its degree in the undirected projection, a loop counted twice.
     pub degree: u64,
+    /// Its region's colour index.
+    pub colour: u8,
     /// The first zoom at which it is drawn (§ 3.1).
     pub zmin: u8,
 }
@@ -157,16 +147,171 @@ pub struct Tile {
     pub nodes: Vec<Node>,
     /// Labels by increasing entity.
     pub labels: Vec<Label>,
-    /// The texts that nodes and labels refer to.
+    /// The texts that nodes and labels refer to, in increasing byte order.
     pub strings: Vec<String>,
+}
+
+/// A row of a block: its tag, the width of each column, and each column's value as the
+/// bits of a `u64` (a float as its bit pattern, an enum as its code).
+trait Record: Copy {
+    const TAG: u32;
+    const WIDTHS: &'static [usize];
+    fn empty() -> Self;
+    fn get(&self, column: usize) -> u64;
+    /// Sets a column from a value of its width; refuses a code no enum has.
+    fn set(&mut self, column: usize, value: u64) -> Result<(), EgmapError>;
+}
+
+/// `value`, which a column of its width read, as the field's type.
+fn narrow<T: TryFrom<u64>>(value: u64) -> T {
+    T::try_from(value).unwrap_or_else(|_| unreachable!("a column holds values of its width"))
+}
+
+fn bits(v: f32) -> u64 {
+    u64::from(v.to_bits())
+}
+
+impl Record for Region {
+    const TAG: u32 = REQUIRED | 1;
+    const WIDTHS: &'static [usize] = &[4, 4, 4, 4, 8, 1, 1, 1];
+    fn empty() -> Self {
+        Self {
+            id: 0,
+            x: 0.0,
+            y: 0.0,
+            r: 0.0,
+            nodes: 0,
+            kind: RegionKind::Community,
+            colour: 0,
+            zmin: 0,
+        }
+    }
+    fn get(&self, column: usize) -> u64 {
+        match column {
+            0 => self.id.into(),
+            1 => bits(self.x),
+            2 => bits(self.y),
+            3 => bits(self.r),
+            4 => self.nodes,
+            5 => self.kind as u64,
+            6 => self.colour.into(),
+            _ => self.zmin.into(),
+        }
+    }
+    fn set(&mut self, column: usize, v: u64) -> Result<(), EgmapError> {
+        match column {
+            0 => self.id = narrow(v),
+            1 => self.x = f32::from_bits(narrow(v)),
+            2 => self.y = f32::from_bits(narrow(v)),
+            3 => self.r = f32::from_bits(narrow(v)),
+            4 => self.nodes = v,
+            5 => {
+                self.kind = RegionKind::from_code(narrow(v))
+                    .ok_or_else(|| malformed("an unknown region kind"))?;
+            }
+            6 => self.colour = narrow(v),
+            _ => self.zmin = narrow(v),
+        }
+        Ok(())
+    }
+}
+
+impl Record for Node {
+    const TAG: u32 = REQUIRED | 2;
+    const WIDTHS: &'static [usize] = &[4, 4, 4, 4, 4, 4, 8, 1, 1];
+    fn empty() -> Self {
+        Self {
+            id: 0,
+            region: 0,
+            x: 0.0,
+            y: 0.0,
+            r: 0.0,
+            name: 0,
+            degree: 0,
+            colour: 0,
+            zmin: 0,
+        }
+    }
+    fn get(&self, column: usize) -> u64 {
+        match column {
+            0 => self.id.into(),
+            1 => self.region.into(),
+            2 => bits(self.x),
+            3 => bits(self.y),
+            4 => bits(self.r),
+            5 => self.name.into(),
+            6 => self.degree,
+            7 => self.colour.into(),
+            _ => self.zmin.into(),
+        }
+    }
+    fn set(&mut self, column: usize, v: u64) -> Result<(), EgmapError> {
+        match column {
+            0 => self.id = narrow(v),
+            1 => self.region = narrow(v),
+            2 => self.x = f32::from_bits(narrow(v)),
+            3 => self.y = f32::from_bits(narrow(v)),
+            4 => self.r = f32::from_bits(narrow(v)),
+            5 => self.name = narrow(v),
+            6 => self.degree = v,
+            7 => self.colour = narrow(v),
+            _ => self.zmin = narrow(v),
+        }
+        Ok(())
+    }
+}
+
+impl Record for Label {
+    const TAG: u32 = REQUIRED | 3;
+    const WIDTHS: &'static [usize] = &[4, 4, 1, 1, 1];
+    fn empty() -> Self {
+        Self {
+            entity: 0,
+            text: 0,
+            z_on: 0,
+            z_off: 0,
+            anchor: Anchor::Centre,
+        }
+    }
+    fn get(&self, column: usize) -> u64 {
+        match column {
+            0 => self.entity.into(),
+            1 => self.text.into(),
+            2 => self.z_on.into(),
+            3 => self.z_off.into(),
+            _ => self.anchor as u64,
+        }
+    }
+    fn set(&mut self, column: usize, v: u64) -> Result<(), EgmapError> {
+        match column {
+            0 => self.entity = narrow(v),
+            1 => self.text = narrow(v),
+            2 => self.z_on = narrow(v),
+            3 => self.z_off = narrow(v),
+            _ => {
+                self.anchor = match v {
+                    0 => Anchor::Centre,
+                    1 => Anchor::Below,
+                    _ => return Err(malformed("an unknown label anchor")),
+                };
+            }
+        }
+        Ok(())
+    }
 }
 
 const fn pad8(n: usize) -> usize {
     n.div_ceil(8) * 8
 }
 
-fn body_len(rows: usize, widths: &[usize]) -> Option<usize> {
-    widths.iter().try_fold(0_usize, |sum, &w| {
+/// Zeros after the bytes from `start`, to a multiple of 8.
+fn pad(out: &mut Vec<u8>, start: usize) {
+    let len = out.len() - start;
+    out.extend(std::iter::repeat_n(0, pad8(len) - len));
+}
+
+fn body_len<R: Record>(rows: usize) -> Option<usize> {
+    R::WIDTHS.iter().try_fold(0_usize, |sum, &w| {
         sum.checked_add(pad8(rows.checked_mul(w)?))
     })
 }
@@ -178,35 +323,121 @@ fn strings_len(strings: &[String]) -> Option<usize> {
     pad8(strings.len().checked_mul(4)?).checked_add(pad8(bytes))
 }
 
-/// Writes one column: a value per row, then zeros to a multiple of 8.
-fn column<R, const W: usize>(out: &mut Vec<u8>, rows: &[R], mut value: impl FnMut(&R) -> [u8; W]) {
-    let start = out.len();
-    for row in rows {
-        out.extend_from_slice(&value(row));
-    }
-    pad(out, start);
+fn block_header(out: &mut Vec<u8>, tag: u32, rows: usize, len: usize) {
+    out.extend_from_slice(&tag.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(rows).unwrap_or(u32::MAX).to_le_bytes());
+    out.extend_from_slice(&widen(len).to_le_bytes());
 }
 
-/// Zeros after the bytes from `start`, to a multiple of 8.
-fn pad(out: &mut Vec<u8>, start: usize) {
-    let len = out.len() - start;
-    out.extend(std::iter::repeat_n(0, pad8(len) - len));
+fn encode_block<R: Record>(out: &mut Vec<u8>, rows: &[R]) {
+    if rows.is_empty() {
+        return;
+    }
+    block_header(
+        out,
+        R::TAG,
+        rows.len(),
+        body_len::<R>(rows.len()).unwrap_or(0),
+    );
+    for (c, &w) in R::WIDTHS.iter().enumerate() {
+        let start = out.len();
+        for row in rows {
+            out.extend_from_slice(&row.get(c).to_le_bytes()[..w]);
+        }
+        pad(out, start);
+    }
+}
+
+/// The next `len` bytes of `body` from `*at`, then their zero padding.
+fn take<'a>(body: &'a [u8], at: &mut usize, len: usize) -> Result<&'a [u8], EgmapError> {
+    if pad8(len) > body.len() - *at {
+        return Err(malformed("a tile column overruns its block"));
+    }
+    let column = &body[*at..*at + len];
+    if body[*at + len..*at + pad8(len)].iter().any(|&b| b != 0) {
+        return Err(malformed("tile column padding is not zero"));
+    }
+    *at += pad8(len);
+    Ok(column)
+}
+
+fn decode_block<R: Record>(body: &[u8], rows: usize) -> Result<Vec<R>, EgmapError> {
+    if body_len::<R>(rows) != Some(body.len()) {
+        return Err(malformed("a tile block is not the length its rows give"));
+    }
+    let mut out: Vec<R> = (0..rows).map(|_| R::empty()).collect();
+    let mut at = 0;
+    for (c, &w) in R::WIDTHS.iter().enumerate() {
+        let column = take(body, &mut at, rows * w)?;
+        for (row, value) in out.iter_mut().zip(column.chunks_exact(w)) {
+            let mut word = [0_u8; 8];
+            word[..w].copy_from_slice(value);
+            row.set(c, u64::from_le_bytes(word))?;
+        }
+    }
+    Ok(out)
+}
+
+fn decode_strings(body: &[u8], rows: usize) -> Result<Vec<String>, EgmapError> {
+    let mut at = 0;
+    let ends: Vec<usize> = take(body, &mut at, rows * 4)?
+        .chunks_exact(4)
+        .map(|c| usize_of(le::u32_at(c, 0)))
+        .collect();
+    let bytes = take(body, &mut at, *ends.last().unwrap_or(&0))?;
+    if at != body.len() {
+        return Err(malformed(
+            "the strings block is not the length its strings give",
+        ));
+    }
+    let mut start = 0;
+    ends.iter()
+        .map(|&end| {
+            let text = bytes
+                .get(start..end)
+                .ok_or_else(|| malformed("string ends do not increase"))?;
+            start = end;
+            std::str::from_utf8(text)
+                .map(str::to_owned)
+                .map_err(|_| malformed("a string is not UTF-8"))
+        })
+        .collect()
 }
 
 fn in_unit(v: f32) -> bool {
     (0.0..=1.0).contains(&v) && v.to_bits() != (-0.0_f32).to_bits()
 }
 
-/// Whether the disc `(x, y, r)` meets the closed square of tile `(z, tx, ty)`, computed
-/// exactly in `f64` (every value is a `f32` or a multiple of a power of two).
-pub(super) fn disc_meets_tile(x: f32, y: f32, r: f32, z: u8, tx: u32, ty: u32) -> bool {
+/// The square of tile `(z, tx, ty)` in binary64: `(x0, x1, y0, y1)`, exact.
+fn square(z: u8, tx: u32, ty: u32) -> (f64, f64, f64, f64) {
     let w = 1.0 / f64::from(1_u32 << z);
-    let gap = |c: f32, t: u32| {
-        let (lo, hi) = (f64::from(t) * w, f64::from(t + 1) * w);
-        (lo - f64::from(c)).max(f64::from(c) - hi).max(0.0)
-    };
-    let (dx, dy) = (gap(x, tx), gap(y, ty));
-    dx * dx + dy * dy <= f64::from(r) * f64::from(r)
+    (
+        f64::from(tx) * w,
+        f64::from(tx + 1) * w,
+        f64::from(ty) * w,
+        f64::from(ty + 1) * w,
+    )
+}
+
+/// Whether the disc `(x, y, r)` meets the closed square of tile `(z, tx, ty)` and does
+/// not cover it (§ 3.5): when it is placed in the tile.
+pub(super) fn placed(x: f32, y: f32, r: f32, z: u8, tx: u32, ty: u32) -> bool {
+    let (x0, x1, y0, y1) = square(z, tx, ty);
+    let (cx, cy, r) = (f64::from(x), f64::from(y), f64::from(r));
+    let (dx, dy) = (
+        (x0 - cx).max(cx - x1).max(0.0),
+        (y0 - cy).max(cy - y1).max(0.0),
+    );
+    let (ex, ey) = ((cx - x0).max(x1 - cx), (cy - y0).max(y1 - cy));
+    dx * dx + dy * dy <= r * r && ex * ex + ey * ey > r * r
+}
+
+/// Whether the disc `(x, y, r)` is inside the disc `(px, py, pr)` (§ 3.5).
+pub(super) fn inside(disc: (f32, f32, f32), outer: (f32, f32, f32)) -> bool {
+    let (x, y, r) = (f64::from(disc.0), f64::from(disc.1), f64::from(disc.2));
+    let (px, py, pr) = (f64::from(outer.0), f64::from(outer.1), f64::from(outer.2));
+    let (dx, dy) = (x - px, y - py);
+    r <= pr && dx * dx + dy * dy <= (pr - r) * (pr - r)
 }
 
 impl Tile {
@@ -238,15 +469,9 @@ impl Tile {
         })?;
         let too_large = || invalid(format!("tile {} decodes to more than 1 MiB", self.name()));
         let blocks = [
-            (
-                self.regions.len(),
-                body_len(self.regions.len(), &REGION_WIDTHS),
-            ),
-            (self.nodes.len(), body_len(self.nodes.len(), &NODE_WIDTHS)),
-            (
-                self.labels.len(),
-                body_len(self.labels.len(), &LABEL_WIDTHS),
-            ),
+            (self.regions.len(), body_len::<Region>(self.regions.len())),
+            (self.nodes.len(), body_len::<Node>(self.nodes.len())),
+            (self.labels.len(), body_len::<Label>(self.labels.len())),
             (self.strings.len(), strings_len(&self.strings)),
         ];
         let mut total = HEADER;
@@ -268,69 +493,30 @@ impl Tile {
         out.extend_from_slice(&self.x.to_le_bytes());
         out.extend_from_slice(&self.y.to_le_bytes());
         out.extend_from_slice(&[0; 4]);
-        for v in [
-            self.omitted.regions,
-            self.omitted.region_nodes,
-            self.omitted.nodes,
-        ] {
+        let o = &self.omitted;
+        for v in [o.regions, o.region_nodes, o.nodes] {
             out.extend_from_slice(&v.to_le_bytes());
         }
-        let block = |out: &mut Vec<u8>, tag: u32, rows: usize, len: Option<usize>| {
-            out.extend_from_slice(&tag.to_le_bytes());
-            out.extend_from_slice(&u32::try_from(rows).unwrap_or(u32::MAX).to_le_bytes());
-            out.extend_from_slice(&widen(len.unwrap_or(0)).to_le_bytes());
-        };
-        let r = &self.regions;
-        if !r.is_empty() {
-            block(&mut out, REGIONS, r.len(), blocks[0].1);
-            column(&mut out, r, |g| g.id.to_le_bytes());
-            column(&mut out, r, |g| g.parent.to_le_bytes());
-            column(&mut out, r, |g| g.x.to_le_bytes());
-            column(&mut out, r, |g| g.y.to_le_bytes());
-            column(&mut out, r, |g| g.r.to_le_bytes());
-            column(&mut out, r, |g| g.nodes.to_le_bytes());
-            column(&mut out, r, |g| g.internal.to_le_bytes());
-            column(&mut out, r, |g| g.volume.to_le_bytes());
-            column(&mut out, r, |g| g.communities.to_le_bytes());
-            column(&mut out, r, |g| g.rank.to_le_bytes());
-            column(&mut out, r, |g| g.partner.to_le_bytes());
-            column(&mut out, r, |g| [g.kind as u8]);
-            column(&mut out, r, |g| [g.depth]);
-            column(&mut out, r, |g| [g.colour]);
-            column(&mut out, r, |g| [g.zmin]);
-        }
-        let n = &self.nodes;
-        if !n.is_empty() {
-            block(&mut out, NODES, n.len(), blocks[1].1);
-            column(&mut out, n, |v| v.id.to_le_bytes());
-            column(&mut out, n, |v| v.region.to_le_bytes());
-            column(&mut out, n, |v| v.x.to_le_bytes());
-            column(&mut out, n, |v| v.y.to_le_bytes());
-            column(&mut out, n, |v| v.r.to_le_bytes());
-            column(&mut out, n, |v| v.name.to_le_bytes());
-            column(&mut out, n, |v| v.degree.to_le_bytes());
-            column(&mut out, n, |v| [v.zmin]);
-        }
-        let l = &self.labels;
-        if !l.is_empty() {
-            block(&mut out, LABELS, l.len(), blocks[2].1);
-            column(&mut out, l, |a| a.entity.to_le_bytes());
-            column(&mut out, l, |a| a.text.to_le_bytes());
-            column(&mut out, l, |a| [a.z_on]);
-            column(&mut out, l, |a| [a.z_off]);
-            column(&mut out, l, |a| [a.anchor as u8]);
-        }
-        let s = &self.strings;
-        if !s.is_empty() {
-            block(&mut out, STRINGS, s.len(), blocks[3].1);
-            let mut end = 0_u32;
-            column(&mut out, s, |t| {
-                end += u32::try_from(t.len()).unwrap_or(u32::MAX);
-                end.to_le_bytes()
-            });
+        encode_block(&mut out, &self.regions);
+        encode_block(&mut out, &self.nodes);
+        encode_block(&mut out, &self.labels);
+        if !self.strings.is_empty() {
+            block_header(
+                &mut out,
+                STRINGS,
+                self.strings.len(),
+                blocks[3].1.unwrap_or(0),
+            );
             let start = out.len();
-            for t in s {
-                out.extend_from_slice(t.as_bytes());
+            let mut end = 0_u32;
+            for s in &self.strings {
+                end += u32::try_from(s.len()).unwrap_or(u32::MAX);
+                out.extend_from_slice(&end.to_le_bytes());
+            }
+            pad(&mut out, start);
+            let start = out.len();
+            for s in &self.strings {
+                out.extend_from_slice(s.as_bytes());
             }
             pad(&mut out, start);
         }
@@ -367,7 +553,7 @@ impl Tile {
             nodes: le::u64_at(bytes, 40),
         };
         let mut at = HEADER;
-        let mut last_tag = 0_u32;
+        let mut last = 0_u32;
         while at < bytes.len() {
             if bytes.len() - at < BLOCK_HEADER {
                 return Err(malformed("a tile ends inside a block header"));
@@ -376,10 +562,12 @@ impl Tile {
             let rows = usize_of(le::u32_at(bytes, at + 4));
             let len = le::u64_at(bytes, at + 8);
             at += BLOCK_HEADER;
-            if tag & !REQUIRED <= last_tag {
-                return Err(malformed("tile blocks are not in increasing order"));
+            if tag & !REQUIRED <= last {
+                return Err(malformed(
+                    "tile block numbers do not start at 1 and increase",
+                ));
             }
-            last_tag = tag & !REQUIRED;
+            last = tag & !REQUIRED;
             let body = usize::try_from(len)
                 .ok()
                 .filter(|&l| l <= bytes.len() - at && l % 8 == 0)
@@ -389,12 +577,11 @@ impl Tile {
             if rows == 0 {
                 return Err(malformed("a tile block of 0 rows"));
             }
-            let mut c = Columns { body, at: 0, rows };
             match tag {
-                REGIONS => tile.regions = c.regions()?,
-                NODES => tile.nodes = c.nodes()?,
-                LABELS => tile.labels = c.labels()?,
-                STRINGS => tile.strings = c.strings()?,
+                Region::TAG => tile.regions = decode_block(body, rows)?,
+                Node::TAG => tile.nodes = decode_block(body, rows)?,
+                Label::TAG => tile.labels = decode_block(body, rows)?,
+                STRINGS => tile.strings = decode_strings(body, rows)?,
                 t if t & !REQUIRED <= STRINGS & !REQUIRED => {
                     return Err(malformed(format!("block {t:#010x} lacks its required bit")));
                 }
@@ -403,12 +590,7 @@ impl Tile {
                         "required tile block {t:#010x}"
                     )));
                 }
-                _ => continue,
-            }
-            if c.at != body.len() {
-                return Err(malformed(format!(
-                    "tile block {tag:#010x} is not the length its rows give"
-                )));
+                _ => {}
             }
         }
         tile.check()?;
@@ -421,83 +603,61 @@ impl Tile {
 
     /// The rules of § 4.3 that do not depend on the bytes.
     fn check(&self) -> Result<(), EgmapError> {
-        let here = self.name();
-        let fail = |what: String| Err(malformed(format!("tile {here}: {what}")));
+        let fail = |what: String| Err(malformed(format!("tile {}: {what}", self.name())));
         if self.z > MAX_ZOOM || self.x >= 1 << self.z || self.y >= 1 << self.z {
-            return fail("not a tile of zooms 0 to 20".into());
+            return fail(format!("not a tile of zooms 0 to {MAX_ZOOM}"));
         }
         let geometry = |x: f32, y: f32, r: f32| {
             in_unit(x)
                 && in_unit(y)
                 && r > 0.0
                 && r <= 1.0
-                && disc_meets_tile(x, y, r, self.z, self.x, self.y)
+                && placed(x, y, r, self.z, self.x, self.y)
         };
-        let region = |id: u32| self.regions.binary_search_by_key(&id, |g| g.id).ok();
         for (i, g) in self.regions.iter().enumerate() {
-            let id = g.id;
-            if i > 0 && self.regions[i - 1].id >= id {
-                return fail("region ids do not increase".into());
+            if (i == 0 && g.id == 0) || (i > 0 && self.regions[i - 1].id >= g.id) {
+                return fail("region ids do not increase from 1".into());
             }
-            if g.parent >= id {
-                return fail(format!("region {id} does not follow its parent"));
-            }
-            if g.parent == 0 {
-                if g.depth != 1 {
-                    return fail(format!("region {id} is at the top but not at depth 1"));
-                }
-            } else {
-                let Some(p) = region(g.parent).map(|i| &self.regions[i]) else {
-                    return fail(format!("the parent of region {id} is not in the tile"));
-                };
-                if g.depth != p.depth.wrapping_add(1) || g.colour != p.colour || g.zmin < p.zmin {
-                    return fail(format!("region {id} disagrees with its parent"));
-                }
-            }
-            let holds = matches!(g.kind, RegionKind::Aggregate | RegionKind::Other);
-            if g.colour >= COLOURS
-                || g.zmin > self.z
-                || g.nodes == 0
-                || g.rank == 0
-                || g.partner == id
-                || holds != (g.communities > 0)
-                || g.internal.checked_mul(2).is_none_or(|x| x > g.volume)
+            if g.kind == RegionKind::Root || g.colour >= COLOURS || g.zmin > self.z || g.nodes == 0
             {
-                return fail(format!("region {id} breaks a rule of § 4.3"));
+                return fail(format!("region {} breaks a rule of § 4.3", g.id));
             }
             if !geometry(g.x, g.y, g.r) {
-                return fail(format!("region {id} is not a disc that meets the tile"));
+                return fail(format!("region {} is not a disc placed in the tile", g.id));
             }
         }
         let strings = self.strings.len();
         for (i, v) in self.nodes.iter().enumerate() {
-            let id = v.id;
-            if i > 0 && self.nodes[i - 1].id >= id {
+            if i > 0 && self.nodes[i - 1].id >= v.id {
                 return fail("node ids do not increase".into());
             }
-            let Some(g) = region(v.region).map(|i| &self.regions[i]) else {
-                return fail(format!("the region of node {id} is not in the tile"));
-            };
-            if v.zmin > self.z || v.zmin < g.zmin || usize_of(v.name) >= strings {
-                return fail(format!("node {id} breaks a rule of § 4.3"));
+            if v.region == 0
+                || v.colour >= COLOURS
+                || v.zmin > self.z
+                || usize_of(v.name) >= strings
+            {
+                return fail(format!("node {} breaks a rule of § 4.3", v.id));
             }
             if !geometry(v.x, v.y, v.r) {
-                return fail(format!("node {id} is not a disc that meets the tile"));
+                return fail(format!("node {} is not a disc placed in the tile", v.id));
             }
         }
-        let entities = self.regions.len() + self.nodes.len();
+        if self.strings.windows(2).any(|w| w[0] >= w[1]) {
+            return fail("strings are not in increasing order".into());
+        }
+        let regions = self.regions.len();
         for (i, a) in self.labels.iter().enumerate() {
             let e = usize_of(a.entity);
             if i > 0 && self.labels[i - 1].entity >= a.entity {
                 return fail("label entities do not increase".into());
             }
-            if e >= entities || usize_of(a.text) >= strings {
+            if e >= regions + self.nodes.len() || usize_of(a.text) >= strings {
                 return fail(format!("label {i} refers to nothing"));
             }
             let zmin = self
                 .regions
                 .get(e)
-                .map_or_else(|| self.nodes[e - self.regions.len()].zmin, |g| g.zmin);
+                .map_or_else(|| self.nodes[e - regions].zmin, |g| g.zmin);
             if !(zmin <= a.z_on && a.z_on <= self.z && self.z < a.z_off && a.z_off <= MAX_ZOOM + 1)
             {
                 return fail(format!("label {i} is not drawn at this zoom"));
@@ -507,191 +667,21 @@ impl Tile {
     }
 }
 
-/// Reads the columns of one block body.
-struct Columns<'a> {
-    body: &'a [u8],
-    at: usize,
-    rows: usize,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl<'a> Columns<'a> {
-    /// The next column of `width`-byte values, with its zero padding.
-    fn next(&mut self, width: usize) -> Result<&'a [u8], EgmapError> {
-        let len = self
-            .rows
-            .checked_mul(width)
-            .filter(|&l| pad8(l) <= self.body.len() - self.at)
-            .ok_or_else(|| malformed("a tile column overruns its block"))?;
-        let column = &self.body[self.at..self.at + len];
-        let padding = &self.body[self.at + len..self.at + pad8(len)];
-        if padding.iter().any(|&b| b != 0) {
-            return Err(malformed("tile column padding is not zero"));
-        }
-        self.at += pad8(len);
-        Ok(column)
-    }
-
-    fn u8s(&mut self) -> Result<&'a [u8], EgmapError> {
-        self.next(1)
-    }
-
-    /// The next `len` bytes, with their zero padding.
-    fn bytes(&mut self, len: usize) -> Result<&'a [u8], EgmapError> {
-        let rows = std::mem::replace(&mut self.rows, len);
-        let bytes = self.next(1);
-        self.rows = rows;
-        bytes
-    }
-
-    fn u32s(&mut self) -> Result<impl Iterator<Item = u32> + 'a, EgmapError> {
-        Ok(self.next(4)?.chunks_exact(4).map(|c| le::u32_at(c, 0)))
-    }
-
-    fn f32s(&mut self) -> Result<impl Iterator<Item = f32> + 'a, EgmapError> {
-        Ok(self.u32s()?.map(f32::from_bits))
-    }
-
-    fn u64s(&mut self) -> Result<impl Iterator<Item = u64> + 'a, EgmapError> {
-        Ok(self.next(8)?.chunks_exact(8).map(|c| le::u64_at(c, 0)))
-    }
-
-    fn regions(&mut self) -> Result<Vec<Region>, EgmapError> {
-        let mut out: Vec<Region> = self
-            .u32s()?
-            .map(|id| Region {
-                id,
-                parent: 0,
-                x: 0.0,
-                y: 0.0,
-                r: 0.0,
-                nodes: 0,
-                internal: 0,
-                volume: 0,
-                communities: 0,
-                rank: 0,
-                partner: 0,
-                kind: RegionKind::Community,
-                depth: 0,
-                colour: 0,
-                zmin: 0,
-            })
-            .collect();
-        out.iter_mut()
-            .zip(self.u32s()?)
-            .for_each(|(g, v)| g.parent = v);
-        out.iter_mut().zip(self.f32s()?).for_each(|(g, v)| g.x = v);
-        out.iter_mut().zip(self.f32s()?).for_each(|(g, v)| g.y = v);
-        out.iter_mut().zip(self.f32s()?).for_each(|(g, v)| g.r = v);
-        out.iter_mut()
-            .zip(self.u64s()?)
-            .for_each(|(g, v)| g.nodes = v);
-        out.iter_mut()
-            .zip(self.u64s()?)
-            .for_each(|(g, v)| g.internal = v);
-        out.iter_mut()
-            .zip(self.u64s()?)
-            .for_each(|(g, v)| g.volume = v);
-        out.iter_mut()
-            .zip(self.u32s()?)
-            .for_each(|(g, v)| g.communities = v);
-        out.iter_mut()
-            .zip(self.u32s()?)
-            .for_each(|(g, v)| g.rank = v);
-        out.iter_mut()
-            .zip(self.u32s()?)
-            .for_each(|(g, v)| g.partner = v);
-        for (g, &k) in out.iter_mut().zip(self.u8s()?) {
-            g.kind = RegionKind::from_code(k).ok_or_else(|| malformed("an unknown region kind"))?;
-        }
-        out.iter_mut()
-            .zip(self.u8s()?)
-            .for_each(|(g, &v)| g.depth = v);
-        out.iter_mut()
-            .zip(self.u8s()?)
-            .for_each(|(g, &v)| g.colour = v);
-        out.iter_mut()
-            .zip(self.u8s()?)
-            .for_each(|(g, &v)| g.zmin = v);
-        Ok(out)
-    }
-
-    fn nodes(&mut self) -> Result<Vec<Node>, EgmapError> {
-        let mut out: Vec<Node> = self
-            .u32s()?
-            .map(|id| Node {
-                id,
-                region: 0,
-                x: 0.0,
-                y: 0.0,
-                r: 0.0,
-                name: 0,
-                degree: 0,
-                zmin: 0,
-            })
-            .collect();
-        out.iter_mut()
-            .zip(self.u32s()?)
-            .for_each(|(v, x)| v.region = x);
-        out.iter_mut().zip(self.f32s()?).for_each(|(v, x)| v.x = x);
-        out.iter_mut().zip(self.f32s()?).for_each(|(v, x)| v.y = x);
-        out.iter_mut().zip(self.f32s()?).for_each(|(v, x)| v.r = x);
-        out.iter_mut()
-            .zip(self.u32s()?)
-            .for_each(|(v, x)| v.name = x);
-        out.iter_mut()
-            .zip(self.u64s()?)
-            .for_each(|(v, x)| v.degree = x);
-        out.iter_mut()
-            .zip(self.u8s()?)
-            .for_each(|(v, &x)| v.zmin = x);
-        Ok(out)
-    }
-
-    fn labels(&mut self) -> Result<Vec<Label>, EgmapError> {
-        let mut out: Vec<Label> = self
-            .u32s()?
-            .map(|entity| Label {
-                entity,
-                text: 0,
-                z_on: 0,
-                z_off: 0,
-                anchor: Anchor::Centre,
-            })
-            .collect();
-        out.iter_mut()
-            .zip(self.u32s()?)
-            .for_each(|(a, x)| a.text = x);
-        out.iter_mut()
-            .zip(self.u8s()?)
-            .for_each(|(a, &x)| a.z_on = x);
-        out.iter_mut()
-            .zip(self.u8s()?)
-            .for_each(|(a, &x)| a.z_off = x);
-        for (a, &x) in out.iter_mut().zip(self.u8s()?) {
-            a.anchor = match x {
-                0 => Anchor::Centre,
-                1 => Anchor::Below,
-                _ => return Err(malformed("an unknown label anchor")),
-            };
-        }
-        Ok(out)
-    }
-
-    fn strings(&mut self) -> Result<Vec<String>, EgmapError> {
-        let ends: Vec<u32> = self.u32s()?.collect();
-        let bytes = self.bytes(usize_of(*ends.last().unwrap_or(&0)))?;
-        let mut start = 0_usize;
-        ends.iter()
-            .map(|&end| {
-                let end = usize_of(end);
-                let text = bytes
-                    .get(start..end)
-                    .ok_or_else(|| malformed("string ends do not increase"))?;
-                start = end;
-                std::str::from_utf8(text)
-                    .map(str::to_owned)
-                    .map_err(|_| malformed("a string is not UTF-8"))
-            })
-            .collect()
+    #[test]
+    fn inside_and_placed_are_closed_and_exact_at_the_boundary() {
+        assert!(inside((0.5, 0.5, 0.25), (0.5, 0.5, 0.25)));
+        assert!(inside((0.75, 0.5, 0.25), (0.5, 0.5, 0.5)));
+        assert!(!inside((0.75, 0.5, 0.25), (0.5, 0.5, 0.4999)));
+        assert!(!inside((0.5, 0.5, 0.3), (0.5, 0.5, 0.25)));
+        // Tile 1/0/0 is [0, 0.5]²: a disc touching its edge meets it; one holding every
+        // corner covers it, so it is not placed there.
+        assert!(placed(0.75, 0.25, 0.25, 1, 0, 0));
+        assert!(!placed(0.75, 0.25, 0.2499, 1, 0, 0));
+        assert!(!placed(0.25, 0.25, 0.36, 1, 0, 0));
+        assert!(placed(0.25, 0.25, 0.35, 1, 0, 0));
     }
 }

@@ -7,9 +7,10 @@ cd "$(dirname "$0")"
 D=${EVERYGRAPH_DATA:-/home/tux/graphlab/data}
 S=${S:-/home/tux/graphlab/scratch/m5-02-tile-format}
 T=${T:-8}
+export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}
 mkdir -p "$S/maps"
 lim() { systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 "$@"; }
-(cd ../e-map/gmap && CARGO_TARGET_DIR="$S/target" cargo build --release -j 6 2>&1 | tail -1)
+(cd ../e-map/gmap && CARGO_TARGET_DIR="$S/target" cargo build --release 2>&1 | tail -1)
 G=$S/target/release/gmap
 for g in lj orkut; do
   GMAP_THREADS=$T lim "$G" layout --graph "$D/csr/$g" --hier "$D/hier/$g" --out "$S/maps/$g-layout" > "$S/maps/$g-layout.json"

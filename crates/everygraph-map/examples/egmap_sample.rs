@@ -5,6 +5,9 @@
 //!
 //! - `write PATH` writes a sample map (the test pyramid of `tests/support`, zooms 0 to
 //!   5, arrays in chunks of 7 values) to `PATH`;
+//! - `leaves PATH` writes a map of 70,000 empty tiles, whose directory has leaves;
+//! - `chain DEPTH PATH` writes a map without tiles whose region tree is a chain of
+//!   `DEPTH` super regions (a reader refuses more than 255);
 //! - `dump PATH` prints what the map at `PATH` holds, as the Rust reader reads all of it,
 //!   or `{"error": "…"}`.
 //!
@@ -34,7 +37,7 @@
 mod support;
 
 use everygraph_core::{Memory, MemorySource, le};
-use everygraph_map::egmap::{EgmapError, Element, MapReader, Tile};
+use everygraph_map::egmap::{EgmapError, Element, MapInfo, MapReader, MapWriter, RegionKind, Tile};
 use serde_json::{Value, json};
 
 fn tile_json(t: &Tile) -> Value {
@@ -44,18 +47,11 @@ fn tile_json(t: &Tile) -> Value {
         .map(|g| {
             json!([
                 g.id,
-                g.parent,
                 g.x.to_bits(),
                 g.y.to_bits(),
                 g.r.to_bits(),
                 g.nodes,
-                g.internal,
-                g.volume,
-                g.communities,
-                g.rank,
-                g.partner,
                 g.kind as u8,
-                g.depth,
                 g.colour,
                 g.zmin
             ])
@@ -73,6 +69,7 @@ fn tile_json(t: &Tile) -> Value {
                 v.r.to_bits(),
                 v.name,
                 v.degree,
+                v.colour,
                 v.zmin
             ])
         })
@@ -107,7 +104,6 @@ fn dump(bytes: Vec<u8>) -> Result<Value, EgmapError> {
             for c in bytes.chunks_exact(width) {
                 values.push(match s.element {
                     Element::U8 => json!(c[0]),
-                    Element::U16 => json!(le::u16_at(c, 0)),
                     Element::U32 | Element::F32 => json!(le::u32_at(c, 0)),
                     Element::U64 => json!(le::u64_at(c, 0)),
                 });
@@ -133,6 +129,29 @@ fn dump(bytes: Vec<u8>) -> Result<Value, EgmapError> {
     }))
 }
 
+fn chain(depth: u32) -> Vec<u8> {
+    let info = MapInfo {
+        nodes: 1,
+        regions: u64::from(depth) + 1,
+        edges: 0,
+        summary: 0,
+    };
+    let mut table = support::RegionTable::root(1);
+    for i in 1..=depth {
+        table.parent.push(i - 1);
+        table.kind.push(RegionKind::Super as u8);
+        table.nodes.push(1);
+        table.internal.push(0);
+        table.volume.push(0);
+        table.communities.push(0);
+        table.partner.push(0);
+    }
+    let mut w = MapWriter::create(MemorySource::new(Vec::new()), &Memory::unlimited(), info)
+        .expect("an empty sink");
+    support::write_table(&mut w, &table, 100).expect("valid arrays");
+    w.finish(&support::metadata()).expect("a map").into_inner()
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
@@ -143,13 +162,25 @@ fn main() {
                 .into_inner();
             std::fs::write(path, file).expect("the sample can be written");
         }
+        [cmd, path] if cmd == "leaves" => {
+            let file = support::empty_tiles(MemorySource::new(Vec::new()), 70_000)
+                .expect("the sample is a valid map")
+                .into_inner();
+            std::fs::write(path, file).expect("the sample can be written");
+        }
+        [cmd, depth, path] if cmd == "chain" => {
+            let depth: u32 = depth.parse().expect("a depth");
+            std::fs::write(path, chain(depth)).expect("the sample can be written");
+        }
         [cmd, path] if cmd == "dump" => {
             let bytes = std::fs::read(path).expect("the file can be read");
             let out = dump(bytes).unwrap_or_else(|e| json!({"error": e.to_string()}));
             println!("{out}");
         }
         _ => {
-            eprintln!("usage: egmap_sample write PATH | dump PATH");
+            eprintln!(
+                "usage: egmap_sample write PATH | leaves PATH | chain DEPTH PATH | dump PATH"
+            );
             std::process::exit(2);
         }
     }

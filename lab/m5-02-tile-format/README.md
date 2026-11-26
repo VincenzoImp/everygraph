@@ -1,61 +1,81 @@
-# m5-02: the tile payload against MapLibre Tile and Arrow IPC
+# m5-02: the tile payload against MapLibre Tile and Arrow IPC, and the region table
 
 Issue #68 (`plan/issues/m5-02-tile-format.md`), `docs/spec/egmap.md` § 10. Byte counts
-only: they do not depend on load. Exploratory; taken on 2026-11-26 while other work ran.
+only, which do not depend on load. Exploratory; measured on 2026-11-26 while other work
+ran.
 
-**Question.** On the same content, how many bytes does each payload take, raw and gzip:
-the payload of `docs/spec/egmap.md` § 4, MapLibre Tile (MLT), and Arrow IPC?
+**Questions.**
+1. On the same content, how many bytes does each payload take, raw and gzip: the payload
+   of `docs/spec/egmap.md` § 4, MapLibre Tile (MLT), and Arrow IPC?
+2. How large is the region table of § 5.3?
 
-**Content.** Every tile of the lab maps of lj (203,941 tiles) and orkut (142,710),
-built by `maps.sh` as `lab/m1-06-edge-rendering/maps.sh` builds them (the same file:
-895,034,297 bytes for lj). `payloads/` turns each lab tile into the records of the spec
-(§ 3): the lab's regions and nodes, plus their ancestors up to the root (1,081,321
-regions added on lj, 607,508 on orkut), numbered breadth first; `zmin` by the zoom rule
-with the lab's thresholds (3 px for a region, 1.2 px for a node), capped at the tile's
-zoom; rank among siblings by node count; colour of the top region modulo 5; node names
-the original ids in decimal. No labels (the lab has none) and no edges (the spec's tiles
-hold none). Every converted tile passed the writer's checks (§ 4.3) and decoded back to
-itself: 0 refused on either graph.
+**Content.** Every tile of the lab maps of lj (203,941 tiles) and orkut (142,710 tiles).
+`maps.sh` builds them as `lab/m1-06-edge-rendering/maps.sh` does; the lj file is the
+same, 895,034,297 bytes. `payloads/` turns each lab tile into the records of the spec
+(§ 4.2):
+- the lab's regions and nodes, without the regions whose disc covers the tile (§ 3.5):
+  567,871 records dropped on lj and 496,654 on orkut;
+- regions numbered breadth first;
+- `zmin` from the zoom rule with the lab's thresholds (3 px for a region and 1.2 px for
+  a node), capped at the tile's zoom;
+- the colour of the top region, modulo 5;
+- node names are the original ids in decimal, sorted.
 
-**Payloads**, each holding exactly those fields:
+There are no labels, because the lab has none, and no edges, because the spec's tiles
+hold none. Every converted tile passed the writer's checks (§ 4.3) and decoded back to
+itself; none was refused on either graph.
+
+These are the lab's entity sets, not tiles placed by the rule of § 3.5. That rule puts
+every entity in every tile its disc meets, so the budget question of #69 (are the
+deepest tiles over 32 KB?) is not answered here.
+
+**Payloads.** Each holds exactly those fields:
 
 - `egmap`: `Tile::encode` of `crates/everygraph-map`;
-- `mlt_web_4g` and `mlt_min_size`: `mlt-core` 0.24.0, a layer for regions and one for
-  nodes, a point geometry per entity (tile extent 4096) and every field as a property
-  column, `x`, `y`, `r` as f32 (MLT's geometry is integer, so without them it would not
-  be lossless); profiles `Web(Cellular4G)` (the MapLibre GL JS profile) and `MinSize`;
-- `arrow_ipc`: arrow-rs 58.4, two IPC streams (regions, nodes), each with its schema.
+- `mlt_web_4g` and `mlt_min_size`: `mlt-core` 0.24.0, with the profiles `Web(Cellular4G)`
+  (the MapLibre GL JS profile) and `MinSize`:
+  - one layer for regions and one for nodes;
+  - a point geometry per entity, at a tile extent of 4096;
+  - every field as a property column, with `x`, `y` and `r` as f32 (MLT's geometry is
+    integer, so it would not be lossless without them);
+- `arrow_ipc`: arrow-rs 58.4, two IPC streams (regions and nodes), each with its own
+  schema.
 
-Gzip is level 6 for all.
+Gzip is level 6 for all of them.
 
 **Results** (`results/payloads_{lj,orkut}.json`):
 
 | Graph | Payload | Raw total | Gzip total | Gzip median | Gzip p99 | Gzip max |
 |---|---|---|---|---|---|---|
-| lj | egmap | 960.8 MB | 453.0 MB | 1,419 B | 13,560 B | 18,203 B |
-| lj | MLT Web 4G | 574.7 MB | 461.9 MB (+2.0%) | 1,555 B (+9.6%) | 12,457 B | 16,769 B |
-| lj | MLT MinSize | 565.9 MB | 461.3 MB (+1.8%) | 1,554 B (+9.5%) | 12,399 B | 16,889 B |
-| lj | Arrow IPC | 1,593.1 MB | 558.0 MB (+23.2%) | 2,002 B (+41%) | 13,270 B | 17,982 B |
-| orkut | egmap | 651.4 MB | 324.7 MB | 1,477 B | 13,148 B | 17,998 B |
-| orkut | MLT Web 4G | 404.5 MB | 330.5 MB (+1.8%) | 1,613 B (+9.2%) | 12,177 B | 17,024 B |
-| orkut | MLT MinSize | 396.0 MB | 325.6 MB (+0.3%) | 1,607 B (+8.8%) | 11,570 B | 16,375 B |
-| orkut | Arrow IPC | 1,091.1 MB | 396.7 MB (+22.2%) | 2,056 B (+39%) | 12,842 B | 17,675 B |
+| lj | egmap | 695.6 MB | 378.8 MB | 1,139 B | 12,051 B | 14,477 B |
+| lj | MLT Web 4G | 480.0 MB | 379.2 MB (+0.1%) | 1,220 B (+7.1%) | 11,025 B | 14,011 B |
+| lj | MLT MinSize | 471.3 MB | 378.3 MB (−0.2%) | 1,219 B (+7.0%) | 10,945 B | 13,681 B |
+| lj | Arrow IPC | 1,193.4 MB | 454.1 MB (+19.9%) | 1,562 B (+37%) | 11,640 B | 14,040 B |
+| orkut | egmap | 492.9 MB | 273.9 MB | 1,188 B | 11,898 B | 14,563 B |
+| orkut | MLT Web 4G | 341.2 MB | 273.5 MB (−0.1%) | 1,264 B (+6.4%) | 11,019 B | 14,057 B |
+| orkut | MLT MinSize | 332.7 MB | 268.4 MB (−2.0%) | 1,258 B (+5.9%) | 10,382 B | 13,520 B |
+| orkut | Arrow IPC | 839.4 MB | 324.9 MB (+18.6%) | 1,610 B (+36%) | 11,452 B | 14,133 B |
 
-- Over HTTP (gzip), MLT is within 2% of the custom payload in total and within 10% at the
-  median; its largest tiles are smaller. Raw, MLT is 40% smaller: it compresses inside.
-- Arrow IPC is 22–23% larger in total and about 40% larger at the median: each tile
+- In gzip, MLT and this payload are within 2% of each other in total. MLT is 6–7%
+  larger at the median and smaller at p99. Raw, MLT is about 31% smaller, because it
+  compresses inside.
+- Arrow IPC is 19–20% larger in total and about 36% larger at the median: each tile
   carries its schema.
+- The region table of § 5.3, in chunks of 65,536 values and written by the product
+  writer, is 8.25 MB on lj (1,637,273 regions) and 4.95 MB on orkut (872,753). Each
+  count includes the lab's dead tree nodes. Its parts on lj: `parent` 3.72 MB, `volume`
+  2.15 MB, `internal` 1.25 MB, `nodes` 1.11 MB, the others under 10 kB each. The
+  `partner` values are all 0 here.
+- Against tiles that keep, in every tile, each region's parent, counts, rank and depth,
+  and the regions' ancestors: those were 453.0 MB on lj and 324.7 MB on orkut with the
+  same tool and content. These tiles plus the region table are 387.1 MB and 278.9 MB,
+  or −15% and −14%.
 - The lab tiles with their edges were 830.6 MB of gzip on lj and 721.1 MB on orkut
-  (`maps/tiles_{lj,orkut}.json` of the build); the same entities without edges, with
-  their ancestors, are 453.0 and 324.7 MB.
-- These are the lab's entity sets, not tiles placed by the rule of § 3.5 (every entity
-  in every tile its disc meets): the budget question of #69 (deepest tiles over 32 KB)
-  is not answered here.
+  (`maps/tiles_{lj,orkut}.json` of the build).
 
-**Not measured.** Decode time in JavaScript, of any payload. The adoption rule of #68
-needs it for MLT; see the issue file.
+**Not measured.** Decode time in JavaScript, of any payload.
 
-**Reproduce** (8 GiB limit each, under a minute per graph at 8 threads):
+**Reproduce** (an 8 GiB limit each; under a minute per graph at 8 threads):
 
 ```sh
 lab/m5-02-tile-format/maps.sh
@@ -67,4 +87,4 @@ for g in lj orkut; do
 done
 ```
 
-with `S=/home/tux/graphlab/scratch/m5-02-tile-format`.
+Here `S=/home/tux/graphlab/scratch/m5-02-tile-format`.

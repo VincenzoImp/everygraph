@@ -5,9 +5,8 @@
 
 use std::ops::Range;
 
-use everygraph_core::{ByteSource, Memory, le, widen};
+use everygraph_core::{ByteSource, le, widen};
 
-use super::census::{Census, CensusReport};
 use super::pmtiles::{Entry, Header, Span, parse_directory, tile_id, tile_of_id};
 use super::sections::{self, Element, Section};
 use super::write::MapInfo;
@@ -55,7 +54,11 @@ impl<S: ByteSource> MapReader<S> {
         let mut leaf_bytes = 0_u64;
         for e in &root {
             match e.run {
-                0 if e.offset == leaf_bytes => leaf_bytes += e.len,
+                0 if e.offset == leaf_bytes => {
+                    leaf_bytes = leaf_bytes
+                        .checked_add(e.len)
+                        .ok_or_else(|| malformed("leaf directories do not fit in 64 bits"))?;
+                }
                 0 => return Err(malformed("leaf directories share or skip bytes")),
                 1 if e
                     .offset
@@ -163,7 +166,12 @@ impl<S: ByteSource> MapReader<S> {
     /// `ids`, contiguous tile bytes and no further leaves.
     fn leaf(&self, leaf: &Entry, ids: Range<u64>) -> Result<Vec<Entry>, EgmapError> {
         let span = Span {
-            offset: self.header.leaves.offset + leaf.offset,
+            offset: self
+                .header
+                .leaves
+                .offset
+                .checked_add(leaf.offset)
+                .ok_or_else(|| malformed("a leaf directory lies past 2^64"))?,
             len: leaf.len,
         };
         let packed = self.read(span, "a leaf directory")?;
@@ -203,7 +211,12 @@ impl<S: ByteSource> MapReader<S> {
 
     fn decode(&self, e: &Entry) -> Result<Tile, EgmapError> {
         let span = Span {
-            offset: self.header.tiles.offset + e.offset,
+            offset: self
+                .header
+                .tiles
+                .offset
+                .checked_add(e.offset)
+                .ok_or_else(|| malformed("a tile lies past 2^64"))?,
             len: e.len,
         };
         let packed = self.read(span, "a tile")?;
@@ -267,13 +280,18 @@ impl<S: ByteSource> MapReader<S> {
     ) -> Result<(), EgmapError> {
         let mut next = 0_u64;
         let mut count = 0_u64;
+        let mut zooms: Option<(u8, u8)> = None;
         let mut visit = |e: &Entry| -> Result<(), EgmapError> {
             if e.offset != next {
                 return Err(malformed("tiles share or skip bytes"));
             }
+            // In the tile data, which `open` and `leaf` checked.
             next += e.len;
             count += 1;
-            f(self.decode(e)?)
+            let tile = self.decode(e)?;
+            let (lo, hi) = zooms.unwrap_or((tile.z, tile.z));
+            zooms = Some((lo.min(tile.z), hi.max(tile.z)));
+            f(tile)
         };
         for (i, e) in self.root.iter().enumerate() {
             if e.run == 0 {
@@ -286,6 +304,9 @@ impl<S: ByteSource> MapReader<S> {
         }
         if next != self.header.tiles.len || count != self.header.tile_count {
             return Err(malformed("the directory does not account for every tile"));
+        }
+        if zooms.unwrap_or((0, 0)) != (self.header.min_zoom, self.header.max_zoom) {
+            return Err(malformed("the header's zooms are not those of the tiles"));
         }
         Ok(())
     }
@@ -342,124 +363,6 @@ impl<S: ByteSource> MapReader<S> {
         }
         Ok(bytes)
     }
-
-    /// Reads all of the file: every tile, every chunk, and the rules of § 5.3 on the
-    /// arrays; and gives the census of the whole pyramid (§ 6), whose faults are not
-    /// errors of the format.
-    ///
-    /// # Errors
-    ///
-    /// The first error of [`for_each_tile`](Self::for_each_tile) or
-    /// [`chunk`](Self::chunk), [`EgmapError::Malformed`] for a broken rule of § 5.3,
-    /// [`EgmapError::Memory`] if the census's memory is refused.
-    pub fn verify(&self, memory: &Memory) -> Result<CensusReport, EgmapError> {
-        self.metadata()?;
-        let mut census = Census::new(memory);
-        self.for_each_tile(|t| census.add(&t))?;
-        for s in &self.sections {
-            for i in 0..s.chunks() {
-                self.chunk(s, i)?;
-            }
-        }
-        if let Some(s) = self.section("positions") {
-            let mut c = Values::new(self, s);
-            for _ in 0..s.count {
-                let v = f32::from_bits(c.next_u32()?);
-                if !(0.0..=1.0).contains(&v) {
-                    return Err(malformed("a position outside the unit square"));
-                }
-            }
-        }
-        // Symmetry, in one pass: the sum of h(u)·g(v) over the entries equals that of
-        // h(v)·g(u) when every (u, v) has its (v, u). A list that is not symmetric passes
-        // with a probability of about 2^-64 for one pair of mixes.
-        let sums = std::cell::Cell::new((0_u64, 0_u64));
-        self.check_lists("adjacency", self.info.nodes, |u, prev, v| {
-            let v = u64::from(v);
-            let (a, b) = sums.get();
-            sums.set((
-                a.wrapping_add(mix(u, 1).wrapping_mul(mix(v, 2))),
-                b.wrapping_add(mix(v, 1).wrapping_mul(mix(u, 2))),
-            ));
-            v < self.info.nodes && v != u && prev.is_none_or(|p| u64::from(p) < v)
-        })?;
-        if sums.get().0 != sums.get().1 {
-            return Err(malformed("adjacency.targets is not symmetric"));
-        }
-        self.check_lists("matrix", self.info.regions, |_, prev, p| {
-            let (i, j) = (p >> 16, p & 0xFFFF);
-            i >= 1 && i < j && prev.is_none_or(|q| q < p)
-        })?;
-        if let Some(w) = self.section("matrix.weights") {
-            let mut c = Values::new(self, w);
-            for _ in 0..w.count {
-                if c.next_u64()? == 0 {
-                    return Err(malformed("a matrix pair of weight 0"));
-                }
-            }
-        }
-        Ok(census.finish(self.header.max_zoom))
-    }
-
-    /// Checks `<group>.offsets` (`rows + 1` values from 0, not decreasing, ending at the
-    /// length of the values) and each row's values against `ok(row, previous, value)`.
-    fn check_lists(
-        &self,
-        group: &str,
-        rows: u64,
-        ok: impl Fn(u64, Option<u32>, u32) -> bool,
-    ) -> Result<(), EgmapError> {
-        let (Some(offsets), Some(values)) = (
-            self.section(&format!("{group}.offsets")),
-            self.section(&format!(
-                "{group}.{}",
-                if group == "matrix" {
-                    "pairs"
-                } else {
-                    "targets"
-                }
-            )),
-        ) else {
-            return Ok(());
-        };
-        let mut o = Values::new(self, offsets);
-        let mut v = Values::new(self, values);
-        let mut start = o.next_u64()?;
-        if start != 0 {
-            return Err(malformed(format!("{group}.offsets does not start at 0")));
-        }
-        for row in 0..rows {
-            let end = o.next_u64()?;
-            if end < start || end > values.count {
-                return Err(malformed(format!("{group}.offsets decreases or overruns")));
-            }
-            let mut prev = None;
-            for _ in start..end {
-                let x = v.next_u32()?;
-                if !ok(row, prev, x) {
-                    return Err(malformed(format!(
-                        "{group}: row {row} breaks a rule of § 5.3"
-                    )));
-                }
-                prev = Some(x);
-            }
-            start = end;
-        }
-        if start != values.count {
-            return Err(malformed(format!(
-                "{group}.offsets does not end at the last value"
-            )));
-        }
-        Ok(())
-    }
-}
-
-/// `SplitMix64`'s finalizer of `x` under the key `k`.
-fn mix(x: u64, k: u64) -> u64 {
-    let mut z = x ^ k.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
 }
 
 fn span_range(s: Span) -> Range<usize> {
@@ -468,42 +371,37 @@ fn span_range(s: Span) -> Range<usize> {
     start.min(end)..end
 }
 
-/// The values of an array, read in order one chunk at a time.
-struct Values<'r, S> {
+/// The values of an array, read through a cache of one chunk.
+pub(super) struct ArrayReader<'r, S> {
     reader: &'r MapReader<S>,
     section: &'r Section,
-    chunk: u64,
-    bytes: Vec<u8>,
-    at: usize,
+    chunk: Option<(u64, Vec<u8>)>,
 }
 
-impl<'r, S: ByteSource> Values<'r, S> {
-    fn new(reader: &'r MapReader<S>, section: &'r Section) -> Self {
+impl<'r, S: ByteSource> ArrayReader<'r, S> {
+    pub(super) fn new(reader: &'r MapReader<S>, section: &'r Section) -> Self {
         Self {
             reader,
             section,
-            chunk: 0,
-            bytes: Vec::new(),
-            at: 0,
+            chunk: None,
         }
     }
 
-    fn next_bytes(&mut self, width: usize) -> Result<&[u8], EgmapError> {
-        if self.at == self.bytes.len() {
-            self.bytes = self.reader.chunk(self.section, self.chunk)?;
-            self.chunk += 1;
-            self.at = 0;
+    /// Value `i`, widened to a `u64` (an f32 as its bits).
+    pub(super) fn get(&mut self, i: u64) -> Result<u64, EgmapError> {
+        let s = self.section;
+        if i >= s.count {
+            return Err(malformed(format!("section {} has no value {i}", s.name)));
         }
-        let v = &self.bytes[self.at..self.at + width];
-        self.at += width;
-        Ok(v)
-    }
-
-    fn next_u32(&mut self) -> Result<u32, EgmapError> {
-        Ok(le::u32_at(self.next_bytes(4)?, 0))
-    }
-
-    fn next_u64(&mut self) -> Result<u64, EgmapError> {
-        Ok(le::u64_at(self.next_bytes(8)?, 0))
+        let c = i / u64::from(s.chunk);
+        if self.chunk.as_ref().is_none_or(|(k, _)| *k != c) {
+            self.chunk = Some((c, self.reader.chunk(s, c)?));
+        }
+        let w = s.element.width();
+        let at = usize::try_from(i - c * u64::from(s.chunk)).unwrap_or(usize::MAX) * w;
+        let bytes = self.chunk.as_ref().map_or(&[][..], |(_, b)| &b[at..at + w]);
+        let mut word = [0_u8; 8];
+        word[..w].copy_from_slice(bytes);
+        Ok(u64::from_le_bytes(word))
     }
 }

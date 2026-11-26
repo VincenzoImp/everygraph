@@ -4,14 +4,14 @@
 //!
 //! - Round trip: a random tile that passes § 4.3 decodes to itself, and its bytes are
 //!   the only bytes of that tile: any damaged payload is refused or decodes to a tile
-//!   that encodes back to exactly those bytes.
+//!   that encodes back to those bytes.
 //! - Oracle: a pyramid placed by the rules of § 3 from a test generator
 //!   (`tests/support`) reads back tile by tile and chunk by chunk, the strictest reader
-//!   (`MapReader::verify`) accepts it, and its census finds no fault. The census finds
-//!   each fault planted in it.
-//! - Hostile input: damaged files are refused without a panic; directories that share
-//!   or repeat tile bytes, and sizes the file cannot hold, are refused before anything
-//!   is allocated for them.
+//!   (`MapReader::verify`) accepts it, and its census finds no fault. The census and
+//!   `verify` find each fault planted in it.
+//! - Hostile input: damaged files are refused without a panic; directories that share,
+//!   repeat or overflow, and sizes the file cannot hold, are refused before anything is
+//!   allocated for them.
 //! - Faults: a write that fails at any operation ends in an error.
 
 #![forbid(unsafe_code)]
@@ -32,11 +32,14 @@ use std::io::Write;
 use everygraph_core::{Memory, MemorySource};
 use everygraph_io::faults::{Faulty, Plan};
 use everygraph_map::egmap::{
-    Census, EgmapError, Element, Label, MapInfo, MapReader, MapWriter, RegionKind, Tile, Values,
-    min_zoom, tile_id, tile_of_id,
+    Census, EgmapError, Element, Label, MAX_ZOOM, MapInfo, MapReader, MapWriter, RegionKind, Tile,
+    Values, tile_id, tile_of_id,
 };
 use proptest::prelude::*;
-use support::{Pyramid, RULE, Rng, metadata, pyramid, random_tile, write_into};
+use support::{
+    Pyramid, RULE, RegionTable, Rng, array as write_array, empty_tiles, metadata, pyramid,
+    random_tile, size, write_into, write_table,
+};
 
 type Mem = MemorySource<Vec<u8>>;
 
@@ -46,15 +49,26 @@ fn write(p: &Pyramid, chunk: u32) -> Vec<u8> {
         .into_inner()
 }
 
-fn array(reader: &MapReader<Mem>, name: &str) -> Vec<u8> {
+fn read_array(reader: &MapReader<Mem>, name: &str) -> Vec<u8> {
     let s = reader.section(name).unwrap();
     (0..s.chunks())
         .flat_map(|i| reader.chunk(s, i).unwrap())
         .collect()
 }
 
-fn le<T: Copy>(values: &[T], f: impl Fn(T) -> Vec<u8>) -> Vec<u8> {
+fn le<T: Copy, const W: usize>(values: &[T], f: impl Fn(T) -> [u8; W]) -> Vec<u8> {
     values.iter().flat_map(|&v| f(v)).collect()
+}
+
+fn verify(file: Vec<u8>) -> Result<everygraph_map::egmap::CensusReport, EgmapError> {
+    MapReader::open(Mem::new(file))?.verify(&Memory::unlimited())
+}
+
+fn refused(result: Result<impl std::fmt::Debug, EgmapError>, what: &str) {
+    assert!(
+        matches!(result, Err(EgmapError::Malformed(_))),
+        "{what}: {result:?}"
+    );
 }
 
 proptest! {
@@ -62,7 +76,7 @@ proptest! {
 
     #[test]
     fn a_tile_round_trips_and_its_bytes_are_canonical(
-        seed in any::<u64>(), z in 0_u8..=8, regions in 0_usize..40, nodes in 0_usize..60,
+        seed in any::<u64>(), z in 0_u8..=MAX_ZOOM, regions in 0_usize..40, nodes in 0_usize..60,
     ) {
         let tile = random_tile(&mut Rng(seed), z, regions, nodes);
         let bytes = tile.encode().unwrap();
@@ -87,9 +101,9 @@ proptest! {
             bytes.truncate(usize::from(cut) % bytes.len());
         }
         if let Ok(t) = Tile::decode(&bytes) {
-            // Minor versions read alike (§ 8); the writer writes its own.
+            // Minor versions read alike (§ 8); the writer writes its own. Optional
+            // blocks it skipped follow the known ones (§ 4.2).
             bytes[6..8].fill(0);
-            // Optional blocks it skipped follow the known ones (§ 4.2).
             prop_assert!(bytes.starts_with(&t.encode().unwrap()));
         }
     }
@@ -118,47 +132,21 @@ thread_local! {
 fn a_tile_that_breaks_a_rule_is_refused_by_the_writer() {
     let base = random_tile(&mut Rng(7), 6, 8, 10);
     assert!(base.encode().is_ok());
-    let a_child = base.regions.iter().position(|g| g.parent != 0).unwrap();
     type Edit = Box<dyn Fn(&mut Tile)>;
     let breaks: Vec<(&str, Edit)> = vec![
-        ("zoom 21", Box::new(|t| t.z = 21)),
+        ("zoom 17", Box::new(|t| t.z = 17)),
         ("x outside the zoom", Box::new(|t| t.x = 64)),
         ("ids out of order", Box::new(|t| t.regions.swap(0, 1))),
+        ("region 0", Box::new(|t| t.regions[0].id = 0)),
         (
-            "parent missing",
-            Box::new(move |t| {
-                let p = t.regions[a_child].id - 1;
-                assert!(t.regions.iter().all(|g| g.id != p));
-                t.regions[a_child].parent = p;
-            }),
+            "kind root",
+            Box::new(|t| t.regions[0].kind = RegionKind::Root),
         ),
-        ("depth", Box::new(move |t| t.regions[a_child].depth += 1)),
-        (
-            "colour of the parent",
-            Box::new(move |t| t.regions[a_child].colour = (t.regions[a_child].colour + 1) % 5),
-        ),
-        (
-            "colour 5",
-            Box::new(|t| t.regions.iter_mut().for_each(|g| g.colour = 5)),
-        ),
+        ("colour 5", Box::new(|t| t.regions[0].colour = 5)),
+        ("node colour 5", Box::new(|t| t.nodes[0].colour = 5)),
         ("zmin above the zoom", Box::new(|t| t.nodes[0].zmin = 7)),
         ("no nodes", Box::new(|t| t.regions[0].nodes = 0)),
-        (
-            "volume below twice internal",
-            Box::new(|t| t.regions[0].volume = 2 * t.regions[0].internal - 1),
-        ),
-        ("rank 0", Box::new(|t| t.regions[0].rank = 0)),
-        (
-            "own partner",
-            Box::new(|t| t.regions[0].partner = t.regions[0].id),
-        ),
-        (
-            "aggregate of nothing",
-            Box::new(|t| {
-                t.regions[0].kind = RegionKind::Aggregate;
-                t.regions[0].communities = 0;
-            }),
-        ),
+        ("node in region 0", Box::new(|t| t.nodes[0].region = 0)),
         ("NaN", Box::new(|t| t.nodes[0].x = f32::NAN)),
         ("negative zero", Box::new(|t| t.nodes[0].y = -0.0)),
         ("radius 0", Box::new(|t| t.nodes[0].r = 0.0)),
@@ -169,10 +157,16 @@ fn a_tile_that_breaks_a_rule_is_refused_by_the_writer() {
                 t.nodes[0].r = 1e-6;
             }),
         ),
-        ("node region missing", Box::new(|t| t.nodes[0].region = 0)),
+        ("disc covering the tile", Box::new(|t| t.regions[0].r = 1.0)),
         (
             "name out of range",
             Box::new(|t| t.nodes[0].name = t.strings.len() as u32),
+        ),
+        (
+            "strings out of order",
+            Box::new(|t| {
+                t.strings.push(String::new());
+            }),
         ),
         (
             "label of nothing",
@@ -187,7 +181,7 @@ fn a_tile_that_breaks_a_rule_is_refused_by_the_writer() {
             "label off at this zoom",
             Box::new(|t| t.labels[0].z_off = t.z),
         ),
-        ("label past zoom 20", Box::new(|t| t.labels[0].z_off = 22)),
+        ("label past zoom 16", Box::new(|t| t.labels[0].z_off = 18)),
         (
             "label before its entity",
             Box::new(|t| {
@@ -213,7 +207,7 @@ fn a_tile_that_breaks_a_rule_is_refused_by_the_writer() {
 }
 
 #[test]
-fn blocks_a_reader_does_not_know_are_skipped_only_when_optional() {
+fn block_numbers_start_at_1_and_unknown_ones_are_skipped_only_when_optional() {
     let tile = random_tile(&mut Rng(11), 4, 3, 3);
     let bytes = tile.encode().unwrap();
     let with = |tag: u32| {
@@ -229,22 +223,32 @@ fn blocks_a_reader_does_not_know_are_skipped_only_when_optional() {
         Tile::decode(&with(0x8000_0010)),
         Err(EgmapError::Unsupported(_))
     ));
+    // A block number 0, alone after the header.
+    let mut zero = bytes[..48].to_vec();
+    zero.extend_from_slice(&with(0)[bytes.len()..]);
+    refused(Tile::decode(&zero), "block number 0");
     let mut later = bytes.clone();
     later[4] = 2;
     assert!(matches!(
         Tile::decode(&later),
         Err(EgmapError::Unsupported(_))
     ));
-    let mut minor = bytes;
+    let mut minor = bytes.clone();
     minor[6] = 9;
     assert_eq!(Tile::decode(&minor).unwrap(), tile);
+    let mut bare = bytes;
+    bare[48 + 3] &= 0x7F;
+    refused(
+        Tile::decode(&bare),
+        "a known block without its required bit",
+    );
 }
 
 #[test]
 fn a_written_map_reads_back_whole_and_its_census_is_clean() {
     let p = pyramid(1, 6);
     assert!(
-        p.tiles.len() > 500 && p.info.nodes > 40,
+        p.tiles.len() > 300 && p.info.nodes > 40,
         "a pyramid too small to test"
     );
     let file = write(&p, 7);
@@ -275,25 +279,29 @@ fn a_written_map_reads_back_whole_and_its_census_is_clean() {
         .unwrap();
     assert_eq!(reader.tile(absent.0, absent.1, absent.2).unwrap(), None);
     assert_eq!(reader.tile(7, 0, 0).unwrap(), None);
+    let t = &p.table;
+    let arrays: [(&str, Vec<u8>); 12] = [
+        ("positions", le(&p.positions, f32::to_le_bytes)),
+        ("adjacency.offsets", le(&p.adjacency.0, u64::to_le_bytes)),
+        ("adjacency.targets", le(&p.adjacency.1, u32::to_le_bytes)),
+        ("matrix.pairs", le(&p.matrix.1, u32::to_le_bytes)),
+        ("matrix.weights", le(&p.matrix.2, u64::to_le_bytes)),
+        ("regions.parent", le(&t.parent, u32::to_le_bytes)),
+        ("regions.kind", t.kind.clone()),
+        ("regions.nodes", le(&t.nodes, u64::to_le_bytes)),
+        ("regions.internal", le(&t.internal, u64::to_le_bytes)),
+        ("regions.volume", le(&t.volume, u64::to_le_bytes)),
+        ("regions.communities", le(&t.communities, u32::to_le_bytes)),
+        ("regions.partner", le(&t.partner, u32::to_le_bytes)),
+    ];
+    for (name, bytes) in arrays {
+        assert_eq!(read_array(&reader, name), bytes, "{name}");
+    }
+    let kinds: std::collections::BTreeSet<u8> = t.kind.iter().copied().collect();
     assert_eq!(
-        array(&reader, "positions"),
-        le(&p.positions, |v| v.to_le_bytes().to_vec())
-    );
-    assert_eq!(
-        array(&reader, "adjacency.offsets"),
-        le(&p.adjacency.0, |v| v.to_le_bytes().to_vec())
-    );
-    assert_eq!(
-        array(&reader, "adjacency.targets"),
-        le(&p.adjacency.1, |v| v.to_le_bytes().to_vec())
-    );
-    assert_eq!(
-        array(&reader, "matrix.pairs"),
-        le(&p.matrix.1, |v| v.to_le_bytes().to_vec())
-    );
-    assert_eq!(
-        array(&reader, "matrix.weights"),
-        le(&p.matrix.2, |v| v.to_le_bytes().to_vec())
+        kinds.len(),
+        5,
+        "root, super, community, subcommunity, aggregate"
     );
     let s = reader.section("positions").unwrap();
     assert_eq!(
@@ -361,20 +369,18 @@ fn the_census_finds_each_planted_fault() {
         .rev()
         .find(|t| t.regions.len() > 1)
         .unwrap();
-    t.regions[1].internal += 1;
-    t.regions[1].volume += 2;
+    t.regions[1].nodes += 1;
     assert_eq!(census(&moved).inconsistent, 1);
     let mut unlabelled = p.tiles.clone();
-    let (z, e) = unlabelled
+    let (z, id) = unlabelled
         .iter()
         .find_map(|t| {
             t.labels
                 .iter()
-                .find(|a| a.z_off > t.z + 2)
-                .map(|a| (t.z + 1, t.regions.get(a.entity as usize).map(|g| g.id)))
+                .find(|a| a.z_off > t.z + 2 && (a.entity as usize) < t.regions.len())
+                .map(|a| (t.z + 1, t.regions[a.entity as usize].id))
         })
         .unwrap();
-    let id = e.unwrap();
     for t in unlabelled.iter_mut().filter(|t| t.z == z) {
         if let Some(i) = t.regions.iter().position(|g| g.id == id) {
             t.labels.retain(|a| a.entity as usize != i);
@@ -385,24 +391,37 @@ fn the_census_finds_each_planted_fault() {
 }
 
 #[test]
-fn the_zoom_rule_is_exact_and_nests() {
-    assert_eq!(min_zoom(3.0 / 256.0, 3.0), 0);
+fn zoom_16_separates_pixels_and_zoom_17_is_refused() {
+    // Between 0.5 and 1 the f32 spacing is 2^-24 of the map: one pixel at zoom 16.
+    let below_one = f32::from_bits(1.0_f32.to_bits() - 1);
+    let gap = (1.0 - f64::from(below_one)) * 256.0 * f64::from(1_u32 << MAX_ZOOM);
+    assert_eq!(gap, 1.0);
+    assert_eq!(MAX_ZOOM, 16);
+    assert_eq!(size(3.0 / 256.0, 3.0), 0);
     assert_eq!(
-        min_zoom(f32::from_bits((3.0_f32 / 256.0).to_bits() - 1), 3.0),
+        size(f32::from_bits((3.0_f32 / 256.0).to_bits() - 1), 3.0),
         1
     );
-    assert_eq!(min_zoom(3.0 / 256.0 / 1024.0, 3.0), 10);
-    assert_eq!(min_zoom(1e-12, 3.0), 21);
-    for r in [0.4_f32, 0.01, 1e-4] {
-        let parent = RULE.region_zmin(r, None, 12);
-        let child = RULE.region_zmin(r / 3.0, Some((r, parent)), 12);
-        let node = RULE.node_zmin(r / 30.0, (r / 3.0, child), 12);
-        assert!(parent <= child && child <= node && node <= 12);
-    }
+    assert_eq!(size(1e-12, 3.0), 17);
+    refused(
+        Tile::new(17, 0, 0).encode().map_err(|e| match e {
+            EgmapError::Invalid(w) => EgmapError::Malformed(w),
+            e => e,
+        }),
+        "zoom 17",
+    );
+    let mut w = MapWriter::create(
+        Mem::new(Vec::new()),
+        &Memory::unlimited(),
+        MapInfo::default(),
+    )
+    .unwrap();
+    assert!(w.add_tile(&Tile::new(17, 0, 0)).is_err());
+    let _ = RULE;
 }
 
 /// An encoder of PMTiles directories written from the PMTiles v3 specification, to
-/// build directories the writer never makes.
+/// build directories the writer never makes; an offset of `u64::MAX` is "follows".
 fn directory(entries: &[(u64, u64, u64, u64)]) -> Vec<u8> {
     fn varint(out: &mut Vec<u8>, mut v: u64) {
         while v >= 0x80 {
@@ -425,7 +444,7 @@ fn directory(entries: &[(u64, u64, u64, u64)]) -> Vec<u8> {
         varint(&mut raw, len);
     }
     for &(.., off) in entries {
-        varint(&mut raw, off + 1);
+        varint(&mut raw, if off == u64::MAX { 0 } else { off + 1 });
     }
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     gz.write_all(&raw).unwrap();
@@ -437,10 +456,10 @@ fn with_root(file: &[u8], root: &[u8]) -> Vec<u8> {
     let mut out = file.to_vec();
     let old = u64::from_le_bytes(out[16..24].try_into().unwrap()) as usize;
     let table_at = 127 + old;
-    let table_len = 48
-        + 64 * u32::from_le_bytes(out[table_at + 12..table_at + 16].try_into().unwrap()) as usize;
-    let table = out[table_at..table_at + table_len].to_vec();
+    let entries = u32::from_le_bytes(out[table_at + 12..table_at + 16].try_into().unwrap());
+    let table = out[table_at..table_at + 48 + 64 * entries as usize].to_vec();
     assert!(127 + root.len() + table.len() <= 16_384);
+    out[127..16_384].fill(0);
     out[127..127 + root.len()].copy_from_slice(root);
     out[127 + root.len()..127 + root.len() + table.len()].copy_from_slice(&table);
     out[16..24].copy_from_slice(&(root.len() as u64).to_le_bytes());
@@ -448,48 +467,38 @@ fn with_root(file: &[u8], root: &[u8]) -> Vec<u8> {
 }
 
 #[test]
-fn directories_that_repeat_or_share_tile_bytes_are_refused() {
+fn directories_that_repeat_share_or_overflow_are_refused() {
     let p = pyramid(4, 2);
     let file = write(&p, 64);
     let ok = MapReader::open(Mem::new(file.clone())).unwrap();
     let mut entries = Vec::new();
     let mut off = 0;
     ok.for_each_tile(|t| {
-        let len = {
-            let mut b = Vec::new();
-            let mut gz = flate2::write::GzEncoder::new(&mut b, flate2::Compression::new(6));
-            gz.write_all(&t.encode().unwrap()).unwrap();
-            gz.finish().unwrap();
-            b.len() as u64
-        };
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
+        gz.write_all(&t.encode().unwrap()).unwrap();
+        let len = gz.finish().unwrap().len() as u64;
         entries.push((tile_id(t.z, t.x, t.y), 1, len, off));
         off += len;
         Ok(())
     })
     .unwrap();
     // The rebuilt root is the writer's: the file still reads.
-    let same = with_root(&file, &directory(&entries));
-    MapReader::open(Mem::new(same))
-        .unwrap()
-        .verify(&Memory::unlimited())
-        .unwrap();
+    verify(with_root(&file, &directory(&entries))).unwrap();
     // A run of 2: one tile's bytes stand for two tiles.
     let mut run = entries.clone();
     run[0].1 = 2;
-    let refused = MapReader::open(Mem::new(with_root(&file, &directory(&run))));
-    assert!(
-        matches!(refused, Err(EgmapError::Malformed(_))),
-        "{refused:?}"
+    refused(
+        MapReader::open(Mem::new(with_root(&file, &directory(&run)))),
+        "a run of 2",
     );
     // Two entries on the same bytes.
     let mut shared = entries.clone();
     shared[1].3 = shared[0].3;
     shared[1].2 = shared[0].2;
-    let reader = MapReader::open(Mem::new(with_root(&file, &directory(&shared)))).unwrap();
-    assert!(matches!(
-        reader.verify(&Memory::unlimited()),
-        Err(EgmapError::Malformed(_))
-    ));
+    refused(
+        verify(with_root(&file, &directory(&shared))),
+        "shared bytes",
+    );
     // A tile stored under another tile's id.
     let mut swapped = entries.clone();
     let (a, b) = (swapped[0].3, swapped[1].3);
@@ -498,14 +507,21 @@ fn directories_that_repeat_or_share_tile_bytes_are_refused() {
     (swapped[0].2, swapped[1].2) = (swapped[1].2, swapped[0].2);
     let (z, x, y) = tile_of_id(entries[0].0).unwrap();
     let reader = MapReader::open(Mem::new(with_root(&file, &directory(&swapped)))).unwrap();
-    assert!(matches!(
-        reader.tile(z, x, y),
-        Err(EgmapError::Malformed(_))
-    ));
+    refused(reader.tile(z, x, y), "a tile under another id");
     // An entry past the tile data.
     let mut past = entries;
     past.last_mut().unwrap().2 += 1;
     assert!(MapReader::open(Mem::new(with_root(&file, &directory(&past)))).is_err());
+    // Leaf lengths that overflow 64 bits, on a leaf region of 1 byte.
+    let mut overflow = with_root(
+        &file,
+        &directory(&[(0, 0, u64::MAX, 0), (1, 0, 2, u64::MAX)]),
+    );
+    overflow[48..56].copy_from_slice(&1_u64.to_le_bytes());
+    refused(
+        MapReader::open(Mem::new(overflow)),
+        "leaf lengths past 2^64",
+    );
 }
 
 #[test]
@@ -518,9 +534,7 @@ fn sizes_the_file_cannot_hold_are_refused_before_they_are_allocated() {
         edit(&mut f);
         MapReader::open(Mem::new(f))
     };
-    // A section table of 4 billion entries.
     assert!(open(&|f| f[table + 12..table + 16].copy_from_slice(&u32::MAX.to_le_bytes())).is_err());
-    // A section that would end past the file.
     assert!(
         open(&|f| {
             let e = table + 48 + 56;
@@ -528,31 +542,102 @@ fn sizes_the_file_cannot_hold_are_refused_before_they_are_allocated() {
         })
         .is_err()
     );
-    // Metadata of 2^60 bytes.
     assert!(open(&|f| f[32..40].copy_from_slice(&(1_u64 << 60).to_le_bytes())).is_err());
-    // Counts that disagree.
     assert!(open(&|f| f[80] ^= 1).is_err());
-    // Another tile type: an MVT archive is not a map.
     assert!(matches!(open(&|f| f[99] = 1), Err(EgmapError::Foreign(_))));
-    // A cut file.
     assert!(MapReader::open(Mem::new(file[..file.len() - 1].to_vec())).is_err());
     assert!(MapReader::open(Mem::new(file[..200].to_vec())).is_err());
 }
 
 #[test]
+fn the_whole_file_check_refuses_what_one_tile_cannot_show() {
+    // A header whose deepest zoom has no tile.
+    let mut deep = SMALL.with(Clone::clone);
+    deep[101] = 9;
+    assert!(MapReader::open(Mem::new(deep.clone())).is_ok());
+    refused(verify(deep), "max zoom 9 on a pyramid of zooms 0 to 3");
+    // Metadata that is not JSON: the metadata is the last region of the file.
+    let mut meta = SMALL.with(Clone::clone);
+    let at = u64::from_le_bytes(meta[24..32].try_into().unwrap()) as usize;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(b"not json at all").unwrap();
+    let packed = gz.finish().unwrap();
+    meta.truncate(at);
+    meta.extend_from_slice(&packed);
+    meta[32..40].copy_from_slice(&(packed.len() as u64).to_le_bytes());
+    refused(verify(meta), "metadata that is not JSON");
+    // A region colour other than its parent's, in every tile.
+    let mut p = pyramid(9, 3);
+    let child = (1..p.table.parent.len())
+        .find(|&i| p.table.parent[i] != 0)
+        .unwrap() as u32;
+    for t in &mut p.tiles {
+        for g in t.regions.iter_mut().filter(|g| g.id == child) {
+            g.colour = (g.colour + 1) % 5;
+        }
+    }
+    refused(verify(write(&p, 5)), "a colour other than the parent's");
+    // A table count other than the tiles'.
+    let mut p = pyramid(9, 3);
+    let g = p.table.nodes.iter().rposition(|&n| n > 1).unwrap();
+    p.table.nodes[g] -= 1;
+    refused(verify(write(&p, 5)), "counts other than the tiles'");
+    // One direction of a pair missing.
+    let mut p = pyramid(8, 3);
+    let u = p.adjacency.0.windows(2).position(|w| w[1] > w[0]).unwrap();
+    p.adjacency.1.remove(p.adjacency.0[u] as usize);
+    p.adjacency.0[u + 1..].iter_mut().for_each(|o| *o -= 1);
+    let r = verify(write(&p, 5));
+    assert!(
+        matches!(r, Err(EgmapError::Malformed(ref m)) if m.contains("symmetric")),
+        "{r:?}"
+    );
+    // A matrix pair of a rank past the parent's children.
+    let mut p = pyramid(8, 3);
+    p.matrix.1[0] = 1 << 16 | 0xFFFF;
+    refused(verify(write(&p, 5)), "a rank past the children");
+}
+
+/// A map without tiles whose tree is a chain of `depth` super regions.
+fn chain(depth: u32) -> Vec<u8> {
+    let regions = depth + 1;
+    let info = MapInfo {
+        nodes: 1,
+        regions: u64::from(regions),
+        edges: 0,
+        summary: 0,
+    };
+    let mut table = RegionTable::root(1);
+    for i in 1..regions {
+        table.parent.push(i - 1);
+        table.kind.push(RegionKind::Super as u8);
+        table.nodes.push(1);
+        table.internal.push(0);
+        table.volume.push(0);
+        table.communities.push(0);
+        table.partner.push(0);
+    }
+    let mut w = MapWriter::create(Mem::new(Vec::new()), &Memory::unlimited(), info).unwrap();
+    write_table(&mut w, &table, 100).unwrap();
+    w.finish(&metadata()).unwrap().into_inner()
+}
+
+#[test]
+fn a_tree_deeper_than_255_is_refused() {
+    verify(chain(255)).unwrap();
+    refused(verify(chain(256)), "a chain of 256 regions");
+}
+
+#[test]
 fn many_tiles_go_through_leaf_directories() {
     let count = 70_000_u64;
-    let first = tile_id(9, 0, 0);
-    let info = MapInfo::default();
-    let mut w = MapWriter::create(Mem::new(Vec::new()), &Memory::unlimited(), info).unwrap();
-    for id in first..first + count {
-        let (z, x, y) = tile_of_id(id).unwrap();
-        w.add_tile(&Tile::new(z, x, y)).unwrap();
-    }
-    let file = w.finish(&metadata()).unwrap().into_inner();
+    let file = empty_tiles(Mem::new(Vec::new()), count)
+        .unwrap()
+        .into_inner();
     let leaves = u64::from_le_bytes(file[48..56].try_into().unwrap());
     assert!(leaves > 0, "70,000 tiles fit the root directory");
     let reader = MapReader::open(Mem::new(file)).unwrap();
+    let first = tile_id(9, 0, 0);
     for id in [
         first,
         first + 1,
@@ -565,14 +650,8 @@ fn many_tiles_go_through_leaf_directories() {
     }
     let (z, x, y) = tile_of_id(first + count).unwrap();
     assert_eq!(reader.tile(z, x, y).unwrap(), None);
-    let mut seen = 0;
-    reader
-        .for_each_tile(|_| {
-            seen += 1;
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(seen, count);
+    let report = reader.verify(&Memory::unlimited()).unwrap();
+    assert_eq!(report.tiles, count);
 }
 
 #[test]
@@ -603,10 +682,13 @@ fn the_writer_refuses_what_breaks_the_order_or_the_summary_rules() {
         w.begin_array("big", Element::U64, 1 << 18).is_err(),
         "a chunk over 1 MiB"
     );
+    write_table(&mut w, &p.table, 16).unwrap();
     assert!(
         w.finish(&metadata()).is_err(),
         "positions of the wrong length"
     );
+    let w = MapWriter::create(Mem::new(Vec::new()), &memory, p.info).unwrap();
+    assert!(w.finish(&metadata()).is_err(), "no region table");
     let summary = MapInfo {
         summary: 5,
         ..p.info
@@ -614,11 +696,26 @@ fn the_writer_refuses_what_breaks_the_order_or_the_summary_rules() {
     let mut w = MapWriter::create(Mem::new(Vec::new()), &memory, summary).unwrap();
     let with_nodes = p.tiles.iter().find(|t| !t.nodes.is_empty()).unwrap();
     assert!(w.add_tile(with_nodes).is_err(), "nodes in a summary map");
-    w.begin_array("positions", Element::F32, 4).unwrap();
-    w.write_values(Values::F32(&p.positions)).unwrap();
-    w.end_array().unwrap();
+    write_array(&mut w, "positions", Values::F32(&p.positions), 4).unwrap();
+    write_table(&mut w, &p.table, 16).unwrap();
     assert!(w.finish(&metadata()).is_err(), "positions in a summary map");
     assert!(MapWriter::create(Mem::new(vec![0]), &memory, p.info).is_err());
+    // Entities the section table does not count, and kind other in a full map.
+    let t = p.tiles.iter().find(|t| !t.nodes.is_empty()).unwrap();
+    for info in [
+        MapInfo {
+            regions: 1,
+            ..p.info
+        },
+        MapInfo { nodes: 0, ..p.info },
+    ] {
+        let mut w = MapWriter::create(Mem::new(Vec::new()), &memory, info).unwrap();
+        assert!(w.add_tile(t).is_err(), "{info:?}");
+    }
+    let mut other = t.clone();
+    other.regions[0].kind = RegionKind::Other;
+    let mut w = MapWriter::create(Mem::new(Vec::new()), &memory, p.info).unwrap();
+    assert!(w.add_tile(&other).is_err(), "kind other in a full map");
 }
 
 #[test]
@@ -636,47 +733,5 @@ fn a_write_that_fails_at_any_operation_ends_in_an_error() {
             "operation {k} failed and the write succeeded"
         );
     }
-    let reader = MapReader::open(Mem::new(expected)).unwrap();
-    reader.verify(&Memory::unlimited()).unwrap();
-}
-
-#[test]
-fn a_map_refuses_what_does_not_fit_it() {
-    // One direction of a pair missing: written, then refused by verify.
-    let mut p = pyramid(8, 3);
-    let u = p.adjacency.0.windows(2).position(|w| w[1] > w[0]).unwrap();
-    p.adjacency.1.remove(p.adjacency.0[u] as usize);
-    p.adjacency.0[u + 1..].iter_mut().for_each(|o| *o -= 1);
-    let reader = MapReader::open(Mem::new(write(&p, 5))).unwrap();
-    let refused = reader.verify(&Memory::unlimited());
-    assert!(
-        matches!(refused, Err(EgmapError::Malformed(ref m)) if m.contains("symmetric")),
-        "{refused:?}"
-    );
-    // Entities the section table does not count, and kind other in a full map.
-    let p = pyramid(8, 3);
-    let t = p.tiles.iter().find(|t| !t.nodes.is_empty()).unwrap();
-    let memory = Memory::unlimited();
-    for info in [
-        MapInfo {
-            regions: 1,
-            ..p.info
-        },
-        MapInfo { nodes: 1, ..p.info },
-    ] {
-        let mut w = MapWriter::create(Mem::new(Vec::new()), &memory, info).unwrap();
-        assert!(w.add_tile(t).is_err(), "{info:?}");
-    }
-    let mut other = t.clone();
-    other.regions[0].kind = RegionKind::Other;
-    other.regions[0].communities = 1;
-    let mut w = MapWriter::create(Mem::new(Vec::new()), &memory, p.info).unwrap();
-    assert!(w.add_tile(&other).is_err(), "kind other in a full map");
-    // A known block number without its required bit.
-    let mut bytes = t.encode().unwrap();
-    bytes[48 + 3] &= 0x7F;
-    assert!(matches!(
-        Tile::decode(&bytes),
-        Err(EgmapError::Malformed(_))
-    ));
+    verify(expected).unwrap();
 }

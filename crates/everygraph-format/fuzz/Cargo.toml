@@ -25,6 +25,8 @@ everygraph-format = { path = ".." }
 everygraph-community = { path = "../../everygraph-community" }
 everygraph-kernels = { path = "../../everygraph-kernels" }
 everygraph-map = { path = "../../everygraph-map" }
+# Mode 3 of the egmap target compresses the directories and tile it is given.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 
 # Its own workspace, so that the product workspace never builds it.
 [workspace]

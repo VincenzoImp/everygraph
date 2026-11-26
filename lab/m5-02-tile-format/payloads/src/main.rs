@@ -18,7 +18,8 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Float32Array, RecordBatch, StringArray, UInt8Array, UInt32Array, UInt64Array};
 use arrow_ipc::writer::StreamWriter;
-use everygraph_map::egmap::{Node, Region, RegionKind, Tile, ZoomRule};
+use everygraph_core::{Memory, MemorySource};
+use everygraph_map::egmap::{MapInfo, MapReader, MapWriter, Metadata, Node, Region, RegionKind, Tile, Values, ZoomRule};
 use flate2::Compression;
 use mlt_core::encoder::{EncoderConfig, Network, Profile};
 use mlt_core::geo_types::Coord;
@@ -28,6 +29,34 @@ use rayon::prelude::*;
 const F_AGG: u8 = 8;
 const F_SUBDIV: u8 = 16;
 const RULE: ZoomRule = ZoomRule { region_px: 3.0, open_px: 3.0, node_px: 1.2, label_off_px: 1e9 };
+
+fn size(r: f32, px: f32) -> u8 {
+    (0..=16).find(|&z| f64::from(r) * 256.0 * f64::from(1u32 << z) >= f64::from(px)).unwrap_or(17)
+}
+fn region_zmin(r: f32, parent: Option<(f32, u8)>, zmax: u8) -> u8 {
+    let after = parent.map_or(0, |(pr, pz)| pz.max(size(pr, RULE.open_px)));
+    size(r, RULE.region_px).max(after).min(zmax)
+}
+fn node_zmin(r: f32, region: (f32, u8), zmax: u8) -> u8 {
+    size(r, RULE.node_px).max(region.1.max(size(region.0, RULE.open_px))).min(zmax)
+}
+/// Every corner of the tile inside the disc (docs/spec/egmap.md § 3.5).
+fn covers(x: f32, y: f32, r: f32, z: u8, tx: u32, ty: u32) -> bool {
+    let w = 1.0 / f64::from(1u32 << z);
+    let (x0, x1, y0, y1) = (f64::from(tx) * w, f64::from(tx + 1) * w, f64::from(ty) * w, f64::from(ty + 1) * w);
+    let (cx, cy) = (f64::from(x), f64::from(y));
+    let (ex, ey) = ((cx - x0).max(x1 - cx), (cy - y0).max(y1 - cy));
+    ex * ex + ey * ey <= f64::from(r) * f64::from(r)
+}
+fn kind_of(t: &TNode) -> RegionKind {
+    if t.flags & F_AGG != 0 {
+        RegionKind::Aggregate
+    } else if t.flags & F_SUBDIV != 0 {
+        RegionKind::Subcommunity
+    } else {
+        RegionKind::Community
+    }
+}
 
 fn u32_at(b: &[u8], i: usize) -> u32 {
     u32::from_le_bytes(b[i..i + 4].try_into().unwrap())
@@ -114,18 +143,11 @@ fn mlt(t: &Tile, profile: Profile) -> Vec<u8> {
     if !t.regions.is_empty() {
         let mut w = LayerWriter::new("regions", 4096).unwrap();
         let k: Vec<_> = [
-            ("parent", PropKind::U32),
             ("x", PropKind::F32),
             ("y", PropKind::F32),
             ("r", PropKind::F32),
             ("nodes", PropKind::U64),
-            ("internal", PropKind::U64),
-            ("volume", PropKind::U64),
-            ("communities", PropKind::U32),
-            ("rank", PropKind::U32),
-            ("partner", PropKind::U32),
             ("kind", PropKind::U8),
-            ("depth", PropKind::U8),
             ("colour", PropKind::U8),
             ("zmin", PropKind::U8),
         ]
@@ -135,20 +157,13 @@ fn mlt(t: &Tile, profile: Profile) -> Vec<u8> {
         for g in &t.regions {
             let mut f = w.feature(GeometryType::Point);
             f.id(Some(u64::from(g.id)));
-            f.property(k[0], g.parent).unwrap();
-            f.property(k[1], g.x).unwrap();
-            f.property(k[2], g.y).unwrap();
-            f.property(k[3], g.r).unwrap();
-            f.property(k[4], g.nodes).unwrap();
-            f.property(k[5], g.internal).unwrap();
-            f.property(k[6], g.volume).unwrap();
-            f.property(k[7], g.communities).unwrap();
-            f.property(k[8], g.rank).unwrap();
-            f.property(k[9], g.partner).unwrap();
-            f.property(k[10], g.kind as u8).unwrap();
-            f.property(k[11], g.depth).unwrap();
-            f.property(k[12], g.colour).unwrap();
-            f.property(k[13], g.zmin).unwrap();
+            f.property(k[0], g.x).unwrap();
+            f.property(k[1], g.y).unwrap();
+            f.property(k[2], g.r).unwrap();
+            f.property(k[3], g.nodes).unwrap();
+            f.property(k[4], g.kind as u8).unwrap();
+            f.property(k[5], g.colour).unwrap();
+            f.property(k[6], g.zmin).unwrap();
             f.points([point(g.x, g.y)]).unwrap();
             f.finish().unwrap();
         }
@@ -163,6 +178,7 @@ fn mlt(t: &Tile, profile: Profile) -> Vec<u8> {
             ("r", PropKind::F32),
             ("name", PropKind::Str),
             ("degree", PropKind::U64),
+            ("colour", PropKind::U8),
             ("zmin", PropKind::U8),
         ]
         .into_iter()
@@ -177,7 +193,8 @@ fn mlt(t: &Tile, profile: Profile) -> Vec<u8> {
             f.property(k[3], v.r).unwrap();
             f.property(k[4], t.strings[v.name as usize].as_str()).unwrap();
             f.property(k[5], v.degree).unwrap();
-            f.property(k[6], v.zmin).unwrap();
+            f.property(k[6], v.colour).unwrap();
+            f.property(k[7], v.zmin).unwrap();
             f.points([point(v.x, v.y)]).unwrap();
             f.finish().unwrap();
         }
@@ -202,18 +219,11 @@ fn arrow(t: &Tile) -> Vec<u8> {
         let u8s = |f: fn(&Region) -> u8| Arc::new(UInt8Array::from_iter_values(r.iter().map(f))) as ArrayRef;
         stream(vec![
             ("id", u32s(|g| g.id)),
-            ("parent", u32s(|g| g.parent)),
             ("x", f32s(|g| g.x)),
             ("y", f32s(|g| g.y)),
             ("r", f32s(|g| g.r)),
             ("nodes", u64s(|g| g.nodes)),
-            ("internal", u64s(|g| g.internal)),
-            ("volume", u64s(|g| g.volume)),
-            ("communities", u32s(|g| g.communities)),
-            ("rank", u32s(|g| g.rank)),
-            ("partner", u32s(|g| g.partner)),
             ("kind", u8s(|g| g.kind as u8)),
-            ("depth", u8s(|g| g.depth)),
             ("colour", u8s(|g| g.colour)),
             ("zmin", u8s(|g| g.zmin)),
         ]);
@@ -231,6 +241,7 @@ fn arrow(t: &Tile) -> Vec<u8> {
             ("r", f32s(|v| v.r)),
             ("name", names),
             ("degree", Arc::new(UInt64Array::from_iter_values(n.iter().map(|v| v.degree))) as ArrayRef),
+            ("colour", Arc::new(UInt8Array::from_iter_values(n.iter().map(|v| v.colour))) as ArrayRef),
             ("zmin", Arc::new(UInt8Array::from_iter_values(n.iter().map(|v| v.zmin))) as ArrayRef),
         ]);
     }
@@ -276,13 +287,6 @@ fn main() {
     for (i, t) in tn.iter().enumerate().skip(1) {
         kids.entry(t.parent).or_default().push(i as u32);
     }
-    let mut rank = vec![0u32; nt];
-    for ks in kids.values_mut() {
-        ks.sort_by_key(|&c| (std::cmp::Reverse(tn[c as usize].end - tn[c as usize].start), c));
-        for (i, &c) in ks.iter().enumerate() {
-            rank[c as usize] = i as u32 + 1;
-        }
-    }
     let mut order: Vec<usize> = (1..nt).collect();
     order.sort_by_key(|&i| (tn[i].depth, i));
     // The spec numbers regions breadth first (a parent before its children); the lab does not.
@@ -296,7 +300,7 @@ fn main() {
         let p = tn[i].parent as usize;
         top[i] = if p == 0 { i as u32 } else { top[p] };
         let parent = (p != 0).then(|| (tn[p].r, zmin[p]));
-        zmin[i] = RULE.region_zmin(tn[i].r, parent, zmax);
+        zmin[i] = region_zmin(tn[i].r, parent, zmax);
     }
     let sizes: Vec<Result<Sizes, String>> = entries
         .par_iter()
@@ -312,70 +316,64 @@ fn main() {
             for i in 0..nb {
                 ids.insert(u32_at(&b, 72 + 48 * i));
             }
-            let lab_regions = ids.len();
             let at = 72 + 48 * nb;
             let mut nodes = Vec::new();
-            let mut strings = Vec::new();
+            let mut names = Vec::new();
             for j in 0..nnode as usize {
                 let p = at + 36 * j;
-                let lp = u32_at(&b, p + 20);
-                ids.insert(lp);
-                strings.push(u64_at(&b, p + 28).to_string());
-                let rz = zmin[lp as usize].min(z);
+                let lp = u32_at(&b, p + 20) as usize;
+                names.push(u64_at(&b, p + 28).to_string());
+                let rz = zmin[lp].min(z);
                 nodes.push(Node {
                     id: u32_at(&b, p),
-                    region: bfs[lp as usize],
+                    region: bfs[lp],
                     x: f32_at(&b, p + 4),
                     y: f32_at(&b, p + 8),
                     r: f32_at(&b, p + 12),
                     name: j as u32,
                     degree: u64::from(u32_at(&b, p + 16)),
-                    zmin: RULE.node_zmin(f32_at(&b, p + 12), (tn[lp as usize].r, zmin[lp as usize]), zmax).min(z).max(rz),
+                    colour: (top[lp] % 5) as u8,
+                    zmin: node_zmin(f32_at(&b, p + 12), (tn[lp].r, zmin[lp]), zmax).min(z).max(rz),
                 });
             }
-            let mut all = ids.clone();
-            for &i in &ids {
-                let mut p = tn[i as usize].parent;
-                while p != 0 {
-                    all.insert(p);
-                    p = tn[p as usize].parent;
-                }
-            }
-            let regions: Vec<Region> = all
+            // The spec places a region only where its disc does not cover the tile.
+            let before = ids.len();
+            ids.retain(|&i| {
+                let t = &tn[i as usize];
+                !covers(t.x, t.y, t.r, z, tx, ty)
+            });
+            let dropped = before - ids.len();
+            let mut regions: Vec<Region> = ids
                 .iter()
                 .map(|&i| {
                     let t = &tn[i as usize];
-                    let agg = t.flags & F_AGG != 0;
                     Region {
                         id: bfs[i as usize],
-                        parent: bfs[t.parent as usize],
                         x: t.x,
                         y: t.y,
                         r: t.r,
                         nodes: u64::from(t.end - t.start),
-                        internal: t.internal,
-                        volume: t.volume.max(2 * t.internal),
-                        communities: if agg { t.comm.max(1) } else { 0 },
-                        rank: rank[i as usize],
-                        partner: 0,
-                        kind: if agg { RegionKind::Aggregate } else if t.flags & F_SUBDIV != 0 { RegionKind::Subdivision } else { RegionKind::Community },
-                        depth: t.depth,
+                        kind: kind_of(t),
                         colour: (top[i as usize] % 5) as u8,
                         zmin: zmin[i as usize].min(z),
                     }
                 })
                 .collect();
-            let mut regions = regions;
             regions.sort_by_key(|g| g.id);
             nodes.sort_by_key(|v| v.id);
+            let mut sorted = names.clone();
+            sorted.sort();
+            for v in &mut nodes {
+                v.name = sorted.binary_search(&names[v.name as usize]).unwrap() as u32;
+            }
             let mut tile = Tile::new(z, tx, ty);
             tile.omitted.regions = u64::from(om_b);
             tile.omitted.region_nodes = om_bn;
             tile.omitted.nodes = u64::from(om_n);
             tile.regions = regions;
             tile.nodes = nodes;
-            tile.strings = strings;
-            let added = tile.regions.len() - lab_regions;
+            tile.strings = sorted;
+            let added = dropped;
             let eg = tile.encode().map_err(|e| e.to_string())?;
             let back = Tile::decode(&eg).map_err(|e| e.to_string())?;
             assert_eq!(back, tile);
@@ -414,7 +412,7 @@ fn main() {
         )
     };
     let mut js = format!(
-        "{{\"map\":\"{map}\",\"tiles\":{},\"tiles_encoded\":{},\"refused\":{:?},\"regions_added_as_ancestors\":{},\"payloads\":{{",
+        "{{\"map\":\"{map}\",\"tiles\":{},\"tiles_encoded\":{},\"refused\":{:?},\"regions_dropped_covering_the_tile\":{},\"payloads\":{{",
         entries.len(),
         ok.len(),
         errors,
@@ -428,7 +426,43 @@ fn main() {
         let t: Vec<usize> = (0..4).map(|k| ok.iter().filter(|s| s.z == z).map(|s| s.gz[k]).sum()).collect();
         js += &format!("{}{{\"z\":{z},\"egmap\":{},\"arrow_ipc\":{},\"mlt_web_4g\":{},\"mlt_min_size\":{}}}", if z > 0 { "," } else { "" }, t[0], t[1], t[2], t[3]);
     }
-    js += "]}";
+    // The region table (§ 5.3) in chunks of 65,536 values, through the product writer.
+    let mut by_bfs = vec![0usize; nt];
+    for (i, &k) in bfs.iter().enumerate() {
+        by_bfs[k as usize] = i;
+    }
+    let col = |f: &dyn Fn(&TNode) -> u64| -> Vec<u64> { by_bfs.iter().map(|&i| f(&tn[i])).collect() };
+    let parent: Vec<u32> = by_bfs.iter().map(|&i| if i == 0 { 0 } else { bfs[tn[i].parent as usize] }).collect();
+    let kind: Vec<u8> = by_bfs.iter().map(|&i| if i == 0 { RegionKind::Root as u8 } else { kind_of(&tn[i]) as u8 }).collect();
+    let nodes = col(&|t| u64::from(t.end - t.start));
+    let internal = col(&|t| t.internal);
+    let volume = col(&|t| t.volume.max(2 * t.internal));
+    let communities: Vec<u32> = by_bfs.iter().map(|&i| if i != 0 && tn[i].flags & F_AGG != 0 { tn[i].comm.max(1) } else { 0 }).collect();
+    let partner = vec![0u32; nt];
+    let info = MapInfo { nodes: nodes[0], regions: nt as u64, edges: 0, summary: 0 };
+    let mut w = MapWriter::create(MemorySource::new(Vec::new()), &Memory::unlimited(), info).unwrap();
+    for (name, values) in [
+        ("regions.parent", Values::U32(&parent)),
+        ("regions.kind", Values::U8(&kind)),
+        ("regions.nodes", Values::U64(&nodes)),
+        ("regions.internal", Values::U64(&internal)),
+        ("regions.volume", Values::U64(&volume)),
+        ("regions.communities", Values::U32(&communities)),
+        ("regions.partner", Values::U32(&partner)),
+    ] {
+        w.begin_array(name, values.element(), 65_536).unwrap();
+        w.write_values(values).unwrap();
+        w.end_array().unwrap();
+    }
+    let meta = Metadata { name: String::new(), description: String::new(), attribution: String::new(), zoom: RULE };
+    let file = w.finish(&meta).unwrap().into_inner();
+    let reader = MapReader::open(MemorySource::new(file)).unwrap();
+    js += "],\"region_table\":{\"regions\":";
+    js += &nt.to_string();
+    for s in reader.sections() {
+        js += &format!(",\"{}\":{}", s.name, s.len);
+    }
+    js += &format!(",\"total\":{}}}}}", reader.sections().iter().map(|s| s.len).sum::<u64>());
     std::fs::write(out, &js).unwrap();
     println!("{js}");
 }

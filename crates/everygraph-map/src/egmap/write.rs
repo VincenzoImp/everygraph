@@ -5,7 +5,6 @@
 
 use everygraph_core::{ByteSink, Memory, SegVec, usize_of, widen};
 
-use super::census::ZoomRule;
 use super::pmtiles::{Entry, HEADER_BYTES, Header, Span, encode_directory, tile_id};
 use super::sections::{self, Element, Section, Values};
 use super::{EgmapError, HEAD_BYTES, HEAD_LEN, MAX_DECODED_BYTES, RegionKind, Tile, gzip, invalid};
@@ -33,17 +32,30 @@ impl MapInfo {
         if !summary && tile.regions.iter().any(|g| g.kind == RegionKind::Other) {
             return Some("only a summary map has regions of kind other");
         }
-        let regions = tile.regions.iter().map(|g| g.id.max(g.partner));
+        let regions = tile.regions.iter().map(|g| g.id);
         let nodes = tile.nodes.iter().map(|v| v.id);
-        if regions
-            .max()
-            .is_some_and(|id| u64::from(id) >= self.regions)
+        let homes = tile.nodes.iter().map(|v| v.region);
+        if regions.chain(homes).any(|id| u64::from(id) >= self.regions)
             || nodes.max().is_some_and(|id| u64::from(id) >= self.nodes)
         {
             return Some("a tile holds an entity the map does not have");
         }
         None
     }
+}
+
+/// The pixel thresholds of the zoom rule (§ 3.1) the builder chose; the metadata
+/// records them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ZoomRule {
+    /// A region is drawn once its radius reaches this many pixels.
+    pub region_px: f32,
+    /// A region is open, and its children may be drawn, once its radius reaches this.
+    pub open_px: f32,
+    /// A node is drawn once its radius reaches this, and its region is open.
+    pub node_px: f32,
+    /// A region's label is no longer drawn once its radius reaches this.
+    pub label_off_px: f32,
 }
 
 /// The descriptive metadata (§ 2.2), written as the archive's JSON metadata.
@@ -356,44 +368,25 @@ impl<K: ByteSink> MapWriter<K> {
     }
 }
 
-fn json_string(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if u32::from(c) < 0x20 => out.push_str(&format!("\\u{:04x}", u32::from(c))),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-}
-
 /// The JSON metadata of § 2.2.
 fn metadata_json(m: &Metadata) -> Result<String, EgmapError> {
-    let mut out = String::from("{\"format\":\"everygraph-egmap\",\"version\":\"1.0\"");
-    for (key, value) in [
-        ("name", &m.name),
-        ("description", &m.description),
-        ("attribution", &m.attribution),
-    ] {
-        out.push_str(&format!(",\"{key}\":"));
-        json_string(&mut out, value);
-    }
     let z = &m.zoom;
-    let numbers = [
-        ("region_px", z.region_px),
-        ("open_px", z.open_px),
-        ("node_px", z.node_px),
-        ("label_off_px", z.label_off_px),
-    ];
-    out.push_str(",\"zoom\":{");
-    for (i, (key, v)) in numbers.into_iter().enumerate() {
-        if !v.is_finite() {
-            return Err(invalid("a zoom threshold is not finite"));
-        }
-        out.push_str(&format!("{}\"{key}\":{v}", if i > 0 { "," } else { "" }));
+    let numbers = [z.region_px, z.open_px, z.node_px, z.label_off_px];
+    if numbers.iter().any(|v| !v.is_finite()) {
+        return Err(invalid("a zoom threshold is not finite"));
     }
-    out.push_str("}}");
-    Ok(out)
+    Ok(serde_json::json!({
+        "format": "everygraph-egmap",
+        "version": "1.0",
+        "name": m.name,
+        "description": m.description,
+        "attribution": m.attribution,
+        "zoom": {
+            "region_px": z.region_px,
+            "open_px": z.open_px,
+            "node_px": z.node_px,
+            "label_off_px": z.label_off_px,
+        },
+    })
+    .to_string())
 }

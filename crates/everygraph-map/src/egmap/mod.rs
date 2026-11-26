@@ -10,6 +10,9 @@
 //!   finds tiles and reads chunks; [`MapReader::verify`] reads all of it.
 //! - [`Census`] counts the zoom-consistency faults of a set of tiles (§ 6).
 //!
+//! The zoom rule and the label choice of § 3 are the builder's (#69); this module checks
+//! what a file shows of them.
+//!
 //! Every size a file declares is checked against the bytes that hold it before
 //! anything is allocated for it, and nothing decodes past the caps of § 1.
 
@@ -19,6 +22,7 @@ mod pmtiles;
 mod read;
 mod sections;
 mod tile;
+mod verify;
 mod write;
 
 use std::error::Error;
@@ -26,18 +30,18 @@ use std::fmt;
 
 use everygraph_core::{MemoryError, ReadError, WriteError};
 
-pub use census::{Census, CensusReport, ZoomRule, min_zoom};
+pub use census::{Census, CensusReport};
 pub use pmtiles::{tile_id, tile_of_id};
 pub use read::MapReader;
 pub use sections::{Element, Section, Values};
 pub use tile::{Anchor, Label, Node, Omitted, Region, RegionKind, Tile};
-pub use write::{MapInfo, MapWriter, Metadata};
+pub use write::{MapInfo, MapWriter, Metadata, ZoomRule};
 
 /// Width of a tile in pixels: the unit of every pixel threshold (§ 3.1).
 pub const TILE_PX: u32 = 256;
-/// The deepest zoom a file may have. A tile at zoom 20 spans 2^-20 of the map, and the
-/// pixels of a tile at zoom 16 are already the spacing of `f32` values near 1.
-pub const MAX_ZOOM: u8 = 20;
+/// The deepest zoom a file may have: one pixel at zoom 16 is 2^-24 of the map's width,
+/// the spacing of `f32` values between 0.5 and 1 (§ 1).
+pub const MAX_ZOOM: u8 = 16;
 /// The most bytes a tile payload, a directory, the metadata or a chunk decodes to.
 pub const MAX_DECODED_BYTES: usize = 1 << 20;
 /// Bytes at the start of the file that hold the header, the root directory and the
