@@ -5,7 +5,7 @@
 //! by this process or another, never touches what is mapped.
 
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use everygraph_core::{Memory, ReadError};
 use everygraph_format::container::{Container, ContainerError};
@@ -13,7 +13,7 @@ use everygraph_ingest::graph::{Graph, OpenError};
 use everygraph_io::{FileSource, MmapSource};
 
 use crate::failure::{self, Failure};
-use crate::native;
+use everygraph_ingest::native;
 
 /// The committed part of the file at `path`, mapped: the range a probe of its header
 /// and table of contents gives.
@@ -106,16 +106,4 @@ pub(crate) fn container_error(path: &Path, e: &ContainerError) -> Failure {
         .on_existing_file(),
         other => failure::corrupt(path, other),
     }
-}
-
-/// `path` with its directory made absolute, for a job's fingerprint.
-pub(crate) fn absolute(path: &Path) -> PathBuf {
-    let dir = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    std::fs::canonicalize(dir).map_or_else(
-        |_| path.to_path_buf(),
-        |d| d.join(path.file_name().unwrap_or_default()),
-    )
 }

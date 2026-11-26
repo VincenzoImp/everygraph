@@ -23,10 +23,10 @@ use crate::args::{Common, Progress};
 use crate::failure::{self, Failure};
 use crate::graph;
 use crate::ingest::is_graph;
-use crate::native;
 use crate::progress::{self, Lines};
 use crate::render::{Style, counted, size};
 use crate::table::Partial;
+use everygraph_ingest::native;
 
 const HELP: &str = "\
 Write a copy of a graph file that holds only what its newest commit uses, and so
@@ -136,8 +136,8 @@ fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
     if common.json {
         let job = native::job_id(&[
             "compact",
-            &graph::absolute(path).display().to_string(),
-            &graph::absolute(&destination).display().to_string(),
+            &native::canonical(path).display().to_string(),
+            &native::canonical(&destination).display().to_string(),
         ]);
         let doc = json!({
             "schema": 1,

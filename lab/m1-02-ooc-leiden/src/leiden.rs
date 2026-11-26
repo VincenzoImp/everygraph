@@ -178,6 +178,7 @@ pub struct Opts {
     gamma: f64,
     cap: u32,
     max_iters: usize,
+    heavy: f64,
     max_passes: usize,
     tol: f64,
     tol_drop: f64,
@@ -440,6 +441,14 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
     let mut iters = 0;
     let mut tot_moves = 0u64;
     let mut tot_scanned = 0u64;
+    // --heavy θ (m1-03, ported from lab/b2-leiden): vertices holding more than θ of the total volume are
+    // visited by one thread after the parallel sweep, so no two of them move concurrently.
+    let heavy: Vec<u32> = if o.heavy > 0.0 && !cx.det { (0..n as u32).filter(|&u| cx.k[u as usize] * cx.minv > o.heavy).collect() } else { Vec::new() };
+    let mut is_heavy = vec![false; if heavy.is_empty() { 0 } else { n }];
+    for &u in &heavy {
+        is_heavy[u as usize] = true;
+    }
+    let is_heavy = |u: usize| !is_heavy.is_empty() && is_heavy[u];
     // m1-02 trace (survey idea L3): per iteration, 64-node blocks with at least one active node
     // and 4 KiB pages of the compressed store touched by the active nodes' records
     let comp = if o.trace_io { cx.g.comp() } else { None };
@@ -455,16 +464,10 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
         let io0 = io_read_bytes();
         let t_it = Instant::now();
         if !cx.det {
-            par_for(pool, ord.nb, ord.chunk(o.chunk), |tid, r| {
-                let mut guard = tls[tid].lock().unwrap();
-                let t = &mut *guard;
-                for u in r.flat_map(|j| {
-                    let b = ord.block(j);
-                    cx.g.prefetch_nodes(&b);
-                    b
-                }) {
+            let visit = |t: &mut Tls, u: usize| {
+                {
                     if cx.flag[u].load(Relaxed) == 0 {
-                        continue;
+                        return;
                     }
                     if let Some(c) = comp {
                         let b = u / ord.ob;
@@ -482,7 +485,7 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
                             let s = cx.size[d as usize].fetch_add(1, Relaxed);
                             if s >= cx.cap {
                                 cx.size[d as usize].fetch_sub(1, Relaxed);
-                                continue;
+                                return;
                             }
                             cx.size[c as usize].fetch_sub(1, Relaxed);
                         }
@@ -495,7 +498,25 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
                         t.nmoves += 1;
                     }
                 }
+            };
+            par_for(pool, ord.nb, ord.chunk(o.chunk), |tid, r| {
+                let mut guard = tls[tid].lock().unwrap();
+                for u in r.flat_map(|j| {
+                    let b = ord.block(j);
+                    cx.g.prefetch_nodes(&b);
+                    b
+                }) {
+                    if !is_heavy(u) {
+                        visit(&mut guard, u);
+                    }
+                }
             });
+            if !heavy.is_empty() {
+                let mut guard = tls[0].lock().unwrap();
+                for &u in &heavy {
+                    visit(&mut guard, u as usize);
+                }
+            }
         } else {
             {
                 let shared = std::sync::RwLock::new((Vec::<Vec<u32>>::new(), Vec::<usize>::new(), 0usize));
@@ -1884,6 +1905,7 @@ pub fn main_leiden(args: Vec<String>) {
         gamma,
         cap: get("--cap").map(|s| s.parse().unwrap()).unwrap_or(0),
         max_iters: get("--max-iters").map(|s| s.parse().unwrap()).unwrap_or(20),
+        heavy: get("--heavy").map(|s| s.parse().unwrap()).unwrap_or(0.0),
         max_passes: get("--max-passes").map(|s| s.parse().unwrap()).unwrap_or(10),
         tol: get("--tol").map(|s| s.parse().unwrap()).unwrap_or(0.01),
         tol_drop: get("--tol-drop").map(|s| s.parse().unwrap()).unwrap_or(10.0),
@@ -2110,6 +2132,7 @@ mod tests {
             gamma: 1.0,
             cap: 0,
             max_iters: 20,
+            heavy: 0.0,
             max_passes: 10,
             tol: 0.01,
             tol_drop: 10.0,

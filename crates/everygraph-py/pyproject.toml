@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "everygraph"
+description = "Graphs larger than memory, on one machine."
+requires-python = ">=3.10"
+license = "Apache-2.0 OR MIT"
+dynamic = ["version"]
+dependencies = []
+classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3"]
+
+[project.optional-dependencies]
+# What the tests compare against and hand results to; none is needed to use the package.
+test = ["pytest>=8", "networkx>=3.2", "pyarrow>=14", "polars>=1.0", "pandas>=2.0", "jsonschema>=4.18"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "everygraph._native"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

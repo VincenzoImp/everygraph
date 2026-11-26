@@ -66,7 +66,7 @@ use everygraph_format::container::{Container, ContainerError, Kind, Provenance, 
 use crate::ids::{
     self, Dictionary, DictionaryError, IdOrder, InvalidKeys, Scratch, build_dictionary,
 };
-use crate::text::{Layout as TextLayout, OnInvalid, Tally, TextError, TextReader};
+use crate::text::{IdType, Layout as TextLayout, OnInvalid, Tally, TextError, TextReader};
 
 pub use estimate::{Estimate, Sample, estimate};
 use finish::{Multiplicities, Output, PairCounts, finish_round, multiplicities};
@@ -726,26 +726,8 @@ where
         buckets: layout.buckets(),
         spilled_bytes,
     };
-    let mut parameters = BTreeMap::new();
+    let mut parameters = parameters(&graph, reader.layout());
     let mut put = |key: &str, value: String| parameters.insert(key.to_owned(), value);
-    put("directed", graph.directed.to_string());
-    put(
-        "self_loops",
-        match graph.self_loops {
-            SelfLoops::Drop => "drop",
-            SelfLoops::Keep => "keep",
-        }
-        .into(),
-    );
-    put(
-        "duplicates",
-        match graph.duplicates {
-            Duplicates::Events => "events",
-            Duplicates::Collapse => "collapse",
-            Duplicates::Sum => "sum",
-        }
-        .into(),
-    );
     put(
         "order",
         match dictionary.order() {
@@ -754,9 +736,6 @@ where
         }
         .into(),
     );
-    let layout_of_text = reader.layout();
-    put("source", layout_of_text.column_name(layout_of_text.source));
-    put("target", layout_of_text.column_name(layout_of_text.target));
     put("isolated_kept", report.isolates.to_string());
     put("isolated_dropped", "0".into());
     Ok(Unfinished {
@@ -764,6 +743,41 @@ where
         report,
         parameters,
     })
+}
+
+/// The parameters that a build of the text read as `layout` with `graph` records in its
+/// provenance, before what the build itself finds (graph order, isolated nodes): the
+/// direction, self-loops, duplicates, the identifier type and the source and target
+/// columns. Two builds with the same parameters from the same input make the same graph,
+/// so a file whose provenance holds these is the cache of that build
+/// (`docs/api-sketch.md` § 2.7).
+#[must_use]
+pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String, String> {
+    let self_loops = match graph.self_loops {
+        SelfLoops::Drop => "drop",
+        SelfLoops::Keep => "keep",
+    };
+    let duplicates = match graph.duplicates {
+        Duplicates::Events => "events",
+        Duplicates::Collapse => "collapse",
+        Duplicates::Sum => "sum",
+    };
+    let ids = match layout.ids {
+        IdType::String => "string",
+        IdType::Hex => "hex",
+        _ => "integer",
+    };
+    [
+        ("directed", graph.directed.to_string()),
+        ("self_loops", self_loops.into()),
+        ("duplicates", duplicates.into()),
+        ("ids", ids.into()),
+        ("source", layout.column_name(layout.source)),
+        ("target", layout.column_name(layout.target)),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect()
 }
 
 /// Copies the sections of the dictionary into the container, a reserved MiB at a time.

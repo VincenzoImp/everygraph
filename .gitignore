@@ -26,3 +26,5 @@ __pycache__/
 # exploratory results. Official results under bench/results/ are committed.
 /bench/work/
 /bench/exploratory/
+# The native module that `maturin develop` puts beside the Python package.
+crates/everygraph-py/python/everygraph/*.so

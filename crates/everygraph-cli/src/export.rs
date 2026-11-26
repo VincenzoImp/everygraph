@@ -21,10 +21,10 @@ use crate::failure::{self, Failure, usage};
 use crate::graph;
 use crate::ingest::is_graph;
 use crate::machine::{self, Machine};
-use crate::native;
 use crate::progress::{self, Lines};
 use crate::render::{Style, counted, size};
 use crate::table::{self, Nodes};
+use everygraph_ingest::native;
 
 const HELP: &str = "\
 Write the edges of a graph to a file, in the format of its extension.
@@ -122,8 +122,8 @@ fn run(path: &Path, common: &Common, topology: bool) -> Result<u8, Failure> {
     if common.json {
         let job = native::job_id(&[
             "export",
-            &graph::absolute(path).display().to_string(),
-            &graph::absolute(out).display().to_string(),
+            &native::canonical(path).display().to_string(),
+            &native::canonical(out).display().to_string(),
             &topology.to_string(),
         ]);
         let doc = json!({

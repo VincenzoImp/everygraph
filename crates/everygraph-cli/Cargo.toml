@@ -21,7 +21,7 @@ clap = { version = "4.6", default-features = false, features = ["std", "derive",
 # The binary decides that threads exist: the core's `parallel` feature (its default).
 everygraph-core = { path = "../everygraph-core" }
 everygraph-format = { path = "../everygraph-format" }
-everygraph-ingest = { path = "../everygraph-ingest" }
+everygraph-ingest = { path = "../everygraph-ingest", features = ["native"] }
 everygraph-io = { path = "../everygraph-io", features = ["tables"] }
 everygraph-kernels = { path = "../everygraph-kernels" }
 # The JSON documents of `docs/ux-contract.md`, keys in the order the schemas list them.

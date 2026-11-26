@@ -35,6 +35,10 @@ tables = ["dep:arrow-array", "dep:arrow-ipc", "dep:arrow-schema", "dep:parquet"]
 # Used in `src/sys.rs` only.
 libc = "0.2"
 
+# The type of a file system (`statfs`), safely: is scratch held in memory?
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", default-features = false, features = ["std", "fs"] }
+
 [dev-dependencies]
 # The container's crash test with a real `kill -9` lives here, where processes and
 # files are allowed (tests/container.rs).

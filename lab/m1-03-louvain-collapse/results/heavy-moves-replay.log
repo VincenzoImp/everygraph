@@ -1,0 +1,301 @@
+# b2 run --graph L1-t16 --algo louvain --threads 16 --tol 0.001 --max-passes 9 --trace --verbose --order-seed 3 (f64 build, MemoryMax=8G); final Q 0.528038
+pass 0 n 1163162 entries 11254644 iters 20 moves 2409839 -> 160833 comms  lm 0.298s ref 0.000s
+      heavy u 30278 k 0.0334 it 1 30278 -> 24637 vol(c) 0.0334 vol(d) 0.0063 claimed 0.00021
+      heavy u 39841 k 0.2294 it 1 39841 -> 13459 vol(c) 0.2294 vol(d) 0.0466 claimed 0.00813
+      heavy u 42650 k 0.2302 it 1 42650 -> 32446 vol(c) 0.2302 vol(d) 0.0000 claimed 0.00085
+      heavy u 7005 k 0.0279 it 1 7005 -> 54960 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 9540 k 0.0103 it 1 9540 -> 44811 vol(c) 0.0105 vol(d) 0.0000 claimed 0.00002
+      heavy u 34289 k 0.0323 it 1 34289 -> 44817 vol(c) 0.0367 vol(d) 0.0011 claimed 0.00085
+      heavy u 47665 k 0.2664 it 1 47665 -> 34289 vol(c) 0.2686 vol(d) 0.0044 claimed 0.00674
+    iter 1 moves 101669 back 0 dq 0.008657 q 0.601257 top 0.2760
+      heavy u 42650 k 0.2302 it 2 32446 -> 41887 vol(c) 0.2302 vol(d) 0.0000 claimed 0.00045
+      heavy u 7005 k 0.0279 it 2 54960 -> 119277 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+    iter 2 moves 50843 back 128 dq 0.002123 q 0.603380 top 0.2760
+      heavy u 47665 k 0.2664 it 3 34289 -> 47665 vol(c) 0.2685 vol(d) 0.0001 claimed 0.00011
+    iter 3 moves 22522 back 1357 dq -0.000012 q 0.603368 top 0.2760
+      heavy u 47665 k 0.2664 it 4 47665 -> 34289 vol(c) 0.2683 vol(d) 0.0006 claimed 0.00129
+    iter 4 moves 7434 back 734 dq -0.000019 q 0.603348 top 0.2760
+      heavy u 47665 k 0.2664 it 5 34289 -> 47665 vol(c) 0.2683 vol(d) 0.0006 claimed 0.00122
+    iter 5 moves 2569 back 748 dq 0.000001 q 0.603349 top 0.2760
+      heavy u 42650 k 0.2302 it 6 41887 -> 34289 vol(c) 0.2302 vol(d) 0.0009 claimed 0.00009
+      heavy u 34289 k 0.0323 it 6 44817 -> 41887 vol(c) 0.0378 vol(d) 0.0013 claimed 0.00751
+      heavy u 126570 k 0.0226 it 6 126570 -> 41887 vol(c) 0.0237 vol(d) 0.0336 claimed 0.00391
+      heavy u 47665 k 0.2664 it 6 47665 -> 41887 vol(c) 0.2683 vol(d) 0.0562 claimed 0.02110
+    iter 6 moves 1480 back 804 dq -0.022211 q 0.581138 top 0.3226
+      heavy u 126570 k 0.0226 it 7 41887 -> 126570 vol(c) 0.3213 vol(d) 0.0010 claimed 0.01289
+      heavy u 34289 k 0.0323 it 7 41887 -> 44817 vol(c) 0.2987 vol(d) 0.0055 claimed 0.00889
+    iter 7 moves 4646 back 206 dq 0.022248 q 0.603386 top 0.2760
+      heavy u 47665 k 0.2664 it 8 41887 -> 47665 vol(c) 0.2683 vol(d) 0.0005 claimed 0.00120
+    iter 8 moves 3566 back 2902 dq -0.000035 q 0.603351 top 0.2760
+      heavy u 42650 k 0.2302 it 9 34289 -> 41887 vol(c) 0.2302 vol(d) 0.0009 claimed 0.00010
+      heavy u 126570 k 0.0226 it 9 126570 -> 34289 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00397
+      heavy u 34289 k 0.0323 it 9 44817 -> 34289 vol(c) 0.0378 vol(d) 0.0226 claimed 0.00760
+      heavy u 47665 k 0.2664 it 9 47665 -> 34289 vol(c) 0.2683 vol(d) 0.0549 claimed 0.02182
+    iter 9 moves 913 back 423 dq -0.021956 q 0.581396 top 0.3213
+      heavy u 34289 k 0.0323 it 10 34289 -> 44817 vol(c) 0.3213 vol(d) 0.0055 claimed 0.01039
+      heavy u 126570 k 0.0226 it 10 34289 -> 126570 vol(c) 0.2891 vol(d) 0.0010 claimed 0.01143
+    iter 10 moves 4043 back 2689 dq 0.021991 q 0.603387 top 0.2760
+      heavy u 47665 k 0.2664 it 11 34289 -> 47665 vol(c) 0.2683 vol(d) 0.0005 claimed 0.00116
+    iter 11 moves 3293 back 2946 dq -0.000035 q 0.603352 top 0.2760
+      heavy u 42650 k 0.2302 it 12 41887 -> 34289 vol(c) 0.2302 vol(d) 0.0010 claimed 0.00009
+      heavy u 34289 k 0.0323 it 12 44817 -> 41887 vol(c) 0.0378 vol(d) 0.0063 claimed 0.00719
+      heavy u 126570 k 0.0226 it 12 126570 -> 41887 vol(c) 0.0237 vol(d) 0.0385 claimed 0.00223
+      heavy u 47665 k 0.2664 it 12 47665 -> 41887 vol(c) 0.2683 vol(d) 0.0612 claimed 0.01848
+    iter 12 moves 1076 back 473 dq -0.024536 q 0.578816 top 0.3276
+      heavy u 34289 k 0.0323 it 13 41887 -> 44817 vol(c) 0.3213 vol(d) 0.0055 claimed 0.00997
+      heavy u 126570 k 0.0226 it 13 41887 -> 126570 vol(c) 0.2891 vol(d) 0.0010 claimed 0.01142
+    iter 13 moves 4479 back 2699 dq 0.024570 q 0.603386 top 0.2760
+      heavy u 47665 k 0.2664 it 14 41887 -> 47665 vol(c) 0.2683 vol(d) 0.0005 claimed 0.00116
+    iter 14 moves 3600 back 3205 dq -0.000035 q 0.603351 top 0.2760
+      heavy u 42650 k 0.2302 it 15 34289 -> 41887 vol(c) 0.2302 vol(d) 0.0010 claimed 0.00009
+      heavy u 34289 k 0.0323 it 15 44817 -> 34289 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00760
+      heavy u 126570 k 0.0226 it 15 126570 -> 34289 vol(c) 0.0237 vol(d) 0.0323 claimed 0.00251
+      heavy u 47665 k 0.2664 it 15 47665 -> 34289 vol(c) 0.2683 vol(d) 0.0549 claimed 0.02181
+    iter 15 moves 832 back 407 dq -0.021956 q 0.581396 top 0.3213
+      heavy u 42650 k 0.2302 it 16 41887 -> 154553 vol(c) 0.2307 vol(d) 0.0000 claimed 0.00008
+      heavy u 34289 k 0.0323 it 16 34289 -> 44817 vol(c) 0.3213 vol(d) 0.0055 claimed 0.01039
+      heavy u 126570 k 0.0226 it 16 34289 -> 126570 vol(c) 0.2891 vol(d) 0.0010 claimed 0.01143
+    iter 16 moves 4006 back 2653 dq 0.021990 q 0.603386 top 0.2760
+      heavy u 42650 k 0.2302 it 17 154553 -> 41887 vol(c) 0.2302 vol(d) 0.0000 claimed 0.00000
+      heavy u 34289 k 0.0323 it 17 44817 -> 154553 vol(c) 0.0378 vol(d) 0.0094 claimed 0.00699
+      heavy u 126570 k 0.0226 it 17 126570 -> 154553 vol(c) 0.0237 vol(d) 0.0417 claimed 0.00208
+      heavy u 47665 k 0.2664 it 17 34289 -> 154553 vol(c) 0.2683 vol(d) 0.0643 claimed 0.01687
+    iter 17 moves 3755 back 2974 dq -0.025001 q 0.578385 top 0.3308
+      heavy u 42650 k 0.2302 it 18 41887 -> 42854 vol(c) 0.2302 vol(d) 0.0000 claimed 0.00001
+      heavy u 34289 k 0.0323 it 18 154553 -> 44817 vol(c) 0.3213 vol(d) 0.0055 claimed 0.00993
+      heavy u 126570 k 0.0226 it 18 154553 -> 126570 vol(c) 0.2891 vol(d) 0.0010 claimed 0.01142
+      heavy u 47665 k 0.2664 it 18 154553 -> 41887 vol(c) 0.2664 vol(d) 0.0030 claimed 0.03677
+    iter 18 moves 5099 back 2914 dq 0.023466 q 0.601851 top 0.2760
+      heavy u 42650 k 0.2302 it 19 42854 -> 47665 vol(c) 0.2302 vol(d) 0.0000 claimed 0.00007
+      heavy u 7005 k 0.0279 it 19 119277 -> 42854 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00517
+      heavy u 47665 k 0.2664 it 19 41887 -> 147805 vol(c) 0.2682 vol(d) 0.0000 claimed 0.00168
+    iter 19 moves 6422 back 3844 dq 0.001517 q 0.603368 top 0.2760
+      heavy u 42650 k 0.2302 it 20 47665 -> 43881 vol(c) 0.2302 vol(d) 0.0000 claimed 0.00000
+      heavy u 47665 k 0.2664 it 20 147805 -> 47665 vol(c) 0.2683 vol(d) 0.0030 claimed 0.04958
+    iter 20 moves 3559 back 485 dq -0.001529 q 0.601839 top 0.2760
+pass 1 n 160833 entries 1059479 iters 20 moves 235806 -> 45882 comms  lm 0.090s ref 0.000s
+      heavy u 12717 k 0.0172 it 1 12717 -> 45604 vol(c) 0.0172 vol(d) 0.0000 claimed 0.00000
+      heavy u 12800 k 0.0279 it 1 12800 -> 12717 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00002
+      heavy u 5913 k 0.0539 it 1 5913 -> 12428 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00003
+      heavy u 13686 k 0.0378 it 1 13686 -> 12428 vol(c) 0.0378 vol(d) 0.0539 claimed 0.00001
+      heavy u 13264 k 0.2302 it 1 13264 -> 5913 vol(c) 0.2302 vol(d) 0.0000 claimed 0.01211
+      heavy u 32183 k 0.0237 it 1 32183 -> 13264 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00405
+      heavy u 2715 k 0.2760 it 1 2715 -> 27737 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00000
+      heavy u 14931 k 0.2694 it 1 14931 -> 2715 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 1 moves 10302 back 0 dq -0.000090 q 0.601749 top 0.2760
+      heavy u 5913 k 0.0539 it 2 12428 -> 9401 vol(c) 0.0917 vol(d) 0.0000 claimed 0.00010
+      heavy u 13686 k 0.0378 it 2 12428 -> 2498 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00001
+      heavy u 13264 k 0.2302 it 2 5913 -> 14931 vol(c) 0.2302 vol(d) 0.0033 claimed 0.00010
+      heavy u 2715 k 0.2760 it 2 27737 -> 5913 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 2 2715 -> 27737 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 2 moves 4386 back 13 dq -0.000384 q 0.601365 top 0.2760
+      heavy u 13264 k 0.2302 it 3 14931 -> 2715 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 3 27737 -> 14931 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 3 moves 533 back 5 dq 0.000042 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 4 2715 -> 27737 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 4 14931 -> 2715 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 4 moves 169 back 1 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 5 27737 -> 14931 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 5 5913 -> 27737 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 5 2715 -> 5913 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 5 moves 120 back 1 dq -0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 6 14931 -> 2715 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 6 27737 -> 14931 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 6 5913 -> 27737 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 6 moves 101 back 0 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 7 2715 -> 5913 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 7 14931 -> 2715 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 7 27737 -> 14931 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 7 moves 82 back 2 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 8 5913 -> 27737 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 8 2715 -> 5913 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 8 14931 -> 2715 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 8 moves 77 back 0 dq -0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 9 27737 -> 14931 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 9 2715 -> 27737 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 9 moves 79 back 3 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 10 14931 -> 2715 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 10 5913 -> 14931 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 10 27737 -> 5913 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 10 moves 77 back 0 dq -0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 11 2715 -> 27737 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 11 14931 -> 2715 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 11 5913 -> 14931 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 11 moves 79 back 0 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 12 27737 -> 5913 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 12 14931 -> 27737 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 12 moves 75 back 0 dq -0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 13 5913 -> 14931 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 13 2715 -> 5913 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 13 27737 -> 2715 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 13 moves 79 back 0 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 14 14931 -> 27737 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 14 5913 -> 14931 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 14 2715 -> 5913 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 14 moves 79 back 1 dq -0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 15 27737 -> 2715 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 15 5913 -> 27737 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 15 moves 80 back 1 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 16 2715 -> 5913 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 16 27737 -> 2715 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 16 moves 79 back 2 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 17 5913 -> 27737 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 17 2715 -> 5913 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 17 moves 78 back 0 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 18 27737 -> 2715 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 2715 k 0.2760 it 18 14931 -> 27737 vol(c) 0.2760 vol(d) 0.0000 claimed 0.01089
+      heavy u 14931 k 0.2694 it 18 5913 -> 14931 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00414
+    iter 18 moves 81 back 1 dq -0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 19 2715 -> 5913 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 19 14931 -> 2715 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 19 moves 80 back 1 dq 0.000000 q 0.601407 top 0.2760
+      heavy u 13264 k 0.2302 it 20 5913 -> 14931 vol(c) 0.2302 vol(d) 0.0028 claimed 0.00014
+      heavy u 14931 k 0.2694 it 20 2715 -> 5913 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05070
+    iter 20 moves 79 back 0 dq 0.000000 q 0.601407 top 0.2760
+pass 2 n 45882 entries 223894 iters 20 moves 16715 -> 35430 comms  lm 0.026s ref 0.000s
+      heavy u 10763 k 0.0105 it 1 10763 -> 33287 vol(c) 0.0105 vol(d) 0.0000 claimed 0.00000
+      heavy u 35186 k 0.0172 it 1 35186 -> 20797 vol(c) 0.0172 vol(d) 0.0000 claimed 0.00000
+      heavy u 9967 k 0.0279 it 1 9967 -> 12867 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 7412 k 0.0539 it 1 7412 -> 2289 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00398
+      heavy u 10408 k 0.0237 it 1 10408 -> 9967 vol(c) 0.0237 vol(d) 0.0378 claimed 0.00054
+      heavy u 2289 k 0.0378 it 1 2289 -> 9967 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00007
+      heavy u 21196 k 0.2760 it 1 21196 -> 10408 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00084
+      heavy u 4769 k 0.2694 it 1 4769 -> 7412 vol(c) 0.2713 vol(d) 0.0000 claimed 0.01587
+      heavy u 11829 k 0.2329 it 1 11829 -> 7412 vol(c) 0.2329 vol(d) 0.2694 claimed 0.01220
+    iter 1 moves 660 back 0 dq -0.075100 q 0.526307 top 0.5023
+      heavy u 9967 k 0.0279 it 2 12867 -> 30166 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 2289 k 0.0378 it 2 9967 -> 27301 vol(c) 0.0615 vol(d) 0.0000 claimed 0.00186
+      heavy u 10408 k 0.0237 it 2 9967 -> 12867 vol(c) 0.0237 vol(d) 0.0059 claimed 0.00021
+      heavy u 7412 k 0.0539 it 2 2289 -> 9967 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00404
+      heavy u 21196 k 0.2760 it 2 10408 -> 2289 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00074
+      heavy u 11829 k 0.2329 it 2 7412 -> 10408 vol(c) 0.5023 vol(d) 0.0000 claimed 0.08429
+    iter 2 moves 258 back 0 dq 0.074830 q 0.601136 top 0.2760
+      heavy u 35186 k 0.0172 it 3 20797 -> 6196 vol(c) 0.0172 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 3 12867 -> 29283 vol(c) 0.0296 vol(d) 0.0000 claimed 0.00027
+      heavy u 7412 k 0.0539 it 3 9967 -> 7240 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00027
+      heavy u 21196 k 0.2760 it 3 2289 -> 10033 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00203
+      heavy u 11829 k 0.2329 it 3 10408 -> 9967 vol(c) 0.2329 vol(d) 0.0000 claimed 0.01220
+      heavy u 4769 k 0.2694 it 3 7412 -> 10408 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05313
+    iter 3 moves 318 back 1 dq 0.000270 q 0.601407 top 0.2760
+      heavy u 2289 k 0.0378 it 4 27301 -> 32224 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 4 29283 -> 7240 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00007
+      heavy u 7412 k 0.0539 it 4 7240 -> 27301 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00398
+      heavy u 21196 k 0.2760 it 4 10033 -> 29283 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00084
+      heavy u 11829 k 0.2329 it 4 9967 -> 10033 vol(c) 0.2329 vol(d) 0.0017 claimed 0.01011
+      heavy u 4769 k 0.2694 it 4 10408 -> 10033 vol(c) 0.2713 vol(d) 0.2347 claimed 0.00424
+    iter 4 moves 308 back 5 dq -0.073646 q 0.527761 top 0.5041
+      heavy u 2289 k 0.0378 it 5 32224 -> 27915 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 21196 k 0.2760 it 5 29283 -> 32224 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00046
+      heavy u 11829 k 0.2329 it 5 10033 -> 32224 vol(c) 0.5023 vol(d) 0.2760 claimed 0.08166
+    iter 5 moves 227 back 4 dq -0.043988 q 0.483773 top 0.5089
+      heavy u 2289 k 0.0378 it 6 27915 -> 13587 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 7412 k 0.0539 it 6 27301 -> 27915 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00398
+      heavy u 21196 k 0.2760 it 6 32224 -> 33414 vol(c) 0.5089 vol(d) 0.0000 claimed 0.11764
+      heavy u 11829 k 0.2329 it 6 32224 -> 27301 vol(c) 0.2329 vol(d) 0.0019 claimed 0.00041
+      heavy u 4769 k 0.2694 it 6 10033 -> 32224 vol(c) 0.2694 vol(d) 0.0000 claimed 0.05630
+    iter 6 moves 19 back 4 dq 0.117364 q 0.601136 top 0.2760
+      heavy u 2289 k 0.0378 it 7 13587 -> 8892 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 7412 k 0.0539 it 7 27915 -> 13587 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00398
+      heavy u 21196 k 0.2760 it 7 33414 -> 27915 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00074
+      heavy u 11829 k 0.2329 it 7 27301 -> 27915 vol(c) 0.2329 vol(d) 0.2760 claimed 0.01160
+      heavy u 4769 k 0.2694 it 7 32224 -> 27301 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05418
+    iter 7 moves 20 back 0 dq -0.117364 q 0.483772 top 0.5089
+      heavy u 2289 k 0.0378 it 8 8892 -> 20900 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 7412 k 0.0539 it 8 13587 -> 8892 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00398
+      heavy u 21196 k 0.2760 it 8 27915 -> 13587 vol(c) 0.5089 vol(d) 0.0000 claimed 0.11837
+      heavy u 4769 k 0.2694 it 8 27301 -> 32224 vol(c) 0.2713 vol(d) 0.0009 claimed 0.00205
+    iter 8 moves 30 back 3 dq 0.117628 q 0.601400 top 0.2760
+      heavy u 2289 k 0.0378 it 9 20900 -> 23099 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 9 7240 -> 20900 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00006
+      heavy u 7412 k 0.0539 it 9 8892 -> 20900 vol(c) 0.0539 vol(d) 0.0237 claimed 0.00142
+      heavy u 21196 k 0.2760 it 9 13587 -> 7240 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00084
+      heavy u 11829 k 0.2329 it 9 27915 -> 8892 vol(c) 0.2329 vol(d) 0.0000 claimed 0.01220
+      heavy u 4769 k 0.2694 it 9 32224 -> 27915 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05313
+    iter 9 moves 86 back 1 dq -0.002484 q 0.598917 top 0.2760
+      heavy u 10763 k 0.0105 it 10 33287 -> 24321 vol(c) 0.0105 vol(d) 0.0000 claimed 0.00000
+      heavy u 2289 k 0.0378 it 10 23099 -> 31781 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 10 20900 -> 23099 vol(c) 0.0776 vol(d) 0.0000 claimed 0.00255
+      heavy u 9967 k 0.0279 it 10 30166 -> 23099 vol(c) 0.0279 vol(d) 0.0237 claimed 0.00007
+      heavy u 7412 k 0.0539 it 10 20900 -> 34132 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00000
+      heavy u 21196 k 0.2760 it 10 7240 -> 20900 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00158
+      heavy u 11829 k 0.2329 it 10 8892 -> 20900 vol(c) 0.2329 vol(d) 0.2760 claimed 0.01626
+      heavy u 4769 k 0.2694 it 10 27915 -> 8892 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05313
+    iter 10 moves 262 back 6 dq -0.115927 q 0.482990 top 0.5089
+      heavy u 35186 k 0.0172 it 11 6196 -> 32224 vol(c) 0.0172 vol(d) 0.0000 claimed 0.00002
+      heavy u 9967 k 0.0279 it 11 23099 -> 13937 vol(c) 0.0516 vol(d) 0.0000 claimed 0.00078
+      heavy u 2289 k 0.0378 it 11 31781 -> 5197 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 7412 k 0.0539 it 11 34132 -> 28705 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00000
+      heavy u 21196 k 0.2760 it 11 20900 -> 31781 vol(c) 0.5089 vol(d) 0.0000 claimed 0.11810
+      heavy u 4769 k 0.2694 it 11 8892 -> 34132 vol(c) 0.2713 vol(d) 0.0048 claimed 0.01327
+    iter 11 moves 163 back 1 dq 0.118200 q 0.601190 top 0.2760
+      heavy u 9967 k 0.0279 it 12 13937 -> 15825 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 2289 k 0.0378 it 12 5197 -> 19949 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 12 23099 -> 13937 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00054
+      heavy u 7412 k 0.0539 it 12 28705 -> 5197 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00398
+      heavy u 21196 k 0.2760 it 12 31781 -> 23099 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00084
+      heavy u 11829 k 0.2329 it 12 20900 -> 28705 vol(c) 0.2329 vol(d) 0.0000 claimed 0.01220
+      heavy u 4769 k 0.2694 it 12 34132 -> 28705 vol(c) 0.2713 vol(d) 0.2329 claimed 0.01348
+    iter 12 moves 150 back 9 dq -0.073151 q 0.528039 top 0.5023
+      heavy u 2289 k 0.0378 it 13 19949 -> 5507 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00000
+      heavy u 7412 k 0.0539 it 13 5197 -> 29529 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00000
+      heavy u 21196 k 0.2760 it 13 23099 -> 19949 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00046
+      heavy u 11829 k 0.2329 it 13 28705 -> 5197 vol(c) 0.5023 vol(d) 0.0000 claimed 0.08557
+    iter 13 moves 207 back 7 dq 0.073369 q 0.601408 top 0.2760
+      heavy u 9967 k 0.0279 it 14 15825 -> 19521 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 14 13937 -> 15825 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00054
+      heavy u 7412 k 0.0539 it 14 29529 -> 15825 vol(c) 0.0539 vol(d) 0.0237 claimed 0.00011
+      heavy u 2289 k 0.0378 it 14 5507 -> 29529 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00398
+      heavy u 21196 k 0.2760 it 14 19949 -> 13937 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00084
+      heavy u 11829 k 0.2329 it 14 5197 -> 19949 vol(c) 0.2329 vol(d) 0.0000 claimed 0.01092
+      heavy u 4769 k 0.2694 it 14 28705 -> 5197 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05313
+    iter 14 moves 90 back 1 dq -0.002491 q 0.598917 top 0.2760
+      heavy u 10763 k 0.0105 it 15 24321 -> 16298 vol(c) 0.0105 vol(d) 0.0000 claimed 0.00000
+      heavy u 35186 k 0.0172 it 15 32224 -> 34132 vol(c) 0.0172 vol(d) 0.0000 claimed 0.00002
+      heavy u 9967 k 0.0279 it 15 19521 -> 14751 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 15 15825 -> 19521 vol(c) 0.0776 vol(d) 0.0000 claimed 0.00303
+      heavy u 2289 k 0.0378 it 15 29529 -> 19521 vol(c) 0.0378 vol(d) 0.0237 claimed 0.00007
+      heavy u 7412 k 0.0539 it 15 15825 -> 29529 vol(c) 0.0539 vol(d) 0.0135 claimed 0.00245
+      heavy u 21196 k 0.2760 it 15 13937 -> 15825 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00158
+      heavy u 11829 k 0.2329 it 15 19949 -> 15825 vol(c) 0.2329 vol(d) 0.2760 claimed 0.01626
+      heavy u 4769 k 0.2694 it 15 5197 -> 19949 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05313
+    iter 15 moves 272 back 6 dq -0.117960 q 0.480957 top 0.5089
+      heavy u 10763 k 0.0105 it 16 16298 -> 7853 vol(c) 0.0105 vol(d) 0.0000 claimed 0.00000
+      heavy u 35186 k 0.0172 it 16 34132 -> 28705 vol(c) 0.0172 vol(d) 0.0000 claimed 0.00002
+      heavy u 9967 k 0.0279 it 16 14751 -> 33066 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 2289 k 0.0378 it 16 19521 -> 14751 vol(c) 0.0615 vol(d) 0.0000 claimed 0.00180
+      heavy u 10408 k 0.0237 it 16 19521 -> 14751 vol(c) 0.0237 vol(d) 0.0378 claimed 0.00048
+      heavy u 7412 k 0.0539 it 16 29529 -> 19521 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00364
+      heavy u 21196 k 0.2760 it 16 15825 -> 29529 vol(c) 0.5089 vol(d) 0.0000 claimed 0.11856
+      heavy u 11829 k 0.2329 it 16 15825 -> 29529 vol(c) 0.2329 vol(d) 0.2760 claimed 0.00470
+      heavy u 4769 k 0.2694 it 16 19949 -> 15825 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05731
+    iter 16 moves 242 back 5 dq 0.001082 q 0.482039 top 0.5089
+      heavy u 10763 k 0.0105 it 17 7853 -> 16298 vol(c) 0.0105 vol(d) 0.0000 claimed 0.00000
+      heavy u 9967 k 0.0279 it 17 33066 -> 2951 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 10408 k 0.0237 it 17 14751 -> 33066 vol(c) 0.0615 vol(d) 0.0000 claimed 0.00228
+      heavy u 7412 k 0.0539 it 17 19521 -> 28345 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00000
+      heavy u 21196 k 0.2760 it 17 29529 -> 19521 vol(c) 0.5089 vol(d) 0.0000 claimed 0.11837
+      heavy u 11829 k 0.2329 it 17 29529 -> 19521 vol(c) 0.2329 vol(d) 0.2760 claimed 0.00128
+      heavy u 4769 k 0.2694 it 17 15825 -> 29529 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05731
+    iter 17 moves 257 back 7 dq 0.001733 q 0.483772 top 0.5089
+      heavy u 10408 k 0.0237 it 18 33066 -> 21995 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00000
+      heavy u 7412 k 0.0539 it 18 28345 -> 14751 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00398
+      heavy u 2289 k 0.0378 it 18 14751 -> 33066 vol(c) 0.0378 vol(d) 0.0279 claimed 0.00006
+      heavy u 9967 k 0.0279 it 18 2951 -> 33066 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00054
+      heavy u 21196 k 0.2760 it 18 19521 -> 28345 vol(c) 0.5089 vol(d) 0.0000 claimed 0.11837
+      heavy u 4769 k 0.2694 it 18 29529 -> 7793 vol(c) 0.2713 vol(d) 0.0000 claimed 0.00503
+    iter 18 moves 281 back 2 dq 0.115589 q 0.599361 top 0.2760
+      heavy u 9967 k 0.0279 it 19 33066 -> 27865 vol(c) 0.0657 vol(d) 0.0000 claimed 0.00205
+      heavy u 7412 k 0.0539 it 19 14751 -> 2951 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00027
+      heavy u 21196 k 0.2760 it 19 28345 -> 14751 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00074
+      heavy u 11829 k 0.2329 it 19 19521 -> 28345 vol(c) 0.2329 vol(d) 0.0000 claimed 0.01092
+      heavy u 4769 k 0.2694 it 19 7793 -> 19521 vol(c) 0.2713 vol(d) 0.0000 claimed 0.05313
+    iter 19 moves 184 back 8 dq 0.002047 q 0.601407 top 0.2760
+      heavy u 9967 k 0.0279 it 20 27865 -> 9148 vol(c) 0.0279 vol(d) 0.0000 claimed 0.00000
+      heavy u 2289 k 0.0378 it 20 33066 -> 27865 vol(c) 0.0378 vol(d) 0.0000 claimed 0.00007
+      heavy u 10408 k 0.0237 it 20 21995 -> 33066 vol(c) 0.0237 vol(d) 0.0000 claimed 0.00006
+      heavy u 7412 k 0.0539 it 20 2951 -> 2758 vol(c) 0.0539 vol(d) 0.0000 claimed 0.00000
+      heavy u 11829 k 0.2329 it 20 28345 -> 2951 vol(c) 0.2329 vol(d) 0.0000 claimed 0.01220
+      heavy u 21196 k 0.2760 it 20 14751 -> 21995 vol(c) 0.2760 vol(d) 0.0000 claimed 0.00084
+      heavy u 4769 k 0.2694 it 20 19521 -> 2951 vol(c) 0.2713 vol(d) 0.2329 claimed 0.01587
+    iter 20 moves 144 back 73 dq -0.073369 q 0.528038 top 0.5023
+pass 3 n 35430 entries 138406 iters 20 moves 4178 -> 34601 comms  lm 0.013s ref 0.000s

@@ -27,13 +27,12 @@ use clap::builder::{PossibleValuesParser, TypedValueParser};
 
 use crate::args::Common;
 use crate::failure::{self, Failure};
-use crate::graph::absolute;
 use crate::machine;
-use crate::native::{self, JobScratch, WriteError};
 use crate::plan::Plan;
 use crate::progress::Lines;
 use crate::progress::now_ns;
 use crate::render::{Style, counted, duration, size};
+use everygraph_ingest::native::{self, JobScratch, WriteError};
 
 /// What was asked.
 #[derive(Debug, clap::Args)]
@@ -275,6 +274,9 @@ impl Job<'_> {
                 e,
             ),
             WriteError::Io { path, error } => failure::io("write", &path, &error),
+            WriteError::Withdrawn => {
+                failure::internal("The graph was withdrawn before it was named.")
+            }
         }
     }
 
@@ -315,10 +317,11 @@ impl Job<'_> {
             native::Output::File(output),
             provenance,
             lines,
+            &|| true,
         )
         .map_err(|e| self.failure(e))?;
         let bytes = match written {
-            native::Written::File(bytes) => bytes,
+            native::Written::File(_, bytes) => bytes,
             native::Written::Memory(b) => b.len() as u64,
         };
         let elapsed = self.started.elapsed().as_secs_f64();
@@ -402,7 +405,7 @@ fn file_document(job: &str, output: &Path, bytes: u64, report: &Report, seconds:
 /// The first 16 hexadecimal digits of the job's fingerprint (XXH3-128): the input, the
 /// output and every option that changes the graph, not the budget or the threads (R-4).
 fn job_id(args: &Args, output: &Path, reader: &TextReader<FileSource>) -> String {
-    let (input, output) = (absolute(&args.input), absolute(output));
+    let (input, output) = (native::canonical(&args.input), native::canonical(output));
     native::job_id(&[
         &input.display().to_string(),
         &output.display().to_string(),

@@ -22,7 +22,6 @@ mod graph;
 mod info;
 mod ingest;
 mod machine;
-mod native;
 mod plan;
 mod progress;
 mod render;

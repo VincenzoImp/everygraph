@@ -76,13 +76,17 @@ deny = [
     # Randomness comes from everygraph_core::rng, keyed by what each draw is for (rule R9
     # of docs/research/sota-numerics.md). These generators are seeded from the OS or
     # change their streams between versions and platforms. proptest draws test cases with
-    # rand; TLS in the harness draws keys with getrandom; arrow-array, the Python
-    # package's Arrow export, seeds the hash tables of its own builders through ahash
-    # (at run time, or at build time through const-random on wasm32),
-    # which no result of ours reads.
+    # rand; TLS in the harness draws keys with getrandom; arrow-array and arrow-select,
+    # the Python package's Arrow export, seed the hash tables of their own builders
+    # through ahash (at run time, or at build time through const-random on wasm32),
+    # which no result of ours reads. ahash and const-random are allowed there only.
     { crate = "rand", wrappers = ["proptest"], reason = "use everygraph_core::rng" },
     # `jsonschema` (the CLI tests' schema check) seeds its hash tables the same way.
     { crate = "getrandom", wrappers = ["rand_core", "ring", "ahash", "const-random-macro", "referencing", "jsonschema-value", "jsonschema"], reason = "use everygraph_core::rng" },
+    # parquet (the `--out` tables) and `jsonschema` (the CLI tests' schema check) hash the
+    # same way.
+    { crate = "ahash", wrappers = ["arrow-array", "arrow-select", "parquet", "jsonschema", "jsonschema-value", "referencing"], reason = "use everygraph_core::rng; std's HashMap for our own maps" },
+    { crate = "const-random", wrappers = ["ahash"], reason = "use everygraph_core::rng" },
     { crate = "fastrand", reason = "use everygraph_core::rng" },
 ]
 
