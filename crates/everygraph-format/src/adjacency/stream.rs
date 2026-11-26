@@ -145,7 +145,7 @@ impl IndexBuilder {
     /// # Errors
     ///
     /// [`EncodeError::Offsets`] if fewer lists than nodes were pushed, and
-    /// [`EncodeError::OutOfMemory`] if the index does not fit the budget.
+    /// [`EncodeError::Budget`] if the index does not fit the budget.
     pub fn finish(self, events: bool) -> Result<(Vec<u8>, Reservation), EncodeError> {
         let n = self.degrees.len();
         if n != usize_of(self.nodes) {
@@ -157,7 +157,7 @@ impl IndexBuilder {
         let mut reservation = self
             .memory
             .reserve(PURPOSE, MemoryKind::Anonymous, bytes)
-            .map_err(|e| out_of_memory(e.into()))?;
+            .map_err(EncodeError::Budget)?;
         let oom = EncodeError::OutOfMemory { bytes };
         let ends = std::iter::once(0).chain(self.record_ends.iter().copied());
         let byte_offsets = EliasFano::from_values(n + 1, data_bytes, ends).ok_or(oom.clone())?;
@@ -276,12 +276,10 @@ pub fn encode_events(
 }
 
 fn out_of_memory(e: MemoryError) -> EncodeError {
-    EncodeError::OutOfMemory {
-        bytes: match e {
-            MemoryError::Budget(refused) => refused.needed,
-            MemoryError::AllocationFailed { bytes, .. } => bytes,
-            _ => u64::MAX,
-        },
+    match e {
+        MemoryError::Budget(refused) => EncodeError::Budget(refused),
+        MemoryError::AllocationFailed { bytes, .. } => EncodeError::OutOfMemory { bytes },
+        _ => EncodeError::OutOfMemory { bytes: u64::MAX },
     }
 }
 

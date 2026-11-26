@@ -12,4 +12,4 @@ labels: type:infra, area:engine, P1, risk:low, size:S
 
 **Done when.** The cause is named in the PR and the 50-run loop passes.
 
-**Pointers.** `crates/everygraph-kernels/tests/heap.rs`; `crates/everygraph-kernels/src/edge_map/source.rs`.
+**Pointers.** `crates/everygraph-memtest/tests/readers.rs` (was `crates/everygraph-kernels/tests/heap.rs`); `crates/everygraph-kernels/src/edge_map/source.rs`.

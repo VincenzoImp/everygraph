@@ -52,6 +52,8 @@ mod svb;
 use std::error::Error;
 use std::fmt;
 
+use everygraph_core::InsufficientBudget;
+
 pub use decode::{Adjacency, Batch};
 pub use encode::{Encoded, encode};
 pub use events::AdjacencyEvents;
@@ -140,6 +142,8 @@ pub enum EncodeError {
         /// Its size.
         bytes: u64,
     },
+    /// The budget has no room for a buffer of the encoder; nothing was allocated.
+    Budget(InsufficientBudget),
 }
 
 impl fmt::Display for EncodeError {
@@ -150,6 +154,7 @@ impl fmt::Display for EncodeError {
                 write!(f, "the list of node {node} is not strictly increasing")
             }
             Self::OutOfMemory { bytes } => write!(f, "could not allocate {bytes} bytes to encode"),
+            Self::Budget(refused) => refused.fmt(f),
         }
     }
 }

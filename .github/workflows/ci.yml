@@ -370,10 +370,15 @@ jobs:
           RUSTFLAGS: -C target-feature=+ssse3
         run: cargo "+$NIGHTLY" miri test -p everygraph-format --locked --test adjacency
       # The edge-map framework's node brand and unchecked indexing (#44), on rayon.
-      - name: Miri, edge-map framework (kernels unit tests and counting allocator), Tree Borrows
+      - name: Miri, edge-map framework (kernels unit tests), Tree Borrows
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: cargo "+$NIGHTLY" miri test -p everygraph-kernels --lib --test heap --locked
+        run: cargo "+$NIGHTLY" miri test -p everygraph-kernels --lib --locked
+      # The readers on threads, under the no-OOM suite's counting allocator.
+      - name: Miri, the counting allocator and the readers' heap (everygraph-memtest), Tree Borrows
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri test -p everygraph-memtest --test counting --test readers --locked
       # On nightly, rustdoc checks the error code of `compile_fail,E0521`: the tests
       # that a node of one plan cannot index the state of another.
       - name: Node brand compile-fail tests (kernels doc tests, nightly)
@@ -381,4 +386,38 @@ jobs:
       - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
         if: ${{ !cancelled() }}
         run: python3 tools/check_tsan.py
+
+  # The no-OOM suite at the nightly sizes (issue #53): the slope test up to 2^18 nodes,
+  # the long search, and the cgroup matrix (graphs up to 2^22 nodes, budgets from a
+  # quarter of each operation's peak to 8 GiB, each run in a `systemd-run` scope). Every
+  # night, whatever main's last run did: its records are the evidence of the promise.
+  # The pull-request part runs in `test` (nextest).
+  no-oom:
+    name: No-OOM suite, nightly sizes and cgroup matrix
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: no-oom
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo test --release -p everygraph-memtest -- --ignored
+        env:
+          EVERYGRAPH_MEMTEST_RECORDS: ${{ runner.temp }}/no-oom-records.txt
+        run: cargo test --release -p everygraph-memtest --locked -- --ignored --test-threads 1 --nocapture
+      - name: Upload the records
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: no-oom-records
+          path: ${{ runner.temp }}/no-oom-records.txt
+          if-no-files-found: warn
 

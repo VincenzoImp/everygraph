@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "everygraph-memtest"
+description = "The no-OOM test suite of Everygraph: every operation either completes within its memory budget or refuses, checked by a counting allocator and by the control group's anonymous memory. A development crate; never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# A test tool: it is never published, whatever the workspace default becomes.
+publish = false
+
+[dependencies]
+# The operations under test, through the entry points that the command line and the
+# Python module call.
+everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
+everygraph-format = { path = "../everygraph-format" }
+everygraph-ingest = { path = "../everygraph-ingest", features = ["native"] }
+everygraph-io = { path = "../everygraph-io" }
+everygraph-kernels = { path = "../everygraph-kernels" }
+
+[lints]
+workspace = true

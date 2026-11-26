@@ -587,10 +587,17 @@ fn check_adjacency<S: ByteSource + Sync>(
         ));
     };
     let mut held = Reservation::empty(memory, PURPOSE, MemoryKind::Anonymous);
+    // A parsed index or `.events` section holds its section's words and select samples
+    // that take fewer bytes than the words they sample.
+    let parsed = |entry: &Entry| entry.len.saturating_mul(2);
     let Some(index_bytes) = section_bytes(file, index_entry, &mut held)? else {
         unchecked(report);
         return Ok(None);
     };
+    if held.try_grow(parsed(index_entry)).is_err() {
+        unchecked(report);
+        return Ok(None);
+    }
     let index = match AdjacencyIndex::parse(&index_bytes) {
         Ok(index) => index,
         Err(e) => {
@@ -620,6 +627,10 @@ fn check_adjacency<S: ByteSource + Sync>(
                 unchecked(report);
                 return Ok(None);
             };
+            if held.try_grow(parsed(entry)).is_err() {
+                unchecked(report);
+                return Ok(None);
+            }
             match AdjacencyEvents::parse(&bytes, &index).and_then(|e| {
                 e.check()?;
                 Ok(e.events())

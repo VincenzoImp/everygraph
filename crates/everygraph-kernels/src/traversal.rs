@@ -82,12 +82,13 @@ pub fn bfs<'g, S: Source>(
         ));
     }
     let words = if p.parents { 8 } else { 4 };
-    let held = memory.reserve("bfs state", MemoryKind::Anonymous, u64::from(n) * words)?;
+    let mut held = memory.reserve("bfs state", MemoryKind::Anonymous, u64::from(n) * words)?;
     let depth = unreached(n);
     let at = out.per_node(&depth)?;
     at[source].store(0, Relaxed);
     let max_hops = p.max_hops.unwrap_or(u32::MAX - 1);
-    let mut levels = vec![1];
+    let mut levels = Vec::new();
+    push_level(&mut levels, &mut held, 1)?;
     let mut frontier = NodeList::new(memory);
     frontier.push(source)?;
     let mut next = out.node_set(memory)?;
@@ -122,7 +123,7 @@ pub fn bfs<'g, S: Source>(
                     std::mem::swap(&mut front, &mut next);
                     next.clear();
                     if awake > 0 {
-                        levels.push(awake);
+                        push_level(&mut levels, &mut held, awake)?;
                     }
                     let shrunk = awake < old && awake <= u64::from(n) / BETA;
                     if awake == 0 || shrunk || level >= max_hops {
@@ -152,7 +153,7 @@ pub fn bfs<'g, S: Source>(
                 next.clear();
                 level += 1;
                 if !frontier.is_empty() {
-                    levels.push(frontier.len() as u64);
+                    push_level(&mut levels, &mut held, frontier.len() as u64)?;
                 }
             }
         }
@@ -182,6 +183,21 @@ pub fn bfs<'g, S: Source>(
         levels,
         held,
     })
+}
+
+/// Appends `count` to `levels`, whose capacity `held` covers: a path has as many levels
+/// as nodes. When the vector is full, its next block is reserved before it grows, and
+/// the old block given back after.
+fn push_level(levels: &mut Vec<u64>, held: &mut Reservation, count: u64) -> Result<(), Error> {
+    let old = levels.capacity();
+    if levels.len() == old {
+        held.try_grow((old.max(2) as u64 * 2) * 8)?;
+    }
+    levels.push(count);
+    if levels.capacity() != old {
+        held.shrink(old as u64 * 8);
+    }
+    Ok(())
 }
 
 /// `n` cells holding [`UNREACHED`], filled in parallel; the caller reserves them.

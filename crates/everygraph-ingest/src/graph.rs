@@ -127,8 +127,14 @@ impl<S: ByteSource + Sync> Graph<S> {
             .map_err(|_| corrupt(PROVENANCE, "counts.edges is not a count"))?;
         let section = file.section(OUT_INDEX)?;
         let len = usize::try_from(section.len()).map_err(|_| corrupt(OUT_INDEX, "too large"))?;
+        // The bytes, and the parsed index beside them: its words are the section's, plus
+        // select samples that take fewer bytes than the high words they sample.
         let mut held = memory
-            .reserve("adjacency index", MemoryKind::Anonymous, section.len())
+            .reserve(
+                "adjacency index",
+                MemoryKind::Anonymous,
+                section.len().saturating_mul(3),
+            )
             .map_err(OpenError::Budget)?;
         let mut bytes = vec![0_u8; len];
         section.read_at(0, &mut bytes).map_err(OpenError::Read)?;
