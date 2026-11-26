@@ -15,9 +15,8 @@
 //! level, the kinds, the modularity of the partition and of the drawn top level, and a
 //! hash of the tree (the same at every thread count). `--store FILE` writes the graph
 //! and the map tree into a new graph file, checks it with `verify --deep` and reports
-//! the result's bytes and its levels. `--export DIR` writes the tree as the lab's
-//! `tree_rec.npz` arrays (`par`, `kind`, `nn`, `leaf` as raw little-endian files), for
-//! the lab layout and metrics.
+//! the result's bytes and its levels. `--export DIR` writes the tree as the hierarchy
+//! of the lab layout (`lab/e-map/gmap layout --hier DIR`).
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -139,17 +138,76 @@ fn store(path: &Path, offsets: &[u64], targets: &[u32], o: &MapOptions, t: &MapT
     )
 }
 
+/// Writes the tree as the lab layout's hierarchy (`lab/e-map/gmap`, as
+/// `lab/m1-05-hierarchy-shaping/shape.py export` writes it): level `k` holds the regions
+/// of height `k`, each repeated up to the level below its parent; `level_0.u32` maps the
+/// nodes, `level_k.u32` the units of level `k − 1`; `level_k.kind.u8` is 1 for a
+/// community or super region, 2 for an aggregate, 3 for a subcommunity; and
+/// `level_k.count.u32` the communities under an aggregate.
 fn export(dir: &Path, t: &MapTree) {
     std::fs::create_dir_all(dir).expect("export directory");
-    let u32s = |name: &str, values: &mut dyn Iterator<Item = u32>| {
-        let bytes: Vec<u8> = values.flat_map(u32::to_le_bytes).collect();
+    let r = t.parent.len();
+    let parent = |x: usize| t.parent[x] as usize;
+    let mut height = vec![0_usize; r];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for x in 1..r {
+            if height[parent(x)] < height[x] + 1 {
+                height[parent(x)] = height[x] + 1;
+                changed = true;
+            }
+        }
+    }
+    let mut count = vec![0_u32; r];
+    for x in (1..r).filter(|&x| t.kind[x] != Kind::Aggregate) {
+        let mut p = parent(x);
+        while p > 0 && t.kind[p] == Kind::Aggregate {
+            count[p] += 1;
+            p = parent(p);
+        }
+    }
+    let lab = |k: Kind| match k {
+        Kind::Aggregate => 2_u8,
+        Kind::Subcommunity => 3,
+        _ => 1,
+    };
+    let write = |name: String, bytes: Vec<u8>| {
         std::fs::write(dir.join(name), bytes).expect("export");
     };
-    u32s("par.u32", &mut t.parent.iter().copied());
-    u32s("nn.u32", &mut t.nodes.iter().copied());
-    u32s("leaf.u32", &mut t.leaf.iter().copied());
-    let kinds: Vec<u8> = t.kind.iter().map(|&k| code(k)).collect();
-    std::fs::write(dir.join("kind.u8"), kinds).expect("export");
+    let u32s = |v: &[u32]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let mut unit = vec![u32::MAX; r];
+    let mut levels = Vec::new();
+    let mut below: Vec<usize> = Vec::new();
+    for k in 0..height[0] {
+        let here: Vec<usize> = (1..r)
+            .filter(|&x| height[x] <= k && k < height[parent(x)])
+            .collect();
+        for (i, &x) in here.iter().enumerate() {
+            unit[x] = i as u32;
+        }
+        let map: Vec<u32> = if k == 0 {
+            t.leaf.iter().map(|&l| unit[l as usize]).collect()
+        } else {
+            let up = |x: usize| if k < height[parent(x)] { x } else { parent(x) };
+            below.iter().map(|&x| unit[up(x)]).collect()
+        };
+        write(format!("level_{k}.u32"), u32s(&map));
+        write(
+            format!("level_{k}.kind.u8"),
+            here.iter().map(|&x| lab(t.kind[x])).collect(),
+        );
+        let counts: Vec<u32> = here.iter().map(|&x| count[x]).collect();
+        write(format!("level_{k}.count.u32"), u32s(&counts));
+        levels.push(here.len().to_string());
+        below = here;
+    }
+    let meta = format!(
+        "{{\"n\": {}, \"levels\": [{}]}}",
+        t.leaf.len(),
+        levels.join(", ")
+    );
+    write("hier.json".into(), meta.into_bytes());
 }
 
 /// Leiden and the map tree on `source`: the JSON fields, and the tree.
