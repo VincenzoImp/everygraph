@@ -25,6 +25,6 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 - Every command supports `--json` output validated against a schema
 - The result document is validated against `urn:everygraph:schema:result:1` (`docs/api-sketch.md` § 5.3) and the document of `ingest`, `map` and `export` against `urn:everygraph:schema:file:1` (`docs/ux-contract.md` § 4.7); errors of the operating system are reported as `IoError`, an existing output that is not ours as `OutputExists`, both with exit status 1; `info`, `doctor` and `verify` have schemas of their own, written by this issue
 
-**Depends on** M2–M5 features
+**Depends on** {{#m2-08-csr-build}}. The first slice starts on the built graph; the other M2–M5 features join it as they merge (CLAUDE.md § 6, thin end to end first)
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved in `design/preview/cli.md` and typeset in `design/preview/style/terminal.html`: the command is `everygraph` with no short alias installed; verb-then-thing shape (`everygraph run pagerank FILE`, `everygraph query path FILE A B`); starts without asking; readable tables on a terminal and plain output when piped or with `--json`; restrained colour with automatic no-colour and ASCII fallbacks; the suggested next command in bold; English only for 0.1; `GB` means 10⁹ bytes.

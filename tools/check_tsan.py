@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-"""ThreadSanitizer on the parallel code of everygraph-core, with a canary.
+"""ThreadSanitizer on the parallel code of everygraph-core and the edge-map framework, with a canary.
 
 Two runs, both on the pinned nightly toolchain with `-Zsanitizer=thread` and a
 standard library rebuilt with the sanitizer (`-Zbuild-std`; without it every
@@ -8,7 +8,9 @@ synchronization inside std is invisible to ThreadSanitizer and it reports false
 races):
 
 1. The tests of everygraph-core with default features, so that `everygraph_core::par`
-   runs on rayon's thread pool. They must pass with no report.
+   runs on rayon's thread pool, and those of the edge-map framework (everygraph-kernels:
+   its unit tests and `tests/framework.rs`, which run every driver at 1, 3 and 8
+   threads; the oracle test is left to the oracle job). They must pass with no report.
 2. The canary under tools/canary/tsan: a toy kernel on the same facade with a
    deliberate data race. It must FAIL, with "ThreadSanitizer: data race" in its
    output. If it passes, ThreadSanitizer is not actually watching (wrong flags, a
@@ -46,7 +48,11 @@ ENV = {
 }
 COMMON = ["-Zbuild-std", "--target", TARGET, "--locked"]
 
-TESTS = ["cargo", f"+{TOOLCHAIN}", "test", "--package", "everygraph-core", "--tests", *COMMON]
+TESTS = [
+    ["cargo", f"+{TOOLCHAIN}", "test", "--package", "everygraph-core", "--tests", *COMMON],
+    ["cargo", f"+{TOOLCHAIN}", "test", "--package", "everygraph-kernels", "--lib",
+     "--test", "framework", *COMMON],
+]
 CANARY = [
     "cargo", f"+{TOOLCHAIN}", "run", "--manifest-path",
     str(ROOT / "tools" / "canary" / "tsan" / "Cargo.toml"), *COMMON,
@@ -64,15 +70,17 @@ def run(command):
 def main():
     failed = False
 
-    status, output = run(TESTS)
-    races = output.count(RACE)
-    if status == 0 and races == 0:
-        print("ok: the tests of everygraph-core pass under ThreadSanitizer, no race reported")
-    else:
-        failed = True
-        print(f"FAILED: the tests of everygraph-core under ThreadSanitizer "
-              f"(exit status {status}, {races} race reports)")
-        print("  " + output.strip().replace("\n", "\n  "))
+    for tests in TESTS:
+        package = tests[tests.index("--package") + 1]
+        status, output = run(tests)
+        races = output.count(RACE)
+        if status == 0 and races == 0:
+            print(f"ok: the tests of {package} pass under ThreadSanitizer, no race reported")
+        else:
+            failed = True
+            print(f"FAILED: the tests of {package} under ThreadSanitizer "
+                  f"(exit status {status}, {races} race reports)")
+            print("  " + output.strip().replace("\n", "\n  "))
 
     status, output = run(CANARY)
     races = output.count(RACE)

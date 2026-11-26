@@ -13,7 +13,7 @@ on GitHub. To browse the pages themselves, clone the repository and open
 **Contents** · [At a glance](#at-a-glance) · [The viewer](#the-viewer) ·
 [Foundations](#foundations) · [Components](#components) · [Data and map](#data-and-map) ·
 [Web and docs](#web-and-docs) · [Terminal](#terminal) · [Notebook](#notebook) ·
-[Figures and export](#figures-and-export) · [What I decided, what I ask you](#what-i-decided-what-i-ask-you)
+[Figures and export](#figures-and-export) · [Decisions and open strains](#decisions-and-open-strains)
 
 ---
 
@@ -175,9 +175,12 @@ Also: [charts](https://github.com/VincenzoImp/everygraph/blob/design-previews-ar
 
 ---
 
-## What I decided, what I ask you
+## Decisions and open strains
 
-**Decided while building this** (details in `SPEC.md`, last section). Tell me if any is wrong:
+The owner approved this style on 2026-11-25 (`design/DECISIONS.md`, "Visual identity,
+round 2").
+
+**Decided while building this** (details in `SPEC.md`, last section):
 
 - The first data palette I picked by eye failed measurement and was replaced by a measured one.
 - Contrast of text and control borders was adjusted until it passed; borders are a little heavier for it.
@@ -186,7 +189,7 @@ Also: [charts](https://github.com/VincenzoImp/everygraph/blob/design-previews-ar
 - In the terminal, the suggested next command is bold rather than blue; lines fit 80 columns.
 - "Budget" means memory only; traversal limits are called `limit`.
 
-**Where the style strains** (so you see it before I do anything about it):
+**Where the style strains:**
 
 - When most nodes live in small communities, the grey hatched "many small communities"
   regions are the largest shapes on the map. Honest, but it is the first thing the eye sees.
@@ -194,10 +197,10 @@ Also: [charts](https://github.com/VincenzoImp/everygraph/blob/design-previews-ar
 - The icon set is a first pass; about six icons need redrawing.
 - A single-column figure (85 mm) is too small for names; it uses letter keys and a legend.
 
-**Questions — only where your taste matters:**
+**Questions asked at review**, each answered with ★ (`design/DECISIONS.md`, "All
+remaining preview choices", style questions 1–7):
 
-1. **The whole direction.** Is this the style? If something feels wrong overall (too
-   beige, too quiet, too technical), say it in a word and I iterate.
+1. **The whole direction.** Approved as shown ("va benissimo il lavoro fatto").
 2. **Viewer by default:** dark canvas ★, or light.
 3. **Map style:** bubbles ★, or cells (see the two "light theme" images above).
 4. **Landing headline:** all in ink ★ (as shown), or the last words in the accent blue.

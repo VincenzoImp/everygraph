@@ -7,8 +7,8 @@
 //! - [`AppendSink`]: one writer, front to back, through a large buffer.
 //! - [`BlockWriter`]: a file of known length filled in place by many threads, in aligned
 //!   blocks, after preallocating it. In the lab, 32 threads `pwrite`-ing into one output
-//!   file did not scale and a shared mapping was 10–20% better (FINDINGS § B1); this
-//!   writer is the proposed fix and has not been measured against either yet.
+//!   file did not scale (FINDINGS § B1); this writer is the proposed fix and has not
+//!   been measured yet.
 //! - [`SpillLogs`]: sharded temporary logs for an out-of-core build, read back as
 //!   [`FileSource`]s. Through the page cache, never direct: for small appending temp
 //!   writes `O_DIRECT` cost 74.6–81.4 s against 33.2–45.3 s (Friendster, 8 GB budget;

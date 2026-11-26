@@ -73,7 +73,7 @@ fn check(index: &[u8], data: &[u8]) {
 }
 
 /// A block, or the whole graph, decodes only if each of its lists decodes on its own,
-/// and then to the same lists (review of #30, M1).
+/// and then to the same lists.
 fn apis_agree(adj: Adjacency<'_>) {
     let index = adj.index();
     let mut buf = Vec::new();

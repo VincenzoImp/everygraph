@@ -20,4 +20,4 @@ labels: type:feature, area:ingest, P0, risk:medium, size:M
 - Round-trip of all supported column types into property columns
 - A file whose page headers declare sizes far above its length is refused with `InvalidInput`, with the counting allocator showing no allocation of the declared size
 
-**Depends on** {{#m1-11-real-inputs}}
+**Depends on** {{#m1-11-real-inputs}}, {{#m2-08-csr-build}}, {{#m2-10-property-columns}}

@@ -13,3 +13,5 @@ labels: type:feature, area:interop, P2, risk:medium, size:M
 
 **Acceptance**
 - One external group uses Everygraph on its own data and reports back
+
+**Depends on** {{#m8-08-release}}
