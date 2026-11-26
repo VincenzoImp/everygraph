@@ -278,22 +278,59 @@ impl Reduce for Seq {
     }
 }
 
-/// The sum of `push_with` over `frontier` on `threads` threads.
-fn pushed<S: Source>(source: &S, frontier: &[u32], threads: usize) -> Seq {
+/// The sum of `push_with`, or of `frontier_with` if `whole`, over `frontier` on
+/// `threads` threads.
+fn pushed<S: Source>(source: &S, frontier: &[u32], threads: usize, whole: bool) -> Seq {
     par::with_threads(NonZeroUsize::new(threads).unwrap(), || {
         Plan::with(source, &Memory::unlimited(), Settings::default(), |plan| {
             let f: Vec<Node<'_>> = frontier.iter().filter_map(|&v| plan.node(v)).collect();
-            plan.push_with(
-                &f,
-                || (),
-                |acc: &mut Seq, row, _| {
-                    *acc = acc.add(Seq::of(value(row.first_entry, ids(row.list))));
-                },
-            )
+            let body = |acc: &mut Seq, row: Row<'_, '_>, _: &mut Worker<'_, '_, S, ()>| {
+                *acc = acc.add(Seq::of(value(row.first_entry, ids(row.list))));
+            };
+            if whole {
+                plan.frontier_with(&f, || (), body)
+            } else {
+                plan.push_with(&f, || (), body)
+            }
             .unwrap()
         })
     })
     .unwrap()
+}
+
+/// The values of `frontier_with` add in frontier order, also in a group of more than
+/// one run, whatever the threads and the source.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "the drivers' unsafe code is reached by the tests above"
+)]
+fn frontier_adds_runs_in_order() {
+    let n = 70_000;
+    // Lists of 20,000 entries side by side: their group is cut into several runs.
+    let (offsets, targets) = with_hubs(n, &[3, 4, 5, 6, 8, 30_000], 20_000);
+    let encoded = encode(&offsets, &targets).unwrap();
+    let index = AdjacencyIndex::parse(&encoded.index).unwrap();
+    let list = |v: usize| &targets[ix(offsets[v])..ix(offsets[v + 1])];
+    let frontier: Vec<u32> = (0..n).filter(|v| v % 3 != 1).collect();
+    let want = frontier.iter().fold(Seq::ZERO, |sum, &v| {
+        let v = ix(v.into());
+        sum.add(Seq::of(value(offsets[v], list(v))))
+    });
+    let csr = Csr::new(&offsets, &targets).unwrap();
+    let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
+    for threads in [1, 3, 8] {
+        assert_eq!(
+            pushed(&csr, &frontier, threads, true),
+            want,
+            "csr, {threads}"
+        );
+        assert_eq!(
+            pushed(&heap, &frontier, threads, true),
+            want,
+            "compressed, {threads}"
+        );
+    }
 }
 
 /// The values of `push_with` add in frontier order, a long list's parts in order,
@@ -325,9 +362,13 @@ fn push_with_adds_parts_in_order() {
     let csr = Csr::new(&offsets, &targets).unwrap();
     let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
     for threads in [1, 3, 8] {
-        assert_eq!(pushed(&csr, &frontier, threads), want, "csr, {threads}");
         assert_eq!(
-            pushed(&heap, &frontier, threads),
+            pushed(&csr, &frontier, threads, false),
+            want,
+            "csr, {threads}"
+        );
+        assert_eq!(
+            pushed(&heap, &frontier, threads, false),
             want,
             "compressed, {threads}"
         );

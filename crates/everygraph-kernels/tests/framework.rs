@@ -49,8 +49,9 @@ fn graph(n: u32, seed: u64, sparse: bool) -> (Vec<u64>, Vec<u32>) {
             3..=8 => r >> 8 & 31,
             _ => r >> 8 & 255,
         };
-        let d = if v == n / 2 {
-            u64::from(n.min(20_000)) * 3 / 4
+        // Four hubs in a row: their frontier group is more than one run.
+        let d = if (n / 2..n / 2 + 4).contains(&v) {
+            u64::from(n.min(60_000)) * 3 / 4
         } else {
             d
         };

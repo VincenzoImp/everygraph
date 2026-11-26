@@ -28,7 +28,8 @@ use everygraph_format::adjacency::Batch;
 
 use super::{Estimate, Graph, Regime, Tier};
 use crate::edge_map::{
-    CompressedStream, FRONTIER_GRAIN, PART_ENTRIES, RUN_ENTRIES, RawCopy, Settings, WAVE, Work,
+    CompressedStream, Error, FRONTIER_GRAIN, PART_ENTRIES, RUN_ENTRIES, RawCopy, Settings, WAVE,
+    Work,
 };
 use crate::run::{Operation, Precision};
 
@@ -239,15 +240,18 @@ impl Cost {
             _ => 8,
         };
         let mut partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * partial;
-        // A frontier driver holds, per run, its range, its end while it is cut, its result
-        // and, in the first wave of `push_with`, a second result beside it, and the index
-        // of a long list; per group, its count of runs and where its runs start
-        // (`Plan::drive`, `Plan::cut`). A frontier holds at most every node: two
-        // consecutive runs of a group hold more than `RUN_ENTRIES` entries and nodes, so
-        // a frontier of `m` entries is cut into at most `2 (m + n) / RUN_ENTRIES` runs,
-        // two more per long list and one more per group (`runs` above).
+        // A frontier driver holds, per run, its range, its end while it is cut and the
+        // index of a long list; per group, its count of runs and where its runs start
+        // (`Plan::drive`, `Plan::cut`). The `2 * result` per run is the slack for two
+        // results per run: in the first wave of `push_with`, a run's result beside the one
+        // its first wave's map returns; with lists whole, a result per group beside one per
+        // run of a group of more than one run. A frontier holds at most every node: two
+        // consecutive runs of a group hold more than `RUN_ENTRIES` entries and nodes, so a
+        // frontier of `m` entries is cut into at most `2 (m + n) / RUN_ENTRIES` runs, two
+        // more per long list and one more per group (`runs` above).
         if access == Access::Mixed {
-            let result = size_of::<Option<(u64, Work)>>();
+            let result =
+                size_of::<Option<(u64, Work)>>().max(size_of::<Result<(u64, Work), Error>>());
             let run = 2 * result + size_of::<Range<usize>>() + 4 + 8;
             let group = 2 * size_of::<usize>();
             partials += runs * run as u64 + groups * group as u64;

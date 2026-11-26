@@ -98,7 +98,7 @@
 //! the copies and parts of its long lists are reserved against the plan's [`Memory`], and
 //! a reader frees a buffer that a long list grew when it goes back to the pool. Some
 //! small allocations are not counted: the task list (`O(n / block)`), the runs and
-//! results of a frontier of at most 16 groups, and the pool itself (one entry per
+//! results of a `Plan::push_with` frontier of at most 16 groups, and the pool itself (one entry per
 //! worker). The no-OOM suite (`everygraph-memtest`) checks that what is not
 //! counted does not grow with the graph.
 //!
@@ -215,6 +215,13 @@ impl Mode {
             par::map_ranges(len, grain, f)
         }
     }
+}
+
+/// The values of `results` added in order, or the first error.
+fn add_all<T: Reduce>(results: impl IntoIterator<Item = Result<T, Error>>) -> Result<T, Error> {
+    results
+        .into_iter()
+        .try_fold(T::ZERO, |sum, x| x.map(|x| sum.add(x)))
 }
 
 /// A `u64` as an index into memory.
@@ -1187,8 +1194,11 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     /// no more slots than there are workers. A body that forks may hold its slot while
     /// it waits, and its worker may then take a second one: k-core's exact count splits
     /// a hub's list inside its body, and the planner's two readers per k-core worker
-    /// cover that depth. A run reads its lists and calls the body on each. In
-    /// [`Mode::Parts`], a long list is a run of its own: it is copied out of a slot,
+    /// cover that depth. A run reads its lists and calls the body on each. With lists
+    /// whole, a task per group cuts the group, and forks its runs if it has more than
+    /// one: so a frontier whose groups are one run each forks as a plain map over its
+    /// groups. In [`Mode::Parts`], the whole frontier is cut first
+    /// ([`cut`](Self::cut)); a long list is a run of its own: it is copied out of a slot,
     /// which is given back, and its parts then take a slot each.
     fn drive<A, W>(
         &self,
@@ -1308,29 +1318,49 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             );
             acc
         };
-        // On the calling thread, the runs add as they end: nothing is held.
-        if mode == Mode::Serial {
-            let mut total = <(A, Work)>::ZERO;
-            for start in (0..frontier.len()).step_by(FRONTIER_GRAIN) {
-                let g = start..(start + FRONTIER_GRAIN).min(frontier.len());
-                let mut group = <(A, Work)>::ZERO;
-                for r in self.group_runs(frontier, g, mode) {
-                    group = group.add(run(&frontier[r])?);
+        // Lists whole: a task per group, as `par::map_ranges` cuts the frontier, and in a
+        // group of more than one run, a fork of its runs. A group's task holds no slot while
+        // it waits. On the calling thread, the runs add as they end.
+        if mode != Mode::Parts {
+            let group = |g: Range<usize>| {
+                let mut runs = self.group_runs(frontier, g, mode);
+                let first = runs.next().expect("a group is at least one run");
+                let Some(second) = runs.next() else {
+                    return run(&frontier[first]);
+                };
+                let runs = [first, second].into_iter().chain(runs);
+                if mode == Mode::Serial {
+                    return add_all(runs.map(|r| run(&frontier[r])));
                 }
-                total = total.add(group);
-            }
+                // A run holds at least one node, so a group has no more runs than nodes.
+                let (mut cuts, mut count) = ([const { 0..0 }; FRONTIER_GRAIN], 0);
+                for (cut, r) in cuts.iter_mut().zip(runs) {
+                    (*cut, count) = (r, count + 1);
+                }
+                let _held = self.hold::<Result<(A, Work), Error>>(count)?;
+                add_all(par::map_ranges(count, NonZeroUsize::MIN, |r| {
+                    run(&frontier[cuts[r.start].clone()])
+                }))
+            };
+            let groups = (0..frontier.len().max(1)).step_by(FRONTIER_GRAIN);
+            let group_at =
+                |start: usize| group(start..(start + FRONTIER_GRAIN).min(frontier.len()));
+            let total = if mode == Mode::Serial || frontier.len() <= FRONTIER_GRAIN {
+                add_all(groups.map(group_at))?
+            } else {
+                let _held = self.hold::<Result<(A, Work), Error>>(groups.len())?;
+                add_all(par::map_ranges(frontier.len(), GRAIN, group))?
+            };
             return Ok(finish(total));
         }
         // A small frontier without long lists is cut on the calling thread and its runs
         // run as one fork, as many as there are; one run is done on the calling thread.
         // Its few cuts and results are not reserved (module documentation, "Memory").
         if frontier.len() <= CUT_ALONE {
+            let group = |s: usize| s..(s + FRONTIER_GRAIN).min(frontier.len());
             let runs: Vec<Range<usize>> = (0..frontier.len().max(1))
                 .step_by(FRONTIER_GRAIN)
-                .flat_map(|s| {
-                    let g = s..(s + FRONTIER_GRAIN).min(frontier.len());
-                    self.group_runs(frontier, g, mode)
-                })
+                .flat_map(|s| self.group_runs(frontier, group(s), mode))
                 .collect();
             if !runs.iter().any(long) {
                 if let [one] = &runs[..] {
@@ -1350,7 +1380,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                 return Ok(finish(total.add(group)));
             }
         }
-        let cuts = self.cut(frontier, mode)?;
+        let cuts = self.cut(frontier)?;
         let runs = &cuts.runs[..];
         let (acc, work) = {
             // A result per run, and the first error apart: the results stay small.
@@ -1490,18 +1520,25 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         Ok(finish((acc, work)))
     }
 
-    /// The runs of the nodes `g` of `frontier`, a group, as positions in the frontier
-    /// ([`cut`](Self::cut)).
+    /// The runs of the nodes `g` of `frontier`, a group, as positions in the frontier. A
+    /// run ends before the node that would take it past [`RUN_ENTRIES`] (a node counts
+    /// its degree plus one), and holds at least one node; in [`Mode::Parts`], a node of
+    /// more than [`PART_ENTRIES`] entries is a run of its own.
     fn group_runs<'a>(
         &'a self,
         frontier: &'a [u32],
         g: Range<usize>,
         mode: Mode,
     ) -> impl Iterator<Item = Range<usize>> + 'a {
+        let whole = mode != Mode::Parts && self.one_run(&frontier[g.clone()]);
         let (mut at, mut done) = (g.start, false);
         std::iter::from_fn(move || {
             if done {
                 return None;
+            }
+            if whole {
+                done = true;
+                return Some(g.clone());
             }
             let (start, mut entries) = (at, 0);
             while at < g.end {
@@ -1522,6 +1559,20 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         })
     }
 
+    /// Whether `nodes` is increasing and the lists of the node range it spans hold no
+    /// more than [`RUN_ENTRIES`] with one per node: then its exact cut is one run, found
+    /// without a degree per node (a frontier of consecutive nodes, Leiden's).
+    fn one_run(&self, nodes: &[u32]) -> bool {
+        let (Some(&first), Some(&last)) = (nodes.first(), nodes.last()) else {
+            return true;
+        };
+        if !nodes.windows(2).fold(true, |ok, w| ok & (w[0] < w[1])) {
+            return false;
+        }
+        let span = self.source.entry_offset(last + 1) - self.source.entry_offset(first);
+        span + nodes.len() as u64 <= RUN_ENTRIES as u64
+    }
+
     /// A reservation for `count` values of `T`: the results of parallel tasks.
     fn hold<T>(&self, count: usize) -> Result<Reservation, Error> {
         let bytes = (count as u64).saturating_mul(size_of::<T>() as u64);
@@ -1530,12 +1581,11 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             .reserve("edge-map frontier results", MemoryKind::Anonymous, bytes)?)
     }
 
-    /// The runs of `frontier`, as ranges of positions in it, and the number of runs of
-    /// each group of [`FRONTIER_GRAIN`] nodes. A run ends before the node that would take
-    /// it past [`RUN_ENTRIES`] (a node counts its degree plus one), and holds at least one
-    /// node; in [`Mode::Parts`], a node of more than [`PART_ENTRIES`] entries is a run of
-    /// its own. The runs are counted first, then written into memory of that size.
-    fn cut(&self, frontier: &[u32], mode: Mode) -> Result<Cuts, Error> {
+    /// The runs of `frontier` in [`Mode::Parts`], as ranges of positions in it, and the
+    /// number of runs of each group of [`FRONTIER_GRAIN`] nodes
+    /// ([`group_runs`](Self::group_runs)). The runs are counted first, then written into
+    /// memory of that size.
+    fn cut(&self, frontier: &[u32]) -> Result<Cuts, Error> {
         // A small frontier is cut on the calling thread: a fork costs more than its cuts.
         let how = if frontier.len() <= CUT_ALONE {
             Mode::Serial
@@ -1544,7 +1594,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         };
         let group = |g: Range<usize>| g.start..g.end.min(frontier.len());
         let groups = how.map_ranges(frontier.len().max(1), GRAIN, |g| {
-            self.group_runs(frontier, group(g), mode).count()
+            self.group_runs(frontier, group(g), Mode::Parts).count()
         });
         let count: usize = groups.iter().sum();
         let _held = self.hold::<Range<usize>>(count)?;
@@ -1558,7 +1608,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             .collect();
         let fill = |g: usize, out: &mut [u32]| {
             let start = g * FRONTIER_GRAIN;
-            let runs = self.group_runs(frontier, group(start..start + FRONTIER_GRAIN), mode);
+            let runs = self.group_runs(frontier, group(start..start + FRONTIER_GRAIN), Mode::Parts);
             for (end, r) in out.iter_mut().zip(runs) {
                 *end = u32::try_from(r.end).expect("a position in the frontier");
             }
