@@ -13,6 +13,7 @@ labels: type:feature, area:viewer, P0, risk:medium, size:L, lab-evidence
 - [ ] Adaptive budgets per frame from measured frame time ({{#m5-11-perf-accessibility}})
 - [ ] Embeddable as a web component and as an ES module; no build step required to use it
 - [ ] Hi-DPI, touch and trackpad gestures
+- [ ] Styles, fonts, icons and the mark come from `@everygraph/style` (`design/system/`, {{#m5-14-design-system}}); the canvas reads the same tokens; no literal colour in the viewer's stylesheets (`design/system/tools/lint_colours.py` passes)
 
 **Acceptance**
 - First view ≤ 250 KB transferred and ≤ 25 requests on a 4 M-node map
@@ -21,6 +22,6 @@ labels: type:feature, area:viewer, P0, risk:medium, size:L, lab-evidence
 
 **Pointers.** `lab/e-map` viewer; GPU in headless Chromium needed `--use-angle=gl-egl`.
 
-**Depends on** {{#m5-03-tile-builder}}, {{#m1-12-viewer-no-gpu}}
+**Depends on** {{#m5-03-tile-builder}}, {{#m1-12-viewer-no-gpu}}, {{#m5-14-design-system}}
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The visual target is `design/preview/style/viewer.html` (navigable) with the tokens in `assets/tokens.css`: dark canvas by default, bubbles, region outline 1.5 px with a tint of 12% / 5% when open / none when covering the view, labels with the count in monospace and a canvas-colour halo, smallest map text 12 px, selection as a double ink ring with the rest dimmed to 60%.
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The visual target is `design/preview/style/viewer.html` (navigable) with the tokens in `design/system/tokens.css`: dark canvas by default, bubbles, region outline 1.5 px with a tint of 12% / 5% when open / none when covering the view, labels with the count in monospace and a canvas-colour halo, smallest map text 12 px, selection as a double ink ring with the rest dimmed to 60%.

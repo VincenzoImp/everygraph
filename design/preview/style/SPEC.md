@@ -1,6 +1,6 @@
 # Everygraph style — working specification ("Vernier")
 
-The rules behind the style preview. `assets/tokens.css` holds the values; this file holds
+The rules behind the style preview. `design/system/tokens.css` holds the values; this file holds
 what values cannot say. Pages in this folder show it; they must not contradict it.
 
 ## Character

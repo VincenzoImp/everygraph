@@ -1,6 +1,14 @@
-// Joint light+dark search: one hue per slot, own lightness and chroma per theme. Slot 9 is the neutral ("other").
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+// Search for a categorical palette: one hue per slot, its own lightness and chroma per theme,
+// the last slot a neutral ("other"). Simulated annealing on the worst-pair ΔE, normal and
+// colour-blind (color.mjs), against the surfaces and accent of tokens.json.
+//   node search-palette.mjs [seed] [iterations] [colours] [light L max] [dark C max]
+// The current d1–d10 is the output of seed 12 with the defaults, reordered farthest-first so
+// that d1–d5, the region set, is the best-separated five. Re-measure with measure.mjs.
+import fs from 'node:fs';
 import { lch2hex, lin, simLin, oklabFromLin, contrast, oklch, deltaE, separation } from './color.mjs';
-import { TOK } from './measure.mjs';
+const J = JSON.parse(fs.readFileSync(new URL('../tokens.json', import.meta.url), 'utf8'));
+const TOK = Object.fromEntries(['light', 'dark'].map(t => [t, { map: J[t]['map-bg'], bg: J[t].bg, surface: J[t].surface, accent: J[t].accent }]));
 function rng(seed) { let s = seed >>> 0; return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const hd = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
 const [seedS = '1', itS = '80000', nS = '10', LlMax = '.70', CdMax = '.13'] = process.argv.slice(2); const R = rng(+seedS), iters = +itS, n = +nS;

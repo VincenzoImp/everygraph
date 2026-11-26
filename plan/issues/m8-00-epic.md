@@ -12,7 +12,7 @@ Tracking issue for milestone M8.
 **Exit criteria**
 - [ ] {{#m8-01-cli}}, {{#m8-02-docs-site}}, {{#m8-03-public-benchmarks}}
 - [ ] Showcases: {{#m8-04-showcase-wikipedia}}, {{#m8-05-showcase-openalex}}, {{#m8-06-showcase-blockchain}}
-- [ ] {{#m8-07-paper}}, {{#m8-08-release}}, {{#m8-09-feedback-loop}}
+- [ ] {{#m8-07-paper}}, {{#m8-08-release}}, {{#m8-09-feedback-loop}}, {{#m8-12-brand-files}}
 - [ ] All success criteria of DESIGN § 6 met or the claim reworded
 
 **Precondition.** The repository is already public, by the owner's decision with the trademark and patent risks acknowledged (`design/DECISIONS.md`, "When the repository becomes public", 2026-11-25). Before the first announced release: {{#m0-09-name-trademark}} closed, and the legal opinions of {{#m8-10-legal-opinions}} recorded or skipped with the reason; they are advisable, not a blocker ({{#m0-10-patent-check}} is closed).
