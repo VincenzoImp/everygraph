@@ -12,7 +12,10 @@ script
 2. builds it for wasm32-unknown-unknown without threads, runs the module in Node,
 
 and requires both to print the same lines, with the two sources agreeing (a kernels
-hash of 0 means they did not). Issue m3-11 (determinism CI) replaces the toy.
+hash of 0 means they did not). The toy also prints the golden digests of the core's
+numerics (crates/everygraph-core/tests/numerics_golden.rs); the native run checks them
+against the frozen values, so equal lines mean wasm32 has them too. Issue m3-11
+(determinism CI) replaces the toy.
 
 Usage: python3 tools/check_wasm_toy.py
        (from anywhere; needs cargo with the wasm32-unknown-unknown target, and node)
