@@ -291,6 +291,21 @@ pub enum Op {
     Compact,
 }
 
+/// What an operation does against the promise today, with the issue that removes it.
+/// The slope test checks that it is still there, so that the entry goes with the fix.
+pub const KNOWN: [(Op, &str); 1] = [(
+    Op::Ingest,
+    "the first pass holds each text block's parsed rows outside the ledger, and a budget \
+     below the build's own estimate is refused only after it \
+     (plan/issues/m3-23-ingest-first-pass.md)",
+)];
+
+/// Why `op` is in [`KNOWN`], if it is.
+#[must_use]
+pub fn known(op: Op) -> Option<&'static str> {
+    KNOWN.iter().find(|k| k.0 == op).map(|k| k.1)
+}
+
 /// Every operation, each kernel in both regimes.
 pub const OPS: [Op; 16] = {
     use Kernel::{Bfs, Degrees, KCore, PageRank, Sssp, Wcc};

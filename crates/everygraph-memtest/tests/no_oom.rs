@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use everygraph_memtest::counting::Counting;
 use everygraph_memtest::graphs::{FAMILIES, Recipe};
-use everygraph_memtest::ops::{Input, Kernel, OPS, Op, Regime};
+use everygraph_memtest::ops::{Input, Kernel, OPS, Op, Regime, known};
 use everygraph_memtest::probe::{
     Boundary, Declared, Outcome, Run, alone, measure, refuse_each, slope,
 };
@@ -53,15 +53,6 @@ const REFUSAL_LIMIT: u64 = 64 << 10;
 /// Most heap a finished run may leave above its start.
 const LEFT_LIMIT: i64 = 64 << 10;
 
-/// What an operation does against the promise today, with the issue that removes it.
-/// The slope test checks that it is still there, so that the entry goes with the fix.
-const KNOWN: [(Op, &str); 1] = [(
-    Op::Ingest,
-    "the first pass holds each text block's parsed rows outside the ledger, and a budget \
-     below the build's own estimate is refused only after it \
-     (plan/issues/m3-23-ingest-first-pass.md)",
-)];
-
 /// A directory of its own, removed on drop, on the build directory's disk: `/tmp` may be
 /// held in memory (tmpfs), where scratch files are memory too.
 struct Dir(PathBuf);
@@ -79,10 +70,6 @@ impl Drop for Dir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
-}
-
-fn known(op: Op) -> Option<&'static str> {
-    KNOWN.iter().find(|k| k.0 == op).map(|k| k.1)
 }
 
 /// The slope test of `ops` on `recipes` at `sizes`; returns the failures.
@@ -107,7 +94,7 @@ fn slopes(ops: &[Op], recipes: &[Recipe], sizes: &[u32], dir: &Path) -> Vec<Stri
                     recipe.name
                 )),
                 (false, Some(why)) if recipe.name == FAMILIES[0].name => failures.push(format!(
-                    "{} no longer holds untracked heap that grows ({s:.3} B/node): remove it from KNOWN ({why})",
+                    "{} no longer holds untracked heap that grows ({s:.3} B/node): remove it from `ops::KNOWN` ({why})",
                     op.name()
                 )),
                 _ => {}

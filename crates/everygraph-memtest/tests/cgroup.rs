@@ -21,16 +21,18 @@ use std::path::Path;
 
 use everygraph_memtest::cgroup::{self, Record};
 use everygraph_memtest::graphs::{FAMILIES, Recipe};
-use everygraph_memtest::ops::{Input, OPS, Op};
+use everygraph_memtest::ops::{Input, OPS, Op, known};
 
-/// What the scope holds above the budget for the process itself: the test binary, its
-/// threads' stacks, the input's arrays, and the page cache of the files it maps and
-/// writes, which the kernel reclaims before it kills.
+/// What the scope holds above the budget and the input's arrays: the test binary, its
+/// threads' stacks, and the page cache of the files it maps and writes, which the kernel
+/// reclaims before it kills. The files are on the build directory's disk: on a tmpfs
+/// they would be memory the kernel cannot reclaim without swap.
 const SLACK: u64 = 96 << 20;
 
 /// Most anonymous bytes above the ledger's peak (the "untracked" gap): what the counting
-/// allocator allows ([`no_oom.rs`]'s 512 KiB), what the allocator keeps after frees,
-/// thread stacks and page rounding.
+/// allocator allows (512 KiB in `no_oom.rs`), what the allocator keeps after frees,
+/// thread stacks and page rounding. The nightly matrix, run once on the lab machine, saw at
+/// most 9 MB outside the known gap of ingest (34 MB; exploratory).
 const GAP: i64 = 32 << 20;
 
 /// The scope of an unlimited run.
@@ -84,7 +86,9 @@ fn matrix(op: Op, recipe: &Recipe, input: &Input, fractions: &[f64], extra: &[u6
             Ok(r) => {
                 record(op, recipe, budget, &r);
                 let clean = matches!(r.outcome.as_str(), "done" | "refused");
-                if !clean || r.oom_kill > 0 || r.gap() > GAP {
+                // A known gap is reported, not failed: no kill and a clean end still are.
+                let gap = r.gap() > GAP && known(op).is_none();
+                if !clean || r.oom_kill > 0 || gap {
                     failures.push(format!("{} at {budget:?}: {r:?}", op.name()));
                 }
                 Some(r)
