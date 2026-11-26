@@ -328,17 +328,23 @@ fn every_spec_in_the_repository_passes_the_check() {
 #[test]
 fn a_dataset_in_the_work_directory_is_made_by_a_preparation_step_first() {
     let dir = scratch("workdata");
-    let spec = write_spec(
-        &dir,
+    // The cold case needs util-linux fincore for its copies; the warm one runs anywhere.
+    let cold = Command::new("fincore").arg("--version").output().is_ok();
+    let mut text_spec = String::from(
         "schema = 1\nname = \"selftest\"\ndescription = \"probe\"\n[defaults]\n\
          memory_limit = \"256M\"\nrepetitions = 1\nwarmup = 0\nsettle = \"100ms\"\n\
          [[prepare]]\nname = \"store\"\n\
          shell = \"mkdir -p {work}/stores/g && head -c 8192 /dev/zero > {work}/stores/g/x\"\n\
          [[benchmark]]\nname = \"warm\"\ndataset_path = \"{work}/stores/g\"\n\
-         command = [\"true\"]\n\
-         [[benchmark]]\nname = \"cold\"\ndataset_path = \"{work}/stores/g\"\ncache = \"cold\"\n\
-         command = [\"cat\", \"{dataset}/x\"]\n",
+         command = [\"true\"]\n",
     );
+    if cold {
+        text_spec.push_str(
+            "[[benchmark]]\nname = \"cold\"\ndataset_path = \"{work}/stores/g\"\n\
+             cache = \"cold\"\ncommand = [\"cat\", \"{dataset}/x\"]\n",
+        );
+    }
+    let spec = write_spec(&dir, &text_spec);
     let (root, work, rows) = (repo(), dir.join("w"), dir.join("rows.jsonl"));
     let run = |extra: &[&str]| {
         let mut args = vec!["run", s(&spec), "--repo", s(&root), "--work", s(&work)];
@@ -346,12 +352,15 @@ fn a_dataset_in_the_work_directory_is_made_by_a_preparation_step_first() {
         args.extend_from_slice(extra);
         bench(&args, &dir.join("l"))
     };
-    let prepared = run(&["--prepare-only"]);
-    assert!(prepared.status.success(), "{}", text(&prepared.stderr));
-    let measured = run(&["--skip-prepare"]);
-    assert!(measured.status.success(), "{}", text(&measured.stderr));
+    // Preparation steps run under systemd-run, which a CI runner may not offer.
+    if systemd_run_works() {
+        let prepared = run(&["--prepare-only"]);
+        assert!(prepared.status.success(), "{}", text(&prepared.stderr));
+        let measured = run(&["--skip-prepare"]);
+        assert!(measured.status.success(), "{}", text(&measured.stderr));
+        std::fs::remove_dir_all(dir.join("w/stores")).expect("remove the store");
+    }
     // Without the step, the case names the missing dataset after the preparation.
-    std::fs::remove_dir_all(dir.join("w/stores")).expect("remove the store");
     let missing = run(&["--skip-prepare"]);
     assert_eq!(missing.status.code(), Some(1));
     assert!(
