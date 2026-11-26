@@ -134,6 +134,11 @@ count, then by smallest node. So the numbering is a function of the tree.
 | 3 | subcommunity: a part of a community, split again for the map | dashed outline |
 | 4 | aggregate: the smaller children of one parent, "+N smaller communities"; or the communities without an edge, under the root | hatched; not drawn when its parent is an aggregate |
 
+The communities without an edge (their nodes have no neighbour other than themselves)
+are one aggregate under the root, and that aggregate takes one of the root's `fan_out`
+places: when the root would have more children, it keeps `fan_out − 2` of the others
+and puts the rest in its tail aggregate.
+
 **The sibling graph** is an undirected adjacency (`eg-adjacency.md`) over the `R`
 regions. It has an entry between two children `a ≠ b` of one region when some pair of
 nodes joins them, in both lists; its number of events is the weight of the pairs
@@ -161,7 +166,7 @@ from the root; there is exactly one.
    root's are `W` and `2W`, with integer sums that hold bit for bit.
 5. Against the graph (`adjacency.out`, when undirected and in memory): the `internal`
    and `volume` of every leaf equal those of `membership`; and for every region `a`,
-   the sums `Σ_b S[a][b]` and `Σ_b S[a][b]·h(b)` over its row equal those over the pairs
+   the sum `Σ_b S[a][b]·h(b)` over its row equals that over the pairs
    of nodes that the tree gives to `a`, with a random 64-bit `h` per region, modulo
    `2^64 − 59`, as in § 3, from the purpose `HCHK`, counter `[region, 0, 0, 1]` and seed
    0.

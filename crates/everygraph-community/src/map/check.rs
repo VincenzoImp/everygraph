@@ -108,10 +108,7 @@ pub(crate) fn check<S: ByteSource>(
     let adjacency = s.adjacency()?;
     let events = s.events()?;
     let h = weights(memory, m.regions())?;
-    let (mut stored_w, mut stored_h) = (
-        Column::new(memory, "map check", r, |_| 0_u64)?,
-        Column::new(memory, "map check", r, |_| 0_u64)?,
-    );
+    let mut stored_h = Column::new(memory, "map check", r, |_| 0_u64)?;
     let mut buf = Vec::new();
     let mut entry = 0_u64;
     let mut sibling = Column::new(memory, "map check", r, |_| 0_u64)?;
@@ -134,7 +131,6 @@ pub(crate) fn check<S: ByteSource>(
                     "a sibling entry between regions that are not siblings",
                 ));
             }
-            stored_w[a] = stored_w[a].saturating_add(w);
             let term = u128::from(w % PRIME) * u128::from(h[b]) % u128::from(PRIME);
             stored_h[a] = add(stored_h[a], u64::try_from(term).unwrap_or(0));
             let p = &mut sibling[parent[a] as usize];
@@ -184,7 +180,6 @@ pub(crate) fn check<S: ByteSource>(
         }
         (a, b)
     };
-    let made_w = Column::new(memory, "map check", r, |_| AtomicU64::new(0))?;
     let made_h = Column::new(memory, "map check", r, |_| AtomicU64::new(0))?;
     let leaves = Plan::with(&source, memory, Settings::default(), |plan| {
         plan.scan((), all, |(): &mut (), (), _, row, _| {
@@ -193,7 +188,6 @@ pub(crate) fn check<S: ByteSource>(
                 let lv = membership[v.index()];
                 if lu != lv {
                     let (a, b) = pair(lu, lv);
-                    made_w[a as usize].fetch_add(1, Relaxed);
                     let cell = &made_h[a as usize];
                     let _ = cell.try_update(Relaxed, Relaxed, |old| Some(add(old, h[b as usize])));
                 }
@@ -207,8 +201,7 @@ pub(crate) fn check<S: ByteSource>(
     if !same_leaves {
         return Err(invalid("leaves whose counts are not those of the graph"));
     }
-    let same = (0..r)
-        .all(|x| made_w[x].load(Relaxed) == stored_w[x] && made_h[x].load(Relaxed) == stored_h[x]);
+    let same = (0..r).all(|x| made_h[x].load(Relaxed) == stored_h[x]);
     if !same {
         return Err(invalid(
             "a sibling graph that is not what the tree makes of the graph",

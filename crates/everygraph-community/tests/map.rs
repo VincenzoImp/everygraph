@@ -1257,6 +1257,9 @@ fn the_super_level_leiden_coarsens_further_than_leiden() {
 
 /// Nodes without edges change no region: the map of a graph with 2,000,000 of them
 /// added is the map of the graph alone, and one aggregate of those nodes under the root.
+/// That aggregate takes one of the root's `F` places, so the graph's map here has fewer
+/// than `F` regions under the root; a full root would move one more of them into its
+/// tail aggregate.
 #[test]
 fn nodes_without_edges_add_one_region_and_change_no_other() {
     let (n, pairs) = nested(&[40, 8, 6], &[6, 2, 1, 0], 7);
@@ -1303,15 +1306,15 @@ fn nodes_without_edges_add_one_region_and_change_no_other() {
 }
 
 /// When the budget refuses regions solved together, they are solved again one at a
-/// time: just under the peak of a run on eight threads, the same tree is built.
+/// time: under the peak of a run on one thread, a run on eight builds the same tree.
 #[test]
 fn regions_refused_together_are_solved_one_at_a_time() {
     let (n, pairs) = nested(&[4000, 25], &[8, 1, 0], 13);
     let lists = Lists::from_pairs(n, &pairs);
     let blocks: Vec<u32> = (0..n).map(|v| v / 4000).collect();
     let o = MapOptions::default();
-    let build = |budget: &Arc<Budget>| {
-        par::with_threads(NonZeroUsize::new(8).unwrap(), || {
+    let build = |threads: usize, budget: &Arc<Budget>| {
+        par::with_threads(NonZeroUsize::new(threads).unwrap(), || {
             let memory = Memory::from(Arc::clone(budget));
             map::build(&lists.csr(), &memory, Settings::default(), &blocks, &o)
                 .map(|t| t.parent.iter().copied().collect::<Vec<u32>>())
@@ -1319,7 +1322,7 @@ fn regions_refused_together_are_solved_one_at_a_time() {
         .unwrap()
     };
     let unlimited = Arc::new(Budget::unlimited());
-    let free = build(&unlimited).unwrap();
-    let tight = Arc::new(Budget::new(unlimited.peak() - 1));
-    assert_eq!(build(&tight).unwrap(), free);
+    let one = build(1, &unlimited).unwrap();
+    let tight = Arc::new(Budget::new(unlimited.peak()));
+    assert_eq!(build(8, &tight).unwrap(), one);
 }
