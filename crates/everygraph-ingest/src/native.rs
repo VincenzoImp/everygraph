@@ -360,7 +360,7 @@ pub fn write<S: ByteSource + Sync>(
             let mut partial = Partial(Some(partial_path.clone()));
             let unfinished = build::build(reader, options, memory, scratch, sink, progress)?;
             let (sink, report) = unfinished.commit(provenance)?;
-            drop(sink.into_file());
+            drop(sink);
             let written = MmapSource::open(&partial_path).map_err(io_error(&partial_path))?;
             let done = checked(progress, &|| build::check(&written, memory))?;
             drop(written);

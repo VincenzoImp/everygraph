@@ -470,6 +470,120 @@ fn an_in_adjacency_must_be_the_transpose_of_its_out_adjacency() {
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].section.as_deref(), Some("adjacency.in.data"));
     }
+    // The same pairs over one more node: only the node counts differ.
+    let mut w = Writer::create(Mem::default()).unwrap();
+    let params = [("directed", "true"), ("self_loops", "drop")];
+    w.add_provenance("provenance/ingest", &built_with(&params))
+        .unwrap();
+    let lists = vec![vec![1, 2], vec![2], vec![0]];
+    let reversed = vec![vec![2], vec![0], vec![0, 1], vec![]];
+    add_adjacency(&mut w, "adjacency.out", &lists, "provenance/ingest");
+    add_adjacency(&mut w, "adjacency.in", &reversed, "provenance/ingest");
+    w.commit().unwrap();
+    let found = problems(&w.into_sink().into_inner());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].what.contains("is not the transpose"), "{found:?}");
+}
+
+/// Adds adjacency `name` with the pairs of `arcs` and their stored events (the times a
+/// pair is listed); with a `.events` section when a pair repeats.
+fn add_with_events(w: &mut Writer<Mem>, name: &str, nodes: usize, arcs: &[(u32, u32)]) {
+    let mut lists = vec![std::collections::BTreeMap::new(); nodes];
+    for &(u, v) in arcs {
+        *lists[u as usize].entry(v).or_insert(0_u64) += 1;
+    }
+    let memory = Memory::unlimited();
+    let mut index = IndexBuilder::new(&memory, u32::try_from(nodes).unwrap()).unwrap();
+    let mut data = Vec::new();
+    for (v, list) in lists.iter().enumerate() {
+        let before = data.len();
+        let v = u32::try_from(v).unwrap();
+        let degree = append_record(v, list.keys().copied(), &mut data).unwrap();
+        index.push(degree, (data.len() - before) as u64).unwrap();
+    }
+    let ms: Vec<u64> = lists.iter().flat_map(|l| l.values().copied()).collect();
+    let repeated = ms.iter().any(|&m| m > 1);
+    let (index, _held) = index.finish(repeated).unwrap();
+    let provenance = Some("provenance/ingest");
+    let kinds = [Kind::ADJACENCY_INDEX, Kind::ADJACENCY_DATA];
+    for (part, kind, bytes) in [("index", kinds[0], &index), ("data", kinds[1], &data)] {
+        w.add_section(&format!("{name}.{part}"), kind, bytes, provenance)
+            .unwrap();
+    }
+    if repeated {
+        let total = ms.iter().sum();
+        let events = encode_events(ms.len() as u64, total, ms).unwrap();
+        w.add_section(
+            &format!("{name}.events"),
+            Kind::ADJACENCY_EVENTS,
+            &events,
+            provenance,
+        )
+        .unwrap();
+    }
+}
+
+/// A directed graph whose out-adjacency holds the events `arcs` and whose in-adjacency
+/// holds the events `in_arcs`, reversed.
+fn directed_events(nodes: usize, arcs: &[(u32, u32)], in_arcs: &[(u32, u32)]) -> Vec<u8> {
+    let reversed: Vec<(u32, u32)> = in_arcs.iter().map(|&(u, v)| (v, u)).collect();
+    let mut w = Writer::create(Mem::default()).unwrap();
+    let params = [("directed", "true"), ("self_loops", "keep")];
+    w.add_provenance("provenance/ingest", &built_with(&params))
+        .unwrap();
+    add_with_events(&mut w, "adjacency.out", nodes, arcs);
+    add_with_events(&mut w, "adjacency.in", nodes, &reversed);
+    w.commit().unwrap();
+    w.into_sink().into_inner()
+}
+
+/// With repeated pairs, the in-adjacency is the transpose of the out-adjacency event for
+/// event: both have a `.events` section, with the same events and the same multiplicity
+/// for each reversed pair.
+#[test]
+fn an_in_adjacency_must_have_the_events_of_its_out_adjacency() {
+    let arcs = [
+        (0, 1),
+        (0, 1),
+        (1, 2),
+        (2, 0),
+        (0, 2),
+        (0, 2),
+        (0, 2),
+        (1, 1),
+    ];
+    let report = check(&directed_events(3, &arcs, &arcs), Depth::Deep);
+    assert!(report.is_intact(), "{:?}", report.problems);
+    let events: Vec<_> = report.adjacencies.iter().map(|a| a.events).collect();
+    assert_eq!(events, [Some(8), Some(8)]);
+    let swapped = [
+        (0, 1),
+        (0, 1),
+        (0, 1),
+        (1, 2),
+        (2, 0),
+        (0, 2),
+        (0, 2),
+        (1, 1),
+    ];
+    let single = [(0, 1), (1, 2), (2, 0), (0, 2), (1, 1)];
+    for (wrong, section, what) in [
+        (&swapped[..], "adjacency.in.data", "is not the transpose"),
+        (&single[..], "adjacency.in.index", "differ in their events"),
+    ] {
+        let found = problems(&directed_events(3, &arcs, wrong));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].section.as_deref(), Some(section));
+        assert!(found[0].what.contains(what), "{found:?}");
+    }
+    // An index that announces a `.events` section that is not there.
+    let file = directed_events(3, &arcs, &arcs);
+    let mut w = Writer::update(Mem::new(file)).unwrap();
+    w.remove("adjacency.in.events").unwrap();
+    w.commit().unwrap();
+    let found = problems(&w.into_sink().into_inner());
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].section.as_deref(), Some("adjacency.in.index"));
 }
 
 #[test]

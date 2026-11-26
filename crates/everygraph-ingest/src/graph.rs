@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! A graph that [`build`](crate::build) wrote, opened for reading: its out-adjacency,
-//! its identifier dictionary and what its provenance says (`docs/api-sketch.md` § 3.2).
+//! its in-adjacency when the file holds one (a directed graph), its identifier
+//! dictionary and what its provenance says (`docs/api-sketch.md` § 3.2).
 //!
 //! Opening reads the header, the table of contents, the small sections (each checked
-//! against its hash: `everygraph_format::verify`, [`Depth::Fast`]) and the index of the
-//! out-adjacency, which is held in memory under the budget. The data part and the
+//! against its hash: `everygraph_format::verify`, [`Depth::Fast`]) and the index of each
+//! adjacency, which is held in memory under the budget. The data part and the
 //! dictionary's large arrays are read on demand from the source.
 
 use std::fmt;
@@ -15,7 +16,10 @@ use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, FormatError}
 use everygraph_format::container::{Container, ContainerError, Section};
 use everygraph_format::verify::{Depth, verify};
 
-use crate::build::{OUT_DATA, OUT_EVENTS, OUT_INDEX, PROVENANCE};
+use crate::build::{
+    BuildError, IN_DATA, IN_EVENTS, IN_INDEX, OUT_DATA, OUT_EVENTS, OUT_INDEX, PROVENANCE,
+    read_section,
+};
 use crate::ids::{Dictionary, DictionaryError};
 
 /// Why a graph file cannot be opened.
@@ -74,11 +78,49 @@ impl From<ContainerError> for OpenError {
     }
 }
 
+/// One adjacency of a graph file: its index, held in memory, and its section names.
+struct Lists {
+    index: AdjacencyIndex,
+    _held: Reservation,
+    data: &'static str,
+    events: &'static str,
+}
+
+impl Lists {
+    fn open<S: ByteSource>(
+        file: &Container<S>,
+        [index_name, data, events]: [&'static str; 3],
+        memory: &Memory,
+    ) -> Result<Self, OpenError> {
+        let mut held = Reservation::empty(memory, "adjacency index", MemoryKind::Anonymous);
+        let bytes = read_section(file.source(), file.get(index_name), index_name, &mut held)
+            .map_err(|e| match e {
+                BuildError::Budget(b) => OpenError::Budget(b),
+                BuildError::Container(ContainerError::Read(e)) => OpenError::Read(e),
+                other => corrupt(index_name, other),
+            })?;
+        let index =
+            AdjacencyIndex::parse(&bytes).map_err(|e: FormatError| corrupt(index_name, e))?;
+        drop(bytes);
+        let heap = u64::try_from(index.heap_bytes()).unwrap_or(u64::MAX);
+        held.try_resize(heap).map_err(OpenError::Budget)?;
+        if file.get(data).map(|e| e.len) != Some(index.data_bytes()) {
+            return Err(corrupt(data, "its length is not the one its index gives"));
+        }
+        Ok(Self {
+            index,
+            _held: held,
+            data,
+            events,
+        })
+    }
+}
+
 /// A graph file, open.
 pub struct Graph<S> {
     file: Container<S>,
-    index: AdjacencyIndex,
-    _index_held: Reservation,
+    out: Lists,
+    inn: Option<Lists>,
     directed: bool,
     edges: u64,
 }
@@ -86,7 +128,7 @@ pub struct Graph<S> {
 impl<S> fmt::Debug for Graph<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Graph")
-            .field("nodes", &self.index.nodes())
+            .field("nodes", &self.out.index.nodes())
             .field("edges", &self.edges)
             .field("directed", &self.directed)
             .finish_non_exhaustive()
@@ -99,7 +141,7 @@ impl<S: ByteSource + Sync> Graph<S> {
     /// # Errors
     ///
     /// [`OpenError::Corrupt`] for a file that is not a graph or fails the quick check;
-    /// [`OpenError::Read`] when the source fails; [`OpenError::Budget`] when the index
+    /// [`OpenError::Read`] when the source fails; [`OpenError::Budget`] when an index
     /// does not fit.
     pub fn open(source: S, memory: &Memory) -> Result<Self, OpenError> {
         let report = verify(&source, Depth::Fast, memory).map_err(OpenError::Read)?;
@@ -125,28 +167,24 @@ impl<S: ByteSource + Sync> Graph<S> {
         let edges = parameter("counts.edges")?
             .parse()
             .map_err(|_| corrupt(PROVENANCE, "counts.edges is not a count"))?;
-        let section = file.section(OUT_INDEX)?;
-        let len = usize::try_from(section.len()).map_err(|_| corrupt(OUT_INDEX, "too large"))?;
-        let mut held = memory
-            .reserve("adjacency index", MemoryKind::Anonymous, section.len())
-            .map_err(OpenError::Budget)?;
-        let mut bytes = vec![0_u8; len];
-        section.read_at(0, &mut bytes).map_err(OpenError::Read)?;
-        let index =
-            AdjacencyIndex::parse(&bytes).map_err(|e: FormatError| corrupt(OUT_INDEX, e))?;
-        drop(bytes);
-        let heap = u64::try_from(index.heap_bytes()).unwrap_or(u64::MAX);
-        held.try_resize(heap).map_err(OpenError::Budget)?;
-        if file.get(OUT_DATA).map(|e| e.len) != Some(index.data_bytes()) {
+        let out = Lists::open(&file, [OUT_INDEX, OUT_DATA, OUT_EVENTS], memory)?;
+        let inn = match file.get(IN_INDEX) {
+            Some(_) => Some(Lists::open(&file, [IN_INDEX, IN_DATA, IN_EVENTS], memory)?),
+            None => None,
+        };
+        let agree = |i: &AdjacencyIndex, o: &AdjacencyIndex| {
+            (i.nodes(), i.entries(), i.has_events()) == (o.nodes(), o.entries(), o.has_events())
+        };
+        if inn.as_ref().is_some_and(|i| !agree(&i.index, &out.index)) {
             return Err(corrupt(
-                OUT_DATA,
-                "its length is not the one its index gives",
+                IN_INDEX,
+                "its nodes, entries or events flag are not the out-adjacency's",
             ));
         }
         Ok(Self {
             file,
-            index,
-            _index_held: held,
+            out,
+            inn,
             directed,
             edges,
         })
@@ -155,7 +193,7 @@ impl<S: ByteSource + Sync> Graph<S> {
     /// Nodes.
     #[must_use]
     pub fn nodes(&self) -> u32 {
-        self.index.nodes()
+        self.out.index.nodes()
     }
 
     /// Stored edges: every event counts (`docs/api-sketch.md` § 3.2, `num_edges`).
@@ -173,7 +211,7 @@ impl<S: ByteSource + Sync> Graph<S> {
     /// The index of the out-adjacency: the lists of an undirected graph.
     #[must_use]
     pub fn index(&self) -> &AdjacencyIndex {
-        &self.index
+        &self.out.index
     }
 
     /// The data part of the out-adjacency.
@@ -183,7 +221,7 @@ impl<S: ByteSource + Sync> Graph<S> {
     /// None for a file that [`open`](Self::open) accepted; the container's error
     /// otherwise.
     pub fn data(&self) -> Result<Section<'_, S>, ContainerError> {
-        self.file.section(OUT_DATA)
+        self.file.section(self.out.data)
     }
 
     /// The number of events of each entry of the out-adjacency, from its `.events`
@@ -194,20 +232,51 @@ impl<S: ByteSource + Sync> Graph<S> {
     /// [`OpenError::Corrupt`] for a section that is not the index's, or that is not
     /// held in memory (a map or a heap buffer).
     pub fn events(&self) -> Result<Option<AdjacencyEvents<'_>>, OpenError> {
-        if !self.index.has_events() {
+        self.events_of(&self.out)
+    }
+
+    /// The index of the in-adjacency of a directed graph (DESIGN D6); `None` when the
+    /// file does not hold one: an undirected graph, or one built without it.
+    #[must_use]
+    pub fn in_index(&self) -> Option<&AdjacencyIndex> {
+        self.inn.as_ref().map(|l| &l.index)
+    }
+
+    /// The data part of the in-adjacency.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::NoSuchSection`] when the file holds no in-adjacency.
+    pub fn in_data(&self) -> Result<Section<'_, S>, ContainerError> {
+        self.file
+            .section(self.inn.as_ref().map_or(IN_DATA, |l| l.data))
+    }
+
+    /// As [`events`](Self::events), for the in-adjacency; `None` as well when the file
+    /// holds no in-adjacency.
+    ///
+    /// # Errors
+    ///
+    /// As [`events`](Self::events).
+    pub fn in_events(&self) -> Result<Option<AdjacencyEvents<'_>>, OpenError> {
+        self.inn.as_ref().map_or(Ok(None), |l| self.events_of(l))
+    }
+
+    fn events_of<'a>(&'a self, lists: &'a Lists) -> Result<Option<AdjacencyEvents<'a>>, OpenError> {
+        if !lists.index.has_events() {
             return Ok(None);
         }
+        let name = lists.events;
         let entry = self
             .file
-            .get(OUT_EVENTS)
-            .ok_or_else(|| corrupt(OUT_EVENTS, "missing, though the index announces it"))?;
+            .get(name)
+            .ok_or_else(|| corrupt(name, "missing, though the index announces it"))?;
         let bytes = self
             .file
             .source()
             .slice(entry.offset..entry.offset + entry.len)
-            .ok_or_else(|| corrupt(OUT_EVENTS, "not held in memory"))?;
-        let events =
-            AdjacencyEvents::parse(bytes, &self.index).map_err(|e| corrupt(OUT_EVENTS, e))?;
+            .ok_or_else(|| corrupt(name, "not held in memory"))?;
+        let events = AdjacencyEvents::parse(bytes, &lists.index).map_err(|e| corrupt(name, e))?;
         Ok(Some(events))
     }
 
@@ -288,11 +357,24 @@ mod tests {
         let counts: Vec<u64> = events.multiplicities().expect("counts").collect();
         assert_eq!(counts.iter().sum::<u64>(), 8);
         assert_eq!(counts.iter().filter(|&&m| m == 2).count(), 2);
-        assert!(
-            Graph::open(MemorySource::new(&built("1 2\n", true)[..]), &memory)
-                .expect("a graph")
-                .directed()
+        assert!(g.in_index().is_none() && g.in_events().expect("none").is_none());
+        let bytes = built("1 2\n1 2\n3 1\n", true);
+        let d = Graph::open(MemorySource::new(&bytes[..]), &memory).expect("a graph");
+        assert!(d.directed());
+        let inn = d.in_index().expect("an in-adjacency");
+        assert_eq!(
+            (inn.degree(NodeId::new(0)), inn.degree(NodeId::new(1))),
+            (1, 1)
         );
+        assert_eq!(d.in_data().expect("its data").len(), inn.data_bytes());
+        let counts: Vec<u64> = d
+            .in_events()
+            .expect("a sound section")
+            .expect("a repeated pair")
+            .multiplicities()
+            .expect("counts")
+            .collect();
+        assert_eq!(counts, [1, 2]);
     }
 
     #[test]

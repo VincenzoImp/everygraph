@@ -1,0 +1,92 @@
+{
+ "url": "file:///home/tux/projects/everygraph/.claude/worktrees/agent-a46086dfed87c31d2/design/preview/style/overview.html",
+ "checks": [
+  {
+   "name": "focus announces the first region",
+   "ok": true,
+   "got": "Region 1, 1 of 71: 496,680 nodes, 55% of its edges stay inside, strongest partner Region 8 with 282,591 edges."
+  },
+  {
+   "name": "ArrowRight moves to the next region",
+   "ok": true,
+   "got": "Region 2, 2 of 71: 304,840 nodes, 98% of its edges stay inside, strongest partner Region 1 with 44,263 edges."
+  },
+  {
+   "name": "Enter selects the focused region",
+   "ok": true,
+   "got": "15"
+  },
+  {
+   "name": "Escape clears the selection",
+   "ok": true,
+   "got": ""
+  },
+  {
+   "name": "ArrowDown opens the region",
+   "ok": true,
+   "got": [
+    "15",
+    "Inside Region 1: 36 parts."
+   ]
+  },
+  {
+   "name": "ArrowUp goes back to the parent",
+   "ok": true,
+   "got": "0"
+  },
+  {
+   "name": "Shift+arrow pans without changing the state",
+   "ok": true,
+   "got": {
+    "g": "lj",
+    "p": "0",
+    "sel": "",
+    "glyph": "1",
+    "links": "0",
+    "matrix": "0",
+    "shade": "coupling",
+    "pair": "",
+    "theme": "dark",
+    "panel": "1",
+    "options": "0",
+    "status": "Region 1, 1 of 71: 496,680 nodes, 55% of its edges stay inside, strongest partner Region 8 with 282,591 edges."
+   }
+  },
+  {
+   "name": "the matrix is a grid with one cell in the tab order",
+   "ok": true,
+   "got": null
+  },
+  {
+   "name": "moving in the grid reads the cell out",
+   "ok": true,
+   "got": "#41 and #36: 75 edges, 0.3% of the edges leaving #41, 0.3% of those leaving #36; 0.43× the number expected."
+  },
+  {
+   "name": "Enter on a cell draws the pair",
+   "ok": true,
+   "got": "10-40"
+  },
+  {
+   "name": "Escape closes the matrix",
+   "ok": true,
+   "got": "0"
+  },
+  {
+   "name": "+ zooms only while the map has focus (WCAG 2.1.4)",
+   "ok": true,
+   "got": [
+    648,
+    648,
+    907.1999999999999
+   ]
+  },
+  {
+   "name": "no page errors",
+   "ok": true,
+   "got": []
+  }
+ ],
+ "passed": 13,
+ "total": 13
+}

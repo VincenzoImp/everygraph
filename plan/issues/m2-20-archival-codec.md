@@ -1,23 +1,17 @@
 ---
-title: Archival block codec for the adjacency (varint + zstd per block), measured on uk-2005
+title: Compact tier for the adjacency: the coding chosen by the codec census
 milestone: M2 · Format and ingest
 labels: type:feature, area:format, P2, risk:medium, size:M
 ---
-**Why.** FINDINGS § C measured varint + zstd blocks at 2.4 bits/entry on uk-2005 against 11.4 for the byte tier (shared machine). {{#m2-03-adjacency-codec}} reserves block codec values ≠ 0 and refuses them; its "web graph ≤ 12 / ≤ 3 bits/edge" criterion moves here. Exploratory reference from PR #157: web-google 21.92 bits/entry (data 20.72 + index 1.20), round trip equal — not comparable to uk-2005 because its ids have no locality; on web-google the "first neighbour as a separate varint" form would have been 0.23 bits smaller, the opposite of lj and orkut, so that trade depends on id locality.
+**Scope reduced (decided 2026-11-26, `docs/research/sota-review-2026-11.md` S11).** This issue builds the compact tier that the codec census of {{#m1-16-codec-0124}} chooses, and nothing else. The varint + zstd block codec once written here is dropped: on uk-2005 it reached 2.4 bits per entry at 44 µs per random list, against BV's 2.1 bits at 768 ns (FINDINGS § C, shared machine), so it is slower than BV at random access by 57× and not smaller. No codec is built before the census reports.
 
-**Deferred (2026-11-25, `docs/research/README.md` B3; `docs/research/sota-storage.md` § 3 m2-20, challenge 6).** Not started before {{#m1-09-hierarchy-order}} and {{#m1-16-codec-0124}} report. On uk-2005, BV is both smaller and 57× faster at random access than varint + zstd blocks: 2.1 bits at 768 ns per random list, against 2.4 bits at 44 µs (FINDINGS § C, shared machine). Zuckerli is another 20–30% below BV on web graphs (Versari et al. 2020, their data). The byte tier loses on web graphs mainly through its 10-bit floor per gap, which an ordering and codec 2 attack. So:
-- re-measure uk-2005 on the byte tier with the best order and codec 2;
-- if that is within 2× of BV, the archival tier becomes "BV through the webgraph feature" ({{#m2-15-webgraph-feature}}) for native builds and is dropped for wasm, and this issue is closed with that result;
-- zstd blocks are kept only if they remain the best wasm-portable archival option, with a random-list target in microseconds, not tens of microseconds.
+**Why a compact tier.** Codec 0 stays the computing format (ADR 0004). A smaller tier is useful where the budget does not hold codec 0 but holds a smaller form: when the compressed form fits and the raw one does not, compressed is 1.2–1.9× faster for PageRank and 5.4–8.8× for WCC and BFS on Friendster (FINDINGS § M1-13). It would also give wasm a small form, which BV through webgraph-rs cannot (D5). On the best order of each graph, BV-style coding is still 22–27% smaller than codec 0 (`lab/m1-09-hierarchy-order/results/README.md`, exploratory).
 
-**Scope**
-- [ ] Codec value 1 in `docs/spec/eg-adjacency.md`: per-block LEB128 words compressed as one zstd frame; smaller blocks where random access matters; what byte offsets mean inside an archival block
-- [ ] Pure-Rust zstd encoder (ruzstd is in the tree): its ratio against libzstd on uk-2005
-- [ ] Reader, decoders and fuzz target extended; uk-2005 fetched through the dataset registry
+**Possible outcomes of the census, and what this issue then does**
+- A coding passes the census threshold (at least 15% below codec 0 on at least three graphs, tables included) and its lab decoder holds its budgeted case: specify it as a new block codec value in `docs/spec/eg-adjacency.md`, with reader, decoders, fuzz target, and a planner rule that chooses codec 0 or the compact tier from the budget. A tier, never the default.
+- No coding passes: the compact tier is "BV through the webgraph feature" ({{#m2-15-webgraph-feature}}) for native builds, none for wasm, and this issue closes with that result.
 
-**Acceptance**
-- uk-2005 ≤ 12 bits/entry with the byte tier and ≤ 3 with the archival tier (both indexes included); random list on an archival block measured against the lab's 44 µs; round trip and fuzzing as in #30
+**Acceptance** (on go)
+- Bits per entry on the census graphs equal to the census within 1% (index included); random-list latency and single-thread decode rate against codec 0, interleaved A/B; round trip and fuzzing as in #30; the budgeted case faster than codec 0 under the same `MemoryMax`
 
-**Depends on** {{#m1-09-hierarchy-order}}, {{#m1-16-codec-0124}}
-
-**Input from m1-09 (#23, exploratory).** On the best order for each graph, BV-style coding is still 22–27% smaller than codec 0 (`lab/m1-09-hierarchy-order/results/README.md`), so the archival codec keeps its case after compaction.
+**Depends on** {{#m1-16-codec-0124}}, {{#m1-09-hierarchy-order}}

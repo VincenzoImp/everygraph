@@ -516,7 +516,7 @@ fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
     let sink = FileSink::open(&link).unwrap();
     assert_eq!(AppendSink::create(&path).unwrap_err().kind(), ResourceBusy);
     MmapSource::open(&path).unwrap();
-    drop(sink.into_file());
+    drop(sink);
     fs::remove_dir_all(dir).unwrap();
 }
 

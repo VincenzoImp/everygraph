@@ -321,7 +321,8 @@ class Graph:
         progress: ProgressArg = True,
     ) -> Table:
         """For every node (or the nodes given, in that order), its number of distinct
-        neighbors: `node`, `degree`. An identifier that is not in the graph gives a row
+        neighbors: `node`, `degree`; on a directed graph `node`, `in_degree`,
+        `out_degree`, `degree` (neighbors in either direction). An identifier that is not in the graph gives a row
         of nulls, counted in `meta["unknown"]` (`docs/api-sketch.md` § 2.2)::
 
             >>> g.degrees().top(3, by="degree")

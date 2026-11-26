@@ -1,0 +1,56 @@
+{
+ "chromium-gpu": {
+  "version": "159.0.8154.6",
+  "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 4090/PCIe/SSE2, OpenGL ES 3.2) | WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+  "worker": true,
+  "decompression_stream": true,
+  "offscreen_canvas": true,
+  "range_status": 206,
+  "range_bytes": 16,
+  "worker_runs": true,
+  "empty_frames": {
+   "n": 120,
+   "mean_ms": 16.66,
+   "p50_ms": 16.7,
+   "p95_ms": 16.8,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  }
+ },
+ "chromium-swiftshader": {
+  "version": "159.0.8154.6",
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver) | WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+  "worker": true,
+  "decompression_stream": true,
+  "offscreen_canvas": true,
+  "range_status": 206,
+  "range_bytes": 16,
+  "worker_runs": true,
+  "empty_frames": {
+   "n": 120,
+   "mean_ms": 16.67,
+   "p50_ms": 16.7,
+   "p95_ms": 16.7,
+   "max_ms": 16.8,
+   "over_33ms": 0
+  }
+ },
+ "firefox": {
+  "version": "159.0",
+  "renderer": "no WebGL2",
+  "worker": true,
+  "decompression_stream": true,
+  "offscreen_canvas": true,
+  "range_status": 206,
+  "range_bytes": 16,
+  "worker_runs": true,
+  "empty_frames": {
+   "n": 120,
+   "mean_ms": 16.56,
+   "p50_ms": 17.08,
+   "p95_ms": 17.1,
+   "max_ms": 17.2,
+   "over_33ms": 0
+  }
+ }
+}
