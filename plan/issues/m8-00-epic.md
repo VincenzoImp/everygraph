@@ -15,4 +15,4 @@ Tracking issue for milestone M8.
 - [ ] {{#m8-07-paper}}, {{#m8-08-release}}, {{#m8-09-feedback-loop}}
 - [ ] All success criteria of DESIGN § 6 met or the claim reworded
 
-**Precondition.** {{#m0-09-name-trademark}} and {{#m0-10-patent-check}} closed before anything public.
+**Precondition.** The repository is already public, by the owner's decision with the trademark and patent risks acknowledged (`design/DECISIONS.md`, "When the repository becomes public", 2026-11-25). Before the first announced release: {{#m0-09-name-trademark}} closed, and the legal opinions of {{#m8-10-legal-opinions}} recorded or skipped with the reason; they are advisable, not a blocker ({{#m0-10-patent-check}} is closed).

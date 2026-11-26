@@ -3,7 +3,7 @@ title: Semi-external streaming source with fixed memory
 milestone: M3 · Engine and kernels
 labels: type:feature, area:engine, P0, risk:medium, size:M, lab-evidence
 ---
-**Why.** This is the regime behind "1.8 B edges in 2 GB". Lab: Friendster PageRank at 3.7 s/iteration with 1.35–1.47 GB RSS under 2 GB and 8 GB limits, reading 3.9 GB/s from NVMe with only ~5% of thread time in `read()` — the kernel is not disk-bound. #118: through plain mmap of the compressed store, Friendster PageRank under 2 GB is 4.31 s/iteration vs 3.19 in RAM — 1.35×, no margin; the raw-format streaming reader achieved 1.08×. A streaming reader for the compressed format is the work of this issue.
+**Why.** This is the regime behind "1.8 B edges in 2 GB". Lab: Friendster PageRank at 3.6–3.7 s/iteration with 1.35–1.47 GB RSS under 2 GB and 8 GB limits, reading 3.9 GB/s from NVMe with only ~5% of thread time in `read()` — the kernel is not disk-bound. #118: through plain mmap of the compressed store, Friendster PageRank under 2 GB is 4.31 s/iteration vs 3.19 in RAM — 1.35×, no margin; the raw-format streaming reader achieved 1.08×. A streaming reader for the compressed format is the work of this issue.
 
 **Scope**
 - [ ] Stream source over the compressed format: per-worker large aligned sequential reads, decode, hand chunks to the edge-map driver

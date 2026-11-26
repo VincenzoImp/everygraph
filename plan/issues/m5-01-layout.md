@@ -26,4 +26,4 @@ labels: type:feature, area:map, P0, risk:medium, size:L, lab-evidence
 
 **Pointers.** `lab/e-map`, FINDINGS § E.
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Bubbles (nested discs) are the approved default map style; "cells" stays a possible second view and is not required for 0.1 (`design/preview/style/``viewer.html`, `data.html` §4–5).
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Bubbles (nested discs) are the approved default map style; "cells" stays a possible second view and is not required for 0.1 (`design/preview/style/viewer.html`, `data.html` §4–5).

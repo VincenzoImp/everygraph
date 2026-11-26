@@ -195,6 +195,10 @@ jobs:
       # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
       - name: Adjacency codec, simd128 in Node against scalar, same as native
         run: python3 tools/check_wasm_codec.py
+      # The .eg container: an independent Python reader, written from the specification,
+      # lists and verifies a file the Rust writer made (#28).
+      - name: Container, Python reader against the Rust writer
+        run: python3 tools/check_container_python.py
       # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
       # fails if any probe is accepted.
       - name: Portability canary

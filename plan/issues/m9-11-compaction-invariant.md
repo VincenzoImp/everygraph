@@ -7,8 +7,8 @@ labels: type:feature, area:engine, P1, risk:medium, size:M
 
 **Scope**
 - [ ] Per-node reductions over neighbours visit the canonical merged order (a k-way merge per list; most lists live in one run) or use order-independent sums (integer or fixed point, {{#m4-02-weights-resolution}})
-- [ ] Reduction blocks are node ranges fixed by the node count only, never by file blocks or runs (`docs/spec/eg-adjacency.md` § 4 as amended by ADR 0028)
-- [ ] Pair sums over all segments: a pair's sum is the exact sum of its events in every run; statistics recomputed over all runs, not combined from the runs' values (`docs/spec/graph-semantics.md` § 2.7, § 4.3)
+- [ ] Reduction blocks are node ranges that are a function of the graph only, never of file blocks or runs (`docs/spec/eg-adjacency.md` § 4 as amended by ADR 0028, A2)
+- [ ] Pair sums over all segments: a pair's sum is the exact sum of its events in every run, stored by the newest run that touches the pair (ADR 0028, S1); the whole graph's column statistics kept exact and updated incrementally from each run's exact accumulators, never by rescanning older runs, with the one exception for `min` and `max` of superseded pair sums (ADR 0028, S2; `docs/spec/graph-semantics.md` § 2.7, § 4.3)
 - [ ] A merged run is byte-identical to the run an encoder writes for the same pairs, checked by `verify`
 - [ ] The test: oracle graphs split into 1–5 runs at random cut points; hashes of PageRank, WCC and Leiden on the split file against the merged one, at 1 and 32 threads (`docs/research/sota-dynamic.md` C3)
 

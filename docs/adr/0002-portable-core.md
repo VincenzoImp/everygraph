@@ -36,8 +36,13 @@ timings, carry the argument):
   `lab/g-wasm/results/node.jsonl`), and Safari has no memory64 (FINDINGS § G).
 - The constraint list itself is FINDINGS § G "Constraints on the core from day one".
 
-What is not measured: the cost of segmented arrays and of the `ByteSource` indirection on
-native kernels. The prototypes used flat slices.
+What is not measured: the cost of the `ByteSource` indirection on native kernels. The
+prototypes used flat slices. *Segmented arrays, measured 2026-11-25 by #31* (idle,
+16 threads, pull PageRank f32 on raw CSR, interleaved in one process;
+`bench/results/segvec/20261125T210132Z-14b90a211e8d.jsonl`): `SegVec` with its default
+1 GiB segments took 0.97–1.02× the time of `Vec` on lj, orkut and Friendster (14 segments
+there); with segments of 2^16 elements, a stand-in for state arrays above one segment,
+1.71–1.84× on lj and orkut.
 
 ## Consequences
 

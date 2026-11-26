@@ -265,11 +265,12 @@ version either: every reader refuses it already.
 
 ## 7. Sizes measured
 
-Bits per entry, index included (exploratory, `lab/m2-03-codec`, `encode`; the counts do
-not depend on machine load): lj 17.99 (data 17.22, index 0.76), orkut 16.64 (16.41 +
-0.23). The issue's targets: ≤ 18.5 (lj), ≤ 17 (orkut, twitter-sym), ≤ 24 (Friendster).
-twitter-sym and Friendster are measured in the official run of #30. These graphs have no
-repeated pair, so they have no `.events` section.
+Bits per entry, index included (official run of #30,
+`bench/results/codec/20261125T205810Z-21498df39590.jsonl`; the counts do not depend on
+machine load): lj 17.99 (data 17.22, index 0.76), orkut 16.64 (16.41 + 0.23),
+twitter-sym 16.09 (15.81 + 0.29), Friendster 23.17 (22.86 + 0.31). The issue's targets:
+≤ 18.5 (lj), ≤ 17 (orkut, twitter-sym), ≤ 24 (Friendster); all four are met. These graphs
+have no repeated pair, so they have no `.events` section.
 
 The `.events` section, on an adjacency with `r = events / entries > 1`, takes `1 + r` bits
 per entry when `r < 2`, and between `2 + ⌊log2 r⌋` and `3 + ⌊log2 r⌋` bits per entry

@@ -14,11 +14,11 @@ labels: type:decision, area:foundations, P0, risk:medium, size:S
 **Acceptance**
 - Written result of the searches; names reserved or an alternative chosen before any public announcement
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The spelling is settled: "Everygraph" in text, `everygraph` lowercase in the wordmark and in everything typed, `eg` only as the Python alias, `.eg` / `.egmap` extensions (`design/preview/style/``SPEC.md`, "The name"). What remains here is the registry research and reserving the names.
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The spelling is settled: "Everygraph" in text, `everygraph` lowercase in the wordmark and in everything typed, `eg` only as the Python alias, `.eg` / `.egmap` extensions (`design/preview/style/SPEC.md`, "The name"). What remains here is the registry research and reserving the names.
 
 **Update 2026-11-25.** Research done (`docs/legal/name-check.md`): a US application for EVERYGRAPH covering graph database analysis software was filed on 2026-11-17; TMview shows no other record under the name. The owner keeps the name. What remains in this issue:
 - [ ] Reserve with the owner (accounts and payment are the owner's): domains `everygraph.dev` and `everygraph.org` (both appeared unregistered; `.com` is parked by someone else, `.io` and `.ai` unknown); a GitHub organization (`everygraph` is taken — candidates `everygraph-dev`, `everygraph-project`); the npm scope `@everygraph`
-- [ ] Reserve package names on PyPI, crates.io and npm **with the first real pre-release**, not with empty placeholders (registries remove squatted names)
+- [x] Reserve package names on PyPI, crates.io and npm: done 2026-11-26 by the owner, as 0.0.0 placeholders with no code (crates `everygraph` and `everygraph-cli`, PyPI `everygraph`, npm `everygraph`), checked on the registries (`docs/STATE.md`). The first real pre-release replaces them
 - [ ] Re-check the status of US serial 50223142 at every milestone and record it in `docs/legal/name-check.md`
 - [ ] Hand the name question to the professional in {{#m8-10-legal-opinions}}
 

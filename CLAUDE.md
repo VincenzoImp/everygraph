@@ -6,7 +6,11 @@ These rules exist because sessions end and context is lost: **the repository is 
 memory**. Follow them even when a shortcut looks safe.
 
 Talk to the owner in Italian, in plain language. Everything written into the repository
-and on GitHub is in English.
+and on GitHub is in English — **Simple Technical English** (short sentences, one idea
+each, common words, active voice; owner, 2026-11-26), going beyond it only where a precise
+term needs it. Code comments exist only where the code cannot say it: why, an invariant,
+a reference to the spec or a measurement. No narration of what the next line does, no
+history ("changed because review said"), no duplicated docs.
 
 ## 1. Start of every session
 
@@ -23,7 +27,8 @@ GitHub issues are published from these files with `plan/publish.py`).
 ## 2. Unit of work
 
 - One issue → one branch (`m2-03-adjacency-codec`) → one pull request that says
-  `Closes #N`. Direct commits to `main` are for coordination only: `docs/STATE.md`, the plan
+  `Closes #N`. Closely related issues may go in one larger pull request that closes them
+  all (the owner prefers big steps to many small ones, 2026-11-26). Direct commits to `main` are for coordination only: `docs/STATE.md`, the plan
   (`plan/`, republished with `plan/publish.py`) and records of decisions. Code and
   specifications always go through a pull request.
 - When an issue starts, mark it on the board (`python3 plan/board.py doing N`); merging its
@@ -141,7 +146,11 @@ network, not on this machine. So:
   can make fail is rewritten or removed; prefer property and oracle tests that cover many
   cases to many hand-written ones. The pull-request CI stays under 15 minutes.
 - **Quality gates (the owner's main risks, 2026-11-26: bugs we never find, heavy code,
-  weak tests, performance).** A kernel or format is "done" only with: an independent oracle
+  weak tests, performance).** They apply in full to **product code** (core, format, io,
+  ingest, kernels, community, map, query, cli, py, wasm): clean and small from the first
+  pull request. Tools that serve the work (the harness, lab, scripts, the oracle's
+  plumbing) may be rough; they are tidied when they get in the way, not for their own
+  sake. Prefer one big step that is then corrected over many tiny edits. A kernel or format is "done" only with: an independent oracle
   or metamorphic relation that would catch a wrong answer (`m3-16-metamorphic-oracle`), a fuzz target replayed in
   CI for anything that parses bytes (`m2-30-fuzz-ci`), fault injection for anything that writes
   (`m2-29-fault-injection-io`), a mutation audit with no surviving mutant left unexplained (`m3-17-cargo-mutants`), and a
@@ -157,7 +166,9 @@ network, not on this machine. So:
 - Subagents cannot write `.md` report files; they return their report as text and the
   coordinator records it. Do not ask them to work around that.
 - Code-writing subagents work in their own git worktree and open a PR; they never push to
-  `main`.
+  `main`. Every commit carries `Signed-off-by` (the owner authorized sign-offs with his
+  identity, 2026-11-26; the DCO check is on): `git commit -s`, and `git merge --signoff`
+  when merging `origin/main` into a branch.
 - A subagent's claim is a claim. Re-run its key numbers and read its diff before relying
   on either.
 

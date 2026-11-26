@@ -3,7 +3,7 @@ title: Deterministic Leiden: recover scaling beyond 8 threads
 milestone: M1 · De-risking lab, round 2
 labels: type:experiment, area:community, P1, risk:medium, size:M, lab-evidence
 ---
-**Question.** Can the deterministic mode reach ≤ 1.5× the asynchronous time at 16 threads for Leiden? Today it is 2.3–3.0× at 16 threads and stops scaling at ~8 (lj local moving: 2.14 s at 8 threads, 1.88 s at 16).
+**Question.** Can the deterministic mode reach ≤ 1.5× the asynchronous time at 16 threads for Leiden? Today it is 2.4–3.0× at 16 threads (FINDINGS "Idle-machine re-runs") and stops scaling at ~8 (lj local moving: 2.14 s at 8 threads, 1.88 s at 16).
 
 **Suspected cause (not profiled).** On coarse passes the hashed sub-rounds contain only a few thousand vertices, so barriers dominate.
 

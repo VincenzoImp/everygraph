@@ -36,7 +36,7 @@ labels: type:infra, area:engine, P0, risk:medium, size:S, lab-evidence
 
 **Acceptance**
 - A PR that makes a reduction order depend on the thread count fails CI — shown on a weighted graph and by an order probe, since on unweighted graphs it would pass
-- Adding a std transcendental, an entropy-seeded RNG or a randomly seeded `HashMap` to a result crate fails the lint; the lists flag the lab's `e-map/gmap/src/layout.rs` l. 139 (`cos`/`sin`) and `crates/everygraph-oracle/src/generators.rs` l. 282 (`powf`)
+- Adding a std transcendental, an entropy-seeded RNG or a randomly seeded `HashMap` to a result crate fails the lint; the lists flag the lab's `lab/e-map/gmap/src/layout.rs` l. 139–140 (`cos`/`sin`) and `crates/everygraph-oracle/src/generators.rs` l. 282 (`powf`)
 
 **Pointers.** `docs/research/sota-numerics.md` § 3.1, § 3.2, § 4 (challenges 2, 3, 9, 10 and the rule list R1–R15).
 

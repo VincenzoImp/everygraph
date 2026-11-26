@@ -31,7 +31,8 @@ as of 2026-11):
 - Dependencies must be compatible with Apache-2.0 OR MIT; the dependency licence check of
   #9 runs in CI.
 - Each on-disk format has a written specification in the pull request that introduces it
-  (#28 for the container, #68 for tiles).
+  (#28 for the container, `docs/spec/eg-container.md`; #30 for the adjacency,
+  `docs/spec/eg-adjacency.md`; #68 for tiles).
 
 ## What would change our mind
 

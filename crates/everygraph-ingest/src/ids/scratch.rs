@@ -20,7 +20,9 @@ use super::hash::index;
 /// same bytes back. Dropping a source frees its storage. Native builds back this with
 /// files (in `everygraph-io`, or the page cache); [`MemoryScratch`] keeps everything in
 /// memory, for tests, small inputs and the browser. What a scratch holds is outside the
-/// memory budget: it stands for the disk.
+/// memory budget: it stands for the disk. So a file-backed writer must not add a buffer
+/// of its own: the build already puts a reserved 64 KiB buffer in front of every
+/// writer, and a buffer inside an open writer is heap that no ledger counts.
 pub trait Scratch: Sync {
     /// What a sealed writer reads back as.
     type Source: ByteSource + Send + Sync;

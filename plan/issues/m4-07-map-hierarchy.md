@@ -21,4 +21,4 @@ labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
 
 **Depends on** {{#m1-05-hierarchy-shaping}}, {{#m4-06-hierarchy-artifact}}
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The three kinds of region and how each is drawn are fixed in `design/preview/style/``SPEC.md` ("The map") and shown in `data.html` §4: found community (solid outline), subdivision made for readability (dashed), many small communities shown as one (hatched). The hierarchy artifact must carry the kind of every tree node so the viewer can draw it honestly.
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The three kinds of region and how each is drawn are fixed in `design/preview/style/SPEC.md` ("The map") and shown in `data.html` §4: found community (solid outline), subdivision made for readability (dashed), many small communities shown as one (hatched). The hierarchy artifact must carry the kind of every tree node so the viewer can draw it honestly.

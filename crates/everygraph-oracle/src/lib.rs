@@ -52,8 +52,8 @@
 //! Two things a real kernel needs that the toy does not: the configuration's thread count
 //! must be honoured (the toy starts its own threads; an engine kernel runs on
 //! `everygraph_core::par`, whose pool size a test must be able to set), and the storage
-//! and regime axes only mean something once the codec (#30) and the I/O backends (#29)
-//! exist. Until then a kernel declares the configurations it has.
+//! and regime axes mean something only for a kernel that runs on the codec (#30) and the
+//! I/O backends (#29). A kernel declares the configurations it has.
 
 #![forbid(unsafe_code)]
 

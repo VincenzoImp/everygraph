@@ -25,4 +25,4 @@ labels: type:feature, area:wasm, P1, risk:medium, size:L, lab-evidence
 - 10 M-edge CSV → interactive map in < 10 s on a mid-range laptop in Chromium and Firefox, entirely client-side
 - Results hash-identical to native
 
-**Lab estimate.** Browser shell 2–3 weeks, segmented arrays + planner ~2 weeks (done in M2), CI ~1 week.
+**Lab estimate.** Browser shell 2–3 weeks, segmented arrays + planner ~2 weeks (the segmented arrays are done, #31 in M2; the planner is {{#m3-02-planner}}), CI ~1 week.

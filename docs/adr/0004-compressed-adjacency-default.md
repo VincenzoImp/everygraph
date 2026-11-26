@@ -36,9 +36,11 @@ measured by #118:
 5. **A raw CSR is an in-RAM decode cache, a planner tier (#45)**, built only by the rule
    in "Result of #118", with its break-even.
 
-Open for the codec (#30): per-list framing costs short-list graphs 1.24–1.40× on
-single-thread PageRank (lj); a block-framed stream would decode without a per-list branch
-but complicate random access. Not tested.
+Per-list framing costs short-list graphs 1.24–1.40× on single-thread PageRank (lj); a
+block-framed stream would decode without a per-list branch but complicate random access.
+*Settled by #30:* an interleaved single-thread A/B ran block framing 2–5% faster for
+PageRank on lj, no faster on orkut, and 12–30% slower for scans and random lists, so the
+records stay per list (`docs/spec/eg-adjacency.md` § 8).
 
 ## Evidence
 

@@ -4,7 +4,9 @@ Literature reviews written for Everygraph. They are inputs to the plan, not deci
 report says where the literature puts us (behind, level, ahead) and proposes the cheapest
 experiment that would settle each doubt; the plan (`plan/issues/`) and the ADRs decide.
 Every number in a report is the paper's own, on the paper's machine, and is not comparable
-with ours as it stands. Nothing in these reports was built or measured.
+with ours as it stands. Nothing in these reports was built or measured, except the few
+checks a report states as its own (a compile-only check of rustc's output in the numerics
+report; two of our result files re-analysed offline in the measurement report).
 
 ## The reports
 
@@ -19,8 +21,8 @@ with ours as it stands. Nothing in these reports was built or measured.
 | [sota-ingest-query.md](sota-ingest-query.md) | ingest, ids, format, views, API | MPHFs (PtrHash, PHastR), parsing (csveee, simdjson), CSR build and sorting (PIGO, IPS4o), containers (GraphAr, Lance, Arrow IPC, BtrBlocks), engines (Kùzu, DuckPGQ, Neo4j GDS, NetworKit), NetworkX dispatch; D7–D10, D19–D21, ADR 0026 | mixed: full, partial and docs, by four readers |
 | [sota-coverage.md](sota-coverage.md) | coverage audit | which works and topics the six area reviews missed; the scopes of the second wave | abstracts only, by design |
 
-**The second wave** (scoped in `sota-coverage.md` § (d)): six reports, turned into
-decisions in section D below.
+**The second wave** (from the four briefs of `sota-coverage.md` § (d)): six reports, turned
+into decisions in section D below.
 
 | Report | Area | What it covers | Read depth |
 |---|---|---|---|

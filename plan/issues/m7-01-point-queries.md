@@ -4,9 +4,9 @@ milestone: M7 · Queries and views
 labels: type:feature, area:query, P0, risk:low, size:M, lab-evidence
 ---
 **Scope**
-- [ ] `degree`, `neighbors` (out/in/both), `has_edge`, `common_neighbors`, `edges_between(set, set)`
+- [ ] `degrees`, `neighbors` (out/in/both), `has_edge`, `common_neighbors`, `edges_between(set, set)`
 - [ ] `khop(v, k, limit=, timeout=)` returning nodes with distance; rows are ordered by distance, then by discovery order — the position of the node's parent in the previous distance's order, then the node's position in that parent's neighbor list (graph order) — and the traversal stops as soon as `limit` rows exist, so its cost is bounded by what it returns (`docs/api-sketch.md` § 2.12); `timeout` bounds wall time; a "truncated" flag in the result
-- [ ] Batch forms taking id columns and returning one flat table with a leading `node` column, in input order, `limit` per node (per-node calls cost 30–60 ns from Python)
+- [ ] Batch forms taking id columns and returning one flat table with a leading `node` column, in input order, `limit` per node (a per-node call from Python costs 28–62 ns, lj, 3 threads, shared machine, `lab/f2-python/results/goalB_lj_dev.json`)
 - [ ] External-id resolution in bulk through the dictionary ({{#m2-07-id-mapping}})
 - [ ] Decoding straight from the compressed adjacency (random list decode 87–217 ns at 1 thread (#118)) with an optional raw hot tier
 - [ ] `khop` with `limit` decodes list prefixes and stops at the budget

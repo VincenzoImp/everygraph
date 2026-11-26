@@ -18,4 +18,4 @@ labels: type:feature, area:viewer, P1, risk:low, size:S
 
 **Depends on** {{#m5-05-viewer-core}}, {{#m6-01-python-api}}
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Look and contents of the inline map and of the cards around it are in `design/preview/style/``notebook.html`: styled cards in notebooks with the same content as plain text in a terminal, the traceback folded under the explanation, the user's own nouns in summaries.
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Look and contents of the inline map and of the cards around it are in `design/preview/style/notebook.html`: styled cards in notebooks with the same content as plain text in a terminal, the traceback folded under the explanation, the user's own nouns in summaries.

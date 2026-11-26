@@ -1,13 +1,12 @@
 ---
 title: Sampled centralities: betweenness, closeness, harmonic
-milestone: M3 · Engine and kernels
+milestone: M9 · After v0.1
 labels: type:feature, area:algorithms, P2, risk:medium, size:M
 ---
-**Why.** Analysts ask for betweenness constantly, and exact algorithms are infeasible beyond ~10^6 edges. Not covered by the lab.
+**Why.** Analysts ask for betweenness constantly, and exact algorithms are infeasible beyond ~10^6 edges. Not covered by the lab. After 0.1 (decided 2026-11-26): no operation in 0.1 returns an approximate result (`docs/api-sketch.md` § 2.5). The exact centralities stay in M3: degrees in {{#m3-07-kcore-degrees}}, eigenvector centrality in {{#m3-04-pagerank}}.
 
 **Scope**
 - [ ] Harmonic and closeness centrality via multi-source BFS batches ({{#m3-06-traversal}}) or HyperLogLog-based neighborhood functions
-- [ ] Degree and eigenvector centrality for completeness
 - [ ] Every approximate result follows the approximate-results contract (`design/DECISIONS.md`, "Approximate results"; `docs/api-sketch.md` § 2.8): `.approximate`, `meta["approximate"]` with method, seed, samples, the guarantee's kind, ε and δ or the RSD, and runs, the same keys in the provenance record; precision parameters (registers m, ε, δ, the sample schedule) are never derived from the budget or the thread count
 - [ ] Distances, closeness and harmonic centrality through HyperBall (HyperLogLog counters; a union is a per-register max, so the order of unions does not matter), as an explicitly approximate kernel (`docs/research/memory-bounded-algorithms.md`). Bit identity for any thread count, chunking, regime and platform needs four rules (decided 2026-11-25, `docs/research/README.md` R2; `docs/research/sota-approx-rust.md` § 3 A, challenge 2):
   - a Jacobi double buffer: counters of hop t are read while those of t + 1 are written (in-place updates mix radii and make the sums depend on the schedule);
