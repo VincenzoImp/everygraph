@@ -305,7 +305,9 @@ fn pushed<S: Source>(source: &S, frontier: &[u32], threads: usize) -> Seq {
 )]
 fn push_with_adds_parts_in_order() {
     let n = 6000;
-    let (offsets, targets) = with_hubs(n, &[7, 300, 301, 5000], 2500);
+    // 41 lists of 2,500 entries: more than one wave of 2^16 entries.
+    let hubs: Vec<u32> = (0..41).map(|i| 99 * i + 3).collect();
+    let (offsets, targets) = with_hubs(n, &hubs, 2500);
     let encoded = encode(&offsets, &targets).unwrap();
     let index = AdjacencyIndex::parse(&encoded.index).unwrap();
     let list = |v: usize| &targets[ix(offsets[v])..ix(offsets[v + 1])];
@@ -313,8 +315,8 @@ fn push_with_adds_parts_in_order() {
     let mut want = Seq::ZERO;
     for &v in &frontier {
         let v = ix(v.into());
-        for (k, part) in list(v).chunks(RUN_ENTRIES).enumerate() {
-            want = want.add(Seq::of(value(offsets[v] + (k * RUN_ENTRIES) as u64, part)));
+        for (k, part) in list(v).chunks(PART_ENTRIES).enumerate() {
+            want = want.add(Seq::of(value(offsets[v] + (k * PART_ENTRIES) as u64, part)));
         }
         if list(v).is_empty() {
             want = want.add(Seq::of(value(offsets[v], &[])));
@@ -376,7 +378,7 @@ fn push_with_holds_a_reader_slot_per_worker() {
         let copies = longest.max(WAVE) * size_of::<Node<'_>>();
         // At most a run per node of the frontier, and a part per 1,024 entries of a hub.
         let runs = frontier.len();
-        let parts = hubs.len() * ix(degree.into()).div_ceil(RUN_ENTRIES);
+        let parts = hubs.len() * ix(degree.into()).div_ceil(PART_ENTRIES);
         let results = runs * (size_of::<Option<(u64, Work)>>() + size_of::<Range<usize>>())
             + frontier.len().div_ceil(FRONTIER_GRAIN) * size_of::<Vec<Range<usize>>>()
             + parts * size_of::<Option<(u64, Work)>>();

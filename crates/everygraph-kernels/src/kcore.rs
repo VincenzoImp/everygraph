@@ -9,7 +9,7 @@
 //! - **Local queues** (vertical granularity control, § 4.2). A task peels its node, then,
 //!   in the same subround, the neighbours whose degree that drops to `k`, through a
 //!   queue that takes up to 128 nodes. What does not fit waits for the next subround, as
-//!   does a node of more than 16 × [`RUN_ENTRIES`] entries: there its list is cut into
+//!   does a node of more than 16 × [`PART_ENTRIES`] entries: there its list is cut into
 //!   parts that run in parallel (`Plan::push_with`).
 //! - **Sampled hubs** (§ 4.1). A node of high degree does not count its peeled
 //!   neighbours one by one, which would make every worker update one counter. Each
@@ -35,7 +35,7 @@ use everygraph_core::{Memory, MemoryKind, SegVec, par};
 
 use crate::Atomics;
 use crate::edge_map::{
-    Buckets, Error, Node, NodeList, NodeSet, PerNode, Plan, RUN_ENTRIES, Source, all, ix,
+    Buckets, Error, Node, NodeList, NodeSet, PART_ENTRIES, PerNode, Plan, Source, all, ix,
 };
 
 /// A node without a core number yet.
@@ -45,11 +45,11 @@ const UNSET: u32 = u32::MAX;
 /// subround (Liu et al. § 4.2: 128; time "relatively stable" from hundreds to thousands).
 const QUEUE: usize = 128;
 
-/// Entries of a list that a local queue does not take: 16 parts of [`RUN_ENTRIES`].
+/// Entries of a list that a local queue does not take: 16 parts of [`PART_ENTRIES`].
 /// Lower, the subrounds add up to more than the parts save: on twitter-sym a limit of
 /// 1,024 gave 11,741 subrounds against 2,185 without one, and a slower peel than this
 /// limit (counters, and an interleaved A/B, exploratory: PR #291).
-const LONG: usize = 16 * RUN_ENTRIES;
+const LONG: usize = 16 * PART_ENTRIES;
 
 /// Nodes per task of the passes outside the drivers.
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");

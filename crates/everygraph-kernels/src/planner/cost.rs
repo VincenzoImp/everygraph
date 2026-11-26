@@ -28,7 +28,7 @@ use everygraph_format::adjacency::Batch;
 
 use super::{Estimate, Graph, Regime, Tier};
 use crate::edge_map::{
-    CompressedStream, FRONTIER_GRAIN, RUN_ENTRIES, RawCopy, Settings, WAVE, Work,
+    CompressedStream, FRONTIER_GRAIN, PART_ENTRIES, RUN_ENTRIES, RawCopy, Settings, WAVE, Work,
 };
 use crate::run::{Operation, Precision};
 
@@ -146,7 +146,11 @@ impl Cost {
         // entries or fewer (`runs` below).
         let tasks = graph.entries / Settings::default().chunk_entries.max(1) + 1;
         let groups = n.div_ceil(FRONTIER_GRAIN as u64) + 1;
-        let runs = 2 * (graph.entries + n) / RUN_ENTRIES as u64 + groups;
+        // A long list of `push_with` is a run of its own, so it adds a run before and
+        // after it: at most two per `PART_ENTRIES` entries.
+        let runs = 2 * (graph.entries + n) / RUN_ENTRIES as u64
+            + 2 * graph.entries / PART_ENTRIES as u64
+            + groups;
         let pieces = match op {
             Operation::Bfs { .. } | Operation::KCore => runs,
             _ => 0,
@@ -235,13 +239,17 @@ impl Cost {
             _ => 8,
         };
         let mut partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * partial;
-        // A frontier driver holds a result and a range per run, and a frontier holds at
-        // most every node: two consecutive runs of a group hold more than `RUN_ENTRIES`
-        // entries and nodes, so a frontier of `m` entries is cut into at most
-        // `2 (m + n) / RUN_ENTRIES` runs and one more per group (`Plan::cut`).
+        // A frontier driver holds, per run, its range, its end while it is cut, its result
+        // and, in the first wave of `push_with`, a second result beside it, and the index
+        // of a long list; per group, its count of runs and where its runs start
+        // (`Plan::drive`, `Plan::cut`). A frontier holds at most every node: two
+        // consecutive runs of a group hold more than `RUN_ENTRIES` entries and nodes, so
+        // a frontier of `m` entries is cut into at most `2 (m + n) / RUN_ENTRIES` runs,
+        // two more per long list and one more per group (`runs` above).
         if access == Access::Mixed {
-            let run = size_of::<Option<(u64, Work)>>() + size_of::<Range<usize>>() + 8;
-            let group = size_of::<Vec<Range<usize>>>() + size_of::<usize>();
+            let result = size_of::<Option<(u64, Work)>>();
+            let run = 2 * result + size_of::<Range<usize>>() + 4 + 8;
+            let group = 2 * size_of::<usize>();
             partials += runs * run as u64 + groups * group as u64;
         }
         Self {
@@ -320,7 +328,7 @@ fn reader_bytes(graph: &Graph) -> u64 {
 /// entries than the longest list, or `WAVE`), and a range and a result per part.
 fn long_lists(graph: &Graph) -> u64 {
     let entries = u64::from(graph.max_degree).max(WAVE as u64);
-    let parts = 2 * entries / RUN_ENTRIES as u64 + 1;
+    let parts = 2 * entries / PART_ENTRIES as u64 + 1;
     let part = size_of::<(usize, Range<usize>)>() + size_of::<Option<(u64, Work)>>();
     4 * entries + parts * part as u64
 }
