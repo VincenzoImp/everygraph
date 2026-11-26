@@ -273,14 +273,8 @@ fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
         let name = &*e.name;
         let (suffix, partner) = match e.kind {
             Kind::ADJACENCY_INDEX => (".index", (".data", Kind::ADJACENCY_DATA)),
-            Kind::ADJACENCY_DATA | Kind::ADJACENCY_EVENTS => {
-                let own = if e.kind == Kind::ADJACENCY_DATA {
-                    ".data"
-                } else {
-                    ".events"
-                };
-                (own, (".index", Kind::ADJACENCY_INDEX))
-            }
+            Kind::ADJACENCY_DATA => (".data", (".index", Kind::ADJACENCY_INDEX)),
+            Kind::ADJACENCY_EVENTS => (".events", (".index", Kind::ADJACENCY_INDEX)),
             _ if name.ends_with(".events") => {
                 report.problem(
                     Some(name),
@@ -375,16 +369,16 @@ fn bytes<'f, S: ByteSource>(
     name: &str,
     report: &mut Report,
 ) -> Result<Option<Cow<'f, [u8]>>, ReadError> {
-    let entry = match file.section(name) {
-        Ok(_) => file.get(name).expect("the section exists"),
+    let (offset, len) = match file.section(name) {
+        Ok(section) => (section.offset(), section.len()),
         Err(e) => {
             report.problem(Some(name), e.to_string());
             return Ok(None);
         }
     };
-    let range = usize::try_from(entry.offset)
+    let range = usize::try_from(offset)
         .ok()
-        .zip(usize::try_from(entry.offset + entry.len).ok());
+        .zip(usize::try_from(offset + len).ok());
     if let Some(slice) = file
         .source()
         .as_slice()
@@ -394,7 +388,7 @@ fn bytes<'f, S: ByteSource>(
         return Ok(Some(Cow::Borrowed(slice)));
     }
     let mut buf = Vec::new();
-    let Some(len) = usize::try_from(entry.len)
+    let Some(len) = usize::try_from(len)
         .ok()
         .filter(|&len| buf.try_reserve_exact(len).is_ok())
     else {
@@ -404,7 +398,7 @@ fn bytes<'f, S: ByteSource>(
         return Ok(None);
     };
     buf.resize(len, 0);
-    match file.source().read_at(entry.offset, &mut buf) {
+    match file.source().read_at(offset, &mut buf) {
         Ok(()) => Ok(Some(Cow::Owned(buf))),
         // The section check has reported a file that ends inside it.
         Err(ReadError::OutOfBounds { .. }) => Ok(None),

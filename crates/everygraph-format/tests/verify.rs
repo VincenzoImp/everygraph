@@ -73,8 +73,24 @@ fn check(file: &[u8], depth: Depth) -> Report {
     verify(&MemorySource::new(file), depth).unwrap()
 }
 
+/// A source that is not in memory: every byte comes through `read_at`.
+struct NotMapped<'a>(&'a [u8]);
+
+impl ByteSource for NotMapped<'_> {
+    fn len(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        MemorySource::new(self.0).read_at(offset, buf)
+    }
+}
+
+/// The problems a deep check finds, the same whether the file is mapped or read.
 fn problems(file: &[u8]) -> Vec<Problem> {
-    check(file, Depth::Deep).problems
+    let report = check(file, Depth::Deep);
+    assert_eq!(verify(&NotMapped(file), Depth::Deep).unwrap(), report);
+    report.problems
 }
 
 #[test]
