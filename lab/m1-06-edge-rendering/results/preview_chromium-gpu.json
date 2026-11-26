@@ -1,0 +1,162 @@
+{
+ "config": "chromium-gpu",
+ "browser": "159.0.8154.6",
+ "viewport": [
+  1440,
+  900
+ ],
+ "rounds": 3,
+ "frames_per_sample": 20,
+ "note": "exploratory: shared host; Canvas 2D; a sample = the mean of 10 frames, each draw() then getImageData(1 px), which waits for the raster",
+ "graphs": {
+  "lj": {
+   "canvas_px": [
+    1080,
+    807
+   ],
+   "frame_ms": {
+    "plain": {
+     "n": 60,
+     "mean_ms": 1.88,
+     "p50_ms": 1.79,
+     "p95_ms": 2.15,
+     "max_ms": 3.95,
+     "over_33ms": 0
+    },
+    "glyph": {
+     "n": 60,
+     "mean_ms": 1.86,
+     "p50_ms": 1.83,
+     "p95_ms": 2.06,
+     "max_ms": 2.67,
+     "over_33ms": 0
+    },
+    "bands 12": {
+     "n": 60,
+     "mean_ms": 2.14,
+     "p50_ms": 2.13,
+     "p95_ms": 2.38,
+     "max_ms": 2.67,
+     "over_33ms": 0
+    },
+    "bands 50": {
+     "n": 60,
+     "mean_ms": 2.4,
+     "p50_ms": 2.37,
+     "p95_ms": 2.68,
+     "max_ms": 2.93,
+     "over_33ms": 0
+    },
+    "selection, 20 links": {
+     "n": 60,
+     "mean_ms": 2.83,
+     "p50_ms": 2.81,
+     "p95_ms": 3.17,
+     "max_ms": 3.42,
+     "over_33ms": 0
+    }
+   },
+   "bands": {
+    "bands 12": {
+     "n": 12,
+     "w": 1836249
+    },
+    "bands 50": {
+     "n": 50,
+     "w": 3671469
+    }
+   },
+   "open_matrix_ms": {
+    "n": 10,
+    "mean_ms": 13.7,
+    "p50_ms": 14,
+    "p95_ms": 16.8,
+    "max_ms": 16.8,
+    "over_33ms": 0
+   },
+   "frame_with_matrix_open_ms": {
+    "n": 20,
+    "mean_ms": 1.93,
+    "p50_ms": 1.87,
+    "p95_ms": 2.37,
+    "max_ms": 2.37,
+    "over_33ms": 0
+   }
+  },
+  "orkut": {
+   "canvas_px": [
+    1080,
+    816
+   ],
+   "frame_ms": {
+    "plain": {
+     "n": 60,
+     "mean_ms": 1.01,
+     "p50_ms": 0.94,
+     "p95_ms": 1.62,
+     "max_ms": 1.94,
+     "over_33ms": 0
+    },
+    "glyph": {
+     "n": 60,
+     "mean_ms": 0.98,
+     "p50_ms": 0.95,
+     "p95_ms": 1.14,
+     "max_ms": 1.24,
+     "over_33ms": 0
+    },
+    "bands 12": {
+     "n": 60,
+     "mean_ms": 1.17,
+     "p50_ms": 1.08,
+     "p95_ms": 1.95,
+     "max_ms": 2.33,
+     "over_33ms": 0
+    },
+    "bands 50": {
+     "n": 60,
+     "mean_ms": 1.39,
+     "p50_ms": 1.36,
+     "p95_ms": 1.58,
+     "max_ms": 1.62,
+     "over_33ms": 0
+    },
+    "selection, 20 links": {
+     "n": 60,
+     "mean_ms": 1.76,
+     "p50_ms": 1.68,
+     "p95_ms": 2.26,
+     "max_ms": 2.4,
+     "over_33ms": 0
+    }
+   },
+   "bands": {
+    "bands 12": {
+     "n": 12,
+     "w": 22529659
+    },
+    "bands 50": {
+     "n": 50,
+     "w": 28092338
+    }
+   },
+   "open_matrix_ms": {
+    "n": 10,
+    "mean_ms": 3.77,
+    "p50_ms": 3.9,
+    "p95_ms": 4.7,
+    "max_ms": 4.7,
+    "over_33ms": 0
+   },
+   "frame_with_matrix_open_ms": {
+    "n": 20,
+    "mean_ms": 1.03,
+    "p50_ms": 0.99,
+    "p95_ms": 1.88,
+    "max_ms": 1.88,
+    "over_33ms": 0
+   }
+  }
+ },
+ "page_errors": []
+}

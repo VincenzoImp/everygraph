@@ -1,0 +1,16 @@
+{
+ "graph": "lj",
+ "config": "firefox",
+ "target": {
+  "x": 0.44763681292533875,
+  "y": 0.8455180525779724,
+  "nodes": 64,
+  "internal": 2015
+ },
+ "rounds": 3,
+ "frames_per_sample": 20,
+ "note": "exploratory: shared host; compare rows within one table",
+ "browser": "159.0",
+ "no_webgl2": true,
+ "message": "This map needs WebGL 2, and this browser cannot create it here. Graphics acceleration may be turned off, or the browser runs without a display. Turn acceleration on in the browser settings, or open the map in another browser."
+}

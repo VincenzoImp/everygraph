@@ -1,0 +1,496 @@
+{
+ "graph": "lj",
+ "n": 3997962,
+ "m": 34681189,
+ "self_loops_in_csr": 0,
+ "tree_nodes": 1637273,
+ "tree_nodes_alive": 1579902,
+ "max_depth": 8,
+ "oracle": {
+  "tree_nodes_checked": 1579902,
+  "internal_mismatches": 0,
+  "first_mismatches": [],
+  "volume_mismatches": 0,
+  "edges_assigned": 34681189,
+  "edges_expected": 34681189
+ },
+ "matrix_section": {
+  "parents_with_region_pairs": 336435,
+  "region_pairs": 2389484,
+  "region_pair_weight": 28759984,
+  "node_level_pairs": 5921205,
+  "raw_bytes_8B_per_pair": 20461612,
+  "gzip_bytes_per_parent_sum": 11224505,
+  "gzip_bytes_per_parent": {
+   "median": 19.0,
+   "p99": 281.0,
+   "max": 11865
+  },
+  "children_per_parent": {
+   "median": 3.0,
+   "p99": 41.0,
+   "max": 272
+  }
+ },
+ "top": {
+  "parent": 0,
+  "k": 71,
+  "pairs_nonzero": 1561,
+  "density": 0.6281690140845071,
+  "weight_between_children": 7283774,
+  "weight_inside_children": 27397415,
+  "share_inside_children": 0.7899791151912352,
+  "bands_by_weight_share": {
+   "6": 0.1640396860199122,
+   "12": 0.2521013145108566,
+   "20": 0.33105996973546953,
+   "50": 0.5040613561046787
+  },
+  "bands12_touching_largest_child": 11,
+  "bands12_distinct_children": 12,
+  "pairs_above_expected": 0.0,
+  "weight_in_pairs_above_expected": 0.0,
+  "top10_enriched_among_12_heaviest": 0,
+  "ordering": {
+   "size": {
+    "weight": {
+     "linear_arrangement_vs_random": 0.42800760087063905,
+     "near_diagonal": 0.46472021235145405
+    },
+    "coupling": {
+     "linear_arrangement_vs_random": 0.651205327527141,
+     "near_diagonal": 0.3014976033546367
+    }
+   },
+   "angle": {
+    "weight": {
+     "linear_arrangement_vs_random": 1.0139703559144155,
+     "near_diagonal": 0.14787210586160415
+    },
+    "coupling": {
+     "linear_arrangement_vs_random": 0.9945376496962262,
+     "near_diagonal": 0.18772942188277458
+    }
+   },
+   "spectral": {
+    "weight": {
+     "linear_arrangement_vs_random": 0.5057644888097277,
+     "near_diagonal": 0.3339193390679063
+    },
+    "coupling": {
+     "linear_arrangement_vs_random": 0.5963800915336754,
+     "near_diagonal": 0.3277957760033185
+    }
+   },
+   "spectral_enrichment": {
+    "weight": {
+     "linear_arrangement_vs_random": 0.681281303893284,
+     "near_diagonal": 0.28419003664858355
+    },
+    "coupling": {
+     "linear_arrangement_vs_random": 0.6354591458767429,
+     "near_diagonal": 0.31508934435746244
+    }
+   }
+  }
+ },
+ "regions": [
+  {
+   "parent": 15,
+   "k": 36,
+   "pairs_nonzero": 56,
+   "density": 0.08888888888888889,
+   "weight_between_children": 634614,
+   "weight_inside_children": 2650152,
+   "share_inside_children": 0.8068008497408948,
+   "bands_by_weight_share": {
+    "6": 0.6985994636109509,
+    "12": 0.8858770843378809,
+    "20": 0.980504684737494,
+    "50": 0.9999905454339173
+   },
+   "bands12_touching_largest_child": 7,
+   "bands12_distinct_children": 8,
+   "pairs_above_expected": 0.5,
+   "weight_in_pairs_above_expected": 4.4121308385884964e-05,
+   "top10_enriched_among_12_heaviest": 5,
+   "ordering": {
+    "size": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.2224518310442546,
+      "near_diagonal": 0.7399300992414286
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.3525212281604653,
+      "near_diagonal": 0.01716639765802908
+     }
+    },
+    "angle": {
+     "weight": {
+      "linear_arrangement_vs_random": 1.3944129186459537,
+      "near_diagonal": 0.12855531078734475
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.0572064751894379,
+      "near_diagonal": 0.11156432327882365
+     }
+    },
+    "spectral": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.19059395765411885,
+      "near_diagonal": 0.8722829940719871
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.1389325681169533,
+      "near_diagonal": 0.11483049233021862
+     }
+    },
+    "spectral_enrichment": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.2268743560833107,
+      "near_diagonal": 0.7716801079081143
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.1388782542929339,
+      "near_diagonal": 0.11487840302283647
+     }
+    }
+   }
+  },
+  {
+   "parent": 2,
+   "k": 17,
+   "pairs_nonzero": 22,
+   "density": 0.16176470588235295,
+   "weight_between_children": 1077805,
+   "weight_inside_children": 4155777,
+   "share_inside_children": 0.7940597854394944,
+   "bands_by_weight_share": {
+    "6": 0.999361665607415,
+    "12": 0.999734645877501,
+    "20": 0.9999972165651486,
+    "50": 1.0
+   },
+   "bands12_touching_largest_child": 11,
+   "bands12_distinct_children": 12,
+   "pairs_above_expected": 0.5909090909090909,
+   "weight_in_pairs_above_expected": 0.0007107036987210116,
+   "top10_enriched_among_12_heaviest": 10,
+   "ordering": {
+    "size": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.1776502026845685,
+      "near_diagonal": 0.9991594026748809
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.8636641814014854,
+      "near_diagonal": 0.06090916625370425
+     }
+    },
+    "angle": {
+     "weight": {
+      "linear_arrangement_vs_random": 1.2665220802078783,
+      "near_diagonal": 0.021343378440441454
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.49423117808646116,
+      "near_diagonal": 0.36284055321844755
+     }
+    },
+    "spectral": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.1595035432658306,
+      "near_diagonal": 0.9992651731992336
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.6224928627370366,
+      "near_diagonal": 0.4174928321904192
+     }
+    },
+    "spectral_enrichment": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.8098609088009144,
+      "near_diagonal": 0.021541930126507115
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.2765658094613715,
+      "near_diagonal": 0.9225933168845423
+     }
+    }
+   }
+  },
+  {
+   "parent": 52,
+   "k": 6,
+   "pairs_nonzero": 15,
+   "density": 1.0,
+   "weight_between_children": 89753,
+   "weight_inside_children": 1514900,
+   "share_inside_children": 0.9440670350536845,
+   "bands_by_weight_share": {
+    "6": 0.9421746348311477,
+    "12": 0.9971365859637004,
+    "20": 1.0,
+    "50": 1.0
+   },
+   "bands12_touching_largest_child": 5,
+   "bands12_distinct_children": 6,
+   "pairs_above_expected": 0.0,
+   "weight_in_pairs_above_expected": 0.0,
+   "top10_enriched_among_12_heaviest": 8,
+   "ordering": {
+    "size": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.6778986630998882,
+      "near_diagonal": 0.8326518333649015
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.9899496431196858,
+      "near_diagonal": 0.6430382820025013
+     }
+    },
+    "angle": {
+     "weight": {
+      "linear_arrangement_vs_random": 1.6308123273943194,
+      "near_diagonal": 0.22879458068253986
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.0035185819884043,
+      "near_diagonal": 0.5775570672357427
+     }
+    },
+    "spectral": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.5329353110127482,
+      "near_diagonal": 0.9456062749991644
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.8336490549460709,
+      "near_diagonal": 0.7855560601615277
+     }
+    },
+    "spectral_enrichment": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.6338189121994019,
+      "near_diagonal": 0.8155827660356757
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.8477580671990835,
+      "near_diagonal": 0.7787637019084062
+     }
+    }
+   }
+  },
+  {
+   "parent": 21,
+   "k": 7,
+   "pairs_nonzero": 21,
+   "density": 1.0,
+   "weight_between_children": 90258,
+   "weight_inside_children": 1141150,
+   "share_inside_children": 0.9267034159271338,
+   "bands_by_weight_share": {
+    "6": 0.7519222672782468,
+    "12": 0.9121518314166057,
+    "20": 0.9980832723969066,
+    "50": 1.0
+   },
+   "bands12_touching_largest_child": 6,
+   "bands12_distinct_children": 7,
+   "pairs_above_expected": 0.0,
+   "weight_in_pairs_above_expected": 0.0,
+   "top10_enriched_among_12_heaviest": 10,
+   "ordering": {
+    "size": {
+     "weight": {
+      "linear_arrangement_vs_random": 1.027678884879458,
+      "near_diagonal": 0.46656252077378185
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.0525501218995792,
+      "near_diagonal": 0.4898308759929191
+     }
+    },
+    "angle": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.935006934972404,
+      "near_diagonal": 0.5258702829666069
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.1866382510072768,
+      "near_diagonal": 0.3589902594598326
+     }
+    },
+    "spectral": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.6988170580497796,
+      "near_diagonal": 0.7439008176560526
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.8326167681765662,
+      "near_diagonal": 0.6569845291313934
+     }
+    },
+    "spectral_enrichment": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.7635818349124863,
+      "near_diagonal": 0.6469011057191606
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.7572188629278297,
+      "near_diagonal": 0.7220502697233783
+     }
+    }
+   }
+  },
+  {
+   "parent": 16,
+   "k": 9,
+   "pairs_nonzero": 36,
+   "density": 1.0,
+   "weight_between_children": 110343,
+   "weight_inside_children": 1294150,
+   "share_inside_children": 0.9214357066927353,
+   "bands_by_weight_share": {
+    "6": 0.526811850321271,
+    "12": 0.7405182023327261,
+    "20": 0.8730413347471068,
+    "50": 1.0
+   },
+   "bands12_touching_largest_child": 8,
+   "bands12_distinct_children": 9,
+   "pairs_above_expected": 0.0,
+   "weight_in_pairs_above_expected": 0.0,
+   "top10_enriched_among_12_heaviest": 7,
+   "ordering": {
+    "size": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.9607926900363494,
+      "near_diagonal": 0.4444957994616786
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.026999494853773,
+      "near_diagonal": 0.3954000503292832
+     }
+    },
+    "angle": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.9930815538786623,
+      "near_diagonal": 0.382099453522199
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.946464271533019,
+      "near_diagonal": 0.46025974183745677
+     }
+    },
+    "spectral": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.7282170406265916,
+      "near_diagonal": 0.5697778744460456
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.8276693552776925,
+      "near_diagonal": 0.5263757710229048
+     }
+    },
+    "spectral_enrichment": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.712598886813796,
+      "near_diagonal": 0.5933045141060149
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.8260410125057526,
+      "near_diagonal": 0.5648728814567496
+     }
+    }
+   }
+  },
+  {
+   "parent": 22,
+   "k": 16,
+   "pairs_nonzero": 16,
+   "density": 0.13333333333333333,
+   "weight_between_children": 54722,
+   "weight_inside_children": 1163746,
+   "share_inside_children": 0.9550895058384792,
+   "bands_by_weight_share": {
+    "6": 0.9920141807682468,
+    "12": 0.997057856072512,
+    "20": 1.0,
+    "50": 1.0
+   },
+   "bands12_touching_largest_child": 11,
+   "bands12_distinct_children": 12,
+   "pairs_above_expected": 0.75,
+   "weight_in_pairs_above_expected": 0.01008735060853039,
+   "top10_enriched_among_12_heaviest": 9,
+   "ordering": {
+    "size": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.21634774879165708,
+      "near_diagonal": 0.9894923431161142
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.4687675885343527,
+      "near_diagonal": 0.012758828640438712
+     }
+    },
+    "angle": {
+     "weight": {
+      "linear_arrangement_vs_random": 1.5157136167747363,
+      "near_diagonal": 0.0033624502028434633
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 0.7143136718631077,
+      "near_diagonal": 0.3156366089604281
+     }
+    },
+    "spectral": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.21357312359621902,
+      "near_diagonal": 0.9907532619421805
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.2128201852020517,
+      "near_diagonal": 0.13199932535882264
+     }
+    },
+    "spectral_enrichment": {
+     "weight": {
+      "linear_arrangement_vs_random": 0.32377399820633496,
+      "near_diagonal": 0.9911735682175359
+     },
+     "coupling": {
+      "linear_arrangement_vs_random": 1.1336552455012334,
+      "near_diagonal": 0.17057713312065276
+     }
+    }
+   }
+  }
+ ],
+ "all_parents_k_ge_4": {
+  "parents": 116491,
+  "bands_share_median": {
+   "6": 0.9615384615384616,
+   "12": 1.0,
+   "20": 1.0,
+   "50": 1.0
+  },
+  "bands_share_p10": {
+   "6": 0.47297297297297297,
+   "12": 0.6858108108108109,
+   "20": 0.8333333333333334,
+   "50": 1.0
+  },
+  "top10_enriched_among_12_heaviest_median": 3.0,
+  "parents_with_22_or_more_pairs": 21527
+ },
+ "hierarchy_check": {
+  "top_level": 6,
+  "top_regions": 71,
+  "top_regions_that_are_level_communities": 26,
+  "pairs_compared": 325,
+  "pairs_differing": 0,
+  "internal_differing": 0
+ }
+}
