@@ -6,8 +6,9 @@
 use std::num::NonZeroUsize;
 
 use super::layout::ITEM_BYTES;
+use super::lists::fixed_bytes;
 use super::rows::Flight;
-use super::{Regime, SLACK_SHIFT, TUNING, fixed_bytes};
+use super::{Regime, SLACK_SHIFT, TUNING};
 
 /// The identifier dictionary's smallest working set: the table of its dense bitmap
 /// (65,536 segment slots) and one worker's base, rounded up.

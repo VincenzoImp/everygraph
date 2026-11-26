@@ -154,7 +154,25 @@ impl<'a> AdjacencyEvents<'a> {
     ///
     /// As [`check`](Self::check).
     pub fn multiplicities(&self) -> Result<impl Iterator<Item = u64> + '_, FormatError> {
-        let mut offsets = self.sequence()?.iter_from(0);
+        self.multiplicities_from(0)
+    }
+
+    /// The number of stored events of every entry from `entry` on, in entry order.
+    ///
+    /// # Errors
+    ///
+    /// As [`check`](Self::check).
+    ///
+    /// # Panics
+    ///
+    /// If `entry` is above [`entries`](Self::entries).
+    pub fn multiplicities_from(
+        &self,
+        entry: u64,
+    ) -> Result<impl Iterator<Item = u64> + '_, FormatError> {
+        assert!(entry <= self.entries, "entry {entry} of {}", self.entries);
+        let at = usize::try_from(entry).expect("checked against an in-memory sequence");
+        let mut offsets = self.sequence()?.iter_from(at);
         let mut previous = offsets.next().unwrap_or(0);
         Ok(offsets.map(move |x| {
             let m = x - previous;

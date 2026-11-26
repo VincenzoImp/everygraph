@@ -146,6 +146,23 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
             assert_eq!(batch.targets(), all);
+            // A window over the range's records alone decodes the same lists.
+            let bytes = index.data_range(r.clone());
+            let records = &encoded.data[to_usize(bytes.start)..to_usize(bytes.end)];
+            let window = Adjacency::window(&index, r.clone(), records)
+                .unwrap()
+                .with_decoder(decoder);
+            assert_eq!(window.nodes(), r);
+            window
+                .decode_nodes(r.clone(), usize::MAX, &mut batch)
+                .unwrap();
+            assert_eq!(batch.targets(), all, "{name} window {r:?}");
+            for v in r.clone() {
+                let got = window.neighbors(NodeId::new(v), &mut buf).unwrap();
+                assert_eq!(got, list(offsets, targets, ix(v)), "{name} window {r:?}");
+            }
+            let short = &records[..records.len().saturating_sub(1)];
+            assert!(records.is_empty() || Adjacency::window(&index, r.clone(), short).is_err());
         }
         let (mut o, mut t) = (vec![u64::MAX; n + 1], vec![0u32; targets.len()]);
         adj.decode_all(&mut o, &mut t).unwrap();
