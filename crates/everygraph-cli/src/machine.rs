@@ -3,7 +3,6 @@
 //! What the machine has (`docs/ux-contract.md` P-2), the memory budget an operation
 //! gets from it (P-11, P-16), and the accountant that holds the operation to it.
 
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
@@ -40,7 +39,7 @@ impl Machine {
     pub(crate) fn probe() -> Self {
         let hardware_threads = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
         Self {
-            cores: physical_cores().unwrap_or(hardware_threads),
+            cores: everygraph_io::physical_cores().get(),
             hardware_threads,
             memory: ProcMemoryProbe::new().probe().ok(),
         }
@@ -72,26 +71,6 @@ impl Machine {
             .threads
             .unwrap_or(NonZeroUsize::new(self.hardware_threads).unwrap_or(NonZeroUsize::MIN))
     }
-}
-
-/// Distinct (package, core) pairs of `/proc/cpuinfo`.
-fn physical_cores() -> Option<usize> {
-    let info = std::fs::read_to_string("/proc/cpuinfo").ok()?;
-    let mut cores = HashSet::new();
-    let mut package = "";
-    for line in info.lines() {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        match key.trim() {
-            "physical id" => package = value.trim(),
-            "core id" => {
-                cores.insert((package, value.trim()));
-            }
-            _ => {}
-        }
-    }
-    (!cores.is_empty()).then_some(cores.len())
 }
 
 /// Free space of the file system that holds a directory, and whether it is held in

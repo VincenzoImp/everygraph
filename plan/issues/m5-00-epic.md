@@ -20,4 +20,4 @@ Tracking issue for milestone M5.
 
 - [ ] A 1 B-edge graph opens from a static URL: first view < 250 KB, exact numbers at every level, no artificial region presented as a community
 
-**M1 results it waits for:** {{#m1-06-edge-rendering}} (the edge content of tiles), {{#m1-07-layout-area}} (the area question of the layout), {{#m1-12-viewer-no-gpu}} (frame budgets; needs hardware this host does not have). {{#m1-05-hierarchy-shaping}} and the legal check {{#m0-10-patent-check}} are closed.
+**M1 results it uses**, all closed: {{#m1-06-edge-rendering}} (the edge content of tiles), {{#m1-07-layout-area}} (the area question of the layout), {{#m1-12-viewer-no-gpu}} (the viewer without a GPU), {{#m1-05-hierarchy-shaping}} and the legal check {{#m0-10-patent-check}}.
