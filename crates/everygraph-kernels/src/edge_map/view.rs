@@ -112,7 +112,7 @@ impl<S: Source> fmt::Debug for View<'_, S> {
 ///
 /// # Errors
 ///
-/// [`Error::Memory`] if it does not fit; [`SEGMENT`] beyond one segment.
+/// [`Error::Memory`] if it does not fit; [`Error::Invalid`] beyond one segment.
 pub(super) fn empty_bits(
     memory: &Memory,
     purpose: &'static str,
@@ -319,7 +319,7 @@ impl<'s, S: Source> View<'s, S> {
     ///
     /// # Errors
     ///
-    /// [`Error::Memory`] if the column does not fit; [`SEGMENT`] beyond one segment;
+    /// [`Error::Memory`] if the column does not fit; [`Error::Invalid`] beyond one segment;
     /// the parent's errors.
     pub fn gather<T>(
         &self,
