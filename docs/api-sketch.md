@@ -1508,7 +1508,8 @@ width is not frozen (§ 2.3); identifier columns — `node`, `neighbor`, the `pa
 | `p.nodes()` | `step` uint32 · `node` |
 | `p.edges()` | `step` uint32 · `source` · `target` · `edges` uint64 · [weight under its name] · [`time` timestamp] |
 | `m.selection.nodes()` | `node` · `community` uint32 · `in_degree` · `out_degree` · `degree` uint32 |
-| `m.hierarchy.table()` | `level` · `region` uint32 · `parent` uint32, nullable · `kind` text · `name` text, nullable · `nodes` uint32 · `internal_edges` · `external_edges` uint64 |
+| `m.hierarchy.table()` | `region` uint32 · `parent` uint32, nullable · `depth` uint32 · `kind` text · `partition` bool · `name` text, nullable · `nodes` uint32 · `internal_edges` · `external_edges` uint64 |
+| `m.hierarchy.siblings(region)` | `a` uint32 · `b` uint32 · `edges` uint64 |
 | `g.nodes()` | `node` · node columns |
 | `g.edges()` | `source` · `target` · edge columns |
 | `g.columns` | `name` · `on` · `type` · `role`, all text |
@@ -1569,29 +1570,33 @@ of `notebook.html`.
 
 ### 3.6 `Hierarchy`
 
-The tree a map is drawn from (`docs/DESIGN.md` D16). It is not the same thing as the
-levels of `Communities`: it is shaped for reading — no region has too many children —
-and so it contains three kinds of region, which the map draws differently and never
-confuses (`SPEC.md`, "The map"):
+The tree a map is drawn from (`docs/DESIGN.md` D16), as the graph file keeps it
+(`docs/spec/eg-communities.md` § 6): each region's parent, kind and exact counts, and
+the edges between the children of each region. It is not the same thing as the levels of
+`Communities`: it is shaped for reading — no region has too many children — and so it
+contains three kinds of region, which the map draws differently and never confuses
+(`SPEC.md`, "The map"):
 
 | `kind` | What it is | On the map |
 |---|---|---|
-| `community` | A community found by the algorithm. | solid outline |
+| `community` | A community found by the algorithm: one of the partition (`partition` true), or a group of them found at a lower resolution above it. | solid outline |
 | `subdivision` | A split of one community, made only so the map stays readable. | dashed outline |
-| `aggregate` | Many small communities shown as one. | hatched |
+| `aggregate` | Many small communities shown as one; also the nodes without edges. | hatched |
 
 ```python
 class Hierarchy:
-    levels: int
-    def table(self, level: int | None = None) -> Table: ...
+    depth: int
+    def table(self) -> Table: ...
+    def siblings(self, region: int) -> Table: ...
     def of(self, nodes: Nodes) -> Table: ...
 ```
 
 | Member | Returns | Notes | Implemented by |
 |---|---|---|---|
-| `levels` | `int` | The number of zoom levels; level 1 is the top. | #63 |
-| `table(level=None)` | one row per region | All levels, or one. `region` numbers are unique within the hierarchy; `parent` is null at level 1; `name` is the region's label on the map, or null. Counts are exact. The children of a region are the rows whose `parent` is that region. | #62, #63 |
-| `of(nodes)` | `level`, `region`, `kind`, `name`, `nodes` | The regions containing a node, from the top down. | #62 |
+| `depth` | `int` | Regions on the longest path below the top. | #63 |
+| `table()` | one row per region | Region 0 is the whole graph; regions are numbered from the top down, the children of a region together, and the children of a region are the rows whose `parent` is that region. `depth` is 1 for the top level; `partition` marks the communities of the partition, exactly one on every path; `name` is the region's label on the map, or null. Counts are exact. | #63 |
+| `siblings(region)` | one row per pair of children | The edges between two children of `region`, what the map lays them out by. | #63 |
+| `of(nodes)` | `depth`, `region`, `kind`, `name`, `nodes` | The regions containing a node, from the top down. | #63 |
 
 ### 3.7 `Path`
 
@@ -2702,7 +2707,7 @@ qualified (`g.top()`, `Table.top()`), so that each row names one thing.
 | `c.nodes()` | #57, #62 | 1, 6 |
 | `c.of()` | #62 | — |
 | `c[i]`, `Community.id`, `Community.nodes()`, `len(Community)` | #62, #87 | 7 |
-| `Hierarchy.levels`, `Hierarchy.table()` | #62, #63 | — |
+| `Hierarchy.depth`, `Hierarchy.table()`, `Hierarchy.siblings()` | #63 | — |
 | `Hierarchy.of()` | #62 | — |
 | `Path`: `p.found`, `p.hops`, `p.truncated`, `p.meta` | #91 | 3 |
 | `p.nodes()`, `p.edges()` | #91 | — |
@@ -3066,7 +3071,7 @@ that makes a previewed feature usable)
 | `c.nodes()`, `c.levels`, `c.modularity`, `c.meta`, `Community`, `Community.id`, `Community.nodes()` | The membership table of story 1 has no call in the previews (`c.table()` is per community); `nodes()` follows `m.selection.nodes()`. |
 | `Table.write`, `Table.meta`, `Table.columns`, `Table.num_rows`, `Table.truncated`, `Table.head`, `Table.sizes`, `Table.to_arrow` | § 2.5, § 2.8 and the `--out` of the command; `to_arrow()` because users of Polars and DuckDB expect it. |
 | `p.found`, `p.hops`, `p.truncated`, `p.meta`, `p.nodes()`, `p.edges()`, `p.on_map()` | The `Path` object the issue asks for; `on_map()` mirrors `Table.on_map()`. |
-| `Selection.kind`; `m.file`, `m.levels`, `m.hierarchy`; `Hierarchy.levels`, `Hierarchy.table()`, `Hierarchy.of()`; `Plan.operation`, `Plan.fits`, `Plan.estimate`, `Plan.refusal`, `Plan.to_dict()` | The object model the issue asks for. |
+| `Selection.kind`; `m.file`, `m.levels`, `m.hierarchy`; `Hierarchy.depth`, `Hierarchy.table()`, `Hierarchy.siblings()`, `Hierarchy.of()`; `Plan.operation`, `Plan.fits`, `Plan.estimate`, `Plan.refusal`, `Plan.to_dict()` | The object model the issue asks for. |
 | `progress=`, `temp_dir=`, `out=`, `overwrite=`, `reveal=`, `strong=`, `method=`, `resolution=`, `objective=`, `iterations=`, `use_direction=`, `personalize=`, `damping=`, `tol=`, `max_iter=`, `max_edges=`, `self_loops=`, `duplicates=`, `communities=` of `g.map()`, `seed=`, `weight=` of `degrees` and `to_scipy` | Parameters the implementing issues describe without naming (#36, #47, #48, #57, #58, #63, #81, #85), and `overwrite=` for § 2.7. |
 | `InsufficientDisk`, `InvalidExpression`, `UnknownNode`, `Unsupported`, `OutputExists`, `CorruptFile`, `EverygraphError` and its attributes `message`, `why`, `arithmetic`, `ways_forward`, `changed`, `kept`, `machine_memory_bytes`, `to_dict()`, `Way` and its fields `command`, `python`, `note`, `needs_bytes`, `TruncatedWarning` | § 2.7 and § 2.5; the attributes and fields are the keys of the error document of `docs/ux-contract.md` § 6.1. |
 | `--window`, `--edges`, `--nodes`, `--avoid-hubs`, `--reveal`, `--deep`, `--no-weight`, `--directed`, `--undirected`, `--strong`, `--use-direction`, `--self-loops`, `--duplicates`, `--overwrite`, `--personalize`, `--precision` of `run pagerank` | Items 9, 16, 18 and 10. |
