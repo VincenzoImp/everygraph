@@ -8,6 +8,8 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 **Scope**
 - [ ] Verbs: `everygraph ingest`, `everygraph info`, `everygraph run <algorithm>`, `everygraph query`, `everygraph map`, `everygraph open`, `everygraph export`, `everygraph verify`, `everygraph compact`, `everygraph doctor`
 - [ ] `everygraph compact FILE [--out NEW]` over `everygraph_format::container::compact` (ADR 0027; `docs/api-sketch.md` § 5.1): without `--out` the copy is written as `FILE.partial` and renamed over `FILE` once durable, so a stop leaves `FILE` as it was; with `--out NEW`, `FILE` is not changed. `info` reports the bytes `compact` would reclaim (`Container::reclaimable_bytes`)
+- [ ] `info` lists the stored results with size, age and provenance (`Container::find_result`, spec § 6 "Results"), and marks those of an earlier graph identity or an older algorithm version as stale; `compact --drop-stale` leaves them out (moved from {{#m2-12-artifact-cache}})
+- [ ] `map` commits its `communities`, `hierarchy` and `layout` phases as stored results as each finishes, so a stopped `map` keeps them and a later run shows them as `kept` (`docs/ux-contract.md` § 5.1, C-2; moved from {{#m2-12-artifact-cache}})
 - [ ] Single static binary per platform, no runtime dependencies; also installed by the Python wheel
 - [ ] Shared options as `docs/api-sketch.md` § 5.2 lists them, each on the commands named there: `--threads`, `--memory`, `--temp-dir`, `--dry-run`, `--json`, `--out`, `--overwrite`; `--deterministic/--fast` and `--seed` on `run communities` and `map` only
 - [ ] Preflight printed before long operations, and with `--dry-run`; no `--yes`, since nothing asks ({{#m0-12-ux-contract}} S-4)

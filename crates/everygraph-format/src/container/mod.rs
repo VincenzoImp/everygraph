@@ -25,6 +25,12 @@
 //! state, and a torn header block fails its hash and is ignored. [`compact`] copies the
 //! live sections into a new container to reclaim what was replaced or abandoned.
 //!
+//! **Results** (spec § 6) are sections of typed values whose provenance record holds a
+//! [`ResultKey`]: the [`GraphIdentity`] of the graph they were computed on, the
+//! operation and its version, determinism, and the parameters.
+//! [`Writer::add_result`] appends one (replacing one under the same key);
+//! [`Container::find_result`] serves it only for that key on that graph.
+//!
 //! ```
 //! use everygraph_core::MemorySource;
 //! use everygraph_format::container::{Container, Kind, Provenance, Writer};
@@ -47,6 +53,7 @@
 mod layout;
 mod provenance;
 mod read;
+mod result;
 mod write;
 
 use std::error::Error;
@@ -58,6 +65,7 @@ use everygraph_core::{ReadError, WriteError};
 pub use layout::{MAJOR, MINOR};
 pub use provenance::{Input, Provenance};
 pub use read::{Container, Section};
+pub use result::{GraphIdentity, ResultKey, StoredResult, Value, ValueType};
 pub use write::{SectionWriter, Writer, compact};
 
 /// Sections, the TOC and the header blocks start at multiples of this.
@@ -104,6 +112,9 @@ impl Kind {
     /// The segment manifest of a segmented file (`segments`, spec § 13). Reserved:
     /// version 1.0 neither writes nor reads segments.
     pub const SEGMENTS: Self = Self(6);
+    /// A result kept in the graph file: typed values, with a provenance record that
+    /// holds its key (spec § 6, "Results"), written by [`Writer::add_result`].
+    pub const RESULT: Self = Self(10);
     /// The first of the kinds reserved for private and experimental use, which no
     /// specification will ever assign.
     pub const PRIVATE: Self = Self(0x8000_0000);
@@ -123,7 +134,14 @@ impl Kind {
     /// Whether this version of the specification defines the kind.
     #[must_use]
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 1..=6)
+        matches!(self.0, 1..=6 | 10)
+    }
+
+    /// Whether sections of this kind define the graph, and so enter its identity
+    /// ([`GraphIdentity`], spec § 6).
+    #[must_use]
+    pub const fn defines_graph(self) -> bool {
+        matches!(self.0, 2..=5)
     }
 }
 
@@ -246,6 +264,9 @@ pub enum ContainerError {
     },
     /// A provenance record that cannot be encoded or decoded.
     InvalidProvenance(&'static str),
+    /// A result section that breaks its layout, or a result that cannot be stored or
+    /// read as asked (spec § 6, "Results").
+    InvalidResult(&'static str),
     /// The table of contents or a record would exceed its limit.
     TooLarge(&'static str),
     /// An earlier write failed: this writer does nothing more.
@@ -319,6 +340,7 @@ impl fmt::Display for ContainerError {
                 "provenance record {name:?} cannot be removed: section {by:?} refers to it"
             ),
             Self::InvalidProvenance(what) => write!(f, "invalid provenance record: {what}"),
+            Self::InvalidResult(what) => write!(f, "invalid result: {what}"),
             Self::TooLarge(what) => write!(f, "too large: {what}"),
             Self::Poisoned => write!(
                 f,

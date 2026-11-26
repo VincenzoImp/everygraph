@@ -9,7 +9,7 @@
 //!   (the check script uses it on files it has patched), or `{"error": "…"}`.
 //!
 //! The listing is JSON on standard output: generation, version, whether the reader
-//! fell back to an older commit, and every section.
+//! fell back to an older commit, the graph identity, and every section.
 //!
 //! The sample has two commits: a small graph (a provenance record, the two sections of
 //! a compressed adjacency, an empty section, one of a kind no specification defines,
@@ -27,11 +27,12 @@
 #[path = "../tests/support/bytes.rs"]
 mod support;
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
 use everygraph_format::adjacency;
-use everygraph_format::container::{Container, Input, Kind, Provenance, Writer};
+use everygraph_format::container::{Container, Input, Kind, Provenance, ResultKey, Writer};
 use everygraph_io::{FileSink, FileSource, persist};
 use support::bytes;
 
@@ -99,13 +100,14 @@ fn write(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
     w.commit()?;
-    w.add_provenance("provenance/pagerank", &record("pagerank"))?;
-    w.add_section(
-        "results/pagerank",
-        private,
-        &bytes(5, 4000),
-        Some("provenance/pagerank"),
-    )?;
+    let key = ResultKey::new(w.graph_identity(), "pagerank", 1, true).with("damping", "0.85")?;
+    let ranks: Vec<f64> = (0..n).map(|v| f64::from(v + 1) / 500_500.0).collect();
+    let about = Provenance {
+        operation: String::new(),
+        parameters: BTreeMap::new(),
+        ..record("pagerank")
+    };
+    w.add_result(&key, &about, &ranks)?;
     w.remove("x.chunk-boundary")?;
     w.commit()?;
     drop(w);
@@ -124,11 +126,12 @@ fn list(path: &Path) -> String {
         Err(e) => return format!("{{\"error\": {e:?}}}\n"),
     };
     let mut out = format!(
-        "{{\"generation\": {}, \"version\": [{}, {}], \"recovered\": {}, \"sections\": [",
+        "{{\"generation\": {}, \"version\": [{}, {}], \"recovered\": {}, \"identity\": \"{}\", \"sections\": [",
         file.generation(),
         file.version().0,
         file.version().1,
         file.recovered_from().is_some(),
+        file.graph_identity(),
     );
     for (i, e) in file.entries().iter().enumerate() {
         let hash: String = e.hash.iter().map(|b| format!("{b:02x}")).collect();

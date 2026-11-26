@@ -127,6 +127,9 @@ fn check(name: &str, source: &(dyn ByteSource + Sync), expected: &[u8]) {
         for &want in &lengths {
             for congruent in [true, false] {
                 let result = read(source, offset as u64, want, congruent);
+                if let Some(bytes) = source.slice(offset as u64..(offset + want) as u64) {
+                    assert_eq!(Some(bytes), expected.get(offset..offset + want), "{name}");
+                }
                 match expected.get(offset..offset + want) {
                     Some(bytes) => assert_eq!(
                         result.unwrap_or_else(|e| panic!("{name}: {want} at {offset}: {e}")),
@@ -221,6 +224,21 @@ fn every_backend(dir: &Path, bytes: &[u8]) {
         &MmapSource::from_file(&File::open(&path).unwrap()).unwrap(),
         bytes,
     );
+    // Range maps: the whole file, an unaligned middle, nothing, each half.
+    let n = bytes.len() as u64;
+    for range in [0..n, n / 3..n - n / 5, n / 2..n / 2, 0..n / 2, n / 2..n] {
+        let map = MmapSource::open_range(&path, range.clone()).unwrap();
+        let (start, end) = (to_usize(range.start), to_usize(range.end));
+        assert_eq!(map.mapped(), &bytes[start..end]);
+        assert_eq!(map.slice(range.clone()), Some(&bytes[start..end]));
+        check(&format!("mmap of {range:?}"), &map, bytes);
+    }
+    let too_far = MmapSource::open_range(&path, 0..n + 1).unwrap_err();
+    assert_eq!(too_far.kind(), std::io::ErrorKind::InvalidInput);
+}
+
+fn to_usize(n: u64) -> usize {
+    usize::try_from(n).unwrap()
 }
 
 #[test]
@@ -459,6 +477,8 @@ fn spill_logs_read_back_per_shard_and_leave_nothing_behind() {
 fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
     use std::io::ErrorKind::ResourceBusy;
 
+    use everygraph_core::ByteSink;
+
     let dir = scratch("guard");
     let path = dir.join("mapped");
     let link = dir.join("hard-link");
@@ -474,7 +494,11 @@ fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
         }
         assert_eq!(AppendSink::create(target).unwrap_err().kind(), ResourceBusy);
         assert_eq!(FileSink::create(target).unwrap_err().kind(), ResourceBusy);
-        assert_eq!(FileSink::open(target).unwrap_err().kind(), ResourceBusy);
+        // A FileSink opens, and is refused each write into the map.
+        let mut sink = FileSink::open(target).unwrap();
+        assert_eq!(kind(sink.write_at(0, &[1])), ResourceBusy);
+        assert_eq!(kind(sink.set_len(0)), ResourceBusy);
+        drop(sink);
         let file = File::options().write(true).open(target).unwrap();
         assert_eq!(
             AppendSink::from_file(file).unwrap_err().kind(),
@@ -507,9 +531,64 @@ fn sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written() {
     let map = MmapSource::open(&path).unwrap();
     assert_eq!(map.as_slice().unwrap(), &[5; 10]);
     drop(map);
+    // A FileSink holds the file alone, but it may be mapped beside it.
     let sink = FileSink::open(&link).unwrap();
-    assert_eq!(MmapSource::open(&path).unwrap_err().kind(), ResourceBusy);
-    drop(sink.into_file());
+    assert_eq!(AppendSink::create(&path).unwrap_err().kind(), ResourceBusy);
     MmapSource::open(&path).unwrap();
+    drop(sink.into_file());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// The kind of the I/O error a `FileSink` returned.
+#[cfg(unix)]
+fn kind<T: std::fmt::Debug>(result: Result<T, everygraph_core::WriteError>) -> std::io::ErrorKind {
+    match result {
+        Err(everygraph_core::WriteError::Backend(e)) => {
+            e.downcast_ref::<std::io::Error>().unwrap().kind()
+        }
+        other => panic!("expected an I/O error, got {other:?}"),
+    }
+}
+
+/// A `FileSink` beside a range map: every write and length change that would reach a
+/// mapped byte is refused, everything else goes through, and the mapped bytes never
+/// change. A map taken while the sink is open is checked the same way.
+#[cfg(unix)]
+#[test]
+fn a_file_sink_writes_beside_a_range_map_and_never_into_it() {
+    use std::io::ErrorKind::ResourceBusy;
+
+    use everygraph_core::ByteSink;
+
+    let dir = scratch("range-guard");
+    let path = dir.join("file");
+    let a = A as u64;
+    write_file(&path, &[7; 4 * A]);
+    let (start, end) = (a + 100, 3 * a - 5);
+    let map = MmapSource::open_range(&path, start..end).unwrap();
+    let mut sink = FileSink::open(&path).unwrap();
+    for (offset, len) in [(start - 1, 2), (end - 1, 1), (0, 4 * A), (start + 7, 1)] {
+        assert_eq!(
+            kind(sink.write_at(offset, &vec![1; len])),
+            ResourceBusy,
+            "{len} at {offset}"
+        );
+    }
+    for (offset, len) in [(0, 100), (start - 1, 1), (end, 1), (4 * a, 10)] {
+        sink.write_at(offset, &vec![2; len]).unwrap();
+    }
+    assert_eq!(kind(sink.set_len(end - 1)), ResourceBusy);
+    assert_eq!(kind(sink.set_len(0)), ResourceBusy);
+    sink.set_len(end).unwrap();
+    sink.set_len(10 * a).unwrap();
+    assert!(map.mapped().iter().all(|&b| b == 7));
+    assert_eq!(map.mapped().len() as u64, end - start);
+
+    // A second map, taken while the sink is open, guards its range too.
+    let head = MmapSource::open_range(&path, 0..10).unwrap();
+    assert_eq!(kind(sink.write_at(5, &[3])), ResourceBusy);
+    drop((map, head));
+    sink.write_at(start, &[4]).unwrap();
+    sink.set_len(0).unwrap();
     fs::remove_dir_all(dir).unwrap();
 }

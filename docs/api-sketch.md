@@ -1022,14 +1022,11 @@ these are the names § 2.5 left open:
   the thread that displays it.
 - Several processes may read one graph file at once. Adding a result to it is done by
   one writer at a time, under a lock on the file. A second writer is refused with
-  `ResourceBusy`, which names the file; it does not wait
-  (`plan/issues/m2-22-single-writer-lock.md`; `design/DECISIONS.md`, "A second writer
-  on a graph file is refused"). A reader never sees a half-written result
-  (`docs/ux-contract.md` § 5.2, C-1). The container itself does not lock
-  (`docs/spec/eg-container.md` § 11): the lock across processes is issue
-  `m2-22-single-writer-lock`, and a reader in another process that maps the file stays
-  safe during a commit only once maps cover the committed range alone (issue
-  `m2-21-range-maps`).
+  `ResourceBusy`, which names the file (and, on Linux, the other process); it does not
+  wait (`design/DECISIONS.md`, "A second writer on a graph file is refused"). A reader
+  never sees a half-written result (`docs/ux-contract.md` § 5.2, C-1), and a reader that
+  maps the file, in this process or another, stays safe during a commit because it maps
+  only the committed range (`docs/spec/eg-container.md` § 11).
 - Two threads of one process that add results to the same file are serialized the same
   way, by a lock the process holds for the file; both succeed, one after the other. If
   both computed the same result, it is stored once and both get it.

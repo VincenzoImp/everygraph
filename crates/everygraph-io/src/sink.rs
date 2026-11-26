@@ -256,16 +256,27 @@ impl BlockWriter {
 /// straight to the file (`pwrite`), unbuffered: the container writes sections in
 /// pieces the caller chose, and a commit in a few large writes.
 ///
-/// Like the other sinks it holds the file against mapping: it refuses a file that a
-/// live [`MmapSource`](crate::MmapSource) of this process maps
-/// ([`io::ErrorKind::ResourceBusy`]), and the file cannot be mapped while the sink is
-/// open. So a graph that this process holds mapped cannot be committed to until the
-/// map is dropped. It also holds the file alone: a second `FileSink`, or any other
-/// sink, of this process on the same file is refused while it is open (one writer at a
-/// time updates a container). Other processes are not stopped (see `MmapSource`).
+/// **One writer at a time, across processes** (`design/DECISIONS.md`, "A second writer
+/// on a graph file is refused"). The sink holds an exclusive lock on its file for as
+/// long as it lives, and a second `FileSink` on the file, in this process or another,
+/// is refused at once with [`io::ErrorKind::ResourceBusy`]; nothing waits. The
+/// operating system releases the lock when the file is closed or the process dies, so
+/// a crash never leaves a stale lock. On Unix it is `flock`, which is **advisory**: a
+/// program that does not take it (an editor, `cp`, `dd`) is not stopped. On Windows it
+/// is the share mode of the open: no other handle may open the file for writing while
+/// the sink is open, whichever program asks. Within the process no other sink of this
+/// crate may open the file either.
+///
+/// **Memory maps.** The sink may be open on a file that a live
+/// [`MmapSource`](crate::MmapSource) of this process maps, and the file may be mapped
+/// while it is: each write or length change that would reach a mapped range is refused
+/// ([`io::ErrorKind::ResourceBusy`]). A container's commit touches only its header
+/// blocks and the bytes from the committed end on, so it goes through beside a map of
+/// `8192 … committed end`, and fails beside a whole-file map. Other processes are not
+/// guarded (see `MmapSource`).
 #[derive(Debug)]
 pub struct FileSink {
-    // Declared before the claim: the file is closed first.
+    // Declared before the claim: the file is closed, and its lock released, first.
     file: File,
     len: u64,
     claim: Claim,
@@ -278,43 +289,87 @@ impl FileSink {
     ///
     /// # Errors
     ///
-    /// The file cannot be created, or a live `MmapSource` or another sink of this
-    /// process holds it ([`io::ErrorKind::ResourceBusy`]; nothing is truncated then).
+    /// The file cannot be created; another `FileSink` holds it, in this process or
+    /// another, or another sink of this process writes it, or a live `MmapSource` of
+    /// this process maps any of it ([`io::ErrorKind::ResourceBusy`]; nothing is
+    /// truncated then).
     pub fn create(path: impl AsRef<Path>) -> io::Result<Self> {
-        let (file, claim) = open_claimed(
-            OpenOptions::new().read(true).write(true),
+        let (file, claim) = open_alone(
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false),
             path.as_ref(),
-            Use::WriteAlone,
         )?;
-        file.set_len(0)?;
-        Ok(Self {
-            file,
-            len: 0,
-            claim,
-        })
+        let len = file.metadata()?.len();
+        let mut sink = Self { file, len, claim };
+        sink.resize(0)?;
+        Ok(sink)
     }
 
     /// Opens the existing file `path` for reading and writing; nothing is changed.
     ///
     /// # Errors
     ///
-    /// The file cannot be opened, or a live `MmapSource` or another sink of this
-    /// process holds it ([`io::ErrorKind::ResourceBusy`]).
+    /// The file cannot be opened; another `FileSink` holds it, in this process or
+    /// another, or another sink of this process writes it
+    /// ([`io::ErrorKind::ResourceBusy`]).
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
-        let file = OpenOptions::new().read(true).write(true).open(path)?;
-        let claim = Claim::take(&file, Use::WriteAlone)?;
+        let (file, claim) = open_alone(OpenOptions::new().read(true).write(true), path.as_ref())?;
         let len = file.metadata()?.len();
         Ok(Self { file, len, claim })
     }
 
-    /// Gives the file back. From here on it may be mapped; the caller must not write
-    /// through the returned handle while it is.
+    /// Gives the file back, with its lock: the lock ends when the file is closed. From
+    /// here on the file may be mapped whole; the caller must not write through the
+    /// returned handle while it is.
     #[must_use]
     pub fn into_file(self) -> File {
         let Self { file, claim, .. } = self;
         drop(claim);
         file
     }
+
+    /// Sets the length, unless that would cut off or extend into a mapped range.
+    fn resize(&mut self, len: u64) -> io::Result<()> {
+        let file = &self.file;
+        self.claim
+            .guard(self.len.min(len)..u64::MAX, || file.set_len(len))?;
+        self.len = len;
+        Ok(())
+    }
+}
+
+/// Opens `path` with `options` for a [`FileSink`]: held alone in this process, and
+/// locked against writers in other processes.
+fn open_alone(options: &mut OpenOptions, path: &Path) -> io::Result<(File, Claim)> {
+    let locked = |holder: Option<u32>| {
+        let who = holder.map_or_else(
+            || "another process".to_owned(),
+            |pid| format!("process {pid}"),
+        );
+        io::Error::new(
+            io::ErrorKind::ResourceBusy,
+            format!(
+                "{}: {who} is writing this file; run again once it has finished",
+                path.display()
+            ),
+        )
+    };
+    sys::lock_options(options);
+    let file = options.open(path).map_err(|e| {
+        if sys::is_sharing_violation(&e) {
+            locked(None)
+        } else {
+            e
+        }
+    })?;
+    let claim = Claim::take(&file, Use::WriteAlone)?;
+    if !sys::try_lock(&file)? {
+        return Err(locked(sys::lock_holder(&file)));
+    }
+    Ok((file, claim))
 }
 
 impl ByteSource for FileSink {
@@ -335,17 +390,18 @@ impl ByteSink for FileSink {
             .ok_or(WriteError::TooLarge { len: u64::MAX })?;
         if data.is_empty() && end > self.len {
             // A write of nothing past the end still extends the sink (the contract).
-            self.file.set_len(end).map_err(write_error)?;
+            return self.resize(end).map_err(write_error);
         }
-        sys::write_all_at(&self.file, data, offset).map_err(write_error)?;
+        let file = &self.file;
+        self.claim
+            .guard(offset..end, || sys::write_all_at(file, data, offset))
+            .map_err(write_error)?;
         self.len = self.len.max(end);
         Ok(())
     }
 
     fn set_len(&mut self, len: u64) -> Result<(), WriteError> {
-        self.file.set_len(len).map_err(write_error)?;
-        self.len = len;
-        Ok(())
+        self.resize(len).map_err(write_error)
     }
 
     fn sync(&mut self) -> Result<(), WriteError> {
@@ -381,7 +437,9 @@ fn open_claimed(
 /// `MOVEFILE_REPLACE_EXISTING` (std's `rename`); std offers no write-through flag and
 /// no way to sync a directory there, so the rename is durable only once NTFS commits
 /// its journal (a power cut just after may leave the old file under the name; never a
-/// mixture).
+/// mixture). `MOVEFILE_WRITE_THROUGH` would not change that: Microsoft documents it as
+/// flushing a move done as a copy and a delete, between volumes, and both paths here
+/// are on one volume. Calling it would need a foreign function of our own.
 ///
 /// # Errors
 ///

@@ -337,6 +337,16 @@ impl<S: ByteSource> Container<S> {
         padded(self.header.toc_offset, self.header.toc_len)
     }
 
+    /// The bytes that no commit changes while this one is the file's state or an
+    /// earlier one, by this writer or any other that follows the protocol: from the
+    /// end of the header blocks to the committed end (spec § 11). What a reader maps
+    /// (`everygraph_io::MmapSource::from_file_range`); the header blocks are read with
+    /// positional reads.
+    #[must_use]
+    pub fn stable_range(&self) -> Range<u64> {
+        HEADER_BYTES..self.committed_len()
+    }
+
     /// Bytes of the file that the committed state uses: the header, each section and
     /// the TOC with their padding.
     #[must_use]
@@ -404,17 +414,8 @@ pub(crate) fn hash_range<S: ByteSource + ?Sized>(
     len: u64,
 ) -> Result<[u8; 32], ContainerError> {
     let mut hasher = blake3::Hasher::new();
-    if let Some(all) = source.as_slice() {
-        let range = usize::try_from(offset)
-            .ok()
-            .zip(usize::try_from(offset.saturating_add(len)).ok())
-            .and_then(|(start, end)| all.get(start..end))
-            .ok_or(ReadError::OutOfBounds {
-                offset,
-                len,
-                source_len: source.len(),
-            })?;
-        hasher.update(range);
+    if let Some(bytes) = source.slice(offset..offset.saturating_add(len)) {
+        hasher.update(bytes);
     } else {
         let mut buf = vec![0u8; HASH_CHUNK];
         let mut at = 0;
@@ -463,10 +464,15 @@ impl<S: ByteSource> ByteSource for Section<'_, S> {
     }
 
     fn as_slice(&self) -> Option<&[u8]> {
-        let all = self.source.as_slice()?;
-        let start = usize::try_from(self.offset).ok()?;
-        let end = usize::try_from(self.offset + self.len).ok()?;
-        all.get(start..end)
+        self.source.slice(self.offset..self.offset + self.len)
+    }
+
+    fn slice(&self, range: Range<u64>) -> Option<&[u8]> {
+        if range.start > range.end || range.end > self.len {
+            return None;
+        }
+        self.source
+            .slice(self.offset + range.start..self.offset + range.end)
     }
 
     fn advise(&self, range: Range<u64>, hint: AccessHint) {

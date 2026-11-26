@@ -10,7 +10,8 @@
 //!   issue #35.
 //! - [`container`]: the `.eg` container (DESIGN D7, `docs/spec/eg-container.md`):
 //!   named, BLAKE3-hashed sections behind a table of contents, appended and committed
-//!   by a crash-safe protocol over `everygraph_core::ByteSink`, issue #28.
+//!   by a crash-safe protocol over `everygraph_core::ByteSink`, issue #28; and the
+//!   results kept in it, found by the graph's identity and a cache key, issue #39.
 //!
 //! The crate reads bytes it is given and never opens files, starts threads or reads the
 //! clock, so it builds for wasm32; parallel work goes through `everygraph_core::par`.

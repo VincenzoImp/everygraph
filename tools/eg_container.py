@@ -90,6 +90,11 @@ def open_container(f):  # § 7: two reads
     raise SystemExit("no usable table of contents")
 
 
+def identity(found):  # § 6: BLAKE3 of (kind, name length, name, hash) of the graph's sections
+    graph = [e for e in found if 2 <= e[1] <= 5]  # in name order, as the TOC holds them
+    return blake3(b"".join(struct.pack("<II", e[1], len(e[0].encode())) + e[0].encode() + e[5] for e in graph)).hex()
+
+
 def zeros(f, start, end):  # the bytes start..end exist and are zero
     f.seek(start)
     return f.read(end - start) == bytes(end - start)
@@ -168,7 +173,7 @@ def main(argv):
     keys = ("name", "kind", "codec", "offset", "length", "hash", "provenance")
     rows = [dict(zip(keys, e[:5] + [e[5].hex(), e[6]])) for e in found]
     if "--json" in argv:
-        print(json.dumps({"generation": generation, "recovered": recovered, "sections": rows}))
+        print(json.dumps({"generation": generation, "recovered": recovered, "identity": identity(found), "sections": rows}))
     else:
         print(f"commit {generation}, {len(rows)} sections")
         for r in rows:

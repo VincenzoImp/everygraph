@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 
 use everygraph_core::{ByteSink, ByteSource, MemorySource, ReadError, WriteError};
 use everygraph_format::container::{
-    Codec, Container, ContainerError, Entry, Input, Kind, Provenance, REQUIRED_SEGMENTS, Writer,
-    compact,
+    Codec, Container, ContainerError, Entry, Input, Kind, Provenance, REQUIRED_SEGMENTS, ResultKey,
+    Writer, compact,
 };
 use everygraph_oracle::rng::SplitMix64;
 use proptest::prelude::*;
@@ -1117,6 +1117,30 @@ fn add_a_result(w: &mut Writer<&mut Recording>) -> States {
     let generation = w.commit().unwrap();
     let file = Container::open(w.sink().image.clone()).unwrap();
     [(generation, contents(&file))].into_iter().collect()
+}
+
+/// Storing a result and then replacing it (`Writer::add_result`, spec § 6) are two
+/// commits of the protocol: a crash at any step leaves no result, the first or the
+/// second, whole.
+#[test]
+fn a_crash_while_storing_or_replacing_a_result_leaves_one_whole_state() {
+    check_crashes(base_file(), |w| {
+        let key = ResultKey::new(w.graph_identity(), "pagerank", 1, true)
+            .with("damping", "0.85")
+            .unwrap();
+        let mut states = States::new();
+        for values in [vec![0.5_f64; 900], vec![0.25_f64; 1700]] {
+            w.add_result(&key, &Provenance::default(), &values).unwrap();
+            let generation = w.commit().unwrap();
+            let file = Container::open(w.sink().image.clone()).unwrap();
+            let stored = file.find_result(&key).unwrap().unwrap();
+            let mut got = vec![0.0; values.len()];
+            stored.read(0, &mut got).unwrap();
+            assert_eq!(got, values);
+            states.insert(generation, contents(&file));
+        }
+        states
+    });
 }
 
 #[test]
