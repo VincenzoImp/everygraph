@@ -125,7 +125,11 @@ def official(path, tiles):
         return None
     js = WORK / "js"
     js.mkdir(exist_ok=True)
-    if not (js / "node_modules" / "pmtiles").exists():
+    # The CI cache keeps parts of `target/` only, so a cached `node_modules` may be partial.
+    installed = js / "node_modules" / "pmtiles" / "package.json"
+    want = PMTILES_JS.split("@", 1)[1]
+    if not installed.exists() or json.loads(installed.read_text()).get("version") != want:
+        shutil.rmtree(js / "node_modules", ignore_errors=True)
         run(["npm", "install", "--prefix", js, "--no-audit", "--no-fund", "--silent", PMTILES_JS])
     (js / "check.mjs").write_text(JS)
     listed = json.dumps([[int(v) for v in k.split("/")] for k in tiles])
