@@ -11,6 +11,8 @@
 //! - [`container`]: the `.eg` container (DESIGN D7, `docs/spec/eg-container.md`):
 //!   named, BLAKE3-hashed sections behind a table of contents, appended and committed
 //!   by a crash-safe protocol over `everygraph_core::ByteSink`, issue #28.
+//! - [`verify`]: what `everygraph verify` checks: the container's rules, every section's
+//!   hash and every adjacency's structure, issue #41.
 //!
 //! The crate reads bytes it is given and never opens files, starts threads or reads the
 //! clock, so it builds for wasm32; parallel work goes through `everygraph_core::par`.
@@ -27,3 +29,4 @@
 
 pub mod adjacency;
 pub mod container;
+pub mod verify;

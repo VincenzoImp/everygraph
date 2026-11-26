@@ -124,7 +124,12 @@ fn reference(
 }
 
 /// Checks every key and every id of `dict` against the reference.
-fn check<S: ByteSource>(dict: &Dictionary<'_, S>, column: ColumnType, keys: &[In], order: IdOrder) {
+fn check<S: ByteSource + Sync>(
+    dict: &Dictionary<'_, S>,
+    column: ColumnType,
+    keys: &[In],
+    order: IdOrder,
+) {
     let kind = dict.kind();
     let expected = reference(kind, column, keys, order);
     assert_eq!(
@@ -159,6 +164,7 @@ fn check<S: ByteSource>(dict: &Dictionary<'_, S>, column: ColumnType, keys: &[In
         dict.key(NodeId::new(dict.len())),
         Err(DictionaryError::UnknownId(_))
     ));
+    dict.verify().unwrap();
 }
 
 fn build_all<'a, Sc: Scratch>(
@@ -975,6 +981,35 @@ fn damaged_sections_are_refused() {
         Err(DictionaryError::Corrupt(_))
     ));
     assert_eq!(budget.available(), budget.total() - dict.resident_bytes());
+}
+
+/// Sections that open but give two ids each other's keys: only `verify` reads every
+/// key, so only it sees that ids and keys are no longer a bijection.
+#[test]
+fn verify_finds_ids_and_keys_that_are_not_a_bijection() {
+    let budget = Budget::new(1 << 28);
+    for (layout, section) in [
+        (Layout::Split, "ids.slot_to_id"),
+        (Layout::SlotOrdered, "ids.id_to_slot"),
+    ] {
+        let dict = build(
+            ColumnType::Utf8,
+            &users(100, 200),
+            BuildOptions::default().with_layout(layout),
+            &budget,
+            &MemoryScratch,
+        );
+        let mut bytes: Sections = section_bytes(&dict).into_iter().collect();
+        open_bytes(&bytes, &budget).unwrap().verify().unwrap();
+        let ids = bytes.get_mut(section).unwrap();
+        let (first, second) = ids.split_at_mut(4);
+        first.swap_with_slice(&mut second[..4]);
+        let swapped = open_bytes(&bytes, &budget).unwrap();
+        assert!(
+            matches!(swapped.verify(), Err(DictionaryError::Corrupt(_))),
+            "{layout:?}"
+        );
+    }
 }
 
 /// A digest of every section of builds that spill, printed for
