@@ -383,6 +383,15 @@ pub mod fuzzing {
         super::layout::decode_toc(bytes, toc_offset)
     }
 
+    /// Encodes entries that [`decode_toc`] returned.
+    ///
+    /// # Errors
+    ///
+    /// A table that would exceed 16 MiB.
+    pub fn encode_toc(entries: &[Entry]) -> Result<Vec<u8>, ContainerError> {
+        super::layout::encode_toc(entries.iter())
+    }
+
     /// Decodes a provenance record.
     ///
     /// # Errors

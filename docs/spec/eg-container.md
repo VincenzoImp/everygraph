@@ -250,7 +250,10 @@ the new one.
 measurement review asks a build to record (`docs/research/sota-measurement.md`, § 4,
 challenge 7). These keys are conventional, so that every operation writes them the same
 way: `order` (the vertex-ordering method: `input`, `first-appearance`, `sorted-key`,
-`degree`, `seeded-relabel`), `order_seed` (its seed, when it has one), `id_min` and
+`degree`, `seeded-relabel`), `order_seed` (its seed, when it has one), `directed`
+(`true` or `false`) and `self_loops` (`drop` or `keep`) on the record of an adjacency's
+sections, which `everygraph verify --deep` checks the lists against (symmetric lists,
+no loop), `id_min` and
 `id_max` (the range of the original identifiers, when they are integers),
 `isolated_kept` and `isolated_dropped` (nodes with no edge kept in the graph, and
 dropped by the build). The content hash of the source file is an input's fingerprint
@@ -308,7 +311,10 @@ least 32 and at most 16 MiB.
 **Length and padding.** A valid file is at least as long as its committed end (the TOC's
 padded end, § 8), and every padding byte, after sections and after the TOC, is zero.
 Opening checks neither (it reads only the header and the TOC); verification checks
-both.
+both. Verification also checks bytes 128 to 4095 of both header blocks. The other
+block — not the one the file reads from — holds a valid header or is empty, unless a
+commit was cut short while it was being written: such a block, which no reader can
+tell from a damaged one, is reported as a note, not as damage.
 
 A section is checked against its hash when it is used for something that must be right
 (`everygraph verify`, compaction, a provenance record) — not when the file is opened,

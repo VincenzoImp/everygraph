@@ -32,7 +32,7 @@ const PRIVATE: Kind = Kind::PRIVATE;
 
 fn bytes(seed: u8, len: usize) -> Vec<u8> {
     (0..len)
-        .map(|i| seed.wrapping_mul(31).wrapping_add(i as u8))
+        .map(|i| seed.wrapping_mul(31).wrapping_add(i.to_le_bytes()[0]))
         .collect()
 }
 
@@ -118,6 +118,7 @@ fn next_state(done: &[State]) -> State {
 
 #[expect(
     clippy::print_stderr,
+    clippy::disallowed_macros,
     reason = "the count of error paths is the test's report"
 )]
 fn report(name: &str, sweeps: usize, paths: &BTreeSet<String>) {

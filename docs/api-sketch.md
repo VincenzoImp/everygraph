@@ -2325,7 +2325,53 @@ are `summary` and `meta`, whose keys depend on the operation, and the rows.
 | `meta` | The table's `meta` (§ 3.4), every key of it; the example above shows a few. |
 
 `info`, `doctor` and `verify` follow the same rule: with `--json`, one document on
-standard output with a `schema` key. Their schemas are #98's to write (§ 7).
+standard output with a `schema` key. The schemas of `info` and `doctor` are #98's to
+write (§ 7). That of `verify` (#41) holds the report whether the file is intact or not
+(exit status 0 or 5); a file that cannot be read gives the error document instead:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:everygraph:schema:verify:1",
+  "title": "Everygraph verify report, version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "verify", "deep", "intact", "generation", "sections",
+    "sections_hashed", "bytes_hashed", "problems", "notes", "unchecked"
+  ],
+  "properties": {
+    "schema": {"const": 1},
+    "verify": {"type": "string"},
+    "deep": {"type": "boolean"},
+    "intact": {"type": "boolean"},
+    "generation": {"type": ["integer", "null"], "minimum": 1},
+    "sections": {"type": "integer", "minimum": 0},
+    "sections_hashed": {"type": "integer", "minimum": 0},
+    "bytes_hashed": {"type": "integer", "minimum": 0},
+    "problems": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "notes": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "unchecked": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section", "problem"],
+      "properties": {
+        "section": {"type": ["string", "null"]},
+        "problem": {"type": "string"}
+      }
+    }
+  }
+}
+```
+
+`verify` is the file checked, as given; `generation` is the commit it reads as, `null`
+when it is not a graph file; `intact` is true exactly when `problems` is empty.
+`section` is `null` for the header and the table of contents. `notes` are what may be
+damage or the trace of a commit cut short, which leaves the file whole; `unchecked`
+says which checks could not be made (a declaration the file's provenance lacks).
 
 **Which stream** (`docs/ux-contract.md` § 2.1). A result's summary is the command's
 result and goes to standard output: `run communities` prints the summary of § 3.5 there,
@@ -2577,7 +2623,7 @@ or dropped silently: each line says what this document does about it.
 |---|---|---|
 | `Graph.view(filter)`; `khop(…, budget=…)`; "requests carry budgets"; "budget 10k nodes" | #81, #90, #74, #87 | The approved names are `g.filter()`, `limit=`, `memory=`. The issue texts predated the decision that "budget" means memory only; #81, #74 and #87 now use the approved names, and #90 still says "stops at the budget" for `limit`. |
 | "quiet structured logs" when not on a terminal | #98 | The approved piped form is a plain log; `--json` gives one document (`docs/ux-contract.md` § 9). #98 now says "no `--yes`", since nothing asks. |
-| `--json` "validated against a schema" for every command | #98 | The result document has its schema here (§ 5.3, `urn:everygraph:schema:result:1`); the plan, event, error, stop and file documents are in `docs/ux-contract.md`. The schemas of `info`, `doctor` and `verify` are #98's to write, with a `schema` key like the others. |
+| `--json` "validated against a schema" for every command | #98 | The result document has its schema here (§ 5.3, `urn:everygraph:schema:result:1`); the plan, event, error, stop and file documents are in `docs/ux-contract.md`. The schemas of `info` and `doctor` are #98's to write, with a `schema` key like the others; that of `verify` is in § 5.3 (#41). |
 | "User overrides for every choice" of the planner | #45 | Exposed: `memory`, `threads`, `temp_dir`, `precision` (PageRank), `deterministic`. Forcing a regime or a decode tier has no public name in 0.1; if #45 needs one for testing it stays out of the documented API. |
 | "Pick a lower-memory variant (e.g. f32 state …)" when state does not fit | #45 | Not done by the planner (§ 2.11): it refuses and offers the variant. #45 now says the same (amendment below). |
 | Parallel edges merged into one with "count, sum/min/max of a weight, first/last timestamp" | #36 | `duplicates="sum"`, printed `duplicates summed`: the summed weight, the count and the first and last time. Minimum and maximum have no name in 0.1. |

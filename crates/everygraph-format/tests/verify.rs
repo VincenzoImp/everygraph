@@ -101,6 +101,10 @@ fn a_sound_file_is_intact_at_both_depths() {
 /// of header block 1, which the file does not read from, cannot be told from a commit
 /// cut short: it is a note; every other flip is a problem.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test may use threads; the crate's code goes through par, sequential here"
+)]
 fn every_single_bit_flip_is_detected() {
     let file = graph(&triangle(), UNDIRECTED);
     assert!(check(&file, Depth::Deep).is_intact());
