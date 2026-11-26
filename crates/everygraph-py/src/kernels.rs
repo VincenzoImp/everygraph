@@ -6,6 +6,8 @@
 //! The in-adjacency is not stored yet (`m2-11-in-adjacency`), so on a directed graph
 //! only what the out-lists answer is offered: components, and BFS along out-edges.
 
+use std::sync::atomic::AtomicU32;
+
 use arrow_array::ArrayRef;
 use arrow_array::types::{Float32Type, Float64Type};
 use everygraph_core::{Budget, Memory, MemoryKind, SegVec};
@@ -173,7 +175,7 @@ pub(crate) fn bfs(
             MemoryKind::Anonymous,
             distance.len() as u64 * 8,
         )?;
-        let distance: Vec<u32> = distance.into_iter().map(|d| d.into_inner()).collect();
+        let distance: Vec<u32> = distance.into_iter().map(AtomicU32::into_inner).collect();
         let parent: Vec<u32> = parent
             .unwrap_or_default()
             .into_iter()

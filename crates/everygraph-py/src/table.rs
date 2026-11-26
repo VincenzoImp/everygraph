@@ -308,7 +308,7 @@ fn each_value(chunks: &[ArrayRef], mut f: impl FnMut(u32, f64)) -> PyResult<()> 
     for chunk in chunks {
         match chunk.data_type() {
             DataType::Float64 => {
-                visit(chunk.as_primitive::<Float64Type>(), &mut row, |v| v, &mut f)
+                visit(chunk.as_primitive::<Float64Type>(), &mut row, |v| v, &mut f);
             }
             DataType::Float32 => {
                 visit(
@@ -360,7 +360,7 @@ impl Table {
 
     /// The first `n` rows.
     fn head(&self, n: usize) -> PyResult<Self> {
-        let rows: Vec<u32> = (0..self.rows.min(n)).map(|r| r as u32).collect();
+        let rows: Vec<u32> = (0..self.rows.min(n)).map(row).collect();
         self.take(&rows).map_err(arrow_err)
     }
 
@@ -386,7 +386,7 @@ impl Table {
             )
         })?;
         let mut table = self.take(&picked).map_err(arrow_err)?;
-        let ranks: Vec<u32> = (1..=picked.len()).map(|r| r as u32).collect();
+        let ranks: Vec<u32> = (1..=picked.len()).map(row).collect();
         table.names.push("rank".into());
         table
             .columns
@@ -475,6 +475,11 @@ impl Table {
         let stream = FFI_ArrowArrayStream::new(Box::new(reader));
         PyCapsule::new_with_value(py, stream, c"arrow_array_stream")
     }
+}
+
+/// A row number: below 2^32, as a table has one row per node at most.
+fn row(r: usize) -> u32 {
+    u32::try_from(r).unwrap_or(u32::MAX)
 }
 
 fn arrow_err(e: ArrowError) -> PyErr {

@@ -20,6 +20,12 @@ ProgressArg = bool | Callable[[dict[str, Any]], None]
 
 _READ_PHASES = ["reading", "identifiers", "building", "checking"]
 _MEASURES = ("degree", "in_degree", "out_degree", "pagerank", "core")
+_DETAIL: dict[str, Callable[[dict[str, Any]], str]] = {
+    "pagerank": lambda m: _text.counted(m["iterations"], "iteration", "iterations"),
+    "components": lambda m: _text.counted(m["components"], "component", "components"),
+    "kcore": lambda m: f"largest core {m['largest_core']:,}",
+    "bfs": lambda m: _text.counted(m["hops"], "hop", "hops"),
+}
 
 
 def _machine() -> tuple[int, int] | None:
@@ -448,7 +454,7 @@ class Graph:
         budget, pool = self._run(memory, threads)
         progress = _progress_arg(progress)
         job = _job(self.file or id(self), operation, sorted(parameters.items(), key=lambda kv: kv[0]))
-        events = Progress(operation, [operation], job, progress, detail=lambda _p, n: "")
+        events = Progress(operation, [operation], job, False if progress is True else progress)
         began = _clock()
         try:
             table, info = native(budget, pool, events)
@@ -461,7 +467,8 @@ class Graph:
         peak = info.pop("peak_memory_bytes", 0)
         meta = self._meta(operation, parameters, took, peak, **info)
         if progress is True and took >= T_PLAN:
-            events.flush()
+            detail = _DETAIL.get(operation, lambda _m: "")(meta)
+            print(f"  {operation:<13}{'█' * 16}  {detail:<32}  {_text.duration(took):>11}", file=sys.stderr)
         return Table(table, meta, "in graph order")
 
     def _read_summary(self, path: pathlib.Path, took: float) -> str:

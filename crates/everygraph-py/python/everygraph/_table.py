@@ -116,19 +116,40 @@ def _count(n: int, name: str) -> int:
     return n
 
 
-def _cell(value: object) -> tuple[str, bool]:
-    """The text of a value, and whether it is a number (right-aligned)."""
-    if value is None:
-        return "", False
-    if isinstance(value, bool):
-        return str(value), False
-    if isinstance(value, int):
-        return f"{value:,}", True
-    if isinstance(value, float):
-        return f"{value:.8g}" if abs(value) >= 1e-4 or value == 0 else f"{value:.6e}", True
-    if isinstance(value, bytes):
-        return "0x" + value.hex(), False
-    return str(value), False
+_IDENTIFIERS = {"node", "neighbor", "parent", "source", "target"}
+
+
+def _decimals(values: list[float]) -> int:
+    """As many decimals as distinguish the values shown (`docs/api-sketch.md` § 2.3),
+    at least 4 and at most 12."""
+    distinct = len(set(values))
+    for d in range(4, 12):
+        rounded = {round(v, d) for v in values}
+        if len(rounded) == distinct and all(round(v, d) != 0 for v in values if v != 0):
+            return d
+    return 12
+
+
+def _cells(column: str, values: list[object]) -> list[tuple[str, bool]]:
+    """The text of each value of a column, and whether it is a number (right-aligned).
+    Counts get thousands separators; identifiers do not."""
+    floats = [v for v in values if isinstance(v, float)]
+    d = _decimals(floats) if floats else 0
+    out = []
+    for v in values:
+        if v is None:
+            out.append(("", False))
+        elif isinstance(v, bool):
+            out.append((str(v), False))
+        elif isinstance(v, int):
+            out.append((str(v) if column in _IDENTIFIERS else f"{v:,}", True))
+        elif isinstance(v, float):
+            out.append((f"{v:,.{d}f}", True))
+        elif isinstance(v, bytes):
+            out.append(("0x" + v.hex(), False))
+        else:
+            out.append((str(v), False))
+    return out
 
 
 def _shorten(text: str, width: int) -> str:
@@ -146,8 +167,11 @@ def _grid(t: Table) -> str:
         rows = [*t._native.rows(0, 5), None, *t._native.rows(n - 1, n)]
     else:
         rows = list(t._native.rows(0, n))
-    cells = [[_cell(v) for v in row] if row is not None else None for row in rows]
     names = t.columns
+    shown = [row for row in rows if row is not None]
+    by_column = [_cells(name, [row[i] for row in shown]) for i, name in enumerate(names)]
+    texts = iter(zip(*by_column, strict=True)) if shown else iter(())
+    cells = [list(next(texts)) if row is not None else None for row in rows]
     widths = [len(name) for name in names]
     numeric = [False] * len(names)
     for row in cells:
@@ -178,7 +202,7 @@ def _grid(t: Table) -> str:
         else:
             out.append(text_row(row))
     out.append(line("└", "┴", "┘"))
-    shown = len([r for r in cells if r is not None])
+    shown = len(shown)
     total = t._of if t._of is not None else n
     if t._order.startswith("top ") and n <= _SHOWN:
         out.append(t._order)
