@@ -1,29 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Everygraph's kernels as bench/specs/references.toml compares them with GAP, GBBS,
-//! NetworKit and igraph: the product functions, called as
+//! Everygraph's kernels as bench/specs/references.toml compares them with the reference
+//! tools: the product functions, called as
 //! `crates/everygraph-kernels/examples/edge_map_bench.rs --source raw` calls them, plus
-//! what that example cannot do (searches from a list of sources) and a load that does
-//! not hold the graph twice.
+//! what that example cannot do (searches from a list of sources, the result written out)
+//! and a load that does not hold the graph twice.
 //!
 //! ```text
 //! eg-driver --graph DIR --kernel pr64|cc|kcore|bfs|sssp --threads T
-//!     [--reps R] [--sources FILE]
+//!     [--reps R] [--sources FILE] [--dump FILE]
 //! ```
 //!
 //! - `pr64`: PageRank in f64, damping 0.85, 20 iterations, tol 0 (strength included);
 //! - `cc`: components with hybrid sampling (`edge_map_bench --kernel cc`);
 //! - `kcore`: core numbers (Liu et al. SIGMOD 2025);
-//! - `bfs`: direction-optimizing BFS, distances only, from each source of the file;
+//! - `bfs`: direction-optimizing BFS with parents (the output of GAP's and GBBS's BFS),
+//!   from each source of the file;
 //! - `sssp`: Δ-stepping from each source, the bucket width of the data rule, on the
 //!   costs of `edge_map_bench --costs uniform` (the weights `run.py convert wsg` gives
 //!   GAP).
 //!
 //! Prints one JSON line: `load_seconds` (reading the arrays into the heap),
-//! `seconds_all`, and `seconds`: the best of `--reps` runs for the whole-graph kernels,
-//! the mean over the sources for the searches. `hash` is the FNV-1a hash of the last
-//! result, as `edge_map_bench` computes it for `pr64`, `cc` and `kcore`, so the two can be
-//! checked against each other; for the searches it chains every source's distances.
+//! `seconds_all`, and `seconds`: the median of `--reps` runs for the whole-graph
+//! kernels (`seconds_min` beside it), the mean over the sources for the searches.
+//! `hash` is the FNV-1a hash of the last result, as `edge_map_bench` computes it for
+//! `pr64`, `cc` and `kcore`. `--dump` writes the last result, or the first source's, as
+//! little-endian words: ranks and SSSP distances as f64, labels, core numbers and BFS
+//! distances as u32.
 
 #![forbid(unsafe_code)]
 #![allow(clippy::print_stdout, clippy::cast_precision_loss)]
@@ -32,12 +35,12 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::time::Instant;
 
 use everygraph_core::{Memory, par};
 use everygraph_kernels::components::{WccOptions, wcc};
-use everygraph_kernels::edge_map::{Csr, Plan, Settings};
+use everygraph_kernels::edge_map::{Csr, Plan, Settings, Source};
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{Graph, PageRank, pagerank, strength};
 use everygraph_kernels::sssp::{Sssp, delta, sssp};
@@ -69,11 +72,35 @@ fn read_words<const W: usize, T>(path: &Path, from: fn([u8; W]) -> T) -> Vec<T> 
     }
 }
 
-fn fnv(h: u64, w: u64) -> u64 {
-    (h ^ w).wrapping_mul(0x0000_0100_0000_01B3)
+const FNV_START: u64 = 0xCBF2_9CE4_8422_2325;
+
+/// A result: its words, for the hash, and their width in bytes, for the dump.
+struct Output {
+    words: Vec<u64>,
+    width: usize,
 }
 
-const FNV_START: u64 = 0xCBF2_9CE4_8422_2325;
+impl Output {
+    fn u32s(cells: &[AtomicU32]) -> Self {
+        let words = cells.iter().map(|c| u64::from(c.load(Relaxed))).collect();
+        Self { words, width: 4 }
+    }
+
+    fn hash(&self) -> u64 {
+        self.words.iter().fold(FNV_START, |h, &w| {
+            (h ^ w).wrapping_mul(0x0000_0100_0000_01B3)
+        })
+    }
+
+    fn dump(&self, path: &str) {
+        let bytes: Vec<u8> = self
+            .words
+            .iter()
+            .flat_map(|w| w.to_le_bytes()[..self.width].to_vec())
+            .collect();
+        std::fs::write(path, bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
+    }
+}
 
 /// `cost(e, false)` of `edge_map_bench`.
 fn cost(e: u64) -> f64 {
@@ -84,14 +111,9 @@ fn cost(e: u64) -> f64 {
     (1 + z % 255) as f64
 }
 
-/// One run of a whole-graph kernel: its time and the hash of its result.
-fn whole<S: everygraph_kernels::edge_map::Source>(
-    plan: &Plan<'_, '_, S>,
-    kernel: &str,
-    memory: &Memory,
-) -> (f64, u64) {
-    let t = Instant::now();
-    let values: Vec<u64> = match kernel {
+/// One run of a whole-graph kernel.
+fn whole<S: Source>(plan: &Plan<'_, '_, S>, kernel: &str, memory: &Memory) -> Output {
+    match kernel {
         "pr64" => {
             let s = strength(plan, None, false, memory).expect("strength");
             let p = PageRank {
@@ -106,34 +128,19 @@ fn whole<S: everygraph_kernels::edge_map::Source>(
             };
             let r = pagerank::<_, f64>(&g, s.as_slice().expect("one segment"), &p, memory)
                 .expect("pagerank");
-            let secs = t.elapsed().as_secs_f64();
-            return (
-                secs,
-                r.values.iter().fold(FNV_START, |h, x| fnv(h, x.to_bits())),
-            );
+            let words = r.values.iter().map(|x| x.to_bits()).collect();
+            Output { words, width: 8 }
         }
         "cc" => {
             let options = WccOptions {
                 sample: true,
                 ..WccOptions::default()
             };
-            wcc(plan, memory, options)
-                .expect("wcc")
-                .0
-                .iter()
-                .map(|l| u64::from(l.load(Relaxed)))
-                .collect()
+            Output::u32s(&wcc(plan, memory, options).expect("wcc").0)
         }
-        "kcore" => kcore(plan, memory)
-            .expect("kcore")
-            .0
-            .iter()
-            .map(|c| u64::from(c.load(Relaxed)))
-            .collect(),
+        "kcore" => Output::u32s(&kcore(plan, memory).expect("kcore").0),
         other => panic!("unknown --kernel {other}"),
-    };
-    let secs = t.elapsed().as_secs_f64();
-    (secs, values.into_iter().fold(FNV_START, fnv))
+    }
 }
 
 fn main() {
@@ -176,50 +183,62 @@ fn main() {
     };
 
     let memory = Memory::unlimited();
-    let (secs, hash) = par::with_threads(threads, || {
+    let (secs, out) = par::with_threads(threads, || {
         Plan::with(&csr, &memory, Settings::default(), |plan| {
             let mut secs = Vec::new();
-            let mut hash = FNV_START;
+            let mut out = None;
             if !search {
                 for _ in 0..reps {
-                    let (s, h) = whole(&plan, kernel, &memory);
-                    secs.push(s);
-                    hash = h;
+                    let t = Instant::now();
+                    let o = whole(&plan, kernel, &memory);
+                    secs.push(t.elapsed().as_secs_f64());
+                    out = Some(o);
                 }
-                return (secs, hash);
+                return (secs, out);
             }
             let width = (kernel == "sssp").then(|| delta(&plan, &costs));
             for &s in &sources {
                 let t = Instant::now();
-                if kernel == "bfs" {
-                    let hops = bfs(&plan, Some(&plan), s, &Bfs::default(), &memory).expect("bfs");
+                let o = if kernel == "bfs" {
+                    let p = Bfs {
+                        parents: true,
+                        ..Bfs::default()
+                    };
+                    let hops = bfs(&plan, Some(&plan), s, &p, &memory).expect("bfs");
                     secs.push(t.elapsed().as_secs_f64());
-                    hash = hops
-                        .distance
-                        .iter()
-                        .fold(hash, |h, d| fnv(h, u64::from(d.load(Relaxed))));
+                    Output::u32s(&hops.distance)
                 } else {
                     let d = sssp(&plan, &costs, s, &Sssp { delta: width }, &memory).expect("sssp");
                     secs.push(t.elapsed().as_secs_f64());
-                    hash = d.bits.iter().fold(hash, |h, b| fnv(h, b.load(Relaxed)));
-                }
+                    let words = d.bits.iter().map(|b| b.load(Relaxed)).collect();
+                    Output { words, width: 8 }
+                };
+                out.get_or_insert(o);
             }
-            (secs, hash)
+            (secs, out)
         })
     })
     .expect("a thread pool");
+    let out = out.expect("at least one run");
+    if let Some(path) = a.get("dump") {
+        out.dump(path);
+    }
+    let mut sorted = secs.clone();
+    sorted.sort_by(f64::total_cmp);
     let seconds = if search {
         secs.iter().sum::<f64>() / secs.len() as f64
     } else {
-        secs.iter().copied().fold(f64::INFINITY, f64::min)
+        sorted[sorted.len() / 2]
     };
     let all: Vec<String> = secs.iter().map(f64::to_string).collect();
     println!(
         "{{\"tool\": \"everygraph\", \"kernel\": \"{kernel}\", \"graph\": \"{}\", \"threads\": {threads}, \
-         \"sources\": {}, \"load_seconds\": {load}, \"seconds\": {seconds}, \"seconds_all\": [{}], \
-         \"hash\": \"{hash:016x}\"}}",
+         \"sources\": {}, \"load_seconds\": {load}, \"seconds\": {seconds}, \"seconds_min\": {}, \
+         \"seconds_all\": [{}], \"hash\": \"{:016x}\"}}",
         graph.file_name().unwrap_or_default().to_string_lossy(),
         sources.len(),
-        all.join(", ")
+        sorted[0],
+        all.join(", "),
+        out.hash()
     );
 }
