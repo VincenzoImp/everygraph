@@ -234,6 +234,12 @@ pub trait Progress: Sync {
     fn advance(&self, phase: Phase, done: u64) {
         let _ = (phase, done);
     }
+
+    /// `phase` ended, having made `made`: rows read, identifiers, buckets, sections
+    /// checked.
+    fn end(&self, phase: Phase, made: u64) {
+        let _ = (phase, made);
+    }
 }
 
 /// A [`Progress`] that ignores everything.
@@ -550,6 +556,7 @@ where
     let keys = TextKeys::new(reader, blocks, progress);
     let built = build_dictionary(&keys, &options.ids, memory.accountant(), scratch)?;
     if blocks == 0 {
+        progress.end(Phase::Reading, 0);
         progress.begin(Phase::Identifiers, None);
     }
     let tallies = keys.into_tallies();
@@ -560,6 +567,7 @@ where
     }
     let dictionary: Dictionary<'_, Sc::Source> = built.dictionary;
     let nodes = dictionary.len();
+    progress.end(Phase::Identifiers, u64::from(nodes));
 
     progress.begin(Phase::Building, None);
     // The mapped rows are kept for the next passes when they take at most an eighth of
@@ -567,17 +575,14 @@ where
     // filled in memory live beside them.
     let cache_bytes = summary.rows.saturating_mul(rows::CACHE_BYTES_PER_ROW);
     let cached_rows = (cache_bytes <= memory.available() / 8).then_some(summary.rows);
-    let mut rows = Rows::new(
-        reader,
-        &dictionary,
-        graph,
-        blocks,
-        memory,
+    let flight = rows::Flight {
         threads,
-        widen(reader.block_bytes()),
+        blocks,
+        block_bytes: widen(reader.block_bytes()),
         most_rows,
-        cached_rows.filter(|_| tuning.cache_rows),
-    )?;
+    };
+    let cached_rows = cached_rows.filter(|_| tuning.cache_rows);
+    let mut rows = Rows::new(reader, &dictionary, graph, &flight, memory, cached_rows)?;
     let counts = ItemCounts::new(memory, nodes, graph.directed)?;
     let pass = each_block(blocks, |block| {
         rows.items(block, |u, v| {
@@ -628,6 +633,7 @@ where
     }
     drop(spills);
     drop(rows);
+    progress.end(Phase::Building, widen(layout.buckets()));
 
     let Output {
         data,

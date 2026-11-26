@@ -21,6 +21,7 @@ pub(super) struct TextKeys<'r, S> {
     blocks: usize,
     tallies: Mutex<Vec<Option<Tally>>>,
     first_reads: AtomicUsize,
+    rows: AtomicU64,
     progress: &'r dyn Progress,
 }
 
@@ -35,6 +36,7 @@ impl<'r, S: ByteSource + Sync> TextKeys<'r, S> {
             blocks,
             tallies: Mutex::new((0..blocks).map(|_| None).collect()),
             first_reads: AtomicUsize::new(0),
+            rows: AtomicU64::new(0),
             progress,
         }
     }
@@ -76,6 +78,7 @@ impl<S: ByteSource + Sync> KeySource for TextKeys<'_, S> {
             f(at, key(&batch.source, row))?;
             f(at | 1, key(&batch.target, row))?;
         }
+        let rows = tally.rows();
         let first = {
             let mut tallies = self.tallies.lock().unwrap_or_else(PoisonError::into_inner);
             let first = tallies[chunk].is_none();
@@ -83,8 +86,10 @@ impl<S: ByteSource + Sync> KeySource for TextKeys<'_, S> {
             first
         };
         if first {
+            let total = self.rows.fetch_add(rows, Ordering::Relaxed) + rows;
             self.progress.advance(Phase::Reading, 1);
             if self.first_reads.fetch_add(1, Ordering::Relaxed) + 1 == self.blocks {
+                self.progress.end(Phase::Reading, total);
                 self.progress.begin(Phase::Identifiers, None);
             }
         }
@@ -134,20 +139,32 @@ pub(super) const CACHE_BYTES_PER_ROW: u64 = 8;
 /// bytes of string ids.
 const BLOCK_BYTES_PER_ROW: u64 = 16 + 8;
 
+/// The blocks of a pass and what each holds while it is read.
+pub(super) struct Flight {
+    /// Blocks read at once: the size of the thread pool.
+    pub(super) threads: usize,
+    /// Blocks of the input.
+    pub(super) blocks: usize,
+    /// Bytes of text of a block.
+    pub(super) block_bytes: u64,
+    /// Rows of the largest block.
+    pub(super) most_rows: u64,
+}
+
 impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
     pub(super) fn new(
         reader: &'a TextReader<S>,
         dictionary: &'a Dictionary<'d, D>,
         graph: GraphOptions,
-        blocks: usize,
+        flight: &Flight,
         memory: &Memory,
-        threads: usize,
-        block_bytes: u64,
-        most_rows: u64,
         cached_rows: Option<u64>,
     ) -> Result<Self, MemoryError> {
-        let per_block = 2 * block_bytes + most_rows.saturating_mul(BLOCK_BYTES_PER_ROW);
-        let bytes = per_block.saturating_mul(u64::try_from(threads).unwrap_or(u64::MAX));
+        let per_block =
+            2 * flight.block_bytes + flight.most_rows.saturating_mul(BLOCK_BYTES_PER_ROW);
+        let threads = u64::try_from(flight.threads).unwrap_or(u64::MAX);
+        let bytes = per_block.saturating_mul(threads);
+        let blocks = flight.blocks;
         let buffers = memory.reserve("text blocks in flight", MemoryKind::Anonymous, bytes)?;
         let cache = match cached_rows {
             Some(rows) => {

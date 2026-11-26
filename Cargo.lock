@@ -257,6 +257,15 @@ dependencies = [
 [[package]]
 name = "everygraph-cli"
 version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-ingest",
+ "everygraph-io",
+ "flate2",
+ "rayon",
+ "serde_json",
+]
 
 [[package]]
 name = "everygraph-community"
