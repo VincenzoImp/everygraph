@@ -11,7 +11,7 @@
 //! ```text
 //! edge_map_bench encode --graph DIR --out STORE
 //! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|stream
-//!     --kernel pr32|pr64|eig|wcc|cc|cc-one-pass|kcore|bfs|bfs-parents|msbfs|sssp
+//!     --kernel pr32|pr64|eig|wcc|cc|cc-one-pass|kcore|bfs|bfs-parents|msbfs|sssp|decode
 //!     --threads T [--reps R]
 //!     [--iters I] [--chunk ENTRIES] [--batch ENTRIES] [--costs uniform|skewed|file]
 //!     [--delta-scale X]
@@ -244,6 +244,22 @@ fn time_plan<S: Source>(
     (secs, last.0, last.1)
 }
 
+/// `decode`: the whole adjacency decoded into raw arrays, the planner's decode tier (#45).
+fn time_decode(adj: &Adjacency<'_>, a: &Args) -> (Vec<f64>, u64, String) {
+    let reps: usize = a.get("reps").map_or(3, |s| s.parse().expect("--reps"));
+    let index = adj.index();
+    let mut offsets = vec![0_u64; index.nodes() as usize + 1];
+    let mut targets = vec![0_u32; index.entries() as usize];
+    let mut secs = Vec::new();
+    for _ in 0..reps {
+        let t = Instant::now();
+        adj.decode_all(&mut offsets, &mut targets).expect("decode");
+        secs.push(t.elapsed().as_secs_f64());
+    }
+    let hash = fnv(targets.iter().map(|&x| u64::from(x)));
+    (secs, hash, format!("{{\"entries\": {}}}", targets.len()))
+}
+
 /// The graph as `PageRank` pulls it: the benchmark graphs are undirected.
 fn graph<'p, 's, 'g, S: Source>(plan: &'p Plan<'s, 'g, S>) -> Graph<'p, 's, 'g, S> {
     Graph {
@@ -320,6 +336,11 @@ fn run(a: &Args) {
             } else {
                 std::fs::read(&data).expect("data")
             };
+            if a.get("kernel").map(String::as_str) == Some("decode") {
+                let bytes = if mapped { map.mapped() } else { &heap[..] };
+                let adj = Adjacency::new(&index, bytes).expect("data part");
+                return (t.elapsed().as_secs_f64(), time_decode(&adj, a));
+            }
             let adj = if mapped {
                 Compressed::mapped(&index, &map).expect("data part")
             } else {

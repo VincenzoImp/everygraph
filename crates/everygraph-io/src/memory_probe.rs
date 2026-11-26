@@ -212,7 +212,7 @@ fn meminfo_field(meminfo: &str, name: &str) -> io::Result<u64> {
 
 /// `statfs` types of the file systems held in memory (Linux `magic.h`: tmpfs, ramfs).
 #[cfg(target_os = "linux")]
-const MEMORY_FILE_SYSTEMS: [u64; 2] = [0x0102_1994, 0x8584_58f6];
+pub(crate) const MEMORY_FILE_SYSTEMS: [u64; 2] = [0x0102_1994, 0x8584_58f6];
 
 /// Whether the file system that holds `dir` keeps its files in memory (tmpfs, ramfs):
 /// scratch there is memory (`docs/ux-contract.md` P-18). `false` where this cannot be

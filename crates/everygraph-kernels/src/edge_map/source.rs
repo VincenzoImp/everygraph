@@ -4,7 +4,7 @@
 //!
 //! | Source | Lists | Per-worker reader |
 //! |---|---|---|
-//! | [`Csr`] | raw offsets and targets, slices in memory | nothing |
+//! | [`Csr`] | raw offsets and targets, slices in memory; a [`RawCopy`] lends its own | nothing |
 //! | [`Compressed`] | the adjacency codec (DESIGN D4) over bytes in memory: a heap buffer or a memory map | a decode batch |
 //! | [`Stream`] | raw targets read through a [`ByteSource`]; offsets in memory | a read buffer |
 //!
@@ -235,9 +235,10 @@ impl<'a> Csr<'a> {
     }
 }
 
-// SAFETY: every target is below `n` (`new`). The arrays are borrowed, so they do not
-// change; over a memory map that also needs the invariant of `everygraph-io` (no writer
-// changes a mapped file). `scan` and `lists` call back only with nodes they were given.
+// SAFETY: every target is below `n` (`new`, or `RawCopy::decode`, which checks with `new`
+// arrays that it never changes after). The arrays are borrowed, so they do not change;
+// over a memory map that also needs the invariant of `everygraph-io` (no writer changes a
+// mapped file). `scan` and `lists` call back only with nodes they were given.
 unsafe impl Source for Csr<'_> {
     type Reader = ();
 
@@ -287,6 +288,70 @@ unsafe impl Source for Csr<'_> {
 
     fn list<'r>(&'r self, (): &'r mut (), v: u32) -> Result<(u64, &'r [u32]), Error> {
         Ok(self.get(v))
+    }
+}
+
+/// A raw CSR that owns its arrays, reserved against a budget: the decode tier of
+/// DESIGN D4, which the planner builds for a session of repeated traversals. The arrays
+/// are checked once, when decoded, and never change after; [`csr`](Self::csr) lends
+/// them without a second check.
+#[derive(Debug)]
+pub struct RawCopy {
+    offsets: Vec<u64>,
+    targets: Vec<u32>,
+    n: u32,
+    held: Reservation,
+}
+
+impl RawCopy {
+    /// Bytes of the copy of a graph of `nodes` nodes and `entries` entries.
+    #[must_use]
+    pub const fn bytes(nodes: u32, entries: u64) -> u64 {
+        8 * (nodes as u64 + 1) + 4 * entries
+    }
+
+    /// Decodes the whole of `adjacency` in parallel into arrays reserved against
+    /// `memory`, and checks them as [`Csr::new`] does.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Memory`] if the copy does not fit the budget; [`Error::Decode`] or
+    /// [`Error::Target`] for a damaged adjacency.
+    pub fn decode(adjacency: &Adjacency<'_>, memory: &Memory) -> Result<Self, Error> {
+        let index = adjacency.index();
+        let entries = usize::try_from(index.entries())
+            .map_err(|_| Error::Invalid("more entries than the address space"))?;
+        let held = memory.reserve(
+            "raw copy of the edges",
+            MemoryKind::Anonymous,
+            Self::bytes(index.nodes(), index.entries()),
+        )?;
+        let mut offsets = par::collect(ix(index.nodes().into()) + 1, CHECK_GRAIN, |_| 0_u64);
+        let mut targets = par::collect(entries, CHECK_GRAIN, |_| 0_u32);
+        adjacency.decode_all(&mut offsets, &mut targets)?;
+        let n = Csr::new(&offsets, &targets)?.n;
+        Ok(Self {
+            offsets,
+            targets,
+            n,
+            held,
+        })
+    }
+
+    /// The copy as a [`Csr`] source.
+    #[must_use]
+    pub fn csr(&self) -> Csr<'_> {
+        Csr {
+            offsets: &self.offsets,
+            targets: &self.targets,
+            n: self.n,
+        }
+    }
+
+    /// Bytes it holds of its budget.
+    #[must_use]
+    pub fn held(&self) -> u64 {
+        self.held.bytes()
     }
 }
 

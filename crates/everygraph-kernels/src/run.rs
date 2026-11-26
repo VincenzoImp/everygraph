@@ -8,6 +8,12 @@
 //! [`stored`] finds a result in the graph file before it is computed, and [`store`]
 //! keeps one there (`docs/api-sketch.md` § 2.8); `bfs` is never kept.
 //!
+//! The command line and Python run an operation in three calls: [`crate::planner::plan`]
+//! decides how (its `Display` is `explain`, its `to_json` the plan document, its
+//! `refusal` the error before any work), [`stored`] serves a kept result, and
+//! [`execute`] carries the plan out on its threads, with a [`Session`] that keeps the
+//! decode tier's raw copy from one traversal to the next.
+//!
 //! A graph file holds the out-adjacency only; an undirected graph's out-lists are its
 //! lists. On a directed graph, `pagerank` and `kcore` need the in-adjacency or the
 //! undirected projection, which no file holds yet (#m2-11): they are
@@ -17,7 +23,8 @@
 use std::fmt;
 use std::sync::atomic::AtomicU32;
 
-use everygraph_core::{ByteSink, ByteSource, Memory, MemoryError, SegVec};
+use everygraph_core::{AccessHint, ByteSink, ByteSource, Memory, MemoryError, SegVec};
+use everygraph_format::adjacency::{Adjacency, AdjacencyIndex};
 use everygraph_format::container::{
     Container, ContainerError, GraphIdentity, Provenance, ResultKey, StoredResult, Value,
     ValueType, Writer,
@@ -25,9 +32,10 @@ use everygraph_format::container::{
 
 use crate::components::{self, WccOptions};
 use crate::degrees::{self, Loop};
-use crate::edge_map::{Error, Plan, Source};
+use crate::edge_map::{Compressed, Error, Plan, RawCopy, Source};
 use crate::kcore;
 use crate::pagerank::{self, PageRank};
+use crate::planner::{self, Request};
 use crate::traversal::{self, Bfs, UNREACHED};
 
 /// The state precision of `pagerank` (`docs/api-sketch.md` § 2.4).
@@ -187,6 +195,8 @@ pub enum RunError {
     Unsupported(&'static str),
     /// A stored result could not be read: the file is damaged.
     Stored(ContainerError),
+    /// The plan does not fit its budget, or cannot run: [`execute`] did no work.
+    Refused(Box<planner::Refusal>),
 }
 
 impl fmt::Display for RunError {
@@ -195,6 +205,7 @@ impl fmt::Display for RunError {
             Self::Kernel(e) => e.fmt(f),
             Self::Unsupported(why) => f.write_str(why),
             Self::Stored(e) => e.fmt(f),
+            Self::Refused(r) => write!(f, "{} {}", r.message, r.why),
         }
     }
 }
@@ -225,6 +236,134 @@ const ONE_SEGMENT: &str = "it needs per-node state of more than one segment, whi
 const NEEDS_IN_LISTS: &str =
     "on a directed graph it needs the in-adjacency, which this file does not hold";
 
+/// Why `op` cannot run on the out-lists of a graph of `nodes` nodes that is `directed`
+/// or not; `None` if it can.
+#[must_use]
+pub fn unsupported(op: &Operation, directed: bool, nodes: u32) -> Option<&'static str> {
+    if u64::from(nodes) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
+        Some(ONE_SEGMENT)
+    } else if directed && matches!(op, Operation::PageRank { .. } | Operation::KCore) {
+        Some(NEEDS_IN_LISTS)
+    } else {
+        None
+    }
+}
+
+/// The out-adjacency of a graph file, as [`execute`] reads it.
+#[derive(Clone, Copy)]
+pub struct Lists<'a> {
+    /// Its index.
+    pub index: &'a AdjacencyIndex,
+    /// Its data part, held in memory: a memory map or a buffer.
+    pub data: &'a (dyn ByteSource + Sync),
+    /// Whether the graph is directed.
+    pub directed: bool,
+}
+
+impl fmt::Debug for Lists<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Lists")
+            .field("nodes", &self.index.nodes())
+            .field("data_bytes", &self.data.len())
+            .field("directed", &self.directed)
+            .finish()
+    }
+}
+
+/// What a sequence of operations on one graph keeps from one to the next: the
+/// traversals run so far, and the raw copy of the adjacency once a plan builds it
+/// (`planner`, the decode tier). The copy holds memory of the budget it was built in.
+#[derive(Debug, Default)]
+pub struct Session {
+    traversals: u32,
+    raw: Option<RawCopy>,
+}
+
+impl Session {
+    /// A session with nothing run yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `request`, with what the planner must know of this session.
+    #[must_use]
+    pub fn request(&self, request: Request) -> Request {
+        Request {
+            traversals_before: self.traversals,
+            raw_held: self.raw.is_some(),
+            ..request
+        }
+    }
+
+    /// Bytes the raw copy holds, if the session has one.
+    #[must_use]
+    pub fn raw_bytes(&self) -> Option<u64> {
+        self.raw.as_ref().map(RawCopy::held)
+    }
+}
+
+/// Carries out `plan`, made with [`Session::request`]: on its tier, with
+/// its settings and the advice of each phase, within `memory`. The caller runs it on
+/// `plan.threads()` threads (`par::with_threads`). A traversal counts in `session`,
+/// which keeps the raw copy the plan builds.
+///
+/// # Errors
+///
+/// [`RunError::Refused`] for a plan that does not fit; [`RunError::Kernel`] with
+/// [`Error::Invalid`] when the data part is not in memory; the errors of [`run`].
+pub fn execute(
+    plan: &planner::Plan,
+    lists: Lists<'_>,
+    memory: &Memory,
+    session: &mut Session,
+) -> Result<Output, RunError> {
+    let op = plan.operation();
+    if let Some(refusal) = plan.refusal() {
+        return Err(RunError::Refused(Box::new(refusal.clone())));
+    }
+    let data = lists
+        .data
+        .as_slice()
+        .ok_or(Error::Invalid("the data part is not in memory"))?;
+    let whole = 0..lists.data.len();
+    let advise = |hint| lists.data.advise(whole.clone(), hint);
+    let mut phases = plan.phases().iter();
+    let output = if plan.tier() == planner::Tier::Raw {
+        if session.raw.is_none() || plan.builds_raw() {
+            if let Some(decoding) = phases.next().filter(|p| p.name == "decoding") {
+                advise(decoding.advice);
+            }
+            session.raw = None;
+            let adjacency = Adjacency::new(lists.index, data).map_err(Error::Format)?;
+            session.raw = Some(RawCopy::decode(&adjacency, memory)?);
+            advise(AccessHint::Normal);
+        }
+        let raw = session
+            .raw
+            .as_ref()
+            .map(RawCopy::csr)
+            .ok_or(Error::Invalid("no raw copy"))?;
+        Plan::with(&raw, memory, plan.settings(), |p| {
+            run(op, &p, lists.directed, memory)
+        })
+    } else {
+        let source = Compressed::mapped(lists.index, lists.data)?;
+        if let Some(phase) = phases.next() {
+            advise(phase.advice);
+        }
+        let out = Plan::with(&source, memory, plan.settings(), |p| {
+            run(op, &p, lists.directed, memory)
+        });
+        advise(AccessHint::Normal);
+        out
+    }?;
+    if matches!(op, Operation::Bfs { .. }) {
+        session.traversals += 1;
+    }
+    Ok(output)
+}
+
 /// Runs `op` on the out-lists that `out` reads, of a graph that is `directed` or not,
 /// within `memory`.
 ///
@@ -248,14 +387,11 @@ pub fn run<S: Source>(
         null: None,
         nodes: false,
     };
-    if u64::from(out.nodes()) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
-        return Err(RunError::Unsupported(ONE_SEGMENT));
+    if let Some(why) = unsupported(op, directed, out.nodes()) {
+        return Err(RunError::Unsupported(why));
     }
     match *op {
         Operation::PageRank { params, precision } => {
-            if directed {
-                return Err(RunError::Unsupported(NEEDS_IN_LISTS));
-            }
             let g = pagerank::Graph {
                 lists: out,
                 weights: None,
@@ -291,9 +427,6 @@ pub fn run<S: Source>(
             Ok(plain("component", labels(numbered.component)))
         }
         Operation::KCore => {
-            if directed {
-                return Err(RunError::Unsupported(NEEDS_IN_LISTS));
-            }
             let (core, _held) = kcore::kcore(out, memory)?;
             Ok(plain("core", labels(to_column(&core, memory)?)))
         }

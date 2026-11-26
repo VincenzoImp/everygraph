@@ -107,7 +107,7 @@ use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use buckets::Buckets;
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
-pub use source::{Compressed, Csr, DecodeReader, Source, Stream, StreamReader};
+pub use source::{Compressed, Csr, DecodeReader, RawCopy, Source, Stream, StreamReader};
 
 use node::{Brand, as_nodes, node_range};
 
@@ -1131,6 +1131,8 @@ mod tests {
         assert_eq!(drive(&mapped, &offsets).unwrap(), csr);
         let stream = Stream::new(&offsets, &stream_bytes).unwrap();
         assert_eq!(drive(&stream, &offsets).unwrap(), csr);
+        let raw = RawCopy::decode(&heap, &Memory::unlimited()).unwrap();
+        assert_eq!(drive(&raw.csr(), &offsets).unwrap(), csr);
     }
 
     /// One corrupt list: the scan and the frontier that reach it fail and hand out no

@@ -49,8 +49,12 @@ use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::plugin::{
     Case, Config, KernelUnderTest, Options, Prepared, Regime, Storage, run,
 };
-use everygraph_oracle::projection::{Adjacency as Analytic, Projection};
+use everygraph_oracle::projection::Projection;
+
+mod support;
+
 use everygraph_oracle::{Kernel, Output};
+use support::{Lists, with_loops};
 
 /// Iterated to well inside the oracle's 1e-9: the error after stopping is at most
 /// `tol · α / (1 − α)`.
@@ -67,40 +71,6 @@ const EIGENVECTOR: Eigenvector = Eigenvector {
     tol: 1e-13,
     max_iter: 200_000,
 };
-
-/// One adjacency of the analytic graph with its kept loops written in, and its
-/// per-entry columns.
-struct Lists {
-    offsets: Vec<u64>,
-    targets: Vec<u32>,
-    /// The pair's summed weight; a loop's weight.
-    weight: Vec<f64>,
-    /// The pair's smallest event weight; 0 for a loop.
-    cost: Vec<f64>,
-}
-
-fn with_loops(adj: &Analytic, p: &Projection) -> Lists {
-    let mut l = Lists {
-        offsets: vec![0],
-        targets: Vec::new(),
-        weight: Vec::new(),
-        cost: Vec::new(),
-    };
-    for v in 0..adj.n() {
-        let r = adj.range(v);
-        let at = r.start + adj.list(v).partition_point(|&u| (u as usize) < v);
-        let entry = |e: usize| (adj.targets[e], adj.weight_sum[e], adj.weight_min[e]);
-        let lower = (r.start..at).map(entry);
-        let kept = (p.kept_loops(v) == 1).then_some((v as u32, p.loop_weight[v], 0.0));
-        for (t, w, c) in lower.chain(kept).chain((at..r.end).map(entry)) {
-            l.targets.push(t);
-            l.weight.push(w);
-            l.cost.push(c);
-        }
-        l.offsets.push(l.targets.len() as u64);
-    }
-    l
-}
 
 /// One adjacency in every storage the sources read.
 struct Stored {

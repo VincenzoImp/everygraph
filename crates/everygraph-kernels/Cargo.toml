@@ -14,12 +14,17 @@ publish.workspace = true
 # A library does not decide whether threads exist (CONTRIBUTING.md, "Crates").
 everygraph-core = { path = "../everygraph-core", default-features = false }
 everygraph-format = { path = "../everygraph-format" }
+# The plan and error documents of `docs/ux-contract.md` § 3.6 and § 6.1, keys in the
+# order the schemas list them.
+serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
 
 [dev-dependencies]
 # Tests and the benchmark run the kernels on threads (`par::with_threads`).
 everygraph-core = { path = "../everygraph-core" }
 everygraph-io = { path = "../everygraph-io" }
 everygraph-oracle = { path = "../everygraph-oracle" }
+# The planner's documents checked against the schemas of the docs.
+jsonschema = { version = "0.63", default-features = false }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 
 [lints]
