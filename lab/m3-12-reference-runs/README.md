@@ -95,8 +95,11 @@ out, and compares it with Everygraph's:
   and every parent must be a neighbour);
 - PageRank by L1 distance (at most 1e-6);
 - triangle counts between the tools (Everygraph has no triangle kernel);
-- Leiden and Louvain: each modularity within 0.05 of the best tool's on the graph (the
-  partitions legitimately differ; a broken run falls far below).
+- Leiden and Louvain: each modularity within 0.10 of the best tool's on the graph. The
+  partitions legitimately differ: the working tools lie up to 0.049 below the best
+  (GVE-Leiden f64 on orkut), and a broken run falls far below. The validation run's
+  checks were made with a floor of 0.05, which every tool passed; the files show the
+  floor of 0.10, computed from the same modularities.
 
 The 1-thread rows are not validated; these kernels' outputs do not depend on the thread
 count. A `validate` case fails when a check fails or is skipped (`invalid` and `skipped`
@@ -105,7 +108,52 @@ validation of its graph and kernel (`test_tables.py`). Results:
 `results/validation-<graph>.json` (one line each, as `run.py validate` prints it), from
 the spec's `validate` cases (rows: `results/validate.jsonl`).
 
-VALIDATION
+| kernel | tool | lj | orkut | roadnet-ca | web-google | twitter-sym | friendster |
+|---|---|---|---|---|---|---|---|
+| bfs | gap | yes | yes | yes | yes | yes | yes |
+| bfs | gbbs | yes | yes | yes | yes | yes | yes |
+| bfs | igraph | yes | yes | yes | yes | — | — |
+| bfs | networkit | yes | yes | yes | yes | — | — |
+| bfs | pasgal | yes | yes | yes | yes | yes | yes |
+| cc | connectit | yes | yes | yes | yes | yes | yes |
+| cc | cost | yes | yes | yes | yes | yes | yes |
+| cc | gap | yes | yes | yes | yes | yes | yes |
+| cc | gbbs | yes | yes | yes | yes | yes | yes |
+| cc | igraph | yes | yes | yes | yes | — | — |
+| cc | networkit | yes | yes | yes | yes | — | — |
+| kcore | gbbs | yes | yes | yes | yes | yes | yes |
+| kcore | igraph | yes | yes | yes | yes | — | — |
+| kcore | networkit | yes | yes | yes | yes | — | — |
+| kcore | pkc | yes | yes | yes | yes | yes | yes |
+| leiden | gve-f32 | yes | yes | yes | yes | — | — |
+| leiden | gve-f64 | yes | yes | yes | yes | — | — |
+| leiden | igraph | yes | yes | yes | yes | — | — |
+| leiden | lab | yes | yes | yes | yes | — | — |
+| leiden | lab-det | yes | yes | yes | yes | — | — |
+| leiden | networkit-leiden | yes | yes | yes | yes | — | — |
+| leiden | networkit-plm | yes | yes | yes | yes | — | — |
+| pr64 | cost | yes | yes | yes | yes | yes | — |
+| pr64 | gap | yes | yes | yes | yes | yes | — |
+| pr64 | gbbs | yes | yes | yes | yes | yes | — |
+| pr64 | networkit | yes | yes | yes | yes | — | — |
+| sssp | gap | yes | yes | yes | yes | yes | — |
+| sssp | gap-f64 | yes | yes | yes | yes | — | — |
+| sssp | pasgal | yes | yes | yes | yes | yes | — |
+| tc | gap | yes | yes | yes | yes | — | — |
+| tc | gbbs | yes | yes | yes | yes | — | — |
+| tc | networkit | yes | yes | yes | yes | — | — |
+
+| kernel | lj | orkut | roadnet-ca | web-google | twitter-sym | friendster |
+|---|---|---|---|---|---|---|
+| cc | 1 components | 1 components | 2638 components | 2746 components | 1 components | 1 components |
+| kcore | max core 360 | max core 253 | max core 3 | max core 44 | max core 2488 | max core 304 |
+| bfs | 3997962 reached, max distance 14 | 3072441 reached, max distance 8 | 1957027 reached, max distance 794 | 855802 reached, max distance 15 | 41652230 reached, max distance 15 | 65608366 reached, max distance 22 |
+| sssp | 3997962 reached, max distance 1156 | 3072441 reached, max distance 600 | 1957027 reached, max distance 91320 | 855802 reached, max distance 1556 | 41652230 reached, max distance 1256 | — |
+| tc | 177820130 triangles | 627584181 triangles | 120676 triangles | 13391903 triangles | — | — |
+
+"—": not run there. NetworKit and igraph run only on the four small graphs. Triangles
+and Leiden do not run on the big two. Friendster runs components, k-core and BFS only.
+The second table gives Everygraph's values, which every tool above matches.
 
 GBBS's PageRank is validated after a one-line patch (`build.sh`): it zeroes `p_curr`
 while it sums the change and then swaps, so at the iteration cap its result is in
@@ -116,15 +164,61 @@ iterations.
 
 ## Memory peaks (one run of each case)
 
-From the cgroup of each run (`results/once.jsonl`: exploratory harness rows, 16 threads,
-the commands of the spec; every case ran `ok`). `anon` is the heap. `memory.peak` adds
+From the cgroup of each run (`results/once.jsonl`: exploratory harness rows of every
+case of orkut, roadnet-ca, web-google and Friendster, all `ok`; the table shows orkut at
+16 threads and Friendster). The SSSP, COST-line, GBBS PageRank and Leiden rows come from
+a second pass at revision 83167c3, after their commands changed; the others are from
+revision a6cd2c9, whose commands for them are the same. `anon` is the heap. `memory.peak` adds
 the page cache charged to the run, which depends on which run read a file first, so
 `anon` is the column to compare. GBBS's `anon` holds the graph even though it maps the
 file. The Python tools include the interpreter and the arrays they build the graph
 from. The CSR itself is 0.90 GiB (orkut) and 13.9 GiB (Friendster). Only rows whose tool
 passed its validation are shown.
 
-MEMORY
+| case | anon peak GiB | memory.peak GiB |
+|---|---|---|
+| pagerank-eg/graph=orkut/t16 | 1.02 | 1.03 |
+| pagerank-gap/graph=orkut/t16 | 1.88 | 1.89 |
+| pagerank-networkit/graph=orkut/t16 | 6.26 | 6.28 |
+| cc-eg/graph=orkut/t16 | 0.96 | 0.96 |
+| cc-gap/graph=orkut/t16 | 1.84 | 1.87 |
+| cc-gbbs/graph=orkut/t16 | 1.07 | 1.09 |
+| cc-connectit/graph=orkut/t16 | 1.06 | 1.07 |
+| cc-networkit/graph=orkut/t16 | 6.26 | 6.28 |
+| kcore-eg/graph=orkut/t16 | 1.04 | 1.04 |
+| kcore-gbbs/graph=orkut/t16 | 1.16 | 1.16 |
+| kcore-pkc/graph=orkut/t16 | 2.40 | 2.42 |
+| kcore-networkit/graph=orkut/t16 | 6.26 | 6.28 |
+| bfs-eg/graph=orkut/t16 | 0.98 | 1.85 |
+| bfs-gap/graph=orkut/t16 | 1.85 | 1.92 |
+| bfs-gbbs/graph=orkut/t16 | 1.08 | 1.71 |
+| bfs-pasgal/graph=orkut/t16 | 2.19 | 2.22 |
+| sssp-eg/graph=orkut/t16 | 2.74 | 2.75 |
+| sssp-gap/graph=orkut/t16 | 2.80 | 4.58 |
+| sssp-gap-f64/graph=orkut/t16 | 4.55 | 8.09 |
+| sssp-pasgal/graph=orkut/t16 | 2.78 | 2.81 |
+| tc-gap/graph=orkut/t16 | 2.90 | 3.83 |
+| tc-gbbs/graph=orkut/t16 | 1.60 | 1.85 |
+| tc-networkit/graph=orkut/t16 | 8.46 | 8.51 |
+| leiden-lab/graph=orkut/t16 | 2.88 | 3.00 |
+| leiden-lab-det/graph=orkut/t16 | 3.16 | 3.22 |
+| leiden-gve/graph=orkut/type=f32/t16 | 8.50 | 10.17 |
+| leiden-gve/graph=orkut/type=f64/t16 | 10.93 | 10.95 |
+| leiden-networkit/graph=orkut/t16 | 8.99 | 9.09 |
+| louvain-networkit/graph=orkut/t16 | 8.50 | 8.52 |
+| friendster-eg/kernel=cc/t16 | 15.16 | 22.06 |
+| friendster-eg/kernel=kcore/t16 | 16.11 | 22.97 |
+| friendster-eg/kernel=bfs/t16 | 15.48 | 28.70 |
+| friendster-gap/kernel=cc/t16 | 28.89 | 31.29 |
+| friendster-gap/kernel=bfs64/t16 | 28.85 | 40.00 |
+| friendster-gbbs/kernel=cc/t16 | 16.23 | 37.42 |
+| friendster-gbbs/kernel=connectit/t16 | 15.97 | 22.67 |
+| friendster-gbbs/kernel=kcore/t16 | 17.04 | 22.61 |
+| friendster-gbbs/kernel=bfs64/t16 | 16.20 | 21.71 |
+| friendster-ucr/kernel=pkc/kcore/t16 | 37.31 | 37.41 |
+| friendster-ucr/kernel=pasgal/bfs/t16 | 34.21 | 40.00 |
+| friendster-cost | 14.48 | 21.19 |
+| pagerank-gbbs/graph=orkut/t16 | 1.17 | 1.20 |
 
 ## Same-code A/B ratios (exploratory, interleaved)
 

@@ -908,9 +908,10 @@ def validate(csr, args):
 
 
 # A Leiden or Louvain run whose modularity is further than this below the best run on the
-# graph is broken, not just another local optimum: on lj and orkut the tools of the
-# references spec are within 0.033 of each other (lab/m3-12-reference-runs).
-LEIDEN_FLOOR = 0.05
+# graph is broken, not just another local optimum. The working tools of the references
+# spec lie up to 0.049 below the best (GVE-Leiden f64 on orkut,
+# lab/m3-12-reference-runs/results/validation-orkut.json); a broken run lies far below.
+LEIDEN_FLOOR = 0.10
 
 
 def leiden_checks(csr, args, run, without):
