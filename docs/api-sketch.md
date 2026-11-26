@@ -1997,7 +1997,7 @@ impl Hierarchy {
 // ---- everygraph-query (#90–#94) --------------------------------------------
 
 /// Point queries (#90): the lists of a graph from any edge-map `Source` (the
-/// compressed lists, or a raw copy when `planner::hot_tier` says it fits), and one
+/// compressed lists, a raw copy or a stream), and one
 /// `Reader` per thread, which holds the decode buffers. Nodes are `u32`, as the
 /// edge-map framework takes them. Each query adds up what it may hold before it reads
 /// a list, and is refused with `InsufficientBudget` if the budget does not have it.

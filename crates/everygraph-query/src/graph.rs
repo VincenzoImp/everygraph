@@ -5,10 +5,9 @@
 use std::fmt;
 
 use everygraph_core::{InsufficientBudget, Memory, SegVec, widen};
-use everygraph_format::adjacency::{AdjacencyEvents, Batch};
+use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{Error as ListError, Source};
 
-use crate::neighbors::EdgeRows;
 use crate::seen::Seen;
 use crate::{Direction, QueryError};
 
@@ -406,23 +405,28 @@ impl<S: Source> Reader<'_, '_, S> {
         out
     }
 
-    /// Refuses a query that may hold `state` bytes besides the decode buffers of lists
-    /// of up to `entries` entries in `direction`, before it reads anything.
+    /// Refuses a query that may hold `state` bytes besides what its readers take to read
+    /// prefixes of up to `prefix` entries of lists of up to `entries` entries in
+    /// `direction`, before it reads anything. The readers' part is each source's own
+    /// bound (`Source::list_bytes`).
     pub(crate) fn admit(
         &self,
         state: u64,
         direction: Direction,
         entries: u64,
+        prefix: u64,
     ) -> Result<(), QueryError> {
-        let lists = if direction == Direction::Both { 2 } else { 1 };
-        let buffer = Batch::bytes_for(0, 1) as u64 + 4 * (entries + 3);
-        // The union of two prefixes, beside the buffer it grows from.
-        let merged = if direction == Direction::Both {
-            8 * entries
-        } else {
-            0
+        let g = self.graph;
+        let prefix = prefix.min(entries);
+        let side = |s: &Side<'_, S>| s.lists.list_bytes(entries, prefix, BATCH);
+        let inn = g.inn.as_ref().map_or(0, side);
+        let lists = match direction {
+            Direction::Out => side(&g.out),
+            Direction::In => inn,
+            // The union of two prefixes, beside the buffer it grows from.
+            Direction::Both => side(&g.out) + inn + 8 * prefix,
         };
-        let need = state.saturating_add(lists * buffer + merged);
+        let need = state.saturating_add(lists);
         let available = self.memory.available();
         if need > available {
             return Err(QueryError::Budget(InsufficientBudget::new(
@@ -457,28 +461,21 @@ impl<S: Source> Reader<'_, '_, S> {
             Direction::Both => {
                 let (fo, lo) = out.lists.list_prefix(&mut self.out, v, k)?;
                 let (fi, li) = inn.lists.list_prefix(reader, v, k)?;
-                let (mut i, mut j, mut rows) = (0, 0, 0);
-                while rows < k && (i < lo.len() || j < li.len()) {
-                    let (a, b) = (lo.get(i).copied(), li.get(j).copied());
-                    let u = a.unwrap_or(u32::MAX).min(b.unwrap_or(u32::MAX));
-                    let from_out = (a == Some(u)).then(|| fo + widen(i));
-                    let from_in =
-                        (b == Some(u) && !(u == v && from_out.is_some())).then(|| fi + widen(j));
-                    i += usize::from(a == Some(u));
-                    j += usize::from(b == Some(u));
-                    let value = match (from_out, from_in) {
-                        (Some(e), Some(x)) => {
-                            out.columns.value(e, want)?.and(inn.columns.value(x, want)?)
-                        }
-                        (Some(e), None) => out.columns.value(e, want)?,
-                        (None, Some(x)) => inn.columns.value(x, want)?,
-                        (None, None) => unreachable!("u is the smaller head"),
+                let mut union = Union::new(lo, li, v);
+                for (u, i, j) in union.by_ref().take(k) {
+                    let at = |side: &Side<'_, S>, first: u64, i: usize| {
+                        side.columns.value(first + widen(i), want)
+                    };
+                    let value = match (i, j) {
+                        (Some(i), Some(j)) => at(out, fo, i)?.and(at(inn, fi, j)?),
+                        (Some(i), None) => at(out, fo, i)?,
+                        (None, Some(j)) => at(inn, fi, j)?,
+                        (None, None) => unreachable!("a node of the union is in a list"),
                     };
                     f(u, value)?;
-                    rows += 1;
                 }
                 let longer = more(out.lists, v, lo.len(), k) || more(inn.lists, v, li.len(), k);
-                Ok(longer || i < lo.len() || j < li.len())
+                Ok(longer || !union.done())
             }
         }
     }
@@ -512,15 +509,11 @@ impl<S: Source> Reader<'_, '_, S> {
                 let all = whole(&g.out, lo) && whole(inn, li);
                 self.merged.clear();
                 self.merged.try_reserve(k.min(lo.len() + li.len()))?;
-                let (mut i, mut j) = (0, 0);
-                while self.merged.len() < k && (i < lo.len() || j < li.len()) {
-                    let (a, b) = (lo.get(i).copied(), li.get(j).copied());
-                    let u = a.unwrap_or(u32::MAX).min(b.unwrap_or(u32::MAX));
-                    i += usize::from(a == Some(u));
-                    j += usize::from(b == Some(u));
+                let mut union = Union::new(lo, li, v);
+                for (u, _, _) in union.by_ref().take(k) {
                     self.merged.try_push(u)?;
                 }
-                let complete = all && i == lo.len() && j == li.len();
+                let complete = all && union.done();
                 let merged = self
                     .merged
                     .as_slice()
@@ -579,48 +572,44 @@ fn more<S: Source>(lists: &S, v: u32, got: usize, k: usize) -> bool {
     got == k && lists.degree(v) as usize > k
 }
 
-impl<S: Source> Reader<'_, '_, S> {
-    /// [`gather`](Self::gather) into `out`, every column of the graph: one adjacency's
-    /// prefix is copied as slices where its columns are per pair.
-    pub(crate) fn rows_into(
-        &mut self,
-        v: u32,
-        direction: Direction,
-        k: usize,
-        out: &mut EdgeRows,
-    ) -> Result<bool, QueryError> {
-        let g = self.graph;
-        let want = g.shape;
-        if direction == Direction::Both && g.inn.is_some() {
-            return self.gather(v, direction, k, want, |u, value| out.push(v, u, value));
+/// The union of the out-list and the in-list of `v`, both sorted: each node once, with
+/// its position in each list. A kept loop is taken from the out-list only.
+pub(crate) struct Union<'l> {
+    out: &'l [u32],
+    inn: &'l [u32],
+    v: u32,
+    i: usize,
+    j: usize,
+}
+
+impl<'l> Union<'l> {
+    pub(crate) fn new(out: &'l [u32], inn: &'l [u32], v: u32) -> Self {
+        Self {
+            out,
+            inn,
+            v,
+            i: 0,
+            j: 0,
         }
-        let (side, reader) = match (direction, g.inn.as_ref().zip(self.inn.as_mut())) {
-            (Direction::In, Some(pair)) => pair,
-            _ => (&g.out, &mut self.out),
-        };
-        let (first, list) = side.lists.list_prefix(reader, v, k)?;
-        let c = &side.columns;
-        if c.events.is_some() || c.time.is_some() {
-            for (e, &u) in (first..).zip(list) {
-                out.push(v, u, c.value(e, want)?)?;
-            }
-        } else {
-            let (len, entries) = (out.len(), index(first)..index(first) + list.len());
-            out.target.try_extend_from_slice(list)?;
-            out.source.try_resize(len + list.len(), v)?;
-            match c.edges {
-                Some(edges) => out.edges.try_extend_from_slice(&edges[entries.clone()])?,
-                None => out.edges.try_resize(len + list.len(), 1)?,
-            }
-            if let (Some(to), Some(w)) = (&mut out.weight, c.weight) {
-                to.try_extend_from_slice(&w[entries.clone()])?;
-            }
-            for (to, from) in [(&mut out.first, c.first), (&mut out.last, c.last)] {
-                if let (Some(to), Some(from)) = (to, from) {
-                    to.try_extend_from_slice(&from[entries.clone()])?;
-                }
-            }
-        }
-        Ok(more(side.lists, v, list.len(), k))
+    }
+
+    /// Whether every node of both lists has been given.
+    pub(crate) fn done(&self) -> bool {
+        self.i == self.out.len() && self.j == self.inn.len()
+    }
+}
+
+impl Iterator for Union<'_> {
+    type Item = (u32, Option<usize>, Option<usize>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (a, b) = (self.out.get(self.i).copied(), self.inn.get(self.j).copied());
+        let u = a.into_iter().chain(b).min()?;
+        let i = (a == Some(u)).then_some(self.i);
+        let j = (b == Some(u)).then_some(self.j);
+        self.i += usize::from(i.is_some());
+        self.j += usize::from(j.is_some());
+        let j = j.filter(|_| u != self.v || i.is_none());
+        Some((u, i, j))
     }
 }

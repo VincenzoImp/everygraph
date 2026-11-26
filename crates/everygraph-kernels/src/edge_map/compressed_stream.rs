@@ -456,6 +456,20 @@ unsafe impl Source for CompressedStream<'_> {
         }
     }
 
+    /// The window, taken at the first read, and beside it a buffer for the whole record
+    /// when it is longer than the window (`Window::shift`), and the decode batch of the
+    /// prefix.
+    fn list_bytes(&self, entries: u64, prefix: u64, batch: usize) -> u64 {
+        let usual = usual(self.window, self.index.data_bytes(), batch) as u64 + ALIGN;
+        let record = (record_bound(entries) + 1).min(self.index.data_bytes()) + 3 * ALIGN;
+        let buffer = if record > usual {
+            usual + record
+        } else {
+            usual
+        };
+        buffer.saturating_add(DecodeReader::batch_bytes(prefix))
+    }
+
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<WindowReader, Error> {
         let mut active = SegVec::new(memory, "edge-map stream nodes");
         active.try_reserve(lists)?;

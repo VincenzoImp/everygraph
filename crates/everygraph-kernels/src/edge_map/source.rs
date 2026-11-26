@@ -91,6 +91,12 @@ pub unsafe trait Source: Sync {
     /// [`Error::Memory`] if its buffers do not fit in the budget.
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<Self::Reader, Error>;
 
+    /// The most a reader made with `batch` reserves beyond what it holds when made, to
+    /// hand out the first `prefix` entries of one list of `entries` entries by
+    /// [`list`](Self::list) or [`list_prefix`](Self::list_prefix) (`prefix` is `entries`
+    /// for `list`): a bound a caller adds up before it reads.
+    fn list_bytes(&self, entries: u64, prefix: u64, batch: usize) -> u64;
+
     /// Called with the nodes of a scan's task before [`scan`](Self::scan) is called for
     /// its blocks, in order. A reader that reads ahead stops at the task's end. The
     /// default ignores it.
@@ -284,6 +290,10 @@ unsafe impl Source for Csr<'_> {
         self.offsets[ix(v.into())]
     }
 
+    fn list_bytes(&self, _: u64, _: u64, _: usize) -> u64 {
+        0
+    }
+
     fn reader(&self, _: &Memory, _: usize, _: usize) -> Result<(), Error> {
         Ok(())
     }
@@ -458,6 +468,10 @@ unsafe impl Source for RawCopy {
         self.at()[ix(v.into())]
     }
 
+    fn list_bytes(&self, _: u64, _: u64, _: usize) -> u64 {
+        0
+    }
+
     fn reader(&self, _: &Memory, _: usize, _: usize) -> Result<(), Error> {
         Ok(())
     }
@@ -604,6 +618,15 @@ impl DecodeReader {
         #[cfg(feature = "frontier-counters")]
         super::counters::decoded(self.batch.targets().len());
         checked
+    }
+
+    /// The most a reader's batch holds for one list of `entries` entries: its targets
+    /// with the decoders' slack, and the ends of one list. A batch that grows gives its
+    /// old buffers back first (`make_room`).
+    pub(super) fn batch_bytes(entries: u64) -> u64 {
+        const SLACK: u64 = 3;
+        let entries = usize::try_from(entries.saturating_add(SLACK)).unwrap_or(usize::MAX);
+        u64::try_from(Batch::bytes_for(entries, 1)).unwrap_or(u64::MAX)
     }
 
     /// Entries per batch, about.
@@ -756,6 +779,10 @@ unsafe impl Source for Compressed<'_> {
         for (v, d) in nodes.clone().zip(self.adjacency.index().degrees(nodes)) {
             f(v, d);
         }
+    }
+
+    fn list_bytes(&self, _: u64, prefix: u64, _: usize) -> u64 {
+        DecodeReader::batch_bytes(prefix)
     }
 
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<DecodeReader, Error> {
@@ -973,6 +1000,12 @@ unsafe impl Source for Stream<'_> {
 
     fn entry_offset(&self, v: u32) -> u64 {
         self.offsets[ix(v.into())]
+    }
+
+    /// The bytes read and the lists they hold of the whole list: 8 bytes an entry. A
+    /// buffer that grows is moved, and the old one is given back as the new one is taken.
+    fn list_bytes(&self, entries: u64, _: u64, _: usize) -> u64 {
+        entries.saturating_mul(8)
     }
 
     fn reader(&self, memory: &Memory, batch: usize, _: usize) -> Result<StreamReader, Error> {

@@ -57,15 +57,18 @@ impl MemoryAccountant for Ledger {
 }
 
 /// A graph with a hub (node 0, linked to every node and from every node), repeated
-/// pairs and loops.
+/// pairs and loops. The hub's record, about 60 KB, is longer than a stream reader's
+/// usual buffer (its smallest window, 4 KiB, and a batch of 8,192 entries' records).
 fn fixture(directed: bool) -> Fixture {
-    let n = 300;
+    let n = 48_000;
     let mut rows = Vec::new();
     for v in 0..n {
         rows.push((0, v, 1.0, i64::from(v)));
         rows.push((v, 0, 0.5, 1));
-        rows.push((v, (v * 7 + 3) % n, 2.0, 2));
-        rows.push((v, (v * 7 + 3) % n, 2.0, 5));
+    }
+    for v in 0..300 {
+        rows.push((v, (v * 7 + 3) % 300, 2.0, 2));
+        rows.push((v, (v * 7 + 3) % 300, 2.0, 5));
         if v % 9 == 0 {
             rows.push((v, v, 1.5, 3));
         }
@@ -114,8 +117,8 @@ fn sweep<S: Source>(f: &Fixture, out: &S, inn: Option<&S>) {
         .collect();
     let (mut refused, mut done) = (0, 0);
     let mut limit = 64_u64;
-    for _ in 0..60 {
-        limit = limit * 5 / 4;
+    for _ in 0..300 {
+        limit = limit * 21 / 20;
         let ledger = Arc::new(Ledger::default());
         ledger.limit.store(limit, Ordering::Relaxed);
         let memory = Memory::new(ledger.clone());
@@ -149,6 +152,9 @@ fn a_query_is_refused_before_it_reads_or_it_answers_in_full() {
         sweep(&f, &f.out.heap(), inn.map(Stored::heap).as_ref());
         sweep(&f, &f.out.csr(), inn.map(Stored::csr).as_ref());
         sweep(&f, &f.out.raw, inn.map(|s| &s.raw));
+        sweep(&f, &f.out.mapped(), inn.map(Stored::mapped).as_ref());
+        sweep(&f, &f.out.stream(), inn.map(Stored::stream).as_ref());
+        sweep(&f, &f.out.streamed(), inn.map(Stored::streamed).as_ref());
     }
 }
 
@@ -164,7 +170,6 @@ fn a_refused_query_reads_nothing() {
     let refused = r.khop(0, 2, Direction::Both, 1 << 20, &Never);
     assert!(matches!(refused, Err(QueryError::Budget(b)) if b.needed > 4 << 10));
     assert_eq!(f.out.file.reads.load(Ordering::Relaxed), before);
-    // The window of a streamed reader is reserved at its first read.
     ledger.limit.store(1 << 20, Ordering::Relaxed);
     let answered = r.khop(0, 2, Direction::Out, 10, &Never).unwrap();
     assert_eq!(answered.node.len(), 10);

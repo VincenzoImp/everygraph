@@ -48,8 +48,9 @@ impl<S: Source> Reader<'_, '_, S> {
         let direction = g.lists(Direction::Both)?;
         let (da, db) = (g.degree(a, direction), g.degree(b, direction));
         let rows = u64::from(da.min(db)).min(limit);
-        let state = 12 * u64::from(da) + 16 * rows;
-        self.admit(state, direction, u64::from(da.max(db)))?;
+        // A row: the neighbour (4 bytes) and its events from each side (8 + 8).
+        let state = 12 * u64::from(da) + 20 * rows;
+        self.admit(state, direction, u64::from(da.max(db)), u64::MAX)?;
         let memory = self.memory.clone();
         let rows = usize::try_from(rows).unwrap_or(usize::MAX);
         let mut out = Common {
@@ -149,6 +150,7 @@ impl<S: Source> Reader<'_, '_, S> {
             sets + rows * shape.row_bytes(),
             Direction::Out,
             u64::from(longest),
+            u64::MAX,
         )?;
         let (a, b) = (sorted(&self.memory, a)?, sorted(&self.memory, b)?);
         let (a, b) = (one_segment(&a)?, one_segment(&b)?);

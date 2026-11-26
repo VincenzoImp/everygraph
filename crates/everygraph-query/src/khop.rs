@@ -40,9 +40,10 @@ impl<S: Source> Reader<'_, '_, S> {
     /// The nodes within `k` hops of `node` in `direction`, with their distance: by
     /// distance, then in discovery order — the position of the node's parent in the
     /// previous distance's order, then the node's position in that parent's list. The
-    /// traversal stops as soon as `limit` rows exist and one more node is found, so its
-    /// cost is bounded by what it returns: a list is decoded in prefixes, doubling, only
-    /// as far as needed. `deadline` is asked between lists and every 4,096 entries.
+    /// traversal stops when `limit` rows exist and one more node is found. A list is
+    /// decoded in prefixes, doubling, only as far as it is read; the entries read are
+    /// those of the rows, of the nodes met before, and of the search for the one more
+    /// node. `deadline` is asked between lists and every 4,096 entries.
     ///
     /// # Errors
     ///
@@ -82,7 +83,7 @@ impl<S: Source> Reader<'_, '_, S> {
         let (v, direction) = (g.node(node)?, g.lists(direction)?);
         let rows = most.min(usize_of(g.nodes()));
         let state = 8 * widen(rows) + Seen::bytes(g.nodes(), rows.saturating_add(1));
-        self.admit(state, direction, u64::from(g.longest(direction)))?;
+        self.admit(state, direction, u64::from(g.longest(direction)), u64::MAX)?;
         out.node.clear();
         out.distance.clear();
         out.truncated = None;

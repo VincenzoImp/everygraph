@@ -2,8 +2,10 @@
 
 //! The set of nodes a query has met: a hash table that grows with what it holds, or a
 //! bit per node of the graph when that takes less memory than the largest table. A reader
-//! keeps one from query to query, so that a query allocates nothing for it and empties
-//! only what the last one used.
+//! keeps one from query to query, so that a query of the same size allocates nothing for
+//! it. Bits are emptied where the last query set them. A table is emptied whole only when
+//! it is no larger than this query's largest table; a larger one is given back, and a
+//! table of the first size is made.
 
 use everygraph_core::{Memory, SegVec, usize_of, widen};
 use everygraph_kernels::edge_map::one_segment_mut;
@@ -98,7 +100,7 @@ impl Seen {
                 slots,
                 bits: b,
                 len,
-            } if !bits && *b > 0 => {
+            } if !bits && *b > 0 && *b <= table_bits(most) => {
                 slots.fill(EMPTY);
                 *len = 0;
             }

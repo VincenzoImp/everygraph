@@ -5,7 +5,7 @@
 use everygraph_core::{Memory, SegVec, widen};
 use everygraph_kernels::edge_map::Source;
 
-use crate::graph::{Shape, Value, column};
+use crate::graph::{Shape, Union, Value, column};
 use crate::seen::Seen;
 use crate::{Cut, Direction, QueryError, Reader, Truncated, rows_of};
 
@@ -183,11 +183,12 @@ impl<S: Source> Reader<'_, '_, S> {
         if out.shape() != shape {
             return Err(QueryError::Invalid("rows made for another graph's columns"));
         }
-        let (mut rows, mut longest) = (0_u64, 0_u64);
+        let (mut rows, mut longest, mut prefix) = (0_u64, 0_u64, 0_u64);
         for &v in nodes {
-            let d = u64::from(g.degree(g.node(v)?, direction)).min(limit);
-            rows = rows.saturating_add(d);
+            let d = u64::from(g.degree(g.node(v)?, direction));
+            rows = rows.saturating_add(d.min(limit));
             longest = longest.max(d);
+            prefix = prefix.max(d.min(limit));
         }
         // A few nodes are told apart by comparing them, which allocates nothing.
         let many = nodes.len() > 32;
@@ -200,6 +201,7 @@ impl<S: Source> Reader<'_, '_, S> {
             rows.saturating_mul(shape.row_bytes()) + seen,
             direction,
             longest,
+            prefix,
         )?;
         out.clear();
         out.reserve(usize::try_from(rows).unwrap_or(usize::MAX))?;
@@ -208,7 +210,7 @@ impl<S: Source> Reader<'_, '_, S> {
             self.with_seen(nodes.len(), |r, seen| {
                 for &v in nodes {
                     if seen.insert(v)? {
-                        cut |= r.rows_into(v, direction, k, out)?;
+                        cut |= r.gather(v, direction, k, shape, |u, x| out.push(v, u, x))?;
                     }
                 }
                 Ok(())
@@ -216,7 +218,7 @@ impl<S: Source> Reader<'_, '_, S> {
         } else {
             for (i, &v) in nodes.iter().enumerate() {
                 if !nodes[..i].contains(&v) {
-                    cut |= self.rows_into(v, direction, k, out)?;
+                    cut |= self.gather(v, direction, k, shape, |u, x| out.push(v, u, x))?;
                 }
             }
         }
@@ -253,7 +255,7 @@ impl<S: Source> Reader<'_, '_, S> {
         }
         let columns = 2 + 2 * u64::from(directed) + 2 * u64::from(g.has_weight());
         let state = widen(nodes.len()).saturating_mul(4 * columns);
-        self.admit(state, direction, u64::from(g.longest(direction)))?;
+        self.admit(state, direction, u64::from(g.longest(direction)), u64::MAX)?;
         let (memory, rows) = (&self.memory, nodes.len());
         let mut out = Degrees {
             node: column(memory, rows)?,
@@ -303,14 +305,7 @@ impl<S: Source> Reader<'_, '_, S> {
             (first..first + widen(list.len())).fold(0.0, |sum, e| sum + g.weight(inn, e))
         };
         let weighted = strength(false, fo, lo) + strength(true, fi, li);
-        let (mut i, mut j, mut union) = (0, 0, 0_usize);
-        while i < lo.len() || j < li.len() {
-            let (a, b) = (lo.get(i).copied(), li.get(j).copied());
-            let u = a.unwrap_or(u32::MAX).min(b.unwrap_or(u32::MAX));
-            i += usize::from(a == Some(u));
-            j += usize::from(b == Some(u));
-            union += 1;
-        }
+        let union = Union::new(lo, li, v).count();
         let looped = usize::from(lo.binary_search(&v).is_ok());
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         if let (Some(o), Some(n)) = (&mut out.out_degree, &mut out.in_degree) {
@@ -361,7 +356,7 @@ impl<S: Source> Reader<'_, '_, S> {
         } else {
             Direction::Out
         };
-        self.admit(widen(sources.len()), both, u64::from(longest))?;
+        self.admit(widen(sources.len()), both, u64::from(longest), u64::MAX)?;
         let mut out = column(&self.memory, sources.len())?;
         for (&a, &b) in sources.iter().zip(targets) {
             let (read, find, direction) = self.side_for(a, b);

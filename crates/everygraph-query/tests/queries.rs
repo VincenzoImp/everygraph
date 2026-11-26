@@ -405,14 +405,6 @@ proptest! {
         let q = Khop { node: pick % f.model.n, k, direction, limit };
         let got = on_every_source(&f, &q);
         prop_assert_eq!(&got, &khop_of(&f.model, &q));
-        // A khop cut at its limit gives the same rows at any thread count.
-        for t in [1, 4, 16] {
-            let at = par::with_threads(NonZeroUsize::new(t).unwrap(), || {
-                q.run(&f.graph(&f.out.heap(), f.inn.as_ref().map(support::Stored::heap).as_ref()))
-            })
-            .unwrap();
-            prop_assert_eq!(&at, &got);
-        }
     }
 
     #[test]

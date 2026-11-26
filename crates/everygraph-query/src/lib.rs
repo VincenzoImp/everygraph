@@ -3,16 +3,14 @@
 //! Point queries (#90): the neighbours of nodes, their degrees, whether two nodes are
 //! joined, their common neighbours, the edges between two node sets, and the nodes
 //! within `k` hops of one node, each with a `limit` on the rows it returns
-//! (`docs/api-sketch.md` § 3.2, ADR 0021). Shortest paths (#91) and views (#93) come
-//! later.
+//! (`docs/api-sketch.md` § 3.2, ADR 0021).
 //!
 //! What lives here:
 //!
 //! - [`Graph`]: the lists a query reads — the out-adjacency, and the in-adjacency of a
 //!   directed graph — from any [`Source`](everygraph_kernels::edge_map::Source) of the
-//!   edge-map framework, with the per-entry [`Columns`] that rows report. The compressed
-//!   lists are the default; a raw copy is the hot tier, when the planner says it fits
-//!   (`everygraph_kernels::planner::hot_tier`). Every source gives the same rows.
+//!   edge-map framework (the compressed lists, a raw copy, a stream), with the per-entry
+//!   [`Columns`] that rows report. Every source gives the same rows.
 //! - [`Reader`]: one per thread. It holds the decode buffers, and every query is a
 //!   method of it. Many readers query one graph at once: the graph is read only.
 //! - [`ids`]: external identifiers to node ids in bulk, through the dictionary.
@@ -20,17 +18,20 @@
 //! **Order and semantics.** Rows follow `docs/api-sketch.md` § 2.12; kept loops and
 //! repeated pairs follow `docs/spec/graph-semantics.md` § 6. A batch takes a column of
 //! nodes and returns one table in the order the nodes were given, `limit` applying to
-//! each node.
+//! each node. A query runs on the calling thread, in that order, and reads only the
+//! graph: its rows do not depend on the thread count by construction. A cut by `limit`
+//! gives the same rows on every run; a cut by `timeout` does not.
 //!
-//! **Cost.** A query reads only the lists it needs, and stops reading a list where its
-//! limit is reached: `neighbors` and `khop` decode list prefixes, so a cut query on a
-//! hub costs what it returns, not the hub's degree.
+//! **Cost.** A query reads only the lists it needs. `neighbors` and `khop` decode a
+//! list only as far as they read it, in prefixes. A cut `neighbors` on a hub costs what
+//! it returns. A cut `khop` also reads the entries of the nodes it met before, which
+//! can be most of a hop's lists when its nodes are well joined.
 //!
-//! **Memory.** Before it reads a list, a query adds up the most it can hold (its rows,
-//! its sets, the decode buffer of the longest list it reads, all from the index) and is
-//! refused with [`QueryError::Budget`] if the budget does not have it. Every buffer is
-//! then held through the budget. A source that reads through a window (the streamed
-//! regime) reserves its window when it first reads.
+//! **Memory.** Before it reads a list, a query adds up the most it can hold: its rows
+//! and sets from the index, and what each source's reader takes to read the longest list
+//! it may read (`Source::list_bytes`, which counts a stream's window). It is refused with
+//! [`QueryError::Budget`] if the budget does not have it. Every buffer is then held
+//! through the budget.
 //!
 //! **Time.** The crate reads no clock (it builds for wasm32): a `timeout` is a
 //! [`Deadline`] that the caller implements.
