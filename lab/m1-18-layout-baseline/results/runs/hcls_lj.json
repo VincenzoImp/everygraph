@@ -1,0 +1,51 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=8G",
+  "-p",
+  "MemorySwapMax=0",
+  "env",
+  "GMAP_THREADS=8",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/target/release/gmap",
+  "layout",
+  "--graph",
+  "/home/tux/graphlab/data/csr/lj",
+  "--hier",
+  "/home/tux/graphlab/data/hier/lj",
+  "--out",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/out/hcls_lj_ab",
+  "--phi",
+  "0.72",
+  "--solve",
+  "stress"
+ ],
+ "rc": 0,
+ "timed_out": false,
+ "wall_s": 7.27,
+ "user_s": 35.1,
+ "sys_s": 0.5,
+ "peak_rss_mb": 720,
+ "peak_anon_mb_sampled": 719,
+ "memory_limit": "8G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  36.44,
+  42.39,
+  35.77
+ ],
+ "loadavg_end": [
+  36.65,
+  42.33,
+  35.79
+ ],
+ "started_utc": "2026-11-26T05:33:42Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "gmap layout --solve stress",
+ "threads": "8",
+ "graph": "lj",
+ "rep": "3"
+}

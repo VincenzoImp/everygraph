@@ -1,0 +1,47 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=24G",
+  "-p",
+  "MemorySwapMax=0",
+  "nice",
+  "-n",
+  "10",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/env/tools/bin/sfdp",
+  "-Goverlap=true",
+  "-Gsplines=false",
+  "-Tplain",
+  "-o",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/out/sfdp_lj.plain",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/work/lj/graph.dot"
+ ],
+ "rc": -9,
+ "timed_out": false,
+ "wall_s": 193.34,
+ "user_s": 177.8,
+ "sys_s": 14.7,
+ "peak_rss_mb": 24526,
+ "peak_anon_mb_sampled": 24526,
+ "memory_limit": "24G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  21.66,
+  23.38,
+  16.14
+ ],
+ "loadavg_end": [
+  33.63,
+  26.57,
+  18.66
+ ],
+ "started_utc": "2026-11-26T05:14:52Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "sfdp",
+ "version": "graphviz 14.1.2 (conda-forge)",
+ "threads": "1",
+ "options": "-Goverlap=true -Gsplines=false -Tplain, other options default"
+}

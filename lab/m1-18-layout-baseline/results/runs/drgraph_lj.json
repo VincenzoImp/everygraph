@@ -1,0 +1,50 @@
+{
+ "cmd": [
+  "nice",
+  "-n",
+  "10",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/src/DRGraph/Vis",
+  "-input",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/work/lj/edges.txt",
+  "-output",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/out/drgraph_lj.txt",
+  "-neg",
+  "5",
+  "-samples",
+  "400",
+  "-gamma",
+  "0.1",
+  "-mode",
+  "1",
+  "-A",
+  "2",
+  "-B",
+  "1",
+  "-threads",
+  "8"
+ ],
+ "rc": 0,
+ "timed_out": false,
+ "wall_s": 699.77,
+ "user_s": 4769.8,
+ "sys_s": 3.5,
+ "peak_rss_mb": 7387,
+ "peak_anon_mb_sampled": 7031,
+ "memory_limit": "8G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  14.89,
+  7.98,
+  5.84
+ ],
+ "loadavg_end": [
+  25.3,
+  25.02,
+  15.86
+ ],
+ "started_utc": "2026-11-26T05:01:38Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "DRGraph",
+ "version": "ZJUVAI/DRGraph@4f3fda2",
+ "threads": "8"
+}

@@ -1,0 +1,49 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=8G",
+  "-p",
+  "MemorySwapMax=0",
+  "env",
+  "GMAP_THREADS=8",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/target/release/gmap",
+  "layout",
+  "--graph",
+  "/home/tux/graphlab/data/csr/orkut",
+  "--hier",
+  "/home/tux/graphlab/data/hier/orkut",
+  "--out",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/out/hclo_orkut",
+  "--phi",
+  "0.72",
+  "--orient"
+ ],
+ "rc": 0,
+ "timed_out": false,
+ "wall_s": 12.02,
+ "user_s": 53.3,
+ "sys_s": 2.7,
+ "peak_rss_mb": 1169,
+ "peak_anon_mb_sampled": 1170,
+ "memory_limit": "8G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  52.02,
+  52.85,
+  53.08
+ ],
+ "loadavg_end": [
+  52.39,
+  52.85,
+  53.08
+ ],
+ "started_utc": "2026-11-26T06:18:08Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "gmap layout --orient",
+ "threads": "8",
+ "graph": "orkut"
+}
