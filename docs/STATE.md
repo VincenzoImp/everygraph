@@ -35,12 +35,14 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
 ## Measurement queue (official runs, batched into one window)
 
-- #34 id dictionary: done 2026-11-25 (build-500m OOM, re-run after the fix) (~20 min, ~45 GB disk).
+- #34 id dictionary: closed 2026-11-26; build-500m official 76.4 s under MemoryMax 5G (bench/results/id-dictionary/20261126T042659Z-c0d7f248bb47.jsonl). (~20 min, ~45 GB disk).
 - #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
-- #44 edge-map (merged as PR #202): `everygraph-bench run edge-map --official --data /home/tux/graphlab/data` (~15 min, estimate); closes #44 when the ≤ 5% overhead and compressed ≤ 1.0× raw criteria hold.
+- #44 edge-map: official 05:30 run — lab and raw/stream rows ok (raw ÷ lab at 16 threads: PageRank f32 1.02, f64 1.02, BFS 1.03, WCC 1.13 with the proof WCC; at 1 thread 0.97–1.00), compressed/mmap cases failed on a missing store (fix in progress); re-run only those. Was: `everygraph-bench run edge-map --official --data /home/tux/graphlab/data` (~15 min, estimate); closes #44 when the ≤ 5% overhead and compressed ≤ 1.0× raw criteria hold.
 - #35 build (PR #215, after merge): `everygraph-bench run build --official --data /home/tux/graphlab/data` (~30 min, estimate; Friendster needs a 40 GB limit).
+- #172 mmap hints / block cache (PR #221, merged): six `everygraph-bench run mmap-hints --official --only …` cases, ~3.5 h total, 44 GiB available needed — too long for one night window; run as its own window. Exploratory: MADV_RANDOM cuts bytes read 0.16× (layout 16G) and 0.08–0.15× (Leiden local moving 4–8G); harmful when the graph fits (32G: 8.7× more bytes). ADR 0029 (proposed, PR #222 merged): accepted after this official run.
+- #47/#49 PageRank family and traversals (PR #220, after review): `everygraph-bench run kernels --official --data /home/tux/graphlab/data` (~25 min + the Friendster store once; GAP rows need the network once).
+- #48/#50 components and k-core (PR #218, after review): `everygraph-bench run components-kcore --official --data /home/tux/graphlab/data` (~50 min, estimate; Friendster/twitter-sym rows at 40G).
 - #18 deterministic Leiden (PR #208, merged): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
-- #34 build-500m after PR #203: `everygraph-bench run id-dictionary --official --only build-500m`.
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
 ## Needs the owner's hands (nothing here blocks development)
@@ -95,6 +97,7 @@ Tell the owner when each becomes due, with everything prepared.
 
 - 2026-11-26 02:54 self-check: the main slowdown tonight is serial review rounds on product PRs (author waits for review, reviewer waits for CI, author waits for review again; #170 took three rounds). Mitigation: send both reviews' findings to the author in one message, and skip a further round when no must-fix touches correctness. Second cause: a commit without Signed-off-by after the DCO check was turned on; agents now get the sign-off rule in their brief.
 - 2026-11-26 03:54 self-check: load average 45 on 32 hardware threads with about nine code agents (kernels ×2, allocator, results cache, columns fixes, verify fixes, mmap experiment, LDBC, one review). CPU, not the network, is now the limit: more compiling agents would slow all of them. Rule of thumb for this machine: at most about 8 agents that compile at once (with `CARGO_BUILD_JOBS=6`), research and reviews on top.
+- 2026-11-26 05:15: a 2.5-hour window idles every code agent (seven had their fixes written and waited to compile). Split long windows: run the short official cases first, let agents build and push, then run the long ones (det-leiden, mmap-hints) in a second window when few agents compile.
 ## Journal
 
 - **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner

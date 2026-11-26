@@ -433,7 +433,7 @@ pub struct SectionWriter<'w, S: ByteSink> {
     hasher: blake3::Hasher,
 }
 
-impl<S: ByteSink> SectionWriter<'_, S> {
+impl<'w, S: ByteSink> SectionWriter<'w, S> {
     /// Appends `bytes` to the section.
     ///
     /// # Errors
@@ -481,7 +481,17 @@ impl<S: ByteSink> SectionWriter<'_, S> {
     ///
     /// [`ContainerError::Write`] when the sink fails (the writer is then poisoned);
     /// [`ContainerError::Poisoned`].
-    pub fn finish(mut self) -> Result<Entry, ContainerError> {
+    pub fn finish(self) -> Result<Entry, ContainerError> {
+        self.finish_into_writer().map(|(entry, _)| entry)
+    }
+
+    /// As [`finish`](Self::finish), and gives the writer back, so that the caller can
+    /// append more sections through the same borrow.
+    ///
+    /// # Errors
+    ///
+    /// As [`finish`](Self::finish).
+    pub fn finish_into_writer(mut self) -> Result<(Entry, &'w mut Writer<S>), ContainerError> {
         if self.writer.poisoned {
             return Err(ContainerError::Poisoned);
         }
@@ -498,7 +508,7 @@ impl<S: ByteSink> SectionWriter<'_, S> {
             .insert(self.entry.name.clone(), self.entry.clone());
         self.writer.position = padded;
         self.writer.changed = true;
-        Ok(self.entry)
+        Ok((self.entry, self.writer))
     }
 }
 

@@ -25,7 +25,7 @@ import re
 import sys
 
 N_DECISIONS = 25
-STATUSES = ("accepted", "accepted, partly validated", "open — needs experiment")
+STATUSES = ("accepted", "accepted, partly validated", "open — needs experiment", "proposed")
 SUPERSEDED = re.compile(r"^superseded by ADR \d{4}$")
 SECTIONS = ("Context", "Decision", "Evidence", "Consequences", "What would change our mind")
 NAME = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")

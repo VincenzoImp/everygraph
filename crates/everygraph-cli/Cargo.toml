@@ -14,5 +14,12 @@ publish.workspace = true
 name = "everygraph"
 path = "src/main.rs"
 
+[dependencies]
+# The binary decides that threads exist: the core's `parallel` feature (its default).
+everygraph-core = { path = "../everygraph-core" }
+everygraph-format = { path = "../everygraph-format" }
+everygraph-ingest = { path = "../everygraph-ingest" }
+everygraph-io = { path = "../everygraph-io" }
+
 [lints]
 workspace = true

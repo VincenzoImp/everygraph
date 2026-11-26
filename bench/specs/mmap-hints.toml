@@ -1,0 +1,281 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #172 (m1-15): random access under a hard memory limit. Step 1: MADV_RANDOM against
+# the kernel's default advice (one `madvise` call). Step 2: a budgeted block cache over the
+# level-0 store against mmap (leiden-friendster-cache, described below).
+#
+#   layout   lab/e-map `gmap layout` (the tracer's layout stage, FINDINGS § M1-01) on
+#            Friendster, CSR memory-mapped (GMAP_LOAD=mmap) from a cold private copy,
+#            map-shaped Louvain hierarchy (cap 64, min ratio 3), 16 threads, 16G. The tracer
+#            measured 733 GB read in 405.1 s with default advice at 32 threads
+#            (bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl, row 19).
+#            variant=none: no madvise call (the tracer); variant=random: MADV_RANDOM on both
+#            maps (offsets.u64 and targets.u32). Same binary, same hierarchy, same copy
+#            rotation; the output (pos.f32, tnodes.bin) must hash the same.
+#            The 32G cases are the "graph fits" reference: the same layout with room for the
+#            whole CSR in the page cache.
+#   leiden   lab/m1-02-ooc-leiden `m102`, the FINDINGS § M1-02 out-of-core configuration (async
+#            Leiden, 1 iteration, 16 threads, compressed level 0 mapped without pre-fault from
+#            a cold private copy, sequential aggregation, spilled quotient graphs) at 8G and
+#            4G, without and with `--advise random` (MADV_RANDOM on the level-0 store map).
+#            M1-02 measured level-0 local moving re-reading the store 6.0x and 12.8x per sweep
+#            (406 and 799 GB, machine-wide /proc/diskstats) at 8 and 4 GiB. Here the bytes are
+#            the process's own (`lm_ref_read_self_bytes`, /proc/self/io), robust to others' I/O.
+#            Async: the partition differs run to run (Q 0.598-0.607 in M1-02), so no hash check.
+#   pq       lab/f1-query `pq`, the cold point queries of FINDINGS § F1 ("Cold /
+#            out-of-core"): every query on a just-evicted mapping (madvise DONTNEED +
+#            fadvise DONTNEED before each), single thread; then a cold-throughput batch at
+#            16 threads. random=0/1 is MADV_NORMAL / MADV_RANDOM, prefetch=1 adds the
+#            frontier MADV_WILLNEED prefetch. Metric: storage bytes read per query.
+#
+# Interleaving: the matrix expands with its keys in sorted order, the first key outermost,
+# so `pass` (sorted before `variant`/`prefetch`) makes the run alternate A, B, A, B ...:
+# a decision between variants is then robust to slow drift in background load (CLAUDE.md
+# § 6, "Speed"). Each case has one repetition; the passes are the repetitions.
+#
+# Bytes read: cgprobe.py's `read_bytes` is the command's own /proc/self/io delta (page-fault
+# reads of the maps included), taken before it hashes the outputs; the harness's own
+# read_bytes also counts the hashing (up to 1.2 GB if the outputs were evicted). The
+# cgroup's io.stat is not available (no io controller in user scopes, bench/README.md).
+# Kernel memory: peaks of pagetables, kernel, shmem (and the other kernel terms) sampled
+# every 100 ms by cgprobe.py from the scope's memory.stat; workingset_refault_file and
+# pgmajfault are the scope's cumulative counters.
+#
+# Hierarchy: written once by the preparation step below (b2 Louvain, async, so it differs
+# from the tracer's run to run; every case of a run reads the same one). --no-quot keeps
+# b2 from holding and writing the quotient graphs (gmap reads level_k.u32 only). b2's own
+# anonymous peak was 28.4 GiB with it (exploratory, 2026-11-26; the tracer's, without it,
+# 28.3 GiB), hence 40G.
+#
+# Wall time (estimate from exploratory runs on a loaded machine): layout 16G 4-12 min per
+# case x 6, 32G 2-5 min x 2, Leiden ooc 3.5-6 min x 8, Leiden cache 3-6 min x 18, in RAM
+# 2 x 1.7 min, pq ~40 s x 8, cold copies ~3 min, hierarchy ~2.5 min. About 3.5 hours.
+# Disk: ~52 GB of copies (Friendster CSR and store, 2 each), 2 GB of layout output per case,
+# up to ~40 GB of spill per Leiden case, 0.35 GB of hierarchy.
+
+schema = 1
+name = "mmap-hints"
+description = "Issue #172: MADV_RANDOM against default advice (gmap layout, out-of-core Leiden, cold point queries) and a budgeted block cache against mmap (Leiden level 0), Friendster under hard limits"
+reference = "plan/issues/m1-15-mmap-hints-block-cache.md; docs/FINDINGS.md § M1-01 (layout under 16 GiB: 733 GB read) and § F1 (cold point queries)"
+binaries = ["{gmap}", "{pq}", "{b2}", "{m102}", "{probe}"]
+
+[defaults]
+memory_limit = "16G"
+repetitions = 1
+cache = "cold"
+cold_copies = 2
+threads = [16]
+timeout = "40m"
+
+[gate]
+max_load = 1.0
+disturbed_above_cores = 0.5
+disturbed_above_io_mb_s = 50
+min_mem_available = "44G"
+
+[vars]
+gmap = "{repo}/lab/e-map/gmap/target/release/gmap"
+pq = "{repo}/lab/f1-query/target/release/pq"
+b2 = "{repo}/lab/b2-leiden/target-w32/release/b2"
+m102 = "{repo}/lab/m1-02-ooc-leiden/target/release/m102"
+probe = "{repo}/lab/m1-15-mmap-hints-block-cache/cgprobe.py"
+hier = "{work}/{spec}/hier.louvain-capped"
+layout = "python3 -I {probe} --evict {hier} --hash {case_work}/layout/pos.f32 --hash {case_work}/layout/tnodes.bin -- {gmap} layout --graph {dataset} --hier {hier} --out {case_work}/layout --phi 0.72"
+
+# --- preparation (untimed) ------------------------------------------------------------
+
+[[prepare]]
+name = "build-gmap"
+cwd = "{repo}/lab/e-map/gmap"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+
+[[prepare]]
+name = "build-pq"
+cwd = "{repo}/lab/f1-query"
+command = ["cargo", "build", "--release", "--offline", "--locked", "--bin", "pq"]
+
+[[prepare]]
+name = "build-m102"
+# target-cpu=native and fat LTO come from lab/m1-02-ooc-leiden/.cargo/config.toml and its manifest.
+cwd = "{repo}/lab/m1-02-ooc-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+needed_by = ["leiden-friendster-ooc", "leiden-friendster-cache", "leiden-friendster-inram"]
+
+[[prepare]]
+name = "build-b2-w32"
+cwd = "{repo}/lab/b2-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked", "--features", "w32", "--target-dir", "target-w32"]
+needed_by = ["layout-friendster-16g", "layout-friendster-32g"]
+
+[[prepare]]
+name = "hierarchy"
+# The tracer's map-shaped Louvain (lab/m1-01-tracer/tracer.py HIER_FLAGS["capped"], B2_FLAGS).
+memory_limit = "40G"
+creates = "{hier}/hier.json"
+needed_by = ["layout-friendster-16g", "layout-friendster-32g"]
+shell = "mkdir -p {work}/{spec} && exec {b2} run --graph {data}/csr/friendster --name friendster --algo louvain --threads 16 --lowmem --no-populate --cap 64 --max-passes 20 --min-ratio 3 --verbose --no-quot --out-hier {hier} --json {work}/{spec}/b2.json --notes 'm1-15: tracer map-shaped Louvain, 16 threads, --no-quot' > {work}/{spec}/b2.out 2> {work}/{spec}/b2.err"
+
+# --- layout ---------------------------------------------------------------------------
+
+[[benchmark]]
+name = "layout-friendster-16g"
+group = "layout"
+description = "gmap layout, CSR mmapped cold under 16G: no madvise (the tracer) against MADV_RANDOM, interleaved"
+dataset_path = "csr/friendster"
+matrix = { pass = ["1", "2", "3"], variant = ["none", "random"] }
+env = { GMAP_LOAD = "mmap", GMAP_MADV = "{variant}", RAYON_NUM_THREADS = "{threads}" }
+shell = "exec {layout}"
+conditions = { graph = "friendster", stage = "layout (gmap, map-shaped Louvain hierarchy)", limit = "16G", load = "CSR mmap, cold private copy", advice = "{variant}", storage = "glab-csr-v0, uncompressed", precision = "f32 positions", output = "no fsync" }
+record_json = { pos_sha256 = "/cg/hashes/pos.f32", tnodes_sha256 = "/cg/hashes/tnodes.bin", hier_levels = "/tool/hier_levels" }
+metric = [
+  { name = "seconds", json = "/tool/total_s", unit = "s" },
+  { name = "layout_seconds", json = "/tool/layout_s", unit = "s" },
+  { name = "tool_read_bytes", json = "/cg/read_bytes", unit = "B" },
+  { name = "refault_file", json = "/cg/delta/workingset_refault_file", unit = "pages" },
+  { name = "activate_file", json = "/cg/delta/workingset_activate_file", unit = "pages" },
+  { name = "major_faults", json = "/cg/delta/pgmajfault" },
+  { name = "pagetables_peak", json = "/cg/peak/pagetables", unit = "B" },
+  { name = "kernel_peak", json = "/cg/peak/kernel", unit = "B" },
+  { name = "shmem_peak", json = "/cg/peak/shmem", unit = "B" },
+  { name = "anon_peak_sampled", json = "/cg/peak/anon", unit = "B" },
+]
+
+[[benchmark]]
+name = "layout-friendster-32g"
+group = "layout"
+description = "the same layout under 32G, where the whole CSR fits in the page cache (reference)"
+dataset_path = "csr/friendster"
+memory_limit = "32G"
+matrix = { pass = ["1"], variant = ["none", "random"] }
+env = { GMAP_LOAD = "mmap", GMAP_MADV = "{variant}", RAYON_NUM_THREADS = "{threads}" }
+shell = "exec {layout}"
+conditions = { graph = "friendster", stage = "layout (gmap, map-shaped Louvain hierarchy)", limit = "32G", load = "CSR mmap, cold private copy", advice = "{variant}", storage = "glab-csr-v0, uncompressed", precision = "f32 positions", output = "no fsync" }
+record_json = { pos_sha256 = "/cg/hashes/pos.f32", tnodes_sha256 = "/cg/hashes/tnodes.bin", hier_levels = "/tool/hier_levels" }
+metric = [
+  { name = "seconds", json = "/tool/total_s", unit = "s" },
+  { name = "layout_seconds", json = "/tool/layout_s", unit = "s" },
+  { name = "tool_read_bytes", json = "/cg/read_bytes", unit = "B" },
+  { name = "refault_file", json = "/cg/delta/workingset_refault_file", unit = "pages" },
+  { name = "major_faults", json = "/cg/delta/pgmajfault" },
+  { name = "pagetables_peak", json = "/cg/peak/pagetables", unit = "B" },
+  { name = "kernel_peak", json = "/cg/peak/kernel", unit = "B" },
+  { name = "shmem_peak", json = "/cg/peak/shmem", unit = "B" },
+]
+
+# --- out-of-core Leiden, level 0 -------------------------------------------------------
+
+[[benchmark]]
+name = "leiden-friendster-ooc"
+group = "leiden"
+description = "M1-02 out-of-core Leiden at 8G and 4G: level-0 store map without madvise against MADV_RANDOM, interleaved"
+dataset_path = "store-m113/friendster"
+matrix = { limit = ["8G", "4G"], pass = ["1", "2"], variant = ["none", "random"] }
+memory_limit = "{limit}"
+shell = "case {variant} in random) adv='--advise random' ;; *) adv='' ;; esac; exec python3 -I {probe} -- {m102} leiden run --config comp --algo leiden --threads {threads} --store {dataset} --mem mmap-lazy --ooc --spill {case_work}/spill $adv"
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "out of core, limit {limit}", advice = "{variant}", storage = "compressed level 0 (mmap, cold copy); quotient graphs as compressed stores on disk", precision = "f64 weights (integer)", timing = "kernel only: excludes open and evaluation" }
+metric = [
+  { name = "seconds", json = "/tool/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/tool/level0_lm_s", unit = "s" },
+  { name = "level0_lm_ref_read_self", json = "/tool/passes/0/lm_ref_read_self_bytes", unit = "B" },
+  { name = "level0_lm_ref_read_machine", json = "/tool/passes/0/lm_ref_read_bytes", unit = "B" },
+  { name = "level0_aggregation", json = "/tool/level0_agg_s", unit = "s" },
+  { name = "modularity", json = "/tool/modularity" },
+  { name = "tool_read_bytes", json = "/cg/read_bytes", unit = "B" },
+  { name = "refault_file", json = "/cg/delta/workingset_refault_file", unit = "pages" },
+  { name = "major_faults", json = "/cg/delta/pgmajfault" },
+  { name = "pagetables_peak", json = "/cg/peak/pagetables", unit = "B" },
+  { name = "kernel_peak", json = "/cg/peak/kernel", unit = "B" },
+  { name = "shmem_peak", json = "/cg/peak/shmem", unit = "B" },
+  { name = "anon_peak_sampled", json = "/cg/peak/anon", unit = "B" },
+]
+
+# --- step 2: budgeted block cache against mmap, level-0 local moving ----------------------
+#
+# variant=none       the M1-02 configuration (no madvise), as leiden-friendster-ooc
+# variant=random-lm  MADV_RANDOM on the level-0 map for local moving and refinement, back to
+#                    MADV_NORMAL for the aggregation scan (MADV_RANDOM for the whole run
+#                    slows the aggregation by 1.6x, leiden-friendster-ooc)
+# variant=cacheNk    level-0 records read through lab/m1-02-ooc-leiden/src/bcache.rs: N KiB
+#                    frames, O_DIRECT, CLOCK; 3.0 GiB at 8G and 0.75 GiB at 4G (about what the
+#                    page cache holds during local moving in the mmap runs), reserved in the
+#                    accountant and released before aggregation, which reads the map.
+# variant=cache4k-pf cache4k, plus one coalesced read of each block's missing frames when
+#                    local moving starts the block (--cache-prefetch)
+# Async mode, as M1-02's 406/799 GB: partitions differ run to run. Identity of the cache path
+# is checked in deterministic mode on lj (results/README.md).
+
+[[benchmark]]
+name = "leiden-friendster-cache"
+group = "leiden-cache"
+description = "level-0 local moving at 8G and 4G: mmap, per-phase MADV_RANDOM, budgeted block cache (O_DIRECT), interleaved"
+dataset_path = "store-m113/friendster"
+matrix = { limit = ["8G", "4G"], pass = ["1", "2"], variant = ["none", "random-lm", "cache4k", "cache16k", "cache4k-pf"] }
+exclude = [{ limit = "4G", variant = "cache4k" }]
+memory_limit = "{limit}"
+shell = "case {limit} in 8G) c=3.0 ;; 4G) c=0.75 ;; esac; case {variant} in none) x='' ;; random-lm) x='--advise random-lm' ;; cache4k) x=\"--cache-gb $c --cache-frame-kb 4\" ;; cache16k) x=\"--cache-gb $c --cache-frame-kb 16\" ;; cache4k-pf) x=\"--cache-gb $c --cache-frame-kb 4 --cache-prefetch\" ;; esac; exec python3 -I {probe} -- {m102} leiden run --config comp --algo leiden --threads {threads} --store {dataset} --mem mmap-lazy --ooc --spill {case_work}/spill $x"
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "out of core, limit {limit}", access = "{variant}", storage = "compressed level 0 (mmap, cold copy); quotient graphs as compressed stores on disk", precision = "f64 weights (integer)", timing = "kernel only: excludes open and evaluation" }
+metric = [
+  { name = "seconds", json = "/tool/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/tool/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/tool/level0_refine_s", unit = "s" },
+  { name = "level0_lm_ref_read_self", json = "/tool/passes/0/lm_ref_read_self_bytes", unit = "B" },
+  { name = "level0_aggregation", json = "/tool/level0_agg_s", unit = "s" },
+  { name = "level0_sweeps", json = "/tool/passes/0/iters" },
+  { name = "modularity", json = "/tool/modularity" },
+  { name = "cache_hits", json = "/tool/block_cache/hits", optional = true },
+  { name = "cache_misses", json = "/tool/block_cache/misses", optional = true },
+  { name = "cache_read_bytes", json = "/tool/block_cache/read_bytes", unit = "B", optional = true },
+  { name = "cache_coalesced_reads", json = "/tool/block_cache/coalesced_reads", optional = true },
+  { name = "tool_read_bytes", json = "/cg/read_bytes", unit = "B" },
+  { name = "refault_file", json = "/cg/delta/workingset_refault_file", unit = "pages" },
+  { name = "major_faults", json = "/cg/delta/pgmajfault" },
+  { name = "pagetables_peak", json = "/cg/peak/pagetables", unit = "B" },
+  { name = "kernel_peak", json = "/cg/peak/kernel", unit = "B" },
+  { name = "shmem_peak", json = "/cg/peak/shmem", unit = "B" },
+  { name = "anon_peak_sampled", json = "/cg/peak/anon", unit = "B" },
+]
+
+[[benchmark]]
+name = "leiden-friendster-inram"
+group = "leiden-cache"
+description = "the same algorithm in RAM (M1-02's reference: nothing spilled, warm), for the 1.5x criterion"
+dataset_path = "store-m113/friendster"
+cache = "warm"
+warmup = 1
+memory_limit = "48G"
+command = ["python3", "-I", "{probe}", "--", "{m102}", "leiden", "run", "--config", "comp", "--algo", "leiden", "--threads", "{threads}", "--store", "{dataset}", "--mem", "mmap", "--ooc", "--budget-gb", "40", "--spill", "{case_work}/spill"]
+conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "in RAM, sequential aggregation, buckets in RAM", storage = "compressed level 0 (mmap, pre-faulted, warm)", precision = "f64 weights (integer)", timing = "kernel only" }
+metric = [
+  { name = "seconds", json = "/tool/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/tool/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/tool/level0_refine_s", unit = "s" },
+  { name = "level0_aggregation", json = "/tool/level0_agg_s", unit = "s" },
+  { name = "modularity", json = "/tool/modularity" },
+]
+
+# --- cold point queries -----------------------------------------------------------------
+
+[[benchmark]]
+name = "pq-friendster-cold"
+group = "point-queries"
+description = "cold point queries (every query on an evicted map), MADV_NORMAL against MADV_RANDOM, with and without the frontier prefetch, interleaved"
+dataset_path = "csr/friendster"
+memory_limit = "8G"
+matrix = { pass = ["1", "2"], prefetch = ["0", "1"], variant = ["0", "1"] }
+command = ["python3", "-I", "{probe}", "--", "{pq}", "--graph", "{dataset}", "--name", "friendster", "--threads", "{threads}", "--warm", "0", "--cold", "1", "--prefetch", "{prefetch}", "--random", "{variant}", "--scale", "0.5"]
+conditions = { graph = "friendster", stage = "point queries, cold (evicted before each query), 1 thread; throughput batch at 16 threads", limit = "8G", load = "CSR mmap, private copy", advice = "random={variant} (1 = MADV_RANDOM)", prefetch = "{prefetch}", storage = "glab-csr-v0, uncompressed" }
+metric = [
+  { name = "neighbors_bytes", json = "/tool/cold/neighbors/avg_read_bytes", unit = "B" },
+  { name = "neighbors_p50", json = "/tool/cold/neighbors/p50_us", unit = "us" },
+  { name = "degree_bytes", json = "/tool/cold/degree/avg_read_bytes", unit = "B" },
+  { name = "common_bytes", json = "/tool/cold/common_neighbors/avg_read_bytes", unit = "B" },
+  { name = "two_hop_bytes", json = "/tool/cold/two_hop_size/avg_read_bytes", unit = "B" },
+  { name = "two_hop_p50", json = "/tool/cold/two_hop_size/p50_us", unit = "us" },
+  { name = "khop3_bytes", json = "/tool/cold/khop3_budget10k/avg_read_bytes", unit = "B" },
+  { name = "bibfs_bytes", json = "/tool/cold/bidir_bfs_path/avg_read_bytes", unit = "B" },
+  { name = "bibfs_p50", json = "/tool/cold/bidir_bfs_path/p50_us", unit = "us" },
+  { name = "tput_neighbors_bytes", json = "/tool/tput_cold/neighbors/read_bytes_per_query", unit = "B" },
+  { name = "tput_neighbors_qps", json = "/tool/tput_cold/neighbors/qps" },
+  { name = "tput_two_hop_qps", json = "/tool/tput_cold/two_hop_size/qps" },
+  { name = "tput_bibfs_qps", json = "/tool/tput_cold/bidir_bfs_path/qps" },
+]
