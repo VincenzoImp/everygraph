@@ -278,8 +278,8 @@ four lists are identical; `tools/check_portability_canary.py` checks that each s
 catches every entry. What no lint sees: growth through `push`, `extend`, `collect` and
 `clone`. Small vectors use those; a large one is a review finding, and what catches it
 is a counting global allocator in the kernel tests that asserts heap bytes ≤
-`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` join the
-rule once their first pull requests (#30, #32–#35) are in.
+`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` have
+code but not yet this `clippy.toml`; the M2 cleanup (#200) adds it.
 
 ## Integers
 

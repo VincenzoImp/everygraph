@@ -169,7 +169,10 @@ that cannot be read (`InvalidInput`).
 ### 2.7 Column statistics, recorded by the build
 
 For every numeric edge column (weight, time and any other) the build records, over the
-stored values (after `sum` where it applies), in the file's table of contents (#28, #39):
+stored values (after `sum` where it applies). The statistics of each column are a section
+of their own: a small fixed binary record, of a container kind that #37 assigns. They are
+not in the container's table of contents, which has no field for them
+(`docs/spec/eg-container.md` § 4).
 
 | Statistic | Type | Use |
 |---|---|---|
