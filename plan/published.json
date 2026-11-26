@@ -100,6 +100,8 @@
  "m3-25-memory-headroom": 264,
  "m3-26-benchmark-validity": 265,
  "m3-27-frontier-counters": 266,
+ "m3-28-ingest-first-pass": 290,
+ "m3-33-harness-iteration-level": 286,
  "m4-00-epic": 56,
  "m4-01-leiden-production": 57,
  "m4-02-weights-resolution": 58,

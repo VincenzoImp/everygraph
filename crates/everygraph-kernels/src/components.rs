@@ -71,7 +71,7 @@ pub const fn wcc_state_bytes(nodes: u32) -> u64 {
 /// (Patwary, Blair and Manne, SEA 2010; `ConnectIt`'s UF-Rem-CAS). Each parent only goes
 /// down, so a root is the smallest node of its tree.
 #[inline]
-fn unite<'g>(parent: &NodeCells<'g>, mut x: Node<'g>, mut y: Node<'g>) {
+pub(crate) fn unite<'g>(parent: &NodeCells<'g>, mut x: Node<'g>, mut y: Node<'g>) {
     loop {
         let (mut px, mut py) = (parent.load(x, Relaxed), parent.load(y, Relaxed));
         if px == py {
@@ -233,16 +233,32 @@ pub fn number(labels: &[AtomicU32], memory: &Memory) -> Result<Numbered, Error> 
     });
     // The roots in order, found in parallel; the numbering then reads only them.
     let is_root = |v: usize| label(v) == v;
-    let count: usize = par::map_ranges(n, GRAIN, |r| r.filter(|&v| is_root(v)).count())
-        .into_iter()
-        .sum();
-    let _roots = memory.reserve(
-        "component roots",
+    // The roots of each range of `GRAIN` nodes are counted, then written in place.
+    let ranges = n.div_ceil(GRAIN.get());
+    let _by_range = memory.reserve(
+        "component roots by range",
         MemoryKind::Anonymous,
-        (count * size_of::<usize>()) as u64,
+        (2 * ranges + 1) as u64 * size_of::<usize>() as u64,
     )?;
-    let roots: Vec<Vec<usize>> = par::map_ranges(n, GRAIN, |r| r.filter(|&v| is_root(v)).collect());
-    let roots = || roots.iter().flatten().copied();
+    let counts = par::map_ranges(n, GRAIN, |r| r.filter(|&v| is_root(v)).count());
+    let mut end = 0;
+    let offsets: Vec<usize> = (0..=ranges)
+        .map(|i| {
+            let at = end;
+            end += counts.get(i).copied().unwrap_or(0);
+            at
+        })
+        .collect();
+    let count = offsets[ranges];
+    let mut roots = SegVec::try_with_len(memory, "component roots", count, 0_usize)?;
+    roots.for_each_range_mut(&offsets, NonZeroUsize::MIN, |i, out| {
+        let first = i * GRAIN.get();
+        let nodes = (first..n.min(first + GRAIN.get())).filter(|&v| is_root(v));
+        for (slot, v) in out.iter_mut().zip(nodes) {
+            *slot = v;
+        }
+    })?;
+    let roots = || roots.iter().copied();
     // Rank by decreasing size, then by root: the components of size `s` start after all
     // larger ones, and take their numbers in root order.
     let size_of = |v: usize| ix(size[v].load(Relaxed).into());

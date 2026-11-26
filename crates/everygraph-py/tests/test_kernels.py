@@ -191,6 +191,12 @@ def test_a_directed_graph_matches_networkx_through_its_in_edges(tmp_path, name, 
     ]:
         assert by_node(t, column) == want, column
     assert g.top("in_degree", 1).num_rows == 1
+    strong = g.components(strong=True, progress=False)
+    order = {v: i for i, v in enumerate(pa.table(strong)["node"].to_pylist())}
+    parts = sorted(nx.strongly_connected_components(simple), key=lambda c: (-len(c), min(order[v] for v in c)))
+    got = by_node(strong, "component")
+    assert [{got[v] for v in part} for part in parts] == [{number} for number in range(len(parts))]
+    assert strong.meta["components"] == len(parts)
 
 
 def test_an_empty_graph_gives_typed_empty_tables(tmp_path):
@@ -262,6 +268,8 @@ def test_components_match_networkx_and_are_numbered_by_size(small):
     assert sizes.column_names == ["component", "nodes"]
     assert sizes["nodes"].to_pylist() == [len(p) for p in parts]
     assert wcc.meta["components"] == len(parts)
+    with pytest.raises(eg.Unsupported):
+        g.components(strong=True, progress=False)
 
 
 def test_components_of_a_directed_graph_are_weak(tmp_path):

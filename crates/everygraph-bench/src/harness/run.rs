@@ -11,8 +11,10 @@
 //! 4. Official runs: the idle gate (load, `MemAvailable`).
 //! 5. Check that `systemd-run --user --scope` works (and `fincore`, for cold cases).
 //! 6. Preparation steps, then the private copies of cold cases.
-//! 7. Each case: warm-up runs, then each repetition: clean work directory, eviction
-//!    (cold), settle window, eviction check, the command under
+//! 7. The repetitions in the order of [`schedule`]: each case's repetitions back to back,
+//!    or interleaved in seeded rounds. A case's warm-up runs come just before its first
+//!    repetition. Each repetition: clean work directory, eviction (cold), settle window,
+//!    eviction check, the command under
 //!    `systemd-run --scope -p MemoryMax=… -p MemorySwapMax=0 everygraph-bench measure …`,
 //!    a settle window after short runs, metrics, one row appended to the results file.
 
@@ -81,6 +83,69 @@ pub struct RunOptions {
     pub out: Option<PathBuf>,
     /// The official lock file.
     pub lock_path: PathBuf,
+    /// Run interleaved with this seed ([`schedule`]).
+    pub interleave: Option<u64>,
+}
+
+/// One measured repetition in the order of a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Slot {
+    /// Index of the case.
+    pub case: usize,
+    /// 1-based repetition of the case.
+    pub repetition: u32,
+    /// 1-based round, for an interleaved run.
+    pub round: Option<u32>,
+    /// 1-based place in the round, for an interleaved run.
+    pub position: Option<u32>,
+}
+
+/// The order of the measured repetitions of cases with `reps[i]` repetitions each.
+///
+/// Without a seed, each case's repetitions run back to back, the cases in order. With
+/// one, the run goes in rounds (randomized multiple interleaved trials: Abedi and
+/// Brecht, ICPE'17): round `r` runs once every case with at least `r` repetitions. Odd
+/// rounds take a new seeded random order; each even round reverses the round before it,
+/// so that two cases A and B run A B B A or B A A B and drift over time weighs on both
+/// alike.
+#[must_use]
+pub fn schedule(reps: &[u32], seed: Option<u64>) -> Vec<Slot> {
+    let Some(seed) = seed else {
+        return reps
+            .iter()
+            .enumerate()
+            .flat_map(|(case, &n)| {
+                (1..=n).map(move |repetition| Slot {
+                    case,
+                    repetition,
+                    round: None,
+                    position: None,
+                })
+            })
+            .collect();
+    };
+    let mut rng = super::stats::Rng::new(seed);
+    let rounds = reps.iter().copied().max().unwrap_or(0);
+    let mut order: Vec<usize> = Vec::new();
+    let mut out = Vec::new();
+    for round in 1..=rounds {
+        if round % 2 == 1 {
+            order = (0..reps.len()).filter(|&c| reps[c] >= round).collect();
+            rng.shuffle(&mut order);
+        } else {
+            order.reverse();
+            order.retain(|&c| reps[c] >= round);
+        }
+        for (i, &case) in order.iter().enumerate() {
+            out.push(Slot {
+                case,
+                repetition: round,
+                round: Some(round),
+                position: u32::try_from(i + 1).ok(),
+            });
+        }
+    }
+    out
 }
 
 /// How a run ended.
@@ -554,6 +619,9 @@ impl Runner<'_> {
             repetition,
             repetitions,
             warmup: None,
+            seed: self.opts.interleave,
+            round: None,
+            position: None,
             status: Status::Ok,
             error: None,
             started_at: rfc3339(unix_now()),
@@ -981,6 +1049,9 @@ impl Runner<'_> {
             "[{n}/{total}] {} rep {}/{}",
             row.case, row.repetition, row.repetitions
         );
+        if let (Some(r), Some(p)) = (row.round, row.position) {
+            line.push_str(&format!(" (round {r}, place {p})"));
+        }
         if let Some(v) = row.metric(&row.primary) {
             line.push_str(&format!(
                 "  {} {}",
@@ -1131,6 +1202,22 @@ pub fn run(
         }
     }
     let active: Vec<&&Case> = cases.iter().filter(|c| c.unavailable.is_none()).collect();
+    if opts.interleave.is_some() {
+        if spec.interleave == Some(false) {
+            return Err(RunError::Refused(format!(
+                "spec {} sets interleave = false: its cases must run one after another",
+                spec.name
+            )));
+        }
+        if spec.interleave != Some(true) && active.iter().any(|c| c.cache == CacheMode::Cold) {
+            return Err(RunError::Refused(format!(
+                "spec {} has cold-cache cases; interleaving changes which copy and drive \
+                 state each repetition starts from, so the spec must opt in with \
+                 interleave = true",
+                spec.name
+            )));
+        }
+    }
     std::fs::create_dir_all(&ctx.work)
         .map_err(|e| format!("creating the work directory {}: {e}", ctx.work.display()))?;
     refuse_memory_backed(
@@ -1191,7 +1278,7 @@ pub fn run(
     };
     say!(
         runner.log,
-        "{} run {} of {}: {} cases; machine: {}",
+        "{} run {} of {}: {} cases{}; machine: {}",
         if opts.official {
             "official"
         } else {
@@ -1200,6 +1287,8 @@ pub fn run(
         runner.run_id,
         spec.name,
         cases.len(),
+        opts.interleave
+            .map_or_else(String::new, |s| format!(", interleaved (seed {s})")),
         runner.machine.summary()
     );
     if !opts.skip_prepare {
@@ -1268,51 +1357,65 @@ pub fn run(
         .sum();
     let total = total as usize;
     let mut n = 0;
-    for case in &cases {
-        let reps = opts.repetitions.unwrap_or(case.repetitions);
-        if let Some(reason) = &case.unavailable {
-            let mut row = runner.base_row(case, 0, reps);
-            row.status = Status::Unavailable;
-            row.error = Some(reason.clone());
-            writer.write(&row)?;
-            n += 1;
-            outcome.rows += 1;
-            outcome.unavailable += 1;
-            say!(
-                runner.log,
-                "[{n}/{total}] {}: unavailable: {reason}",
-                case.id
-            );
+    for case in cases.iter().filter(|c| c.unavailable.is_some()) {
+        let reason = case.unavailable.as_deref().unwrap_or_default();
+        let mut row = runner.base_row(case, 0, opts.repetitions.unwrap_or(case.repetitions));
+        row.status = Status::Unavailable;
+        row.error = Some(reason.to_string());
+        writer.write(&row)?;
+        n += 1;
+        outcome.rows += 1;
+        outcome.unavailable += 1;
+        say!(
+            runner.log,
+            "[{n}/{total}] {}: unavailable: {reason}",
+            case.id
+        );
+    }
+    let reps: Vec<u32> = active
+        .iter()
+        .map(|c| opts.repetitions.unwrap_or(c.repetitions))
+        .collect();
+    // Warm-ups run just before a case's first measured repetition; a case whose warm-up
+    // fails leaves the later rounds.
+    let (mut warmed, mut dropped) = (vec![false; active.len()], vec![false; active.len()]);
+    for slot in schedule(&reps, opts.interleave) {
+        let (case, reps) = (active[slot.case], reps[slot.case]);
+        if dropped[slot.case] {
             continue;
         }
         let source = sources.get(&case.id).map(PathBuf::as_path);
-        if let Some(row) = runner.warmups(case, source, reps)? {
-            writer.write(&row)?;
-            n += reps as usize;
-            outcome.rows += 1;
-            outcome.failed += 1;
-            say!(
-                runner.log,
-                "[{n}/{total}] {}: {}",
-                case.id,
-                row.error.as_deref().unwrap_or("")
-            );
-            continue;
-        }
-        for rep in 1..=reps {
-            let row = runner.repetition(case, source, rep, reps)?;
-            writer.write(&row)?;
-            n += 1;
-            outcome.rows += 1;
-            if row.status != Status::Ok {
+        if !warmed[slot.case] {
+            warmed[slot.case] = true;
+            if let Some(mut row) = runner.warmups(case, source, reps)? {
+                row.round = slot.round;
+                writer.write(&row)?;
+                dropped[slot.case] = true;
+                n += reps as usize;
+                outcome.rows += 1;
                 outcome.failed += 1;
+                say!(
+                    runner.log,
+                    "[{n}/{total}] {}: {}",
+                    case.id,
+                    row.error.as_deref().unwrap_or("")
+                );
+                continue;
             }
-            if row.disturbance.disturbed {
-                outcome.disturbed += 1;
-                disturbed.push(format!("{} rep {}", row.case, row.repetition));
-            }
-            runner.progress(n, total, &row);
         }
+        let mut row = runner.repetition(case, source, slot.repetition, reps)?;
+        (row.round, row.position) = (slot.round, slot.position);
+        writer.write(&row)?;
+        n += 1;
+        outcome.rows += 1;
+        if row.status != Status::Ok {
+            outcome.failed += 1;
+        }
+        if row.disturbance.disturbed {
+            outcome.disturbed += 1;
+            disturbed.push(format!("{} rep {}", row.case, row.repetition));
+        }
+        runner.progress(n, total, &row);
     }
     say!(
         runner.log,

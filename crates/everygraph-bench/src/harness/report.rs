@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use super::extract::median;
 use super::row::{Row, Status};
 use super::spec::{BUILTIN_METRICS, PLAN_QUANTITIES};
+use super::stats::{self, CONFIDENCE, Interval};
 use super::units::human_size;
 
 /// A value with its unit, for people: seconds to three or four digits, bytes in
@@ -62,6 +63,8 @@ pub struct Stats {
     pub min: f64,
     /// Largest.
     pub max: f64,
+    /// The rank interval of the median ([`stats::median_interval`]).
+    pub interval: Interval,
     /// The values, in row order.
     pub values: Vec<f64>,
 }
@@ -70,28 +73,45 @@ impl Stats {
     /// `None` for no values.
     #[must_use]
     pub fn of(values: Vec<f64>) -> Option<Self> {
-        if values.is_empty() {
-            return None;
-        }
+        let interval = stats::median_interval(&values, CONFIDENCE)?;
         Some(Self {
             median: median(&values),
             min: values.iter().copied().fold(f64::INFINITY, f64::min),
             max: values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            interval,
             values,
         })
     }
 
-    fn cell(&self, unit: Option<&str>) -> String {
+    /// `median [low, high]`; the confidence follows when it is not the case's own (a
+    /// metric that some rows lack).
+    fn cell(&self, unit: Option<&str>, counted: usize) -> String {
         if self.values.len() == 1 {
-            format_value(self.median, unit)
-        } else {
-            format!(
-                "{} ({}–{})",
-                format_value(self.median, unit),
-                format_value(self.min, unit),
-                format_value(self.max, unit)
-            )
+            return format_value(self.median, unit);
         }
+        let mut cell = format!(
+            "{} [{}, {}]",
+            format_value(self.median, unit),
+            format_value(self.interval.low, unit),
+            format_value(self.interval.high, unit)
+        );
+        if self.values.len() != counted {
+            let _ = write!(cell, " {:.1}%", self.interval.confidence * 100.0);
+        }
+        cell
+    }
+}
+
+/// The confidence of the median intervals of `n` values, for people.
+fn confidence_label(n: usize) -> String {
+    if n < 2 {
+        return "–".into();
+    }
+    let c = stats::interval_confidence(n, CONFIDENCE);
+    if c >= CONFIDENCE {
+        format!("{:.1}%", c * 100.0)
+    } else {
+        format!("{:.1}%, no 95% interval", c * 100.0)
     }
 }
 
@@ -103,7 +123,9 @@ pub struct CaseRows<'a> {
 }
 
 impl<'a> CaseRows<'a> {
-    fn first(&self) -> &'a Row {
+    /// The first row.
+    #[must_use]
+    pub fn first(&self) -> &'a Row {
         self.rows[0]
     }
 
@@ -143,7 +165,9 @@ impl<'a> CaseRows<'a> {
             .join(", ")
     }
 
-    fn conditions(&self) -> String {
+    /// The conditions, for people.
+    #[must_use]
+    pub fn conditions(&self) -> String {
         let r = self.first();
         let mut parts: Vec<String> = r
             .conditions
@@ -172,11 +196,14 @@ pub struct RunRows<'a> {
 }
 
 impl<'a> RunRows<'a> {
-    fn any(&self) -> &'a Row {
+    /// Any row of the run.
+    #[must_use]
+    pub fn any(&self) -> &'a Row {
         self.groups[0].1[0].first()
     }
 
-    fn cases(&self) -> impl Iterator<Item = &CaseRows<'a>> {
+    /// The cases, in order.
+    pub fn cases(&self) -> impl Iterator<Item = &CaseRows<'a>> {
         self.groups.iter().flat_map(|(_, c)| c.iter())
     }
 }
@@ -395,7 +422,7 @@ pub fn use_spec_references(rows: &mut [Row], spec: &super::spec::Spec) -> usize 
     changed
 }
 
-fn run_header(out: &mut String, run: &RunRows<'_>) {
+fn run_header(out: &mut String, run: &RunRows<'_>, target: f64) {
     let r = run.any();
     let rows: usize = run.cases().map(|c| c.rows.len()).sum();
     let disturbed: usize = run
@@ -425,18 +452,30 @@ fn run_header(out: &mut String, run: &RunRows<'_>) {
         },
         &r.spec_sha256[..r.spec_sha256.len().min(12)]
     );
+    if let Some(seed) = r.seed {
+        let _ = writeln!(
+            out,
+            "- Interleaved: rounds over the cases in a seeded random order, reversed in every second round (seed {seed}); `round` and `position` are in every row."
+        );
+    }
     let _ = writeln!(
         out,
-        "- {rows} rows; {disturbed} disturbed (excluded). Cells: median (min–max) over the counted repetitions.\n"
+        "- {rows} rows; {disturbed} disturbed (excluded). Cells: median [low, high] over the counted repetitions, an exact rank interval of the median (Le Boudec 2010, Th. 2.1; Hoefler and Belli, SC'15) whose confidence is the `confidence` column; it is 95% or more from 6 counted repetitions. `n for ±{:.0}%`: estimated repetitions for a 95% interval within ±{:.0}% of the median of the primary metric (normal approximation, spread from the median absolute deviation).\n",
+        target * 100.0,
+        target * 100.0
     );
 }
 
-/// The markdown report of `rows` (one or more runs).
+/// The default relative half-width of the interval `n for ±x%` aims at.
+pub const TARGET_HALF_WIDTH: f64 = 0.02;
+
+/// The markdown report of `rows` (one or more runs); `target` is the relative
+/// half-width the "repetitions needed" column aims at.
 #[must_use]
-pub fn markdown(rows: &[Row]) -> String {
+pub fn markdown(rows: &[Row], target: f64) -> String {
     let mut out = String::new();
     for run in group(rows) {
-        run_header(&mut out, &run);
+        run_header(&mut out, &run, target);
         let mut unavailable = Vec::new();
         for (name, cases) in &run.groups {
             let measured: Vec<CaseRows<'_>> = cases
@@ -463,11 +502,13 @@ pub fn markdown(rows: &[Row]) -> String {
                 "memory limit",
                 "cache",
                 "n",
+                "confidence",
                 "excluded",
             ]
             .into_iter()
             .map(String::from)
             .collect::<Vec<_>>();
+            header.push(format!("n for ±{:.0}%", target * 100.0));
             // Cells carry their units.
             header.extend(cols.iter().cloned());
             if has_refs {
@@ -477,20 +518,25 @@ pub fn markdown(rows: &[Row]) -> String {
             let _ = writeln!(out, "|{}", "---|".repeat(header.len()));
             for c in &measured {
                 let r = c.first();
+                let counted = c.counted().len();
                 let mut cells = vec![
                     format!("`{}`", r.case),
                     c.conditions(),
                     r.threads.to_string(),
                     human_size(r.memory_limit_bytes),
                     format!("{:?}", r.cache.mode).to_lowercase(),
-                    format!("{} of {}", c.counted().len(), c.rows.len()),
+                    format!("{counted} of {}", c.rows.len()),
+                    confidence_label(counted),
                     c.excluded(),
+                    c.stats(&r.primary)
+                        .and_then(|s| stats::repetitions_for(&s.values, target))
+                        .map_or_else(|| "–".into(), |n| n.to_string()),
                 ];
                 for m in &cols {
                     let unit = unit_of(&measured, m);
                     cells.push(
                         c.stats(m)
-                            .map_or_else(|| "–".into(), |s| s.cell(unit.as_deref())),
+                            .map_or_else(|| "–".into(), |s| s.cell(unit.as_deref(), counted)),
                     );
                 }
                 if has_refs {
@@ -625,9 +671,10 @@ fn coverage_section(out: &mut String, run: &RunRows<'_>) {
     );
 }
 
-/// Chart-ready JSON: one series per case and metric, with its conditions and values.
+/// Chart-ready JSON: one series per case and metric, with its conditions, values and
+/// median interval.
 #[must_use]
-pub fn chart_json(rows: &[Row]) -> Value {
+pub fn chart_json(rows: &[Row], target: f64) -> Value {
     let mut runs = Vec::new();
     let mut series = Vec::new();
     for run in group(rows) {
@@ -670,6 +717,11 @@ pub fn chart_json(rows: &[Row]) -> Value {
                         "rows": c.rows.len(),
                         "disturbed": c.rows.iter().filter(|r| r.disturbance.disturbed).count(),
                         "median": s.median,
+                        "interval_low": s.interval.low,
+                        "interval_high": s.interval.high,
+                        "confidence": s.interval.confidence,
+                        "repetitions_for_target": stats::repetitions_for(&s.values, target),
+                        "target_half_width": target,
                         "min": s.min,
                         "max": s.max,
                         "values": s.values,
@@ -679,112 +731,6 @@ pub fn chart_json(rows: &[Row]) -> Value {
         }
     }
     json!({ "schema": 1, "runs": runs, "series": series })
-}
-
-/// Compares the primary metric of every case across runs, against the first run:
-/// the markdown table and whether every difference is within `max_diff`.
-#[must_use]
-pub fn compare(rows: &[Row], max_diff: f64) -> (String, bool) {
-    let runs = group(rows);
-    let mut out = String::new();
-    if runs.len() < 2 {
-        return ("compare needs rows of at least two runs\n".into(), false);
-    }
-    let first = runs[0].any();
-    for run in &runs {
-        let r = run.any();
-        let problem = if !r.official {
-            Some("is exploratory: only official runs are compared".to_string())
-        } else if r.spec_sha256 != first.spec_sha256 {
-            Some(format!(
-                "ran another version of the spec (SHA-256 {} against {})",
-                &r.spec_sha256[..12],
-                &first.spec_sha256[..12]
-            ))
-        } else if r.machine.id != first.machine.id {
-            Some(format!(
-                "ran on another machine ({} against {})",
-                r.machine.id, first.machine.id
-            ))
-        } else {
-            None
-        };
-        if let Some(p) = problem {
-            return (format!("not comparable: run {} {p}\n", run.run_id), false);
-        }
-    }
-    let ids: Vec<&str> = runs.iter().map(|r| r.run_id.as_str()).collect();
-    let _ = writeln!(out, "## Run-to-run comparison against {}\n", ids[0]);
-    let _ = writeln!(
-        out,
-        "Primary metric, median of the counted repetitions; difference relative to the first run; limit {:.0}%.\n",
-        max_diff * 100.0
-    );
-    let mut header = vec![
-        "case".to_string(),
-        "conditions".into(),
-        "threads".into(),
-        "metric".into(),
-    ];
-    header.extend(ids.iter().map(|i| format!("`{i}`")));
-    header.push("largest difference".into());
-    let _ = writeln!(out, "| {} |", header.join(" | "));
-    let _ = writeln!(out, "|{}", "---|".repeat(header.len()));
-    let (mut within, mut total) = (0, 0);
-    for base in runs[0].cases() {
-        let f = base.first();
-        if f.status == Status::Unavailable {
-            continue;
-        }
-        let unit = f.unit(&f.primary);
-        // At least two counted repetitions in every run, or the median says little.
-        let medians: Vec<Option<f64>> = runs
-            .iter()
-            .map(|run| {
-                run.cases()
-                    .find(|c| c.first().case == f.case)
-                    .and_then(|c| c.stats(&f.primary))
-                    .filter(|s| s.values.len() >= 2)
-                    .map(|s| s.median)
-            })
-            .collect();
-        let mut cells = vec![
-            format!("`{}`", f.case),
-            base.conditions(),
-            f.threads.to_string(),
-            f.primary.clone(),
-        ];
-        cells.extend(
-            medians
-                .iter()
-                .map(|m| m.map_or_else(|| "–".into(), |v| format_value(v, unit))),
-        );
-        let diff = match medians[0] {
-            Some(b) if b != 0.0 => medians[1..]
-                .iter()
-                .map(|m| m.map(|v| (v - b) / b))
-                .collect::<Option<Vec<f64>>>(),
-            _ => None,
-        };
-        total += 1;
-        cells.push(
-            match diff.and_then(|d| d.into_iter().max_by(|a, b| a.abs().total_cmp(&b.abs()))) {
-                Some(d) => {
-                    let ok = d.abs() < max_diff;
-                    within += usize::from(ok);
-                    format!("{:+.1}%{}", d * 100.0, if ok { "" } else { " OVER" })
-                }
-                None => "not comparable (fewer than 2 counted repetitions)".into(),
-            },
-        );
-        let _ = writeln!(out, "| {} |", cells.join(" | "));
-    }
-    let _ = writeln!(
-        out,
-        "\n{within} of {total} cases within {:.0}%.",
-        max_diff * 100.0
-    );
-    (out, within == total && total > 0)
 }
 
 #[cfg(test)]
@@ -814,21 +760,28 @@ mod tests {
             tolerance: 0.10,
             source: "FINDINGS".into(),
         });
-        let md = markdown(&rows);
+        let md = markdown(&rows, 0.02);
         assert!(md.contains("**Official run**"), "{md}");
-        assert!(md.contains("| `pr32` | graph orkut, precision f32 | 32 | 8.0 GiB | warm | 3 of 5 | 1 disturbed, 1 oom |"), "{md}");
-        assert!(md.contains("0.390 s (0.380 s–0.400 s)"), "{md}");
+        // 3 counted: [min, max] is a 75% interval (1 - 2 / 2^3); 22 repetitions for ±2%.
+        assert!(md.contains("| `pr32` | graph orkut, precision f32 | 32 | 8.0 GiB | warm | 3 of 5 | 75.0%, no 95% interval | 1 disturbed, 1 oom | 22 |"), "{md}");
+        assert!(md.contains("0.390 s [0.380 s, 0.400 s]"), "{md}");
         assert!(md.contains("0.380 s (FINDINGS): +2.6%, within 10%"), "{md}");
         assert!(md.contains("1 disturbed (excluded)"), "{md}");
         assert!(md.contains("`pr32` rep 5: oom: the OOM killer"), "{md}");
 
-        let chart = chart_json(&rows);
+        let chart = chart_json(&rows, 0.02);
         let s = &chart["series"][0];
         assert_eq!(s["metric"], "seconds");
         assert_eq!(s["n"], 3);
         assert_eq!(s["rows"], 5);
         assert_eq!(s["disturbed"], 1);
         assert_eq!(s["median"], 0.39);
+        assert_eq!(
+            (s["interval_low"].as_f64(), s["interval_high"].as_f64()),
+            (Some(0.38), Some(0.40))
+        );
+        assert_eq!(s["confidence"], 0.75);
+        assert_eq!(s["repetitions_for_target"], 22);
         assert_eq!(s["conditions"]["graph"], "orkut");
         assert_eq!(s["threads"], 32);
         assert_eq!(s["memory_limit_bytes"], 8u64 << 30);
@@ -843,7 +796,7 @@ mod tests {
         skipped.error = Some("needs duckdb 1.3".into());
         skipped.group = "engines".into();
         rows.push(skipped);
-        let md = markdown(&rows);
+        let md = markdown(&rows, 0.02);
         assert!(md.contains("**Exploratory run**"));
         assert!(
             md.contains("### Not run\n\n- `duckpgq`: needs duckdb 1.3"),
@@ -917,7 +870,7 @@ mod tests {
         assert_eq!(get("seconds").2, 1);
         // output_bytes: all 4 count; inside: 10.5 and 9.0; the zero actual is a miss.
         assert_eq!((get("output_bytes").1, get("output_bytes").2), (4, 2));
-        let md = markdown(&rows);
+        let md = markdown(&rows, 0.02);
         assert!(md.contains("| seconds | 3 | 1 | 33% |"), "{md}");
         assert!(md.contains("| output_bytes | 4 | 2 | 50% |"), "{md}");
 
@@ -929,6 +882,17 @@ mod tests {
         assert!(coverage(&runs[0]).iter().all(|c| c.0 != "seconds"));
     }
 
+    fn cmp(rows: &[Row], max_diff: f64) -> (String, bool) {
+        let c = crate::harness::compare::compare(
+            rows,
+            &crate::harness::compare::CompareOptions {
+                max_diff,
+                ..Default::default()
+            },
+        );
+        (c.text, c.passed)
+    }
+
     #[test]
     fn two_runs_are_compared_on_the_primary_metric() {
         let a = run_of(&[1.00, 1.02, 0.98]);
@@ -937,13 +901,16 @@ mod tests {
             r.run_id = "20261126T000000Z-5e4aad8d2f1c".into();
         }
         let rows: Vec<Row> = a.into_iter().chain(b).collect();
-        let (md, ok) = compare(&rows, 0.05);
+        let (md, ok) = cmp(&rows, 0.08);
         assert!(ok, "{md}");
-        assert!(md.contains("+3.0%"), "{md}");
-        let (md, ok) = compare(&rows, 0.02);
+        assert!(
+            md.contains("| 1.030 [1.000, 1.061] | 8.0% | within |"),
+            "{md}"
+        );
+        let (md, ok) = cmp(&rows, 0.02);
         assert!(!ok);
         assert!(
-            md.contains("OVER") && md.contains("0 of 1 cases within 2%"),
+            md.contains("OUTSIDE") && md.contains("0 of 1 comparisons within their"),
             "{md}"
         );
     }
@@ -987,7 +954,7 @@ mod tests {
             }
         );
         assert!(!v.passed());
-        let md = markdown(&rows);
+        let md = markdown(&rows, 0.02);
         assert!(
             md.contains("**References: 1 within, 1 off, 1 unchecked.**"),
             "{md}"
@@ -1011,28 +978,28 @@ mod tests {
             .cloned()
             .chain(second(run_of(&[1.01, 1.0])))
             .collect();
-        assert!(compare(&ok, 0.05).1);
+        assert!(cmp(&ok, 0.05).1);
 
         let mut b = second(run_of(&[1.0, 1.0]));
         b.iter_mut().for_each(|r| r.official = false);
-        let (md, pass) = compare(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
+        let (md, pass) = cmp(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
         assert!(!pass && md.contains("exploratory"), "{md}");
 
         let mut b = second(run_of(&[1.0, 1.0]));
         b.iter_mut().for_each(|r| r.spec_sha256 = "f".repeat(64));
-        let (md, pass) = compare(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
+        let (md, pass) = cmp(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
         assert!(!pass && md.contains("another version of the spec"), "{md}");
 
         let mut b = second(run_of(&[1.0, 1.0]));
         b.iter_mut()
             .for_each(|r| r.machine.id = "ffffffffffffffff".into());
-        let (md, pass) = compare(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
+        let (md, pass) = cmp(&a.iter().cloned().chain(b).collect::<Vec<_>>(), 0.05);
         assert!(!pass && md.contains("another machine"), "{md}");
 
         // One counted repetition is not enough.
         let mut b = second(run_of(&[1.0, 1.0]));
         b[1].status = Status::Failed;
-        let (md, pass) = compare(&a.into_iter().chain(b).collect::<Vec<_>>(), 0.05);
+        let (md, pass) = cmp(&a.into_iter().chain(b).collect::<Vec<_>>(), 0.05);
         assert!(!pass && md.contains("fewer than 2 counted"), "{md}");
     }
 
