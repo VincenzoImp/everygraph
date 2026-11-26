@@ -55,7 +55,6 @@ Options
   --json                print the result document, with nothing around it
   --progress plain      progress as one line per finished phase, never redrawn
   -h, --help            this text
-  Short forms: -o for --out, -m for --memory, -t for --threads.
 
 Options of pagerank
   --damping X           the probability of following an edge (default: 0.85)
@@ -67,6 +66,8 @@ Options of bfs
   --max-hops N          stop at this distance
   --direction out|in|both
                         the edges followed on a directed graph (default: out)
+
+Short forms: -o for --out, -m for --memory, -t for --threads.
 ";
 
 /// What was asked.

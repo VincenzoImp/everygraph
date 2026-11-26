@@ -11,9 +11,8 @@
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use everygraph_core::{Budget, InsufficientBudget, Memory, MemoryProbe, ReadError};
+use everygraph_core::{InsufficientBudget, Memory, MemoryProbe, ReadError};
 use everygraph_format::container::Container;
 use everygraph_format::verify::{Depth, Problem, Report, verify};
 use everygraph_ingest::ids::{Dictionary, DictionaryError};
@@ -21,6 +20,7 @@ use everygraph_io::{MmapSource, ProcMemoryProbe};
 use serde_json::{Value, json};
 
 use crate::failure::{self, Failure};
+use crate::machine;
 use crate::render::{Style, count, printable, wrap};
 
 const HELP: &str = "\
@@ -73,11 +73,11 @@ fn run(path: &Path, options: &Args) -> u8 {
     let free = ProcMemoryProbe::new()
         .probe()
         .map_or(u64::MAX, |m| m.available() / 2);
-    let budget = Arc::new(Budget::new(free));
+    let memory = machine::memory(free);
     let outcome = if path.is_dir() {
         Err(Stop::Io("it is a directory".to_owned()))
     } else {
-        check(path, options, &budget)
+        check(path, options, &memory)
     };
     let report = match outcome {
         Ok(report) => report,
@@ -96,7 +96,7 @@ fn run(path: &Path, options: &Args) -> u8 {
             .report(options.json);
         }
         Err(Stop::Memory(e)) => {
-            return failure::memory("check", budget.limit(), None, &e)
+            return failure::memory("check", free, None, &e)
                 .on_existing_file()
                 .report(options.json);
         }
@@ -128,7 +128,7 @@ fn run(path: &Path, options: &Args) -> u8 {
     }
 }
 
-fn check(path: &Path, options: &Args, budget: &Arc<Budget>) -> Result<Report, Stop> {
+fn check(path: &Path, options: &Args, memory: &Memory) -> Result<Report, Stop> {
     let io = |e: &dyn std::fmt::Display| {
         let text = e.to_string();
         Stop::Io(text.split(" (os error").next().unwrap_or(&text).to_owned())
@@ -139,17 +139,16 @@ fn check(path: &Path, options: &Args, budget: &Arc<Budget>) -> Result<Report, St
     } else {
         Depth::Fast
     };
-    let memory = Memory::from(Arc::clone(budget));
-    let mut report = verify(&source, depth, &memory).map_err(|e| io(&e))?;
+    let mut report = verify(&source, depth, memory).map_err(|e| io(&e))?;
     if options.deep {
-        check_dictionary(&source, budget, &mut report)?;
+        check_dictionary(&source, memory, &mut report)?;
     }
     Ok(report)
 }
 
 /// The identifier dictionary, when the file has one whose sections are undamaged: ids
 /// and keys a bijection, one key per node of every adjacency.
-fn check_dictionary(source: &MmapSource, budget: &Budget, report: &mut Report) -> Result<(), Stop> {
+fn check_dictionary(source: &MmapSource, memory: &Memory, report: &mut Report) -> Result<(), Stop> {
     let Ok(file) = Container::open(source) else {
         return Ok(());
     };
@@ -174,7 +173,7 @@ fn check_dictionary(source: &MmapSource, budget: &Budget, report: &mut Report) -
             Ok(())
         }
     };
-    let dictionary = match Dictionary::open(budget, |name| file.section(name).ok()) {
+    let dictionary = match Dictionary::open(memory.accountant(), |name| file.section(name).ok()) {
         Ok(d) => d,
         Err(e) => return damaged(report, e),
     };

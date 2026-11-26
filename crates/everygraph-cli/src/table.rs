@@ -392,7 +392,7 @@ pub(crate) fn write(
 ///
 /// # Errors
 ///
-/// As [`write`]; `CorruptFile` when an identifier cannot be read.
+/// As [`write()`]; `CorruptFile` when an identifier cannot be read.
 pub(crate) fn write_result<S: ByteSource>(
     path: &Path,
     graph: &Path,
