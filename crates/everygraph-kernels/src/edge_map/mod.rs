@@ -1287,26 +1287,20 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                 }
             };
             let _held = self.hold::<Option<(A, Work)>>(runs.len())?;
-            let mut results = mode.map_ranges(runs.len(), NonZeroUsize::MIN, |r| {
-                let t = &runs[r.start];
-                if long(t) {
-                    None
-                } else {
-                    keep(run(&frontier[t.clone()]))
-                }
-            });
+            let mut results: Vec<Option<(A, Work)>> = (0..runs.len()).map(|_| None).collect();
             let hubs: Vec<usize> = (0..runs.len()).filter(|&i| long(&runs[i])).collect();
-            // The long lists, a wave at a time: copied out, then all their parts in
-            // parallel. A wave holds no more entries than the longest of them, or
-            // `WAVE`, so the copies stay within one reader's longest buffer.
+            // The long lists, a wave at a time: copied out, then their parts in parallel,
+            // those of the first wave with the other runs. A wave holds no more entries
+            // than the longest of them, or `WAVE`, so the copies stay within one
+            // reader's longest buffer.
             let most = hubs
                 .iter()
                 .map(|&h| degree(runs[h].start))
                 .max()
-                .unwrap_or(0);
-            let most = most.max(WAVE);
-            let mut at = 0;
-            while at < hubs.len() {
+                .unwrap_or(0)
+                .max(WAVE);
+            let (mut at, mut first) = (0, true);
+            while first || at < hubs.len() {
                 let (mut end, mut entries) = (at, 0);
                 while end < hubs.len()
                     && (end == at || entries + degree(runs[hubs[end]].start) <= most)
@@ -1321,14 +1315,12 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                 for h in 0..wave.len() {
                     ends.push(ends[h] + ix(self.source.degree(hub(h)).into()));
                 }
-                // SAFETY: a node of the frontier, to fill the buffer before the copies.
-                let any = unsafe { Node::new_unchecked(hub(0)) };
-                let mut buffer = SegVec::try_with_len(
-                    &self.memory,
-                    "edge-map long lists",
-                    ends[wave.len()],
-                    any,
-                )?;
+                let mut buffer = SegVec::new(&self.memory, "edge-map long lists");
+                if let Some(&v) = wave.first() {
+                    // SAFETY: a node of the frontier, to fill the buffer before the copies.
+                    let any = unsafe { Node::new_unchecked(frontier[runs[v].start]) };
+                    buffer.try_resize(ends[wave.len()], any)?;
+                }
                 par::for_each_range_mut(
                     one_segment_mut(&mut buffer)?,
                     &ends,
@@ -1366,12 +1358,20 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                             .map(move |s| (h, s..(s + RUN_ENTRIES).min(list.len())))
                     })
                     .collect();
-                let _parts = self.hold::<Option<(A, Work)>>(pieces.len())?;
-                let done = mode.map_ranges(pieces.len(), NonZeroUsize::MIN, |r| {
-                    let (h, range) = &pieces[r.start];
+                let others = if first { runs.len() } else { 0 };
+                let _parts = self.hold::<Option<(A, Work)>>(others + pieces.len())?;
+                let done = mode.map_ranges(others + pieces.len(), NonZeroUsize::MIN, |r| {
+                    let Some((h, range)) = r.start.checked_sub(others).map(|p| &pieces[p]) else {
+                        let t = &runs[r.start];
+                        return if long(t) {
+                            None
+                        } else {
+                            keep(run(&frontier[t.clone()]))
+                        };
+                    };
                     let (first_entry, list) = &copies[*h];
                     // SAFETY: a node of the frontier.
-                    let node = unsafe { Node::new_unchecked(frontier[runs[wave[*h]].start]) };
+                    let node = unsafe { Node::new_unchecked(hub(*h)) };
                     keep(part(
                         node,
                         first_entry + range.start as u64,
@@ -1379,6 +1379,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     ))
                 });
                 let mut done = done.into_iter();
+                for (i, r) in done.by_ref().take(others).enumerate() {
+                    results[i] = r;
+                }
                 for (h, (_, list)) in copies.iter().enumerate() {
                     let whole = Work {
                         lists: 1,
@@ -1390,7 +1393,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     }
                     results[wave[h]] = sum;
                 }
-                at = end;
+                (at, first) = (end, false);
             }
             if let Some(e) = failed.into_inner().unwrap_or_else(PoisonError::into_inner) {
                 return Err(e);
