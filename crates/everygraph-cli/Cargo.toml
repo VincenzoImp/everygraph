@@ -15,11 +15,17 @@ name = "everygraph"
 path = "src/main.rs"
 
 [dependencies]
+# The command line (`design/DECISIONS.md`, "Reading the command line"); the features the
+# benchmark harness uses already.
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 # The binary decides that threads exist: the core's `parallel` feature (its default).
 everygraph-core = { path = "../everygraph-core" }
 everygraph-format = { path = "../everygraph-format" }
-everygraph-ingest = { path = "../everygraph-ingest" }
-everygraph-io = { path = "../everygraph-io" }
+everygraph-ingest = { path = "../everygraph-ingest", features = ["native"] }
+everygraph-io = { path = "../everygraph-io", features = ["tables"] }
+everygraph-kernels = { path = "../everygraph-kernels" }
+# The JSON documents of `docs/ux-contract.md`, keys in the order the schemas list them.
+serde_json = { version = "1", features = ["preserve_order"] }
 # The job's fingerprint names its scratch directory, so its hash must not change across
 # releases; XXH3 is the identifier dictionary's hash.
 xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"] }
@@ -29,9 +35,14 @@ xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"
 rustix = { version = "1.1", default-features = false, features = ["std", "fs"] }
 
 [dev-dependencies]
-# The tests write a gzip input and parse the JSON documents of the command.
+# The tests write a gzip input, read back the Parquet and Arrow files of `--out`, and
+# check every JSON document against the schemas of the docs.
+arrow-array = { version = "58.4", default-features = false }
+arrow-ipc = { version = "58.4", default-features = false }
+arrow-schema = { version = "58.4", default-features = false }
+jsonschema = { version = "0.63", default-features = false }
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
-serde_json = "1"
+parquet = { version = "58.4", default-features = false, features = ["arrow"] }
 
 [lints]
 workspace = true

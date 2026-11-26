@@ -19,8 +19,10 @@ Rules:
   and the test suite before you call the work done.
 - `eg`-style shortcuts are not available: crates are `everygraph-*`, the command is
   `everygraph`.
-- Do not run performance measurements for the record: other work may be using the machine.
-  Provide the benchmark spec or command; the coordinator measures on an idle machine.
+- Evidence while building is exploratory: interleaved A/B ratios, load-independent counts
+  (bytes read or written, peaks), deterministic metrics, each labelled. Official idle-machine
+  runs happen only once per milestone and before a number is published (CLAUDE.md § 6):
+  provide the benchmark spec or command; the coordinator runs it then.
 - No `sudo`, no `pkill`/`killall`/pattern kills, servers bind to 127.0.0.1 only, scratch
   files under `/home/tux/graphlab/scratch/<branch>` and removed at the end.
 - Open a pull request with `Closes #<number>`, the acceptance criteria copied as a

@@ -16,7 +16,7 @@ labels: type:feature, area:ingest, P0, risk:low, size:M, lab-evidence
 - [ ] Edge-type column: reading a column beyond source, target, weight and time needs a public option, which has no name yet and needs a preview before it is built (`docs/spec/graph-semantics.md` § 2.6, § 9 item 8)
 
 **Acceptance**
-- ≥ 5 GB/s parse rate at 16 threads on plain text from page cache on the lab machine
+- ≥ 5 GB/s parse rate at 16 threads on plain text from page cache on the lab machine. Met in the official run of 2026-11-25 (`bench/results/text-reader/20261125T205427Z-21498df39590.jsonl`, `bench/specs/text-reader.toml`, idle, medians of three): lj 7.31 GB/s, orkut 8.22 GB/s at 16 threads
 - Malformed-input corpus handled without panics; every rejected line is counted and reported
 - Identical output for plain, zstd and gzip variants of the same file
 

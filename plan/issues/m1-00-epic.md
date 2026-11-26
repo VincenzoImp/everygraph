@@ -5,7 +5,7 @@ labels: type:epic, area:bench, P0
 ---
 Tracking issue for milestone M1.
 
-**Goal.** Turn every item in DESIGN § 5 ("What is not solved yet") into a number and a decision before production code depends on it. Each experiment is time-boxed, uses the lab prototypes in `lab/`, runs through the benchmark harness on an idle machine, and ends with an ADR update. A clear negative result is a valid outcome.
+**Goal.** Turn every item in DESIGN § 5 ("What is not solved yet") into a number and a decision before production code depends on it. Each experiment is time-boxed, uses the lab prototypes in `lab/`, runs through the benchmark harness, and ends with an ADR update. A decision rests on load-independent results and interleaved A/B ratios; idle-machine runs are needed only for numbers that go into documents, and they run in the milestone window (CLAUDE.md § 6, 2026-11-26). A clear negative result is a valid outcome.
 
 **Ordered by risk to the product**
 1. {{#m1-01-e2e-tracer}} — does the whole pipeline hold together on 1.8 B edges under 16 GiB?

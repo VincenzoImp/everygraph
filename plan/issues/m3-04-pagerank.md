@@ -26,6 +26,6 @@ labels: type:feature, area:algorithms, P0, risk:low, size:M, lab-evidence
 
 **Pointers.** `lab/b1-core` kernels; top-5 on orkut matched NetworKit to ~15 digits.
 
-**Left after PR #220 (2026-11-26).** PR #220 built `everygraph_kernels::pagerank` (f32 and f64 state, weighted, personalized, eigenvector centrality); its description lists the evidence per box. Still open: the official `kernels` run (`everygraph-bench run kernels --official --data /home/tux/graphlab/data`) for the time and the hashes; the out-of-core cost from interleaved rounds, which needs {{#m3-19-harness-interleave}}; the weighted run on a per-pair column against the unweighted kernel.
+**Left after PR #220 (2026-11-26).** PR #220 built `everygraph_kernels::pagerank` (f32 and f64 state, weighted, personalized, eigenvector centrality); its description lists the evidence per box. Closed on 2026-11-26 on its tests and exploratory evidence (CLAUDE.md § 6). The time and the hashes come from the M3 milestone window (`everygraph-bench run kernels --official --data /home/tux/graphlab/data`). The out-of-core cost from interleaved rounds ({{#m3-19-harness-interleave}}) and the weighted run on a per-pair column against the unweighted kernel are {{#m3-22-performance-pass}}'s.
 
 **Depends on** {{#m3-01-edge-map}}, {{#m2-08-csr-build}}, {{#m2-10-property-columns}}
