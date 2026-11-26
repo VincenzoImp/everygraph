@@ -91,9 +91,10 @@ pub struct Measurement {
     /// How many samples were taken.
     pub memory_samples: u64,
     /// Page-fault and refault counters of `memory.stat` at the end: the evidence that a
-    /// run under a limit below its data's size read from storage (out of core).
+    /// run under a limit below its data's size read from storage (out of core). `None`
+    /// when `memory.stat` could not be read.
     #[serde(default)]
-    pub faults: Faults,
+    pub faults: Option<Faults>,
     /// The sampling interval in milliseconds.
     pub sample_interval_ms: f64,
     /// `memory.events` at the end (`max`, `oom`, `oom_kill`, …).
@@ -392,13 +393,11 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     (m.anon_peak_bytes, m.file_peak_bytes, m.memory_samples) = (p.anon, p.file, p.samples);
     m.memory_peak_bytes = cg.memory_peak()?;
-    if let Ok(stat) = cg.memory_stat() {
-        m.faults = Faults {
-            major_faults: usec(&stat, "pgmajfault"),
-            refaults_file: usec(&stat, "workingset_refault_file"),
-            refaults_anon: usec(&stat, "workingset_refault_anon"),
-        };
-    }
+    m.faults = cg.memory_stat().ok().map(|stat| Faults {
+        major_faults: usec(&stat, "pgmajfault"),
+        refaults_file: usec(&stat, "workingset_refault_file"),
+        refaults_anon: usec(&stat, "workingset_refault_anon"),
+    });
     m.memory_events = cg.memory_events()?;
     let cpu1 = cg.cpu_stat()?;
     #[allow(

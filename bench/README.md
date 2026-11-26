@@ -39,7 +39,10 @@ everygraph-bench clean
 its dataset unless it is cold (`cache = "cold"`): warm, the page cache may hold the data
 and nothing is read from storage, so the case is not out of core (#265). A benchmark
 that is right warm says why in `warm_ok` (it reads with `O_DIRECT`, or reads other files
-than its dataset). A dataset absent on the machine is not checked.
+than its dataset). A dataset absent from the machine is checked with the size the
+registry implies (its files, or for `csr/<graph>` the arrays its counts imply), so the lint
+also runs in CI. A dataset in the work directory (`{work}/…`) is checked to exist after the
+preparation steps, which make it.
 
 `--data` (or `$EVERYGRAPH_DATA`) is the data root; on the lab machine
 `/home/tux/graphlab/data`. Progress goes to standard error, the report of the run to

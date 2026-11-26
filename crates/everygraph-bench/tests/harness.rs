@@ -326,6 +326,42 @@ fn every_spec_in_the_repository_passes_the_check() {
 }
 
 #[test]
+fn a_dataset_in_the_work_directory_is_made_by_a_preparation_step_first() {
+    let dir = scratch("workdata");
+    let spec = write_spec(
+        &dir,
+        "schema = 1\nname = \"selftest\"\ndescription = \"probe\"\n[defaults]\n\
+         memory_limit = \"256M\"\nrepetitions = 1\nwarmup = 0\nsettle = \"100ms\"\n\
+         [[prepare]]\nname = \"store\"\n\
+         shell = \"mkdir -p {work}/stores/g && head -c 8192 /dev/zero > {work}/stores/g/x\"\n\
+         [[benchmark]]\nname = \"warm\"\ndataset_path = \"{work}/stores/g\"\n\
+         command = [\"true\"]\n\
+         [[benchmark]]\nname = \"cold\"\ndataset_path = \"{work}/stores/g\"\ncache = \"cold\"\n\
+         command = [\"cat\", \"{dataset}/x\"]\n",
+    );
+    let (root, work, rows) = (repo(), dir.join("w"), dir.join("rows.jsonl"));
+    let run = |extra: &[&str]| {
+        let mut args = vec!["run", s(&spec), "--repo", s(&root), "--work", s(&work)];
+        args.extend(["--out", s(&rows)]);
+        args.extend_from_slice(extra);
+        bench(&args, &dir.join("l"))
+    };
+    let prepared = run(&["--prepare-only"]);
+    assert!(prepared.status.success(), "{}", text(&prepared.stderr));
+    let measured = run(&["--skip-prepare"]);
+    assert!(measured.status.success(), "{}", text(&measured.stderr));
+    // Without the step, the case names the missing dataset after the preparation.
+    std::fs::remove_dir_all(dir.join("w/stores")).expect("remove the store");
+    let missing = run(&["--skip-prepare"]);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(
+        text(&missing.stderr).contains("no preparation step made it"),
+        "{}",
+        text(&missing.stderr)
+    );
+}
+
+#[test]
 fn a_warm_case_below_its_datasets_size_fails_the_lint() {
     let dir = scratch("lint");
     std::fs::create_dir_all(dir.join("data/g")).expect("data");
@@ -356,6 +392,30 @@ fn a_warm_case_below_its_datasets_size_fails_the_lint() {
         let out = check(extra);
         assert!(out.status.success(), "{extra}: {}", text(&out.stdout));
     }
+    // Absent from the data root: the size comes from the registry's counts (orkut's CSR,
+    // about 1 GB, above a 512 MiB limit).
+    let absent = case("").replace("dataset_path = \"g\"", "dataset_path = \"csr/orkut\"");
+    let p = write_spec(
+        &dir,
+        &absent.replace("memory_limit = \"4K\"", "memory_limit = \"512M\""),
+    );
+    let out = bench(
+        &[
+            "check",
+            s(&p),
+            "--repo",
+            s(&repo()),
+            "--data",
+            s(&dir.join("none")),
+        ],
+        &dir.join("l"),
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        text(&out.stdout).contains("LINT: memory limit 512 MiB is below the size of csr/orkut"),
+        "{}",
+        text(&out.stdout)
+    );
 }
 
 #[test]
