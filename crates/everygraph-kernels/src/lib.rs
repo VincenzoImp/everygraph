@@ -12,14 +12,14 @@
 //! - [`components`]: weakly connected components and their numbering (#48).
 //! - [`kcore`]: core numbers and shells (#50).
 //! - [`degrees`]: degree and strength columns (#50).
-//! - [`proof`]: `PageRank`, components and BFS, written once on the framework. The
-//!   production kernels (#47–#52) replace them.
 //! - [`pagerank`]: `PageRank` (f32 and f64 state, weighted, personalized) and
 //!   eigenvector centrality, by pull power iteration (#47).
 //! - [`traversal`]: direction-optimizing BFS and bit-parallel multi-source BFS (#49).
 //! - [`sssp`]: weighted shortest distances by Δ*-stepping with bucket fusion (#49).
 //! - [`proof`]: connected components, written once on the framework; the production
 //!   kernel (#48) replaces it.
+//! - [`run`]: the whole-graph operations by name, as the command line and Python ask
+//!   for them, and their results kept in the graph file.
 //!
 //! A kernel body is a closure over one node and its list:
 //!
