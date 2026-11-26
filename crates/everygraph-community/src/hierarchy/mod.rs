@@ -32,7 +32,7 @@ pub use check::check;
 pub use read::{Hierarchy, StoredQuotient};
 pub use write::{store, store_levels};
 
-use crate::leiden::{Iterations, Mode, Options, Refinement, SplitAt};
+use crate::leiden::{Iterations, Mode, Objective, Options, Refinement, SplitAt};
 
 /// The operation of the result (`results/communities/<key>`).
 pub const OPERATION: &str = "communities";
@@ -66,6 +66,10 @@ pub fn key(graph: GraphIdentity, options: &Options) -> Result<ResultKey, Contain
         Refinement::Randomized { theta } => format!("randomized {theta}"),
         Refinement::Louvain => "louvain".to_owned(),
     };
+    let objective = match options.objective {
+        Objective::Modularity => "modularity",
+        Objective::Cpm => "cpm",
+    };
     let split = match options.split {
         SplitAt::Last => "last",
         SplitAt::EveryLevel => "every level",
@@ -77,6 +81,8 @@ pub fn key(graph: GraphIdentity, options: &Options) -> Result<ResultKey, Contain
         options.mode == Mode::Deterministic,
     )?
     .with("method", "leiden")?
+    .with("objective", objective)?
+    .with("use_direction", &options.use_direction.to_string())?
     .with("iterations", &iterations)?
     .with("resolution", &options.resolution.to_string())?
     .with("seed", &options.seed.to_string())?
