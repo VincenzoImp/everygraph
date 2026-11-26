@@ -10,7 +10,7 @@ labels: type:feature, area:engine, P1, risk:medium, size:L
   - fixed-size frames reserved from `Budget` as anonymous memory;
   - CLOCK eviction, sharded by block;
   - misses read the exact compressed byte range of a list, or a 4 KiB-aligned span of it, from the Elias–Fano offsets (D4);
-  - frontier requests are batched, sorted and coalesced (the FlashGraph pattern already planned in {{#m3-01-edge-map}}).
+  - frontier requests are batched, sorted and coalesced (the FlashGraph pattern). {{#m3-01-edge-map}} closed without it, so this issue owns it.
 - [ ] Asynchronous read-ahead from the start (ADR 0029). Decided 2026-11-26 (`docs/research/sota-review-2026-11.md` S5):
   - **the base is a pool of reader threads over `pread`** behind `ByteSource` (in `everygraph-io`; the core stays free of OS calls). It takes batches of sorted ranges and merges neighbouring ones, with two caps: a largest merged read, and a largest amplification (bytes read that no request asked for, as a share of the bytes asked for). The queue depth comes from {{#m2-35-random-read-probe}}. The buffers in flight are reserved in the ledger;
   - **io_uring is an optional Linux backend** of the same interface. It is kept only if {{#m2-35-random-read-probe}} shows the pool below 90% of io_uring's IOPS at the queue depth the device needs. It falls back to the pool when `io_uring_setup` fails with `EPERM` or `ENOSYS` (Docker's and containerd's default seccomp profiles block it, as reported by the review). wasm32 keeps synchronous reads;
