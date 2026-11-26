@@ -211,6 +211,7 @@ pub(crate) struct Ctx<'o> {
     pub(crate) iteration: u32,
     /// 0 for the passes of an iteration, 1 for its prolongation.
     pub(crate) stage: u32,
+    pub(crate) coarsening: crate::leiden::Coarsening,
 }
 
 impl Ctx<'_> {

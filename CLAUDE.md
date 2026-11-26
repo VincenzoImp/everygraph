@@ -138,7 +138,9 @@ coordinator itself runs on the session's model.
   them with the issue file path, the acceptance criteria, the memory limit (§ 7) and the
   rules in this file.
 - **Keep many streams going.** Every issue whose dependencies are closed and whose files
-  do not overlap with another running agent's can run now. The limit is this machine's
+  do not overlap with another running agent's can run now. A shared core interface (the
+  edge-map `Source` trait, the planner's cost model, the container) has one owner at a
+  time: a second stream that must change it waits or is sequenced after the first. The limit is this machine's
   CPU: about eight agents that run `cargo` at once, each with `CARGO_BUILD_JOBS=6`.
   Reviewers and review-fix rounds count; research does not.
 - Code-writing subagents work in their own git worktree and open a pull request. They

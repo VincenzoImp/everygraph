@@ -178,9 +178,17 @@ pub(crate) fn main(args: Args) -> u8 {
                 Bits::Full => Precision::Full,
                 Bits::Low => Precision::Low,
             };
-            (Operation::PageRank { params, precision }, on, None)
+            (
+                Operation::PageRank {
+                    params,
+                    precision,
+                    weight: run::Weight::Pairs,
+                },
+                on,
+                None,
+            )
         }
-        Algorithm::Components { on } => (Operation::Components, on, None),
+        Algorithm::Components { on } => (Operation::Components { strong: false }, on, None),
         Algorithm::Kcore { on } => (Operation::KCore, on, None),
         Algorithm::Degrees { on } => (Operation::Degrees, on, None),
         Algorithm::Bfs {
@@ -200,6 +208,7 @@ pub(crate) fn main(args: Args) -> u8 {
             Operation::Bfs {
                 source: 0,
                 max_hops,
+                direction: run::Direction::Out,
             },
             on,
             Some(node),
@@ -218,7 +227,7 @@ fn unsupported(what: String, why: &str) -> Failure {
         .on_existing_file()
 }
 
-fn execute(mut op: Operation, on: &On, node: Option<&str>) -> Result<u8, Failure> {
+fn execute(mut op: Operation<'_>, on: &On, node: Option<&str>) -> Result<u8, Failure> {
     let started = Instant::now();
     let started_at = now_ns();
     let common = &on.common;
@@ -273,7 +282,7 @@ fn execute(mut op: Operation, on: &On, node: Option<&str>) -> Result<u8, Failure
     let mut stored_in = None;
     if is_cached {
         stored_in = Some(on.graph.display().to_string());
-    } else if op.stored() {
+    } else if op.stored(directed) {
         let about = Provenance {
             engine: format!("everygraph {}", env!("CARGO_PKG_VERSION")),
             started: started_at,
@@ -359,13 +368,17 @@ fn lookup<S: ByteSource>(nodes: &Nodes<'_, S>, text: &str, graph: &Path) -> Resu
 }
 
 /// Runs `op` on the graph's out-lists.
-fn compute(graph: &Graph<MmapSource>, op: &Operation, memory: &Memory) -> Result<Output, RunError> {
+fn compute(
+    graph: &Graph<MmapSource>,
+    op: &Operation<'_>,
+    memory: &Memory,
+) -> Result<Output, RunError> {
     let data = graph
         .data()
         .map_err(|_| RunError::Kernel(Error::Invalid("the graph has no adjacency data")))?;
     let source = Compressed::mapped(graph.index(), &data)?;
     Plan::with(&source, memory, Settings::default(), |plan| {
-        run::run(op, &plan, graph.directed(), memory)
+        run::run(op, &run::Lanes::out(&plan, graph.directed()), memory)
     })
 }
 
@@ -374,7 +387,7 @@ fn compute(graph: &Graph<MmapSource>, op: &Operation, memory: &Memory) -> Result
 /// few seconds at most.
 fn store(
     path: &Path,
-    op: &Operation,
+    op: &Operation<'_>,
     identity: GraphIdentity,
     about: &Provenance,
     output: &Output,
@@ -406,7 +419,7 @@ fn store(
 /// What a kernel's failure means for the person who ran it.
 fn kernel_failure(
     e: RunError,
-    op: &Operation,
+    op: &Operation<'_>,
     graph: &Path,
     budget: u64,
     machine: Option<u64>,
@@ -444,7 +457,7 @@ fn kernel_failure(
 /// The rows to show: the first `--top N` (10 on a terminal, every row when piped), or
 /// the `N` largest values of a measure.
 fn shown<'o>(
-    op: &Operation,
+    op: &Operation<'_>,
     output: &'o Output,
     nodes: u32,
     on: &On,
@@ -479,7 +492,7 @@ enum Summary {
 }
 
 impl Summary {
-    fn of(op: &Operation, output: &Output) -> Self {
+    fn of(op: &Operation<'_>, output: &Output) -> Self {
         let values = match output.columns.first() {
             Some((_, Column::U32 { values, null, .. })) => values
                 .as_slice()
@@ -490,7 +503,7 @@ impl Summary {
             (Operation::PageRank { .. }, _) => {
                 output.iterations.map_or(Self::None, Self::Iterations)
             }
-            (Operation::Components, Some(v)) => {
+            (Operation::Components { .. }, Some(v)) => {
                 let (mut count, mut largest) = (0, 0);
                 for c in v {
                     count = count.max(u64::from(c) + 1);
@@ -546,7 +559,7 @@ impl Summary {
 }
 
 /// The dim lines under a table on a terminal, on standard error (M-10, § 6.3).
-fn footer(on: &On, op: &Operation, shown: &Shown<'_>, nodes: u32, cached: bool, stored: bool) {
+fn footer(on: &On, op: &Operation<'_>, shown: &Shown<'_>, nodes: u32, cached: bool, stored: bool) {
     let style = Style::stderr();
     let dot = style.dot();
     let mut text = format!(
@@ -570,7 +583,7 @@ fn footer(on: &On, op: &Operation, shown: &Shown<'_>, nodes: u32, cached: bool, 
 
 /// What a run did, for its document.
 struct Done<'a> {
-    op: &'a Operation,
+    op: &'a Operation<'a>,
     /// The identifier `bfs` was given, as typed.
     node: Option<&'a str>,
     output: &'a Output,
@@ -584,7 +597,9 @@ impl Done<'_> {
     /// The parameters as the user gave them, with their types (§ 5.3).
     fn parameters(&self) -> Value {
         match self.op {
-            Operation::PageRank { params, precision } => json!({
+            Operation::PageRank {
+                params, precision, ..
+            } => json!({
                 "damping": params.damping,
                 "tol": params.tol,
                 "max_iter": params.max_iter,
