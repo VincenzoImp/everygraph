@@ -165,9 +165,9 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
   ids (m1-14, #146) for Leiden, and a store renumbered by the hierarchy for the layout
   (`docs/research/memory-bounded-algorithms.md`, addendum § E). The cache does not replace
   that work.
-- The documentation must not say "mmap under pressure" for random access. Until m2-23
-  lands it says: random access under a budget smaller than its working set uses
-  `MADV_RANDOM`, and costs a few reads of the data per pass.
+- The documentation must not say "mmap under pressure" for random access. It says:
+  random access under a budget smaller than its working set reads through the block
+  cache, and costs a few reads of the data per pass.
 - **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))): SPDK (it takes the drive from the kernel's
   driver and file system), and an io_uring runtime (Glommio, tokio-uring and the like).
   The read-ahead of #178 is a pool of `pread` threads; io_uring is at most an optional
@@ -176,6 +176,48 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 - A comment in the M1-02 lab code (`leiden.rs`) says `/proc/self/io` does not count page
   faults on a mapped file. The m1-15 rows show it does. The lab is frozen; the product's
   measurement code must not repeat the claim.
+
+## The cache as built (#178)
+
+- **`everygraph_core::BlockCache`**: a `ByteSource` over another. 4 KiB frames in
+  memory reserved from the budget, CLOCK per shard, and misses next to each other read
+  together in reads of at most 64 KiB. No OS calls, no `unsafe`; it builds for wasm32,
+  where reads are synchronous. A new frame earns its reference bit only when it is read
+  again.
+- **`everygraph_io::ReadPool`**: 64 `pread` threads by default (m2-35), each with one
+  64 KiB buffer, reserved with the queue before they start. `AccessHint::WillNeed`
+  on the cache claims the missing frames of the range and queues them, merged across
+  held frames while the extra bytes stay within 25% of the bytes asked for. A read that
+  needs a claimed frame waits for it. At most half of a shard's frames are claimed
+  ahead at once, so a read always finds a slot.
+- **Read-ahead in the visiting order**: `Options::read_ahead` (Leiden) tells the source,
+  before each window of 16,384 visits, the lists of the next `K` blocks of 256 nodes.
+  The windows change no deterministic result (test
+  `read_ahead_changes_no_deterministic_result`).
+- **Kernels** read the cache through `CompressedStream` with a 4 KiB window, so a
+  frontier reads the records it needs and no more.
+
+**Measured** (exploratory, Friendster, Leiden with one level (`max_levels` 1: level-0
+local moving and refinement, no quotient graph), one iteration, 16 threads, the 10.3 GB
+data part read with `O_DIRECT`, so cold; production code; the command and rows are in
+PR #… ; shared machine, load 16–58, so times are ratios only and weak):
+
+| mode | limit, cache | K | hash = in RAM | bytes read (scans) | reads | time / in RAM |
+|---|---|---|---|---|---|---|
+| deterministic | 8G, 2.5 GiB | 64 | yes | 332.6 GB (30.5) | 59.7 M | 2.7× |
+| deterministic | 8G, 2.5 GiB | 0 | yes | 304.9 GB (30.7) | 63.2 M | 5.4× (load 57) |
+| deterministic | 6G, 1 GiB | 64 | yes | 403.8 GB (30.9) | 71.0 M | 3.2× |
+| fast | 8G, 2.5 GiB | 1 | — | 94.2 GB (30.5) | 6.4 M | 1.62× |
+| fast | 8G, 2.5 GiB | 64 | — | 94.1 GB (30.3) | 6.4 M | 1.59× |
+
+- **Deterministic mode at 4 GiB cannot run**: Leiden itself reserves 4.22 GiB at its
+  peak on level 0 of Friendster (the in-RAM run), more than the limit before any cache.
+- **The deterministic mode reads about 5 times the fast mode's bytes.** Its sub-rounds
+  visit groups of 16 nodes, and refinement single nodes, so a 4 KiB frame (records of
+  about 26 nodes) is read again in many sub-rounds of one sweep. A cache does not fix
+  that; an order that keeps a frame's nodes in one sub-round would.
+- **Read-ahead**: in the deterministic mode, K = 64 against K = 0 read 9% more bytes,
+  and took half the time at a third of the load (not a clean A/B).
 
 ## What would change our mind
 
@@ -193,6 +235,6 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 
 ## Closed by
 
-Accepted on 2026-11-26 on the bytes read of m1-15. #178 builds the block cache; its acceptance is
-level-0 local moving at 8 GiB within 1.5× of in RAM. When it lands, D11's text changes
-from per-phase `MADV_RANDOM` to the cache.
+Accepted on 2026-11-26 on the bytes read of m1-15. #178 built the block cache, and D11's
+text names it. Its time target, level-0 local moving at 8 GiB within 1.5× of in RAM, is
+not shown: the official run of the milestone window decides it (#240).

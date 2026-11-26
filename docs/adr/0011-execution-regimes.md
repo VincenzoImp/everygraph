@@ -105,7 +105,7 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 
 - Regime 2 for random access whose working set exceeds the budget: amended by
   [ADR 0029](0029-random-access-under-a-budget.md), accepted 2026-11-26 (an explicit
-  budgeted cache over `ByteSource`; per-phase `MADV_RANDOM` until it exists), from #172.
+  budgeted cache over `ByteSource`, built in #178), from #172.
 
 ## What would change our mind
 
@@ -116,5 +116,6 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 
 ## Closed by
 
-#60 (production out-of-core Leiden) for community detection; #46 for iterative scans; #178
-(the block cache, ADR 0029) for random access under a budget.
+#60 (production out-of-core Leiden) for community detection; #46 for iterative scans; the
+speed target of the block cache (#178, ADR 0029; open in #240) for random access under a
+budget.
