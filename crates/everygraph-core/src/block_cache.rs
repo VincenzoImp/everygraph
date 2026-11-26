@@ -155,7 +155,7 @@ impl Fetch {
     /// Bytes to read: what [`run`](Self::run) needs of its buffer.
     #[must_use]
     pub fn len(&self) -> usize {
-        usize::try_from(self.range.end - self.range.start).expect("at most 64 frames")
+        usize::try_from(self.range.end - self.range.start).unwrap_or(usize::MAX)
     }
 
     /// Whether the fetch reads nothing. It never does.
@@ -171,7 +171,11 @@ impl Fetch {
     /// # Errors
     ///
     /// The source's.
-    pub fn run(mut self, source: &(dyn ByteSource + Sync), buf: &mut [u8]) -> Result<(), ReadError> {
+    pub fn run(
+        mut self,
+        source: &(dyn ByteSource + Sync),
+        buf: &mut [u8],
+    ) -> Result<(), ReadError> {
         let len = self.len();
         let buf = &mut buf[..len];
         source.read_at(self.range.start, buf)?;
@@ -293,7 +297,10 @@ impl Frames {
         let group = f >> GROUP_BITS;
         let local = ((group / n) << GROUP_BITS) | (f & ((1 << GROUP_BITS) - 1));
         let s = usize::try_from(group % n).expect("below the shard count");
-        (&self.shards[s], usize::try_from(local).expect("a frame index"))
+        (
+            &self.shards[s],
+            usize::try_from(local).expect("a frame index"),
+        )
     }
 
     /// The bytes of frame `f` in the source.
@@ -377,10 +384,7 @@ impl Frames {
             if !pending {
                 return;
             }
-            s = shard
-                .ready
-                .wait(s)
-                .unwrap_or_else(PoisonError::into_inner);
+            s = shard.ready.wait(s).unwrap_or_else(PoisonError::into_inner);
         }
     }
 
@@ -493,7 +497,8 @@ impl<'s> BlockCache<'s> {
         );
         let read_frames = settings.max_read / frame;
         assert!(
-            settings.max_read.is_multiple_of(frame) && (1..=MAX_FRAMES_PER_READ).contains(&read_frames),
+            settings.max_read.is_multiple_of(frame)
+                && (1..=MAX_FRAMES_PER_READ).contains(&read_frames),
             "a read is 1 to {MAX_FRAMES_PER_READ} frames"
         );
         let shift = frame.trailing_zeros();
@@ -501,12 +506,16 @@ impl<'s> BlockCache<'s> {
         let groups = len.div_ceil(widen(frame)).div_ceil(1 << GROUP_BITS).max(1);
         let slots = usize::try_from(settings.bytes / widen(frame)).unwrap_or(usize::MAX);
         // About 64 slots a shard, and no more shards than groups of frames.
-        let shards = (slots / 64).clamp(1, 4096).min(usize::try_from(groups).unwrap_or(usize::MAX));
+        let shards = (slots / 64)
+            .clamp(1, 4096)
+            .min(usize::try_from(groups).unwrap_or(usize::MAX));
         let per = (slots / shards).max(1);
-        let locals = usize::try_from(groups.div_ceil(widen(shards)) << GROUP_BITS)
-            .map_err(|_| MemoryError::AllocationFailed {
-                purpose: "block cache map",
-                bytes: u64::MAX,
+        let locals =
+            usize::try_from(groups.div_ceil(widen(shards)) << GROUP_BITS).map_err(|_| {
+                MemoryError::AllocationFailed {
+                    purpose: "block cache map",
+                    bytes: u64::MAX,
+                }
             })?;
         let readers = settings.readers.max(1);
         let buffer = widen(settings.max_read + SEGMENT_ALIGN);
@@ -579,7 +588,10 @@ impl<'s> BlockCache<'s> {
         settings: CacheSettings,
     ) -> Result<Self, MemoryError> {
         let mut cache = Self::new(ahead.source(), memory, settings)?;
-        cache.read_frames = cache.read_frames.min(ahead.max_read() / settings.frame).max(1);
+        cache.read_frames = cache
+            .read_frames
+            .min(ahead.max_read() / settings.frame)
+            .max(1);
         cache.ahead = Some(ahead);
         Ok(cache)
     }
@@ -619,7 +631,13 @@ impl<'s> BlockCache<'s> {
     /// Reads frames `first..` that the caller claimed (as many as fit one read and are
     /// missing, up to frame `last`) and copies what `out` (the bytes from `pos`) needs.
     /// Returns where the copy ended.
-    fn read_missing(&self, first: u64, last: u64, pos: u64, out: &mut [u8]) -> Result<u64, ReadError> {
+    fn read_missing(
+        &self,
+        first: u64,
+        last: u64,
+        pos: u64,
+        out: &mut [u8],
+    ) -> Result<u64, ReadError> {
         let f = &self.frames;
         let mut end = first + 1;
         while end <= last && end - first < widen(self.read_frames) {
@@ -728,7 +746,11 @@ impl ByteSource for BlockCache<'_> {
                 len: widen(buf.len()),
                 source_len: f.len,
             })?;
-        let last = if end > offset { (end - 1) >> f.shift } else { 0 };
+        let last = if end > offset {
+            (end - 1) >> f.shift
+        } else {
+            0
+        };
         let mut pos = offset;
         while pos < end {
             let frame = pos >> f.shift;

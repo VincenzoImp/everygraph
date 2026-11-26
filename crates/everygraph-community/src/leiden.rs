@@ -32,7 +32,7 @@ const QUALITY_ITERATIONS: NonZeroU32 = NonZeroU32::new(3).expect("non-zero");
 /// The largest resolution: see `check`.
 const MAX_RESOLUTION: f64 = 8191.0;
 /// Levels per iteration, at most.
-const MAX_LEVELS: u32 = 10;
+const MAX_LEVELS: NonZeroU32 = NonZeroU32::new(10).expect("non-zero");
 /// Local moving stops when a sweep gains at most this much modularity: `0.01` on level
 /// 0 of iteration 0, ten times less for each level and each iteration after.
 const TOLERANCE: [f64; 12] = [
@@ -118,6 +118,9 @@ pub struct Options {
     /// reads of the next blocks overlap the work on this one. It changes no result of
     /// the deterministic mode.
     pub read_ahead: u32,
+    /// Levels per iteration, at most; 10, the default, is also the largest. One level
+    /// is local moving and refinement on the graph alone, with no quotient graph.
+    pub max_levels: NonZeroU32,
 }
 
 impl Default for Options {
@@ -131,6 +134,7 @@ impl Default for Options {
             prolong: false,
             split: SplitAt::Last,
             read_ahead: 0,
+            max_levels: MAX_LEVELS,
         }
     }
 }
@@ -272,7 +276,7 @@ fn level<S: Source>(
     let alone = k.alone;
     let first_of_later = ctx.iteration > 0 && ctx.level == 0;
     let last = (stats.moves == 0 && !first_of_later)
-        || ctx.level + 1 == MAX_LEVELS
+        || ctx.level + 1 >= ctx.options.max_levels.min(MAX_LEVELS).get()
         || u64::from(stats.communities - alone) * 5 > u64::from(n - alone) * 4;
     if last {
         let d = if louvain {

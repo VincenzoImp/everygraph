@@ -352,7 +352,12 @@ impl KernelUnderTest for Kernels {
             &[1, 3, 8],
             &[64, 1 << 16],
             &[Storage::Raw, Storage::Compressed],
-            &[Regime::InMemory, Regime::Mmap, Regime::Stream, Regime::Cached],
+            &[
+                Regime::InMemory,
+                Regime::Mmap,
+                Regime::Stream,
+                Regime::Cached,
+            ],
         )
         .into_iter()
         .filter(|c| sources.contains(&(c.storage, c.regime)))

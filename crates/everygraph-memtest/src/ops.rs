@@ -486,7 +486,8 @@ impl Op {
                 };
                 ReadPool::run(&data, memory, pool, |ahead| {
                     let quarter = CacheSettings::new(data.len() / 4, THREADS.get());
-                    let cache = BlockCache::with_read_ahead(ahead, memory, quarter).map_err(refused)?;
+                    let cache =
+                        BlockCache::with_read_ahead(ahead, memory, quarter).map_err(refused)?;
                     let lists = CompressedStream::new(g.index(), &cache, 0).map_err(other)?;
                     kernel.run(&lists, input, memory, true)
                 })

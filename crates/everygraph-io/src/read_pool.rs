@@ -102,7 +102,9 @@ impl<'s> ReadPool<'s> {
         let _held = memory.reserve(
             "read pool buffers",
             MemoryKind::Anonymous,
-            (threads as u64).saturating_mul(buffer).saturating_add(queue),
+            (threads as u64)
+                .saturating_mul(buffer)
+                .saturating_add(queue),
         )?;
         let mut fetches = VecDeque::new();
         fetches

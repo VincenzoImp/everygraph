@@ -10,7 +10,7 @@
 //!     [--source raw|compressed|mmap|stream|eg|cached]
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
 //!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
-//!     [--split last|every]
+//!     [--split last|every] [--levels L]
 //!     [--chunk ENTRIES] [--budget-gib G] [--check 1] [--hier FILE]
 //!     [--cache-mib M] [--read-ahead K] [--pool-threads P] [--direct 1] [--prefetch 1]
 //! ```
@@ -119,6 +119,9 @@ fn options(a: &Args) -> Options {
     }
     if let Some(g) = a.get("gamma") {
         o.resolution = g.parse().expect("--gamma");
+    }
+    if let Some(l) = a.get("levels") {
+        o.max_levels = l.parse().expect("--levels");
     }
     if let Some(k) = a.get("read-ahead") {
         o.read_ahead = k.parse().expect("--read-ahead");

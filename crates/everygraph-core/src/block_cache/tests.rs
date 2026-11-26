@@ -8,7 +8,7 @@ use crate::{Budget, MemorySource, par};
 
 fn sample(len: usize) -> Vec<u8> {
     (0..len)
-        .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 13).to_le_bytes()[0])
         .collect()
 }
 
@@ -40,7 +40,10 @@ fn check_reads(cache: &BlockCache<'_>, bytes: &[u8], seed: u64, count: usize) {
     for _ in 0..count {
         let start = draw.below(widen(bytes.len()));
         let len = draw.below(20_000).min(widen(bytes.len()) - start);
-        let (a, n) = (usize::try_from(start).unwrap(), usize::try_from(len).unwrap());
+        let (a, n) = (
+            usize::try_from(start).unwrap(),
+            usize::try_from(len).unwrap(),
+        );
         cache.read_at(start, &mut buf[..n]).unwrap();
         assert_eq!(&buf[..n], &bytes[a..a + n], "{n} bytes at {start}");
     }
@@ -53,8 +56,8 @@ fn reads_equal_the_source_under_eviction() {
     let bytes = sample(300_001);
     let source = MemorySource::new(bytes.as_slice());
     for (frames, frame, read) in [(8, 4096, 16), (3, 4096, 1), (40, 8192, 4), (1000, 4096, 64)] {
-        let cache = BlockCache::new(&source, &Memory::unlimited(), settings(frames, frame, read))
-            .unwrap();
+        let cache =
+            BlockCache::new(&source, &Memory::unlimited(), settings(frames, frame, read)).unwrap();
         check_reads(&cache, &bytes, frames, 2000);
         let stats = cache.stats();
         assert!(stats.hits > 0 && stats.misses > 0, "{stats:?}");
@@ -172,7 +175,13 @@ fn read_ahead_merges_within_the_caps() {
     cache.advise(0..16 * 4096, AccessHint::WillNeed);
     // 14 frames asked for; 2 held in between cost 14% extra, within 25%. Reads are at
     // most 16 frames (the read-ahead's buffer).
-    assert_eq!(ahead.run_all(), [0..16 * 4096]);
+    assert_eq!(
+        ahead.run_all(),
+        [Range {
+            start: 0,
+            end: 16 * 4096
+        }]
+    );
     // One frame in five held: reads merge runs across them while the held frames they
     // read over stay within 25% of the frames asked for.
     let held = |f: u64| f % 5 == 1;
@@ -275,12 +284,22 @@ fn a_failed_read_leaves_the_cache_usable() {
     };
     let cache = BlockCache::new(&source, &Memory::unlimited(), settings(4, 4096, 2)).unwrap();
     let mut buf = vec![0_u8; 10_000];
-    assert!(matches!(cache.read_at(5000, &mut buf), Err(ReadError::Backend(_))));
+    assert!(matches!(
+        cache.read_at(5000, &mut buf),
+        Err(ReadError::Backend(_))
+    ));
     source.fail.store(false, Relaxed);
     cache.read_at(5000, &mut buf).unwrap();
     assert_eq!(buf, bytes[5000..15_000]);
     let past = cache.read_at(19_999, &mut [0, 0]).unwrap_err();
-    assert!(matches!(past, ReadError::OutOfBounds { offset: 19_999, len: 2, source_len: 20_000 }));
+    assert!(matches!(
+        past,
+        ReadError::OutOfBounds {
+            offset: 19_999,
+            len: 2,
+            source_len: 20_000
+        }
+    ));
     cache.read_at(20_000, &mut []).unwrap();
 }
 
@@ -295,7 +314,11 @@ fn the_cache_is_in_the_ledger() {
     let cache = BlockCache::new(&source, &memory, settings(128, 4096, 16)).unwrap();
     let frames = cache.frame_bytes();
     assert_eq!(frames, 128 * 4096);
-    assert!(budget.used() > frames && budget.used() < frames + 200_000, "{}", budget.used());
+    assert!(
+        budget.used() > frames && budget.used() < frames + 200_000,
+        "{}",
+        budget.used()
+    );
     let refused = BlockCache::new(&source, &memory, settings(128, 4096, 16)).unwrap_err();
     assert!(matches!(refused, MemoryError::Budget(_)));
     drop(cache);
@@ -317,6 +340,10 @@ fn scan_bytes_are_counted_apart() {
     cache.advise(0..1, AccessHint::Normal);
     cache.read_at(0, &mut buf).unwrap();
     let stats = cache.stats();
-    assert_eq!(stats.bytes_read, 4096 * (1 + 63 + 1), "frame 0 was held, then pushed out by the scan");
+    assert_eq!(
+        stats.bytes_read,
+        4096 * (1 + 63 + 1),
+        "frame 0 was held, then pushed out by the scan"
+    );
     assert_eq!(stats.scan_bytes, 4096 * 63);
 }

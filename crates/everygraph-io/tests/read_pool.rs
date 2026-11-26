@@ -20,6 +20,7 @@ use scratch_dir::scratch;
 use support::bytes;
 
 const FRAME: u64 = 4096;
+const FRAME_BYTES: usize = 4096;
 
 fn pool(threads: usize) -> PoolSettings {
     PoolSettings {
@@ -35,14 +36,14 @@ fn race(source: &FileSource, data: &[u8]) {
     let memory = Memory::unlimited();
     let len = data.len() as u64;
     ReadPool::run(source, &memory, pool(16), |ahead| {
-        let cache = BlockCache::with_read_ahead(ahead, &memory, CacheSettings::new(len / 4, 8))
-            .unwrap();
+        let cache =
+            BlockCache::with_read_ahead(ahead, &memory, CacheSettings::new(len / 4, 8)).unwrap();
         std::thread::scope(|s| {
             for t in 0..8_u64 {
                 let cache = &cache;
                 s.spawn(move || {
                     let mut rng = SplitMix64::new(t);
-                    let mut buf = vec![0_u8; 3 * FRAME as usize];
+                    let mut buf = vec![0_u8; 3 * FRAME_BYTES];
                     for _ in 0..400 {
                         let start = rng.next_u64() % (len - 64 * FRAME);
                         cache.advise(start..start + 64 * FRAME, AccessHint::WillNeed);
@@ -92,7 +93,7 @@ fn advised_frames_are_read_ahead_once() {
         for r in 0..16_u64 {
             cache.advise(r * 64 * FRAME..(r * 64 + 16) * FRAME, AccessHint::WillNeed);
         }
-        let mut buf = vec![0_u8; 16 * FRAME as usize];
+        let mut buf = vec![0_u8; 16 * FRAME_BYTES];
         for r in 0..16_u64 {
             let at = r * 64 * FRAME;
             cache.read_at(at, &mut buf).unwrap();

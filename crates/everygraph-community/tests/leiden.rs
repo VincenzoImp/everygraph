@@ -384,7 +384,13 @@ fn deterministic_results_do_not_depend_on_threads_chunks_or_sources() {
             })
             .collect()
     });
-    let all = [Kind::Raw, Kind::Heap, Kind::Mapped, Kind::Streamed, Kind::Cached];
+    let all = [
+        Kind::Raw,
+        Kind::Heap,
+        Kind::Mapped,
+        Kind::Streamed,
+        Kind::Cached,
+    ];
     let mut runs = 0;
     for t in [1, 3, 8] {
         runs += on(t, || {
@@ -779,9 +785,30 @@ fn read_ahead_changes_no_deterministic_result() {
             let c = cached(&s, &memory, st, &o).unwrap();
             assert_eq!(Outcome::from(&c), expected, "{read_ahead} blocks ahead");
             let heap = here(&s, Kind::Heap, 1 << 16, &o);
-            assert_eq!(Outcome::from(&heap), expected, "{read_ahead} blocks ahead, in memory");
+            assert_eq!(
+                Outcome::from(&heap),
+                expected,
+                "{read_ahead} blocks ahead, in memory"
+            );
         }
     });
+}
+
+/// One level is local moving and refinement on the graph alone: one map, one entry of
+/// statistics, and valid communities, which a second level only merges further.
+#[test]
+fn one_level_stops_after_level_zero() {
+    let (n, pairs) = sparse_planted(40, 250, 8, 2, 5);
+    let s = store(&Lists::from_pairs(n, &pairs));
+    let one = Options {
+        max_levels: NonZeroU32::MIN,
+        ..Options::default()
+    };
+    let c = run(&s, Kind::Heap, 4, 1 << 16, &one);
+    check("one level", &s.lists, None, &c, &one);
+    assert_eq!((c.levels.len(), c.stats.len()), (1, 1));
+    let all = run(&s, Kind::Heap, 4, 1 << 16, &Options::default());
+    assert!(all.stats.len() > 1 && all.count <= c.count, "{} levels", all.stats.len());
 }
 
 /// Stars whose hubs form a ring: many leaves try to join their hub's refined community
