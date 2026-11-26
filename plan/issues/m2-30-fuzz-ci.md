@@ -18,6 +18,10 @@ labels: type:infra, area:format, P1, risk:low, size:S
 - The canaries are found by the nightly runs
 - The ruzstd regression test exists and passes
 
+**Left after PR #212 (2026-11-26).** PR #212 added the `container` and `text` targets, committed corpora, `tools/fuzz.sh`, `.github/workflows/fuzz.yml` (replay, 5-minute campaigns, nightly hour) and the ruzstd regression test. Still open:
+- [ ] Codec canaries behind a test-only flag (a re-introduced off-by-one in the adjacency codec), and their time to detect, measured in the nightly run and never cited as evidence; the O(n) untracked-state canary belongs to {{#m3-10-no-oom-ci}}
+- [ ] The nightly corpus comes back as an artifact; putting its new entries into a pull request is still done by hand
+
 **Feeds.** {{#m2-03-adjacency-codec}}, {{#m2-05-text-reader}}, {{#m2-06-parquet-reader}}, {{#m5-02-tile-format}}, #28.
 
 **Pointers.** `docs/research/sota-testing.md` § 3 (m2-03, m2-05, m0-02 rows), § 4 challenges 1h, 5 and 10; `.github/workflows/ci.yml`; `crates/everygraph-ingest/src/text/decompress.rs` l. 296–330.
