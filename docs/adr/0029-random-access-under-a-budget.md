@@ -166,8 +166,9 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
   (`docs/research/memory-bounded-algorithms.md`, addendum § E). The cache does not replace
   that work.
 - The documentation must not say "mmap under pressure" for random access. It says:
-  random access under a budget smaller than its working set reads through the block
-  cache, and costs a few reads of the data per pass.
+  random access under a budget smaller than its working set uses per-phase
+  `MADV_RANDOM`, or the block cache where a measured comparison at equal memory shows
+  that it reads fewer bytes, and costs a few reads of the data per pass.
 - **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))): SPDK (it takes the drive from the kernel's
   driver and file system), and an io_uring runtime (Glommio, tokio-uring and the like).
   The read-ahead of #178 is a pool of `pread` threads; io_uring is at most an optional
@@ -180,60 +181,78 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 ## The cache as built (#178)
 
 - **`everygraph_core::BlockCache`**: a `ByteSource` over another. 4 KiB frames in
-  memory reserved from the budget, CLOCK per shard, and misses next to each other read
-  together in reads of at most 64 KiB. No OS calls, no `unsafe`; it builds for wasm32,
-  where reads are synchronous. A new frame earns its reference bit only when it is read
-  again.
+  memory reserved from the budget, at most the source's frames, CLOCK per shard, and
+  misses next to each other read together in reads of at most 64 KiB. No OS calls, no
+  `unsafe`; it builds for wasm32, where reads are synchronous. A frame earns its
+  reference bit only on its second read: the read that brought it in, or the first read
+  of a frame read ahead, does not set it.
 - **`everygraph_io::ReadPool`**: 64 `pread` threads by default (m2-35), each with one
   64 KiB buffer, reserved with the queue before they start. `AccessHint::WillNeed`
   on the cache claims the missing frames of the range and queues them, merged across
   held frames while the extra bytes stay within 25% of the bytes asked for. A read that
-  needs a claimed frame waits for it. At most half of a shard's frames are claimed
-  ahead at once, so a read always finds a slot.
+  needs a claimed frame waits for it. Read-ahead claims at most half of a shard's slots
+  at once; a read that finds every slot of its shard claimed reads the frame around the
+  cache. A pool thread that panics gives its fetches back, and the panic comes out of
+  `ReadPool::run`.
 - **Read-ahead in the visiting order**: `Options::read_ahead` (Leiden) tells the source,
-  before each window of 16,384 visits, the lists of the next `K` blocks of 256 nodes.
-  The windows change no deterministic result (test
+  before each window of 16,384 visits, the lists of the next window and of `K - 1`
+  blocks of 256 nodes past it. The windows change no deterministic result (test
   `read_ahead_changes_no_deterministic_result`).
 - **Kernels** read the cache through `CompressedStream` with a 4 KiB window, so a
   frontier reads the records it needs and no more.
 
-**Measured** (exploratory; `bench/results/block-cache/exploratory/20261126-friendster.jsonl`,
-commands in its `args`). Friendster, production Leiden with one level (`max_levels` 1:
-level-0 local moving and refinement, no quotient graph), one iteration, 16 threads; the
-10.3 GB data part read with `O_DIRECT`, so cold; bytes from `/proc/self/io` and the
-cache's counts. The machine was shared (load 16–58), so times are weak ratios:
+**Measured** (exploratory). Friendster, production Leiden with one level (`max_levels`
+1: level-0 local moving and refinement, no quotient graph), one iteration, 16 threads;
+the 10.3 GB data part read with `O_DIRECT`, so cold; bytes from `/proc/self/io` and the
+cache's counts. The machine was shared (load 16–58), so times are weak ratios. Rows and
+commands: `bench/results/block-cache/exploratory/20261126-friendster-review.jsonl` (the
+code as merged; the cache, its pool and Leiden in one budget of 7,424 MiB) and
+`…/20261126-friendster.jsonl` (before the review: no fresh-frame rule, the cache outside
+the budget).
 
-| mode | limit, cache | K | hash = in RAM | bytes read (in scans) | reads | time / in RAM |
+At equal memory, deterministic mode: the cache run peaked at 7.08–7.10 GiB resident
+(`VmHWM`), and the map was run under `MemoryMax=7250M`, which it filled (7.05 GiB):
+
+| source | limit | K | hash = in RAM | bytes read (in scans) | resident peak | time / in RAM |
 |---|---|---|---|---|---|---|
-| deterministic | 8G, 2.5 GiB | 64 | yes | 332.6 GB (30.5) | 59.7 M | 2.7× |
-| deterministic | 8G, 2.5 GiB | 0 | yes | 304.9 GB (30.7) | 63.2 M | 5.4× (load 57) |
-| deterministic | 6G, 1 GiB | 64 | yes | 403.8 GB (30.9) | 71.0 M | 3.2× |
-| deterministic, no refinement | 8G, 2.5 GiB | 64 | — | 105.9 GB (20.2) | 14.9 M | — |
-| deterministic, mmap, `MADV_RANDOM` | 8G, page cache | — | yes | 220.1 GB | — | 5.0× (load 48) |
-| fast | 8G, 2.5 GiB | 1, 8, 64, 512 | — | 93.9–106.9 GB (30.1–30.5) | 6.4–7.4 M | 1.2–1.8× |
+| cache, 2.5 GiB of frames | 8G | 0 | yes | 304.7 GB (30.4) | 7.08 GiB | 2.5× (load 35) |
+| cache, 2.5 GiB of frames | 8G | 64 | yes | 330.7 GB (30.7) | 7.10 GiB | 1.44× (load 22) |
+| map, `MADV_RANDOM` whole run | 7250M | — | yes | 262.6 GB | 7.05 GiB | 2.9× (load 29) |
+| map, `MADV_RANDOM` whole run | 8G | — | yes | 218.4 GB | 7.97 GiB | 2.1× (load 22) |
 
-- **The hash is the in-RAM hash** in the deterministic mode, at 8G and 6G and with and
-  without read-ahead (`753f4fff229657f6`, Q 0.57281).
-- **The deterministic mode at 4 GiB cannot run**: Leiden itself reserves 4.22 GiB at its
-  peak on level 0 of Friendster (the in-RAM run), more than the limit before any cache.
+The in-RAM run took 115.2 s at load 16 (hash `753f4fff229657f6`, Q 0.57281).
+
+- **At equal memory, `MADV_RANDOM` read fewer bytes than the cache**: 262.6 GB against
+  304.7 GB (K = 0) and 330.7 GB (K = 64). So the cache does not replace per-phase
+  `MADV_RANDOM` on local files on this evidence (D11). Hypotheses, not tested: the
+  kernel's reclaim keeps better pages than CLOCK; the stream's reads end at whole 4 KiB
+  frames past the record while a fault reads only its page; read-ahead claims evict
+  frames before their bytes are needed, and its merges read over held frames.
+- **The cache was faster**: 166 s at K = 64 against 336 s for the map at equal memory
+  (loads 22 and 29). Not like-for-like loads, and the time decides nothing until #240.
+- **The ledger holds on Friendster**: with the cache, its pool and Leiden in one budget,
+  the budget's peak was 6.75 GiB and the resident peak 7.08–7.10 GiB, under
+  `MemoryMax=8G`; 0.33–0.35 GiB was outside the ledger (the index, read into the heap,
+  is 139 MB of it).
+- **Read-ahead and the fresh-frame rule**: before the review, K = 64 read 332.6 GB and
+  K = 0 304.9 GB (+9%); with frames read ahead earning their reference bit only on
+  their second read, K = 64 read 330.7 GB (+8.5%). The rule did not remove the extra.
+- **Deterministic mode at 4 GiB cannot run**: Leiden itself reserves 4.22 GiB at its
+  peak on level 0 of Friendster, more than the limit before any cache.
 - **The deterministic mode reads 3–5 times the fast mode's bytes, and refinement most of
-  them.** Without refinement, local moving read 85.7 GB in 4 sweeps (2.1× the data part
-  a sweep); with it, 302 GB. Local moving's sub-rounds visit groups of 16 nodes, and
-  refinement's single nodes, so a 4 KiB frame (the records of about 26 nodes) is read
-  again in many sub-rounds of one pass. A cache does not fix that; an order that keeps a
-  frame's nodes in one sub-round would.
-- **`MADV_RANDOM` on the map read fewer bytes than the cache** in the deterministic mode
-  (220.1 against 332.6 GB): the page cache could use all the memory Leiden left (about
-  3.7 GB against 2.5 GiB of frames), and reads single pages where the cache merges up to
-  64 KiB. Its time was 1.8× the cache's, at three times the load. Not like with like.
-- **The fast mode** read 63.7 GB in local moving and refinement at K = 1 (4 sweeps), close
-  to the prototype's 62.5 GB (5 sweeps). Its sweeps vary from 4 to 6 between runs, and the
-  two in-RAM runs took 68.6 and 93.9 s, so its time ratio is 1.2–1.8×, not a measurement.
-- **Read-ahead**: in the fast mode, K from 1 to 512 changed neither the bytes nor the
-  reads; a window of 16,384 visits read ahead is already enough. In the deterministic
-  mode, K = 64 against K = 0 read 9% more bytes and took half the time, at a third of
-  the load (not a clean A/B). The synchronous misses left (7.4 M) are the scans', which
-  are not read ahead.
+  them** (rows before the review, 8G, 2.5 GiB of frames, K = 64): without refinement,
+  local moving read 85.7 GB in 4 sweeps (2.1× the data part a sweep); with it, 302 GB.
+  Local moving's sub-rounds visit groups of 16 nodes, and refinement's single nodes, so
+  a 4 KiB frame (the records of about 26 nodes) is read again in many sub-rounds of one
+  pass. A cache does not fix that; an order that keeps a frame's nodes in one sub-round
+  would.
+- **The fast mode** (rows before the review): 63.7 GB in local moving and refinement at
+  K = 1 over 5 passes, against the prototype's 62.5 GB over 6 passes: 12.7 against
+  10.4 GB a pass, 22% more, with a 2.5 GiB cache of production Leiden against the lab
+  Leiden's 3.0 GiB cache. Its sweeps vary from 4 to 6 between runs and the two in-RAM
+  runs took 68.6 and 93.9 s, so its time ratio, 1.2–1.8×, is not a measurement. K from 1
+  to 512 changed neither the bytes nor the reads, but then K below 64 announced each
+  window only when it started; K now always announces the next window.
 
 ## What would change our mind
 
