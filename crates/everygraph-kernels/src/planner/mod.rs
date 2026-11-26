@@ -310,6 +310,9 @@ pub struct Plan {
     refusal: Option<Refusal>,
 }
 
+/// Why a forced streamed regime cannot read the raw tier.
+const RAW_STREAMED: &str = "the raw copy is decoded into memory, so it cannot be streamed";
+
 /// Why a forced raw tier cannot run (`RawCopy`).
 const NO_RAW_COPY: &str = "a raw copy needs its offsets in one segment and every list \
      within one part of at most 1 GiB, and this graph has more nodes or a longer list";
@@ -372,6 +375,8 @@ pub fn plan(
         plan.refusal = Some(document::unsupported(op, reason));
     } else if plan.tier == Tier::Raw && !cost::raw_fits(graph) {
         plan.refusal = Some(document::unsupported(op, NO_RAW_COPY));
+    } else if plan.tier == Tier::Raw && plan.regime == Regime::Streamed {
+        plan.refusal = Some(document::unsupported(op, RAW_STREAMED));
     } else if plan.peak > budget {
         plan.refusal = Some(document::refusal(&plan, first));
     }

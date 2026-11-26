@@ -296,6 +296,12 @@ fn check(name: &str, s: &Stored) -> usize {
                         advice: None,
                     };
                     let (plan, got, peak) = planned(s, &op, PLENTY, force, &mut Session::new());
+                    if (tier, regime) == (Tier::Raw, Regime::Streamed) {
+                        let r = plan.refusal().map(|r| r.error);
+                        assert_eq!(r, Some("Unsupported"), "{name} {}", op.name());
+                        assert!(matches!(got, Err(RunError::Refused(_))), "{name}");
+                        continue;
+                    }
                     let got = got.unwrap_or_else(|e| panic!("{name} {}: {e}", op.name()));
                     assert!(
                         got == reference,

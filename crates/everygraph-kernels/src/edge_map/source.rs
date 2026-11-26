@@ -584,7 +584,10 @@ impl DecodeReader {
         if entries <= have_entries && lists <= have_lists {
             return Ok(());
         }
-        // The old buffers exist next to the new ones while the data moves.
+        // A decode overwrites the batch, so the old buffers go first: a reader never
+        // holds two grown batches at once.
+        self.batch.shrink_to(0, 0);
+        self.held.shrink(self.held.bytes());
         self.held
             .try_grow(Batch::bytes_for(entries, lists) as u64)?;
         self.batch.reserve(entries, lists);

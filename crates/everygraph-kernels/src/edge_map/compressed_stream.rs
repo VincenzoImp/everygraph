@@ -15,7 +15,7 @@
 //!   the window from that record, up to the window's size or the task's end. The bytes
 //!   the window already holds from there on are moved, not read again. So a scan reads
 //!   about the data part once: at most 1.05 times it at the smallest window, counted at
-//!   the source in `tests/framework.rs`.
+//!   the source in `tests/stream.rs`.
 //! - **Only active lists.** In a block where at most half the nodes pass the filter,
 //!   only the records of the nodes that pass are read, merged where they are less than
 //!   16 KiB apart. So a kernel whose active set shrinks (bottom-up BFS, the finish of
@@ -104,14 +104,24 @@ struct Window {
 }
 
 impl Window {
-    /// Moves `buf[keep]` to the start of a buffer of at least `len` bytes; a larger
-    /// buffer, of at least `usual` bytes, is reserved before it is made.
-    fn shift(&mut self, len: usize, keep: Range<usize>) -> Result<(), Error> {
+    /// Moves `buf[keep]` to the start of a buffer of at least `len` bytes, and returns
+    /// the bytes kept. A larger buffer, of at least `usual` bytes, is reserved before it
+    /// is made. A buffer that a long list grew is freed first and keeps nothing, so a
+    /// reader never holds two grown buffers at once.
+    fn shift(&mut self, len: usize, keep: Range<usize>) -> Result<usize, Error> {
         self.bytes = 0..0;
         if len <= self.buf.len() {
+            let kept = keep.len();
             self.buf.as_mut_slice().copy_within(keep, 0);
-            return Ok(());
+            return Ok(kept);
         }
+        let keep = if self.buf.len() > self.usual {
+            self.buf = AlignedBuf::default();
+            self.held.shrink(self.held.bytes());
+            0..0
+        } else {
+            keep
+        };
         let want = len.max(self.usual);
         // `AlignedBuf` holds its length and less than `ALIGN` bytes of padding.
         let heap = want as u64 + ALIGN;
@@ -127,7 +137,7 @@ impl Window {
         buf.as_mut_slice()[..kept].copy_from_slice(&self.buf.as_slice()[keep]);
         self.buf = buf;
         self.held.shrink(self.held.bytes() - heap);
-        Ok(())
+        Ok(kept)
     }
 }
 
@@ -321,8 +331,7 @@ impl<'a> CompressedStream<'a> {
         } else {
             0..0
         };
-        let kept = keep.len();
-        io.shift(len, keep)?;
+        let kept = io.shift(len, keep)?;
         let read = &mut io.buf.as_mut_slice()[kept..len];
         self.data.read_at(start + kept as u64, read)?;
         io.bytes = start..end;

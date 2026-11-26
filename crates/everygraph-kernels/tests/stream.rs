@@ -13,10 +13,14 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 
-use everygraph_core::{ByteSource, Memory, MemorySource, ReadError, par};
+use std::sync::Arc;
+
+use everygraph_core::{Budget, ByteSource, Memory, MemorySource, ReadError, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, Encoded, encode};
 use everygraph_kernels::components::{WccOptions, wcc};
-use everygraph_kernels::edge_map::{Compressed, CompressedStream, Node, Plan, Settings};
+use everygraph_kernels::edge_map::{
+    Compressed, CompressedStream, FRONTIER_GRAIN, Node, Plan, Settings, Source,
+};
 
 /// A data part in memory that counts the bytes read from it.
 struct Counted {
@@ -196,4 +200,42 @@ fn components_read_one_pass_and_the_small_components() {
             "{threads} threads: {read} B for {size} B"
         );
     }
+}
+
+/// One reader that reads three hubs, each longer than the last, without going back to
+/// the pool between them: it frees each grown buffer before it grows again, so its
+/// reservations never pass [`CompressedStream::reader_bytes`].
+#[test]
+fn a_reader_never_holds_more_than_reader_bytes() {
+    let n = 500_000_u32;
+    let hubs = [300_000_u32, 350_000, 400_000];
+    let (mut offsets, mut targets) = (vec![0_u64], Vec::new());
+    for v in 0..n {
+        let d = hubs.get(v as usize).copied().unwrap_or(0);
+        targets.extend((0..d).map(|k| (v + 1 + k) % n));
+        let at = offsets[v as usize] as usize;
+        targets[at..].sort_unstable();
+        offsets.push(targets.len() as u64);
+    }
+    let encoded = encode(&offsets, &targets).unwrap();
+    let index = AdjacencyIndex::parse(&encoded.index).unwrap();
+    let data = MemorySource::new(&encoded.data[..]);
+    let stream = CompressedStream::new(&index, &data, 0).unwrap();
+    let batch = Settings::default().batch_entries;
+    let budget = Arc::new(Budget::unlimited());
+    let memory = Memory::from(budget.clone());
+    // As a plan makes it: lists of a block or of a frontier run, whichever is more.
+    let lists = (n.div_ceil(4096).next_power_of_two().clamp(64, 4096) as usize).max(FRONTIER_GRAIN);
+    let mut reader = stream.reader(&memory, batch, lists).unwrap();
+    for v in 0..3 {
+        let (_, list) = stream.list(&mut reader, v).unwrap();
+        assert_eq!(list.len(), hubs[v as usize] as usize);
+    }
+    let bound =
+        CompressedStream::reader_bytes(n, index.entries(), index.data_bytes(), hubs[2], 0, batch);
+    assert!(
+        budget.peak() <= bound,
+        "{} B reserved, {bound} B bound",
+        budget.peak()
+    );
 }
