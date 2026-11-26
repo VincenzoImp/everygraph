@@ -4,9 +4,8 @@
 # Each step is a command of CONTRIBUTING.md ("Checks" and "CI"), so that anything that
 # fails here can be reproduced locally with the same command.
 #
-# Cost: while the repository is private, Actions minutes are counted, each job rounded
-# up to a whole minute; once it is public, standard runners are free but the queue is
-# still shared by every agent's pull request. So:
+# Cost: the repository is public, so standard runners are free, but the queue is shared
+# by every agent's pull request. So:
 # - Linux x86_64 only here (macOS, Windows and Linux aarch64 are in other-platforms.yml);
 # - on a pull request, `lint` and `test` always run, and the expensive jobs only when
 #   the pull request changed what they check: the `lint` job's first step,
@@ -268,9 +267,9 @@ jobs:
       - name: oracle/run-ci.sh
         env:
           ORACLE_SKIP_RUST_TESTS: "1"
-          # The runner of a private repository has 2 vCPU and 7 GB: 2 workers × 2 GiB of
-          # address space each stays below it, so an oversized case becomes a recorded
-          # MemoryError, not an OOM kill.
+          # 2 workers × 2 GiB of address space each stay below what a runner has (7 GB
+          # even on the smallest, a private repository's), so an oversized case becomes a
+          # recorded MemoryError, not an OOM kill.
           ORACLE_JOBS: "2"
           ORACLE_MEMORY_GIB: "2"
         run: oracle/run-ci.sh

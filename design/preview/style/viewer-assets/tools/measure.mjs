@@ -1,4 +1,4 @@
-import { deltaE, contrast, separation, oklch, simHex } from '/home/tux/projects/everygraph/design/preview/brand2/tools/color.mjs';
+import { deltaE, contrast, separation, oklch, simHex } from './color.mjs';
 export const TOK = {
   light: { pal: '#3346c7,#c2571a,#1f8a70,#a23b72,#7a6a00,#5f43b2,#b8323c,#2f7fb8,#4d7a1f,#6b6258'.split(','), bg: '#f6f3ec', surface: '#fdfbf7', map: '#f1ede4', accent: '#3346c7',
     seq: '#eef0fb,#cfd4f3,#a9b1ea,#7f8ade,#5665d2,#3346c7,#24328f'.split(','), div: '#b8323c,#dc8a7f,#f1d3cb,#ece8dd,#c7cdf0,#7f8ade,#3346c7'.split(',') },

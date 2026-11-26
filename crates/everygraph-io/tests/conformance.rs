@@ -449,7 +449,7 @@ fn spill_logs_read_back_per_shard_and_leave_nothing_behind() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-/// The reviewer's case: a file is mapped and its slice borrowed, then this crate's sinks
+/// A file is mapped and its slice borrowed, then this crate's sinks
 /// are pointed at it, under its own path and through a hard link. Each is refused
 /// before anything changes, so the borrowed bytes stay the same; once the map is gone,
 /// the same calls succeed. The other order is refused too: a file being written cannot

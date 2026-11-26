@@ -1,4 +1,4 @@
-import fs from 'node:fs'; import { separation, oklch, deltaE, contrast, lch2hex, simHex } from '/home/tux/projects/everygraph/design/preview/brand2/tools/color.mjs'; import { TOK, report } from './measure.mjs';
+import fs from 'node:fs'; import { separation, oklch, deltaE, contrast, lch2hex, simHex } from './color.mjs'; import { TOK, report } from './measure.mjs';
 const o = JSON.parse(fs.readFileSync('outJ-12.json', 'utf8')), reg = [1, 2, 3, 4, 6], rest = [0, 5, 7, 8];
 const far = (idx, first) => { const r = idx.filter(i => i !== first), out = [first]; while (r.length) { let bi = 0, bv = -1; r.forEach((c, i) => { const v = Math.min(...out.map(q => Math.min(...['light', 'dark'].map(th => Math.min(deltaE(o[th][c], o[th][q], 'protan'), deltaE(o[th][c], o[th][q], 'deutan'), deltaE(o[th][c], o[th][q]) * .5))))); if (v > bv) { bv = v; bi = i; } }); out.push(r.splice(bi, 1)[0]); } return out; };
 const ord = [...far(reg, 1), ...far(rest, 7), 9];

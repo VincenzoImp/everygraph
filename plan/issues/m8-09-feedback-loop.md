@@ -14,3 +14,5 @@ labels: type:infra, area:launch, P2, risk:low, size:S
 
 **Acceptance**
 - Templates live; first monthly report written
+
+**Depends on** {{#m8-01-cli}}

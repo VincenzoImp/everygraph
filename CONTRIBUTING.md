@@ -43,6 +43,11 @@ uv run --script tools/check_columns_python.py  # columns: pyarrow and Polars rea
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 
+`tools/ci_local.sh` runs both lists (not the release build) and prints which steps failed (`--miri`
+adds the Miri and ThreadSanitizer runs, `--oracle` the oracle). Run it under a hard memory
+limit: `systemd-run --user --scope -p MemoryMax=16G -p MemorySwapMax=0 tools/ci_local.sh`.
+It covers Linux x86_64 only.
+
 The four clippy runs are not redundant: the core is linted once for each configuration
 its code can be compiled under (with and without `parallel`, 64-bit and 32-bit). The
 i686 runs also do what `cargo check --target i686-unknown-linux-gnu` would.
@@ -97,7 +102,7 @@ own.
 
 ## CI
 
-GitHub Actions, two workflows under `.github/workflows/`, on GitHub-hosted runners. The
+GitHub Actions, four workflows under `.github/workflows/`, on GitHub-hosted runners. The
 repository is public, so standard runners cost nothing. The queue is still shared by every
 agent's pull request, so on a pull request the expensive jobs run only when it changed
 what they check.
@@ -106,6 +111,8 @@ what they check.
 |---|---|---|
 | `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm) and the codec's wasm32 clippy runs (with and without `simd128`), the wasm toy, the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two included), then `check_tsan.py`. All on Linux x86_64 |
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
+| `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, and `plan/publish.py VincenzoImp/everygraph --dry-run`. Standard library only |
+| `dco.yml` | every pull request | the `Signed-off-by` check ("Sign-off" below) |
 
 Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
 in the lint job, from `git diff` of GitHub's merge commit against its base (run it

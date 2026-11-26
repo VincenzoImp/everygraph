@@ -26,3 +26,5 @@ labels: type:feature, area:wasm, P1, risk:medium, size:L, lab-evidence
 - Results hash-identical to native
 
 **Lab estimate.** Browser shell 2–3 weeks, segmented arrays + planner ~2 weeks (the segmented arrays are done, #31 in M2; the planner is {{#m3-02-planner}}), CI ~1 week.
+
+**Depends on** {{#m5-05-viewer-core}}, {{#m7-01-point-queries}}, {{#m2-06-parquet-reader}}

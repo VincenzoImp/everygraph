@@ -18,10 +18,12 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 - [ ] No signal handler is installed: long calls poll Python's signal check so `Ctrl-C` arrives as a plain `KeyboardInterrupt` after a clean stop (`docs/ux-contract.md` C-6); a result cut short is reported with `warnings.warn(…, eg.TruncatedWarning)` (M-12); every event validates against the event schema of § 4.6
 
 **Acceptance**
-- The ten user stories from {{#m0-11-api-sketch}} run as written
+- The steps of the ten user stories from {{#m0-11-api-sketch}} that use only this issue's API run as written; the whole stories are the acceptance of {{#m6-08-tutorials}}
 - PageRank from Python within 3% of the native binary (lab: indistinguishable within noise)
 - No API returns a Python list or dict proportional to n or m
 
 **Pointers.** `lab/f2-python/rust/glabpy`.
+
+**Depends on** {{#m2-08-csr-build}}
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The approved shape of the API and of everything it prints is `design/preview/api.md`; how it renders in a notebook is `design/preview/style/notebook.html`. Issue {{#m0-11-api-sketch}} turns it into the specification this issue implements.

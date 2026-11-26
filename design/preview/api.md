@@ -1,8 +1,10 @@
 # Preview — the Python API
 
-**This is a proposal to react to, not working software.** Outputs are invented; they show
-shape and tone, not measurements. Each numbered **Choice** has a recommendation (★) and at
-least one alternative. Answers go to `design/DECISIONS.md`.
+**Approved by the owner on 2026-11-25. Not working software.** Outputs are invented; they
+show shape and tone, not measurements. In each numbered **Choice** the option marked ★ is
+the decision. Later rows of `design/DECISIONS.md` change some details of this page (the
+degree columns; no low-precision communities). `docs/api-sketch.md` is the current
+reference for every name.
 
 ---
 

@@ -33,4 +33,4 @@ labels: type:docs, area:bench, P0, risk:medium, size:M, lab-evidence
 - An outside person reproduces the headline table on their own machine within 20% using only the kit
 - No number in the README or launch post is absent from the report
 
-**Depends on** {{#m0-03-bench-harness}}, {{#m3-12-perf-tracking}}
+**Depends on** {{#m0-03-bench-harness}}, {{#m3-12-perf-tracking}}, {{#m4-04-ooc-leiden}}, {{#m5-03-tile-builder}}, {{#m7-01-point-queries}}

@@ -20,6 +20,6 @@ The facade has no helper for the last two, which invites `unsafe` in exactly the
 **Acceptance**
 - No `SyncPtr` or raw-pointer scatter in the production crates
 - Outputs identical at 1, 3 and 8 threads (unit test) and at 1, 4 and 16 threads (A/B), equal to a sequential model
-- The A/B above recorded under `lab/m2-28-par-scatter/results`. The measurement on real data, end to end, belongs to {{#m2-08-csr-build}}, which is the first user of the helpers (amended 2026-11-27: the lab Leiden aggregation on real level-0 labels moved there, with "the helpers are used by #35")
+- The A/B above recorded under `lab/m2-28-par-scatter/results`. The measurement on real data, end to end, belongs to {{#m2-08-csr-build}}, which is the first user of the helpers (amended 2026-11-26: the lab Leiden aggregation on real level-0 labels moved there, with "the helpers are used by #35")
 
 **Pointers.** `docs/research/sota-approx-rust.md` § 2 B, § 3 B ("Ranged indirect writes" row), § 4 challenge 5; Abdi, Posluns, Zhang, Wang, Jeffrey, SPAA 2024, Table 3.
