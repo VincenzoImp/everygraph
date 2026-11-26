@@ -62,6 +62,11 @@ impl Style {
             .fold(text.to_owned(), |t, (from, to)| t.replace(from, to))
     }
 
+    /// `!` in yellow, or `warning:`.
+    pub(crate) fn warning(&self) -> String {
+        self.paint("33", if self.unicode { "!" } else { "warning:" })
+    }
+
     pub(crate) fn bold(&self, text: &str) -> String {
         self.paint("1", text)
     }
@@ -74,7 +79,21 @@ impl Style {
 /// Error `what` (one sentence) in the shape of ux-contract M-1, on standard error.
 pub(crate) fn error(what: &str, ways: &[&str], left: &str) {
     let style = Style::of(&std::io::stderr());
-    let mut text = format!("{} {}\n", style.error(), style.bold(what));
+    message(&style, &style.error(), what, "", ways, left);
+}
+
+/// Warning `what`, with its consequence `why`, in the shape of ux-contract M-8, on
+/// standard error.
+pub(crate) fn warning(what: &str, why: &str, ways: &[&str], left: &str) {
+    let style = Style::of(&std::io::stderr());
+    message(&style, &style.warning(), what, why, ways, left);
+}
+
+fn message(style: &Style, symbol: &str, what: &str, why: &str, ways: &[&str], left: &str) {
+    let mut text = format!("{symbol} {}\n", style.bold(what));
+    if !why.is_empty() {
+        let _ = write!(text, "\n{}\n", wrap("  ", 2, why));
+    }
     if !ways.is_empty() {
         text.push_str("\n  Ways forward:\n");
         for way in ways {
@@ -85,15 +104,15 @@ pub(crate) fn error(what: &str, ways: &[&str], left: &str) {
     eprint!("{text}");
 }
 
-/// The error document of ux-contract § 6.1 (M-5), on standard output.
-pub(crate) fn error_json(class: &str, message: &str, path: Option<&str>, ways: &[&str]) {
+/// The error document of ux-contract § 6.1 (M-5), on standard output. `extra` holds
+/// the further keys of the class, each as `,"key":value`.
+pub(crate) fn error_json(class: &str, message: &str, extra: &str, ways: &[&str]) {
     let ways: Vec<String> = ways
         .iter()
         .map(|w| format!(r#"{{"command":{},"python":"","note":""}}"#, json(w)))
         .collect();
-    let path = path.map_or_else(String::new, |p| format!(r#","path":{}"#, json(p)));
     println!(
-        r#"{{"schema":1,"error":{},"message":{}{path},"ways_forward":[{}],"changed":false}}"#,
+        r#"{{"schema":1,"error":{},"message":{}{extra},"ways_forward":[{}],"changed":false}}"#,
         json(class),
         json(message),
         ways.join(",")
@@ -102,7 +121,7 @@ pub(crate) fn error_json(class: &str, message: &str, path: Option<&str>, ways: &
 
 pub(crate) fn usage_error(usage: &Usage, json: bool) {
     if json {
-        error_json("UsageError", &usage.message, None, &[usage.help]);
+        error_json("UsageError", &usage.message, "", &[usage.help]);
     } else {
         error(&usage.message, &[usage.help], "Nothing was changed.");
     }
@@ -125,6 +144,21 @@ pub(crate) fn json(text: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// `text` with control characters escaped, so that a name read from a file cannot
+/// move the cursor or change the colours of the terminal.
+pub(crate) fn printable(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            let escaped: Vec<char> = if c.is_control() {
+                c.escape_default().collect()
+            } else {
+                vec![c]
+            };
+            escaped
+        })
+        .collect()
 }
 
 /// `n` with a comma every three digits (ux-contract § 2.6).
@@ -175,6 +209,7 @@ mod tests {
         assert_eq!(count(1234), "1,234");
         assert_eq!(count(1_234_567), "1,234,567");
         assert_eq!(json("a\"b\\\n\u{1}é"), r#""a\"b\\\n\u0001é""#);
+        assert_eq!(printable("a\u{1b}[31mb\u{9b}é"), "a\\u{1b}[31mb\\u{9b}é");
         let long = "word ".repeat(30);
         let wrapped = wrap("  label     ", 12, long.trim());
         assert!(wrapped.lines().all(|l| l.chars().count() <= 80));

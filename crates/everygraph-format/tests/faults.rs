@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use everygraph_core::{ByteSource, MemorySource, ReadError};
+use everygraph_core::{ByteSink, ByteSource, Memory, MemorySource, ReadError};
 use everygraph_format::container::{Container, ContainerError, Kind, Provenance, Writer, compact};
 use everygraph_format::verify::{Depth, verify};
 use everygraph_io::faults::{AfterFailedSync, Faulty, Op, Plan};
@@ -65,30 +65,47 @@ fn reads_as(bytes: &[u8]) -> Option<State> {
         Err(ContainerError::NotAContainer | ContainerError::NotCommitted) => return None,
         Err(e) => panic!("a file left by a failure does not open: {e}"),
     };
-    let report = verify(&source, Depth::Deep).unwrap();
+    let report = verify(&source, Depth::Deep, &Memory::unlimited()).unwrap();
     assert!(report.is_intact(), "{:?}", report.problems);
     Some(state(&file))
 }
 
+type Failed = (&'static str, ContainerError);
+
+/// Runs `steps` on `w`. After a failure the writer must refuse to go on (it is
+/// poisoned): a further commit writes nothing and says so.
+fn on<S: ByteSink>(
+    w: &mut Writer<S>,
+    steps: impl FnOnce(&mut Writer<S>) -> Result<(), Failed>,
+) -> Result<(), Failed> {
+    let outcome = steps(w);
+    if outcome.is_err() {
+        assert!(
+            matches!(w.commit(), Err(ContainerError::Poisoned)),
+            "a writer went on after a failure"
+        );
+    }
+    outcome
+}
+
 /// Two generations by two writers: create and commit, then update, remove, add and
 /// commit. Each commit that returns pushes the state it made.
-fn work(
-    sink: &mut Faulty<Mem>,
-    done: &mut Vec<State>,
-) -> Result<(), (&'static str, ContainerError)> {
+fn work(sink: &mut Faulty<Mem>, done: &mut Vec<State>) -> Result<(), Failed> {
     let mut w = Writer::create(&mut *sink).map_err(|e| ("create", e))?;
-    w.add_provenance("provenance/ingest", &record())
-        .map_err(|e| ("add_provenance", e))?;
-    w.add_section("a", PRIVATE, &bytes(1, 5000), Some("provenance/ingest"))
-        .map_err(|e| ("add_section", e))?;
-    let mut big = w
-        .begin_section("b", PRIVATE, None)
-        .map_err(|e| ("begin_section", e))?;
-    for piece in 0..3 {
-        big.write(&bytes(piece, 3000)).map_err(|e| ("write", e))?;
-    }
-    big.finish().map_err(|e| ("finish", e))?;
-    w.commit().map_err(|e| ("commit", e))?;
+    on(&mut w, |w| {
+        w.add_provenance("provenance/ingest", &record())
+            .map_err(|e| ("add_provenance", e))?;
+        w.add_section("a", PRIVATE, &bytes(1, 5000), Some("provenance/ingest"))
+            .map_err(|e| ("add_section", e))?;
+        let mut big = w
+            .begin_section("b", PRIVATE, None)
+            .map_err(|e| ("begin_section", e))?;
+        for piece in 0..3 {
+            big.write(&bytes(piece, 3000)).map_err(|e| ("write", e))?;
+        }
+        big.finish().map_err(|e| ("finish", e))?;
+        w.commit().map(drop).map_err(|e| ("commit", e))
+    })?;
     done.push(State::from([
         ("a".into(), bytes(1, 5000)),
         (
@@ -98,10 +115,12 @@ fn work(
     ]));
     drop(w);
     let mut w = Writer::update(&mut *sink).map_err(|e| ("update", e))?;
-    w.remove("b").map_err(|e| ("remove", e))?;
-    w.add_section("c", PRIVATE, &bytes(3, 100), None)
-        .map_err(|e| ("add_section", e))?;
-    w.commit().map_err(|e| ("commit", e))?;
+    on(&mut w, |w| {
+        w.remove("b").map_err(|e| ("remove", e))?;
+        w.add_section("c", PRIVATE, &bytes(3, 100), None)
+            .map_err(|e| ("add_section", e))?;
+        w.commit().map(drop).map_err(|e| ("commit", e))
+    })?;
     done.push(State::from([
         ("a".into(), bytes(1, 5000)),
         ("c".into(), bytes(3, 100)),
@@ -157,6 +176,7 @@ fn every_failing_write_sync_or_read_of_a_writer_is_reported_and_leaves_a_whole_f
                 matches!(error, ContainerError::Write(_) | ContainerError::Read(_)),
                 "k = {k}: {call} returned {error}"
             );
+            assert_eq!(sink.ops(), k + 1, "k = {k}: operations after the failure");
             paths.insert(format!("{op:?} in {call}"));
             let last = done.last().cloned();
             let allowed = [last.clone(), Some(next_state(&done))];
@@ -240,7 +260,8 @@ struct Answer {
     sections: State,
     /// The container opened an older commit, and said so.
     fell_back: bool,
-    /// What a deep `verify` found.
+    /// What a deep `verify` found: a newer commit it could not read, and problems.
+    lost: Option<u64>,
     problems: Vec<String>,
 }
 
@@ -249,7 +270,7 @@ struct Answer {
 fn read(source: &Faulty<Mem>) -> Result<Answer, String> {
     let file = Container::open(source).map_err(|e| format!("open: {e}"))?;
     let mut sections = State::new();
-    for e in file.entries() {
+    for e in file.entries().iter().filter(|e| e.kind != Kind::PROVENANCE) {
         let mut buf = vec![0; usize::try_from(e.len).unwrap()];
         file.section(&e.name)
             .unwrap()
@@ -259,11 +280,13 @@ fn read(source: &Faulty<Mem>) -> Result<Answer, String> {
     }
     file.provenance("a")
         .map_err(|e| format!("provenance: {e}"))?;
-    let report = verify(source, Depth::Deep).map_err(|e: ReadError| format!("verify: {e}"))?;
+    let report = verify(source, Depth::Deep, &Memory::unlimited())
+        .map_err(|e: ReadError| format!("verify: {e}"))?;
     Ok(Answer {
         generation: file.generation(),
         sections,
         fell_back: file.recovered_from().is_some() || file.unreadable_block().is_some(),
+        lost: report.lost_generation,
         problems: report.problems.into_iter().map(|p| p.what).collect(),
     })
 }
@@ -273,7 +296,10 @@ fn a_failing_read_is_an_error_a_reported_fall_back_or_the_true_answer() {
     let file = finished();
     let clean = Faulty::new(Mem::new(file.clone()), Plan::NONE);
     let truth = read(&clean).unwrap();
-    assert!(!truth.fell_back && truth.problems.is_empty());
+    assert!(!truth.fell_back && truth.lost.is_none() && truth.problems.is_empty());
+    let mut states = Vec::new();
+    work(&mut Faulty::new(Mem::default(), Plan::NONE), &mut states).unwrap();
+    let older = &states[0];
     let ops = clean.ops();
     let mut paths = BTreeSet::new();
     for short_read in [false, true] {
@@ -284,10 +310,14 @@ fn a_failing_read_is_an_error_a_reported_fall_back_or_the_true_answer() {
             };
             let path = match read(&Faulty::new(Mem::new(file.clone()), plan)) {
                 Err(e) => e.split(':').next().unwrap().to_owned(),
-                Ok(answer) if answer.fell_back => "open fell back".to_owned(),
-                Ok(answer) if !answer.problems.is_empty() => {
+                Ok(answer) if answer.fell_back => {
+                    assert_eq!(answer.generation, 1, "k = {k}");
+                    assert_eq!(&answer.sections, older, "k = {k}");
+                    "open fell back".to_owned()
+                }
+                Ok(answer) if answer.lost.is_some() || !answer.problems.is_empty() => {
                     assert!(
-                        answer.problems.iter().all(|p| p.contains("cannot be")),
+                        answer.problems.iter().all(|p| p.contains("cannot be read")),
                         "k = {k}: {:?}",
                         answer.problems
                     );

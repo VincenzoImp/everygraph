@@ -2102,7 +2102,7 @@ everygraph query NAME GRAPH NODE [NODE]
 everygraph map GRAPH     [VIEW] [--out FILE --reveal full|summary]
 everygraph open GRAPH
 everygraph export GRAPH  [VIEW] [--topology-only] --out FILE
-everygraph verify FILE   [--deep]
+everygraph verify FILE   [--deep] [--strict]
 everygraph compact FILE  [--out NEW]
 everygraph doctor
 
@@ -2159,7 +2159,7 @@ Options particular to one name:
 | `map` | `--reveal full\|summary`, required with `--out` | `m.export(…, reveal=…)` |
 | `export` | `--topology-only` | — |
 | `compact` | `--out NEW` | — |
-| `verify` | `--deep` | — |
+| `verify` | `--deep`, `--strict` | — |
 
 `--directed` and `--undirected` on `ingest` declare what the input is; `--use-direction`
 on `run communities` asks the algorithm to use the direction the graph has. They are
@@ -2337,8 +2337,8 @@ write (§ 7). That of `verify` (#41) holds the report whether the file is intact
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "verify", "deep", "intact", "generation", "sections",
-    "sections_hashed", "bytes_hashed", "problems", "notes", "unchecked"
+    "schema", "verify", "deep", "intact", "generation", "lost_generation",
+    "sections", "sections_hashed", "bytes_hashed", "problems", "notes", "unchecked"
   ],
   "properties": {
     "schema": {"const": 1},
@@ -2346,6 +2346,7 @@ write (§ 7). That of `verify` (#41) holds the report whether the file is intact
     "deep": {"type": "boolean"},
     "intact": {"type": "boolean"},
     "generation": {"type": ["integer", "null"], "minimum": 1},
+    "lost_generation": {"type": ["integer", "null"], "minimum": 2},
     "sections": {"type": "integer", "minimum": 0},
     "sections_hashed": {"type": "integer", "minimum": 0},
     "bytes_hashed": {"type": "integer", "minimum": 0},
@@ -2368,7 +2369,11 @@ write (§ 7). That of `verify` (#41) holds the report whether the file is intact
 ```
 
 `verify` is the file checked, as given; `generation` is the commit it reads as, `null`
-when it is not a graph file; `intact` is true exactly when `problems` is empty.
+when it is not a graph file; `lost_generation` is a newer commit the file holds but
+cannot read (its table or its header block is damaged, or its commit was cut short),
+`null` otherwise; `intact` is true exactly when `problems` is empty. A lost generation
+is a warning, status 0, or status 5 with `--strict` (`design/DECISIONS.md`, "A lost
+newest commit").
 `section` is `null` for the header and the table of contents. `notes` are what may be
 damage or the trace of a commit cut short, which leaves the file whole; `unchecked`
 says which checks could not be made (a declaration the file's provenance lacks).

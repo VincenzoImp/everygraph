@@ -18,7 +18,14 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 toolchain="${FUZZ_TOOLCHAIN:-$(cat "$root/tools/nightly-toolchain")}"
 targets=(everygraph-format/adjacency everygraph-format/container everygraph-ingest/text)
-limits=(-malloc_limit_mb=64 -rss_limit_mb=2048 -max_len=8192)
+
+# The libFuzzer options of a target. A container needs its two header blocks and a
+# table of contents at 8192 or beyond, so a whole file has at least 12,288 bytes.
+limits() {
+    local len=8192
+    [ "$1" = container ] && len=65536
+    echo "-malloc_limit_mb=64 -rss_limit_mb=2048 -max_len=$len"
+}
 
 crate_of() {
     for t in "${targets[@]}"; do
@@ -52,16 +59,19 @@ case "${1:-}" in
         fi
         for target in "${names[@]}"; do
             echo "== replay $target"
-            fuzz "$target" run "$target" "fuzz/corpus/$target" -- -runs=0 "${limits[@]}"
+            # shellcheck disable=SC2046  # the options are words
+            fuzz "$target" run "$target" "fuzz/corpus/$target" -- -runs=0 $(limits "$target")
         done
         ;;
     run)
         [ $# -eq 3 ] || { echo "usage: tools/fuzz.sh run TARGET SECONDS" >&2; exit 2; }
-        fuzz "$2" run "$2" "fuzz/corpus/$2" -- -max_total_time="$3" "${limits[@]}"
+        # shellcheck disable=SC2046
+        fuzz "$2" run "$2" "fuzz/corpus/$2" -- -max_total_time="$3" $(limits "$2")
         ;;
     cmin)
         [ $# -eq 2 ] || { echo "usage: tools/fuzz.sh cmin TARGET" >&2; exit 2; }
-        fuzz "$2" cmin "$2" "fuzz/corpus/$2" -- "${limits[@]}"
+        # shellcheck disable=SC2046
+        fuzz "$2" cmin "$2" "fuzz/corpus/$2" -- $(limits "$2")
         ;;
     *)
         sed -n '4,14p' "$0" | sed 's/^# \{0,1\}//'

@@ -194,6 +194,86 @@ fn a_file_that_cannot_be_read_is_an_io_error_with_status_1() {
 }
 
 #[test]
+fn what_is_not_a_graph_file_says_so_and_a_directory_cannot_be_read() {
+    let dir = scratch("other");
+    let csv = dir.join("-edges.csv");
+    std::fs::write(&csv, "source,target\n1,2\n").unwrap();
+    // `--` ends the options: a file may start with `-`.
+    let o = everygraph(&["verify", "--", csv.to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(5));
+    assert!(
+        stdout(&o).starts_with(&format!(
+            "error: {} is not an Everygraph graph file.\n",
+            csv.display()
+        )),
+        "{}",
+        stdout(&o)
+    );
+    assert!(!stdout(&o).contains("restore a copy"));
+    let o = everygraph(&["verify", dir.to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("it is a directory."), "{}", stderr(&o));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A lost newest commit is a warning on standard error and status 0; status 5 with
+/// `--strict` (`design/DECISIONS.md`, "A lost newest commit").
+#[test]
+fn a_lost_newest_commit_is_a_warning_and_an_error_with_strict() {
+    let dir = scratch("lost");
+    let path = graph_file(&dir, 4);
+    let mut w = Writer::update(MemorySource::new(std::fs::read(&path).unwrap())).unwrap();
+    w.add_section("results/x", Kind::PRIVATE, b"a result", None)
+        .unwrap();
+    w.commit().unwrap();
+    let mut bytes = w.into_sink().into_inner();
+    // The newest table of contents is the last block.
+    let toc = bytes.len() - 4096;
+    bytes[toc + 40] ^= 1;
+    std::fs::write(&path, &bytes).unwrap();
+    let file = path.to_str().unwrap();
+    let o = everygraph(&["verify", file]);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    assert!(
+        stderr(&o).starts_with("warning: The newest commit, generation 2, could not be read.\n"),
+        "{}",
+        stderr(&o)
+    );
+    assert!(stdout(&o).contains("generation 1\n"), "{}", stdout(&o));
+    assert_eq!(
+        everygraph(&["verify", "--strict", file]).status.code(),
+        Some(5)
+    );
+    let o = everygraph(&["verify", "--json", file]);
+    assert!(stdout(&o).contains(r#""generation":1,"lost_generation":2,"#));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A section name is any UTF-8: its control characters are shown escaped, never sent
+/// to the terminal.
+#[test]
+fn control_characters_in_names_are_escaped() {
+    let dir = scratch("escape");
+    let mut w = Writer::create(MemorySource::new(Vec::new())).unwrap();
+    w.add_section("x\u{1b}[2J", Kind::PRIVATE, b"bytes", None)
+        .unwrap();
+    w.commit().unwrap();
+    let mut bytes = w.into_sink().into_inner();
+    bytes[8192] ^= 1;
+    let path = dir.join("graph.eg");
+    std::fs::write(&path, &bytes).unwrap();
+    let o = everygraph(&["verify", path.to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(5));
+    assert!(
+        stdout(&o).contains("  x\\u{1b}[2J: its bytes do not match its hash\n"),
+        "{}",
+        stdout(&o)
+    );
+    assert!(!o.stdout.contains(&0x1b));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn usage_errors_exit_with_status_2_and_help_is_a_result() {
     for args in [
         &[][..],

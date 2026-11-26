@@ -14,7 +14,7 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use everygraph_core::WriteError;
+use everygraph_core::{Memory, WriteError};
 use everygraph_format::container::{Container, ContainerError, Kind, Writer};
 use everygraph_format::verify::{Depth, verify};
 use everygraph_io::{FileSink, FileSource};
@@ -82,5 +82,9 @@ fn on_a_small_disk(dir: &Path) {
     let file = Container::open(&source).unwrap();
     assert_eq!(file.generation(), 1);
     assert!(file.get("big").is_none());
-    assert!(verify(&source, Depth::Deep).unwrap().is_intact());
+    assert!(
+        verify(&source, Depth::Deep, &Memory::unlimited())
+            .unwrap()
+            .is_intact()
+    );
 }

@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use everygraph_core::{ByteSource, MemorySource, ReadError};
+use everygraph_core::{ByteSource, Memory, MemorySource, ReadError};
 use everygraph_format::adjacency::encode;
 use everygraph_format::container::{Kind, Provenance, Writer};
 use everygraph_format::verify::{Depth, Problem, Report, verify};
@@ -70,7 +70,7 @@ fn triangle() -> Vec<Vec<u32>> {
 const UNDIRECTED: &[(&str, &str)] = &[("directed", "false"), ("self_loops", "drop")];
 
 fn check(file: &[u8], depth: Depth) -> Report {
-    verify(&MemorySource::new(file), depth).unwrap()
+    verify(&MemorySource::new(file), depth, &Memory::unlimited()).unwrap()
 }
 
 /// A source that is not in memory: every byte comes through `read_at`.
@@ -89,7 +89,10 @@ impl ByteSource for NotMapped<'_> {
 /// The problems a deep check finds, the same whether the file is mapped or read.
 fn problems(file: &[u8]) -> Vec<Problem> {
     let report = check(file, Depth::Deep);
-    assert_eq!(verify(&NotMapped(file), Depth::Deep).unwrap(), report);
+    assert_eq!(
+        verify(&NotMapped(file), Depth::Deep, &Memory::unlimited()).unwrap(),
+        report
+    );
     report.problems
 }
 
@@ -111,38 +114,25 @@ fn a_sound_file_is_intact_at_both_depths() {
     );
 }
 
-/// Acceptance: "every single-bit flip injected into a test file is detected". The file
-/// is written once, so every byte belongs to a header block, a section, the table of
-/// contents or their padding, and each must be checked. A flip in the first 128 bytes
-/// of header block 1, which the file does not read from, cannot be told from a commit
-/// cut short: it is a note; every other flip is a problem.
-#[test]
+/// Flips every bit of `file` in turn and returns the bits whose deep report `expected`
+/// rejects.
 #[expect(
     clippy::disallowed_methods,
     reason = "a test may use threads; the crate's code goes through par, sequential here"
 )]
-fn every_single_bit_flip_is_detected() {
-    let file = graph(&triangle(), UNDIRECTED);
-    assert!(check(&file, Depth::Deep).is_intact());
+fn flips(file: &[u8], expected: impl Fn(usize, &Report) -> bool + Sync) -> Vec<usize> {
     let bits = file.len() * 8;
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
-    let missed: Vec<usize> = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
             .map(|t| {
-                let file = &file;
+                let expected = &expected;
                 scope.spawn(move || {
-                    let mut damaged = file.clone();
+                    let mut damaged = file.to_vec();
                     let mut missed = Vec::new();
                     for bit in (t..bits).step_by(threads) {
                         damaged[bit / 8] ^= 1 << (bit % 8);
-                        let report = check(&damaged, Depth::Deep);
-                        let unused_head = (4096 * 8..4224 * 8).contains(&bit);
-                        let found = if unused_head {
-                            report.is_intact() && report.notes.len() == 1
-                        } else {
-                            !report.is_intact()
-                        };
-                        if !found {
+                        if !expected(bit, &check(&damaged, Depth::Deep)) {
                             missed.push(bit);
                         }
                         damaged[bit / 8] ^= 1 << (bit % 8);
@@ -151,16 +141,85 @@ fn every_single_bit_flip_is_detected() {
                 })
             })
             .collect();
-        workers
+        let mut missed: Vec<usize> = workers
             .into_iter()
             .flat_map(|w| w.join().unwrap())
-            .collect()
+            .collect();
+        missed.sort_unstable();
+        missed
+    })
+}
+
+/// Bits of the 128 used bytes of header block `b`.
+fn head(b: usize) -> std::ops::Range<usize> {
+    b * 4096 * 8..(b * 4096 + 128) * 8
+}
+
+/// Acceptance: "every single-bit flip injected into a test file is detected". The file
+/// is written once, so every byte belongs to a header block, a section, the table of
+/// contents or their padding, and each must be checked. A flip in the used bytes of
+/// header block 1, which the file does not read from, cannot be told from a commit cut
+/// short: it is a note; every other flip is a problem.
+#[test]
+fn every_single_bit_flip_is_detected() {
+    let file = graph(&triangle(), UNDIRECTED);
+    assert!(check(&file, Depth::Deep).is_intact());
+    let missed = flips(&file, |bit, report| {
+        if head(1).contains(&bit) {
+            report.is_intact() && report.notes.len() == 1
+        } else {
+            !report.is_intact()
+        }
     });
     assert!(
         missed.is_empty(),
-        "{} of {bits} flips not detected, the first at bits {:?}",
-        missed.len(),
-        &missed[..missed.len().min(10)]
+        "{} flips missed: {missed:?}",
+        missed.len()
+    );
+}
+
+/// The same on a file of two commits. A flip in the newest header block (block 1) makes
+/// the file read as generation 1: it cannot be told from a second commit cut short
+/// while its header block was written, so it is a note, and generation 2 is named as
+/// lost when its table of contents is whole (`design/DECISIONS.md`, "A lost newest
+/// commit"). A flip in the newest table of contents makes the file read as generation
+/// 1 too, with generation 2 named as lost. A flip in the table of generation 1, which
+/// no reader of generation 2 reads, changes nothing.
+#[test]
+fn every_single_bit_flip_of_a_file_of_two_commits_is_detected_or_harmless() {
+    let mut w = Writer::update(Mem::new(graph(&triangle(), UNDIRECTED))).unwrap();
+    let old_end = w.sink().len();
+    w.add_section("results/x", Kind::PRIVATE, b"a result", None)
+        .unwrap();
+    w.commit().unwrap();
+    let file = w.into_sink().into_inner();
+    assert_eq!(check(&file, Depth::Deep).generation, Some(2));
+    let bits =
+        |end: u64| usize::try_from(end - 4096).unwrap() * 8..usize::try_from(end).unwrap() * 8;
+    let (old_toc, new_toc) = (bits(old_end), bits(file.len() as u64));
+    let missed = flips(&file, |bit, report| {
+        let note = report.is_intact() && report.notes.len() == 1;
+        let lost =
+            report.is_intact() && report.generation == Some(1) && report.lost_generation == Some(2);
+        if new_toc.contains(&bit) {
+            !report.is_intact() || lost
+        } else if old_toc.contains(&bit) {
+            report.is_intact() && report.notes.is_empty()
+        } else if head(0).contains(&bit) {
+            !report.is_intact() || (note && report.generation == Some(2))
+        } else if head(1).contains(&bit) {
+            // The block's own hash: the rest of the block names generation 2 and its table.
+            let lost =
+                !(4096 + 96..4096 + 128).contains(&(bit / 8)) || report.lost_generation == Some(2);
+            !report.is_intact() || (note && report.generation == Some(1) && lost)
+        } else {
+            !report.is_intact()
+        }
+    });
+    assert!(
+        missed.is_empty(),
+        "{} flips missed: {missed:?}",
+        missed.len()
     );
 }
 
@@ -180,6 +239,145 @@ fn the_fast_check_reads_only_small_sections() {
     assert_eq!(deep.problems.len(), 1);
     assert_eq!(deep.problems[0].section.as_deref(), Some("results/big"));
     assert_eq!(deep.problems[0].what, "its bytes do not match its hash");
+}
+
+/// A file holding adjacency `adjacency.out` made of `index` and `data` as given, and
+/// the `extra` sections.
+fn raw(index: &[u8], data: &[u8], extra: &[(&str, Kind)]) -> Vec<u8> {
+    let mut w = Writer::create(Mem::default()).unwrap();
+    w.add_section("adjacency.out.index", Kind::ADJACENCY_INDEX, index, None)
+        .unwrap();
+    w.add_section("adjacency.out.data", Kind::ADJACENCY_DATA, data, None)
+        .unwrap();
+    for (name, kind) in extra {
+        w.add_section(name, *kind, &[], None).unwrap();
+    }
+    w.commit().unwrap();
+    w.into_sink().into_inner()
+}
+
+/// Records that the writer hashed but that do not decode as their index says.
+#[test]
+fn records_that_do_not_decode_or_do_not_increase_are_found() {
+    // Node 0 of 3 lists 2 and 2 + 2^24 + 1: words of one byte and of four bytes.
+    let e = encode(&[0, 2, 2, 2], &[2, 2 + (1 << 24) + 1]).unwrap();
+    assert_eq!(e.data, [0x0c, 0x04, 0x00, 0x00, 0x00, 0x01]);
+    let first = |file: &[u8]| problems(file).remove(0).what;
+    // The same lengths, but the second gap wraps past 2^32 to neighbour 1.
+    let wraps = [0x0c, 0x04, 0xfe, 0xff, 0xff, 0xff];
+    assert_eq!(
+        first(&raw(&e.index, &wraps, &[])),
+        "node 0: its list is not strictly increasing"
+    );
+    // The control byte asks for a first word of two bytes: one byte more than the record.
+    let long = [0x0d, 0x04, 0x00, 0x00, 0x00, 0x01];
+    assert_eq!(
+        first(&raw(&e.index, &long, &[])),
+        "node 0: its record does not decode"
+    );
+    let events = raw(
+        &e.index,
+        &e.data,
+        &[("adjacency.out.events", Kind::ADJACENCY_EVENTS)],
+    );
+    assert_eq!(
+        first(&events),
+        "an events section, but adjacency.out.index does not announce one"
+    );
+}
+
+/// A source that counts the bytes read through it.
+struct Counting<'a> {
+    bytes: &'a [u8],
+    read: std::sync::atomic::AtomicU64,
+}
+
+impl ByteSource for Counting<'_> {
+    fn len(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        self.read
+            .fetch_add(buf.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        MemorySource::new(self.bytes).read_at(offset, buf)
+    }
+}
+
+/// Spec § 7, "No amplification": one large provenance record that a hundred adjacencies
+/// refer to is read once, not once for each.
+#[test]
+fn a_provenance_record_is_read_once_however_many_sections_refer_to_it() {
+    let mut record = built_with(UNDIRECTED);
+    record
+        .parameters
+        .extend((0..20_000).map(|i| (format!("key{i:05}"), "v".repeat(40))));
+    let mut w = Writer::create(Mem::default()).unwrap();
+    w.add_provenance("provenance/big", &record).unwrap();
+    for i in 0..100 {
+        add_adjacency(&mut w, &format!("a{i:03}"), &[vec![]], "provenance/big");
+    }
+    w.commit().unwrap();
+    let file = w.into_sink().into_inner();
+    assert!(file.len() > 1 << 20);
+    let source = Counting {
+        bytes: &file,
+        read: 0.into(),
+    };
+    let report = verify(&source, Depth::Deep, &Memory::unlimited()).unwrap();
+    assert!(
+        report.is_intact() && report.unchecked.is_empty(),
+        "{report:?}"
+    );
+    let read = source.read.into_inner();
+    assert!(
+        read < 3 * file.len() as u64,
+        "{read} bytes read of a file of {}",
+        file.len()
+    );
+}
+
+/// From a source that is not mapped, the data is read a block at a time, each buffer
+/// reserved against the budget; what does not fit is unchecked, never allocated.
+#[test]
+fn a_source_that_is_not_mapped_is_read_in_pieces_within_the_budget() {
+    use std::sync::Arc;
+
+    use everygraph_core::Budget;
+
+    let lists: Vec<Vec<u32>> = (0..2000u32)
+        .map(|v| (0..2000).filter(|&t| t != v && (t + v) % 7 == 0).collect())
+        .collect();
+    let file = graph(&lists, UNDIRECTED);
+    let data = Writer::update(Mem::new(file.clone()))
+        .unwrap()
+        .get("adjacency.out.data")
+        .unwrap()
+        .len;
+    let with = |limit: u64, source: &dyn Fn(&Memory) -> Report| {
+        let budget = Arc::new(Budget::new(limit));
+        let report = source(&Memory::from(Arc::clone(&budget)));
+        (report, budget.peak())
+    };
+    let read = |memory: &Memory| verify(&NotMapped(&file), Depth::Deep, memory).unwrap();
+    let mapped = |memory: &Memory| verify(&MemorySource::new(&file), Depth::Deep, memory).unwrap();
+    let (report, peak) = with(data / 2, &read);
+    assert!(
+        report.is_intact() && report.unchecked.is_empty(),
+        "{report:?}"
+    );
+    assert!(peak < data / 2, "peak {peak} of a {data}-byte section");
+    let (report, _) = with(16 << 10, &read);
+    assert!(report.is_intact());
+    assert_eq!(
+        report.unchecked,
+        ["adjacency.out: its structure (not enough memory for its buffers)"]
+    );
+    let (report, _) = with(16 << 10, &mapped);
+    assert!(
+        report.is_intact() && report.unchecked.is_empty(),
+        "{report:?}"
+    );
 }
 
 /// Faults the writer hashed as if they were right: only the structure finds them.
@@ -301,25 +499,30 @@ fn adjacency_sections_must_come_in_pairs_with_the_right_names() {
     );
 }
 
+/// Three commits; then the newest table of contents, or the newest header block, is
+/// damaged. Either way the file reads as generation 2, whole, and generation 3 is named.
 #[test]
-fn a_file_that_fell_back_to_an_older_commit_is_not_intact() {
+fn a_file_that_reads_as_an_older_commit_names_the_lost_one() {
     let mut w = Writer::create(Mem::default()).unwrap();
-    w.add_section("a", Kind::new(0x8000_0001).unwrap(), b"one", None)
-        .unwrap();
-    w.commit().unwrap();
-    w.add_section("b", Kind::new(0x8000_0001).unwrap(), b"two", None)
-        .unwrap();
-    w.commit().unwrap();
-    let mut file = w.into_sink().into_inner();
-    // The newest table of contents is the last item; damage its first byte.
+    for name in ["a", "b", "c"] {
+        w.add_section(name, Kind::PRIVATE, name.as_bytes(), None)
+            .unwrap();
+        w.commit().unwrap();
+    }
+    let file = w.into_sink().into_inner();
+    let newest_block = 0; // generation 3: blocks alternate 0, 1, 0.
     let toc = file.len() - 4096;
-    file[toc] ^= 1;
-    let report = check(&file, Depth::Fast);
-    assert_eq!(report.generation, Some(1));
-    assert_eq!(
-        report.problems[0].what,
-        "the newest commit (generation 2) cannot be used; the file reads as generation 1"
-    );
+    for at in [toc, newest_block * 4096 + 100] {
+        let mut damaged = file.clone();
+        damaged[at] ^= 1;
+        let report = check(&damaged, Depth::Fast);
+        assert!(report.is_intact(), "{:?}", report.problems);
+        assert_eq!(
+            (report.generation, report.lost_generation),
+            (Some(2), Some(3))
+        );
+    }
+    assert_eq!(check(&file, Depth::Fast).lost_generation, None);
 }
 
 #[test]
@@ -338,7 +541,7 @@ fn what_is_not_a_graph_file_is_a_problem_and_a_failing_source_an_error() {
         }
     }
     assert!(matches!(
-        verify(&Failing, Depth::Fast),
+        verify(&Failing, Depth::Fast, &Memory::unlimited()),
         Err(ReadError::Backend(_))
     ));
 }

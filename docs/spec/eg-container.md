@@ -314,7 +314,10 @@ Opening checks neither (it reads only the header and the TOC); verification chec
 both. Verification also checks bytes 128 to 4095 of both header blocks. The other
 block — not the one the file reads from — holds a valid header or is empty, unless a
 commit was cut short while it was being written: such a block, which no reader can
-tell from a damaged one, is reported as a note, not as damage.
+tell from a damaged one, is reported as a note, not as damage. When the file reads as
+an older commit than one it holds — the newest table of contents is unusable, or the
+newest header block is not valid while the table it names is whole — verification
+names the lost generation; that too is not damage of what the file reads as.
 
 A section is checked against its hash when it is used for something that must be right
 (`everygraph verify`, compaction, a provenance record) — not when the file is opened,

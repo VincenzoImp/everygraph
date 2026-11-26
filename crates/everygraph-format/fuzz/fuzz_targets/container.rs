@@ -11,13 +11,14 @@
 //!   agree), its records read, and compacted into a copy that verifies;
 //! - 3: a decision seed: the first half of the input is a list of writer operations that
 //!   build a valid file, the second half damages it. A deep `verify` that calls the
-//!   damaged file intact must read every section as it was written.
+//!   damaged file intact must read every section as it was written; and the damaged
+//!   file goes through mode 2, which reaches `verify_all` and `compact` on real files.
 
 #![no_main]
 
 use std::collections::BTreeMap;
 
-use everygraph_core::{ByteSource, MemorySource};
+use everygraph_core::{ByteSource, Memory, MemorySource};
 use everygraph_format::adjacency::encode;
 use everygraph_format::container::{Container, Kind, Writer, compact, fuzzing};
 use everygraph_format::verify::{Depth, verify};
@@ -59,7 +60,7 @@ fn contents<S: ByteSource>(file: &Container<S>) -> BTreeMap<String, Vec<u8>> {
 
 fn file(bytes: &[u8]) {
     let source = MemorySource::new(bytes);
-    let report = verify(&source, Depth::Deep).expect("memory does not fail");
+    let report = verify(&source, Depth::Deep, &Memory::unlimited()).expect("memory does not fail");
     let Ok(file) = Container::open(&source) else {
         assert!(!report.is_intact());
         return;
@@ -131,7 +132,7 @@ fn built_then_damaged(bytes: &[u8]) {
         (file.generation(), contents(&file))
     };
     assert!(
-        verify(&MemorySource::new(clean.as_slice()), Depth::Deep).unwrap().notes.is_empty(),
+        verify(&MemorySource::new(clean.as_slice()), Depth::Deep, &Memory::unlimited()).unwrap().notes.is_empty(),
         "a file written without failures has nothing to note"
     );
     let mut damaged = clean;
@@ -139,16 +140,20 @@ fn built_then_damaged(bytes: &[u8]) {
         let at = usize::from(u16::from_le_bytes([hit[0], hit[1]])) * 7 % damaged.len();
         damaged[at] ^= hit[2];
     }
+    file(&damaged);
     let source = MemorySource::new(damaged.as_slice());
-    let report = verify(&source, Depth::Deep).unwrap();
+    let report = verify(&source, Depth::Deep, &Memory::unlimited()).unwrap();
     if report.is_intact() {
         let file = Container::open(&source).unwrap();
         if file.generation() == generation {
             assert_eq!(contents(&file), written, "damage that verify did not see");
         } else {
-            // A damaged newest header block reads like a commit cut short while it was
-            // written: the older commit is whole, and verify notes the block.
-            assert!(!report.notes.is_empty(), "a commit lost without a note");
+            // A damaged newest table or header block reads like a commit cut short: the
+            // older commit is whole, and verify names the lost one or notes the block.
+            assert!(
+                report.lost_generation.is_some() || !report.notes.is_empty(),
+                "a commit lost without a word"
+            );
         }
     }
 }

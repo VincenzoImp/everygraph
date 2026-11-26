@@ -2,13 +2,9 @@
 
 //! The `everygraph` command (`docs/api-sketch.md` § 5, `docs/ux-contract.md`).
 //!
-//! It has one command so far, `verify` (issue #41); the others come with issue #98.
-//! What it owns: reading the command line, choosing the rendering of each stream
-//! (ux-contract § 2.2), and printing results, errors and exit statuses (§ 6.4).
-//!
-//! The command line is read by hand, not with an argument-parsing crate: one command
-//! with two flags does not justify a dependency, and #98 chooses the parser for the
-//! full command set (`design/DECISIONS.md`, "Reading the command line").
+//! What it owns: reading the command line (by hand: `design/DECISIONS.md`, "Reading the
+//! command line"), choosing the rendering of each stream (ux-contract § 2.2), and
+//! printing results, errors and exit statuses (§ 6.4).
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -47,15 +43,19 @@ const VERIFY_HELP: &str = "\
 Check that a graph file (.eg) is intact.
 
 Usage
-  everygraph verify FILE [--deep] [--json]
+  everygraph verify FILE [--deep] [--strict] [--json]
 
 Options
   --deep                every byte and every invariant; without it, the header,
                         the table of contents and the sections up to 1 MiB
+  --strict              exit with status 5 also when the newest commit cannot
+                        be read and the file reads as the one before
   --json                print the report as JSON, with nothing around it
   -h, --help            this text
+  --                    what follows is the file, even if it starts with -
 
-Exit status: 0 intact, 5 damaged, 1 the file cannot be read.
+Exit status: 0 intact, 5 damaged, 1 the file cannot be read, 4 not enough
+memory.
 ";
 
 fn main() -> ExitCode {
@@ -101,12 +101,19 @@ fn run(args: &[OsString]) -> Result<ExitCode, Usage> {
         }
         Some("verify") => {
             let mut file = None;
-            let (mut deep, mut json) = (false, false);
+            let mut options = verify::Options {
+                deep: false,
+                strict: false,
+                json: false,
+            };
+            let mut only_files = false;
             for arg in rest {
-                match arg.to_str() {
+                match arg.to_str().filter(|_| !only_files) {
                     Some("-h" | "--help") => return help(VERIFY_HELP),
-                    Some("--deep") => deep = true,
-                    Some("--json") => json = true,
+                    Some("--deep") => options.deep = true,
+                    Some("--strict") => options.strict = true,
+                    Some("--json") => options.json = true,
+                    Some("--") => only_files = true,
                     Some(option) if option.starts_with('-') => {
                         return Err(usage(
                             format!("Unknown option {option}."),
@@ -121,12 +128,7 @@ fn run(args: &[OsString]) -> Result<ExitCode, Usage> {
             }
             let file =
                 file.ok_or_else(|| usage("verify needs a FILE.", "everygraph verify --help"))?;
-            Ok(verify::run(
-                &file,
-                deep,
-                json,
-                &Style::of(&std::io::stdout()),
-            ))
+            Ok(verify::run(&file, &options, &Style::of(&std::io::stdout())))
         }
         _ => Err(usage(
             format!("Unknown command {}.", command.to_string_lossy()),
