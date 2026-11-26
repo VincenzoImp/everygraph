@@ -137,14 +137,29 @@ def test_top_orders_by_value_then_graph_order(tmp_path):
 def test_a_kernel_that_does_not_fit_is_refused_with_the_smallest_budget(small, validate):
     _, path = small
     g = eg.read(path, progress=False)
+    events = []
     with pytest.raises(eg.InsufficientBudget) as e:
-        g.pagerank(memory=64, progress=False)
+        g.pagerank(memory=64, progress=events.append)
     doc = e.value.to_dict()
     validate(doc, "urn:everygraph:schema:error:1")
-    assert doc["budget_bytes"] == 64 and doc["smallest_budget_bytes"] is None
-    assert e.value.ways_forward[0].python.startswith("g.pagerank(memory=")
-    assert e.value.ways_forward[0].needs_bytes > 64
-    assert str(e.value).splitlines()[-1] == "Nothing was changed."
+    smallest = doc["smallest_budget_bytes"]
+    assert doc["budget_bytes"] == 64 and smallest > 64
+    assert doc["arithmetic"]["count"] == g.num_nodes
+    assert e.value.ways_forward[0].python.startswith('g.pagerank(memory="')
+    assert e.value.ways_forward[0].needs_bytes == smallest
+    text = str(e.value)
+    assert text.startswith(f"pagerank() needs {eg._text.size(doc['needs_bytes'])} for per-node state")
+    flat = " ".join(text.split())
+    assert "; the budget is 64 B. The edges stay on disk either way." in flat
+    assert text.splitlines()[-1] == "Nothing was changed."
+    # One plan first, the error last (G-16); the plan is the refusal's.
+    assert [x["event"] for x in events] == ["plan", "error"]
+    assert events[0]["plan"]["refusal"]["smallest_budget_bytes"] == smallest
+    assert events[1]["error"] == doc
+    # The smallest budget runs; one byte less is refused before any work.
+    assert g.pagerank(memory=smallest, progress=False).num_rows == g.num_nodes
+    with pytest.raises(eg.InsufficientBudget):
+        g.pagerank(memory=smallest - 1, progress=False)
 
 
 def directed_graphs():
@@ -247,10 +262,87 @@ def test_top_of_a_bfs_ranks_by_distance(small):
 def test_kernel_events_follow_the_event_schema(small, validate):
     _, path = small
     events = []
-    eg.read(path, progress=False).pagerank(progress=events.append)
-    assert [e["state"] for e in events] == ["running", "done"]
+    pr = eg.read(path, progress=False).pagerank(progress=events.append)
+    kinds = [(e["event"], e.get("state")) for e in events]
+    assert kinds == [("plan", None), ("phase", "running"), ("phase", "done"), ("result", None)]
     for event in events:
         validate(event, "urn:everygraph:schema:event:1")
+    assert events[0]["plan"] == pr.meta["plan"]
+    result = events[-1]
+    assert result["counts"] == {"nodes": pr.num_rows, "rows": pr.num_rows}
+    assert result["peak_memory_bytes"] == pr.meta["peak_memory_bytes"]
+    assert result["peak_memory_bytes"] <= events[0]["plan"]["estimate"]["peak_memory_bytes"]["value"]
+    assert len({e["job"] for e in events}) == 1
+
+
+def test_explain_is_the_plan_of_a_dry_run(small, validate):
+    _, path = small
+    g = eg.read(path, progress=False)
+    events = []
+    plan = g.explain("pagerank", memory="1GB")
+    assert isinstance(plan, eg.Plan) and plan.fits and plan.refusal is None
+    dry = g.pagerank(memory="1GB", dry_run=True, progress=events.append)
+    # Free memory is read at each plan (P-2); the rest is the same.
+    same = [{k: v for k, v in p.to_dict().items() if k != "machine"} for p in (dry, plan)]
+    assert same[0] == same[1]
+    assert [e["event"] for e in events] == ["plan", "result"]
+    validate(plan.to_dict(), "urn:everygraph:schema:plan:1")
+    doc = plan.to_dict()
+    assert doc["budget"]["memory_bytes"] == 10**9 and doc["budget"]["memory_from"] == "argument"
+    assert doc["estimate"]["peak_memory_bytes"]["value"] == plan.estimate["peak_memory_bytes"]["value"]
+    # The step table of `design/preview/api.md` and `notebook.html`, cell 3.
+    lines = repr(plan).splitlines()
+    assert lines[0] == "Plan for pagerank() on the graph — damping 0.85, max_iter 100, precision full, tol 0.000001"
+    assert lines[1].startswith("  fits     peak ") and lines[1].endswith(" of 1.0 GB budget")
+    assert lines[2] == "" and lines[3].startswith("  1  keep per-node state") and "memory" in lines[3]
+    assert lines[4].startswith("  2  compute ranks") and lines[4].endswith("100 iterations at most")
+    assert lines[5] == ""
+    assert lines[6].startswith(f"  why      {g.num_nodes:,} nodes × ") and lines[6].endswith(" of state")
+    assert lines[-1].startswith("  estimate about ")
+    # A plan that does not fit is returned, not raised.
+    small_budget = g.explain("pagerank", memory=64)
+    assert not small_budget.fits and small_budget.refusal["error"] == "InsufficientBudget"
+    assert "Ways forward:" in repr(small_budget)
+    with pytest.raises(ValueError, match="operation"):
+        g.explain("communities")
+
+
+def test_a_result_on_a_file_is_kept_and_served_from_it(tmp_path, small, validate):
+    _, path = small
+    g = eg.read(path, out=tmp_path / "g.eg", progress=False)
+    first = g.pagerank(progress=False)
+    assert first.meta["cached"] is False
+    assert g.explain("pagerank").to_dict()["steps"][0]["step"] == "read the kept result"
+    events = []
+    again = g.pagerank(progress=events.append)
+    assert again.meta["cached"] is True and pa.table(again).equals(pa.table(first))
+    assert [(e["event"], e.get("state")) for e in events] == [("plan", None), ("phase", "kept"), ("result", None)]
+    for event in events:
+        validate(event, "urn:everygraph:schema:event:1")
+    # Other parameters are another result; a search is never kept.
+    assert g.pagerank(damping=0.5, progress=False).meta["cached"] is False
+    assert eg.open(tmp_path / "g.eg").pagerank(progress=False).meta["cached"] is True
+    source = pa.table(g.nodes())["node"][0].as_py()
+    g.bfs(source, progress=False)
+    assert g.bfs(source, progress=False).meta["cached"] is False
+
+
+def test_threads_and_memory_say_where_they_came_from(small, tmp_path, monkeypatch):
+    _, path = small
+    g = eg.read(path, out=tmp_path / "g.eg", progress=False)
+    budget = g.explain("kcore").to_dict()["budget"]
+    assert (budget["memory_from"], budget["threads_from"]) == ("default", "default")
+    cores = g.explain("kcore").to_dict()["machine"]["cores"]
+    assert cores == eg._native.default_threads() and budget["threads"] <= cores
+    asked = g.explain("kcore", threads=3, memory="2GB").to_dict()["budget"]
+    assert (asked["memory_from"], asked["threads_from"], asked["memory_bytes"]) == ("argument", "argument", 2 * 10**9)
+    assert asked["threads"] <= 3
+    opened = eg.open(tmp_path / "g.eg", memory="3GB", threads=2).explain("kcore").to_dict()["budget"]
+    assert (opened["memory_from"], opened["threads_from"], opened["memory_bytes"]) == ("graph", "graph", 3 * 10**9)
+    monkeypatch.setenv("EVERYGRAPH_MEMORY", "4GB")
+    assert g.explain("kcore").to_dict()["budget"]["memory_from"] == "environment"
+    with pytest.raises(ValueError, match="more than this machine has"):
+        g.kcore(memory="1000TB", progress=False)
 
 
 def test_components_match_networkx_and_are_numbered_by_size(small):
@@ -295,3 +387,79 @@ def test_degrees_count_distinct_neighbors(tmp_path, small):
     repeated = write_edges(tmp_path / "r.csv", [(0, 1), (1, 0), (0, 1), (1, 2)])
     degree = by_node(eg.read(repeated, progress=False).degrees(progress=False), "degree")
     assert degree == {0: 1, 1: 2, 2: 1}
+
+
+@pytest.mark.parametrize("name,multi", directed_graphs()[:3])
+def test_the_plan_bounds_what_a_call_reserves(tmp_path, name, multi):
+    path = write_edges(tmp_path / f"{name}.csv", list(multi.edges()), header="from,to")
+    g = eg.read(path, self_loops="keep", progress=False)
+    source = pa.table(g.nodes())["node"][0].as_py()
+    calls = [("pagerank", {}), ("pagerank", {"weight": False, "precision": "low"}), ("components", {}),
+             ("kcore", {}), ("degrees", {}), ("bfs", {"source": source}),
+             ("bfs", {"source": source, "direction": "in"}), ("bfs", {"source": source, "direction": "both"})]
+    for operation, parameters in calls:
+        plan = g.explain(operation, **parameters)
+        result = getattr(g, operation)(**parameters, progress=False)
+        assert result.meta["peak_memory_bytes"] <= plan.estimate["peak_memory_bytes"]["value"], operation
+    # The projection of a directed graph is merged in a phase of its own, and planned.
+    kcore = g.explain("kcore").to_dict()
+    assert [p["name"] for p in kcore["phases"]] == ["merging", "kcore"]
+    assert "merge both directions into memory" in repr(g.explain("kcore"))
+    # Strong components have no bound yet: a refusal names no smallest budget.
+    with pytest.raises(eg.InsufficientBudget) as e:
+        g.components(strong=True, memory=64, progress=False)
+    assert e.value.smallest_budget_bytes is None
+    assert e.value.ways_forward[0].python.startswith("g.components(strong=True, memory=")
+
+
+def test_an_exception_of_the_progress_function_ends_the_events_with_a_stop(small, validate):
+    _, path = small
+    g = eg.read(path, progress=False)
+    events = []
+
+    def third(event):
+        events.append(event)
+        if len(events) == 3:
+            raise RuntimeError("stop here")
+
+    with pytest.raises(RuntimeError, match="stop here"):
+        g.pagerank(progress=third)
+    assert events[0]["event"] == "plan" and events[-1]["event"] == "stopped"
+    assert events[-1]["stopped"]["reason"] == "exception"
+    for event in events:
+        validate(event, "urn:everygraph:schema:event:1")
+    assert g.pagerank(progress=False).num_rows == g.num_nodes, "the graph still answers"
+
+
+def test_a_long_call_prints_its_plan_block_first(small, monkeypatch, capsys):
+    from everygraph import _progress
+
+    _, path = small
+    g = eg.read(path, progress=False)
+    monkeypatch.setattr(_progress, "T_PLAN", 0.0)
+    g.kcore(memory="2GB")
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[0] == f"the graph · {eg._text.size(g._native.bytes)} · {g.num_nodes:,} nodes · {g.num_edges:,} edges"
+    assert [line[:12] for line in lines[2:6]] == ["  machine   ", "  budget    ", "  plan      ", "  estimate  "]
+    assert lines[3] == "  budget    2.0 GB memory (memory=)"
+    assert lines[4] == "  plan      in memory — the graph fits the memory budget"
+
+
+def test_a_stop_prints_the_stop_block(capsys):
+    from everygraph._progress import Progress
+
+    p = Progress("ingest", ["reading", "identifiers"], "0" * 16, True)
+    p("begin", "reading", None, 0.0, 0)
+    p("end", "reading", 3, 1.0, 0)
+    p("begin", "identifiers", None, 1.0, 0)
+    p.stopped("interrupt", "run the same call again", "nothing: there is no e.eg yet")
+    block = capsys.readouterr().err.splitlines()[-7:]
+    assert block == [
+        "Stopped at your request, during identifiers.",
+        "",
+        "  kept      reading",
+        "  dropped   identifiers — that phase starts again from its beginning",
+        "  written   nothing: there is no e.eg yet",
+        "",
+        "  continue:  run the same call again",
+    ]

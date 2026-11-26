@@ -37,7 +37,7 @@ use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
 use everygraph_kernels::pagerank::{self, Eigenvector, PageRank};
-use everygraph_kernels::run::{self, Column, Operation, Precision};
+use everygraph_kernels::run::{self, Column, Direction, Lanes, Operation, Precision, Weight};
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::projection::Projection;
@@ -445,17 +445,20 @@ pub fn kernels<S: Source>(
         Operation::PageRank {
             params: fixed,
             precision: Precision::Full,
+            weight: Weight::Pairs,
         },
         Operation::PageRank {
             params: fixed,
             precision: Precision::Low,
+            weight: Weight::Pairs,
         },
-        Operation::Components,
+        Operation::Components { strong: false },
         Operation::KCore,
         Operation::Degrees,
         Operation::Bfs {
             source: 0,
             max_hops: None,
+            direction: Direction::Out,
         },
     ];
     Plan::with(source, &memory, settings, |plan| {
@@ -464,7 +467,7 @@ pub fn kernels<S: Source>(
             return out;
         }
         for op in &ops {
-            let output = run::run(op, &plan, false, &memory).unwrap();
+            let output = run::run(op, &Lanes::out(&plan, false), &memory).unwrap();
             for (name, column) in &output.columns {
                 out.push((*name, column_hash(column)));
             }

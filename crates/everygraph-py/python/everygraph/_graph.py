@@ -4,14 +4,17 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import pathlib
 import sys
 import time
+import warnings
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Literal
 
 from . import _errors, _native, _text
+from ._plan import Plan
 from ._progress import T_PLAN, Progress
 from ._table import Table
 
@@ -21,6 +24,7 @@ ProgressArg = bool | Callable[[dict[str, Any]], None]
 
 _READ_PHASES = ["reading", "identifiers", "building", "checking"]
 _MEASURES = ("degree", "in_degree", "out_degree", "pagerank", "core")
+_PLANNED = ("pagerank", "components", "kcore", "degrees", "bfs")
 _DETAIL: dict[str, Callable[[dict[str, Any]], str]] = {
     "pagerank": lambda m: _text.counted(m["iterations"], "iteration", "iterations"),
     "components": lambda m: _text.counted(m["components"], "component", "components"),
@@ -33,20 +37,28 @@ def _machine() -> tuple[int, int] | None:
     return _native.machine_memory()
 
 
-def _threads(value: int | None) -> int:
-    if value is None:
-        env = os.environ.get("EVERYGRAPH_THREADS")
-        if env is None:
-            return _native.default_threads()
+def _thread_count(value: int | str) -> int:
+    """A number of threads: an `int` of at least 1, or the text of one from
+    `EVERYGRAPH_THREADS`."""
+    if isinstance(value, str):
         try:
-            value = int(env)
+            return _thread_count(int(value))
         except ValueError:
-            raise ValueError(f"EVERYGRAPH_THREADS={env!r} is not a number of threads") from None
+            raise ValueError(f"EVERYGRAPH_THREADS={value!r} is not a number of threads") from None
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("threads must be an int")
     if value < 1:
         raise ValueError(f"threads={value}: at least 1")
     return value
+
+
+def _threads(value: int | None) -> int:
+    """The threads of a call that is not planned: the argument, `EVERYGRAPH_THREADS`, or
+    the physical cores the process may use (`docs/api-sketch.md` § 2.4)."""
+    if value is None:
+        env = os.environ.get("EVERYGRAPH_THREADS")
+        return _native.default_threads() if env is None else _thread_count(env)
+    return _thread_count(value)
 
 
 def _memory(value: Size | None, given: str = "memory=") -> tuple[int, str]:
@@ -61,9 +73,15 @@ def _memory(value: Size | None, given: str = "memory=") -> tuple[int, str]:
         return (machine[1] // 2 if machine else 8 * 10**9), "default: half of free RAM"
     budget = _text.parse_size(value)
     if machine is not None and budget > machine[0]:
-        raise ValueError(
-            f"memory={value!r} is more than this machine has ({_text.size(machine[0])})"
-        )
+        total, free = machine
+        raise ValueError(_errors.text(
+            "The memory budget is more than this machine has.",
+            f"{given}{value!r} asks for {_text.size(budget)}; this machine has {_text.size(total)} of memory in all.",
+            [_errors.Way(f"--memory {_text.typed(free)}", f'memory="{_text.typed(free)}"', "what is free now"),
+             _errors.Way("leave out --memory", "leave out memory=",
+                         f"the default, half of free RAM: {_text.size(free // 2)} now")],
+            "Nothing was changed.",
+        ))
     return budget, origin
 
 
@@ -141,7 +159,7 @@ def read(
         if progress is True:
             print(_understood(path, seen, asked, budget, origin), file=sys.stderr)
         began = _clock()
-        with _stopping(events, "run the same call again"):
+        with _stopping(events, "run the same call again", "nothing: no graph was made"):
             native, info = _native.read(
                 str(path),
                 **asked,
@@ -164,18 +182,19 @@ def read(
 
 
 @contextlib.contextmanager
-def _stopping(events: Progress, resume: str) -> Iterator[None]:
-    """Sends the stop event before a `KeyboardInterrupt`, or an exception of the progress
-    function, leaves the call (G-16, G-18); engine errors pass through."""
+def _stopping(events: Progress, resume: str, written: str) -> Iterator[None]:
+    """Sends the stop event, and prints the stop block, before a `KeyboardInterrupt`, or
+    an exception of the progress function, leaves the call (G-16, G-18, § 5.4); engine
+    errors pass through."""
     try:
         yield
     except _native.NativeError:
         raise
     except KeyboardInterrupt:
-        events.stopped("interrupt", resume)
+        events.stopped("interrupt", resume, written)
         raise
     except Exception:
-        events.stopped("exception", resume)
+        events.stopped("exception", resume, written)
         raise
 
 
@@ -252,12 +271,15 @@ def _caller(function: str, first: str) -> Callable[[str], str]:
 
 class Graph:
     """An immutable graph, in a `.eg` file or in memory. Whole-graph algorithms are
-    methods that return a `Table` with one row per node in graph order; each takes
-    `memory=`, `threads=` and `progress=` (`docs/api-sketch.md` § 2.4)::
+    methods that return a `Table` with one row per node in graph order; each is planned
+    before it starts, and takes `memory=`, `threads=`, `dry_run=` and `progress=`
+    (`docs/api-sketch.md` § 2.4). On the whole graph of a file the result is kept in the
+    file and returned from there the next time (§ 2.8)::
 
         >>> g = eg.read("friends.csv")
         >>> g.pagerank().top(5)
         >>> g.components().sizes()
+        >>> g.explain("kcore", memory="1GB")
     """
 
     __slots__ = ("_native", "_memory", "_threads", "_temp_dir", "_info")
@@ -311,20 +333,22 @@ class Graph:
         weight: bool | str = True,
         memory: Size | None = None,
         threads: int | None = None,
+        dry_run: bool = False,
         progress: ProgressArg = True,
-    ) -> Table:
+    ) -> Table | Plan:
         """For every node (or the nodes given, in that order), its number of distinct
         neighbors: `node`, `degree`; on a directed graph `node`, `in_degree`,
-        `out_degree`, `degree` (neighbors in either direction). An identifier that is not in the graph gives a row
-        of nulls, counted in `meta["unknown"]` (`docs/api-sketch.md` § 2.2)::
+        `out_degree`, `degree` (neighbors in either direction). An identifier that is
+        not in the graph gives a row of nulls, counted in `meta["unknown"]`
+        (`docs/api-sketch.md` § 2.2)::
 
             >>> g.degrees().top(3, by="degree")
         """
         self._no_weight(weight)
         ids = None if nodes is None else self._native.lookup(_keys(nodes, "degrees"))
         unknown = {} if ids is None else {"unknown": sum(i is None for i in ids)}
-        return self._call("degrees", {"weight": weight}, memory, threads, progress,
-                          lambda m, t, e: self._native.degrees(ids, m, t, e), **unknown)
+        return self._call("degrees", {"weight": weight}, (memory, threads, dry_run), progress,
+                          lambda run, e: self._native.degrees(ids, run, e), **unknown)
 
     def pagerank(
         self,
@@ -337,12 +361,14 @@ class Graph:
         precision: Literal["full", "low"] = "full",
         memory: Size | None = None,
         threads: int | None = None,
+        dry_run: bool = False,
         progress: ProgressArg = True,
-    ) -> Table:
+    ) -> Table | Plan:
         """PageRank: `node`, `pagerank`, the scores summing to 1. Stops when the sum of
         absolute changes between two iterations is below `tol` (not scaled by the number
         of nodes, unlike NetworkX), or after `max_iter` iterations; `meta` has
-        `iterations` and `converged`. `precision="low"` keeps 32-bit state::
+        `iterations` and `converged`. `weight=True` counts the edges between a pair.
+        `precision="low"` keeps 32-bit state::
 
             >>> g.pagerank().top(5)
         """
@@ -359,9 +385,9 @@ class Graph:
             raise ValueError("personalize: an empty node set")
         parameters = {"damping": damping, "tol": tol, "max_iter": max_iter, "weight": weight,
                       "personalize": personalize is not None, "precision": precision}
-        return self._call("pagerank", parameters, memory, threads, progress,
-                          lambda m, t, e: self._native.pagerank(damping, tol, max_iter, weight is True, seeds,
-                                                                precision == "low", m, t, e))
+        return self._call("pagerank", parameters, (memory, threads, dry_run), progress,
+                          lambda run, e: self._native.pagerank(damping, tol, max_iter, weight is True, seeds,
+                                                               precision == "low", run, e))
 
     def components(
         self,
@@ -369,8 +395,9 @@ class Graph:
         strong: bool = False,
         memory: Size | None = None,
         threads: int | None = None,
+        dry_run: bool = False,
         progress: ProgressArg = True,
-    ) -> Table:
+    ) -> Table | Plan:
         """Weakly connected components, or with `strong=True` the strongly connected ones
         of a directed graph: `node`, `component`, numbered from 0 by decreasing size; of
         two of equal size, the one with the earlier node first::
@@ -384,22 +411,23 @@ class Graph:
                 ways_forward=[_errors.Way("leave out --strong", "g.components()", "the components")],
                 operation="components", reason="there is no direction to use",
             )
-        return self._call("components", {"strong": strong}, memory, threads, progress,
-                          lambda m, t, e: self._native.components(strong, m, t, e))
+        return self._call("components", {"strong": strong}, (memory, threads, dry_run), progress,
+                          lambda run, e: self._native.components(strong, run, e))
 
     def kcore(
         self,
         *,
         memory: Size | None = None,
         threads: int | None = None,
+        dry_run: bool = False,
         progress: ProgressArg = True,
-    ) -> Table:
+    ) -> Table | Plan:
         """The core number of each node, direction ignored: `node`, `core`::
 
             >>> g.kcore().sizes()
         """
-        return self._call("kcore", {}, memory, threads, progress,
-                          lambda m, t, e: self._native.kcore(m, t, e))
+        return self._call("kcore", {}, (memory, threads, dry_run), progress,
+                          lambda run, e: self._native.kcore(run, e))
 
     def bfs(
         self,
@@ -409,8 +437,9 @@ class Graph:
         max_hops: int | None = None,
         memory: Size | None = None,
         threads: int | None = None,
+        dry_run: bool = False,
         progress: ProgressArg = True,
-    ) -> Table:
+    ) -> Table | Plan:
         """Hops from `source` to every node: `node`, `distance`, `parent`; null where
         unreachable. `parent` is the earliest node in graph order one hop closer to the
         source::
@@ -428,8 +457,8 @@ class Graph:
                 node=str(source),
             )
         parameters = {"source": source, "direction": direction, "max_hops": max_hops}
-        return self._call("bfs", parameters, memory, threads, progress,
-                          lambda m, t, e: self._native.bfs(found, direction, max_hops, m, t, e))
+        return self._call("bfs", parameters, (memory, threads, dry_run), progress,
+                          lambda run, e: self._native.bfs(found, direction, max_hops, run, e))
 
     def top(self, by: str, n: int = 10, **run: Any) -> Table:
         """The `n` nodes with the highest value of a per-node measure (`"degree"`,
@@ -444,6 +473,15 @@ class Graph:
         if by == "core":
             return self.kcore(**run).top(n)
         return self.degrees(**run).top(n, by=by)
+
+    def explain(self, operation: str, /, **parameters: Any) -> Plan:
+        """How `operation` would run, with these parameters: the same as calling it with
+        `dry_run=True`. It never raises a refusal: a plan that does not fit says so::
+
+            >>> g.explain("pagerank", memory="4GB")
+        """
+        _choice("operation", operation, _PLANNED)
+        return getattr(self, operation)(**parameters, dry_run=True)
 
     # --- plumbing -----------------------------------------------------------
 
@@ -469,11 +507,22 @@ class Graph:
             )
         return [f for f in found if f is not None]
 
-    def _run(self, memory: Size | None, threads: int | None) -> tuple[int, int]:
-        return (
-            _memory(memory if memory is not None else self._memory)[0],
-            _threads(threads if threads is not None else self._threads),
-        )
+    def _run(self, memory: Size | None, threads: int | None, dry_run: bool) -> tuple[Any, ...]:
+        """How a call runs, as the planner takes it: the budget and the most threads,
+        each from the argument, the value given when the graph was obtained, the
+        environment, or the planner's default, with where it came from (§ 2.4)."""
+        if not isinstance(dry_run, bool):
+            raise TypeError("dry_run must be True or False")
+
+        def pick(argument: Any, given: Any, variable: str, parse: Callable[[Any], int]) -> tuple[int | None, str]:
+            for value, origin in ((argument, "argument"), (given, "graph"), (os.environ.get(variable), "environment")):
+                if value is not None:
+                    return parse(value), origin
+            return None, "default"
+
+        budget = pick(memory, self._memory, "EVERYGRAPH_MEMORY", _text.parse_size)
+        pool = pick(threads, self._threads, "EVERYGRAPH_THREADS", _thread_count)
+        return (*budget, *pool, dry_run)
 
     def _meta(self, operation: str, parameters: dict[str, Any], took: float, peak: int, **more: Any) -> dict[str, Any]:
         weight = parameters.get("weight")
@@ -500,38 +549,66 @@ class Graph:
         self,
         operation: str,
         parameters: dict[str, Any],
-        memory: Size | None,
-        threads: int | None,
+        run: tuple[Size | None, int | None, bool],
         progress: ProgressArg,
-        native: Callable[[int, int, Progress], tuple[_native.Table, dict[str, Any]]],
+        native: Callable[[tuple[Any, ...], Progress], tuple[_native.Table | None, dict[str, Any]]],
         **more: Any,
-    ) -> Table:
-        budget, pool = self._run(memory, threads)
+    ) -> Table | Plan:
+        settings = self._run(*run)
         progress = _progress_arg(progress)
         graph = str(self.file) if self.file else f"memory:{self.num_nodes}:{self.num_edges}"
         job = _native.job_id([graph, operation, *(f"{k}={v!r}" for k, v in sorted(parameters.items()))])
-        events = Progress(operation, [operation], job, False if progress is True else progress)
+        events = Progress(operation, [operation], job, progress, lines=False)
+        where = self.file.name if self.file else "this graph"
+        unchanged = f"nothing: {where} is unchanged" if self.file else "nothing: the graph is unchanged"
         began = _clock()
         try:
-            with _stopping(events, f"g.{operation}(…), the same call again"):
-                table, info = native(budget, pool, events)
+            with _stopping(events, f"g.{operation}(…), the same call again", unchanged):
+                table, info = native(settings, events)
         except _native.NativeError as e:
-            machine = _machine()
-            _errors.raise_native(e, operation, lambda kw: f"g.{operation}({kw})",
-                                 machine_memory=machine[0] if machine else None)
-            raise
+            cls, fields = e.args
+            if cls == "Refusal":
+                refused = _errors.from_plan(json.loads(fields["document"]), operation, where)
+            else:
+                machine = _machine()
+                try:
+                    _errors.raise_native(e, operation, lambda kw: f"g.{operation}({kw})",
+                                         machine_memory=machine[0] if machine else None)
+                except _errors.EverygraphError as raised:
+                    refused = raised
+                except ValueError:
+                    raise
+            if events.plan is not None:
+                events.error(refused.to_dict())
+            raise refused from None
         took = _clock() - began
+        plan = Plan(info.pop("plan"), info.pop("plan_text"))
+        if table is None:
+            events.result({"path": None, "kind": "none", "bytes": None}, {}, took, 0)
+            return plan
         peak = info.pop("peak_memory_bytes", 0)
-        meta = self._meta(operation, parameters, took, peak, **info, **more)
-        if progress is True and took >= T_PLAN:
-            detail = _DETAIL.get(operation, lambda _m: "")(meta)
-            print(f"  {operation:<13}{'█' * 16}  {detail:<32}  {_text.duration(took):>11}", file=sys.stderr)
+        unkept = info.pop("unkept", None)
+        cached = info.pop("cached", False)
+        if unkept is not None:
+            message = f"The result could not be kept in {where}: {unkept}."
+            continuing = "It is returned, and is computed again next time."
+            events.warning("read-only", message, unkept, continuing)
+            warnings.warn(f"{message} {continuing}", RuntimeWarning, stacklevel=3)
+        meta = self._meta(operation, parameters, took, peak, cached=cached, plan=plan.to_dict(), **info, **more)
+        kept = self.file is not None and unkept is None and plan.to_dict()["output"]["kind"] == "result"
+        output = {"path": str(self.file), "kind": "result", "bytes": plan.estimate["output_bytes"]["value"]} if kept \
+            else {"path": None, "kind": "none", "bytes": None}
+        events.result(output, {"nodes": self.num_nodes, "rows": table.num_rows}, took, peak)
+        if progress is True and (took >= T_PLAN or cached):
+            state = "kept" if cached else _text.duration(took)
+            detail = "" if cached else _DETAIL.get(operation, lambda _m: "")(meta)
+            print(f"  {operation:<13}{'█' * 16}  {detail:<32}  {state:>11}", file=sys.stderr)
         return Table(table, meta, "in graph order")
 
     def _read_summary(self, path: pathlib.Path, took: float) -> str:
         where = str(self.file) if self.file else f"{path.name} · in memory"
         if self._info.get("cached"):
-            return f"✓ {where} · {self.num_nodes:,} nodes · {self.num_edges:,} edges · cached\n  reopen later: eg.open({str(self.file)!r})"
+            return f"{self.file.name} is up to date with {path.name}: opened, not rebuilt.\n  reopen later: eg.open({json.dumps(str(self.file))})"
         lines = [f"✓ {where} · {self.num_nodes:,} nodes · {self.num_edges:,} edges · {_text.duration(took)}"]
         dropped = [
             _text.counted(self._info.get(key, 0), one, many)
@@ -542,7 +619,7 @@ class Graph:
         if dropped:
             lines.append(f"  dropped: {' · '.join(dropped)}")
         if self.file:
-            lines.append(f"  reopen later: eg.open({str(self.file)!r})")
+            lines.append(f"  reopen later: eg.open({json.dumps(str(self.file))})")
         return "\n".join(lines)
 
     def __repr__(self) -> str:

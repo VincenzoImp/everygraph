@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! A graph for Python (`docs/api-sketch.md` § 3.2): a `.eg` file mapped by its stable
-//! range, or the bytes of a graph built in memory, with the memory budget and threads
-//! it was obtained with. The kernels run on its out-adjacency with the interpreter
-//! released; their results stay with the budget until Python lets go of them.
+//! range, or the bytes of a graph built in memory, opened within a memory budget of its
+//! own. Its whole-graph algorithms are planned and run with the interpreter released,
+//! in one session per graph (`run::Session`), each within the budget of its plan; their
+//! results stay with that budget until Python lets go of them.
 
 use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use arrow_array::ArrayRef;
 use arrow_array::builder::{
@@ -23,11 +24,13 @@ use everygraph_ingest::graph::Graph as GraphFile;
 use everygraph_ingest::ids::{ColumnType, Key, OwnedKey};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::pagerank::PageRank;
+use everygraph_kernels::planner;
+use everygraph_kernels::run::{Direction, Operation, Precision, Session, Weight};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::error::{self, Fail, Failure};
-use crate::kernels::{self, Call, Extra, Output};
+use crate::kernels::{self, Asked, Extra, Parts};
 use crate::run::{Event, run};
 use crate::source::Bytes;
 use crate::table::{NULL, Table};
@@ -46,6 +49,10 @@ pub(crate) struct Shared {
     memory: Memory,
     path: Option<PathBuf>,
     ids: ColumnType,
+    /// What the planner reads of the file, but whether it keeps a result.
+    facts: planner::Graph,
+    /// Taken by a call for its run, and given back after it.
+    session: Mutex<Session>,
 }
 
 impl Shared {
@@ -63,12 +70,23 @@ impl Shared {
             .dictionary(&memory)
             .map_err(|e| error::dictionary(e, limit))?
             .column();
+        let shown = path.as_ref().map(|p| p.display().to_string());
+        let bytes = file.container().source().len();
+        let mut facts = planner::Graph {
+            directed: file.directed(),
+            ..planner::Graph::of(file.index(), shown, bytes, file.edges())
+        };
+        if let Some(inn) = file.in_index() {
+            facts = facts.with_in(inn);
+        }
         Ok(Self {
             file,
             budget,
             memory,
             path,
             ids,
+            facts,
+            session: Mutex::new(Session::new()),
         })
     }
 
@@ -77,9 +95,25 @@ impl Shared {
         &self.file
     }
 
-    /// The budget the graph was opened with, for what its tables derive (`sizes`).
+    /// The budget the graph was opened with: its indexes, the events a call counts, and
+    /// what its tables derive (`sizes`).
     pub(crate) fn memory(&self) -> &Memory {
         &self.memory
+    }
+
+    /// The limit of that budget.
+    pub(crate) fn budget_bytes(&self) -> u64 {
+        self.budget.limit()
+    }
+
+    /// The `.eg` file, or `None` for a graph in memory.
+    pub(crate) fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// What the planner reads of the file.
+    pub(crate) fn facts(&self) -> &planner::Graph {
+        &self.facts
     }
 
     /// Nodes, as a row count.
@@ -241,51 +275,100 @@ pub(crate) fn in_memory(bytes: Vec<u8>, budget: Arc<Budget>) -> Result<Shared, F
     Shared::open(Bytes::Memory(MemorySource::new(bytes)), None, budget)
 }
 
-impl Graph {
-    /// Runs the kernel `f` of `operation` as one phase, on `threads` threads with a
-    /// budget of `memory` bytes for its state; returns its table and what its `meta`
-    /// gains, with the budget's peak.
+/// How the package asks a call to run: the budget and its origin, the most threads and
+/// their origin (`argument`, `graph`, `environment`, `default`), and whether only to plan.
+#[derive(FromPyObject)]
+pub(crate) struct Run(Option<u64>, String, Option<NonZeroUsize>, String, bool);
+
+impl Shared {
+    /// Plans `op` as `run` asks, sends the plan document to `on_event` (`plan`, its
+    /// text), and returns the plan for a dry run, refuses one that does not fit, or runs
+    /// it within its budget on its threads. Then `on_event` gets each phase as it begins
+    /// (`begin`), the last as it ends (`end`), or a kept phase (`kept`), with the seconds
+    /// since the start and the budget's peak. The result is the table, or `None` for a
+    /// dry run, with what its `meta` gains: `plan` and `plan_text` always, and `unkept`,
+    /// why a result could not be kept in the file.
     fn call<'py>(
-        &self,
+        self: &Arc<Self>,
         py: Python<'py>,
-        operation: &'static str,
-        memory: u64,
-        threads: NonZeroUsize,
+        op: &Operation<'_>,
+        run_as: &Run,
         on_event: &Bound<'py, PyAny>,
-        f: impl FnOnce(&Call<'_>, &Shared) -> Result<Output, Failure> + Send,
-    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
-        let budget = budget(memory);
-        let out = run(py, threads, &budget, on_event, |events| {
+    ) -> PyResult<(Option<Table>, Bound<'py, PyDict>)> {
+        let Run(memory, memory_from, threads, threads_from, dry_run) = run_as;
+        let asked = Asked {
+            memory: memory.map(|m| (m, kernels::origin(memory_from))),
+            threads: threads.map(|t| (t, kernels::origin(threads_from))),
+        };
+        let parts = Parts::of(self, op).map_err(|e| e.into_err(py))?;
+        let mut session =
+            std::mem::take(&mut *self.session.lock().unwrap_or_else(PoisonError::into_inner));
+        let give_back =
+            |session| *self.session.lock().unwrap_or_else(PoisonError::into_inner) = session;
+        let plan = match kernels::plan(self, op, &parts, &session, asked) {
+            Ok(plan) => plan,
+            Err(e) => {
+                give_back(session);
+                return Err(e.into_err(py));
+            }
+        };
+        let document = plan.to_json();
+        let info = PyDict::new(py);
+        info.set_item("plan", &document)?;
+        info.set_item("plan_text", plan.to_string())?;
+        if let Err(e) = on_event.call1(("plan", &document, None::<u64>, 0.0, 0)) {
+            give_back(session);
+            return Err(e);
+        }
+        if *dry_run {
+            give_back(session);
+            return Ok((None, info));
+        }
+        if let Some(r) = plan.refusal() {
+            give_back(session);
+            return Err(Failure::new("Refusal")
+                .text("document", r.to_json())
+                .into_err(py));
+        }
+        let limit = kernels::budget_of(self, &plan, &parts, &session);
+        let budget = budget(limit);
+        let last = plan.phases().last().map_or(op.name(), |p| p.name);
+        let out = run(py, NonZeroUsize::MIN, &budget, on_event, |events| {
             let memory = Memory::from(Arc::clone(&budget));
-            let call = Call {
-                operation,
-                budget: &budget,
-                memory: &memory,
-            };
-            events.send(Event::Begin(operation, None));
-            let out = f(&call, &self.0);
-            if out.is_ok() {
-                events.send(Event::End(operation, 0));
+            if plan.kept() {
+                events.send(Event::Kept(last));
+            }
+            let out = kernels::execute(self, &plan, &parts, &mut session, &memory, events);
+            if out.is_ok() && !plan.kept() {
+                events.send(Event::End(last, 0));
             }
             out
-        })?
-        .map_err(|e| e.into_err(py))?;
-        let mut table = Table::per_node(Arc::clone(&self.0), out.columns);
+        });
+        give_back(session);
+        let (out, unkept) = out?.map_err(|e| e.into_err(py))?;
+        if let Some(why) = unkept {
+            info.set_item("unkept", why)?;
+        }
+        let mut table = Table::per_node(Arc::clone(self), out.columns);
         for (name, ids) in out.ids {
             table = table.with_ids(name, ids);
         }
-        let info = PyDict::new(py);
         for (key, value) in out.extra {
             match value {
                 Extra::Count(c) => info.set_item(key, c)?,
-                Extra::Real(r) => info.set_item(key, r)?,
                 Extra::Flag(b) => info.set_item(key, b)?,
             }
         }
-        info.set_item("peak_memory_bytes", budget.peak())?;
-        Ok((table, info))
+        // What the plan counted outside the run's own budget: the graph's indexes and
+        // events, and the session's raw copy.
+        info.set_item("peak_memory_bytes", budget.peak() + (plan.budget() - limit))?;
+        info.set_item("cached", plan.kept())?;
+        Ok((Some(table), info))
     }
 }
+
+/// What a call returns: its table (`None` for a dry run) and what its `meta` gains.
+type Called<'py> = PyResult<(Option<Table>, Bound<'py, PyDict>)>;
 
 #[pymethods]
 impl Graph {
@@ -345,8 +428,9 @@ impl Graph {
         self.0.lookup(&keys)
     }
 
-    /// `PageRank` (`everygraph.Graph.pagerank`); `personalize` holds dense ids.
-    #[pyo3(signature = (damping, tol, max_iter, weight, personalize, low, memory, threads, on_event))]
+    /// `PageRank` (`everygraph.Graph.pagerank`); `personalize` holds dense ids. `edges`
+    /// counts the edges of a pair, which only a graph with repeated pairs tells apart.
+    #[pyo3(signature = (damping, tol, max_iter, edges, personalize, low, run, on_event))]
     #[expect(clippy::too_many_arguments, reason = "the keywords of Graph.pagerank")]
     fn pagerank<'py>(
         &self,
@@ -354,40 +438,52 @@ impl Graph {
         damping: f64,
         tol: f64,
         max_iter: u32,
-        weight: bool,
+        edges: bool,
         personalize: Option<Vec<u32>>,
         low: bool,
-        memory: u64,
-        threads: NonZeroUsize,
+        run: Run,
         on_event: Bound<'py, PyAny>,
-    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
-        self.call(py, "pagerank", memory, threads, &on_event, |call, g| {
-            let p = PageRank {
+    ) -> Called<'py> {
+        let repeats = self.0.file.index().has_events();
+        let op = Operation::PageRank {
+            params: PageRank {
                 damping,
                 tol,
                 max_iter,
                 personalize: personalize.as_deref(),
-            };
-            kernels::pagerank(call, g, &p, weight, low)
-        })
+            },
+            precision: if low { Precision::Low } else { Precision::Full },
+            weight: if edges && repeats {
+                Weight::Edges
+            } else {
+                Weight::Pairs
+            },
+        };
+        self.0.call(py, &op, &run, &on_event)
     }
 
     /// Breadth-first search from the dense id `source` (`everygraph.Graph.bfs`).
-    #[pyo3(signature = (source, direction, max_hops, memory, threads, on_event))]
-    #[expect(clippy::too_many_arguments, reason = "the keywords of Graph.bfs")]
+    #[pyo3(signature = (source, direction, max_hops, run, on_event))]
     fn bfs<'py>(
         &self,
         py: Python<'py>,
         source: u32,
         direction: &str,
         max_hops: Option<u32>,
-        memory: u64,
-        threads: NonZeroUsize,
+        run: Run,
         on_event: Bound<'py, PyAny>,
-    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
-        self.call(py, "bfs", memory, threads, &on_event, |call, g| {
-            kernels::bfs(call, g, source, direction, max_hops)
-        })
+    ) -> Called<'py> {
+        let direction = match direction {
+            "in" => Direction::In,
+            "both" => Direction::Both,
+            _ => Direction::Out,
+        };
+        let op = Operation::Bfs {
+            source,
+            max_hops,
+            direction,
+        };
+        self.0.call(py, &op, &run, &on_event)
     }
 
     /// Weakly or strongly connected components (`everygraph.Graph.components`).
@@ -395,24 +491,16 @@ impl Graph {
         &self,
         py: Python<'py>,
         strong: bool,
-        memory: u64,
-        threads: NonZeroUsize,
+        run: Run,
         on_event: Bound<'py, PyAny>,
-    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
-        self.call(py, "components", memory, threads, &on_event, |call, g| {
-            kernels::components(call, g, strong)
-        })
+    ) -> Called<'py> {
+        self.0
+            .call(py, &Operation::Components { strong }, &run, &on_event)
     }
 
     /// Core numbers (`everygraph.Graph.kcore`).
-    fn kcore<'py>(
-        &self,
-        py: Python<'py>,
-        memory: u64,
-        threads: NonZeroUsize,
-        on_event: Bound<'py, PyAny>,
-    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
-        self.call(py, "kcore", memory, threads, &on_event, kernels::kcore)
+    fn kcore<'py>(&self, py: Python<'py>, run: Run, on_event: Bound<'py, PyAny>) -> Called<'py> {
+        self.0.call(py, &Operation::KCore, &run, &on_event)
     }
 
     /// Degrees (`everygraph.Graph.degrees`), of every node or of the dense ids `nodes`,
@@ -421,18 +509,16 @@ impl Graph {
         &self,
         py: Python<'py>,
         nodes: Option<Vec<Option<u32>>>,
-        memory: u64,
-        threads: NonZeroUsize,
+        run: Run,
         on_event: Bound<'py, PyAny>,
-    ) -> PyResult<(Table, Bound<'py, PyDict>)> {
-        let (table, info) =
-            self.call(py, "degrees", memory, threads, &on_event, kernels::degrees)?;
-        match nodes {
-            Some(ids) => {
+    ) -> Called<'py> {
+        let (table, info) = self.0.call(py, &Operation::Degrees, &run, &on_event)?;
+        match (table, nodes) {
+            (Some(table), Some(ids)) => {
                 let rows: Vec<u32> = ids.into_iter().map(|id| id.unwrap_or(NULL)).collect();
-                Ok((table.take(&rows)?, info))
+                Ok((Some(table.take(&rows)?), info))
             }
-            None => Ok((table, info)),
+            (table, _) => Ok((table, info)),
         }
     }
 }
