@@ -89,7 +89,8 @@ proptest! {
         if let Ok(t) = Tile::decode(&bytes) {
             // Minor versions read alike (§ 8); the writer writes its own.
             bytes[6..8].fill(0);
-            prop_assert_eq!(t.encode().unwrap(), bytes);
+            // Optional blocks it skipped follow the known ones (§ 4.2).
+            prop_assert!(bytes.starts_with(&t.encode().unwrap()));
         }
     }
 

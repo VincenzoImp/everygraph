@@ -3,7 +3,8 @@
 //! The `.egmap` reader on untrusted bytes (`docs/spec/egmap.md` § 9, issue #68): decoding
 //! a tile payload, opening a map, finding tiles, reading chunks and verifying all of it
 //! must never panic, read out of bounds or allocate past the caps. A payload that decodes
-//! encodes back to the same bytes, apart from its minor version (§ 4.3).
+//! encodes back to the same bytes, apart from its minor version and the optional blocks
+//! it skipped (§ 4.3).
 //!
 //! The first byte picks the mode:
 //! - 0 mod 3: the rest is a tile payload;
@@ -26,7 +27,9 @@ fn tile(bytes: &[u8]) {
     if let Ok(t) = Tile::decode(bytes) {
         let mut again = t.encode().expect("a decoded tile encodes");
         again[6..8].copy_from_slice(&bytes[6..8]);
-        assert_eq!(again, bytes, "a tile has two encodings");
+        // Optional blocks a reader skips come after the known ones (their numbers are
+        // higher), so the writer's bytes are the input up to them.
+        assert!(bytes.starts_with(&again), "a tile has two encodings");
     }
 }
 
