@@ -375,6 +375,7 @@ mod tests {
         let k = Kernel::PageRank {
             damping: 0.85,
             weighted: false,
+            personalize: Vec::new(),
         };
         let a = Output::Reals(vec![Some(0.5), Some(0.5)]);
         let b = Output::Reals(vec![Some(0.5 + 1e-15), Some(0.5)]);

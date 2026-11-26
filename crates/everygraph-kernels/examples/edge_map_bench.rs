@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The benchmark of the edge-map framework (#44, `bench/specs/edge-map.toml`): the proof
-//! kernels on a CSR directory of the dataset registry (`offsets.u64`, `targets.u32`),
-//! over one source, timed inside the process like the lab's `glab-cli run`.
+//! The benchmark of the edge-map framework and its kernels (#44, #47, #49,
+//! `bench/specs/edge-map.toml`): the kernels on a CSR directory of the dataset registry
+//! (`offsets.u64`, `targets.u32`), over one source, timed inside the process like the
+//! lab's `glab-cli run`. SSSP runs on synthetic costs of the entries (`cost`), with the
+//! bucket width of `sssp::delta` times `--delta-scale`.
 //!
 //! ```text
 //! edge_map_bench encode --graph DIR --out STORE
 //! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|stream
-//!     --kernel pr32|pr64|wcc|bfs --threads T [--reps R] [--iters I]
-//!     [--chunk ENTRIES] [--batch ENTRIES]
+//!     --kernel pr32|pr64|eig|wcc|bfs|bfs-parents|msbfs|sssp --threads T [--reps R]
+//!     [--iters I] [--chunk ENTRIES] [--batch ENTRIES] [--costs uniform|skewed]
+//!     [--delta-scale X]
 //! ```
 //!
 //! `run` prints one JSON line: the times of every repetition, the best, and a hash of
@@ -32,14 +35,17 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::time::Instant;
 
 use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
-use everygraph_kernels::proof::{self, UNREACHED};
+use everygraph_kernels::pagerank::{Eigenvector, Graph, PageRank, Real, eigenvector, strength};
+use everygraph_kernels::proof;
+use everygraph_kernels::sssp::{Sssp, delta, sssp};
+use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs, multi_bfs};
 
 type Args = HashMap<String, String>;
 
@@ -90,23 +96,41 @@ fn time_plan<S: Source>(
     let hub = (0..n)
         .max_by_key(|&v| (source.degree(v), std::cmp::Reverse(v)))
         .unwrap_or(0);
+    let costs: Vec<f64> = match kernel {
+        "sssp" => {
+            let skewed = a.get("costs").is_some_and(|c| c == "skewed");
+            (0..source.entries()).map(|e| cost(e, skewed)).collect()
+        }
+        _ => Vec::new(),
+    };
     let mut secs = Vec::new();
     let mut last = (0, String::new());
     for _ in 0..reps {
         let t = Instant::now();
         last = match kernel {
-            "pr32" | "pr64" => {
-                let (hash, sum) = if kernel == "pr32" {
-                    let r = proof::pagerank::<_, f32>(plan, memory, 0.85, iters).expect("pagerank");
-                    secs.push(t.elapsed().as_secs_f64());
-                    let sum: f64 = r.iter().map(|&x| f64::from(x)).sum();
-                    (fnv(r.iter().map(|x| u64::from(x.to_bits()))), sum)
-                } else {
-                    let r = proof::pagerank::<_, f64>(plan, memory, 0.85, iters).expect("pagerank");
-                    secs.push(t.elapsed().as_secs_f64());
-                    (fnv(r.iter().map(|x| x.to_bits())), r.iter().sum())
-                };
+            "pr32" => {
+                let r = pagerank::<_, f32>(plan, memory, iters);
+                secs.push(t.elapsed().as_secs_f64());
+                let sum: f64 = r.iter().map(|&x| f64::from(x)).sum();
+                let hash = fnv(r.iter().map(|x| u64::from(x.to_bits())));
                 (hash, format!("{{\"iters\": {iters}, \"sum\": {sum}}}"))
+            }
+            "pr64" => {
+                let r = pagerank::<_, f64>(plan, memory, iters);
+                secs.push(t.elapsed().as_secs_f64());
+                let sum: f64 = r.iter().sum();
+                let hash = fnv(r.iter().map(|x| x.to_bits()));
+                (hash, format!("{{\"iters\": {iters}, \"sum\": {sum}}}"))
+            }
+            "eig" => {
+                let p = Eigenvector {
+                    tol: 0.0,
+                    max_iter: iters,
+                };
+                let r = eigenvector(&graph(plan), &p, memory).expect("eigenvector");
+                secs.push(t.elapsed().as_secs_f64());
+                let hash = fnv(r.values.iter().map(|x| x.to_bits()));
+                (hash, format!("{{\"iters\": {iters}}}"))
             }
             "wcc" => {
                 let (labels, _held) = proof::wcc(plan, memory).expect("wcc");
@@ -118,24 +142,104 @@ fn time_plan<S: Source>(
                     format!("{{\"components\": {components}}}"),
                 )
             }
-            "bfs" => {
-                let (depth, _held) = proof::bfs(plan, memory, hub, true).expect("bfs");
+            "bfs" | "bfs-parents" => {
+                let p = Bfs {
+                    parents: kernel == "bfs-parents",
+                    ..Bfs::default()
+                };
+                let hops = bfs(plan, Some(plan), hub, &p, memory).expect("bfs");
                 secs.push(t.elapsed().as_secs_f64());
-                let depth: Vec<u32> = depth.into_iter().map(AtomicU32::into_inner).collect();
+                let depth: Vec<u32> = hops
+                    .distance
+                    .into_iter()
+                    .map(AtomicU32::into_inner)
+                    .collect();
                 let reached = depth.iter().filter(|&&d| d != UNREACHED).count();
                 let sum: u64 = depth
                     .iter()
                     .filter(|&&d| d != UNREACHED)
                     .map(|&d| u64::from(d))
                     .sum();
-                let summary =
-                    format!("{{\"source\": {hub}, \"reached\": {reached}, \"depth_sum\": {sum}}}");
+                let parents = hops
+                    .parent
+                    .map_or(0, |p| fnv(p.into_iter().map(|x| u64::from(x.into_inner()))));
+                let summary = format!(
+                    "{{\"source\": {hub}, \"reached\": {reached}, \"depth_sum\": {sum}, \
+                     \"levels\": {}, \"parents_hash\": \"{parents:016x}\"}}",
+                    hops.levels.len()
+                );
                 (fnv(depth.iter().map(|&d| u64::from(d))), summary)
+            }
+            "msbfs" => {
+                let sources: Vec<u32> = (0..64_u64)
+                    .map(|k| u32::try_from(k * u64::from(n) / 64).expect("a node"))
+                    .collect();
+                let r = multi_bfs(plan, &sources, None, memory).expect("multi-source bfs");
+                secs.push(t.elapsed().as_secs_f64());
+                let hash = fnv(r.distance_sum.iter().copied());
+                (
+                    hash,
+                    format!("{{\"sources\": 64, \"levels\": {}}}", r.levels.len()),
+                )
+            }
+            "sssp" => {
+                let scale: f64 = a
+                    .get("delta-scale")
+                    .map_or(1.0, |d| d.parse().expect("--delta-scale"));
+                let p = Sssp {
+                    delta: Some(delta(plan, &costs) * scale),
+                };
+                let d = sssp(plan, &costs, hub, &p, memory).expect("sssp");
+                secs.push(t.elapsed().as_secs_f64());
+                let reached = (0..n).filter(|&v| d.get(v).is_some()).count();
+                let hash = fnv(d.bits.iter().map(|b| b.load(Relaxed)));
+                let summary = format!(
+                    "{{\"source\": {hub}, \"reached\": {reached}, \"delta\": {}, \"costs\": \"{}\"}}",
+                    d.delta,
+                    a.get("costs").map_or("uniform", String::as_str)
+                );
+                (hash, summary)
             }
             other => panic!("unknown --kernel {other}"),
         };
     }
     (secs, last.0, last.1)
+}
+
+/// The graph as `PageRank` pulls it: the benchmark graphs are undirected.
+fn graph<'p, 's, 'g, S: Source>(plan: &'p Plan<'s, 'g, S>) -> Graph<'p, 's, 'g, S> {
+    Graph {
+        lists: plan,
+        weights: None,
+        directed: false,
+    }
+}
+
+/// `iters` iterations of `PageRank` at damping 0.85, as the lab runs it.
+fn pagerank<S: Source, F: Real>(plan: &Plan<'_, '_, S>, memory: &Memory, iters: u32) -> Vec<F> {
+    let s = strength(plan, None, false, memory).expect("strength");
+    let p = PageRank {
+        tol: 0.0,
+        max_iter: iters,
+        ..PageRank::default()
+    };
+    let s = s.as_slice().expect("one segment");
+    let r = everygraph_kernels::pagerank::pagerank::<_, F>(&graph(plan), s, &p, memory);
+    r.expect("pagerank").values.iter().copied().collect()
+}
+
+/// A synthetic cost for entry `e`: an integer from 1 to 255, or with `skewed` a power of
+/// two from 2^0 to 2^19.
+fn cost(e: u64, skewed: bool) -> f64 {
+    let mut z = e.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    if skewed {
+        f64::from(1_u32 << (z % 20))
+    } else {
+        (1 + z % 255) as f64
+    }
 }
 
 fn store_paths(store: &Path) -> (PathBuf, PathBuf) {

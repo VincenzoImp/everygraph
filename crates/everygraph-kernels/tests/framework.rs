@@ -24,7 +24,7 @@ use everygraph_kernels::edge_map::{
     Compressed, Csr, Error, FRONTIER_GRAIN, Node, NodeList, Plan, Settings, Source, Stream, Work,
     all, ids,
 };
-use everygraph_kernels::proof;
+use everygraph_kernels::{pagerank, proof, traversal};
 
 fn splitmix(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -435,7 +435,8 @@ fn readers_are_reserved_against_the_budget() {
     }
 }
 
-/// What the proof kernels return on one source, bit for bit, with the BFS's work.
+/// What `PageRank`, the proof WCC and BFS return on one source, bit for bit, with the
+/// BFS's work.
 fn kernels<S: Source>(
     source: &S,
     settings: Settings,
@@ -445,10 +446,26 @@ fn kernels<S: Source>(
     Plan::with(source, &memory, settings, |plan| {
         par::with_threads(NonZeroUsize::new(threads).unwrap(), || {
             let load = |a: &AtomicU32| a.load(Relaxed);
-            let rank = proof::pagerank::<_, f64>(&plan, &memory, 0.85, 10).unwrap();
+            let g = pagerank::Graph {
+                lists: &plan,
+                weights: None,
+                directed: false,
+            };
+            let s = pagerank::strength(&plan, None, false, &memory).unwrap();
+            let p = pagerank::PageRank {
+                tol: 0.0,
+                max_iter: 10,
+                ..pagerank::PageRank::default()
+            };
+            let rank = pagerank::pagerank::<_, f64>(&g, s.as_slice().unwrap(), &p, &memory)
+                .unwrap()
+                .values;
             let (labels, _) = proof::wcc(&plan, &memory).unwrap();
             let before = plan.work();
-            let (depth, _) = proof::bfs(&plan, &memory, plan.nodes() / 2, true).unwrap();
+            let bfs = traversal::Bfs::default();
+            let depth = traversal::bfs(&plan, Some(&plan), plan.nodes() / 2, &bfs, &memory)
+                .unwrap()
+                .distance;
             let after = plan.work();
             let work = Work {
                 lists: after.lists - before.lists,
@@ -465,7 +482,7 @@ fn kernels<S: Source>(
     })
 }
 
-/// The proof kernels on every source and thread count: the same bits, and the same BFS
+/// The kernels on every source and thread count: the same bits, and the same BFS
 /// work counters (its filter reads only a node's own depth). The union-find cells and
 /// the frontier sets are shared between threads here, so `tools/check_tsan.py` runs this
 /// file.

@@ -358,6 +358,19 @@ fn semantic_cases() -> Vec<(Family, Decorations, Semantics)> {
     out
 }
 
+/// Whether the eigenvector of the largest eigenvalue is unique and has a Python witness:
+/// at least 3 nodes (NetworkX's sparse solver needs them), an edge, and one component
+/// (one strong component, if directed). Then the matrix is irreducible, and Perron and
+/// Frobenius give a simple largest eigenvalue.
+fn has_unique_eigenvector(p: &Projection) -> bool {
+    let labels = if p.directed {
+        crate::reference::scc(&p.out)
+    } else {
+        crate::reference::wcc(&p.undirected)
+    };
+    p.n >= 3 && p.out.entries() > 0 && labels.iter().all(|&l| l == 0)
+}
+
 /// The kernels the oracle checks on `g`: every kernel, whatever the semantics
 /// (`docs/spec/graph-semantics.md` § 8).
 #[must_use]
@@ -387,7 +400,22 @@ pub fn kernels_for(g: &Graph, p: &Projection) -> Vec<Kernel> {
     k.push(Kernel::PageRank {
         damping: 0.85,
         weighted: false,
+        personalize: Vec::new(),
     });
+    if g.n > 0 {
+        // One seed on even sizes; three (fewer when they coincide) on odd ones.
+        let mut seeds = if g.n.is_multiple_of(2) {
+            vec![0]
+        } else {
+            vec![0, g.n / 2, g.n - 1]
+        };
+        seeds.dedup();
+        k.push(Kernel::PageRank {
+            damping: 0.85,
+            weighted: false,
+            personalize: seeds,
+        });
+    }
     // Weighted kernels where a weight differs from 1: a weight column, repeated rows or a
     // loop of several rows.
     let weighted = g.weight.is_some()
@@ -397,13 +425,21 @@ pub fn kernels_for(g: &Graph, p: &Projection) -> Vec<Kernel> {
         k.push(Kernel::PageRank {
             damping: 0.85,
             weighted: true,
+            personalize: Vec::new(),
         });
     }
     if g.n % 5 == 1 {
         k.push(Kernel::PageRank {
             damping: 0.5,
             weighted: false,
+            personalize: Vec::new(),
         });
+    }
+    if has_unique_eigenvector(p) {
+        k.push(Kernel::Eigenvector { weighted: false });
+        if weighted {
+            k.push(Kernel::Eigenvector { weighted: true });
+        }
     }
     if g.weight.is_some() && g.n > 0 {
         k.push(Kernel::Sssp { source: 0 });

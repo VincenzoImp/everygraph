@@ -57,6 +57,7 @@ impl KernelUnderTest for External {
             && (self.directed || !case.graph.directed)
             && (self.keeps_self_loops || case.graph.semantics.self_loops == SelfLoops::Drop)
             && (self.weighted || !matches!(kernel, Kernel::PageRank { weighted: true, .. }))
+            && !matches!(kernel, Kernel::PageRank { personalize, .. } if !personalize.is_empty())
     }
 
     fn configurations(&self) -> Vec<Config> {

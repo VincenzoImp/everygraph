@@ -447,7 +447,11 @@ impl KernelUnderTest for Toy {
         !g.directed
             && match kernel {
                 Kernel::Adjacency | Kernel::Degree | Kernel::Wcc => true,
-                Kernel::PageRank { weighted, .. } => !weighted,
+                Kernel::PageRank {
+                    weighted,
+                    personalize,
+                    ..
+                } => !weighted && personalize.is_empty(),
                 Kernel::Quotient => g.partition.is_some(),
                 _ => false,
             }

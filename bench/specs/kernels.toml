@@ -1,0 +1,190 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The acceptance numbers of PageRank and eigenvector centrality (#47,
+# plan/issues/m3-04-pagerank.md) and of BFS, multi-source BFS and SSSP (#49,
+# plan/issues/m3-06-traversal.md), kernel time inside the process (best of 5 repetitions
+# in one process; loading is reported apart), through the example `edge_map_bench`:
+#
+# - `lab`: lab/b1-core's hand-written PageRank and BFS (`glab run`), the same build flags
+#   as ours (no `target-cpu=native`): the A/B of the kernels against the lab.
+# - `pagerank`: f64 and f32, 20 iterations at damping 0.85 (tol = 0: the LDBC rule), on
+#   orkut, raw and compressed sources, at 1, 4 and 16 threads. The `hash` of a kernel
+#   must be the same in every row (identical bytes at any thread count and source).
+# - `traversal`: direction-optimizing BFS from the highest-degree node, without and with
+#   parents, and bit-parallel BFS from 64 sources, on orkut and on roadnet-ca (diameter
+#   in the hundreds: the per-level overhead case).
+# - `sssp`: SSSP from the highest-degree node on synthetic costs (`uniform`: integers
+#   1 to 255; `skewed`: powers of two 2^0 to 2^19), with the bucket width of the data
+#   rule (`sssp::delta`) times 1/16, 1/4, 1, 4 and 16: the Δ sweep. Distances are unique,
+#   so the hash of one graph and cost set is the same in every row.
+# - `eigenvector`: 20 iterations, orkut, for the record.
+# - `friendster-ooc` and `friendster-read`: BFS on Friendster with the compressed data
+#   part memory-mapped under a 2 GiB limit, below its size, against one direct
+#   sequential read of the same file. The acceptance is BFS ≤ 3 × the read.
+#
+# Acceptance, from the medians of the rows:
+# - #47: `pagerank` f64 at 16 threads on raw ≤ 0.5 s; one hash per kernel across the
+#   rows of `pagerank`;
+# - #49: `traversal` bfs on orkut at 16 threads ≤ 30 ms; on roadnet-ca the time of
+#   `bfs` is dominated by work, not by levels (compare with `bfs` at 1 thread);
+#   `friendster-ooc` ≤ 3 × `friendster-read`.
+# The out-of-core cost of PageRank (#47, D11's "~10%") needs interleaved in-RAM and
+# out-of-core rounds (#m3-19), which the harness does not do yet.
+#
+# Run (about 25 minutes, an estimate: 90 orkut and roadnet-ca cases of a few seconds
+# each, plus the Friendster store, encoded once under {work}/stores in about 5 minutes
+# and 16 GiB):
+#   everygraph-bench run kernels --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "kernels"
+description = "Issues #47 and #49: PageRank, eigenvector, BFS, multi-source BFS and SSSP on the edge-map framework"
+reference = "plan/issues/m3-04-pagerank.md; plan/issues/m3-06-traversal.md; docs/FINDINGS.md § B1"
+binaries = ["{bench}", "{glab}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+warmup = 1
+threads = [16]
+timeout = "15m"
+
+[vars]
+bench = "{repo}/target/release/examples/edge_map_bench"
+glab = "{work}/lab-b1/release/glab"
+stores = "{work}/stores"
+
+[[prepare]]
+name = "build-bench"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-kernels", "--example", "edge_map_bench"]
+needed_by = ["pagerank", "traversal", "sssp", "eigenvector", "friendster-ooc"]
+
+[[prepare]]
+name = "build-lab"
+cwd = "{repo}/lab/b1-core"
+# An empty RUSTFLAGS replaces the lab's `.cargo/config.toml` (`target-cpu=native`).
+shell = "RUSTFLAGS= CARGO_TARGET_DIR={work}/lab-b1 cargo build --release --offline --locked"
+needed_by = ["lab"]
+
+[[prepare]]
+name = "stores"
+shell = """
+set -e
+for g in orkut roadnet-ca; do
+  if [ ! -d {stores}/$g ]; then
+    {bench} encode --graph {data}/csr/$g --out {stores}/$g.part > /dev/null
+    mv {stores}/$g.part {stores}/$g
+  fi
+done
+"""
+needed_by = ["pagerank", "traversal", "sssp", "eigenvector"]
+
+[[prepare]]
+name = "store-friendster"
+memory_limit = "16G"
+shell = """
+set -e
+if [ ! -d {stores}/friendster ]; then
+  {bench} encode --graph {data}/csr/friendster --out {stores}/friendster.part > /dev/null
+  mv {stores}/friendster.part {stores}/friendster
+fi
+"""
+needed_by = ["friendster-ooc", "friendster-read"]
+
+[[benchmark]]
+name = "lab"
+group = "lab"
+description = "lab/b1-core hand-written PageRank and BFS (glab run), graph in anonymous memory"
+dataset_path = "csr/orkut"
+threads = [1, 16]
+matrix = { kernel = ["pr32", "pr64", "bfs"] }
+command = ["{glab}", "run", "--graph", "{dataset}", "--algo", "{kernel}", "--threads", "{threads}", "--reps", "5", "--load", "heap"]
+conditions = { graph = "orkut", code = "lab/b1-core, hand-written", kernel = "{kernel}", storage = "raw CSR in anonymous memory", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "pagerank"
+group = "pagerank"
+description = "PageRank f64 and f32, 20 iterations, orkut, raw and compressed, 1, 4 and 16 threads"
+dataset_path = "csr/orkut"
+threads = [1, 4, 16]
+matrix = { kernel = ["pr64", "pr32"], source = ["raw", "compressed"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{stores}/orkut", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "orkut", code = "everygraph-kernels pagerank (#47)", kernel = "{kernel}", storage = "{source}, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "traversal"
+group = "traversal"
+description = "Direction-optimizing BFS without and with parents, and BFS from 64 sources, on orkut and roadnet-ca"
+dataset_path = "csr/{graph}"
+threads = [1, 16]
+matrix = { graph = ["orkut", "roadnet-ca"], kernel = ["bfs", "bfs-parents", "msbfs"], source = ["raw", "compressed"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{stores}/{graph}", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels traversal (#49)", kernel = "{kernel}", storage = "{source}, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "sssp"
+group = "sssp"
+description = "SSSP by Δ*-stepping with bucket fusion: a sweep of the bucket width around the data rule"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["orkut", "roadnet-ca"], costs = ["uniform", "skewed"], scale = ["0.0625", "0.25", "1", "4", "16"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "sssp", "--costs", "{costs}", "--delta-scale", "{scale}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels sssp (#49)", costs = "{costs}", delta = "data rule × {scale}", storage = "raw, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+record_json = { hash = "/hash", delta = "/result/delta" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "eigenvector"
+group = "pagerank"
+description = "Eigenvector centrality, 20 iterations, orkut"
+dataset_path = "csr/orkut"
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "eig", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "orkut", code = "everygraph-kernels eigenvector (#47)", storage = "raw, in the heap", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "friendster-ooc"
+group = "out-of-core"
+description = "BFS on Friendster, compressed data part memory-mapped under a limit below its size"
+memory_limit = "2G"
+warmup = 0
+dataset_path = "csr/friendster"
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{stores}/friendster", "--source", "mmap", "--kernel", "bfs", "--threads", "{threads}", "--reps", "1"]
+conditions = { graph = "friendster", code = "everygraph-kernels traversal (#49)", storage = "compressed data part memory-mapped, 2 GiB limit", level = "in-process kernel time" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "friendster-read"
+group = "out-of-core"
+description = "One direct sequential read of the Friendster compressed data part: the unit of the out-of-core acceptance"
+memory_limit = "2G"
+warmup = 0
+command = ["dd", "if={stores}/friendster/adjacency.data", "of=/dev/null", "bs=16M", "iflag=direct", "status=none"]
+conditions = { graph = "friendster", code = "dd", storage = "compressed data part, O_DIRECT, 16 MiB reads", level = "process wall time" }

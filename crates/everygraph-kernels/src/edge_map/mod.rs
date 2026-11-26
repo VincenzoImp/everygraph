@@ -142,6 +142,17 @@ pub enum Error {
     Invalid(&'static str),
     /// A buffer does not fit in the memory budget.
     Memory(MemoryError),
+    /// A weight or a cost that the kernel cannot use: negative, NaN or infinite
+    /// (`docs/spec/graph-semantics.md` § 4.4). `entry` is its position in the column.
+    Weight {
+        /// The position of the value in its per-entry column.
+        entry: u64,
+        /// The value.
+        value: f64,
+    },
+    /// A parameter that the kernel cannot use: an empty seed set, a node that is not in
+    /// the graph.
+    Argument(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -156,6 +167,11 @@ impl fmt::Display for Error {
             ),
             Self::Invalid(what) => write!(f, "not a graph: {what}"),
             Self::Memory(e) => e.fmt(f),
+            Self::Weight { entry, value } => write!(
+                f,
+                "entry {entry} has weight {value}; a weight must be finite and not negative"
+            ),
+            Self::Argument(what) => f.write_str(what),
         }
     }
 }
@@ -167,7 +183,9 @@ impl StdError for Error {
             Self::Format(e) => Some(e),
             Self::Read(e) => Some(e),
             Self::Memory(e) => Some(e),
-            Self::Target { .. } | Self::Invalid(_) => None,
+            Self::Target { .. } | Self::Invalid(_) | Self::Weight { .. } | Self::Argument(_) => {
+                None
+            }
         }
     }
 }
@@ -548,6 +566,29 @@ impl<'s, S: Source> Plan<'s, '_, S> {
         f: impl for<'g> FnOnce(Plan<'s, 'g, S>) -> R,
     ) -> R {
         f(Plan::new(source, memory, settings))
+    }
+
+    /// As [`with`](Self::with), with two sources over the same nodes, such as the out-
+    /// and the in-adjacency of a directed graph. The two plans share the brand `'g`, so
+    /// a node of one indexes the state of the other.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] if the two sources do not have the same node count.
+    pub fn with_pair<T: Source, R>(
+        source: &'s S,
+        other: &'s T,
+        memory: &Memory,
+        settings: Settings,
+        f: impl for<'g> FnOnce(Plan<'s, 'g, S>, Plan<'s, 'g, T>) -> R,
+    ) -> Result<R, Error> {
+        if source.nodes() != other.nodes() {
+            return Err(Error::Invalid("two adjacencies with different node counts"));
+        }
+        Ok(f(
+            Plan::new(source, memory, settings),
+            Plan::new(other, memory, settings),
+        ))
     }
 }
 

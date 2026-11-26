@@ -9,8 +9,8 @@
 //! per-chunk counts folded in chunk order. Natively (feature `parallel`) the chunks run
 //! on rayon; in wasm32 on the calling thread. The hash must be the same.
 //!
-//! [`kernels_hash`] runs the proof kernels of the edge-map framework (#44) — `PageRank`
-//! with f64 state, WCC, BFS — on the same graph made symmetric, over the raw and the
+//! [`kernels_hash`] runs kernels of the edge-map framework (#44) — `PageRank` with f64
+//! state (#47), the proof WCC, BFS (#49) — on the same graph made symmetric, over the raw and the
 //! compressed source, and hashes their results: the same kernels must compile to wasm32
 //! and give the native bytes.
 
@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use everygraph_core::{ByteSource, Memory, MemorySource, NodeId, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source};
-use everygraph_kernels::proof;
+use everygraph_kernels::{pagerank, proof, traversal};
 
 /// Bytes per edge in the generated edge list: two little-endian `u32` node ids.
 const EDGE_BYTES: usize = 8;
@@ -108,7 +108,7 @@ fn fnv1a64(words: impl Iterator<Item = u64>) -> u64 {
     hash
 }
 
-/// The proof kernels on one source: the hash of the `PageRank` bits, the component
+/// The kernels on one source: the hash of the `PageRank` bits, the component
 /// labels and the BFS depths from node 0. Small tasks and batches, so that the graph
 /// is cut into many of each.
 fn kernels_on<S: Source>(source: &S) -> u64 {
@@ -119,20 +119,33 @@ fn kernels_on<S: Source>(source: &S) -> u64 {
         ..Settings::default()
     };
     Plan::with(source, &memory, settings, |plan| {
-        let rank = proof::pagerank::<_, f64>(&plan, &memory, 0.85, 20).expect("pagerank");
+        let g = pagerank::Graph {
+            lists: &plan,
+            weights: None,
+            directed: false,
+        };
+        let s = pagerank::strength(&plan, None, false, &memory).expect("strength");
+        let p = pagerank::PageRank {
+            tol: 0.0,
+            max_iter: 20,
+            ..pagerank::PageRank::default()
+        };
+        let strength = s.as_slice().expect("one segment");
+        let rank = pagerank::pagerank::<_, f64>(&g, strength, &p, &memory).expect("pagerank");
         let (labels, _) = proof::wcc(&plan, &memory).expect("wcc");
-        let (depth, _) = proof::bfs(&plan, &memory, 0, true).expect("bfs");
+        let bfs = traversal::Bfs::default();
+        let depth = traversal::bfs(&plan, Some(&plan), 0, &bfs, &memory).expect("bfs");
         let load = |a: &AtomicU32| u64::from(a.load(Relaxed));
-        let words = rank.iter().map(|r| r.to_bits());
+        let words = rank.values.iter().map(|r| r.to_bits());
         fnv1a64(
             words
                 .chain(labels.iter().map(load))
-                .chain(depth.iter().map(load)),
+                .chain(depth.distance.iter().map(load)),
         )
     })
 }
 
-/// The hash of the proof kernels' results on the generated graph, made symmetric and
+/// The hash of the kernels' results on the generated graph, made symmetric and
 /// without loops, over the raw and the compressed source; 0 if the two sources disagree.
 ///
 /// # Panics

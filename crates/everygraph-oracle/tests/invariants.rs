@@ -213,6 +213,7 @@ fn degree_sum() {
 const PR: Kernel = Kernel::PageRank {
     damping: 0.85,
     weighted: false,
+    personalize: Vec::new(),
 };
 
 #[test]
