@@ -5,15 +5,15 @@
 # the suite is the sampled grid, run by ci.yml's `test` job with every other test.
 #
 # - `grid`: crates/everygraph-determinism with EVERYGRAPH_DETERMINISM=full (every
-#   combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, over a third of the CI corpus),
-#   and the determinism tests of the kernels, Leiden and the build at their release
+#   combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, over a
+#   third of the CI corpus), and the determinism tests of the kernels, Leiden and the build at their release
 #   sizes. Optimized without LTO: the shipped profile's fat LTO adds minutes of linking
 #   per test binary and cannot change a float result (rustc never fuses `a*b + c`,
 #   docs/research/sota-numerics.md § 3.2).
 # - `schedules`: Miri over 16 schedules of each test of the parallel facade
-#   (`-Zmiri-many-seeds`), on rayon, under Tree Borrows. One schedule of these 28 tests
-#   took about 330 s of CPU on the lab machine (loaded, exploratory; PR of #54), so 16
-#   fit the job's timeout on a runner's 4 cores.
+#   (`-Zmiri-many-seeds`), on rayon, under Tree Borrows, in four jobs of four seeds. In
+#   one job, 16 seeds took up to 1,306 s for one test and two tests passed the 30-minute
+#   limit (PR #271).
 # - A failed scheduled run opens an issue, or comments on the one already open.
 #
 # Also runs on a pull request that changes this file, so a change is tested before it
@@ -73,9 +73,13 @@ jobs:
           cargo nextest run --release --locked --profile determinism -p everygraph-kernels -p everygraph-community -p everygraph-ingest -E 'test(/depend|repeatable|identical/)'
 
   schedules:
-    name: Miri over many schedules (parallel facade)
+    name: Miri over schedules ${{ matrix.seeds }} (parallel facade)
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        seeds: ["0..4", "4..8", "8..12", "12..16"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -98,9 +102,9 @@ jobs:
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152
-      - name: Miri, 16 schedules per test of everygraph-core's `par`
+      - name: Miri, schedules ${{ matrix.seeds }} of each test of everygraph-core's `par`
         env:
-          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks -Zmiri-many-seeds=0..16
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks -Zmiri-many-seeds=${{ matrix.seeds }}
         run: cargo "+$NIGHTLY" miri nextest run -p everygraph-core --lib --locked --profile determinism -E 'test(/^par::/)'
 
   report:
