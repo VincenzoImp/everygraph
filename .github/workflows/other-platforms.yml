@@ -65,7 +65,7 @@ jobs:
             || inputs.platform == 'linux-arm' && '["ubuntu-24.04-arm"]'
             || '["macos-15", "windows-2025", "ubuntu-24.04-arm"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -96,9 +96,11 @@ jobs:
           tool: cargo-nextest@0.9.152
       # nextest, so that the retries of .config/nextest.toml apply here too; it does not
       # run doc tests, hence the second command.
+      # The no-OOM suite measures Linux cgroups and the Linux allocator path, so it runs in
+      # ci.yml only; on these runners it was the slowest test (over 180 s on Windows).
       - name: cargo test (${{ inputs.packages || '--workspace' }})
         env:
-          PACKAGES: ${{ inputs.packages || '--workspace' }}
+          PACKAGES: ${{ inputs.packages || '--workspace --exclude everygraph-memtest' }}
         run: |
           cargo nextest run $PACKAGES --no-tests=warn --locked
           cargo test $PACKAGES --doc --locked
