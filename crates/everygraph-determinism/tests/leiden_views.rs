@@ -100,7 +100,7 @@ fn moved(a: &[u32], b: &[u32]) -> usize {
 
 /// A planted partition whose Leiden communities change with the seed.
 fn sensitive() -> Lists {
-    let g = planted(40, 250, 6, 5, 11);
+    let g = planted(40, 250, 2, 2, 11);
     assert_ne!(
         run(&g, &variants()[0].1).membership[..],
         run(
