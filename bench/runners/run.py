@@ -21,10 +21,12 @@ measures the whole process around it and stores `tool`, `version`, `algorithm` a
 Also `python run.py convert mtx --graph DIR --out FILE`: MatrixMarket for GVE; `sg` and
 `wsg`: GAP's serialized graphs, the second with the costs of `edge_map_bench --kernel
 sssp` (integers 1 to 255, a function of the entry); `ldbc-csr --input DATASET --out DIR`:
-a weighted LDBC data set as a CSR directory with its costs. And `python run.py gap bfs|sssp
---graph DIR --work DIR`: the GAP Benchmark Suite binaries built in `--work`, on the
-serialized graph made there, from the highest-degree node; `seconds` is GAP's best trial
-time of 5, which times its kernel alone.
+a weighted LDBC data set as a CSR directory with its costs; `gbbs`: GBBS's binary
+symmetric format. And `python run.py gap|gbbs TASK --graph DIR --work DIR`: the GAP
+Benchmark Suite or GBBS binaries built in `--work`, on the graph files made there
+(`GAP_TASKS`, `GBBS_TASKS`); `seconds` is the tool's own kernel time (best trial, or the
+mean over the sources of `--sources`). `bfs64` of NetworKit and igraph also runs one BFS
+per source of `--sources` and reports the mean.
 """
 
 import argparse
@@ -43,11 +45,13 @@ QUERY_SEED = 42  # the lab's query set (lab/f2-python/scripts/engines/make_queri
 
 
 class Csr:
-    def __init__(self, path):
+    def __init__(self, path, mapped=False):
         meta_path = os.path.join(path, "meta.json")
         self.meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
         self.offsets = np.fromfile(os.path.join(path, "offsets.u64"), dtype=np.uint64)
-        self.targets = np.fromfile(os.path.join(path, "targets.u32"), dtype=np.uint32)
+        targets = os.path.join(path, "targets.u32")
+        # Mapped for the converters, which stream it; read into the heap for the tools.
+        self.targets = np.memmap(targets, dtype=np.uint32, mode="r") if mapped else np.fromfile(targets, dtype=np.uint32)
         self.n = len(self.offsets) - 1
         self.degrees = np.diff(self.offsets).astype(np.int64)
         self.name = os.path.basename(os.path.normpath(path))
@@ -142,11 +146,15 @@ def networkit(task, csr, args):
         "bfs": ("networkit.distance.BFS(source = highest-degree node, storePaths=False)",
                 lambda: run_then(nk.distance.BFS(g, csr.hub(), storePaths=False)),
                 lambda a: {"source": csr.hub()}),
-        # Per-edge triangle counts; each triangle is on three edges. Only run() is timed:
-        # scores() copies 117 M floats into a Python list on orkut.
-        "triangles": ("networkit.sparsification.TriangleEdgeScore.run(), scores summed / 3 after the clock "
-                      "(an exact triangle count)",
-                      lambda: run_then(nk.sparsification.TriangleEdgeScore(g)),
+        "bfs64": ("networkit.distance.BFS(storePaths=False) from each source of --sources, mean per source",
+                  lambda: each_source(lambda s: run_then(nk.distance.BFS(g, s, storePaths=False)) and None,
+                                      read_sources(args))),
+        # Per-edge triangle counts; each triangle is on three edges. Timed: the edge index
+        # the algorithm requires, and run(). Not timed: scores(), which copies 117 M floats
+        # into a Python list on orkut.
+        "triangles": ("networkit.Graph.indexEdges() + networkit.sparsification.TriangleEdgeScore.run(), "
+                      "scores summed / 3 after the clock (an exact triangle count)",
+                      lambda: (g.indexEdges(), run_then(nk.sparsification.TriangleEdgeScore(g)))[1],
                       lambda a: {"triangles": int(sum(a.scores()) // 3)}),
         "plm": ("networkit.community.PLM(refine=False) (parallel Louvain)",
                 *partition(lambda: nk.community.PLM(g, refine=False))),
@@ -198,6 +206,8 @@ def igraph(task, csr, args):
                        lambda c: {"components": len(c)}),
         "kcore": ("igraph.Graph.coreness", lambda: g.coreness(), lambda c: {"max_core": int(max(c))}),
         "bfs": ("igraph.Graph.bfs(source = highest-degree node)", lambda: {"reached": len(g.bfs(csr.hub())[0])}),
+        "bfs64": ("igraph.Graph.bfs (returns Python lists of n) from each source of --sources, mean per source",
+                  lambda: each_source(lambda s: len(g.bfs(s)[0]), read_sources(args))),
         # No triangles task: igraph's Python API lists them (a tuple each, 177 M on lj)
         # rather than counting, and transitivity is a different quantity.
         "multilevel": ("igraph.Graph.community_multilevel (Louvain)", lambda: g.community_multilevel(),
@@ -378,13 +388,31 @@ TOOLS = {"networkit": networkit, "igraph": igraph, "rustworkx": rustworkx, "duck
 # ----------------------------------------------------------------------------- main
 
 
-def uniform_costs(m):
-    """`cost(e, false)` of crates/everygraph-kernels/examples/edge_map_bench.rs."""
-    z = np.arange(m, dtype=np.uint64) + np.uint64(0x9E3779B97F4A7C15)
+def uniform_costs(m, start=0):
+    """`cost(e, false)` of crates/everygraph-kernels/examples/edge_map_bench.rs, for the
+    entries start .. start + m."""
+    z = np.arange(start, start + m, dtype=np.uint64) + np.uint64(0x9E3779B97F4A7C15)
     z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
     z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
     z ^= z >> np.uint64(31)
     return (np.uint64(1) + z % np.uint64(255)).astype(np.int32)
+
+
+CHUNK = 1 << 26  # entries per write: the converters stream Friendster's 3.6 G entries
+
+
+def write_targets(csr, f, weighted=False):
+    m = len(csr.targets)
+    with np.errstate(over="ignore"):
+        for lo in range(0, m, CHUNK):
+            t = np.asarray(csr.targets[lo:lo + CHUNK])
+            if weighted:
+                pairs = np.empty(2 * len(t), dtype=np.int32)
+                pairs[0::2] = t.view(np.int32)
+                pairs[1::2] = uniform_costs(len(t), lo)
+                pairs.tofile(f)
+            else:
+                t.tofile(f)
 
 
 def gap_serialized(csr, weighted, out):
@@ -393,17 +421,24 @@ def gap_serialized(csr, weighted, out):
     or (target, weight) pairs of int32."""
     m = len(csr.targets)
     tmp = out + ".part"
-    with np.errstate(over="ignore"), open(tmp, "wb") as f:
+    with open(tmp, "wb") as f:
         f.write(np.array([0], dtype=np.uint8).tobytes())
         f.write(np.array([m, csr.n], dtype=np.int64).tobytes())
         csr.offsets.astype(np.int64).tofile(f)
-        if weighted:
-            pairs = np.empty(2 * m, dtype=np.int32)
-            pairs[0::2] = csr.targets.view(np.int32)
-            pairs[1::2] = uniform_costs(m)
-            pairs.tofile(f)
-        else:
-            csr.targets.tofile(f)
+        write_targets(csr, f, weighted)
+    os.replace(tmp, out)
+
+
+def gbbs_binary(csr, out):
+    """GBBS's binary symmetric graph (gbbs/graph_io.cc, parse_unweighted_graph with -b,
+    built with GBBSLONG): n, m and the file size as int64, the n + 1 offsets as uint64,
+    then the uint32 targets: the CSR's own arrays behind a 24-byte header."""
+    m = len(csr.targets)
+    tmp = out + ".part"
+    with open(tmp, "wb") as f:
+        f.write(np.array([csr.n, m, 24 + 8 * (csr.n + 1) + 4 * m], dtype=np.int64).tobytes())
+        csr.offsets.tofile(f)
+        write_targets(csr, f)
     os.replace(tmp, out)
 
 
@@ -440,6 +475,10 @@ def convert(csr, kind, out):
         os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
         gap_serialized(csr, kind == "wsg", out)
         return
+    if kind == "gbbs":
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        gbbs_binary(csr, out)
+        return
     import pyarrow as pa
     import pyarrow.csv as pc
 
@@ -453,7 +492,7 @@ def convert(csr, kind, out):
         cols = {"u": src[keep].astype(np.int64), "v": csr.targets[keep].astype(np.int64)}
         header = ""
     else:
-        raise SystemExit(f"convert {kind}: use mtx, edges, sg or wsg")
+        raise SystemExit(f"convert {kind}: use mtx, edges, sg, wsg or gbbs")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     tmp = out + ".part"
     with open(tmp, "wb") as f:
@@ -462,29 +501,108 @@ def convert(csr, kind, out):
     os.replace(tmp, out)
 
 
+# GAP tasks: (binary, graph kind, arguments, how the trial times reduce, algorithm).
+# `bfs` and `sssp` start from the hub (bench/specs/kernels.toml); `bfs64` and `sssp64`
+# from GAP's own 64 seeded non-zero-degree sources (no -r: SourcePicker, the list that
+# bench/references/gap_sources.cc prints), one trial each, reported as their mean.
+# `pr` and `pr-gs` are GAP's pr_spmv.cc (Jacobi) and pr.cc (Gauss-Seidel) with ScoreT
+# changed from float to double (the references spec builds them), 20 iterations, tol 0.
+GAP_TASKS = {
+    "bfs": ("bfs", "sg", lambda c: ["-r", str(c.hub()), "-n", "5"], min, "bfs.cc direction-optimizing, from the hub"),
+    "sssp": ("sssp", "wsg", lambda c: ["-r", str(c.hub()), "-n", "5", "-d", "2"], min,
+             "sssp.cc delta-stepping, -d 2, from the hub"),
+    "bfs64": ("bfs", "sg", lambda c: ["-n", "64"], statistics.mean,
+              "bfs.cc direction-optimizing, 64 sources of SourcePicker, mean per source"),
+    "sssp64": ("sssp", "wsg", lambda c: ["-n", "64", "-d", "2"], statistics.mean,
+               "sssp.cc delta-stepping -d 2, int32 costs 1..255, 64 sources of SourcePicker, mean per source"),
+    "cc": ("cc", "sg", lambda c: ["-n", "5"], min, "cc.cc Afforest (neighbour rounds 2, sampled skip)"),
+    "pr": ("pr_spmv64", "sg", lambda c: ["-n", "5", "-i", "20", "-t", "0"], min,
+           "pr_spmv.cc Jacobi pull, ScoreT=double, 20 iterations, tol 0"),
+    "pr-gs": ("pr64", "sg", lambda c: ["-n", "5", "-i", "20", "-t", "0"], min,
+              "pr.cc Gauss-Seidel pull, ScoreT=double, 20 iterations, tol 0"),
+    "tc": ("tc", "sg", lambda c: ["-n", "3"], min, "tc.cc ordered count, relabels by degree when its heuristic says so"),
+}
+
+
 def gap(task, csr, args):
-    """GAP's own BFS or SSSP binary (Δ = 2, its best on these costs among 2, 8 and 32 in
-    an exploratory sweep), parsed: its trial times, not the process."""
+    """GAP's own binaries (SSSP: Δ = 2, its best on these costs among 2, 8 and 32 in an
+    exploratory sweep), parsed: its trial times, not the process."""
     import subprocess
 
-    graph = os.path.join(args.work, f"{csr.name}.{'sg' if task == 'bfs' else 'wsg'}")
-    extra = [] if task == "bfs" else ["-d", "2"]
-    cmd = [os.path.join(args.work, "gapbs", task), "-f", graph, "-r", str(csr.hub()), "-n", "5", *extra]
+    binary, kind, extra, reduce, algorithm = GAP_TASKS[task]
+    graph = os.path.join(args.work, f"{csr.name}.{kind}")
+    cmd = [os.path.join(args.work, "gapbs", binary), "-f", graph, *extra(csr)]
     out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
     trials = [float(line.split()[-1]) for line in out.splitlines() if line.startswith("Trial Time")]
-    commit = subprocess.run(["git", "-C", os.path.join(args.work, "gapbs"), "rev-parse", "HEAD"],
-                            check=True, capture_output=True, text=True).stdout.strip()
+    load = sum(float(line.split()[-1]) for line in out.splitlines() if line.startswith(("Read Time", "Build Time")))
+    version = os.path.join(args.work, "gapbs", "COMMIT")
+    commit = open(version).read().strip() if os.path.exists(version) else subprocess.run(
+        ["git", "-C", os.path.join(args.work, "gapbs"), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True).stdout.strip()
     print(json.dumps({
-        "tool": "gap", "version": commit, "task": task,
-        "algorithm": {"bfs": "bfs.cc direction-optimizing", "sssp": "sssp.cc delta-stepping, -d 2"}[task],
-        "options": {"OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS"), "source": csr.hub()},
-        "graph": csr.name, "threads": args.threads, "seconds": min(trials), "seconds_all": trials,
+        "tool": "gap", "version": commit, "task": task, "algorithm": algorithm,
+        "options": {"OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS"), "command": cmd[1:]},
+        "graph": csr.name, "threads": args.threads, "load_seconds": load, "seconds": reduce(trials), "trials": len(trials),
+        "seconds_all": trials,
     }))
+
+
+# GBBS tasks: (binary under the tree, arguments, how the round times reduce, algorithm).
+GBBS_TASKS = {
+    "bfs64": ("benchmarks/BFS/NonDeterministicBFS/BFS_sources", lambda a: ["-rounds", "1", "-sources", a.sources],
+              "NonDeterministicBFS BFS(G, src) from each listed source (bench/references/gbbs_bfs_sources.cc), "
+              "mean per source"),
+    "cc": ("benchmarks/Connectivity/WorkEfficientSDB14/Connectivity", lambda a: ["-rounds", "5"],
+           "WorkEfficientSDB14 connectivity (beta 0.2)"),
+    "pr": ("benchmarks/PageRank/PageRank", lambda a: ["-rounds", "5", "-iters", "20", "-eps", "0"],
+           "PageRank (dense edgeMapReduce, double), 20 iterations, eps 0"),
+    "kcore": ("benchmarks/KCore/JulienneDBS17/KCore", lambda a: ["-rounds", "5"],
+              "JulienneDBS17 KCore (bucketing, 16 buckets)"),
+    "tc": ("benchmarks/TriangleCounting/ShunTangwongsan15/Triangle", lambda a: ["-rounds", "3"],
+           "ShunTangwongsan15 Triangle (degree ordering)"),
+}
+
+
+def gbbs(task, csr, args):
+    """GBBS's own binaries on its binary symmetric format (`convert gbbs`), memory-mapped
+    (-b reads the file in place), threads from PARLAY_NUM_THREADS. `seconds` is GBBS's
+    "### Running Time" (the kernel alone), the best round, or the mean over sources."""
+    import subprocess
+
+    binary, extra, algorithm = GBBS_TASKS[task]
+    if task == "bfs64" and not args.sources:
+        raise SystemExit("gbbs bfs64 needs --sources FILE")
+    cmd = [os.path.join(args.work, "gbbs", binary), "-s", "-b", *extra(args), os.path.join(args.work, f"{csr.name}.adj")]
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    rounds = [float(line.split()[-1]) for line in out.splitlines() if line.startswith("### Running Time")]
+    per_source = [float(line.split()[-1]) for line in out.splitlines() if line.startswith("### Source Time")]
+    print(json.dumps({
+        "tool": "gbbs", "version": open(os.path.join(args.work, "gbbs", "COMMIT")).read().strip(), "task": task,
+        "algorithm": algorithm,
+        "options": {"PARLAY_NUM_THREADS": os.environ.get("PARLAY_NUM_THREADS"), "command": cmd[1:]},
+        "graph": csr.name, "threads": args.threads, "seconds": min(rounds), "seconds_all": per_source or rounds,
+    }))
+
+
+def read_sources(args):
+    if not args.sources:
+        raise SystemExit("bfs64 needs --sources FILE (made by bench/references/gap_sources.cc)")
+    return [int(x) for x in open(args.sources).read().split()]
+
+
+def each_source(run, sources):
+    """Runs `run(s)` once per source; returns the mean time and the results."""
+    times, results = [], []
+    for s in sources:
+        t = time.perf_counter()
+        results.append(run(s))
+        times.append(time.perf_counter() - t)
+    return {"mean_seconds": statistics.mean(times), "seconds_all": times, "results": results}
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("tool", choices=sorted(TOOLS) + ["convert", "gap"])
+    p.add_argument("tool", choices=sorted(TOOLS) + ["convert", "gap", "gbbs"])
     p.add_argument("task")
     p.add_argument("--graph", help="glab-csr-v0 directory")
     p.add_argument("--threads", type=int, default=1)
@@ -494,6 +612,7 @@ def main():
     p.add_argument("--memory-limit", default="4GB", help="the tool's own memory limit, where it has one")
     p.add_argument("--edges", help="text edge list (each edge once) for igraph and rustworkx")
     p.add_argument("--out", help="output file for convert")
+    p.add_argument("--sources", help="file of source nodes, one per line, for bfs64")
     args = p.parse_args()
     if args.tool == "convert" and args.task == "ldbc-csr":
         if not (args.input and args.out):
@@ -502,14 +621,14 @@ def main():
         return
     if not args.graph and args.tool != "duckdb":
         p.error("--graph is required")
-    csr = Csr(args.graph) if args.graph else None
+    csr = Csr(args.graph, mapped=args.tool == "convert") if args.graph else None
     if args.tool == "convert":
         if not args.out:
-            p.error("convert mtx|edges|sg|wsg --graph DIR --out FILE")
+            p.error("convert mtx|edges|sg|wsg|gbbs --graph DIR --out FILE")
         convert(csr, args.task, args.out)
         return
-    if args.tool == "gap":
-        gap(args.task, csr, args)
+    if args.tool in ("gap", "gbbs"):
+        (gap if args.tool == "gap" else gbbs)(args.task, csr, args)
         return
     version, load, tasks, storage = TOOLS[args.tool](args.task, csr, args)
     if args.task not in tasks:
@@ -519,6 +638,8 @@ def main():
     t = time.perf_counter()
     answer = call()
     seconds = time.perf_counter() - t
+    if isinstance(answer, dict) and "mean_seconds" in answer:  # one search per source
+        seconds = answer.pop("mean_seconds")
     result = summarize[0](answer) if summarize else answer
     print(json.dumps({
         "tool": args.tool, "version": version, "task": args.task, "algorithm": algorithm,

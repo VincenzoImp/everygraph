@@ -11,6 +11,7 @@ and result formats.
 | `results/<spec>/<timestamp>-<revision>.jsonl` | Rows of **official** runs | yes: every number quoted in a document cites one of these files |
 | `exploratory/<spec>/…` | Rows of exploratory runs | no (ignored) |
 | `runners/` | Comparison runners for other tools: a `uv`-locked Python project | yes (not `.venv/`) |
+| `references/` | Small drivers the `references` spec builds: GAP's source list, GBBS's BFS from a list of sources, and `eg-driver` (Everygraph's kernels from a list of sources) | yes |
 
 The **work directory** holds builds, decompressed inputs, cold-cache copies and logs
 (after `headline`, about 80 GB). It is `--work`, else `$EVERYGRAPH_BENCH_WORK`, else
@@ -314,9 +315,11 @@ the first time). The F2 engines run on cores 0–2 (`taskset`), as the lab pinne
 
 | Tool | Spec | Version | Status |
 |---|---|---|---|
-| NetworKit | `baselines` | 11.3 (FINDINGS § A) | runs |
-| python-igraph | `baselines`, `engines` | 1.0.0 | runs |
-| GVE-Louvain, GVE-Leiden | `baselines` | commits of 2025-04-08, pinned in the spec | built by the spec from source |
+| NetworKit | `baselines`, `references` | 11.3 (FINDINGS § A) | runs |
+| python-igraph | `baselines`, `engines`, `references` | 1.0.0 | runs |
+| GVE-Louvain, GVE-Leiden | `baselines`, `references` | commits of 2025-04-08, pinned in the spec | built by the spec from source |
+| GAP Benchmark Suite | `kernels`, `references` | commit 941462c (2026-11-26) | built by the spec from source; PageRank also with `ScoreT = double` |
+| GBBS | `references` | commit b1a90f5 (2023-05-18), the last with makefiles | built by the spec from source, with `bench/references/gbbs_bfs_sources.cc` |
 | DuckDB (ingest) | `baselines` | 2.0.1 | runs |
 | rustworkx | `engines` | 0.18.1 | runs |
 | LadybugDB | `engines` | 0.22.3 (PyPI `ladybug`) | runs |

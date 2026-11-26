@@ -1,0 +1,658 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Everygraph's kernels next to the best-known codes on this machine (#55,
+# plan/issues/m3-12-perf-tracking.md, the reference runs): the GAP Benchmark Suite, GBBS,
+# NetworKit, python-igraph, GVE-Leiden, and the lab's Leiden (lab/b2-leiden) for
+# communities. The comparison protocol of plan/issues/m8-03-public-benchmarks.md:
+#
+# - same input for every tool: the registry's CSR (csr/<graph>), converted once to each
+#   tool's own format by bench/runners/run.py (same node ids, same order: the input
+#   order; the degree and reverse-degree orders of rule 1 are not run yet);
+# - no isolated vertices in any of the four graphs (counted from offsets.u64: 0 each), so
+#   every tool sees the packed graph (rule 2);
+# - BFS and SSSP from the same 64 sources for every tool: GAP's own SourcePicker (seeded,
+#   non-zero degree), printed by bench/references/gap_sources.cc; the time is the mean
+#   per source (rule 3);
+# - PageRank in f64, damping 0.85, 20 iterations, tolerance 0, for every tool that takes an
+#   iteration count; igraph's PRPACK is an exact solve and is labelled so (rule 4);
+#   triangles exact, on undirected graphs; Everygraph has no triangle kernel yet;
+# - kernel time (`seconds`, the tool's own timer) apart from loading (`load_seconds`
+#   where the tool reports it; the harness's `wall_seconds` is the whole process) (rule 5);
+# - 1 and 16 threads for every parallel tool; 16 is the number of physical cores, SMT
+#   not used (rule 6); igraph is sequential and runs at 1;
+# - peak memory of every tool through the cgroup (`memory_peak_bytes`, and anonymous and
+#   file-backed apart: GBBS maps its graph file, the others read it into the heap) (rule 9).
+#
+# What each process times: Everygraph (bench/references/eg-driver, the product kernels
+# unchanged) the best of 5 runs, or the mean over the 64 sources; GAP its best trial of 5
+# (3 for triangles) or the mean of its 64 trials; GBBS its best round of 5 (3 for
+# triangles) or the mean over the 64 sources (bench/references/gbbs_bfs_sources.cc);
+# NetworKit, igraph and the Leiden codes one run.
+#
+# Builds (preparation steps): GAP and GBBS with their own makefiles and flags (GBBS adds
+# -march=native; GAP and Everygraph do not); GAP's PageRank copied with ScoreT = double
+# for the f64 rule; GBBS at its last commit with makefiles (2023-05-18; the later tree
+# builds only with Bazel); GVE-Leiden as bench/specs/baselines.toml builds it, for 1 and
+# 16 threads.
+#
+# Twitter (twitter-sym) runs the whole-graph kernels and the searches with the C++ tools
+# only, at 16 threads only (the 1-thread line is lj and orkut: on twitter one SSSP pass
+# over 64 sources would take tens of minutes per tool), and triangles not at all;
+# Friendster only components, BFS and k-core at 16 threads, under a 40 GiB limit. NetworKit and igraph build their graphs from Python arrays and
+# need several times the CSR's size: lj and orkut only.
+#
+# Exploratory interleaved ratios from this spec's commands: lab/m3-12-reference-runs.
+#
+# Run (about 3 h, an estimate from the exploratory rounds; the preparation downloads the
+# sources and wheels and needs the network the first time, and writes about 120 GB of
+# converted graphs under {work}/refs):
+#   everygraph-bench run references --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "references"
+description = "Issue #55: Everygraph's kernels against GAP, GBBS, NetworKit, igraph and GVE-Leiden, by the comparison protocol"
+reference = "plan/issues/m3-12-perf-tracking.md; plan/issues/m8-03-public-benchmarks.md; lab/m3-12-reference-runs"
+binaries = ["{eg}", "{py}", "{runners}/run.py"]
+
+[defaults]
+memory_limit = "24G"
+repetitions = 3
+# Each process repeats its kernel (best of 5, or 64 searches); a warm-up would only warm
+# the page cache, and loading is reported apart.
+warmup = 0
+threads = [1, 16]
+timeout = "40m"
+
+[vars]
+refs = "{work}/refs"
+eg = "{work}/eg-driver/release/eg-driver"
+b2 = "{work}/lab-b2/release/b2"
+runners = "{repo}/bench/runners"
+py = "{runners}/.venv/bin/python"
+run = "{py} {runners}/run.py"
+sources = "{refs}/sources"
+# Pinned: github.com/sbeamer/gapbs (BSD-3-Clause), the newest commit on 2026-11-26.
+gap_commit = "941462c7c42e786e4e006a9211b0576ef78d23f7"
+# github.com/ldhulipala/gbbs (MIT): the last commit with makefiles, and the parlaylib
+# commit its submodule pins.
+gbbs_commit = "b1a90f5fa3b36b8be9fa5c336e3dc5783ae75d76"
+parlay_commit = "6b4a4cdbfeb3c481608a42db0230eb6ebb87bf8d"
+# github.com/puzzlef/leiden-communities-openmp (MIT), as bench/specs/baselines.toml.
+leiden_commit = "f741a40717a1b207d53289c5cdda36ce858477a7"
+gve = "{refs}/gve/leiden-{leiden_commit}"
+
+[[prepare]]
+name = "runners"
+command = ["uv", "sync", "--frozen", "--quiet", "--project", "{runners}"]
+
+[[prepare]]
+name = "build-eg"
+cwd = "{repo}/bench/references/eg-driver"
+shell = "CARGO_TARGET_DIR={work}/eg-driver cargo build --release --offline --locked"
+
+[[prepare]]
+name = "build-b2"
+cwd = "{repo}/lab/b2-leiden"
+# An empty RUSTFLAGS: no target-cpu=native, like the workspace.
+shell = "RUSTFLAGS= CARGO_TARGET_DIR={work}/lab-b2 cargo build --release --offline --locked"
+needed_by = ["leiden-lab", "leiden-lab-det"]
+
+[[prepare]]
+name = "gap"
+shell = """
+set -e
+d={refs}/gapbs
+if [ "$(cat $d/COMMIT 2>/dev/null)" != {gap_commit} ]; then
+  rm -rf $d $d.part && mkdir -p $d.part
+  curl -sSfL https://codeload.github.com/sbeamer/gapbs/tar.gz/{gap_commit} | tar -xz -C $d.part --strip-components=1
+  for k in pr pr_spmv; do
+    sed 's/^typedef float ScoreT;$/typedef double ScoreT;/' $d.part/src/$k.cc > $d.part/src/${{k}}64.cc
+    grep -q '^typedef double ScoreT;$' $d.part/src/${{k}}64.cc
+  done
+  make -s -C $d.part bfs cc sssp tc pr64 pr_spmv64
+  g++ -std=c++11 -O3 -Wall -fopenmp -I$d.part/src {repo}/bench/references/gap_sources.cc -o $d.part/gap_sources
+  echo {gap_commit} > $d.part/COMMIT
+  mv $d.part $d
+fi
+"""
+
+[[prepare]]
+name = "gbbs"
+shell = """
+set -e
+d={refs}/gbbs
+if [ "$(cat $d/COMMIT 2>/dev/null)" != "{gbbs_commit} (parlaylib {parlay_commit})" ]; then
+  rm -rf $d $d.part && mkdir -p $d.part/external/parlaylib
+  curl -sSfL https://codeload.github.com/ldhulipala/gbbs/tar.gz/{gbbs_commit} | tar -xz -C $d.part --strip-components=1
+  curl -sSfL https://codeload.github.com/ParAlg/parlaylib/tar.gz/{parlay_commit} | tar -xz -C $d.part/external/parlaylib --strip-components=1
+  cp {repo}/bench/references/gbbs_bfs_sources.cc $d.part/benchmarks/BFS/NonDeterministicBFS/BFS_sources.cc
+  make -s -C $d.part/gbbs
+  make -s -C $d.part/gbbs/encodings
+  for b in BFS/NonDeterministicBFS Connectivity/WorkEfficientSDB14 PageRank KCore/JulienneDBS17 TriangleCounting/ShunTangwongsan15; do
+    make -s -C $d.part/benchmarks/$b ROOTDIR=$d.part/
+  done
+  make -s -C $d.part/benchmarks/BFS/NonDeterministicBFS ROOTDIR=$d.part/ BFS_sources
+  echo "{gbbs_commit} (parlaylib {parlay_commit})" > $d.part/COMMIT
+  mv $d.part $d
+fi
+"""
+needed_by = ["pagerank-gbbs", "cc-gbbs", "kcore-gbbs", "bfs-gbbs", "tc-gbbs", "friendster-gbbs"]
+
+[[prepare]]
+name = "gve"
+shell = """
+set -e
+mkdir -p {refs}/gve
+s={refs}/gve/src-{leiden_commit}
+if [ ! -d $s ]; then
+  mkdir -p $s.part
+  curl -sSfL https://codeload.github.com/puzzlef/leiden-communities-openmp/tar.gz/{leiden_commit} | tar -xz -C $s.part --strip-components=1
+  mv $s.part $s
+fi
+for t in 1 16; do
+  [ -x {gve}-t$t ] || g++ -DTYPE=float -DMAX_THREADS=$t -DREPEAT_METHOD=1 -std=c++17 -O3 -fopenmp $s/main.cxx -o {gve}-t$t
+done
+"""
+needed_by = ["leiden-gve"]
+
+[[prepare]]
+name = "inputs"
+# The converters stream the targets; gap_sources reads the whole graph (Friendster 15 GB).
+memory_limit = "24G"
+shell = """
+set -e
+mkdir -p {sources}
+for g in lj orkut twitter-sym friendster; do
+  for k in sg wsg gbbs; do
+    f={refs}/$g.$k; [ $k = gbbs ] && f={refs}/$g.adj
+    [ -s $f ] || {run} convert $k --graph {data}/csr/$g --out $f
+  done
+  [ -s {sources}/$g.txt ] || {{ OMP_NUM_THREADS=16 {refs}/gapbs/gap_sources -f {refs}/$g.sg -n 64 | grep -E '^[0-9]+$' > {sources}/$g.part && mv {sources}/$g.part {sources}/$g.txt; }}
+done
+for g in lj orkut; do
+  [ -s {refs}/$g.edges ] || {run} convert edges --graph {data}/csr/$g --out {refs}/$g.edges
+  [ -s {refs}/$g.mtx ] || {run} convert mtx --graph {data}/csr/$g --out {refs}/$g.mtx
+done
+"""
+
+# --- PageRank: f64, damping 0.85, 20 iterations, tol 0 -------------------------------------
+
+[[benchmark]]
+name = "pagerank-eg"
+group = "pagerank"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["{eg}", "--graph", "{dataset}", "--kernel", "pr64", "--threads", "{threads}", "--reps", "5"]
+record = { tool = "Everygraph", version = "this revision", algorithm = "everygraph_kernels::pagerank (pull, Jacobi), f64, strength included", options = "damping 0.85, 20 iterations, tol 0; raw CSR in the heap; best of 5" }
+record_json = { hash = "/hash" }
+conditions = { graph = "{graph}", tool = "Everygraph", kernel = "pagerank", precision = "f64", storage = "raw CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "pagerank-gap"
+group = "pagerank"
+runner = "gap"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"], task = ["pr", "pr-gs"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} gap {task} --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GAP {task}", kernel = "pagerank", precision = "f64 (ScoreT = double)", storage = "GAP CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "pagerank-gbbs"
+group = "pagerank"
+runner = "gbbs"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "PARLAY_NUM_THREADS={threads} exec {run} gbbs pr --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GBBS", kernel = "pagerank", precision = "f64", storage = "GBBS binary graph, memory-mapped" }
+metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
+
+[[benchmark]]
+name = "pagerank-networkit"
+group = "pagerank"
+runner = "networkit"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} networkit pagerank --graph {dataset} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit", kernel = "pagerank", precision = "f64", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "pagerank-igraph"
+group = "pagerank"
+runner = "igraph"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS=1 exec {run} igraph pagerank --graph {dataset} --edges {refs}/{graph}.edges --threads 1"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "python-igraph", kernel = "pagerank", precision = "f64", pagerank = "PRPACK exact solve, not 20 iterations", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+# --- connected components ----------------------------------------------------------------------
+
+[[benchmark]]
+name = "cc-eg"
+group = "components"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["{eg}", "--graph", "{dataset}", "--kernel", "cc", "--threads", "{threads}", "--reps", "5"]
+record = { tool = "Everygraph", version = "this revision", algorithm = "everygraph_kernels::components::wcc, hybrid sampling (edge_map_bench --kernel cc)", options = "raw CSR in the heap; best of 5" }
+record_json = { hash = "/hash" }
+conditions = { graph = "{graph}", tool = "Everygraph", kernel = "components", storage = "raw CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "cc-gap"
+group = "components"
+runner = "gap"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} gap cc --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GAP", kernel = "components", storage = "GAP CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "cc-gbbs"
+group = "components"
+runner = "gbbs"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "PARLAY_NUM_THREADS={threads} exec {run} gbbs cc --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GBBS", kernel = "components", storage = "GBBS binary graph, memory-mapped" }
+metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
+
+[[benchmark]]
+name = "cc-networkit"
+group = "components"
+runner = "networkit"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} networkit parallel_components --graph {dataset} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit", kernel = "components", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "cc-igraph"
+group = "components"
+runner = "igraph"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS=1 exec {run} igraph components --graph {dataset} --edges {refs}/{graph}.edges --threads 1"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "python-igraph", kernel = "components", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+# --- k-core (core numbers) ---------------------------------------------------------------------
+
+[[benchmark]]
+name = "kcore-eg"
+group = "kcore"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["{eg}", "--graph", "{dataset}", "--kernel", "kcore", "--threads", "{threads}", "--reps", "5"]
+record = { tool = "Everygraph", version = "this revision", algorithm = "everygraph_kernels::kcore (Liu et al. SIGMOD 2025)", options = "raw CSR in the heap; best of 5" }
+record_json = { hash = "/hash" }
+conditions = { graph = "{graph}", tool = "Everygraph", kernel = "kcore", storage = "raw CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "kcore-gbbs"
+group = "kcore"
+runner = "gbbs"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "PARLAY_NUM_THREADS={threads} exec {run} gbbs kcore --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GBBS", kernel = "kcore", storage = "GBBS binary graph, memory-mapped" }
+metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
+
+[[benchmark]]
+name = "kcore-networkit"
+group = "kcore"
+runner = "networkit"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} networkit kcore --graph {dataset} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit", kernel = "kcore", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "kcore-igraph"
+group = "kcore"
+runner = "igraph"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS=1 exec {run} igraph kcore --graph {dataset} --edges {refs}/{graph}.edges --threads 1"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "python-igraph", kernel = "kcore", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+# --- BFS from GAP's 64 sources: the mean per source ---------------------------------------------
+
+[[benchmark]]
+name = "bfs-eg"
+group = "bfs"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["{eg}", "--graph", "{dataset}", "--kernel", "bfs", "--threads", "{threads}", "--sources", "{sources}/{graph}.txt"]
+record = { tool = "Everygraph", version = "this revision", algorithm = "everygraph_kernels::traversal::bfs, direction-optimizing, distances only", options = "GAP's 64 sources; raw CSR in the heap; mean per source" }
+record_json = { hash = "/hash" }
+conditions = { graph = "{graph}", tool = "Everygraph", kernel = "bfs", storage = "raw CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "bfs-gap"
+group = "bfs"
+runner = "gap"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} gap bfs64 --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GAP", kernel = "bfs", storage = "GAP CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "bfs-gbbs"
+group = "bfs"
+runner = "gbbs"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "PARLAY_NUM_THREADS={threads} exec {run} gbbs bfs64 --graph {dataset} --work {refs} --threads {threads} --sources {sources}/{graph}.txt"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GBBS", kernel = "bfs", storage = "GBBS binary graph, memory-mapped" }
+metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
+
+[[benchmark]]
+name = "bfs-networkit"
+group = "bfs"
+runner = "networkit"
+description = "NetworKit's BFS is sequential: one thread count"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS=1 exec {run} networkit bfs64 --graph {dataset} --threads 1 --sources {sources}/{graph}.txt"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit", kernel = "bfs", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "bfs-igraph"
+group = "bfs"
+runner = "igraph"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS=1 exec {run} igraph bfs64 --graph {dataset} --edges {refs}/{graph}.edges --threads 1 --sources {sources}/{graph}.txt"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "python-igraph", kernel = "bfs", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+# --- SSSP from GAP's 64 sources, costs 1..255 (edge_map_bench's `uniform`) ----------------------
+
+[[benchmark]]
+name = "sssp-eg"
+group = "sssp"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["{eg}", "--graph", "{dataset}", "--kernel", "sssp", "--threads", "{threads}", "--sources", "{sources}/{graph}.txt"]
+record = { tool = "Everygraph", version = "this revision", algorithm = "everygraph_kernels::sssp, delta-stepping, width of the data rule", options = "f64 costs 1..255; GAP's 64 sources; mean per source" }
+record_json = { hash = "/hash" }
+conditions = { graph = "{graph}", tool = "Everygraph", kernel = "sssp", precision = "f64 costs and distances", storage = "raw CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "sssp-gap"
+group = "sssp"
+runner = "gap"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+exclude = [{ graph = "twitter-sym", threads = 1 }]
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} gap sssp64 --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GAP", kernel = "sssp", precision = "int32 costs and distances", storage = "GAP weighted CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+# --- triangles (no Everygraph kernel yet) -------------------------------------------------------
+
+[[benchmark]]
+name = "tc-gap"
+group = "triangles"
+runner = "gap"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} gap tc --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GAP", kernel = "triangles", storage = "GAP CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "tc-gbbs"
+group = "triangles"
+runner = "gbbs"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "PARLAY_NUM_THREADS={threads} exec {run} gbbs tc --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "GBBS", kernel = "triangles", storage = "GBBS binary graph, memory-mapped" }
+metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
+
+[[benchmark]]
+name = "tc-networkit"
+group = "triangles"
+runner = "networkit"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} networkit triangles --graph {dataset} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit", kernel = "triangles", level = "in-process call from Python" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "triangles", json = "/result/triangles" },
+]
+
+# --- communities: Leiden (and NetworKit's PLM), speed and modularity ----------------------------
+
+[[benchmark]]
+name = "leiden-lab"
+group = "communities"
+description = "lab/b2-leiden, default (asynchronous) mode; the graph memory-mapped"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["{b2}", "run", "--graph", "{dataset}", "--algo", "leiden", "--threads", "{threads}"]
+record = { tool = "lab/b2-leiden", version = "this revision", algorithm = "Leiden, asynchronous local moves, one refinement", options = "defaults (gamma 1, 1 iteration)" }
+conditions = { graph = "{graph}", tool = "lab Leiden", kernel = "leiden", precision = "f64 weights" }
+# The line holds NaN (modularity_level0), which is not JSON: regular expressions.
+metric = [
+  { name = "seconds", regex = '"time_s":([0-9.]+)', unit = "s" },
+  { name = "load_seconds", regex = '"load_s":([0-9.]+)', unit = "s" },
+  { name = "modularity", regex = '"modularity":([0-9.]+)' },
+  { name = "communities", regex = '"communities":([0-9]+)' },
+]
+
+[[benchmark]]
+name = "leiden-lab-det"
+group = "communities"
+description = "lab/b2-leiden, deterministic mode (--det)"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["{b2}", "run", "--graph", "{dataset}", "--algo", "leiden", "--threads", "{threads}", "--det"]
+record = { tool = "lab/b2-leiden", version = "this revision", algorithm = "Leiden, deterministic sub-rounds, one refinement", options = "--det, defaults otherwise" }
+conditions = { graph = "{graph}", tool = "lab Leiden (deterministic)", kernel = "leiden", precision = "f64 weights" }
+metric = [
+  { name = "seconds", regex = '"time_s":([0-9.]+)', unit = "s" },
+  { name = "load_seconds", regex = '"load_s":([0-9.]+)', unit = "s" },
+  { name = "modularity", regex = '"modularity":([0-9.]+)' },
+  { name = "communities", regex = '"communities":([0-9]+)' },
+]
+
+[[benchmark]]
+name = "leiden-gve"
+group = "communities"
+runner = "gve"
+description = "GVE-Leiden on MatrixMarket input; the time is the binary's own"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["{gve}-t{threads}", "{refs}/{graph}.mtx", "1", "0"]
+record = { tool = "GVE-Leiden", version = "puzzlef/leiden-communities-openmp {leiden_commit}", algorithm = "leidenStaticOmp", options = "TYPE=float MAX_THREADS={threads} REPEAT_METHOD=1; input MatrixMarket, symmetric, unweighted" }
+conditions = { graph = "{graph}", tool = "GVE-Leiden", kernel = "leiden", precision = "f32 (TYPE=float)" }
+metric = [
+  { name = "seconds", regex = '\{0*([0-9.]+)ms,[^}]*\} leidenStaticOmp', scale = 0.001, unit = "s" },
+  { name = "modularity", regex = '([0-9.]+) modularity[^}]*\} leidenStaticOmp' },
+]
+
+[[benchmark]]
+name = "leiden-networkit"
+group = "communities"
+runner = "networkit"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], task = ["leiden", "plm"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} networkit {task} --graph {dataset} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "NetworKit {task}", kernel = "leiden", precision = "f64" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+  { name = "modularity", json = "/result/modularity" },
+  { name = "communities", json = "/result/communities" },
+]
+
+[[benchmark]]
+name = "leiden-igraph"
+group = "communities"
+runner = "igraph"
+dataset_path = "csr/{graph}"
+threads = [1]
+matrix = { graph = ["lj", "orkut"] }
+command = ["sh", "-c", "OMP_NUM_THREADS=1 exec {run} igraph leiden --graph {dataset} --edges {refs}/{graph}.edges --threads 1"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "{graph}", tool = "python-igraph", kernel = "leiden", precision = "f64" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+  { name = "modularity", json = "/result/modularity" },
+  { name = "communities", json = "/result/communities" },
+]
+
+# --- Friendster (65.6 M nodes, 1.8 G edges): the fast kernels at 16 threads, 40 GiB -------------
+
+[[benchmark]]
+name = "friendster-eg"
+group = "friendster"
+memory_limit = "40G"
+threads = [16]
+dataset_path = "csr/friendster"
+matrix = { kernel = ["cc", "kcore", "bfs"] }
+command = ["{eg}", "--graph", "{dataset}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "3", "--sources", "{sources}/friendster.txt"]
+record = { tool = "Everygraph", version = "this revision", algorithm = "everygraph_kernels {kernel}", options = "raw CSR in the heap; best of 3, or the mean over GAP's 64 sources" }
+record_json = { hash = "/hash" }
+conditions = { graph = "friendster", tool = "Everygraph", kernel = "{kernel}", storage = "raw CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "friendster-gap"
+group = "friendster"
+runner = "gap"
+memory_limit = "40G"
+threads = [16]
+dataset_path = "csr/friendster"
+matrix = { kernel = ["cc", "bfs64"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {run} gap {kernel} --graph {dataset} --work {refs} --threads {threads}"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "friendster", tool = "GAP", kernel = "{kernel}", storage = "GAP CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+
+[[benchmark]]
+name = "friendster-gbbs"
+group = "friendster"
+runner = "gbbs"
+memory_limit = "40G"
+threads = [16]
+dataset_path = "csr/friendster"
+matrix = { kernel = ["cc", "kcore", "bfs64"] }
+command = ["sh", "-c", "PARLAY_NUM_THREADS={threads} exec {run} gbbs {kernel} --graph {dataset} --work {refs} --threads {threads} --sources {sources}/friendster.txt"]
+record_json = { tool = "/tool", version = "/version", algorithm = "/algorithm", options = "/options" }
+conditions = { graph = "friendster", tool = "GBBS", kernel = "{kernel}", storage = "GBBS binary graph, memory-mapped" }
+metric = [{ name = "seconds", json = "/seconds", unit = "s" }]
