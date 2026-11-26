@@ -210,7 +210,7 @@ mod bench {
             add_in_adjacency(FileSink::open(work)?, &memory, &scratch, threads, &Silent)?;
         let seconds = t0.elapsed().as_secs_f64();
         let written = write_bytes() - io0;
-        drop(sink.into_file());
+        drop(sink);
         std::fs::remove_dir_all(&scratch_dir)?;
         if !added {
             return Err("the base file already holds an in-adjacency".into());
