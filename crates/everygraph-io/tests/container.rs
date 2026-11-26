@@ -269,7 +269,7 @@ fn spawn_child(name: &str, var: &str, path: &Path) -> Child {
         .args(["--exact", name, "--nocapture", "--test-threads=1"])
         .env(var, path)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::inherit())
         .spawn()
         .unwrap()
 }
