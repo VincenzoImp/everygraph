@@ -30,7 +30,9 @@ use everygraph_bench::harness::procfs::Host;
 use everygraph_bench::harness::run::{
     self, Context, RunError, RunOptions, dataset_path, path_safe,
 };
-use everygraph_bench::harness::spec::{Interrupt, Program, Spec, StopSignal};
+use everygraph_bench::harness::spec::{
+    CacheMode, Case, DatasetRef, Interrupt, Program, Spec, StopSignal,
+};
 use everygraph_bench::harness::template::Scope;
 use everygraph_bench::harness::units::human_size;
 use everygraph_bench::harness::{cache, lock, report, row, selftest, units};
@@ -295,6 +297,9 @@ struct MeasureArgs {
     /// Where to write the measurement (JSON).
     #[arg(long, value_name = "FILE")]
     report: PathBuf,
+    /// The command's memory limit, below the scope's.
+    #[arg(long, value_name = "BYTES")]
+    memory_max_bytes: u64,
     /// Memory sampling interval.
     #[arg(long, value_name = "MS", default_value_t = 20)]
     sample_interval_ms: u64,
@@ -688,6 +693,10 @@ fn check(registry: Registry, data: DataRoot, args: &CheckArgs) -> Result<ExitCod
                 ),
             };
             out!("  {:<48} {state}", c.id);
+            if let Some(problem) = out_of_core_lint(&ctx, c)? {
+                out!("      LINT: {problem}");
+                bad += 1;
+            }
             if args.commands {
                 let mut scope = Scope::new(spec.vars.clone());
                 scope.set("repo", ctx.repo.display().to_string());
@@ -725,9 +734,77 @@ fn check(registry: Registry, data: DataRoot, args: &CheckArgs) -> Result<ExitCod
         }
     }
     if bad > 0 {
-        return Err(format!("{bad} of {} specs failed the check", paths.len()));
+        return Err(format!(
+            "{bad} problems in {} specs (parse errors and lint findings)",
+            paths.len()
+        ));
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// A case whose memory limit is below its dataset's size claims to run out of core, so it
+/// must start cold: warm, the page cache may hold the data and nothing is read from
+/// storage (#265). Rows record `read_bytes`, `pgmajfault` and `refaults` to show it.
+/// The size is the dataset's on disk, else the registry's (`registry_size`), so that the
+/// lint also checks the specs where the data is absent (CI).
+fn out_of_core_lint(ctx: &Context, c: &Case) -> Result<Option<String>, String> {
+    let (Some(d), None) = (&c.dataset, &c.unavailable) else {
+        return Ok(None);
+    };
+    if c.cache == CacheMode::Cold || c.warm_ok.is_some() {
+        return Ok(None);
+    }
+    let path = dataset_path(ctx, d)?;
+    let size = if path.exists() {
+        Some(cache::size_of(&path)?)
+    } else {
+        registry_size(&ctx.registry, d)
+    };
+    Ok(size.filter(|&size| c.memory_limit < size).map(|size| {
+        format!(
+            "memory limit {} is below the size of {} ({}): set cache = \"cold\"",
+            human_size(c.memory_limit),
+            d.label(),
+            human_size(size)
+        )
+    }))
+}
+
+/// The lab's CSR directories (`csr/<graph>`) and the registry datasets they are built from.
+const CSR_SOURCES: &[(&str, &str)] = &[
+    ("lj", "com-livejournal"),
+    ("orkut", "com-orkut"),
+    ("friendster", "com-friendster"),
+    ("twitter-sym", "twitter-2010"),
+    ("twitter-dir", "twitter-2010"),
+    ("twitter-dir-in", "twitter-2010"),
+];
+
+/// A dataset's size from the registry alone: its files' sizes; for a CSR directory the
+/// arrays its counts imply (n + 1 u64 offsets, each edge twice as a u32 target, n u64
+/// ids: at least the size of a directed CSR); for another path, the registry file of that
+/// name. `None` when the registry does not know.
+fn registry_size(registry: &Registry, d: &DatasetRef) -> Option<u64> {
+    let path = match d {
+        DatasetRef::Registry(name) => return registry.get(name)?.total_size(),
+        DatasetRef::Path(p) => p,
+    };
+    if let Some(graph) = path.strip_prefix("csr/") {
+        let name = CSR_SOURCES
+            .iter()
+            .find(|(g, _)| *g == graph)
+            .map_or(graph, |(_, r)| r);
+        let ds = registry.get(name)?;
+        let (n, m) = (ds.nodes?, ds.edges?);
+        return Some(8 * (n + 1) + 8 * m + 8 * n);
+    }
+    let file = Path::new(path).file_name()?.to_str()?;
+    registry
+        .datasets
+        .iter()
+        .flat_map(|ds| &ds.files)
+        .find(|f| f.name == file)?
+        .size
 }
 
 fn report_files(args: &ReportArgs) -> Result<ExitCode, String> {
@@ -867,6 +944,7 @@ fn measure_command(args: &MeasureArgs) -> Result<ExitCode, String> {
         .transpose()?;
     let opts = MeasureOptions {
         argv: args.command.clone(),
+        memory_max: args.memory_max_bytes,
         sample_interval: Duration::from_millis(args.sample_interval_ms.max(1)),
         timeout: Duration::from_millis(args.timeout_ms),
         interrupt,

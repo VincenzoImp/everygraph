@@ -47,6 +47,7 @@ pub(crate) fn check(column: &[f64], entries: u64) -> Result<Range, Error> {
         match part {
             Err(i) => {
                 return Err(Error::Weight {
+                    column: "weight",
                     entry: i as u64,
                     value: column[i],
                 });

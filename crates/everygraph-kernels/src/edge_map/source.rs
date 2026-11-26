@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Where the lists come from: the [`Source`] trait and its three implementations.
+//! Where the lists come from: the [`Source`] trait and its four implementations.
 //!
 //! | Source | Lists | Per-worker reader |
 //! |---|---|---|
@@ -8,12 +8,14 @@
 //! | [`RawCopy`] | a raw copy of a compressed adjacency, owned, in parts | nothing |
 //! | [`Compressed`] | the adjacency codec (DESIGN D4) over bytes in memory: a heap buffer or a memory map | a decode batch |
 //! | [`Stream`] | raw targets read through a [`ByteSource`]; offsets in memory | a read buffer |
+//! | [`CompressedStream`](super::CompressedStream) | the adjacency codec over a [`ByteSource`]; its index in memory | a read window and a decode batch |
 //!
 //! Every source checks what it hands out: a list names only nodes below
 //! [`nodes`](Source::nodes). The codec checks the framing of its records, not the graph,
 //! so a corrupt file can decode to any `u32`. [`Csr`] checks its arrays when it is
 //! made. [`Compressed`] and [`Stream`] check their offsets when made, and each batch
-//! after they decode or read it. Lists are not checked to be sorted, so a kernel must
+//! after they decode or read it; [`CompressedStream`](super::CompressedStream) as
+//! [`Compressed`]. Lists are not checked to be sorted, so a kernel must
 //! not rely on order for anything but its answer.
 
 use std::fmt;
@@ -85,6 +87,13 @@ pub unsafe trait Source: Sync {
     ///
     /// [`Error::Memory`] if its buffers do not fit in the budget.
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<Self::Reader, Error>;
+
+    /// Called with the nodes of a scan's task before [`scan`](Self::scan) is called for
+    /// its blocks, in order. A reader that reads ahead stops at the task's end. The
+    /// default ignores it.
+    fn begin_task(&self, reader: &mut Self::Reader, nodes: Range<u32>) {
+        let _ = (reader, nodes);
+    }
 
     /// Calls `f(v, first_entry, list)` for each node `v` of `nodes` with `filter(v)`, in
     /// order. A batch of consecutive lists is decoded or read before the calls on it,
@@ -511,13 +520,74 @@ pub struct DecodeReader {
 }
 
 impl DecodeReader {
+    pub(super) fn new(memory: &Memory, batch: usize, lists: usize) -> Result<Self, Error> {
+        let mut r = Self {
+            batch: Batch::default(),
+            max_entries: batch,
+            lists,
+            held: Reservation::empty(memory, "edge-map decode batch", MemoryKind::Anonymous),
+        };
+        r.make_room(0, lists)?;
+        Ok(r)
+    }
+
+    /// Decodes from `nodes.start` of `adjacency`, as far as the batch size allows, and
+    /// checks what the batch hands out; returns the first node not decoded. A batch that
+    /// fails a check is emptied.
+    pub(super) fn decode(
+        &mut self,
+        adjacency: &Adjacency<'_>,
+        nodes: Range<u32>,
+    ) -> Result<u32, Error> {
+        let entries = adjacency.batch_entries(nodes.clone(), self.max_entries);
+        self.make_room(entries, nodes.len())?;
+        let n = adjacency.index().nodes();
+        let checked = adjacency
+            .decode_nodes(nodes.clone(), self.max_entries, &mut self.batch)
+            .map_err(Error::from)
+            .and_then(|end| check(&self.batch, nodes.start, end, n).map(|()| end));
+        if checked.is_err() {
+            self.batch.clear();
+        }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(self.batch.targets().len());
+        checked
+    }
+
+    /// Calls `f` for each list of the batch, with its node and first entry.
+    pub(super) fn hand_out(&self, index: &AdjacencyIndex, mut f: impl FnMut(u32, u64, &[u32])) {
+        let mut entry = index.entry_offset(NodeId::new(self.batch.first())).get();
+        for (v, list) in self.batch.iter() {
+            f(v.get(), entry, list);
+            entry += list.len() as u64;
+        }
+    }
+
+    /// Entries per batch, about.
+    pub(super) fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
+    /// Lists per call at most.
+    pub(super) fn lists(&self) -> usize {
+        self.lists
+    }
+
+    /// The only list of the batch, after a decode of one node.
+    pub(super) fn only(&self) -> &[u32] {
+        self.batch.list(0)
+    }
+
     /// Makes room in the batch for `entries` entries in `lists` lists, reserved first.
     fn make_room(&mut self, entries: usize, lists: usize) -> Result<(), Error> {
         let (have_entries, have_lists) = self.batch.capacity();
         if entries <= have_entries && lists <= have_lists {
             return Ok(());
         }
-        // The old buffers exist next to the new ones while the data moves.
+        // A decode overwrites the batch, so the old buffers go first: a reader never
+        // holds two grown batches at once.
+        self.batch.shrink_to(0, 0);
+        self.held.shrink(self.held.bytes());
         self.held
             .try_grow(Batch::bytes_for(entries, lists) as u64)?;
         self.batch.reserve(entries, lists);
@@ -531,7 +601,7 @@ impl DecodeReader {
     }
 
     /// Frees the batch beyond its usual size.
-    fn release(&mut self) {
+    pub(super) fn release(&mut self) {
         let usual = self.max_entries.saturating_add(8);
         let (entries, lists) = self.batch.capacity();
         if entries > usual || lists > self.lists {
@@ -540,6 +610,27 @@ impl DecodeReader {
                 .shrink(self.held.bytes() - self.batch.heap_bytes() as u64);
         }
     }
+}
+
+/// Checks that `batch` holds the lists of `first..end`, that together they are exactly
+/// `batch.targets()`, and that those name only nodes below `n`.
+fn check(batch: &Batch, first: u32, end: u32, n: u32) -> Result<(), Error> {
+    let lists = batch.len();
+    let targets = batch.targets().as_ptr_range();
+    let shape = batch.first() == first
+        && lists == ix((end - first).into())
+        && lists > 0
+        && batch.list(0).as_ptr_range().start == targets.start
+        && batch.list(lists - 1).as_ptr_range().end == targets.end;
+    if !shape {
+        return Err(Error::Invalid(
+            "a decoded batch does not hold the lists asked for",
+        ));
+    }
+    if !in_range(batch.targets(), n) {
+        return Err(bad_target(first, (0..lists).map(|i| batch.list(i)), n));
+    }
+    Ok(())
 }
 
 /// A graph in the compressed adjacency format (DESIGN D4), its data part in memory.
@@ -592,55 +683,6 @@ impl<'a> Compressed<'a> {
             ..Self::new(adjacency)
         })
     }
-
-    /// Decodes from `nodes.start`, as far as the reader's batch size allows, and checks
-    /// what the batch hands out; returns the first node not decoded. A batch that fails
-    /// a check is emptied.
-    fn decode(&self, r: &mut DecodeReader, nodes: Range<u32>) -> Result<u32, Error> {
-        let entries = self.adjacency.batch_entries(nodes.clone(), r.max_entries);
-        r.make_room(entries, nodes.len())?;
-        let checked = self
-            .adjacency
-            .decode_nodes(nodes.clone(), r.max_entries, &mut r.batch)
-            .map_err(Error::from)
-            .and_then(|end| self.check(&r.batch, nodes.start, end).map(|()| end));
-        if checked.is_err() {
-            r.batch.clear();
-        }
-        #[cfg(feature = "frontier-counters")]
-        super::counters::decoded(r.batch.targets().len());
-        checked
-    }
-
-    /// Checks that `batch` holds the lists of `first..end`, that together they are
-    /// exactly `batch.targets()`, and that those name only nodes of the graph.
-    fn check(&self, batch: &Batch, first: u32, end: u32) -> Result<(), Error> {
-        let lists = batch.len();
-        let targets = batch.targets().as_ptr_range();
-        let shape = batch.first() == first
-            && lists == ix((end - first).into())
-            && lists > 0
-            && batch.list(0).as_ptr_range().start == targets.start
-            && batch.list(lists - 1).as_ptr_range().end == targets.end;
-        if !shape {
-            return Err(Error::Invalid(
-                "a decoded batch does not hold the lists asked for",
-            ));
-        }
-        if !in_range(batch.targets(), self.n) {
-            return Err(bad_target(first, (0..lists).map(|i| batch.list(i)), self.n));
-        }
-        Ok(())
-    }
-
-    /// Calls `f` for each list of the reader's batch, with its node and first entry.
-    fn hand_out(&self, r: &DecodeReader, mut f: impl FnMut(u32, u64, &[u32])) {
-        let mut entry = self.entry_offset(r.batch.first());
-        for (v, list) in r.batch.iter() {
-            f(v.get(), entry, list);
-            entry += list.len() as u64;
-        }
-    }
 }
 
 // SAFETY: every list handed out comes from the reader's batch after `check` accepted it
@@ -674,14 +716,7 @@ unsafe impl Source for Compressed<'_> {
     }
 
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<DecodeReader, Error> {
-        let mut r = DecodeReader {
-            batch: Batch::default(),
-            max_entries: batch,
-            lists,
-            held: Reservation::empty(memory, "edge-map decode batch", MemoryKind::Anonymous),
-        };
-        r.make_room(0, lists)?;
-        Ok(r)
+        DecodeReader::new(memory, batch, lists)
     }
 
     #[inline]
@@ -697,8 +732,8 @@ unsafe impl Source for Compressed<'_> {
         }
         let mut at = nodes.start;
         while at < nodes.end {
-            let next = self.decode(r, at..nodes.end)?;
-            self.hand_out(r, |v, entry, list| {
+            let next = r.decode(&self.adjacency, at..nodes.end)?;
+            r.hand_out(self.adjacency.index(), |v, entry, list| {
                 if filter(v) {
                     f(v, entry, list);
                 }
@@ -722,16 +757,16 @@ unsafe impl Source for Compressed<'_> {
             while end < nodes.len() && nodes[end] == nodes[end - 1] + 1 {
                 end += 1;
             }
-            let stop = self.decode(r, start..nodes[end - 1] + 1)?;
-            self.hand_out(r, &mut f);
+            let stop = r.decode(&self.adjacency, start..nodes[end - 1] + 1)?;
+            r.hand_out(self.adjacency.index(), &mut f);
             i += ix(u64::from(stop - start));
         }
         Ok(())
     }
 
     fn list<'r>(&'r self, r: &'r mut DecodeReader, v: u32) -> Result<(u64, &'r [u32]), Error> {
-        self.decode(r, v..v + 1)?;
-        Ok((self.entry_offset(v), r.batch.list(0)))
+        r.decode(&self.adjacency, v..v + 1)?;
+        Ok((self.entry_offset(v), r.only()))
     }
 
     fn prefetch(&self, nodes: &[u32]) {
@@ -747,11 +782,15 @@ unsafe impl Source for Compressed<'_> {
 }
 
 /// Byte gap below which two ranges are advised, or read, as one.
-const COALESCE_GAP: u64 = 16 << 10;
+pub(super) const COALESCE_GAP: u64 = 16 << 10;
 
 /// Passes [`AccessHint::WillNeed`] to `source` for the byte ranges of `nodes`, merged
 /// where they are less than [`COALESCE_GAP`] apart.
-fn advise_runs(source: &dyn ByteSource, nodes: &[u32], range: impl Fn(u32) -> Range<u64>) {
+pub(super) fn advise_runs(
+    source: &dyn ByteSource,
+    nodes: &[u32],
+    range: impl Fn(u32) -> Range<u64>,
+) {
     let mut run: Option<Range<u64>> = None;
     for &v in nodes {
         let r = range(v);

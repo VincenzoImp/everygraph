@@ -15,7 +15,7 @@ use super::SuperLevel;
 use crate::aggregate::Members;
 use crate::column::Column;
 use crate::leiden::{Coarsening, leiden_with};
-use crate::{Communities, Options};
+use crate::{Communities, EdgeWeights, Options};
 
 /// Resolutions tried, `2^-1` to `2^-16` (ADR 0016).
 const TRIES: u32 = 16;
@@ -152,7 +152,14 @@ pub fn coarse_leiden<S: Source>(
         resolution,
         ..*options
     };
-    leiden_with(source, memory, settings, &run, Coarsening::DEEP)
+    leiden_with(
+        source,
+        EdgeWeights::Unit,
+        memory,
+        settings,
+        &run,
+        Coarsening::DEEP,
+    )
 }
 
 /// For each community of `t`, the label of `found` that most of its nodes have, the

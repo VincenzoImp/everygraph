@@ -50,6 +50,7 @@ FUZZ_FORMAT = [
     "crates/everygraph-format/",
     "crates/everygraph-community/",
     "crates/everygraph-kernels/",
+    "crates/everygraph-map/",
     "crates/everygraph-core/",
     "tools/fuzz.sh",
 ]

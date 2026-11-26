@@ -193,7 +193,15 @@ pub(crate) fn check<S: ByteSource>(
                 }
             }
         })?;
-        tally(&plan, memory, Weights::Unit, &membership, m.regions())
+        tally(
+            &plan,
+            memory,
+            Weights::Unit,
+            None,
+            None,
+            &membership,
+            m.regions(),
+        )
     })?;
     let same_leaves = (0..r)
         .filter(|&x| children[x] == 0)

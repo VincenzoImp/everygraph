@@ -173,6 +173,8 @@ impl<'f, S: ByteSource> Hierarchy<'f, S> {
             nodes: self.column(memory, &part(level, NODES))?,
             internal: self.column(memory, &part(level, INTERNAL))?,
             volume: self.column(memory, &part(level, VOLUME))?,
+            skew: None,
+            weight_scale: None,
         };
         let cut = table.internal.iter().zip(&table.volume[..]);
         if cut

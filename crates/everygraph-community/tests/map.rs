@@ -41,7 +41,7 @@ use everygraph_io::faults::{Faulty, Plan};
 use everygraph_kernels::edge_map::{Error, Settings};
 use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::projection::Projection;
-use support::{Lists, about, checked, graph_file, nested, ring};
+use support::{Plain as Lists, about, checked, graph_file, nested, ring};
 
 /// The tree with its children and the nodes of every region.
 struct View<'a> {

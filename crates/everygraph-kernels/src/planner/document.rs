@@ -99,6 +99,7 @@ fn regime_name(r: Regime) -> &'static str {
     match r {
         Regime::InMemory => "in_memory",
         Regime::Mapped => "mapped",
+        Regime::Streamed => "streamed",
     }
 }
 
@@ -392,7 +393,7 @@ impl Plan {
             Operation::Degrees => ("count degrees", "1 pass".to_owned()),
             Operation::Bfs { .. } => ("search from the source", "a level at a time".to_owned()),
         };
-        let place = if self.regime == Regime::Mapped && self.tier == Tier::Compressed {
+        let place = if self.regime != Regime::InMemory && self.tier == Tier::Compressed {
             "edges from disk"
         } else {
             "memory"
@@ -598,7 +599,12 @@ impl fmt::Display for Plan {
             Regime::InMemory => {
                 writeln!(f, "           the edges ({edges}) fit the memory budget")?;
             }
-            _ => writeln!(
+            Regime::Streamed => writeln!(
+                f,
+                "           the edges ({edges}) stay on disk and are read in passes, {} at a time",
+                size(self.window as u64)
+            )?,
+            Regime::Mapped => writeln!(
                 f,
                 "           the edges ({edges}) stay on disk and are read as needed"
             )?,

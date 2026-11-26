@@ -153,6 +153,8 @@ impl<'f, S: ByteSource> StoredMap<'f, S> {
             nodes: column(self.file, &self.root, memory, NODES)?,
             internal: column(self.file, &self.root, memory, INTERNAL)?,
             volume: column(self.file, &self.root, memory, VOLUME)?,
+            skew: None,
+            weight_scale: None,
         })
     }
 

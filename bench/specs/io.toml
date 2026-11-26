@@ -62,6 +62,7 @@ needed_by = ["scan"]
 name = "scan"
 group = "sequential scan"
 dataset_path = "csr/{graph}"
+warm_ok = "every mode reads with O_DIRECT, which bypasses the page cache"
 matrix = { batch = ["1", "2", "3"], graph = ["friendster", "orkut"], mode = ["dd", "direct", "raw"] }
 exclude = [
   { mode = "dd", threads = 4 },

@@ -90,8 +90,14 @@ asynchronous prototype, not against production `fast` mode. The price of the def
 - **Budgets and regimes: not measured for any kernel.** The only evidence of identity
   across regimes is ingest: text → CSR was byte-identical to the reference in RAM, out of
   core and from gzip (FINDINGS § B1; `lab/b1-core/results/bench/validation.txt`).
-- **Weights**: bit-identity needs exact totals — fine for unweighted and integer weights;
-  f32 weights need fixed-point totals, designed but not implemented (FINDINGS § B2).
+- **Weights**: bit-identity needs exact totals. Leiden scales real weights once to
+  integers, each `round(w·2^s)` with `s` from the exact total
+  (`everygraph-community/src/weights.rs`, #58), so every sum is exact in any order.
+  Wide (2^-20 to 2^20) and `f32` weights give the same bits at 1, 3 and 8 threads, raw
+  and compressed, at the smallest budget that suffices and unlimited
+  (`everygraph-community/tests/weights.rs`), and over the suite's grid (`suite.rs`,
+  "weighted"); on orkut at 1, 4 and 8 threads and two budgets (exploratory, #58's pull
+  request).
 - **Cost** (idle; deterministic ÷ asynchronous wall time at the same thread count;
   `lab/b2-leiden/results/summary.txt`): Leiden at 16 threads 3.02× on lj and 2.43× on
   orkut (2.51× and 1.96× at 8; 3.20× and 3.04× at 32); Louvain at 16 threads 2.00× and
@@ -131,8 +137,8 @@ asynchronous prototype, not against production `fast` mode. The price of the def
   the draws.
 - The case that could narrow the promise is **out-of-core Leiden** (#60, acceptance:
   "deterministic mode works out of core with the same hash as in RAM"). Streaming
-  aggregation combines (community, community, weight) triples in bucket order; with
-  non-integer weights the totals are exact only with the fixed-point scheme not yet built.
+  aggregation combines (community, community, weight) triples in bucket order; the
+  fixed-point weights of #58 keep those totals exact in any order.
 - **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))): asynchronous execution, which processes active
   blocks in any order and lets updates of one block feed the next (ACGraph, Grafu), for
   kernels whose result depends on that order: PageRank, Leiden, label propagation.
