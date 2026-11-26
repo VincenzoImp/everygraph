@@ -1315,25 +1315,48 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     end += 1;
                 }
                 let wave = &hubs[at..end];
-                let copies = mode.map_ranges(wave.len(), NonZeroUsize::MIN, |r| {
-                    let v = frontier[runs[wave[r.start]].start];
-                    self.with_slot(|Slot { reader, .. }| {
-                        let mut copy = SegVec::new(&self.memory, "edge-map long list");
-                        let (mut first, mut copied) = (0, Ok(()));
-                        self.source.lists(reader, &[v], |_, first_entry, list| {
-                            first = first_entry;
-                            // SAFETY: the source hands out lists of its nodes only.
-                            copied = copy.try_extend_from_slice(unsafe { as_nodes(list) });
-                        })?;
-                        copied?;
-                        Ok((first, copy))
+                // The wave's lists in one buffer, each copied by a task of its own.
+                let hub = |h: usize| frontier[runs[wave[h]].start];
+                let mut ends = vec![0];
+                for h in 0..wave.len() {
+                    ends.push(ends[h] + ix(self.source.degree(hub(h)).into()));
+                }
+                // SAFETY: a node of the frontier, to fill the buffer before the copies.
+                let any = unsafe { Node::new_unchecked(hub(0)) };
+                let mut buffer = SegVec::try_with_len(
+                    &self.memory,
+                    "edge-map long lists",
+                    ends[wave.len()],
+                    any,
+                )?;
+                par::for_each_range_mut(
+                    one_segment_mut(&mut buffer)?,
+                    &ends,
+                    NonZeroUsize::MIN,
+                    |h, out| {
+                        let copied = self.with_slot(|Slot { reader, .. }| {
+                            self.source.lists(reader, &[hub(h)], |_, _, list| {
+                                // SAFETY: the source hands out lists of its nodes only.
+                                out.copy_from_slice(unsafe { as_nodes(list) });
+                            })
+                        });
+                        if let Err(e) = copied {
+                            keep(Err(e));
+                        }
+                    },
+                );
+                if let Some(e) = failed.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                    return Err(e);
+                }
+                let buffer = one_segment(&buffer)?;
+                let copies: Vec<(u64, &[Node<'g>])> = (0..wave.len())
+                    .map(|h| {
+                        (
+                            self.source.entry_offset(hub(h)),
+                            &buffer[ends[h]..ends[h + 1]],
+                        )
                     })
-                });
-                let copies = copies.into_iter().collect::<Result<Vec<_>, Error>>()?;
-                let copies = copies
-                    .iter()
-                    .map(|(first, copy)| Ok((*first, one_segment(copy)?)))
-                    .collect::<Result<Vec<_>, Error>>()?;
+                    .collect();
                 let pieces: Vec<(usize, Range<usize>)> = copies
                     .iter()
                     .enumerate()
