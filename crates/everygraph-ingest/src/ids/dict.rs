@@ -45,21 +45,32 @@ pub(crate) struct Header {
 const MAGIC: &[u8; 8] = b"EGIDDICT";
 const VERSION: u32 = 1;
 const HEADER_BYTES: usize = 64;
-/// The header codes of the order, the layout and the representation (module
-/// documentation, "Sections"). The order of a built dictionary is never `Natural`.
-const ORDERS: [(IdOrder, u8); 2] = [(IdOrder::FirstAppearance, 1), (IdOrder::SortedKey, 2)];
-const LAYOUTS: [(Layout, u8); 2] = [(Layout::Split, 1), (Layout::SlotOrdered, 2)];
-const REPRS: [(Repr, u8); 2] = [(Repr::Hashed, 1), (Repr::Dense, 2)];
-
-fn code<T: PartialEq>(codes: &[(T, u8)], value: T) -> u8 {
-    codes
-        .iter()
-        .find(|(v, _)| *v == value)
-        .map_or(1, |&(_, c)| c)
+// The header codes of the order, the layout and the representation (module
+// documentation, "Sections"). Decoding searches the values for the code, so each code
+// is written once. The order of a built dictionary is never `Natural`.
+const fn order_code(order: IdOrder) -> u8 {
+    match order {
+        IdOrder::Natural | IdOrder::FirstAppearance => 1,
+        IdOrder::SortedKey => 2,
+    }
 }
 
-fn decoded<T: Copy>(codes: &[(T, u8)], code: u8) -> Option<T> {
-    codes.iter().find(|&&(_, c)| c == code).map(|&(v, _)| v)
+const fn layout_code(layout: Layout) -> u8 {
+    match layout {
+        Layout::Split => 1,
+        Layout::SlotOrdered => 2,
+    }
+}
+
+const fn repr_code(repr: Repr) -> u8 {
+    match repr {
+        Repr::Hashed => 1,
+        Repr::Dense => 2,
+    }
+}
+
+fn decoded<T: Copy>(values: &[T], code_of: fn(T) -> u8, code: u8) -> Option<T> {
+    values.iter().copied().find(|&v| code_of(v) == code)
 }
 
 impl Header {
@@ -69,9 +80,9 @@ impl Header {
         h[8..12].copy_from_slice(&VERSION.to_le_bytes());
         h[12..16].copy_from_slice(&self.kind.encode());
         h[16..18].copy_from_slice(&self.column.encode());
-        h[18] = code(&ORDERS, self.order);
-        h[19] = code(&LAYOUTS, self.layout);
-        h[20] = code(&REPRS, self.repr);
+        h[18] = order_code(self.order);
+        h[19] = layout_code(self.layout);
+        h[20] = repr_code(self.repr);
         h[21] = u8::from(self.renumbered);
         h[24..32].copy_from_slice(&self.n.to_le_bytes());
         h[32..40].copy_from_slice(&self.hash_seed.to_le_bytes());
@@ -94,9 +105,16 @@ impl Header {
         let header = Self {
             kind: KeyKind::decode(array(h, 12)).ok_or(bad("unknown key kind"))?,
             column: ColumnType::decode([h[16], h[17]]).ok_or(bad("unknown column type"))?,
-            order: decoded(&ORDERS, h[18]).ok_or(bad("unknown id order"))?,
-            layout: decoded(&LAYOUTS, h[19]).ok_or(bad("unknown layout"))?,
-            repr: decoded(&REPRS, h[20]).ok_or(bad("unknown representation"))?,
+            order: decoded(
+                &[IdOrder::FirstAppearance, IdOrder::SortedKey],
+                order_code,
+                h[18],
+            )
+            .ok_or(bad("unknown id order"))?,
+            layout: decoded(&[Layout::Split, Layout::SlotOrdered], layout_code, h[19])
+                .ok_or(bad("unknown layout"))?,
+            repr: decoded(&[Repr::Hashed, Repr::Dense], repr_code, h[20])
+                .ok_or(bad("unknown representation"))?,
             renumbered: h[21] == 1,
             n: u64_at(h, 24),
             hash_seed: u64_at(h, 32),
@@ -593,8 +611,8 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                 }
             }
         }
-        for (sec, section) in Sec::ALL.into_iter().zip(&self.sections) {
-            let problem = match (wanted(h, sec), section) {
+        for sec in Sec::ALL {
+            let problem = match (wanted(h, sec), self.sec(sec)) {
                 (Want::Absent, Some(_)) => {
                     "a section that does not belong to this layout is present"
                 }

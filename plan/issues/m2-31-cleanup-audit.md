@@ -24,7 +24,9 @@ labels: type:infra, area:engine, P1, risk:low, size:M
 | `everygraph-io` | 1,597 → 1,593 | 1,500 | a backend the product uses (direct I/O, maps, the page allocator); the crate is mostly system calls and their error cases |
 | `everygraph-ingest` | 8,310 → 8,250 | 7,000 | the out-of-core dictionary (spill and phases B–D), one of its two layouts, or the streaming text reader with gzip and zstd. Known cuts: the dictionary keeps its own `Reservation` next to the core's (it takes `&dyn MemoryAccountant`, the core's takes `Memory`), and renumbering stages scatter records in two copies of the same loop |
 
-Modules above 800 code lines: `ingest/ids/build.rs` (1,194; half would drop the byte-identical ids at any thread count and budget, which needs an ordering step after each phase) and `ingest/ids/dict.rs` (1,101; half would drop renumbering or the checks that run on untrusted sections before anything is allocated). `core/par.rs` (437 + 701 test lines) and `core/seg_vec.rs` (587 + 262) are long because of their tests; those wait for the mutation audit.
+Modules above 800 code lines: `ingest/ids/build.rs` (1,194; half would drop the byte-identical ids at any thread count and budget, which needs an ordering step after each phase) and `ingest/ids/dict.rs` (1,101; half would drop renumbering or the checks that run on untrusted sections before anything is allocated). `core/par.rs` (437 + 699 test lines) and `core/seg_vec.rs` (587 + 259) are long because of their tests; those wait for the mutation audit.
+
+**Where tests live** (CLAUDE.md § 6). A `src/**/tests.rs` module holds only tests that need private access. Tests of public behaviour go in the crate's `tests/`. The first cleanup PR moved the long unit-test modules of the files it touched to a sibling `tests.rs` without sorting them; the sorting is part of the mutation audit.
 
 **Done when.** A short report in the PR: lines before and after per crate, mutants survived per crate with explanations, tests removed and added; CI time before and after.
 
