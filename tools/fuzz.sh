@@ -8,7 +8,7 @@
 #   tools/fuzz.sh run TARGET SECONDS      fuzz TARGET, adding what it finds to its corpus
 #   tools/fuzz.sh cmin TARGET             shrink TARGET's corpus to the inputs that matter
 #
-# TARGET is a name from `list` (adjacency, container, columns, hierarchy, text). The toolchain is the
+# TARGET is a name from `list` (adjacency, container, columns, hierarchy, egmap, text). The toolchain is the
 # pinned nightly of tools/nightly-toolchain unless FUZZ_TOOLCHAIN says otherwise.
 # Every run refuses a single allocation above 64 MiB, so that a size an input declares
 # (a zstd window) never turns into memory (docs/research/sota-testing.md, challenge 10).
@@ -17,7 +17,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 toolchain="${FUZZ_TOOLCHAIN:-$(cat "$root/tools/nightly-toolchain")}"
-targets=(everygraph-format/adjacency everygraph-format/container everygraph-format/columns everygraph-format/hierarchy everygraph-ingest/text)
+targets=(everygraph-format/adjacency everygraph-format/container everygraph-format/columns everygraph-format/hierarchy everygraph-format/egmap everygraph-ingest/text)
 
 # The libFuzzer options of a target. A container needs its two header blocks and a
 # table of contents at 8192 or beyond, so a whole file has at least 12,288 bytes.
@@ -25,6 +25,8 @@ limits() {
     local len=8192
     [ "$1" = container ] && len=65536
     [ "$1" = hierarchy ] && len=65536
+    # A map's tile data starts at byte 16384, after its first 16 KiB.
+    [ "$1" = egmap ] && len=65536
     echo "-malloc_limit_mb=64 -rss_limit_mb=2048 -max_len=$len"
 }
 

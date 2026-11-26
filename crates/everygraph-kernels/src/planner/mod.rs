@@ -12,10 +12,14 @@
 //!   ways forward that exist (P-15): a larger budget, and for `PageRank` the f32 state.
 //!   A lower-precision variant is offered, never chosen (DESIGN D14).
 //! - **The regime** (DESIGN D11, ux-contract § 3.2): `in_memory` when the compressed
-//!   edges fit beside the state, `mapped` when only the state does. Both read the graph
-//!   file through its memory map; the budget never counts mapped pages
-//!   (`docs/api-sketch.md` § 2.4). `streamed` needs a stream source over the compressed
-//!   format (#46), and is not chosen yet.
+//!   edges fit beside the state, through the graph file's memory map; `streamed` when
+//!   only the state does: the edges are read in passes by positional reads
+//!   (`CompressedStream`), each reader's window in the budget, so the process holds
+//!   the state, the index and the windows only. Fewer threads hold fewer readers, so a
+//!   graph whose edges do not fit on the threads first chosen is held or streamed on
+//!   fewer; `mapped` when the stream's readers do not fit beside the state on
+//!   any thread count: the edges are read from the map, whose pages the budget never
+//!   counts (`docs/api-sketch.md` § 2.4).
 //! - **The decode tier** (ADR 0004, condition 5): a BFS of the whole graph reads a raw
 //!   copy of the adjacency, decoded into the budget, once the session has run as many
 //!   traversals on compressed lists as the decode costs ([`break_even`]), and only when
@@ -51,7 +55,7 @@ use everygraph_format::adjacency::AdjacencyIndex;
 pub use cost::{advice, break_even};
 pub use document::typed;
 
-use crate::edge_map::Settings;
+use crate::edge_map::{CompressedStream, Settings};
 use crate::run::{self, Operation};
 
 /// Where a setting came from (`origin` of `docs/ux-contract.md` § 3.6).
@@ -74,6 +78,8 @@ pub enum Regime {
     InMemory,
     /// The state fits; the edges are read from the map as needed.
     Mapped,
+    /// The state fits; the edges are read in passes, in windows in the budget.
+    Streamed,
 }
 
 /// Where the kernels read lists from (DESIGN D4).
@@ -295,12 +301,17 @@ pub struct Plan {
     build_raw: bool,
     drop_raw: bool,
     settings: Settings,
+    /// The read window of the streamed regime; 0 in the others.
+    window: usize,
     cost: cost::Cost,
     peak: u64,
     phases: Vec<Phase>,
     seconds: Estimate,
     refusal: Option<Refusal>,
 }
+
+/// Why a forced streamed regime cannot read the raw tier.
+const RAW_STREAMED: &str = "the raw copy is decoded into memory, so it cannot be streamed";
 
 /// Why a forced raw tier cannot run (`RawCopy`).
 const NO_RAW_COPY: &str = "a raw copy needs its offsets in one segment and every list \
@@ -348,11 +359,24 @@ pub fn plan(
             t -= 1;
             plan = at(NonZeroUsize::new(t).unwrap_or(NonZeroUsize::MIN));
         }
+        // Edges that do not fit are held or streamed on fewer threads rather than
+        // mapped: fewer threads hold fewer readers, and the readers and the windows are
+        // in the budget, where the map's pages are not.
+        if plan.regime == Regime::Mapped && request.force.regime.is_none() {
+            let fewer = (1..plan.threads.get())
+                .rev()
+                .filter_map(NonZeroUsize::new)
+                .map(&at)
+                .find(|p| p.regime != Regime::Mapped);
+            plan = fewer.unwrap_or(plan);
+        }
     }
     if let Some(reason) = run::unsupported(op, graph.directed, graph.nodes) {
         plan.refusal = Some(document::unsupported(op, reason));
     } else if plan.tier == Tier::Raw && !cost::raw_fits(graph) {
         plan.refusal = Some(document::unsupported(op, NO_RAW_COPY));
+    } else if plan.tier == Tier::Raw && plan.regime == Regime::Streamed {
+        plan.refusal = Some(document::unsupported(op, RAW_STREAMED));
     } else if plan.peak > budget {
         plan.refusal = Some(document::refusal(&plan, first));
     }
@@ -389,31 +413,51 @@ fn choose(
     let cost = if tier == Tier::Raw { raw } else { compressed };
     let build_raw = tier == Tier::Raw && usable.is_none() && !graph.kept;
     // A kept result is read into the budget instead of computed; the open file holds its
-    // indexes beside either.
-    let own = graph.held + if graph.kept { cost.output } else { cost.peak() };
-    // A copy the session holds counts beside the run, unless it is the run's own tier;
-    // when it does not fit beside it, or is of another graph, the run drops it first.
-    let (peak, drop_raw) = match request.held {
-        None => (own, false),
-        Some(_) if tier == Tier::Raw && !build_raw && !graph.kept => (own, false),
-        Some(h) if h.usable && own.saturating_add(h.bytes) <= budget => (own + h.bytes, false),
-        Some(_) => (own, true),
+    // indexes beside either. A copy the session holds counts beside the run, unless it
+    // is the run's own tier; when it does not fit beside it, or is of another graph, the
+    // run drops it first.
+    let peak_of = |cost: &cost::Cost| {
+        let own = graph.held + if graph.kept { cost.output } else { cost.peak() };
+        let (peak, drop_raw) = match request.held {
+            None => (own, false),
+            Some(_) if tier == Tier::Raw && !build_raw && !graph.kept => (own, false),
+            Some(h) if h.usable && own.saturating_add(h.bytes) <= budget => (own + h.bytes, false),
+            Some(_) => (own, true),
+        };
+        (peak.max(graph.opened), drop_raw)
     };
-    let peak = peak.max(graph.opened);
+    let (peak, drop_raw) = peak_of(&cost);
 
     // The raw copy is in memory, and the kernel does not read the map.
     let room = budget.saturating_sub(peak);
-    let regime = request
-        .force
-        .regime
-        .unwrap_or(if tier == Tier::Raw || graph.data_bytes <= room {
+    // The edges that do not fit are streamed, when the stream's readers fit; else read
+    // from the map, whose pages the budget does not count. The raw copy is in memory.
+    let stream = (tier == Tier::Compressed).then(|| {
+        let (cost, window) = cost::streamed(cost, graph, budget);
+        (cost, window, peak_of(&cost))
+    });
+    let regime = request.force.regime.unwrap_or_else(|| {
+        if tier == Tier::Raw || graph.data_bytes <= room {
             Regime::InMemory
+        } else if stream.is_some_and(|(_, _, (peak, _))| peak <= budget) {
+            Regime::Streamed
         } else {
             Regime::Mapped
-        });
-    let settings = Settings {
-        prefetch: regime != Regime::InMemory && cost.access != cost::Access::Scan,
-        ..Settings::default()
+        }
+    });
+    let (cost, window, peak, drop_raw) = match stream {
+        Some((cost, window, (peak, drop_raw))) if regime == Regime::Streamed => {
+            (cost, window, peak, drop_raw)
+        }
+        _ => (cost, 0, peak, drop_raw),
+    };
+    let settings = if window > 0 {
+        CompressedStream::settings_for(graph.entries, graph.data_bytes, window)
+    } else {
+        Settings {
+            prefetch: regime != Regime::InMemory && cost.access != cost::Access::Scan,
+            ..Settings::default()
+        }
     };
     let advice = request.force.advice.unwrap_or(match tier {
         Tier::Raw => AccessHint::Normal,
@@ -462,6 +506,7 @@ fn choose(
         build_raw,
         drop_raw,
         settings,
+        window,
         cost,
         peak,
         phases,
@@ -543,6 +588,13 @@ impl Plan {
     #[must_use]
     pub fn settings(&self) -> Settings {
         self.settings
+    }
+
+    /// The read window of each reader in the streamed regime, in bytes; 0 in the
+    /// others.
+    #[must_use]
+    pub fn window(&self) -> usize {
+        self.window
     }
 
     /// The phases in order.

@@ -22,8 +22,8 @@ use everygraph_core::{Budget, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{
-    Compressed, Csr, Error, FRONTIER_GRAIN, Node, NodeList, PREFIX, Plan, RUN_ENTRIES, Settings,
-    Source, Stream, Work, all, ids,
+    Compressed, CompressedStream, Csr, Error, FRONTIER_GRAIN, Node, NodeList, PREFIX, Plan,
+    RUN_ENTRIES, Reduce, Settings, Source, Stream, Work, all, ids,
 };
 use everygraph_kernels::{pagerank, proof, traversal};
 
@@ -73,6 +73,18 @@ fn value(v: u32, list: &[u32]) -> f64 {
     sign * scale * (1.0 + f64::from(list.iter().fold(0_u32, |a, &t| a ^ t)) / 7.0)
 }
 
+/// A float added in the order of the reduction tree, which the framework gives only
+/// to tests: a float that carries a result reduces into `ExactSum`.
+#[derive(Clone, Copy, Debug, Default)]
+struct Tree(f64);
+
+impl Reduce for Tree {
+    const ZERO: Self = Self(0.0);
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
+}
+
 /// The per-entry column of the tests: a weight for each entry, in node order.
 fn weight(entry: usize) -> f64 {
     1.0 + (entry % 13) as f64 / 16.0
@@ -85,6 +97,8 @@ struct Stored {
     index: AdjacencyIndex,
     data: Vec<u8>,
     map: MmapSource,
+    /// The data part, read by positional reads.
+    file: FileSource,
     stream: FileSource,
     _files: Temp,
 }
@@ -114,6 +128,7 @@ fn store(name: &str, offsets: Vec<u64>, targets: Vec<u32>) -> Stored {
         index: AdjacencyIndex::parse(&encoded.index).unwrap(),
         data: encoded.data,
         map: MmapSource::open(&files.0[0]).unwrap(),
+        file: FileSource::open(&files.0[0]).unwrap(),
         stream: FileSource::open(&files.0[1]).unwrap(),
         offsets,
         targets,
@@ -162,9 +177,9 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
     Plan::with(source, &memory, settings, |plan| {
         par::with_threads(threads, || {
             let mut out = vec![0_u64; plan.nodes() as usize];
-            let sum: f64 = plan
-                .scan(&mut out[..], all, |acc: &mut f64, out, i, row, _| {
-                    *acc += value(row.node.get(), ids(row.list));
+            let sum: Tree = plan
+                .scan(&mut out[..], all, |acc: &mut Tree, out, i, row, _| {
+                    acc.0 += value(row.node.get(), ids(row.list));
                     let w = weights[row.entries()].iter().fold(0.0, |s: f64, &x| s + x);
                     let total = ids(row.list).iter().map(|&t| u64::from(t)).sum::<u64>();
                     out[i] = (total << 8 | row.list.len() as u64) ^ w.to_bits();
@@ -198,21 +213,21 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                 .unwrap();
             let frontier: Vec<Node<'_>> =
                 plan.all_nodes().filter(|v| in_frontier(v.get())).collect();
-            let pushed: f64 = plan
-                .frontier(&frontier, |acc: &mut f64, row, _| {
-                    *acc += value(row.node.get(), ids(row.list));
+            let pushed: Tree = plan
+                .frontier(&frontier, |acc: &mut Tree, row, _| {
+                    acc.0 += value(row.node.get(), ids(row.list));
                 })
                 .unwrap();
-            let serial: f64 = plan
+            let serial: Tree = plan
                 .frontier_serial_with(
                     &frontier,
                     || (),
-                    |acc: &mut f64, row, _| {
-                        *acc += value(row.node.get(), ids(row.list));
+                    |acc: &mut Tree, row, _| {
+                        acc.0 += value(row.node.get(), ids(row.list));
                     },
                 )
                 .unwrap();
-            assert_eq!(serial.to_bits(), pushed.to_bits());
+            assert_eq!(serial.0.to_bits(), pushed.0.to_bits());
             let common: u64 = plan
                 .scan_with((), all, Vec::<u32>::new, |acc: &mut u64, (), _, row, w| {
                     let Some(&u) = row.list.first() else { return };
@@ -242,7 +257,14 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                 )
                 .unwrap();
             let rest = filtered ^ far << 24 ^ degrees << 44;
-            (sum.to_bits(), out, rest, pushed.to_bits(), common, until)
+            (
+                sum.0.to_bits(),
+                out,
+                rest,
+                pushed.0.to_bits(),
+                common,
+                until,
+            )
         })
         .unwrap()
     })
@@ -311,6 +333,7 @@ fn settings(chunk: u64, batch: usize) -> Settings {
         chunk_entries: chunk,
         batch_entries: batch,
         prefetch: batch % 2 == 1,
+        alternate: chunk.is_multiple_of(2),
     }
 }
 
@@ -330,6 +353,8 @@ fn every_source_thread_count_chunk_and_batch_give_the_same_bits() {
         let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
         let mapped = Compressed::mapped(&s.index, &s.map).unwrap();
         let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+        let small = CompressedStream::new(&s.index, &s.file, 0).unwrap();
+        let large = CompressedStream::new(&s.index, &s.file, 1 << 16).unwrap();
         let block = Plan::with(&csr, &Memory::unlimited(), Settings::default(), |p| {
             p.block_nodes()
         });
@@ -349,6 +374,8 @@ fn every_source_thread_count_chunk_and_batch_give_the_same_bits() {
                 assert_eq!(probe(&heap, c, threads), expected, "compressed, {what}");
                 assert_eq!(probe(&mapped, c, threads), expected, "mapped, {what}");
                 assert_eq!(probe(&stream, c, threads), expected, "stream, {what}");
+                assert_eq!(probe(&small, c, threads), expected, "4 KiB window, {what}");
+                assert_eq!(probe(&large, c, threads), expected, "64 KiB window, {what}");
             }
         }
     }
@@ -427,18 +454,22 @@ fn a_target_outside_the_graph_is_an_error_not_a_panic() {
     let s = store("bad", offsets, targets);
     let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+    let streamed = CompressedStream::new(&s.index, &s.file, 0).unwrap();
     let memory = Memory::unlimited();
     let s0 = Settings::default();
     for e in [
         Plan::with(&heap, &memory, s0, |p| scan(&p)),
         Plan::with(&stream, &memory, s0, |p| scan(&p)),
+        Plan::with(&streamed, &memory, s0, |p| scan(&p)),
         Plan::with(&heap, &memory, s0, |p| frontier(&p, &[3])),
         Plan::with(&stream, &memory, s0, |p| frontier(&p, &[2, 3])),
+        Plan::with(&streamed, &memory, s0, |p| frontier(&p, &[1, 3])),
     ] {
         assert!(matches!(e, Error::Target { node: 3, target: 9 }), "{e}");
     }
     Plan::with(&heap, &memory, s0, |p| side(&p));
     Plan::with(&stream, &memory, s0, |p| side(&p));
+    Plan::with(&streamed, &memory, s0, |p| side(&p));
     assert!(matches!(Csr::new(&[0, 2, 1], &[0]), Err(Error::Invalid(_))));
     let bytes = MemorySource::new(vec![0_u8; 8]);
     assert!(matches!(
@@ -448,6 +479,10 @@ fn a_target_outside_the_graph_is_an_error_not_a_panic() {
     let wrong = MemorySource::new(vec![0_u8; s.data.len() + 1]);
     assert!(matches!(
         Compressed::mapped(&s.index, &wrong),
+        Err(Error::Format(_))
+    ));
+    assert!(matches!(
+        CompressedStream::new(&s.index, &wrong, 0),
         Err(Error::Format(_))
     ));
 }
@@ -490,15 +525,18 @@ fn under<S: Source>(source: &S, hub: u32, limit: u64) -> (Result<(), Error>, Res
 /// fit, and a reader gives the hub's buffer and its reservation back after the call.
 #[test]
 fn readers_are_reserved_against_the_budget() {
-    let (offsets, targets) = graph(2000, 3, false);
+    let (offsets, targets) = graph(4000, 3, false);
     let s = store("budget", offsets, targets);
-    let hub = 1000;
-    assert!(s.list(hub).len() > 1000);
+    // Longer than a reader's first buffer of list ends.
+    let hub = 2000;
+    assert!(s.list(hub).len() > 2000);
     let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+    let streamed = CompressedStream::new(&s.index, &s.file, 0).unwrap();
     for (name, (low, high, after)) in [
         ("compressed", peaks(&heap, hub)),
         ("stream", peaks(&stream, hub)),
+        ("streamed", peaks(&streamed, hub)),
     ] {
         let hub_bytes = s.list(hub).len() as u64 * 4;
         assert!(
@@ -509,10 +547,11 @@ fn readers_are_reserved_against_the_budget() {
             after <= low,
             "{name}: {after} B held after the hub, {low} before"
         );
-        let (a, b) = if name == "compressed" {
-            under(&heap, hub, (low + high) / 2)
-        } else {
-            under(&stream, hub, (low + high) / 2)
+        let limit = (low + high) / 2;
+        let (a, b) = match name {
+            "compressed" => under(&heap, hub, limit),
+            "stream" => under(&stream, hub, limit),
+            _ => under(&streamed, hub, limit),
         };
         assert!(a.is_ok(), "{name}: {a:?}");
         assert!(matches!(b, Err(Error::Memory(_))), "{name}: {b:?}");
@@ -596,6 +635,7 @@ fn proof_kernels_and_their_work_do_not_depend_on_source_or_threads() {
     let csr = Csr::new(&s.offsets, &s.targets).unwrap();
     let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+    let streamed = CompressedStream::new(&s.index, &s.file, 0).unwrap();
     let expected = kernels(&csr, Settings::default(), 1);
     assert!(expected.3.lists > 0 && expected.3.entries > 0);
     for threads in [1, 3, 8] {
@@ -605,6 +645,47 @@ fn proof_kernels_and_their_work_do_not_depend_on_source_or_threads() {
             assert_eq!(kernels(&csr, c, threads), expected, "csr, {what}");
             assert_eq!(kernels(&heap, c, threads), expected, "compressed, {what}");
             assert_eq!(kernels(&stream, c, threads), expected, "stream, {what}");
+            assert_eq!(kernels(&streamed, c, threads), expected, "streamed, {what}");
         }
+    }
+}
+
+/// With scans in alternating order, the second scan runs its tasks from the last, and
+/// still reports the first corrupt list in node order, not the first one it reached.
+#[test]
+fn an_alternating_scan_reports_the_first_corrupt_list_in_node_order() {
+    let n = 2000_u32;
+    let (mut offsets, mut targets) = (vec![0_u64], Vec::new());
+    for v in 0..n {
+        targets.push(if v == 100 || v == 1900 {
+            n + v
+        } else {
+            (v + 1) % n
+        });
+        offsets.push(targets.len() as u64);
+    }
+    let encoded = encode(&offsets, &targets).unwrap();
+    let index = AdjacencyIndex::parse(&encoded.index).unwrap();
+    let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
+    let settings = Settings {
+        chunk_entries: 64,
+        alternate: true,
+        ..Settings::default()
+    };
+    for threads in [1, 4] {
+        Plan::with(&heap, &Memory::unlimited(), settings, |plan| {
+            par::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                for scan in 0..2 {
+                    let e = plan
+                        .scan((), all, |(): &mut (), (), _, _, _| ())
+                        .unwrap_err();
+                    assert!(
+                        matches!(e, Error::Target { node: 100, .. }),
+                        "scan {scan}, {threads} threads: {e}"
+                    );
+                }
+            })
+            .unwrap();
+        });
     }
 }

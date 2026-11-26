@@ -11,7 +11,7 @@ labels: type:feature, area:map, P1, risk:medium, size:M
 Decided 2026-11-25, in v0.1, before the tile format freezes (`docs/research/README.md` H1).
 
 **Scope**
-- [ ] What a summary map holds, written into `docs/spec/egmap.md` ({{#m5-02-tile-format}}): no node-level entities, no per-node adjacency, no search index, no node attributes
+- [x] What a summary map holds, written into `docs/spec/egmap.md` § 7 ({{#m5-02-tile-format}}): no node-level entities, no per-node adjacency, no search index, no node attributes; the reader and the writer refuse nodes and node-level arrays when the section table's `summary k` is set
 - [ ] Regions with fewer than k nodes merged into the existing `aggregate` region kind — merging, not hiding a number, so "parent = sum of shown children" stays exact and nothing is left to subtract
 - [ ] Inter-region edge aggregates below k merged into "other", with totals that stay consistent
 - [ ] Provenance reduced to a label; attribute summaries and the time slider off unless asked for ({{#m5-13-attribute-overlays}})

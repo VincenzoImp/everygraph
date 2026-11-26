@@ -2,7 +2,8 @@
 
 //! The edge-map framework (DESIGN D12, ADR 0012). A kernel body is written once, as a
 //! closure over one node and its list. It runs over every [`Source`]: raw arrays, the
-//! compressed format in the heap or memory-mapped, a stream. It runs in many short calls.
+//! compressed format in the heap or memory-mapped, the raw or the compressed format
+//! streamed. It runs in many short calls.
 //!
 //! # Drivers
 //!
@@ -65,14 +66,18 @@
 //! - **Lists are whole**, except in the parts of `Plan::push_with` and the pieces of
 //!   [`Plan::scan_until`]. A batch, a read buffer or a task never cuts a list. So a
 //!   node's own sum over its list runs in one call of the body.
-//! - **Floats.** Accumulators start from `+0.0` ([`Reduce::ZERO`]); `Iterator::sum`
-//!   starts from `-0.0`. A body with several lanes (the four of the `PageRank` gather)
+//! - **Floats.** A body's own sums start from `+0.0`; `Iterator::sum` starts from
+//!   `-0.0`. A body with several lanes (the four of the `PageRank` gather)
 //!   fixes their number in its code, not by target feature. No result goes through
 //!   `f64::max`, which may return either zero. A pull and a push form of one kernel add
 //!   in different orders, so they are not interchangeable.
 //! - **Global scalars** (a dangling mass, a residual, a total) reduce into
 //!   [`ExactSum`]: its value does not depend on how the values are grouped, so it does
 //!   not rely on the reduction blocks either (`docs/research/sota-numerics.md`, R6).
+//!   No float reduces through the blocks: there is no [`Reduce`] for `f32` or `f64`.
+//!   The blocks are cut by node count and ids, which a view as a mask and the same
+//!   view materialized do not share; integers and [`ExactSum`] give the same value
+//!   either way (DESIGN D14).
 //!
 //! Shared state that bodies change (atomics, [`NodeCells`]) is the kernel's affair. The
 //! kernels of [`crate::proof`] give results that do not depend on the order in which racing
@@ -105,6 +110,7 @@
 #![allow(unsafe_code)]
 
 mod buckets;
+mod compressed_stream;
 #[cfg(feature = "frontier-counters")]
 pub mod counters;
 mod node;
@@ -124,6 +130,7 @@ use everygraph_core::{
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use buckets::Buckets;
+pub use compressed_stream::{CompressedStream, WindowReader};
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
 pub use source::{Compressed, Csr, DecodeReader, RawCopy, Source, Stream, StreamReader};
 
@@ -251,6 +258,8 @@ pub enum Error {
     /// A weight or a cost that the kernel cannot use: negative, NaN or infinite
     /// (`docs/spec/graph-semantics.md` § 4.4). `entry` is its position in the column.
     Weight {
+        /// The column: `weight`, or `out` and `inn` of a directed projection.
+        column: &'static str,
         /// The position of the value in its per-entry column.
         entry: u64,
         /// The value.
@@ -273,9 +282,14 @@ impl fmt::Display for Error {
             ),
             Self::Invalid(what) => write!(f, "not a graph: {what}"),
             Self::Memory(e) => e.fmt(f),
-            Self::Weight { entry, value } => write!(
+            Self::Weight {
+                column,
+                entry,
+                value,
+            } => write!(
                 f,
-                "entry {entry} has weight {value}; a weight must be finite and not negative"
+                "entry {entry} of `{column}` has weight {value}; a weight must be finite and \
+                 not negative"
             ),
             Self::Argument(what) => f.write_str(what),
         }
@@ -352,21 +366,35 @@ pub struct Settings {
     /// Advise the source of a frontier's byte ranges before it reads them: for cold or
     /// out-of-core storage. On a warm memory map it costs system calls for nothing.
     pub prefetch: bool,
+    /// Run the tasks of every second scan in reverse order. Tasks run in any order
+    /// already, so results do not change. On a stream larger than the page cache, the
+    /// next scan then starts with the pages the last one read last, which are still
+    /// cached (Grafu's "elevator" order, ASPLOS 2024).
+    pub alternate: bool,
 }
 
 impl Default for Settings {
     /// Tasks of 2^16 entries and batches of 8,192 entries (FINDINGS § M1-13); no
-    /// prefetch.
+    /// prefetch; scans in node order.
     fn default() -> Self {
         Self {
             chunk_entries: 1 << 16,
             batch_entries: 8192,
             prefetch: false,
+            alternate: false,
         }
     }
 }
 
-/// A value the drivers add up in a fixed order.
+/// A value the drivers add up in a fixed order: by reduction blocks, then blocks in
+/// order (module documentation, "Determinism").
+///
+/// Implement it only for values whose sum does not depend on the grouping: integers,
+/// [`ExactSum`], tuples of these. Never for a type that holds an `f32` or `f64`, a
+/// newtype included. The blocks are cut by node count and ids, so a mask and the same
+/// view materialized group the values differently, and a float sum would change its
+/// bits (DESIGN D14). `tools/numerics_lint.py --check` refuses such an `impl` in a
+/// product crate.
 pub trait Reduce: Send + Sized {
     /// The value of no nodes.
     const ZERO: Self;
@@ -391,7 +419,7 @@ macro_rules! reduce_by_add {
         }
     )*};
 }
-reduce_by_add!(u32: 0, u64: 0, f32: 0.0, f64: 0.0);
+reduce_by_add!(u32: 0, u64: 0);
 
 impl Reduce for ExactSum {
     const ZERO: Self = Self::new();
@@ -538,6 +566,9 @@ pub struct Plan<'s, 'g, S: Source> {
     /// Lists per call of a reader, at most: a block, or a frontier run.
     lists: usize,
     prefetch: bool,
+    alternate: bool,
+    /// Scans run so far, for [`Settings::alternate`].
+    scans: AtomicU64,
     /// Readers that no task holds. A task takes one or makes one, and gives it back.
     pool: Mutex<Vec<Slot<S::Reader>>>,
     memory: Memory,
@@ -756,6 +787,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             batch: settings.batch_entries.max(1),
             lists: ix(block.into()).max(FRONTIER_GRAIN),
             prefetch: settings.prefetch,
+            alternate: settings.alternate,
+            scans: AtomicU64::new(0),
             pool: Mutex::new(Vec::new()),
             memory: memory.clone(),
             work: [AtomicU64::new(0), AtomicU64::new(0)],
@@ -880,10 +913,12 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     }
 
     /// Runs `task` on every task in parallel, each with its part of `out` and of the
-    /// blocks' partial values, and adds the partial values in block order.
+    /// blocks' partial values, and adds the partial values in block order. With
+    /// `backward`, the tasks are handed out from the last.
     fn run<O, A>(
         &self,
         out: O,
+        backward: bool,
         task: impl Fn(Range<u32>, O, &mut [A]) -> Result<(), Error> + Sync,
     ) -> Result<A, Error>
     where
@@ -908,11 +943,17 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             pieces.push((r.clone(), Some(mine), sums, Ok(())));
             (out, rest) = (others, more);
         }
+        if backward {
+            pieces.reverse();
+        }
         par::for_each_chunk_mut(&mut pieces, NonZeroUsize::MIN, |_, chunk| {
             for (r, out, sums, result) in chunk.iter_mut() {
                 *result = task(r.clone(), out.take().expect("one call each"), sums);
             }
         });
+        if backward {
+            pieces.reverse();
+        }
         pieces.into_iter().try_for_each(|p| p.3)?;
         Ok(partials.into_iter().fold(A::ZERO, A::add))
     }
@@ -962,9 +1003,11 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         W: Send,
     {
         let scratch = Mutex::new(Vec::new());
-        self.run(out, |task, mut out, sums| {
+        let backward = self.alternate && self.scans.fetch_add(1, Ordering::Relaxed) % 2 == 1;
+        self.run(out, backward, |task, mut out, sums| {
             let mut w = take(&scratch, &init);
             let result = self.with_slot(|Slot { reader, side }| {
+                self.source.begin_task(reader, task.clone());
                 let (mut lists, mut entries, mut work) = (0, 0, Work::default());
                 for (b, sum) in self.blocks(task.clone()).zip(sums) {
                     let mut acc = A::ZERO;
@@ -1025,7 +1068,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         O: Split,
         A: Reduce,
     {
-        self.run(out, |task, mut out, sums| {
+        self.run(out, false, |task, mut out, sums| {
             for (b, sum) in self.blocks(task.clone()).zip(sums) {
                 let mut acc = A::ZERO;
                 self.source.degrees(b, |v, d| {
@@ -1496,8 +1539,10 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         O: Split,
         A: Reduce,
     {
-        self.run(out, |task, mut out, sums| {
+        let backward = self.alternate && self.scans.fetch_add(1, Ordering::Relaxed) % 2 == 1;
+        self.run(out, backward, |task, mut out, sums| {
             self.with_slot(|Slot { reader, side }| {
+                self.source.begin_task(reader, task.clone());
                 let (mut work, mut failed) = (Work::ZERO, None);
                 for (b, sum) in self.blocks(task.clone()).zip(sums) {
                     let mut acc = A::ZERO;

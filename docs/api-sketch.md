@@ -914,8 +914,8 @@ failure, C-8, with their `path` and `bytes`, or `None`); `machine_memory_bytes` 
 `None`); and `to_dict()`, which is that document. Sizes in attributes are named as in
 that document: `needs_bytes`, `budget_bytes` (the memory budget),
 `smallest_budget_bytes` — which is `None` when it is not known: no budget on this
-machine would work (`docs/ux-contract.md` P-15), or the planner (#45) is not there yet
-to compute it — and `available_bytes` only for what is free on a disk or
+machine would work (`docs/ux-contract.md` P-15), or the operation has no planned bound
+yet — and `available_bytes` only for what is free on a disk or
 in the machine.
 
 **Files that exist.** Everygraph replaces a file only when it can tell what the file
@@ -1072,7 +1072,8 @@ Not promised:
 
 - "The same result" means the same rows, in the same order, with the same values to the
   bit, compared by the result hash of #54. "The same input" means the same bytes read
-  with the same parameters (graph order included, § 2.2).
+  with the same parameters (graph order included, § 2.2). A file whose ids
+  `compact --order` renumbered is another input.
 - The planner never substitutes a lower-precision variant by itself. When the
   full-precision state does not fit, it refuses and offers the variant as a way forward
   (`pagerank(precision="low")`); a variant that was asked for is labelled and stored
@@ -1081,6 +1082,9 @@ Not promised:
   machine's speed (a cut by `limit` is covered); results with `deterministic=False`;
   results of different versions of Everygraph (§ 2.10).
 - "Any platform the release supports" is the list of `docs/DESIGN.md` D14.
+- A map built again over an earlier map depends on it: the super level keeps the earlier
+  map's choice while the partition needs 56 to 72 communities to cover 90% of its
+  nodes (ADR 0016).
 - For a file built by appends (segments, after 0.1), results depend on its batches, not
   on how its runs are merged or compacted (`design/DECISIONS.md`, "What 'repeatable'
   promises, for files built by appends"; ADR 0028).

@@ -287,7 +287,7 @@ fn check(name: &str, s: &Stored) -> usize {
         }
         let reference = bits(&reference.unwrap_or_else(|e| panic!("{name} {}: {e}", op.name())));
         for tier in [Tier::Compressed, Tier::Raw] {
-            for regime in [Regime::InMemory, Regime::Mapped] {
+            for regime in [Regime::InMemory, Regime::Mapped, Regime::Streamed] {
                 for t in [1, 3] {
                     let force = Force {
                         tier: Some(tier),
@@ -296,6 +296,12 @@ fn check(name: &str, s: &Stored) -> usize {
                         advice: None,
                     };
                     let (plan, got, peak) = planned(s, &op, PLENTY, force, &mut Session::new());
+                    if (tier, regime) == (Tier::Raw, Regime::Streamed) {
+                        let r = plan.refusal().map(|r| r.error);
+                        assert_eq!(r, Some("Unsupported"), "{name} {}", op.name());
+                        assert!(matches!(got, Err(RunError::Refused(_))), "{name}");
+                        continue;
+                    }
                     let got = got.unwrap_or_else(|e| panic!("{name} {}: {e}", op.name()));
                     assert!(
                         got == reference,
@@ -715,6 +721,43 @@ fn the_regime_follows_the_edges_beside_the_state() {
     assert_eq!(plan(state + edges).regime(), Regime::InMemory);
     assert_eq!(plan(state + edges - 1).regime(), Regime::Mapped);
     assert!(plan(state).fits() && !plan(state - 1).fits());
+}
+
+/// A graph whose compressed edges do not fit beside the state is streamed when the
+/// stream's readers do: the plan fits, gives the bits of the in-memory run, and the
+/// run reserves no more than the plan's peak. The edges of the path are not in the
+/// budget; only the windows are. Without a forced thread count the same budget is in
+/// memory on fewer threads, which the planner takes before the map.
+#[test]
+fn edges_that_do_not_fit_are_streamed_within_the_planned_peak() {
+    let s = path(200_000);
+    let op = Operation::PageRank {
+        params: PageRank::default(),
+        precision: Precision::Full,
+    };
+    let reference = bits(&s.in_memory(&op).unwrap());
+    // On 4 threads: on fewer, the decode readers are smaller and the edges fit.
+    let four = Force {
+        threads: Some(threads(4)),
+        ..Force::default()
+    };
+    let in_memory = planner::plan(&op, &s.graph(), &machine(), &request(PLENTY, four)).unwrap();
+    assert_eq!(in_memory.regime(), Regime::InMemory);
+    let budget = in_memory.peak_bytes() + s.index.data_bytes() - 1;
+    let (plan, got, peak) = planned(&s, &op, budget, four, &mut Session::new());
+    assert_eq!(plan.regime(), Regime::Streamed, "{plan}");
+    assert!(plan.fits() && plan.window() > 0, "{plan}");
+    assert!(plan.to_string().contains("read in passes"), "{plan}");
+    assert_eq!(got.unwrap(), reference);
+    assert!(
+        peak <= plan.peak_bytes() && plan.peak_bytes() <= budget,
+        "reserved {peak}, planned {}, budget {budget}",
+        plan.peak_bytes()
+    );
+    let free = planned(&s, &op, budget, Force::default(), &mut Session::new());
+    assert_ne!(free.0.regime(), Regime::Mapped, "{}", free.0);
+    assert!(free.0.fits() && free.2 <= free.0.peak_bytes());
+    assert_eq!(free.1.unwrap(), reference);
 }
 
 #[test]

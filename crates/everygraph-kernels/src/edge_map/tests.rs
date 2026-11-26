@@ -90,6 +90,7 @@ fn drive<S: Source>(source: &S, offsets: &[u64]) -> Result<[u64; 5], Error> {
         chunk_entries: 16,
         batch_entries: 5,
         prefetch: true,
+        alternate: true,
     };
     Plan::with(source, &memory, settings, |plan| {
         let values: Vec<u64> = (0..u64::from(plan.nodes())).collect();
@@ -104,6 +105,11 @@ fn drive<S: Source>(source: &S, offsets: &[u64]) -> Result<[u64; 5], Error> {
             }
             assert_eq!(row.first_entry, offsets[row.node.index()]);
         })?;
+        let few = |v: Node<'_>| v.get().is_multiple_of(5);
+        let filtered: u64 = plan.scan((), few, |acc: &mut u64, (), _, row, _| {
+            *acc += row.list.iter().map(|&u| per[u]).sum::<u64>() + per[row.node];
+        })?;
+        let scanned = scanned ^ filtered << 32;
         let frontier: Vec<Node<'_>> = plan.all_nodes().filter(|v| v.get() % 3 != 0).collect();
         let pushed: u64 = plan.frontier(&frontier, |acc: &mut u64, row, _| {
             *acc += row.list.iter().map(|&u| per[u]).sum::<u64>();
@@ -155,6 +161,8 @@ fn drivers_over_every_source_in_memory() {
         let raw = RawCopy::decode_in_parts(&heap, &Memory::unlimited(), part).unwrap();
         assert_eq!(drive(&raw, &offsets).unwrap(), csr, "parts of {part}");
     }
+    let streamed = CompressedStream::new(&index, &data, 0).unwrap();
+    assert_eq!(drive(&streamed, &offsets).unwrap(), csr);
 }
 
 /// One corrupt list: the scan and the frontier that reach it fail and hand out no
@@ -170,8 +178,11 @@ fn a_corrupt_list_is_refused_and_the_reader_stays_usable() {
     let stream_bytes = MemorySource::new(bytes);
     let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
     let stream = Stream::new(&offsets, &stream_bytes).unwrap();
+    let data = MemorySource::new(encoded.data.clone());
+    let streamed = CompressedStream::new(&index, &data, 0).unwrap();
     check_corrupt(&heap, bad);
     check_corrupt(&stream, bad);
+    check_corrupt(&streamed, bad);
 }
 
 fn check_corrupt<S: Source>(source: &S, bad: u32) {
@@ -232,23 +243,51 @@ fn with_hubs(n: u32, hubs: &[u32], degree: u32) -> (Vec<u64>, Vec<u32>) {
     (offsets, targets)
 }
 
-/// The value of a part: a float whose magnitude changes with it, so that any change of
-/// grouping shows in the bits of a sum.
-fn value(first: u64, part: &[u32]) -> f64 {
-    let x = first ^ part.iter().map(|&t| u64::from(t)).sum::<u64>();
-    [1e-9, 1.0, 1e9][(x % 3) as usize] * (1.0 + (x % 7) as f64)
+/// The value of a part: a number that changes with each of its entries.
+fn value(first: u64, part: &[u32]) -> u64 {
+    part.iter()
+        .fold(first.wrapping_mul(0x9E37_79B9_7F4A_7C15), |h, &t| {
+            h.rotate_left(7) ^ u64::from(t)
+        })
+}
+
+/// A sequence of values, by a polynomial hash: adding two is associative but not
+/// commutative, so the sum shows the order the driver adds in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Seq {
+    hash: u64,
+    pow: u64,
+}
+
+impl Seq {
+    fn of(x: u64) -> Self {
+        Self {
+            hash: x,
+            pow: 0x100_0000_01B3,
+        }
+    }
+}
+
+impl Reduce for Seq {
+    const ZERO: Self = Self { hash: 0, pow: 1 };
+    fn add(self, other: Self) -> Self {
+        Self {
+            hash: self.hash.wrapping_mul(other.pow).wrapping_add(other.hash),
+            pow: self.pow.wrapping_mul(other.pow),
+        }
+    }
 }
 
 /// The sum of `push_with` over `frontier` on `threads` threads.
-fn pushed<S: Source>(source: &S, frontier: &[u32], threads: usize) -> f64 {
+fn pushed<S: Source>(source: &S, frontier: &[u32], threads: usize) -> Seq {
     par::with_threads(NonZeroUsize::new(threads).unwrap(), || {
         Plan::with(source, &Memory::unlimited(), Settings::default(), |plan| {
             let f: Vec<Node<'_>> = frontier.iter().filter_map(|&v| plan.node(v)).collect();
             plan.push_with(
                 &f,
                 || (),
-                |acc: &mut f64, row, _| {
-                    *acc += value(row.first_entry, ids(row.list));
+                |acc: &mut Seq, row, _| {
+                    *acc = acc.add(Seq::of(value(row.first_entry, ids(row.list))));
                 },
             )
             .unwrap()
@@ -257,8 +296,8 @@ fn pushed<S: Source>(source: &S, frontier: &[u32], threads: usize) -> f64 {
     .unwrap()
 }
 
-/// The parts of `push_with` add as documented, whatever the threads and the source:
-/// in each group the runs in order, a long list's parts in order.
+/// The values of `push_with` add in frontier order, a long list's parts in order,
+/// whatever the threads and the source.
 #[test]
 #[cfg_attr(
     miri,
@@ -271,37 +310,23 @@ fn push_with_adds_parts_in_order() {
     let index = AdjacencyIndex::parse(&encoded.index).unwrap();
     let list = |v: usize| &targets[ix(offsets[v])..ix(offsets[v + 1])];
     let frontier: Vec<u32> = (0..n).filter(|v| v % 3 != 1).collect();
-    let mut want = 0.0;
-    for group in frontier.chunks(FRONTIER_GRAIN) {
-        let (mut sum, mut run, mut entries) = (0.0, 0.0, 0);
-        for &v in group {
-            let v = ix(v.into());
-            let cost = list(v).len() + 1;
-            if entries > 0 && entries + cost > RUN_ENTRIES {
-                (sum, run, entries) = (sum + run, 0.0, 0);
-            }
-            entries += cost;
-            if list(v).len() > RUN_ENTRIES {
-                for (k, part) in list(v).chunks(RUN_ENTRIES).enumerate() {
-                    run += value(offsets[v] + (k * RUN_ENTRIES) as u64, part);
-                }
-            } else {
-                run += value(offsets[v], list(v));
-            }
+    let mut want = Seq::ZERO;
+    for &v in &frontier {
+        let v = ix(v.into());
+        for (k, part) in list(v).chunks(RUN_ENTRIES).enumerate() {
+            want = want.add(Seq::of(value(offsets[v] + (k * RUN_ENTRIES) as u64, part)));
         }
-        want += sum + run;
+        if list(v).is_empty() {
+            want = want.add(Seq::of(value(offsets[v], &[])));
+        }
     }
     let csr = Csr::new(&offsets, &targets).unwrap();
     let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
     for threads in [1, 3, 8] {
+        assert_eq!(pushed(&csr, &frontier, threads), want, "csr, {threads}");
         assert_eq!(
-            pushed(&csr, &frontier, threads).to_bits(),
-            want.to_bits(),
-            "csr, {threads}"
-        );
-        assert_eq!(
-            pushed(&heap, &frontier, threads).to_bits(),
-            want.to_bits(),
+            pushed(&heap, &frontier, threads),
+            want,
             "compressed, {threads}"
         );
     }

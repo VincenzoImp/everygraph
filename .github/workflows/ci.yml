@@ -125,6 +125,8 @@ jobs:
         run: cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets --locked -- -D warnings
       - name: cargo clippy (format, i686)
         run: cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets --locked -- -D warnings
+      - name: cargo clippy (kernels, i686)
+        run: cargo clippy -p everygraph-kernels --target i686-unknown-linux-gnu --all-targets --locked -- -D warnings
       - name: Portability checks of the core
         run: python3 tools/check_core_portability.py
       - name: The numerics lint list is the same in every clippy.toml
@@ -197,6 +199,8 @@ jobs:
         run: cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown --locked -- -D warnings
       - name: wasm32 build and clippy (community)
         run: cargo clippy -p everygraph-community --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: wasm32 build and clippy (map)
+        run: cargo clippy -p everygraph-map --target wasm32-unknown-unknown --locked -- -D warnings
       - name: Toy kernel and the edge-map kernels, native and wasm32 in Node, same hash
         run: python3 tools/check_wasm_toy.py
       # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
@@ -212,10 +216,17 @@ jobs:
         with:
           version: "0.11.28"
           enable-cache: true
-          cache-dependency-glob: tools/check_columns_python.py
+          cache-dependency-glob: |
+            tools/check_columns_python.py
+            tools/check_egmap_readers.py
           save-cache: ${{ github.ref == 'refs/heads/main' }}
       - name: Columns, pyarrow and Polars against the Rust writer
         run: uv run --script tools/check_columns_python.py
+      # The map file (#68): the independent Python reader, written from the specification,
+      # against the Rust reader; the official PMTiles readers for Python and JavaScript
+      # fetch every tile the Rust writer wrote.
+      - name: Map file, the Python reader and the official PMTiles readers
+        run: uv run --script tools/check_egmap_readers.py
       # The Python package (#81): its wheel built by maturin, its tests against NetworkX.
       - name: Python package, built and tested
         run: tools/check_python_package.sh

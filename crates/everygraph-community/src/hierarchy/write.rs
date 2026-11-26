@@ -64,6 +64,11 @@ pub fn store<G: Source, K: ByteSink>(
     settings: Settings,
     communities: &Communities,
 ) -> Result<(), HierarchyError> {
+    if communities.weight_scale.is_some() {
+        return Err(HierarchyError::Argument(
+            "communities: a weighted hierarchy is not stored in this version",
+        ));
+    }
     let maps = levels_of(source.nodes(), communities);
     store_levels(writer, key, about, source, memory, settings, &maps)
 }
@@ -263,7 +268,7 @@ fn aggregate<S: Source>(
     w: Weights<'_>,
     parts: Parts<'_>,
 ) -> Result<(Quotient, Table), Error> {
-    let table = tally(plan, memory, w, parts.map, parts.count)?;
+    let table = tally(plan, memory, w, None, None, parts.map, parts.count)?;
     let members = Members::new(memory, parts)?;
     let (q, k) = quotient(plan, memory, w, parts, &members, &Tables::new(memory))?;
     drop(members);

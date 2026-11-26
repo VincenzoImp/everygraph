@@ -1,0 +1,155 @@
+{
+ "map": "$S/maps/lj.pmtiles",
+ "tiles": 203941,
+ "tiles_encoded": 203941,
+ "refused": {},
+ "regions_dropped_covering_the_tile": 567871,
+ "payloads": {
+  "egmap": {
+   "raw": {
+    "total": 695593392,
+    "median": 2032,
+    "p99": 22488,
+    "max": 26208
+   },
+   "gzip": {
+    "total": 378848888,
+    "median": 1139,
+    "p99": 12051,
+    "max": 14477
+   }
+  },
+  "arrow_ipc": {
+   "raw": {
+    "total": 1193426928,
+    "median": 4624,
+    "p99": 23440,
+    "max": 27024
+   },
+   "gzip": {
+    "total": 454054526,
+    "median": 1562,
+    "p99": 11640,
+    "max": 14040
+   }
+  },
+  "mlt_web_4g": {
+   "raw": {
+    "total": 480016467,
+    "median": 1476,
+    "p99": 14508,
+    "max": 17328
+   },
+   "gzip": {
+    "total": 379175822,
+    "median": 1220,
+    "p99": 11025,
+    "max": 14011
+   }
+  },
+  "mlt_min_size": {
+   "raw": {
+    "total": 471294959,
+    "median": 1475,
+    "p99": 13231,
+    "max": 15902
+   },
+   "gzip": {
+    "total": 378264674,
+    "median": 1219,
+    "p99": 10945,
+    "max": 13681
+   }
+  }
+ },
+ "gzip_by_zoom": [
+  {
+   "z": 0,
+   "egmap": 3428,
+   "arrow_ipc": 3757,
+   "mlt_web_4g": 3655,
+   "mlt_min_size": 3660
+  },
+  {
+   "z": 1,
+   "egmap": 10740,
+   "arrow_ipc": 12003,
+   "mlt_web_4g": 11569,
+   "mlt_min_size": 11353
+  },
+  {
+   "z": 2,
+   "egmap": 41722,
+   "arrow_ipc": 46714,
+   "mlt_web_4g": 45221,
+   "mlt_min_size": 44597
+  },
+  {
+   "z": 3,
+   "egmap": 132068,
+   "arrow_ipc": 147387,
+   "mlt_web_4g": 143502,
+   "mlt_min_size": 141734
+  },
+  {
+   "z": 4,
+   "egmap": 380696,
+   "arrow_ipc": 432922,
+   "mlt_web_4g": 417438,
+   "mlt_min_size": 412305
+  },
+  {
+   "z": 5,
+   "egmap": 1060492,
+   "arrow_ipc": 1231887,
+   "mlt_web_4g": 1170514,
+   "mlt_min_size": 1158080
+  },
+  {
+   "z": 6,
+   "egmap": 2936310,
+   "arrow_ipc": 3571363,
+   "mlt_web_4g": 3268445,
+   "mlt_min_size": 3239663
+  },
+  {
+   "z": 7,
+   "egmap": 13110288,
+   "arrow_ipc": 15088159,
+   "mlt_web_4g": 13431362,
+   "mlt_min_size": 13384051
+  },
+  {
+   "z": 8,
+   "egmap": 103993661,
+   "arrow_ipc": 104480908,
+   "mlt_web_4g": 96198529,
+   "mlt_min_size": 95807417
+  },
+  {
+   "z": 9,
+   "egmap": 122414647,
+   "arrow_ipc": 137854070,
+   "mlt_web_4g": 119971703,
+   "mlt_min_size": 119638868
+  },
+  {
+   "z": 10,
+   "egmap": 134764836,
+   "arrow_ipc": 191185356,
+   "mlt_web_4g": 144513884,
+   "mlt_min_size": 144422946
+  }
+ ],
+ "region_table": {
+  "regions": 1637273,
+  "regions.communities": 7429,
+  "regions.internal": 1246121,
+  "regions.kind": 2612,
+  "regions.nodes": 1107729,
+  "regions.parent": 3722737,
+  "regions.partner": 7429,
+  "regions.volume": 2153984,
+  "total": 8248041
+ }
+}

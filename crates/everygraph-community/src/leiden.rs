@@ -9,7 +9,8 @@
 //! nothing moved, when it is the tenth, or when refinement left more than 80% of its
 //! nodes alone (nodes without a neighbour other than themselves are left out of that
 //! count). The last level's communities are split into their connected components, so
-//! no community of the result is disconnected. A further iteration starts again from
+//! no community of the result is disconnected; with weights, connected through entries
+//! of positive weight. A further iteration starts again from
 //! level 0, in the communities of the previous result.
 
 use std::num::NonZeroU32;
@@ -22,10 +23,11 @@ use everygraph_kernels::edge_map::{Error, NodeCells, Plan, Settings, Source};
 use crate::aggregate::{Dense, Members, Quotient, dense, quotient};
 use crate::column::Column;
 use crate::level::{
-    Ctx, Graph, Moving, Schedule, Strengths, Weights, local_move, refine, split, strengths,
+    Ctx, Graph, Moving, Ranks, Schedule, Strengths, Weights, local_move, refine, split, strengths,
 };
-use crate::quality::tally;
+use crate::quality::{Table, tally};
 use crate::table::Tables;
+use crate::weights::{EdgeWeights, Scaled, power_of_two, scaled};
 
 /// Iterations of the quality mode.
 const QUALITY_ITERATIONS: NonZeroU32 = NonZeroU32::new(3).expect("non-zero");
@@ -82,6 +84,20 @@ pub enum Refinement {
     Louvain,
 }
 
+/// What Leiden maximizes (`docs/spec/graph-semantics.md` § 5.5).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Objective {
+    /// Modularity at resolution `γ` (Newman and Girvan 2004; Reichardt and Bornholdt
+    /// 2006); with `use_direction`, the directed modularity of Leicht and Newman (2008).
+    #[default]
+    Modularity,
+    /// The Constant Potts Model `Σ_c [L(c) − γ·n_c·(n_c − 1)/2]` (Traag, Van Dooren and
+    /// Nesterov 2011): free of the resolution limit, with `γ` in the units of the
+    /// weights. `leidenalg`'s `CPMVertexPartition` reports twice this, less `2γn` on a
+    /// graph with a loop: the same best partition (`tests/references.py`).
+    Cpm,
+}
+
 /// When disconnected communities are split into their components.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SplitAt {
@@ -99,8 +115,13 @@ pub struct Options {
     pub mode: Mode,
     /// One iteration by default.
     pub iterations: Iterations,
-    /// The resolution `γ` of modularity; 1 by default.
+    /// Modularity by default.
+    pub objective: Objective,
+    /// The resolution `γ` of the objective; 1 by default.
     pub resolution: f64,
+    /// Directed modularity on [`EdgeWeights::Directed`]; off by default, when direction
+    /// is ignored and each pair weighs the sum of its two arcs.
+    pub use_direction: bool,
     /// Seeds the visiting order, the sub-rounds, the ties and randomized refinement.
     pub seed: u64,
     /// Greedy by default.
@@ -118,7 +139,9 @@ impl Default for Options {
         Self {
             mode: Mode::Deterministic,
             iterations: Iterations::Fixed(NonZeroU32::MIN),
+            objective: Objective::Modularity,
             resolution: 1.0,
+            use_direction: false,
             seed: 0,
             refinement: Refinement::Greedy,
             prolong: false,
@@ -171,8 +194,17 @@ pub struct Communities {
     pub membership: Column<u32>,
     /// The number of communities.
     pub count: u32,
-    /// The modularity of `membership` at the run's resolution.
+    /// The modularity of `membership`: at the run's resolution for modularity (directed
+    /// with `use_direction`), at resolution 1 for the Constant Potts Model.
     pub modularity: f64,
+    /// The value of the run's objective at its resolution: the modularity, or the
+    /// Constant Potts Model in the units of the weights.
+    pub quality: f64,
+    /// The scale `s` of the weights: each was rounded to a multiple of `2^-s`
+    /// ([`EdgeWeights`]). `None` on an unweighted graph.
+    pub weight_scale: Option<i32>,
+    /// The entries whose weight is above 0 and was rounded to 0, so counted as no edge.
+    pub rounded_to_zero: u64,
     /// The levels of the last iteration: `levels[0]` maps the nodes to the nodes of
     /// level 1 (refined communities), and so on; the last maps to the communities.
     /// Without prolongation, `membership` is their composition.
@@ -193,9 +225,18 @@ struct Level {
     /// The next level, its strengths and its nodes' starting communities (alone for
     /// Louvain), unless this was the last.
     next: Option<(Quotient, Strengths, Option<Column<u32>>)>,
-    /// The modularity of the communities of the last level.
-    modularity: f64,
+    /// The modularity and the quality of the communities of the last level.
+    score: (f64, f64),
     stats: LevelStats,
+}
+
+/// The modularity and the quality of `table` (see [`Communities`]).
+fn score(table: &Table, options: &Options) -> (f64, f64) {
+    let quality = table.objective(options);
+    match options.objective {
+        Objective::Modularity => (quality, quality),
+        Objective::Cpm => (table.modularity(1.0), quality),
+    }
 }
 
 /// The labels of `cells`, as a column.
@@ -230,17 +271,18 @@ fn level<S: Source>(
         ..LevelStats::default()
     };
     let tables = Tables::new(memory);
-    let schedule = Schedule::new(n, memory, ctx, false)?;
-    let mut st = Moving::new(plan, memory, &k.of, bound, ctx)?;
+    let ranks = Ranks::new(&k.of);
+    let schedule = Schedule::new(&ranks, memory, ctx, false)?;
+    let mut st = Moving::new(plan, memory, k, &ranks, bound, ctx)?;
     let tol = TOLERANCE[(ctx.iteration + ctx.level).min(11) as usize];
-    let g = Graph { plan, w, k: &k.of };
+    let g = Graph::new(plan, w, k);
     let moved = local_move(g, &st, &schedule, &tables, ctx, tol)?;
     (stats.sweeps, stats.moves) = (moved.sweeps, moved.moves);
     (stats.parallel_rounds, stats.serial_rounds) = (moved.parallel_rounds, moved.serial_rounds);
     stats.heavy = moved.heavy;
     if ctx.options.split == SplitAt::EveryLevel {
-        let parts = split(plan, memory, &st.comm)?;
-        st.relabel(plan, &k.of, parts)?;
+        let parts = split(plan, memory, w, &st.comm)?;
+        st.relabel(plan, k, parts)?;
     }
     let louvain = ctx.options.refinement == Refinement::Louvain;
     let refined = if louvain {
@@ -249,11 +291,11 @@ fn level<S: Source>(
         let schedule = match schedule {
             Schedule::Rounds { .. } => {
                 drop(schedule);
-                Schedule::new(n, memory, ctx, true)?
+                Schedule::new(&ranks, memory, ctx, true)?
             }
             order @ Schedule::Order { .. } => order,
         };
-        Some(refine(g, memory, &st, &schedule, &tables, ctx)?)
+        Some(refine(g, memory, &ranks, &st, &schedule, &tables, ctx)?)
     };
     let d = match &refined {
         Some(r) => dense(plan, memory, |v| r.rcomm.load(v, Relaxed).get())?,
@@ -270,24 +312,24 @@ fn level<S: Source>(
             d
         } else {
             drop((d, refined));
-            let parts = split(plan, memory, &st.comm)?;
+            let parts = split(plan, memory, w, &st.comm)?;
             drop(st);
             dense(plan, memory, |v| parts.load(v, Relaxed).get())?
         };
         stats.communities = d.count;
-        let modularity =
-            tally(plan, memory, w, &d.map, d.count)?.modularity(ctx.options.resolution);
+        let table = tally(plan, memory, w, Some(k), ctx.weight_scale, &d.map, d.count)?;
         let map = (d.count < n || ctx.level == 0).then_some(d.map);
         return Ok(Level {
             map,
             next: None,
-            modularity,
+            score: score(&table, ctx.options),
             stats,
         });
     }
     drop(refined);
     let members = Members::new(memory, d.parts())?;
     let (q, kq) = quotient(plan, memory, w, d.parts(), &members, &tables)?;
+    let kq = k.above(plan, memory, &d.map, d.count, kq)?;
     let bound = if louvain {
         None
     } else {
@@ -296,7 +338,7 @@ fn level<S: Source>(
     Ok(Level {
         map: Some(d.map),
         next: Some((q, kq, bound)),
-        modularity: 0.0,
+        score: (0.0, 0.0),
         stats,
     })
 }
@@ -335,19 +377,13 @@ fn polish<S: Source>(
 ) -> Result<(Column<u32>, LevelStats), Error> {
     let n = plan.nodes();
     let tables = Tables::new(memory);
-    let schedule = Schedule::new(n, memory, ctx, false)?;
-    let st = Moving::new(plan, memory, &k.of, Some(start), ctx)?;
+    let ranks = Ranks::new(&k.of);
+    let schedule = Schedule::new(&ranks, memory, ctx, false)?;
+    let st = Moving::new(plan, memory, k, &ranks, Some(start), ctx)?;
     let tol = TOLERANCE[(ctx.iteration + ctx.level).min(11) as usize];
-    let moved = local_move(
-        Graph { plan, w, k: &k.of },
-        &st,
-        &schedule,
-        &tables,
-        ctx,
-        tol,
-    )?;
+    let moved = local_move(Graph::new(plan, w, k), &st, &schedule, &tables, ctx, tol)?;
     let parts = if ctx.level == 0 {
-        split(plan, memory, &st.comm)?
+        split(plan, memory, w, &st.comm)?
     } else {
         st.comm
     };
@@ -375,11 +411,28 @@ fn project(memory: &Memory, map: &[u32], above: &[u32]) -> Result<Column<u32>, E
     })?)
 }
 
-/// Checks the options.
-fn check(options: &Options) -> Result<(), Error> {
-    // A sweep's gains add to at most 2(1 + γ), kept below 2^64 in units of 2^-50.
-    if !(options.resolution >= 0.0 && options.resolution <= MAX_RESOLUTION) {
-        return Err(Error::Invalid("resolution: not a number from 0 to 8,191"));
+/// Checks the options against the weights.
+fn check(options: &Options, w: Weights<'_>) -> Result<(), Error> {
+    let gamma = options.resolution;
+    match options.objective {
+        // A sweep's gains add to at most 2(1 + γ), kept below 2^64 in units of 2^-50.
+        Objective::Modularity if !(0.0..=MAX_RESOLUTION).contains(&gamma) => {
+            return Err(Error::Invalid("resolution: not a number from 0 to 8,191"));
+        }
+        Objective::Cpm if !(gamma >= 0.0 && gamma.is_finite()) => {
+            return Err(Error::Invalid("resolution: not a finite number from 0"));
+        }
+        Objective::Cpm if options.use_direction => {
+            return Err(Error::Invalid(
+                "use_direction: the Constant Potts Model has no directed form",
+            ));
+        }
+        _ => {}
+    }
+    if options.use_direction && !matches!(w, Weights::Directed { .. }) {
+        return Err(Error::Invalid(
+            "use_direction: the graph has no direction to use",
+        ));
     }
     if let Refinement::Randomized { theta } = options.refinement {
         if !(theta.is_finite() && theta > 0.0) {
@@ -395,24 +448,53 @@ fn check(options: &Options) -> Result<(), Error> {
 ///
 /// # Errors
 ///
-/// [`Error::Invalid`] for options out of range or a total weight of 2^62 or more; the
-/// source's errors; [`Error::Memory`] when the budget refuses a buffer, before it is
-/// allocated.
-///
-/// # Panics
-///
-/// Never for a source that keeps the contract of
-/// [`Source`](everygraph_kernels::edge_map::Source).
+/// As [`leiden_weighted`].
 pub fn leiden<S: Source>(
     source: &S,
     memory: &Memory,
     settings: Settings,
     options: &Options,
 ) -> Result<Communities, Error> {
-    check(options)?;
+    leiden_weighted(source, EdgeWeights::Unit, memory, settings, options)
+}
+
+/// Leiden communities of an undirected graph, or of the undirected projection of a
+/// directed one, with the weights of its entries, scaled once to integers
+/// ([`EdgeWeights`]). Lists as [`leiden`] takes them.
+///
+/// The weights must agree across the two entries of each pair, as [`EdgeWeights`]
+/// says; a per-pair column of the format does. This is not checked: other weights make
+/// an asymmetric `A`, and the values are then wrong, without an error.
+///
+/// # Errors
+///
+/// [`Error::Invalid`] for options out of range, `use_direction` without directed
+/// weights or with the Constant Potts Model, weights that cannot be scaled (a column
+/// that is not one per entry, a total that is infinite or below 2^-963), or a total
+/// weight of 2^62 or more; [`Error::Weight`] for the first negative, NaN or infinite
+/// weight; the source's errors; [`Error::Memory`] when the budget refuses a buffer,
+/// before it is allocated.
+///
+/// # Panics
+///
+/// Never for a source that keeps the contract of
+/// [`Source`](everygraph_kernels::edge_map::Source).
+pub fn leiden_weighted<S: Source>(
+    source: &S,
+    weights: EdgeWeights<'_>,
+    memory: &Memory,
+    settings: Settings,
+    options: &Options,
+) -> Result<Communities, Error> {
+    let Scaled {
+        w: w0,
+        scale: weight_scale,
+        rounded_to_zero,
+    } = scaled(source, weights)?;
+    check(options, w0)?;
     let n = source.nodes();
     let k0 = Plan::with(source, memory, settings, |plan| {
-        strengths(&plan, memory, Weights::Unit)
+        strengths(&plan, memory, w0, options)
     })?;
     let total = k0.total;
     if total == 0 {
@@ -423,18 +505,26 @@ pub fn leiden<S: Source>(
             membership: single,
             count: n,
             modularity: 0.0,
+            quality: 0.0,
+            weight_scale,
+            rounded_to_zero,
             levels: Vec::new(),
             mode: options.mode,
             iterations: 0,
             stats: Vec::new(),
         });
     }
+    let unit = weight_scale.map_or(1.0, power_of_two);
+    let coefficient = match options.objective {
+        Objective::Modularity => 1.0 / total as f64,
+        Objective::Cpm => unit,
+    };
     let (max, converge) = match options.iterations {
         Iterations::Fixed(k) => (k.get(), false),
         Iterations::Converge { max } => (max.get(), true),
     };
     let mut stats = Vec::new();
-    let mut previous: Option<(Column<u32>, u32, f64)> = None;
+    let mut previous: Option<(Column<u32>, u32, (f64, f64))> = None;
     let mut levels = Vec::new();
     let mut iterations = 0;
     for iteration in 0..max {
@@ -444,13 +534,15 @@ pub fn leiden<S: Source>(
         let mut ctx = Ctx {
             options,
             total,
+            coefficient,
+            weight_scale,
             level: 0,
             iteration,
             stage: 0,
         };
         let bound = previous.as_ref().map(|p| &p.0[..]);
         let mut out = Plan::with(source, memory, settings, |plan| {
-            level(&plan, memory, Weights::Unit, &k0, bound, &ctx)
+            level(&plan, memory, w0, &k0, bound, &ctx)
         })?;
         loop {
             stats.push(out.stats);
@@ -469,7 +561,7 @@ pub fn leiden<S: Source>(
             }
         }
         let mut membership = compose(memory, &levels)?;
-        let mut modularity = out.modularity;
+        let mut result = out.score;
         let mut communities = out.stats.communities;
         if options.prolong {
             ctx.stage = 1;
@@ -496,28 +588,30 @@ pub fn leiden<S: Source>(
             }
             ctx.level = 0;
             let (labels, s) = Plan::with(source, memory, settings, |plan| {
-                polish(&plan, memory, Weights::Unit, &k0, &above, &ctx)
+                polish(&plan, memory, w0, &k0, &above, &ctx)
             })?;
             stats.push(s);
-            let (m, c, q) = Plan::with(source, memory, settings, |plan| {
+            let (m, c, r) = Plan::with(source, memory, settings, |plan| {
                 let d = dense(&plan, memory, |v| labels[v.index()])?;
-                let q = tally(&plan, memory, Weights::Unit, &d.map, d.count)?
-                    .modularity(options.resolution);
-                Ok::<_, Error>((d.map, d.count, q))
+                let table = tally(&plan, memory, w0, Some(&k0), weight_scale, &d.map, d.count)?;
+                Ok::<_, Error>((d.map, d.count, score(&table, options)))
             })?;
-            (membership, communities, modularity) = (m, c, q);
+            (membership, communities, result) = (m, c, r);
         }
         let stable = converge && previous.as_ref().is_some_and(|p| p.0[..] == membership[..]);
-        previous = Some((membership, communities, modularity));
+        previous = Some((membership, communities, result));
         if stable {
             break;
         }
     }
-    let (membership, count, modularity) = previous.expect("at least one iteration");
+    let (membership, count, (modularity, quality)) = previous.expect("at least one iteration");
     Ok(Communities {
         membership,
         count,
         modularity,
+        quality,
+        weight_scale,
+        rounded_to_zero,
         levels,
         mode: options.mode,
         iterations,

@@ -7,6 +7,7 @@ labels: type:feature, area:viewer, P0, risk:medium, size:L, lab-evidence
 
 **Scope**
 - [ ] TypeScript package with no runtime dependencies in the core; instanced rendering of regions, nodes and edges; text labels drawn as the tile says: the tile format ({{#m5-02-tile-format}}) stores labels chosen at build time with their zoom intervals, so the viewer only fades them in and out and runs no collision engine (decided 2026-11-26, `docs/research/sota-review-2026-11.md` S12)
+- [ ] The TypeScript reader of `docs/spec/egmap.md` (moved from {{#m5-02-tile-format}}): header, directories, section table, chunks and the tile payload as typed-array views; checked against `tools/egmap.py` on the samples of `tools/check_egmap_readers.py`. The payload is ours, not MapLibre Tile: the question is closed (`docs/spec/egmap.md` § 10)
 - [ ] Tile loader over HTTP range requests with request coalescing, an LRU cache, cancellation of stale requests and throttling during animation
 - [ ] Level-of-detail transitions (cross-fade parent → children) so zooming feels continuous
 - [ ] Pluggable data source: static file, local file via `File` API, live engine ({{#m5-08-live-mode}})

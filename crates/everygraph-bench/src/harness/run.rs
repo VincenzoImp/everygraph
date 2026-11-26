@@ -34,7 +34,7 @@ use super::gate::{
 };
 use super::lock::{LockError, OfficialLock};
 use super::machine::{Fingerprint, GitInfo};
-use super::measure::Measurement;
+use super::measure::{HELPER_RESERVE, Measurement};
 use super::procfs::Host;
 use super::row::{
     CacheRecord, DatasetRecord, ExitRecord, GateRecord, IoRecord, MemoryRecord, OomRecord,
@@ -215,6 +215,9 @@ pub fn dataset_path(ctx: &Context, d: &DatasetRef) -> Result<PathBuf, String> {
             Ok(ctx.data.dataset_dir(ds))
         }
         DatasetRef::Path(p) => {
+            if let Some(rest) = p.strip_prefix("{work}/") {
+                return Ok(ctx.work.join(rest));
+            }
             let p = Path::new(p);
             Ok(if p.is_absolute() {
                 p.to_path_buf()
@@ -543,13 +546,21 @@ impl Runner<'_> {
         let _ignored = std::fs::remove_file(&report);
         let open = |p: &Path| File::create(p).map_err(|e| format!("creating {}: {e}", p.display()));
 
+        // The helper puts the command in a child cgroup limited to `memory_limit` and
+        // itself in another (`measure::split_scope`); the scope holds both.
         let mut wrapper = scope_prefix(
-            case.memory_limit,
+            case.memory_limit.saturating_add(HELPER_RESERVE),
             &format!("everygraph-bench {} {} {rep}", self.spec.name, case.id),
         );
+        wrapper.pop();
         wrapper.extend([
+            "-p".into(),
+            "Delegate=yes".into(),
+            "--".into(),
             self.ctx.exe.display().to_string(),
             "measure".into(),
+            "--memory-max-bytes".into(),
+            case.memory_limit.to_string(),
             "--report".into(),
             report.display().to_string(),
             "--sample-interval-ms".into(),
@@ -879,6 +890,9 @@ impl Runner<'_> {
             file_peak_bytes: m.file_peak_bytes,
             samples: m.memory_samples,
             sample_interval_ms: m.sample_interval_ms,
+            major_faults: m.faults.map(|f| f.major_faults),
+            refaults_file: m.faults.map(|f| f.refaults_file),
+            refaults_anon: m.faults.map(|f| f.refaults_anon),
         });
         let event = |k: &str| m.memory_events.get(k).copied().unwrap_or(0);
         row.oom = Some(OomRecord {
@@ -1189,7 +1203,9 @@ pub fn run(
     for c in &cases {
         if let (Some(d), None) = (&c.dataset, &c.unavailable) {
             let p = dataset_path(ctx, d)?;
-            if !p.exists() {
+            // A dataset in the work directory is made by a preparation step: checked
+            // after them.
+            if !p.exists() && !p.starts_with(&ctx.work) {
                 return Err(RunError::Failed(format!(
                     "case {}: dataset {} is not at {}; fetch it (everygraph-bench fetch) or \
                      point --data / $EVERYGRAPH_DATA at the data root",
@@ -1227,7 +1243,10 @@ pub fn run(
          $EVERYGRAPH_SCRATCH, whose bench-work subdirectory is the default).",
     )?;
     mark_work_dir(&ctx.work)?;
-    for c in active.iter().filter(|c| c.cache == CacheMode::Cold) {
+    for c in active
+        .iter()
+        .filter(|c| c.cache == CacheMode::Cold && !sources[&c.id].starts_with(&ctx.work))
+    {
         refuse_memory_backed(
             &format!("the dataset of {}", c.id),
             &sources[&c.id],
@@ -1295,6 +1314,15 @@ pub fn run(
         let selected: Vec<&Case> = active.iter().map(|c| **c).collect();
         for step in spec.prepare.iter().filter(|s| s.needed(&selected)) {
             runner.prepare(step)?;
+        }
+    }
+    for c in &active {
+        if let Some(p) = sources.get(&c.id).filter(|p| !p.exists()) {
+            return Err(RunError::Failed(format!(
+                "case {}: dataset {} is in the work directory, and no preparation step made it",
+                c.id,
+                p.display()
+            )));
         }
     }
     for c in active.iter().filter(|c| c.cache == CacheMode::Cold) {
