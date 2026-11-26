@@ -75,17 +75,20 @@ def main():
             groups[key][var] = r.get("metrics") or {}
         ratios = defaultdict(lambda: defaultdict(list))
         for key, d in groups.items():
-            if len(d) != 2:
+            if len(d) < 2:
                 continue
-            a_name, b_name = sorted(d)  # none < random, 0 < 1
-            a, bm = d[a_name], d[b_name]
+            base = "none" if "none" in d else sorted(d)[0]  # "0" for pq's random=0
+            a = d[base]
             k_nopass = tuple(x for x in key if x[0] != "pass")
-            for name in a:
-                if isinstance(a[name], (int, float)) and isinstance(bm.get(name), (int, float)) and a[name]:
-                    ratios[k_nopass][name].append(bm[name] / a[name])
-        for k, mm in ratios.items():
+            for var, bm in d.items():
+                if var == base:
+                    continue
+                for name in a:
+                    if isinstance(a[name], (int, float)) and isinstance(bm.get(name), (int, float)) and a[name]:
+                        ratios[(k_nopass, var, base)][name].append(bm[name] / a[name])
+        for (k, var, base), mm in sorted(ratios.items()):
             label = " ".join(f"{x}={y}" for x, y in k) or "all"
-            print(f"  ratios {label} (second variant / first; median of {len(next(iter(mm.values())))} passes):")
+            print(f"  ratios {label}, {var} / {base} (median of {len(next(iter(mm.values())))} passes):")
             for name, xs in mm.items():
                 print(f"    {name}: {statistics.median(xs):.3f} ({', '.join(f'{x:.3f}' for x in xs)})")
         print()
