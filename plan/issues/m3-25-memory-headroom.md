@@ -3,7 +3,7 @@ title: Memory promise holds for what the user types: headroom, non-Linux probe, 
 milestone: M3 · Engine and kernels
 labels: type:feature, area:engine, P0, risk:medium, size:M
 ---
-**Why.** The state-of-the-art review of 2026-11-26 (`/home/tux/graphlab/sota-2026-11-26/synthesis.md` § 1, rows 1–4 and 11) found three gaps in promise 2 ("never run out of memory", `docs/DESIGN.md` § 2):
+**Why.** The state-of-the-art review of 2026-11-26 (`docs/research/sota-review-2026-11.md` § 1, rows 1–4 and 11) found three gaps in promise 2 ("never run out of memory", `docs/DESIGN.md` § 2):
 - The command line gives `Budget` the whole `--memory` and accepts a budget equal to the cgroup limit (`crates/everygraph-cli/src/machine.rs` l. 59–66). The no-OOM suite tests `MemoryMax = budget + 96 MiB` instead (PR #251). Memory outside the ledger was measured at up to 9 MB, and 34 MB for ingest (PR #251). Page tables, thread stacks and the mapped regime's page cache also need room.
 - Without a memory probe (every platform but Linux), the default budget is a fixed 8 GB, which is all the RAM of an 8 GB laptop.
 - One `MADV_WILLNEED` call reads at most `max(io_pages, ra_pages)`, 128 KiB on this NVMe (Linux 6.12 `mm/readahead.c`). On a cold 64 MiB file, one call left 131,072 bytes resident; 128 KiB pieces made all 64 MiB resident (`/home/tux/graphlab/sota-2026-11-26/synthesis-check/willneed.py`). The planner still advises `WillNeed` on whole ranges and prints "warmed ahead".

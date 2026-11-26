@@ -256,24 +256,55 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         })
     }
 
-    /// Frees the mapped pairs kept by the first pass.
-    pub(super) fn release_cache(&mut self) {
-        self.cache = None;
+    fn send(&self, pairs: &[u64], counts: &mut BlockCounts, mut f: impl FnMut(u32, u32)) {
+        for &pair in pairs {
+            let (u, v) = (high(pair), low(pair));
+            if u == v {
+                match self.graph.self_loops {
+                    SelfLoops::Keep => f(u, u),
+                    SelfLoops::Drop => counts.dropped_loops += 1,
+                }
+            } else {
+                f(u, v);
+                if !self.graph.directed {
+                    f(v, u);
+                }
+            }
+        }
     }
 
+    /// The rows of `batch` whose two keys are in the dictionary, as `source << 32 | target`.
+    fn map(&self, batch: &Batch) -> Result<Vec<u64>, BuildError> {
+        let mut pairs = Vec::with_capacity(batch.len());
+        for row in 0..batch.len() {
+            let source = self.dictionary.id_of_member(key(&batch.source, row))?;
+            let target = self.dictionary.id_of_member(key(&batch.target, row))?;
+            if let (Some(u), Some(v)) = (source, target) {
+                pairs.push(u64::from(u.get()) << 32 | u64::from(v.get()));
+            }
+        }
+        Ok(pairs)
+    }
+}
+
+/// Where the items of an adjacency come from: blocks that a pass reads in parallel, as
+/// often as the passes need, each sending the same items in the same order every time.
+pub(super) trait Items: Sync {
     /// Number of blocks.
-    pub(super) fn blocks(&self) -> usize {
+    fn blocks(&self) -> usize;
+
+    /// Calls `f(source, target)` for every item of block `block`, in order.
+    fn items(&self, block: usize, f: impl FnMut(u32, u32)) -> Result<BlockCounts, BuildError>;
+}
+
+impl<S: ByteSource + Sync, D: ByteSource + Sync> Items for Rows<'_, '_, S, D> {
+    fn blocks(&self) -> usize {
         self.fingerprints.blocks()
     }
 
-    /// Calls `f(source, target)` for every item of block `block`: one per loop row kept,
-    /// one per other row on a directed graph, and one in each direction on an
-    /// undirected one, in input order.
-    pub(super) fn items(
-        &self,
-        block: usize,
-        f: impl FnMut(u32, u32),
-    ) -> Result<BlockCounts, BuildError> {
+    /// One item per loop row kept, one per other row on a directed graph, and one in
+    /// each direction on an undirected one, in input order.
+    fn items(&self, block: usize, f: impl FnMut(u32, u32)) -> Result<BlockCounts, BuildError> {
         let cached = self.cache.as_ref().map(|(blocks, _)| &blocks[block]);
         if let Some(pairs) = cached.and_then(OnceLock::get) {
             let mut counts = BlockCounts::default();
@@ -306,36 +337,6 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
             let _ = slot.set(pairs);
         }
         Ok(counts)
-    }
-
-    fn send(&self, pairs: &[u64], counts: &mut BlockCounts, mut f: impl FnMut(u32, u32)) {
-        for &pair in pairs {
-            let (u, v) = (high(pair), low(pair));
-            if u == v {
-                match self.graph.self_loops {
-                    SelfLoops::Keep => f(u, u),
-                    SelfLoops::Drop => counts.dropped_loops += 1,
-                }
-            } else {
-                f(u, v);
-                if !self.graph.directed {
-                    f(v, u);
-                }
-            }
-        }
-    }
-
-    /// The rows of `batch` whose two keys are in the dictionary, as `source << 32 | target`.
-    fn map(&self, batch: &Batch) -> Result<Vec<u64>, BuildError> {
-        let mut pairs = Vec::with_capacity(batch.len());
-        for row in 0..batch.len() {
-            let source = self.dictionary.id_of_member(key(&batch.source, row))?;
-            let target = self.dictionary.id_of_member(key(&batch.target, row))?;
-            if let (Some(u), Some(v)) = (source, target) {
-                pairs.push(u64::from(u.get()) << 32 | u64::from(v.get()));
-            }
-        }
-        Ok(pairs)
     }
 }
 

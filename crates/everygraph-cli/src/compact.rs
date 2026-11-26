@@ -119,7 +119,7 @@ fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
         e => graph::container_error(path, &e),
     })?;
     let bytes = sink.len();
-    drop(sink.into_file());
+    drop(sink);
     let before = file.source().len();
     let sections = file.entries().len() as u64;
     drop(file);

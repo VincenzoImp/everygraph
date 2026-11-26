@@ -245,7 +245,13 @@ length in bytes (`u32`), the name, and the section's 32-byte hash. So two files 
 graph sections differ in kind, name or content never share an identity. The kinds that
 define the graph are those 1.0 defines as such — 2 to 5 (adjacency index and data,
 `.events`, dictionary) and 7 (property columns, `eg-columns.md` § 8; their layouts
-and statistics, kinds 8 and 9, follow from kind 7 and are left out). A kind added
+and statistics, kinds 8 and 9, follow from kind 7 and are left out). Two more
+exclusions: sections whose names begin with `adjacency.in.` are left out by their name,
+since they hold the in-adjacency of a directed graph, a function of `adjacency.out`
+(`eg-adjacency.md` § 3.2), so a file has the same identity with or without it and
+results stored before it was added are still served after; and the adjacencies that
+results hold (kinds 11 to 13, "Parts of a result" below) are left out by their kind, so
+a result never changes the identity it is keyed by. A kind added
 later that defines the graph is announced with a required feature bit (§ 10), so that a
 reader that does not know it refuses the file instead of computing an identity without
 it. For a segmented file (§ 13) the identity is BLAKE3 of
@@ -253,8 +259,7 @@ the manifest's `(kind, name length, name, hash)` alone, since the manifest lists
 hashes of every run's sections. A reader serves a stored result only for a graph with
 that identity: after an append the graph has a new identity, and results stored before
 it remain what they are, results as of the earlier graph, never served as results of
-the new one. The adjacencies that results hold (kinds 11 to 13, "Parts of a result"
-below) are left out by their kind: a result never changes the identity it is keyed by.
+the new one.
 
 **Results.** A result on the whole graph (`docs/api-sketch.md` § 2.8) is a section of
 kind 10 named `results/<operation>/<key>`, with a provenance record of its own named

@@ -87,6 +87,8 @@ everything prepared.
 - Is Graphalytics eligibility (#209) a gate of the 0.1 release, or a goal beside it? The
   plan treats it as a goal beside it: the release (#105) does not depend on #209.
 
+**Decision changes recorded:** ADR 0021 and DESIGN D21 amended on 2026-11-26 (PR #272): the query language comes by choosing an embedded engine (LadybugDB on Arrow CSR or Grafeo over a read-only `.eg` store) and bridging to it, not by our own parser; review in `docs/research/sota-review-2026-11.md`.
+
 ## Lessons that still change behaviour
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.
@@ -115,4 +117,5 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - Runs on `main` shared one CI concurrency group, so GitHub cancelled every pending run when a newer merge queued: most merged commits were never tested on `main` (fixed in PR #262). After the dev profile changed (#256), caches were cold and an advisory mutants shard hit its job limit and showed red.- About twelve Opus and Fable agents at once (eight research agents, four implementers, reviewers and a synthesis) used up the account's 5-hour usage window at about 12:00, and every agent stopped for 20 minutes. Usage, not only CPU, limits parallelism. Resume in priority order and stagger: the critical path and reviews first, experiments and long research later.
 - 12:42 sweep skipped on purpose: the Fable coherence pass (PRs #252, #253) went over the plan, rules and documents two hours earlier, and the usage window is the scarce resource. A sweep repeats only after a stretch of merges large enough to drift.
 - Closing #57 and #21 made `check_adrs.py` fail on every open pull request, because ADRs and DESIGN still named them as holding open work. Rule: after each merge that closes an issue, the coordinator runs `board.py sync` and `docs/tools/check_adrs.py` and re-points the citations in the same push.
+- Parallel authors picked the same next issue number (m3-25 to m3-28 three times, m8-12 twice). Rule: a subagent names a proposed issue file `mN-xx-<slug>.md`, and the coordinator gives it its number before the merge.
 

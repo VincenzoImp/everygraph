@@ -7,8 +7,14 @@ labels: type:spec, area:map, P0, risk:medium, size:M, lab-evidence
 
 **Scope**
 - [ ] Tile content model for semantic zoom: at zoom z a tile holds the entities visible there — regions (typed: community / subcommunity / aggregate) with exact node count, internal edges, volume and cut; individual nodes with id, degree and tree path when zoomed in — chosen by importance with a per-tile budget
+- [ ] **Zoom consistency in the content model** (decided 2026-11-26, `docs/research/sota-review-2026-11.md` S12; Been, Daiches, Yap, TVCG 2006; Been, Nöllenburg, Poon, Wolff, CGTA 2010; MSAGL.js § 3.1). The lab selects per tile the top k by degree, which does not nest across zooms, and collision avoidance in the viewer would make labels depend on the frame. Instead ({{#m5-05-viewer-core}} draws what the tile says):
+  - every entity (node and region) carries a minimum zoom `zmin`, a function of geometry and hierarchy only (its disc reaches a size in pixels; its parent region is open). An entity visible at zoom z stays visible at every deeper zoom;
+  - labels are chosen at build time: per zoom, candidates in a fixed order (hierarchy depth, then size, then id), each accepted only if its box does not overlap the labels already accepted; each label stores its zoom interval [z_on, z_off). The builder uses the viewer's font metrics ({{#m5-14-design-system}});
+  - the per-tile budget stays as a guard; what it drops is counted in "omitted", never dropped silently;
+  - a popping count in a scripted dive (entities that appear, vanish and appear again) is part of the spec's test. Target: zero. If tiles at the deepest zoom pass 32 KB under this rule, the budget becomes nested (a parent tile's kept set is a subset of the union of its children's)
 - [ ] Edge content per the outcome of {{#m1-06-edge-rendering}}; every tile states edge weight shown vs omitted and entities omitted
-- [ ] Payload encoding: compact binary with a schema version (compare a custom layout with Arrow IPC for size and decode cost in JS)
+- [ ] Payload encoding: compact binary with a schema version. Compare three payloads: a custom layout, Arrow IPC, and MapLibre Tile (MLT; columnar, PMTiles tile type `0x06`, a Rust encoder, readers in MapLibre). Measure bytes per tile (gzip and not) and decode time in JS, and check that u64 counts and region kinds map to MLT columns without loss. MLT is adopted only if it is lossless for every field and within 10% of the custom payload's size and decode time; otherwise the custom payload stays (`docs/research/sota-review-2026-11.md` S12)
+- [ ] The container stays PMTiles v3. MVT is not a payload option: it has no columns and no exact-integer guarantee for our counts (decided 2026-11-26)
 - [ ] Sections beyond tiles: search index ({{#m5-04-search-index}}), per-node adjacency for on-demand ego edges, legend/metadata (graph name, counts, provenance, colour assignments), optional attribute summaries
 - [ ] Where non-tile sections live: PMTiles metadata is JSON-only, so define an appended region that standard PMTiles readers ignore, and test with the official readers
 - [ ] Budgets: median tile ≤ 8 KB gzip, max ≤ 32 KB (lab: 4–6 KB median, ≤ 22 KB max)
@@ -20,7 +26,9 @@ labels: type:spec, area:map, P0, risk:medium, size:M, lab-evidence
 - The official PMTiles JS and Python clients open an `.egmap` file and fetch tiles
 - A third party could implement a reader from the spec alone (validated by the independent Python reader)
 
-**Depends on** {{#m1-06-edge-rendering}}
+**Depends on** {{#m1-06-edge-rendering}}. If that experiment is late, this issue goes ahead on the approved selection-only design (links drawn on selection from per-node adjacency, nothing pre-drawn; Design reference below) and leaves room in the content model for edge aggregates.
+
+**Do not implement** (decided 2026-11-26, `docs/research/sota-review-2026-11.md` § 4): MapLibre or deck.gl as the core renderer (deck.gl core alone is 219 KB min+gzip, MapLibre GL JS 300 KB, against the viewer budget of 150 KB of {{#m5-11-perf-accessibility}}; bundlephobia, 2026-11-26, as read by the review); MVT as the payload.
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** What a tile must carry follows from the approved viewer (`design/preview/style/viewer.html`, `data.html`): region kind (community / subdivision / aggregate), exact counts, the colour index of the top-level region from the five-colour assignment (computed once at build time by graph colouring of touching regions), label and count, shown-versus-omitted figures for the caption strip, and per-node adjacency for links drawn on selection. Links are not pre-drawn into tiles beyond what the selection needs.
 
