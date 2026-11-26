@@ -43,7 +43,8 @@ step wasm-codec python3 tools/check_wasm_codec.py
 step container python3 tools/check_container_python.py
 step columns-python uv run -q --script tools/check_columns_python.py
 step python-package tools/check_python_package.sh
-step msrv cargo +1.100 test --workspace --locked
+# While 1.100 is the current stable, the nextest and doctest steps already ran on it.
+if [ "$(rustc +1.100 -V)" != "$(rustc -V)" ]; then step msrv cargo +1.100 test --workspace --locked; fi
 if [ $miri = 1 ]; then
   step miri-core cargo +nightly miri test -p everygraph-core --no-default-features -- --skip full_size
   step miri-format cargo +nightly miri test -p everygraph-format

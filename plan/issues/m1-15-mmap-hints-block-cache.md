@@ -29,6 +29,6 @@ Is (1) enough? If not, how much does (2) recover?
 
 **Pointers.** `docs/research/sota-io-memory.md` § 3 (D11, FINDINGS § M1-01), § 4 C1 and C5; `docs/research/memory-bounded-algorithms.md` addendum § E; `lab/m1-01-tracer`, `lab/m1-02-ooc-leiden`.
 
-**Left after PR #221 (2026-11-26).** PR #221 ran steps 1 and 2 in the lab, exploratory only (`lab/m1-15-mmap-hints-block-cache/results/README.md`), and ADR 0029 (proposed) records what they found. Still open: the official `mmap-hints` run (`bench/specs/mmap-hints.toml`; about 3.5 h by estimate, so it needs a window of its own), then ADR 0029 accepted or changed with D11's text.
+**Left after PR #221 (2026-11-26).** PR #221 ran steps 1 and 2 in the lab, exploratory only (`lab/m1-15-mmap-hints-block-cache/results/README.md`), and ADR 0029 records what they found. Closed on 2026-11-26: ADR 0029 was accepted on the bytes read, which do not depend on the load, and D11's text changed with it. The ≤ 1.5× time target moved to {{#m2-23-block-cache}}. The official `mmap-hints` run (`bench/specs/mmap-hints.toml`; about 3.5 h by estimate) gives the times in the M3 milestone window.
 
 **Depends on** {{#m1-01-e2e-tracer}}, {{#m1-02-ooc-aggregation}}

@@ -19,3 +19,5 @@ labels: type:feature, area:format, P2, risk:medium, size:M
 - uk-2005 ≤ 12 bits/entry with the byte tier and ≤ 3 with the archival tier (both indexes included); random list on an archival block measured against the lab's 44 µs; round trip and fuzzing as in #30
 
 **Depends on** {{#m1-09-hierarchy-order}}, {{#m1-16-codec-0124}}
+
+**Input from m1-09 (#23, exploratory).** On the best order for each graph, BV-style coding is still 22–27% smaller than codec 0 (`lab/m1-09-hierarchy-order/results/README.md`), so the archival codec keeps its case after compaction.

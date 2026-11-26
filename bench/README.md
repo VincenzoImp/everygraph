@@ -44,7 +44,9 @@ failed self-test); 2 (usage); 3 (an official run refused to start).
 ## Protocol
 
 **Official and exploratory runs.** A run is exploratory unless `--official` is given.
-An official run, in this order:
+Issues close on exploratory evidence; official runs happen once per milestone, in one
+planned window, and before a number goes into README, DESIGN, a paper or a release
+(CLAUDE.md § 6). An official run, in this order:
 
 1. takes **the** lock, `/run/user/<uid>/everygraph-bench-official.lock`, without
    waiting, before any other check. It is the only lock in the harness and is taken in

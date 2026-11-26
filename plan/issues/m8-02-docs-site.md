@@ -8,6 +8,7 @@ labels: type:docs, area:docs, P0, risk:low, size:M
 - [ ] "How it compares" page with fair, sourced comparisons and an explicit "use X instead when…" section for NetworkX, igraph, NetworKit, Gephi, Neo4j, DuckDB/DuckPGQ, LadybugDB, cosmos.gl, Graphistry
 - [ ] Limits page: what is not supported, known weak cases (dense-graph edges on the map, out-of-core path queries, browser tier ceiling)
 - [ ] Versioned docs; search; examples executed in CI
+- [ ] Styles, fonts, icons, the mark and the favicon come from `@everygraph/style` (`design/system/`); no literal colour in the site's stylesheets (`design/system/tools/lint_colours.py` passes)
 - [ ] Tone: direct and concrete; every performance statement links to its benchmark
 - [ ] An LLM-in-the-loop check of the docs as a regression test (added 2026-11-25, `docs/research/README.md` H4): an agent given only the docs writes code for each of the ten user stories, the code is run, and wrong calls are counted per release. Never published as evidence of usability: LLM scores agreed with human reviewers only at Spearman 0.75 / 0.71 over 7 platforms, with the code never executed (Meng et al., SIGMOD'25)
 

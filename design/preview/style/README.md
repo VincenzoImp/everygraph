@@ -5,7 +5,7 @@ instrument — warm paper, soft black, one ink-blue accent, every number in mono
 hairlines instead of boxes, almost no shadow.
 
 Everything below is a preview with invented data. The rules are in [`SPEC.md`](SPEC.md),
-the values in [`assets/tokens.css`](assets/tokens.css). Nine HTML pages show them live
+the values in [`design/system/tokens.css`](../../system/tokens.css). Nine HTML pages show them live
 (`index.html` is the entry); this page shows the same content as images so it can be read
 on GitHub. To browse the pages themselves, clone the repository and open
 `design/preview/style/index.html`.

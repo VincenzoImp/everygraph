@@ -33,6 +33,9 @@
 //! **Tests:** with the feature `faults`, `faults::Faulty` wraps any source or sink and
 //! fails its k-th operation (`ENOSPC`, `EIO`, a short read).
 //!
+//! **Tables:** with the feature `tables`, `table::TableWriter` writes a result table as
+//! Parquet, Arrow IPC, CSV or JSON.
+//!
 //! **Memory:** [`ProcMemoryProbe`], the Linux implementation of
 //! `everygraph_core::MemoryProbe`: physical memory and the limits of the process's
 //! control group. [`PAGES`], the page backend of `everygraph_core::Budget`: buffers of
@@ -49,6 +52,8 @@
 #[cfg(feature = "faults")]
 pub mod faults;
 pub mod sink;
+#[cfg(feature = "tables")]
+pub mod table;
 
 mod claim;
 mod file;

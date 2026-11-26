@@ -3,7 +3,7 @@ title: Graph semantics: direction, self-loops, multi-edges, weights, time
 milestone: M2 · Format and ingest
 labels: type:spec, area:ingest, P0, risk:medium, size:M
 ---
-**Why.** The old prototype accepted only undirected, unweighted, simple graphs, which excluded the author's own data (transactions, forwards, follows). The semantics must be explicit, counted and reported — silently dropping edges is how numbers stop being trusted.
+**Why.** Real data is directed, weighted and repeated: transactions, forwards, follows. The semantics must be explicit, counted and reported — silently dropping edges is how numbers stop being trusted.
 
 **Scope**
 - [ ] Graph kinds: undirected, directed; simple or multigraph

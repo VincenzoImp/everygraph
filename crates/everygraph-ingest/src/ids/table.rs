@@ -6,11 +6,11 @@
 
 use std::mem::size_of;
 
-use everygraph_core::Pages;
+use everygraph_core::{Pages, widen};
 
 use super::DictionaryError;
 use super::hash::{KeyHash, index};
-use super::scratch::{Buf, NoMemory, Reservation, widen};
+use super::scratch::{Buf, NoMemory, Reservation};
 
 /// Memory a table may use: a reservation of which `used` bytes are taken, never
 /// shrinking below `base`.
@@ -362,7 +362,7 @@ impl Table {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::test_support::Budget;
+    use everygraph_core::Budget;
 
     #[test]
     fn keys_are_kept_once_with_their_first_position() {

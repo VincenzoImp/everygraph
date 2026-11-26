@@ -3,7 +3,7 @@ title: Derived-artifact cache with provenance
 milestone: M2 · Format and ingest
 labels: type:feature, area:format, P1, risk:low, size:M
 ---
-**Why.** "Data is written once; everything else is derived" (in-adjacency, raw decode, hierarchy, layout, indexes, PageRank vectors). Results must be reusable across sessions and carry enough provenance to be reproduced — the good part of the old prototype.
+**Why.** "Data is written once; everything else is derived" (in-adjacency, raw decode, hierarchy, layout, indexes, PageRank vectors). Results must be reusable across sessions and carry enough provenance to be reproduced.
 
 **Scope** (the store and its look-up in the format; the callers that use it are scoped
 in their own issues, as listed below)

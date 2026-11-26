@@ -22,4 +22,6 @@ labels: type:experiment, area:community, P1, risk:medium, size:M, lab-evidence
 
 **Done when.** A table det/async by thread count for lj, orkut and Friendster on an idle machine, with the hash check, and a recommendation.
 
+**Answered by PR #208 (2026-11-26), exploratory.** The rule: sub-rounds per level = clamp(next_pow2(n_level / 65536), 4, 1024), adopted in {{#m4-01-leiden-production}} (`lab/m1-04-det-leiden-scaling/README.md`). Closed on its load-independent results (hashes, modularity, sub-round counts) and interleaved ratios (CLAUDE.md § 6). The idle-machine table (`bench/specs/det-leiden.toml`) runs in the M4 milestone window, and D14's documented price changes only from it.
+
 **Pointers.** `lab/b2-leiden`, FINDINGS § B2 determinism table; literature: Mt-KaHyPar synchronized moves (arXiv 2112.12704), LD-Leiden (note 2026-11-25: a dynamic method, not deterministic — the survey in `docs/research/memory-bounded-algorithms.md` finds it misplaced here; Mt-KaHyPar remains the reference) (arXiv 2502.18497).

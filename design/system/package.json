@@ -1,0 +1,16 @@
+{
+  "name": "@everygraph/style",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Everygraph visual system: design tokens, fonts, icons and the mark.",
+  "license": "(Apache-2.0 OR MIT) AND OFL-1.1",
+  "repository": { "type": "git", "url": "https://github.com/VincenzoImp/everygraph", "directory": "design/system" },
+  "files": ["tokens.css", "tokens.json", "fonts.css", "fonts/", "icons.svg", "mark/"],
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tokens.json": "./tokens.json",
+    "./fonts.css": "./fonts.css",
+    "./icons.svg": "./icons.svg",
+    "./mark/*": "./mark/*"
+  }
+}

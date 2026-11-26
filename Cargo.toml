@@ -85,6 +85,19 @@ cloned_instead_of_copied = "warn"
 collapsible_if = "allow"
 chunks_exact_to_as_chunks = "allow"
 
+[profile.dev]
+# Tests and debug builds (`test` inherits `dev`). On the lab machine, interleaved, 2026-11-26
+# (exploratory): with both settings, `cargo nextest run --workspace` took 0.27× the CPU
+# time of opt-level 0 with full debug info, and a rebuild after a one-line change in the
+# core 0.5×; a cold build took 2× and its target directory 0.5× the bytes. Overflow
+# checks and debug assertions stay on. Backtraces keep file and line; a debugger shows
+# no local variables.
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 # Shipped builds: whole-program optimization, and no `target-cpu=native` anywhere in the
 # repository (the lab used it). Code that wants AVX2/NEON selects it at run time.

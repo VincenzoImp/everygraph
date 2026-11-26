@@ -14,6 +14,8 @@
 //!   aligned chunks that readers and kernels loop over. [`ByteSink`] is its writable
 //!   counterpart for formats updated in place (the `.eg` container): positional
 //!   writes, a length and a durability barrier.
+//! - [`widen`], [`usize_of`] and [`le`]: the lossless integer conversions and the
+//!   little-endian field readers that every format parser uses.
 //! - [`par`]: the only place where work is split across threads. It runs on rayon with
 //!   the `parallel` feature and on the calling thread without it, with equal results.
 //! - Memory accounting: [`Budget`] (the accountant), [`Memory`] (the handle kernels
@@ -69,6 +71,7 @@ mod byte_sink;
 mod byte_source;
 mod exact_sum;
 mod ids;
+pub mod le;
 pub mod math;
 mod memory;
 pub mod par;
@@ -76,6 +79,8 @@ pub mod rng;
 mod scratch;
 mod seg_vec;
 mod segment;
+#[cfg(test)]
+mod test_support;
 
 pub use byte_sink::{ByteSink, WriteError};
 pub use byte_source::{AccessHint, ByteSource, MemorySource, ReadError};
@@ -96,6 +101,13 @@ const _: () = assert!(usize::BITS >= u32::BITS && usize::BITS <= u64::BITS);
 
 /// Widens a length or index to the 64-bit type used for sizes that may be stored or
 /// may describe something larger than memory.
-pub(crate) const fn widen(value: usize) -> u64 {
+#[must_use]
+pub const fn widen(value: usize) -> u64 {
     value as u64
+}
+
+/// A `u32` (a node id, a count read from a file) as an index.
+#[must_use]
+pub const fn usize_of(value: u32) -> usize {
+    value as usize
 }

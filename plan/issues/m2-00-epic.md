@@ -13,10 +13,12 @@ Tracking issue for milestone M2.
 - [ ] `.eg` container and adjacency codec specified, implemented and fuzzed ({{#m2-01-container-spec}}, {{#m2-03-adjacency-codec}})
 - [ ] Portable I/O layer and memory accountant ({{#m2-02-io-layer}}, {{#m2-04-arrays-accountant}})
 - [ ] Readers for text and Parquet ({{#m2-05-text-reader}}, {{#m2-06-parquet-reader}}); id mapping for all key types ({{#m2-07-id-mapping}})
-- [ ] One build pipeline for in-RAM and out-of-core ({{#m2-08-csr-build}}) with full graph semantics ({{#m2-09-graph-semantics}})
+- [ ] One build pipeline for in-RAM and out-of-core ({{#m2-08-csr-build}}) with full graph semantics ({{#m2-09-graph-semantics}}), carrying property columns ({{#m2-34-build-columns}})
 - [ ] Properties, in-adjacency, artifact cache, verification ({{#m2-10-property-columns}}, {{#m2-11-in-adjacency}}, {{#m2-12-artifact-cache}}, {{#m2-14-verify}})
-- Conditional on M1 results (2026-11-25, `docs/research/README.md`): {{#m2-23-block-cache}} (if {{#m1-15-mmap-hints-block-cache}} adopts it), {{#m2-24-bp-ordering}} (if {{#m1-09-hierarchy-order}} shows the gain); optional {{#m2-25-id-mapping-staged}}
+- Conditional on M1 results (2026-11-25, `docs/research/README.md`): {{#m2-23-block-cache}} (adopted by ADR 0029, 2026-11-26), {{#m2-24-bp-ordering}} (if {{#m1-09-hierarchy-order}} shows the gain); optional {{#m2-25-id-mapping-staged}}
 - [ ] From the second literature review (2026-11-25, `docs/research/README.md` D): core numerics and randomness ({{#m2-26-core-math}}, {{#m2-27-counter-rng}}), safe irregular writes ({{#m2-28-par-scatter}}), fault injection and fuzzing in CI ({{#m2-29-fault-injection-io}}, {{#m2-30-fuzz-ci}})
 - [ ] Follow-ups of the container ({{#m2-01-container-spec}}, `docs/spec/eg-container.md` § 11): mapping by range ({{#m2-21-range-maps}}) and one writer across processes ({{#m2-22-single-writer-lock}})
 - [ ] The milestone cleanup and test audit ({{#m2-31-cleanup-audit}})
+- [ ] From the state-of-the-art review (2026-11-26): {{#m2-35-random-read-probe}}
+- [ ] Milestone close (CLAUDE.md § 6, § 10): the dogfood pass, the cleanup and test audit, the official measurement window, and the report `docs/reports/M2.md`. The cleanup is {{#m2-31-cleanup-audit}}; M2's speed targets and their official runs are in {{#m3-22-performance-pass}}
 - [ ] Friendster text → `.eg` in < 60 s at an 8 GB budget and < 25 s at 32 GB on the lab machine, measured under the harness's warm-up protocol (sustained drive write rate; baseline 29.06 s at 32 GB before encoding, ADR 0026); twitter-2010 directed; a hex-id input of Friendster size in < 4 min at 16 GiB
