@@ -16,7 +16,11 @@
 //!   its provenance declares `self_loops` = `drop` and `directed` = `false` (spec § 6);
 //!   the `.events` section whole when the index announces one; and an in-adjacency
 //!   (`<base>.in`) that is the transpose of its out-adjacency, events included, with a
-//!   `.events` section exactly when the out-adjacency has one (adjacency spec § 5).
+//!   `.events` section exactly when the out-adjacency has one (adjacency spec § 5);
+//!   and every property column (`docs/spec/eg-columns.md` § 7): its layout and
+//!   statistics under the names of § 6, its framing, every value, statistics that are
+//!   those of its values, the rows its adjacency gives a scope `<adj>.pair` or
+//!   `<adj>.event`, and what the build derives from the events.
 //!
 //! Sections are hashed in parallel (`everygraph_core::par`), each in 1 MiB pieces unless
 //! the source is in memory or mapped. Lists are decoded block by block, in parallel; from
@@ -87,6 +91,9 @@ pub struct AdjacencyFacts {
     pub entries: u64,
     /// Its stored events, when it has a `.events` section.
     pub events: Option<u64>,
+    /// The most stored events of one entry: 1 without a `.events` section, 0 without
+    /// an entry.
+    pub multiplicity_max: u64,
 }
 
 /// What [`verify`] found.
@@ -166,6 +173,9 @@ pub fn verify<S: ByteSource + Sync>(
     check_names(&file, &mut report);
     if depth == Depth::Deep {
         check_adjacencies(&file, memory, &mut report)?;
+        let adjacencies = std::mem::take(&mut report.adjacencies);
+        crate::columns::verify_columns(&file, &adjacencies, memory, &mut report)?;
+        report.adjacencies = adjacencies;
     }
     Ok(report)
 }
@@ -308,7 +318,8 @@ fn check_section<S: ByteSource>(
 
 /// The names the adjacency format gives its sections, against their kinds (adjacency
 /// spec § 3.1, § 5): `<adj>.index` (kind 2) and `<adj>.data` (kind 3) in pairs, and
-/// `<adj>.events` (kind 5, and only that kind) beside an index.
+/// `<adj>.events` (kind 5, and only that kind) beside an index; the same for the
+/// adjacencies of results, kinds 11 to 13.
 fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
     let has = |name: &str, kind: Kind| file.get(name).is_some_and(|e| e.kind == kind);
     for e in file.entries() {
@@ -317,6 +328,9 @@ fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
             Kind::ADJACENCY_INDEX => (".index", (".data", Kind::ADJACENCY_DATA)),
             Kind::ADJACENCY_DATA => (".data", (".index", Kind::ADJACENCY_INDEX)),
             Kind::ADJACENCY_EVENTS => (".events", (".index", Kind::ADJACENCY_INDEX)),
+            Kind::RESULT_ADJACENCY_INDEX => (".index", (".data", Kind::RESULT_ADJACENCY_DATA)),
+            Kind::RESULT_ADJACENCY_DATA => (".data", (".index", Kind::RESULT_ADJACENCY_INDEX)),
+            Kind::RESULT_ADJACENCY_EVENTS => (".events", (".index", Kind::RESULT_ADJACENCY_INDEX)),
             _ if name.ends_with(".events") => {
                 report.problem(
                     Some(name),
@@ -519,6 +533,8 @@ struct Checked {
 type Declared = BTreeMap<Arc<str>, Option<BTreeMap<String, String>>>;
 
 /// The structure of every adjacency, and the in-adjacencies against their out-adjacency.
+/// The adjacencies of results are checked for structure and symmetry, and left out of
+/// the report's list of the graph's adjacencies.
 fn check_adjacencies<S: ByteSource + Sync>(
     file: &Container<S>,
     memory: &Memory,
@@ -531,9 +547,11 @@ fn check_adjacencies<S: ByteSource + Sync>(
             continue;
         };
         if e.kind == Kind::ADJACENCY_INDEX {
-            if let Some(c) = check_adjacency(file, base, memory, &mut declared, report)? {
+            if let Some(c) = check_adjacency(file, base, memory, Some(&mut declared), report)? {
                 checked.insert(base.to_owned(), c);
             }
+        } else if e.kind == Kind::RESULT_ADJACENCY_INDEX {
+            check_adjacency(file, base, memory, None, report)?;
         }
     }
     for (name, out) in &checked {
@@ -584,7 +602,7 @@ fn check_adjacency<S: ByteSource + Sync>(
     file: &Container<S>,
     base: &str,
     memory: &Memory,
-    declared: &mut Declared,
+    declared: Option<&mut Declared>,
     report: &mut Report,
 ) -> Result<Option<Checked>, ReadError> {
     let (index_name, data_name) = (format!("{base}.index"), format!("{base}.data"));
@@ -679,6 +697,13 @@ fn check_adjacency<S: ByteSource + Sync>(
         }
         Err(Stop::Read(e)) => return Err(e),
     };
+    let Some(declared) = declared else {
+        // A result's adjacency is an undirected graph whose loops are kept.
+        if scan.forward != scan.backward {
+            report.problem(Some(&data_name), "the lists are not symmetric");
+        }
+        return Ok(None);
+    };
     let params = index_entry.provenance.as_ref().and_then(|record| {
         declared
             .entry(Arc::clone(record))
@@ -718,6 +743,10 @@ fn check_adjacency<S: ByteSource + Sync>(
             nodes: index.nodes(),
             entries: index.entries(),
             events: events.as_ref().map(AdjacencyEvents::events),
+            multiplicity_max: match &events {
+                Some(e) => e.multiplicities().map_or(0, |m| m.max().unwrap_or(0)),
+                None => u64::from(index.entries() > 0),
+            },
         },
         scan,
     }))

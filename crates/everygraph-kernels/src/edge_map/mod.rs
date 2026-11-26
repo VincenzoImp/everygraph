@@ -92,6 +92,8 @@
 #![allow(unsafe_code)]
 
 mod buckets;
+#[cfg(feature = "frontier-counters")]
+pub mod counters;
 mod node;
 mod source;
 
@@ -692,6 +694,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     }
 
     fn count(&self, lists: u64, entries: u64) {
+        #[cfg(feature = "frontier-counters")]
+        counters::handed(entries);
         self.work[0].fetch_add(lists, Ordering::Relaxed);
         self.work[1].fetch_add(entries, Ordering::Relaxed);
     }
@@ -887,6 +891,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     *sum = acc;
                 }
                 self.count(lists + work.lists, entries + work.entries);
+                #[cfg(feature = "frontier-counters")]
+                counters::flush();
                 Ok(())
             });
             give(&scratch, w);
@@ -964,6 +970,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     {
         let frontier = ids(frontier);
         let scratch = Mutex::new(Vec::new());
+        #[cfg(feature = "frontier-counters")]
+        let runs = Mutex::new(Vec::new());
         let run = |r: Range<usize>| {
             let mut w = take(&scratch, &init);
             let result = self.with_slot(|Slot { reader, side }| {
@@ -972,6 +980,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     self.source.prefetch(nodes);
                 }
                 let (mut acc, mut entries, mut work) = (A::ZERO, 0, Work::default());
+                #[cfg(feature = "frontier-counters")]
+                let mut tally = counters::Run::default();
                 self.source.lists(reader, nodes, |v, first_entry, list| {
                     // SAFETY: `v` is a node of the frontier (`Source`'s contract).
                     let node = unsafe { Node::new_unchecked(v) };
@@ -983,6 +993,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         list,
                         first_entry,
                     };
+                    #[cfg(feature = "frontier-counters")]
+                    let side_before = work.entries;
                     let mut worker = Worker {
                         scratch: &mut w,
                         lists: Lists {
@@ -992,19 +1004,40 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         },
                     };
                     body(&mut acc, row, &mut worker);
+                    #[cfg(feature = "frontier-counters")]
+                    {
+                        tally.max_list = tally.max_list.max(list.len() as u64);
+                        tally.max_chain = tally.max_chain.max(work.entries - side_before);
+                    }
                 })?;
                 self.count(nodes.len() as u64 + work.lists, entries + work.entries);
+                #[cfg(feature = "frontier-counters")]
+                {
+                    tally.entries = entries + work.entries;
+                    tally.side_lists = work.lists;
+                    tally.draws = counters::flush();
+                    runs.lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(tally);
+                }
                 Ok(acc)
             });
             give(&scratch, w);
             result
         };
-        if frontier.len() <= FRONTIER_GRAIN {
-            return run(0..frontier.len());
-        }
-        par::map_ranges(frontier.len(), GRAIN, run)
-            .into_iter()
-            .try_fold(A::ZERO, |sum, part| Ok(sum.add(part?)))
+        let result = if frontier.len() <= FRONTIER_GRAIN {
+            run(0..frontier.len())
+        } else {
+            par::map_ranges(frontier.len(), GRAIN, run)
+                .into_iter()
+                .try_fold(A::ZERO, |sum, part| Ok(sum.add(part?)))
+        };
+        #[cfg(feature = "frontier-counters")]
+        counters::call(
+            frontier.len(),
+            &runs.into_inner().unwrap_or_else(PoisonError::into_inner),
+        );
+        result
     }
 
     /// The reduction blocks of `task`.

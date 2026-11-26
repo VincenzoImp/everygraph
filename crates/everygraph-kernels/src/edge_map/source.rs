@@ -399,6 +399,8 @@ impl<'a> Compressed<'a> {
         if checked.is_err() {
             r.batch.clear();
         }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(r.batch.targets().len());
         checked
     }
 

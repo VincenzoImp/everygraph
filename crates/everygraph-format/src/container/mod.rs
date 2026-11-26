@@ -126,6 +126,15 @@ impl Kind {
     /// A result kept in the graph file: typed values, with a provenance record that
     /// holds its key (spec § 6, "Results"), written by [`Writer::add_result`].
     pub const RESULT: Self = Self(10);
+    /// The index of an adjacency that belongs to a result, such as a quotient graph of
+    /// a community hierarchy (spec § 6, "Parts of a result"): laid out as
+    /// [`ADJACENCY_INDEX`](Self::ADJACENCY_INDEX), and not part of the graph.
+    pub const RESULT_ADJACENCY_INDEX: Self = Self(11);
+    /// The data of an adjacency that belongs to a result.
+    pub const RESULT_ADJACENCY_DATA: Self = Self(12);
+    /// The event offsets of an adjacency that belongs to a result: its weights, when
+    /// some entry weighs more than 1.
+    pub const RESULT_ADJACENCY_EVENTS: Self = Self(13);
     /// The first of the kinds reserved for private and experimental use, which no
     /// specification will ever assign.
     pub const PRIVATE: Self = Self(0x8000_0000);
@@ -145,7 +154,7 @@ impl Kind {
     /// Whether this version of the specification defines the kind.
     #[must_use]
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 1..=10)
+        matches!(self.0, 1..=13)
     }
 
     /// Whether sections of this kind define the graph, and so enter its identity

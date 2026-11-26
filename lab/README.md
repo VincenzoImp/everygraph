@@ -42,6 +42,7 @@ Second-round experiments and measurements of production code:
 | `m2-04-segvec` | #31, segmented arrays against `Vec` | ADR 0002 | `segvec.toml` |
 | `m2-08-build` | #35, the size of `.events` on a temporal graph (results only) | `docs/spec/eg-adjacency.md` § 7 | — |
 | `m2-28-par-scatter` | #189, safe scattered writes, A/B | `plan/issues/m2-28-par-scatter.md` | — |
+| `m3-27-frontier-counters` | #266, frontier driver and decode counters | `plan/issues/m3-27-frontier-counters.md` | — |
 
 Raw result files are under each `results/` directory; datasets and build outputs are not
 included. The first lab's prototypes read graphs in a format of their own, `glab-csr-v0`,

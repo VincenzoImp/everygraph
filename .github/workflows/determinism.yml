@@ -1,0 +1,129 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The determinism suite at full size (issue #54, DESIGN D14), nightly and by hand, on
+# GitHub-hosted runners only (free for a public repository). The pull-request part of
+# the suite is the sampled grid, run by ci.yml's `test` job with every other test.
+#
+# - `grid`: crates/everygraph-determinism with EVERYGRAPH_DETERMINISM=full (every
+#   combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, over a
+#   third of the CI corpus), and the determinism tests of the kernels, Leiden and the build at their release
+#   sizes. Optimized without LTO: the shipped profile's fat LTO adds minutes of linking
+#   per test binary and cannot change a float result (rustc never fuses `a*b + c`,
+#   docs/research/sota-numerics.md § 3.2).
+# - `schedules`: Miri over 16 schedules of each test of the parallel facade
+#   (`-Zmiri-many-seeds`), on rayon, under Tree Borrows, in four jobs of four seeds. In
+#   one job, 16 seeds took up to 1,306 s for one test and two tests passed the 30-minute
+#   limit (PR #271).
+# - A failed scheduled run opens an issue, or comments on the one already open.
+#
+# Also runs on a pull request that changes this file, so a change is tested before it
+# lands. By hand: gh workflow run determinism.yml --ref <branch>
+
+name: Determinism
+
+on:
+  schedule:
+    # 01:53 UTC, before fuzz.yml's and ci.yml's nightly runs.
+    - cron: "53 1 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/determinism.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  grid:
+    name: Full grid (optimized)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: determinism
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      - name: The determinism suite, every combination
+        env:
+          EVERYGRAPH_DETERMINISM: full
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: |
+          cargo nextest run --release --locked --profile determinism -p everygraph-determinism
+          cargo nextest run --release --locked --profile determinism -p everygraph-kernels -p everygraph-community -p everygraph-ingest -E 'test(/depend|repeatable|identical/)'
+
+  schedules:
+    name: Miri over schedules ${{ matrix.seeds }} (parallel facade)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        seeds: ["0..4", "4..8", "8..12", "12..16"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned nightly with Miri and rust-src
+        run: |
+          NIGHTLY="$(cat tools/nightly-toolchain)"
+          echo "NIGHTLY=$NIGHTLY" >> "$GITHUB_ENV"
+          rustup toolchain install "$NIGHTLY" --profile minimal --component miri,rust-src
+          cargo "+$NIGHTLY" miri --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: determinism-miri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Cache the Miri sysroots
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/miri
+          key: miri-sysroot-${{ env.NIGHTLY }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      - name: Miri, schedules ${{ matrix.seeds }} of each test of everygraph-core's `par`
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks -Zmiri-many-seeds=${{ matrix.seeds }}
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-core --lib --locked --profile determinism -E 'test(/^par::/)'
+
+  report:
+    name: Open an issue for a failed nightly run
+    needs: [grid, schedules]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly determinism run failed"
+          open="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number')"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Failed again: $RUN"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "The nightly run of .github/workflows/determinism.yml failed on $GITHUB_SHA: $RUN. DESIGN D14 is broken or a test is wrong; find which before anything merges on top."
+          fi

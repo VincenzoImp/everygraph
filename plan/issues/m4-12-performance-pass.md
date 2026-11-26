@@ -15,6 +15,7 @@ labels: type:feature, area:community, P1, risk:medium, size:L
   3. **then prefix-doubling sub-rounds at level 0**: many tiny sub-rounds first, doubling in size up to today's L64k size (Krause et al., Mt-KaHyPar). The count stays a function of n.
 
   One interleaved A/B in one harness run: L64k ± sequential below E entries (E ∈ {10⁵, 10⁶, 10⁷}) ± afterburner ± prefix doubling, on lj and orkut, 7 seeds, 16 threads, with the hash checked at 1, 4 and 16 threads. Success: deterministic time ≤ 0.8× today at 16 threads, modularity not lower. A change is dropped when it gives no time gain, or when it lowers modularity by more than the seed spread
+- [ ] The hierarchy writer of {{#m4-06-hierarchy-artifact}} builds every quotient graph again from the parent maps: 0.48× and 0.53× of Leiden's time on lj and orkut (exploratory, one run each, PR #268). In the default run (one iteration, no prolongation) the driver's own quotients are the hierarchy's and could be written as Leiden makes them.
 
 **Done when.** Each gap is closed (interleaved A/B against `lab/b2-leiden` and the same-machine references of {{#m4-05-quality-gates}}, ratio stated) or its remaining cause is written down with a follow-up; the milestone-end official run (`everygraph-bench run leiden --official`) records the final numbers.
 

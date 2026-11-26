@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Experiment #266 (m3-27): counters of the frontier driver and the decoder, from the
+# product kernels built with the feature `frontier-counters`. Not part of the workspace;
+# the workspace's release settings.
+
+[package]
+name = "m327-frontier-counters"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[[bin]]
+name = "fc"
+path = "src/main.rs"
+
+[dependencies]
+everygraph-community = { path = "../../crates/everygraph-community" }
+everygraph-core = { path = "../../crates/everygraph-core" }
+everygraph-format = { path = "../../crates/everygraph-format" }
+everygraph-io = { path = "../../crates/everygraph-io" }
+everygraph-kernels = { path = "../../crates/everygraph-kernels", features = ["frontier-counters"] }
+
+[workspace]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

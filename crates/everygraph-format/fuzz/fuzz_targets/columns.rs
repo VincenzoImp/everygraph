@@ -3,7 +3,9 @@
 //! The column reader on untrusted bytes (`docs/spec/eg-columns.md` § 7): parsing a
 //! layout, checking a column section against it, reading dictionary strings and parsing
 //! statistics must never panic, read out of bounds or allocate beyond the bytes given;
-//! a layout that parses places every buffer inside its column.
+//! a layout that parses places every buffer inside its column. Reading every value
+//! (what `verify --deep` does) must not panic either, and on a column the writer wrote
+//! it finds the stored statistics.
 //!
 //! The first byte picks the mode:
 //! - even: the rest is raw input: a little-endian `u16` length of the layout, the
@@ -25,9 +27,16 @@ use libfuzzer_sys::fuzz_target;
 
 type Mem = MemorySource<Vec<u8>>;
 
-fn check(layout: &[u8], stats: &[u8], column: &[u8]) -> bool {
+/// The fields of statistics, the sum as its bits (a NaN sum equals itself).
+fn key(s: &ColumnStats) -> (u64, u64, u64, u64, Option<([u8; 32], [u8; 32])>) {
+    (s.count, s.null_count, s.nan_count, s.sum.to_bits(), s.range)
+}
+
+/// Checks the three sections as a reader does; whether the column opens, and whether
+/// its values give the statistics `stats` holds (`None` when either cannot be read).
+fn check(layout: &[u8], stats: &[u8], column: &[u8]) -> (bool, Option<bool>) {
     let Ok(layout) = ColumnLayout::parse(layout) else {
-        return false;
+        return (false, None);
     };
     let len = layout.column_len();
     for b in layout.batches() {
@@ -38,9 +47,14 @@ fn check(layout: &[u8], stats: &[u8], column: &[u8]) -> bool {
         assert!(d.offsets.end <= len && d.data.end <= len);
         assert!(d.offsets.start <= d.offsets.end && d.data.start <= d.data.end);
     }
-    let _ = ColumnStats::parse(stats, &layout);
+    let stored = ColumnStats::parse(stats, &layout);
     let Ok(column) = Column::open(&layout, Mem::new(column.to_vec())) else {
-        return false;
+        return (false, None);
+    };
+    let agree = match (column.check_values(), stored) {
+        (Ok(Some(computed)), Ok(stored)) => Some(key(&computed) == key(&stored)),
+        (Ok(None), _) => Some(stats.is_empty()),
+        _ => None,
     };
     if let Some(d) = layout.dictionary() {
         let mut buf = Vec::new();
@@ -48,7 +62,7 @@ fn check(layout: &[u8], stats: &[u8], column: &[u8]) -> bool {
             let _ = column.dictionary_entry(code, &mut buf);
         }
     }
-    true
+    (true, agree)
 }
 
 const TYPES: [ColumnType; 6] = [
@@ -171,9 +185,10 @@ fn structured(bytes: &[u8]) {
             .unwrap_or_default(),
         section(&file, &names.column),
     ];
-    assert!(
+    assert_eq!(
         check(&parts[0], &parts[1], &parts[2]),
-        "a column the writer wrote is refused"
+        (true, Some(true)),
+        "a column the writer wrote is refused, or its values do not give its statistics"
     );
     for hit in damage.chunks_exact(3) {
         let part = &mut parts[usize::from(hit[0]) % 3];
@@ -182,7 +197,7 @@ fn structured(bytes: &[u8]) {
             part[i] ^= hit[2] | 1;
         }
     }
-    check(&parts[0], &parts[1], &parts[2]);
+    let _ = check(&parts[0], &parts[1], &parts[2]);
 }
 
 fuzz_target!(|bytes: &[u8]| {
@@ -204,5 +219,5 @@ fuzz_target!(|bytes: &[u8]| {
     let Some((stats, column)) = take(&rest) else {
         return;
     };
-    check(&layout, &stats, &column);
+    let _ = check(&layout, &stats, &column);
 });
