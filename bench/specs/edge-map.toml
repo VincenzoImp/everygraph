@@ -9,7 +9,8 @@
 #   are the same build (exploratory: the native build was within 4% either way); graph
 #   read into anonymous memory (`--load heap`).
 # - `edge-map`: the same algorithms written once on the framework
-#   (crates/everygraph-kernels, `proof`), through the example `edge_map_bench`: raw CSR
+#   (crates/everygraph-kernels: `pagerank` (#47), `traversal::bfs` (#49) and the
+#   `proof` WCC), through the example `edge_map_bench`: raw CSR
 #   arrays read into the heap (`raw`), and the compressed format of #30 with its data
 #   part read into the heap (`compressed`).
 # - `edge-map-sources`: the other two sources at 16 threads, for the record — the data
@@ -32,7 +33,7 @@
 
 schema = 1
 name = "edge-map"
-description = "Issue #44: the proof kernels on the edge-map framework against the lab's hand-written loops, raw and compressed"
+description = "Issue #44: the kernels on the edge-map framework against the lab's hand-written loops, raw and compressed"
 reference = "plan/issues/m3-01-edge-map.md; docs/FINDINGS.md § B1, § M1-13"
 binaries = ["{bench}", "{glab}"]
 
@@ -90,7 +91,7 @@ description = "the same kernels written once on the edge-map framework, raw and 
 dataset_path = "csr/orkut"
 matrix = { kernel = ["pr32", "pr64", "wcc", "bfs"], source = ["raw", "compressed"] }
 command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{store}", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
-conditions = { graph = "orkut", code = "everygraph-kernels proof kernels on the edge-map framework", kernel = "{kernel}", storage = "{source}, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+conditions = { graph = "orkut", code = "everygraph-kernels on the edge-map framework", kernel = "{kernel}", storage = "{source}, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
 record_json = { hash = "/hash" }
 metric = [
   { name = "seconds", json = "/seconds_best", unit = "s" },
@@ -106,7 +107,7 @@ dataset_path = "csr/orkut"
 threads = [16]
 matrix = { kernel = ["pr32", "wcc", "bfs"], source = ["mmap", "stream"] }
 command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{store}", "--source", "{source}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
-conditions = { graph = "orkut", code = "everygraph-kernels proof kernels on the edge-map framework", kernel = "{kernel}", storage = "{source} (mmap: compressed data part mapped, warm after the first repetition; stream: raw targets by positional reads through the page cache)", level = "in-process kernel time, best of 5" }
+conditions = { graph = "orkut", code = "everygraph-kernels on the edge-map framework", kernel = "{kernel}", storage = "{source} (mmap: compressed data part mapped, warm after the first repetition; stream: raw targets by positional reads through the page cache)", level = "in-process kernel time, best of 5" }
 record_json = { hash = "/hash" }
 metric = [
   { name = "seconds", json = "/seconds_best", unit = "s" },

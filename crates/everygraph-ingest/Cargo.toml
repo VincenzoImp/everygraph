@@ -12,6 +12,7 @@ publish.workspace = true
 
 [dependencies]
 everygraph-core = { path = "../everygraph-core", default-features = false }
+everygraph-format = { path = "../everygraph-format" }
 # gzip through zlib-rs, a pure-Rust zlib: no C (DESIGN D1), it builds for wasm32, and it
 # is the inflate the lab measured (FINDINGS § B1).
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
@@ -27,6 +28,9 @@ xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"
 # The tests and the examples run the parallel facade on threads (and the dictionary's
 # tests check that its results do not depend on how many).
 everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
+everygraph-oracle = { path = "../everygraph-oracle" }
+# The build benchmark writes its graphs to files (examples/build_ab.rs).
+everygraph-io = { path = "../everygraph-io" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 
 # The dictionary benchmark evicts its scratch files from the page cache for cold look-ups.

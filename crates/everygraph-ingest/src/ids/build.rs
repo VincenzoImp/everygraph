@@ -73,13 +73,20 @@ pub struct BuildOptions {
     pub kind: Option<KeyKind>,
     /// Whether integer keys in sorted order may be collected in a bitmap (then kept as
     /// a rank bitmap when they are dense enough). [`build_dictionary`] turns it off
-    /// and starts again when a key is outside `0..2^32` or the bitmap does not fit
-    /// the budget.
+    /// and starts again when a key is outside `0..2^32`.
     pub dense: bool,
     /// Seed of the key hash. A build that meets two keys with the same 128-bit hash, or
     /// a part no pilot can solve (never seen; possible only with crafted input), is
     /// retried by [`build_dictionary`] with the next seed.
     pub hash_seed: u64,
+    /// An upper bound on the distinct keys of the input, when the caller knows one
+    /// from the input alone (a text of `b` bytes holds at most `b / 2 + 1` keys: two per
+    /// row, a row being at least `0 0` and a line end). A bitmap is kept only when the
+    /// largest key is below 64 times the keys, so a key at or above 64 times this
+    /// bound can only end in the hashed form: the bitmap stops there, and the hashed
+    /// form is built at any budget. Until then the bitmap holds at most 64 bits, 8
+    /// bytes, per key of the bound.
+    pub max_keys: Option<u64>,
 }
 
 impl Default for BuildOptions {
@@ -90,6 +97,7 @@ impl Default for BuildOptions {
             kind: None,
             dense: true,
             hash_seed: 0,
+            max_keys: None,
         }
     }
 }
@@ -220,9 +228,9 @@ pub struct Built<'a, S> {
 /// chunk in parallel through a [`Collector`], and builds. A key that does not fit the
 /// kind is an invalid row, reported in [`Built::invalid`]. When two keys collide on
 /// their 128-bit hash or a part cannot be solved, the build is repeated with the next
-/// hash seed. The ids are the same at any thread count and any budget, and so are the
-/// sections, except that a budget too small for the bitmap of dense integer keys gives
-/// the hashed form (with the same ids).
+/// hash seed. The ids and the sections are the same at any thread count and any budget:
+/// the bitmap of dense integer keys is chosen from the keys alone, and a budget that
+/// cannot hold it is refused, never answered with the hashed form (DESIGN D14).
 ///
 /// # Errors
 ///
@@ -250,18 +258,11 @@ pub fn build_dictionary<'a, Sc: Scratch>(
     options.kind = Some(kind);
     options.dense = options.dense && sample_dense;
     for _ in 0..=MAX_SEEDS {
-        let collector = match Collector::new(column, kind, &options, accountant, scratch) {
-            Err(DictionaryError::Budget(_)) if options.dense => {
-                options.dense = false;
-                continue;
-            }
-            other => other?,
-        };
+        let collector = Collector::new(column, kind, &options, accountant, scratch)?;
         match collect(source, &collector) {
             Ok(()) => {}
-            // A key outside 0..2^32, or a bitmap the budget cannot hold: the hashed
-            // form, which gives the same ids.
-            Err(DictionaryError::NotDense | DictionaryError::Budget(_)) if options.dense => {
+            // A key outside 0..2^32: the hashed form, which gives the same ids.
+            Err(DictionaryError::NotDense) if options.dense => {
                 options.dense = false;
                 continue;
             }
@@ -394,6 +395,8 @@ pub struct Collector<'a, Sc: Scratch> {
     returned: Condvar,
     cap: u64,
     dense: Option<DenseBits<'a>>,
+    /// Keys at or above this end the bitmap ([`BuildOptions::max_keys`]).
+    dense_limit: u64,
 }
 
 impl<Sc: Scratch> std::fmt::Debug for Collector<'_, Sc> {
@@ -511,8 +514,11 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         scratch: &'a Sc,
     ) -> Result<Self, DictionaryError> {
         let order = options.order.resolve(kind);
+        let dense_limit = options
+            .max_keys
+            .map_or(u64::MAX, |keys| keys.saturating_mul(DENSE_BITS_PER_KEY));
         let dense = if options.dense && kind == KeyKind::Integers && order == IdOrder::SortedKey {
-            Some(DenseBits::new(accountant)?)
+            Some(DenseBits::new(accountant, dense_limit)?)
         } else {
             None
         };
@@ -536,6 +542,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             returned: Condvar::new(),
             cap,
             dense,
+            dense_limit,
         })
     }
 
@@ -772,7 +779,8 @@ impl<'a, Sc: Scratch> Worker<'_, 'a, Sc> {
             _ => &copy[..len],
         };
         if let Some(dense) = &c.dense {
-            let Some(bit) = dense_index(c.column, norm) else {
+            let Some(bit) = dense_index(c.column, norm).filter(|&b| u64::from(b) < c.dense_limit)
+            else {
                 return Err(DictionaryError::NotDense);
             };
             dense.set(bit)?;
@@ -1356,6 +1364,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             kind: Some(kind),
             dense: false,
             hash_seed: seed,
+            max_keys: None,
         };
         let collector = Collector::new(column, kind, &options, accountant, scratch)?;
         let base = dense_base(column);

@@ -32,7 +32,8 @@ const _: () = assert!(MIN_PADDING == 16);
 /// open the file again to go on.
 ///
 /// One writer at a time: two writers updating the same file at once overwrite each
-/// other's appended sections. The caller holds whatever lock keeps them apart.
+/// other's appended sections. The sink keeps them apart: `everygraph_io::FileSink`
+/// holds a lock on its file that refuses a second writer.
 #[derive(Debug)]
 pub struct Writer<S: ByteSink> {
     sink: S,
@@ -289,17 +290,9 @@ impl<S: ByteSink> Writer<S> {
         let mut at = 0;
         while at < source.len {
             let n = small((source.len - at).min(COPY_CHUNK as u64));
-            let piece = match from.source().as_slice() {
-                Some(all) => {
-                    let start = small(source.offset + at);
-                    all.get(start..start.saturating_add(n)).ok_or(
-                        everygraph_core::ReadError::OutOfBounds {
-                            offset: source.offset + at,
-                            len: n as u64,
-                            source_len: from.source().len(),
-                        },
-                    )?
-                }
+            let range = source.offset + at..source.offset + at + n as u64;
+            let piece = match from.source().slice(range) {
+                Some(bytes) => bytes,
                 None => {
                     buf.resize(n, 0);
                     from.source().read_at(source.offset + at, &mut buf)?;
@@ -315,6 +308,46 @@ impl<S: ByteSink> Writer<S> {
             });
         }
         section.finish()
+    }
+
+    /// Makes section `name` refer to the provenance record `record`, or to none, from
+    /// the next commit on; its bytes are not touched. A build whose record holds counts
+    /// known only once its sections are written adds the record last and points the
+    /// sections at it.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::NoSuchSection`] if either is missing;
+    /// [`ContainerError::NotProvenance`] if `record` is not a provenance record or
+    /// `name` is one (records do not refer to records); [`ContainerError::Poisoned`].
+    pub fn set_provenance(
+        &mut self,
+        name: &str,
+        record: Option<&str>,
+    ) -> Result<(), ContainerError> {
+        if self.poisoned {
+            return Err(ContainerError::Poisoned);
+        }
+        let reference = match record {
+            None => None,
+            Some(record) => match self.entries.get(record) {
+                None => return Err(ContainerError::NoSuchSection(record.to_owned())),
+                Some(e) if e.kind != Kind::PROVENANCE => {
+                    return Err(ContainerError::NotProvenance(record.to_owned()));
+                }
+                Some(e) => Some(Arc::clone(&e.name)),
+            },
+        };
+        let entry = self
+            .entries
+            .get_mut(name)
+            .ok_or_else(|| ContainerError::NoSuchSection(name.to_owned()))?;
+        if entry.kind == Kind::PROVENANCE {
+            return Err(ContainerError::NotProvenance(name.to_owned()));
+        }
+        entry.provenance = reference;
+        self.changed = true;
+        Ok(())
     }
 
     /// Takes section `name` out of the next commit. Its bytes stay in the file, and in

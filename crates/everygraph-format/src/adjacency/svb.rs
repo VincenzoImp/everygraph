@@ -75,6 +75,35 @@ pub(crate) fn write_record(v: u32, list: &[u32], out: &mut [u8]) {
     debug_assert!(data.is_empty(), "out must be exactly record_len bytes");
 }
 
+/// Appends the record of `list` to `out`, checking that it is strictly increasing as it
+/// goes. Returns `Err(j)` at the first entry `j` that is not above its predecessor; `out`
+/// is then as it was.
+pub(crate) fn append_record(
+    v: u32,
+    list: impl ExactSizeIterator<Item = u32>,
+    out: &mut Vec<u8>,
+) -> Result<(), usize> {
+    let start = out.len();
+    out.resize(start + list.len().div_ceil(4), 0);
+    let mut prev: Option<u32> = None;
+    for (j, x) in list.enumerate() {
+        let w = match prev {
+            None => first_word(v, x),
+            Some(p) if x > p => x - p - 1,
+            Some(_) => {
+                out.truncate(start);
+                return Err(j);
+            }
+        };
+        prev = Some(x);
+        let len = word_len(w);
+        let code = u8::try_from(len - 1).expect("1 to 4 bytes");
+        out[start + j / 4] |= code << (2 * (j % 4));
+        out.extend_from_slice(&w.to_le_bytes()[..len]);
+    }
+    Ok(())
+}
+
 /// Number of data bytes behind each control byte.
 pub(crate) static GROUP_LEN: [u8; 256] = {
     let mut t = [0u8; 256];
