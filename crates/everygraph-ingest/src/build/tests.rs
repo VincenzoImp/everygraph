@@ -792,3 +792,44 @@ fn direction_is_inferred_from_the_column_names() {
         (false, DirectedFrom::Caller)
     );
 }
+
+/// The plan's estimate follows the build's rules: more threads need a larger smallest
+/// budget, and a budget at which the estimate spills half the items does spill.
+#[test]
+fn the_estimate_spills_no_sooner_than_the_build() {
+    let text = mixed_text(400_000, 0);
+    let rows = 400_000 + 400_000_u64.div_ceil(13);
+    let block = 1 << 16;
+    let blocks = u64::try_from(text.len().div_ceil(block)).unwrap();
+    let sample = Sample::new(rows, rows / blocks + 512, 1 << 16, blocks);
+    let threads = |n| NonZeroUsize::new(n).unwrap();
+    let one = estimate(&sample, false, threads(1), 1 << 30);
+    let eight = estimate(&sample, false, threads(8), 1 << 30);
+    assert!(eight.smallest_budget > one.smallest_budget);
+    assert_eq!(one.regime, Regime::InMemory);
+    assert_eq!(one.scratch_bytes, 0);
+    let mut checked = 0;
+    for budget in (12..64).map(|k| k << 18) {
+        let planned = estimate(&sample, false, threads(1), budget);
+        let clear = planned.scratch_bytes * 2 >= planned.working_bytes;
+        if !clear || budget < planned.smallest_budget {
+            continue;
+        }
+        let run = Run {
+            budget,
+            chunk: block,
+            threads: 1,
+            tuning: &TUNING,
+            ..Run::new(GraphOptions::default())
+        };
+        match run.bytes(&text) {
+            Ok((_, report)) => {
+                assert_eq!(report.regime, Regime::OnDisk, "budget {budget}");
+                checked += 1;
+            }
+            Err(BuildError::Budget(_)) => {}
+            Err(e) => panic!("budget {budget}: {e}"),
+        }
+    }
+    assert!(checked > 0);
+}

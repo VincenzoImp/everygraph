@@ -66,6 +66,8 @@ pub struct Estimate {
 /// What a build of `sample` will need with `threads` threads and `budget` bytes. The
 /// per-node state is left out: the number of nodes is not known before the input is
 /// read, and the build refuses, before it writes anything, a budget that cannot hold it.
+/// So the build holds no more items in memory than this estimate says, and spills no
+/// less.
 #[must_use]
 pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: u64) -> Estimate {
     let flight = Flight {
@@ -74,10 +76,12 @@ pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: 
         block_bytes: sample.block_bytes,
         most_rows: sample.rows_per_block,
     };
-    let smallest_budget = flight.bytes() + fixed_bytes(threads.get(), &TUNING) + DICTIONARY_BYTES;
+    let held = flight.bytes() + fixed_bytes(threads.get(), &TUNING);
+    let smallest_budget = held + DICTIONARY_BYTES;
     let items = sample.rows.saturating_mul(if directed { 1 } else { 2 });
     let working_bytes = items.saturating_mul(ITEM_BYTES);
-    let available = budget.saturating_sub(smallest_budget);
+    // The dictionary's working set is given back before the items are counted.
+    let available = budget.saturating_sub(held);
     let work = available - (available >> SLACK_SHIFT);
     // As `Layout::new`: a quarter of the work finishes a round; the rest holds items.
     let resident = work - work / 4;
@@ -90,7 +94,7 @@ pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: 
         regime,
         working_bytes,
         smallest_budget,
-        peak_bytes: (smallest_budget + working_bytes.min(resident) + work / 4).min(budget),
+        peak_bytes: (held + working_bytes.min(resident) + work / 4).min(budget),
         scratch_bytes: working_bytes.saturating_sub(resident),
         output_bytes: items.saturating_mul(OUTPUT_BYTES_PER_ENTRY),
     }
