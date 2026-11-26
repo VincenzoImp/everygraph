@@ -11,12 +11,12 @@ labels: type:infra, area:python, P0, risk:low, size:M, lab-evidence
 - [ ] Runtime CPU-feature dispatch (AVX2/AVX-512/NEON) instead of `target-cpu=native`
 - [ ] Wheel size budget ≤ 5 MB; no bundled system libraries beyond what the kernels need
 - [ ] sdist that builds with a stock Rust toolchain; conda-forge recipe (after v0.1)
-- [ ] Release automation with trusted publishing to PyPI; the viewer assets ship inside the wheel for the widget and `everygraph open`
+- [ ] Release automation with trusted publishing to PyPI; the viewer assets ship inside the wheel for the widget and `everygraph open`, added when {{#m5-09-static-export}} lands (the release, {{#m8-08-release}}, waits for both)
 
 **Acceptance**
-- `pip install everygraph` in clean containers for every target, followed by a smoke test (ingest + PageRank + map export)
+- `pip install everygraph` in clean containers for every target, followed by a smoke test (ingest + PageRank; map export once the viewer is in the wheel)
 - `uv run --with everygraph` works as a plain script (verified in the lab for 3.10, 3.12, 3.14)
 
-**Depends on** {{#m6-01-python-api}}, {{#m5-09-static-export}}
+**Depends on** {{#m6-01-python-api}}
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Platforms for 0.1 (`choices.md` D6, approved): Linux and macOS fully supported; Windows builds and passes tests but without the out-of-core performance work.

@@ -66,7 +66,7 @@ use std::io::Read;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 
-use everygraph_core::{ByteSource, ReadError, par};
+use everygraph_core::{ByteSource, ReadError, par, widen};
 
 pub use parse::{Ids, Strings};
 
@@ -984,10 +984,6 @@ impl<T> Collector<T> {
     fn finish(self) -> (Vec<T>, Summary) {
         (self.batches, self.summary)
     }
-}
-
-const fn widen(n: usize) -> u64 {
-    n as u64
 }
 
 fn oversized(len: u64) -> ReadError {

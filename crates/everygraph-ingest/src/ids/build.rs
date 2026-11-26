@@ -13,7 +13,10 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
-use everygraph_core::{ByteSource, InsufficientBudget, MemoryAccountant, Pages, par};
+use everygraph_core::le::{u32_at, u64_at};
+use everygraph_core::{
+    ByteSource, InsufficientBudget, MemoryAccountant, Pages, par, usize_of, widen,
+};
 
 use super::dense::{DenseBits, RankBitmap};
 use super::dict::{Dictionary, Header, Repr, SectionWriters};
@@ -24,7 +27,6 @@ use super::kind::{
 use super::mphf::{Mphf, Part, PartError, build_part, part_bits_for};
 use super::scratch::{
     Buf, Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, buf, filled, in_rounds, read_all,
-    widen,
 };
 use super::table::{Credit, Inserted, Table};
 use super::{DictionaryError, IdOrder, Layout, check_node_count};
@@ -461,7 +463,6 @@ fn for_each_record(
     let mut next = start;
     let mut have = 0_usize;
     let head = 24 + if fixed.is_none() { 4 } else { 0 };
-    let word = |b: &[u8]| u64::from_le_bytes(b.try_into().expect("eight bytes"));
     loop {
         let take = index((end - next).min(widen(window.len() - have)));
         source.read_at(next, &mut window[have..have + take])?;
@@ -470,12 +471,7 @@ fn for_each_record(
         let mut at = 0;
         while have - at >= head {
             let r = &window[at..have];
-            let key_len = match fixed {
-                Some(w) => w,
-                None => index(u64::from(u32::from_le_bytes(
-                    r[24..28].try_into().expect("four bytes"),
-                ))),
-            };
+            let key_len = fixed.unwrap_or_else(|| usize_of(u32_at(r, 24)));
             if key_len > MAX_KEY_BYTES {
                 return Err(truncated());
             }
@@ -483,10 +479,10 @@ fn for_each_record(
                 break;
             }
             let hash = KeyHash {
-                hi: word(&r[0..8]),
-                lo: word(&r[8..16]),
+                hi: u64_at(r, 0),
+                lo: u64_at(r, 8),
             };
-            f(hash, word(&r[16..24]), &r[head..head + key_len])?;
+            f(hash, u64_at(r, 16), &r[head..head + key_len])?;
             at += head + key_len;
         }
         window.copy_within(at..have, 0);
@@ -872,6 +868,12 @@ struct Located<'r> {
     key: &'r [u8],
 }
 
+/// The bytes before the key in a phase-C record: the position (unless the order is by
+/// key), the unit, the local slot, and the key length for variable-width keys.
+fn located_header(order: IdOrder, width: Option<usize>) -> usize {
+    usize::from(order != IdOrder::SortedKey) * 8 + 8 + usize::from(width.is_none()) * 4
+}
+
 /// The dense rule: a bitmap of `max + 1` bits for `n` keys is kept only when it takes
 /// at most [`DENSE_BITS_PER_KEY`] bits per key.
 pub(crate) fn dense_enough(n: u64, max: Option<u32>) -> bool {
@@ -1015,18 +1017,12 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         let order = self.order;
         let pages = self.accountant.pages();
         let (range_len, range_count) = (scatter.range_len(), scatter.range_count());
-        let header_bytes = |order: IdOrder| -> u64 {
-            (if order == IdOrder::SortedKey { 0 } else { 8 })
-                + 4
-                + 4
-                + if width.is_none() { 4 } else { 0 }
-        };
         // Exactly what a phase-C task holds: the bucket read, the records, and the
         // outputs (all allocated at their final size).
         let phase_c_bytes = |r: usize| -> u64 {
             let bytes = bucket_sources[r].len();
             let count = bucket_counts[r];
-            let keys = bytes.saturating_sub(count * header_bytes(order));
+            let keys = bytes.saturating_sub(count * widen(located_header(order, width)));
             let located = count * widen(std::mem::size_of::<Located<'_>>());
             let outputs = if slot_layout {
                 // id_to_slot, and records of slot + (length) + payload.
@@ -1234,13 +1230,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         let part_of = |h: KeyHash| top_bits(h.hi, part_bits) - (unit << (part_bits - unit_bits));
         let mut part_sizes = vec![0_u32; parts_per_unit];
         let mut bucket_sizes = vec![0_usize; splitters.len() + 1];
-        let header = (if self.order == IdOrder::SortedKey {
-            0
-        } else {
-            8
-        }) + 4
-            + 4
-            + usize::from(fixed.is_none()) * 4;
+        let header = located_header(self.order, fixed);
         for e in table.entries() {
             part_sizes[part_of(e.hash)] += 1;
             let key = table.key(e);
@@ -1447,15 +1437,13 @@ fn parse_located(
         let pos = if order == IdOrder::SortedKey {
             0
         } else {
-            u64::from_le_bytes(take(8)?.try_into().expect("eight bytes"))
+            u64_at(take(8)?, 0)
         };
-        let unit = u32::from_le_bytes(take(4)?.try_into().expect("four bytes"));
-        let local = u32::from_le_bytes(take(4)?.try_into().expect("four bytes"));
+        let unit = u32_at(take(4)?, 0);
+        let local = u32_at(take(4)?, 0);
         let len = match width {
             Some(w) => w,
-            None => index(u64::from(u32::from_le_bytes(
-                take(4)?.try_into().expect("four bytes"),
-            ))),
+            None => usize_of(u32_at(take(4)?, 0)),
         };
         let key = take(len)?;
         if items.len() == count {

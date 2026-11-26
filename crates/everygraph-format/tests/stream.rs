@@ -5,26 +5,15 @@
 
 #![forbid(unsafe_code)]
 
+mod support;
+
 use everygraph_core::{Budget, Memory};
 use everygraph_format::adjacency::{
     AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError, IndexBuilder, append_record, encode,
     encode_events, events_section_bytes, record_bound,
 };
 use proptest::prelude::*;
-
-const MIRI: bool = cfg!(miri);
-
-fn config() -> ProptestConfig {
-    ProptestConfig {
-        cases: if MIRI { 2 } else { 256 },
-        failure_persistence: if MIRI {
-            None
-        } else {
-            ProptestConfig::default().failure_persistence
-        },
-        ..ProptestConfig::default()
-    }
-}
+use support::{MIRI, config};
 
 fn arb_lists() -> impl Strategy<Value = Vec<Vec<u32>>> {
     let target = prop_oneof![0u32..64, any::<u32>(), (u32::MAX - 64)..=u32::MAX];

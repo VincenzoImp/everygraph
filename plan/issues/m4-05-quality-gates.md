@@ -3,7 +3,7 @@ title: Quality gates against reference implementations
 milestone: M4 · Communities and hierarchy
 labels: type:infra, area:community, P0, risk:medium, size:M, lab-evidence
 ---
-**Why.** Speed without quality is the trap the old prototype fell into (lj: Q 0.666 against 0.75–0.77 from everyone else). Quality must be a CI gate, measured with one common routine.
+**Why.** Speed without quality is a trap. Quality must be a CI gate, measured with one common routine.
 
 **Scope**
 - [ ] One evaluation routine (modularity at γ, number of communities, disconnected communities, size distribution) applied to our output and to every reference partition — as `b2 eval` did in the lab

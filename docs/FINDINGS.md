@@ -1,16 +1,38 @@
-# graphlab findings — evidence behind the Everygraph design
+# Findings — the measurements behind the Everygraph design
 
-Feasibility lab run on 2026-11-24 on one workstation (Ryzen 9 7950X 16c/32t, 61 GB RAM,
-Samsung 990 PRO NVMe, RTX 4090 unused by the pipelines). Datasets: com-LiveJournal
-(`lj`, 4.0M nodes / 34.7M edges), com-Orkut (`orkut`, 3.1M / 117.2M), com-Friendster
-(65.6M / 1.806B), twitter-2010 (41.7M / 1.468B arcs, directed).
+One workstation: Ryzen 9 7950X (16 cores, 32 threads), 61 GB RAM, Samsung 990 PRO NVMe, RTX
+4090 (not used by the pipelines). Datasets: com-LiveJournal (`lj`, 4.0 M nodes / 34.7 M
+edges), com-Orkut (`orkut`, 3.1 M / 117.2 M), com-Friendster (65.6 M / 1.806 B),
+twitter-2010 (41.7 M / 1.468 B arcs, directed).
 
-**Read this first.** Eight experiments ran concurrently on the same machine. Unless a
-number is marked *idle re-run* or belongs to § M1-13, § M1-01 or § M1-02 (second-round experiments,
-idle machine, 2026-11-25), it was taken under load (load average 20–40) and is
-pessimistic and noisy (±30% typical, more for 32-thread and cold-I/O runs). Relative
-orderings were stable. Extrapolations are marked as such. Code and raw results are in
-`lab/<experiment>/` (raw files under `results/`).
+**Read this first.** Each section says how its numbers were taken. A section marked
+"shared" was measured while other experiments used the machine (load average 20–40): its
+timings are pessimistic and noisy (±30% typical, more for 32-thread and cold-I/O runs);
+sizes, hashes, counts and modularity do not depend on load. Relative orderings were
+stable. Extrapolations are marked as such. Code and raw results are in `lab/<experiment>/`
+(raw files under `results/`) and `bench/results/`.
+
+| Section | What it answers | Machine state |
+|---|---|---|
+| § R | Landscape and prior art, from web research | reading, no measurement |
+| § G | The core in the browser | shared |
+| § F2 | Query engines, Python bindings, NetworkX backend | shared |
+| § E | Layout, tiles and viewer | shared |
+| § F1 | Identifiers, point queries, properties, views | shared |
+| § B1 | Ingest, kernels, larger-than-RAM execution | shared; superseded for its main numbers by the idle re-runs and § M1-13 |
+| § B2 | Parallel and deterministic Louvain and Leiden | shared; superseded for its main numbers by the idle re-runs |
+| § C | Storage and compression | shared; superseded for the default storage by § M1-13 |
+| § Idle-machine re-runs | The first lab's main numbers again, on an idle machine, with the reference tools | idle |
+| § M1-13 | The default compressed storage end to end (#118) | idle |
+| § M1-01 | Friendster from text to a map under 16 GiB (#15) | idle |
+| § M1-02 | Out-of-core Leiden (#16) | idle |
+| § M1-20 | LDBC Graphalytics as oracle and workload (#177) | shared; matches and hashes do not depend on load |
+| § M1-05 | A hierarchy the map can use (#19) | official rows idle, others exploratory |
+| § M1-18 | Our layout against published large-graph layouts (#175) | shared; deterministic metrics |
+| § M1-03 | The async Louvain collapse on Friendster (#17) | shared; exploratory |
+
+A new experiment adds a section at the end and a row here. Lab experiments without a
+section are reported in their own README (`lab/README.md` lists them).
 
 ---
 
@@ -515,7 +537,7 @@ RAM costs ~10% for PageRank and ~10× for WCC (I/O-bound). Ingest timings exclud
   the clean GVE numbers are in the baseline table below.
 
 **A — reference tools on the same idle machine** (pinned: NetworKit 11.3, python-igraph 1.0.0,
-scipy 1.18.1, rustworkx 0.18.1, DuckDB 2.0.1, GVE from puzzlef, largegraph 0.1). Graphs were
+scipy 1.18.1, rustworkx 0.18.1, DuckDB 2.0.1, GVE from puzzlef). Graphs were
 built from the same CSR arrays; modularity computed by one routine. GVE times exclude loading.
 
 | tool (threads) | task | lj | orkut |
@@ -537,10 +559,9 @@ built from the same CSR arrays; modularity computed by one routine. GVE times ex
 | GVE-Louvain (32) | communities | 0.82 s, Q 0.7218 | 1.70 s, Q 0.6606 |
 | GVE-Leiden (32) | communities | 1.02 s, Q 0.7223 | 1.45 s, Q 0.6636 |
 | DuckDB (32) | CSV → relabeled, symmetric, sorted adjacency in Parquet | 1.91 s | 5.37 s |
-| largegraph 0.1 | full pipeline (prepare, 5 passes, report) | 31.8 s, Q 0.666 | 70.5 s, Q 0.633 |
 
 Peak RSS: NetworKit 2.1 / 6.5 GiB before community detection (up to 9.8 GiB during it);
-igraph 6.9 / 23.1 GiB; largegraph 2.3 / 4.0 GiB (`ru_maxrss`, recorded in MiB).
+igraph 6.9 / 23.1 GiB (`ru_maxrss`, recorded in MiB).
 
 **What the comparison says (lab prototype, idle machine)**
 
@@ -558,8 +579,6 @@ igraph 6.9 / 23.1 GiB; largegraph 2.3 / 4.0 GiB (`ru_maxrss`, recorded in MiB).
 - Communities against the quality leaders: three-iteration Leiden reaches Q 0.7647 in 2.0 s on
   lj (NetworKit ParallelLeiden 0.7688 in 6.0 s; igraph Leiden 0.7695 in 41.9 s) and Q 0.6922 in
   3.6 s on orkut (igraph 0.6924 in 126 s; NetworKit 0.6720–0.6882).
-- The old prototype is 40–90× slower end to end than the new ingest + Leiden path and 8–11
-  modularity points behind.
 
 ---
 

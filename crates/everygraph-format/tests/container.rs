@@ -10,6 +10,8 @@
 #![forbid(unsafe_code)]
 #![cfg(not(miri))]
 
+mod support;
+
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
@@ -20,17 +22,12 @@ use everygraph_format::container::{
 };
 use everygraph_oracle::rng::SplitMix64;
 use proptest::prelude::*;
+use support::bytes;
 
 type Mem = MemorySource<Vec<u8>>;
 
 fn kind(code: u32) -> Kind {
     Kind::new(code).unwrap()
-}
-
-/// Deterministic bytes for section `seed` of length `len`.
-fn bytes(seed: u64, len: usize) -> Vec<u8> {
-    let mut rng = SplitMix64::new(seed);
-    (0..len).map(|_| rng.next_u64().to_le_bytes()[0]).collect()
 }
 
 fn record(operation: &str) -> Provenance {

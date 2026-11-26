@@ -5,6 +5,8 @@
 
 use std::ops::Range;
 
+use everygraph_core::le::{u32_at, u64_at};
+
 use super::arrow::{Plan, Shape};
 use super::{CodeWidth, ColumnError, ColumnType, MAX_LAYOUT_BYTES, MAX_NAME_BYTES, TimeUnit};
 
@@ -112,21 +114,18 @@ impl ColumnLayout {
         if &header[..8] != MAGIC {
             return Err(ColumnError::Invalid("not a column layout (bad magic)"));
         }
-        let u32_at =
-            |at: usize| u32::from_le_bytes(header[at..at + 4].try_into().unwrap_or_default());
-        let u64_at =
-            |at: usize| u64::from_le_bytes(header[at..at + 8].try_into().unwrap_or_default());
-        if u32_at(8) != VERSION {
+        if u32_at(header, 8) != VERSION {
             return Err(ColumnError::Unsupported(
                 "a column layout version other than 1",
             ));
         }
-        if u32_at(12) != 0 {
+        if u32_at(header, 12) != 0 {
             return Err(ColumnError::Unsupported("column layout flags"));
         }
         let invalid = ColumnError::Invalid;
-        let (rows, batch_rows, batches) = (u64_at(16), u64_at(24), u64_at(32));
-        let ty = decode_type(header[48], u32_at(52), u32_at(56)).ok_or(
+        let (rows, batch_rows, batches) =
+            (u64_at(header, 16), u64_at(header, 24), u64_at(header, 32));
+        let ty = decode_type(header[48], u32_at(header, 52), u32_at(header, 56)).ok_or(
             ColumnError::Unsupported("a column type this reader does not know"),
         )?;
         let nullable = match header[49] {
@@ -134,14 +133,15 @@ impl ColumnLayout {
             1 => true,
             _ => return Err(invalid("the nullable byte is 0 or 1")),
         };
-        let name_len = u32_at(60) as usize;
+        let name_len = u32_at(header, 60) as usize;
         if name_len > MAX_NAME_BYTES {
             return Err(invalid("a column name longer than 512 bytes"));
         }
         if !batch_rows.is_power_of_two() || batches != rows.div_ceil(batch_rows) {
             return Err(invalid("the batch count does not match the rows"));
         }
-        let dictionary = (header[48] == DICTIONARY_CODE).then(|| (u64_at(64), u64_at(72)));
+        let dictionary =
+            (header[48] == DICTIONARY_CODE).then(|| (u64_at(header, 64), u64_at(header, 72)));
         let name_end = HEADER + name_len.next_multiple_of(8);
         let first = name_end + if dictionary.is_some() { DICTIONARY } else { 0 };
         let expected = usize::try_from(batches)
@@ -154,7 +154,7 @@ impl ColumnLayout {
             .map_err(|_| invalid("the column name is not UTF-8"))?;
         let nulls: Vec<u64> = bytes[first..]
             .chunks_exact(BATCH)
-            .map(|b| u64::from_le_bytes(b[..8].try_into().unwrap_or_default()))
+            .map(|b| u64_at(b, 0))
             .collect();
         let shape = Shape {
             name: name.to_owned(),
