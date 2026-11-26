@@ -89,6 +89,7 @@
  "m3-18-harness-statistics": 194,
  "m3-19-harness-interleave": 195,
  "m3-20-scc": 223,
+ "m3-21-flaky-heap-test": 230,
  "m4-00-epic": 56,
  "m4-01-leiden-production": 57,
  "m4-02-weights-resolution": 58,
