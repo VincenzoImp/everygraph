@@ -14,7 +14,8 @@ labels: type:docs, area:python, P1, risk:low, size:S
 - [ ] For each of the five: a proposed name and signature, following the naming rule of `docs/api-sketch.md` § 2 (a method is named for what you get), the user story it serves, and the issue that builds it
 - [ ] The three that visibly add to what was approved (node tables, the profile, path pairs) get a preview page under `design/preview/` first, in the style of `design/preview/api.md`. The choices are recorded in `design/DECISIONS.md` (CLAUDE.md § 8)
 - [ ] `docs/api-sketch.md` § 7 updated: each gap closed with its name, or kept open with the reason
-- [ ] Where a building issue is missing, a new issue file (the graph profile has none today)
+- [ ] Where a building issue is missing, a new issue file (the graph profile has none today, except its degree part, the box below)
+- [ ] The degree profile on read, the degree part of the graph profile (moved here from {{#m3-07-kcore-degrees}}, which closed): the exact histogram of `degree` (and of `in_degree` and `out_degree` on a directed graph), its quantiles and the isolates, computed in one pass over the entry offsets of the index (`docs/spec/eg-adjacency.md` § 3), never stored with the graph (`docs/spec/eg-columns.md` § 6), and cached as a result when a summary needs it. Tested against the histogram of `degrees()` on the oracle graphs
 - [ ] `docs/api-sketch.md` § 6 (every public name, its issue and its story) gains a "Built" column that says which names exist in the package today, added after PR #231 merges (it edits that file); the dogfood pass checks the names it marks as built (decided 2026-11-26)
 
 **Done when.** Each of the five has a decided name, or a recorded decision not to offer it in 0.1, and the api-sketch says so. The decisions feed the review of public names that gates the 0.1 freeze (m8-08, `design/DECISIONS.md` row on #12).

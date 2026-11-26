@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "everygraph-determinism"
+description = "The determinism suite of Everygraph (DESIGN D14): the same bits from the build, the kernels and Leiden at any thread count, chunking, source and repetition. A development crate; never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# A test tool: it is never published, whatever the workspace default becomes.
+publish = false
+
+[dependencies]
+# Result hashes: the hash of the container's result entries.
+blake3 = { version = "1.8", default-features = false, features = ["std", "pure"] }
+everygraph-community = { path = "../everygraph-community" }
+everygraph-core = { path = "../everygraph-core" }
+everygraph-format = { path = "../everygraph-format" }
+everygraph-io = { path = "../everygraph-io" }
+everygraph-kernels = { path = "../everygraph-kernels" }
+everygraph-oracle = { path = "../everygraph-oracle" }
+
+[dev-dependencies]
+# The build reads gzip and zstd inputs; the tests write them.
+everygraph-ingest = { path = "../everygraph-ingest", features = ["native"] }
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+ruzstd = { version = "0.9.1", default-features = false, features = ["std", "hash"] }
+
+[lints]
+workspace = true

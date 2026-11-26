@@ -16,7 +16,11 @@
 //!   its provenance declares `self_loops` = `drop` and `directed` = `false` (spec § 6);
 //!   the `.events` section whole when the index announces one; and an in-adjacency
 //!   (`<base>.in`) that is the transpose of its out-adjacency, events included, with a
-//!   `.events` section exactly when the out-adjacency has one (adjacency spec § 5).
+//!   `.events` section exactly when the out-adjacency has one (adjacency spec § 5);
+//!   and every property column (`docs/spec/eg-columns.md` § 7): its layout and
+//!   statistics under the names of § 6, its framing, every value, statistics that are
+//!   those of its values, the rows its adjacency gives a scope `<adj>.pair` or
+//!   `<adj>.event`, and what the build derives from the events.
 //!
 //! Sections are hashed in parallel (`everygraph_core::par`), each in 1 MiB pieces unless
 //! the source is in memory or mapped. Lists are decoded block by block, in parallel; from
@@ -87,6 +91,9 @@ pub struct AdjacencyFacts {
     pub entries: u64,
     /// Its stored events, when it has a `.events` section.
     pub events: Option<u64>,
+    /// The most stored events of one entry: 1 without a `.events` section, 0 without
+    /// an entry.
+    pub multiplicity_max: u64,
 }
 
 /// What [`verify`] found.
@@ -166,6 +173,9 @@ pub fn verify<S: ByteSource + Sync>(
     check_names(&file, &mut report);
     if depth == Depth::Deep {
         check_adjacencies(&file, memory, &mut report)?;
+        let adjacencies = std::mem::take(&mut report.adjacencies);
+        crate::columns::verify_columns(&file, &adjacencies, memory, &mut report)?;
+        report.adjacencies = adjacencies;
     }
     Ok(report)
 }
@@ -733,6 +743,10 @@ fn check_adjacency<S: ByteSource + Sync>(
             nodes: index.nodes(),
             entries: index.entries(),
             events: events.as_ref().map(AdjacencyEvents::events),
+            multiplicity_max: match &events {
+                Some(e) => e.multiplicities().map_or(0, |m| m.max().unwrap_or(0)),
+                None => u64::from(index.entries() > 0),
+            },
         },
         scan,
     }))

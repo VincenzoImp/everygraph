@@ -15,6 +15,13 @@ labels: type:experiment, area:format, P0, risk:medium, size:M, lab-evidence
 - On twitter-sym, 41.6% of the entries are in lists of more than 1,024 entries, and 11.2% in lists of more than 65,536 (review's count from the offsets, `docs/research/sota-review-2026-11.md` S10).
 - The counts of {{#m3-27-frontier-counters}} (entries decoded against entries examined for compressed BFS and WCC; the share of entries in single-thread runs) give the size of the gain before any timing. Read them first. If the decode surplus is below 2× and hub entries are a small share of single-thread runs, the go/no-go can be "no" without the timed A/B.
 
+**The counts of {{#m3-27-frontier-counters}}** (exploratory counts of work, not times; compressed source, 16 threads; `lab/m3-27-frontier-counters/README.md`, PR #278, "Decode surplus"):
+- BFS, entries decoded against entries examined: 8.47× (orkut), 16.25× (twitter-sym), 20.60× (Friendster). Both parts are above 1: whole blocks decoded for one passing node (decoded / handed, 2.54–3.54×) and the tail of each list after the last entry the body needs (handed / examined, 2.68–6.41×).
+- WCC: 1.95× (orkut), 1.98× (twitter-sym), 2.75× (Friendster). The prefix part is 1.93–1.95×.
+- So the surplus is above the 2× bar for BFS on all three graphs. For WCC it is below the bar on orkut and twitter-sym; on Friendster it is above it because of block decode in WCC's finish (decoded / handed 1.42×), not because of the list tails.
+
+Prefix decode (S10) is being built under {{#m3-22-performance-pass}}. It removes the handed / examined part without a format change. The go/no-go here reads these counts and what is left of them after prefix decode: chunked records are needed only if the surplus that remains is in long hub lists that one task decodes serially.
+
 **Method.** Lab prototype, interleaved A/B chunked against unchunked in one binary, idle machine, 16 threads (and 1 thread for decode cost), under `systemd-run --user --scope -p MemoryMax=… -p MemorySwapMax=0`.
 - [ ] Graphs: twitter-sym and Friendster
 - [ ] Kernels: BFS; 3-hop with a 10k budget; common neighbours; triangle forward lists; PageRank as a control (expected unchanged)

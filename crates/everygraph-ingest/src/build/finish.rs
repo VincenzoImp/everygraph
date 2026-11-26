@@ -8,11 +8,12 @@ use std::io::{self, BufWriter, Write};
 use std::sync::{Mutex, PoisonError};
 
 use everygraph_core::{
-    ByteSink, ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns, usize_of,
+    ByteSink, ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns, usize_of, widen,
 };
 use everygraph_format::adjacency::{IndexBuilder, append_record};
 use everygraph_format::container::SectionWriter;
 
+use super::columns::{Item, Out, Stored};
 use super::fill::{Chunked, Resident};
 use super::layout::{Layout, finish_bytes};
 use super::{BuildError, Duplicates, GraphOptions, ONE};
@@ -34,6 +35,8 @@ pub(super) struct PairCounts {
     pub(super) entries: u64,
     /// Stored events of the adjacency: the items of an entry under `"events"`, else 1.
     pub(super) events: u64,
+    /// The most items of one entry.
+    pub(super) most: u64,
 }
 
 impl PairCounts {
@@ -44,6 +47,7 @@ impl PairCounts {
         self.loop_rows += other.loop_rows;
         self.entries += other.entries;
         self.events += other.events;
+        self.most = self.most.max(other.most);
     }
 }
 
@@ -54,6 +58,8 @@ pub(super) struct BucketOut {
     record_lens: Vec<u64>,
     /// Stored events of each entry, under `"events"` when some entry has more than one.
     multiplicities: Option<Vec<u32>>,
+    /// The values of each stored column, in entry or event order.
+    columns: Vec<Vec<u64>>,
     counts: PairCounts,
     /// What the buffers above hold, given back when they are written out.
     _held: Reservation,
@@ -69,17 +75,25 @@ fn buffer<T>(len: usize) -> Result<Vec<T>, BuildError> {
     Ok(v)
 }
 
-/// Finishes the bucket of the `nodes` nodes from `first`: `targets` and `locals` are its
-/// items, in any order. `targets` is reordered in place.
-fn finish_bucket(
+/// How the lists of an adjacency are finished.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Finish<'c> {
+    pub(super) graph: GraphOptions,
+    /// The columns stored beside the lists.
+    pub(super) columns: &'c [Out],
+}
+
+/// Finishes the bucket of the `nodes` nodes from `first`: `items` and `locals` are its
+/// items and their local sources, in any order.
+fn finish_bucket<T: Item>(
     first: u32,
     nodes: usize,
-    targets: &mut [u32],
+    items: &[T],
     locals: &[u16],
-    graph: GraphOptions,
+    how: Finish<'_>,
     mut held: Reservation,
 ) -> Result<BucketOut, BuildError> {
-    let items = targets.len();
+    let graph = how.graph;
     let events = graph.duplicates == Duplicates::Events;
     // The items in node order (a counting sort by local source).
     let mut starts: Vec<u32> = buffer(nodes + 1)?;
@@ -90,24 +104,28 @@ fn finish_bucket(
     for v in 0..nodes {
         starts[v + 1] += starts[v];
     }
-    let mut ordered: Vec<u32> = buffer(items)?;
-    ordered.resize(items, 0);
+    let mut ordered: Vec<T> = buffer(items.len())?;
+    ordered.resize(items.len(), T::default());
     {
         let mut next = starts.clone();
-        for (&t, &l) in targets.iter().zip(locals) {
+        for (&t, &l) in items.iter().zip(locals) {
             let at = &mut next[usize::from(l)];
             ordered[usize::try_from(*at).expect("32 bits")] = t;
             *at += 1;
         }
     }
-    targets.copy_from_slice(&ordered);
-    drop(ordered);
 
+    let n = items.len();
+    let mut columns = Vec::with_capacity(how.columns.len());
+    for _ in how.columns {
+        columns.push(buffer(n)?);
+    }
     let mut out = BucketOut {
-        records: buffer(items * 4 + items.div_ceil(4) + nodes)?,
+        records: buffer(n * 4 + n.div_ceil(4) + nodes)?,
         degrees: buffer(nodes)?,
         record_lens: buffer(nodes)?,
-        multiplicities: if events { Some(buffer(items)?) } else { None },
+        multiplicities: if events { Some(buffer(n)?) } else { None },
+        columns,
         counts: PairCounts::default(),
         _held: Reservation::empty(held.memory(), held.purpose(), held.kind()),
     };
@@ -115,20 +133,22 @@ fn finish_bucket(
     for local in 0..nodes {
         let v = first + u32::try_from(local).expect("buckets hold 2^16 nodes");
         let (s, e) = (usize_of(starts[local]), usize_of(starts[local + 1]));
-        let run = &mut targets[s..e];
-        run.sort_unstable();
-        let mut distinct = 0;
-        let mut j = 0;
+        let run = &mut ordered[s..e];
+        run.sort_unstable_by_key(|x| x.key(events));
+        let (mut distinct, mut j) = (0, 0);
         while j < run.len() {
-            let t = run[j];
-            let k = j + run[j..].partition_point(|&x| x == t);
-            let m = u64::try_from(k - j).expect("64 bits");
-            run[distinct] = t;
+            let t = run[j].target();
+            let k = j + run[j..].partition_point(|x| x.target() == t);
+            let m = widen(k - j);
+            T::pair(&run[j..k], how.columns, &mut out.columns);
+            // Each pair once, in place: what is overwritten is done with.
+            run[distinct] = run[j];
             distinct += 1;
             j = k;
             let c = &mut out.counts;
             c.entries += 1;
             c.events += if events { m } else { 1 };
+            c.most = c.most.max(m);
             if graph.directed || v <= t {
                 c.pairs += 1;
                 c.repeats += m - 1;
@@ -145,8 +165,9 @@ fn finish_bucket(
                 repeated |= m > 1;
             }
         }
+        let targets = run[..distinct].iter().map(|x| x.target());
         let before = out.records.len();
-        let degree = append_record(v, run[..distinct].iter().copied(), &mut out.records)?;
+        let degree = append_record(v, targets, &mut out.records)?;
         out.degrees.push(degree);
         out.record_lens
             .push(u64::try_from(out.records.len() - before).expect("64 bits"));
@@ -157,7 +178,8 @@ fn finish_bucket(
     let kept = out.records.capacity()
         + out.degrees.capacity() * 4
         + out.record_lens.capacity() * 8
-        + out.multiplicities.as_ref().map_or(0, |m| m.capacity() * 4);
+        + out.multiplicities.as_ref().map_or(0, |m| m.capacity() * 4)
+        + out.columns.iter().map(|c| c.capacity() * 8).sum::<usize>();
     let _ = held.try_resize(u64::try_from(kept).unwrap_or(u64::MAX));
     out._held = held;
     Ok(out)
@@ -166,23 +188,22 @@ fn finish_bucket(
 /// Finishes the buckets of round `round`, whose items are rows `base..` of `columns`
 /// (`base` being the items before the round's first bucket, counted from the first
 /// bucket the columns hold). Returns the buckets in order.
-pub(super) fn finish_round(
-    columns: &mut Resident,
+pub(super) fn finish_round<T: Item>(
+    columns: &mut Resident<T>,
     held_from: u64,
     layout: &Layout,
     round: usize,
-    graph: GraphOptions,
+    how: Finish<'_>,
     memory: &Memory,
 ) -> Result<Vec<BucketOut>, BuildError> {
     let (first, end) = (layout.rounds[round], layout.rounds[round + 1]);
-    let events = graph.duplicates == Duplicates::Events;
     // Every bucket's memory is reserved before any is finished, so that a refusal does
     // not depend on the schedule; each keeps what its result holds.
     let mut held = Vec::with_capacity(end - first);
     for b in first..end {
         let items = layout.offsets[b + 1] - layout.offsets[b];
         let nodes = u64::from(layout.starts[b + 1] - layout.starts[b]);
-        let bytes = finish_bytes(items, nodes, events);
+        let bytes = finish_bytes(items, nodes, layout.costs);
         held.push(Some(memory.reserve(
             "buckets being finished",
             MemoryKind::Anonymous,
@@ -197,13 +218,13 @@ pub(super) fn finish_round(
     let outs: Mutex<Vec<Option<Result<BucketOut, BuildError>>>> =
         Mutex::new((first..end).map(|_| None).collect());
     let pair = (&mut columns.targets, &mut columns.locals);
-    pair.for_each_range_mut(&offsets, ONE, |i, (targets, locals)| {
+    pair.for_each_range_mut(&offsets, ONE, |i, (items, locals)| {
         let b = first + i;
         let nodes = usize_of(layout.starts[b + 1] - layout.starts[b]);
         let reservation = held.lock().unwrap_or_else(PoisonError::into_inner)[i]
             .take()
             .expect("one reservation per bucket");
-        let out = finish_bucket(layout.starts[b], nodes, targets, locals, graph, reservation);
+        let out = finish_bucket(layout.starts[b], nodes, items, locals, how, reservation);
         outs.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(out);
     })?;
     outs.into_inner()
@@ -337,6 +358,7 @@ pub(super) struct Output<'w, K: ByteSink, W: Write> {
     pub(super) data: SectionWriter<'w, K>,
     pub(super) index: IndexBuilder,
     pub(super) multiplicities: Multiplicities<W>,
+    pub(super) columns: Stored<W>,
     pub(super) counts: PairCounts,
 }
 
@@ -351,6 +373,7 @@ impl<K: ByteSink, W: Write> Output<'_, K, W> {
             self.index.push(degree, len)?;
         }
         self.multiplicities.push(&out, scratch)?;
+        self.columns.push(&out.columns)?;
         self.counts.add(&out.counts);
         Ok(())
     }

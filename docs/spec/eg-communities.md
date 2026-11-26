@@ -75,11 +75,13 @@ stored hierarchy of the file's graph again:
    (`verify` only): with a random 64-bit weight `h(c)` for each community of the level,
    the sums `Σ_b A[a][b]·h(b)` over the stored row of `a` equal the sums over the rows of
    `a`'s children in the level below (or its nodes in the graph), each neighbour mapped
-   to its community, modulo the prime `2^64 − 59` (`h(c)` is the draw modulo it). A wrong
-   entry passes with probability about 2^-64 for one draw, whatever the size of the
-   error: modulo 2^64 an error by a multiple of 2^k would pass with probability 2^(k−64). The weights come from `everygraph_core::rng` with the purpose
-   `HCHK`, counter `[community, level, 0, 0]` and seed 0, so the check is the same on
-   every run. A quotient graph of `2^62` events or more is refused.
+   to its community, modulo the prime `2^64 − 59` (`h(c)` is the draw modulo it). For an
+   error that does not depend on the weights (a bug, damaged bytes), a wrong entry passes
+   with probability about 2^-64 for one draw, whatever the size of the error: modulo 2^64
+   an error by a multiple of 2^k would pass with probability 2^(k−64). The weights come
+   from `everygraph_core::rng` with the purpose `HCHK`, counter `[community, level, 0, 0]`
+   and seed 0, so the check is the same on every run, and a file crafted with the weights
+   in hand can pass it. A quotient graph of `2^62` events or more is refused.
 
 ## 4. Versions
 

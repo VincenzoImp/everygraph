@@ -513,6 +513,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "everygraph-determinism"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "everygraph-community",
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-ingest",
+ "everygraph-io",
+ "everygraph-kernels",
+ "everygraph-oracle",
+ "flate2",
+ "ruzstd",
+]
+
+[[package]]
 name = "everygraph-format"
 version = "0.0.0"
 dependencies = [
