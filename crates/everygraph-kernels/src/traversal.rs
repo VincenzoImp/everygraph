@@ -10,6 +10,7 @@
 //! parents are chosen by a rule on the distances alone (§ 2.12 of `docs/api-sketch.md`).
 
 use std::num::NonZeroUsize;
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 
 use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par, usize_of};
@@ -107,15 +108,17 @@ pub fn bfs<'g, S: Source>(
                 let mut awake = frontier.len() as u64;
                 loop {
                     let old = awake;
-                    awake = inn.scan(
+                    awake = inn.scan_until(
                         (),
                         |v| at[v].load(Relaxed) == UNREACHED,
-                        |found: &mut u64, (), _, row, _| {
-                            if row.list.iter().any(|&u| front.contains(u)) {
-                                at[row.node].store(level + 1, Relaxed);
-                                next.insert(row.node);
-                                *found += 1;
+                        |found: &mut u64, (), _, row| {
+                            if !row.list.iter().any(|&u| front.contains(u)) {
+                                return ControlFlow::Continue(());
                             }
+                            at[row.node].store(level + 1, Relaxed);
+                            next.insert(row.node);
+                            *found += 1;
+                            ControlFlow::Break(())
                         },
                     )?;
                     level += 1;

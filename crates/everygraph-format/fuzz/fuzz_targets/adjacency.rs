@@ -31,16 +31,18 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Outcome> {
     let mut batch = Batch::default();
     for b in 0..index.blocks().min(64) {
         let nodes = index.block_nodes(b);
-        let mut at = nodes.start;
-        while at < nodes.end {
-            match adj.decode_nodes(at..nodes.end, 7, &mut batch) {
-                Ok(next) => {
-                    out.push(Ok(batch.targets().to_vec()));
-                    at = next;
-                }
-                Err(e) => {
-                    out.push(Err(e));
-                    break;
+        for prefix in [usize::MAX, 6] {
+            let mut at = nodes.start;
+            while at < nodes.end {
+                match adj.decode_prefixes(at..nodes.end, prefix, 7, &mut batch) {
+                    Ok(next) => {
+                        out.push(Ok(batch.targets().to_vec()));
+                        at = next;
+                    }
+                    Err(e) => {
+                        out.push(Err(e));
+                        break;
+                    }
                 }
             }
         }

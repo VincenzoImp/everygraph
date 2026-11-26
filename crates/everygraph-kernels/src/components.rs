@@ -5,12 +5,14 @@
 //! show (`docs/api-sketch.md` § 2.12).
 //!
 //! **Sampling** (k-out, hybrid). Each node is joined to its first neighbour and to one
-//! neighbour drawn by a counter-based hash of the node, and the forest is flattened. The
-//! most frequent label among 1,024 drawn nodes is then the giant component. First
-//! neighbours alone ("kout-afforest", the lab's Afforest) fail on graphs whose lists are
-//! in a locally clustered order, as a community order makes them: the first neighbour
-//! is then in the node's own cluster (`ConnectIt` § 5.2; `docs/research/sota-kernels.md`,
-//! challenge 6). Sampling is skipped when there are fewer than three entries per node.
+//! neighbour drawn by a counter-based hash of the node from the first
+//! [`PREFIX`](crate::edge_map::PREFIX) entries of its list, so that a compressed list is
+//! decoded no further, and the forest is flattened. The most frequent label among 1,024
+//! drawn nodes is then the giant component. First neighbours alone ("kout-afforest",
+//! the lab's Afforest) fail on graphs whose lists are in a locally clustered order, as a
+//! community order makes them: the first neighbour is then in the node's own cluster
+//! (`ConnectIt` § 5.2; `docs/research/sota-kernels.md`, challenge 6). Sampling is
+//! skipped when there are fewer than three entries per node.
 //!
 //! **Finish** (UF-Rem-CAS with splicing). Every list is joined, except, on a symmetric
 //! graph, the lists of the giant component's nodes: an edge from the giant component to
@@ -22,6 +24,7 @@
 //! the work.
 
 use std::num::NonZeroUsize;
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use everygraph_core::rng::{Purpose, below, draw};
@@ -126,15 +129,14 @@ pub fn wcc<S: Source>(
     let parent = plan.node_cells(memory)?;
     let mut skip = None;
     if options.sample && plan.source().entries() >= 3 * u64::from(plan.nodes()) {
-        plan.scan(
+        plan.scan_until(
             (),
             |_| true,
-            |(): &mut (), (), _, row, _| {
+            |(): &mut (), (), _, row| {
                 let (u, list) = (row.node, row.list);
-                let Some(&first) = list.first() else {
-                    return;
-                };
-                unite(&parent, u, first);
+                if let Some(&first) = list.first() {
+                    unite(&parent, u, first);
+                }
                 if let Some(rest) = list.len().checked_sub(1).filter(|&r| r > 0) {
                     let at = below(
                         draw(SEED, Purpose::COMPONENTS_NEIGHBOUR, [u.get(), 0, 0, 0]),
@@ -142,6 +144,7 @@ pub fn wcc<S: Source>(
                     );
                     unite(&parent, u, list[1 + ix(at)]);
                 }
+                ControlFlow::Break(())
             },
         )?;
         parent.flatten();

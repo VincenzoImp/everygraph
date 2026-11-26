@@ -14,9 +14,14 @@
 //!   [`Settings::batch_entries`] entries before the body runs on them. A block in which
 //!   no node passes is not decoded.
 //! - [`Plan::vertices`] calls it for every node, with its degree, without its list.
+//! - [`Plan::scan_until`] is a scan whose body reads each list from its start, in
+//!   pieces, and may stop early (bottom-up BFS stops at the first parent). A compressed
+//!   source then decodes a prefix of each list, and the rest only when the body asks.
 //! - [`Plan::frontier`] calls it for the nodes of a frontier, with their lists, by random
 //!   access (push, traversal-shaped). Consecutive nodes are decoded together. If
 //!   [`Settings::prefetch`] is set, the frontier's byte ranges are advised first.
+//!   [`Plan::push_with`] may also cut a long list into parts that run in parallel, for
+//!   bodies whose updates commute.
 //!
 //! The body of a scan receives a [`Row`]: the node, its list, and the list's first entry,
 //! which indexes per-entry columns (weights) with [`Row::entries`]. It receives a
@@ -49,11 +54,16 @@
 //!   values in block order. A parallel task holds whole blocks (about
 //!   [`Settings::chunk_entries`] entries). So no reduction follows a task, a batch or a
 //!   thread.
-//! - **Frontiers.** [`Plan::frontier`] cuts the frontier into runs of [`FRONTIER_GRAIN`]
-//!   nodes, a constant, and adds their values in frontier order.
+//! - **Frontiers.** [`Plan::frontier`] cuts the frontier into groups of
+//!   [`FRONTIER_GRAIN`] nodes, and each group into runs of about [`RUN_ENTRIES`] entries
+//!   by the degrees of its nodes. [`Plan::push_with`] also cuts a list of more than
+//!   [`RUN_ENTRIES`] entries into parts at multiples of [`RUN_ENTRIES`]. The cuts depend
+//!   on the frontier and the degrees alone; the values of parts, runs and groups add in
+//!   frontier order.
 //! - **Outputs.** The one task that owns a node writes its outputs.
-//! - **Lists are whole.** A batch, a read buffer or a task never cuts a list. So a node's
-//!   own sum over its list runs in one call of the body.
+//! - **Lists are whole**, except in the parts of [`Plan::push_with`] and the pieces of
+//!   [`Plan::scan_until`]. A batch, a read buffer or a task never cuts a list. So a
+//!   node's own sum over its list runs in one call of the body.
 //! - **Floats.** Accumulators start from `+0.0` ([`Reduce::ZERO`]); `Iterator::sum`
 //!   starts from `-0.0`. A body with several lanes (the four of the `PageRank` gather)
 //!   fixes their number in its code, not by target feature. No result goes through
@@ -80,8 +90,8 @@
 //! The readers' buffers are reserved against the plan's [`Memory`], and a reader frees a
 //! buffer that a long list grew when it goes back to the pool. Some small allocations are
 //! not counted: the task list and one partial value per block (`O(n / block)` each),
-//! one result per frontier run (`O(frontier / 256)`), and the pool itself (one entry per
-//! worker).
+//! one result per frontier group (`O(frontier / 256)`) and per run or part of a group
+//! being driven, and the pool itself (one entry per worker).
 //!
 //! # `unsafe`
 //!
@@ -98,7 +108,7 @@ mod source;
 use std::error::Error as StdError;
 use std::fmt;
 use std::num::NonZeroUsize;
-use std::ops::Range;
+use std::ops::{ControlFlow, Range};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
@@ -111,10 +121,22 @@ pub use source::{Compressed, Csr, DecodeReader, Source, Stream, StreamReader};
 
 use node::{Brand, as_nodes, node_range};
 
-/// Nodes of a frontier per task of [`Plan::frontier`]. A constant: the frontier's
-/// partial reductions are taken over runs of it.
+/// Nodes of a frontier per group of [`Plan::frontier`]: a group is cut into runs by
+/// entries, and the frontier's partial reductions are taken over its runs.
 pub const FRONTIER_GRAIN: usize = GRAIN.get();
 const GRAIN: NonZeroUsize = NonZeroUsize::new(256).expect("non-zero");
+
+/// Entries of a frontier run or of a part of a list, about: a run of [`Plan::frontier`]
+/// ends before the node that would take it past this many entries (a node counts its
+/// degree plus one), and [`Plan::push_with`] cuts a longer list at multiples of it.
+/// `PASGAL` cuts lists at 1,024 entries, Parallel-KCore at 128
+/// (`docs/research/sota-review-2026-11.md`, S3).
+pub const RUN_ENTRIES: usize = RUN.get();
+const RUN: NonZeroUsize = NonZeroUsize::new(1024).expect("non-zero");
+
+/// Entries of the first piece of a list in [`Plan::scan_until`], or all of them if the
+/// list is shorter. A multiple of four, the codec's group of words.
+pub const PREFIX: usize = 16;
 
 /// Fewest nodes in a reduction block.
 const MIN_BLOCK: u32 = 64;
@@ -249,6 +271,19 @@ pub struct Work {
     pub lists: u64,
     /// Their entries: the edges traversed.
     pub entries: u64,
+}
+
+impl Reduce for Work {
+    const ZERO: Self = Self {
+        lists: 0,
+        entries: 0,
+    };
+    fn add(self, other: Self) -> Self {
+        Self {
+            lists: self.lists + other.lists,
+            entries: self.entries + other.entries,
+        }
+    }
 }
 
 /// How a [`Plan`] cuts and reads. None of it changes a result.
@@ -691,9 +726,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         }
     }
 
-    fn count(&self, lists: u64, entries: u64) {
-        self.work[0].fetch_add(lists, Ordering::Relaxed);
-        self.work[1].fetch_add(entries, Ordering::Relaxed);
+    fn count(&self, work: Work) {
+        self.work[0].fetch_add(work.lists, Ordering::Relaxed);
+        self.work[1].fetch_add(work.entries, Ordering::Relaxed);
     }
 
     /// Node `id`, if it is one.
@@ -886,7 +921,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         })?;
                     *sum = acc;
                 }
-                self.count(lists + work.lists, entries + work.entries);
+                self.count(work.add(Work { lists, entries }));
                 Ok(())
             });
             give(&scratch, w);
@@ -941,9 +976,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     }
 
     /// Calls `body(acc, row, worker)` for each node of `frontier`, with its list, decoded
-    /// by random access. Returns the sum of the `acc` of each run of [`FRONTIER_GRAIN`]
-    /// nodes, in order. A frontier of one run is done on the calling thread, so a level
-    /// of a traversal with many small levels costs no fork-join.
+    /// by random access. Returns the sum of the `acc` of each run, in frontier order
+    /// (module documentation, "Frontiers"). A frontier of one run is done on the calling
+    /// thread, so a level of a traversal with many small levels costs no fork-join.
     ///
     /// `frontier` should be increasing (a [`NodeList`] made by [`NodeSet::list_into`]):
     /// then consecutive nodes are decoded together. That is needed for speed only: a
@@ -962,22 +997,107 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
         W: Send,
     {
+        self.drive(frontier, false, init, body)
+    }
+
+    /// As [`frontier_with`](Self::frontier_with), but a list of more than
+    /// [`RUN_ENTRIES`] entries is cut into parts at multiples of [`RUN_ENTRIES`], and the
+    /// parts run in parallel: `body` is called once per part, with the part as
+    /// `row.list` and the part's first entry as `row.first_entry`, and with scratch and
+    /// random access of its own. For push bodies whose updates commute (an atomic
+    /// minimum, an atomic decrement), so that a frontier of a few hubs runs on every
+    /// thread.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan_with`](Self::scan_with).
+    pub fn push_with<A, W>(
+        &self,
+        frontier: &[Node<'g>],
+        init: impl Fn() -> W + Sync,
+        body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
+    ) -> Result<A, Error>
+    where
+        A: Reduce,
+        W: Send,
+    {
+        self.drive(frontier, true, init, body)
+    }
+
+    /// The frontier drivers; `split` cuts long lists into parts.
+    fn drive<A, W>(
+        &self,
+        frontier: &[Node<'g>],
+        split: bool,
+        init: impl Fn() -> W + Sync,
+        body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
+    ) -> Result<A, Error>
+    where
+        A: Reduce,
+        W: Send,
+    {
         let frontier = ids(frontier);
         let scratch = Mutex::new(Vec::new());
-        let run = |r: Range<usize>| {
+        // The parts of a long list, each with a slot's side reader for `Lists::get`.
+        let parts = |node: Node<'g>, first_entry: u64, list: &[Node<'g>]| {
+            par::map_ranges(list.len(), RUN, |r| {
+                let mut w = take(&scratch, &init);
+                let result = self.with_slot(|Slot { side, .. }| {
+                    let (mut acc, mut work) = (A::ZERO, Work::ZERO);
+                    let row = Row {
+                        node,
+                        first_entry: first_entry + r.start as u64,
+                        list: &list[r],
+                    };
+                    let mut worker = Worker {
+                        scratch: &mut w,
+                        lists: Lists {
+                            reader: side,
+                            work: &mut work,
+                            plan: self,
+                        },
+                    };
+                    body(&mut acc, row, &mut worker);
+                    Ok((acc, work))
+                });
+                give(&scratch, w);
+                result
+            })
+            .into_iter()
+            .try_fold(<(A, Work)>::ZERO, |sum, part| Ok(sum.add(part?)))
+        };
+        // A run: lists read by one reader.
+        let run = |nodes: &[u32]| {
             let mut w = take(&scratch, &init);
             let result = self.with_slot(|Slot { reader, side }| {
-                let nodes = &frontier[r];
                 if self.prefetch {
                     self.source.prefetch(nodes);
                 }
-                let (mut acc, mut entries, mut work) = (A::ZERO, 0, Work::default());
+                let mut acc = A::ZERO;
+                let mut work = Work {
+                    lists: nodes.len() as u64,
+                    entries: 0,
+                };
+                let mut failed = None;
                 self.source.lists(reader, nodes, |v, first_entry, list| {
+                    if failed.is_some() {
+                        return;
+                    }
                     // SAFETY: `v` is a node of the frontier (`Source`'s contract).
                     let node = unsafe { Node::new_unchecked(v) };
                     // SAFETY: the source hands out lists of its nodes only.
                     let list = unsafe { as_nodes(list) };
-                    entries += list.len() as u64;
+                    work.entries += list.len() as u64;
+                    if split && list.len() > RUN_ENTRIES {
+                        match parts(node, first_entry, list) {
+                            Ok((a, more)) => {
+                                acc = std::mem::replace(&mut acc, A::ZERO).add(a);
+                                work = work.add(more);
+                            }
+                            Err(e) => failed = Some(e),
+                        }
+                        return;
+                    }
                     let row = Row {
                         node,
                         list,
@@ -993,18 +1113,139 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     };
                     body(&mut acc, row, &mut worker);
                 })?;
-                self.count(nodes.len() as u64 + work.lists, entries + work.entries);
-                Ok(acc)
+                failed.map_or(Ok((acc, work)), Err)
             });
             give(&scratch, w);
             result
         };
-        if frontier.len() <= FRONTIER_GRAIN {
-            return run(0..frontier.len());
-        }
-        par::map_ranges(frontier.len(), GRAIN, run)
+        // A group: its runs, in parallel if there are several.
+        let group = |g: Range<usize>| {
+            let nodes = &frontier[g];
+            let cuts = self.runs(nodes);
+            if cuts.len() <= 2 {
+                return run(nodes);
+            }
+            par::map_ranges(cuts.len() - 1, NonZeroUsize::MIN, |r| {
+                run(&nodes[cuts[r.start]..cuts[r.end]])
+            })
             .into_iter()
-            .try_fold(A::ZERO, |sum, part| Ok(sum.add(part?)))
+            .try_fold(<(A, Work)>::ZERO, |sum, part| Ok(sum.add(part?)))
+        };
+        let (acc, work) = if frontier.len() <= FRONTIER_GRAIN {
+            group(0..frontier.len())?
+        } else {
+            par::map_ranges(frontier.len(), GRAIN, group)
+                .into_iter()
+                .try_fold(<(A, Work)>::ZERO, |sum, part| {
+                    Ok::<_, Error>(sum.add(part?))
+                })?
+        };
+        self.count(work);
+        Ok(acc)
+    }
+
+    /// Where the runs of a frontier group `nodes` start, then its end: a run ends before
+    /// the node that would take it past [`RUN_ENTRIES`] (a node counts its degree plus
+    /// one), and holds at least one node.
+    fn runs(&self, nodes: &[u32]) -> Vec<usize> {
+        let mut cuts = vec![0];
+        let mut entries = 0;
+        for (i, &v) in nodes.iter().enumerate() {
+            let cost = ix(self.source.degree(v).into()) + 1;
+            if entries > 0 && entries + cost > RUN_ENTRIES {
+                cuts.push(i);
+                entries = 0;
+            }
+            entries += cost;
+        }
+        cuts.push(nodes.len());
+        cuts
+    }
+
+    /// Calls `body(acc, out, i, row)` for every node with `filter(node)`, as
+    /// [`scan`](Self::scan) does, but hands its list out in two pieces: the first
+    /// `min(degree, PREFIX)` entries, then, if `body` returns [`ControlFlow::Continue`],
+    /// the rest. `row.list` is the piece and `row.first_entry` the piece's first entry.
+    /// An empty list is one empty piece. The pieces are the same on every source.
+    ///
+    /// A compressed source decodes only the first piece of each list in its batches,
+    /// and the rest of a list, by random access, when the body asks for it: for a body
+    /// that stops early, as bottom-up BFS at the first parent.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan_with`](Self::scan_with).
+    pub fn scan_until<O, A>(
+        &self,
+        out: O,
+        filter: impl Fn(Node<'g>) -> bool + Sync,
+        body: impl Fn(&mut A, &mut O, usize, Row<'_, 'g>) -> ControlFlow<()> + Sync,
+    ) -> Result<A, Error>
+    where
+        O: Split,
+        A: Reduce,
+    {
+        self.run(out, |task, mut out, sums| {
+            self.with_slot(|Slot { reader, side }| {
+                let (mut work, mut failed) = (Work::ZERO, None);
+                for (b, sum) in self.blocks(task.clone()).zip(sums) {
+                    let mut acc = A::ZERO;
+                    let filter = |v| {
+                        // SAFETY: the source asks only about nodes of `b` (`Source`'s
+                        // contract), which is within the plan's nodes.
+                        filter(unsafe { Node::new_unchecked(v) })
+                    };
+                    let f = |v, first_entry, prefix: &[u32], degree: u32| {
+                        if failed.is_some() {
+                            return;
+                        }
+                        // SAFETY: `v` is in `b` (`Source`'s contract).
+                        let node = unsafe { Node::new_unchecked(v) };
+                        // SAFETY: the source hands out lists of its nodes only.
+                        let have = unsafe { as_nodes(prefix) };
+                        let degree = ix(degree.into());
+                        let i = ix((v - task.start).into());
+                        // The pieces are the same on every source: the first `PREFIX`
+                        // entries, then the rest.
+                        let cut = degree.min(PREFIX).min(have.len());
+                        let mut hand = |list: &[Node<'g>], at: usize| {
+                            work.entries += list.len() as u64;
+                            let first_entry = first_entry + at as u64;
+                            let row = Row {
+                                node,
+                                list,
+                                first_entry,
+                            };
+                            body(&mut acc, &mut out, i, row)
+                        };
+                        work.lists += 1;
+                        if hand(&have[..cut], 0).is_break() || cut == degree {
+                            return;
+                        }
+                        if have.len() == degree {
+                            let _ = hand(&have[cut..], cut);
+                            return;
+                        }
+                        let side = match side {
+                            Some(r) => Ok(r),
+                            None => self.new_reader().map(|r| side.insert(r)),
+                        };
+                        match side.and_then(|r| self.source.list(r, v)) {
+                            Ok((_, list)) => {
+                                let rest = list.get(cut..).unwrap_or_default();
+                                // SAFETY: as above.
+                                let _ = hand(unsafe { as_nodes(rest) }, cut);
+                            }
+                            Err(e) => failed = Some(e),
+                        }
+                    };
+                    self.source.scan_prefixes(reader, b, filter, PREFIX, f)?;
+                    *sum = acc;
+                }
+                self.count(work);
+                failed.map_or(Ok(()), Err)
+            })
+        })
     }
 
     /// The reduction blocks of `task`.

@@ -130,6 +130,32 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                     "{name} {r:?} budget {budget}"
                 );
             }
+            // Prefixes, in batches whose budget counts prefix entries.
+            let prefixes: &[usize] = if MIRI { &[3] } else { &[1, 3, 4, 8, 64] };
+            for (&prefix, &budget) in prefixes
+                .iter()
+                .zip([usize::MAX, 5, 0, 9, 64].iter().cycle())
+            {
+                let mut at = r.start;
+                while at < r.end {
+                    batch.reserve(
+                        adj.prefix_entries(at..r.end, prefix, budget),
+                        ix(r.end - at),
+                    );
+                    let held = batch.heap_bytes();
+                    let next = adj
+                        .decode_prefixes(at..r.end, prefix, budget, &mut batch)
+                        .unwrap();
+                    assert_eq!(batch.heap_bytes(), held, "{name} prefix batch {r:?} grew");
+                    assert_eq!((batch.first(), ix(next - at)), (at, batch.len()));
+                    assert!(batch.len() == 1 || batch.targets().len() <= budget);
+                    for (v, l) in batch.iter() {
+                        let want = list(offsets, targets, v.index());
+                        assert_eq!(l, &want[..prefix.min(want.len())], "{name} prefix {prefix}");
+                    }
+                    at = next;
+                }
+            }
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
             assert_eq!(batch.targets(), all);
@@ -321,10 +347,12 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Result<Vec<u32>, DecodeError>> {
     }
     let mut batch = Batch::default();
     for b in 0..index.blocks() {
-        out.push(
-            adj.decode_nodes(index.block_nodes(b), usize::MAX, &mut batch)
-                .map(|_| batch.targets().to_vec()),
-        );
+        for prefix in [usize::MAX, 1, 4, 6] {
+            out.push(
+                adj.decode_prefixes(index.block_nodes(b), prefix, usize::MAX, &mut batch)
+                    .map(|_| batch.targets().to_vec()),
+            );
+        }
     }
     let mut offsets = vec![0; ix(index.nodes()) + 1];
     let mut targets = vec![0; to_usize(index.entries())];
@@ -375,6 +403,29 @@ fn apis_agree(adj: Adjacency<'_>) {
         }
         for (v, l) in batch.iter() {
             assert_eq!(Ok(l.to_vec()), lists[v.index()], "block {b}");
+        }
+        // A prefix batch decodes where each prefix decodes on its own, to the same.
+        for k in [1, 4, 6] {
+            let alone: Vec<_> = nodes
+                .clone()
+                .map(|v| {
+                    adj.neighbors_prefix(NodeId::new(v), k, &mut buf)
+                        .map(<[u32]>::to_vec)
+                })
+                .collect();
+            let got = adj.decode_prefixes(nodes.clone(), k, usize::MAX, &mut batch);
+            assert_eq!(
+                got.is_ok(),
+                alone.iter().all(Result::is_ok),
+                "block {b} prefix {k}"
+            );
+            for (v, l) in batch.iter() {
+                assert_eq!(
+                    Ok(l.to_vec()),
+                    alone[ix(v.get() - nodes.start)],
+                    "block {b}"
+                );
+            }
         }
     }
     let mut offsets = vec![0; ix(index.nodes()) + 1];

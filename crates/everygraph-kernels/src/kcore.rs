@@ -259,8 +259,9 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
                 }
             }
         };
+        // `fetch_sub` commutes, so a hub's list may be cut into parts.
         self.plan
-            .frontier_with(frontier, Vec::new, |(): &mut (), row, w| {
+            .push_with(frontier, Vec::new, |(): &mut (), row, w| {
                 // A FIFO that takes at most `QUEUE` nodes in all, so that one task's
                 // work stays bounded (Liu et al.'s `rear < local_queue_size`).
                 w.scratch.clear();

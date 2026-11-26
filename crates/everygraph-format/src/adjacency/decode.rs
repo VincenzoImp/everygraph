@@ -29,6 +29,8 @@ pub(super) struct Job<'a> {
     /// Stop before a list that would take the output past this many entries, unless it
     /// is the first.
     limit: usize,
+    /// Entries decoded of each list, at most: its prefix.
+    prefix: usize,
 }
 
 /// Where a [`run`] stopped.
@@ -50,7 +52,9 @@ pub(super) struct Ends {
 
 /// Decodes the lists of `job.nodes` one after the other into `out`, until the next one
 /// would not fit in `job.limit` entries (the first list always does; `out` has room for
-/// what can be written), and leaves where each list ends in `ends`.
+/// what can be written), and leaves where each list ends in `ends`. Of each list only the
+/// first `job.prefix` entries are decoded; a record decoded in full is checked, a prefix
+/// is not.
 ///
 /// Two passes: where every list ends, in entries and in bytes, from the two Elias–Fano
 /// sequences; then the records, each checked to end exactly where the index says
@@ -74,6 +78,7 @@ pub(super) fn run(
         bytes,
         nodes,
         limit,
+        prefix,
     } = job;
     ends.entries.clear();
     ends.bytes.clear();
@@ -82,17 +87,18 @@ pub(super) fn run(
     // Each sequence in a loop of its own, which keeps each loop in registers: the entry
     // ends up to the budget (the first list always), then as many byte ends. Value
     // `first` of each is where the run starts.
-    let (mut base, mut started) = (0, false);
+    let (mut prev, mut end, mut started) = (0, 0, false);
     entries.scan_from(first, |x| {
         if !started {
-            (base, started) = (x, true);
+            (prev, started) = (x, true);
             return true;
         }
-        let end = to_usize(x - base);
+        let next = end + to_usize(x - prev).min(prefix);
         let lists = ends.entries.len();
-        if lists == count || (lists > 0 && end > limit) {
+        if lists == count || (lists > 0 && next > limit) {
             return false;
         }
+        (prev, end) = (x, next);
         ends.entries.push(end);
         true
     });
@@ -112,20 +118,39 @@ pub(super) fn run(
     let stop = nodes.start + u32::try_from(lists).expect("at most one list per node");
     let mut s = 0;
     let lists = ends.entries.iter().zip(&ends.bytes);
-    for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
-        if end > s {
-            let corrupt = |_| DecodeError {
-                first: v,
-                end: v + 1,
-            };
-            let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
-            let used = kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
-            if at + used != record_end {
-                return Err(corrupt(Corrupt));
-            }
-            s = end;
+    // Decodes the first `end - s` of the `total` entries of the list of `v`.
+    let mut record = |v: u32, at: usize, s: usize, end: usize, total: usize, record_end| {
+        let corrupt = |_| DecodeError {
+            first: v,
+            end: v + 1,
+        };
+        let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
+        let used = kernel(rec, v, total, end - s, &mut out[s..]).map_err(corrupt)?;
+        if end - s == total && at + used != record_end {
+            return Err(corrupt(Corrupt));
         }
-        at = record_end;
+        Ok(())
+    };
+    if prefix == usize::MAX {
+        for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
+            if end > s {
+                record(v, at, s, end, end - s, record_end)?;
+                s = end;
+            }
+            at = record_end;
+        }
+    } else {
+        // The degrees are needed only here: whole lists keep the loop above free of a
+        // third Elias–Fano iteration.
+        let mut offsets = entries.iter_from(first);
+        let mut from = offsets.next().unwrap_or(0);
+        for ((v, (&end, &record_end)), to) in (nodes.start..).zip(lists).zip(offsets) {
+            if end > s {
+                record(v, at, s, end, to_usize(to - from), record_end)?;
+                s = end;
+            }
+            (at, from) = (record_end, to);
+        }
     }
     Ok(Done {
         node: stop,
@@ -455,6 +480,7 @@ impl<'a> Adjacency<'a> {
         &self,
         nodes: Range<u32>,
         limit: usize,
+        prefix: usize,
         out: &mut [u32],
         ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
@@ -465,6 +491,7 @@ impl<'a> Adjacency<'a> {
             bytes: self.index.byte_offsets(),
             nodes,
             limit,
+            prefix,
         };
         self.decoder.run(job, out, ends)
     }
@@ -500,6 +527,31 @@ impl<'a> Adjacency<'a> {
         max_entries: usize,
         batch: &mut Batch,
     ) -> Result<u32, DecodeError> {
+        self.decode_prefixes(nodes, usize::MAX, max_entries, batch)
+    }
+
+    /// As [`decode_nodes`](Self::decode_nodes), but of each list only its first `prefix`
+    /// entries (all of them if it has fewer): list `i` of the batch is then that prefix,
+    /// and `max_entries` counts prefix entries. A reader that needs only the start of
+    /// each list does not decode the rest (bottom-up BFS stops at the first parent).
+    ///
+    /// A record decoded in full is checked to end where the index says; a prefix is not,
+    /// so a damaged byte after it goes unseen.
+    ///
+    /// # Errors
+    ///
+    /// As [`decode_nodes`](Self::decode_nodes).
+    ///
+    /// # Panics
+    ///
+    /// As [`decode_nodes`](Self::decode_nodes).
+    pub fn decode_prefixes(
+        &self,
+        nodes: Range<u32>,
+        prefix: usize,
+        max_entries: usize,
+        batch: &mut Batch,
+    ) -> Result<u32, DecodeError> {
         assert!(
             self.first <= nodes.start && nodes.start <= nodes.end && nodes.end <= self.end,
             "nodes {nodes:?} outside {:?}",
@@ -512,9 +564,10 @@ impl<'a> Adjacency<'a> {
         }
         grow(
             &mut batch.targets,
-            self.batch_entries(nodes.clone(), max_entries),
+            self.prefix_entries(nodes.clone(), prefix, max_entries),
         );
-        match self.decode_into(nodes, max_entries, &mut batch.targets, &mut batch.ends) {
+        let (targets, ends) = (&mut batch.targets, &mut batch.ends);
+        match self.decode_into(nodes, max_entries, prefix, targets, ends) {
             Ok(done) => {
                 batch.entries = done.entries;
                 Ok(done.node)
@@ -543,6 +596,19 @@ impl<'a> Adjacency<'a> {
         let (first, second) = ef.get_pair(start);
         let span = to_usize(ef.get(end) - first);
         max_entries.max(to_usize(second - first)).min(span) + SLACK
+    }
+
+    /// As [`batch_entries`](Self::batch_entries), for
+    /// [`decode_prefixes`](Self::decode_prefixes) with `prefix`: no more than the first
+    /// list's prefix or `max_entries`.
+    ///
+    /// # Panics
+    ///
+    /// If `nodes` is not a range within `0..nodes()`.
+    #[must_use]
+    pub fn prefix_entries(&self, nodes: Range<u32>, prefix: usize, max_entries: usize) -> usize {
+        let all = self.batch_entries(nodes, max_entries);
+        all.min(max_entries.max(prefix).saturating_add(SLACK))
     }
 
     /// Decodes the whole adjacency into a raw CSR: `offsets` (`nodes + 1` entries) and
@@ -596,7 +662,13 @@ impl<'a> Adjacency<'a> {
         par::for_each_chunk_mut(&mut pieces, NonZeroUsize::MIN, |_, chunk| {
             for (nodes, out, result) in chunk.iter_mut() {
                 *result = self
-                    .decode_into(nodes.clone(), usize::MAX, out, &mut Ends::default())
+                    .decode_into(
+                        nodes.clone(),
+                        usize::MAX,
+                        usize::MAX,
+                        out,
+                        &mut Ends::default(),
+                    )
                     .map(|_| ());
             }
         });
