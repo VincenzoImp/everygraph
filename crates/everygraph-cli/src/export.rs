@@ -22,8 +22,8 @@ use crate::graph;
 use crate::ingest::is_graph;
 use crate::machine::{self, Machine};
 use crate::native;
-use crate::progress::Lines;
-use crate::render::{Style, counted, duration, size};
+use crate::progress::{self, Lines};
+use crate::render::{Style, counted, size};
 use crate::table::{self, Nodes};
 
 const HELP: &str = "\
@@ -114,20 +114,11 @@ fn run(path: &Path, common: &Common, topology: bool) -> Result<u8, Failure> {
     lines.done_if_long("writing", &counted(rows, "row", "rows"));
 
     let seconds = started.elapsed().as_secs_f64();
-    let style = Style::stderr();
-    let dot = style.dot();
-    let name = out
-        .file_name()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let line = format!(
-        "{} {}{dot}{}{dot}{}{dot}{}\n",
-        style.ok(),
-        style.bold(&name),
-        size(written),
-        counted(rows, "edge", "edges"),
-        duration(seconds)
+    progress::made(
+        out,
+        &[size(written), counted(rows, "edge", "edges")],
+        seconds,
     );
-    let _ = io::stderr().write_all(line.as_bytes());
     if common.json {
         let job = native::job_id(&[
             "export",

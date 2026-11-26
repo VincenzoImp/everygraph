@@ -10,7 +10,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use everygraph_ingest::build::{Phase, Progress};
 
-use crate::render::{Style, counted};
+use std::path::Path;
+
+use crate::render::{Style, counted, duration};
 
 /// An operation estimated to take at least this long prints its plan and progress
 /// (P-3, `T_PLAN`; placeholder). Without an estimate, a phase that took this long
@@ -23,6 +25,21 @@ pub(crate) fn now_ns() -> Option<i64> {
         .duration_since(UNIX_EPOCH)
         .ok()
         .and_then(|d| i64::try_from(d.as_nanos()).ok())
+}
+
+/// The first line of the result block (G-11), on standard error: `✓`, the name of the
+/// file made, `facts`, and the time.
+pub(crate) fn made(path: &Path, facts: &[String], seconds: f64) {
+    let style = Style::stderr();
+    let name = path
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let mut line = format!("{} {}", style.ok(), style.bold(&name));
+    for fact in facts.iter().chain([&duration(seconds)]) {
+        line.push_str(style.dot());
+        line.push_str(fact);
+    }
+    let _ = writeln!(io::stderr(), "{line}");
 }
 
 /// The phase lines of one operation.

@@ -26,8 +26,8 @@ use crate::failure::{self, Failure};
 use crate::graph;
 use crate::ingest::is_graph;
 use crate::machine::{self, Machine};
-use crate::progress::{Lines, now_ns};
-use crate::render::{Style, count, counted, duration, size};
+use crate::progress::{self, Lines, now_ns};
+use crate::render::{Style, count, counted, size};
 use crate::table::{self, Nodes, SHOWN, Shown};
 
 const HELP: &str = "\
@@ -135,14 +135,9 @@ enum Algorithm {
         #[arg(long, value_enum, default_value = "out")]
         direction: Direction,
     },
-    /// Names of the API that this version cannot run.
-    #[command(hide = true)]
-    Triangles {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        rest: Vec<OsString>,
-    },
-    #[command(hide = true)]
-    Communities {
+    /// The names of `docs/api-sketch.md` § 5.1 that this version cannot run.
+    #[command(name = "triangles", alias = "communities", hide = true)]
+    Later {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         rest: Vec<OsString>,
     },
@@ -182,9 +177,7 @@ pub(crate) fn main(args: Args) -> u8 {
         | Algorithm::Kcore { on }
         | Algorithm::Degrees { on }
         | Algorithm::Bfs { on, .. } => on.common.json,
-        Algorithm::Triangles { rest } | Algorithm::Communities { rest } => {
-            rest.iter().any(|a| a == "--json")
-        }
+        Algorithm::Later { rest } => rest.iter().any(|a| a == "--json"),
     };
     request(args)
         .and_then(|r| execute(&r))
@@ -259,14 +252,9 @@ fn request(args: Args) -> Result<Request, Failure> {
             on,
             Some(node),
         ),
-        Algorithm::Triangles { .. } | Algorithm::Communities { .. } => {
-            let name = if matches!(args.algorithm, Algorithm::Triangles { .. }) {
-                "triangles"
-            } else {
-                "communities"
-            };
+        Algorithm::Later { .. } => {
             return Err(unsupported(
-                format!("{name} cannot be run yet."),
+                "triangles and communities cannot be run yet.".into(),
                 &format!("This version runs {}.", NAMES.join(", ")),
             ));
         }
@@ -316,14 +304,14 @@ fn execute(req: &Request) -> Result<u8, Failure> {
     let output = match cached {
         Some(output) => {
             lines.seconds(name);
-            lines.kept(name, &detail(&op, &output));
+            lines.kept(name, &facts(&op, &output).join(Style::stderr().dot()));
             output
         }
         None => {
             let output = par::with_threads(threads, || compute(&graph, &op, &memory))
                 .map_err(|e| failure::internal(&format!("Cannot start the threads: {e}.")))?
                 .map_err(fail)?;
-            lines.done_if_long(name, &detail(&op, &output));
+            lines.done_if_long(name, &facts(&op, &output).join(Style::stderr().dot()));
             output
         }
     };
@@ -354,20 +342,8 @@ fn execute(req: &Request) -> Result<u8, Failure> {
         let bytes = table::write_result(out, &req.graph, &nodes, &output.columns)?;
         stored_in = Some(out.display().to_string());
         if !req.common.json {
-            let style = Style::stderr();
-            let dot = style.dot();
-            let name = out
-                .file_name()
-                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-            let line = format!(
-                "{} {}{dot}{}{dot}{}{dot}{}\n",
-                style.ok(),
-                style.bold(&name),
-                size(bytes),
-                counted(u64::from(graph.nodes()), "row", "rows"),
-                duration(started.elapsed().as_secs_f64())
-            );
-            let _ = io::stderr().write_all(line.as_bytes());
+            let rows = counted(u64::from(graph.nodes()), "row", "rows");
+            progress::made(out, &[size(bytes), rows], started.elapsed().as_secs_f64());
         }
     }
     let corrupt = |e| failure::corrupt(&req.graph, &e);
@@ -382,7 +358,12 @@ fn execute(req: &Request) -> Result<u8, Failure> {
         let text = if !stdout.terminal {
             shown.piped(&nodes).map_err(corrupt)?
         } else {
-            let mut text = summary_text(&op, &output, stdout);
+            let facts = facts(&op, &output);
+            let mut text = if facts.is_empty() || matches!(op, Operation::PageRank { .. }) {
+                String::new()
+            } else {
+                format!("{}\n\n", facts.join(stdout.dot()))
+            };
             text.push_str(&shown.aligned(&nodes, stdout).map_err(corrupt)?);
             text
         };
@@ -531,45 +512,30 @@ fn summary(op: &Operation, output: &Output) -> Option<Map<String, Value>> {
     Some(s)
 }
 
-/// The summary for a person, above the table on a terminal.
-fn summary_text(op: &Operation, output: &Output, style: Style) -> String {
-    let Some(s) = summary(op, output) else {
-        return String::new();
-    };
+/// The summary for a person: above the table on a terminal, and the detail of the
+/// phase line (§ 4.1).
+fn facts(op: &Operation, output: &Output) -> Vec<String> {
+    let s = summary(op, output).unwrap_or_default();
     let n = |k: &str| s.get(k).and_then(Value::as_u64).unwrap_or(0);
-    let dot = style.dot();
-    let line = match op {
-        Operation::Components => format!(
-            "{}{dot}the largest has {}",
-            counted(n("components"), "component", "components"),
-            counted(n("largest"), "node", "nodes")
-        ),
-        Operation::KCore => format!("largest core number {}", count(n("max_core"))),
-        Operation::Bfs { .. } => format!(
-            "{} reached{dot}the farthest {} away",
-            counted(n("reached"), "node", "nodes"),
-            counted(n("max_distance"), "hop", "hops")
-        ),
-        _ => return String::new(),
-    };
-    format!("{line}\n\n")
-}
-
-/// The detail of the phase line (§ 4.1): one or two exact facts.
-fn detail(op: &Operation, output: &Output) -> String {
-    let n = |k: &str| {
-        summary(op, output)
-            .and_then(|s| s.get(k).and_then(Value::as_u64))
-            .unwrap_or(0)
-    };
     match op {
-        Operation::PageRank { .. } => output.iterations.map_or_else(String::new, |i| {
-            counted(u64::from(i), "iteration", "iterations")
-        }),
-        Operation::Components => counted(n("components"), "component", "components"),
-        Operation::KCore => format!("largest core {}", count(n("max_core"))),
-        Operation::Degrees => String::new(),
-        Operation::Bfs { .. } => format!("{} reached", counted(n("reached"), "node", "nodes")),
+        Operation::PageRank { .. } => output
+            .iterations
+            .map(|i| counted(u64::from(i), "iteration", "iterations"))
+            .into_iter()
+            .collect(),
+        Operation::Components => vec![
+            counted(n("components"), "component", "components"),
+            format!("the largest has {}", counted(n("largest"), "node", "nodes")),
+        ],
+        Operation::KCore => vec![format!("largest core number {}", count(n("max_core")))],
+        Operation::Degrees => Vec::new(),
+        Operation::Bfs { .. } => vec![
+            format!("{} reached", counted(n("reached"), "node", "nodes")),
+            format!(
+                "the farthest {} away",
+                counted(n("max_distance"), "hop", "hops")
+            ),
+        ],
     }
 }
 

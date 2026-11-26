@@ -10,7 +10,7 @@
 //! and a stop at any moment leaves `FILE` as it was (C-1). With `--out NEW`, `FILE` is
 //! not changed.
 
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -24,8 +24,8 @@ use crate::failure::{self, Failure};
 use crate::graph;
 use crate::ingest::is_graph;
 use crate::native;
-use crate::progress::Lines;
-use crate::render::{Style, counted, duration, size};
+use crate::progress::{self, Lines};
+use crate::render::{Style, counted, size};
 use crate::table::Partial;
 
 const HELP: &str = "\
@@ -126,20 +126,8 @@ fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
     lines.done_if_long("copying", &counted(sections, "section", "sections"));
 
     let seconds = started.elapsed().as_secs_f64();
-    let style = Style::stderr();
-    let dot = style.dot();
-    let name = destination
-        .file_name()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let line = format!(
-        "{} {}{dot}{}{dot}{} reclaimed{dot}{}\n",
-        style.ok(),
-        style.bold(&name),
-        size(bytes),
-        size(reclaimed),
-        duration(seconds)
-    );
-    let _ = io::stderr().write_all(line.as_bytes());
+    let facts = [size(bytes), format!("{} reclaimed", size(reclaimed))];
+    progress::made(&destination, &facts, seconds);
     if common.json {
         let job = native::job_id(&[
             "compact",
