@@ -295,6 +295,9 @@ struct MeasureArgs {
     /// Where to write the measurement (JSON).
     #[arg(long, value_name = "FILE")]
     report: PathBuf,
+    /// The command's memory limit, below the scope's.
+    #[arg(long, value_name = "BYTES")]
+    memory_max_bytes: u64,
     /// Memory sampling interval.
     #[arg(long, value_name = "MS", default_value_t = 20)]
     sample_interval_ms: u64,
@@ -867,6 +870,7 @@ fn measure_command(args: &MeasureArgs) -> Result<ExitCode, String> {
         .transpose()?;
     let opts = MeasureOptions {
         argv: args.command.clone(),
+        memory_max: args.memory_max_bytes,
         sample_interval: Duration::from_millis(args.sample_interval_ms.max(1)),
         timeout: Duration::from_millis(args.timeout_ms),
         interrupt,

@@ -358,6 +358,8 @@ fn measure_refuses_a_cgroup_without_a_memory_limit() {
             "measure",
             "--report",
             s(&dir.join("m.json")),
+            "--memory-max-bytes",
+            "67108864",
             "--timeout-ms",
             "1000",
             "--",
@@ -432,9 +434,11 @@ fn an_exploratory_run_records_every_field() {
         assert!(r.time.expect("time").wall_seconds > 0.0);
         assert_eq!(r.exit.expect("exit").code, Some(0));
         for p in [
-            "MemoryMax=268435456",
+            "MemoryMax=335544320",
             "MemorySwapMax=0",
             "OOMPolicy=continue",
+            "Delegate=yes",
+            "268435456",
         ] {
             assert!(r.wrapper.iter().any(|a| a == p), "{p}");
         }

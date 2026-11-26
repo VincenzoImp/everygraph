@@ -34,7 +34,7 @@ use super::gate::{
 };
 use super::lock::{LockError, OfficialLock};
 use super::machine::{Fingerprint, GitInfo};
-use super::measure::Measurement;
+use super::measure::{HELPER_RESERVE, Measurement};
 use super::procfs::Host;
 use super::row::{
     CacheRecord, DatasetRecord, ExitRecord, GateRecord, IoRecord, MemoryRecord, OomRecord,
@@ -543,13 +543,21 @@ impl Runner<'_> {
         let _ignored = std::fs::remove_file(&report);
         let open = |p: &Path| File::create(p).map_err(|e| format!("creating {}: {e}", p.display()));
 
+        // The helper puts the command in a child cgroup limited to `memory_limit` and
+        // itself in another (`measure::split_scope`); the scope holds both.
         let mut wrapper = scope_prefix(
-            case.memory_limit,
+            case.memory_limit.saturating_add(HELPER_RESERVE),
             &format!("everygraph-bench {} {} {rep}", self.spec.name, case.id),
         );
+        wrapper.pop();
         wrapper.extend([
+            "-p".into(),
+            "Delegate=yes".into(),
+            "--".into(),
             self.ctx.exe.display().to_string(),
             "measure".into(),
+            "--memory-max-bytes".into(),
+            case.memory_limit.to_string(),
             "--report".into(),
             report.display().to_string(),
             "--sample-interval-ms".into(),
