@@ -78,9 +78,11 @@ target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT   #
   - the CI corpus through the Python references, the in-process references, the toy and
     the seeded bugs;
   - the semantics probe;
-  - the golden files of karate and of the nine generated tier-1 datasets.
+  - the golden files of karate and of the nine generated tier-1 datasets;
+  - the 14 LDBC Graphalytics test graphs against their reference outputs (§ LDBC
+    Graphalytics below).
 
-  It needs no network after `uv sync`. The oracle's Rust tests (unit tests, 6 properties
+  After `uv sync` it downloads only the LDBC test graphs (10 kB). The oracle's Rust tests (unit tests, 6 properties
   at 96 cases each, the seeded-bug tests, the karate golden file) run in the `test` job
   with the rest of the workspace; run locally, `run-ci.sh` runs them too.
 - **Nightly**, `run-nightly.sh` (not scheduled yet; run by hand or by the benchmark
@@ -89,8 +91,9 @@ target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT   #
     sparse ids up to n = 2^24. It gets the same checks as CI, plus the lab prototype
     through its adapter;
   - 2,000 cases per property;
-  - all 17 tier-1 datasets of the registry and the three extra SNAP graphs, fetched and
-    verified, with all 21 golden files checked.
+  - all 17 tier-1 edge-list datasets of the registry and the three extra SNAP graphs,
+    fetched and verified, with all 21 golden files checked;
+  - LDBC Graphalytics graph500-22 and dota-league against their reference outputs.
 
 Measured times and peaks are in the pull request that introduced the oracle (#6).
 
@@ -298,6 +301,36 @@ same way:
 
 A `golden::check_kernel(plugin, roots)` helper next to `check_dir` will do this; it is
 not built yet.
+
+## LDBC Graphalytics
+
+LDBC Graphalytics publishes graphs up to billions of edges with the reference output of
+six deterministic algorithms (issue #177; specification v1.0.5, arXiv 2011.15028). They
+are the oracle's references above 10^5 edges. The module `ldbc`
+(`crates/everygraph-oracle/src/ldbc/`) holds:
+
+- `read`: the data set's `.properties`, `.v`, `.e` and `<g>-<ALGO>` files. Vertex ids
+  become dense indices in increasing id order, so "smallest label" means "smallest id".
+  It refuses self-loops, repeated edges and unknown vertices, which the specification
+  excludes.
+- `spec`: BFS, PageRank (fixed iterations, sinks spread uniformly, f64), WCC, CDLP, LCC
+  (the directed definition included) and SSSP, sequential, written from § 2.3.
+- `validate`: the match rules of § 2.4: exact (BFS, CDLP), equivalence (WCC), and
+  `|r - s| <= 1e-4 |r|` (PageRank, LCC, SSSP).
+- `run`: runs `spec`, `first-seen` (CDLP with initial labels in input order) and
+  `oracle` (this crate's references, Everygraph's semantics; graphs up to 2^20 edges).
+
+```sh
+everygraph-bench fetch ldbc-test --data ROOT        # then unpack: oracle/ldbc-unpack.sh
+everygraph-oracle ldbc --graphs DIR --expect oracle/ldbc-expected.json [--json OUT]
+```
+
+`DIR` holds one unpacked data set per subdirectory. `spec` must always match. The other
+outcomes, mismatches included, are pinned in `oracle/ldbc-expected.json` with their
+causes, so a change either way fails the run. Kernels of other crates and the lab
+prototypes are checked by calling `ldbc::run::row` on their result
+(`lab/m1-20-ldbc-graphalytics`). Results checked this way are **not LDBC Benchmark
+Results**; the name is reserved for audited runs.
 
 ## Plugging in a kernel (issue #45 onwards)
 
