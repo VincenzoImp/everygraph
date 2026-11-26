@@ -11,7 +11,7 @@
 //! maps (an mmap'd graph shows as RSS but is reclaimable page cache).
 //!
 //! The command runs in a child cgroup of the scope, `run`, which has the limit; the
-//! helper moves itself to a sibling, `helper` ([`split_scope`]). So the helper is
+//! helper moves itself to a sibling, `helper` (`split_scope`). So the helper is
 //! neither in the command's numbers nor under its limit.
 //!
 //! The run's storage traffic is the helper's own `/proc/self/io`, which adds up the
