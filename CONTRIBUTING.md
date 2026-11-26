@@ -450,23 +450,17 @@ instead (#189). `everygraph-core` is expected to stay free of `unsafe`.
 
 ## Comments and documents
 
-Everything written in the repository and on GitHub is in English, in Simple Technical
-English: short sentences, one idea each, common words, active voice. Go beyond it only
-where a precise term needs it. A code comment says only what the code cannot: why, an
-invariant, a reference to the specification or to a measurement. It does not narrate the
-next line or tell the history of the change ([CLAUDE.md](CLAUDE.md)).
+The rules for language, comments and documents are in the introduction of
+[CLAUDE.md](CLAUDE.md).
 
 ## Rust version
 
 The minimum supported Rust version is **1.100**, recorded as `rust-version` in the
-workspace manifest. It was 1.85 (the first release with edition 2024 and the MSRV-aware
-resolver, and Debian 13's toolchain), then 1.87 from 2026-11-25 (the fix for
-RUSTSEC-2026-0344 in `ruzstd` 0.9.1, needed by the text reader, #32). It was raised to
-1.100 on 2026-11-26 because 1.100 stabilizes `std::alloc::Allocator` and `Vec::new_in`
-(release notes of 1.100.0, "Stabilize custom allocators"): the memory accountant's page
-backend (#167) gives `SegVec` segments an allocator, and the core cannot implement a
-container of its own over foreign memory without `unsafe`. `Vec::try_with_capacity_in` is
-not stable in 1.100; code uses `Vec::new_in` and `try_reserve_exact`. Everything builds on stable. The
+workspace manifest. 1.100 stabilizes `std::alloc::Allocator` and `Vec::new_in` (release
+notes of 1.100.0, "Stabilize custom allocators"): the memory accountant's page backend
+(#167) gives `SegVec` segments an allocator, and the core cannot implement a container of
+its own over foreign memory without `unsafe`. `Vec::try_with_capacity_in` is not stable in
+1.100; code uses `Vec::new_in` and `try_reserve_exact`. Everything builds on stable. The
 one planned exception is the threaded browser build (#108), which needs a nightly
 toolchain pinned by that build's own script, not by a `rust-toolchain.toml` at the root,
 which would move the whole workspace to nightly.
@@ -542,7 +536,7 @@ git rebase --signoff origin/main    # adds it to every commit of the branch
 
 `.github/workflows/dco.yml` checks every commit of a pull request. It always runs on
 pull requests from forks, and on every pull request while the repository variable
-`DCO_ALL_PULL_REQUESTS` is `true` (it is, since 2026-11-26). When you merge `origin/main`
+`DCO_ALL_PULL_REQUESTS` is `true` (it is). When you merge `origin/main`
 into a branch, sign the merge commit too: `git merge --signoff origin/main`. Commits made
 before this rule are unsigned and stay as they are.
 
@@ -559,14 +553,8 @@ is responsible for that work.)
 ### Review
 
 Every change of code or of a specification reaches `main` through a pull request that
-follows `.github/pull_request_template.md`. (Only coordination goes to `main` directly:
-`docs/STATE.md`, the plan and records of decisions, [CLAUDE.md § 2](CLAUDE.md).) The pull
-request names the issue it closes and copies the issue's acceptance criteria, each ticked
-only with its evidence (a test, a result file, or a command and its output). It passes the
-checks under "Checks". Changes to kernels, on-disk formats, `unsafe` code, the planner or
-memory accounting, and experiments whose result changes a decision or a public number, get
-an independent review whose findings are fixed or answered before merge
-([CLAUDE.md § 4](CLAUDE.md)).
+follows `.github/pull_request_template.md` and passes the checks under "Checks". How a
+pull request is scoped, reviewed and merged is in [CLAUDE.md](CLAUDE.md) § 2 and § 4.
 Pull requests are merged by squash. Who decides, and how that changes as more people
 join, is in [GOVERNANCE.md](GOVERNANCE.md). Behaviour in the project follows the
 [code of conduct](CODE_OF_CONDUCT.md); security problems are reported privately as

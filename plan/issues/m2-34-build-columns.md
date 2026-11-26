@@ -9,7 +9,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:M
 - [ ] Carry property columns through the sort (weights, timestamps): per-event columns in event order, indexed by event offset (ADR 0028; `docs/spec/eg-columns.md`)
 - [ ] Per-pair aggregates computed from each pair's event range (the exact pair sum of `docs/spec/graph-semantics.md` § 4.3) and written per pair, indexed by entry offset
 - [ ] Record per graph the largest pair multiplicity (`docs/spec/graph-semantics.md` § 2.7); decide where it is stored and say so in `docs/spec/eg-columns.md` § 6
-- The degree profile is not stored: it is computed on read from the entry offsets by {{#m3-07-kcore-degrees}}, and cached as a result when a summary needs it (decided in the review of PR #269; `docs/spec/eg-columns.md` § 6)
+- The degree profile is not stored: it is computed on read from the entry offsets by {{#m6-09-api-gaps}}, and cached as a result when a summary needs it (decided in the review of PR #269; `docs/spec/eg-columns.md` § 6)
 - [ ] The text reader's weight and time columns reach the build: `everygraph ingest --weight/--time` and `eg.read(weight=, time=)` stop refusing (`docs/api-sketch.md` § 3.1, § 5.2)
 - [ ] Correct the doc comment of `AdjacencyIndex::entry_offset` (`crates/everygraph-format/src/adjacency/index.rs`): per-pair columns are indexed by it; per-event columns are indexed by event offset (moved from {{#m2-08-csr-build}})
 

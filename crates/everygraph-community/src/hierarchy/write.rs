@@ -49,10 +49,12 @@ struct Level<'c> {
 ///
 /// [`HierarchyError::Invalid`] for communities that are not a partition of `source`
 /// numbered by smallest node, or a conservation check that fails; the errors of the
-/// source, the budget and the writer. An error found before anything is written leaves
-/// the writer as it was; any later one poisons it
-/// ([`Writer::poison`]), so that no commit can make a result with missing parts, and
-/// the file keeps reading as its last commit, a hierarchy stored before included.
+/// source, the budget and the writer. An error found before the result is added
+/// (while the communities are checked and numbered) leaves the writer as it was. Any
+/// error from adding the result on poisons it ([`Writer::poison`]), even one found
+/// before a byte is written (a `key` of another graph), so that no commit can make a
+/// result with missing parts, and the file keeps reading as its last commit, a
+/// hierarchy stored before included.
 pub fn store<G: Source, K: ByteSink>(
     writer: &mut Writer<K>,
     key: &ResultKey,
