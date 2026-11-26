@@ -4,8 +4,7 @@
 
 #![forbid(unsafe_code)]
 
-use everygraph_core::StorageKind;
-use everygraph_io::{memory_backed, physical_cores, storage};
+use everygraph_io::physical_cores;
 
 #[test]
 fn physical_cores_are_at_most_the_hardware_threads() {
@@ -21,6 +20,8 @@ fn physical_cores_are_at_most_the_hardware_threads() {
 #[test]
 #[cfg(target_os = "linux")]
 fn the_storage_of_a_directory_has_a_kind_and_free_bytes() {
+    use everygraph_core::StorageKind;
+    use everygraph_io::{memory_backed, storage};
     let dir = std::env::temp_dir();
     let s = storage(&dir).expect("statvfs of the temporary directory");
     // Memory-backed exactly when `memory_backed` says so, as the plan's scratch needs.

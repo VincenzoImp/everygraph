@@ -6,7 +6,9 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use everygraph_core::{Storage, StorageKind};
+use everygraph_core::Storage;
+#[cfg(target_os = "linux")]
+use everygraph_core::StorageKind;
 
 /// `statfs` types (Linux `magic.h`) of network and user-space file systems: NFS, SMB 1,
 /// SMB 2 and 3, CIFS, FUSE, Ceph, 9P.
