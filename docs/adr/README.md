@@ -76,17 +76,17 @@ A measurable condition.
 | [0001](0001-rust-core.md) | Rust core, no C/C++ dependencies in the core | accepted | — |
 | [0002](0002-portable-core.md) | A core portable by construction | accepted | — |
 | [0003](0003-dense-u32-ids.md) | Dense u32 node ids by default | accepted | — |
-| [0004](0004-compressed-adjacency-default.md) | Compressed adjacency is the default storage (amended by #118: five conditions) | accepted, partly validated | #46, #35, #24, #90 |
+| [0004](0004-compressed-adjacency-default.md) | Compressed adjacency is the default storage (amended by #118: five conditions) | accepted, partly validated | #46, #240, #24, #90 |
 | [0005](0005-webgraph-optional.md) | webgraph-rs is an optional feature | accepted | — |
 | [0006](0006-in-adjacency.md) | Directed graphs store out- and in-adjacency | accepted | — |
 | [0007](0007-eg-container.md) | One `.eg` file per graph; maps as PMTiles (amended by #28: specified and validated) | accepted | — |
 | [0008](0008-id-dictionary.md) | ID dictionary: typed keys and minimal perfect hash | accepted, partly validated | #25 |
-| [0009](0009-property-columns.md) | Properties as Arrow-compatible columns | accepted, partly validated | #35, #47 |
+| [0009](0009-property-columns.md) | Properties as Arrow-compatible columns | accepted, partly validated | #240, `m2-34-build-columns` |
 | [0010](0010-views-mask-or-materialize.md) | Views: mask or materialize | open — needs experiment | #93 |
-| [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state (result of #16 added) | accepted, partly validated | #60, #46 |
-| [0012](0012-edge-map-framework.md) | One edge-map framework | accepted, partly validated | #44 |
+| [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state (result of #16 added; regime 2 for random access amended by 0029) | accepted, partly validated | #60, #46, #178 |
+| [0012](0012-edge-map-framework.md) | One edge-map framework | accepted, partly validated | #240 |
 | [0013](0013-threads-per-kernel.md) | Thread count chosen per kernel | accepted, partly validated | #22 |
-| [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #18, #54, #60 |
+| [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #57, #54, #60 |
 | [0015](0015-leiden-visiting-order.md) | Leiden with block-permuted order and a connectivity guarantee | accepted, partly validated | #24, #57 |
 | [0016](0016-two-community-outputs.md) | Two community outputs, one artifact: the partition T inside the map tree | accepted | #19 |
 | [0017](0017-layout-disc-packing.md) | Layout by hierarchy-constrained disc packing | accepted, partly validated | #21 |
@@ -98,10 +98,10 @@ A measurable condition.
 | [0023](0023-licence-and-open-specs.md) | Apache-2.0 OR MIT; published format specs | accepted | — |
 | [0024](0024-visual-system.md) | One visual system, Vernier | accepted | — |
 | [0025](0025-user-facing-choices.md) | User-facing choices live in `design/DECISIONS.md` | accepted | — |
-| [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #35 |
+| [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #240, #186 |
 | [0027](0027-single-file-builds.md) | A graph is one file in every state; builds in progress use the job's scratch | accepted | — |
-| [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #35 |
-| [0029](0029-random-access-under-a-budget.md) | Random access under a budget: an explicit cache, not plain mmap (amends 0011, regime 2) | accepted | #172, #178 |
+| [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #240, `m2-34-build-columns` |
+| [0029](0029-random-access-under-a-budget.md) | Random access under a budget: an explicit cache, not plain mmap (amends 0011, regime 2) | accepted | #178 |
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of
 `docs/DESIGN.md` agree, that each ADR has the required sections and a known status, that

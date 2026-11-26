@@ -53,9 +53,8 @@ labels: type:feature, area:ingest, P0, risk:medium, size:XL, lab-evidence
 - [ ] Interleaved A/B, end to end, on lj and orkut at 16 threads: this pass 2 against the lab's raw-pointer scatter (`fetch_add` positions through `SyncPtr`). Hashes identical; time, bytes written and peak memory reported (moved here from {{#m2-28-par-scatter}}).
 - [ ] The helpers of {{#m2-28-par-scatter}} are used by the build; no `SyncPtr` or raw-pointer scatter in the production crates. The drive rate behind the Friendster targets may be this host's, not the drive model's: the "~10 GB burst, then 1.4–1.6 GB/s" of ADR 0026 was measured on a drive mounted without `discard` and trimmed weekly, while a review of the same model empty reports a fast region of about 240 GB (`docs/research/sota-measurement.md` § 3.2). {{#m1-21-drive-state}} settles it; until then, report bytes written per edge next to every time (25.0 B/edge at 32 GB and 30.7 B/edge at 8 GB for the lab prototype, by arithmetic on ADR 0026's numbers).
 
-**Left after PR #215 (2026-11-26).** PR #215 built `everygraph_ingest::build` and `everygraph ingest FILE`; its description lists the evidence for each box above. Still open:
-- The speed criteria: lj, orkut and Friendster times; the Friendster traffic at 8 GB; no temporary data on Friendster at 32 GB. Command for the official window: `everygraph-bench run build --official --data /home/tux/graphlab/data`.
-- The work toward them: Step 0's A/B in FINDINGS, the radix sort per bucket, the per-phase profile at 1 … 32 threads, the A/B against the lab's raw-pointer scatter.
-- Not speed: property columns carried through the build (the format is #37's, merged), and the largest pair multiplicity per graph (above).
+**Left after PR #215 (2026-11-26).** PR #215 built `everygraph_ingest::build` and `everygraph ingest FILE`; its description lists the evidence for each box above. Closed on 2026-11-26 on its tests and exploratory evidence (CLAUDE.md § 6, "Official runs only when a number is published"). Where the rest went:
+- The speed criteria and the work toward them (Step 0's A/B, the radix sort per bucket, the per-phase profile, the A/B against the lab's raw-pointer scatter): {{#m3-22-performance-pass}}. The official numbers come from the M3 milestone window: `everygraph-bench run build --official --data /home/tux/graphlab/data`.
+- Not speed: property columns carried through the build and the largest pair multiplicity per graph: {{#m2-34-build-columns}}.
 
 **Depends on** {{#m2-05-text-reader}}, {{#m2-07-id-mapping}}, {{#m2-28-par-scatter}}

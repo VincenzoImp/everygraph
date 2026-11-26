@@ -102,5 +102,5 @@ including its encoding, would mean the first sentence no longer holds either.
 
 ## Closed by
 
-#35 (the build pipeline, measured under the warm-up protocol, writing the default format
-and reporting bytes written).
+#35 built the pipeline, writing the default format. #240 measures it under the
+warm-up protocol, with bytes written; #186 measures the drive's state against the drive.

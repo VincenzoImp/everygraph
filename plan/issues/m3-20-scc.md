@@ -13,6 +13,6 @@ labels: type:feature, area:engine, P1, risk:medium, size:M
 - [ ] Oracle against NetworkX/igraph/scipy SCC; metamorphic relations (relabel, disjoint union, arc reversal keeps SCCs)
 - [ ] Exploratory interleaved A/B against a sequential Tarjan and, if quick, GBBS; the official command handed back
 
-**Done when.** The oracle and metamorphic tests pass in CI, and the official run gives SCC on twitter-2010 and one large-diameter graph (a road network) with its time.
+**Done when.** The oracle and metamorphic tests pass in CI, and SCC runs on twitter-2010 and one large-diameter graph (a road network), with its time from an exploratory interleaved run; the official time comes from the M3 milestone window (CLAUDE.md § 6).
 
 **Pointers.** `crates/everygraph-kernels/src/components.rs` (WCC, PR #218); `docs/research/sota-kernels.md`.

@@ -25,6 +25,13 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 
 **Pointers.** `lab/f2-python/rust/glabpy`.
 
+**Left after PR #229 (2026-11-26).** PR #229 built the first slice (`crates/everygraph-py`): `eg.read` of text edge lists, `eg.open`, `Graph` with `pagerank`, `bfs`, `components`, `kcore`, `degrees`, `top`, Arrow-backed `Table`s, the exception classes, and progress events; its description lists the evidence per box. Still open:
+- The user stories' steps that need other issues: communities ({{#m4-01-leiden-production}}), Parquet ({{#m2-06-parquet-reader}}), views ({{#m7-04-views}}), point queries ({{#m7-01-point-queries}}, {{#m7-02-shortest-paths}}), `from_edges` ({{#m6-04-in-memory-constructors}}), weight and time columns ({{#m2-34-build-columns}}), directed graphs' in-edges ({{#m2-11-in-adjacency}})
+- PageRank from Python within 3% of the native binary: needs `everygraph run pagerank` ({{#m8-01-cli}}); an interleaved A/B closes it (CLAUDE.md § 6)
+- `explain()`, `dry_run`, the `plan` and `result` events and the smallest budget of `InsufficientBudget`: need the planner ({{#m3-02-planner}})
+- Cancellation inside a kernel (`docs/ux-contract.md` C-4): the engine has none, so `Ctrl-C` is raised when the kernel ends
+- The disagreements with `docs/api-sketch.md` and `docs/ux-contract.md` listed in the sweep of 2026-11-26 (third), each fixed in the code or in the documents
+
 **Depends on** {{#m2-08-csr-build}}
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The approved shape of the API and of everything it prints is `design/preview/api.md`; how it renders in a notebook is `design/preview/style/notebook.html`. Issue {{#m0-11-api-sketch}} turns it into the specification this issue implements.
