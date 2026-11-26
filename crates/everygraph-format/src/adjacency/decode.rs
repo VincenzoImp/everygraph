@@ -19,6 +19,8 @@ const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero")
 /// A run of consecutive lists to decode.
 pub(super) struct Job<'a> {
     data: &'a [u8],
+    /// The offset of `data` in the data part.
+    data_start: usize,
     /// Entry offsets.
     entries: &'a EliasFano,
     /// Byte offsets.
@@ -66,6 +68,7 @@ pub(super) fn run(
 ) -> Result<Done, DecodeError> {
     let Job {
         data,
+        data_start,
         entries,
         bytes,
         nodes,
@@ -114,7 +117,8 @@ pub(super) fn run(
                 first: v,
                 end: v + 1,
             };
-            let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
+            let rec = at.checked_sub(data_start).and_then(|i| data.get(i..));
+            let rec = rec.ok_or(Corrupt).map_err(corrupt)?;
             let used = kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
             if at + used != record_end {
                 return Err(corrupt(Corrupt));
@@ -253,13 +257,15 @@ impl Batch {
     }
 }
 
-/// A compressed adjacency: its index and its data part, in memory (a heap buffer or a
-/// memory map). Cheap to create and to copy; every method takes `&self`, so one value
-/// can be shared by many threads.
+/// A compressed adjacency: its index and its data part, or a part of it, in memory (a
+/// heap buffer or a memory map). Cheap to create and to copy; every method takes
+/// `&self`, so one value can be shared by many threads.
 #[derive(Clone, Copy, Debug)]
 pub struct Adjacency<'a> {
     index: &'a AdjacencyIndex,
     data: &'a [u8],
+    /// The offset of `data` in the data part: 0 unless made by [`Adjacency::part`].
+    base: u64,
     decoder: Decoder,
 }
 
@@ -280,6 +286,39 @@ impl<'a> Adjacency<'a> {
         Ok(Self {
             index,
             data,
+            base: 0,
+            decoder: Decoder::best(),
+        })
+    }
+
+    /// Pairs an index with the bytes `range` of its data part, which a reader that does
+    /// not hold the data part has read. The lists whose records lie inside `range` decode
+    /// as from the whole data part; a list whose record is outside it is a
+    /// [`DecodeError`].
+    ///
+    /// # Errors
+    ///
+    /// [`FormatError::Length`] if `bytes` is not as long as `range`, and
+    /// [`FormatError::Invalid`] if `range` is not inside the data part.
+    pub fn part(
+        index: &'a AdjacencyIndex,
+        range: Range<u64>,
+        bytes: &'a [u8],
+    ) -> Result<Self, FormatError> {
+        if range.start > range.end || range.end > index.data_bytes() {
+            return Err(FormatError::Invalid("a part outside the data part"));
+        }
+        let actual = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if actual != range.end - range.start {
+            return Err(FormatError::Length {
+                expected: range.end - range.start,
+                actual,
+            });
+        }
+        Ok(Self {
+            index,
+            data: bytes,
+            base: range.start,
             decoder: Decoder::best(),
         })
     }
@@ -367,10 +406,12 @@ impl<'a> Adjacency<'a> {
             end: v.get() + 1,
         };
         let range = self.index.record_range(v);
+        let rec = range.start.checked_sub(self.base).map(to_usize);
+        let rec = rec.and_then(|i| self.data.get(i..)).ok_or(corrupt)?;
         grow(buf, k + SLACK);
         let used = self
             .decoder
-            .list(&self.data[to_usize(range.start)..], v.get(), d, k, buf)
+            .list(rec, v.get(), d, k, buf)
             .map_err(|_| corrupt)?;
         if k == d && used as u64 != range.end - range.start {
             return Err(corrupt);
@@ -389,6 +430,7 @@ impl<'a> Adjacency<'a> {
     ) -> Result<Done, DecodeError> {
         let job = Job {
             data: self.data,
+            data_start: to_usize(self.base),
             entries: self.index.entry_offsets(),
             bytes: self.index.byte_offsets(),
             nodes,

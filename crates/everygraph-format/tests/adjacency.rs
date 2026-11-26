@@ -146,12 +146,41 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
             assert_eq!(batch.targets(), all);
+            // The same lists from a part that holds their records only; a list before
+            // the part is an error.
+            if let Some(last) = r.end.checked_sub(1).filter(|&l| l >= r.start) {
+                let bytes =
+                    index.record_range(id(ix(r.start))).start..index.record_range(id(ix(last))).end;
+                let piece = &encoded.data[to_usize(bytes.start)..to_usize(bytes.end)];
+                let part = Adjacency::part(&index, bytes, piece)
+                    .unwrap()
+                    .with_decoder(decoder);
+                part.decode_nodes(r.clone(), usize::MAX, &mut batch)
+                    .unwrap();
+                assert_eq!(batch.targets(), all, "{name} part {r:?}");
+                if let Some(v) = r.start.checked_sub(1).filter(|&v| degree(v) > 0) {
+                    assert!(part.neighbors(id(ix(v)), &mut buf).is_err(), "{name} {v}");
+                    assert!(part.decode_nodes(v..r.end, usize::MAX, &mut batch).is_err());
+                }
+            }
         }
         let (mut o, mut t) = (vec![u64::MAX; n + 1], vec![0u32; targets.len()]);
         adj.decode_all(&mut o, &mut t).unwrap();
         assert_eq!((&o[..], &t[..]), (offsets, targets), "{name} decode_all");
     }
     encoded
+}
+
+/// A part must lie inside the data part and be as long as its range.
+#[test]
+fn a_part_is_checked_against_the_index() {
+    let encoded = encode(&[0, 1, 2], &[1, 0]).unwrap();
+    let index = AdjacencyIndex::parse(&encoded.index).unwrap();
+    let len = index.data_bytes();
+    let data = &encoded.data;
+    assert!(Adjacency::part(&index, 0..len, data).is_ok());
+    assert!(Adjacency::part(&index, 1..len + 1, data).is_err());
+    assert!(Adjacency::part(&index, 0..len - 1, data).is_err());
 }
 
 /// The tests above go through `Decoder::available()`; this makes sure a run with a SIMD

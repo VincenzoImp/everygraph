@@ -5,10 +5,11 @@
 //! its parents and SSSP (#49), weak components (#48), core numbers and degrees (#50).
 //! Each runs on the CI corpus under every configuration that must not change a result —
 //! 1, 3 and 8 threads,
-//! chunks of 64 and 65,536 entries, and four sources: raw arrays, the compressed format
-//! in the heap, the compressed format memory-mapped from a file, and raw targets
-//! streamed from a file. Results must be identical bit for bit across all 24, and match
-//! the in-process references and the invariants.
+//! chunks of 64 and 65,536 entries, and five sources: raw arrays, the compressed format
+//! in the heap, the compressed format memory-mapped from a file, raw targets streamed
+//! from a file, and the compressed format streamed from a file in the smallest window
+//! (4 KiB), every second scan in reverse order. Results must be identical bit for bit
+//! across all 30, and match the in-process references and the invariants.
 //!
 //! The adjacency is stored as the engine stores it: a kept loop is the entry `v` in the
 //! list of `v`, with the loop's weight, and a cost of 0, which must never shorten a
@@ -40,7 +41,9 @@ use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::components::{WccOptions, wcc};
 use everygraph_kernels::degrees::{Loop, degrees};
-use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
+use everygraph_kernels::edge_map::{
+    Compressed, CompressedStream, Csr, Plan, Settings, Source, Stream,
+};
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{self, Eigenvector, Graph, PageRank};
 use everygraph_kernels::sssp::{Sssp, sssp};
@@ -108,6 +111,8 @@ struct Stored {
     index: AdjacencyIndex,
     data: Vec<u8>,
     map: MmapSource,
+    /// The data part, read by positional reads.
+    file: FileSource,
     stream: FileSource,
     files: [PathBuf; 2],
 }
@@ -138,6 +143,7 @@ fn store(lists: Lists) -> Stored {
         index: AdjacencyIndex::parse(&encoded.index).unwrap(),
         data: encoded.data,
         map: MmapSource::open(&files[0]).unwrap(),
+        file: FileSource::open(&files[0]).unwrap(),
         stream: FileSource::open(&files[1]).unwrap(),
         files,
     }
@@ -212,6 +218,7 @@ fn run_kernel<S: Source>(
         chunk_entries: config.chunk_entries,
         batch_entries: usize::try_from(config.chunk_entries.min(8192)).unwrap(),
         prefetch: config.regime != Regime::InMemory,
+        alternate: config.regime == Regime::Stream,
     };
     let e = |e: everygraph_kernels::edge_map::Error| e.to_string();
     let load = |cells: Vec<AtomicU32>| -> Vec<u32> {
@@ -323,6 +330,7 @@ impl KernelUnderTest for Kernels {
             (Storage::Compressed, Regime::InMemory),
             (Storage::Compressed, Regime::Mmap),
             (Storage::Raw, Regime::Stream),
+            (Storage::Compressed, Regime::Stream),
         ];
         Config::grid(
             &[1, 3, 8],
@@ -354,6 +362,9 @@ impl KernelUnderTest for Kernels {
             (Storage::Compressed, Regime::Mmap) => {
                 run_kernel(&mapped(&so)?, &mapped(&si)?, stored, p, k, config)
             }
+            (Storage::Compressed, Regime::Stream) => {
+                run_kernel(&streamed(&so)?, &streamed(&si)?, stored, p, k, config)
+            }
             (Storage::Compressed, _) => run_kernel(&heap(&so)?, &heap(&si)?, stored, p, k, config),
             (Storage::Raw, _) => run_kernel(&stream(&so)?, &stream(&si)?, stored, p, k, config),
         }
@@ -372,6 +383,10 @@ fn heap(s: &Stored) -> Result<Compressed<'_>, String> {
     Adjacency::new(&s.index, &s.data)
         .map(Compressed::new)
         .map_err(|e| e.to_string())
+}
+
+fn streamed(s: &Stored) -> Result<CompressedStream<'_>, String> {
+    CompressedStream::new(&s.index, &s.file, 0).map_err(|e| e.to_string())
 }
 
 fn stream(s: &Stored) -> Result<Stream<'_>, String> {
@@ -415,7 +430,7 @@ fn kernels_pass_the_oracle_under_every_configuration() {
         shown.join("\n")
     );
     assert!(report.checked > 3 * graphs.len(), "{report:?}");
-    assert_eq!(report.runs, report.checked * 24);
+    assert_eq!(report.runs, report.checked * 30);
     if python {
         assert!(
             report.python_comparisons > 0 && report.python_missing == 0,

@@ -10,20 +10,26 @@
 //!
 //! ```text
 //! edge_map_bench encode --graph DIR --out STORE
-//! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|stream
+//! edge_map_bench run --graph DIR [--store STORE]
+//!     --source raw|compressed|mmap|stream|streamed
 //!     --kernel pr32|pr64|eig|wcc|cc|cc-one-pass|kcore|bfs|bfs-parents|msbfs|sssp
 //!     --threads T [--reps R]
 //!     [--iters I] [--chunk ENTRIES] [--batch ENTRIES] [--costs uniform|skewed|file]
-//!     [--delta-scale X]
+//!     [--delta-scale X] [--window BYTES] [--direct 1] [--alternate 0|1]
 //! ```
 //!
-//! `run` prints one JSON line: the times of every repetition, the best, and a hash of
-//! the result, which is the same for every source and thread count. `wcc` is the lab's
+//! `run` prints one JSON line: the times and the bytes read (`read_bytes` of
+//! `/proc/self/io`) of every repetition, the best time, the peak resident memory, and a
+//! hash of the result, which is the same for every source and thread count. `wcc` is the lab's
 //! Afforest (first neighbours only, `proof`), `cc` the components of #48 with hybrid
 //! sampling, `cc-one-pass` the same without sampling. Sources: `raw`,
 //! arrays read into the heap; `compressed`, the store's data part read into the heap;
 //! `mmap`, the data part memory-mapped (warm after the first repetition); `stream`,
-//! the raw targets read through the page cache with positional reads.
+//! the raw targets read through the page cache with positional reads; `streamed`, the
+//! store's data part read in windows of `--window` bytes (4 MiB by default), through
+//! the page cache or with `--direct 1` around it, every second scan in reverse order
+//! unless `--alternate 0`, with the tasks of `CompressedStream::settings` unless
+//! `--chunk` is given.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -47,7 +53,9 @@ use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::components::{WccOptions, wcc};
-use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
+use everygraph_kernels::edge_map::{
+    Compressed, CompressedStream, Csr, Plan, Settings, Source, Stream,
+};
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{Eigenvector, Graph, PageRank, Real, eigenvector, strength};
 use everygraph_kernels::proof;
@@ -81,9 +89,23 @@ fn fnv(words: impl Iterator<Item = u64>) -> u64 {
     })
 }
 
-/// Times `reps` runs of `kernel` on `source`; returns the times and the last result's
-/// hash and summary.
-fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> (Vec<f64>, u64, String) {
+/// A counter of this process from `/proc/self/{file}`, or 0 where there is none.
+fn proc_counter(file: &str, key: &str) -> u64 {
+    let text = std::fs::read_to_string(format!("/proc/self/{file}")).unwrap_or_default();
+    text.lines()
+        .find_map(|l| l.strip_prefix(key))
+        .and_then(|v| v.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Bytes this process has read from storage.
+fn read_bytes() -> u64 {
+    proc_counter("io", "read_bytes:")
+}
+
+/// Times `reps` runs of `kernel` on `source`; returns the time and bytes read of each,
+/// and the last result's hash and summary.
+fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> (Vec<(f64, u64)>, u64, String) {
     let memory = Memory::unlimited();
     Plan::with(source, &memory, settings, |plan| {
         time_plan(&plan, a, &memory)
@@ -94,7 +116,7 @@ fn time_plan<S: Source>(
     plan: &Plan<'_, '_, S>,
     a: &Args,
     memory: &Memory,
-) -> (Vec<f64>, u64, String) {
+) -> (Vec<(f64, u64)>, u64, String) {
     let source = plan.source();
     let reps: usize = a.get("reps").map_or(3, |s| s.parse().expect("--reps"));
     let iters: u32 = a.get("iters").map_or(20, |s| s.parse().expect("--iters"));
@@ -117,9 +139,11 @@ fn time_plan<S: Source>(
         _ => Vec::new(),
     };
     let mut secs = Vec::new();
+    let mut runs = Vec::new();
     let mut last = (0, String::new());
     for _ in 0..reps {
         let t = Instant::now();
+        let before = read_bytes();
         last = match kernel {
             "pr32" => {
                 let r = pagerank::<_, f32>(plan, memory, iters);
@@ -240,8 +264,10 @@ fn time_plan<S: Source>(
             }
             other => panic!("unknown --kernel {other}"),
         };
+        let read = read_bytes() - before;
+        runs.push((secs.last().copied().unwrap_or_default(), read));
     }
-    (secs, last.0, last.1)
+    (runs, last.0, last.1)
 }
 
 /// The graph as `PageRank` pulls it: the benchmark graphs are undirected.
@@ -297,12 +323,13 @@ fn run(a: &Args) {
             .get("chunk")
             .map_or(1 << 16, |s| s.parse().expect("--chunk")),
         batch_entries: a.get("batch").map_or(8192, |s| s.parse().expect("--batch")),
-        prefetch: false,
+        ..Settings::default()
     };
     let t = Instant::now();
-    let offsets = read_words(&graph.join("offsets.u64"), u64::from_le_bytes);
+    let offsets = || read_words(&graph.join("offsets.u64"), u64::from_le_bytes);
     let result = par::with_threads(threads, || match source {
         "raw" => {
+            let offsets = offsets();
             let targets = read_words(&graph.join("targets.u32"), u32::from_le_bytes);
             let csr = Csr::new(&offsets, &targets).expect("a CSR");
             let load = t.elapsed().as_secs_f64();
@@ -329,26 +356,64 @@ fn run(a: &Args) {
             (load, time(&adj, a, settings))
         }
         "stream" => {
+            let offsets = offsets();
             let file = FileSource::open(graph.join("targets.u32")).expect("targets");
             let stream = Stream::new(&offsets, &file).expect("a CSR");
             let load = t.elapsed().as_secs_f64();
             (load, time(&stream, a, settings))
         }
+        "streamed" => {
+            let (index, data) = store_paths(Path::new(&a["store"]));
+            let index = std::fs::read(&index)
+                .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
+            let index = AdjacencyIndex::parse(&index).expect("an index");
+            let file = if a.get("direct").is_some_and(|d| d == "1") {
+                FileSource::open_direct(&data)
+            } else {
+                FileSource::open(&data)
+            }
+            .expect("data");
+            let window = a
+                .get("window")
+                .map_or(4 << 20, |w| w.parse().expect("--window"));
+            let stream = CompressedStream::new(&index, &file, window).expect("data part");
+            let mut s = stream.settings();
+            if a.contains_key("chunk") {
+                s.chunk_entries = settings.chunk_entries;
+            }
+            s.batch_entries = settings.batch_entries;
+            s.alternate = a.get("alternate").is_none_or(|x| x == "1");
+            let load = t.elapsed().as_secs_f64();
+            (load, time(&stream, a, s))
+        }
         other => panic!("unknown --source {other}"),
     })
     .expect("a thread pool");
-    let (load, (secs, hash, summary)) = result;
-    let best = secs.iter().copied().fold(f64::INFINITY, f64::min);
-    let all: Vec<String> = secs.iter().map(f64::to_string).collect();
+    let (load, (runs, hash, summary)) = result;
+    let best = runs.iter().map(|r| r.0).fold(f64::INFINITY, f64::min);
+    let secs: Vec<String> = runs.iter().map(|r| r.0.to_string()).collect();
+    let read: Vec<String> = runs.iter().map(|r| r.1.to_string()).collect();
+    let peak = proc_counter("status", "VmHWM:") * 1024;
+    let arg = |k: &str| a.get(k).map_or("null", String::as_str).to_owned();
     println!(
         "{{\"graph\": \"{}\", \"source\": \"{source}\", \"kernel\": \"{}\", \"threads\": {threads}, \
-         \"chunk\": {}, \"batch\": {}, \"load_seconds\": {load}, \"seconds_all\": [{}], \
-         \"seconds_best\": {best}, \"hash\": \"{hash:016x}\", \"result\": {summary}}}",
+         \"chunk\": {}, \"batch\": {}, \"window\": {}, \"direct\": {}, \"alternate\": {}, \
+         \"load_seconds\": {load}, \"seconds_all\": [{}], \"read_bytes_all\": [{}], \
+         \"seconds_best\": {best}, \"rss_peak_bytes\": {peak}, \"hash\": \"{hash:016x}\", \
+         \"result\": {summary}}}",
         graph.file_name().unwrap_or_default().to_string_lossy(),
         a.get("kernel").map_or("pr32", String::as_str),
-        settings.chunk_entries,
+        if source == "streamed" && !a.contains_key("chunk") {
+            "null".to_owned()
+        } else {
+            settings.chunk_entries.to_string()
+        },
         settings.batch_entries,
-        all.join(", "),
+        arg("window"),
+        arg("direct"),
+        arg("alternate"),
+        secs.join(", "),
+        read.join(", "),
     );
 }
 

@@ -21,8 +21,8 @@ use everygraph_core::{Budget, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{
-    Compressed, Csr, Error, FRONTIER_GRAIN, Node, NodeList, Plan, Settings, Source, Stream, Work,
-    all, ids,
+    Compressed, CompressedStream, Csr, Error, FRONTIER_GRAIN, Node, NodeList, Plan, Settings,
+    Source, Stream, Work, all, ids,
 };
 use everygraph_kernels::{pagerank, proof, traversal};
 
@@ -84,6 +84,8 @@ struct Stored {
     index: AdjacencyIndex,
     data: Vec<u8>,
     map: MmapSource,
+    /// The data part, read by positional reads.
+    file: FileSource,
     stream: FileSource,
     _files: Temp,
 }
@@ -113,6 +115,7 @@ fn store(name: &str, offsets: Vec<u64>, targets: Vec<u32>) -> Stored {
         index: AdjacencyIndex::parse(&encoded.index).unwrap(),
         data: encoded.data,
         map: MmapSource::open(&files.0[0]).unwrap(),
+        file: FileSource::open(&files.0[0]).unwrap(),
         stream: FileSource::open(&files.0[1]).unwrap(),
         offsets,
         targets,
@@ -228,6 +231,7 @@ fn settings(chunk: u64, batch: usize) -> Settings {
         chunk_entries: chunk,
         batch_entries: batch,
         prefetch: batch % 2 == 1,
+        alternate: chunk.is_multiple_of(2),
     }
 }
 
@@ -247,6 +251,8 @@ fn every_source_thread_count_chunk_and_batch_give_the_same_bits() {
         let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
         let mapped = Compressed::mapped(&s.index, &s.map).unwrap();
         let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+        let small = CompressedStream::new(&s.index, &s.file, 0).unwrap();
+        let large = CompressedStream::new(&s.index, &s.file, 1 << 16).unwrap();
         let block = Plan::with(&csr, &Memory::unlimited(), Settings::default(), |p| {
             p.block_nodes()
         });
@@ -265,6 +271,8 @@ fn every_source_thread_count_chunk_and_batch_give_the_same_bits() {
                 assert_eq!(probe(&heap, c, threads), expected, "compressed, {what}");
                 assert_eq!(probe(&mapped, c, threads), expected, "mapped, {what}");
                 assert_eq!(probe(&stream, c, threads), expected, "stream, {what}");
+                assert_eq!(probe(&small, c, threads), expected, "4 KiB window, {what}");
+                assert_eq!(probe(&large, c, threads), expected, "64 KiB window, {what}");
             }
         }
     }
@@ -343,18 +351,22 @@ fn a_target_outside_the_graph_is_an_error_not_a_panic() {
     let s = store("bad", offsets, targets);
     let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+    let streamed = CompressedStream::new(&s.index, &s.file, 0).unwrap();
     let memory = Memory::unlimited();
     let s0 = Settings::default();
     for e in [
         Plan::with(&heap, &memory, s0, |p| scan(&p)),
         Plan::with(&stream, &memory, s0, |p| scan(&p)),
+        Plan::with(&streamed, &memory, s0, |p| scan(&p)),
         Plan::with(&heap, &memory, s0, |p| frontier(&p, &[3])),
         Plan::with(&stream, &memory, s0, |p| frontier(&p, &[2, 3])),
+        Plan::with(&streamed, &memory, s0, |p| frontier(&p, &[1, 3])),
     ] {
         assert!(matches!(e, Error::Target { node: 3, target: 9 }), "{e}");
     }
     Plan::with(&heap, &memory, s0, |p| side(&p));
     Plan::with(&stream, &memory, s0, |p| side(&p));
+    Plan::with(&streamed, &memory, s0, |p| side(&p));
     assert!(matches!(Csr::new(&[0, 2, 1], &[0]), Err(Error::Invalid(_))));
     let bytes = MemorySource::new(vec![0_u8; 8]);
     assert!(matches!(
@@ -364,6 +376,10 @@ fn a_target_outside_the_graph_is_an_error_not_a_panic() {
     let wrong = MemorySource::new(vec![0_u8; s.data.len() + 1]);
     assert!(matches!(
         Compressed::mapped(&s.index, &wrong),
+        Err(Error::Format(_))
+    ));
+    assert!(matches!(
+        CompressedStream::new(&s.index, &wrong, 0),
         Err(Error::Format(_))
     ));
 }
@@ -412,9 +428,11 @@ fn readers_are_reserved_against_the_budget() {
     assert!(s.list(hub).len() > 1000);
     let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+    let streamed = CompressedStream::new(&s.index, &s.file, 0).unwrap();
     for (name, (low, high, after)) in [
         ("compressed", peaks(&heap, hub)),
         ("stream", peaks(&stream, hub)),
+        ("streamed", peaks(&streamed, hub)),
     ] {
         let hub_bytes = s.list(hub).len() as u64 * 4;
         assert!(
@@ -425,10 +443,11 @@ fn readers_are_reserved_against_the_budget() {
             after <= low,
             "{name}: {after} B held after the hub, {low} before"
         );
-        let (a, b) = if name == "compressed" {
-            under(&heap, hub, (low + high) / 2)
-        } else {
-            under(&stream, hub, (low + high) / 2)
+        let limit = (low + high) / 2;
+        let (a, b) = match name {
+            "compressed" => under(&heap, hub, limit),
+            "stream" => under(&stream, hub, limit),
+            _ => under(&streamed, hub, limit),
         };
         assert!(a.is_ok(), "{name}: {a:?}");
         assert!(matches!(b, Err(Error::Memory(_))), "{name}: {b:?}");
@@ -512,6 +531,7 @@ fn proof_kernels_and_their_work_do_not_depend_on_source_or_threads() {
     let csr = Csr::new(&s.offsets, &s.targets).unwrap();
     let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
+    let streamed = CompressedStream::new(&s.index, &s.file, 0).unwrap();
     let expected = kernels(&csr, Settings::default(), 1);
     assert!(expected.3.lists > 0 && expected.3.entries > 0);
     for threads in [1, 3, 8] {
@@ -521,6 +541,7 @@ fn proof_kernels_and_their_work_do_not_depend_on_source_or_threads() {
             assert_eq!(kernels(&csr, c, threads), expected, "csr, {what}");
             assert_eq!(kernels(&heap, c, threads), expected, "compressed, {what}");
             assert_eq!(kernels(&stream, c, threads), expected, "stream, {what}");
+            assert_eq!(kernels(&streamed, c, threads), expected, "streamed, {what}");
         }
     }
 }
