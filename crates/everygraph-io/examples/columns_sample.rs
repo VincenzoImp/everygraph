@@ -22,7 +22,8 @@ use std::io::Write as _;
 use std::path::Path;
 
 use everygraph_format::columns::{
-    CodeWidth, ColumnSpec, ColumnType, ColumnWriter, TimeUnit, Values, write_column,
+    Bits, CodeWidth, ColumnSpec, ColumnType, ColumnWriter, Dictionary, TimeUnit, Values,
+    write_column,
 };
 use everygraph_format::container::{Provenance, Writer};
 use everygraph_io::{FileSink, persist};
@@ -60,7 +61,12 @@ fn nullable<'a, T: Copy + Default + 'a>(
         for (i, x) in batch.iter().enumerate() {
             bits[i / 8] |= u8::from(x.is_some()) << (i % 8);
         }
-        column.write_batch(&[values(&plain)], Some(&bits))?;
+        let validity = Bits {
+            bytes: &bits,
+            offset: 0,
+            len: batch.len() as u64,
+        };
+        column.write_batch(&[values(&plain)], &[validity])?;
     }
     column.finish()?;
     Ok(())
@@ -119,6 +125,8 @@ fn small(w: &mut Writer<FileSink>, s: &mut Sample) -> Result<()> {
     s.column("adjacency.out.event", &spec, &list(&shown, u32::to_string));
 
     let strings = ["swap", "transfer", "mint", ""];
+
+    let (offsets, bytes) = Dictionary::parts(&strings);
     let kind = [
         Some(0u8),
         Some(1),
@@ -134,7 +142,10 @@ fn small(w: &mut Writer<FileSink>, s: &mut Sample) -> Result<()> {
     let spec = ColumnSpec {
         nullable: true,
         batch_rows: 4,
-        dictionary: Some(&strings),
+        dictionary: Some(Dictionary {
+            offsets: &offsets,
+            bytes: &bytes,
+        }),
         ..ColumnSpec::new(
             "kind",
             ColumnType::Dictionary(CodeWidth::U8),
@@ -246,6 +257,28 @@ fn small(w: &mut Writer<FileSink>, s: &mut Sample) -> Result<()> {
     write_column(w, "nodes", &spec, &total[..], ingest)?;
     s.column("nodes", &spec, &list(&total.map(Some), u64::to_string));
 
+    // Finite floats over the whole exponent range, subnormals and values near f64::MAX
+    // included, each followed by its opposite one time in four: the sum's exactness
+    // across cancellations and intermediate overflow.
+    let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut spread = Vec::new();
+    while spread.len() < 400 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let x = f64::from_bits(state ^ (state >> 29));
+        if x.is_finite() {
+            spread.push(x);
+            if state.is_multiple_of(4) {
+                spread.push(-x);
+            }
+        }
+    }
+    let spec = ColumnSpec::new("spread", ColumnType::Float64, spread.len() as u64);
+    write_column(w, "nodes", &spec, &spread[..], ingest)?;
+    let shown: Vec<_> = spread.iter().map(|x| Some(*x)).collect();
+    s.column("nodes", &spec, &list(&shown, bits));
+
     let score = [1.5f32, f32::NEG_INFINITY, f32::NAN, 0.1, -0.0];
     let spec = ColumnSpec::new("score", ColumnType::Float32, 5);
     write_column(w, "nodes", &spec, &score[..], ingest)?;
@@ -285,8 +318,13 @@ fn golden(w: &mut Writer<FileSink>, s: &mut Sample) -> Result<()> {
         ..ColumnSpec::new("weight", ColumnType::Float64, 3)
     };
     let mut c = ColumnWriter::begin(w, "golden", &spec, None)?;
-    c.write_batch(&[Values::F64(&[0.5, -0.0])], Some(&[0b01]))?;
-    c.write_batch(&[Values::F64(&[f64::NAN])], None)?;
+    let bits = Bits {
+        bytes: &[0b01],
+        offset: 0,
+        len: 2,
+    };
+    c.write_batch(&[Values::F64(&[0.5, -0.0])], &[bits])?;
+    c.write_batch(&[Values::F64(&[f64::NAN])], &[])?;
     c.finish()?;
     let values = format!(
         "\"{:#x}\", null, \"{:#x}\"",
@@ -296,8 +334,13 @@ fn golden(w: &mut Writer<FileSink>, s: &mut Sample) -> Result<()> {
     s.column("golden", &spec, &values);
 
     let strings = ["swap", "mint"];
+
+    let (offsets, bytes) = Dictionary::parts(&strings);
     let spec = ColumnSpec {
-        dictionary: Some(&strings),
+        dictionary: Some(Dictionary {
+            offsets: &offsets,
+            bytes: &bytes,
+        }),
         ..ColumnSpec::new("kind", ColumnType::Dictionary(CodeWidth::U16), 4)
     };
     write_column(w, "golden", &spec, &[1u16, 0, 0, 1], None)?;
@@ -313,17 +356,22 @@ fn big(w: &mut Writer<FileSink>, s: &mut Sample) -> Result<()> {
         let first = batch * spec.batch_rows;
         #[allow(clippy::cast_precision_loss)]
         let values: Vec<f32> = (first..first + spec.batch_rows).map(|i| i as f32).collect();
-        column.write_batch(&[Values::F32(&values)], None)?;
+        column.write_batch(&[Values::F32(&values)], &[])?;
     }
     column.finish()?;
     s.column("big", &spec, "");
 
     let strings = ["a", "bb", "ccc"];
+
+    let (offsets, bytes) = Dictionary::parts(&strings);
     let codes: Vec<u8> = (0..1u32 << 20)
         .map(|i| u8::try_from(i % 3).unwrap_or(0))
         .collect();
     let spec = ColumnSpec {
-        dictionary: Some(&strings),
+        dictionary: Some(Dictionary {
+            offsets: &offsets,
+            bytes: &bytes,
+        }),
         ..ColumnSpec::new(
             "kind",
             ColumnType::Dictionary(CodeWidth::U8),

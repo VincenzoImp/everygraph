@@ -38,7 +38,7 @@ fn pad(buf: &mut Vec<u8>, align: usize) {
 }
 
 /// Writes at `at` the forward offset to `target`. The buffers encoded here stay far
-/// below 4 GiB (§ 4.1 bounds the footer, the largest of them).
+/// below 4 GiB (§ 3.1 bounds the footer, the largest of them, by the batch count).
 fn patch(buf: &mut [u8], at: usize, target: usize) {
     let rel = u32::try_from(target - at).unwrap_or(u32::MAX);
     buf[at..at + 4].copy_from_slice(&rel.to_le_bytes());

@@ -17,7 +17,7 @@ labels: type:feature, area:ingest, P0, risk:medium, size:M
 
 **Acceptance**
 - Friendster as Parquet (integer ids) → `.eg` no slower than from plain text
-- Round-trip of all supported column types into property columns
+- Round-trip of all supported column types into property columns: columns round-trip from Parquet input to Arrow output with identical values, identical up to `docs/spec/eg-container.md` § 1 (canonical NaN, no −0.0) (moved from {{#m2-10-property-columns}})
 - A file whose page headers declare sizes far above its length is refused with `InvalidInput`, with the counting allocator showing no allocation of the declared size
 
 **Depends on** {{#m1-11-real-inputs}}, {{#m2-08-csr-build}}, {{#m2-10-property-columns}}

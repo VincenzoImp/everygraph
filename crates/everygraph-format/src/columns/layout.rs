@@ -313,69 +313,56 @@ fn encode_type(ty: ColumnType) -> (u8, u32, u32) {
         ColumnType::Float32 => (2, 32, 0),
         ColumnType::Float64 => (2, 64, 0),
         ColumnType::Bool => (3, 0, 0),
-        ColumnType::Timestamp(unit) => (
-            4,
-            match unit {
-                TimeUnit::Second => 0,
-                TimeUnit::Millisecond => 1,
-                TimeUnit::Microsecond => 2,
-                TimeUnit::Nanosecond => 3,
-            },
-            0,
-        ),
+        ColumnType::Timestamp(unit) => (4, unit.code().into(), 0),
         ColumnType::FixedSizeBinary(width) => (5, width, 0),
         ColumnType::Decimal128 { precision, scale } => decimal(6, precision, scale),
         ColumnType::Decimal256 { precision, scale } => decimal(7, precision, scale),
-        ColumnType::Dictionary(width) => (
-            DICTIONARY_CODE,
-            match width {
-                CodeWidth::U8 => 8,
-                CodeWidth::U16 => 16,
-                CodeWidth::U32 => 32,
-            },
-            0,
-        ),
+        ColumnType::Dictionary(width) => (DICTIONARY_CODE, width.bits().into(), 0),
     }
 }
 
-/// The type with these codes, if this version defines it; its parameters are checked
-/// by [`Shape::check`].
+/// The type with these codes, if this version defines it: a candidate built from the
+/// code, kept only if it encodes back to the same three numbers. Its parameters are
+/// checked by [`Shape::check`].
 fn decode_type(code: u8, p1: u32, p2: u32) -> Option<ColumnType> {
-    let decimal = |precision| {
-        Some((
-            u8::try_from(precision).ok()?,
-            i8::try_from(p2.cast_signed()).ok()?,
-        ))
-    };
-    let ty = match (code, p1, p2) {
-        (1, 8, 1) => ColumnType::Int8,
-        (1, 16, 1) => ColumnType::Int16,
-        (1, 32, 1) => ColumnType::Int32,
-        (1, 64, 1) => ColumnType::Int64,
-        (1, 8, 0) => ColumnType::UInt8,
-        (1, 16, 0) => ColumnType::UInt16,
-        (1, 32, 0) => ColumnType::UInt32,
-        (1, 64, 0) => ColumnType::UInt64,
-        (2, 32, 0) => ColumnType::Float32,
-        (2, 64, 0) => ColumnType::Float64,
-        (3, 0, 0) => ColumnType::Bool,
-        (4, 0, 0) => ColumnType::Timestamp(TimeUnit::Second),
-        (4, 1, 0) => ColumnType::Timestamp(TimeUnit::Millisecond),
-        (4, 2, 0) => ColumnType::Timestamp(TimeUnit::Microsecond),
-        (4, 3, 0) => ColumnType::Timestamp(TimeUnit::Nanosecond),
-        (5, width, 0) => ColumnType::FixedSizeBinary(width),
-        (6, p, _) => {
-            let (precision, scale) = decimal(p)?;
-            ColumnType::Decimal128 { precision, scale }
-        }
-        (7, p, _) => {
-            let (precision, scale) = decimal(p)?;
-            ColumnType::Decimal256 { precision, scale }
-        }
-        (DICTIONARY_CODE, 8, 0) => ColumnType::Dictionary(CodeWidth::U8),
-        (DICTIONARY_CODE, 16, 0) => ColumnType::Dictionary(CodeWidth::U16),
-        (DICTIONARY_CODE, 32, 0) => ColumnType::Dictionary(CodeWidth::U32),
+    use ColumnType as T;
+    use TimeUnit as U;
+    let precision = u8::try_from(p1).ok();
+    let scale = i8::try_from(p2.cast_signed()).ok();
+    let same = |t: &ColumnType| encode_type(*t) == (code, p1, p2);
+    let ty = match code {
+        1 => [
+            T::Int8,
+            T::Int16,
+            T::Int32,
+            T::Int64,
+            T::UInt8,
+            T::UInt16,
+            T::UInt32,
+            T::UInt64,
+        ]
+        .into_iter()
+        .find(same)?,
+        2 => [T::Float32, T::Float64].into_iter().find(same)?,
+        3 => T::Bool,
+        4 => [U::Second, U::Millisecond, U::Microsecond, U::Nanosecond]
+            .into_iter()
+            .map(T::Timestamp)
+            .find(same)?,
+        5 => T::FixedSizeBinary(p1),
+        6 => T::Decimal128 {
+            precision: precision?,
+            scale: scale?,
+        },
+        7 => T::Decimal256 {
+            precision: precision?,
+            scale: scale?,
+        },
+        DICTIONARY_CODE => [CodeWidth::U8, CodeWidth::U16, CodeWidth::U32]
+            .into_iter()
+            .map(T::Dictionary)
+            .find(same)?,
         _ => return None,
     };
-    Some(ty)
+    same(&ty).then_some(ty)
 }

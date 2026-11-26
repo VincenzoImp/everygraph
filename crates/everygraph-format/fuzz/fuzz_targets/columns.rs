@@ -17,8 +17,8 @@
 
 use everygraph_core::{ByteSource, MemorySource};
 use everygraph_format::columns::{
-    CodeWidth, Column, ColumnLayout, ColumnSpec, ColumnStats, ColumnType, ColumnWriter,
-    SectionNames, Values,
+    Bits, CodeWidth, Column, ColumnLayout, ColumnSpec, ColumnStats, ColumnType, ColumnWriter,
+    Dictionary, SectionNames, Values,
 };
 use everygraph_format::container::{Container, Writer};
 use libfuzzer_sys::fuzz_target;
@@ -36,6 +36,7 @@ fn check(layout: &[u8], stats: &[u8], column: &[u8]) -> bool {
     }
     if let Some(d) = layout.dictionary() {
         assert!(d.offsets.end <= len && d.data.end <= len);
+        assert!(d.offsets.start <= d.offsets.end && d.data.start <= d.data.end);
     }
     let _ = ColumnStats::parse(stats, &layout);
     let Ok(column) = Column::open(&layout, Mem::new(column.to_vec())) else {
@@ -80,7 +81,7 @@ fn structured(bytes: &[u8]) {
     let (values, damage) = rest.split_at(rest.len().min(rows * width * 2));
     let mut raw = values.to_vec();
     raw.resize(rows * width.max(8), 0);
-    let strings = ["a", "", "ccc"];
+    let (offsets, bytes) = Dictionary::parts(&["a", "", "ccc"]);
     let f64s: Vec<f64> = raw
         .chunks(8)
         .take(rows)
@@ -115,7 +116,10 @@ fn structured(bytes: &[u8]) {
     let spec = ColumnSpec {
         nullable: *nulls != 0,
         batch_rows: batch_rows as u64,
-        dictionary: matches!(ty, ColumnType::Dictionary(_)).then_some(&strings[..]),
+        dictionary: matches!(ty, ColumnType::Dictionary(_)).then_some(Dictionary {
+            offsets: &offsets,
+            bytes: &bytes,
+        }),
         ..ColumnSpec::new("c", ty, rows as u64)
     };
     let mut w = Writer::create(Mem::new(Vec::new())).unwrap();
@@ -136,11 +140,25 @@ fn structured(bytes: &[u8]) {
             Values::Bytes(v) => Values::Bytes(&v[range.start * per..range.end * per]),
             _ => unreachable!(),
         };
-        let bits: Vec<u8> = (0..n.div_ceil(8))
+        // The batch's validity as two pieces of one bitmap, cut at a bit offset.
+        let bitmap: Vec<u8> = (0..n.div_ceil(8) + 1)
             .map(|i| !(nulls.rotate_left(i as u32)))
             .collect();
-        c.write_batch(&[part], spec.nullable.then_some(&bits[..]))
-            .unwrap();
+        let cut = n / 2;
+        let pieces = [
+            Bits {
+                bytes: &bitmap,
+                offset: 3,
+                len: cut as u64,
+            },
+            Bits {
+                bytes: &bitmap,
+                offset: 3 + cut as u64,
+                len: (n - cut) as u64,
+            },
+        ];
+        let validity: &[Bits<'_>] = if spec.nullable { &pieces } else { &[] };
+        c.write_batch(&[part], validity).unwrap();
     }
     c.finish().unwrap();
     w.commit().unwrap();

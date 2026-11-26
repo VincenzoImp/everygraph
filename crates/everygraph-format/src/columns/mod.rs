@@ -63,11 +63,11 @@ use crate::container::{Kind, Writer};
 
 pub use layout::{BatchLayout, ColumnLayout, DictionaryLayout};
 pub use read::Column;
-pub use stats::{ColumnStats, ExactSum};
-pub use write::{ColumnSpec, ColumnWriter, Values, write_column};
+pub use stats::ColumnStats;
+pub use write::{Bits, ColumnSpec, ColumnWriter, Dictionary, Values, write_column};
 
 /// The largest layout section a reader accepts, and a writer writes: 16 MiB, about
-/// 400,000 batches (§ 4.1).
+/// 400,000 batches (§ 3.1, § 4).
 pub const MAX_LAYOUT_BYTES: u64 = 16 << 20;
 /// The longest column name, in bytes of UTF-8.
 pub const MAX_NAME_BYTES: usize = 512;
@@ -89,6 +89,19 @@ pub enum TimeUnit {
     Nanosecond,
 }
 
+impl TimeUnit {
+    /// The unit's code: 0 s, 1 ms, 2 us, 3 ns (Arrow's `TimeUnit`; spec § 2).
+    #[must_use]
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Second => 0,
+            Self::Millisecond => 1,
+            Self::Microsecond => 2,
+            Self::Nanosecond => 3,
+        }
+    }
+}
+
 /// The width of the codes of a dictionary-encoded column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CodeWidth {
@@ -98,6 +111,28 @@ pub enum CodeWidth {
     U16,
     /// `uint32` codes: up to 2^31 − 1 values (an Arrow array's limit).
     U32,
+}
+
+impl CodeWidth {
+    /// Bits per code: 8, 16 or 32.
+    #[must_use]
+    pub fn bits(self) -> u8 {
+        match self {
+            Self::U8 => 8,
+            Self::U16 => 16,
+            Self::U32 => 32,
+        }
+    }
+
+    /// The most strings the codes can name.
+    #[must_use]
+    pub fn most_values(self) -> u64 {
+        match self {
+            Self::U8 => 1 << 8,
+            Self::U16 => 1 << 16,
+            Self::U32 => (1 << 31) - 1,
+        }
+    }
 }
 
 /// The type of a column (`docs/spec/graph-semantics.md` § 2.6; `eg-columns.md` § 2).

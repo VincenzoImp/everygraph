@@ -5,10 +5,11 @@
 use std::ops::Range;
 
 use everygraph_core::ByteSink;
+use everygraph_core::math::{canonical, canonical_f32};
 
 use super::arrow::{Plan, Shape};
 use super::layout::{self, ColumnLayout};
-use super::stats::{Accumulator, ColumnStats};
+use super::stats::{Accumulator, ColumnStats, magnitude, pow10};
 use super::{CodeWidth, ColumnError, ColumnType, SectionNames};
 use crate::container::{ContainerError, Kind, MAX_NAME_BYTES, SectionWriter, Writer};
 
@@ -29,8 +30,8 @@ pub struct ColumnSpec<'a> {
     pub nullable: bool,
     /// Rows per batch: a power of two up to 2^30, with each batch below 2 GiB.
     pub batch_rows: u64,
-    /// The strings of a dictionary-encoded column, in code order.
-    pub dictionary: Option<&'a [&'a str]>,
+    /// The strings of a dictionary-encoded column.
+    pub dictionary: Option<Dictionary<'a>>,
 }
 
 impl<'a> ColumnSpec<'a> {
@@ -54,10 +55,91 @@ impl<'a> ColumnSpec<'a> {
             nullable: self.nullable,
             rows: self.rows,
             batch_rows: self.batch_rows,
-            dictionary: self
-                .dictionary
-                .map(|d| (d.len() as u64, d.iter().map(|s| s.len() as u64).sum())),
+            dictionary: self.dictionary.map(|d| (d.values(), d.bytes.len() as u64)),
         }
+    }
+}
+
+/// The strings of a dictionary-encoded column as Arrow keeps them: string `i` is
+/// `bytes[offsets[i] .. offsets[i + 1]]`, so `offsets` has one more element than there
+/// are strings, starts at 0 and ends at `bytes.len()`.
+#[derive(Clone, Copy, Debug)]
+pub struct Dictionary<'a> {
+    /// Where each string starts, then where the last ends.
+    pub offsets: &'a [u32],
+    /// The strings' UTF-8 bytes, concatenated.
+    pub bytes: &'a [u8],
+}
+
+impl Dictionary<'_> {
+    /// The offsets and bytes of `strings`, for [`Dictionary`].
+    #[must_use]
+    pub fn parts(strings: &[&str]) -> (Vec<u32>, Vec<u8>) {
+        let mut offsets = vec![0];
+        let mut bytes = Vec::new();
+        for s in strings {
+            bytes.extend_from_slice(s.as_bytes());
+            offsets.push(u32::try_from(bytes.len()).unwrap_or(u32::MAX));
+        }
+        (offsets, bytes)
+    }
+
+    /// The number of strings.
+    #[must_use]
+    pub fn values(&self) -> u64 {
+        self.offsets.len().saturating_sub(1) as u64
+    }
+
+    fn check(&self) -> Result<(), ColumnError> {
+        let bad = ColumnError::Input(
+            "dictionary offsets that do not start at 0, decrease, or do not end at the \
+             bytes' length, or strings that are not UTF-8",
+        );
+        let (Some(&0), Some(&last)) = (self.offsets.first(), self.offsets.last()) else {
+            return Err(bad);
+        };
+        if usize::try_from(last).ok() != Some(self.bytes.len()) {
+            return Err(bad);
+        }
+        for w in self.offsets.windows(2) {
+            let range =
+                usize::try_from(w[0]).unwrap_or(usize::MAX)..usize::try_from(w[1]).unwrap_or(0);
+            match self.bytes.get(range) {
+                Some(s) if std::str::from_utf8(s).is_ok() => {}
+                _ => return Err(bad),
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The validity of some rows: row `i` (for `i` in `0..len`) is valid when bit
+/// `offset + i` of `bytes` is set (bit `j % 8` of byte `j / 8`). A batch's validity
+/// may come in several pieces, such as the segments of a bit array.
+#[derive(Clone, Copy, Debug)]
+pub struct Bits<'a> {
+    /// The bitmap.
+    pub bytes: &'a [u8],
+    /// The first bit used.
+    pub offset: u64,
+    /// The number of rows.
+    pub len: u64,
+}
+
+impl Bits<'_> {
+    fn iter(&self) -> impl Iterator<Item = bool> + '_ {
+        (self.offset..self.offset + self.len).map(|j| {
+            usize::try_from(j / 8)
+                .ok()
+                .and_then(|i| self.bytes.get(i))
+                .is_some_and(|b| b >> (j % 8) & 1 == 1)
+        })
+    }
+
+    fn fits(&self) -> bool {
+        self.offset
+            .checked_add(self.len)
+            .is_some_and(|end| end <= self.bytes.len() as u64 * 8)
     }
 }
 
@@ -124,22 +206,26 @@ impl Values<'_> {
     /// Whether these values fit a column of type `ty`.
     fn fits(&self, ty: ColumnType) -> bool {
         use ColumnType as T;
-        matches!(
-            (self, ty),
-            (Self::I8(_), T::Int8)
-                | (Self::I16(_), T::Int16)
-                | (Self::I32(_), T::Int32)
-                | (Self::I64(_), T::Int64 | T::Timestamp(_))
-                | (Self::U8(_), T::UInt8 | T::Dictionary(CodeWidth::U8))
-                | (Self::U16(_), T::UInt16 | T::Dictionary(CodeWidth::U16))
-                | (Self::U32(_), T::UInt32 | T::Dictionary(CodeWidth::U32))
-                | (Self::U64(_), T::UInt64)
-                | (Self::F32(_), T::Float32)
-                | (Self::F64(_), T::Float64)
-                | (Self::Bool(_), T::Bool)
-                | (Self::I128(_), T::Decimal128 { .. })
-                | (Self::Bytes(_), T::FixedSizeBinary(_) | T::Decimal256 { .. })
-        )
+        match (self, ty) {
+            (Self::Bytes(b), T::FixedSizeBinary(_) | T::Decimal256 { .. }) => {
+                (b.len() as u64).is_multiple_of(ty.width())
+            }
+            _ => matches!(
+                (self, ty),
+                (Self::I8(_), T::Int8)
+                    | (Self::I16(_), T::Int16)
+                    | (Self::I32(_), T::Int32)
+                    | (Self::I64(_), T::Int64 | T::Timestamp(_))
+                    | (Self::U8(_), T::UInt8 | T::Dictionary(CodeWidth::U8))
+                    | (Self::U16(_), T::UInt16 | T::Dictionary(CodeWidth::U16))
+                    | (Self::U32(_), T::UInt32 | T::Dictionary(CodeWidth::U32))
+                    | (Self::U64(_), T::UInt64)
+                    | (Self::F32(_), T::Float32)
+                    | (Self::F64(_), T::Float64)
+                    | (Self::Bool(_), T::Bool)
+                    | (Self::I128(_), T::Decimal128 { .. })
+            ),
+        }
     }
 
     /// Rows of a column of type `ty` these values make.
@@ -158,6 +244,7 @@ impl Values<'_> {
 /// The bytes written are a function of the spec, the values and the validity alone
 /// (no threads, no clock). Floats are stored canonically: NaN as the quiet NaN
 /// `0x7FC00000` or `0x7FF8000000000000`, −0.0 as +0.0. A null row stores zero bytes.
+/// Nothing of a batch is held in memory: bytes go to the sink through a 64 KiB buffer.
 #[derive(Debug)]
 pub struct ColumnWriter<'w, S: ByteSink> {
     section: SectionWriter<'w, S>,
@@ -167,6 +254,8 @@ pub struct ColumnWriter<'w, S: ByteSink> {
     nulls: Vec<u64>,
     stats: Option<Accumulator>,
     staging: Vec<u8>,
+    /// The bits of a bitmap byte not yet staged, and their count.
+    bits: (u8, u32),
 }
 
 impl<'w, S: ByteSink> ColumnWriter<'w, S> {
@@ -177,8 +266,9 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
     ///
     /// # Errors
     ///
-    /// [`ColumnError::Input`] for a spec that breaks the limits of § 2 and § 3.1, or a
-    /// dictionary given to a column of another type (or missing);
+    /// [`ColumnError::Input`] for a spec that breaks the limits of § 2 and § 3.1, a
+    /// scope that is empty or holds a `/`, or a dictionary that is missing, given to a
+    /// column of another type, or malformed (see [`Dictionary`]);
     /// [`ColumnError::TooLarge`] for a column whose layout would exceed 16 MiB;
     /// [`ColumnError::Container`] when a section name is taken or invalid, or the sink
     /// fails.
@@ -188,8 +278,14 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
         spec: &ColumnSpec<'_>,
         provenance: Option<&str>,
     ) -> Result<Self, ColumnError> {
+        if scope.is_empty() || scope.contains('/') {
+            return Err(ColumnError::Input("a scope is not empty and holds no '/'"));
+        }
         let shape = spec.shape();
         layout::check(&shape)?;
+        if let Some(d) = &spec.dictionary {
+            d.check()?;
+        }
         let names = SectionNames::new(scope, spec.name);
         for name in [&names.column, &names.layout, &names.stats] {
             if name.len() > MAX_NAME_BYTES {
@@ -209,54 +305,48 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
             plan,
             nulls: Vec::new(),
             staging: Vec::with_capacity(STAGING),
+            bits: (0, 0),
         };
         this.section.write(&head)?;
-        if let Some(strings) = spec.dictionary {
-            this.write_dictionary(strings)?;
+        if let Some(d) = spec.dictionary {
+            this.write_dictionary(d)?;
         }
         Ok(this)
     }
 
-    fn write_dictionary(&mut self, strings: &[&str]) -> Result<(), ColumnError> {
+    fn write_dictionary(&mut self, d: Dictionary<'_>) -> Result<(), ColumnError> {
         let frame = self.plan.dictionary();
         self.section.write(&frame.metadata)?;
         self.fill_to(frame.buffers[1].start)?;
-        let mut end = 0i32;
-        self.stage(&end.to_le_bytes())?;
-        for s in strings {
-            // The dictionary body is below 2 GiB (`Shape::check`).
-            end += i32::try_from(s.len()).unwrap_or(i32::MAX);
-            self.stage(&end.to_le_bytes())?;
+        // Below 2^31 (`Shape::check`), so the same bytes as Arrow's `i32` offsets.
+        for o in d.offsets {
+            self.stage(&o.to_le_bytes())?;
         }
         self.flush()?;
         // Empty strings only: the data buffer is empty, at offset 0 of the body.
         if !frame.buffers[2].is_empty() {
             self.fill_to(frame.buffers[2].start)?;
+            self.section.write(d.bytes)?;
         }
-        for s in strings {
-            self.stage(s.as_bytes())?;
-        }
-        self.flush()?;
         self.fill_to(frame.end)
     }
 
     /// Appends the next batch: exactly [`ColumnSpec::batch_rows`] rows (fewer for the
-    /// last batch), given as one or more slices in row order. `validity` is the batch's
-    /// bitmap (bit `i % 8` of byte `i / 8` set when row `i` is not null; bits past the
-    /// last row ignored), for a nullable column only; `None` means no null. The values
-    /// of null rows are ignored.
+    /// last batch), given as one or more slices in row order. `validity` covers the
+    /// batch's rows in order, in one or more pieces, for a nullable column only; empty
+    /// means no null. The values of null rows are ignored.
     ///
     /// # Errors
     ///
-    /// [`ColumnError::Input`] for values of another type, the wrong number of rows, a
-    /// validity bitmap of the wrong length or on a column that is not nullable, a
-    /// dictionary code that names no string, a decimal with more digits than its
-    /// precision, or a batch after the last; [`ColumnError::Container`] when the sink
-    /// fails.
+    /// [`ColumnError::Input`] for values of another type, the wrong number of rows,
+    /// validity that does not cover the batch, lies past its bytes or is given to a
+    /// column that is not nullable, a dictionary code that names no string, a decimal
+    /// with more digits than its precision, or a batch after the last;
+    /// [`ColumnError::Container`] when the sink fails.
     pub fn write_batch(
         &mut self,
         values: &[Values<'_>],
-        validity: Option<&[u8]>,
+        validity: &[Bits<'_>],
     ) -> Result<(), ColumnError> {
         let shape = self.plan.shape();
         let (ty, index) = (shape.ty, self.nulls.len() as u64);
@@ -266,120 +356,69 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
         let rows = shape.batch_len(index);
         if values.iter().any(|v| !v.fits(ty))
             || values.iter().map(|v| v.rows(ty)).sum::<u64>() != rows
-            || values.iter().any(
-                |v| matches!(v, Values::Bytes(b) if !(b.len() as u64).is_multiple_of(ty.width())),
-            )
         {
             return Err(ColumnError::Input(
                 "values of another type or count than the batch's",
             ));
         }
-        let bitmap_len = usize::try_from(rows.div_ceil(8)).unwrap_or(usize::MAX);
-        if validity.is_some_and(|v| v.len() != bitmap_len || !shape.nullable) {
+        if !validity.is_empty()
+            && (!shape.nullable
+                || validity.iter().any(|b| !b.fits())
+                || validity.iter().map(|b| b.len).sum::<u64>() != rows)
+        {
             return Err(ColumnError::Input(
-                "a validity bitmap of the wrong length, or on a column that is not nullable",
+                "validity that does not cover the batch, lies past its bytes, or is given \
+                 to a column that is not nullable",
             ));
         }
-        let valid = |r: u64| validity.is_none_or(|v| bit(v, r));
-        let nulls = (0..rows).filter(|&r| !valid(r)).count() as u64;
+        let valid = || {
+            validity
+                .iter()
+                .flat_map(Bits::iter)
+                .chain(std::iter::repeat(true))
+        };
+        let nulls = valid()
+            .take(usize::try_from(rows).unwrap_or(usize::MAX))
+            .filter(|&v| !v)
+            .count() as u64;
         let dictionary = shape.dictionary.map_or(0, |(values, _)| values);
-        self.check_values(values, ty, dictionary, &valid)?;
+        check_values(values, ty, dictionary, valid())?;
 
         let frame = self.plan.batch(rows, nulls);
         self.section.write(&frame.metadata)?;
         self.fill_to(frame.buffers[0].start)?;
-        if let (Some(bits), true) = (validity, nulls > 0) {
-            let (last, whole) = bits.split_last().unwrap_or((&0, &[]));
-            self.stage(whole)?;
-            // Bits past the last row are written as zero.
-            let used = rows % 8;
-            self.stage(&[if used == 0 {
-                *last
-            } else {
-                last & ((1 << used) - 1)
-            }])?;
-            self.flush()?;
+        if nulls > 0 {
+            for v in validity.iter().flat_map(Bits::iter) {
+                self.push_bit(v)?;
+            }
+            self.end_bits()?;
             self.fill_to(frame.buffers[1].start)?;
         }
         if let Some(stats) = &mut self.stats {
             stats.null(nulls);
         }
-        let mut row = 0u64;
-        let mut bits = (0u8, 0u32);
+        let mut valid = valid();
         for chunk in values {
-            row = self.write_values(chunk, ty, row, &valid, &mut bits)?;
+            self.write_values(chunk, ty, &mut valid)?;
         }
-        if bits.1 > 0 {
-            self.stage(&[bits.0])?;
-        }
-        self.flush()?;
+        self.end_bits()?;
         self.fill_to(frame.end)?;
         self.nulls.push(nulls);
         Ok(())
     }
 
-    /// Refuses dictionary codes past the dictionary and decimals past their precision,
-    /// before anything of the batch is written.
-    fn check_values(
-        &self,
-        values: &[Values<'_>],
-        ty: ColumnType,
-        dictionary: u64,
-        valid: &impl Fn(u64) -> bool,
-    ) -> Result<(), ColumnError> {
-        let mut row = 0u64;
-        let mut ok = true;
-        let mut each = |good: bool| {
-            ok &= !valid(row) || good;
-            row += 1;
-        };
-        for chunk in values {
-            match (*chunk, ty) {
-                (Values::U8(c), ColumnType::Dictionary(_)) => {
-                    c.iter().for_each(|&c| each(u64::from(c) < dictionary));
-                }
-                (Values::U16(c), ColumnType::Dictionary(_)) => {
-                    c.iter().for_each(|&c| each(u64::from(c) < dictionary));
-                }
-                (Values::U32(c), ColumnType::Dictionary(_)) => {
-                    c.iter().for_each(|&c| each(u64::from(c) < dictionary));
-                }
-                (Values::I128(v), ColumnType::Decimal128 { precision, .. }) => {
-                    let limit = 10u128.pow(u32::from(precision));
-                    v.iter().for_each(|&x| each(x.unsigned_abs() < limit));
-                }
-                (Values::Bytes(b), ColumnType::Decimal256 { precision, .. }) => {
-                    let limit = pow10_256(precision);
-                    b.chunks_exact(32)
-                        .for_each(|x| each(magnitude_256(x) < limit));
-                }
-                _ => return Ok(()),
-            }
-        }
-        if ok {
-            Ok(())
-        } else {
-            Err(ColumnError::Input(
-                "a dictionary code that names no string, or a decimal with more digits than its precision",
-            ))
-        }
-    }
-
-    /// Writes one slice of values from batch row `row` on; returns the row after it.
-    /// `bits` is the partial byte of a `bool` column and its bit count.
+    /// Writes one slice of values; `valid` gives the validity of each row in turn.
     fn write_values(
         &mut self,
         chunk: &Values<'_>,
         ty: ColumnType,
-        mut row: u64,
-        valid: &impl Fn(u64) -> bool,
-        bits: &mut (u8, u32),
-    ) -> Result<u64, ColumnError> {
+        valid: &mut impl Iterator<Item = bool>,
+    ) -> Result<(), ColumnError> {
         macro_rules! each {
             ($xs:expr, |$x:ident| $bytes:expr, $observe:expr) => {
                 for &$x in $xs {
                     let stored = $bytes;
-                    if valid(row) {
+                    if valid.next().unwrap_or(true) {
                         if let Some(stats) = &mut self.stats {
                             let mut wide = [0u8; 32];
                             wide[..stored.len()].copy_from_slice(&stored);
@@ -389,7 +428,6 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
                     } else {
                         self.stage(&[0; 16][..stored.len()])?;
                     }
-                    row += 1;
                 }
             };
         }
@@ -411,38 +449,51 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
             ),
             Values::F64(xs) => each!(
                 xs,
-                |x| canonical_f64(x).to_le_bytes(),
-                |s: &mut Accumulator, w| s.float(canonical_f64(x), w)
+                |x| canonical(x).to_le_bytes(),
+                |s: &mut Accumulator, w| s.float(canonical(x), w)
             ),
             Values::Bool(xs) => {
                 for &x in xs {
-                    bits.0 |= u8::from(x && valid(row)) << bits.1;
-                    bits.1 += 1;
-                    if bits.1 == 8 {
-                        self.stage(&[bits.0])?;
-                        *bits = (0, 0);
-                    }
-                    row += 1;
+                    let v = valid.next().unwrap_or(true);
+                    self.push_bit(x && v)?;
                 }
             }
             Values::Bytes(bytes) => {
                 let width = usize::try_from(ty.width()).unwrap_or(usize::MAX);
                 for x in bytes.chunks_exact(width) {
-                    if !valid(row) {
-                        self.fill(width as u64)?;
-                    } else {
+                    if valid.next().unwrap_or(true) {
                         if let Some(stats) = &mut self.stats {
                             let mut wide = [0u8; 32];
                             wide.copy_from_slice(x);
                             stats.wide(wide);
                         }
                         self.stage(x)?;
+                    } else {
+                        self.fill(width as u64)?;
                     }
-                    row += 1;
                 }
             }
         }
-        Ok(row)
+        Ok(())
+    }
+
+    fn push_bit(&mut self, bit: bool) -> Result<(), ColumnError> {
+        self.bits.0 |= u8::from(bit) << self.bits.1;
+        self.bits.1 += 1;
+        if self.bits.1 == 8 {
+            self.end_bits()?;
+        }
+        Ok(())
+    }
+
+    /// Stages the partial bitmap byte, if any; its bits past the last row are zero.
+    fn end_bits(&mut self) -> Result<(), ColumnError> {
+        if self.bits.1 > 0 {
+            let byte = self.bits.0;
+            self.bits = (0, 0);
+            self.stage(&[byte])?;
+        }
+        Ok(())
     }
 
     fn stage(&mut self, bytes: &[u8]) -> Result<(), ColumnError> {
@@ -515,6 +566,51 @@ impl<'w, S: ByteSink> ColumnWriter<'w, S> {
     }
 }
 
+/// Refuses dictionary codes past the dictionary and decimals past their precision,
+/// before anything of the batch is written. Null rows are not checked.
+fn check_values(
+    values: &[Values<'_>],
+    ty: ColumnType,
+    dictionary: u64,
+    mut valid: impl Iterator<Item = bool>,
+) -> Result<(), ColumnError> {
+    let mut ok = true;
+    let mut each = |good: bool| {
+        let row_is_valid = valid.next().unwrap_or(true);
+        ok &= good || !row_is_valid;
+    };
+    for chunk in values {
+        match (*chunk, ty) {
+            (Values::U8(c), ColumnType::Dictionary(_)) => {
+                c.iter().for_each(|&c| each(u64::from(c) < dictionary));
+            }
+            (Values::U16(c), ColumnType::Dictionary(_)) => {
+                c.iter().for_each(|&c| each(u64::from(c) < dictionary));
+            }
+            (Values::U32(c), ColumnType::Dictionary(_)) => {
+                c.iter().for_each(|&c| each(u64::from(c) < dictionary));
+            }
+            (Values::I128(v), ColumnType::Decimal128 { precision, .. }) => {
+                let limit = 10u128.pow(u32::from(precision));
+                v.iter().for_each(|&x| each(x.unsigned_abs() < limit));
+            }
+            (Values::Bytes(b), ColumnType::Decimal256 { precision, .. }) => {
+                let limit = pow10(precision);
+                b.chunks_exact(32)
+                    .for_each(|x| each(magnitude(x.try_into().unwrap_or([0; 32])) < limit));
+            }
+            _ => return Ok(()),
+        }
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err(ColumnError::Input(
+            "a dictionary code that names no string, or a decimal with more digits than its precision",
+        ))
+    }
+}
+
 /// Writes a whole column held in memory, batch by batch: `values` has `spec.rows`
 /// rows, none of them null.
 ///
@@ -529,9 +625,9 @@ pub fn write_column<'a, S: ByteSink>(
     provenance: Option<&str>,
 ) -> Result<Option<ColumnStats>, ColumnError> {
     let values = values.into();
-    if values.rows(spec.ty) != spec.rows {
+    if !values.fits(spec.ty) || values.rows(spec.ty) != spec.rows {
         return Err(ColumnError::Input(
-            "values of another count than the column's rows",
+            "values of another type or count than the column's",
         ));
     }
     let per_row = match values {
@@ -545,66 +641,8 @@ pub fn write_column<'a, S: ByteSink>(
     let mut at = 0;
     while at < values.len() {
         let end = values.len().min(at.saturating_add(step));
-        column.write_batch(&[values.slice(at..end)], None)?;
+        column.write_batch(&[values.slice(at..end)], &[])?;
         at = end;
     }
     column.finish()
-}
-
-/// Bit `r % 8` of byte `r / 8`.
-fn bit(bitmap: &[u8], r: u64) -> bool {
-    usize::try_from(r / 8)
-        .ok()
-        .and_then(|i| bitmap.get(i))
-        .is_some_and(|b| b >> (r % 8) & 1 == 1)
-}
-
-/// The quiet NaN for every NaN, +0.0 for −0.0 (eg-container § 1).
-fn canonical_f32(x: f32) -> f32 {
-    if x.is_nan() {
-        f32::from_bits(0x7FC0_0000)
-    } else if x == 0.0 {
-        0.0
-    } else {
-        x
-    }
-}
-
-fn canonical_f64(x: f64) -> f64 {
-    if x.is_nan() {
-        f64::from_bits(0x7FF8_0000_0000_0000)
-    } else if x == 0.0 {
-        0.0
-    } else {
-        x
-    }
-}
-
-/// 10^p as a 256-bit integer: (high 128 bits, low 128 bits). For p ≤ 76 it is below
-/// 2^253.
-fn pow10_256(p: u8) -> (u128, u128) {
-    let (mut hi, mut lo) = (0u128, 1u128);
-    for _ in 0..p {
-        // (hi, lo) × 10, from 64-bit halves of `lo`.
-        let lo_lo = (lo & u128::from(u64::MAX)) * 10;
-        let lo_hi = (lo >> 64) * 10 + (lo_lo >> 64);
-        lo = (lo_hi << 64) | (lo_lo & u128::from(u64::MAX));
-        hi = hi * 10 + (lo_hi >> 64);
-    }
-    (hi, lo)
-}
-
-/// The magnitude of a 256-bit two's complement integer, little-endian, as
-/// (high 128 bits, low 128 bits).
-fn magnitude_256(le: &[u8]) -> (u128, u128) {
-    let mut lo = [0; 16];
-    let mut hi = [0; 16];
-    lo.copy_from_slice(&le[..16]);
-    hi.copy_from_slice(&le[16..32]);
-    let (lo, hi) = (u128::from_le_bytes(lo), u128::from_le_bytes(hi));
-    if hi >> 127 == 0 {
-        return (hi, lo);
-    }
-    let (lo, carry) = (!lo).overflowing_add(1);
-    (!hi + u128::from(carry), lo)
 }

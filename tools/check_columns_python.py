@@ -15,7 +15,8 @@ specification:
 
 - opens the column section with `pyarrow.ipc.open_file` on a slice of a memory map of
   the file, and requires the values to be those given to the writer (floats stored
-  canonically: one quiet NaN, no -0.0; nulls where they were);
+  canonically: one quiet NaN, no -0.0; nulls where they were), and pyarrow's full
+  validation (`Table.validate(full=True)`) to pass;
 - requires every buffer pyarrow returns to lie inside the map, at a multiple of 4096,
   where the layout section says (zero-copy: pyarrow did not copy it);
 - recomputes the statistics from the values pyarrow read (sums exactly, with
@@ -261,6 +262,7 @@ def small():
         need(layout["column_len"] == length and layout["name"] == column["name"], "layout against column")
         arrow_file = pa.ipc.open_file(whole.slice(offset, length))
         table = arrow_file.read_all()
+        table.validate(full=True)  # raises on anything that is not valid Arrow
         need(table.schema.names == [column["name"]], "field name")
         need(table.schema.field(0).nullable == column["nullable"], "nullability")
         arrow = table.column(0)

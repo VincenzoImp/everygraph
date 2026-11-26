@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Column statistics (`docs/spec/eg-columns.md` § 5, `graph-semantics.md` § 2.7) and the
-//! exact sum they need (§ 4.3: the exact sum of the values, rounded once to `f64`).
+//! Column statistics (`docs/spec/eg-columns.md` § 5, `graph-semantics.md` § 2.7), and
+//! the exact sums they need: the sum of the values, rounded once to `f64`. Floats are
+//! summed by `everygraph_core::ExactSum`; integers and decimals by [`WideSum`], an
+//! exact integer sum whose one rounding applies the decimal scale.
 
 use std::cmp::Ordering;
+
+use everygraph_core::ExactSum;
+use everygraph_core::math::CANONICAL_NAN;
 
 use super::{ColumnError, ColumnLayout, ColumnType};
 
@@ -13,104 +18,34 @@ const VERSION: u32 = 1;
 pub(super) const STATS_LEN: usize = 112;
 /// Flag bit 0: `min` and `max` hold values.
 const HAS_RANGE: u32 = 1;
+/// 64-bit limbs of an integer sum: 2^64 values below 2^255 sum below 2^319, and the
+/// rounding multiplies by at most 10^76 < 2^253 (or shifts to 370 bits): below 2^640.
+const LIMBS: usize = 10;
 
-/// 64-bit limbs of the accumulator: 2,304 bits. A finite `f64` is an integer multiple of
-/// 2^−1074 below 2^1024, so 2^64 of them sum, as such an integer, to less than 2^2162;
-/// a decimal256 value is below 2^255, so after the 2^1074 scaling (§ 5) 2^64 of them
-/// stay below 2^1393.
-const LIMBS: usize = 36;
-/// The binary point of the accumulator: every value is added as a multiple of 2^−1074.
-const POINT: u32 = 1074;
-
-/// The exact sum of `f64`, integer and decimal values, rounded once to `f64` (round to
-/// nearest, ties to even) when asked: the result does not depend on the order of the
-/// additions. Up to 2^64 values.
+/// An exact sum of integers, each added as a magnitude at a bit position, rounded once
+/// when read.
 #[derive(Clone, Debug)]
-pub struct ExactSum {
+struct WideSum {
     positive: [u64; LIMBS],
     negative: [u64; LIMBS],
-    pos_inf: bool,
-    neg_inf: bool,
-    nan: bool,
 }
 
-impl Default for ExactSum {
-    fn default() -> Self {
+impl WideSum {
+    fn new() -> Self {
         Self {
             positive: [0; LIMBS],
             negative: [0; LIMBS],
-            pos_inf: false,
-            neg_inf: false,
-            nan: false,
         }
     }
-}
 
-impl ExactSum {
-    /// An empty sum (0).
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds `x`. An infinity makes the sum infinite; NaN, or infinities of both signs,
-    /// make it NaN.
-    pub fn add_f64(&mut self, x: f64) {
-        let bits = x.to_bits();
-        let exponent = (bits >> 52) & 0x7FF;
-        let fraction = bits & ((1 << 52) - 1);
-        let negative = x.is_sign_negative();
-        if exponent == 0x7FF {
-            if fraction != 0 {
-                self.nan = true;
-            } else if negative {
-                self.neg_inf = true;
-            } else {
-                self.pos_inf = true;
-            }
-            return;
-        }
-        // x = m × 2^(shift − 1074).
-        let (m, shift) = if exponent == 0 {
-            (fraction, 0)
-        } else {
-            (fraction | 1 << 52, u32::try_from(exponent - 1).unwrap_or(0))
-        };
-        self.add_at(negative, u128::from(m), shift);
-    }
-
-    /// Adds the integer `x` (for a decimal column, the stored integer: see
-    /// [`to_f64_scaled`](Self::to_f64_scaled)).
-    pub fn add_i128(&mut self, x: i128) {
-        self.add_at(x < 0, x.unsigned_abs(), POINT);
-    }
-
-    /// Adds a 256-bit two's complement integer, little-endian: a decimal256 value.
-    pub fn add_i256(&mut self, le: [u8; 32]) {
-        let (mut lo, hi) = halves(le);
-        let negative = hi < 0;
-        let mut hi = hi.cast_unsigned();
-        if negative {
-            // Negate the 256-bit integer: invert and add one.
-            lo = !lo;
-            hi = !hi;
-            let (l, carry) = lo.overflowing_add(1);
-            lo = l;
-            hi = hi.wrapping_add(u128::from(carry));
-        }
-        self.add_at(negative, lo, POINT);
-        self.add_at(negative, hi, POINT + 128);
-    }
-
-    fn add_at(&mut self, negative: bool, v: u128, bit: u32) {
+    /// Adds ±`v` × 2^`bit`.
+    fn add(&mut self, negative: bool, v: u128, bit: u32) {
         let acc = if negative {
             &mut self.negative
         } else {
             &mut self.positive
         };
-        let limb = (bit / 64) as usize;
-        let off = bit % 64;
-        // v << off, as three limbs.
+        let (limb, off) = ((bit / 64) as usize, bit % 64);
         #[allow(clippy::cast_possible_truncation)]
         let parts = if off == 0 {
             [v as u64, (v >> 64) as u64, 0]
@@ -123,43 +58,27 @@ impl ExactSum {
         };
         let mut carry = 0;
         for (i, slot) in acc[limb..].iter_mut().enumerate() {
-            let add = parts.get(i).copied().unwrap_or(0);
             if i >= parts.len() && carry == 0 {
                 break;
             }
-            let (s, c1) = slot.overflowing_add(add);
+            let (s, c1) = slot.overflowing_add(parts.get(i).copied().unwrap_or(0));
             let (s, c2) = s.overflowing_add(carry);
             *slot = s;
             carry = u64::from(c1 || c2);
         }
     }
 
-    /// The sum, rounded once to `f64`. Never −0.0: a sum that rounds to zero is +0.0.
-    #[must_use]
-    pub fn to_f64(&self) -> f64 {
-        self.to_f64_scaled(0)
-    }
-
-    /// The sum times 10^−`scale`, rounded once to `f64`: the sum of a decimal column of
-    /// that scale, from its stored integers.
-    #[must_use]
-    pub fn to_f64_scaled(&self, scale: i8) -> f64 {
-        if self.nan || (self.pos_inf && self.neg_inf) {
-            return f64::NAN;
-        }
-        if self.pos_inf {
-            return f64::INFINITY;
-        }
-        if self.neg_inf {
-            return f64::NEG_INFINITY;
-        }
+    /// The sum times 10^−`scale`, rounded once to nearest, ties to even; +0.0 for a sum
+    /// that rounds to zero.
+    fn to_f64(&self, scale: i8) -> f64 {
         let (negative, mut m) = match cmp(&self.positive, &self.negative) {
             Ordering::Equal => return 0.0,
             Ordering::Greater => (false, sub(&self.positive, &self.negative)),
             Ordering::Less => (true, sub(&self.negative, &self.positive)),
         };
-        // The value is m × 2^e / 10^scale, with any discarded part recorded in `sticky`.
-        let mut e = -i64::from(POINT);
+        // Below, the value is (m + f) × 2^e with f in [0, 1), non-zero exactly when
+        // `sticky`.
+        let mut e = 0i64;
         let mut sticky = false;
         if scale < 0 {
             for _ in 0..scale.unsigned_abs() {
@@ -192,9 +111,10 @@ impl ExactSum {
 /// exactly when `sticky`, rounded to the nearest `f64`, ties to even.
 fn compose(negative: bool, top: u64, sticky: bool, e: i64) -> f64 {
     let sign = if negative { 1u64 << 63 } else { 0 };
+    let infinity = f64::from_bits(sign | 0x7FF0_0000_0000_0000);
     let lead = e + 63;
     if lead > 1023 {
-        return f64::from_bits(sign | 0x7FF0_0000_0000_0000);
+        return infinity;
     }
     // Bits of `top` below the last one kept: 11 for a normal result, more below 2^−1022.
     let drop = 11 + (-1022 - lead).max(0);
@@ -223,29 +143,55 @@ fn compose(negative: bool, top: u64, sticky: bool, e: i64) -> f64 {
         kept >>= 1;
         lead += 1;
         if lead > 1023 {
-            return f64::from_bits(sign | 0x7FF0_0000_0000_0000);
+            return infinity;
         }
     }
     let exponent = u64::try_from(lead + 1023).unwrap_or(0);
     f64::from_bits(sign | exponent << 52 | (kept & ((1 << 52) - 1)))
 }
 
-fn halves(le: [u8; 32]) -> (u128, i128) {
-    let mut lo = [0; 16];
-    let mut hi = [0; 16];
-    lo.copy_from_slice(&le[..16]);
-    hi.copy_from_slice(&le[16..]);
-    (u128::from_le_bytes(lo), i128::from_le_bytes(hi))
+/// A 256-bit two's complement integer, little-endian, as its sign and its magnitude
+/// (high 128 bits, low 128 bits).
+fn signed_magnitude(le: [u8; 32]) -> (bool, (u128, u128)) {
+    let (hi, lo) = halves(le);
+    if hi >> 127 == 0 {
+        return (false, (hi, lo));
+    }
+    let (lo, carry) = (!lo).overflowing_add(1);
+    (true, (!hi + u128::from(carry), lo))
+}
+
+/// The magnitude of a 256-bit two's complement integer, little-endian.
+pub(super) fn magnitude(le: [u8; 32]) -> (u128, u128) {
+    signed_magnitude(le).1
+}
+
+/// 10^p as a 256-bit integer (high 128 bits, low 128 bits); for p ≤ 76, below 2^253.
+pub(super) fn pow10(p: u8) -> (u128, u128) {
+    let mut m = [1u64, 0, 0, 0];
+    for _ in 0..p {
+        mul_small(&mut m, 10);
+    }
+    let join = |lo: u64, hi: u64| u128::from(hi) << 64 | u128::from(lo);
+    (join(m[2], m[3]), join(m[0], m[1]))
+}
+
+fn halves(le: [u8; 32]) -> (u128, u128) {
+    let (lo, hi) = le.split_at(16);
+    let half = |b: &[u8]| u128::from_le_bytes(b.try_into().unwrap_or_default());
+    (half(hi), half(lo))
 }
 
 /// Orders two 256-bit two's complement little-endian integers.
-pub(super) fn cmp_i256(a: [u8; 32], b: [u8; 32]) -> Ordering {
-    let (alo, ahi) = halves(a);
-    let (blo, bhi) = halves(b);
-    (ahi, alo).cmp(&(bhi, blo))
+fn cmp_i256(a: [u8; 32], b: [u8; 32]) -> Ordering {
+    let key = |x: [u8; 32]| {
+        let (hi, lo) = halves(x);
+        (hi.cast_signed(), lo)
+    };
+    key(a).cmp(&key(b))
 }
 
-fn cmp(a: &[u64; LIMBS], b: &[u64; LIMBS]) -> Ordering {
+fn cmp(a: &[u64], b: &[u64]) -> Ordering {
     a.iter().rev().cmp(b.iter().rev())
 }
 
@@ -262,15 +208,15 @@ fn sub(a: &[u64; LIMBS], b: &[u64; LIMBS]) -> [u64; LIMBS] {
     out
 }
 
-fn bit_len(m: &[u64; LIMBS]) -> u32 {
+fn bit_len(m: &[u64]) -> u32 {
     m.iter().rposition(|&l| l != 0).map_or(0, |i| {
         64 * u32::try_from(i).unwrap_or(0) + 64 - m[i].leading_zeros()
     })
 }
 
-fn shl(m: &mut [u64; LIMBS], k: u32) {
+fn shl(m: &mut [u64], k: u32) {
     let (limbs, bits) = ((k / 64) as usize, k % 64);
-    for i in (0..LIMBS).rev() {
+    for i in (0..m.len()).rev() {
         let hi = i.checked_sub(limbs).map_or(0, |j| m[j]);
         let lo = i.checked_sub(limbs + 1).map_or(0, |j| m[j]);
         m[i] = if bits == 0 {
@@ -281,50 +227,43 @@ fn shl(m: &mut [u64; LIMBS], k: u32) {
     }
 }
 
-fn mul_small(m: &mut [u64; LIMBS], k: u64) {
+#[allow(clippy::cast_possible_truncation)]
+fn mul_small(m: &mut [u64], k: u64) {
     let mut carry = 0u128;
     for limb in m.iter_mut() {
         let x = u128::from(*limb) * u128::from(k) + carry;
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            *limb = x as u64;
-        }
+        *limb = x as u64;
         carry = x >> 64;
     }
 }
 
 /// Divides `m` by `k` in place; returns the remainder.
-fn div_small(m: &mut [u64; LIMBS], k: u64) -> u64 {
+#[allow(clippy::cast_possible_truncation)]
+fn div_small(m: &mut [u64], k: u64) -> u64 {
     let mut rem = 0u128;
     for limb in m.iter_mut().rev() {
         let x = rem << 64 | u128::from(*limb);
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            *limb = (x / u128::from(k)) as u64;
-        }
+        *limb = (x / u128::from(k)) as u64;
         rem = x % u128::from(k);
     }
-    #[allow(clippy::cast_possible_truncation)]
-    let rem = rem as u64;
-    rem
+    rem as u64
 }
 
 /// Whether any of the lowest `n` bits of `m` is set.
-fn low_bits_set(m: &[u64; LIMBS], n: u32) -> bool {
+fn low_bits_set(m: &[u64], n: u32) -> bool {
     let (limbs, bits) = ((n / 64) as usize, n % 64);
     m[..limbs].iter().any(|&l| l != 0) || (bits > 0 && m[limbs] & ((1 << bits) - 1) != 0)
 }
 
 /// The 64 bits of `m` from bit `at` up.
-fn bits_at(m: &[u64; LIMBS], at: u32) -> u64 {
+fn bits_at(m: &[u64], at: u32) -> u64 {
     let (limb, bits) = ((at / 64) as usize, at % 64);
-    let lo = m[limb] >> bits;
     let hi = if bits == 0 {
         0
     } else {
         m.get(limb + 1).map_or(0, |&h| h << (64 - bits))
     };
-    lo | hi
+    m[limb] >> bits | hi
 }
 
 /// The statistics of a numeric column (`graph-semantics.md` § 2.7), over its stored
@@ -350,13 +289,8 @@ impl ColumnStats {
     #[must_use]
     pub fn is_clean(&self, ty: ColumnType) -> bool {
         let non_negative = self.range.is_none_or(|(min, _)| match ty {
-            ColumnType::Float32 => f32::from_le_bytes(take(min)) >= 0.0,
-            ColumnType::Float64 => f64::from_le_bytes(take(min)) >= 0.0,
-            ColumnType::UInt8 | ColumnType::UInt16 | ColumnType::UInt32 | ColumnType::UInt64 => {
-                true
-            }
-            // Signed integers, timestamps and decimals: the sign bit of the top byte.
-            _ => min[usize::try_from(ty.width()).unwrap_or(1) - 1] & 0x80 == 0,
+            ColumnType::Float32 | ColumnType::Float64 => as_f64(ty, min) >= 0.0,
+            _ => !is_signed(ty) || min[top_byte(ty)] & 0x80 == 0,
         });
         self.nan_count == 0 && non_negative && self.sum.is_finite()
     }
@@ -370,7 +304,12 @@ impl ColumnStats {
         out[16..24].copy_from_slice(&self.count.to_le_bytes());
         out[24..32].copy_from_slice(&self.null_count.to_le_bytes());
         out[32..40].copy_from_slice(&self.nan_count.to_le_bytes());
-        out[40..48].copy_from_slice(&canonical_f64(self.sum).to_le_bytes());
+        let sum = if self.sum.is_nan() {
+            CANONICAL_NAN
+        } else {
+            self.sum
+        };
+        out[40..48].copy_from_slice(&sum.to_bits().to_le_bytes());
         if let Some((min, max)) = &self.range {
             out[48..80].copy_from_slice(min);
             out[80..112].copy_from_slice(max);
@@ -384,7 +323,8 @@ impl ColumnStats {
     ///
     /// [`ColumnError::Unsupported`] for a version or flags this reader does not know;
     /// [`ColumnError::Invalid`] when the record breaks the specification or does not
-    /// fit the column (counts that do not add up to its rows, a range out of order).
+    /// fit the column (counts that do not add up to its rows, a range out of order, a
+    /// sum of −0.0, or a non-zero sum of no value).
     pub fn parse(bytes: &[u8], layout: &ColumnLayout) -> Result<Self, ColumnError> {
         let invalid = ColumnError::Invalid;
         let ty = layout.ty();
@@ -422,6 +362,8 @@ impl ColumnStats {
             || stats.nan_count > stats.count
             || (stats.nan_count > 0 && !matches!(ty, ColumnType::Float32 | ColumnType::Float64))
             || stats.range.is_some() != has_values
+            || (stats.sum == 0.0 && stats.sum.is_sign_negative())
+            || (!has_values && stats.sum.to_bits() != 0)
         {
             return Err(invalid("the statistics do not fit the column"));
         }
@@ -445,44 +387,47 @@ fn take<const N: usize>(b: [u8; 32]) -> [u8; N] {
     out
 }
 
+fn as_f64(ty: ColumnType, b: [u8; 32]) -> f64 {
+    match ty {
+        ColumnType::Float32 => f64::from(f32::from_le_bytes(take(b))),
+        _ => f64::from_le_bytes(take(b)),
+    }
+}
+
+fn is_signed(ty: ColumnType) -> bool {
+    !matches!(
+        ty,
+        ColumnType::UInt8 | ColumnType::UInt16 | ColumnType::UInt32 | ColumnType::UInt64
+    )
+}
+
+fn top_byte(ty: ColumnType) -> usize {
+    usize::try_from(ty.width()).unwrap_or(32).clamp(1, 32) - 1
+}
+
+/// A stored integer of `ty` (an integer, a timestamp or a decimal) as a 256-bit two's
+/// complement integer: sign-extended for signed types.
+fn widen(b: [u8; 32], ty: ColumnType) -> [u8; 32] {
+    let mut x = b;
+    if is_signed(ty) && b[top_byte(ty)] & 0x80 != 0 {
+        x[top_byte(ty) + 1..].fill(0xFF);
+    }
+    x
+}
+
 /// Whether `min ≤ max` as values of `ty`, each of them canonical (§ 5): no NaN, no
 /// −0.0, zero bytes past the type's width.
 fn in_order(ty: ColumnType, min: [u8; 32], max: [u8; 32]) -> bool {
-    let width = usize::try_from(ty.width()).unwrap_or(32).min(32);
+    let width = top_byte(ty) + 1;
     if min[width..].iter().chain(&max[width..]).any(|&b| b != 0) {
         return false;
     }
-    let float = |b: [u8; 32]| match ty {
-        ColumnType::Float32 => Some(f64::from(f32::from_le_bytes(take(b)))),
-        ColumnType::Float64 => Some(f64::from_le_bytes(take(b))),
-        _ => None,
-    };
-    if let (Some(lo), Some(hi)) = (float(min), float(max)) {
+    if matches!(ty, ColumnType::Float32 | ColumnType::Float64) {
+        let (lo, hi) = (as_f64(ty, min), as_f64(ty, max));
         let canonical = |x: f64| !x.is_nan() && !(x == 0.0 && x.is_sign_negative());
         return canonical(lo) && canonical(hi) && lo <= hi;
     }
-    // Every other numeric type orders as a sign-extended integer of its width.
-    let extend = |b: [u8; 32]| {
-        let signed = !matches!(
-            ty,
-            ColumnType::UInt8 | ColumnType::UInt16 | ColumnType::UInt32 | ColumnType::UInt64
-        );
-        let mut x = b;
-        if signed && b[width - 1] & 0x80 != 0 {
-            x[width..].fill(0xFF);
-        }
-        x
-    };
-    cmp_i256(extend(min), extend(max)) != Ordering::Greater
-}
-
-/// NaN as the canonical quiet NaN (eg-container § 1).
-fn canonical_f64(x: f64) -> u64 {
-    if x.is_nan() {
-        0x7FF8_0000_0000_0000
-    } else {
-        x.to_bits()
-    }
+    cmp_i256(widen(min, ty), widen(max, ty)) != Ordering::Greater
 }
 
 /// Statistics being gathered by the writer, value by value.
@@ -492,7 +437,8 @@ pub(super) struct Accumulator {
     count: u64,
     null_count: u64,
     nan_count: u64,
-    sum: ExactSum,
+    floats: ExactSum,
+    ints: WideSum,
     range: Option<([u8; 32], [u8; 32])>,
 }
 
@@ -503,7 +449,8 @@ impl Accumulator {
             count: 0,
             null_count: 0,
             nan_count: 0,
-            sum: ExactSum::new(),
+            floats: ExactSum::new(),
+            ints: WideSum::new(),
             range: None,
         }
     }
@@ -519,7 +466,7 @@ impl Accumulator {
             self.nan_count += 1;
             return;
         }
-        self.sum.add_f64(x);
+        self.floats.add(x);
         let ty = self.ty;
         extend(&mut self.range, stored, |a, b| {
             as_f64(ty, a) < as_f64(ty, b)
@@ -529,36 +476,34 @@ impl Accumulator {
     /// One integer value (an integer, a timestamp or a decimal128).
     pub(super) fn int(&mut self, x: i128, stored: [u8; 32]) {
         self.count += 1;
-        self.sum.add_i128(x);
+        self.ints.add(x < 0, x.unsigned_abs(), 0);
         let ty = self.ty;
         extend(&mut self.range, stored, |a, b| {
-            sign_extend(a, ty) < sign_extend(b, ty)
+            cmp_i256(widen(a, ty), widen(b, ty)) == Ordering::Less
         });
     }
 
     /// One decimal256 value.
     pub(super) fn wide(&mut self, x: [u8; 32]) {
         self.count += 1;
-        self.sum.add_i256(x);
+        let (negative, (hi, lo)) = signed_magnitude(x);
+        self.ints.add(negative, lo, 0);
+        self.ints.add(negative, hi, 128);
         extend(&mut self.range, x, |a, b| cmp_i256(a, b) == Ordering::Less);
     }
 
     pub(super) fn finish(self) -> ColumnStats {
-        let scale = self.ty.scale();
+        let sum = match self.ty {
+            ColumnType::Float32 | ColumnType::Float64 => self.floats.value(),
+            ty => self.ints.to_f64(ty.scale()),
+        };
         ColumnStats {
             count: self.count,
             null_count: self.null_count,
             nan_count: self.nan_count,
-            sum: self.sum.to_f64_scaled(scale),
+            sum,
             range: self.range,
         }
-    }
-}
-
-fn as_f64(ty: ColumnType, b: [u8; 32]) -> f64 {
-    match ty {
-        ColumnType::Float32 => f64::from(f32::from_le_bytes(take(b))),
-        _ => f64::from_le_bytes(take(b)),
     }
 }
 
@@ -574,19 +519,4 @@ fn extend(
             if less(hi, x) { x } else { hi },
         ),
     });
-}
-
-/// A stored integer of `ty`'s width as an `i128` (unsigned types stay positive).
-fn sign_extend(b: [u8; 32], ty: ColumnType) -> i128 {
-    let width = usize::try_from(ty.width()).unwrap_or(16).min(16);
-    let signed = !matches!(
-        ty,
-        ColumnType::UInt8 | ColumnType::UInt16 | ColumnType::UInt32 | ColumnType::UInt64
-    );
-    let mut x = [0u8; 16];
-    x[..width].copy_from_slice(&b[..width]);
-    if signed && b[width - 1] & 0x80 != 0 {
-        x[width..].fill(0xFF);
-    }
-    i128::from_le_bytes(x)
 }

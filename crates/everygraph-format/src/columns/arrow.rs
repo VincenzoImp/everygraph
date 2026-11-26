@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use super::flatbuf::{Field, Table, encode};
-use super::{CodeWidth, ColumnType, MAX_BATCH_ROWS, MAX_BODY_BYTES, MAX_NAME_BYTES, TimeUnit};
+use super::{ColumnType, MAX_BATCH_ROWS, MAX_BODY_BYTES, MAX_NAME_BYTES};
 
 /// Buffers start at multiples of this, counted from the start of the section (which is
 /// itself a multiple of 4096 in the file).
@@ -53,21 +53,17 @@ impl Shape {
         if !self.batch_rows.is_power_of_two() || self.batch_rows > MAX_BATCH_ROWS {
             return Err("the batch row count is a power of two up to 2^30");
         }
-        let worst = body(&batch_lens(self.ty, self.batch_rows, self.batch_rows)).1;
-        if worst >= MAX_BODY_BYTES {
+        let too_big = |lens: &[u64]| body(lens).is_none_or(|(_, len)| len >= MAX_BODY_BYTES);
+        if too_big(&batch_lens(self.ty, self.batch_rows, self.batch_rows)) {
             return Err("a batch body would reach 2 GiB");
         }
         match (self.ty, self.dictionary) {
             (ColumnType::Dictionary(width), Some((values, bytes))) => {
-                let most = match width {
-                    CodeWidth::U8 => 1 << 8,
-                    CodeWidth::U16 => 1 << 16,
-                    CodeWidth::U32 => (1 << 31) - 1,
-                };
-                if values > most {
+                if values > width.most_values() {
                     return Err("more dictionary values than the codes can name");
                 }
-                if body(&dictionary_lens(values, bytes)).1 >= MAX_BODY_BYTES {
+                // Bounded before `body` adds them up.
+                if bytes >= MAX_BODY_BYTES || too_big(&dictionary_lens(values, bytes)) {
                     return Err("the dictionary body would reach 2 GiB");
                 }
             }
@@ -82,8 +78,8 @@ impl Shape {
 
 /// One message with a body: where it starts, its metadata (the continuation marker,
 /// the length, the FlatBuffer; zero bytes follow up to the body), where its body starts,
-/// its buffers, and where its body ends. Every byte from the end of `metadata` to `end` that is not
-/// in a buffer is zero.
+/// its buffers, and where its body ends. Every byte from the end of `metadata` to `end`
+/// that is not in a buffer is zero.
 #[derive(Debug)]
 pub(super) struct Frame {
     pub(super) at: u64,
@@ -234,7 +230,7 @@ fn message<'a>(kind: u8, header: Table<'a>, body_len: u64) -> Table<'a> {
 /// A `RecordBatch` of one field, with its buffers placed in the body; also returns
 /// the buffers' ranges relative to the body and the body's length.
 fn record_batch(rows: u64, nulls: u64, lens: &[u64]) -> (Table<'static>, Vec<Range<u64>>, u64) {
-    let (rel, body_len) = body(lens);
+    let (rel, body_len) = body(lens).expect("the lengths of a checked shape (`Shape::check`)");
     let mut node = i64_of(rows).to_le_bytes().to_vec();
     node.extend_from_slice(&i64_of(nulls).to_le_bytes());
     let mut buffers = Vec::with_capacity(16 * rel.len());
@@ -252,21 +248,20 @@ fn record_batch(rows: u64, nulls: u64, lens: &[u64]) -> (Table<'static>, Vec<Ran
 
 /// Places buffers of these lengths in a body: an empty one at offset 0, every other at
 /// the first multiple of [`PAGE`] after the previous non-empty one; the body ends at the
-/// next multiple of 8 after the last.
-pub(super) fn body(lens: &[u64]) -> (Vec<Range<u64>>, u64) {
+/// next multiple of 8 after the last. `None` past `u64`.
+pub(super) fn body(lens: &[u64]) -> Option<(Vec<Range<u64>>, u64)> {
     let mut end = 0u64;
-    let ranges = lens
-        .iter()
-        .map(|&len| {
-            if len == 0 {
-                return 0..0;
-            }
-            let start = end.next_multiple_of(PAGE);
-            end = start.saturating_add(len);
-            start..end
-        })
-        .collect();
-    (ranges, end.next_multiple_of(8))
+    let mut ranges = Vec::with_capacity(lens.len());
+    for &len in lens {
+        if len == 0 {
+            ranges.push(0..0);
+            continue;
+        }
+        let start = end.checked_next_multiple_of(PAGE)?;
+        end = start.checked_add(len)?;
+        ranges.push(start..end);
+    }
+    Some((ranges, end.checked_next_multiple_of(8)?))
 }
 
 /// Buffer lengths of a batch: validity (empty without nulls), values.
@@ -293,11 +288,7 @@ fn schema(shape: &Shape) -> Table<'_> {
         (3, Field::Table(ty)),
     ];
     if let ColumnType::Dictionary(width) = shape.ty {
-        let bits = match width {
-            CodeWidth::U8 => 8,
-            CodeWidth::U16 => 16,
-            CodeWidth::U32 => 32,
-        };
+        let bits = i32::from(width.bits());
         field.push((
             4,
             Field::Table(Table(vec![
@@ -344,18 +335,13 @@ fn arrow_type(ty: ColumnType) -> (u8, Table<'static>) {
         ColumnType::Bool => (6, Table(Vec::new())),
         ColumnType::Decimal128 { precision, scale } => (7, decimal(precision, scale, 128)),
         ColumnType::Decimal256 { precision, scale } => (7, decimal(precision, scale, 256)),
-        ColumnType::Timestamp(unit) => {
-            let unit = match unit {
-                TimeUnit::Second => 0,
-                TimeUnit::Millisecond => 1,
-                TimeUnit::Microsecond => 2,
-                TimeUnit::Nanosecond => 3,
-            };
-            (
-                10,
-                Table(vec![(0, Field::I16(unit)), (1, Field::Str("UTC"))]),
-            )
-        }
+        ColumnType::Timestamp(unit) => (
+            10,
+            Table(vec![
+                (0, Field::I16(unit.code().into())),
+                (1, Field::Str("UTC")),
+            ]),
+        ),
         ColumnType::FixedSizeBinary(width) => {
             (15, Table(vec![(0, Field::I32(i32_of(u64::from(width))))]))
         }

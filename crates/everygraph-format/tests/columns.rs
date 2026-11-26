@@ -13,8 +13,8 @@
 
 use everygraph_core::{ByteSource, MemorySource};
 use everygraph_format::columns::{
-    CodeWidth, Column, ColumnError, ColumnLayout, ColumnSpec, ColumnStats, ColumnType,
-    ColumnWriter, ExactSum, SectionNames, TimeUnit, Values, write_column,
+    Bits, CodeWidth, Column, ColumnError, ColumnLayout, ColumnSpec, ColumnStats, ColumnType,
+    ColumnWriter, Dictionary, SectionNames, TimeUnit, Values, write_column,
 };
 use everygraph_format::container::{Container, ContainerError, Writer};
 use everygraph_oracle::rng::SplitMix64;
@@ -71,11 +71,11 @@ fn stored_rows(layout: &ColumnLayout, column: &[u8]) -> Vec<Option<Vec<u8>>> {
 }
 
 /// Writes one column of `scope/name` and reads it back through the public reader.
-fn round_trip(spec: &ColumnSpec<'_>, batches: &[(Vec<Values<'_>>, Option<Vec<u8>>)]) -> Read {
+fn round_trip(spec: &ColumnSpec<'_>, batches: &[(Vec<Values<'_>>, Vec<Bits<'_>>)]) -> Read {
     let mut w = Writer::create(Mem::new(Vec::new())).unwrap();
     let mut c = ColumnWriter::begin(&mut w, "t", spec, None).unwrap();
     for (values, validity) in batches {
-        c.write_batch(values, validity.as_deref()).unwrap();
+        c.write_batch(values, validity).unwrap();
     }
     let returned = c.finish().unwrap();
     let file = commit(w);
@@ -127,14 +127,22 @@ fn golden_bytes() {
         ..ColumnSpec::new("weight", ColumnType::Float64, 3)
     };
     let mut c = ColumnWriter::begin(&mut w, "adjacency.out.pair", &spec, None).unwrap();
-    c.write_batch(&[Values::F64(&[0.5, -0.0])], Some(&[0b01]))
+    let bits = Bits {
+        bytes: &[0b01],
+        offset: 0,
+        len: 2,
+    };
+    c.write_batch(&[Values::F64(&[0.5, -0.0])], &[bits])
         .unwrap();
-    c.write_batch(&[Values::F64(&[f64::NAN])], None).unwrap();
+    c.write_batch(&[Values::F64(&[f64::NAN])], &[]).unwrap();
     c.finish().unwrap();
 
-    let strings = ["swap", "mint"];
+    let (offsets, bytes) = Dictionary::parts(&["swap", "mint"]);
     let spec = ColumnSpec {
-        dictionary: Some(&strings),
+        dictionary: Some(Dictionary {
+            offsets: &offsets,
+            bytes: &bytes,
+        }),
         ..ColumnSpec::new("kind", ColumnType::Dictionary(CodeWidth::U16), 4)
     };
     write_column(&mut w, "edges", &spec, &[1u16, 0, 0, 1], None).unwrap();
@@ -358,10 +366,15 @@ fn float(r: u64, bits: u32) -> (f64, i128) {
             let m = (r as i64) >> (64 - bits);
             let e = i32::try_from((r >> 8) % 41).unwrap() - 20;
             #[allow(clippy::cast_precision_loss)]
-            let x = m as f64 * 2f64.powi(e);
+            let x = m as f64 * pow2(e);
             (x, i128::from(m) << (e + 20))
         }
     }
+}
+
+/// 2^e, exactly, for a normal power of two.
+fn pow2(e: i32) -> f64 {
+    f64::from_bits(u64::try_from(e + 1023).unwrap() << 52)
 }
 
 fn canonical64(x: f64) -> f64 {
@@ -518,9 +531,7 @@ fn oracle(ty: ColumnType, case: &Case) -> Option<ColumnStats> {
         (true, true) => f64::NAN,
         (true, false) => f64::INFINITY,
         (false, true) => f64::NEG_INFINITY,
-        _ if matches!(ty, ColumnType::Float32 | ColumnType::Float64) => {
-            exact as f64 * 2f64.powi(-20)
-        }
+        _ if matches!(ty, ColumnType::Float32 | ColumnType::Float64) => exact as f64 * pow2(-20),
         _ => format!("{exact}e{}", -i32::from(scale))
             .parse::<f64>()
             .unwrap(),
@@ -556,30 +567,44 @@ fn run_case(
 ) -> (Case, Read) {
     let case = generate(ty, rows, seed, nullable);
     let strings: Vec<&str> = case.strings.iter().map(String::as_str).collect();
+    let (offsets, bytes) = Dictionary::parts(&strings);
     let spec = ColumnSpec {
         nullable,
         batch_rows,
-        dictionary: matches!(ty, ColumnType::Dictionary(_)).then_some(&strings[..]),
+        dictionary: matches!(ty, ColumnType::Dictionary(_)).then_some(Dictionary {
+            offsets: &offsets,
+            bytes: &bytes,
+        }),
         ..ColumnSpec::new("c", ty, rows as u64)
     };
+    // One bitmap of the whole column; each batch's validity is cut from it at bit
+    // offsets, in two pieces when `split`.
+    let mut bitmap = vec![0u8; rows.div_ceil(8)];
+    for (i, &v) in case.valid.iter().enumerate() {
+        bitmap[i / 8] |= u8::from(v) << (i % 8);
+    }
+    let piece = |r: std::ops::Range<usize>| Bits {
+        bytes: &bitmap,
+        offset: r.start as u64,
+        len: r.len() as u64,
+    };
     let r = usize::try_from(batch_rows).unwrap();
-    let batches: Vec<(Vec<Values<'_>>, Option<Vec<u8>>)> = (0..rows.div_ceil(r))
+    let batches: Vec<(Vec<Values<'_>>, Vec<Bits<'_>>)> = (0..rows.div_ceil(r))
         .map(|b| {
             let range = b * r..rows.min(b * r + r);
             let mid = range.start + range.len() / 2;
-            let values = if split {
-                vec![
-                    case.values.rows(range.start..mid),
-                    case.values.rows(mid..range.end),
-                ]
+            let parts = if split {
+                vec![range.start..mid, mid..range.end]
             } else {
-                vec![case.values.rows(range.clone())]
+                vec![range]
             };
-            let mut bits = vec![0u8; range.len().div_ceil(8)];
-            for (i, &v) in case.valid[range].iter().enumerate() {
-                bits[i / 8] |= u8::from(v) << (i % 8);
-            }
-            (values, nullable.then_some(bits))
+            let values = parts.iter().map(|p| case.values.rows(p.clone())).collect();
+            let bits = if nullable {
+                parts.into_iter().map(piece).collect()
+            } else {
+                Vec::new()
+            };
+            (values, bits)
         })
         .collect();
     let read = round_trip(&spec, &batches);
@@ -688,54 +713,188 @@ proptest! {
         prop_assert!(refused);
     }
 
-    /// The exact sum does not depend on the order of the values.
+    /// The float sum, over the whole exponent range (subnormals, values near
+    /// `f64::MAX` that overflow, exact cancellations), is the exact sum rounded once:
+    /// the one an independent fixed-point reference computes, in any order.
     #[test]
-    fn the_sum_ignores_order(seed: u64, n in 0usize..200) {
+    fn float_sums_are_exact(seed: u64, n in 0usize..300) {
         let mut rng = SplitMix64::new(seed);
-        let mut xs: Vec<f64> = (0..n)
-            .map(|_| f64::from_bits(rng.next_u64()))
-            .filter(|x| x.is_finite())
-            .collect();
-        let forward = exact(&xs).to_bits();
+        let mut xs: Vec<f64> = Vec::new();
+        while xs.len() < n {
+            let r = rng.next_u64();
+            let x = match r % 8 {
+                0 => f64::from_bits(r >> 12),                       // subnormal or tiny
+                1 => f64::MAX * f64::from_bits(0x3FF0_0000_0000_0000 | (r >> 12)) / 2.0, // huge
+                2 => xs.last().map_or(1.0, |y| -y),                   // cancels the last
+                _ => f64::from_bits(r),
+            };
+            if x.is_finite() {
+                xs.push(x);
+            }
+        }
+        let want = reference::sum(&xs);
+        prop_assert_eq!(float_sum(&xs).to_bits(), want.to_bits());
         xs.reverse();
-        prop_assert_eq!(exact(&xs).to_bits(), forward);
-        xs.sort_by(f64::total_cmp);
-        prop_assert_eq!(exact(&xs).to_bits(), forward);
+        prop_assert_eq!(float_sum(&xs).to_bits(), want.to_bits());
     }
 
-    /// Integers: the exact sum is Rust's correctly rounded conversion of the `i128`
-    /// sum; decimals: the correctly rounded parse of it with the scale as exponent.
+    /// Integers and decimals: the sum is Rust's correctly rounded parse of the exact
+    /// `i128` sum with the scale as exponent.
     #[test]
-    fn integer_and_decimal_sums_round_once(
+    fn decimal_sums_round_once(
         xs in prop::collection::vec(any::<i64>(), 0..50),
         scale in -20i8..=40,
     ) {
-        let mut s = ExactSum::new();
-        let mut total = 0i128;
-        for &x in &xs {
-            let x = i128::from(x) * 1_000_003;
-            s.add_i128(x);
-            total += x;
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let want = total as f64;
-        prop_assert_eq!(s.to_f64().to_bits(), (want + 0.0).to_bits());
+        let values: Vec<i128> = xs.iter().map(|&x| i128::from(x) * 1_000_003).collect();
+        let total: i128 = values.iter().sum();
         let want: f64 = format!("{total}e{}", -i32::from(scale)).parse().unwrap();
-        prop_assert_eq!(s.to_f64_scaled(scale).to_bits(), (want + 0.0).to_bits());
+        prop_assert_eq!(decimal_sum(&values, scale).to_bits(), (want + 0.0).to_bits());
+    }
+}
+
+/// The statistics sum of a `float64` column of `xs`.
+fn float_sum(xs: &[f64]) -> f64 {
+    let mut w = Writer::create(Mem::new(Vec::new())).unwrap();
+    let spec = ColumnSpec::new("s", ColumnType::Float64, xs.len() as u64);
+    write_column(&mut w, "t", &spec, xs, None)
+        .unwrap()
+        .unwrap()
+        .sum
+}
+
+/// The statistics sum of a `decimal128(38, scale)` column of `xs`.
+fn decimal_sum(xs: &[i128], scale: i8) -> f64 {
+    let mut w = Writer::create(Mem::new(Vec::new())).unwrap();
+    let ty = ColumnType::Decimal128 {
+        precision: 38,
+        scale,
+    };
+    let spec = ColumnSpec::new("s", ty, xs.len() as u64);
+    write_column(&mut w, "t", &spec, xs, None)
+        .unwrap()
+        .unwrap()
+        .sum
+}
+
+/// An exact sum of finite `f64` by another method than the writer's: each value as an
+/// integer multiple of 2^−1074 in a `Vec` of decimal digits of base 10^18, positive and
+/// negative parts apart; the difference is printed in decimal and parsed by Rust's
+/// correctly rounded `str::parse`, with the exponent −1074 applied as a power of 2
+/// through an exact decimal expansion of 2^−1074.
+mod reference {
+    const BASE: u128 = 1_000_000_000_000_000_000;
+
+    /// `a += b` for numbers of base-10^18 digits, least significant first.
+    fn add(a: &mut Vec<u128>, b: &[u128]) {
+        let mut carry = 0;
+        for i in 0..a.len().max(b.len()) {
+            if i == a.len() {
+                a.push(0);
+            }
+            let x = a[i] + b.get(i).copied().unwrap_or(0) + carry;
+            a[i] = x % BASE;
+            carry = x / BASE;
+        }
+        if carry > 0 {
+            a.push(carry);
+        }
+    }
+
+    fn mul(a: &mut Vec<u128>, k: u128) {
+        let mut carry = 0;
+        for d in a.iter_mut() {
+            let x = *d * k + carry;
+            *d = x % BASE;
+            carry = x / BASE;
+        }
+        while carry > 0 {
+            a.push(carry % BASE);
+            carry /= BASE;
+        }
+    }
+
+    fn cmp(a: &[u128], b: &[u128]) -> std::cmp::Ordering {
+        let trim = |x: &[u128]| x.len() - x.iter().rev().take_while(|&&d| d == 0).count();
+        let (la, lb) = (trim(a), trim(b));
+        la.cmp(&lb)
+            .then_with(|| a[..la].iter().rev().cmp(b[..lb].iter().rev()))
+    }
+
+    /// `a − b` for `a ≥ b`.
+    fn sub(a: &[u128], b: &[u128]) -> Vec<u128> {
+        let mut out = Vec::with_capacity(a.len());
+        let mut borrow = 0;
+        for (i, &x) in a.iter().enumerate() {
+            let y = b.get(i).copied().unwrap_or(0) + borrow;
+            if x >= y {
+                out.push(x - y);
+                borrow = 0;
+            } else {
+                out.push(x + BASE - y);
+                borrow = 1;
+            }
+        }
+        out
+    }
+
+    fn decimal(a: &[u128]) -> String {
+        let mut digits = a.iter().rev().skip_while(|&&d| d == 0);
+        let Some(first) = digits.next() else {
+            return "0".into();
+        };
+        let mut s = first.to_string();
+        for d in digits {
+            s.push_str(&format!("{d:018}"));
+        }
+        s
+    }
+
+    /// The exact sum of `xs`, all finite, rounded once to the nearest `f64`; +0.0 for
+    /// zero, ±∞ past `f64::MAX` after rounding.
+    pub(super) fn sum(xs: &[f64]) -> f64 {
+        let (mut pos, mut neg) = (vec![0u128], vec![0u128]);
+        for &x in xs {
+            let bits = x.to_bits();
+            let (exp, frac) = ((bits >> 52) & 0x7FF, bits & ((1 << 52) - 1));
+            let (m, shift) = if exp == 0 {
+                (frac, 0)
+            } else {
+                (frac | 1 << 52, exp - 1)
+            };
+            let mut v = vec![u128::from(m)];
+            for _ in 0..shift {
+                mul(&mut v, 2);
+            }
+            add(
+                if x.is_sign_negative() {
+                    &mut neg
+                } else {
+                    &mut pos
+                },
+                &v,
+            );
+        }
+        let (negative, m) = match cmp(&pos, &neg) {
+            std::cmp::Ordering::Equal => return 0.0,
+            std::cmp::Ordering::Greater => (false, sub(&pos, &neg)),
+            std::cmp::Ordering::Less => (true, sub(&neg, &pos)),
+        };
+        // m × 2^−1074 = m × 5^1074 × 10^−1074, an exact decimal.
+        let mut d = m;
+        for _ in 0..1074 {
+            mul(&mut d, 5);
+        }
+        let x: f64 = format!("{}e-1074", decimal(&d)).parse().unwrap();
+        if negative { -x } else { x + 0.0 }
     }
 }
 
 // ---------------------------------------------------------------------------------------
 // The exact sum on the cases that defeat a running `f64` sum.
 
-fn exact(xs: &[f64]) -> f64 {
-    let mut s = ExactSum::new();
-    xs.iter().for_each(|&x| s.add_f64(x));
-    s.to_f64()
-}
-
 #[test]
 fn hard_float_sums() {
+    let exact = float_sum;
     let tiny = f64::from_bits(1);
     let ulp = f64::EPSILON;
     assert_eq!(exact(&[1e308, 1e308, -1e308]), 1e308);
@@ -748,50 +907,59 @@ fn hard_float_sums() {
     // Overflow, also by rounding up at the tie just past f64::MAX.
     assert_eq!(exact(&[f64::MAX, f64::MAX]), f64::INFINITY);
     assert_eq!(exact(&[-f64::MAX, -f64::MAX]), f64::NEG_INFINITY);
-    assert_eq!(exact(&[f64::MAX, 2f64.powi(970)]), f64::INFINITY);
-    assert_eq!(exact(&[f64::MAX, 2f64.powi(969)]), f64::MAX);
+    assert_eq!(exact(&[f64::MAX, pow2(970)]), f64::INFINITY);
+    assert_eq!(exact(&[f64::MAX, pow2(969)]), f64::MAX);
     // Subnormal results, and the carry into the smallest normal.
     assert_eq!(exact(&[f64::MIN_POSITIVE, -tiny]).to_bits(), (1 << 52) - 1);
     let half = f64::MIN_POSITIVE / 2.0;
     assert_eq!(exact(&[half, half]), f64::MIN_POSITIVE);
-    // Zero is +0.0, never −0.0; specials.
+    // Zero is +0.0, never −0.0; infinities.
     assert_eq!(exact(&[-0.0]).to_bits(), 0);
     assert_eq!(exact(&[-tiny, tiny]).to_bits(), 0);
     assert_eq!(exact(&[]).to_bits(), 0);
     assert_eq!(exact(&[f64::INFINITY, 1.0]), f64::INFINITY);
     assert!(exact(&[f64::INFINITY, f64::NEG_INFINITY]).is_nan());
-    assert!(exact(&[f64::NAN]).is_nan());
     // Ten times 0.1 is exactly 1.000000000000000055511151231257827…, which rounds to 1.
     assert_eq!(exact(&[0.1; 10]), 1.0);
+    // The reference agrees on all of these.
+    for xs in [
+        &[1e308, 1e308, -1e308][..],
+        &[1.0, ulp / 2.0, tiny],
+        &[f64::MIN_POSITIVE, -tiny],
+        &[0.1; 10],
+    ] {
+        assert_eq!(reference::sum(xs).to_bits(), exact(xs).to_bits());
+    }
 }
 
 #[test]
 fn decimal_sums() {
-    let mut s = ExactSum::new();
-    s.add_i128(1);
-    s.add_i128(2);
-    assert_eq!(s.to_f64_scaled(1), 0.3);
-    assert_eq!(s.to_f64_scaled(-2), 300.0);
-    // ±(10^76 − 1), the extremes of decimal256(76, s).
+    assert_eq!(decimal_sum(&[1, 2], 1), 0.3);
+    assert_eq!(decimal_sum(&[1, 2], -2), 300.0);
+    // ±(10^76 − 1), the extremes of decimal256(76, s), at scale 18.
     let extreme = |negative: bool| {
         let (hi, lo) = (
             0x161b_cca7_1199_15b5_0764_b4ab_e865_2979_i128,
             0x7775_a5f1_7195_0fff_ffff_ffff_ffff_ffff_u128,
         );
         let (hi, lo) = if negative { (!hi, !lo + 1) } else { (hi, lo) };
-        let mut b = [0u8; 32];
-        b[..16].copy_from_slice(&lo.to_le_bytes());
-        b[16..].copy_from_slice(&hi.to_le_bytes());
-        b
+        [lo.to_le_bytes(), hi.to_le_bytes()].concat()
     };
-    let mut s = ExactSum::new();
-    s.add_i256(extreme(false));
-    assert_eq!(s.to_f64_scaled(18), 1e58);
-    s.add_i256(extreme(true));
-    s.add_i256(extreme(true));
-    assert_eq!(s.to_f64_scaled(18), -1e58);
-    s.add_i128(-1);
-    assert_eq!(s.to_f64_scaled(76), -1.0);
+    let sum = |parts: &[Vec<u8>]| {
+        let mut w = Writer::create(Mem::new(Vec::new())).unwrap();
+        let ty = ColumnType::Decimal256 {
+            precision: 76,
+            scale: 18,
+        };
+        let bytes = parts.concat();
+        let spec = ColumnSpec::new("s", ty, parts.len() as u64);
+        write_column(&mut w, "t", &spec, Values::Bytes(&bytes), None)
+            .unwrap()
+            .unwrap()
+            .sum
+    };
+    assert_eq!(sum(&[extreme(false)]), 1e58);
+    assert_eq!(sum(&[extreme(false), extreme(true), extreme(true)]), -1e58);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -809,10 +977,15 @@ fn the_writer_refuses_what_breaks_the_spec() {
         ..ColumnSpec::new("a", ColumnType::Int32, 3)
     };
     let mut c = ColumnWriter::begin(&mut w, "nodes", &spec, None).unwrap();
-    assert!(input(c.write_batch(&[Values::I64(&[1, 2])], None)));
-    assert!(input(c.write_batch(&[Values::I32(&[1])], None)));
-    assert!(input(c.write_batch(&[Values::I32(&[1, 2])], Some(&[3]))));
-    c.write_batch(&[Values::I32(&[1]), Values::I32(&[2])], None)
+    assert!(input(c.write_batch(&[Values::I64(&[1, 2])], &[])));
+    assert!(input(c.write_batch(&[Values::I32(&[1])], &[])));
+    let bits = Bits {
+        bytes: &[3],
+        offset: 0,
+        len: 2,
+    };
+    assert!(input(c.write_batch(&[Values::I32(&[1, 2])], &[bits])));
+    c.write_batch(&[Values::I32(&[1]), Values::I32(&[2])], &[])
         .unwrap();
     assert!(input(c.finish()));
 
@@ -848,18 +1021,22 @@ fn the_writer_refuses_what_breaks_the_spec() {
     )));
     let codes = ColumnType::Dictionary(CodeWidth::U8);
     assert!(input(begin(ColumnSpec { ty: codes, ..base }, &mut w)));
-    let many = vec!["x"; 257];
+    let (offsets, bytes) = Dictionary::parts(&vec!["x"; 257]);
+    let many = Dictionary {
+        offsets: &offsets,
+        bytes: &bytes,
+    };
     assert!(input(begin(
         ColumnSpec {
             ty: codes,
-            dictionary: Some(&many),
+            dictionary: Some(many),
             ..base
         },
         &mut w
     )));
     assert!(input(begin(
         ColumnSpec {
-            dictionary: Some(&many),
+            dictionary: Some(many),
             ..base
         },
         &mut w
@@ -877,11 +1054,42 @@ fn the_writer_refuses_what_breaks_the_spec() {
         Err(ColumnError::TooLarge(_))
     ));
 
+    let (offsets, bytes) = Dictionary::parts(&["a", "b"]);
+    let ab = Dictionary {
+        offsets: &offsets,
+        bytes: &bytes,
+    };
     let spec = ColumnSpec {
-        dictionary: Some(&["a", "b"]),
+        dictionary: Some(ab),
         ..ColumnSpec::new("k", codes, 2)
     };
     assert!(input(write_column(&mut w, "edges", &spec, &[0u8, 2], None)));
+    // Offsets that do not end at the bytes' length, or strings that are not UTF-8.
+    for (offsets, bytes) in [
+        (&[0u32, 1, 3][..], &b"abcd"[..]),
+        (&[0, 1, 2], &[b'a', 0xFF]),
+    ] {
+        let spec = ColumnSpec {
+            dictionary: Some(Dictionary { offsets, bytes }),
+            ..ColumnSpec::new("k2", codes, 0)
+        };
+        assert!(input(write_column(&mut w, "edges", &spec, &[0u8; 0], None)));
+    }
+    // A scope that holds a '/', or validity past its bytes.
+    let spec = ColumnSpec::new("p", ColumnType::Int32, 1);
+    assert!(input(write_column(&mut w, "a/arrow", &spec, &[1i32], None)));
+    let spec = ColumnSpec {
+        nullable: true,
+        ..ColumnSpec::new("q", ColumnType::Int32, 1)
+    };
+    let mut c = ColumnWriter::begin(&mut w, "nodes", &spec, None).unwrap();
+    let past = Bits {
+        bytes: &[1],
+        offset: 8,
+        len: 1,
+    };
+    assert!(input(c.write_batch(&[Values::I32(&[1])], &[past])));
+    drop(c);
     let ty = ColumnType::Decimal128 {
         precision: 3,
         scale: 0,
@@ -899,6 +1107,30 @@ fn the_writer_refuses_what_breaks_the_spec() {
     assert!(matches!(
         write_column(&mut w, "edges", &spec, &[1i128, 2], None),
         Err(ColumnError::Container(ContainerError::NameTaken(_)))
+    ));
+}
+
+/// A dictionary layout whose string bytes, added up by the reader, would pass 2^64
+/// (review of #213): refused, not a panic or an inverted range.
+#[test]
+fn a_dictionary_past_two_gib_is_refused() {
+    let mut b = b"EGCOLLAY".to_vec();
+    b.extend_from_slice(&1u32.to_le_bytes()); // version
+    b.extend_from_slice(&0u32.to_le_bytes()); // flags
+    for x in [0u64, 1, 0, 4330] {
+        b.extend_from_slice(&x.to_le_bytes()); // rows, batch rows, batches, column bytes
+    }
+    b.extend_from_slice(&[8, 0, 0, 0]); // dictionary, not nullable
+    for x in [8u32, 0, 1] {
+        b.extend_from_slice(&x.to_le_bytes()); // uint8 codes, parameter 2, name length
+    }
+    b.extend_from_slice(&1u64.to_le_bytes()); // strings
+    b.extend_from_slice(&(u64::MAX - 4099).to_le_bytes()); // string bytes
+    b.extend_from_slice(b"x\0\0\0\0\0\0\0");
+    b.resize(120, 0);
+    assert!(matches!(
+        ColumnLayout::parse(&b),
+        Err(ColumnError::Invalid(_))
     ));
 }
 

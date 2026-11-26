@@ -241,10 +241,11 @@ name order, over every section that defines the graph, of `kind` (`u32`), the na
 length in bytes (`u32`), the name, and the section's 32-byte hash. So two files whose
 graph sections differ in kind, name or content never share an identity. The kinds that
 define the graph are those 1.0 defines as such — 2 to 5 (adjacency index and data,
-`.events`, dictionary) and 7 and 8 (property columns and their layouts,
-`eg-columns.md` § 8; statistics, kind 9, follow from kind 7 and are left out). A
-kind added later that defines the graph is announced with a required feature bit (§ 10), so that a reader that does not know it refuses the file instead of
-computing an identity without it. For a segmented file (§ 13) the identity is BLAKE3 of
+`.events`, dictionary) and 7 (property columns, `eg-columns.md` § 8; their layouts
+and statistics, kinds 8 and 9, follow from kind 7 and are left out). A kind added
+later that defines the graph is announced with a required feature bit (§ 10), so that a
+reader that does not know it refuses the file instead of computing an identity without
+it. For a segmented file (§ 13) the identity is BLAKE3 of
 the manifest's `(kind, name length, name, hash)` alone, since the manifest lists the
 hashes of every run's sections. A reader serves a stored result only for a graph with
 that identity: after an append the graph has a new identity, and results stored before

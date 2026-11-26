@@ -226,15 +226,15 @@ offset  size  field
 - The sum is exact before its one rounding: of the values as numbers (a decimal's stored
   integer times 10^−s), whatever their order, with no intermediate overflow. An infinity
   makes it infinite; infinities of both signs make it NaN (stored as the quiet NaN). A
-  sum that rounds to zero is +0.0. A float column is **clean** (`graph-semantics.md`
+  sum that rounds to zero, or of no value, is +0.0, never −0.0. A float column is **clean** (`graph-semantics.md`
   § 2.7) when `NaN count = 0`, `min ≥ 0` (or bit 0 is clear) and the sum is finite.
 
 ## 6. Names, and what a graph stores
 
 **Scopes.** A column's three sections are named `<scope>/arrow/<column>`,
 `<scope>/layout/<column>` and `<scope>/stats/<column>`, where `<column>` is the column's
-name (also its Arrow field name; any UTF-8, `/` included) and `<scope>` says what its
-rows are:
+name (also its Arrow field name; any UTF-8, `/` included) and `<scope>`, which is not
+empty and holds no `/`, says what its rows are:
 
 | Scope | Rows | Indexed by |
 |---|---|---|
@@ -243,8 +243,8 @@ rows are:
 | `<adj>.event` | one per stored event of `<adj>` | the event offset (`eg-adjacency.md` § 3.1; the entry offset when there is no `.events` section) |
 | `edges` | one per stored edge (`num_edges`), in input order | the edge id |
 
-The role comes before the column's name, so that no column name can make one section's
-name equal another's.
+The role comes after a scope without `/` and before the column's name, so that no
+column name can make one section's name equal another's.
 
 **What the build (#35) stores.**
 
@@ -273,8 +273,8 @@ name equal another's.
   sums in a time window (§ 6 there), and the multiplicity under `duplicates="events"`,
   which is `ev[e + 1] − ev[e]` of the `.events` section (1 without one). Whether a
   per-pair multiplicity column would make kernels faster than decoding `.events` is to
-  be measured with the first weighted kernel (#47); kernels never read per-event
-  columns (ADR 0028).
+  be measured with the first weighted kernel (#47, `m3-04-pagerank`); kernels never
+  read per-event columns (ADR 0028).
 - **Edge types** are dictionary-encoded: `uint8` codes up to 256 values, `uint16` up to
   65,536, `uint32` beyond (`graph-semantics.md` § 2.6): this format stores text only
   dictionary-encoded (§ 9).
@@ -283,7 +283,7 @@ name equal another's.
   (`graph-semantics.md` § 2.6); in storage, a null is a cleared validity bit (§ 3.3).
 - **Statistics** are written for every numeric column of every scope. The largest
   multiplicity of a pair (`graph-semantics.md` § 2.7) is a property of the adjacency, not
-  of a column: #35 records it.
+  of a column: the build records it, where #35 (`m2-08-csr-build`) decides.
 
 ## 7. Reading
 
@@ -301,8 +301,8 @@ A reader of a column:
    the layout says, for this reader and for an Arrow reader alike;
 3. reads the statistics section, if it uses it, and checks it (§ 5): its length, magic,
    version and flags, that the counts fit the column's rows and type, that `min` and
-   `max` are canonical values of the type with `min ≤ max`, and that the record is
-   stored canonically.
+   `max` are canonical values of the type with `min ≤ max`, that the sum is not −0.0
+   and is +0.0 when there is no value, and that the record is stored canonically.
 
 What a reader does not check, because it would read every value: that floats are
 canonical, that the values of null rows are zero, that dictionary codes name a string
@@ -328,8 +328,11 @@ different default `R` included) changes the golden bytes of
 `crates/everygraph-format/tests/columns.rs`, and needs a new version.
 
 The container kinds are 7 (column), 8 (layout) and 9 (statistics), all defined in
-container version 1.0. Kinds 7 and 8 define the graph and enter its identity
-(`eg-container.md` § 6); kind 9 is derived from kind 7 and does not.
+container version 1.0. Kind 7 defines the graph and enters its identity
+(`eg-container.md` § 6). Kinds 8 and 9 follow from kind 7 and do not: the layout is what
+§ 3 and § 4 compute from the Arrow file (the batch row count of a column of one batch,
+the one choice the Arrow file does not record, changes no value), and the statistics are
+computed from the values.
 
 ## 9. Decided here
 
@@ -360,11 +363,11 @@ container version 1.0. Kinds 7 and 8 define the graph and enter its identity
   values or 2 GiB) is refused by this version; `LargeUtf8` is the way to add it.
 - **An empty validity bitmap for a batch without null**, as Arrow allows: one stored form
   per batch, and no bitmap to read for columns without nulls.
-- **The exact sum** uses a fixed-point accumulator of 2,304 bits (a positive and a
-  negative part), wide enough for 2^64 values of any finite `f64` or any decimal256;
-  integers and decimals are added as integers, and decimals are scaled by 10^−s, exactly,
-  before the one rounding. It is order-independent by construction, and `ExactSum` is
-  public so that the build (#35) computes pair sums with it.
+- **The exact sums.** Floats are summed by `everygraph_core::ExactSum`, the one exact
+  accumulator of the engine (rule R6 of `docs/research/sota-numerics.md`). Integers and
+  decimals are summed as integers, exactly, in 640 bits (2^64 values below 2^255), and
+  a decimal's sum is scaled by 10^−s, exactly, before its one rounding. Both are
+  independent of the order of the values.
 - **Not built here**: per-block minimum and maximum of time and weight (zone maps,
-  B18) — they serve the views of #93 and #94, which will specify their section; and the
+  B18), which `m7-04-views` specifies and builds for the views of #93 and #94; and the
   reading of columns from text and Parquet (#32, #33, #35).
