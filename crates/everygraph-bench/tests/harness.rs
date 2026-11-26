@@ -857,3 +857,86 @@ fn clean_deletes_only_a_marked_work_directory() {
     assert!(out.status.success(), "{}", text(&out.stderr));
     assert!(!work.exists());
 }
+
+/// Acceptance of #195: an A/B of two binaries runs as one harness command, interleaved,
+/// and reports a ratio interval. The "binaries" are two scripts whose times differ by a
+/// factor of 2.
+#[test]
+fn an_interleaved_ab_of_two_binaries_reports_a_ratio_interval() {
+    if !systemd_run_works() {
+        eprintln!("skipped: systemd-run --user --scope does not work here (no user session)");
+        return;
+    }
+    let bins = scratch("ab-bins");
+    for (name, seconds) in [("old", 0.5), ("new", 1.0)] {
+        std::fs::write(
+            bins.join(format!("{name}.sh")),
+            format!("echo '{{\"seconds\": {seconds}}}'\n"),
+        )
+        .expect("script");
+    }
+    let spec = format!(
+        r#"
+schema = 1
+name = "selftest"
+description = "A/B"
+[defaults]
+memory_limit = "64M"
+settle = "10ms"
+repetitions = 3
+[vars]
+bins = "{}"
+[[benchmark]]
+name = "ab"
+matrix = {{ build = ["old", "new"] }}
+command = ["sh", "{{bins}}/{{build}}.sh"]
+metric = [{{ name = "seconds", json = "/seconds", unit = "s" }}]
+"#,
+        bins.display()
+    );
+    let (out, rows, _dir) = exploratory(
+        "ab",
+        &spec,
+        &["--interleave", "--seed", "7", "--compare-by", "build=old"],
+    );
+    let (stdout, stderr) = (text(&out.stdout), text(&out.stderr));
+    assert!(out.status.success(), "{stderr}");
+    assert_eq!(rows.len(), 6, "{stderr}");
+    for r in &rows {
+        assert_eq!(r.seed, Some(7));
+        assert!(r.round.is_some() && r.position.is_some(), "{r:?}");
+    }
+    // ABBA: the case that ends round 1 starts round 2.
+    assert_eq!(rows[2].case, rows[1].case);
+    assert_ne!(rows[0].case, rows[1].case);
+    assert!(
+        stdout.contains("| `ab/build=new/t1` | `ab/build=old/t1` |")
+            && stdout.contains("| 2.000 [2.000, 2.000] |"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Interleaved: rounds over the cases"),
+        "{stdout}"
+    );
+}
+
+/// Interleaving reorders cold-cache cases only in a spec that opts in, and never in one
+/// that forbids it.
+#[test]
+fn interleaving_needs_the_spec_to_allow_it() {
+    let data = scratch("interleave-data");
+    std::fs::write(data.join("graph.bin"), b"x").expect("data");
+    for (setting, needle) in [
+        ("", "must opt in"),
+        ("interleave = false\n", "interleave = false"),
+    ] {
+        let spec = format!(
+            "schema = 1\nname = \"selftest\"\ndescription = \"d\"\n{setting}[defaults]\nmemory_limit = \"64M\"\n[[benchmark]]\nname = \"read\"\ndataset_path = \"{}\"\ncache = \"cold\"\ncommand = [\"true\"]\n",
+            data.join("graph.bin").display()
+        );
+        let (out, rows, _dir) = exploratory("interleave-refused", &spec, &["--interleave"]);
+        assert_eq!(out.status.code(), Some(3), "{}", text(&out.stderr));
+        assert!(text(&out.stderr).contains(needle), "{}", text(&out.stderr));
+        assert!(rows.is_empty());
+    }
+}

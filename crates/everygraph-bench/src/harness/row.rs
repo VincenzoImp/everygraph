@@ -296,6 +296,16 @@ pub struct Row {
     /// the field existed.
     #[serde(default)]
     pub warmup: Option<u32>,
+    /// The seed of an interleaved run (`run --interleave`); `None` when the cases ran
+    /// one after another.
+    #[serde(default)]
+    pub seed: Option<u64>,
+    /// The 1-based round of an interleaved run this repetition ran in.
+    #[serde(default)]
+    pub round: Option<u32>,
+    /// The 1-based place of the case in its round.
+    #[serde(default)]
+    pub position: Option<u32>,
     /// How it ended.
     pub status: Status,
     /// Why, when not `ok`.
@@ -543,6 +553,9 @@ pub(crate) mod tests {
             repetition: rep,
             repetitions: 3,
             warmup: None,
+            seed: None,
+            round: None,
+            position: None,
             status: Status::Ok,
             error: None,
             started_at: "2026-11-25T09:06:42Z".into(),
@@ -676,13 +689,15 @@ pub(crate) mod tests {
         assert_eq!(read_rows(&path).expect("read"), rows);
     }
 
-    /// The fields added by #142 are additive: a row written before them reads with
-    /// "not a warm-up" and "I/O known", and keeps its metrics.
+    /// The fields added by #142 and #195 are additive: a row written before them reads
+    /// with "not a warm-up", "not interleaved" and "I/O known", and keeps its metrics.
     #[test]
     fn rows_without_the_warmup_and_io_unknown_fields_still_read() {
         let mut v = serde_json::to_value(sample_row("pr32", 1, 0.38)).expect("serializes");
         let obj = v.as_object_mut().expect("object");
-        obj.remove("warmup");
+        for k in ["warmup", "seed", "round", "position"] {
+            obj.remove(k);
+        }
         obj["io"].as_object_mut().expect("io").remove("unknown");
         let dir = TempDir::new("old-rows");
         let path = dir.path().join("old.jsonl");

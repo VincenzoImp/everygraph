@@ -46,7 +46,9 @@ pub const BUILTIN_METRICS: &[(&str, &str)] = &[
     ("stop_seconds", "s"),
 ];
 
-const DEFAULT_REPETITIONS: u32 = 3;
+/// The fewest repetitions whose [min, max] is a 95% interval of the median
+/// ([`super::stats::min_repetitions`]).
+const DEFAULT_REPETITIONS: u32 = 6;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const DEFAULT_SETTLE: Duration = Duration::from_secs(1);
 const DEFAULT_SAMPLE: Duration = Duration::from_millis(20);
@@ -130,6 +132,11 @@ pub struct SpecFile {
     /// Where the numbers it reproduces come from, if any.
     #[serde(default)]
     pub reference: Option<String>,
+    /// Whether `run --interleave` may reorder the cases: `false` forbids it, and a spec
+    /// with cold-cache cases must set `true`, because interleaving changes which data
+    /// and drive state each repetition starts from.
+    #[serde(default)]
+    pub interleave: Option<bool>,
     /// Values every benchmark inherits.
     #[serde(default)]
     pub defaults: Defaults,
@@ -580,6 +587,8 @@ pub struct Spec {
     pub description: String,
     /// Source of the reproduced numbers.
     pub reference: Option<String>,
+    /// See [`SpecFile::interleave`].
+    pub interleave: Option<bool>,
     /// Variables.
     pub vars: BTreeMap<String, String>,
     /// Gate thresholds.
@@ -770,6 +779,7 @@ fn resolve(file: SpecFile, sha256: String) -> Result<Spec, String> {
         name: file.name,
         description: file.description,
         reference: file.reference,
+        interleave: file.interleave,
         vars: file.vars,
         gate,
         prepare,
@@ -1195,7 +1205,7 @@ command = ["sleep", "0"]
         let c = &spec.cases[0];
         assert_eq!(c.id, "sleep");
         assert_eq!(c.memory_limit, 1 << 30);
-        assert_eq!(c.repetitions, 3);
+        assert_eq!(c.repetitions, 6);
         assert_eq!((c.cache, c.warmup), (CacheMode::Warm, 1));
         assert_eq!(c.primary, "wall_seconds");
         assert_eq!(spec.gate.max_load, 1.0);

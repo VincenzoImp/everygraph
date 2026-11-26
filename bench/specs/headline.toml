@@ -10,7 +10,7 @@
 # - every run is under a hard memory limit; the lab ran ingest and in-RAM kernels without
 #   one. Limits are set well above what the run uses (the tool's own --mem-gb budget is
 #   what is measured); the Friendster runs get 48 GiB.
-# - each repetition is a separate process (3 per case after one warm-up), not --reps
+# - each repetition is a separate process (6 per case after one warm-up), not --reps
 #   inside one process; `glab run` still does 2 in-process repetitions and reports the
 #   best, as the lab did, and that is the `seconds` metric.
 # - the larger-than-RAM cases run cold on private copies (the lab evicted the shared
@@ -30,7 +30,8 @@
 #   rested drive; see the warm-up of ingest-friendster).
 # The harness takes the median over its own repetitions.
 #
-# Run (about 26 minutes measured on 2026-11-25, plus 2 minutes of preparation the first
+# Run (about 26 minutes measured on 2026-11-25 with 3 repetitions; with 6, about 50 minutes
+# (an estimate: twice the measured time), plus 2 minutes of preparation the first
 # time): everygraph-bench run headline --official --data /home/tux/graphlab/data
 
 schema = 1
@@ -43,7 +44,7 @@ binaries = ["{glab}"]
 
 [defaults]
 memory_limit = "8G"
-repetitions = 3
+repetitions = 6
 threads = [32]
 timeout = "10m"
 
