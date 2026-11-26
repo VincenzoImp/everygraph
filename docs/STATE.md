@@ -22,7 +22,6 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 
 **Open PRs:**
 - #218 components + k-core + degrees: second review running (k-core must-fix fixed; ported to #220's kernels).
-- #219 page backend (#167): approved; author merging main after #215.
 - #229 Python slice (#81), draft: waits for #218.
 
 **Agents running:** production Leiden (#57), Louvain collapse (#17), ordering bake-off (#23), layout baseline (#175), CLI (#98, moving to clap, will reuse `everygraph_ingest::native` from #229).
@@ -40,6 +39,7 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 - #172 mmap hints / block cache (PR #221, merged): six `everygraph-bench run mmap-hints --official --only …` cases, ~3.5 h total, 44 GiB available needed — too long for one night window; run as its own window. Exploratory: MADV_RANDOM cuts bytes read 0.16× (layout 16G) and 0.08–0.15× (Leiden local moving 4–8G); harmful when the graph fits (32G: 8.7× more bytes). ADR 0029 (proposed, PR #222 merged): accepted after this official run.
 - #47/#49 PageRank family and traversals (PR #220, after review): `everygraph-bench run kernels --official --data /home/tux/graphlab/data` (~25 min + the Friendster store once; GAP rows need the network once).
 - #48/#50 components and k-core (PR #218, after review): `everygraph-bench run components-kcore --official --data /home/tux/graphlab/data` (~50 min, estimate; Friendster/twitter-sym rows at 40G).
+- #167 page backend (PR #219, merged): `everygraph-bench run id-dictionary --official --only build-500m` and `--only hex-65m` (without the GLIBC_TUNABLES stopgap; compare with 20261126T042659Z-c0d7f248bb47.jsonl).
 - #18 deterministic Leiden (PR #208, merged): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
