@@ -169,6 +169,24 @@ def test_progress_events_follow_the_event_schema(tmp_path, validate):
     assert len({e["job"] for e in events}) == 1
 
 
+def test_ctrl_c_is_a_plain_keyboard_interrupt_and_leaves_no_file(tmp_path):
+    import _thread
+    import threading
+
+    path = write_edges(tmp_path / "big.csv", [(i, (i * 7919) % 200_000) for i in range(400_000)])
+    started = threading.Event()
+
+    def interrupt():
+        started.wait()
+        _thread.interrupt_main()
+
+    threading.Thread(target=interrupt, daemon=True).start()
+    with pytest.raises(KeyboardInterrupt):
+        eg.read(path, out=tmp_path / "big.eg", progress=lambda e: started.set())
+    assert not (tmp_path / "big.eg").exists()
+    assert not list(tmp_path.glob("*.partial")) and not list(tmp_path.glob(".everygraph-*"))
+
+
 def test_an_exception_of_the_progress_function_stops_the_call(tmp_path):
     path = write_edges(tmp_path / "e.csv", [(1, 2), (2, 3)])
 
