@@ -8,11 +8,18 @@ docs/research/sota-numerics.md). This script is the one place the list is writte
 Each copy sits between the BEGIN and END lines below, inside `disallowed-types` and
 `disallowed-methods`.
 
+With `--check` it also fails on an `impl Reduce for` a type that holds `f32` or `f64`
+in the sources of a product crate: the edge-map framework adds a `Reduce` by reduction
+blocks, which a mask and a materialized view cut differently, so a float reduced that way
+can change its bits (`everygraph_kernels::edge_map`, "Determinism"). Such a float goes
+through `ExactSum`.
+
 Usage: python3 tools/numerics_lint.py           (rewrites the copies)
        python3 tools/numerics_lint.py --check   (exit status 1 if a copy differs)
 """
 
 import pathlib
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -88,6 +95,47 @@ def render(text):
     return text
 
 
+PRODUCT = ("core", "format", "io", "ingest", "kernels", "community", "map", "query", "cli",
+           "py", "wasm")
+REDUCE_IMPL = re.compile(r"impl\s*(?:<[^>{]*>)?\s*(?:[\w:]+::)?Reduce\s+for\s+([^{]+?)\s*\{")
+FLOAT = re.compile(r"\bf(?:32|64)\b")
+
+
+def definition(text, name):
+    """The text of the `struct` or `enum` named `name` in `text`, or ''."""
+    m = re.search(r"\b(?:struct|enum)\s+" + re.escape(name) + r"\b", text)
+    if not m:
+        return ""
+    depth, i = 0, m.end()
+    while i < len(text):
+        c = text[i]
+        if c in "({":
+            depth += 1
+        elif c in ")}":
+            depth -= 1
+            if depth == 0:
+                return text[m.end():i + 1]
+        elif c == ";" and depth == 0:
+            return text[m.end():i]
+        i += 1
+    return text[m.end():]
+
+
+def float_reductions():
+    """`path: type` for each `impl Reduce for` a type with a float in a product crate."""
+    found = []
+    for crate in PRODUCT:
+        for path in sorted((ROOT / "crates" / f"everygraph-{crate}" / "src").rglob("*.rs")):
+            text = path.read_text(encoding="utf-8")
+            for m in REDUCE_IMPL.finditer(text):
+                ty = m.group(1).strip()
+                name = re.match(r"\w+", ty)
+                body = definition(text, name.group(0)) if name else ""
+                if FLOAT.search(ty) or FLOAT.search(body):
+                    found.append(f"{path.relative_to(ROOT)}: {ty}")
+    return found
+
+
 def main(check):
     stale = []
     for path in FILES:
@@ -101,6 +149,11 @@ def main(check):
         for path in stale:
             print(f"FAILED: {path} does not carry the current numerics list")
         print("Run python3 tools/numerics_lint.py to rewrite the copies.")
+        return 1
+    floats = float_reductions() if check else []
+    if floats:
+        for f in floats:
+            print(f"FAILED: {f}: a float reduced by blocks; use `ExactSum`")
         return 1
     print("ok: the numerics list is the same in every copy" if check else
           f"wrote {len(stale)} of {len(FILES)} files")

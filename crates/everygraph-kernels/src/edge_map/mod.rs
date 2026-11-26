@@ -281,7 +281,15 @@ impl Default for Settings {
     }
 }
 
-/// A value the drivers add up in a fixed order.
+/// A value the drivers add up in a fixed order: by reduction blocks, then blocks in
+/// order (module documentation, "Determinism").
+///
+/// Implement it only for values whose sum does not depend on the grouping: integers,
+/// [`ExactSum`], tuples of these. Never for a type that holds an `f32` or `f64`, a
+/// newtype included. The blocks are cut by node count and ids, so a mask and the same
+/// view materialized group the values differently, and a float sum would change its
+/// bits (DESIGN D14). `tools/numerics_lint.py --check` refuses such an `impl` in a
+/// product crate.
 pub trait Reduce: Send + Sized {
     /// The value of no nodes.
     const ZERO: Self;
