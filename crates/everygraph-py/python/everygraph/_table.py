@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import types
 from collections.abc import Mapping
 from typing import Any
@@ -121,9 +122,11 @@ _IDENTIFIERS = {"node", "neighbor", "parent", "source", "target"}
 
 def _decimals(values: list[float]) -> int:
     """As many decimals as distinguish the values shown (`docs/api-sketch.md` § 2.3),
-    at least 4 and at most 12."""
+    and as give the smallest of them three significant digits; at least 4, at most 12."""
     distinct = len(set(values))
-    for d in range(4, 12):
+    small = min((abs(v) for v in values if v != 0 and math.isfinite(v)), default=1.0)
+    least = min(max(4, 2 - math.floor(math.log10(small))), 12)
+    for d in range(least, 12):
         rounded = {round(v, d) for v in values}
         if len(rounded) == distinct and all(round(v, d) != 0 for v in values if v != 0):
             return d
