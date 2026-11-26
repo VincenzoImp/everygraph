@@ -48,7 +48,7 @@ pub(crate) fn run(path: &Path, options: &Options, style: &Style) -> ExitCode {
     let free = ProcMemoryProbe::new()
         .probe()
         .map_or(u64::MAX, |m| m.available() / 2);
-    let budget = Arc::new(Budget::new(free));
+    let budget = Arc::new(Budget::new(free).with_pages(everygraph_io::PAGES));
     let outcome = if path.is_dir() {
         Err(Failure::Io("it is a directory".to_owned()))
     } else {
