@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # Strong components (#223, plan/issues/m3-20-scc.md): BGSS on the edge-map framework
-# against a sequential Tarjan, kernel time inside the process (on twitter-2010 one run
-# per process, else the best of 3 in one process; loading is reported apart), both
-# through the example `edge_map_bench` on raw CSR in the heap:
+# against a sequential Tarjan, kernel time inside the process (`scc` on twitter-2010 one
+# run per process; the other rows, `tarjan` on twitter-2010 too, the best of 3 in one
+# process; loading is reported apart), both through the example `edge_map_bench` on raw
+# CSR in the heap:
 #
 # - `engine-scc`: `scc`, on the out-lists and the in-lists (`csr/twitter-dir-in`; the
 #   road network is symmetric, so its lists are both).
@@ -14,7 +15,7 @@
 # roadNet-CA is the large-diameter case where forward-backward methods lose to Tarjan
 # (`docs/research/sota-kernels.md` § 3).
 #
-# Run (an estimate, not measured: about 10 minutes; each twitter process reads its lists
+# Run (an estimate, not measured: about 15 minutes; each twitter process reads its lists
 # into the heap, 12.5 GB for scc and 6.2 GB for tarjan):
 #   everygraph-bench run scc --official --data /home/tux/graphlab/data
 

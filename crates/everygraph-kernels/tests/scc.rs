@@ -20,6 +20,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
+use everygraph_core::rng::{Purpose, below, draw};
 use everygraph_core::{Budget, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_kernels::edge_map::{Compressed, Csr, Error, Plan, Settings, Source, Stream, Work};
@@ -296,4 +297,54 @@ fn refusals() {
         assert!(matches!(e, Error::Invalid(_)), "{e}");
     })
     .unwrap();
+}
+
+/// The review's probe of the bound on the pairs a step adds. Every `a` has a loop and an
+/// arc to the hub `h`; `h` has a loop and arcs to every `b`; every `b` has a loop. The ids
+/// are chosen against the kernel's order (seed 0, purpose `SCC_ORDER`): the first source
+/// is a `b`, which puts `h` and the `a`s in one part, and `h` and the `a`s are all in the
+/// last batch. Then `h` gets `k` new sources at once, and none of its targets is in its
+/// part: a bound by degree reserved `k × D` pairs.
+#[test]
+fn a_hub_reached_by_many_sources_reserves_only_the_pairs_it_finds() {
+    let (k, d) = (1_000_u32, 50_000_u32);
+    let n = k + 1 + d;
+    let place = |v: u32| {
+        let order = draw(0, Purpose::SCC_ORDER, [v, 0, 0, 0]);
+        below(order, u64::from(n))
+    };
+    let last = 64 - (u64::from(n) - 1).leading_zeros();
+    let high: Vec<u32> = (0..n)
+        .filter(|&v| 64 - place(v).leading_zeros() == last)
+        .take(k as usize + 1)
+        .collect();
+    assert_eq!(high.len(), k as usize + 1);
+    let (h, a) = (high[0], &high[1..]);
+    let b: Vec<u32> = (0..n).filter(|v| !high.contains(v)).collect();
+    let mut arcs: Vec<(u32, u32)> = (0..n).map(|v| (v, v)).collect();
+    arcs.extend(a.iter().map(|&x| (x, h)));
+    arcs.extend(b.iter().map(|&y| (h, y)));
+    let g = Digraph { n, arcs };
+    let ((oo, ot), (io, it)) = (g.lists(false), g.lists(true));
+    let (out, inn) = (Csr::new(&oo, &ot).unwrap(), Csr::new(&io, &it).unwrap());
+    let budget = Arc::new(Budget::new(u64::MAX));
+    let memory = Memory::from(budget.clone());
+    let labels = Plan::with_pair(&out, &inn, &memory, Settings::default(), |po, pi| {
+        let (l, _held) = scc(&po, &pi, &memory).unwrap();
+        l.into_iter().map(AtomicU32::into_inner).collect::<Vec<_>>()
+    })
+    .unwrap();
+    assert_eq!(
+        labels,
+        (0..n).collect::<Vec<_>>(),
+        "every node is its own component"
+    );
+    // Each node is reached by at most two sources each way here: its own and the hub.
+    let pairs = 4 * u64::from(n);
+    let model = u64::from(n) * 13 + pairs * 18;
+    assert!(
+        budget.peak() <= 2 * model,
+        "peak {} bytes, model {model}",
+        budget.peak()
+    );
 }

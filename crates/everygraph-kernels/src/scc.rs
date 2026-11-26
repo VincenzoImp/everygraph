@@ -31,7 +31,9 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering::Relaxed};
 
 use everygraph_core::rng::{Purpose, below, draw};
-use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par, usize_of};
+use everygraph_core::{
+    MAX_ALLOCATION_BYTES, Memory, MemoryError, MemoryKind, Reservation, SegVec, par, usize_of,
+};
 
 use crate::Atomics;
 use crate::components::unite;
@@ -80,14 +82,58 @@ fn spread(s: u32, forward: bool) -> u64 {
     z ^ (z >> 31)
 }
 
+/// Bytes per piece of [`Pieces`]: the largest single allocation (DESIGN D2), or 4 KiB in
+/// this crate's unit tests, so that they cross pieces.
+const PIECE_BYTES: u64 = if cfg!(test) {
+    1 << 12
+} else {
+    MAX_ALLOCATION_BYTES
+};
+
+/// Atomics in pieces of at most [`PIECE_BYTES`], each one allocation. The caller reserves
+/// them.
+struct Pieces<T> {
+    pieces: Vec<Vec<T>>,
+    /// Log2 of the items per piece.
+    bits: u32,
+    len: usize,
+}
+
+impl<T: Send> Pieces<T> {
+    fn new(len: usize, zero: impl Fn() -> T + Sync) -> Self {
+        let per = ix(PIECE_BYTES) / size_of::<T>();
+        let pieces = (0..len.div_ceil(per))
+            .map(|p| par::collect((len - p * per).min(per), GRAIN, |_| zero()))
+            .collect();
+        Self {
+            pieces,
+            bits: per.trailing_zeros(),
+            len,
+        }
+    }
+
+    #[inline]
+    fn at(&self, i: usize) -> &T {
+        &self.pieces[i >> self.bits][i & ((1 << self.bits) - 1)]
+    }
+}
+
+/// The error of a set of pairs larger than any budget.
+const TOO_MANY: Error = Error::Memory(MemoryError::AllocationFailed {
+    purpose: PAIRS,
+    bytes: u64::MAX,
+});
+
+const PAIRS: &str = "strong components: pairs";
+
 /// A concurrent set of pairs (node, source), by linear probing on the node alone: the
 /// pairs of a node are between its home slot and the next empty slot. It grows only
 /// between calls of the drivers.
 struct Pairs {
     /// 0 for an empty slot, else [`pack`] of the pair.
-    slots: Vec<AtomicU64>,
+    slots: Pieces<AtomicU64>,
     /// When each pair was found: [`OLD`], or the [`mark`] of its step.
-    marks: Vec<AtomicU8>,
+    marks: Pieces<AtomicU8>,
     len: u64,
     /// The pairs there can be at most: nodes times sources.
     most: u64,
@@ -101,17 +147,12 @@ impl Pairs {
         let slots = slots
             .max(MIN_SLOTS)
             .checked_next_power_of_two()
-            .ok_or(Error::Invalid(
-                "strong components: more pairs than the address space",
-            ))?;
-        let held = memory.reserve(
-            "strong components: pairs",
-            MemoryKind::Anonymous,
-            slots as u64 * 9,
-        )?;
+            .ok_or(TOO_MANY)?;
+        let bytes = (slots as u64).checked_mul(9).ok_or(TOO_MANY)?;
+        let held = memory.reserve(PAIRS, MemoryKind::Anonymous, bytes)?;
         Ok(Self {
-            slots: par::collect(slots, GRAIN, |_| AtomicU64::new(0)),
-            marks: par::collect(slots, GRAIN, |_| AtomicU8::new(OLD)),
+            slots: Pieces::new(slots, || AtomicU64::new(0)),
+            marks: Pieces::new(slots, || AtomicU8::new(OLD)),
             len: 0,
             most,
             shift: 64 - slots.trailing_zeros(),
@@ -121,7 +162,7 @@ impl Pairs {
 
     /// Pairs that fit below the load of one half.
     fn room(&self) -> u64 {
-        (self.slots.len() as u64 / 2).saturating_sub(self.len)
+        (self.slots.len as u64 / 2).saturating_sub(self.len)
     }
 
     /// The slot where the pairs of `v` start: Fibonacci hashing.
@@ -130,13 +171,13 @@ impl Pairs {
     }
 
     fn pair(&self, slot: usize) -> Option<(u32, u32)> {
-        let key = self.slots[slot].load(Relaxed);
+        let key = self.slots.at(slot).load(Relaxed);
         (key != 0).then(|| unpack(key))
     }
 
     /// The pairs of `v`: their slots and sources.
     fn of(&self, v: u32) -> impl Iterator<Item = (usize, u32)> + '_ {
-        let mask = self.slots.len() - 1;
+        let mask = self.slots.len - 1;
         let mut i = self.home(v);
         std::iter::from_fn(move || {
             loop {
@@ -150,6 +191,13 @@ impl Pairs {
         })
     }
 
+    /// The sources of the pairs of `v` with `mark`.
+    fn sources(&self, v: u32, mark: u8) -> impl Iterator<Item = u32> + '_ {
+        self.of(v)
+            .filter(move |&(i, _)| self.marks.at(i).load(Relaxed) == mark)
+            .map(|(_, s)| s)
+    }
+
     fn contains(&self, v: u32, s: u32) -> bool {
         self.of(v).any(|(_, t)| t == s)
     }
@@ -158,14 +206,15 @@ impl Pairs {
     /// load at most one half, so an empty slot is always ahead.
     fn insert(&self, v: u32, s: u32, mark: u8) -> bool {
         let key = pack(v, s);
-        let mask = self.slots.len() - 1;
+        let mask = self.slots.len - 1;
         let mut i = self.home(v);
         loop {
-            match self.slots[i].load(Relaxed) {
+            let slot = self.slots.at(i);
+            match slot.load(Relaxed) {
                 k if k == key => return false,
-                0 => match self.slots[i].compare_exchange(0, key, Relaxed, Relaxed) {
+                0 => match slot.compare_exchange(0, key, Relaxed, Relaxed) {
                     Ok(_) => {
-                        self.marks[i].store(mark, Relaxed);
+                        self.marks.at(i).store(mark, Relaxed);
                         return true;
                     }
                     Err(k) if k == key => return false,
@@ -176,21 +225,12 @@ impl Pairs {
         }
     }
 
-    /// The number of pairs of `v` with `mark`.
-    fn fresh(&self, v: u32, mark: u8) -> u64 {
-        self.of(v)
-            .filter(|&(i, _)| self.marks[i].load(Relaxed) == mark)
-            .count() as u64
-    }
-
-    /// Moves the sources of the pairs of `v` with `mark` into `out`, and marks those
-    /// pairs [`OLD`].
-    fn take(&self, v: u32, mark: u8, out: &mut Vec<u32>) {
-        out.clear();
-        for (i, s) in self.of(v) {
-            if self.marks[i].load(Relaxed) == mark {
-                self.marks[i].store(OLD, Relaxed);
-                out.push(s);
+    /// Marks the pairs of `v` with `mark` [`OLD`].
+    fn age(&self, v: u32, mark: u8) {
+        for (i, _) in self.of(v) {
+            let m = self.marks.at(i);
+            if m.load(Relaxed) == mark {
+                m.store(OLD, Relaxed);
             }
         }
     }
@@ -198,20 +238,18 @@ impl Pairs {
     /// Grows until `more` pairs fit, or as many as there can still be.
     fn make_room(&mut self, more: u64, memory: &Memory) -> Result<(), Error> {
         let more = more.min(self.most.saturating_sub(self.len));
-        let mut slots = self.slots.len();
+        let mut slots = self.slots.len;
         while (slots as u64 / 2).saturating_sub(self.len) < more {
-            slots = slots.checked_mul(2).ok_or(Error::Invalid(
-                "strong components: more pairs than the address space",
-            ))?;
+            slots = slots.checked_mul(2).ok_or(TOO_MANY)?;
         }
-        if slots == self.slots.len() {
+        if slots == self.slots.len {
             return Ok(());
         }
         let mut bigger = Self::new(memory, slots, self.most)?;
-        par::for_each_range(self.slots.len(), GRAIN, |r| {
+        par::for_each_range(self.slots.len, GRAIN, |r| {
             for i in r {
                 if let Some((v, s)) = self.pair(i) {
-                    bigger.insert(v, s, self.marks[i].load(Relaxed));
+                    bigger.insert(v, s, self.marks.at(i).load(Relaxed));
                 }
             }
         });
@@ -221,10 +259,22 @@ impl Pairs {
     }
 }
 
+/// One value per run of [`FRONTIER_GRAIN`] nodes of a frontier, in order: what
+/// [`Plan::frontier`] returns when the body of each run adds to one element.
+struct Runs(Vec<u64>);
+
+impl Reduce for Runs {
+    const ZERO: Self = Self(Vec::new());
+    fn add(mut self, mut other: Self) -> Self {
+        self.0.append(&mut other.0);
+        self
+    }
+}
+
 /// What the rounds change, per node.
 struct State<'g> {
     /// The part of each node.
-    part: Vec<AtomicU64>,
+    part: Pieces<AtomicU64>,
     /// The nodes whose component is found.
     done: NodeSet<'g>,
     /// A union-find of the components found.
@@ -234,7 +284,9 @@ struct State<'g> {
 impl<'g> State<'g> {
     /// Source `s` reaches `v` (`forward`), or `v` reaches `s`.
     fn found(&self, v: Node<'g>, s: Node<'g>, forward: bool) {
-        self.part[v.index()].fetch_add(spread(s.get(), forward), Relaxed);
+        self.part
+            .at(v.index())
+            .fetch_add(spread(s.get(), forward), Relaxed);
     }
 
     /// `v` is in the component of source `s`.
@@ -288,7 +340,7 @@ pub fn scc<'g, S: Source>(
         u64::from(n) * 8,
     )?;
     let state = State {
-        part: par::collect(usize_of(n), GRAIN, |_| AtomicU64::new(0)),
+        part: Pieces::new(usize_of(n), || AtomicU64::new(0)),
         done: out.node_set(memory)?,
         parent: out.node_cells(memory)?,
     };
@@ -361,7 +413,7 @@ pub fn scc<'g, S: Source>(
         let ahead = reach(out, &state, sources.as_slice()?, most, memory)?;
         let back = reach(inn, &state, sources.as_slice()?, most, memory)?;
         for (pairs, forward) in [(&ahead, true), (&back, false)] {
-            par::for_each_range(pairs.slots.len(), GRAIN, |r| {
+            par::for_each_range(pairs.slots.len, GRAIN, |r| {
                 for i in r {
                     let Some((v, s)) = pairs.pair(i) else {
                         continue;
@@ -404,42 +456,73 @@ fn reach<'g, S: Source>(
     while !frontier.is_empty() {
         let (now, then) = (mark(step), mark(step + 1));
         let nodes = frontier.as_slice()?;
-        // Each run of the frontier adds at most these pairs; a call of the driver takes
-        // as many runs as the set has room for.
-        let bounds = par::map_ranges(nodes.len(), RUN, |r| {
-            nodes[r]
-                .iter()
-                .map(|&v| u64::from(plan.degree(v)) * pairs.fresh(v.get(), now))
-                .sum::<u64>()
+        let home = |v: Node<'g>| state.part.at(v.index()).load(Relaxed);
+        let open = |v: Node<'g>, u: Node<'g>| !state.done.contains(u) && home(u) == home(v);
+        // New sources times degree bound what the step adds, from the index alone. The
+        // set grows by that bound while it is at most the nodes or the pairs already
+        // held, so it stays a small multiple of the per-node state and the pairs found.
+        // Past that, each run of the frontier gets the tighter bound of new sources times
+        // the targets in the same part, which reads its lists, and a call of the driver
+        // takes as many runs as there is room for.
+        let fresh = |v: Node<'g>| pairs.sources(v.get(), now).count() as u64;
+        let by_degree = par::map_ranges(nodes.len(), RUN, |r| {
+            nodes[r].iter().fold(0_u64, |b, &v| {
+                b.saturating_add(fresh(v).saturating_mul(plan.degree(v).into()))
+            })
         });
+        let total = by_degree.into_iter().fold(0, u64::saturating_add);
+        let _held;
+        let cheap = pairs.room().max(pairs.len).max(plan.nodes().into());
+        let (bounds, run) = if total <= cheap {
+            (vec![total], nodes.len())
+        } else {
+            let runs = nodes.len().div_ceil(RUN.get()) as u64;
+            _held = memory.reserve(
+                "strong components: bounds",
+                MemoryKind::Anonymous,
+                runs.saturating_mul(24),
+            )?;
+            let Runs(bounds) = plan.frontier(nodes, |run: &mut Runs, row, _| {
+                let open = row.list.iter().filter(|&&u| open(row.node, u)).count() as u64;
+                let b = fresh(row.node).saturating_mul(open);
+                match run.0.first_mut() {
+                    Some(sum) => *sum = sum.saturating_add(b),
+                    None => run.0.push(b),
+                }
+            })?;
+            debug_assert_eq!(bounds.len() as u64, runs, "one bound per run");
+            (bounds, RUN.get())
+        };
         let mut at = 0;
         while at < bounds.len() {
             pairs.make_room(bounds[at], memory)?;
             let (mut end, mut need) = (at + 1, bounds[at]);
-            while end < bounds.len() && need + bounds[end] <= pairs.room() {
+            while end < bounds.len() && need.saturating_add(bounds[end]) <= pairs.room() {
                 need += bounds[end];
                 end += 1;
             }
-            let piece = &nodes[at * RUN.get()..nodes.len().min(end * RUN.get())];
+            let piece = &nodes[at * run..nodes.len().min(end * run)];
             let set = &pairs;
-            let added =
-                plan.frontier_with(piece, Vec::<u32>::new, |added: &mut u64, row, worker| {
-                    let news = &mut *worker.scratch;
-                    set.take(row.node.get(), now, news);
-                    let home = state.part[row.node.index()].load(Relaxed);
-                    for &u in row.list {
-                        if state.done.contains(u) || state.part[u.index()].load(Relaxed) != home {
-                            continue;
-                        }
-                        for &s in news.iter() {
-                            if set.insert(u.get(), s, then) {
-                                *added += 1;
-                                next.insert(u);
-                            }
+            let added = plan.frontier(piece, |added: &mut u64, row, _| {
+                let v = row.node;
+                for &u in row.list {
+                    if !open(v, u) {
+                        continue;
+                    }
+                    for s in set.sources(v.get(), now) {
+                        if set.insert(u.get(), s, then) {
+                            *added += 1;
+                            next.insert(u);
                         }
                     }
-                })?;
+                }
+                set.age(v.get(), now);
+            })?;
             pairs.len += added;
+            debug_assert!(
+                pairs.len <= pairs.slots.len as u64 / 2,
+                "load above one half"
+            );
             at = end;
         }
         next.list_into(&mut frontier)?;
@@ -467,13 +550,13 @@ mod tests {
                 pairs.make_room(2, &memory).unwrap();
             }
         }
-        assert!(pairs.slots.len() >= 2 * 6000);
-        let mut out = Vec::new();
-        pairs.take(7, mark(1), &mut out);
+        assert!(pairs.slots.len >= 2 * 6000 && pairs.slots.pieces.len() > 1);
+        let mut out: Vec<u32> = pairs.sources(7, mark(1)).collect();
         out.sort_unstable();
         assert_eq!(out, [7, 8]);
-        assert_eq!(pairs.fresh(7, mark(1)), 0);
-        assert_eq!(pairs.fresh(8, mark(0)), 2);
+        pairs.age(7, mark(1));
+        assert_eq!(pairs.sources(7, mark(1)).count(), 0);
+        assert_eq!(pairs.sources(8, mark(0)).count(), 2);
         assert!(pairs.contains(2999, 3000) && !pairs.contains(2999, 2998));
     }
 }
