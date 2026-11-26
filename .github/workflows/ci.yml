@@ -325,7 +325,7 @@ jobs:
     needs: lint
     if: needs.lint.outputs.core == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -358,6 +358,8 @@ jobs:
         run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked -- --skip full_size
       - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
         run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
+      - name: Miri, the page backend (everygraph-io/src/pages.rs)
+        run: 'cargo "+$NIGHTLY" miri test -p everygraph-io --lib --locked pages::'
       # The adjacency codec: the scalar decoder, then the SSSE3 one (the only SIMD path
       # Miri interprets on this runner; compiled in so that run-time detection finds it).
       - name: Miri, adjacency codec (scalar)
