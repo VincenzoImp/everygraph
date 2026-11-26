@@ -87,7 +87,7 @@ fn run(path: &Path, common: &Common, topology: bool) -> Result<u8, Failure> {
     let graph = graph::open(path, &memory, budget)?;
     let nodes = Nodes::new(
         graph
-            .dictionary(memory.accountant())
+            .dictionary(&memory)
             .map_err(|e| failure::corrupt(path, &e))?,
     );
     if topology {

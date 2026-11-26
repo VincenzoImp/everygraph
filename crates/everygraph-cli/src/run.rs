@@ -298,7 +298,7 @@ fn execute(req: &Request) -> Result<u8, Failure> {
     let graph = graph::open(&req.graph, &memory, budget)?;
     let nodes = Nodes::new(
         graph
-            .dictionary(memory.accountant())
+            .dictionary(&memory)
             .map_err(|e| failure::corrupt(&req.graph, &e))?,
     );
     let mut op = req.op;
@@ -310,7 +310,7 @@ fn execute(req: &Request) -> Result<u8, Failure> {
     let lines = Lines::new(Style::stderr().progress(req.common.plain()));
     let name = op.name();
     lines.start(name);
-    let cached = run::stored(graph.file(), &op, directed, &memory).map_err(fail)?;
+    let cached = run::stored(graph.container(), &op, directed, &memory).map_err(fail)?;
     let is_cached = cached.is_some();
     let output = match cached {
         Some(output) => {

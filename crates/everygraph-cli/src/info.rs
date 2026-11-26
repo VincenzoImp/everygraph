@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use everygraph_core::ByteSource;
-use everygraph_format::container::{Kind, ListedResult};
+use everygraph_format::container::{Kind, ListedResult, Provenance};
+use everygraph_ingest::build::PROVENANCE;
 use everygraph_ingest::graph::Graph;
 use everygraph_ingest::ids::KeyKind;
 use everygraph_io::MmapSource;
@@ -53,14 +54,19 @@ fn run(path: &Path, json: bool) -> Result<u8, Failure> {
     let budget = Machine::probe().budget(&Common::default())?;
     let memory = machine::memory(budget);
     let graph = graph::open(path, &memory, budget)?;
+    let record = graph
+        .container()
+        .read_provenance(PROVENANCE)
+        .map_err(|e| graph::container_error(path, &e))?;
     let results = graph
-        .file()
+        .container()
         .results()
         .map_err(|e| graph::container_error(path, &e))?;
-    let ids = graph.dictionary(memory.accountant()).ok().map(|d| d.kind());
+    let ids = graph.dictionary(&memory).ok().map(|d| d.kind());
     let info = Info {
         path,
         graph: &graph,
+        record: &record,
         ids,
         results: &results,
         now: SystemTime::now()
@@ -97,6 +103,8 @@ fn seconds(started: Option<i64>, finished: Option<i64>) -> Option<f64> {
 struct Info<'a> {
     path: &'a Path,
     graph: &'a Graph<MmapSource>,
+    /// The record of the build.
+    record: &'a Provenance,
     ids: Option<KeyKind>,
     results: &'a [ListedResult],
     now: Option<i64>,
@@ -104,11 +112,7 @@ struct Info<'a> {
 
 impl Info<'_> {
     fn parameter(&self, key: &str) -> &str {
-        self.graph
-            .record()
-            .parameters
-            .get(key)
-            .map_or("", String::as_str)
+        self.record.parameters.get(key).map_or("", String::as_str)
     }
 
     fn edges_text(&self, style: Style) -> String {
@@ -149,7 +153,7 @@ impl Info<'_> {
     }
 
     fn input_name(&self) -> Option<String> {
-        let input = self.graph.record().inputs.first()?;
+        let input = self.record.inputs.first()?;
         let name = Path::new(&input.name)
             .file_name()
             .map_or_else(|| input.name.clone(), |n| n.to_string_lossy().into_owned());
@@ -158,13 +162,13 @@ impl Info<'_> {
 
     fn text(&self, style: Style) -> String {
         let dot = style.dot();
-        let file = self.graph.file();
+        let file = self.graph.container();
         let name = self
             .path
             .file_name()
             .map_or_else(String::new, |n| printable(&n.to_string_lossy()));
         let mut t = format!("{}{dot}{}", style.bold(&name), size(file.source().len()));
-        if let Some(created) = self.graph.record().finished {
+        if let Some(created) = self.record.finished {
             let _ = write!(t, "{dot}created {}", date(created));
             if let Some(input) = self.input_name() {
                 let _ = write!(t, " from {input}");
@@ -234,8 +238,8 @@ impl Info<'_> {
     }
 
     fn document(&self) -> Value {
-        let file = self.graph.file();
-        let record = self.graph.record();
+        let file = self.graph.container();
+        let record = self.record;
         let counts = |prefix: &str| -> Map<String, Value> {
             record
                 .parameters

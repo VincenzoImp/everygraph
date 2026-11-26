@@ -9,18 +9,14 @@ use std::path::Path;
 
 use everygraph_core::{Memory, ReadError};
 use everygraph_format::container::{Container, ContainerError};
-use everygraph_ingest::build::BuildError;
-use everygraph_ingest::graph::Graph;
+use everygraph_ingest::graph::{Graph, OpenError};
 use everygraph_io::{FileSource, MmapSource};
 
 use crate::failure::{self, Failure};
 
-/// The container of the graph file at `path`, on a map of its committed part.
-///
-/// # Errors
-///
-/// `IoError` when the file cannot be read; `CorruptFile` when it is not a graph file.
-pub(crate) fn container(path: &Path) -> Result<Container<MmapSource>, Failure> {
+/// The committed part of the file at `path`, mapped: the range a probe of its header
+/// and table of contents gives.
+fn map(path: &Path) -> Result<(Container<FileSource>, MmapSource), Failure> {
     let io = |e: &std::io::Error| failure::io("read", path, e).on_existing_file();
     if path.is_dir() {
         let e = std::io::Error::new(std::io::ErrorKind::IsADirectory, "it is a directory");
@@ -33,12 +29,22 @@ pub(crate) fn container(path: &Path) -> Result<Container<MmapSource>, Failure> {
         .map_err(|e| io(&e))?;
     let probe = Container::open(probe).map_err(|e| container_error(path, &e))?;
     let map = MmapSource::from_file_range(&file, probe.stable_range()).map_err(|e| io(&e))?;
+    Ok((probe, map))
+}
+
+/// The container of the file at `path`, on a map of its committed part.
+///
+/// # Errors
+///
+/// `IoError` when the file cannot be read; `CorruptFile` when it is not a container.
+pub(crate) fn container(path: &Path) -> Result<Container<MmapSource>, Failure> {
+    let (probe, map) = map(path)?;
     probe
         .with_source(map)
         .map_err(|e| container_error(path, &e))
 }
 
-/// The graph file at `path`, its index held under `memory`.
+/// The graph file at `path`, its index held under `memory`, a budget of `budget`.
 ///
 /// # Errors
 ///
@@ -49,9 +55,12 @@ pub(crate) fn open(
     memory: &Memory,
     budget: u64,
 ) -> Result<Graph<MmapSource>, Failure> {
-    Graph::open(container(path)?, memory).map_err(|e| match e {
-        BuildError::Container(e) => container_error(path, &e),
-        BuildError::Budget(e) => {
+    let (_, map) = map(path)?;
+    Graph::open(map, memory).map_err(|e| match e {
+        OpenError::Read(e) => {
+            failure::io("read", path, &std::io::Error::other(e.to_string())).on_existing_file()
+        }
+        OpenError::Budget(e) => {
             failure::memory("opening of the graph", budget, None, &e).on_existing_file()
         }
         other => failure::corrupt(path, &other),
