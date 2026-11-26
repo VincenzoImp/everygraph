@@ -138,6 +138,11 @@ const RUN: NonZeroUsize = NonZeroUsize::new(1024).expect("non-zero");
 /// list is shorter. A multiple of four, the codec's group of words.
 pub const PREFIX: usize = 16;
 
+/// How much longer each piece of [`Plan::scan_until`] after the first ends than the one
+/// before: a piece decoded past the entry a body stops at is at most this many times
+/// what it read.
+const GROWTH: usize = 4;
+
 /// Fewest nodes in a reduction block.
 const MIN_BLOCK: u32 = 64;
 /// Most nodes in a reduction block.
@@ -1163,14 +1168,15 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     }
 
     /// Calls `body(acc, out, i, row)` for every node with `filter(node)`, as
-    /// [`scan`](Self::scan) does, but hands its list out in two pieces: the first
-    /// `min(degree, PREFIX)` entries, then, if `body` returns [`ControlFlow::Continue`],
-    /// the rest. `row.list` is the piece and `row.first_entry` the piece's first entry.
-    /// An empty list is one empty piece. The pieces are the same on every source.
+    /// [`scan`](Self::scan) does, but hands its list out in pieces, while `body` returns
+    /// [`ControlFlow::Continue`]: the entries before [`PREFIX`], then those before
+    /// `GROWTH × PREFIX`, `GROWTH² × PREFIX`, and so on. `row.list` is the piece and
+    /// `row.first_entry` the piece's first entry. An empty list is one empty piece. The
+    /// pieces are the same on every source.
     ///
-    /// A compressed source decodes only the first piece of each list in its batches,
-    /// and the rest of a list, by random access, when the body asks for it: for a body
-    /// that stops early, as bottom-up BFS at the first parent.
+    /// A compressed source decodes the first piece of each list in its batches, and each
+    /// later piece, by random access, only when the body asks for it: for a body that
+    /// stops early, as bottom-up BFS at the first parent.
     ///
     /// # Errors
     ///
@@ -1205,38 +1211,38 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         let have = unsafe { as_nodes(prefix) };
                         let degree = ix(degree.into());
                         let i = ix((v - task.start).into());
-                        // The pieces are the same on every source: the first `PREFIX`
-                        // entries, then the rest.
-                        let cut = degree.min(PREFIX).min(have.len());
-                        let mut hand = |list: &[Node<'g>], at: usize| {
-                            work.entries += list.len() as u64;
-                            let first_entry = first_entry + at as u64;
+                        work.lists += 1;
+                        let (mut at, mut prev) = (0, 0);
+                        loop {
+                            let to = degree.min(if at == 0 { PREFIX } else { at * GROWTH });
+                            let piece = if to <= have.len() {
+                                &have[at..to]
+                            } else {
+                                let side = match side {
+                                    Some(r) => Ok(r),
+                                    None => self.new_reader().map(|r| side.insert(r)),
+                                };
+                                match side.and_then(|r| self.source.list_part(r, v, (at, prev), to))
+                                {
+                                    // SAFETY: as above.
+                                    Ok(part) => unsafe { as_nodes(part) },
+                                    Err(e) => {
+                                        failed = Some(e);
+                                        return;
+                                    }
+                                }
+                            };
+                            work.entries += piece.len() as u64;
                             let row = Row {
                                 node,
-                                list,
-                                first_entry,
+                                list: piece,
+                                first_entry: first_entry + at as u64,
                             };
-                            body(&mut acc, &mut out, i, row)
-                        };
-                        work.lists += 1;
-                        if hand(&have[..cut], 0).is_break() || cut == degree {
-                            return;
-                        }
-                        if have.len() == degree {
-                            let _ = hand(&have[cut..], cut);
-                            return;
-                        }
-                        let side = match side {
-                            Some(r) => Ok(r),
-                            None => self.new_reader().map(|r| side.insert(r)),
-                        };
-                        match side.and_then(|r| self.source.list(r, v)) {
-                            Ok((_, list)) => {
-                                let rest = list.get(cut..).unwrap_or_default();
-                                // SAFETY: as above.
-                                let _ = hand(unsafe { as_nodes(rest) }, cut);
+                            let stop = body(&mut acc, &mut out, i, row).is_break();
+                            match piece.last() {
+                                Some(last) if !stop && to < degree => (at, prev) = (to, last.get()),
+                                _ => return,
                             }
-                            Err(e) => failed = Some(e),
                         }
                     };
                     self.source.scan_prefixes(reader, b, filter, PREFIX, f)?;

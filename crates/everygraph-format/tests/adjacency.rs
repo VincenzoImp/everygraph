@@ -88,8 +88,29 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                 );
             }
         }
-        // Batches: every block, the whole range, and ranges cut anywhere.
+        // Parts of a list, from a multiple of four, to anywhere after it.
         let mut batch = Batch::default();
+        for v in 0..n {
+            let want = list(offsets, targets, v);
+            let d = want.len();
+            for from in (4..d).step_by(4).take(if MIRI { 1 } else { 4 }) {
+                for to in [from + 1, from + 4, from + 5, (from + 13).min(d), d] {
+                    let to = to.min(d);
+                    batch.reserve(adj.part_entries(from, to), 1);
+                    let held = batch.heap_bytes();
+                    adj.decode_part(id(v), (from, want[from - 1]), to, &mut batch)
+                        .unwrap();
+                    assert_eq!(batch.heap_bytes(), held, "{name} part grew");
+                    assert_eq!((batch.first(), batch.len()), (id(v).get(), 1));
+                    assert_eq!(
+                        batch.list(0),
+                        &want[from..to],
+                        "{name} node {v} {from}..{to}"
+                    );
+                }
+            }
+        }
+        // Batches: every block, the whole range, and ranges cut anywhere.
         let mut ranges: Vec<_> = (0..index.blocks()).map(|b| index.block_nodes(b)).collect();
         let n32 = id(n).get();
         ranges.push(0..n32);
@@ -346,6 +367,16 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Result<Vec<u32>, DecodeError>> {
         }
     }
     let mut batch = Batch::default();
+    // Parts from entry 4 or 8, after any running value: the decoders agree on it too.
+    for v in 0..index.nodes() {
+        let d = ix(index.degree(NodeId::new(v)));
+        for (from, to) in [(4, 5), (4, 9), (4, d), (8, d)] {
+            if from < to && to <= d {
+                let got = adj.decode_part(NodeId::new(v), (from, v ^ 0x5bd1), to, &mut batch);
+                out.push(got.map(|()| batch.list(0).to_vec()));
+            }
+        }
+    }
     for b in 0..index.blocks() {
         for prefix in [usize::MAX, 1, 4, 6] {
             out.push(
@@ -388,6 +419,19 @@ fn apis_agree(adj: Adjacency<'_>) {
         .map(|v| adj.neighbors(NodeId::new(v), &mut buf).map(<[u32]>::to_vec))
         .collect();
     let mut batch = Batch::default();
+    // A part that ends the list decodes where the whole list does, to the same entries.
+    for (v, list) in lists.iter().enumerate() {
+        let id = NodeId::new(u32::try_from(v).unwrap());
+        let d = ix(index.degree(id));
+        if d > 4 {
+            let prev = list.as_ref().map_or(0, |l| l[3]);
+            let got = adj.decode_part(id, (4, prev), d, &mut batch);
+            assert_eq!(got.is_ok(), list.is_ok(), "node {v}");
+            if let Ok(l) = list {
+                assert_eq!(batch.list(0), &l[4..], "node {v}");
+            }
+        }
+    }
     for b in 0..index.blocks() {
         let nodes = index.block_nodes(b);
         let all_ok = lists[ix(nodes.start)..ix(nodes.end)]

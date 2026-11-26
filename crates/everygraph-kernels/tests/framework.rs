@@ -219,9 +219,13 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                 })
                 .unwrap();
             let parts: f64 = plan
-                .push_with(&frontier, || (), |acc: &mut f64, row, _| {
-                    *acc += value(row.first_entry as u32, ids(row.list));
-                })
+                .push_with(
+                    &frontier,
+                    || (),
+                    |acc: &mut f64, row, _| {
+                        *acc += value(row.first_entry as u32, ids(row.list));
+                    },
+                )
                 .unwrap();
             let until: u64 = plan
                 .scan_until(
@@ -271,8 +275,8 @@ fn runs<'a>(s: &Stored, group: &'a [u32]) -> Vec<&'a [u32]> {
 /// The probe's float sums and its early-stopping scan computed as documented: per block
 /// of `block` nodes in node order, then the blocks in order; per run of each group of
 /// `FRONTIER_GRAIN` frontier nodes in order, then the groups in order, with the parts of
-/// a long list added in order; the pieces of a list, the first `PREFIX` entries and the
-/// rest.
+/// a long list added in order; the pieces of a list, ending at `PREFIX`, then at four
+/// times the end before.
 fn reference(s: &Stored, block: u32) -> (u64, u64, u64, u64) {
     let n = (s.offsets.len() - 1) as u32;
     let mut scanned = 0.0;
@@ -311,18 +315,16 @@ fn reference(s: &Stored, block: u32) -> (u64, u64, u64, u64) {
     let mut until = 0;
     for v in (0..n).filter(|&v| until_filter(v)) {
         let (list, first) = (s.list(v), s.offsets[v as usize]);
-        let cut = list.len().min(PREFIX);
-        until += mix(&list[..cut], first);
-        if v.is_multiple_of(2) && cut < list.len() {
-            until += mix(&list[cut..], first + cut as u64);
+        let (mut at, mut to) = (0, list.len().min(PREFIX));
+        loop {
+            until += mix(&list[at..to], first + at as u64);
+            if !v.is_multiple_of(2) || to == list.len() {
+                break;
+            }
+            (at, to) = (to, list.len().min(4 * to));
         }
     }
-    (
-        scanned.to_bits(),
-        pushed.to_bits(),
-        parted.to_bits(),
-        until,
-    )
+    (scanned.to_bits(), pushed.to_bits(), parted.to_bits(), until)
 }
 
 fn settings(chunk: u64, batch: usize) -> Settings {

@@ -611,6 +611,71 @@ impl<'a> Adjacency<'a> {
         all.min(max_entries.max(prefix).saturating_add(SLACK))
     }
 
+    /// Entries `from..to` of the list of `v`, decoded into `batch` as its one list,
+    /// without the entries before or after them: the later pieces of a list that a
+    /// reader decodes until it has what it needs. `prev` is entry `from − 1` as an
+    /// earlier decode returned it; `from` is a multiple of four with `4 ≤ from < to`, and
+    /// `to` is at most the degree. A part that ends the list is checked to end where the
+    /// index says.
+    ///
+    /// # Untrusted input
+    ///
+    /// As [`decode_nodes`](Self::decode_nodes). A wrong `prev` gives wrong targets.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeError`] if the record of `v` is corrupt where it was read; the batch is
+    /// then empty.
+    ///
+    /// # Panics
+    ///
+    /// If `v` is not a node of [`nodes`](Self::nodes), or `from` and `to` are not as
+    /// above.
+    pub fn decode_part(
+        &self,
+        v: NodeId,
+        (from, prev): (usize, u32),
+        to: usize,
+        batch: &mut Batch,
+    ) -> Result<(), DecodeError> {
+        let d = to_usize(self.index.degree(v).into());
+        assert!(
+            from.is_multiple_of(4) && 4 <= from && from < to && to <= d,
+            "entries {from}..{to} of a list of {d}"
+        );
+        assert!(
+            (self.first..self.end).contains(&v.get()),
+            "node {v} outside the window"
+        );
+        batch.first = v.get();
+        batch.clear();
+        let corrupt = DecodeError {
+            first: v.get(),
+            end: v.get() + 1,
+        };
+        let range = self.index.record_range(v);
+        let rec = &self.data[to_usize(range.start - self.base)..];
+        grow(&mut batch.targets, self.part_entries(from, to));
+        let used = self
+            .decoder
+            .resume(rec, d, (from, prev), to, &mut batch.targets)
+            .map_err(|_| corrupt)?;
+        if to == d && used as u64 != range.end - range.start {
+            return Err(corrupt);
+        }
+        batch.entries = to - from;
+        batch.ends.entries.push(to - from);
+        batch.ends.bytes.push(to_usize(range.end - self.base));
+        Ok(())
+    }
+
+    /// The length [`decode_part`](Self::decode_part) of entries `from..to` grows a
+    /// batch's buffer to: for [`Batch::reserve`].
+    #[must_use]
+    pub fn part_entries(&self, from: usize, to: usize) -> usize {
+        to.saturating_sub(from) + SLACK
+    }
+
     /// Decodes the whole adjacency into a raw CSR: `offsets` (`nodes + 1` entries) and
     /// `targets` (`entries`), which the caller allocates (against its memory budget).
     /// Runs in parallel over blocks.

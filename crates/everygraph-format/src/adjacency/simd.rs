@@ -18,13 +18,14 @@
 //!   remain in the slice; every 16-byte store by the check that four words remain in the
 //!   output (`simd_groups`). What is left over goes through the scalar [`svb::tail`].
 //! - Each decoder returns exactly what the scalar decoder [`svb::decode`] returns on the
-//!   same input, valid or not (`tests/adjacency.rs`, and the fuzz target).
+//!   same input, valid or not, and [`svb::resume`] for a record read from a later word
+//!   on (`tests/adjacency.rs`, and the fuzz target).
 //!
 //! The decoders may write past `out[k - 1]`, up to the end of the last group of four
 //! (never past `out`), when `out` is long enough; callers pass that slack when they have
 //! it, so that the last group needs no scalar loop (the lab's "pad" decoder).
 //!
-//! One loop, [`decode_with`], serves every instruction set; each provides the six
+//! One loop, [`groups_from`], serves every instruction set; each provides the six
 //! primitives of [`Lanes`]. The loop is `#[inline(always)]` and the primitives are small,
 //! so both are inlined into the feature-enabled batch loop (checked in the disassembly:
 //! no call per list).
@@ -118,6 +119,31 @@ impl Decoder {
         }
     }
 
+    /// Words `from..k` of one record; see [`svb::resume`].
+    pub(crate) fn resume(
+        self,
+        bytes: &[u8],
+        total: usize,
+        (from, prev): (usize, u32),
+        k: usize,
+        out: &mut [u32],
+    ) -> Result<usize, Corrupt> {
+        match self.0 {
+            Kind::Scalar => svb::resume(bytes, total, from, prev, k, out),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // SAFETY: a decoder of this kind is only made after SSSE3 was detected.
+            Kind::Ssse3 => unsafe { x86::resume(bytes, total, (from, prev), k, out) },
+            #[cfg(target_arch = "aarch64")]
+            // SAFETY: a decoder of this kind is only made after NEON was detected.
+            Kind::Neon => unsafe { neon::resume(bytes, total, (from, prev), k, out) },
+            #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+            // SAFETY: `simd128` is enabled at compile time.
+            Kind::Simd128 => unsafe {
+                resume_with::<wasm::Simd128>(bytes, total, (from, prev), k, out)
+            },
+        }
+    }
+
     /// Consecutive records; see [`decode::run`].
     pub(super) fn run(
         self,
@@ -197,26 +223,93 @@ unsafe fn decode_with<L: Lanes>(
     k: usize,
     out: &mut [u32],
 ) -> Result<usize, Corrupt> {
-    // The bound every store below relies on, checked here rather than trusted from the
-    // callers.
-    assert!(k <= out.len(), "output of {} words for {k}", out.len());
     let (control, base) = svb::prologue(bytes, v, total, k)?;
-    let groups = simd_groups(k, out.len());
-    let mut at = control;
+    // SAFETY: `L`'s feature is available (caller).
+    unsafe { groups_from::<L>(bytes, control, (0, base), k, out) }
+}
+
+/// As [`svb::resume`], with the groups of four through `L`.
+///
+/// # Safety
+///
+/// `L`'s CPU feature is available.
+#[inline(always)]
+#[cfg_attr(
+    not(any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        all(target_arch = "wasm32", target_feature = "simd128")
+    )),
+    allow(dead_code, reason = "no SIMD decoder on this target")
+)]
+unsafe fn resume_with<L: Lanes>(
+    bytes: &[u8],
+    total: usize,
+    (from, prev): (usize, u32),
+    k: usize,
+    out: &mut [u32],
+) -> Result<usize, Corrupt> {
+    assert!(
+        from.is_multiple_of(4) && 4 <= from && from < k && k <= total,
+        "words {from}..{k} of {total}"
+    );
+    let at = svb::data_start(bytes, total, from)?;
+    // SAFETY: `L`'s feature is available (caller).
+    unsafe { groups_from::<L>(bytes, at, (from, prev), k, out) }
+}
+
+/// Words `from..k` of a record, `from` a multiple of four below `k`, into
+/// `out[..k - from]`: the data of word `from` starts at byte `at`, after the running
+/// value `acc`. Returns the byte just past the last word read.
+///
+/// # Safety
+///
+/// `L`'s CPU feature is available.
+#[inline(always)]
+#[cfg_attr(
+    not(any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        all(target_arch = "wasm32", target_feature = "simd128")
+    )),
+    allow(dead_code, reason = "no SIMD decoder on this target")
+)]
+unsafe fn groups_from<L: Lanes>(
+    bytes: &[u8],
+    mut at: usize,
+    (from, acc): (usize, u32),
+    k: usize,
+    out: &mut [u32],
+) -> Result<usize, Corrupt> {
+    // The bounds every load and store below relies on, checked here rather than trusted
+    // from the callers.
+    let want = k - from;
+    assert!(
+        want <= out.len(),
+        "output of {} words for {want}",
+        out.len()
+    );
+    assert!(at <= bytes.len(), "data at {at} of {} bytes", bytes.len());
+    let groups = simd_groups(want, out.len());
+    let first = from / 4;
     let mut g = 0;
     // SAFETY: `L`'s feature is available (caller).
-    let mut prev = unsafe { L::splat(base) };
+    let mut prev = unsafe { L::splat(acc) };
     while g < groups && bytes.len() - at >= 16 {
-        let c = bytes[g];
-        // SAFETY: feature (caller); `at + 16 <= bytes.len()` (loop condition).
+        let c = bytes[first + g];
+        // SAFETY: feature (caller); `at + 16 <= bytes.len()` (loop condition, and `at`
+        // never passes `bytes.len()`: asserted at first, then grown by at most the 16
+        // bytes that the condition saw).
         let data = unsafe { L::load(bytes, at) };
         // SAFETY: feature (caller).
         let mask = unsafe { L::mask(c) };
         // SAFETY: feature (caller).
         let (x, last) = unsafe { L::group(data, mask, prev) };
         // SAFETY: feature (caller); `4 * g + 4 <= 4 * groups <= out.len()`: `simd_groups`
-        // returns `⌈k/4⌉` only if `out` has that many groups, else `⌊k/4⌋`, and
-        // `4 * ⌊k/4⌋ <= k <= out.len()` (asserted above).
+        // returns `⌈want/4⌉` only if `out` has that many groups, else `⌊want/4⌋`, and
+        // `4 * ⌊want/4⌋ <= want <= out.len()` (asserted above).
         unsafe { L::store(out, 4 * g, x) };
         prev = last;
         at += usize::from(svb::GROUP_LEN[usize::from(c)]);
@@ -224,17 +317,17 @@ unsafe fn decode_with<L: Lanes>(
     }
     // SAFETY: feature (caller).
     let acc = unsafe { L::first(prev) };
-    if 4 * g >= k {
+    if 4 * g >= want {
         // The loop wrote every word; the last group may have had unused fields, which
         // its length counted. Count the used ones only (meaningful when `k == total`).
-        let c = bytes[g - 1];
-        let used = k - 4 * (g - 1);
+        let c = bytes[first + g - 1];
+        let used = want - 4 * (g - 1);
         let mask = u8::try_from((1u32 << (2 * used)) - 1).unwrap_or(u8::MAX);
         Ok(at - usize::from(svb::GROUP_LEN[usize::from(c)])
             + usize::from(svb::GROUP_LEN[usize::from(c & mask)])
             - (4 - used))
     } else {
-        svb::tail(bytes, 4 * g, at, acc, k, out)
+        svb::tail(bytes, (from + 4 * g, from), at, acc, k, out)
     }
 }
 
@@ -303,7 +396,9 @@ mod x86 {
         _mm_shuffle_epi8, _mm_shuffle_epi32, _mm_slli_si128, _mm_storeu_si128,
     };
 
-    use super::{Corrupt, DecodeError, Done, Ends, Job, Lanes, SHUFFLE, decode, decode_with};
+    use super::{
+        Corrupt, DecodeError, Done, Ends, Job, Lanes, SHUFFLE, decode, decode_with, resume_with,
+    };
 
     pub(super) struct Ssse3;
 
@@ -373,6 +468,23 @@ mod x86 {
         unsafe { decode_with::<Ssse3>(bytes, v, total, k, out) }
     }
 
+    /// Part of one record, for a prefix read in pieces.
+    ///
+    /// # Safety
+    ///
+    /// The CPU supports SSSE3.
+    #[target_feature(enable = "ssse3")]
+    pub(super) unsafe fn resume(
+        bytes: &[u8],
+        total: usize,
+        from: (usize, u32),
+        k: usize,
+        out: &mut [u32],
+    ) -> Result<usize, Corrupt> {
+        // SAFETY: SSSE3 is available (this function's contract).
+        unsafe { resume_with::<Ssse3>(bytes, total, from, k, out) }
+    }
+
     /// The batch loop compiled for SSSE3, with the record decoder inlined into it.
     ///
     /// # Safety
@@ -401,7 +513,9 @@ mod neon {
         vqtbl1q_u8, vreinterpretq_u8_u32, vreinterpretq_u32_u8, vst1q_u32,
     };
 
-    use super::{Corrupt, DecodeError, Done, Ends, Job, Lanes, SHUFFLE, decode, decode_with};
+    use super::{
+        Corrupt, DecodeError, Done, Ends, Job, Lanes, SHUFFLE, decode, decode_with, resume_with,
+    };
 
     pub(super) struct Neon;
 
@@ -473,6 +587,23 @@ mod neon {
     ) -> Result<usize, Corrupt> {
         // SAFETY: NEON is available (this function's contract).
         unsafe { decode_with::<Neon>(bytes, v, total, k, out) }
+    }
+
+    /// Part of one record, for a prefix read in pieces.
+    ///
+    /// # Safety
+    ///
+    /// The CPU supports NEON.
+    #[target_feature(enable = "neon")]
+    pub(super) unsafe fn resume(
+        bytes: &[u8],
+        total: usize,
+        from: (usize, u32),
+        k: usize,
+        out: &mut [u32],
+    ) -> Result<usize, Corrupt> {
+        // SAFETY: NEON is available (this function's contract).
+        unsafe { resume_with::<Neon>(bytes, total, from, k, out) }
     }
 
     /// The batch loop compiled for NEON, with the record decoder inlined into it.

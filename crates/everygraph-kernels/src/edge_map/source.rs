@@ -40,8 +40,8 @@ use super::{Error, ix};
 ///
 /// - [`nodes`](Self::nodes) returns the same value.
 /// - Every list that [`scan`](Self::scan), [`scan_prefixes`](Self::scan_prefixes) and
-///   [`lists`](Self::lists) pass to `f`, and every list that [`list`](Self::list)
-///   returns, names only nodes below `nodes()`.
+///   [`lists`](Self::lists) pass to `f`, and every list that [`list`](Self::list) and
+///   [`list_part`](Self::list_part) return, names only nodes below `nodes()`.
 /// - That check is made on the memory the list is handed out from, after the last write
 ///   to that memory. A check of other bytes (the file, the map, an earlier read) does
 ///   not count.
@@ -149,6 +149,26 @@ pub unsafe trait Source: Sync {
     ///
     /// As [`scan`](Self::scan).
     fn list<'r>(&'r self, reader: &'r mut Self::Reader, v: u32) -> Result<(u64, &'r [u32]), Error>;
+
+    /// Entries `from..to` of the list of `v`, where `prev` is entry `from − 1` as this
+    /// source handed it out, `from` is a multiple of four with `4 ≤ from < to`, and `to`
+    /// is at most the degree. A source that decodes then decodes no more of the list;
+    /// the default reads all of it.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan`](Self::scan).
+    fn list_part<'r>(
+        &'r self,
+        reader: &'r mut Self::Reader,
+        v: u32,
+        (from, prev): (usize, u32),
+        to: usize,
+    ) -> Result<&'r [u32], Error> {
+        let _ = prev;
+        let (_, list) = self.list(reader, v)?;
+        Ok(list.get(from..to.min(list.len())).unwrap_or_default())
+    }
 
     /// Tells the backend that the lists of `nodes` (increasing) will be read soon. Advice
     /// only; the default ignores it.
@@ -632,6 +652,25 @@ unsafe impl Source for Compressed<'_> {
     fn list<'r>(&'r self, r: &'r mut DecodeReader, v: u32) -> Result<(u64, &'r [u32]), Error> {
         self.decode(r, v..v + 1, usize::MAX)?;
         Ok((self.entry_offset(v), r.batch.list(0)))
+    }
+
+    fn list_part<'r>(
+        &'r self,
+        r: &'r mut DecodeReader,
+        v: u32,
+        from: (usize, u32),
+        to: usize,
+    ) -> Result<&'r [u32], Error> {
+        r.make_room(self.adjacency.part_entries(from.0, to), 1)?;
+        let checked = self
+            .adjacency
+            .decode_part(NodeId::new(v), from, to, &mut r.batch)
+            .map_err(Error::from)
+            .and_then(|()| self.check(&r.batch, v, v + 1));
+        if checked.is_err() {
+            r.batch.clear();
+        }
+        checked.map(|()| r.batch.list(0))
     }
 
     fn prefetch(&self, nodes: &[u32]) {
