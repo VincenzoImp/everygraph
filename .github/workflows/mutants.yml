@@ -83,7 +83,7 @@ jobs:
           tool: cargo-mutants@27.1.0,cargo-nextest@0.9.152
       # Three mutants per shard: in the box go the build, one baseline run of the crate's
       # tests, then an incremental build and the tests per mutant. On #193's PR the
-      # format crate's tests took 100 s on the runner, and the box ended during the fifth
+      # format crate's tests took 100 s on the runner, and the box ended after five
       # of six mutants.
       - name: tools/mutants.sh diff HEAD^1 (pull request), or the shards asked for
         id: plan
