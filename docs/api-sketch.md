@@ -503,8 +503,9 @@ g.communities(memory="4GB")                 # or just try: it is refused first
 >>> g.communities(memory="4GB")
 Traceback (most recent call last):
   File "<stdin>", line 1, in <module>
-InsufficientBudget: communities() needs 5.1 GB for per-node state
-(212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
+InsufficientBudget: communities() needs 5.6 GB: 5.1 GB for per-node state
+(212,418,907 nodes × 24 bytes), and 0.5 GB for buffers and the graph's indexes;
+the budget is 4.0 GB.
 The edges stay on disk either way.
 
   Ways forward:
@@ -534,8 +535,9 @@ Plan for communities() on transfers.eg — Leiden, resolution 1.0, deterministic
 $ everygraph run communities transfers.eg --memory 4GB
 ✗ Not enough memory for this step.
 
-  communities needs 5.1 GB for per-node state (212,418,907 nodes × 24 bytes).
-  The budget is 4.0 GB. The edges stay on disk either way.
+  communities needs 5.6 GB: 5.1 GB for per-node state (212,418,907 nodes × 24
+  bytes), and 0.5 GB for buffers and the graph's indexes. The budget is 4.0 GB.
+  The edges stay on disk either way.
 
   Ways forward:
     --memory 6GB            the smallest budget that works
@@ -889,12 +891,12 @@ in — and the same content as attributes.
 
 | Exception | Also a | Raised when | Particular attributes | Exit status |
 |---|---|---|---|---|
-| `InsufficientBudget` | — | The per-node state of an operation does not fit the memory budget. Always before any work. | `step`, `needs_bytes`, `budget_bytes`, `smallest_budget_bytes` | 4 |
+| `InsufficientBudget` | — | The per-node state of an operation does not fit the memory budget. Always before any work, except for an operation whose plan has no bound (`components(strong=True)`, whose pairs found grow with the graph), which can also be refused while it runs; its `smallest_budget_bytes` is then `None`. | `step`, `needs_bytes`, `budget_bytes`, `smallest_budget_bytes` | 4 |
 | `InsufficientDisk` | — | The scratch or output directory lacks room for the plan. Before any work; or during a run if the disk fills. | `step`, `needs_bytes`, `available_bytes` (free on that disk), `path` | 4 |
 | `InvalidInput` | — | The input cannot be read as described: a row with the wrong number of fields, a value that is not of the column's type, a missing column, an unknown format, a file with no bytes. Or the data cannot be used as asked: a weight that is negative, NaN or infinite where an operation needs weights (§ 2.13). | `problems` (each with `file`, `line`, `problem`, `column`, `excerpt`), `invalid_rows`, `rows_checked`; for a weight, `column` | 3 |
 | `InvalidExpression` | `ValueError` | The text of a filter does not parse or names a column the graph lacks. Raised by `g.filter()` itself, not later. | `expression`, `position` | 2 |
 | `UnknownNode` | `LookupError` | A call about one node names an identifier that is not in the graph or the view. | `node` | 6 |
-| `Unsupported` | — | The operation is not defined for this graph: `window` without a time column or on a graph read with `duplicates="sum"`, `strong=True` or `use_direction=True` on an undirected graph; or it is above a size guard (`to_networkx`). | `operation`, `reason` | 2 |
+| `Unsupported` | — | The operation is not defined for this graph: `window` without a time column or on a graph read with `duplicates="sum"`, `strong=True` or `use_direction=True` on an undirected graph; an operation that reads the in-edges of a directed graph whose file was built without them; a weight column that the operation cannot read yet (`weight="value"`, #246); or it is above a size guard (`to_networkx`). | `operation`, `reason` | 2 |
 | `OutputExists` | `FileExistsError` | The output path holds a file that Everygraph may not replace (below). Before any work. | `path`, `holds` (`"other graph"` or `"not ours"`) | 1 |
 | `CorruptFile` | — | A graph or map file fails its integrity checks, or was written by a format this version cannot read. | `path`, `section` | 5 |
 
@@ -1321,12 +1323,12 @@ file and returned from there the next time; on a view it is kept for the session
 
 | Method | Returns (columns) | Notes | Implemented by |
 |---|---|---|---|
-| `pagerank()` | `node`, `pagerank` | Scores sum to 1. Stops when the sum of absolute changes between two iterations is below `tol` — not scaled by the number of nodes, unlike NetworkX — or after `max_iter` iterations; `meta` has `iterations` and `converged`. `personalize`: restart at these nodes only. `precision="low"`: 32-bit state, labelled, never chosen for you (§ 2.4). | #47 |
-| `components()` | `node`, `component` | Weakly connected components; `strong=True` for strongly connected ones (directed graphs only). Numbered from 0 by decreasing size (§ 2.12). `.sizes()` gives `component`, `nodes`. | #48 |
-| `kcore()` | `node`, `core` | The core number of each node, direction ignored (§ 2.13). `.sizes()` gives `core`, `nodes`. | #50 |
+| `pagerank()` | `node`, `pagerank` | Scores sum to 1. Stops when the sum of absolute changes between two iterations is below `tol` — not scaled by the number of nodes, unlike NetworkX — or after `max_iter` iterations; `meta` has `iterations` and `converged`, except for a result read back from the file, which does not record them yet (#248). `personalize`: restart at these nodes only; such a result is not kept in the file. `precision="low"`: 32-bit state, labelled, never chosen for you (§ 2.4). | #47 |
+| `components()` | `node`, `component` | Weakly connected components; `strong=True` for strongly connected ones (directed graphs only). Numbered from 0 by decreasing size (§ 2.12). `.sizes()` gives `component`, `nodes`; `meta["components"]` is their number. | #48 |
+| `kcore()` | `node`, `core` | The core number of each node, direction ignored (§ 2.13). `.sizes()` gives `core`, `nodes`; `meta["largest_core"]` is the largest core number. | #50 |
 | `triangles()` | `node`, `triangles`, `clustering` | Triangles through each node and its local clustering coefficient. `meta` has `triangles_total` and `transitivity`. Direction is ignored. | #51 |
 | `degrees(nodes=None)` | `node`, `in_degree`, `out_degree`, `degree`, `weighted` | For every node, or for the nodes given. Each counts **distinct neighbors**, however many edges join the pair (a pair is analysed once, `choices.md` A1): `in_degree` the nodes with an edge to it, `out_degree` the nodes it has an edge to, `degree` the nodes joined to it in either direction — so `degree` can be less than `in_degree + out_degree`. Undirected graphs have `degree` only. `weighted`, present when the graph has a weight: the sum of the weight (§ 2.4) over its pairs. On the whole graph they are made with the graph and cost nothing (#50); on a view they are the view's, computed by a planned pass. | #50, #90 |
-| `bfs(source)` | `node`, `distance`, `parent` | Hops from `source` to every node; null where unreachable. `max_hops` stops early. `parent`: § 2.12. Kept for the session only (§ 2.8). | #49 |
+| `bfs(source)` | `node`, `distance`, `parent` | Hops from `source` to every node; null where unreachable. `max_hops` stops early. `parent`: § 2.12. `meta["hops"]` is the largest distance reached. Kept for the session only (§ 2.8). | #49 |
 | `top(by, n)` | `node`, the measure, `rank` | The `n` nodes with the highest value of a per-node measure: `"degree"`, `"in_degree"`, `"out_degree"`, `"weighted"`, `"pagerank"`, `"core"`, `"triangles"`, `"clustering"`. Computes the measure with default parameters if it is not stored. Ties and ranks: § 2.12. Same as `g.pagerank().top(n)` and so on. | #81 |
 | `communities()` | a `Communities` (§ 3.5) | `method`: `"leiden"`, the only method in 0.1; the parameter is where other methods will go. `resolution`: larger gives more, smaller communities. `objective`: `"modularity"` or `"cpm"` (#58). `iterations`: 1 by default, as #57 specifies, to be confirmed by #57's measurements (`design/DECISIONS.md`, "Default number of Leiden iterations"). `weight`: § 2.4; the summary says which was used. `use_direction=False`: direction is ignored when finding communities, and the result says so (`choices.md` A2); `True` uses it (#58), and is `Unsupported` on an undirected graph. | #57, #58, #60, #62 |
 | `map()` | a `Map` (§ 3.8) | Does everything that is missing — communities, hierarchy, layout, tiles — after printing the plan, and writes the working map `NAME.egmap` beside the graph (a view's or a graph in memory's is kept in scratch until exported). `communities=`: draw these instead of the default ones. | #63, #67, #69, #76 |

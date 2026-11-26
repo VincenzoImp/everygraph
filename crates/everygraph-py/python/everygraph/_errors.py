@@ -6,6 +6,8 @@ forward as code that can be copied; and what state things were left in."""
 from __future__ import annotations
 
 import dataclasses
+import json
+import textwrap
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -61,18 +63,8 @@ class EverygraphError(Exception):
         super().__init__(self._text())
 
     def _text(self) -> str:
-        lines = [self.message]
-        if self.why:
-            lines += ["", *self.why.splitlines()]
-        if self.ways_forward:
-            lines += ["", "  Ways forward:"]
-            for way in self.ways_forward:
-                if way.note:
-                    lines.append(f"    {way.python:<32}  {way.note}")
-                else:
-                    lines.append(f"    {way.python}")
-        lines += ["", "Nothing was written." if self._written else "Nothing was changed."]
-        return "\n".join(lines)
+        return text(self.message, self.why, self.ways_forward,
+                    "Nothing was written." if self._written else "Nothing was changed.")
 
     def __str__(self) -> str:
         return self._text()
@@ -135,6 +127,71 @@ class TruncatedWarning(UserWarning):
     § 2.5)."""
 
 
+def text(message: str, why: str | None, ways: list[Way], state: str) -> str:
+    """The message of `docs/ux-contract.md` § 6.1 as Python shows it (story 8): what, then
+    why on the next line, each wrapped at 80 columns; the ways forward as calls; and the
+    state things were left in."""
+    # A path or an identifier is never cut, so that it can be copied.
+    wrap = {"width": 80, "break_long_words": False, "break_on_hyphens": False}
+    lines = textwrap.wrap(message, **wrap) or [message]
+    for paragraph in (why or "").splitlines():
+        indent = paragraph[: len(paragraph) - len(paragraph.lstrip())]
+        lines += textwrap.wrap(paragraph, subsequent_indent=indent, **wrap) or [""]
+    if ways:
+        lines += ["", "  Ways forward:"]
+        for way in ways:
+            lines.append(f"    {way.python:<32}  {way.note}".rstrip() if way.note else f"    {way.python}")
+    return "\n".join([*lines, "", state])
+
+
+def _ways(document: Mapping[str, Any]) -> list[Way]:
+    return [Way(w["command"], w["python"], w["note"], w.get("needs_bytes")) for w in document["ways_forward"]]
+
+
+def from_plan(fields: Mapping[str, Any], operation: str, where: str) -> EverygraphError:
+    """The exception of a plan's refusal, from the engine's `fields`: its error document
+    and, for a budget, the state and what it is. `InsufficientBudget` in the words of
+    story 8, or `Unsupported`; `where` names the graph."""
+    document = json.loads(fields["document"])
+    machine = document.get("machine_memory_bytes")
+    common = {"ways_forward": _ways(document), "machine_memory_bytes": machine}
+    if document["error"] == "InsufficientBudget":
+        arithmetic = document["arithmetic"]
+        needs, state = document["needs_bytes"], fields["state_bytes"]
+        rest = f", and {_text.size(needs - state)} for buffers and the graph's indexes" if needs > state else ""
+        message = (f"{operation}() needs {_text.size(needs)}: {_text.size(state)} for {fields['what']} "
+                   f"({arithmetic['count']:,} nodes × {arithmetic['bytes_each']} bytes){rest}; "
+                   f"the budget is {_text.size(document['budget_bytes'])}.")
+        after = []
+        if machine is not None and needs > machine:
+            after.append(f"This machine has {_text.size(machine)} of memory in all, so no budget on it is enough.")
+        if fields["on_disk"]:
+            after.append("The edges stay on disk either way.")
+        return InsufficientBudget(
+            message,
+            why=" ".join(after) or None,
+            arithmetic=arithmetic,
+            step=document["step"],
+            needs_bytes=document["needs_bytes"],
+            budget_bytes=document["budget_bytes"],
+            smallest_budget_bytes=document["smallest_budget_bytes"],
+            **common,
+        )
+    reason = document.get("reason", document["why"])
+    return Unsupported(
+        f"{operation}() cannot be done on {where}.",
+        why=reason[:1].upper() + reason[1:] + ".",
+        operation=operation,
+        reason=reason,
+        **common,
+    )
+
+
+def usage(document: Mapping[str, Any]) -> ValueError:
+    """The `ValueError` of a budget above the machine (P-16), with its ways forward."""
+    return ValueError(text(document["message"], document["why"], _ways(document), "Nothing was changed."))
+
+
 def raise_native(
     error: BaseException,
     operation: str,
@@ -148,8 +205,8 @@ def raise_native(
     cls, fields = error.args
     f = dict(fields)
     common = {"written": written, "machine_memory_bytes": machine_memory}
-    if cls == "ValueError":
-        raise ValueError(f["message"]) from None
+    if cls == "UsageError":
+        raise usage(json.loads(f["document"])) from None
     if cls == "InsufficientBudget":
         budget = f["budget_bytes"]
         # The budget that holds the refused step; the smallest budget for the whole call
@@ -186,6 +243,11 @@ def raise_native(
             fix = "correct that line" if n == 1 else f"correct those {_text.count(n)} lines"
             ways = [Way(f"{fix}, then run the same command again", f"{fix}, then run the same call again")]
             extra = {"problems": problems, "invalid_rows": n, "rows_checked": f["rows_checked"]}
+        elif "column" in f:
+            what = f["reason"]
+            why = f"The header has: {f['header']}." if "header" in f else None
+            ways = [Way("name a column the header has", "name a column the header has")]
+            extra = {"column": f["column"]}
         else:
             what = f["reason"]
             why = f.get("examples") and f"For example: {f['examples']}."

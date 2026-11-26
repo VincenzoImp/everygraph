@@ -76,7 +76,7 @@ def test_two_spellings_of_one_path_are_one_cache(tmp_path, capsys):
     path = write_edges(tmp_path / "d" / "c.csv", [(1, 2)])
     eg.read(path, out=tmp_path / "d" / "c.eg", progress=False)
     eg.read(tmp_path / "d" / ".." / "d" / "c.csv", out=tmp_path / "d" / "c.eg")
-    assert "cached" in capsys.readouterr().err
+    assert "c.eg is up to date with c.csv: opened, not rebuilt." in capsys.readouterr().err
 
 
 def test_a_small_compressed_input_stays_in_memory(tmp_path):
@@ -94,7 +94,9 @@ def test_the_same_read_again_opens_the_cache(tmp_path, capsys):
     stamp = (tmp_path / "e.eg").stat().st_mtime_ns
     g = eg.read(path, out=tmp_path / "e.eg")
     assert (tmp_path / "e.eg").stat().st_mtime_ns == stamp
-    assert "cached" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "e.eg is up to date with e.csv: opened, not rebuilt." in err
+    assert f'reopen later: eg.open("{tmp_path / "e.eg"}")' in err
     assert g.num_edges == 2
 
 
@@ -197,8 +199,36 @@ def test_wrong_arguments_are_type_and_value_errors(tmp_path):
         eg.read(path, progress="yes")
     with pytest.raises(TypeError):
         eg.read(path, colour="blue")
-    with pytest.raises(ValueError, match="no column named value"):
+
+
+
+def test_a_missing_column_is_invalid_input(tmp_path, validate):
+    path = write_edges(tmp_path / "e.csv", [(1, 2)])
+    with pytest.raises(eg.InvalidInput) as e:
         eg.read(path, weight="value", progress=False)
+    # The text is wrapped at 80 columns, the path never cut.
+    assert "it has no column named value." in " ".join(str(e.value).split())
+    assert str(path) in str(e.value)
+    assert not isinstance(e.value, ValueError) and e.value.column == "value"
+    assert "The header has: a, b." in str(e.value)
+    validate(e.value.to_dict(), "urn:everygraph:schema:error:1")
+
+
+def test_system_errors_keep_their_class(tmp_path):
+    import os
+
+    path = write_edges(tmp_path / "e.csv", [(1, 2)])
+    eg.read(path, out=tmp_path / "e.eg", progress=False)
+    if os.geteuid() == 0:
+        pytest.skip("root reads any file")
+    for locked in (path, tmp_path / "e.eg"):
+        locked.chmod(0)
+    with pytest.raises(PermissionError):
+        eg.read(path, out=tmp_path / "other.eg", progress=False)
+    with pytest.raises(PermissionError):
+        eg.open(tmp_path / "e.eg")
+    with pytest.raises(IsADirectoryError):
+        eg.read(tmp_path, progress=False)
 
 
 def test_the_budget_refuses_before_any_work(tmp_path):
@@ -326,5 +356,6 @@ def test_weight_and_time_columns_are_read_and_part_of_the_graph(tmp_path, capsys
 def test_a_weight_column_named_like_a_stored_one_is_refused(tmp_path):
     path = tmp_path / "s.csv"
     path.write_text("a,b,edges\n1,2,0.5\n")
-    with pytest.raises(eg.InvalidInput, match="two stored columns would be named edges"):
+    with pytest.raises(eg.InvalidInput) as e:
         eg.read(path, weight="edges", duplicates="sum", progress=False)
+    assert "two stored columns would be named edges" in " ".join(str(e.value).split())

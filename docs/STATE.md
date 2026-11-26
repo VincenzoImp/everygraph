@@ -80,6 +80,8 @@ everything prepared.
 
 **Pace from 2026-11-26 evening (owner):** finish the pull requests in flight, then no new implementation until an official measurement window has run (harness A/A, reference runs on orkut, the official specs of the merged kernels). Opus medium by default, high only for kernels, formats and concurrent code.
 
+**Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
+
 ## Lessons that still change behaviour
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.

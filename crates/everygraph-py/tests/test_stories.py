@@ -39,7 +39,7 @@ def test_story_2_pagerank_top_and_reopen(friends, tmp_path):
     assert text.splitlines()[-1] == f"top 5 of {g.num_nodes:,} rows by pagerank"
     assert "│ node │ pagerank" in text and "│ rank │" in text
     again = eg.open(tmp_path / "friends.eg").pagerank()
-    assert pa.table(again).equals(pa.table(pr))
+    assert pa.table(again).equals(pa.table(pr)) and again.meta["cached"]
 
 
 def test_story_3_the_hubs_by_degree(friends):
@@ -62,22 +62,17 @@ def test_story_6_joined_with_my_table(friends):
 
 def test_story_8_an_operation_that_does_not_fit(friends):
     g = eg.read(friends, progress=False)
+    plan = g.explain("pagerank", memory="1kB")  # look before running: a Plan
+    assert not plan.fits
     with pytest.raises(eg.InsufficientBudget) as refused:
-        g.pagerank(memory="1kB")
+        g.pagerank(memory="1kB")  # or just try: it is refused first
     text = str(refused.value)
-    assert text.startswith("pagerank() needs ")
+    assert text.startswith("pagerank() needs ") and "for per-node state" in text
     assert "Ways forward:" in text and text.endswith("Nothing was changed.")
-    # Each refusal names the budget that holds its step; following the ways forward
-    # reaches one that holds the whole call (the planner, #45, will name it at once).
-    budgets = [refused.value.ways_forward[0].needs_bytes]
-    while True:
-        try:
-            pr = g.pagerank(memory=budgets[-1], progress=False)
-            break
-        except eg.InsufficientBudget as again:
-            budgets.append(again.ways_forward[0].needs_bytes)
-            assert budgets[-1] > budgets[-2] and len(budgets) < 20
-    assert pr.num_rows == g.num_nodes
+    smallest = refused.value.smallest_budget_bytes
+    assert smallest == plan.refusal["smallest_budget_bytes"]
+    assert refused.value.ways_forward[0].note == "the smallest budget that works"
+    assert g.pagerank(memory=smallest, progress=False).num_rows == g.num_nodes
 
 
 def test_story_10_the_command_line_equivalent_of_a_tiny_graph(tmp_path):

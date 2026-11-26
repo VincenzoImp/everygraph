@@ -3,7 +3,8 @@
 //! Errors of the engine, as `NativeError(class, fields)`: the class of
 //! `docs/api-sketch.md` § 2.7 and the facts its message is made from. The Python
 //! package writes the message (`everygraph/_errors.py`). Errors of the operating system
-//! are raised as Python's own `OSError` subclasses.
+//! are raised as Python's own `OSError` subclasses, by their kind
+//! (`docs/api-sketch.md` § 2.7).
 
 use std::path::Path;
 
@@ -107,7 +108,7 @@ impl Fail {
         match self {
             Self::Engine(f) => f.into_err(py),
             Self::Os(e, path) => {
-                let err = PyErr::from(e);
+                let err = PyErr::from(system(e));
                 let message = format!("{path}: {}", err.value(py));
                 match err.get_type(py).call1((message,)) {
                     Ok(value) => PyErr::from_value(value),
@@ -140,11 +141,30 @@ fn memory(e: MemoryError, budget_bytes: u64) -> Failure {
     }
 }
 
+/// `e` with the kind of the first error of its chain of causes whose kind says more
+/// than `Other`, so that Python raises its own subclass of `OSError`
+/// (`FileNotFoundError`, `PermissionError`, …), whatever wrapped it.
+fn system(e: std::io::Error) -> std::io::Error {
+    let mut next: Option<&(dyn std::error::Error + 'static)> = Some(&e);
+    while let Some(err) = next {
+        next = match err.downcast_ref::<std::io::Error>() {
+            Some(io) if io.kind() != std::io::ErrorKind::Other => {
+                return std::io::Error::new(io.kind(), e.to_string());
+            }
+            Some(io) => io
+                .get_ref()
+                .map(|inner| inner as &(dyn std::error::Error + 'static)),
+            None => err.source(),
+        };
+    }
+    e
+}
+
 /// A failure of the text reader on `input`.
 pub(crate) fn text(input: &Path, e: TextError) -> Fail {
     let file = input.display().to_string();
     match e {
-        TextError::Read(cause) => Fail::Os(std::io::Error::other(cause.to_string()), file),
+        TextError::Read(cause) => Fail::Os(std::io::Error::other(cause), file),
         TextError::InvalidRows(summary) => {
             let problems = summary
                 .problems
@@ -167,10 +187,24 @@ pub(crate) fn text(input: &Path, e: TextError) -> Fail {
                 .count("rows_checked", summary.lines)
                 .into()
         }
-        other @ (TextError::UnknownColumn { .. }
-        | TextError::NoHeader { .. }
-        | TextError::BeyondHeader { .. }) => Failure::new("ValueError")
-            .text("message", format!("Cannot read {file}: {other}."))
+        TextError::UnknownColumn {
+            ref name,
+            ref header,
+        } => Failure::new("InvalidInput")
+            .text("file", file)
+            .text("column", name)
+            .text("header", header.join(", "))
+            .text("reason", &e)
+            .into(),
+        TextError::NoHeader { ref name } => Failure::new("InvalidInput")
+            .text("file", file)
+            .text("column", name)
+            .text("reason", &e)
+            .into(),
+        TextError::BeyondHeader { index, .. } => Failure::new("InvalidInput")
+            .text("file", file)
+            .text("column", format!("column {}", index + 1))
+            .text("reason", &e)
             .into(),
         other => Failure::new("InvalidInput")
             .text("file", file)
@@ -231,10 +265,7 @@ fn build(input: &Path, budget_bytes: u64, e: BuildError) -> Fail {
 /// A graph file that cannot be opened.
 pub(crate) fn open(path: &Path, e: OpenError, budget_bytes: u64) -> Fail {
     match e {
-        OpenError::Read(e) => Fail::Os(
-            std::io::Error::other(e.to_string()),
-            path.display().to_string(),
-        ),
+        OpenError::Read(e) => Fail::Os(std::io::Error::other(e), path.display().to_string()),
         OpenError::Budget(refused) => budget(&refused, budget_bytes).into(),
         OpenError::Corrupt { section, what } => {
             let f = Failure::new("CorruptFile")

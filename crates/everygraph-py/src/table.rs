@@ -19,7 +19,7 @@ use arrow_array::{
 use arrow_buffer::{BooleanBuffer, Buffer, NullBuffer, ScalarBuffer, ToByteSlice};
 use arrow_schema::ffi::FFI_ArrowSchema;
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
-use everygraph_core::{MemoryKind, Reservation, SegVec};
+use everygraph_core::{Memory, MemoryError, MemoryKind, Reservation, SegVec};
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyCapsule, PyList, PyTuple};
@@ -78,25 +78,45 @@ where
         .collect()
 }
 
-/// The column of `values`, owned with `held`, without a copy of the values; `null`,
-/// when given, marks a null. `held` covers the values and their bitmap of nulls.
-pub(crate) fn own_u32(values: Vec<u32>, null: Option<u32>, held: Reservation) -> Vec<ArrayRef> {
-    let nulls = null
-        .map(|null| {
-            NullBuffer::new(BooleanBuffer::collect_bool(values.len(), |i| {
-                values[i] != null
-            }))
+/// [`lend`] of `values`, in which `null`, when given, marks a null: each chunk's bitmap
+/// is held under `memory`.
+///
+/// # Errors
+///
+/// A bitmap that does not fit the budget.
+pub(crate) fn lend_u32(
+    values: SegVec<u32>,
+    null: Option<u32>,
+    memory: &Memory,
+) -> Result<Vec<ArrayRef>, MemoryError> {
+    let Some(null) = null else {
+        return Ok(lend::<UInt32Type>(values));
+    };
+    let mut nulls = Vec::new();
+    for segment in values.segments() {
+        let bytes = segment.len().div_ceil(8) as u64;
+        let held = memory.reserve("null bitmap", MemoryKind::Anonymous, bytes)?;
+        let bits = BooleanBuffer::collect_bool(segment.len(), |i| segment[i] != null);
+        let owned = Buffer::from(bytes::Bytes::from_owner(Held {
+            values: bits.inner().as_slice().to_vec(),
+            _held: held,
+        }));
+        nulls.push(NullBuffer::new(BooleanBuffer::new(owned, 0, segment.len())));
+    }
+    Ok(lend::<UInt32Type>(values)
+        .into_iter()
+        .zip(nulls.into_iter().map(Some).chain(std::iter::repeat(None)))
+        .map(|(chunk, nulls)| {
+            let values = chunk
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .map(|a| a.values().clone());
+            match (values, nulls.filter(|n| n.null_count() > 0)) {
+                (Some(v), Some(n)) => Arc::new(UInt32Array::new(v, Some(n))) as ArrayRef,
+                _ => chunk,
+            }
         })
-        .filter(|n| n.null_count() > 0);
-    let buffer = Buffer::from(bytes::Bytes::from_owner(Held {
-        values,
-        _held: held,
-    }));
-    let len = buffer.len() / 4;
-    vec![Arc::new(UInt32Array::new(
-        ScalarBuffer::new(buffer, 0, len),
-        nulls,
-    ))]
+        .collect())
 }
 
 /// Which nodes an identifier column names, by their dense ids.
