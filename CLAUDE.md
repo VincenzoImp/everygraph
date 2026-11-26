@@ -22,18 +22,12 @@ Section numbers are stable: issues and documents cite them as "CLAUDE.md § N".
    `python3 plan/board.py sync` (board in line with GitHub).
 4. Only then pick work. If STATE.md and reality disagree, fix STATE.md first.
 
-Where each kind of truth lives. When two documents disagree, correct the one lower in this
-list:
-
-- decisions and their evidence: `docs/DESIGN.md`, with one ADR each under `docs/adr/`;
-- what a user sees or types: `design/DECISIONS.md`, `design/preview/`,
-  `docs/api-sketch.md`, `docs/ux-contract.md`;
-- file formats and graph semantics: `docs/spec/`;
-- measurements: `docs/FINDINGS.md` and the result files it cites;
-- order of work: `docs/ROADMAP.md`;
-- the work: `plan/issues/*.md` (GitHub issues are published from them with
-  `plan/publish.py`);
-- coding rules and CI: `CONTRIBUTING.md`.
+Where truth lives; when two documents disagree, correct the one later in this list:
+decisions in `docs/DESIGN.md` and `docs/adr/`; what a user sees or types in
+`design/DECISIONS.md`, `design/preview/`, `docs/api-sketch.md` and `docs/ux-contract.md`;
+formats and semantics in `docs/spec/`; measurements in `docs/FINDINGS.md`; order of work
+in `docs/ROADMAP.md`; the work in `plan/issues/*.md` (GitHub issues are published from
+them with `plan/publish.py`); coding rules and CI in `CONTRIBUTING.md`.
 
 ## 2. Unit of work
 
@@ -45,21 +39,19 @@ list:
 - Direct commits to `main` are for coordination only: `docs/STATE.md`, the plan (`plan/`,
   republished with `plan/publish.py`) and records of decisions. Code and specifications
   always go through a pull request.
-- When an issue starts, mark it on the board (`python3 plan/board.py doing N`). Merging
-  its pull request closes it, and `board.py sync` moves it to Done.
+- When an issue starts, mark it on the board (`python3 plan/board.py doing N`).
 - Anything a user sees or types is built to the approved design. Read the issue's "Design
   reference" paragraph, `design/DECISIONS.md` and the page it points to under
   `design/preview/` first. Departing from it is a decision change (§ 5).
 - The pull request copies the issue's acceptance criteria as a checklist. Tick a box only
-  with its evidence beside it: a test name, a result file, or a command and its output. An
-  issue is not closed on "looks right".
+  with its evidence beside it: a test name, a result file, or a command and its output.
 - If a criterion cannot be met, do not quietly relax it. Record the measured value and the
-  reason; then change the issue text in `plan/issues/` and republish, or open a follow-up.
-  A missed speed target moves to the milestone's performance-pass issue (§ 6).
+  reason; then change the issue text and republish, or open a follow-up. A missed speed
+  target moves to the milestone's performance-pass issue (§ 6).
 - New ideas become new issue files, not code. Nothing outside the plan gets built.
-- An issue file's front matter is the truth for its milestone and labels; its name is only
-  a stable identifier. A file is not removed or renamed while anything cites it: an issue
-  merged into another keeps its file, which says where its scope went.
+- An issue file's name is a stable identifier; its front matter gives the milestone. A
+  file is not removed or renamed while anything cites it: an issue merged into another
+  keeps its file, which says where its scope went.
 - Merge by squash when CI is green and the review (§ 4) has no open findings.
 
 ## 3. Evidence rules
@@ -70,11 +62,10 @@ Each rule comes from an error that reached the plan.
   - *Official*: an idle machine (check the load average first), through the benchmark
     harness, with a result file. Required for every number in README, in the promises and
     success criteria of `docs/DESIGN.md` (§ 2, § 6), in a paper and in a release.
-  - *Exploratory*: taken while other work runs, and labelled "exploratory". It is an
-    interleaved A/B ratio, a count that does not depend on load (bytes read or written,
-    memory peaks), or a deterministic quality metric. Allowed in issues, pull requests,
-    lab write-ups, `docs/FINDINGS.md` and the evidence of decisions. An absolute time
-    from a loaded machine is never written as a result.
+  - *Exploratory*: taken while other work runs, and labelled so. It is an interleaved A/B
+    ratio, a count that does not depend on load (bytes read or written, memory peaks), or
+    a deterministic quality metric. Allowed everywhere else. An absolute time from a
+    loaded machine is never written as a result.
 - **Every number names its source:** a result file, or for an exploratory number the pull
   request or lab README that holds the command and its output. Otherwise it is marked as
   an estimate or removed.
@@ -131,11 +122,10 @@ the issue's labels, and escalate on evidence:
 **Escalation rule.** Re-run an issue with Fable at high effort when the pull request fails
 review twice on correctness, an acceptance criterion is missed after two attempts, or the
 agent reports that the issue's design does not work and cannot propose a tested
-alternative. Outside the rule, the coordinator may use Fable at medium or high effort when
-it judges an issue cannot be done well otherwise; that is the exception. Either way, write
-the reason in `docs/STATE.md` first. An issue that needed escalation usually was
-underspecified: afterwards, improve the neighbouring issues. The coordinator itself runs
-on the session's model.
+alternative. As an exception, the coordinator may use Fable at medium or high effort when
+it judges an issue cannot be done well otherwise. Either way, write the reason in
+`docs/STATE.md` first, and afterwards improve the issues that were underspecified. The
+coordinator itself runs on the session's model.
 
 ### How agents work
 
@@ -153,8 +143,7 @@ on the session's model.
   the DCO check is on.
 - Subagents cannot write `.md` report files. They return their report as text and the
   coordinator records it. Do not ask them to work around that.
-- A subagent's claim is a claim. Re-run its key numbers and read its diff before relying
-  on either.
+- A subagent's claim is a claim. Re-run its key numbers and read its diff.
 - **Offload to CI.** Locally an agent runs the checks of the crates it touched; CI runs
   the whole matrix. The pull-request CI stays under 15 minutes.
 
@@ -178,19 +167,18 @@ on the session's model.
 - **Every milestone ends with** a **dogfood pass** (an agent uses the product as a user
   would, through the command line and Python, on real datasets and the user stories of
   `docs/api-sketch.md`, and files what is wrong or awkward as issues), a **cleanup issue**
-  (dead code, duplicated helpers, and a test audit with `cargo-mutants`: a test that no
+  (dead code, duplicated helpers, and a `cargo-mutants` test audit: a test that no
   mutation can make fail is rewritten or removed), the official window and the report
   (§ 10).
 - **Keep the code small.** No code without an issue; prefer deleting to adding; each crate
   states what it owns in its crate docs. A `lab/` prototype is frozen once its production
-  counterpart lands. Prefer property and oracle tests that cover many cases to many
-  hand-written ones.
+  counterpart lands. Prefer property and oracle tests to many hand-written ones.
 - **Quality gates** (the owner's main risks: bugs we never find, heavy code, weak tests,
   performance). They apply in full to **product code** (core, format, io, ingest, kernels,
   community, map, query, cli, py, wasm): clean and small from the first pull request.
-  Tools that serve the work (the harness, lab, scripts, the oracle's plumbing) may be
-  rough; they are tidied when they get in the way. Prefer one big step that is then
-  corrected over many tiny edits. A kernel or format is "done" only with:
+  Tools (the harness, lab, scripts, the oracle's plumbing) may be rough; they are tidied
+  when they get in the way. Prefer one big step that is then corrected over many tiny
+  edits. A kernel or format is "done" only with:
   - an independent oracle or metamorphic relation that would catch a wrong answer
     (`m3-16-metamorphic-oracle`);
   - a fuzz target replayed in CI for anything that parses bytes (`m2-30-fuzz-ci`);
@@ -210,10 +198,9 @@ on the session's model.
   150 lines it moves to a sibling `tests.rs` or to `tests/`. Shared test helpers live
   once, in a `tests/support` module or a dev-only crate.
 - **Periodic sweep.** Every few hours a sweep agent goes over the repository and the
-  GitHub project: drift, contradictions, old material, dead files and code, stale issues
-  and milestones, narrating comments in product code. It deletes what has no reader and
-  opens one reviewable pull request. It also says what kind of drift recurs and why, so
-  the cause gets fixed, not only the symptom.
+  GitHub project: drift, contradictions, old material, dead files and code, stale issues,
+  narrating comments in product code. It deletes what has no reader, opens one pull
+  request, and says what kind of drift recurs and why.
 
 ## 7. This machine
 
@@ -227,7 +214,7 @@ on the session's model.
 - **Anything that loads a graph runs under a hard memory limit:**
   `systemd-run --user --scope -p MemoryMax=… -p MemorySwapMax=0`, 8 GB unless the task
   says otherwise; tools that load data take a limit of their own. Say the limit in every
-  subagent brief. A reference run without one grew to 61 GB and pushed the host into swap.
+  subagent brief.
 - **Never kill by name or pattern** (`pkill`, `killall`, `kill $(pgrep -f …)`): it has
   killed the calling shell and other experiments' processes. Record PIDs and kill those.
 - **Never wrap a script that takes a lock in the same lock:** a nested `flock` deadlocks.
@@ -241,16 +228,14 @@ on the session's model.
 
 ## 8. Delegation and its limits
 
-The owner delegated every decision of this project to Claude. So: decide, act, and report.
-Do not queue routine or even major choices for approval. Product, design, plan, code,
-reviews and priorities are Claude's to decide and to answer for.
+The owner delegated every decision of this project to Claude: product, design, plan,
+code, reviews and priorities. Decide, act, and report. Do not queue choices for approval.
 
 **What still needs the owner's hands** (not permission — presence): logins with 2FA,
 credentials and tokens for package registries, payments, signatures, messages sent from
 the owner's accounts, hardware and people this host does not have, and legal advice from
-a professional (Claude can research a patent or trademark question, not give a legal
-opinion). When one comes up: prepare everything, state exactly what is needed and why,
-and carry on with other work meanwhile.
+a professional. When one comes up: prepare everything, state exactly what is needed and
+why, and carry on with other work.
 
 **Safeguards Claude keeps on its own initiative**, because delegation does not make an
 irreversible mistake cheaper:
