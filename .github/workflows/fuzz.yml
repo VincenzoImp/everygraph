@@ -64,19 +64,23 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: python3 .github/scripts/ci_changes.py
+      # Before the install step, so that the cargo-fuzz it builds is new to the cache and
+      # gets saved (binaries already in ~/.cargo/bin at restore are left out). `shared-key`:
+      # with `key` the cache name also holds the job's name, and the campaign jobs, which
+      # run on pull requests only, never found a cache saved by main.
+      - &cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: fuzz
+          workspaces: |
+            crates/everygraph-format/fuzz -> target
+            crates/everygraph-ingest/fuzz -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - &nightly
         name: Install the pinned nightly and cargo-fuzz
         run: |
           rustup toolchain install "$(cat tools/nightly-toolchain)" --profile minimal
           command -v cargo-fuzz || cargo install cargo-fuzz --version 0.13.2 --locked
-      - &cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: fuzz
-          workspaces: |
-            crates/everygraph-format/fuzz -> target
-            crates/everygraph-ingest/fuzz -> target
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: tools/fuzz.sh replay
         run: tools/fuzz.sh replay
 
@@ -95,8 +99,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - *nightly
       - *cache
+      - *nightly
       - name: tools/fuzz.sh run ${{ matrix.target }} 300
         run: tools/fuzz.sh run "${{ matrix.target }}" 300
       - &crashes
@@ -133,8 +137,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - *nightly
       - *cache
+      - *nightly
       - name: tools/fuzz.sh run ${{ matrix.target }} 3600, then cmin
         run: |
           tools/fuzz.sh run "${{ matrix.target }}" 3600
