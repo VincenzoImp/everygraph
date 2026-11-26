@@ -182,7 +182,9 @@ arrays for PageRank, Leiden or point queries at 16 threads on an idle machine, t
 the in-RAM default becomes raw (compressed stays the on-disk and out-of-core form) or the
 public claims are restated — by a new ADR. The 1.5× threshold is set by this ADR, not
 measured. #118 did not trigger it for PageRank or Leiden; for point queries the 16-thread
-measurement is still owed (#90), and the same test applies to it.
+measurement is exploratory only (the pull request of #90: neighbours 2.1–2.5× slower on the
+compressed lists than on raw arrays on orkut, 3-hop 1.0–1.2×, on a loaded machine, with no
+decode tier); the idle-machine run is #m7-xx-query-performance's, and the same test applies to it.
 
 Also: web graphs (#24) showing the byte codec more than 1.5× slower than raw for the same
 kernels, or a streaming reader (#46) that cannot bring Friendster PageRank under 2 GB
@@ -191,5 +193,5 @@ within 1.35× of in-RAM on this format.
 ## Closed by
 
 #46 (streaming reader on the compressed format), #240 (the speed of ingest writing the format
-under a budget), #24 (web, weighted and directed graphs); #90 for point-query throughput at
-16 threads. The decode-tier evidence on twitter-sym is in #240.
+under a budget), #24 (web, weighted and directed graphs); #m7-xx-query-performance for
+point-query throughput at 16 threads. The decode-tier evidence on twitter-sym is in #240.

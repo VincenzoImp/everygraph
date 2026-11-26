@@ -474,6 +474,33 @@ proptest! {
     }
 }
 
+/// Readers on 8 threads query one graph at once and answer as one reader does.
+#[test]
+fn many_threads_query_one_graph() {
+    let edges: Vec<_> = (0..2000_u32)
+        .map(|i| (i % 7, (i * 31 + 5) % 300, 1.0, 0))
+        .collect();
+    let f = Fixture::new(Model::new(300, true, &edges));
+    let (out, inn) = (f.out.heap(), f.inn.as_ref().unwrap().heap());
+    let g = f.graph(&out, Some(&inn));
+    let ask = |r: &mut everygraph_query::Reader<'_, '_, _>, v: u32| {
+        let h = r.khop(v, 2, Direction::Both, 50, &Never).unwrap();
+        let e = r.neighbors(&[v], Direction::In, 9).unwrap();
+        (hops(&h), rows(&e))
+    };
+    let memory = Memory::unlimited();
+    let mut one = g.reader(&memory).unwrap();
+    let alone: Vec<_> = (0..300).map(|v| ask(&mut one, v)).collect();
+    let together = par::with_threads(NonZeroUsize::new(8).unwrap(), || {
+        par::map_ranges(300, NonZeroUsize::new(7).unwrap(), |range| {
+            let mut r = g.reader(&memory).unwrap();
+            range.map(|v| ask(&mut r, v as u32)).collect::<Vec<_>>()
+        })
+    })
+    .unwrap();
+    assert_eq!(together.concat(), alone);
+}
+
 #[test]
 fn queries_refuse_what_they_cannot_do() {
     let m = Model::new(3, true, &[(0, 1, 1.0, 0), (1, 1, 1.0, 0)]);

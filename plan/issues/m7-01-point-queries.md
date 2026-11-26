@@ -22,6 +22,8 @@ labels: type:feature, area:query, P0, risk:low, size:M, lab-evidence
 - A 2-hop query on a hub returns within its time budget with `truncated = true` instead of running for 15 ms+
 - A `khop` cut at `limit` returns the same rows at 1, 4 and 16 threads, and on hub nodes of twitter-2010 and Friendster its time grows with `limit`, not with the size of the hop it stops in
 
+**Where the speed targets went.** The targets missed by the first implementation, and the runs on twitter-2010 and Friendster, are in {{#m7-xx-query-performance}}, with the measured values.
+
 **Pointers.** `lab/f1-query/src/bin/pq.rs`.
 
 **Depends on** {{#m2-08-csr-build}}, {{#m2-10-property-columns}}, {{#m3-02-planner}}
