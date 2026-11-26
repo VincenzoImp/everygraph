@@ -242,8 +242,7 @@ def raise_native(
         elif "column" in f:
             what = f["reason"]
             why = f"The header has: {f['header']}." if "header" in f else None
-            ways = [Way("--source NAME --target NAME", call('source="NAME", target="NAME"'),
-                        "name the columns as the file does")]
+            ways = [Way("name a column the header has", "name a column the header has")]
             extra = {"column": f["column"]}
         else:
             what = f["reason"]

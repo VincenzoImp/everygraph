@@ -29,7 +29,7 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 - The read-rate probe, and the device under btrfs, ZFS and overlayfs: {{#m3-31-storage-probe}}
 - `WillNeed` advice that warms what the plan says, and the measured device read rate in the cost model: {{#m3-25-memory-headroom}}
 - Allocations outside the budget, and tighter bounds for components and k-core: {{#m3-32-kernel-memory-bounds}}
-- The callers: the command line through `planner::plan` and `run::execute` ({{#m8-12-cli-rest}}), and Python ({{#m6-01-python-api}})
+- The callers: the command line through `planner::plan` and `run::execute` ({{#m8-12-cli-rest}}); Python goes through both since PR #PRNUM ({{#m6-01-python-api}})
 - Streams ({{#m3-03-semi-external}}), the block cache ({{#m2-23-block-cache}}) and views ({{#m7-04-views}}) when they exist
 
 **Acceptance**

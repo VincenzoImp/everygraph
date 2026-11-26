@@ -606,7 +606,7 @@ class Graph:
         return Table(table, meta, "in graph order")
 
     def _read_summary(self, path: pathlib.Path, took: float) -> str:
-        where = str(self.file) if self.file else f"{path.name} · in memory"
+        where = f"{self.file.name} · {_text.size(self._native.bytes)}" if self.file else f"{path.name} · in memory"
         if self._info.get("cached"):
             return f"{self.file.name} is up to date with {path.name}: opened, not rebuilt.\n  reopen later: eg.open({json.dumps(str(self.file))})"
         lines = [f"✓ {where} · {self.num_nodes:,} nodes · {self.num_edges:,} edges · {_text.duration(took)}"]
