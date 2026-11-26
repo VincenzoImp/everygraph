@@ -14,7 +14,8 @@
 //!
 //! Before the rounds, a node with an empty in-list or out-list is a component of its own.
 //! The first round has one source, the first node of the order, and searches by
-//! direction-optimizing BFS ([`crate::traversal`]).
+//! direction-optimizing BFS ([`crate::traversal`]). The BFS checks no part and no done
+//! node: there is one part yet, and a node that is done then cannot be reached both ways.
 //!
 //! **Pairs.** A search keeps the pairs (node, source) it found in a concurrent set. A
 //! step pushes from each node of the frontier only the sources that the node got in the
