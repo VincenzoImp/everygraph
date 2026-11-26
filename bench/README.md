@@ -88,8 +88,9 @@ would otherwise run during the next repetition), and sleeps through a settle win
 (`/proc/diskstats`, physical devices only). The command then runs as
 
 ```
-systemd-run --user --scope -p MemoryMax=<limit> -p MemorySwapMax=0 \
-    -p OOMPolicy=continue -- everygraph-bench measure --report … -- <command>
+systemd-run --user --scope -p MemoryMax=<limit + 64 MiB> -p MemorySwapMax=0 \
+    -p OOMPolicy=continue -p Delegate=yes \
+    -- everygraph-bench measure --memory-max-bytes <limit> --report … -- <command>
 ```
 
 (`OOMPolicy=continue`: otherwise systemd stops the whole scope when the OOM killer
@@ -99,17 +100,22 @@ gets a second settle window just after it, since nothing can be measured during 
 **Every run is under a hard memory limit**: a spec whose benchmark has no
 `memory_limit` (its own or `[defaults]`) is an error, and the limit the kernel applied
 (`memory.max`, `memory.swap.max`) is recorded next to the one asked for. `measure` is
-the first process of the scope; it starts the command, samples `memory.stat` every
-20 ms, and when the command ends reads, from inside the still-living cgroup,
+the first process of the scope. It makes two child cgroups: `run`, with the limit and
+no swap, for the command, and `helper`, for itself. The helper must not share the
+command's limit: when the OOM killer ends the command, its memory is freed after the
+kill, and a page fault of the helper in between made the helper the next victim (on
+GitHub's arm64 runners), so the run had no report. The 64 MiB above the limit are the
+helper's. It starts the command in `run`, samples `memory.stat` every
+20 ms, and when the command ends reads, from that still-living cgroup,
 `memory.peak` (exact peak of anonymous + file-backed + kernel memory), `memory.events`
-(limit hits, OOM kills), `cpu.stat` (user and system time of everything in the scope),
+(limit hits, OOM kills), `cpu.stat` (user and system time of everything in `run`),
 and its own `/proc/self/io` (bytes the command and its descendants read from and wrote
 to storage). Those counters include a descendant only once it is reaped, and a
-descendant whose parent ends first — on a timeout or a stop every process of the scope
+descendant whose parent ends first — on a timeout or a stop every process of `run`
 is signalled at once; a command may also exit before its children — would be reaped by
 init and its traffic lost (tracer row 27, `tiles-16g`, recorded 86,016 bytes read
 after an hour of page faults). So `measure` makes itself a child subreaper
-(`PR_SET_CHILD_SUBREAPER`): orphans become its children, and after the scope is empty
+(`PR_SET_CHILD_SUBREAPER`): orphans become its children, and after `run` is empty
 it reaps every one before it reads the counters. When that cannot be done (a descendant
 moved itself to another cgroup and still runs 5 s later, or the `prctl` fails) the row's
 `io.unknown` says why, the byte counts are a lower bound and no metric, and others'
@@ -120,13 +126,13 @@ graph counts as RSS but is reclaimable page cache (FINDINGS § B1): RSS alone mi
 They are sampled, so a spike shorter than the interval can be missed; `memory.peak` is
 not sampled.
 
-**Processes left behind.** When the command exits, any other process still in its
-scope (a backgrounded child, a daemon) is killed with SIGKILL, by the ids of
-`cgroup.procs`, until the scope is empty; the row lists them in `left_processes` and its
+**Processes left behind.** When the command exits, any other process still in
+`run` (a backgrounded child, a daemon) is killed with SIGKILL, by the ids of
+`cgroup.procs`, until `run` is empty; the row lists them in `left_processes` and its
 status is `left_processes`, not `ok`: they would have disturbed what came next.
 
 **Others while it ran.** For runs of 1 s and more, the machine's user time minus the
-scope's own gives the cores others used, and the machine's storage traffic minus the
+user time of `run` gives the cores others used, and the machine's storage traffic minus the
 run's own bytes gives their traffic. User time only, because the kernel's work for the
 run (write-back, reclaim) is system time charged outside the scope; interrupt time is
 left out of every window for the same reason. `everygraph-bench selftest` checks this

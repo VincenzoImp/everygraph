@@ -184,6 +184,8 @@ pub enum Error {
     /// A weight or a cost that the kernel cannot use: negative, NaN or infinite
     /// (`docs/spec/graph-semantics.md` § 4.4). `entry` is its position in the column.
     Weight {
+        /// The column: `weight`, or `out` and `inn` of a directed projection.
+        column: &'static str,
         /// The position of the value in its per-entry column.
         entry: u64,
         /// The value.
@@ -206,9 +208,14 @@ impl fmt::Display for Error {
             ),
             Self::Invalid(what) => write!(f, "not a graph: {what}"),
             Self::Memory(e) => e.fmt(f),
-            Self::Weight { entry, value } => write!(
+            Self::Weight {
+                column,
+                entry,
+                value,
+            } => write!(
                 f,
-                "entry {entry} has weight {value}; a weight must be finite and not negative"
+                "entry {entry} of `{column}` has weight {value}; a weight must be finite and \
+                 not negative"
             ),
             Self::Argument(what) => f.write_str(what),
         }

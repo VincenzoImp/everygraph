@@ -47,6 +47,9 @@ use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::projection::Projection;
 use everygraph_oracle::reference;
 
+mod support;
+use support::{Pairs, SplitMix64, karate, planted, ring, sparse_planted};
+
 /// Lists of an undirected graph: each pair in both lists, a kept loop once.
 #[derive(Clone, Debug, PartialEq)]
 struct Lists {
@@ -460,68 +463,6 @@ fn every_option_gives_valid_and_repeatable_communities() {
     });
 }
 
-/// A graph as its node count and its pairs.
-type Pairs = (u32, Vec<(u32, u32)>);
-
-/// The generator of `tests/references.py`.
-struct SplitMix64(u64);
-
-impl SplitMix64 {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-}
-
-fn planted(blocks: u32, size: u32, p_in: u64, p_out: u64, seed: u64) -> Pairs {
-    let mut rng = SplitMix64(seed);
-    let n = blocks * size;
-    let mut edges = Vec::new();
-    for u in 0..n {
-        for v in u + 1..n {
-            let p = if u / size == v / size { p_in } else { p_out };
-            if rng.next() % 1000 < p {
-                edges.push((u, v));
-            }
-        }
-    }
-    (n, edges)
-}
-
-fn ring(cliques: u32, size: u32) -> Pairs {
-    let mut edges = Vec::new();
-    for c in 0..cliques {
-        let base = c * size;
-        for a in 0..size {
-            for b in a + 1..size {
-                edges.push((base + a, base + b));
-            }
-        }
-        edges.push((base + size - 1, (c + 1) % cliques * size));
-    }
-    (cliques * size, edges)
-}
-
-fn karate() -> Pairs {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../oracle/golden/karate.tsv"
-    );
-    let text = std::fs::read_to_string(path).unwrap();
-    let edges = text
-        .lines()
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(|l| {
-            let mut it = l.split_whitespace().map(|x| x.parse::<u32>().unwrap());
-            (it.next().unwrap(), it.next().unwrap())
-        })
-        .collect();
-    (34, edges)
-}
-
 fn reference_graphs() -> Vec<(&'static str, Pairs)> {
     vec![
         ("karate", karate()),
@@ -538,9 +479,12 @@ fn reference_graphs() -> Vec<(&'static str, Pairs)> {
 /// Except on `planted-20x100-80-8`, a planted partition near the limit of detection
 /// (two thirds of each node's edges leave its block): there the lab's stopping rule
 /// (local moving stops when a sweep gains at most 0.01 on level 0) stops local moving
-/// after too few sweeps (`plan/issues/m4-13-relative-tolerance.md`). Its values today are
-/// pinned with a small margin: default 0.2602, quality 0.2879, fast 0.237-0.258 (it moves
-/// with the schedule) against 0.2909.
+/// after too few sweeps (`plan/issues/m4-13-relative-tolerance.md`). The deterministic
+/// modes are pinned with a small margin: default 0.2714, quality 0.2914, against 0.2909.
+/// The fast mode is not deterministic (ADR 0014) and on this graph moves with the
+/// schedule: 0.2422-0.2849 in local runs, down to 0.216 on loaded and arm64 CI runners
+/// (PR #299). Its gate there asks only for two thirds of the best: the structure is
+/// found, the last sweeps may not be.
 #[test]
 fn modularity_is_within_the_gates_of_networkx_and_igraph() {
     let text = std::fs::read_to_string(concat!(
@@ -562,7 +506,7 @@ fn modularity_is_within_the_gates_of_networkx_and_igraph() {
             .fold(f64::MIN, f64::max);
         let s = store(&Lists::from_pairs(n, &pairs));
         let gates = if name == "planted-20x100-80-8" {
-            [0.255, 0.285, 0.23].map(|q| Some(1.0 - q / best))
+            [0.265, 0.285, 0.19].map(|q| Some(1.0 - q / best))
         } else {
             [Some(0.03), Some(0.01), Some(0.03)]
         };
@@ -715,28 +659,6 @@ fn isolated_nodes_change_nothing_else() {
         let padded = communities_with(n + 9000, &pairs, &o);
         assert_eq!(&padded[..n as usize], &base[..]);
     }
-}
-
-/// `blocks` blocks of `size` nodes: each node draws `d_in` neighbours in its block and
-/// `d_out` anywhere (repeats and loops dropped).
-fn sparse_planted(blocks: u32, size: u32, d_in: u32, d_out: u32, seed: u64) -> Pairs {
-    let mut rng = SplitMix64(seed);
-    let n = blocks * size;
-    let mut edges = Vec::new();
-    for u in 0..n {
-        let block = u / size * size;
-        for i in 0..d_in + d_out {
-            let v = if i < d_in {
-                block + (rng.next() % u64::from(size)) as u32
-            } else {
-                (rng.next() % u64::from(n)) as u32
-            };
-            if v != u {
-                edges.push((u, v));
-            }
-        }
-    }
-    (n, edges)
 }
 
 /// Sub-rounds of at least 1,024 nodes run on several threads. 10,000 nodes in 40 blocks

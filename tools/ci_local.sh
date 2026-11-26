@@ -35,6 +35,7 @@ step clippy-kernels-i686 cargo clippy -p everygraph-kernels --target i686-unknow
 step clippy-format-wasm cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 step clippy-format-simd128 env RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
+step clippy-map-wasm cargo clippy -p everygraph-map --target wasm32-unknown-unknown -- -D warnings
 step deny cargo deny check
 step doc env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 step canary python3 tools/check_portability_canary.py
@@ -43,6 +44,7 @@ step wasm-toy python3 tools/check_wasm_toy.py
 step wasm-codec python3 tools/check_wasm_codec.py
 step container python3 tools/check_container_python.py
 step columns-python uv run -q --script tools/check_columns_python.py
+step egmap-readers uv run -q --script tools/check_egmap_readers.py
 step python-package tools/check_python_package.sh
 # While 1.100 is the current stable, the nextest and doctest steps already ran on it.
 if [ "$(rustc +1.100 -V)" != "$(rustc -V)" ]; then step msrv cargo +1.100 test --workspace --locked; fi

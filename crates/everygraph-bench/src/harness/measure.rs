@@ -10,8 +10,9 @@
 //! only (`memory.peak`) and the anonymous/file-backed split is what matters with memory
 //! maps (an mmap'd graph shows as RSS but is reclaimable page cache).
 //!
-//! The helper's own footprint (a few MiB, two idle threads) is inside the cgroup and in
-//! its numbers.
+//! The command runs in a child cgroup of the scope, `run`, which has the limit; the
+//! helper moves itself to a sibling, `helper` (`split_scope`). So the helper is
+//! neither in the command's numbers nor under its limit.
 //!
 //! The run's storage traffic is the helper's own `/proc/self/io`, which adds up the
 //! counters of every descendant once it is reaped. A descendant whose parent ends first
@@ -40,6 +41,8 @@ use super::sys::{self, Signal};
 pub struct MeasureOptions {
     /// Program and arguments.
     pub argv: Vec<String>,
+    /// The command's memory limit, without swap.
+    pub memory_max: u64,
     /// `memory.stat` sampling interval.
     pub sample_interval: Duration,
     /// Kill everything in the scope after this long.
@@ -62,9 +65,9 @@ pub struct StopRecord {
 /// Everything the helper measured, written as JSON for the harness.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Measurement {
-    /// The scope's cgroup directory.
+    /// The command's cgroup directory.
     pub cgroup: String,
-    /// `memory.max` of the scope (`None`: none, which the harness refuses).
+    /// `memory.max` of the command's cgroup.
     pub memory_max_bytes: Option<u64>,
     /// `memory.swap.max`.
     pub swap_max_bytes: Option<u64>,
@@ -72,9 +75,9 @@ pub struct Measurement {
     pub pid: Option<u32>,
     /// Start to exit, monotonic clock.
     pub wall_seconds: f64,
-    /// User CPU time of everything in the scope (`cpu.stat`).
+    /// User CPU time of everything in the command's cgroup (`cpu.stat`).
     pub user_seconds: f64,
-    /// System CPU time of everything in the scope.
+    /// System CPU time of everything in the command's cgroup.
     pub system_seconds: f64,
     /// Bytes the command and its descendants read from storage (`/proc/self/io` of
     /// the helper after reaping them all, orphans included). A lower bound when
@@ -167,8 +170,8 @@ fn signal_scope(cg: &Cgroup, sig: Signal) {
     }
 }
 
-/// After the command's exit: the processes it left in the scope, killed (SIGKILL, by
-/// the ids in `cgroup.procs`) until the scope holds the helper alone, for up to 10 s.
+/// After the command's exit: the processes it left in its cgroup, killed (SIGKILL, by
+/// the ids in `cgroup.procs`) until the cgroup is empty, for up to 10 s.
 fn kill_leftovers(cg: &Cgroup, error: &mut Option<String>) -> Vec<u32> {
     let me = std::process::id();
     let others = |cg: &Cgroup| -> Vec<u32> {
@@ -246,30 +249,65 @@ fn usec(stat: &BTreeMap<String, u64>, key: &str) -> u64 {
     stat.get(key).copied().unwrap_or(0)
 }
 
+/// Memory beside the command's limit for the helper, in the scope's limit. The helper
+/// uses about 5 MiB (RSS in the kernel's OOM report on a GitHub arm64 runner).
+pub const HELPER_RESERVE: u64 = 64 << 20;
+
+/// Makes the scope's child cgroups `helper`, where this process moves, and `run`,
+/// limited to `memory_max` without swap, for the command.
+///
+/// The helper must not share the command's limit. When the kernel's OOM killer ends
+/// the command, its memory is freed some time after the kill; a page fault of the
+/// helper in between makes the helper the next victim, and the run is lost with no
+/// report (seen on GitHub's ubuntu-24.04-arm runners, kernel 7.0: the helper killed
+/// 2 ms after the command, PR #299).
+fn split_scope(scope: &Cgroup, memory_max: u64) -> Result<(Cgroup, Cgroup), String> {
+    let me = std::process::id();
+    let procs = scope.procs()?;
+    if procs != [me] {
+        return Err(format!(
+            "{} holds the processes {procs:?}; the helper needs a scope of its own",
+            scope.dir().display()
+        ));
+    }
+    let helper = scope.make_child("helper")?;
+    let run = scope.make_child("run")?;
+    helper.add_process(me)?;
+    scope.write("cgroup.subtree_control", "+memory")?;
+    run.write("memory.max", &memory_max.to_string())?;
+    if run.dir().join("memory.swap.max").exists() {
+        run.write("memory.swap.max", "0")?;
+    }
+    Ok((helper, run))
+}
+
 /// Runs the command and measures it. Never panics on a failing command: what went
 /// wrong is in [`Measurement::error`] and the exit fields.
 ///
 /// # Errors
 ///
-/// The helper is not in a usable cgroup v2 scope, or the scope has no memory limit.
+/// The helper is not alone in a cgroup v2 scope delegated to it
+/// (`systemd-run --user --scope -p Delegate=yes`), or the scope has no memory limit.
 pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String> {
-    let cg = Cgroup::new(host.self_cgroup()?);
+    let scope = Cgroup::new(host.self_cgroup()?);
+    if scope.memory_max()?.is_none() {
+        return Err(format!(
+            "{} has no memory limit; the helper runs only inside \
+             systemd-run --user --scope -p Delegate=yes -p MemoryMax=… \
+             (everygraph-bench run does that)",
+            scope.dir().display()
+        ));
+    }
+    let Some((program, args)) = opts.argv.split_first() else {
+        return Err("measure needs a command".into());
+    };
+    let (helper, cg) = split_scope(&scope, opts.memory_max)?;
     let mut m = Measurement {
         cgroup: cg.dir().display().to_string(),
         memory_max_bytes: cg.memory_max()?,
         swap_max_bytes: cg.swap_max().ok().flatten(),
         sample_interval_ms: opts.sample_interval.as_secs_f64() * 1000.0,
         ..Measurement::default()
-    };
-    if m.memory_max_bytes.is_none() {
-        return Err(format!(
-            "{} has no memory limit; the helper runs only inside \
-             systemd-run --user --scope -p MemoryMax=… (everygraph-bench run does that)",
-            m.cgroup
-        ));
-    }
-    let Some((program, args)) = opts.argv.split_first() else {
-        return Err("measure needs a command".into());
     };
     // Before the command starts, so that every descendant it orphans comes back here.
     if let Err(e) = sys::become_subreaper() {
@@ -301,10 +339,15 @@ pub fn measure(host: &Host, opts: &MeasureOptions) -> Result<Measurement, String
     };
 
     let start = Instant::now();
+    // A child starts in its parent's cgroup: the helper enters `run` to spawn it.
+    cg.add_process(std::process::id())?;
     let child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .spawn();
+    if let Err(e) = helper.add_process(std::process::id()) {
+        m.error = Some(format!("the helper stays under the command's limit: {e}"));
+    }
     let (status, end) = match child {
         Err(e) => {
             m.error = Some(format!("cannot start {program:?}: {e}"));

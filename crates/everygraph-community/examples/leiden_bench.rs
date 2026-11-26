@@ -10,7 +10,8 @@
 //!     [--source raw|compressed|mmap|stream|eg|cached]
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
 //!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
-//!     [--split last|every] [--levels L]
+//!     [--split last|every] [--levels L] [--gamma X] [--objective modularity|cpm]
+//!     [--weights ones|wide|f32]
 //!     [--chunk ENTRIES] [--budget-gib G] [--check 1] [--hier FILE]
 //!     [--cache-mib M] [--read-ahead K] [--pool-threads P] [--direct 1] [--prefetch 1]
 //! ```
@@ -19,13 +20,17 @@
 //! MiB (1024 by default), read ahead by a pool of `--pool-threads` threads (64), `K`
 //! blocks of 256 nodes ahead of the visits (`Options::read_ahead`, 0 by default), from
 //! the file opened for direct reads with `--direct 1`; it adds the cache's counts to the
-//! line. `--advise random` gives the memory map `MADV_RANDOM` for the whole run. Every run reports `read_bytes`, the process's bytes read from storage while
-//! Leiden ran (`/proc/self/io`, Linux), and `peak_reserved`, the budget's peak.
+//! line. `--advise random` gives the memory map `MADV_RANDOM` for the whole run. Every
+//! run reports `read_bytes`, the process's bytes read from storage while Leiden ran
+//! (`/proc/self/io`, Linux), and `peak_reserved`, the budget's peak.
+//!
+//! `--weights` gives each pair a weight drawn from a hash of the pair: 1.0, log-uniform
+//! over 2^-20 to 2^20, or an `f32` in (0, 1].
 //!
 //! `run` prints one JSON line: the times of every repetition, the modularity, the
 //! number of communities, the hash of the levels (the same for every source, thread
 //! count and chunking in the deterministic mode), the statistics of each level, and with
-//! `--check 1` the modularity evaluated again on the result and the number of
+//! `--check 1` the modularity and the quality evaluated again on the result and the number of
 //! disconnected communities. `--budget-gib` bounds what Leiden reserves (not the graph,
 //! which is loaded first). `--hier FILE` then stores the hierarchy (#62) in a new
 //! container `FILE` and reports its time, its bytes, the budget's peak while Leiden ran
@@ -53,7 +58,8 @@ use std::time::Instant;
 
 use everygraph_community::hierarchy::Hierarchy;
 use everygraph_community::{
-    Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity,
+    Communities, EdgeWeights, Iterations, Mode, Objective, Options, Refinement, SplitAt,
+    leiden_weighted, weighted_table,
 };
 use everygraph_core::{
     AccessHint, BlockCache, Budget, ByteSource, CacheSettings, Memory, MemorySource, par,
@@ -127,6 +133,9 @@ fn options(a: &Args) -> Options {
     }
     if let Some(k) = a.get("read-ahead") {
         o.read_ahead = k.parse().expect("--read-ahead");
+    }
+    if a.get("objective").is_some_and(|x| x == "cpm") {
+        o.objective = Objective::Cpm;
     }
     o
 }
@@ -224,6 +233,32 @@ fn hierarchy<S: Source>(
     )
 }
 
+/// One weight per entry, a function of its pair: 1.0 (`ones`), log-uniform over 2^-20 to
+/// 2^20 (`wide`), or an `f32` in (0, 1] (`f32`).
+fn pair_weights<S: Source>(source: &S, kind: &str) -> Vec<f64> {
+    let memory = Memory::unlimited();
+    let mut reader = source.reader(&memory, 1 << 16, 1).expect("a reader");
+    let mut out = Vec::with_capacity(source.entries() as usize);
+    for u in 0..source.nodes() {
+        let (_, list) = source.list(&mut reader, u).expect("a list");
+        for &v in list {
+            let pair = u64::from(u.min(v)) << 32 | u64::from(u.max(v));
+            let h = fnv(
+                0xCBF2_9CE4_8422_2325,
+                [pair as u32, (pair >> 32) as u32].into_iter(),
+            );
+            let h = h ^ (h >> 29);
+            out.push(match kind {
+                "ones" => 1.0,
+                "wide" => f64::from_bits((1023 - 20 + h % 40) << 52 | (h >> 12)),
+                "f32" => f64::from((1 + (h >> 40)) as f32 / 16_777_216.0),
+                other => panic!("unknown --weights {other}"),
+            });
+        }
+    }
+    out
+}
+
 fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
     let budget = Arc::new(match a.get("budget-gib") {
         Some(g) => {
@@ -235,13 +270,17 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
     let memory = Memory::new(budget.clone());
     let reps: usize = a.get("reps").map_or(1, |s| s.parse().expect("--reps"));
     let o = options(a);
+    let weights = a.get("weights").map(|kind| pair_weights(source, kind));
+    let w = weights
+        .as_deref()
+        .map_or(EdgeWeights::Unit, EdgeWeights::Pairs);
     let mut secs = Vec::new();
     let mut last: Option<Communities> = None;
     let read_before = read_bytes();
     for _ in 0..reps {
         drop(last.take());
         let t = Instant::now();
-        let c = leiden(source, &memory, settings, &o).expect("leiden");
+        let c = leiden_weighted(source, w, &memory, settings, &o).expect("leiden");
         secs.push(t.elapsed().as_secs_f64());
         last = Some(c);
     }
@@ -275,9 +314,14 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         })
         .collect();
     let check = if a.get("check").is_some_and(|c| c == "1") {
-        let q = modularity(source, &memory, settings, &c.membership, o.resolution).expect("q");
+        let t = weighted_table(source, w, &memory, settings, &c.membership).expect("q");
+        // As `Communities::modularity` and `quality`.
+        let (m, q) = match o.objective {
+            Objective::Modularity => (t.modularity(o.resolution), t.modularity(o.resolution)),
+            Objective::Cpm => (t.modularity(1.0), t.cpm(o.resolution)),
+        };
         format!(
-            ", \"check_modularity\": {q}, \"disconnected\": {}",
+            ", \"check_modularity\": {m}, \"check_quality\": {q}, \"disconnected\": {}",
             disconnected(source, &c.membership)
         )
     } else {
@@ -296,7 +340,8 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         "\"mode\": \"{:?}\", \"iterations\": \"{:?}\", \"iterations_run\": {}, \"seed\": {}, \
          \"refinement\": \"{:?}\", \"prolong\": {}, \"split\": \"{:?}\", \
          \"seconds_all\": [{}], \
-         \"seconds_best\": {best}, \"modularity\": {}, \"communities\": {}, \"level_sizes\": [{}], \
+         \"seconds_best\": {best}, \"modularity\": {}, \"quality\": {}, \"weight_scale\": {}, \
+         \"communities\": {}, \"level_sizes\": [{}], \
          \"hash_levels\": \"{levels:016x}\", \"hash_levels_low53\": {}, \"hash_membership\": \
          \"{flat:016x}\", \"read_bytes\": {read}, \"peak_reserved\": {}, \"stats\": [{}]{check}{hier}",
         c.mode,
@@ -308,6 +353,8 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         o.split,
         all.join(", "),
         c.modularity,
+        c.quality,
+        c.weight_scale.map_or("null".to_owned(), |s| s.to_string()),
         c.count,
         sizes.join(", "),
         levels & ((1 << 53) - 1),

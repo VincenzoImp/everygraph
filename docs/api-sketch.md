@@ -914,8 +914,8 @@ failure, C-8, with their `path` and `bytes`, or `None`); `machine_memory_bytes` 
 `None`); and `to_dict()`, which is that document. Sizes in attributes are named as in
 that document: `needs_bytes`, `budget_bytes` (the memory budget),
 `smallest_budget_bytes` — which is `None` when it is not known: no budget on this
-machine would work (`docs/ux-contract.md` P-15), or the planner (#45) is not there yet
-to compute it — and `available_bytes` only for what is free on a disk or
+machine would work (`docs/ux-contract.md` P-15), or the operation has no planned bound
+yet — and `available_bytes` only for what is free on a disk or
 in the machine.
 
 **Files that exist.** Everygraph replaces a file only when it can tell what the file
