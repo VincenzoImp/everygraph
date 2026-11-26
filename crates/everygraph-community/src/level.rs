@@ -240,7 +240,7 @@ impl<'k> Ranks<'k> {
     ) -> Result<Column<T>, Error> {
         let mut out = Column::new(memory, purpose, self.k.len(), |_| T::default())?;
         par::for_each_chunk_mut(&mut out[..], RANK_BLOCK, |first, chunk| {
-            self.each(first / RANK_BLOCK.get(), |v, r| {
+            self.each(first / RANK_BLOCK, |v, r| {
                 chunk[v as usize - first] = f(r);
             });
         });
@@ -907,9 +907,8 @@ fn pick<'g, S: Source>(
         let mut best = None::<(f64, u32)>;
         for (d, kud) in table.entries() {
             let value = real(kud) - f * rsigma(d);
-            let better = best.is_none_or(|(b, bd)| {
-                value > b || (value == b && before(&st.salt, salt, d, bd))
-            });
+            let better = best
+                .is_none_or(|(b, bd)| value > b || (value == b && before(&st.salt, salt, d, bd)));
             if value > 0.0 && d != u.get() && better {
                 best = Some((value, d));
             }

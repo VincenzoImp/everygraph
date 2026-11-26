@@ -22,8 +22,7 @@ use everygraph_kernels::edge_map::{Error, NodeCells, Plan, Settings, Source};
 use crate::aggregate::{Dense, Members, Quotient, dense, quotient};
 use crate::column::Column;
 use crate::level::{
-    Ctx, Graph, Moving, Ranks, Schedule, Strengths, Weights, local_move, refine, split,
-    strengths,
+    Ctx, Graph, Moving, Ranks, Schedule, Strengths, Weights, local_move, refine, split, strengths,
 };
 use crate::quality::tally;
 use crate::table::Tables;

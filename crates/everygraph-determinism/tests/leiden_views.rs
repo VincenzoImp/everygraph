@@ -153,7 +153,11 @@ fn compare(what: &str, masked: (&Lists, &[bool]), other: (&Lists, &[Option<u32>]
             kept.len()
         );
         assert_eq!(a.modularity.to_bits(), b.modularity.to_bits(), "{what}");
-        assert_eq!(work(&a), work(&b), "{what}: sweeps, moves and sub-rounds per level");
+        assert_eq!(
+            work(&a),
+            work(&b),
+            "{what}: sweeps, moves and sub-rounds per level"
+        );
     }
 }
 
@@ -257,16 +261,27 @@ fn compact_keeps_the_communities() {
         let mut w = Writer::update(MemorySource::new(bytes)).unwrap();
         let key = hierarchy::key(w.graph_identity(), &o).unwrap();
         in_file(&original, |s| {
-            hierarchy::store(&mut w, &key, &about, s, &memory, Settings::default(), &first)
+            hierarchy::store(
+                &mut w,
+                &key,
+                &about,
+                s,
+                &memory,
+                Settings::default(),
+                &first,
+            )
         })
         .unwrap();
         w.commit().unwrap();
         bytes = w.into_sink().into_inner();
     }
     let held = MemorySource::new(&bytes[..]);
-    let copy = compact(&Container::open(&held).unwrap(), MemorySource::new(Vec::new()))
-        .unwrap()
-        .into_inner();
+    let copy = compact(
+        &Container::open(&held).unwrap(),
+        MemorySource::new(Vec::new()),
+    )
+    .unwrap()
+    .into_inner();
     assert!(copy.len() < bytes.len(), "compact reclaimed nothing");
     let after = in_file(&copy, |s| communities(s, Settings::default(), &o));
     assert_eq!(communities_hash(&first), communities_hash(&after));
