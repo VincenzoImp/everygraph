@@ -26,15 +26,30 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Instant;
 
+/// Reads little-endian words in blocks, so the peak is the array and one block.
 fn read_words<const W: usize, T>(path: &Path, from: fn([u8; W]) -> T) -> Vec<T> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .and_then(|mut f| f.read_to_end(&mut bytes))
-        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    bytes
-        .chunks_exact(W)
-        .map(|c| from(c.try_into().expect("W bytes")))
-        .collect()
+    let fail = |e: std::io::Error| -> ! { panic!("{}: {e}", path.display()) };
+    let mut file = std::fs::File::open(path).unwrap_or_else(|e| fail(e));
+    let len = file.metadata().unwrap_or_else(|e| fail(e)).len();
+    let mut out = Vec::with_capacity(usize::try_from(len).expect("a file in memory") / W);
+    let mut block = vec![0_u8; W << 20];
+    loop {
+        let mut got = 0;
+        while got < block.len() {
+            match file.read(&mut block[got..]).unwrap_or_else(|e| fail(e)) {
+                0 => break,
+                k => got += k,
+            }
+        }
+        out.extend(
+            block[..got]
+                .chunks_exact(W)
+                .map(|c| from(c.try_into().expect("W bytes"))),
+        );
+        if got < block.len() {
+            return out;
+        }
+    }
 }
 
 /// Calls `action(x, y)` for every entry, in CSR order.

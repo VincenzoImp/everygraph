@@ -19,7 +19,9 @@ GIB = 1 << 30
 
 def validation():
     cells = defaultdict(dict)
-    for path in glob.glob(os.path.join(HERE, "validation-*.json")):
+    for path in sorted(glob.glob(os.path.join(HERE, "validation-*.json"))):
+        if path.endswith("-first-lj.json"):  # the first check, with the tools of an earlier build
+            continue
         line = json.loads(open(path).read().splitlines()[-1])
         for r in line["results"]:
             mark = "yes" if r["valid"] else "**no**"

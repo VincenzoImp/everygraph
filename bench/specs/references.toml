@@ -52,7 +52,7 @@
 # The whole spec (an estimate: several hours, from the exploratory runs' wall times):
 #   everygraph-bench run references --official --data /home/tux/graphlab/data
 # The preparation downloads the sources and wheels the first time (the network is needed
-# then) and writes about 130 GB of converted graphs under {work}/refs.
+# then) and writes about 120 GB of converted graphs under {work}/refs.
 
 schema = 1
 name = "references"

@@ -56,7 +56,8 @@ class Csr:
         self.meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
         self.offsets = np.fromfile(os.path.join(path, "offsets.u64"), dtype=np.uint64)
         targets = os.path.join(path, "targets.u32")
-        # Mapped for the converters, which stream it; read into the heap for the tools.
+        # Mapped for the converters, which stream it, and for validate, which runs the tools
+        # beside it; read into the heap for the tools.
         self.targets = np.memmap(targets, dtype=np.uint32, mode="r") if mapped else np.fromfile(targets, dtype=np.uint32)
         self.n = len(self.offsets) - 1
         self.degrees = np.diff(self.offsets).astype(np.int64)
@@ -720,7 +721,11 @@ def validate(csr, args):
 
     w, g = args.work, csr.name
     src = read_sources(args)[0]
-    sources = read_sources_path(args)
+    # Only the first source is compared: every tool searches from it alone.
+    os.makedirs(os.path.join(w, "validation"), exist_ok=True)
+    sources = os.path.join(w, "validation", f"{g}.first-source")
+    with open(sources, "w") as f:
+        f.write(f"{src}\n")
     gap_bin = tool_tree(args, "gapbs")
     gbbs_bin = os.path.join(tool_tree(args, "gbbs"), GBBS_DRIVER)
     run = [sys.executable, os.path.abspath(__file__)]
@@ -895,7 +900,7 @@ def main():
         return
     if not args.graph and args.tool != "duckdb":
         p.error("--graph is required")
-    csr = Csr(args.graph, mapped=args.tool == "convert") if args.graph else None
+    csr = Csr(args.graph, mapped=args.tool in ("convert", "validate")) if args.graph else None
     if args.tool == "convert":
         if not args.out:
             p.error("convert mtx|edges|sg|wsg|wsg64|gbbs --graph DIR --out FILE")
