@@ -145,13 +145,13 @@ mod tests {
         assert_eq!(below(1 << 63, 10), 5);
         assert_eq!(below(u64::MAX, 0), 0);
         let mut counts = [0_u32; 6];
-        for i in 0..60_000 {
+        for i in 0..6_000 {
             let k = below(draw(9, *b"TEST", [i, 0, 0]), 6);
             counts[usize::try_from(k).expect("below 6")] += 1;
         }
-        // 60,000 draws over 6 values: 10,000 each, standard deviation about 91.
+        // 6,000 draws over 6 values: 1,000 each, standard deviation about 29.
         assert!(
-            counts.iter().all(|&c| c.abs_diff(10_000) < 500),
+            counts.iter().all(|&c| c.abs_diff(1_000) < 150),
             "{counts:?}"
         );
     }

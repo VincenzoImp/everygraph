@@ -117,7 +117,7 @@ pub fn digests() -> [(&'static str, u64); 7] {
 }
 
 #[test]
-fn golden_vectors() {
+fn golden_vectors_full_size() {
     let found = digests();
     let show = |digests: &[(&str, u64)]| {
         let lines: Vec<String> = digests

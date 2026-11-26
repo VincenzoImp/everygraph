@@ -329,16 +329,17 @@ jobs:
         with:
           path: ~/.cache/miri
           key: miri-sysroot-${{ env.NIGHTLY }}
-      # The numerics golden vectors (700,000 evaluations) are skipped: they would take
-      # most of the job's time, and they run natively on every target instead.
+      # Tests named `*full_size` are skipped: the numerics golden vectors and the exact
+      # sum over chunks of 65,536 take minutes under Miri. They run natively on every
+      # target instead.
       - name: Miri, no default features
-        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --locked -- --skip golden_vectors
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --locked -- --skip full_size
       - name: Miri, no default features, i686 (the 32-bit usize run)
-        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu --locked -- --skip golden_vectors
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu --locked -- --skip full_size
       - name: Miri, default features (rayon), Tree Borrows
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked -- --skip golden_vectors
+        run: cargo "+$NIGHTLY" miri test -p everygraph-core --locked -- --skip full_size
       - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
         run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
       # The adjacency codec: the scalar decoder, then the SSSE3 one (the only SIMD path

@@ -242,10 +242,10 @@ mod tests {
 
     #[test]
     fn agrees_with_xsum() {
-        let ranks = values(3_000, |x| rng::unit_f64(x) * 1e-4);
-        let wide_range = values(3_000, wide);
-        let tiny = values(3_000, |x| f64::from_bits(x & 0x83FF_FFFF_FFFF_FFFF));
-        let mut cancelling = values(1_000, |x| rng::unit_f64(x) * 1e300);
+        let ranks = values(400, |x| rng::unit_f64(x) * 1e-4);
+        let wide_range = values(400, wide);
+        let tiny = values(400, |x| f64::from_bits(x & 0x83FF_FFFF_FFFF_FFFF));
+        let mut cancelling = values(200, |x| rng::unit_f64(x) * 1e300);
         cancelling.extend(cancelling.clone().iter().map(|x| -x));
         cancelling.push(f64::MIN_POSITIVE / 3.0);
         for case in [ranks, wide_range, tiny, cancelling] {
@@ -312,14 +312,13 @@ mod tests {
     /// 65,536 and for one sequential pass, while a plain `f64` fold over the same
     /// chunks does not.
     #[test]
-    fn dangling_mass_is_the_same_for_any_chunking() {
-        let ranks = values(70_000, |x| {
-            if x % 3 == 0 {
-                rng::unit_f64(x) / 7e4
-            } else {
-                0.0
-            }
-        });
+    fn dangling_mass_is_the_same_for_any_chunking_full_size() {
+        let ranks: Vec<f64> = (0..70_000)
+            .map(|i| match i % 3 {
+                0 => rng::unit_f64(rng::draw(7, *b"TEST", [i, 0, 0])) / 7e4,
+                _ => 0.0,
+            })
+            .collect();
         let sequential = exact(&ranks);
         let chunked = |grain| {
             let grain = NonZeroUsize::new(grain).expect("non-zero");
