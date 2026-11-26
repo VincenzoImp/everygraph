@@ -4,41 +4,34 @@ Question: on this machine, how do Everygraph's production kernels compare with t
 tools — GAP, GBBS, ConnectIt, Parallel-KCore, PASGAL, the COST line, NetworKit,
 python-igraph, GVE-Leiden — on the same graphs, inputs and thread counts?
 
-**There are no speed ratios here yet.** A ratio between tools is a result only from an
-official run on an idle machine, with intervals (CLAUDE.md § 3; #265). The exploratory
-rounds of this branch (`results/rounds.jsonl`, `results/friendster.jsonl`, made by
-`interleave.py` with the spec's first commands on a machine at load 5–160) showed why:
-the same cross-tool ratio changed sign between rounds (#265 quotes one). They are kept
-as raw rows and are not results.
+**There are no speed ratios between tools here.** Such a ratio is a result only from an
+official run on an idle machine, with intervals (CLAUDE.md § 3; #265): exploratory
+rounds on this shared machine changed the sign of one between rounds (#265 quotes it).
 
-What this directory holds instead, all independent of the machine's load:
+What this directory holds, all independent of the machine's load:
 
 - **validated outputs**: every tool's result checked against Everygraph's (below);
-- **memory peaks** of one run of each orkut, roadnet-ca, web-google and Friendster case
-  (below);
-- the method, in `bench/specs/references.toml`, and the official commands.
+- **memory peaks** of one run of each orkut, roadnet-ca, web-google and Friendster case;
+- two same-code A/B ratios (below), and the method, in `bench/specs/references.toml`.
 
 ## Official commands
 
 The orkut window (the review's experiment F4: every reference tool, validated, 6
-repetitions; the intervals come from the same rows once #194 lands), validation first:
+repetitions; the intervals come from the same rows once #194 lands). The preparation
+(builds, conversions, downloads) runs before the window; the timed commands skip it:
 
 ```sh
-everygraph-bench run references --official --only validate/on=orkut --data /home/tux/graphlab/data
-everygraph-bench run references --official --only graph=orkut/t1 --only leiden-gve/graph=orkut --repetitions 6 --data /home/tux/graphlab/data
+everygraph-bench run references --prepare-only --only graph=orkut/ --only validate/on=orkut --data /home/tux/graphlab/data
+everygraph-bench run references --official --skip-prepare --only validate/on=orkut --data /home/tux/graphlab/data
+everygraph-bench run references --official --skip-prepare --only graph=orkut/ --repetitions 6 --data /home/tux/graphlab/data
 ```
 
-The whole spec (every graph):
+The whole spec: the same three commands without `--only` and `--repetitions`.
 
-```sh
-everygraph-bench run references --official --data /home/tux/graphlab/data
-```
-
-Duration, an estimate from the exploratory pass (`results/once.jsonl`, a loaded
-machine): one repetition of the 51 orkut cases took 32 min of wall time, so the window
-takes about 3 h at 6 repetitions, plus 8 min of validation. The whole spec takes about
-8 h at 3 repetitions (an extrapolation from orkut, Friendster and the small graphs;
-twitter-sym and lj were not timed in that pass).
+Duration, an estimate from one exploratory pass (`results/once.jsonl`, a loaded machine):
+one repetition of the orkut cases took 32 min of wall time, so the window takes about
+3 h at 6 repetitions, plus about 10 min of validation. The whole spec takes about 8 h at
+3 repetitions (an extrapolation: twitter-sym and lj were not timed in that pass).
 
 ## Method
 
@@ -57,168 +50,98 @@ twitter-sym and lj were not timed in that pass).
   | twitter-sym | social | 41,652,230 | 1,202,513,046 | 0 |
   | friendster | social | 65,608,366 | 1,806,067,135 | 0 |
 
-- **Same work.** PageRank f64, damping 0.85, 20 iterations, tolerance 0. BFS and SSSP
-  from the same 64 seeded non-zero-degree sources, GAP's own (`gap_sources.cc` prints
-  SourcePicker's list). BFS returns parents (GAP, GBBS, Everygraph) or distances
-  (PASGAL, NetworKit, igraph). SSSP on the same per-entry costs (integers 1 to 255), in
-  f64 (Everygraph, GAP with `WeightT = double`) and in integers (GAP int32, PASGAL
-  uint32): integer sums are exact in both, so the distances are equal. Leiden: each
-  tool's defaults; GVE-Leiden in f32 and f64.
+- **Same work.**
+  - PageRank: f64, damping 0.85, 20 iterations, tolerance 0. GAP's damping and 1/n
+    constants stay f32 (only its `ScoreT` is double), which is why its L1 distance to
+    ours is about 4e-8 and the others' about 1e-16.
+  - BFS and SSSP: from the same 64 seeded non-zero-degree sources, GAP's own
+    (`gap_sources.cc` prints SourcePicker's list). BFS returns parents (Everygraph, GAP,
+    GBBS, igraph) or distances (PASGAL, NetworKit).
+  - SSSP costs: every tool gets the cost of the undirected pair, an integer from 1 to
+    255 drawn from {min(u, v), max(u, v)} (`pair_costs` in `run.py`). A graph with equal
+    costs both ways stays symmetric, so PASGAL keeps its pull step. Precision: f64
+    (Everygraph, GAP with `WeightT = double`) and integers (GAP int32, PASGAL uint32);
+    integer sums are exact in both, so the distances are equal. Everygraph computes its
+    bucket width once, before the timed searches; GAP's Δ = 2 came from an untimed sweep.
+    On twitter-sym there is no f64 GAP: its 16-byte records would need 38 GB.
+  - Leiden: 2 Leiden iterations for the lab Leiden, NetworKit's `ParallelLeiden` and
+    igraph, each tool's defaults otherwise. GVE-Leiden has no iteration count and runs to
+    its own convergence. The settings are not equal, so the communities group gives no
+    time ratio: each time stands next to its modularity and that modularity's spread
+    over the repetitions (`tables.py --times`).
 - **Same statistic.** Every process runs a whole-graph kernel 5 times and reports the
-  median; a search once per source and reports the mean; Leiden once. The harness
-  repeats the process.
+  median. It runs a search once per source and reports the mean, and runs Leiden once.
+  The harness repeats the process.
 - **Same flags.** Every C++ tool and Everygraph without `-march=native` /
   `target-cpu=native` (`bench/references/build.sh generic`; GBBS's makefile flag
   removed), each with its own optimization level (`-O3`; Rust release with fat LTO).
-  The `native` flavour is built too, not run.
-- **Same placement.** Every process runs under `bench/references/pin.sh`: the 16
-  physical cores (`taskset -c 0-15`), OpenMP threads bound one per core.
+- **Placement.** Every process runs under `bench/references/pin.sh` on the 16 physical
+  cores (`taskset -c 0-15`). OpenMP threads (GAP, NetworKit, GVE) are bound one per
+  core; Rayon and Parlay threads (Everygraph, the lab Leiden, GBBS, ConnectIt,
+  Parallel-KCore, PASGAL) keep only the mask, because those runtimes have no such
+  binding. Each row's `placement` condition says which.
 - **Storage stated.** GBBS maps its graph file (`-b`); the lab Leiden maps the CSR;
   every other tool reads the graph into the heap. Load time is apart from kernel time
   where the tool reports it.
 
 ## Validated outputs
 
-`bench/runners/run.py validate` runs each tool once (16 threads) with its result written
-out and compares it with Everygraph's: the partition into components (labels renumbered
-by first appearance), every core number, every distance from the first of the 64
-sources (a parent array is turned into depths; on a sample of 20,000 nodes each parent
-must be a neighbour), PageRank by L1 distance (at most 1e-6), and triangle counts
-between the tools (Everygraph has no triangle kernel). A tool whose check fails is not
-reported. Results: `results/validation-<graph>.json` (one line each, as
-`run.py validate` prints it), from the spec's `validate` cases (rows:
-`results/once-validate.jsonl`).
+`bench/runners/run.py validate` runs each tool once at 16 threads, its result written
+out, and compares it with Everygraph's:
 
-| kernel | tool | lj | orkut | roadnet-ca | web-google | twitter-sym | friendster |
-|---|---|---|---|---|---|---|---|
-| bfs | gap | yes | yes | yes | yes | yes | yes |
-| bfs | gbbs | yes | yes | yes | yes | yes | yes |
-| bfs | igraph | yes | yes | yes | yes | — | — |
-| bfs | networkit | yes | yes | yes | yes | — | — |
-| bfs | pasgal | yes | yes | yes | yes | yes | yes |
-| cc | connectit | yes | yes | yes | yes | yes | yes |
-| cc | cost | yes | yes | yes | yes | yes | yes |
-| cc | gap | yes | yes | yes | yes | yes | yes |
-| cc | gbbs | yes | yes | yes | yes | yes | yes |
-| cc | igraph | yes | yes | yes | yes | — | — |
-| cc | networkit | yes | yes | yes | yes | — | — |
-| kcore | gbbs | yes | yes | yes | yes | yes | yes |
-| kcore | igraph | yes | yes | yes | yes | — | — |
-| kcore | networkit | yes | yes | yes | yes | — | — |
-| kcore | pkc | yes | yes | yes | yes | yes | yes |
-| pr64 | cost | yes | yes | yes | yes | yes | — |
-| pr64 | gap | yes | yes | yes | yes | yes | — |
-| pr64 | networkit | yes | yes | yes | yes | — | — |
-| sssp | gap | yes | yes | yes | yes | yes | — |
-| sssp | gap-f64 | yes | yes | yes | yes | — | — |
-| sssp | pasgal | yes | yes | yes | yes | yes | — |
-| tc | gap | yes | yes | yes | yes | — | — |
-| tc | gbbs | yes | yes | yes | yes | — | — |
-| tc | networkit | yes | yes | yes | yes | — | — |
+- the partition into components (labels renumbered by first appearance);
+- every core number;
+- every distance from the first of the 64 sources (a parent array is turned into depths,
+  and every parent must be a neighbour);
+- PageRank by L1 distance (at most 1e-6);
+- triangle counts between the tools (Everygraph has no triangle kernel);
+- Leiden and Louvain: each modularity within 0.05 of the best tool's on the graph (the
+  partitions legitimately differ; a broken run falls far below).
 
-| kernel | lj | orkut | roadnet-ca | web-google | twitter-sym | friendster |
-|---|---|---|---|---|---|---|
-| cc | 1 components | 1 components | 2638 components | 2746 components | 1 components | 1 components |
-| kcore | max core 360 | max core 253 | max core 3 | max core 44 | max core 2488 | max core 304 |
-| bfs | 3997962 reached, max distance 14 | 3072441 reached, max distance 8 | 1957027 reached, max distance 794 | 855802 reached, max distance 15 | 41652230 reached, max distance 15 | 65608366 reached, max distance 22 |
-| sssp | 3997962 reached, max distance 1332 | 3072441 reached, max distance 538 | 1957027 reached, max distance 88006 | 855802 reached, max distance 1593 | 41652230 reached, max distance 1803 | — |
-| tc | 177820130 triangles | 627584181 triangles | 120676 triangles | 13391903 triangles | — | — |
+The 1-thread rows are not validated; these kernels' outputs do not depend on the thread
+count. A `validate` case fails when a check fails or is skipped (`invalid` and `skipped`
+must be 0), and `tables.py` drops every row whose tool did not pass the last
+validation of its graph and kernel (`test_tables.py`). Results:
+`results/validation-<graph>.json` (one line each, as `run.py validate` prints it), from
+the spec's `validate` cases (rows: `results/validate.jsonl`).
 
-"—": not run there (NetworKit and igraph only on the four small graphs; triangles not on
-the big two; GAP's f64 SSSP needs a 16-byte-per-entry file, not made for twitter-sym;
-Friendster: components, k-core and BFS only). What the outputs agree on (Everygraph's
-values; every tool above matches them):
+VALIDATION
 
-Two outputs differ by construction; they are not checked and their cases are
-`unavailable` in the spec:
-
-- **GBBS PageRank** returns its zeroed work buffer when it stops at the iteration cap:
-  `benchmarks/PageRank/PageRank.h` zeroes `p_curr` while it computes the L1 change, then
-  swaps, then returns `p_next`. The first check found it: L1 distance to ours 1, the
-  whole mass (`results/validation-first-lj.json`, lj, with the tool builds of that first
-  run). With a tolerance instead, it would not
-  run 20 iterations.
-- **igraph PageRank** is PRPACK's exact solve, not 20 iterations.
-
-Found and fixed while writing the checks: PASGAL's SSSP on a graph marked symmetric
-also relaxes v → u at the cost of u → v (its pull step), which assumes equal costs both
-ways; the costs here are per entry, so the driver gives PASGAL the graph as directed.
+GBBS's PageRank is validated after a one-line patch (`build.sh`): it zeroes `p_curr`
+while it sums the change and then swaps, so at the iteration cap its result is in
+`p_curr`, not in the `p_next` it returned. Unpatched, its output was all zeros: L1
+distance to ours 1 (`results/first-check-lj.json`, with the builds of that first check).
+The patch does not change the timed iterations. igraph's PageRank is not run: it is PRPACK's exact solve, not 20
+iterations.
 
 ## Memory peaks (one run of each case)
 
 From the cgroup of each run (`results/once.jsonl`: exploratory harness rows, 16 threads,
-the commands of the spec at this branch; every one of the 193 cases of orkut,
-roadnet-ca, web-google and Friendster ran `ok`). `anon` is the heap; `memory.peak` adds
+the commands of the spec; every case ran `ok`). `anon` is the heap. `memory.peak` adds
 the page cache charged to the run, which depends on which run read a file first, so
-`anon` is the column to compare. Measured, not assumed: GBBS's `anon` holds the graph
-even though it maps the file (orkut 1.07 GiB, Friendster 16.2 GiB). The Python tools
-include the interpreter and the arrays they build the graph from. The CSR itself is
-0.90 GiB (orkut) and 13.9 GiB (Friendster).
+`anon` is the column to compare. GBBS's `anon` holds the graph even though it maps the
+file. The Python tools include the interpreter and the arrays they build the graph
+from. The CSR itself is 0.90 GiB (orkut) and 13.9 GiB (Friendster). Only rows whose tool
+passed its validation are shown.
 
-| case | status | anon peak GiB | memory.peak GiB | file peak GiB |
-|---|---|---|---|---|
-| pagerank-eg/graph=orkut/t16 | ok | 1.02 | 1.03 | 0.00 |
-| pagerank-gap/graph=orkut/t16 | ok | 1.88 | 1.89 | 0.00 |
-| pagerank-networkit/graph=orkut/t16 | ok | 6.26 | 6.28 | 0.00 |
-| cc-eg/graph=orkut/t16 | ok | 0.96 | 0.96 | 0.00 |
-| cc-gap/graph=orkut/t16 | ok | 1.84 | 1.87 | 0.00 |
-| cc-gbbs/graph=orkut/t16 | ok | 1.07 | 1.09 | 0.00 |
-| cc-connectit/graph=orkut/t16 | ok | 1.06 | 1.07 | 0.00 |
-| cc-networkit/graph=orkut/t16 | ok | 6.26 | 6.28 | 0.00 |
-| kcore-eg/graph=orkut/t16 | ok | 1.04 | 1.04 | 0.00 |
-| kcore-gbbs/graph=orkut/t16 | ok | 1.16 | 1.16 | 0.00 |
-| kcore-pkc/graph=orkut/t16 | ok | 2.40 | 2.42 | 0.00 |
-| kcore-networkit/graph=orkut/t16 | ok | 6.26 | 6.28 | 0.00 |
-| bfs-eg/graph=orkut/t16 | ok | 0.98 | 1.85 | 0.87 |
-| bfs-gap/graph=orkut/t16 | ok | 1.85 | 1.92 | 0.06 |
-| bfs-gbbs/graph=orkut/t16 | ok | 1.08 | 1.71 | 0.63 |
-| bfs-pasgal/graph=orkut/t16 | ok | 2.19 | 2.22 | 0.00 |
-| sssp-eg/graph=orkut/t16 | ok | 2.74 | 2.75 | 0.00 |
-| sssp-gap/graph=orkut/t16 | ok | 2.80 | 4.59 | 1.77 |
-| sssp-gap-f64/graph=orkut/t16 | ok | 4.56 | 8.10 | 3.52 |
-| sssp-pasgal/graph=orkut/t16 | ok | 2.78 | 3.89 | 1.11 |
-| tc-gap/graph=orkut/t16 | ok | 2.90 | 3.83 | 0.92 |
-| tc-gbbs/graph=orkut/t16 | ok | 1.60 | 1.85 | 0.23 |
-| tc-networkit/graph=orkut/t16 | ok | 8.46 | 8.51 | 0.03 |
-| leiden-lab/graph=orkut/t16 | ok | 2.23 | 2.42 | 0.00 |
-| leiden-lab-det/graph=orkut/t16 | ok | 2.40 | 2.65 | 0.00 |
-| leiden-gve/graph=orkut/type=f32/t16 | ok | 8.50 | 10.17 | 1.65 |
-| leiden-gve/graph=orkut/type=f64/t16 | ok | 10.93 | 10.95 | 0.00 |
-| leiden-gve/graph=roadnet-ca/type=f32/t1 | ok | 0.45 | 0.49 | 0.04 |
-| leiden-gve/graph=roadnet-ca/type=f32/t16 | ok | 0.67 | 0.67 | 0.00 |
-| leiden-gve/graph=roadnet-ca/type=f64/t1 | ok | 0.50 | 0.50 | 0.00 |
-| leiden-gve/graph=roadnet-ca/type=f64/t16 | ok | 0.72 | 0.72 | 0.00 |
-| leiden-gve/graph=web-google/type=f32/t1 | ok | 0.40 | 0.46 | 0.06 |
-| leiden-gve/graph=web-google/type=f32/t16 | ok | 0.50 | 0.51 | 0.00 |
-| leiden-gve/graph=web-google/type=f64/t1 | ok | 0.49 | 0.50 | 0.00 |
-| leiden-gve/graph=web-google/type=f64/t16 | ok | 0.59 | 0.59 | 0.00 |
-| leiden-networkit/graph=orkut/t16 | ok | 9.07 | 9.12 | 0.02 |
-| louvain-networkit/graph=orkut/t16 | ok | 8.50 | 8.52 | 0.00 |
-| friendster-eg/kernel=cc/t16 | ok | 15.16 | 22.06 | 7.75 |
-| friendster-eg/kernel=kcore/t16 | ok | 16.11 | 22.97 | 10.17 |
-| friendster-eg/kernel=bfs/t16 | ok | 15.48 | 28.70 | 13.17 |
-| friendster-gap/kernel=cc/t16 | ok | 28.89 | 31.29 | 8.11 |
-| friendster-gap/kernel=bfs64/t16 | ok | 28.85 | 40.00 | 19.73 |
-| friendster-gbbs/kernel=cc/t16 | ok | 16.23 | 37.42 | 21.38 |
-| friendster-gbbs/kernel=connectit/t16 | ok | 15.97 | 22.67 | 6.95 |
-| friendster-gbbs/kernel=kcore/t16 | ok | 17.04 | 22.61 | 6.41 |
-| friendster-gbbs/kernel=bfs64/t16 | ok | 16.20 | 21.71 | 6.82 |
-| friendster-ucr/kernel=pkc/kcore/t16 | ok | 37.31 | 37.41 | 7.61 |
-| friendster-ucr/kernel=pasgal/bfs/t16 | ok | 34.21 | 40.00 | 16.41 |
-| friendster-cost | ok | 14.49 | 27.54 | 13.02 |
+MEMORY
 
-## Found without timing
+## Same-code A/B ratios (exploratory, interleaved)
 
-- **Everygraph's BFS with parents** costs about 4.3 times its BFS without them on orkut
-  (16 threads, from the hub: 0.112–0.121 s against 0.026–0.028 s best of 5, over 4
-  interleaved rounds of one binary; `results/ab-bfs-parents-orkut.txt`, exploratory).
-  The cause is in `crates/everygraph-kernels/src/traversal.rs`: the deterministic parent
-  (the smallest node one hop closer, `docs/api-sketch.md` § 2.12) is found by a second
-  pass over every reached node's whole list, with an atomic minimum per hit, after the
+- **Everygraph's BFS with parents takes about 4.3 times as long as its BFS without
+  them** (orkut, 16 threads, from the hub, 4 interleaved rounds of one binary;
+  `results/ab-bfs-parents-orkut.txt`). The cause is in
+  `crates/everygraph-kernels/src/traversal.rs`. The deterministic parent (the smallest
+  node one hop closer, `docs/api-sketch.md` § 2.12) is found by a second pass over every
+  reached node's whole list, with an atomic minimum per hit. That pass runs after the
   direction-optimizing traversal, which reads far fewer entries. GAP and GBBS keep the
-  first parent their traversal writes. The spec times BFS with parents, as the GAP rules
-  ask, so this cost is in every BFS row of the official run. It is a candidate for the
-  M3 performance pass.
+  first parent their traversal writes. The spec times BFS with parents, as the GAP
+  rules ask, so this cost is in every BFS row of the official run. It is a candidate for
+  the M3 performance pass.
+- **The COST line with safe indexing takes 1.2–1.3 times as long as with COST's own
+  unchecked indexing** (orkut, one thread, union-find and PageRank, 3 interleaved
+  rounds; `results/ab-cost-indexing-orkut.txt`). The line therefore uses the unchecked
+  form, as COST does.
 
 ## What each tool runs
 
@@ -226,22 +149,22 @@ include the interpreter and the arrays they build the graph from. The CSR itself
 |---|---|---|---|---|
 | Everygraph | this branch, `bench/references/eg-driver` (the product kernels unchanged) | `pagerank` (pull, Jacobi, f64, strength included), `components::wcc` (hybrid sampling), `kcore` (Liu et al.), `traversal::bfs` (direction-optimizing, parents), `sssp` (Δ-stepping, data-rule width, f64) | median of 5; searches: mean of 64 | arrays read into the heap, timed apart |
 | GAP | 941462c | `pr_spmv` (Jacobi) with `ScoreT = double`, `cc` (Afforest), `bfs` (direction-optimizing, parents), `sssp` (Δ-stepping, Δ = 2; int32, and `WeightT = double`), `tc` | its trial timer: median of 5; searches: mean of 64 | `.sg` read and built, timed apart |
-| GBBS | b1a90f5 (2023-05-18, the last commit with makefiles), `gbbs_driver.cc` | `WorkEfficientSDB14` connectivity, `JulienneDBS17` k-core, `NonDeterministicBFS` (parents), `ShunTangwongsan15` triangles | median of 5 rounds; BFS mean of 64 | binary graph memory-mapped, not timed |
-| ConnectIt | in the GBBS tree | UF-Rem-CAS, k-out sampling, FindAtomicSplit, SplitAtomicOne (its paper's fastest) | median of 5 | as GBBS |
+| GBBS | b1a90f5 (2023-05-18, the last commit with makefiles), `gbbs_driver.cc` | `PageRank` (dense edgeMapReduce, double; the return patched), `WorkEfficientSDB14` connectivity, `JulienneDBS17` k-core, `NonDeterministicBFS` (parents), `ShunTangwongsan15` triangles | median of 5 rounds; BFS mean of 64 | binary graph memory-mapped, not timed |
+| ConnectIt | in the GBBS tree | UF-Rem-CAS, k-out sampling, FindAtomicSplit, SplitAtomicOne | median of 5 | as GBBS |
 | Parallel-KCore | b4966c8 (no licence: built here, never committed), `ucr_driver.cc` | `KCore::kcore()` | median of 5 | `.bin` read into the heap |
-| PASGAL | f7817ba, `ucr_driver.cc` | BFS (distances), rho-stepping SSSP (uint32) | mean of 64 | `.bin` read into the heap |
-| COST line | frankmcsherry/COST d5bef75, `bench/references/cost-line` | union-find by rank, PageRank (f64), one thread, edges in CSR order | median of 5 | arrays read into the heap |
-| NetworKit | 11.3 | `PageRank` (f64, 20 iterations), `ParallelConnectedComponents`, `CoreDecomposition`, `BFS` (sequential, distances), `TriangleEdgeScore` (+ `indexEdges`), `ParallelLeiden`, `PLM` | median of 5 calls; BFS mean of 64; Leiden one | graph built from the CSR arrays, timed apart |
-| python-igraph | 1.0.0 | `connected_components`, `coreness`, `bfs` (Python lists), `community_leiden` (2 iterations) | median of 5 calls; BFS mean of 64; Leiden one | text edge list read, timed apart |
-| GVE-Leiden | f741a40 | `leidenStaticOmp`, f32 and f64 | the binary's own time, one run | MatrixMarket read by the binary |
-| lab Leiden | `lab/b2-leiden`, this branch | Leiden, asynchronous and `--det` | `time_s`, one run | CSR memory-mapped |
+| PASGAL | f7817ba, `ucr_driver.cc` | BFS (distances), rho-stepping SSSP (uint32, symmetric) | mean of 64 | `.bin` read into the heap |
+| COST line | frankmcsherry/COST d5bef75 (MIT), `bench/references/cost-line` | union-find by rank, PageRank (f64), one thread, edges in CSR order, unchecked indexing | median of 5 | arrays read into the heap |
+| NetworKit | 11.3 | `PageRank` (f64, 20 iterations), `ParallelConnectedComponents`, `CoreDecomposition`, `BFS` (sequential, distances), `TriangleEdgeScore` (+ `indexEdges`), `ParallelLeiden` (2 iterations), `PLM` | median of 5 calls; BFS mean of 64; Leiden one | graph built from the CSR arrays, timed apart |
+| python-igraph | 1.0.0 | `connected_components`, `coreness`, `bfs` (parents, Python lists), `community_leiden` (2 iterations) | median of 5 calls; BFS mean of 64; Leiden one | text edge list read, timed apart |
+| GVE-Leiden | f741a40 | `leidenStaticOmp`, f32 and f64, its own convergence | the binary's own time, one run | MatrixMarket read by the binary |
+| lab Leiden | `lab/b2-leiden`, this branch | Leiden, asynchronous and `--det`, 2 iterations | `time_s`, one run | CSR memory-mapped |
 
 ## Not done
 
-- The official runs, so no ratio and no "where we are slower" section yet: that comes
-  from the official orkut window, with intervals (#194, #195).
-- A `-march=native` variant run next to the generic one, and an unpinned one: the
-  native flavour is built (`build.sh native`, `{work}/eg-driver-native`), not in the spec.
+- The official runs, so no ratio between tools and no "where we are slower" section
+  yet. Both come from the official orkut window, with intervals (#194, #195).
+- A `-march=native` variant (`build.sh native` builds it, no case runs it) and an
+  unbound variant.
 - Vertex orders other than the input order (protocol rule 1: degree, reverse degree).
 - Large road and web graphs (europe-osm or DIMACS USA, uk-2005): not in the registry;
   roadnet-ca and web-google are small.
@@ -252,5 +175,8 @@ include the interpreter and the arrays they build the graph from. The CSR itself
 
 ## Files
 
-- `interleave.py`: the exploratory interleaved rounds (the raw rows in `results/`).
-- `tables.py`: the tables above, from `results/validation-*.json` and `results/once.jsonl`.
+- `tables.py`: the tables above, from `results/validation-*.json` and harness rows
+  (`python3 tables.py results results/once.jsonl`; `--times` for official rows);
+  `test_tables.py`: the gate that drops unvalidated rows.
+- `results/`: the validation files and rows, the one-run pass (`once.jsonl`), the two
+  A/B files.

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 """The tables of bench/specs/references.toml, from its rows and its validation:
 
-    python3 tables.py VALIDATION_DIR ROWS.jsonl [ROWS.jsonl ...] [--times]
+    python3 tables.py DIR ROWS.jsonl [ROWS.jsonl ...] [--times]
 
-- the validation of every tool's output against Everygraph's (`<graph>.json` in
-  VALIDATION_DIR, lines of `bench/runners/run.py validate`);
+- the validation of every tool's output against Everygraph's (`validation-<graph>.json` in
+  DIR, lines of `bench/runners/run.py validate`);
 - memory peaks, and with `--times` (official rows only) the median kernel time of each
   case with its spread, and for Leiden its modularity with its spread.
 
@@ -27,9 +27,9 @@ KERNELS = {"pagerank": "pr64", "cc": "cc", "kcore": "kcore", "bfs": "bfs", "sssp
 
 
 def load_validation(directory):
-    """{graph: line of run.py validate}."""
+    """{graph: line of run.py validate}, from DIR/validation-<graph>.json."""
     out = {}
-    for path in sorted(glob.glob(os.path.join(directory, "*.json"))):
+    for path in sorted(glob.glob(os.path.join(directory, "validation-*.json"))):
         line = json.loads(open(path).read().splitlines()[-1])
         out[line["graph"]] = line
     return out

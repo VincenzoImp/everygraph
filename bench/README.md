@@ -348,7 +348,8 @@ the first time). The F2 engines run on cores 0–2 (`taskset`), as the lab pinne
 and compares it with Everygraph's (the `references` spec does so before timing); the
 `references` spec says what each check is. Known traps, kept in the runners: igraph's
 PageRank is an exact PRPACK solve, not 20 iterations; GBBS's PageRank returns a zeroed
-buffer when it stops at its iteration cap; PASGAL's SSSP on a graph marked symmetric
-assumes that (u, v) and (v, u) cost the same; NetworKit's triangle count is `TriangleEdgeScore` summed and divided by 3
+buffer when it stops at its iteration cap (`references/build.sh` patches the return);
+PASGAL's SSSP on a graph marked symmetric assumes that (u, v) and (v, u) cost the same
+(the `references` spec gives every tool costs of the undirected pairs); NetworKit's triangle count is `TriangleEdgeScore` summed and divided by 3
 (not `LocalClusteringCoefficient`); rustworkx's 2-hop is a Python loop over a native
 `neighbors()`; GFQL has no shortest-path operator.
