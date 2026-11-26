@@ -7,7 +7,7 @@ import { open, frameStats } from './browsers.mjs';
 const [base, config, out] = process.argv.slice(2);
 const ROUNDS = +(process.env.ROUNDS || 3), PER = +(process.env.PER || 20);
 const { browser, page, errors, version } = await open(config, { width: 1440, height: 900 });
-const res = { config, browser: version, viewport: [1440, 900], rounds: ROUNDS, frames_per_sample: PER, note: 'exploratory: shared host; Canvas 2D; a frame = draw() then getImageData(1 px), which waits for the raster', graphs: {} };
+const res = { config, browser: version, viewport: [1440, 900], rounds: ROUNDS, frames_per_sample: PER, note: 'exploratory: shared host; Canvas 2D; a sample = the mean of 10 frames, each draw() then getImageData(1 px), which waits for the raster', graphs: {} };
 for (const g of ['lj', 'orkut']) {
   await page.goto(base + '#g=' + g); await page.waitForFunction(() => window.__ov); await page.waitForTimeout(500);
   const big = await page.evaluate(() => String(window.OVERVIEW_DATA[window.__ov.state.g].parents['0'].kids[0].id));
@@ -20,10 +20,11 @@ for (const g of ['lj', 'orkut']) {
     info[STATES[s][0]] = await page.evaluate(() => window.__ov.bands());
   }
   await page.evaluate(() => window.__ov.set({ glyph: '1', links: '0', sel: '' }));
+  const canvas = await page.evaluate(() => { const c = document.getElementById('map'); return [c.width, c.height]; });
   const mat = await page.evaluate(k => window.__ov.matrixCost(k), 10);
   const withMatrix = await page.evaluate(k => window.__ov.cost(k), PER);
   await page.evaluate(() => window.__ov.set({ matrix: '0' }));
-  res.graphs[g] = { frame_ms: Object.fromEntries(STATES.map((s, i) => [s[0], frameStats(acc[i])])), bands: { 'bands 12': info['bands 12'], 'bands 50': info['bands 50'] },
+  res.graphs[g] = { canvas_px: canvas, frame_ms: Object.fromEntries(STATES.map((s, i) => [s[0], frameStats(acc[i])])), bands: { 'bands 12': info['bands 12'], 'bands 50': info['bands 50'] },
     open_matrix_ms: frameStats(mat), frame_with_matrix_open_ms: frameStats(withMatrix) };
 }
 res.page_errors = errors;

@@ -1,14 +1,16 @@
 // m1-12 (#26): the browser configurations measured, shared by the measurement scripts.
-// Frame rate is uncapped in each (no vsync), so a frame interval is the cost of a frame, not the display's period.
+// Frame rate is left at the display's rate: without it, headless Chromium runs requestAnimationFrame ahead of the
+// GPU and a software renderer's frame intervals look short (seen in the first run). The cost of one frame is timed
+// in the page instead (lab/e-map/viewer renderCost: draw, then readPixels).
 import { chromium, firefox } from 'playwright';
 
 export const CONFIGS = {
   // the RTX 4090 through ANGLE on EGL (lab/e-map/REPORT.md: the only headless path that reached the GPU)
-  'chromium-gpu': () => chromium.launch({ args: ['--use-gl=angle', '--use-angle=gl-egl', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-gpu-vsync', '--disable-frame-rate-limit'] }),
+  'chromium-gpu': () => chromium.launch({ args: ['--use-gl=angle', '--use-angle=gl-egl', '--ignore-gpu-blocklist', '--enable-gpu'] }),
   // SwiftShader: WebGL2 rasterized on the CPU, the fallback Chromium uses when no GPU is usable
-  'chromium-swiftshader': () => chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-vsync', '--disable-frame-rate-limit'] }),
-  // Firefox headless: WebGL through its own software path on this host; layout.frame_rate 0 = as fast as possible
-  'firefox': () => firefox.launch({ firefoxUserPrefs: { 'layout.frame_rate': 0, 'webgl.force-enabled': true } }),
+  'chromium-swiftshader': () => chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }),
+  // Firefox headless: on this host it cannot create WebGL at all (results/firefox_webgl.jsonl)
+  'firefox': () => firefox.launch({ firefoxUserPrefs: { 'webgl.force-enabled': true } }),
 };
 
 export async function open(name, viewport = { width: 1600, height: 1000 }) {

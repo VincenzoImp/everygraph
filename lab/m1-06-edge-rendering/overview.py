@@ -102,6 +102,11 @@ assert (par[pb] == pp).all(), "both ends of a region pair must be siblings"
 child_int = np.bincount(par[1:][alive[1:]], weights=tn["internal"][1:][alive[1:]].astype(np.float64), minlength=NT).astype(np.int64)
 check_nodes = np.nonzero(alive)[0]
 mism = check_nodes[(tn["internal"][check_nodes].astype(np.int64) != child_int[check_nodes] + lca_w[check_nodes])]
+child_vol = np.bincount(par[1:][alive[1:]], weights=tn["volume"][1:][alive[1:]].astype(np.float64), minlength=NT).astype(np.int64)
+deg = (off[1:] - off[:-1])
+# volume: a parent's is the sum of its tree children's plus the degrees of the nodes it holds directly
+direct = np.bincount(leaf, weights=deg.astype(np.float64), minlength=NT).astype(np.int64)
+vol_mism = check_nodes[tn["volume"][check_nodes].astype(np.int64) != child_vol[check_nodes] + direct[check_nodes]]
 m_und = int(meta["m_undirected"])
 
 # per-parent matrices of region children
@@ -151,7 +156,7 @@ def seriation(k, I, J, W, kids, how):
     if how == "spectral":
         A[I, J] = W
     else:  # spectral on enrichment, degree-corrected (the modularity null model)
-        A[I, J] = W / np.maximum(vol[np.array(kids)][I] * vol[np.array(kids)][J] / (2.0 * m_und), 1e-12)
+        A[I, J] = W * vol[par[kids[0]]] / np.maximum(vol[np.array(kids)][I] * vol[np.array(kids)][J], 1e-12)
     A = A + A.T
     d = A.sum(1)
     d[d == 0] = 1.0
@@ -180,10 +185,11 @@ def arrangement(perm, I, J, W, k):
 
 
 def coupling(kids, I, J, W):
-    """Edges between two children over the number expected if the edges were wired at random
-    with the same degrees (the modularity null model): what the matrix shades."""
+    """Edges between two children over the number expected if the parent's edge ends were
+    wired at random with the same degrees (the modularity null model, within the parent): what
+    the matrix shades. At the top the parent's volume is 2m."""
     v = vol[np.array(kids)]
-    return W * (2.0 * m_und) / (v[I] * v[J])
+    return W * vol[par[kids[0]]] / (v[I] * v[J])
 
 
 def parent_stats(p, with_order=False):
@@ -200,7 +206,7 @@ def parent_stats(p, with_order=False):
     out["bands12_touching_largest_child"] = int(((I[top12] == 0) | (J[top12] == 0)).sum())
     out["bands12_distinct_children"] = int(len(set(I[top12].tolist()) | set(J[top12].tolist())))
     if len(W):
-        exp = vol[np.array(kids)][I] * vol[np.array(kids)][J] / (2.0 * m_und)
+        exp = vol[np.array(kids)][I] * vol[np.array(kids)][J] / vol[p]
         enr = W / exp
         out["pairs_above_expected"] = float((enr > 1).mean())
         out["weight_in_pairs_above_expected"] = float(W[enr > 1].sum()) / tot
@@ -222,7 +228,7 @@ def parent_stats(p, with_order=False):
 
 
 res = {"graph": a.name, "n": n, "m": m_und, "self_loops_in_csr": loops // 1, "tree_nodes": int(NT), "tree_nodes_alive": int(alive.sum()), "max_depth": D,
-       "oracle": {"tree_nodes_checked": int(len(check_nodes)), "internal_mismatches": int(len(mism)), "first_mismatches": mism[:5].tolist(),
+       "oracle": {"tree_nodes_checked": int(len(check_nodes)), "internal_mismatches": int(len(mism)), "first_mismatches": mism[:5].tolist(), "volume_mismatches": int(len(vol_mism)),
                   "edges_assigned": int(lca_w.sum()), "edges_expected": m_und - loops // 2}}
 
 # the whole tree: what a per-parent matrix section would cost
@@ -329,7 +335,7 @@ if a.preview:
         rn = np.bincount(row, weights=nodes[kids].astype(np.float64), minlength=nrow)
         if nrow >= 4:
             A = np.zeros((nrow, nrow))
-            A[ri, rj] = RW * (2.0 * m_und) / (rvol[ri] * rvol[rj])
+            A[ri, rj] = RW * vol[p] / (rvol[ri] * rvol[rj])
             A = A + A.T
             d = A.sum(1)
             d[d == 0] = 1.0

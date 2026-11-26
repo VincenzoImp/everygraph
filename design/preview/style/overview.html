@@ -223,11 +223,12 @@ window.addEventListener('hashchange', () => { readHash(); view.reset = true; syn
 let G, P, K, ROWS, PAIRS, keyOf, focusIx = 0;
 function load() {
   G = DATA[state.g] || DATA.lj; P = G.parents[state.p] || G.parents['0']; K = P.kids; ROWS = P.rows;
-  /* coupling: edges between two rows over the number expected if all edges were wired at random with the same degrees */
-  PAIRS = P.pairs.map(([i, j, w]) => ({ i, j, w, c: w * 2 * G.m / (ROWS[i].vol * ROWS[j].vol) }));
+  /* coupling: edges between two rows over the number expected if the parent's edges were wired at random with the same degrees */
+  PAIRS = P.pairs.map(([i, j, w]) => ({ i, j, w, c: w * P.vol / (ROWS[i].vol * ROWS[j].vol) }));
   const nAgg = ROWS.length && ROWS[ROWS.length - 1].kid < 0 ? ROWS[ROWS.length - 1].agg : 0;
   keyOf = r => ROWS[r].kid < 0 ? '+' + nAgg : '#' + (ROWS[r].kid + 1);
   colourRegions();
+  hlRows = null; if (Math.max(...mcur) >= ROWS.length) mcur = [0, Math.min(1, ROWS.length - 1)];
   P.between = PAIRS.reduce((s, p) => s + p.w, 0); P.inside = ROWS.reduce((s, r) => s + r.int, 0);
 }
 const title = i => 'Region ' + (i + 1);
@@ -275,10 +276,10 @@ const cv = $('#map'), ctx = cv.getContext('2d');
 let W = 0, H = 0, DPR = 1;
 const view = { x: .5, y: .5, k: 1, reset: true };
 const sx = x => (x - view.x) * view.k + W / 2, sy = y => (y - view.y) * view.k + H / 2;
-function fit() { const m = 64; view.x = P.x; view.y = P.y; view.k = Math.min(W - 2 * m, H - 2 * m - 40) / (2 * P.r); view.y -= 12 / view.k; view.reset = false; }
+function fit() { const m = 64; view.x = P.x; view.y = P.y; view.k = Math.max(64, Math.min(W - 2 * m, H - 2 * m - 40)) / (2 * P.r); view.y -= 12 / view.k; view.reset = false; }
 let hover = -1, hlRows = null, drawMs = [];
 const selIx = () => state.sel === '' ? -1 : K.findIndex(k => String(k.id) === state.sel);
-const pairOf = () => { const m = /^(\d+)-(\d+)$/.exec(state.pair); return m ? [+m[1], +m[2]] : null; };
+const pairOf = () => { const m = /^(\d+)-(\d+)$/.exec(state.pair); return m && +m[2] < ROWS.length ? [+m[1], +m[2]] : null; };
 
 function draw() {
   const t0 = performance.now();
@@ -477,7 +478,7 @@ function renderMatrix() {
   }
   const rl = rampLabels(lo, hi);
   h += '</div></div><div class="mf"><div id="mread" aria-live="polite"></div><div class="ramp"><span>' + rl[0] + '</span><span class="r">' + TH.S.slice(2).map(c => '<i style="background:' + c + '"></i>').join('') + '</span><span>' + rl[2] + '</span><span>· ' + rl[1] + ' · hollow: no edge · hatched: the row itself</span></div>' +
-    '<div>Showing <b>all ' + fmt(PAIRS.length) + ' pairs, 100%</b> of the ' + fmt(P.between) + ' edges between them.' + (ROWS[n - 1].kid < 0 ? ' Row ' + keyOf(n - 1) + ' sums the ' + ROWS[n - 1].agg + ' smallest (each under 0.1% of the nodes).' : '') + (state.shade === 'edges' ? '' : ' Expected: if all edges were wired at random with the same degrees.') + ' Tightly coupled rows sit together.</div></div>';
+    '<div>Showing <b>all ' + fmt(PAIRS.length) + ' pairs, 100%</b> of the ' + fmt(P.between) + ' edges between them.' + (ROWS[n - 1].kid < 0 ? ' Row ' + keyOf(n - 1) + ' sums the ' + ROWS[n - 1].agg + ' smallest (each under 0.1% of the nodes).' : '') + (state.shade === 'edges' ? '' : ' Expected: if the edges of ' + scope() + ' were wired at random with the same degrees.') + ' Tightly coupled rows sit together.</div></div>';
   el.innerHTML = h;
   const mx = el.querySelector('.mx'), grid = el.querySelector('.grid'), head = grid.children[1].offsetHeight, fitCs = Math.floor((mx.clientHeight - head - 30) / n) - 1;   // the grid's 1 px gaps
   if (Math.min(cs, fitCs) < 13) grid.classList.add('tight');
@@ -595,8 +596,9 @@ window.addEventListener('resize', () => { view.reset = true; sync(); });
 /* measurement hook for lab/m1-06-edge-rendering/measure_preview.mjs */
 window.__ov = {
   set, state, view, bands: () => bandInfo,
-  /* one frame drawn and read back (getImageData waits for the raster), n times */
-  cost: n => { const o = []; for (let i = 0; i < n; i++) { const t0 = performance.now(); draw(); ctx.getImageData(0, 0, 1, 1); o.push(performance.now() - t0); } return o; },
+  /* n samples, each the mean of 10 frames drawn and read back (getImageData waits for the raster); ten frames per
+     sample because browsers coarsen performance.now() to 0.1 ms or more */
+  cost: n => { const o = []; for (let i = 0; i < n; i++) { const t0 = performance.now(); for (let j = 0; j < 10; j++) { draw(); ctx.getImageData(0, 0, 1, 1); } o.push((performance.now() - t0) / 10); } return o; },
   /* opening the matrix: its DOM built and laid out */
   matrixCost: n => { const o = []; for (let i = 0; i < n; i++) { set({ matrix: '0' }); const t0 = performance.now(); set({ matrix: '1' }); void document.body.offsetHeight; o.push(performance.now() - t0); } return o; }
 };
