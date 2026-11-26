@@ -122,10 +122,10 @@ pub(super) struct Rows<'a, 'd, S, D> {
     _buffers: Reservation,
 }
 
-/// Memory one block in flight holds, per byte of text: the reader's chunk (1), and at
-/// most one row per 4 bytes (`a b` and a line end) of 16 bytes of ids in the batch and
-/// 8 of mapped pairs.
-const BLOCK_BUFFER_PER_BYTE: u64 = 1 + 24 / 4;
+/// Memory one block in flight holds per row: two ids (or two string ends) in its batch
+/// and a mapped pair. Besides, it holds its text twice: the reader's chunk and the
+/// bytes of string ids.
+const BLOCK_BYTES_PER_ROW: u64 = 16 + 8;
 
 impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
     pub(super) fn new(
@@ -135,9 +135,10 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         blocks: usize,
         memory: &Memory,
         threads: usize,
-        block_bytes: usize,
+        block_bytes: u64,
+        most_rows: u64,
     ) -> Result<Self, MemoryError> {
-        let per_block = BLOCK_BUFFER_PER_BYTE * u64::try_from(block_bytes).unwrap_or(u64::MAX);
+        let per_block = 2 * block_bytes + most_rows.saturating_mul(BLOCK_BYTES_PER_ROW);
         let bytes = per_block.saturating_mul(u64::try_from(threads).unwrap_or(u64::MAX));
         let buffers = memory.reserve("text blocks in flight", MemoryKind::Anonymous, bytes)?;
         Ok(Self {

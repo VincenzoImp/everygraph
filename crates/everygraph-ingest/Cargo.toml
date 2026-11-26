@@ -29,6 +29,8 @@ xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"
 # tests check that its results do not depend on how many).
 everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
 everygraph-oracle = { path = "../everygraph-oracle" }
+# The build benchmark writes its graphs to files (examples/build_ab.rs).
+everygraph-io = { path = "../everygraph-io" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 
 # The dictionary benchmark evicts its scratch files from the page cache for cold look-ups.

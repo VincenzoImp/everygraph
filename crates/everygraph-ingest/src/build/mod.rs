@@ -60,7 +60,7 @@ use everygraph_format::container::{Container, ContainerError, Kind, Provenance, 
 use crate::ids::{
     self, Dictionary, DictionaryError, IdOrder, InvalidKeys, Scratch, build_dictionary,
 };
-use crate::text::{Layout as TextLayout, OnInvalid, TextError, TextReader};
+use crate::text::{Layout as TextLayout, OnInvalid, Tally, TextError, TextReader};
 
 use finish::{Multiplicities, Output, PairCounts, finish_round, multiplicities};
 use layout::Layout;
@@ -549,7 +549,9 @@ where
     if blocks == 0 {
         progress.begin(Phase::Identifiers, None);
     }
-    let summary = reader.summarize(keys.into_tallies())?;
+    let tallies = keys.into_tallies();
+    let most_rows = tallies.iter().map(Tally::rows).max().unwrap_or(0);
+    let summary = reader.summarize(tallies)?;
     if built.invalid.count > 0 && reader.on_invalid() == OnInvalid::Refuse {
         return Err(BuildError::InvalidKeys(built.invalid));
     }
@@ -564,7 +566,8 @@ where
         blocks,
         memory,
         threads,
-        reader.block_bytes(),
+        widen(reader.block_bytes()),
+        most_rows,
     )?;
     let counts = ItemCounts::new(memory, nodes, graph.directed)?;
     let pass = each_block(blocks, |block| {
