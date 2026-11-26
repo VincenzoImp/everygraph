@@ -6,18 +6,12 @@
 use std::ops::Range;
 use std::sync::OnceLock;
 
+use everygraph_core::le::{u32_at, u64_at};
+
 use super::FormatError;
 use super::ef::EliasFano;
 use super::index::AdjacencyIndex;
 use super::stream::{EVENTS_HEADER, EVENTS_MAGIC, EVENTS_VERSION, events_section_bytes};
-
-fn read_u32(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().expect("four bytes"))
-}
-
-fn read_u64(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().expect("eight bytes"))
-}
 
 /// The event offsets of an adjacency, read from its `.events` section.
 ///
@@ -47,8 +41,8 @@ impl<'a> AdjacencyEvents<'a> {
         if header[..8] != EVENTS_MAGIC {
             return Err(FormatError::BadMagic);
         }
-        let word = |at| read_u32(header, at);
-        let long = |at| read_u64(header, at);
+        let word = |at| u32_at(header, at);
+        let long = |at| u64_at(header, at);
         if word(8) != EVENTS_VERSION {
             return Err(FormatError::UnsupportedVersion(word(8)));
         }

@@ -35,7 +35,7 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{Memory, MemoryKind, Reservation, par};
+use everygraph_core::{Memory, MemoryKind, Reservation, par, usize_of};
 
 use crate::edge_map::{Error, Node, NodeList, NodeSet, PerNode, Plan, Row, Source};
 use crate::weights;
@@ -148,7 +148,7 @@ pub fn sssp<S: Source>(
     let n = out.nodes();
     let held = memory.reserve("sssp distances", MemoryKind::Anonymous, u64::from(n) * 8)?;
     let infinity = f64::INFINITY.to_bits();
-    let bits: Vec<AtomicU64> = par::collect(ix(n), GRAIN, |_| AtomicU64::new(infinity));
+    let bits: Vec<AtomicU64> = par::collect(usize_of(n), GRAIN, |_| AtomicU64::new(infinity));
     let dist = out.per_node(&bits)?;
     dist[source].store(0.0_f64.to_bits(), Relaxed);
     let (near, far) = (out.node_set(memory)?, out.node_set(memory)?);
@@ -287,8 +287,4 @@ impl<'g> Step<'_, 'g> {
             }
         }
     }
-}
-
-fn ix(n: u32) -> usize {
-    usize::try_from(n).expect("a node count fits in memory")
 }

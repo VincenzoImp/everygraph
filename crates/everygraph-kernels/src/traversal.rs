@@ -12,7 +12,7 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 
-use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par};
+use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par, usize_of};
 
 use crate::edge_map::{Error, NodeList, Plan, Reduce, Source, one_segment, one_segment_mut};
 
@@ -186,11 +186,7 @@ pub fn bfs<'g, S: Source>(
 
 /// `n` cells holding [`UNREACHED`], filled in parallel; the caller reserves them.
 fn unreached(n: u32) -> Vec<AtomicU32> {
-    par::collect(ix(n), GRAIN, |_| AtomicU32::new(UNREACHED))
-}
-
-fn ix(n: u32) -> usize {
-    usize::try_from(n).expect("a node count fits in memory")
+    par::collect(usize_of(n), GRAIN, |_| AtomicU32::new(UNREACHED))
 }
 
 /// Sources per batch of [`multi_bfs`]: the bits of a word.
@@ -244,7 +240,7 @@ pub fn multi_bfs<S: Source>(
     max_hops: Option<u32>,
     memory: &Memory,
 ) -> Result<MultiHops, Error> {
-    let n = ix(inn.nodes());
+    let n = usize_of(inn.nodes());
     let max_hops = max_hops.unwrap_or(u32::MAX);
     let mut distance_sum = SegVec::try_with_len(memory, "distance sums", n, 0)?;
     let mut reached = SegVec::try_with_len(memory, "sources reached", n, 0)?;
@@ -300,7 +296,12 @@ pub fn multi_bfs<S: Source>(
             if counts.0.iter().all(|&c| c == 0) {
                 break;
             }
-            add_level(&mut levels, ix(level), first, &counts.0[..batch.len()]);
+            add_level(
+                &mut levels,
+                usize_of(level),
+                first,
+                &counts.0[..batch.len()],
+            );
             std::mem::swap(&mut frontier, &mut next);
         }
         inn.vertices(one_segment_mut(&mut reached)?, |(): &mut (), r, i, v, _| {
