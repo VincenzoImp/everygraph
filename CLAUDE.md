@@ -166,7 +166,9 @@ network, not on this machine. So:
 - Subagents cannot write `.md` report files; they return their report as text and the
   coordinator records it. Do not ask them to work around that.
 - Code-writing subagents work in their own git worktree and open a PR; they never push to
-  `main`.
+  `main`. Every commit carries `Signed-off-by` (the owner authorized sign-offs with his
+  identity, 2026-11-26; the DCO check is on): `git commit -s`, and `git merge --signoff`
+  when merging `origin/main` into a branch.
 - A subagent's claim is a claim. Re-run its key numbers and read its diff before relying
   on either.
 
