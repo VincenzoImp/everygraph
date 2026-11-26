@@ -80,7 +80,7 @@ fn tile_json(t: &Tile) -> Value {
         .map(|a| json!([a.entity, a.text, a.z_on, a.z_off, a.anchor as u8]))
         .collect();
     json!({
-        "z": t.z, "x": t.x, "y": t.y,
+        "z": t.z, "x": t.x, "y": t.y, "cover": t.cover,
         "omitted": [t.omitted.regions, t.omitted.region_nodes, t.omitted.nodes],
         "regions": regions, "nodes": nodes, "labels": labels, "strings": t.strings,
     })

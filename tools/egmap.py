@@ -156,13 +156,23 @@ def disc(bits, what):
     return x, y, r
 
 
-def placed(x, y, r, z, tx, ty):
-    # § 3.5: meets and does not cover, each step one binary64 operation.
+def bounds(z, tx, ty):
     w = 1.0 / (1 << z)
-    x0, x1, y0, y1 = tx * w, (tx + 1) * w, ty * w, (ty + 1) * w
-    dx, dy = max(x0 - x, x - x1, 0.0), max(y0 - y, y - y1, 0.0)
+    return tx * w, (tx + 1) * w, ty * w, (ty + 1) * w
+
+
+def covers(x, y, r, z, tx, ty):
+    # § 3.5, each step one binary64 operation.
+    x0, x1, y0, y1 = bounds(z, tx, ty)
     ex, ey = max(x - x0, x1 - x), max(y - y0, y1 - y)
-    return dx * dx + dy * dy <= r * r and not ex * ex + ey * ey <= r * r
+    return ex * ex + ey * ey <= r * r
+
+
+def placed(x, y, r, z, tx, ty):
+    # § 3.5: meets and does not cover.
+    x0, x1, y0, y1 = bounds(z, tx, ty)
+    dx, dy = max(x0 - x, x - x1, 0.0), max(y0 - y, y - y1, 0.0)
+    return dx * dx + dy * dy <= r * r and not covers(x, y, r, z, tx, ty)
 
 
 def inside(c, p):
@@ -178,9 +188,9 @@ def decode_tile(payload):
     magic, major, _minor, z = struct.unpack_from("<4sHHB", p, 0)
     need(magic == b"EGMT", "tile: bad magic")
     need(major == 1, f"tile: later format (major version {major})")
-    need(not any(p[9:12]) and not any(p[20:24]), "tile: reserved bytes not zero")
+    need(not any(p[9:12]), "tile: reserved bytes not zero")
     need(z <= MAX_ZOOM, f"tile: z above {MAX_ZOOM}")
-    x, y = struct.unpack_from("<II", p, 12)
+    x, y, cover = struct.unpack_from("<III", p, 12)
     need(x < 1 << z and y < 1 << z, "tile: x or y not below 2^z")
     omitted = list(struct.unpack_from("<3Q", p, 24))
     blocks, pos, last = {}, 48, 0
@@ -229,6 +239,7 @@ def decode_tile(payload):
         need(zmin <= z, f"{what}: zmin above the tile's zoom")
         need(nn >= 1, f"{what}: nodes is 0")
         need(placed(*disc(geo, what), z, x, y), f"{what}: disc does not meet the tile or covers it")
+    need(cover not in {r[0] for r in regions}, "tile: cover is a region of the tile")
     prev = -1
     for nid, region, *geo, name, _degree, colour, zmin in nodes:
         what = f"node {nid}"
@@ -243,13 +254,15 @@ def decode_tile(payload):
     for ent, text, z_on, z_off, anchor in labels:
         need(ent > prev, "labels: entities do not increase strictly")
         prev = ent
-        need(ent < len(regions) + len(nodes), "label: entity not in the tile")
+        nr, ne = len(regions), len(regions) + len(nodes)
+        need(ent < ne or (ent == ne and cover), "label: entity not in the tile, nor a covering region")
         need(text < len(strings), "label: text is not a string of the tile")
-        ez = regions[ent][7] if ent < len(regions) else nodes[ent - len(regions)][8]
+        # § 4.3 rule 5: no zmin check for the covering region's label.
+        ez = regions[ent][7] if ent < nr else nodes[ent - nr][8] if ent < ne else 0
         need(ez <= z_on <= z < z_off <= MAX_ZOOM + 1,
              f"label: zoom interval breaks zmin <= z_on <= z < z_off <= {MAX_ZOOM + 1}")
         need(anchor <= 1, "label: anchor above 1")
-    return {"z": z, "x": x, "y": y, "omitted": omitted, "regions": regions, "nodes": nodes,
+    return {"z": z, "x": x, "y": y, "cover": cover, "omitted": omitted, "regions": regions, "nodes": nodes,
             "labels": labels, "strings": strings}
 
 
@@ -432,6 +445,7 @@ class MapFile:
         need(self.header["min_zoom"] <= z <= maxz, f"{what}: zoom outside the header's zooms")
         need(all(lab[3] <= maxz + 1 for lab in t["labels"]), f"{what}: label past max zoom + 1")
         need(not (tb["summary"] and t["nodes"]), f"{what}: summary map tile holds nodes")
+        need(t["cover"] < tb["regions"], f"{what}: cover not below the table's regions")
         for r in t["regions"]:
             need(r[0] < tb["regions"], f"{what}: region id not below the table's regions")
             need(r[5] != OTHER or tb["summary"], f"{what}: region of kind other in a full map")
@@ -539,8 +553,10 @@ def check_ties(tiles, vals):
         for n in t["nodes"]:
             rec = n[:5] + [s[n[5]]] + n[6:]
             need(nods.setdefault(n[0], rec) == rec, f"node {n[0]}: two different records in two tiles")
+        ne = nr + len(t["nodes"])
         for ent, text, *rest in t["labels"]:
-            key = ("r", t["regions"][ent][0]) if ent < nr else ("n", t["nodes"][ent - nr][0])
+            key = ("r", t["regions"][ent][0]) if ent < nr else ("n", t["nodes"][ent - nr][0]) if ent < ne \
+                else ("r", t["cover"])
             rec = [s[text], *rest]
             need(labs.setdefault(key, rec) == rec, f"label of {key[0]}{key[1]}: two different records in two tiles")
     for rid, r in regs.items():
@@ -558,6 +574,20 @@ def check_ties(tiles, vals):
             need(n[7] == r[6], f"{what}: colour is not its region's")
             need(inside(disc(n[2:5], what), disc(r[1:4], what)), f"{what}: disc not inside its region's")
             need(n[8] >= r[7], f"{what}: zmin below its region's")
+    for t in tiles:
+        where, c = (t["z"], t["x"], t["y"]), t["cover"]
+        what = "tile {}/{}/{}".format(*where)
+        known = lambda rid: rid in regs and covers(*disc(regs[rid][1:4], what), *where)
+        need(not c or c not in regs or known(c), f"{what}: the covering region {c} does not cover the tile")
+        need(not c or c not in regs or regs[c][7] <= t["z"], f"{what}: the covering region {c} is not drawn yet")
+        # Each entity lies under the cover, and no region on the way to it covers the tile
+        # (§ 3.6); a region of the tile starts from its parent, a node from its region.
+        for ent, a in [(f"region {r[0]}", par[r[0]]) for r in t["regions"]] + \
+                      [(f"node {n[0]}", n[1]) for n in t["nodes"]]:
+            while a != c:
+                need(a, f"{what}: {ent} does not lie under the covering region {c}")
+                need(not known(a), f"{what}: region {a}, between {ent} and the covering region {c}, covers the tile")
+                a = par[a]
 
 
 def popping(tiles):

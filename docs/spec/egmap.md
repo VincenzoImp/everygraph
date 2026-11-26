@@ -148,9 +148,12 @@ that no two regions overlap (§ 2.1).
 with that id is the tile; a leaf entry: fetch, inflate and check the leaf, then search
 it. Fetch the tile's bytes, inflate within the cap, decode and check the payload (§ 4),
 and check that it names the tile asked for, that its zoom is within the header's zooms,
-that no label is drawn past `max zoom + 1`, that its region ids and its nodes' region
-ids are below the table's `regions` and its node ids below `nodes`, that only a summary map has regions of kind
-other, and, in a summary map, that it holds no node.
+that no label is drawn past `max zoom + 1`, that its region ids, its nodes' region ids
+and its covering region are below the table's `regions` and its node ids below `nodes`,
+that only a summary map has regions of kind other, and, in a summary map, that it holds
+no node. A tile the directory does not have is not there (the lookup finds none); it
+holds no entity, and its covering region is that of its nearest ancestor tile the
+directory has (§ 3.5), or 0.
 
 **The whole file** (`MapReader::verify`, and `tools/egmap.py dump`): the metadata
 (§ 2.2); every tile in tile-id order, checking that tiles and leaves fill their regions
@@ -249,8 +252,9 @@ zoom from `z_on` up to, not including, `z_off`.
   reaches `label_off_px` pixels (`size(r, label_off_px)`, at most `zmax + 1`): its
   children carry the labels from then on.
 
-A tile at zoom `z` holds a label exactly when its entity is in the tile and
-`z_on ≤ z < z_off`, with the same text, interval and anchor in every tile.
+A tile at zoom `z` holds a label exactly when its entity is in the tile, or is the
+tile's covering region, and `z_on ≤ z < z_off`, with the same text, interval and anchor
+in every tile.
 
 ### 3.5 Placement and the budget
 
@@ -271,7 +275,20 @@ is in some tile at every zoom from its `zmin`.
 **Containment.** A disc `(cx, cy, r)` is **inside** a disc `(px, py, pr)` when
 `r ≤ pr` and `(cx − px)² + (cy − py)² ≤ (pr − r)²`, computed in the same way. The
 builder makes each region's disc inside its parent's, and each node's disc inside its
-region's, in the stored values; the root has no disc.
+region's, in the stored values; the root has no disc. The discs of two siblings do not
+overlap (disc packing, ADR 0017), and neither do those of two nodes of one region.
+
+**The covering region.** Each tile names the deepest region drawn at its zoom
+(`zmin ≤ z`) whose disc covers it, or 0 when none does. It is the "where you are" of the
+approved viewer (`design/preview/style/viewer.html`) when nothing in the view is drawn,
+and the tile's entities lie under it. The builder writes a tile that holds no entity
+only where its covering region differs from that of the tile one zoom up (for zoom 0,
+from 0), so a viewer that finds no tile takes the covering region of the nearest
+ancestor tile it has, and that tile's label of it while the label's interval is on.
+While the covering region's label is on (`z_on ≤ z < z_off`), a tile holds that label
+too, as the entity after its nodes (§ 4.2), so a region's label reaches every tile of the
+view, also where its disc covers them. The covering region is never the root: 0 means
+that no region covers the tile.
 
 The builder keeps a **budget** per tile as a guard. When a tile would pass it, the
 builder leaves entities out, last in this order first: regions before nodes, then
@@ -292,11 +309,20 @@ The whole-file check (§ 2.4) refuses a map where:
   region's;
 - a region's disc is not inside its parent's, or a node's is not inside its region's;
 - a region's `zmin` is below its parent's, or a node's below its region's;
+- a tile's covering region does not cover the tile or is not drawn at its zoom; an
+  entity of the tile does not lie under it (a node lies under its own region); or a
+  region on the way up from such an entity to the covering region, the entity itself and
+  the covering region left out, covers the tile too;
 - the same entity has two different records in two tiles, or the same label two
-  different texts, intervals or anchors.
+  different texts, intervals or anchors; the label a tile holds for its covering region
+  is that region's label.
 
-Each check needs the entity and its parent or region seen in some tile; a summary map
-and the budget can leave some out, and those are not checked.
+Each check needs the discs and records it compares: a region's are known when the
+region is in some tile. A summary map and the budget can leave some out, and those are
+not checked. "Deepest" is checked only on the ways up from a tile's entities: a deeper
+covering region off those ways, or the covering region of a tile without entities, is
+not checked. Which tiles without entities the builder writes (§ 3.5) is not checked
+either.
 
 ### 3.7 Edges
 
@@ -321,7 +347,7 @@ offset  size  field
 9       3     reserved
 12      4     x                     below 2^z
 16      4     y                     below 2^z
-20      4     reserved
+20      4     cover                 the covering region (§ 3.5), or 0
 24      8     omitted regions
 32      8     omitted region nodes
 40      8     omitted nodes
@@ -358,8 +384,8 @@ its padded columns.
 | `0x80000004` | strings | `end` u32 (one per string: the end of its bytes), then the UTF-8 bytes of all strings, one after the other |
 
 `name` and `text` are indexes into the strings. A label's `entity` is an index into the
-tile's entities: `i` below the number of regions is region `i` of the tile, and
-`regions + j` is node `j`. `anchor` is 0 for centre, 1 for below.
+tile's entities: `i` below the number of regions is region `i` of the tile,
+`regions + j` is node `j`, and `regions + nodes` is the tile's covering region. `anchor` is 0 for centre, 1 for below.
 
 Columns are aligned to 8 bytes within the body, and the header and block headers are
 multiples of 8, so a JavaScript reader can view each column of the inflated payload as a
@@ -370,7 +396,8 @@ typed array without a copy.
 A reader refuses a tile that breaks any of these; a writer refuses to write one.
 
 1. The header: magic, major version 1 (another major version is a later format:
-   refused as such), zero reserved bytes, `z ≤ 16`, `x` and `y` below `2^z`.
+   refused as such), zero reserved bytes, `z ≤ 16`, `x` and `y` below `2^z`; `cover`
+   is not the id of a region of the tile.
 2. The framing of § 4.2: block numbers from 1 and increasing, known lengths exact,
    padding zero, rows ≥ 1, string ends not decreasing and the last equal to the bytes'
    length, every string UTF-8.
@@ -378,8 +405,9 @@ A reader refuses a tile that breaks any of these; a writer refuses to write one.
    `nodes ≥ 1`.
 4. Nodes: ids increasing strictly; `region ≥ 1`; `colour` ≤ 4; `zmin ≤ z`; `name` a
    string of the tile.
-5. Labels: entities increasing strictly, each an entity of the tile; `text` a string of
-   the tile; entity `zmin ≤ z_on ≤ z < z_off ≤ 17`; `anchor` ≤ 1.
+5. Labels: entities increasing strictly, each an entity of the tile or, when `cover` is
+   not 0, its covering region; `text` a string of the tile; `z_on ≤ z < z_off ≤ 17`, and
+   `zmin ≤ z_on` for an entity of the tile; `anchor` ≤ 1.
 6. Strings: increasing strictly in byte order, so each string once.
 7. Geometry: `x` and `y` in `[0, 1]`, `0 < r ≤ 1`, and the disc meets the tile and does
    not cover it (§ 3.5).
@@ -550,7 +578,9 @@ A map file comes from anywhere: a URL, a mail. What bounds a reader's work and m
   entries are allocated; every region, tile, leaf and array is checked to lie inside the
   file before it is read; a compressed item larger than the cap plus 4 KiB is refused
   unread (deflate stores incompressible data at 5 bytes per 65,535). The whole-file
-  check keeps a few bytes per region and per entity it has seen, reserved through the
+  check reads each array forwards, so it inflates each chunk a bounded number of times
+  whatever the values point at; it keeps a few bytes per region and per entity it has
+  seen, reserved through the
   memory budget.
 - **Nothing decodes past the cap.** The 32 KB budget of #69 bounds a tile's gzip size,
   not what it decodes to. One DEFLATE stream cannot exceed a ratio of 1,032; the danger

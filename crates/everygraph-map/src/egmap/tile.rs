@@ -139,13 +139,16 @@ pub struct Tile {
     pub x: u32,
     /// Row, from the top.
     pub y: u32,
+    /// The deepest region whose disc covers the tile; 0 when none does (§ 3.5).
+    pub cover: u32,
     /// What the budget left out.
     pub omitted: Omitted,
     /// Regions by increasing id.
     pub regions: Vec<Region>,
     /// Nodes by increasing id.
     pub nodes: Vec<Node>,
-    /// Labels by increasing entity.
+    /// Labels by increasing entity; entity `regions.len() + nodes.len()` is the
+    /// covering region.
     pub labels: Vec<Label>,
     /// The texts that nodes and labels refer to, in increasing byte order.
     pub strings: Vec<String>,
@@ -423,13 +426,20 @@ fn square(z: u8, tx: u32, ty: u32) -> (f64, f64, f64, f64) {
 /// not cover it (§ 3.5): when it is placed in the tile.
 pub(super) fn placed(x: f32, y: f32, r: f32, z: u8, tx: u32, ty: u32) -> bool {
     let (x0, x1, y0, y1) = square(z, tx, ty);
-    let (cx, cy, r) = (f64::from(x), f64::from(y), f64::from(r));
+    let (cx, cy, rr) = (f64::from(x), f64::from(y), f64::from(r));
     let (dx, dy) = (
         (x0 - cx).max(cx - x1).max(0.0),
         (y0 - cy).max(cy - y1).max(0.0),
     );
+    dx * dx + dy * dy <= rr * rr && !covers(x, y, r, z, tx, ty)
+}
+
+/// Whether the disc `(x, y, r)` holds every corner of tile `(z, tx, ty)` (§ 3.5).
+pub(super) fn covers(x: f32, y: f32, r: f32, z: u8, tx: u32, ty: u32) -> bool {
+    let (x0, x1, y0, y1) = square(z, tx, ty);
+    let (cx, cy, r) = (f64::from(x), f64::from(y), f64::from(r));
     let (ex, ey) = ((cx - x0).max(x1 - cx), (cy - y0).max(y1 - cy));
-    dx * dx + dy * dy <= r * r && ex * ex + ey * ey > r * r
+    ex * ex + ey * ey <= r * r
 }
 
 /// Whether the disc `(x, y, r)` is inside the disc `(px, py, pr)` (§ 3.5).
@@ -448,6 +458,7 @@ impl Tile {
             z,
             x,
             y,
+            cover: 0,
             omitted: Omitted::default(),
             regions: Vec::new(),
             nodes: Vec::new(),
@@ -492,7 +503,7 @@ impl Tile {
         out.extend_from_slice(&[self.z, 0, 0, 0]);
         out.extend_from_slice(&self.x.to_le_bytes());
         out.extend_from_slice(&self.y.to_le_bytes());
-        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&self.cover.to_le_bytes());
         let o = &self.omitted;
         for v in [o.regions, o.region_nodes, o.nodes] {
             out.extend_from_slice(&v.to_le_bytes());
@@ -543,10 +554,11 @@ impl Tile {
                 "tile payload version {major}"
             )));
         }
-        if bytes[9..12] != [0; 3] || bytes[20..24] != [0; 4] {
+        if bytes[9..12] != [0; 3] {
             return Err(malformed("reserved tile header bytes are not zero"));
         }
         let mut tile = Self::new(bytes[8], le::u32_at(bytes, 12), le::u32_at(bytes, 16));
+        tile.cover = le::u32_at(bytes, 20);
         tile.omitted = Omitted {
             regions: le::u64_at(bytes, 24),
             region_nodes: le::u64_at(bytes, 32),
@@ -607,6 +619,9 @@ impl Tile {
         if self.z > MAX_ZOOM || self.x >= 1 << self.z || self.y >= 1 << self.z {
             return fail(format!("not a tile of zooms 0 to {MAX_ZOOM}"));
         }
+        if self.regions.iter().any(|g| g.id == self.cover) {
+            return fail("the covering region is in the tile".into());
+        }
         let geometry = |x: f32, y: f32, r: f32| {
             in_unit(x)
                 && in_unit(y)
@@ -651,13 +666,17 @@ impl Tile {
             if i > 0 && self.labels[i - 1].entity >= a.entity {
                 return fail("label entities do not increase".into());
             }
-            if e >= regions + self.nodes.len() || usize_of(a.text) >= strings {
+            let entities = regions + self.nodes.len();
+            let covering = e == entities && self.cover != 0;
+            if (e >= entities && !covering) || usize_of(a.text) >= strings {
                 return fail(format!("label {i} refers to nothing"));
             }
-            let zmin = self
-                .regions
-                .get(e)
-                .map_or_else(|| self.nodes[e - regions].zmin, |g| g.zmin);
+            // The covering region's `zmin` is not in the tile: § 3.6 checks it.
+            let zmin = match (self.regions.get(e), self.nodes.get(e.wrapping_sub(regions))) {
+                (Some(g), _) => g.zmin,
+                (None, Some(v)) if !covering => v.zmin,
+                _ => 0,
+            };
             if !(zmin <= a.z_on && a.z_on <= self.z && self.z < a.z_off && a.z_off <= MAX_ZOOM + 1)
             {
                 return fail(format!("label {i} is not drawn at this zoom"));

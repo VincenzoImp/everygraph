@@ -29,7 +29,10 @@ mod support;
 
 use std::io::Write;
 
-use everygraph_core::{Memory, MemorySource};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use everygraph_core::{Budget, ByteSource, Memory, MemorySource, ReadError};
 use everygraph_io::faults::{Faulty, Plan};
 use everygraph_map::egmap::{
     Census, EgmapError, Element, Label, MAX_ZOOM, MapInfo, MapReader, MapWriter, RegionKind, Tile,
@@ -60,8 +63,14 @@ fn le<T: Copy, const W: usize>(values: &[T], f: impl Fn(T) -> [u8; W]) -> Vec<u8
     values.iter().flat_map(|&v| f(v)).collect()
 }
 
+/// A budget of 256 MiB: every test's `verify` runs under a limit, so the memory it
+/// keeps per declared region is counted (§ 9).
+fn bounded() -> Memory {
+    Memory::from(Arc::new(Budget::new(256 << 20)))
+}
+
 fn verify(file: Vec<u8>) -> Result<everygraph_map::egmap::CensusReport, EgmapError> {
-    MapReader::open(Mem::new(file))?.verify(&Memory::unlimited())
+    MapReader::open(Mem::new(file))?.verify(&bounded())
 }
 
 fn refused(result: Result<impl std::fmt::Debug, EgmapError>, what: &str) {
@@ -118,7 +127,7 @@ proptest! {
             bytes[i] ^= x | 1;
         }
         if let Ok(reader) = MapReader::open(Mem::new(bytes)) {
-            let _ = reader.verify(&Memory::unlimited());
+            let _ = reader.verify(&bounded());
             let _ = reader.tile(2, 1, 1);
         }
     }
@@ -158,6 +167,16 @@ fn a_tile_that_breaks_a_rule_is_refused_by_the_writer() {
             }),
         ),
         ("disc covering the tile", Box::new(|t| t.regions[0].r = 1.0)),
+        ("cover in the tile", Box::new(|t| t.cover = t.regions[0].id)),
+        (
+            "cover label without a cover",
+            Box::new(|t| {
+                t.labels.push(Label {
+                    entity: (t.regions.len() + t.nodes.len()) as u32,
+                    ..t.labels[0]
+                });
+            }),
+        ),
         (
             "name out of range",
             Box::new(|t| t.nodes[0].name = t.strings.len() as u32),
@@ -257,7 +276,7 @@ fn a_written_map_reads_back_whole_and_its_census_is_clean() {
     assert_eq!(reader.info(), p.info);
     assert_eq!(reader.zooms(), (0, 6));
     assert_eq!(reader.tile_count(), p.tiles.len() as u64);
-    let report = reader.verify(&Memory::unlimited()).unwrap();
+    let report = reader.verify(&bounded()).unwrap();
     assert_eq!(report.tiles, p.tiles.len() as u64);
     assert_eq!(report.entities, p.info.nodes + p.info.regions - 1);
     assert!(report.labels > 0);
@@ -297,6 +316,25 @@ fn a_written_map_reads_back_whole_and_its_census_is_clean() {
     for (name, bytes) in arrays {
         assert_eq!(read_array(&reader, name), bytes, "{name}");
     }
+    let covered = p.tiles.iter().filter(|t| t.cover != 0).count();
+    let empty = p
+        .tiles
+        .iter()
+        .filter(|t| t.regions.is_empty() && t.nodes.is_empty())
+        .count();
+    let cover_labels = p
+        .tiles
+        .iter()
+        .filter(|t| {
+            t.labels
+                .iter()
+                .any(|a| a.entity as usize == t.regions.len() + t.nodes.len())
+        })
+        .count();
+    assert!(
+        covered > 0 && empty > 0 && cover_labels > 0,
+        "{covered} {empty} {cover_labels}"
+    );
     let kinds: std::collections::BTreeSet<u8> = t.kind.iter().copied().collect();
     assert_eq!(
         kinds.len(),
@@ -592,6 +630,34 @@ fn the_whole_file_check_refuses_what_one_tile_cannot_show() {
         matches!(r, Err(EgmapError::Malformed(ref m)) if m.contains("symmetric")),
         "{r:?}"
     );
+    // A covering region taken away, and one that does not cover its tile.
+    let p = pyramid(9, 3);
+    let i = p
+        .tiles
+        .iter()
+        .position(|t| t.cover != 0 && !t.regions.is_empty())
+        .unwrap();
+    let uncover = |t: &mut Tile, cover: u32| {
+        let entities = (t.regions.len() + t.nodes.len()) as u32;
+        t.labels.retain(|a| a.entity < entities);
+        t.cover = cover;
+    };
+    let mut none = p.clone();
+    uncover(&mut none.tiles[i], 0);
+    refused(
+        verify(write(&none, 5)),
+        "a tile without the region that covers it",
+    );
+    let mut wrong = p.clone();
+    let t = &wrong.tiles[i];
+    let other = (1..p.info.regions as u32)
+        .find(|&g| g != t.cover && t.regions.iter().all(|r| r.id != g))
+        .unwrap();
+    uncover(&mut wrong.tiles[i], other);
+    assert!(
+        verify(write(&wrong, 5)).is_err(),
+        "a cover that is not above the tile's entities"
+    );
     // A matrix pair of a rank past the parent's children.
     let mut p = pyramid(8, 3);
     p.matrix.1[0] = 1 << 16 | 0xFFFF;
@@ -650,7 +716,7 @@ fn many_tiles_go_through_leaf_directories() {
     }
     let (z, x, y) = tile_of_id(first + count).unwrap();
     assert_eq!(reader.tile(z, x, y).unwrap(), None);
-    let report = reader.verify(&Memory::unlimited()).unwrap();
+    let report = reader.verify(&bounded()).unwrap();
     assert_eq!(report.tiles, count);
 }
 
@@ -734,4 +800,101 @@ fn a_write_that_fails_at_any_operation_ends_in_an_error() {
         );
     }
     verify(expected).unwrap();
+}
+
+/// A source that counts the bytes read from it.
+struct Counting {
+    inner: Mem,
+    read: AtomicU64,
+}
+
+impl ByteSource for Counting {
+    fn len(&self) -> u64 {
+        self.inner.len()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        self.read.fetch_add(buf.len() as u64, Ordering::Relaxed);
+        self.inner.read_at(offset, buf)
+    }
+}
+
+/// A map without tiles of one parent with `children` children of one node each, whose
+/// partners are given by `partner(child)`, in chunks of 131,072 values (1 MiB of `u64`).
+fn siblings(children: u32, partner: impl Fn(u32) -> u32) -> Vec<u8> {
+    let n = u64::from(children);
+    let info = MapInfo {
+        nodes: n,
+        regions: n + 1,
+        edges: 0,
+        summary: 0,
+    };
+    let mut table = RegionTable::root(n);
+    for i in 1..=children {
+        table.parent.push(0);
+        table.kind.push(RegionKind::Community as u8);
+        table.nodes.push(1);
+        table.internal.push(0);
+        table.volume.push(0);
+        table.communities.push(0);
+        table.partner.push(partner(i));
+    }
+    let mut w = MapWriter::create(Mem::new(Vec::new()), &Memory::unlimited(), info).unwrap();
+    write_table(&mut w, &table, 1 << 17).unwrap();
+    w.finish(&metadata()).unwrap().into_inner()
+}
+
+#[test]
+fn verify_reads_each_chunk_a_bounded_number_of_times() {
+    // Partners alternating between the two ends of 300,000 siblings: a check that read
+    // each partner's parent would inflate a 1 MiB chunk for almost every region.
+    let last = 299_999;
+    let file = siblings(300_000, |i| if i % 2 == 1 && i != last { last } else { 1 });
+    let len = file.len() as u64;
+    let source = Counting {
+        inner: Mem::new(file),
+        read: AtomicU64::new(0),
+    };
+    let reader = MapReader::open(&source).unwrap();
+    reader.verify(&bounded()).unwrap();
+    let read = source.read.load(Ordering::Relaxed);
+    // 79,689 bytes of a 44,028-byte file when this was written.
+    assert!(
+        read <= 4 * len,
+        "verify read {read} bytes of a {len}-byte file"
+    );
+    // A partner outside the siblings is found by the same pass.
+    let mut outside = RegionTable::root(2);
+    for (parent, nodes) in [(0, 2), (1, 1), (1, 1)] {
+        outside.parent.push(parent);
+        outside.kind.push(RegionKind::Community as u8);
+        outside.nodes.push(nodes);
+        outside.internal.push(0);
+        outside.volume.push(0);
+        outside.communities.push(0);
+        outside.partner.push(0);
+    }
+    outside.partner[2] = 1;
+    let info = MapInfo {
+        nodes: 2,
+        regions: 4,
+        edges: 0,
+        summary: 0,
+    };
+    let mut w = MapWriter::create(Mem::new(Vec::new()), &Memory::unlimited(), info).unwrap();
+    write_table(&mut w, &outside, 2).unwrap();
+    refused(
+        verify(w.finish(&metadata()).unwrap().into_inner()),
+        "a partner that is a parent",
+    );
+}
+
+#[test]
+fn the_memory_verify_keeps_per_region_is_held_to_the_budget() {
+    // 3,000,000 regions declared in a few kilobytes: verify asks the budget first.
+    let file = siblings(3_000_000, |_| 0);
+    assert!(file.len() < 1 << 20, "{} bytes", file.len());
+    let reader = MapReader::open(Mem::new(file)).unwrap();
+    let small = Memory::from(Arc::new(Budget::new(16 << 20)));
+    assert!(matches!(reader.verify(&small), Err(EgmapError::Memory(_))));
 }

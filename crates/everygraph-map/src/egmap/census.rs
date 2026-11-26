@@ -180,7 +180,10 @@ impl Census {
                 u64::from(a.z_off),
                 a.anchor as u64,
             ]);
-            let key = keys[usize_of(a.entity)];
+            let key = keys
+                .get(usize_of(a.entity))
+                .copied()
+                .unwrap_or((false, tile.cover));
             if !Self::record(
                 &mut self.labels,
                 &mut self.reservation,

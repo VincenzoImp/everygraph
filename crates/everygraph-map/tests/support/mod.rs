@@ -279,15 +279,27 @@ pub fn pyramid(seed: u64, zmax: u8) -> Pyramid {
         if d.depth == 2 && aggregate == 0 {
             aggregate = i;
         } else if d.depth < 3 {
+            // Siblings do not overlap, as in disc packing (§ 3.5): a few tries each.
+            let mut placed: Vec<(f32, f32, f32)> = Vec::new();
             for _ in 0..2 + rng.below(3) {
-                let (x, y, r) = child(&mut rng, d.x, d.y, d.r, 0.15, 0.4);
-                discs.push(Disc {
-                    parent: i,
-                    x,
-                    y,
-                    r,
-                    depth: d.depth + 1,
-                });
+                for _ in 0..200 {
+                    let (x, y, r) = child(&mut rng, d.x, d.y, d.r, 0.15, 0.4);
+                    let apart = placed.iter().all(|&(a, b, q)| {
+                        let (dx, dy) = (f64::from(x - a), f64::from(y - b));
+                        dx * dx + dy * dy > f64::from(r + q) * f64::from(r + q) * 1.0001
+                    });
+                    if apart {
+                        placed.push((x, y, r));
+                        discs.push(Disc {
+                            parent: i,
+                            x,
+                            y,
+                            r,
+                            depth: d.depth + 1,
+                        });
+                        break;
+                    }
+                }
             }
         }
         i += 1;
@@ -436,8 +448,44 @@ pub fn pyramid(seed: u64, zmax: u8) -> Pyramid {
         };
         place(x, y, r, node.zmin, &mut |t| t.nodes.push(node));
     }
+    // The covering region of each tile: the deepest drawn region that covers it. A tile
+    // without entities is written where its cover differs from its parent tile's (§ 3.5).
+    let cover = |z: u8, tx: u32, ty: u32| -> usize {
+        order[1..]
+            .iter()
+            .copied()
+            .filter(|&g| zmin[g] <= z && covers(discs[g].x, discs[g].y, discs[g].r, z, tx, ty))
+            .max_by_key(|&g| discs[g].depth)
+            .unwrap_or(0)
+    };
+    for &g in &order[1..] {
+        let d = discs[g];
+        for z in zmin[g]..=zmax {
+            let s = f64::from(1_u32 << z);
+            let lo = |c: f32| ((f64::from(c) - f64::from(d.r)) * s).floor().max(0.0) as u32;
+            let hi =
+                |c: f32| (((f64::from(c) + f64::from(d.r)) * s).floor() as u32).min((1 << z) - 1);
+            for tx in lo(d.x)..=hi(d.x) {
+                for ty in lo(d.y)..=hi(d.y) {
+                    let up = if z == 0 {
+                        0
+                    } else {
+                        cover(z - 1, tx / 2, ty / 2)
+                    };
+                    let c = cover(z, tx, ty);
+                    if c != 0 && c == g && c != up {
+                        tiles
+                            .entry((z, tx, ty))
+                            .or_insert_with(|| Tile::new(z, tx, ty));
+                    }
+                }
+            }
+        }
+    }
     let mut tiles: Vec<Tile> = tiles.into_values().collect();
     for t in &mut tiles {
+        let c = cover(t.z, t.x, t.y);
+        t.cover = id_of[c];
         t.regions.sort_by_key(|g| g.id);
         t.nodes.sort_by_key(|v| v.id);
         let mut strings: Vec<String> = Vec::new();
@@ -470,6 +518,19 @@ pub fn pyramid(seed: u64, zmax: u8) -> Pyramid {
                     z_on: v.zmin,
                     z_off: zmax + 1,
                     anchor: Anchor::Below,
+                });
+            }
+        }
+        if c != 0 {
+            let z_off = size(discs[c].r, RULE.label_off_px).min(zmax + 1);
+            let rank = t.cover - first_of(table.parent[t.cover as usize]) + 1;
+            if t.z < z_off {
+                labels.push(Label {
+                    entity: (t.regions.len() + t.nodes.len()) as u32,
+                    text: intern(format!("#{rank}")),
+                    z_on: zmin[c],
+                    z_off,
+                    anchor: Anchor::Centre,
                 });
             }
         }

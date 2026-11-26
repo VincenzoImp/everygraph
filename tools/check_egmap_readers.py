@@ -21,7 +21,7 @@
 5. Damaged copies are refused by both the Python and the Rust reader: header counts that
    disagree, a section table of another magic, a cut file, a run length of 2, a header
    max zoom deeper than the tiles, metadata that is not JSON, a tile block numbered 0,
-   and a region tree 256 deep.
+   a tile whose covering region is taken away, and a region tree 256 deep.
 
 Usage: uv run --script tools/check_egmap_readers.py
 Exit status 0 if the check passes, 1 otherwise.
@@ -192,7 +192,8 @@ def main():
     deep[101] = 9
     refused("a header max zoom deeper than the tiles", bytes(deep))
     refused("metadata that is not JSON", with_metadata(data, b"not json at all"))
-    refused("a tile block number 0", block_zero(data))
+    refused("a tile block number 0", retile(data, block_zero))
+    refused("a tile without the region that covers it", retile(data, uncovered))
     chain = WORK / "chain.egmap"
     run([*SAMPLE, "chain", "256", chain])
     refused("a region tree 256 deep", chain.read_bytes())
@@ -259,27 +260,52 @@ def with_metadata(data, text):
     return bytes(out)
 
 
-def block_zero(data):
-    """`data` with its first tile's first block numbered 0 (bit 31 kept); the tile data,
-    with the changed tile, moves to the end of the file."""
+def retile(data, pick):
+    """`data` with one tile's payload changed: `pick(payload)` returns the changed payload
+    of the first tile it accepts, or None. The tile data, with the changed tile, moves to
+    the end of the file."""
     tiles_at, tiles_len = struct.unpack_from("<QQ", data, 56)
     root_len = struct.unpack_from("<Q", data, 16)[0]
     raw = gzip.decompress(data[127:127 + root_len])
     n, p = varint(raw, 0)
     for _ in range(2 * n):
         _, p = varint(raw, p)
-    first, _ = varint(raw, p)
-    payload = bytearray(gzip.decompress(data[tiles_at:tiles_at + first]))
-    payload[48:52] = struct.pack("<I", 0x80000000)
-    packed = gzip.compress(bytes(payload), mtime=0)
-    moved = packed + data[tiles_at + first:tiles_at + tiles_len]
+    lengths = []
+    for _ in range(n):
+        v, p = varint(raw, p)
+        lengths.append(v)
+    at = 0
+    for k, length in enumerate(lengths):
+        changed = pick(bytearray(gzip.decompress(data[tiles_at + at:tiles_at + at + length])))
+        if changed is not None:
+            break
+        at += length
+    else:
+        raise SystemExit("FAILED: no tile to change in the sample")
+    packed = gzip.compress(bytes(changed), mtime=0)
+    tiles = data[tiles_at:tiles_at + tiles_len]
+    moved = tiles[:at] + packed + tiles[at + length:]
 
     def edit(cols):
-        cols[2][0] = len(packed)
+        cols[2][k] = len(packed)
 
     out = bytearray(with_root(data, edit) + moved)
     out[56:72] = struct.pack("<QQ", len(data), len(moved))
     return bytes(out)
+
+
+def block_zero(payload):
+    """The first block numbered 0 (bit 31 kept)."""
+    payload[48:52] = struct.pack("<I", 0x80000000)
+    return payload
+
+
+def uncovered(payload):
+    """A tile with a covering region and no label of it, its cover set to 0."""
+    if struct.unpack_from("<I", payload, 20)[0] == 0 or len(payload) == 48:
+        return None
+    payload[20:24] = bytes(4)
+    return payload
 
 
 if __name__ == "__main__":

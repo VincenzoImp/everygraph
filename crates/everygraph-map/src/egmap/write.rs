@@ -32,7 +32,7 @@ impl MapInfo {
         if !summary && tile.regions.iter().any(|g| g.kind == RegionKind::Other) {
             return Some("only a summary map has regions of kind other");
         }
-        let regions = tile.regions.iter().map(|g| g.id);
+        let regions = tile.regions.iter().map(|g| g.id).chain([tile.cover]);
         let nodes = tile.nodes.iter().map(|v| v.id);
         let homes = tile.nodes.iter().map(|v| v.region);
         if regions.chain(homes).any(|id| u64::from(id) >= self.regions)

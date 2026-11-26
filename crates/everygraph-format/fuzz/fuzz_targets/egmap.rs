@@ -12,16 +12,20 @@
 //! - 2 mod 4: the rest damages a small valid map (each 3 bytes: a position, a byte to
 //!   xor), which reaches framing that is valid up to a late byte;
 //! - 3 mod 4: the rest is a zoom pair, a tile count, then the uncompressed root
-//!   directory, leaf directory and tile payload (each but the last after a `u16`
-//!   length). The harness compresses them and lays them out in the small map, so that
-//!   the directory and tile rules are reached behind gzip's check.
+//!   directory, leaf directory and tile payload, each after a `u16` length, and at last
+//!   an array number and the values of one chunk. The harness compresses them and lays
+//!   them out in the small map, the chunk as the whole of one `regions.*` array, so that
+//!   the directory, tile and region-table rules are reached behind gzip's check.
+//!
+//! `verify` runs under a budget of 64 MiB, the allocation limit of `tools/fuzz.sh`, so
+//! the memory it keeps per declared region is refused, not allocated.
 
 #![no_main]
 
 use std::io::Write;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use everygraph_core::{Memory, MemorySource};
+use everygraph_core::{Budget, Memory, MemorySource};
 use everygraph_map::egmap::{
     Anchor, Label, MapInfo, MapReader, MapWriter, Metadata, Node, Region, RegionKind, Tile,
     Values, ZoomRule,
@@ -49,7 +53,7 @@ fn file(bytes: Vec<u8>) {
     for s in reader.sections() {
         let _ = reader.chunk(s, 0);
     }
-    let _ = reader.verify(&Memory::unlimited());
+    let _ = reader.verify(&Memory::from(Arc::new(Budget::new(64 << 20))));
 }
 
 fn gzip(data: &[u8]) -> Vec<u8> {
@@ -157,19 +161,32 @@ fn laid_out(rest: &[u8]) -> Option<Vec<u8>> {
         parts = tail;
         Some(part)
     };
-    let (root, leaf) = (take()?, take()?);
-    let (root, leaf, payload) = (gzip(root), gzip(leaf), gzip(parts));
+    let (root, leaf, tile) = (take()?, take()?, take()?);
+    let chunk = parts.split_first();
+    let (root, leaf, payload) = (gzip(root), gzip(leaf), gzip(tile));
     let mut map = sample().to_vec();
     let table_at = 127 + usize::try_from(u64_at(&map, 16)).ok()?;
     let entries = u32::from_le_bytes(map[table_at + 12..table_at + 16].try_into().ok()?);
-    let table = map[table_at..table_at + 48 + 64 * usize::try_from(entries).ok()?].to_vec();
+    let mut table = map[table_at..table_at + 48 + 64 * usize::try_from(entries).ok()?].to_vec();
     if 127 + root.len() + table.len() > 16_384 {
         return None;
+    }
+    let len = |b: &[u8]| u64::try_from(b.len()).expect("a length fits in 64 bits");
+    if let Some((&which, values)) = chunk {
+        // The table's names are sorted, and the seven `regions.*` arrays follow the
+        // three of the nodes: entries 3 to 9.
+        let entry = 48 + 64 * (3 + usize::from(which % 7));
+        let packed = gzip(values);
+        let at = len(&map);
+        map.extend_from_slice(&packed);
+        map.extend_from_slice(&0_u64.to_le_bytes());
+        map.extend_from_slice(&len(&packed).to_le_bytes());
+        table[entry + 48..entry + 56].copy_from_slice(&at.to_le_bytes());
+        table[entry + 56..entry + 64].copy_from_slice(&(len(&packed) + 16).to_le_bytes());
     }
     map[127..16_384].fill(0);
     map[127..127 + root.len()].copy_from_slice(&root);
     map[127 + root.len()..127 + root.len() + table.len()].copy_from_slice(&table);
-    let len = |b: &[u8]| u64::try_from(b.len()).expect("a length fits in 64 bits");
     let tiles_at = len(&map);
     map.extend_from_slice(&payload);
     let leaves_at = len(&map);

@@ -7,8 +7,20 @@ use everygraph_core::{ByteSource, Memory, SegVec, usize_of};
 
 use super::census::{Census, CensusReport};
 use super::read::{ArrayReader, MapReader};
-use super::tile::inside;
-use super::{EgmapError, RegionKind, malformed};
+use super::tile::{covers, inside};
+use super::{EgmapError, RegionKind, Tile, malformed};
+
+/// The children of one parent, as `check_regions` reads them.
+#[derive(Clone, Copy, Debug, Default)]
+struct Run {
+    parent: u64,
+    first: u64,
+    nodes: u64,
+    internal: u64,
+    volume: u64,
+    /// The smallest and largest partner named, 0 left out.
+    partners: Option<(u64, u64)>,
+}
 
 /// What the tiles showed of a region: its first record.
 #[derive(Clone, Copy, Debug, Default)]
@@ -24,8 +36,8 @@ struct Seen {
 impl<S: ByteSource> MapReader<S> {
     /// Reads all of the file and checks every rule a reader can (§ 2.4); gives the
     /// census of the whole pyramid (§ 6), whose faults are not errors of the format.
-    /// It keeps 32 bytes per region and the census's per entity, reserved through
-    /// `memory`, and reads the tiles twice.
+    /// It keeps 41 bytes per region and the census's per entity, reserved through
+    /// `memory`, reads the tiles twice and each array chunk a bounded number of times.
     ///
     /// # Errors
     ///
@@ -60,8 +72,9 @@ impl<S: ByteSource> MapReader<S> {
                 self.chunk(s, i)?;
             }
         }
-        let children = self.check_regions(&seen, memory)?;
+        let (parents, children) = self.check_regions(&seen, memory)?;
         self.for_each_tile(|t| {
+            Self::check_cover(&t, &seen, &parents)?;
             for v in &t.nodes {
                 let g = seen[usize_of(v.region)];
                 if g.seen
@@ -93,17 +106,18 @@ impl<S: ByteSource> MapReader<S> {
         Ok(ArrayReader::new(self, s))
     }
 
-    /// The rules of the region table (§ 5.3) and its ties to the tiles (§ 3.6); gives
-    /// the number of children of each region.
+    /// The rules of the region table (§ 5.3) and its ties to the tiles (§ 3.6), in one
+    /// forward pass over each array; gives each region's parent and number of children.
     fn check_regions(
         &self,
         seen: &SegVec<Seen>,
         memory: &Memory,
-    ) -> Result<SegVec<u32>, EgmapError> {
+    ) -> Result<(SegVec<u32>, SegVec<u32>), EgmapError> {
         let info = self.info();
         let count = seen.len();
         let mut depth = SegVec::try_with_len(memory, "map verify: depths", count, 0_u8)?;
         let mut children = SegVec::try_with_len(memory, "map verify: children", count, 0_u32)?;
+        let mut parents = SegVec::try_with_len(memory, "map verify: parents", count, 0_u32)?;
         let array = |n: &str| self.array(&format!("regions.{n}"));
         let (mut parent, mut kind, mut nodes) = (array("parent")?, array("kind")?, array("nodes")?);
         let (mut internal, mut volume) = (array("internal")?, array("volume")?);
@@ -115,21 +129,26 @@ impl<S: ByteSource> MapReader<S> {
             array("internal")?,
             array("volume")?,
         ];
-        // The sums of the children of the parent being read: (parent, nodes, internal, volume).
-        let mut run: Option<(u64, u64, u64, u64)> = None;
-        let close = |run: Option<(u64, u64, u64, u64)>, up: &mut [ArrayReader<'_, S>; 4]| {
-            let Some((p, n, i, v)) = run else {
+        // The children of the parent being read, which have consecutive ids.
+        let mut run: Option<Run> = None;
+        let close = |run: Option<Run>, end: u64, up: &mut [ArrayReader<'_, S>; 4]| {
+            let Some(r) = run else {
                 return Ok(());
             };
-            if n > up[1].get(p)? || i > up[2].get(p)? || v > up[3].get(p)? {
+            let p = r.parent;
+            if r.nodes > up[1].get(p)? || r.internal > up[2].get(p)? || r.volume > up[3].get(p)? {
                 return Err(malformed(format!(
                     "the children of region {p} add up to more than it"
+                )));
+            }
+            if r.partners.is_some_and(|(lo, hi)| lo < r.first || hi >= end) {
+                return Err(malformed(format!(
+                    "a child of region {p} has a partner that is not its sibling"
                 )));
             }
             Ok(())
         };
         let (mut last_parent, mut last_nodes) = (0, 0);
-        let mut siblings = array("parent")?;
         for i in 0..info.regions {
             let (p, k, n) = (parent.get(i)?, kind.get(i)?, nodes.get(i)?);
             let k = u8::try_from(k)
@@ -175,7 +194,7 @@ impl<S: ByteSource> MapReader<S> {
                 || n == 0
                 || inner.checked_mul(2).is_none_or(|x| x > vol)
                 || holds != (held > 0)
-                || (mate != 0 && (mate >= info.regions || mate == i || siblings.get(mate)? != p))
+                || mate == i
             {
                 return Err(malformed(format!("region {i} breaks a rule of § 5.3")));
             }
@@ -193,18 +212,71 @@ impl<S: ByteSource> MapReader<S> {
                     "region {i} disagrees with its parent (colour, zmin or disc)"
                 )));
             }
-            if run.is_some_and(|r| r.0 != p) {
-                close(run.take(), &mut up)?;
+            parents[iu] = u32::try_from(p).unwrap_or(u32::MAX);
+            if run.as_ref().is_some_and(|r| r.parent != p) {
+                close(run.take(), i, &mut up)?;
             }
-            let (_, sn, si, sv) = run.get_or_insert((p, 0, 0, 0));
+            let r = run.get_or_insert(Run {
+                parent: p,
+                first: i,
+                ..Run::default()
+            });
             let sum = |a: u64, b: u64| {
                 a.checked_add(b)
                     .ok_or_else(|| malformed("counts past 2^64"))
             };
-            (*sn, *si, *sv) = (sum(*sn, n)?, sum(*si, inner)?, sum(*sv, vol)?);
+            (r.nodes, r.internal, r.volume) = (
+                sum(r.nodes, n)?,
+                sum(r.internal, inner)?,
+                sum(r.volume, vol)?,
+            );
+            if mate != 0 {
+                let (lo, hi) = r.partners.unwrap_or((mate, mate));
+                r.partners = Some((lo.min(mate), hi.max(mate)));
+            }
         }
-        close(run, &mut up)?;
-        Ok(children)
+        close(run, info.regions, &mut up)?;
+        Ok((parents, children))
+    }
+
+    /// The tie of a tile's covering region to the tree (§ 3.6): every entity of the tile
+    /// lies under it, it covers the tile, and none of its children on those paths does.
+    fn check_cover(t: &Tile, seen: &SegVec<Seen>, parents: &SegVec<u32>) -> Result<(), EgmapError> {
+        let c = t.cover;
+        let covers_tile = |g: u32| {
+            let s = seen[usize_of(g)];
+            s.seen && covers(s.disc.0, s.disc.1, s.disc.2, t.z, t.x, t.y)
+        };
+        let bad = || {
+            malformed(format!(
+                "tile {}/{}/{}: its covering region is not the deepest one over its entities",
+                t.z, t.x, t.y
+            ))
+        };
+        let k = seen[usize_of(c)];
+        if c != 0 && k.seen && (!covers_tile(c) || k.zmin > t.z) {
+            return Err(bad());
+        }
+        let starts = t
+            .regions
+            .iter()
+            .map(|g| g.id)
+            .chain(t.nodes.iter().map(|v| v.region));
+        for start in starts {
+            let (mut x, mut below) = (start, None);
+            // The tree is at most 255 deep (§ 3.2), as `check_regions` found.
+            for _ in 0..=256 {
+                if x == c || x == 0 {
+                    break;
+                }
+                below = Some(x);
+                x = parents[usize_of(x)];
+            }
+            if x != c || below.is_some_and(|b| b != start && covers_tile(b)) {
+                return Err(bad());
+            }
+        }
+        Ok(())
     }
 
     /// The rules of § 5.3 on the node and panel arrays.
