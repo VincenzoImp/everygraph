@@ -76,14 +76,7 @@ impl<'a, R: ByteSource + Sync> Reversed<'a, R> {
         block_entries: u64,
     ) -> Result<Self, BuildError> {
         let entry = |v: u32| index.entry_offset(NodeId::new(v)).get();
-        let mut starts = vec![0];
-        for b in 0..index.blocks() {
-            let end = index.block_nodes(b).end;
-            let first = *starts.last().expect("a start");
-            if entry(end) - entry(first) >= block_entries || end == index.nodes() {
-                starts.push(end);
-            }
-        }
+        let starts = block_starts(index, block_entries);
         let mapped = source.slice(data.offset..data.offset + data.len);
         // A block in flight holds its decoded lists and, when the section is not in
         // memory, its records.
@@ -117,6 +110,22 @@ impl<'a, R: ByteSource + Sync> Reversed<'a, R> {
             _buffers: buffers,
         })
     }
+}
+
+/// The first node of each block of out-lists the transposition reads, then the node
+/// count: runs of the index's blocks of at least `block_entries` entries, the last one
+/// shorter.
+pub(super) fn block_starts(index: &AdjacencyIndex, block_entries: u64) -> Vec<u32> {
+    let entry = |v: u32| index.entry_offset(NodeId::new(v)).get();
+    let mut starts = vec![0];
+    for b in 0..index.blocks() {
+        let end = index.block_nodes(b).end;
+        let first = *starts.last().expect("a start");
+        if entry(end) - entry(first) >= block_entries || end == index.nodes() {
+            starts.push(end);
+        }
+    }
+    starts
 }
 
 impl<R: ByteSource + Sync> Items for Reversed<'_, R> {

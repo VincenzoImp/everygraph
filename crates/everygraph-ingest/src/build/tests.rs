@@ -1086,6 +1086,48 @@ fn the_in_adjacency_added_later_is_the_one_the_build_writes() {
     );
 }
 
+/// A transposition that reads many blocks of out-lists, with events, every bucket
+/// spilled: the in-lists are the transpose, multiplicities included, the file is sound,
+/// and the bytes are those of a build with the default sizes.
+#[test]
+fn a_transposition_over_many_blocks_is_the_transpose() {
+    let graph = GraphOptions {
+        directed: true,
+        self_loops: SelfLoops::Keep,
+        duplicates: Duplicates::Events,
+    };
+    let text = mixed_text(300_000, 0);
+    let tuning = Tuning {
+        transpose_block: 16,
+        resident_items: 40,
+        ..TUNING
+    };
+    let small = Run {
+        tuning: &tuning,
+        ..Run::new(graph)
+    };
+    let (bytes, report) = small.bytes(&text).unwrap();
+    assert_eq!(report.regime, Regime::OnDisk);
+    let out = AdjacencyIndex::parse(&section_of(&bytes, OUT_INDEX).unwrap()).unwrap();
+    assert!(out.blocks() >= 5, "{} blocks", out.blocks());
+    let blocks = transpose::block_starts(&out, tuning.transpose_block).len() - 1;
+    assert_eq!(blocks, out.blocks());
+    let stored = read_back(&bytes);
+    assert!(stored.events_section);
+    let inn = stored.in_lists.as_ref().expect("an in-adjacency");
+    assert!(*inn == transposed(&stored.lists), "not the transpose");
+    let deep = verify(
+        &MemorySource::new(&bytes[..]),
+        Depth::Deep,
+        &Memory::unlimited(),
+    )
+    .unwrap();
+    assert!(deep.is_intact(), "{:?}", deep.problems);
+    assert_eq!(deep.adjacencies.len(), 2);
+    let (default, _) = Run::new(graph).bytes(&text).unwrap();
+    assert!(bytes == default, "the block size changed the bytes");
+}
+
 /// Adding the in-adjacency is an update by the container's commit protocol: a refusal
 /// for the budget, or a write that fails at any point, leaves the file as it was.
 #[test]

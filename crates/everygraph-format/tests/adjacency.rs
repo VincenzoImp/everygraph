@@ -11,7 +11,7 @@ mod support;
 
 use everygraph_core::{Memory, NodeId};
 use everygraph_format::adjacency::{
-    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode, merge,
+    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode, merge, union_degrees,
 };
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
@@ -467,6 +467,22 @@ proptest! {
         ).unwrap();
         prop_assert!(merged == encode(&offsets, &targets).unwrap());
         prop_assert!(held.bytes() >= merged.data.len() as u64);
+        // The degrees of the union, a node's own entry counted twice.
+        let mut degrees = vec![0_u32; n];
+        union_degrees(
+            &Adjacency::new(&ia, &ea.data).unwrap(),
+            &Adjacency::new(&ib, &eb.data).unwrap(),
+            &Memory::unlimited(),
+            &mut degrees,
+        ).unwrap();
+        let want: Vec<u32> = (0..n)
+            .map(|v| {
+                let l = list(&offsets, &targets, v);
+                let own = l.contains(&u32::try_from(v).unwrap());
+                u32::try_from(l.len() + usize::from(own)).unwrap()
+            })
+            .collect();
+        prop_assert_eq!(degrees, want);
     }
 
     #[test]
