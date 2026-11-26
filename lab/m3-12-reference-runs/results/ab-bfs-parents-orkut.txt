@@ -1,0 +1,14 @@
+# Exploratory interleaved A/B (2026-11-26 15:57, machine shared, load about 20): one binary,
+# crates/everygraph-kernels/examples/edge_map_bench at the merge base of this branch,
+# orkut, raw CSR in the heap, BFS from the highest-degree node, 16 threads, taskset -c 0-15,
+# best of 5 per process, the two kernels alternating over 4 rounds:
+#   edge_map_bench run --graph csr/orkut --source raw --kernel bfs|bfs-parents --threads 16 --reps 5
+# round kernel seconds_best
+1 bfs 0.026891246
+1 bfs-parents 0.115587408
+2 bfs 0.026311692
+2 bfs-parents 0.112450646
+3 bfs 0.02788814
+3 bfs-parents 0.121187709
+4 bfs 0.026418963
+4 bfs-parents 0.113975276

@@ -237,12 +237,16 @@ primary = "seconds"
 [[benchmark]]
 name = "friendster-ooc"
 group = "out-of-core"
-description = "BFS on Friendster, compressed data part memory-mapped under a limit below its size"
+description = "BFS on Friendster, compressed data part memory-mapped under a limit below its size, cold"
 memory_limit = "2G"
 warmup = 0
-dataset_path = "csr/friendster"
-command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{stores}/friendster", "--source", "mmap", "--kernel", "bfs", "--threads", "{threads}", "--reps", "1"]
-conditions = { graph = "friendster", code = "everygraph-kernels traversal (#49)", storage = "compressed data part memory-mapped, 2 GiB limit", level = "in-process kernel time" }
+# The store is the dataset, so that the harness evicts its private copy before each
+# repetition (#265): warm, the page cache could hold the data part and nothing would be
+# read from storage. Every row records read_bytes, pgmajfault and refaults.
+cache = "cold"
+dataset_path = "{work}/stores/friendster"
+command = ["{bench}", "run", "--graph", "{data}/csr/friendster", "--store", "{dataset}", "--source", "mmap", "--kernel", "bfs", "--threads", "{threads}", "--reps", "1"]
+conditions = { graph = "friendster", code = "everygraph-kernels traversal (#49)", storage = "compressed data part memory-mapped, 2 GiB limit, evicted before the run", level = "in-process kernel time" }
 record_json = { hash = "/hash" }
 metric = [
   { name = "seconds", json = "/seconds_best", unit = "s" },

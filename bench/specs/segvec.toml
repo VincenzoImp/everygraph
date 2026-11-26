@@ -92,6 +92,7 @@ name = "no-oom"
 group = "no-oom"
 description = "every array through the accountant, budget = cgroup limit - 64 MiB: refused before allocating, or run without an OOM kill"
 dataset_path = "csr/{graph}"
+warm_ok = "below the dataset's size the program refuses before it reads the graph"
 matrix = { graph = ["lj", "orkut"], limit = ["256M", "512M", "1G", "2G"] }
 memory_limit = "{limit}"
 repetitions = 1
