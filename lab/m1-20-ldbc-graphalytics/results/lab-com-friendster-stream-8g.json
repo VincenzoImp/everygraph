@@ -1,0 +1,62 @@
+{
+  "chunk_entries": 65536,
+  "graph": "com-friendster",
+  "load": "stream",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 8373764096,
+  "rows": [
+    {
+      "algorithm": "bfs",
+      "bits_fnv1a64": "637b352abc3327f3",
+      "checked": 65608366,
+      "examples": [],
+      "graph": "com-friendster",
+      "implementation": "lab-bfs-do/stream",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 63.737154446,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "bits_fnv1a64": "cffc73254d474bf7",
+      "checked": 65608366,
+      "examples": [],
+      "graph": "com-friendster",
+      "implementation": "lab-pr-f64/stream",
+      "max_rel_error": 2.872674297599616e-14,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 180.021923009,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "bits_fnv1a64": "59574f291b9fe45d",
+      "checked": 65608366,
+      "examples": [],
+      "graph": "com-friendster",
+      "implementation": "lab-pr-f32/stream",
+      "max_rel_error": 6.508649729693487e-6,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 217.38383113,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "bits_fnv1a64": "1b20fb8b966beb85",
+      "checked": 65608366,
+      "examples": [],
+      "graph": "com-friendster",
+      "implementation": "lab-wcc-semiext/stream",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 33.228070679,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}
