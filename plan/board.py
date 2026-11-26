@@ -2,11 +2,12 @@
 """Keep the GitHub project board in step with the work.
 
 usage: plan/board.py todo|doing|done ISSUE [ISSUE ...]
-       plan/board.py sync        # closed issues -> Done; open issues with an open PR -> In Progress
+       plan/board.py sync        # plan issues missing from the board -> added; closed issues -> Done;
+                                 # open issues with an open PR -> In Progress
 
 The board is user project 7 of VincenzoImp. Status options: Todo, In Progress, Done.
 """
-import json, subprocess, sys, time
+import json, pathlib, subprocess, sys
 
 OWNER, NUMBER, REPO = "VincenzoImp", "7", "VincenzoImp/everygraph"
 PROJECT_ID = "PVT_kwHOA6w0f84BtBx7"
@@ -32,17 +33,18 @@ def set_status(item_id, state):
        "--single-select-option-id", OPTION[state])
 
 
+def add(n):
+    out = gh("project", "item-add", NUMBER, "--owner", OWNER, "--url",
+             f"https://github.com/{REPO}/issues/{n}", "--format", "json")
+    board[n] = (json.loads(out)["id"], None)   # a new item has no status yet
+
+
 cmd = sys.argv[1]
 board = items()
 if cmd in OPTION:
     for n in map(int, sys.argv[2:]):
         if n not in board:
-            gh("project", "item-add", NUMBER, "--owner", OWNER, "--url", f"https://github.com/{REPO}/issues/{n}")
-            for _ in range(6):          # the new item can take a moment to appear in the list
-                board = items()
-                if n in board:
-                    break
-                time.sleep(2)
+            add(n)
         if board[n][1] != cmd:
             set_status(board[n][0], cmd)
         print(f"#{n} -> {cmd}")
@@ -50,12 +52,16 @@ elif cmd == "sync":
     issues = json.loads(gh("issue", "list", "-R", REPO, "--state", "all", "--limit", "500", "--json", "number,state"))
     prs = json.loads(gh("pr", "list", "-R", REPO, "--state", "open", "--limit", "200", "--json", "closingIssuesReferences"))
     in_pr = {r["number"] for p in prs for r in p.get("closingIssuesReferences", [])}
+    planned = set(json.loads((pathlib.Path(__file__).parent / "published.json").read_text()).values())
     for i in issues:
         n = i["number"]
         if n not in board:
-            continue
-        want = "done" if i["state"] == "CLOSED" else ("doing" if n in in_pr else None)
-        if want and board[n][1] != want:
+            if n not in planned:
+                continue
+            add(n)
+            print(f"#{n} added")
+        want = "done" if i["state"] == "CLOSED" else ("doing" if n in in_pr else "todo")
+        if board[n][1] != want and (want != "todo" or board[n][1] is None):
             set_status(board[n][0], want)
             print(f"#{n} -> {want}")
 else:

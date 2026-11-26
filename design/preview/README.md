@@ -1,11 +1,13 @@
-# Design previews — for the owner's review
+# Design previews — the approved design
 
-Everything here is a **mockup with invented data**. Nothing is a measurement and nothing
-is built. The purpose is to disagree now, cheaply, rather than at the end.
+Everything here is a **mockup with invented data**. Nothing is a measurement.
 
-How to answer: for each **Choice**, the recommended option is marked ★. Say only where
-you disagree; silence means "go with ★" and it is recorded as provisional in
-[`../DECISIONS.md`](../DECISIONS.md).
+The owner approved these previews on 2026-11-25. In every **Choice** the option marked ★
+is the decision ([`../DECISIONS.md`](../DECISIONS.md), "All remaining preview choices").
+A later row of `DECISIONS.md` wins over this page where the two differ.
+[`style/`](style/README.md) is the approved style; the pages of the earlier rounds
+(`brand/`, `brand2/`, the unstyled `viewer/`) and every screenshot are on the branch
+`design-previews-archive`.
 
 | Preview | What it settles |
 |---|---|
@@ -21,12 +23,11 @@ you disagree; silence means "go with ★" and it is recorded as provisional in
 
 ## 1. The map viewer
 
-**Try it:** [`viewer/index.html`](viewer/index.html) is one self-contained file. Download
-it (on GitHub: open the file, then "Download raw file") and open it in a browser; or copy
-it from the workstation with
-`scp tux@<host>:projects/everygraph/design/preview/viewer/index.html .`
-Wheel to zoom, click to select, `/` to search, and the **Design options** button (bottom
-left) flips every alternative below. All states are in the URL, so a view can be bookmarked.
+**Try it:** [`style/viewer.html`](style/viewer.html) is the approved viewer, in the
+approved style. Clone the repository and open it in a browser. Wheel to zoom, click to
+select, `/` to search, and the **Preview options** popover shows the other states. All
+states are in the URL, so a view can be bookmarked. The screenshots below are of the
+first, unstyled mockup, which had a switch for every alternative.
 
 ### First open: it says what it will do before doing it
 
@@ -220,8 +221,10 @@ The landing page in the three round-1 directions:
 > names) in summaries, "nodes" and "edges" in the API. Alternative: always nodes/edges.
 
 Note: some function names in the notebook and landing images were invented by the
-mockup and differ from [`api.md`](api.md), which is the reference. The notebook also
-shows communities computed with the graph on disk, which the lab has not yet achieved.
+mockup and differ from [`api.md`](api.md); the reference for names is now
+[`docs/api-sketch.md`](../../docs/api-sketch.md). The notebook also shows communities
+computed with the graph on disk; the lab has since done this (`docs/FINDINGS.md`
+§ M1-02).
 
 Screenshots for these pages live on the branch `design-previews-archive` (they are
 linked from here by URL) so that `main` stays small.

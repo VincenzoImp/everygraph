@@ -365,8 +365,7 @@ mod tests {
         assert_eq!((other.current, other.peak), (2, 2));
         assert_eq!(other.kind, MemoryKind::Anonymous);
 
-        // A file-backed pair beyond the table has its own line, not the anonymous one
-        // (review of #154).
+        // A file-backed pair beyond the table has its own line, not the anonymous one.
         budget
             .try_reserve("mapped", MemoryKind::FileBacked, 1 << 40)
             .unwrap();

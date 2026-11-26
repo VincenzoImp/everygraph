@@ -596,7 +596,6 @@ c = g.communities(memory="6GB")     # this call may use up to 6 GB</pre></div>
         <tbody>
           <tr><td><code>eg.read(…)</code></td><td>the peak while building on disk</td><td class="num">—</td><td class="num">5.9 GB</td></tr>
           <tr><td><code>g.communities()</code></td><td>per-node state</td><td class="num">24 bytes</td><td class="num">5.1 GB</td></tr>
-          <tr><td><code>g.communities(precision="low")</code></td><td>per-node state, less of it</td><td class="num">16 bytes</td><td class="num">3.4 GB</td></tr>
         </tbody>
         <caption>The arithmetic is the one the messages print: <span class="num">212,418,907</span> nodes × <span class="num">24</span> bytes = <span class="num">5.1</span>&#8239;GB.</caption>
       </table>
@@ -652,9 +651,8 @@ Dry run: nothing was written.
 (212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
 
   • raise the budget:        g.communities(memory="6GB")     ← smallest that works
-  • or use less state:       g.communities(precision="low")  → needs 3.4 GB
   The edges themselves stay on disk either way.</pre></div>
-      <div class="callout warn"><svg class="ico" width="16" height="16"><use href="#i-warn"/></svg><div><p><b>Warning: lower precision changes the result.</b></p><p><code>precision="low"</code> keeps less state for every node and gives slightly lower quality. Say which one you used when you report a result.</p></div></div>
+      <div class="callout warn"><svg class="ico" width="16" height="16"><use href="#i-warn"/></svg><div><p><b>Warning: a faster mode can change the result.</b></p><p><code>deterministic=False</code> is faster and may give different communities from run to run. Say which one you used when you report a result.</p></div></div>
       <div class="callout"><svg class="ico" width="16" height="16"><use href="#i-info"/></svg><div><p><b>Note: a refusal changes nothing.</b></p><p>The graph file and every earlier result stay exactly as they were.</p></div></div>
 
       <h2 id="terms">Terms</h2>
@@ -695,7 +693,7 @@ Dry run: nothing was written.
       <div class="crumbs"><a href="#">Docs</a> / <a href="#">Python API</a> / Graph</div>
       <h1><span class="q">Graph.</span>communities</h1>
       <pre class="sig"><span class="q muted">Graph.</span><b>communities</b>(*, method=<span class="tok-s">"leiden"</span>, resolution=<span class="tok-n">1.0</span>, deterministic=<span class="tok-k">True</span>,
-                  precision=<span class="tok-s">"high"</span>, memory=<span class="tok-k">None</span>) <span class="ret">→</span> Communities</pre>
+                  memory=<span class="tok-k">None</span>) <span class="ret">→</span> Communities</pre>
       <p>Find the communities of the graph: groups of nodes more connected to each other than to the rest. The answer is the same on every run and on any machine unless you ask otherwise.</p>
       <div class="facts"><span class="tag">Works on views</span><span class="tag">Ignores edge direction</span><span class="tag">Per-node state: <span class="num">24</span> bytes</span></div>
 
@@ -706,7 +704,6 @@ Dry run: nothing was written.
           <tr><td><code>method</code></td><td><code>str</code></td><td><code>"leiden"</code></td><td>How communities are found.</td></tr>
           <tr><td><code>resolution</code></td><td><code>float</code></td><td><code>1.0</code></td><td>Higher values give more, smaller communities.</td></tr>
           <tr><td><code>deterministic</code></td><td><code>bool</code></td><td><code>True</code></td><td>Identical result at any number of cores. <code>False</code> is faster and may differ between runs.</td></tr>
-          <tr><td><code>precision</code></td><td><code>str</code></td><td><code>"high"</code></td><td><code>"low"</code> keeps <span class="num">16</span> bytes for every node instead of <span class="num">24</span>, at slightly lower quality.</td></tr>
           <tr><td><code>memory</code></td><td><code>str | None</code></td><td><code>None</code></td><td>Memory budget for this call, for example <code>"6GB"</code>. <code>None</code> uses the budget already in force.</td></tr>
         </tbody>
       </table>

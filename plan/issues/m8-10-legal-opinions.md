@@ -13,4 +13,6 @@ labels: type:decision, area:launch, P1, risk:high, size:S
 **Acceptance**
 - Written answers on file, or the opinions skipped with the reason written down; the release checklist ({{#m8-08-release}}) has the box "legal opinions recorded or skipped with the reason" ticked
 
+**Depends on** {{#m0-09-name-trademark}}, {{#m5-02-tile-format}}
+
 **Needs the owner's hands.** Engaging and paying a professional is the owner's action; Claude prepares the brief and the documents.

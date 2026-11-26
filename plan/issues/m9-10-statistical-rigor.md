@@ -12,3 +12,5 @@ labels: type:experiment, area:community, P2, risk:medium, size:L
 - [ ] Consensus/stability across seeds as an uncertainty measure shown on the map
 
 **Done when.** A documented recipe "when you need statistical evidence" and a decision on native support.
+
+**Depends on** {{#m4-06-hierarchy-artifact}}, {{#m4-08-community-tools}}

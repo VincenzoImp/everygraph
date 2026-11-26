@@ -171,6 +171,10 @@ pub struct Opts {
     leiden: bool,
     det: bool,
     sub_rounds: usize,
+    // auto rule (sub_rounds == 0): clamp(next_pow2(n_level / sub_div), sub_min, sub_max); m1-04 knobs
+    sub_div: usize,
+    sub_min: usize,
+    sub_max: usize,
     gamma: f64,
     cap: u32,
     max_iters: usize,
@@ -1153,7 +1157,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             o.sub_rounds
         } else {
             // auto: depends on the graph only (never on the thread count): sub-rounds of >= ~16k vertices
-            (n / 16384).next_power_of_two().clamp(256, 1024)
+            (n / o.sub_div.max(1)).next_power_of_two().clamp(o.sub_min, o.sub_max)
         };
         let _r_scratch = res("local moving and refinement: per-thread tables and decode buffers", scratch_bytes(g, pool.current_num_threads()));
         for t in tls.iter() {
@@ -1773,6 +1777,9 @@ pub fn main_leiden(args: Vec<String>) {
         leiden: algo == "leiden",
         det: has("--det"),
         sub_rounds: get("--sub-rounds").map(|s| s.parse().unwrap()).unwrap_or(0),
+        sub_div: get("--sub-div").map(|s| s.parse().unwrap()).unwrap_or(16384),
+        sub_min: get("--sub-min").map(|s| s.parse().unwrap()).unwrap_or(256),
+        sub_max: get("--sub-max").map(|s| s.parse().unwrap()).unwrap_or(1024),
         gamma,
         cap: get("--cap").map(|s| s.parse().unwrap()).unwrap_or(0),
         max_iters: get("--max-iters").map(|s| s.parse().unwrap()).unwrap_or(20),
@@ -1990,6 +1997,9 @@ mod tests {
             leiden: true,
             det: true,
             sub_rounds: 0,
+            sub_div: 16384,
+            sub_min: 256,
+            sub_max: 1024,
             gamma: 1.0,
             cap: 0,
             max_iters: 20,

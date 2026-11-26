@@ -67,6 +67,10 @@ step "In-process references against the Python references"
 step "Toy kernel against everything"
 "$ORACLE" check --corpus "$WORK/ci" --plugin toy --require-python
 
+step "Edge-map proof kernels (#44) against everything, on every source and configuration"
+EVERYGRAPH_ORACLE_CORPUS="$WORK/ci" cargo test -p everygraph-kernels --release --locked \
+    --test oracle -- --nocapture
+
 step "Seeded bugs, with the Python references"
 "$ORACLE" seeded-bugs --corpus "$WORK/ci"
 

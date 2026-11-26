@@ -2,15 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 """The wasm toy check: the same toy kernel, native and wasm32, gives the same result.
 
-There is no real kernel yet. tools/wasm-toy computes the degree of every node of a
-generated graph through the public pieces of everygraph-core (`ByteSource`, `NodeId`,
-`par::map_ranges`) and hashes the result. This script
+tools/wasm-toy computes the degree of every node of a generated graph through the
+public pieces of everygraph-core (`ByteSource`, `NodeId`, `par::map_ranges`), and runs
+the edge-map framework's proof kernels (PageRank, WCC, BFS; everygraph-kernels, #44)
+on the same graph over the raw and the compressed source, and hashes the results. This
+script
 
 1. builds and runs it natively, with the `parallel` feature (rayon), and
 2. builds it for wasm32-unknown-unknown without threads, runs the module in Node,
 
-and requires both to print the same line. Issue m3-11 (determinism CI) replaces the
-toy with the real kernels.
+and requires both to print the same lines, with the two sources agreeing (a kernels
+hash of 0 means they did not). The toy also prints the golden digests of the core's
+numerics (crates/everygraph-core/tests/numerics_golden.rs); the native run checks them
+against the frozen values, so equal lines mean wasm32 has them too. Issue m3-11
+(determinism CI) replaces the toy.
 
 Usage: python3 tools/check_wasm_toy.py
        (from anywhere; needs cargo with the wasm32-unknown-unknown target, and node)
@@ -47,7 +52,7 @@ def main():
     module = TARGET_DIR / "wasm32-unknown-unknown" / "release" / "everygraph_wasm_toy.wasm"
     wasm = run(["node", str(TOY / "run.mjs"), str(module), *GRAPH])
     print(f"wasm32: {wasm}")
-    if native and native == wasm:
+    if native and native == wasm and "kernels-hash" in wasm and "hash=0000000000000000" not in wasm:
         print("ok: the native and the wasm32 runs agree")
         return 0
     print("FAILED: the native and the wasm32 runs differ")

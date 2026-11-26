@@ -9,7 +9,7 @@ labels: type:feature, area:map, P0, risk:medium, size:L, lab-evidence
 - [ ] Production implementation of the layout chosen in {{#m1-07-layout-area}} (disc packing or power-diagram cells)
 - [ ] Input: map hierarchy ({{#m4-07-map-hierarchy}}) and its quotient graphs; output: coordinates and radii/cells per tree node, node coordinates at the leaves — stored as a derived artifact
 - [ ] Parallelize the serial apply pass (lab scaling 6–7× at 32 threads; subtrees are independent)
-- [ ] Deterministic by construction: fixed iteration order, no thread-dependent float merges (the lab found and fixed one)
+- [ ] Deterministic by construction: fixed iteration order, no thread-dependent float merges (the lab found and fixed one). Angles and jitter through `everygraph_core::math` and `everygraph_core::rng` ({{#m2-26-core-math}}, {{#m2-27-counter-rng}}), not `f64::cos`/`sin` (`lab/e-map/gmap/src/layout.rs` l. 139–140) or SplitMix64 streams, so that native and wasm32 give the same bytes
 - [ ] Leaf placement: a few force iterations for small communities, deterministic neighbor-guided packing for large ones
 - [ ] Memory bounded by the accountant; out-of-core for leaves (process subtree by subtree)
 - [ ] Never load the graph into the heap. On Friendster under 16 GiB the lab layout was killed with the graph in the heap (15.7 s) and fit with it memory-mapped (3.7 GiB anonymous), but took 405.1 s against 69.6 s with 56 GiB (5.8×) and re-read 733 GB, with the kernel's default readahead (no `madvise`; `MADV_RANDOM` not tried) ({{#m1-01-e2e-tracer}}, `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 18–19, 22–23). Read the graph in locality order, and lay out the upper levels from the hierarchy's quotient graphs ({{#m4-06-hierarchy-artifact}}) rather than from the full adjacency
@@ -25,5 +25,7 @@ labels: type:feature, area:map, P0, risk:medium, size:L, lab-evidence
 - Friendster layout completes under a 16 GiB budget (the lab extrapolated ~20 GB; measured 2026-11-25: 69.6 s with 17.7 GiB anonymous with 56 GiB, graph in the heap; under 16 GiB only memory-mapped, 405.1 s and 733 GB read; `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 19, 22–23), with time and bytes read reported against those
 
 **Pointers.** `lab/e-map`, FINDINGS § E.
+
+**Depends on** {{#m4-07-map-hierarchy}}, {{#m1-07-layout-area}}, {{#m1-18-layout-baseline}}
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Bubbles (nested discs) are the approved default map style; "cells" stays a possible second view and is not required for 0.1 (`design/preview/style/viewer.html`, `data.html` §4–5).

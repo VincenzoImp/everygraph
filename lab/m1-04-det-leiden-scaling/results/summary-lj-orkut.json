@@ -1,0 +1,8662 @@
+{
+ "determinism": [
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "auto",
+   "identical": true,
+   "hashes": {
+    "44ae14c7774277eb": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s4",
+   "identical": true,
+   "hashes": {
+    "e45f729b781f5e5a": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s8",
+   "identical": true,
+   "hashes": {
+    "313e497358c9d9da": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s16",
+   "identical": true,
+   "hashes": {
+    "6410c9ae9c542cc0": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s32",
+   "identical": true,
+   "hashes": {
+    "938ba6889a68eca2": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s64",
+   "identical": true,
+   "hashes": {
+    "9618c8b1fe8da2fc": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L16k",
+   "identical": true,
+   "hashes": {
+    "40acb4fcd655fb85": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k",
+   "identical": true,
+   "hashes": {
+    "0f464d6e80ab7fdc": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "identical": true,
+   "hashes": {
+    "fd3e4377743491dd": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "auto",
+   "identical": true,
+   "hashes": {
+    "f2ac2926a639c837": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s4",
+   "identical": true,
+   "hashes": {
+    "b20c798b97ea4e65": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s8",
+   "identical": true,
+   "hashes": {
+    "e7fd17d115ac6d8a": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s16",
+   "identical": true,
+   "hashes": {
+    "20c1c2b69b7976ae": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s32",
+   "identical": true,
+   "hashes": {
+    "2e9e69e3de15c5b9": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s64",
+   "identical": true,
+   "hashes": {
+    "109aaf53c1ed1609": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L16k",
+   "identical": true,
+   "hashes": {
+    "93c6081d1932a9ef": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k",
+   "identical": true,
+   "hashes": {
+    "40af54b9813adc6d": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "identical": true,
+   "hashes": {
+    "5802bc289a68e6c0": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "auto",
+   "identical": true,
+   "hashes": {
+    "ca792d246e7f461f": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s4",
+   "identical": true,
+   "hashes": {
+    "03e28b19dba34e5d": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s8",
+   "identical": true,
+   "hashes": {
+    "f484e9b3761fc893": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s16",
+   "identical": true,
+   "hashes": {
+    "bb5a86e3d23ca3aa": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s32",
+   "identical": true,
+   "hashes": {
+    "3718a896723df0f9": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s64",
+   "identical": true,
+   "hashes": {
+    "921f0efd8cea9872": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L16k",
+   "identical": true,
+   "hashes": {
+    "203ecdae8c206add": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k",
+   "identical": true,
+   "hashes": {
+    "51f6418a19661ec9": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "identical": true,
+   "hashes": {
+    "5bd2847d5ae25b11": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "auto",
+   "identical": true,
+   "hashes": {
+    "68211360786489b2": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s4",
+   "identical": true,
+   "hashes": {
+    "c57405f0ce56d28a": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s8",
+   "identical": true,
+   "hashes": {
+    "db0b016ab7bac02a": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s16",
+   "identical": true,
+   "hashes": {
+    "e727c2cab6cb357e": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s32",
+   "identical": true,
+   "hashes": {
+    "62b74541e2bc8b29": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s64",
+   "identical": true,
+   "hashes": {
+    "ba1c3358595905e1": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L16k",
+   "identical": true,
+   "hashes": {
+    "70d68285335bd327": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k",
+   "identical": true,
+   "hashes": {
+    "849f538e68deb067": [
+     1,
+     4,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "identical": true,
+   "hashes": {
+    "fbb3677e20dce1ea": [
+     1,
+     4,
+     16
+    ]
+   }
+  }
+ ],
+ "table": [
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 16.4677,
+   "lm_s": 11.0845,
+   "refine_s": 2.7904,
+   "agg_s": 2.5329,
+   "times_s": [
+    16.4677
+   ],
+   "ratio_async": 0.9525839628862639,
+   "ratio_auto": 1.0,
+   "self_speedup": 1.0,
+   "modularity": 0.747972,
+   "modularity_values": [
+    0.747972
+   ],
+   "communities": 1363,
+   "disconnected": 0,
+   "work_edge_passes": 7.4678999191752045,
+   "subrounds_par": 3087,
+   "subrounds_seq": 15809,
+   "others_busy_cores": [
+    7.16
+   ],
+   "n_passes": 7,
+   "total_iters": 70,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "44ae14c7774277eb"
+   ],
+   "loadavg_before": [
+    22.09
+   ],
+   "memory_peak": 1532547072
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 5.2023,
+   "lm_s": 3.5992,
+   "refine_s": 0.6878,
+   "agg_s": 0.7824,
+   "times_s": [
+    4.3991,
+    5.2023,
+    5.342,
+    4.5537,
+    5.5784
+   ],
+   "ratio_async": 1.9818443933864935,
+   "ratio_auto": 1.0,
+   "self_speedup": 3.1654652749745305,
+   "modularity": 0.747972,
+   "modularity_values": [
+    0.747972
+   ],
+   "communities": 1363,
+   "disconnected": 0,
+   "work_edge_passes": 7.4678999191752045,
+   "subrounds_par": 3087,
+   "subrounds_seq": 15809,
+   "others_busy_cores": [
+    9.12,
+    7.68,
+    10.41,
+    3.21,
+    13.12
+   ],
+   "n_passes": 7,
+   "total_iters": 70,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "44ae14c7774277eb"
+   ],
+   "loadavg_before": [
+    19.9,
+    19.32,
+    22.38,
+    27.42,
+    26.68
+   ],
+   "memory_peak": 1587810304
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 3.5236,
+   "lm_s": 2.6904,
+   "refine_s": 0.3882,
+   "agg_s": 0.4458,
+   "times_s": [
+    4.9385,
+    3.6288,
+    3.5236,
+    3.4635,
+    2.8618
+   ],
+   "ratio_async": 3.387918961814957,
+   "ratio_auto": 1.0,
+   "self_speedup": 4.673544102622318,
+   "modularity": 0.747972,
+   "modularity_values": [
+    0.747972
+   ],
+   "communities": 1363,
+   "disconnected": 0,
+   "work_edge_passes": 7.4678999191752045,
+   "subrounds_par": 3087,
+   "subrounds_seq": 15809,
+   "others_busy_cores": [
+    13.06,
+    12.02,
+    9.09,
+    9.35,
+    3.0
+   ],
+   "n_passes": 7,
+   "total_iters": 70,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "44ae14c7774277eb"
+   ],
+   "loadavg_before": [
+    34.31,
+    19.12,
+    25.29,
+    25.76,
+    25.69
+   ],
+   "memory_peak": 1634807808
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s4",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 55.4514,
+   "lm_s": 42.5728,
+   "refine_s": 4.438,
+   "agg_s": 8.2798,
+   "times_s": [
+    55.4514
+   ],
+   "ratio_async": 3.2076194222381615,
+   "ratio_auto": 3.3672826199165637,
+   "self_speedup": 1.0,
+   "modularity": 0.751345,
+   "modularity_values": [
+    0.751345
+   ],
+   "communities": 806,
+   "disconnected": 0,
+   "work_edge_passes": 16.626951348467323,
+   "subrounds_par": 367,
+   "subrounds_seq": 305,
+   "others_busy_cores": [
+    null
+   ],
+   "n_passes": 9,
+   "total_iters": 159,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "e45f729b781f5e5a"
+   ],
+   "loadavg_before": [
+    12.17
+   ],
+   "memory_peak": 1650728960
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s4",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 6.774,
+   "lm_s": 5.0835,
+   "refine_s": 0.4887,
+   "agg_s": 0.945,
+   "times_s": [
+    5.6646,
+    6.774,
+    6.9227,
+    5.6179,
+    6.8242
+   ],
+   "ratio_async": 2.551966481957021,
+   "ratio_auto": 1.2876724784615037,
+   "self_speedup": 8.1859167404783,
+   "modularity": 0.751345,
+   "modularity_values": [
+    0.751345
+   ],
+   "communities": 806,
+   "disconnected": 0,
+   "work_edge_passes": 16.626951348467323,
+   "subrounds_par": 367,
+   "subrounds_seq": 305,
+   "others_busy_cores": [
+    8.37,
+    7.52,
+    10.38,
+    3.21,
+    11.31
+   ],
+   "n_passes": 9,
+   "total_iters": 159,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "e45f729b781f5e5a"
+   ],
+   "loadavg_before": [
+    19.75,
+    19.21,
+    22.29,
+    27.97,
+    25.32
+   ],
+   "memory_peak": 1742942208
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s4",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 3.0176,
+   "lm_s": 2.0648,
+   "refine_s": 0.2251,
+   "agg_s": 0.5811,
+   "times_s": [
+    3.601,
+    3.1733,
+    3.0176,
+    2.4248,
+    2.8027
+   ],
+   "ratio_async": 2.85169940021169,
+   "ratio_auto": 0.856396866840731,
+   "self_speedup": 18.37599416755037,
+   "modularity": 0.751345,
+   "modularity_values": [
+    0.751345
+   ],
+   "communities": 806,
+   "disconnected": 0,
+   "work_edge_passes": 16.626951348467323,
+   "subrounds_par": 367,
+   "subrounds_seq": 305,
+   "others_busy_cores": [
+    13.4,
+    16.73,
+    12.85,
+    6.94,
+    10.11
+   ],
+   "n_passes": 9,
+   "total_iters": 159,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "e45f729b781f5e5a"
+   ],
+   "loadavg_before": [
+    35.56,
+    17.91,
+    25.29,
+    25.65,
+    24.79
+   ],
+   "memory_peak": 1793118208
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s8",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 20.9976,
+   "lm_s": 15.6547,
+   "refine_s": 2.336,
+   "agg_s": 2.9496,
+   "times_s": [
+    20.9976
+   ],
+   "ratio_async": 1.2146187396600991,
+   "ratio_auto": 1.275077879728195,
+   "self_speedup": 1.0,
+   "modularity": 0.750389,
+   "modularity_values": [
+    0.750389
+   ],
+   "communities": 652,
+   "disconnected": 0,
+   "work_edge_passes": 11.126353987171546,
+   "subrounds_par": 440,
+   "subrounds_seq": 422,
+   "others_busy_cores": [
+    9.4
+   ],
+   "n_passes": 8,
+   "total_iters": 101,
+   "passes_at_iter_cap": 3,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "313e497358c9d9da"
+   ],
+   "loadavg_before": [
+    18.35
+   ],
+   "memory_peak": 1617010688
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s8",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 5.0986,
+   "lm_s": 3.5086,
+   "refine_s": 0.5862,
+   "agg_s": 0.912,
+   "times_s": [
+    4.467,
+    5.0876,
+    5.6684,
+    5.1592,
+    5.0986
+   ],
+   "ratio_async": 2.012434112717935,
+   "ratio_auto": 1.015434975335864,
+   "self_speedup": 4.118306986231514,
+   "modularity": 0.750389,
+   "modularity_values": [
+    0.750389
+   ],
+   "communities": 652,
+   "disconnected": 0,
+   "work_edge_passes": 11.126353987171546,
+   "subrounds_par": 440,
+   "subrounds_seq": 422,
+   "others_busy_cores": [
+    7.43,
+    7.02,
+    12.36,
+    9.47,
+    11.23
+   ],
+   "n_passes": 8,
+   "total_iters": 101,
+   "passes_at_iter_cap": 3,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "313e497358c9d9da"
+   ],
+   "loadavg_before": [
+    19.59,
+    19.12,
+    22.39,
+    28.67,
+    24.89
+   ],
+   "memory_peak": 1642696704
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s8",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.4121,
+   "lm_s": 1.6613,
+   "refine_s": 0.2464,
+   "agg_s": 0.5393,
+   "times_s": [
+    3.4677,
+    2.4121,
+    2.346,
+    2.2794,
+    2.4971
+   ],
+   "ratio_async": 2.2519839417421346,
+   "ratio_auto": 0.6657963446475196,
+   "self_speedup": 8.70511172836947,
+   "modularity": 0.750389,
+   "modularity_values": [
+    0.750389
+   ],
+   "communities": 652,
+   "disconnected": 0,
+   "work_edge_passes": 11.126353987171546,
+   "subrounds_par": 440,
+   "subrounds_seq": 422,
+   "others_busy_cores": [
+    14.32,
+    17.07,
+    10.17,
+    9.06,
+    11.71
+   ],
+   "n_passes": 8,
+   "total_iters": 101,
+   "passes_at_iter_cap": 3,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "313e497358c9d9da"
+   ],
+   "loadavg_before": [
+    34.31,
+    21.26,
+    24.53,
+    25.65,
+    25.7
+   ],
+   "memory_peak": 1688154112
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 17.3044,
+   "lm_s": 13.1329,
+   "refine_s": 1.8621,
+   "agg_s": 2.2547,
+   "times_s": [
+    17.3044
+   ],
+   "ratio_async": 1.0009833751749828,
+   "ratio_auto": 1.050808552499742,
+   "self_speedup": 1.0,
+   "modularity": 0.749977,
+   "modularity_values": [
+    0.749977
+   ],
+   "communities": 564,
+   "disconnected": 0,
+   "work_edge_passes": 10.351291082321312,
+   "subrounds_par": 542,
+   "subrounds_seq": 1289,
+   "others_busy_cores": [
+    5.8
+   ],
+   "n_passes": 8,
+   "total_iters": 107,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "6410c9ae9c542cc0"
+   ],
+   "loadavg_before": [
+    16.8
+   ],
+   "memory_peak": 1583202304
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 4.7245,
+   "lm_s": 3.3488,
+   "refine_s": 0.5498,
+   "agg_s": 0.779,
+   "times_s": [
+    4.5677,
+    4.7245,
+    5.0064,
+    4.5707,
+    5.9408
+   ],
+   "ratio_async": 2.057800603685183,
+   "ratio_auto": 1.003733227924545,
+   "self_speedup": 3.662694465022754,
+   "modularity": 0.749977,
+   "modularity_values": [
+    0.749977
+   ],
+   "communities": 564,
+   "disconnected": 0,
+   "work_edge_passes": 10.351291082321312,
+   "subrounds_par": 542,
+   "subrounds_seq": 1289,
+   "others_busy_cores": [
+    6.16,
+    8.26,
+    9.57,
+    4.13,
+    13.65
+   ],
+   "n_passes": 8,
+   "total_iters": 107,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "6410c9ae9c542cc0"
+   ],
+   "loadavg_before": [
+    19.47,
+    19.8,
+    22.43,
+    25.92,
+    26.03
+   ],
+   "memory_peak": 1611681792
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.7646,
+   "lm_s": 1.946,
+   "refine_s": 0.2942,
+   "agg_s": 0.4979,
+   "times_s": [
+    6.5171,
+    3.0008,
+    2.4301,
+    2.5459,
+    2.7646
+   ],
+   "ratio_async": 2.8016058257865746,
+   "ratio_auto": 0.8269400352733686,
+   "self_speedup": 6.259278014902699,
+   "modularity": 0.749977,
+   "modularity_values": [
+    0.749977
+   ],
+   "communities": 564,
+   "disconnected": 0,
+   "work_edge_passes": 10.351291082321312,
+   "subrounds_par": 542,
+   "subrounds_seq": 1289,
+   "others_busy_cores": [
+    23.59,
+    17.0,
+    6.91,
+    9.6,
+    11.68
+   ],
+   "n_passes": 8,
+   "total_iters": 107,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "6410c9ae9c542cc0"
+   ],
+   "loadavg_before": [
+    37.28,
+    17.91,
+    23.71,
+    25.76,
+    26.2
+   ],
+   "memory_peak": 1670230016
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s32",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 16.7795,
+   "lm_s": 11.4235,
+   "refine_s": 2.6841,
+   "agg_s": 2.6116,
+   "times_s": [
+    16.7795
+   ],
+   "ratio_async": 0.9706202205074215,
+   "ratio_auto": 1.0189340345039075,
+   "self_speedup": 1.0,
+   "modularity": 0.756554,
+   "modularity_values": [
+    0.756554
+   ],
+   "communities": 1023,
+   "disconnected": 0,
+   "work_edge_passes": 9.805003830174334,
+   "subrounds_par": 873,
+   "subrounds_seq": 1519,
+   "others_busy_cores": [
+    5.96
+   ],
+   "n_passes": 8,
+   "total_iters": 68,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "938ba6889a68eca2"
+   ],
+   "loadavg_before": [
+    16.88
+   ],
+   "memory_peak": 1534504960
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s32",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 4.9387,
+   "lm_s": 3.5219,
+   "refine_s": 0.6263,
+   "agg_s": 0.7515,
+   "times_s": [
+    4.4343,
+    4.9307,
+    5.8079,
+    5.3393,
+    4.9387
+   ],
+   "ratio_async": 1.9977023922151644,
+   "ratio_auto": 1.0080016366984157,
+   "self_speedup": 3.3975540121894423,
+   "modularity": 0.756554,
+   "modularity_values": [
+    0.756554
+   ],
+   "communities": 1023,
+   "disconnected": 0,
+   "work_edge_passes": 9.805003830174334,
+   "subrounds_par": 873,
+   "subrounds_seq": 1519,
+   "others_busy_cores": [
+    9.15,
+    5.81,
+    12.2,
+    11.1,
+    10.81
+   ],
+   "n_passes": 8,
+   "total_iters": 68,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "938ba6889a68eca2"
+   ],
+   "loadavg_before": [
+    19.7,
+    19.27,
+    22.12,
+    33.36,
+    24.29
+   ],
+   "memory_peak": 1563705344
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s32",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.5315,
+   "lm_s": 1.7153,
+   "refine_s": 0.2886,
+   "agg_s": 0.4398,
+   "times_s": [
+    7.1383,
+    2.7862,
+    2.5315,
+    2.0396,
+    2.4319
+   ],
+   "ratio_async": 2.398682817829002,
+   "ratio_auto": 0.7678020282186949,
+   "self_speedup": 6.628283626308512,
+   "modularity": 0.756554,
+   "modularity_values": [
+    0.756554
+   ],
+   "communities": 1023,
+   "disconnected": 0,
+   "work_edge_passes": 9.805003830174334,
+   "subrounds_par": 873,
+   "subrounds_seq": 1519,
+   "others_busy_cores": [
+    22.98,
+    16.77,
+    9.1,
+    2.35,
+    9.99
+   ],
+   "n_passes": 8,
+   "total_iters": 68,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "938ba6889a68eca2"
+   ],
+   "loadavg_before": [
+    36.0,
+    19.03,
+    28.03,
+    26.4,
+    25.69
+   ],
+   "memory_peak": 1624784896
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s64",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 16.1344,
+   "lm_s": 9.7693,
+   "refine_s": 3.4294,
+   "agg_s": 2.8762,
+   "times_s": [
+    16.1344
+   ],
+   "ratio_async": 0.9333040248967455,
+   "ratio_auto": 0.9797603794093892,
+   "self_speedup": 1.0,
+   "modularity": 0.751324,
+   "modularity_values": [
+    0.751324
+   ],
+   "communities": 1051,
+   "disconnected": 0,
+   "work_edge_passes": 7.890085798096485,
+   "subrounds_par": 1194,
+   "subrounds_seq": 2640,
+   "others_busy_cores": [
+    9.82
+   ],
+   "n_passes": 7,
+   "total_iters": 54,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "9618c8b1fe8da2fc"
+   ],
+   "loadavg_before": [
+    19.5
+   ],
+   "memory_peak": 1533210624
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s64",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 4.8784,
+   "lm_s": 3.339,
+   "refine_s": 0.7513,
+   "agg_s": 0.7688,
+   "times_s": [
+    4.3793,
+    4.2516,
+    5.4812,
+    5.9874,
+    4.8784
+   ],
+   "ratio_async": 1.8796982167352538,
+   "ratio_auto": 0.9954990793571412,
+   "self_speedup": 3.307313873401115,
+   "modularity": 0.751324,
+   "modularity_values": [
+    0.751324
+   ],
+   "communities": 1051,
+   "disconnected": 0,
+   "work_edge_passes": 7.890085798096485,
+   "subrounds_par": 1194,
+   "subrounds_seq": 2640,
+   "others_busy_cores": [
+    6.9,
+    7.6,
+    12.84,
+    15.34,
+    11.55
+   ],
+   "n_passes": 7,
+   "total_iters": 54,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "9618c8b1fe8da2fc"
+   ],
+   "loadavg_before": [
+    19.07,
+    19.9,
+    22.25,
+    29.42,
+    24.97
+   ],
+   "memory_peak": 1593778176
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s64",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.3155,
+   "lm_s": 1.6793,
+   "refine_s": 0.2609,
+   "agg_s": 0.4315,
+   "times_s": [
+    3.3959,
+    2.3005,
+    2.3121,
+    2.3155,
+    2.8018
+   ],
+   "ratio_async": 2.5148550399425544,
+   "ratio_auto": 0.6685433809730043,
+   "self_speedup": 6.967998272511336,
+   "modularity": 0.751324,
+   "modularity_values": [
+    0.751324
+   ],
+   "communities": 1051,
+   "disconnected": 0,
+   "work_edge_passes": 7.890085798096485,
+   "subrounds_par": 1194,
+   "subrounds_seq": 2640,
+   "others_busy_cores": [
+    12.76,
+    7.99,
+    6.08,
+    6.96,
+    11.45
+   ],
+   "n_passes": 7,
+   "total_iters": 54,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "9618c8b1fe8da2fc"
+   ],
+   "loadavg_before": [
+    35.7,
+    22.2,
+    24.53,
+    26.34,
+    26.59
+   ],
+   "memory_peak": 1652551680
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L16k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 16.9113,
+   "lm_s": 11.1298,
+   "refine_s": 2.9391,
+   "agg_s": 2.787,
+   "times_s": [
+    16.9113
+   ],
+   "ratio_async": 0.9782442703934657,
+   "ratio_auto": 1.0269375808400687,
+   "self_speedup": 1.0,
+   "modularity": 0.748808,
+   "modularity_values": [
+    0.748808
+   ],
+   "communities": 1359,
+   "disconnected": 0,
+   "work_edge_passes": 8.143532433389177,
+   "subrounds_par": 2484,
+   "subrounds_seq": 400,
+   "others_busy_cores": [
+    8.51
+   ],
+   "n_passes": 8,
+   "total_iters": 119,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "40acb4fcd655fb85"
+   ],
+   "loadavg_before": [
+    25.1
+   ],
+   "memory_peak": 1529069568
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L16k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 4.3184,
+   "lm_s": 2.8066,
+   "refine_s": 0.6923,
+   "agg_s": 0.7876,
+   "times_s": [
+    3.7683,
+    4.3184,
+    4.2971,
+    4.4979,
+    4.5069
+   ],
+   "ratio_async": 1.6976618461954318,
+   "ratio_auto": 0.8300943813313341,
+   "self_speedup": 3.916103186365321,
+   "modularity": 0.748808,
+   "modularity_values": [
+    0.748808
+   ],
+   "communities": 1359,
+   "disconnected": 0,
+   "work_edge_passes": 8.143532433389177,
+   "subrounds_par": 2484,
+   "subrounds_seq": 400,
+   "others_busy_cores": [
+    9.72,
+    8.14,
+    9.91,
+    11.89,
+    12.91
+   ],
+   "n_passes": 8,
+   "total_iters": 119,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "40acb4fcd655fb85"
+   ],
+   "loadavg_before": [
+    19.81,
+    19.17,
+    22.45,
+    30.24,
+    27.18
+   ],
+   "memory_peak": 1580236800
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L16k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.727,
+   "lm_s": 1.8818,
+   "refine_s": 0.3474,
+   "agg_s": 0.4518,
+   "times_s": [
+    4.0404,
+    2.7413,
+    2.3513,
+    2.2,
+    2.727
+   ],
+   "ratio_async": 2.559331528335356,
+   "ratio_auto": 0.7554287918871252,
+   "self_speedup": 6.201430143014302,
+   "modularity": 0.748808,
+   "modularity_values": [
+    0.748808
+   ],
+   "communities": 1359,
+   "disconnected": 0,
+   "work_edge_passes": 8.143532433389177,
+   "subrounds_par": 2484,
+   "subrounds_seq": 400,
+   "others_busy_cores": [
+    15.67,
+    16.93,
+    8.84,
+    6.89,
+    12.27
+   ],
+   "n_passes": 8,
+   "total_iters": 119,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "40acb4fcd655fb85"
+   ],
+   "loadavg_before": [
+    34.37,
+    19.03,
+    26.15,
+    26.34,
+    26.19
+   ],
+   "memory_peak": 1656664064
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 14.8658,
+   "lm_s": 10.4074,
+   "refine_s": 2.2148,
+   "agg_s": 2.1905,
+   "times_s": [
+    14.8658
+   ],
+   "ratio_async": 0.8599210986036072,
+   "ratio_auto": 0.9027247278004821,
+   "self_speedup": 1.0,
+   "modularity": 0.752753,
+   "modularity_values": [
+    0.752753
+   ],
+   "communities": 1036,
+   "disconnected": 0,
+   "work_edge_passes": 9.789870943150191,
+   "subrounds_par": 905,
+   "subrounds_seq": 239,
+   "others_busy_cores": [
+    5.23
+   ],
+   "n_passes": 8,
+   "total_iters": 132,
+   "passes_at_iter_cap": 6,
+   "sub_rounds_per_level": [
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "0f464d6e80ab7fdc"
+   ],
+   "loadavg_before": [
+    14.84
+   ],
+   "memory_peak": 1535066112
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 4.3104,
+   "lm_s": 2.9184,
+   "refine_s": 0.6545,
+   "agg_s": 0.8663,
+   "times_s": [
+    4.0216,
+    4.2435,
+    4.7885,
+    5.9859,
+    4.3104
+   ],
+   "ratio_async": 1.8117763661756094,
+   "ratio_auto": 0.8963871209284913,
+   "self_speedup": 3.4488214550853753,
+   "modularity": 0.752753,
+   "modularity_values": [
+    0.752753
+   ],
+   "communities": 1036,
+   "disconnected": 0,
+   "work_edge_passes": 9.789870943150191,
+   "subrounds_par": 905,
+   "subrounds_seq": 239,
+   "others_busy_cores": [
+    7.93,
+    6.54,
+    10.37,
+    15.73,
+    10.41
+   ],
+   "n_passes": 8,
+   "total_iters": 132,
+   "passes_at_iter_cap": 6,
+   "sub_rounds_per_level": [
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "0f464d6e80ab7fdc"
+   ],
+   "loadavg_before": [
+    19.17,
+    18.87,
+    22.32,
+    31.14,
+    24.58
+   ],
+   "memory_peak": 1573175296
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.2536,
+   "lm_s": 1.4611,
+   "refine_s": 0.3031,
+   "agg_s": 0.4917,
+   "times_s": [
+    3.6718,
+    2.2536,
+    2.1096,
+    1.6871,
+    2.269
+   ],
+   "ratio_async": 2.036621488196751,
+   "ratio_auto": 0.621031746031746,
+   "self_speedup": 6.596467873624423,
+   "modularity": 0.752753,
+   "modularity_values": [
+    0.752753
+   ],
+   "communities": 1036,
+   "disconnected": 0,
+   "work_edge_passes": 9.789870943150191,
+   "subrounds_par": 905,
+   "subrounds_seq": 239,
+   "others_busy_cores": [
+    15.82,
+    16.81,
+    9.7,
+    3.61,
+    11.59
+   ],
+   "n_passes": 8,
+   "total_iters": 132,
+   "passes_at_iter_cap": 6,
+   "sub_rounds_per_level": [
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "0f464d6e80ab7fdc"
+   ],
+   "loadavg_before": [
+    35.06,
+    20.15,
+    27.42,
+    27.22,
+    26.2
+   ],
+   "memory_peak": 1647828992
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 42.004,
+   "lm_s": 30.5998,
+   "refine_s": 5.0341,
+   "agg_s": 6.2925,
+   "times_s": [
+    42.004
+   ],
+   "ratio_async": 2.429746520587248,
+   "ratio_auto": 2.5506901388779246,
+   "self_speedup": 1.0,
+   "modularity": 0.750873,
+   "modularity_values": [
+    0.750873
+   ],
+   "communities": 585,
+   "disconnected": 0,
+   "work_edge_passes": 12.105567108728597,
+   "subrounds_par": 493,
+   "subrounds_seq": 319,
+   "others_busy_cores": [
+    null
+   ],
+   "n_passes": 9,
+   "total_iters": 152,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "fd3e4377743491dd"
+   ],
+   "loadavg_before": [
+    23.66
+   ],
+   "memory_peak": 1580978176
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 4.8934,
+   "lm_s": 3.5184,
+   "refine_s": 0.5665,
+   "agg_s": 0.9032,
+   "times_s": [
+    4.8934,
+    5.1458,
+    4.8929,
+    4.2794,
+    5.5771
+   ],
+   "ratio_async": 2.042575533387428,
+   "ratio_auto": 0.9891394191030891,
+   "self_speedup": 8.583806760125883,
+   "modularity": 0.750873,
+   "modularity_values": [
+    0.750873
+   ],
+   "communities": 585,
+   "disconnected": 0,
+   "work_edge_passes": 12.105567108728597,
+   "subrounds_par": 493,
+   "subrounds_seq": 319,
+   "others_busy_cores": [
+    8.29,
+    8.1,
+    10.06,
+    3.17,
+    12.1
+   ],
+   "n_passes": 9,
+   "total_iters": 152,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "fd3e4377743491dd"
+   ],
+   "loadavg_before": [
+    19.61,
+    19.44,
+    22.57,
+    26.43,
+    26.47
+   ],
+   "memory_peak": 1611415552
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.392,
+   "lm_s": 1.6155,
+   "refine_s": 0.2827,
+   "agg_s": 0.4969,
+   "times_s": [
+    5.6788,
+    2.392,
+    2.2798,
+    1.7553,
+    2.4433
+   ],
+   "ratio_async": 2.1930706399784574,
+   "ratio_auto": 0.6591710758377425,
+   "self_speedup": 17.56020066889632,
+   "modularity": 0.750873,
+   "modularity_values": [
+    0.750873
+   ],
+   "communities": 585,
+   "disconnected": 0,
+   "work_edge_passes": 12.105567108728597,
+   "subrounds_par": 493,
+   "subrounds_seq": 319,
+   "others_busy_cores": [
+    20.93,
+    16.8,
+    9.65,
+    2.2,
+    11.8
+   ],
+   "n_passes": 9,
+   "total_iters": 152,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "fd3e4377743491dd"
+   ],
+   "loadavg_before": [
+    35.81,
+    20.15,
+    27.42,
+    26.4,
+    25.7
+   ],
+   "memory_peak": 1669750784
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "async",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 17.2874,
+   "lm_s": 12.2542,
+   "refine_s": 2.5555,
+   "agg_s": 2.4151,
+   "times_s": [
+    17.2874
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 1.0497762286172325,
+   "self_speedup": 1.0,
+   "modularity": 0.749513,
+   "modularity_values": [
+    0.749513
+   ],
+   "communities": 1652,
+   "disconnected": 0,
+   "work_edge_passes": 6.103900925224911,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    null
+   ],
+   "n_passes": 7,
+   "total_iters": 48,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "88cde0e43b143fa6"
+   ],
+   "loadavg_before": [
+    28.89
+   ],
+   "memory_peak": 1372045312
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "async",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 2.293,
+   "lm_s": 1.3319,
+   "refine_s": 0.296,
+   "agg_s": 0.6344,
+   "times_s": [
+    2.2197,
+    2.293,
+    2.916,
+    2.0951,
+    3.0872
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.5045804823713942,
+   "self_speedup": 7.539206279982555,
+   "modularity": 0.749528,
+   "modularity_values": [
+    0.749327,
+    0.749466,
+    0.749528,
+    0.749658,
+    0.749957
+   ],
+   "communities": 1596,
+   "disconnected": 0,
+   "work_edge_passes": 5.928881464098592,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    7.6,
+    7.37,
+    10.93,
+    3.84,
+    14.11
+   ],
+   "n_passes": 7,
+   "total_iters": 42,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "04a1d757dc4622ea",
+    "35cfb54e8dc3b05e",
+    "5bbaef25a92b7d07",
+    "872d6eb79a1f34ef",
+    "dd67bed01938671d"
+   ],
+   "loadavg_before": [
+    19.07,
+    19.99,
+    22.33,
+    26.82,
+    27.18
+   ],
+   "memory_peak": 1404125184
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "async",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 1.0711,
+   "lm_s": 0.5139,
+   "refine_s": 0.0989,
+   "agg_s": 0.435,
+   "times_s": [
+    1.1335,
+    1.0711,
+    1.0705,
+    0.8503,
+    1.1141
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.29516644620811283,
+   "self_speedup": 16.139856222574924,
+   "modularity": 0.749344,
+   "modularity_values": [
+    0.748251,
+    0.749326,
+    0.749344,
+    0.749349,
+    0.749542
+   ],
+   "communities": 1691,
+   "disconnected": 0,
+   "work_edge_passes": 6.016581997376156,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    9.81,
+    16.88,
+    9.07,
+    2.45,
+    11.85
+   ],
+   "n_passes": 7,
+   "total_iters": 46,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "377d1780d730f36c",
+    "6acab6f2b660d0f9",
+    "8702dc32eb7c309f",
+    "c7ed7082b97fa58b",
+    "e5ff7abe1e1c0310"
+   ],
+   "loadavg_before": [
+    35.56,
+    21.26,
+    27.42,
+    26.4,
+    26.19
+   ],
+   "memory_peak": 1448611840
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "auto",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 28.5557,
+   "lm_s": 13.692,
+   "refine_s": 8.1755,
+   "agg_s": 6.5889,
+   "times_s": [
+    28.5557
+   ],
+   "ratio_async": 1.5760173078939672,
+   "ratio_auto": 1.0,
+   "self_speedup": 1.0,
+   "modularity": 0.765088,
+   "modularity_values": [
+    0.765088
+   ],
+   "communities": 1227,
+   "disconnected": 0,
+   "work_edge_passes": 13.08855000400938,
+   "subrounds_par": 5628,
+   "subrounds_seq": 28669,
+   "others_busy_cores": [
+    6.79
+   ],
+   "n_passes": 21,
+   "total_iters": 122,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "f2ac2926a639c837"
+   ],
+   "loadavg_before": [
+    21.66
+   ],
+   "memory_peak": 1579442176
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "auto",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 11.6118,
+   "lm_s": 6.6746,
+   "refine_s": 2.4743,
+   "agg_s": 2.3914,
+   "times_s": [
+    18.1843,
+    9.5798,
+    14.3269,
+    11.6118,
+    9.988
+   ],
+   "ratio_async": 2.1551252118468303,
+   "ratio_auto": 1.0,
+   "self_speedup": 2.4591966792400832,
+   "modularity": 0.765088,
+   "modularity_values": [
+    0.765088
+   ],
+   "communities": 1227,
+   "disconnected": 0,
+   "work_edge_passes": 13.08855000400938,
+   "subrounds_par": 5628,
+   "subrounds_seq": 28669,
+   "others_busy_cores": [
+    19.71,
+    10.32,
+    16.09,
+    9.89,
+    10.71
+   ],
+   "n_passes": 21,
+   "total_iters": 122,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "f2ac2926a639c837"
+   ],
+   "loadavg_before": [
+    27.71,
+    18.72,
+    22.8,
+    27.34,
+    24.03
+   ],
+   "memory_peak": 1669742592
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "auto",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 8.1205,
+   "lm_s": 5.0601,
+   "refine_s": 1.5426,
+   "agg_s": 1.4601,
+   "times_s": [
+    11.6975,
+    8.6858,
+    7.0884,
+    7.3965,
+    8.1205
+   ],
+   "ratio_async": 3.1482976719149507,
+   "ratio_auto": 1.0,
+   "self_speedup": 3.5164952896989106,
+   "modularity": 0.765088,
+   "modularity_values": [
+    0.765088
+   ],
+   "communities": 1227,
+   "disconnected": 0,
+   "work_edge_passes": 13.08855000400938,
+   "subrounds_par": 5628,
+   "subrounds_seq": 28669,
+   "others_busy_cores": [
+    15.37,
+    12.6,
+    7.74,
+    8.43,
+    10.89
+   ],
+   "n_passes": 21,
+   "total_iters": 122,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "f2ac2926a639c837"
+   ],
+   "loadavg_before": [
+    36.96,
+    27.07,
+    24.13,
+    25.02,
+    21.52
+   ],
+   "memory_peak": 1818800128
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s4",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 51.0159,
+   "lm_s": 28.6457,
+   "refine_s": 8.9933,
+   "agg_s": 13.0442,
+   "times_s": [
+    51.0159
+   ],
+   "ratio_async": 2.8156179459017934,
+   "ratio_auto": 1.7865399902646406,
+   "self_speedup": 1.0,
+   "modularity": 0.769957,
+   "modularity_values": [
+    0.769957
+   ],
+   "communities": 861,
+   "disconnected": 0,
+   "work_edge_passes": 23.61641647998285,
+   "subrounds_par": 558,
+   "subrounds_seq": 588,
+   "others_busy_cores": [
+    12.69
+   ],
+   "n_passes": 27,
+   "total_iters": 261,
+   "passes_at_iter_cap": 9,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "b20c798b97ea4e65"
+   ],
+   "loadavg_before": [
+    21.69
+   ],
+   "memory_peak": 1757847552
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s4",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 11.5456,
+   "lm_s": 6.4448,
+   "refine_s": 1.9447,
+   "agg_s": 2.9884,
+   "times_s": [
+    16.6349,
+    9.3258,
+    11.5456,
+    11.8159,
+    10.7647
+   ],
+   "ratio_async": 1.9714969719236284,
+   "ratio_auto": 0.973485876531869,
+   "self_speedup": 4.418644332039912,
+   "modularity": 0.769957,
+   "modularity_values": [
+    0.769957
+   ],
+   "communities": 861,
+   "disconnected": 0,
+   "work_edge_passes": 23.61641647998285,
+   "subrounds_par": 558,
+   "subrounds_seq": 588,
+   "others_busy_cores": [
+    18.14,
+    2.68,
+    8.49,
+    12.35,
+    10.23
+   ],
+   "n_passes": 27,
+   "total_iters": 261,
+   "passes_at_iter_cap": 9,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "b20c798b97ea4e65"
+   ],
+   "loadavg_before": [
+    34.7,
+    16.61,
+    28.02,
+    26.13,
+    22.75
+   ],
+   "memory_peak": 1830842368
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s4",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.3844,
+   "lm_s": 2.7819,
+   "refine_s": 0.7019,
+   "agg_s": 1.8137,
+   "times_s": [
+    6.8582,
+    5.5955,
+    5.3844,
+    5.2169,
+    4.8292
+   ],
+   "ratio_async": 2.094915842443172,
+   "ratio_auto": 0.644212392640862,
+   "self_speedup": 9.474760418988188,
+   "modularity": 0.769957,
+   "modularity_values": [
+    0.769957
+   ],
+   "communities": 861,
+   "disconnected": 0,
+   "work_edge_passes": 23.61641647998285,
+   "subrounds_par": 558,
+   "subrounds_seq": 588,
+   "others_busy_cores": [
+    13.49,
+    13.22,
+    10.85,
+    9.06,
+    6.07
+   ],
+   "n_passes": 27,
+   "total_iters": 261,
+   "passes_at_iter_cap": 9,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "b20c798b97ea4e65"
+   ],
+   "loadavg_before": [
+    38.06,
+    26.98,
+    24.23,
+    25.58,
+    21.68
+   ],
+   "memory_peak": 1951002624
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s8",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 36.474,
+   "lm_s": 19.0269,
+   "refine_s": 6.9612,
+   "agg_s": 10.2054,
+   "times_s": [
+    36.474
+   ],
+   "ratio_async": 2.01303611146372,
+   "ratio_auto": 1.277293149879008,
+   "self_speedup": 1.0,
+   "modularity": 0.769106,
+   "modularity_values": [
+    0.769106
+   ],
+   "communities": 685,
+   "disconnected": 0,
+   "work_edge_passes": 17.611192915415906,
+   "subrounds_par": 738,
+   "subrounds_seq": 843,
+   "others_busy_cores": [
+    7.81
+   ],
+   "n_passes": 24,
+   "total_iters": 178,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "e7fd17d115ac6d8a"
+   ],
+   "loadavg_before": [
+    20.34
+   ],
+   "memory_peak": 1651580928
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s8",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 9.0007,
+   "lm_s": 4.8212,
+   "refine_s": 1.6277,
+   "agg_s": 2.4108,
+   "times_s": [
+    12.5631,
+    9.0007,
+    7.6625,
+    7.2374,
+    9.3696
+   ],
+   "ratio_async": 1.488924706969909,
+   "ratio_auto": 0.690876195399328,
+   "self_speedup": 4.052351483773484,
+   "modularity": 0.769106,
+   "modularity_values": [
+    0.769106
+   ],
+   "communities": 685,
+   "disconnected": 0,
+   "work_edge_passes": 17.611192915415906,
+   "subrounds_par": 738,
+   "subrounds_seq": 843,
+   "others_busy_cores": [
+    14.45,
+    10.24,
+    2.98,
+    2.57,
+    9.98
+   ],
+   "n_passes": 24,
+   "total_iters": 178,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "e7fd17d115ac6d8a"
+   ],
+   "loadavg_before": [
+    29.03,
+    21.55,
+    23.31,
+    19.6,
+    22.98
+   ],
+   "memory_peak": 1751760896
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s8",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.0191,
+   "lm_s": 2.3972,
+   "refine_s": 0.7981,
+   "agg_s": 1.7435,
+   "times_s": [
+    6.987,
+    4.8396,
+    5.0191,
+    5.1223,
+    4.2827
+   ],
+   "ratio_async": 1.8805006055712556,
+   "ratio_auto": 0.5973071169053217,
+   "self_speedup": 7.267039907553147,
+   "modularity": 0.769106,
+   "modularity_values": [
+    0.769106
+   ],
+   "communities": 685,
+   "disconnected": 0,
+   "work_edge_passes": 17.611192915415906,
+   "subrounds_par": 738,
+   "subrounds_seq": 843,
+   "others_busy_cores": [
+    16.79,
+    11.13,
+    11.0,
+    11.13,
+    5.69
+   ],
+   "n_passes": 24,
+   "total_iters": 178,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "e7fd17d115ac6d8a"
+   ],
+   "loadavg_before": [
+    36.58,
+    26.54,
+    23.07,
+    23.19,
+    20.59
+   ],
+   "memory_peak": 1881726976
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 30.839,
+   "lm_s": 15.9438,
+   "refine_s": 7.1234,
+   "agg_s": 7.5687,
+   "times_s": [
+    30.839
+   ],
+   "ratio_async": 1.7020348917428763,
+   "ratio_auto": 1.0799595177145018,
+   "self_speedup": 1.0,
+   "modularity": 0.770733,
+   "modularity_values": [
+    0.770733
+   ],
+   "communities": 629,
+   "disconnected": 0,
+   "work_edge_passes": 16.907815007726523,
+   "subrounds_par": 1118,
+   "subrounds_seq": 2054,
+   "others_busy_cores": [
+    6.35
+   ],
+   "n_passes": 24,
+   "total_iters": 178,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "20c1c2b69b7976ae"
+   ],
+   "loadavg_before": [
+    20.24
+   ],
+   "memory_peak": 1646149632
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 9.2011,
+   "lm_s": 4.8962,
+   "refine_s": 1.9689,
+   "agg_s": 2.2731,
+   "times_s": [
+    22.7947,
+    7.2936,
+    12.6956,
+    7.2976,
+    9.2011
+   ],
+   "ratio_async": 1.8380510997023514,
+   "ratio_auto": 0.8861372662613685,
+   "self_speedup": 3.35166447489974,
+   "modularity": 0.770733,
+   "modularity_values": [
+    0.770733
+   ],
+   "communities": 629,
+   "disconnected": 0,
+   "work_edge_passes": 16.907815007726523,
+   "subrounds_par": 1118,
+   "subrounds_seq": 2054,
+   "others_busy_cores": [
+    23.05,
+    1.58,
+    14.25,
+    1.02,
+    9.91
+   ],
+   "n_passes": 24,
+   "total_iters": 178,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "20c1c2b69b7976ae"
+   ],
+   "loadavg_before": [
+    34.96,
+    18.72,
+    25.08,
+    19.56,
+    21.99
+   ],
+   "memory_peak": 1730703360
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.3627,
+   "lm_s": 2.8858,
+   "refine_s": 0.912,
+   "agg_s": 1.5171,
+   "times_s": [
+    7.8593,
+    5.3627,
+    5.1554,
+    4.1471,
+    5.8348
+   ],
+   "ratio_async": 2.1152738527788992,
+   "ratio_auto": 0.671878606539859,
+   "self_speedup": 5.750647994480392,
+   "modularity": 0.770733,
+   "modularity_values": [
+    0.770733
+   ],
+   "communities": 629,
+   "disconnected": 0,
+   "work_edge_passes": 16.907815007726523,
+   "subrounds_par": 1118,
+   "subrounds_seq": 2054,
+   "others_busy_cores": [
+    16.78,
+    13.24,
+    9.46,
+    3.41,
+    11.5
+   ],
+   "n_passes": 24,
+   "total_iters": 178,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "20c1c2b69b7976ae"
+   ],
+   "loadavg_before": [
+    37.98,
+    26.67,
+    23.74,
+    26.63,
+    22.09
+   ],
+   "memory_peak": 1897422848
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s32",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 29.954,
+   "lm_s": 15.4673,
+   "refine_s": 7.4252,
+   "agg_s": 6.9159,
+   "times_s": [
+    29.954
+   ],
+   "ratio_async": 1.653190866995237,
+   "ratio_auto": 1.04896745658485,
+   "self_speedup": 1.0,
+   "modularity": 0.771395,
+   "modularity_values": [
+    0.771395
+   ],
+   "communities": 1029,
+   "disconnected": 0,
+   "work_edge_passes": 15.423639871314677,
+   "subrounds_par": 1631,
+   "subrounds_seq": 2653,
+   "others_busy_cores": [
+    6.76
+   ],
+   "n_passes": 22,
+   "total_iters": 114,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "2e9e69e3de15c5b9"
+   ],
+   "loadavg_before": [
+    18.43
+   ],
+   "memory_peak": 1597837312
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s32",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 9.4881,
+   "lm_s": 4.9279,
+   "refine_s": 2.1882,
+   "agg_s": 2.3332,
+   "times_s": [
+    14.0909,
+    8.5616,
+    10.6552,
+    9.4881,
+    9.4613
+   ],
+   "ratio_async": 1.7759707932293396,
+   "ratio_auto": 0.8171084586369037,
+   "self_speedup": 3.1570071984907413,
+   "modularity": 0.771395,
+   "modularity_values": [
+    0.771395
+   ],
+   "communities": 1029,
+   "disconnected": 0,
+   "work_edge_passes": 15.423639871314677,
+   "subrounds_par": 1631,
+   "subrounds_seq": 2653,
+   "others_busy_cores": [
+    17.26,
+    9.68,
+    11.49,
+    9.29,
+    10.1
+   ],
+   "n_passes": 22,
+   "total_iters": 114,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "2e9e69e3de15c5b9"
+   ],
+   "loadavg_before": [
+    28.49,
+    21.39,
+    22.68,
+    25.19,
+    21.84
+   ],
+   "memory_peak": 1682821120
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s32",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.4097,
+   "lm_s": 2.9089,
+   "refine_s": 0.9751,
+   "agg_s": 1.4685,
+   "times_s": [
+    6.5115,
+    5.4097,
+    5.755,
+    4.6383,
+    4.6476
+   ],
+   "ratio_async": 2.016137428422696,
+   "ratio_auto": 0.6228211563701673,
+   "self_speedup": 5.537090781374198,
+   "modularity": 0.771395,
+   "modularity_values": [
+    0.771395
+   ],
+   "communities": 1029,
+   "disconnected": 0,
+   "work_edge_passes": 15.423639871314677,
+   "subrounds_par": 1631,
+   "subrounds_seq": 2653,
+   "others_busy_cores": [
+    14.14,
+    12.88,
+    11.77,
+    7.11,
+    5.47
+   ],
+   "n_passes": 22,
+   "total_iters": 114,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "2e9e69e3de15c5b9"
+   ],
+   "loadavg_before": [
+    38.22,
+    25.97,
+    22.37,
+    20.5,
+    22.57
+   ],
+   "memory_peak": 1818918912
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s64",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 35.6065,
+   "lm_s": 17.7084,
+   "refine_s": 9.1605,
+   "agg_s": 8.5203,
+   "times_s": [
+    35.6065
+   ],
+   "ratio_async": 1.9651579290133505,
+   "ratio_auto": 1.246913926116327,
+   "self_speedup": 1.0,
+   "modularity": 0.770021,
+   "modularity_values": [
+    0.770021
+   ],
+   "communities": 994,
+   "disconnected": 0,
+   "work_edge_passes": 13.607871339993563,
+   "subrounds_par": 2385,
+   "subrounds_seq": 5371,
+   "others_busy_cores": [
+    12.22
+   ],
+   "n_passes": 21,
+   "total_iters": 104,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "109aaf53c1ed1609"
+   ],
+   "loadavg_before": [
+    19.9
+   ],
+   "memory_peak": 1579732992
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s64",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 10.2014,
+   "lm_s": 5.1528,
+   "refine_s": 2.3303,
+   "agg_s": 2.3299,
+   "times_s": [
+    13.9018,
+    7.0723,
+    10.8196,
+    10.2014,
+    9.51
+   ],
+   "ratio_async": 1.6957557519904707,
+   "ratio_auto": 0.7644946464807554,
+   "self_speedup": 3.4903542651008683,
+   "modularity": 0.770021,
+   "modularity_values": [
+    0.770021
+   ],
+   "communities": 994,
+   "disconnected": 0,
+   "work_edge_passes": 13.607871339993563,
+   "subrounds_par": 2385,
+   "subrounds_seq": 5371,
+   "others_busy_cores": [
+    17.79,
+    1.52,
+    12.92,
+    11.21,
+    10.58
+   ],
+   "n_passes": 21,
+   "total_iters": 104,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "109aaf53c1ed1609"
+   ],
+   "loadavg_before": [
+    33.52,
+    20.18,
+    25.73,
+    24.55,
+    23.09
+   ],
+   "memory_peak": 1691406336
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s64",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.696,
+   "lm_s": 3.0654,
+   "refine_s": 1.0148,
+   "agg_s": 1.5568,
+   "times_s": [
+    7.9258,
+    7.4188,
+    5.696,
+    4.9061,
+    4.8304
+   ],
+   "ratio_async": 2.0954364046503557,
+   "ratio_auto": 0.6775635819619577,
+   "self_speedup": 6.251141151685393,
+   "modularity": 0.770021,
+   "modularity_values": [
+    0.770021
+   ],
+   "communities": 994,
+   "disconnected": 0,
+   "work_edge_passes": 13.607871339993563,
+   "subrounds_par": 2385,
+   "subrounds_seq": 5371,
+   "others_busy_cores": [
+    16.31,
+    15.64,
+    10.34,
+    6.82,
+    6.01
+   ],
+   "n_passes": 21,
+   "total_iters": 104,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "109aaf53c1ed1609"
+   ],
+   "loadavg_before": [
+    38.37,
+    27.03,
+    23.87,
+    21.5,
+    23.56
+   ],
+   "memory_peak": 1847795712
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L16k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 36.3884,
+   "lm_s": 18.1934,
+   "refine_s": 9.5482,
+   "agg_s": 8.5205,
+   "times_s": [
+    36.3884
+   ],
+   "ratio_async": 2.0083117628553606,
+   "ratio_auto": 1.2742954996725695,
+   "self_speedup": 1.0,
+   "modularity": 0.765824,
+   "modularity_values": [
+    0.765824
+   ],
+   "communities": 1228,
+   "disconnected": 0,
+   "work_edge_passes": 13.931899916551304,
+   "subrounds_par": 4793,
+   "subrounds_seq": 2133,
+   "others_busy_cores": [
+    10.02
+   ],
+   "n_passes": 24,
+   "total_iters": 198,
+   "passes_at_iter_cap": 6,
+   "sub_rounds_per_level": [
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "93c6081d1932a9ef"
+   ],
+   "loadavg_before": [
+    24.07
+   ],
+   "memory_peak": 1588916224
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L16k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 11.7859,
+   "lm_s": 5.9642,
+   "refine_s": 2.8829,
+   "agg_s": 2.9507,
+   "times_s": [
+    12.5758,
+    13.5926,
+    11.5194,
+    11.7859,
+    9.2777
+   ],
+   "ratio_async": 1.8533530434087777,
+   "ratio_auto": 0.9288846615939127,
+   "self_speedup": 3.087451955302522,
+   "modularity": 0.765824,
+   "modularity_values": [
+    0.765824
+   ],
+   "communities": 1228,
+   "disconnected": 0,
+   "work_edge_passes": 13.931899916551304,
+   "subrounds_par": 4793,
+   "subrounds_seq": 2133,
+   "others_busy_cores": [
+    12.41,
+    15.91,
+    14.49,
+    13.22,
+    10.73
+   ],
+   "n_passes": 24,
+   "total_iters": 198,
+   "passes_at_iter_cap": 6,
+   "sub_rounds_per_level": [
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "93c6081d1932a9ef"
+   ],
+   "loadavg_before": [
+    33.01,
+    16.09,
+    22.81,
+    21.97,
+    23.56
+   ],
+   "memory_peak": 1688068096
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L16k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.4852,
+   "lm_s": 2.9362,
+   "refine_s": 0.9698,
+   "agg_s": 1.4559,
+   "times_s": [
+    9.5822,
+    5.9068,
+    5.4852,
+    4.7919,
+    4.5408
+   ],
+   "ratio_async": 2.0312407273960407,
+   "ratio_auto": 0.6800524994819129,
+   "self_speedup": 6.633924013709619,
+   "modularity": 0.765824,
+   "modularity_values": [
+    0.765824
+   ],
+   "communities": 1228,
+   "disconnected": 0,
+   "work_edge_passes": 13.931899916551304,
+   "subrounds_par": 4793,
+   "subrounds_seq": 2133,
+   "others_busy_cores": [
+    18.2,
+    11.32,
+    10.73,
+    7.0,
+    4.36
+   ],
+   "n_passes": 24,
+   "total_iters": 198,
+   "passes_at_iter_cap": 6,
+   "sub_rounds_per_level": [
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    128,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "93c6081d1932a9ef"
+   ],
+   "loadavg_before": [
+    35.91,
+    26.85,
+    22.76,
+    20.45,
+    23.0
+   ],
+   "memory_peak": 1810018304
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 36.8503,
+   "lm_s": 16.9587,
+   "refine_s": 10.198,
+   "agg_s": 9.5092,
+   "times_s": [
+    36.8503
+   ],
+   "ratio_async": 2.0338044804044393,
+   "ratio_auto": 1.29047090423278,
+   "self_speedup": 1.0,
+   "modularity": 0.769823,
+   "modularity_values": [
+    0.769823
+   ],
+   "communities": 1021,
+   "disconnected": 0,
+   "work_edge_passes": 15.743608212653841,
+   "subrounds_par": 1715,
+   "subrounds_seq": 740,
+   "others_busy_cores": [
+    14.56
+   ],
+   "n_passes": 24,
+   "total_iters": 240,
+   "passes_at_iter_cap": 9,
+   "sub_rounds_per_level": [
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "40af54b9813adc6d"
+   ],
+   "loadavg_before": [
+    18.34
+   ],
+   "memory_peak": 1567809536
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 11.2705,
+   "lm_s": 5.3033,
+   "refine_s": 3.003,
+   "agg_s": 2.8941,
+   "times_s": [
+    15.5345,
+    11.2705,
+    12.4855,
+    9.3656,
+    8.5899
+   ],
+   "ratio_async": 1.8410822854569373,
+   "ratio_auto": 0.8600220264317181,
+   "self_speedup": 3.2696242402732794,
+   "modularity": 0.769823,
+   "modularity_values": [
+    0.769823
+   ],
+   "communities": 1021,
+   "disconnected": 0,
+   "work_edge_passes": 15.743608212653841,
+   "subrounds_par": 1715,
+   "subrounds_seq": 740,
+   "others_busy_cores": [
+    21.69,
+    15.34,
+    17.08,
+    10.06,
+    10.02
+   ],
+   "n_passes": 24,
+   "total_iters": 240,
+   "passes_at_iter_cap": 9,
+   "sub_rounds_per_level": [
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "40af54b9813adc6d"
+   ],
+   "loadavg_before": [
+    30.48,
+    16.84,
+    26.41,
+    22.4,
+    22.08
+   ],
+   "memory_peak": 1674256384
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 4.798,
+   "lm_s": 2.3907,
+   "refine_s": 0.8883,
+   "agg_s": 1.4375,
+   "times_s": [
+    7.5479,
+    4.8087,
+    4.798,
+    4.3337,
+    4.2954
+   ],
+   "ratio_async": 1.8633524206142633,
+   "ratio_auto": 0.5859122557966606,
+   "self_speedup": 7.680345977490621,
+   "modularity": 0.769823,
+   "modularity_values": [
+    0.769823
+   ],
+   "communities": 1021,
+   "disconnected": 0,
+   "work_edge_passes": 15.743608212653841,
+   "subrounds_par": 1715,
+   "subrounds_seq": 740,
+   "others_busy_cores": [
+    17.26,
+    12.33,
+    9.74,
+    7.51,
+    6.46
+   ],
+   "n_passes": 24,
+   "total_iters": 240,
+   "passes_at_iter_cap": 9,
+   "sub_rounds_per_level": [
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    32,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "40af54b9813adc6d"
+   ],
+   "loadavg_before": [
+    37.27,
+    25.82,
+    22.12,
+    26.25,
+    21.66
+   ],
+   "memory_peak": 1863147520
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 32.1115,
+   "lm_s": 17.8672,
+   "refine_s": 7.1206,
+   "agg_s": 7.0225,
+   "times_s": [
+    32.1115
+   ],
+   "ratio_async": 1.7722654245014873,
+   "ratio_auto": 1.1245215491127865,
+   "self_speedup": 1.0,
+   "modularity": 0.771091,
+   "modularity_values": [
+    0.771091
+   ],
+   "communities": 658,
+   "disconnected": 0,
+   "work_edge_passes": 18.74736447689265,
+   "subrounds_par": 893,
+   "subrounds_seq": 476,
+   "others_busy_cores": [
+    6.88
+   ],
+   "n_passes": 25,
+   "total_iters": 220,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "5802bc289a68e6c0"
+   ],
+   "loadavg_before": [
+    20.1
+   ],
+   "memory_peak": 1650913280
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 13.3204,
+   "lm_s": 6.975,
+   "refine_s": 2.6641,
+   "agg_s": 3.2745,
+   "times_s": [
+    16.8643,
+    13.8732,
+    13.3204,
+    10.7253,
+    11.0422
+   ],
+   "ratio_async": 2.104650706436421,
+   "ratio_auto": 0.929747537848383,
+   "self_speedup": 2.410700879853458,
+   "modularity": 0.771091,
+   "modularity_values": [
+    0.771091
+   ],
+   "communities": 658,
+   "disconnected": 0,
+   "work_edge_passes": 18.74736447689265,
+   "subrounds_par": 893,
+   "subrounds_seq": 476,
+   "others_busy_cores": [
+    21.19,
+    14.11,
+    13.86,
+    8.84,
+    14.0
+   ],
+   "n_passes": 25,
+   "total_iters": 220,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "5802bc289a68e6c0"
+   ],
+   "loadavg_before": [
+    32.87,
+    16.25,
+    26.7,
+    29.56,
+    23.28
+   ],
+   "memory_peak": 1731235840
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.1502,
+   "lm_s": 2.4353,
+   "refine_s": 0.9166,
+   "agg_s": 1.6729,
+   "times_s": [
+    6.2034,
+    5.1666,
+    5.1502,
+    4.669,
+    4.3679
+   ],
+   "ratio_async": 1.8948030539649485,
+   "ratio_auto": 0.5948329457275092,
+   "self_speedup": 6.235000582501651,
+   "modularity": 0.771091,
+   "modularity_values": [
+    0.771091
+   ],
+   "communities": 658,
+   "disconnected": 0,
+   "work_edge_passes": 18.74736447689265,
+   "subrounds_par": 893,
+   "subrounds_seq": 476,
+   "others_busy_cores": [
+    13.93,
+    12.89,
+    11.46,
+    8.94,
+    8.04
+   ],
+   "n_passes": 25,
+   "total_iters": 220,
+   "passes_at_iter_cap": 7,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "5802bc289a68e6c0"
+   ],
+   "loadavg_before": [
+    36.86,
+    26.55,
+    21.94,
+    22.34,
+    24.16
+   ],
+   "memory_peak": 1879277568
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "async",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 18.1189,
+   "lm_s": 7.9382,
+   "refine_s": 4.0626,
+   "agg_s": 5.9508,
+   "times_s": [
+    18.1189
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.634510798194406,
+   "self_speedup": 1.0,
+   "modularity": 0.765022,
+   "modularity_values": [
+    0.765022
+   ],
+   "communities": 1433,
+   "disconnected": 0,
+   "work_edge_passes": 11.111207154114583,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    5.0
+   ],
+   "n_passes": 21,
+   "total_iters": 101,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "d9ea3cf4331d395d"
+   ],
+   "loadavg_before": [
+    21.23
+   ],
+   "memory_peak": 1429577728
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "async",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 5.096,
+   "lm_s": 2.0894,
+   "refine_s": 0.9559,
+   "agg_s": 2.0366,
+   "times_s": [
+    8.4377,
+    4.8208,
+    6.3804,
+    5.096,
+    5.0059
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.4640101626128033,
+   "self_speedup": 3.555514128728414,
+   "modularity": 0.765074,
+   "modularity_values": [
+    0.764519,
+    0.764824,
+    0.765074,
+    0.765296,
+    0.765388
+   ],
+   "communities": 1408,
+   "disconnected": 0,
+   "work_edge_passes": 10.884926293905322,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    18.12,
+    7.7,
+    13.57,
+    8.18,
+    10.27
+   ],
+   "n_passes": 21,
+   "total_iters": 90,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "26229bf87f291ae6",
+    "6a5f0ea0bbef360a",
+    "86eec11f2af7fdcd",
+    "b0040517828bd611",
+    "c2fffb35b4e047c1"
+   ],
+   "loadavg_before": [
+    30.78,
+    21.33,
+    22.95,
+    24.69,
+    23.4
+   ],
+   "memory_peak": 1551405056
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "async",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.5244,
+   "lm_s": 0.8361,
+   "refine_s": 0.2968,
+   "agg_s": 1.3509,
+   "times_s": [
+    3.7155,
+    2.5244,
+    2.7307,
+    2.3591,
+    2.3052
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.3176319726437273,
+   "self_speedup": 7.1775075265409605,
+   "modularity": 0.764998,
+   "modularity_values": [
+    0.764133,
+    0.764456,
+    0.764998,
+    0.765058,
+    0.765327
+   ],
+   "communities": 1417,
+   "disconnected": 0,
+   "work_edge_passes": 10.996750831408924,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    17.68,
+    9.66,
+    10.61,
+    7.64,
+    6.04
+   ],
+   "n_passes": 21,
+   "total_iters": 97,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "3077eb7b9acd93e2",
+    "8978a1d39fbf389e",
+    "8c94d136066b77a9",
+    "c6c9ea2705094cf5",
+    "f7617703affad356"
+   ],
+   "loadavg_before": [
+    37.01,
+    27.5,
+    23.56,
+    19.45,
+    23.56
+   ],
+   "memory_peak": 1641795584
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 42.898,
+   "lm_s": 28.4183,
+   "refine_s": 7.997,
+   "agg_s": 6.3843,
+   "times_s": [
+    42.898
+   ],
+   "ratio_async": 1.2406405358428796,
+   "ratio_auto": 1.0,
+   "self_speedup": 1.0,
+   "modularity": 0.676042,
+   "modularity_values": [
+    0.676042
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 6.600635516254232,
+   "subrounds_par": 2462,
+   "subrounds_seq": 8216,
+   "others_busy_cores": [
+    15.7
+   ],
+   "n_passes": 7,
+   "total_iters": 42,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "ca792d246e7f461f"
+   ],
+   "loadavg_before": [
+    36.18
+   ],
+   "memory_peak": 2978246656
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 8.94,
+   "lm_s": 5.9931,
+   "refine_s": 1.5564,
+   "agg_s": 1.2161,
+   "times_s": [
+    7.8048,
+    8.94,
+    9.9265,
+    7.8686,
+    8.9747
+   ],
+   "ratio_async": 1.8077387906377151,
+   "ratio_auto": 1.0,
+   "self_speedup": 4.798434004474274,
+   "modularity": 0.676042,
+   "modularity_values": [
+    0.676042
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 6.600635516254232,
+   "subrounds_par": 2462,
+   "subrounds_seq": 8216,
+   "others_busy_cores": [
+    6.98,
+    8.02,
+    12.32,
+    6.21,
+    10.1
+   ],
+   "n_passes": 7,
+   "total_iters": 42,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "ca792d246e7f461f"
+   ],
+   "loadavg_before": [
+    25.79,
+    18.78,
+    27.14,
+    19.14,
+    23.5
+   ],
+   "memory_peak": 3091271680
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.5248,
+   "lm_s": 3.834,
+   "refine_s": 0.7401,
+   "agg_s": 0.9343,
+   "times_s": [
+    6.8783,
+    6.1375,
+    4.8847,
+    4.7943,
+    5.5248
+   ],
+   "ratio_async": 2.5536662335251537,
+   "ratio_auto": 1.0,
+   "self_speedup": 7.764624963799595,
+   "modularity": 0.676042,
+   "modularity_values": [
+    0.676042
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 6.600635516254232,
+   "subrounds_par": 2462,
+   "subrounds_seq": 8216,
+   "others_busy_cores": [
+    12.59,
+    13.76,
+    6.42,
+    5.23,
+    11.19
+   ],
+   "n_passes": 7,
+   "total_iters": 42,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "ca792d246e7f461f"
+   ],
+   "loadavg_before": [
+    31.78,
+    21.11,
+    25.7,
+    33.35,
+    31.58
+   ],
+   "memory_peak": 3124015104
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s4",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 93.7649,
+   "lm_s": 73.2768,
+   "refine_s": 10.6085,
+   "agg_s": 9.7138,
+   "times_s": [
+    93.7649
+   ],
+   "ratio_async": 2.711747302420952,
+   "ratio_auto": 2.1857639050771596,
+   "self_speedup": 1.0,
+   "modularity": 0.662688,
+   "modularity_values": [
+    0.662688
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 15.495002097536595,
+   "subrounds_par": 285,
+   "subrounds_seq": 182,
+   "others_busy_cores": [
+    18.99
+   ],
+   "n_passes": 10,
+   "total_iters": 108,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "03e28b19dba34e5d"
+   ],
+   "loadavg_before": [
+    39.5
+   ],
+   "memory_peak": 4755058688
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s4",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 12.5561,
+   "lm_s": 8.7678,
+   "refine_s": 1.1255,
+   "agg_s": 1.6957,
+   "times_s": [
+    11.4685,
+    16.9761,
+    12.5561,
+    10.3726,
+    12.5583
+   ],
+   "ratio_async": 2.3061989163375887,
+   "ratio_auto": 1.3993002551617322,
+   "self_speedup": 7.467677065330795,
+   "modularity": 0.662688,
+   "modularity_values": [
+    0.662688
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 15.495002097536595,
+   "subrounds_par": 285,
+   "subrounds_seq": 182,
+   "others_busy_cores": [
+    6.09,
+    10.56,
+    12.01,
+    6.1,
+    10.59
+   ],
+   "n_passes": 10,
+   "total_iters": 108,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "03e28b19dba34e5d"
+   ],
+   "loadavg_before": [
+    24.73,
+    18.84,
+    31.54,
+    19.2,
+    22.8
+   ],
+   "memory_peak": 4807684096
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s4",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.0367,
+   "lm_s": 3.2937,
+   "refine_s": 0.4775,
+   "agg_s": 1.1203,
+   "times_s": [
+    7.066,
+    5.0367,
+    4.75,
+    4.3262,
+    5.2311
+   ],
+   "ratio_async": 2.224674661903547,
+   "ratio_auto": 0.9468397046046915,
+   "self_speedup": 18.616336093076818,
+   "modularity": 0.662688,
+   "modularity_values": [
+    0.662688
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 15.495002097536595,
+   "subrounds_par": 285,
+   "subrounds_seq": 182,
+   "others_busy_cores": [
+    16.66,
+    13.1,
+    9.2,
+    6.01,
+    12.46
+   ],
+   "n_passes": 10,
+   "total_iters": 108,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "03e28b19dba34e5d"
+   ],
+   "loadavg_before": [
+    34.73,
+    24.32,
+    24.52,
+    29.75,
+    32.01
+   ],
+   "memory_peak": 4874977280
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s8",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 66.4253,
+   "lm_s": 48.9216,
+   "refine_s": 7.9305,
+   "agg_s": 9.4309,
+   "times_s": [
+    66.4253
+   ],
+   "ratio_async": 1.9210667113973616,
+   "ratio_auto": 1.5484474800690007,
+   "self_speedup": 1.0,
+   "modularity": 0.672471,
+   "modularity_values": [
+    0.672471
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 11.464654174669995,
+   "subrounds_par": 323,
+   "subrounds_seq": 272,
+   "others_busy_cores": [
+    18.59
+   ],
+   "n_passes": 8,
+   "total_iters": 67,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "f484e9b3761fc893"
+   ],
+   "loadavg_before": [
+    29.64
+   ],
+   "memory_peak": 4223152128
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s8",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 9.8531,
+   "lm_s": 6.7894,
+   "refine_s": 1.378,
+   "agg_s": 1.6025,
+   "times_s": [
+    9.4457,
+    11.2843,
+    10.642,
+    8.8344,
+    9.8531
+   ],
+   "ratio_async": 1.9546331159886123,
+   "ratio_auto": 1.1227410212744326,
+   "self_speedup": 6.741563568826054,
+   "modularity": 0.672471,
+   "modularity_values": [
+    0.672471
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 11.464654174669995,
+   "subrounds_par": 323,
+   "subrounds_seq": 272,
+   "others_busy_cores": [
+    4.45,
+    17.09,
+    11.04,
+    6.71,
+    9.8
+   ],
+   "n_passes": 8,
+   "total_iters": 67,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "f484e9b3761fc893"
+   ],
+   "loadavg_before": [
+    20.8,
+    22.2,
+    25.41,
+    19.04,
+    21.7
+   ],
+   "memory_peak": 4342603776
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s8",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 4.4476,
+   "lm_s": 2.8461,
+   "refine_s": 0.505,
+   "agg_s": 1.0712,
+   "times_s": [
+    5.1437,
+    4.5744,
+    4.3765,
+    4.4217,
+    4.4476
+   ],
+   "ratio_async": 1.9096714312233156,
+   "ratio_auto": 0.8050246162757024,
+   "self_speedup": 14.935088587103154,
+   "modularity": 0.672471,
+   "modularity_values": [
+    0.672471
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 11.464654174669995,
+   "subrounds_par": 323,
+   "subrounds_seq": 272,
+   "others_busy_cores": [
+    12.25,
+    13.39,
+    9.05,
+    11.88,
+    12.13
+   ],
+   "n_passes": 8,
+   "total_iters": 67,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "f484e9b3761fc893"
+   ],
+   "loadavg_before": [
+    30.73,
+    19.99,
+    22.69,
+    33.42,
+    32.32
+   ],
+   "memory_peak": 4466888704
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 55.7458,
+   "lm_s": 44.9453,
+   "refine_s": 5.827,
+   "agg_s": 4.8631,
+   "times_s": [
+    55.7458
+   ],
+   "ratio_async": 1.6122080093008997,
+   "ratio_auto": 1.2994964800223787,
+   "self_speedup": 1.0,
+   "modularity": 0.66804,
+   "modularity_values": [
+    0.66804
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 11.659510708585668,
+   "subrounds_par": 411,
+   "subrounds_seq": 567,
+   "others_busy_cores": [
+    12.45
+   ],
+   "n_passes": 7,
+   "total_iters": 55,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "bb5a86e3d23ca3aa"
+   ],
+   "loadavg_before": [
+    37.26
+   ],
+   "memory_peak": 3560435712
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 9.4462,
+   "lm_s": 6.8696,
+   "refine_s": 1.2024,
+   "agg_s": 1.2727,
+   "times_s": [
+    8.7045,
+    8.3319,
+    10.0287,
+    9.4585,
+    9.4462
+   ],
+   "ratio_async": 1.902711195262458,
+   "ratio_auto": 1.05253657503872,
+   "self_speedup": 5.901399504562682,
+   "modularity": 0.66804,
+   "modularity_values": [
+    0.66804
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 11.659510708585668,
+   "subrounds_par": 411,
+   "subrounds_seq": 567,
+   "others_busy_cores": [
+    3.15,
+    2.06,
+    10.36,
+    6.77,
+    6.44
+   ],
+   "n_passes": 7,
+   "total_iters": 55,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "bb5a86e3d23ca3aa"
+   ],
+   "loadavg_before": [
+    20.77,
+    19.27,
+    24.58,
+    18.59,
+    25.36
+   ],
+   "memory_peak": 3833913344
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 4.4166,
+   "lm_s": 2.8822,
+   "refine_s": 0.5231,
+   "agg_s": 0.9136,
+   "times_s": [
+    6.7073,
+    4.4166,
+    3.4568,
+    3.899,
+    4.8726
+   ],
+   "ratio_async": 2.072212299055882,
+   "ratio_auto": 0.8132574098408527,
+   "self_speedup": 12.62188108499751,
+   "modularity": 0.66804,
+   "modularity_values": [
+    0.66804
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 11.659510708585668,
+   "subrounds_par": 411,
+   "subrounds_seq": 567,
+   "others_busy_cores": [
+    18.08,
+    13.0,
+    4.38,
+    7.9,
+    12.49
+   ],
+   "n_passes": 7,
+   "total_iters": 55,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "bb5a86e3d23ca3aa"
+   ],
+   "loadavg_before": [
+    34.34,
+    26.03,
+    25.68,
+    33.46,
+    30.53
+   ],
+   "memory_peak": 3907002368
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s32",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 44.3156,
+   "lm_s": 32.1849,
+   "refine_s": 6.3863,
+   "agg_s": 5.6143,
+   "times_s": [
+    44.3156
+   ],
+   "ratio_async": 1.2816385316378087,
+   "ratio_auto": 1.0330458296424077,
+   "self_speedup": 1.0,
+   "modularity": 0.681345,
+   "modularity_values": [
+    0.681345
+   ],
+   "communities": 31,
+   "disconnected": 0,
+   "work_edge_passes": 9.283916393266537,
+   "subrounds_par": 943,
+   "subrounds_seq": 689,
+   "others_busy_cores": [
+    11.19
+   ],
+   "n_passes": 7,
+   "total_iters": 46,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "3718a896723df0f9"
+   ],
+   "loadavg_before": [
+    30.76
+   ],
+   "memory_peak": 3334180864
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s32",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 9.2702,
+   "lm_s": 6.3025,
+   "refine_s": 1.5482,
+   "agg_s": 1.586,
+   "times_s": [
+    10.5632,
+    7.021,
+    11.1128,
+    8.9706,
+    9.2702
+   ],
+   "ratio_async": 1.8672602022318014,
+   "ratio_auto": 1.1195083866418172,
+   "self_speedup": 4.780436236542901,
+   "modularity": 0.681345,
+   "modularity_values": [
+    0.681345
+   ],
+   "communities": 31,
+   "disconnected": 0,
+   "work_edge_passes": 9.283916393266537,
+   "subrounds_par": 943,
+   "subrounds_seq": 689,
+   "others_busy_cores": [
+    9.79,
+    2.41,
+    13.31,
+    9.48,
+    8.41
+   ],
+   "n_passes": 7,
+   "total_iters": 46,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "3718a896723df0f9"
+   ],
+   "loadavg_before": [
+    20.84,
+    18.43,
+    28.26,
+    19.66,
+    24.68
+   ],
+   "memory_peak": 3422920704
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s32",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 4.2775,
+   "lm_s": 2.6659,
+   "refine_s": 0.5367,
+   "agg_s": 1.0433,
+   "times_s": [
+    5.0146,
+    4.3853,
+    3.7754,
+    3.5672,
+    4.2775
+   ],
+   "ratio_async": 1.8617412288843513,
+   "ratio_auto": 0.7440502263104103,
+   "self_speedup": 10.360163646990065,
+   "modularity": 0.681345,
+   "modularity_values": [
+    0.681345
+   ],
+   "communities": 31,
+   "disconnected": 0,
+   "work_edge_passes": 9.283916393266537,
+   "subrounds_par": 943,
+   "subrounds_seq": 689,
+   "others_busy_cores": [
+    13.55,
+    13.15,
+    7.94,
+    5.61,
+    11.64
+   ],
+   "n_passes": 7,
+   "total_iters": 46,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "3718a896723df0f9"
+   ],
+   "loadavg_before": [
+    31.48,
+    25.34,
+    26.61,
+    33.46,
+    31.37
+   ],
+   "memory_peak": 3518791680
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s64",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 41.507,
+   "lm_s": 30.6283,
+   "refine_s": 6.1021,
+   "agg_s": 4.6723,
+   "times_s": [
+    41.507
+   ],
+   "ratio_async": 1.2004118308832672,
+   "ratio_auto": 0.9675742458855889,
+   "self_speedup": 1.0,
+   "modularity": 0.669354,
+   "modularity_values": [
+    0.669354
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 6.69473870057335,
+   "subrounds_par": 960,
+   "subrounds_seq": 1906,
+   "others_busy_cores": [
+    15.12
+   ],
+   "n_passes": 7,
+   "total_iters": 41,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "921f0efd8cea9872"
+   ],
+   "loadavg_before": [
+    27.42
+   ],
+   "memory_peak": 3151286272
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s64",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 7.0988,
+   "lm_s": 4.5954,
+   "refine_s": 1.2624,
+   "agg_s": 1.1066,
+   "times_s": [
+    6.6876,
+    7.7131,
+    8.0138,
+    6.8987,
+    7.0988
+   ],
+   "ratio_async": 1.4298835757160697,
+   "ratio_auto": 0.8568573185731857,
+   "self_speedup": 5.847044570913393,
+   "modularity": 0.669354,
+   "modularity_values": [
+    0.669354
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 6.69473870057335,
+   "subrounds_par": 960,
+   "subrounds_seq": 1906,
+   "others_busy_cores": [
+    3.06,
+    9.45,
+    11.91,
+    7.16,
+    9.05
+   ],
+   "n_passes": 7,
+   "total_iters": 41,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "921f0efd8cea9872"
+   ],
+   "loadavg_before": [
+    23.18,
+    21.69,
+    26.12,
+    18.39,
+    22.08
+   ],
+   "memory_peak": 3240914944
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s64",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 4.6184,
+   "lm_s": 2.7971,
+   "refine_s": 0.6492,
+   "agg_s": 1.0322,
+   "times_s": [
+    4.73,
+    4.1006,
+    3.788,
+    4.8424,
+    4.6184
+   ],
+   "ratio_async": 1.7759972281172853,
+   "ratio_auto": 0.7754826294347658,
+   "self_speedup": 8.987311623072925,
+   "modularity": 0.669354,
+   "modularity_values": [
+    0.669354
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 6.69473870057335,
+   "subrounds_par": 960,
+   "subrounds_seq": 1906,
+   "others_busy_cores": [
+    14.65,
+    13.38,
+    7.8,
+    9.46,
+    13.24
+   ],
+   "n_passes": 7,
+   "total_iters": 41,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "921f0efd8cea9872"
+   ],
+   "loadavg_before": [
+    32.48,
+    21.37,
+    23.52,
+    33.24,
+    32.17
+   ],
+   "memory_peak": 3312713728
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L16k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 40.9907,
+   "lm_s": 27.2358,
+   "refine_s": 7.3068,
+   "agg_s": 6.3487,
+   "times_s": [
+    40.9907
+   ],
+   "ratio_async": 1.1854800692940164,
+   "ratio_auto": 0.9555387197538345,
+   "self_speedup": 1.0,
+   "modularity": 0.675934,
+   "modularity_values": [
+    0.675934
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 7.069475877488605,
+   "subrounds_par": 2216,
+   "subrounds_seq": 152,
+   "others_busy_cores": [
+    13.36
+   ],
+   "n_passes": 8,
+   "total_iters": 72,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "203ecdae8c206add"
+   ],
+   "loadavg_before": [
+    34.6
+   ],
+   "memory_peak": 2980028416
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L16k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 7.3641,
+   "lm_s": 4.4276,
+   "refine_s": 1.3495,
+   "agg_s": 1.3297,
+   "times_s": [
+    8.2142,
+    6.4652,
+    7.3641,
+    6.7269,
+    8.5069
+   ],
+   "ratio_async": 1.4921184426134921,
+   "ratio_auto": 0.854904303179727,
+   "self_speedup": 5.566287801632242,
+   "modularity": 0.675934,
+   "modularity_values": [
+    0.675934
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 7.069475877488605,
+   "subrounds_par": 2216,
+   "subrounds_seq": 152,
+   "others_busy_cores": [
+    13.08,
+    5.12,
+    10.01,
+    7.68,
+    10.13
+   ],
+   "n_passes": 8,
+   "total_iters": 72,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "203ecdae8c206add"
+   ],
+   "loadavg_before": [
+    26.12,
+    18.37,
+    23.37,
+    18.25,
+    24.04
+   ],
+   "memory_peak": 3096264704
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L16k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 3.8146,
+   "lm_s": 2.1613,
+   "refine_s": 0.6602,
+   "agg_s": 0.937,
+   "times_s": [
+    7.8326,
+    3.8181,
+    3.705,
+    3.7645,
+    3.8146
+   ],
+   "ratio_async": 1.6536445926631729,
+   "ratio_auto": 0.7584907977972036,
+   "self_speedup": 10.745740051381533,
+   "modularity": 0.675934,
+   "modularity_values": [
+    0.675934
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 7.069475877488605,
+   "subrounds_par": 2216,
+   "subrounds_seq": 152,
+   "others_busy_cores": [
+    18.63,
+    12.43,
+    9.11,
+    9.97,
+    11.11
+   ],
+   "n_passes": 8,
+   "total_iters": 72,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "203ecdae8c206add"
+   ],
+   "loadavg_before": [
+    32.76,
+    22.38,
+    23.99,
+    32.32,
+    31.54
+   ],
+   "memory_peak": 3191554048
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 41.0448,
+   "lm_s": 28.3519,
+   "refine_s": 6.6485,
+   "agg_s": 5.9381,
+   "times_s": [
+    41.0448
+   ],
+   "ratio_async": 1.1870446796019354,
+   "ratio_auto": 0.9567998508088955,
+   "self_speedup": 1.0,
+   "modularity": 0.669887,
+   "modularity_values": [
+    0.669887
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 7.311577972599124,
+   "subrounds_par": 656,
+   "subrounds_seq": 118,
+   "others_busy_cores": [
+    14.72
+   ],
+   "n_passes": 8,
+   "total_iters": 66,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "51f6418a19661ec9"
+   ],
+   "loadavg_before": [
+    33.9
+   ],
+   "memory_peak": 3148525568
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 7.3403,
+   "lm_s": 4.5742,
+   "refine_s": 1.3509,
+   "agg_s": 1.2646,
+   "times_s": [
+    8.0296,
+    6.0699,
+    7.3674,
+    7.3403,
+    6.1744
+   ],
+   "ratio_async": 1.4008862424704007,
+   "ratio_auto": 0.7421951342366392,
+   "self_speedup": 5.591706061060175,
+   "modularity": 0.669887,
+   "modularity_values": [
+    0.669887
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 7.311577972599124,
+   "subrounds_par": 656,
+   "subrounds_seq": 118,
+   "others_busy_cores": [
+    9.69,
+    3.85,
+    10.34,
+    9.47,
+    5.62
+   ],
+   "n_passes": 8,
+   "total_iters": 66,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "51f6418a19661ec9"
+   ],
+   "loadavg_before": [
+    20.74,
+    18.64,
+    23.79,
+    19.79,
+    26.15
+   ],
+   "memory_peak": 3239010304
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 3.5115,
+   "lm_s": 1.8769,
+   "refine_s": 0.5455,
+   "agg_s": 1.0307,
+   "times_s": [
+    5.9923,
+    3.5378,
+    3.0259,
+    3.0184,
+    3.5115
+   ],
+   "ratio_async": 1.532244791892243,
+   "ratio_auto": 0.6295809607241933,
+   "self_speedup": 11.688680051260146,
+   "modularity": 0.669887,
+   "modularity_values": [
+    0.669887
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 7.311577972599124,
+   "subrounds_par": 656,
+   "subrounds_seq": 118,
+   "others_busy_cores": [
+    17.64,
+    13.24,
+    6.87,
+    6.59,
+    11.78
+   ],
+   "n_passes": 8,
+   "total_iters": 66,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "51f6418a19661ec9"
+   ],
+   "loadavg_before": [
+    36.19,
+    23.39,
+    28.16,
+    31.13,
+    32.45
+   ],
+   "memory_peak": 3298328576
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 44.1793,
+   "lm_s": 34.4655,
+   "refine_s": 4.9685,
+   "agg_s": 4.6248,
+   "times_s": [
+    44.1793
+   ],
+   "ratio_async": 1.2776966391245121,
+   "ratio_auto": 1.0298685253391766,
+   "self_speedup": 1.0,
+   "modularity": 0.668181,
+   "modularity_values": [
+    0.668181
+   ],
+   "communities": 26,
+   "disconnected": 0,
+   "work_edge_passes": 12.546932667061387,
+   "subrounds_par": 450,
+   "subrounds_seq": 309,
+   "others_busy_cores": [
+    10.07
+   ],
+   "n_passes": 9,
+   "total_iters": 121,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "5bd2847d5ae25b11"
+   ],
+   "loadavg_before": [
+    30.13
+   ],
+   "memory_peak": 3685122048
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 10.537,
+   "lm_s": 7.5373,
+   "refine_s": 1.3473,
+   "agg_s": 1.5482,
+   "times_s": [
+    13.6114,
+    10.537,
+    10.5209,
+    10.6487,
+    9.5207
+   ],
+   "ratio_async": 2.161075596144089,
+   "ratio_auto": 1.1786353467561523,
+   "self_speedup": 4.19277783050204,
+   "modularity": 0.668181,
+   "modularity_values": [
+    0.668181
+   ],
+   "communities": 26,
+   "disconnected": 0,
+   "work_edge_passes": 12.546932667061387,
+   "subrounds_par": 450,
+   "subrounds_seq": 309,
+   "others_busy_cores": [
+    20.39,
+    8.39,
+    10.0,
+    8.93,
+    8.74
+   ],
+   "n_passes": 9,
+   "total_iters": 121,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "5bd2847d5ae25b11"
+   ],
+   "loadavg_before": [
+    26.12,
+    18.95,
+    22.6,
+    19.8,
+    21.92
+   ],
+   "memory_peak": 3844464640
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k-max16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 4.3142,
+   "lm_s": 2.7913,
+   "refine_s": 0.5197,
+   "agg_s": 0.947,
+   "times_s": [
+    6.6577,
+    4.3142,
+    3.3774,
+    5.3218,
+    4.2488
+   ],
+   "ratio_async": 1.8685088137208192,
+   "ratio_auto": 0.7690414132638286,
+   "self_speedup": 10.240438551759308,
+   "modularity": 0.668181,
+   "modularity_values": [
+    0.668181
+   ],
+   "communities": 26,
+   "disconnected": 0,
+   "work_edge_passes": 12.546932667061387,
+   "subrounds_par": 450,
+   "subrounds_seq": 309,
+   "others_busy_cores": [
+    14.42,
+    13.38,
+    4.13,
+    8.82,
+    11.93
+   ],
+   "n_passes": 9,
+   "total_iters": 121,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "5bd2847d5ae25b11"
+   ],
+   "loadavg_before": [
+    34.06,
+    22.38,
+    25.7,
+    33.3,
+    32.45
+   ],
+   "memory_peak": 3953332224
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "async",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 34.5773,
+   "lm_s": 24.8428,
+   "refine_s": 4.6457,
+   "agg_s": 4.9901,
+   "times_s": [
+    34.5773
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.8060352463984335,
+   "self_speedup": 1.0,
+   "modularity": 0.683643,
+   "modularity_values": [
+    0.683643
+   ],
+   "communities": 25,
+   "disconnected": 0,
+   "work_edge_passes": 8.213247436962604,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    14.84
+   ],
+   "n_passes": 7,
+   "total_iters": 29,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "6894569d5495f02c"
+   ],
+   "loadavg_before": [
+    34.8
+   ],
+   "memory_peak": 2785603584
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "async",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 4.9646,
+   "lm_s": 3.0364,
+   "refine_s": 0.8449,
+   "agg_s": 1.0308,
+   "times_s": [
+    4.9994,
+    4.3329,
+    5.4445,
+    4.9275,
+    4.9646
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.5531772649782165,
+   "self_speedup": 6.964770575675785,
+   "modularity": 0.683339,
+   "modularity_values": [
+    0.676088,
+    0.680762,
+    0.683339,
+    0.6854,
+    0.685779
+   ],
+   "communities": 24,
+   "disconnected": 0,
+   "work_edge_passes": 6.790387388512579,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    7.18,
+    1.7,
+    10.04,
+    7.05,
+    6.06
+   ],
+   "n_passes": 7,
+   "total_iters": 33,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "5fbb832b5012ad10",
+    "df6078a6f13a6ce0",
+    "e8684d3a1ef81b12",
+    "eb73be6e833d2972",
+    "f61fa1120e2a2302"
+   ],
+   "loadavg_before": [
+    24.97,
+    20.52,
+    23.18,
+    18.52,
+    25.74
+   ],
+   "memory_peak": 2816774144
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "async",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 2.3514,
+   "lm_s": 0.9611,
+   "refine_s": 0.3009,
+   "agg_s": 0.9889,
+   "times_s": [
+    2.6935,
+    2.3089,
+    2.4417,
+    1.8499,
+    2.3514
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.3915938531323146,
+   "self_speedup": 14.704984264693374,
+   "modularity": 0.68097,
+   "modularity_values": [
+    0.678301,
+    0.680184,
+    0.68097,
+    0.681207,
+    0.682135
+   ],
+   "communities": 24,
+   "disconnected": 0,
+   "work_edge_passes": 8.091559027525713,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    14.53,
+    13.22,
+    9.49,
+    6.49,
+    12.79
+   ],
+   "n_passes": 7,
+   "total_iters": 33,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "3d2f2ccc207cab74",
+    "440572ca1ab0d016",
+    "c641fb94d64cb335",
+    "e2c6051957e3f6eb",
+    "ef1eb208a35c9848"
+   ],
+   "loadavg_before": [
+    34.34,
+    21.66,
+    22.69,
+    31.13,
+    33.49
+   ],
+   "memory_peak": 2847928320
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "auto",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 78.569,
+   "lm_s": 39.3397,
+   "refine_s": 22.9711,
+   "agg_s": 15.9937,
+   "times_s": [
+    78.569
+   ],
+   "ratio_async": 1.46320523684039,
+   "ratio_auto": 1.0,
+   "self_speedup": 1.0,
+   "modularity": 0.690544,
+   "modularity_values": [
+    0.690544
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 10.943810820913102,
+   "subrounds_par": 5302,
+   "subrounds_seq": 13945,
+   "others_busy_cores": [
+    13.11
+   ],
+   "n_passes": 19,
+   "total_iters": 69,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "68211360786489b2"
+   ],
+   "loadavg_before": [
+    33.15
+   ],
+   "memory_peak": 2628628480
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "auto",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 15.8387,
+   "lm_s": 8.0855,
+   "refine_s": 4.6992,
+   "agg_s": 3.298,
+   "times_s": [
+    22.5657,
+    13.1015,
+    15.8387,
+    15.6561,
+    19.2045
+   ],
+   "ratio_async": 1.6407549749826484,
+   "ratio_auto": 1.0,
+   "self_speedup": 4.960571259004843,
+   "modularity": 0.690544,
+   "modularity_values": [
+    0.690544
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 10.943810820913102,
+   "subrounds_par": 5302,
+   "subrounds_seq": 13945,
+   "others_busy_cores": [
+    15.16,
+    1.1,
+    14.04,
+    8.81,
+    9.81
+   ],
+   "n_passes": 19,
+   "total_iters": 69,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "68211360786489b2"
+   ],
+   "loadavg_before": [
+    22.9,
+    17.85,
+    21.59,
+    21.37,
+    27.24
+   ],
+   "memory_peak": 3248107520
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "auto",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 11.7346,
+   "lm_s": 6.0483,
+   "refine_s": 2.2919,
+   "agg_s": 3.1858,
+   "times_s": [
+    11.7346,
+    10.122,
+    15.107,
+    9.8217,
+    11.8599
+   ],
+   "ratio_async": 2.0881727972273225,
+   "ratio_auto": 1.0,
+   "self_speedup": 6.695498781381556,
+   "modularity": 0.690544,
+   "modularity_values": [
+    0.690544
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 10.943810820913102,
+   "subrounds_par": 5302,
+   "subrounds_seq": 13945,
+   "others_busy_cores": [
+    8.18,
+    5.94,
+    16.52,
+    9.09,
+    12.09
+   ],
+   "n_passes": 19,
+   "total_iters": 69,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "68211360786489b2"
+   ],
+   "loadavg_before": [
+    13.8,
+    23.37,
+    31.6,
+    20.73,
+    22.99
+   ],
+   "memory_peak": 3583324160
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s4",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 142.0528,
+   "lm_s": 80.1208,
+   "refine_s": 30.883,
+   "agg_s": 30.3418,
+   "times_s": [
+    142.0528
+   ],
+   "ratio_async": 2.645475962120436,
+   "ratio_auto": 1.808000610927974,
+   "self_speedup": 1.0,
+   "modularity": 0.674428,
+   "modularity_values": [
+    0.674428
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 21.537440674979084,
+   "subrounds_par": 415,
+   "subrounds_seq": 222,
+   "others_busy_cores": [
+    17.82
+   ],
+   "n_passes": 22,
+   "total_iters": 139,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "c57405f0ce56d28a"
+   ],
+   "loadavg_before": [
+    34.14
+   ],
+   "memory_peak": 4502966272
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s4",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 21.53,
+   "lm_s": 11.2405,
+   "refine_s": 4.2579,
+   "agg_s": 6.1649,
+   "times_s": [
+    25.0277,
+    21.53,
+    25.3324,
+    19.2669,
+    21.2219
+   ],
+   "ratio_async": 2.1659065537026296,
+   "ratio_auto": 1.2306321497690995,
+   "self_speedup": 6.597900603808639,
+   "modularity": 0.674428,
+   "modularity_values": [
+    0.674428
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 21.537440674979084,
+   "subrounds_par": 415,
+   "subrounds_seq": 222,
+   "others_busy_cores": [
+    11.78,
+    8.48,
+    14.49,
+    8.94,
+    9.3
+   ],
+   "n_passes": 22,
+   "total_iters": 139,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "c57405f0ce56d28a"
+   ],
+   "loadavg_before": [
+    21.65,
+    19.8,
+    25.01,
+    20.9,
+    23.02
+   ],
+   "memory_peak": 4933660672
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s4",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 10.6138,
+   "lm_s": 4.6683,
+   "refine_s": 1.855,
+   "agg_s": 3.563,
+   "times_s": [
+    11.6749,
+    8.7501,
+    13.3151,
+    9.2185,
+    10.6138
+   ],
+   "ratio_async": 1.9078811209073223,
+   "ratio_auto": 0.8949316604693125,
+   "self_speedup": 13.38378337635908,
+   "modularity": 0.674428,
+   "modularity_values": [
+    0.674428
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 21.537440674979084,
+   "subrounds_par": 415,
+   "subrounds_seq": 222,
+   "others_busy_cores": [
+    14.62,
+    4.36,
+    11.64,
+    11.08,
+    12.41
+   ],
+   "n_passes": 22,
+   "total_iters": 139,
+   "passes_at_iter_cap": 4,
+   "sub_rounds_per_level": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "c57405f0ce56d28a"
+   ],
+   "loadavg_before": [
+    22.11,
+    22.67,
+    31.12,
+    27.61,
+    27.49
+   ],
+   "memory_peak": 5082537984
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s8",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 89.7808,
+   "lm_s": 48.7349,
+   "refine_s": 19.8258,
+   "agg_s": 20.5666,
+   "times_s": [
+    89.7808
+   ],
+   "ratio_async": 1.6720046930433081,
+   "ratio_auto": 1.1427000470923647,
+   "self_speedup": 1.0,
+   "modularity": 0.693089,
+   "modularity_values": [
+    0.693089
+   ],
+   "communities": 26,
+   "disconnected": 0,
+   "work_edge_passes": 18.393646146967356,
+   "subrounds_par": 599,
+   "subrounds_seq": 421,
+   "others_busy_cores": [
+    11.57
+   ],
+   "n_passes": 21,
+   "total_iters": 110,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "db0b016ab7bac02a"
+   ],
+   "loadavg_before": [
+    17.62
+   ],
+   "memory_peak": 3592503296
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s8",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 18.7775,
+   "lm_s": 9.7601,
+   "refine_s": 4.2218,
+   "agg_s": 5.446,
+   "times_s": [
+    24.9069,
+    17.6301,
+    21.7605,
+    17.4988,
+    18.7775
+   ],
+   "ratio_async": 1.781160020610016,
+   "ratio_auto": 1.1176985328402347,
+   "self_speedup": 4.781296764745041,
+   "modularity": 0.693089,
+   "modularity_values": [
+    0.693089
+   ],
+   "communities": 26,
+   "disconnected": 0,
+   "work_edge_passes": 18.393646146967356,
+   "subrounds_par": 599,
+   "subrounds_seq": 421,
+   "others_busy_cores": [
+    15.49,
+    7.02,
+    12.59,
+    9.18,
+    9.81
+   ],
+   "n_passes": 21,
+   "total_iters": 110,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "db0b016ab7bac02a"
+   ],
+   "loadavg_before": [
+    30.63,
+    19.96,
+    23.51,
+    20.69,
+    23.95
+   ],
+   "memory_peak": 4334395392
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s8",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 8.7163,
+   "lm_s": 3.9919,
+   "refine_s": 1.5501,
+   "agg_s": 3.1867,
+   "times_s": [
+    11.8233,
+    8.5821,
+    8.7163,
+    8.5281,
+    10.0035
+   ],
+   "ratio_async": 1.764994412020365,
+   "ratio_auto": 0.8478660343805573,
+   "self_speedup": 10.300333857255945,
+   "modularity": 0.693089,
+   "modularity_values": [
+    0.693089
+   ],
+   "communities": 26,
+   "disconnected": 0,
+   "work_edge_passes": 18.393646146967356,
+   "subrounds_par": 599,
+   "subrounds_seq": 421,
+   "others_busy_cores": [
+    15.73,
+    6.67,
+    8.91,
+    10.05,
+    14.34
+   ],
+   "n_passes": 21,
+   "total_iters": 110,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "hash_levels": [
+    "db0b016ab7bac02a"
+   ],
+   "loadavg_before": [
+    29.29,
+    21.62,
+    31.72,
+    25.98,
+    26.3
+   ],
+   "memory_peak": 4679729152
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 114.5512,
+   "lm_s": 67.9561,
+   "refine_s": 25.8643,
+   "agg_s": 20.2476,
+   "times_s": [
+    114.5512
+   ],
+   "ratio_async": 2.1333085024163583,
+   "ratio_auto": 1.4579694281459608,
+   "self_speedup": 1.0,
+   "modularity": 0.685504,
+   "modularity_values": [
+    0.685504
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 16.37680277318232,
+   "subrounds_par": 722,
+   "subrounds_seq": 1036,
+   "others_busy_cores": [
+    16.39
+   ],
+   "n_passes": 21,
+   "total_iters": 92,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "e727c2cab6cb357e"
+   ],
+   "loadavg_before": [
+    37.49
+   ],
+   "memory_peak": 3389861888
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 17.3604,
+   "lm_s": 8.7717,
+   "refine_s": 4.0758,
+   "agg_s": 4.3443,
+   "times_s": [
+    18.6542,
+    17.3604,
+    15.8054,
+    17.0508,
+    20.3962
+   ],
+   "ratio_async": 1.6373053774356956,
+   "ratio_auto": 1.0620531646228748,
+   "self_speedup": 6.5984193912582665,
+   "modularity": 0.685504,
+   "modularity_values": [
+    0.685504
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 16.37680277318232,
+   "subrounds_par": 722,
+   "subrounds_seq": 1036,
+   "others_busy_cores": [
+    9.4,
+    7.44,
+    6.24,
+    9.36,
+    11.09
+   ],
+   "n_passes": 21,
+   "total_iters": 92,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "e727c2cab6cb357e"
+   ],
+   "loadavg_before": [
+    22.68,
+    26.22,
+    24.22,
+    21.58,
+    24.53
+   ],
+   "memory_peak": 3822182400
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 8.3427,
+   "lm_s": 3.7751,
+   "refine_s": 1.6219,
+   "agg_s": 2.8954,
+   "times_s": [
+    10.56,
+    7.5864,
+    8.3427,
+    9.3257,
+    8.3367
+   ],
+   "ratio_async": 1.6050017327018598,
+   "ratio_auto": 0.7494961470065205,
+   "self_speedup": 13.730710681194335,
+   "modularity": 0.685504,
+   "modularity_values": [
+    0.685504
+   ],
+   "communities": 27,
+   "disconnected": 0,
+   "work_edge_passes": 16.37680277318232,
+   "subrounds_par": 722,
+   "subrounds_seq": 1036,
+   "others_busy_cores": [
+    13.19,
+    7.05,
+    9.63,
+    13.27,
+    11.43
+   ],
+   "n_passes": 21,
+   "total_iters": 92,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "hash_levels": [
+    "e727c2cab6cb357e"
+   ],
+   "loadavg_before": [
+    32.86,
+    21.94,
+    29.79,
+    28.28,
+    21.79
+   ],
+   "memory_peak": 3970883584
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s32",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 67.7531,
+   "lm_s": 34.6985,
+   "refine_s": 18.8945,
+   "agg_s": 13.9111,
+   "times_s": [
+    67.7531
+   ],
+   "ratio_async": 1.2617787006601922,
+   "ratio_auto": 0.8623388359276559,
+   "self_speedup": 1.0,
+   "modularity": 0.693785,
+   "modularity_values": [
+    0.693785
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 13.971027132267338,
+   "subrounds_par": 1498,
+   "subrounds_seq": 1440,
+   "others_busy_cores": [
+    7.74
+   ],
+   "n_passes": 18,
+   "total_iters": 77,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "62b74541e2bc8b29"
+   ],
+   "loadavg_before": [
+    27.21
+   ],
+   "memory_peak": 3425239040
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s32",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 16.7358,
+   "lm_s": 8.2912,
+   "refine_s": 4.5383,
+   "agg_s": 4.169,
+   "times_s": [
+    21.806,
+    22.9128,
+    16.3104,
+    16.2715,
+    16.7358
+   ],
+   "ratio_async": 1.6896190939885845,
+   "ratio_auto": 1.0297814845915385,
+   "self_speedup": 4.048393264737867,
+   "modularity": 0.693785,
+   "modularity_values": [
+    0.693785
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 13.971027132267338,
+   "subrounds_par": 1498,
+   "subrounds_seq": 1440,
+   "others_busy_cores": [
+    15.18,
+    17.01,
+    7.59,
+    9.67,
+    8.66
+   ],
+   "n_passes": 18,
+   "total_iters": 77,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "62b74541e2bc8b29"
+   ],
+   "loadavg_before": [
+    25.33,
+    15.08,
+    23.5,
+    22.2,
+    23.05
+   ],
+   "memory_peak": 3570987008
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s32",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 8.0329,
+   "lm_s": 3.5518,
+   "refine_s": 1.6943,
+   "agg_s": 2.7294,
+   "times_s": [
+    9.8663,
+    7.3888,
+    7.8217,
+    8.0329,
+    21.1834
+   ],
+   "ratio_async": 1.5417989000808183,
+   "ratio_auto": 0.8178726697007647,
+   "self_speedup": 8.434450820998643,
+   "modularity": 0.693785,
+   "modularity_values": [
+    0.693785
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 13.971027132267338,
+   "subrounds_par": 1498,
+   "subrounds_seq": 1440,
+   "others_busy_cores": [
+    13.19,
+    6.11,
+    9.37,
+    10.27,
+    20.54
+   ],
+   "n_passes": 18,
+   "total_iters": 77,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "hash_levels": [
+    "62b74541e2bc8b29"
+   ],
+   "loadavg_before": [
+    17.62,
+    23.26,
+    28.03,
+    24.8,
+    31.03
+   ],
+   "memory_peak": 3965665280
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s64",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 64.6207,
+   "lm_s": 31.2737,
+   "refine_s": 18.2023,
+   "agg_s": 14.8134,
+   "times_s": [
+    64.6207
+   ],
+   "ratio_async": 1.20344342741147,
+   "ratio_auto": 0.8224706945487406,
+   "self_speedup": 1.0,
+   "modularity": 0.686569,
+   "modularity_values": [
+    0.686569
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 11.864001870912189,
+   "subrounds_par": 1920,
+   "subrounds_seq": 3830,
+   "others_busy_cores": [
+    7.19
+   ],
+   "n_passes": 19,
+   "total_iters": 76,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "ba1c3358595905e1"
+   ],
+   "loadavg_before": [
+    22.42
+   ],
+   "memory_peak": 2509148160
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s64",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 17.5421,
+   "lm_s": 7.5476,
+   "refine_s": 5.252,
+   "agg_s": 4.315,
+   "times_s": [
+    19.1027,
+    18.8055,
+    17.5421,
+    16.5134,
+    15.2243
+   ],
+   "ratio_async": 1.6531548293856497,
+   "ratio_auto": 1.0547582092602883,
+   "self_speedup": 3.68374938006282,
+   "modularity": 0.686569,
+   "modularity_values": [
+    0.686569
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 11.864001870912189,
+   "subrounds_par": 1920,
+   "subrounds_seq": 3830,
+   "others_busy_cores": [
+    13.53,
+    14.77,
+    8.39,
+    10.78,
+    9.02
+   ],
+   "n_passes": 19,
+   "total_iters": 76,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "ba1c3358595905e1"
+   ],
+   "loadavg_before": [
+    21.26,
+    18.57,
+    24.64,
+    23.43,
+    23.26
+   ],
+   "memory_peak": 3367317504
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s64",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 8.0221,
+   "lm_s": 3.4116,
+   "refine_s": 1.7522,
+   "agg_s": 2.7571,
+   "times_s": [
+    7.8947,
+    8.1429,
+    8.0221,
+    7.9822,
+    9.2093
+   ],
+   "ratio_async": 1.6520137422906576,
+   "ratio_auto": 0.7765073904501725,
+   "self_speedup": 8.055334638062353,
+   "modularity": 0.686569,
+   "modularity_values": [
+    0.686569
+   ],
+   "communities": 28,
+   "disconnected": 0,
+   "work_edge_passes": 11.864001870912189,
+   "subrounds_par": 1920,
+   "subrounds_seq": 3830,
+   "others_busy_cores": [
+    7.96,
+    7.3,
+    8.26,
+    9.29,
+    11.35
+   ],
+   "n_passes": 19,
+   "total_iters": 76,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+   ],
+   "hash_levels": [
+    "ba1c3358595905e1"
+   ],
+   "loadavg_before": [
+    21.99,
+    19.56,
+    31.74,
+    22.46,
+    23.72
+   ],
+   "memory_peak": 3621818368
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L16k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 73.0077,
+   "lm_s": 37.7557,
+   "refine_s": 20.5995,
+   "agg_s": 14.3746,
+   "times_s": [
+    73.0077
+   ],
+   "ratio_async": 1.3596361029117354,
+   "ratio_auto": 0.9292176303631203,
+   "self_speedup": 1.0,
+   "modularity": 0.693064,
+   "modularity_values": [
+    0.693064
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 12.047144578632079,
+   "subrounds_par": 4497,
+   "subrounds_seq": 1702,
+   "others_busy_cores": [
+    14.46
+   ],
+   "n_passes": 21,
+   "total_iters": 108,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    64,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "70d68285335bd327"
+   ],
+   "loadavg_before": [
+    27.42
+   ],
+   "memory_peak": 2961219584
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L16k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 15.9094,
+   "lm_s": 6.8262,
+   "refine_s": 5.1762,
+   "agg_s": 3.8378,
+   "times_s": [
+    20.1122,
+    12.6339,
+    21.6033,
+    15.9094,
+    14.2936
+   ],
+   "ratio_async": 1.3741060632233546,
+   "ratio_auto": 0.964309430217914,
+   "self_speedup": 4.588966271512439,
+   "modularity": 0.693064,
+   "modularity_values": [
+    0.693064
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 12.047144578632079,
+   "subrounds_par": 4497,
+   "subrounds_seq": 1702,
+   "others_busy_cores": [
+    12.89,
+    4.43,
+    14.4,
+    11.3,
+    5.93
+   ],
+   "n_passes": 21,
+   "total_iters": 108,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    64,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "70d68285335bd327"
+   ],
+   "loadavg_before": [
+    31.04,
+    20.19,
+    23.98,
+    24.4,
+    22.86
+   ],
+   "memory_peak": 3233751040
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L16k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 9.3792,
+   "lm_s": 4.251,
+   "refine_s": 2.0543,
+   "agg_s": 3.1077,
+   "times_s": [
+    9.8071,
+    8.142,
+    9.8588,
+    9.1833,
+    9.3792
+   ],
+   "ratio_async": 1.8057063647914982,
+   "ratio_auto": 0.8043864848844101,
+   "self_speedup": 7.78400076765609,
+   "modularity": 0.693064,
+   "modularity_values": [
+    0.693064
+   ],
+   "communities": 29,
+   "disconnected": 0,
+   "work_edge_passes": 12.047144578632079,
+   "subrounds_par": 4497,
+   "subrounds_seq": 1702,
+   "others_busy_cores": [
+    10.83,
+    7.95,
+    11.22,
+    10.16,
+    10.53
+   ],
+   "n_passes": 21,
+   "total_iters": 108,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    64,
+    4,
+    4,
+    4,
+    4,
+    4,
+    256,
+    64,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "70d68285335bd327"
+   ],
+   "loadavg_before": [
+    19.23,
+    22.25,
+    29.52,
+    22.97,
+    23.68
+   ],
+   "memory_peak": 3456933888
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 68.3765,
+   "lm_s": 34.6179,
+   "refine_s": 18.8538,
+   "agg_s": 14.6435,
+   "times_s": [
+    68.3765
+   ],
+   "ratio_async": 1.2733883958917247,
+   "ratio_auto": 0.8702732629917651,
+   "self_speedup": 1.0,
+   "modularity": 0.683674,
+   "modularity_values": [
+    0.683674
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 11.94158044910887,
+   "subrounds_par": 1412,
+   "subrounds_seq": 209,
+   "others_busy_cores": [
+    9.52
+   ],
+   "n_passes": 21,
+   "total_iters": 98,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    16,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "849f538e68deb067"
+   ],
+   "loadavg_before": [
+    21.08
+   ],
+   "memory_peak": 2711531520
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 17.3399,
+   "lm_s": 7.2472,
+   "refine_s": 5.2382,
+   "agg_s": 4.1161,
+   "times_s": [
+    25.018,
+    13.4706,
+    20.0125,
+    12.3933,
+    17.3399
+   ],
+   "ratio_async": 1.5593855949351152,
+   "ratio_auto": 1.0281723466778612,
+   "self_speedup": 3.9433041713043324,
+   "modularity": 0.683674,
+   "modularity_values": [
+    0.683674
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 11.94158044910887,
+   "subrounds_par": 1412,
+   "subrounds_seq": 209,
+   "others_busy_cores": [
+    19.6,
+    7.41,
+    14.2,
+    4.47,
+    13.52
+   ],
+   "n_passes": 21,
+   "total_iters": 98,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    16,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "849f538e68deb067"
+   ],
+   "loadavg_before": [
+    26.93,
+    16.19,
+    22.84,
+    25.2,
+    30.81
+   ],
+   "memory_peak": 3320246272
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 7.5595,
+   "lm_s": 2.8616,
+   "refine_s": 1.6921,
+   "agg_s": 2.9614,
+   "times_s": [
+    8.6044,
+    6.7764,
+    7.26,
+    7.5595,
+    12.3485
+   ],
+   "ratio_async": 1.431077644832548,
+   "ratio_auto": 0.7332503877422324,
+   "self_speedup": 9.045108803492294,
+   "modularity": 0.683674,
+   "modularity_values": [
+    0.683674
+   ],
+   "communities": 30,
+   "disconnected": 0,
+   "work_edge_passes": 11.94158044910887,
+   "subrounds_par": 1412,
+   "subrounds_seq": 209,
+   "others_busy_cores": [
+    13.0,
+    7.74,
+    8.69,
+    10.23,
+    16.6
+   ],
+   "n_passes": 21,
+   "total_iters": 98,
+   "passes_at_iter_cap": 2,
+   "sub_rounds_per_level": [
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    64,
+    16,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "849f538e68deb067"
+   ],
+   "loadavg_before": [
+    17.59,
+    24.75,
+    30.89,
+    29.26,
+    29.23
+   ],
+   "memory_peak": 3612577792
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 79.0423,
+   "lm_s": 42.4753,
+   "refine_s": 20.67,
+   "agg_s": 15.551,
+   "times_s": [
+    79.0423
+   ],
+   "ratio_async": 1.472019591593493,
+   "ratio_auto": 1.006024004378317,
+   "self_speedup": 1.0,
+   "modularity": 0.675963,
+   "modularity_values": [
+    0.675963
+   ],
+   "communities": 25,
+   "disconnected": 0,
+   "work_edge_passes": 17.05514197685895,
+   "subrounds_par": 743,
+   "subrounds_seq": 353,
+   "others_busy_cores": [
+    10.31
+   ],
+   "n_passes": 20,
+   "total_iters": 147,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "fbb3677e20dce1ea"
+   ],
+   "loadavg_before": [
+    17.93
+   ],
+   "memory_peak": 3181805568
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 16.7103,
+   "lm_s": 8.6163,
+   "refine_s": 3.9985,
+   "agg_s": 4.0814,
+   "times_s": [
+    19.4118,
+    14.81,
+    15.9874,
+    16.7103,
+    18.8505
+   ],
+   "ratio_async": 1.6561590336983207,
+   "ratio_auto": 1.009388396774988,
+   "self_speedup": 4.730154455635147,
+   "modularity": 0.675963,
+   "modularity_values": [
+    0.675963
+   ],
+   "communities": 25,
+   "disconnected": 0,
+   "work_edge_passes": 17.05514197685895,
+   "subrounds_par": 743,
+   "subrounds_seq": 353,
+   "others_busy_cores": [
+    8.74,
+    2.48,
+    6.4,
+    9.09,
+    10.04
+   ],
+   "n_passes": 20,
+   "total_iters": 147,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "fbb3677e20dce1ea"
+   ],
+   "loadavg_before": [
+    22.82,
+    23.34,
+    25.42,
+    21.26,
+    25.53
+   ],
+   "memory_peak": 3823382528
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k-max16",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 7.9914,
+   "lm_s": 3.6329,
+   "refine_s": 1.5179,
+   "agg_s": 2.9152,
+   "times_s": [
+    7.6412,
+    7.8345,
+    11.911,
+    7.9914,
+    8.5047
+   ],
+   "ratio_async": 1.6373455007508373,
+   "ratio_auto": 0.7740071132187315,
+   "self_speedup": 9.890920239257202,
+   "modularity": 0.675963,
+   "modularity_values": [
+    0.675963
+   ],
+   "communities": 25,
+   "disconnected": 0,
+   "work_edge_passes": 17.05514197685895,
+   "subrounds_par": 743,
+   "subrounds_seq": 353,
+   "others_busy_cores": [
+    7.46,
+    7.81,
+    15.78,
+    9.95,
+    11.82
+   ],
+   "n_passes": 20,
+   "total_iters": 147,
+   "passes_at_iter_cap": 5,
+   "sub_rounds_per_level": [
+    16,
+    16,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    16,
+    16,
+    4,
+    4,
+    4,
+    4
+   ],
+   "hash_levels": [
+    "fbb3677e20dce1ea"
+   ],
+   "loadavg_before": [
+    21.43,
+    23.17,
+    29.68,
+    26.63,
+    24.9
+   ],
+   "memory_peak": 4178546688
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "async",
+   "threads": 1,
+   "n_runs": 1,
+   "time_s": 53.6965,
+   "lm_s": 24.4249,
+   "refine_s": 15.0193,
+   "agg_s": 14.0042,
+   "times_s": [
+    53.6965
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.683431124234749,
+   "self_speedup": 1.0,
+   "modularity": 0.692199,
+   "modularity_values": [
+    0.692199
+   ],
+   "communities": 25,
+   "disconnected": 0,
+   "work_edge_passes": 11.999987344762983,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    8.85
+   ],
+   "n_passes": 16,
+   "total_iters": 46,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "16b5306f6c87f4d8"
+   ],
+   "loadavg_before": [
+    18.42
+   ],
+   "memory_peak": 2825396224
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "async",
+   "threads": 4,
+   "n_runs": 5,
+   "time_s": 11.1197,
+   "lm_s": 4.6089,
+   "refine_s": 3.104,
+   "agg_s": 3.287,
+   "times_s": [
+    11.5553,
+    9.8981,
+    9.6533,
+    11.578,
+    11.1197
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.6094755251377955,
+   "self_speedup": 4.828952219933991,
+   "modularity": 0.694605,
+   "modularity_values": [
+    0.694352,
+    0.69448,
+    0.694605,
+    0.694791,
+    0.695423
+   ],
+   "communities": 24,
+   "disconnected": 0,
+   "work_edge_passes": 11.105804710186534,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    8.12,
+    3.34,
+    6.96,
+    10.51,
+    8.36
+   ],
+   "n_passes": 18,
+   "total_iters": 53,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "19e592003fc0c210",
+    "7873471db40ccc5b",
+    "d5efc1e9c78b21ff",
+    "f05fb45d49c9f021",
+    "f7a85d07ff8436cd"
+   ],
+   "loadavg_before": [
+    21.83,
+    25.1,
+    26.31,
+    22.6,
+    23.04
+   ],
+   "memory_peak": 3018305536
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "async",
+   "threads": 16,
+   "n_runs": 5,
+   "time_s": 5.0731,
+   "lm_s": 1.6828,
+   "refine_s": 0.8807,
+   "agg_s": 2.5149,
+   "times_s": [
+    7.7306,
+    4.8473,
+    5.0731,
+    4.8318,
+    5.1942
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.4788875716261608,
+   "self_speedup": 10.584553823106187,
+   "modularity": 0.693218,
+   "modularity_values": [
+    0.692536,
+    0.692655,
+    0.693218,
+    0.694318,
+    0.694796
+   ],
+   "communities": 23,
+   "disconnected": 0,
+   "work_edge_passes": 11.702135485495198,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    17.5,
+    8.05,
+    9.67,
+    10.44,
+    12.59
+   ],
+   "n_passes": 19,
+   "total_iters": 60,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+   ],
+   "hash_levels": [
+    "3d057b7ee211077f",
+    "56d8aa3131b9bad0",
+    "aec7474aa535051c",
+    "c4e5a92d73dacaa4",
+    "d19b96969d5e7698"
+   ],
+   "loadavg_before": [
+    25.62,
+    22.31,
+    29.25,
+    28.93,
+    28.64
+   ],
+   "memory_peak": 3473842176
+  }
+ ],
+ "failed": [],
+ "seeds": [
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "auto",
+   "n": 7,
+   "mean": 0.750568,
+   "min": 0.747513,
+   "max": 0.755958,
+   "sd": 0.0030712297211377866,
+   "values": {
+    "0": 0.749148,
+    "1": 0.753429,
+    "2": 0.755958,
+    "3": 0.747513,
+    "5": 0.749443,
+    "6": 0.750513,
+    "4": 0.747972
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s32",
+   "n": 7,
+   "mean": 0.7506285714285714,
+   "min": 0.747098,
+   "max": 0.756554,
+   "sd": 0.0035717126077528636,
+   "values": {
+    "0": 0.753691,
+    "1": 0.747645,
+    "2": 0.751693,
+    "3": 0.747576,
+    "5": 0.750143,
+    "6": 0.747098,
+    "4": 0.756554
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "s64",
+   "n": 7,
+   "mean": 0.7498334285714285,
+   "min": 0.746532,
+   "max": 0.751915,
+   "sd": 0.0020993139242097484,
+   "values": {
+    "0": 0.748534,
+    "1": 0.751551,
+    "2": 0.751915,
+    "3": 0.748055,
+    "5": 0.750923,
+    "6": 0.746532,
+    "4": 0.751324
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L16k",
+   "n": 7,
+   "mean": 0.7510894285714286,
+   "min": 0.747993,
+   "max": 0.756169,
+   "sd": 0.0029286223073396777,
+   "values": {
+    "0": 0.749582,
+    "1": 0.753734,
+    "2": 0.756169,
+    "3": 0.747993,
+    "5": 0.74988,
+    "6": 0.75146,
+    "4": 0.748808
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "L64k",
+   "n": 7,
+   "mean": 0.7505808571428572,
+   "min": 0.746317,
+   "max": 0.752753,
+   "sd": 0.0022684462691874513,
+   "values": {
+    "0": 0.750319,
+    "1": 0.751864,
+    "2": 0.752418,
+    "3": 0.749059,
+    "5": 0.751336,
+    "6": 0.746317,
+    "4": 0.752753
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 1,
+   "variant": "async",
+   "n": 11,
+   "mean": 0.7493873636363636,
+   "min": 0.748251,
+   "max": 0.749957,
+   "sd": 0.0004201752664608597,
+   "values": {
+    "0": 0.749513,
+    "1": 0.749466,
+    "2": 0.749658,
+    "3": 0.749327,
+    "4": 0.749528,
+    "5": 0.749957,
+    "6": 0.749349,
+    "7": 0.748251,
+    "8": 0.749326,
+    "9": 0.749344,
+    "10": 0.749542
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "auto",
+   "n": 7,
+   "mean": 0.7665292857142857,
+   "min": 0.764585,
+   "max": 0.769932,
+   "sd": 0.0022142967065779417,
+   "values": {
+    "0": 0.765267,
+    "1": 0.769279,
+    "2": 0.769932,
+    "3": 0.764856,
+    "5": 0.764585,
+    "6": 0.766698,
+    "4": 0.765088
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s32",
+   "n": 7,
+   "mean": 0.7679431428571428,
+   "min": 0.763937,
+   "max": 0.771395,
+   "sd": 0.002919274763165881,
+   "values": {
+    "0": 0.77067,
+    "1": 0.765042,
+    "2": 0.769368,
+    "3": 0.763937,
+    "5": 0.769183,
+    "6": 0.766007,
+    "4": 0.771395
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "s64",
+   "n": 7,
+   "mean": 0.767459,
+   "min": 0.764316,
+   "max": 0.770021,
+   "sd": 0.0022664461167210604,
+   "values": {
+    "0": 0.764316,
+    "1": 0.769139,
+    "2": 0.76967,
+    "3": 0.765416,
+    "5": 0.765906,
+    "6": 0.767745,
+    "4": 0.770021
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L16k",
+   "n": 7,
+   "mean": 0.7671364285714286,
+   "min": 0.765511,
+   "max": 0.770131,
+   "sd": 0.002009051256782883,
+   "values": {
+    "0": 0.766086,
+    "1": 0.769874,
+    "2": 0.770131,
+    "3": 0.765645,
+    "5": 0.765511,
+    "6": 0.766884,
+    "4": 0.765824
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "L64k",
+   "n": 7,
+   "mean": 0.7681381428571429,
+   "min": 0.764717,
+   "max": 0.771496,
+   "sd": 0.0024025809336746884,
+   "values": {
+    "0": 0.771496,
+    "1": 0.769014,
+    "2": 0.769254,
+    "3": 0.76596,
+    "5": 0.766703,
+    "6": 0.764717,
+    "4": 0.769823
+   }
+  },
+  {
+   "graph": "lj",
+   "iterations": 3,
+   "variant": "async",
+   "n": 11,
+   "mean": 0.7649177272727272,
+   "min": 0.764133,
+   "max": 0.765388,
+   "sd": 0.00039873828281445647,
+   "values": {
+    "0": 0.765022,
+    "1": 0.764519,
+    "2": 0.765074,
+    "3": 0.765296,
+    "4": 0.764824,
+    "5": 0.765388,
+    "6": 0.764133,
+    "7": 0.765058,
+    "8": 0.764456,
+    "9": 0.765327,
+    "10": 0.764998
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "auto",
+   "n": 7,
+   "mean": 0.6701558571428572,
+   "min": 0.65385,
+   "max": 0.681794,
+   "sd": 0.00890911416151219,
+   "values": {
+    "0": 0.670039,
+    "1": 0.681794,
+    "2": 0.664759,
+    "3": 0.67133,
+    "5": 0.673277,
+    "6": 0.65385,
+    "4": 0.676042
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s32",
+   "n": 7,
+   "mean": 0.6725347142857143,
+   "min": 0.661394,
+   "max": 0.681345,
+   "sd": 0.007367203262077249,
+   "values": {
+    "0": 0.677242,
+    "1": 0.667061,
+    "2": 0.661394,
+    "3": 0.678273,
+    "5": 0.667008,
+    "6": 0.67542,
+    "4": 0.681345
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "s64",
+   "n": 7,
+   "mean": 0.6719172857142858,
+   "min": 0.661217,
+   "max": 0.686337,
+   "sd": 0.009202712873826652,
+   "values": {
+    "0": 0.677821,
+    "1": 0.686337,
+    "2": 0.667923,
+    "3": 0.661217,
+    "5": 0.678247,
+    "6": 0.662522,
+    "4": 0.669354
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L16k",
+   "n": 7,
+   "mean": 0.6703221428571429,
+   "min": 0.65398,
+   "max": 0.682163,
+   "sd": 0.008930921274399619,
+   "values": {
+    "0": 0.670116,
+    "1": 0.682163,
+    "2": 0.665034,
+    "3": 0.671468,
+    "5": 0.67356,
+    "6": 0.65398,
+    "4": 0.675934
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "L64k",
+   "n": 7,
+   "mean": 0.6720501428571428,
+   "min": 0.661758,
+   "max": 0.686359,
+   "sd": 0.009070513536152404,
+   "values": {
+    "0": 0.678075,
+    "1": 0.686359,
+    "2": 0.667656,
+    "3": 0.661758,
+    "5": 0.677944,
+    "6": 0.662672,
+    "4": 0.669887
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 1,
+   "variant": "async",
+   "n": 11,
+   "mean": 0.681618909090909,
+   "min": 0.676088,
+   "max": 0.685779,
+   "sd": 0.0028966963408181205,
+   "values": {
+    "0": 0.683643,
+    "1": 0.683339,
+    "2": 0.685779,
+    "3": 0.676088,
+    "4": 0.680762,
+    "5": 0.6854,
+    "6": 0.680184,
+    "7": 0.678301,
+    "8": 0.681207,
+    "9": 0.682135,
+    "10": 0.68097
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "auto",
+   "n": 7,
+   "mean": 0.6856121428571429,
+   "min": 0.672309,
+   "max": 0.69386,
+   "sd": 0.007760114978284171,
+   "values": {
+    "0": 0.687903,
+    "1": 0.69386,
+    "2": 0.681432,
+    "3": 0.68082,
+    "5": 0.692417,
+    "6": 0.672309,
+    "4": 0.690544
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s32",
+   "n": 7,
+   "mean": 0.6888702857142858,
+   "min": 0.681965,
+   "max": 0.693785,
+   "sd": 0.004389468521901234,
+   "values": {
+    "0": 0.691082,
+    "1": 0.685427,
+    "2": 0.681965,
+    "3": 0.690574,
+    "5": 0.686241,
+    "6": 0.693018,
+    "4": 0.693785
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "s64",
+   "n": 7,
+   "mean": 0.6865228571428571,
+   "min": 0.674588,
+   "max": 0.695664,
+   "sd": 0.007231510801775135,
+   "values": {
+    "0": 0.689211,
+    "1": 0.695664,
+    "2": 0.683613,
+    "3": 0.674588,
+    "5": 0.693824,
+    "6": 0.682191,
+    "4": 0.686569
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L16k",
+   "n": 7,
+   "mean": 0.6851261428571428,
+   "min": 0.671528,
+   "max": 0.694194,
+   "sd": 0.008057681271692894,
+   "values": {
+    "0": 0.681742,
+    "1": 0.694194,
+    "2": 0.680674,
+    "3": 0.684313,
+    "5": 0.690368,
+    "6": 0.671528,
+    "4": 0.693064
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "L64k",
+   "n": 7,
+   "mean": 0.6869435714285714,
+   "min": 0.67609,
+   "max": 0.695955,
+   "sd": 0.006780714339387924,
+   "values": {
+    "0": 0.688771,
+    "1": 0.695955,
+    "2": 0.690102,
+    "3": 0.67609,
+    "5": 0.692147,
+    "6": 0.681866,
+    "4": 0.683674
+   }
+  },
+  {
+   "graph": "orkut",
+   "iterations": 3,
+   "variant": "async",
+   "n": 11,
+   "mean": 0.693943,
+   "min": 0.692199,
+   "max": 0.695423,
+   "sd": 0.0010898342075747053,
+   "values": {
+    "0": 0.692199,
+    "1": 0.694605,
+    "2": 0.69448,
+    "3": 0.694791,
+    "4": 0.694352,
+    "5": 0.695423,
+    "6": 0.693218,
+    "7": 0.692536,
+    "8": 0.692655,
+    "9": 0.694318,
+    "10": 0.694796
+   }
+  }
+ ]
+}

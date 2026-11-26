@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The document checks: ADR headers and index, the API sketch, graph semantics, the
+# transcripts of the UX contract, and the plan (`publish.py --dry-run`, offline). Python
+# standard library only, about a minute. They run on every pull request and push,
+# including documentation-only ones, which ci.yml skips.
+
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 docs/tools/check_adrs.py
+      - run: python3 docs/tools/check_api_sketch.py
+      - run: python3 docs/tools/check_graph_semantics.py
+      - run: python3 docs/tools/check_transcripts.py docs/ux-contract.md
+      - run: python3 plan/publish.py VincenzoImp/everygraph --dry-run

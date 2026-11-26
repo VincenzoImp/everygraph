@@ -15,3 +15,5 @@ labels: type:feature, area:engine, P2, risk:medium, size:L, lab-evidence
 
 **Acceptance**
 - A graph with > 2^32 nodes (the synthetic RMAT graph or Software Heritage, as named above; not Web Data Commons) ingests and runs WCC and PageRank; u32 graphs show no regression
+
+**Depends on** {{#m3-04-pagerank}}, {{#m3-05-components}}
