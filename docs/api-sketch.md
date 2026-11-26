@@ -2499,6 +2499,27 @@ newest commit").
 damage or the trace of a commit cut short, which leaves the file whole; `unchecked`
 says which checks could not be made (a declaration the file's provenance lacks).
 
+A file with one damaged section, checked with `--deep` (exit status 5):
+
+```json
+{
+  "schema": 1,
+  "verify": "transfers.eg",
+  "deep": true,
+  "intact": false,
+  "generation": 1,
+  "lost_generation": null,
+  "sections": 12,
+  "sections_hashed": 12,
+  "bytes_hashed": 160432128,
+  "problems": [
+    {"section": "provenance/ingest", "problem": "its bytes do not match its hash"}
+  ],
+  "notes": [],
+  "unchecked": []
+}
+```
+
 **Which stream** (`docs/ux-contract.md` § 2.1). A result's summary is the command's
 result and goes to standard output: `run communities` prints the summary of § 3.5 there,
 on a terminal, piped (in the piped rendering) and with `--out`; with `--top N` the

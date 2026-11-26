@@ -152,7 +152,8 @@ Idle, 16 threads, async Leiden unless noted (FINDINGS § B2 "Hierarchy for the m
   pass-0 aggregation, while plain Louvain fit with 4.2 GiB (rows 9, 11–15). So the map
   hierarchy cannot be had by capping during coarsening on a 16 GiB machine as the
   prototype does it; shaping must be bounded in memory (#19, #63).
-- Known bug in the prototype: `--cap` is ignored after the first iteration (#19).
+- Known bug in the prototype: `--cap` is ignored after the first iteration. #19 fixed it
+  (FINDINGS § M1-05, "The cap baseline's known bug").
 - Not tested: recursive sub-clustering, nested resolution sweeps; any graph that is not
   social.
 

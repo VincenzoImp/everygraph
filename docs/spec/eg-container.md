@@ -9,10 +9,11 @@ and ADR 0027 for single file against directory bundle.
 A graph file holds named, content-hashed **sections**: the parts of the graph
 (adjacency, identifier dictionary, columns) and everything derived from it later
 (in-adjacency, results, hierarchy, layout, indexes). Nothing in a section refers to the
-container: each section's own format is specified separately (`eg-adjacency.md`, the
-dictionary's sections in `everygraph_ingest::ids`). The container only says where each
-section is, what it is, how to check it and how it was made, and how sections are added
-without risk to what the file already held.
+container: each section's own format is specified separately (`eg-adjacency.md`,
+`eg-columns.md`, the dictionary's sections in `everygraph_ingest::ids`; results in
+§ 6). The container only says where each section is, what it is, how to check it and
+how it was made, and how sections are added without risk to what the file already
+held.
 
 Contents: 1 Conventions · 2 Header blocks · 3 Sections · 4 Table of contents ·
 5 Kinds and codecs · 6 Provenance records · 7 Reading · 8 Updating · 9 Compaction ·

@@ -202,7 +202,7 @@ impl SegmentReader {
         }
         let len = usize::try_from(range.end - range.start)
             .map_err(|_| ReadError::Backend("segment is larger than the address space".into()))?;
-        // TODO(#31 integration): this buffer (8 MiB per worker with the default segment
+        // TODO(#200): this buffer (8 MiB per worker with the default segment
         // size) is allocated outside the memory accountant.
         if self.buf.len() < len {
             let rounded = len.checked_next_multiple_of(SEGMENT_ALIGN).unwrap_or(len);

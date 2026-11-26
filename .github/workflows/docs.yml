@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # The document checks: ADR headers and index, the API sketch, graph semantics, the
-# transcripts of the UX contract, and the plan (`publish.py --dry-run`, offline). Python
-# standard library only, about a minute. They run on every pull request and push,
-# including documentation-only ones, which ci.yml skips.
+# transcripts of the UX contract, the JSON Schemas of the UX contract and the API sketch,
+# and the plan (`publish.py --dry-run`, offline). Python standard library only, except
+# the schema check, which needs `jsonschema`; about a minute. They run on every pull
+# request and push, including documentation-only ones, which ci.yml skips.
 
 name: Docs
 
@@ -30,4 +31,8 @@ jobs:
       - run: python3 docs/tools/check_api_sketch.py
       - run: python3 docs/tools/check_graph_semantics.py
       - run: python3 docs/tools/check_transcripts.py docs/ux-contract.md
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.11.28"
+      - run: uv run --no-project --with jsonschema==4.26.0 python3 docs/tools/check_schemas.py docs/ux-contract.md docs/api-sketch.md
       - run: python3 plan/publish.py VincenzoImp/everygraph --dry-run
