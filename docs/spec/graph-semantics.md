@@ -182,7 +182,8 @@ of their own: a small fixed binary record, container kind 9 (`docs/spec/eg-colum
 | `min`, `max` | the column's type, null when there is no non-NaN value | over the non-null, non-NaN values; ±∞ shows up here |
 | `sum` | float64 | the exact sum rounded once (§ 4.3), over the non-null, non-NaN values |
 
-and, per graph, the largest multiplicity of a pair.
+and, per graph, the largest multiplicity of a pair (stored as the ingest provenance's
+`multiplicity.max`, `docs/spec/eg-columns.md` § 6).
 
 **Files built by appends** (segments, #111; not in 0.1). Column statistics are recorded
 per run and for the whole graph. The whole graph's are kept exact and updated

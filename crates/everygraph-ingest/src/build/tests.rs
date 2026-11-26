@@ -22,7 +22,7 @@ use super::*;
 use crate::ids::{KeyKind, MemoryScratch, OwnedKey};
 use crate::text::{Delimiter, Header, IdType, TextOptions};
 
-const SMALL: Tuning = Tuning {
+pub(super) const SMALL: Tuning = Tuning {
     segment_bits: 12,
     bucket_nodes: 5,
     spill_batch: 7,
@@ -31,7 +31,7 @@ const SMALL: Tuning = Tuning {
 };
 
 /// [`SMALL`], holding at most 40 items in memory: every graph with more spills.
-const SPILLING: Tuning = Tuning {
+pub(super) const SPILLING: Tuning = Tuning {
     resident_items: 40,
     ..SMALL
 };
@@ -120,14 +120,14 @@ impl Run<'_> {
 
 /// A graph read back: each node's key as text, and its list of (neighbour, stored
 /// events).
-struct Stored {
-    keys: Vec<String>,
-    lists: Vec<Vec<(u32, u64)>>,
+pub(super) struct Stored {
+    pub(super) keys: Vec<String>,
+    pub(super) lists: Vec<Vec<(u32, u64)>>,
     events_section: bool,
-    parameters: BTreeMap<String, String>,
+    pub(super) parameters: BTreeMap<String, String>,
 }
 
-fn read_back(bytes: &[u8]) -> Stored {
+pub(super) fn read_back(bytes: &[u8]) -> Stored {
     let checked = check(MemorySource::new(bytes), &Memory::unlimited()).unwrap();
     let file = Container::open(MemorySource::new(bytes)).unwrap();
     let section = |name: &str| file.section(name).unwrap().as_slice().unwrap().to_vec();
@@ -302,7 +302,7 @@ fn compare_with_oracle(g: &Graph, run: &Run<'_>) {
     }
 }
 
-fn all_options(directed: bool) -> Vec<GraphOptions> {
+pub(super) fn all_options(directed: bool) -> Vec<GraphOptions> {
     let mut out = Vec::new();
     for self_loops in [SelfLoops::Drop, SelfLoops::Keep] {
         for duplicates in [Duplicates::Events, Duplicates::Collapse, Duplicates::Sum] {

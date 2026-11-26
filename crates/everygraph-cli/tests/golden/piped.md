@@ -72,12 +72,12 @@ $ echo $?
 
 ```console
 $ everygraph info g.eg
-g.eg | 90.1 kB | created <date> from g.txt
+g.eg | 123 kB | created <date> from g.txt
 
   nodes     8
   edges     6 | undirected | duplicates kept as events | self-loops dropped
   ids       text
-  file      generation 4 | 16 sections | 12.3 kB reclaimable
+  file      generation 4 | 22 sections | 12.3 kB reclaimable
 
   computed so far
     components  48 B | <time> | <date> | <age>
@@ -99,7 +99,7 @@ $ echo $?
 
 ```console
 $ everygraph compact g.eg
-ok g.eg | 77.8 kB | 12.3 kB reclaimed | <time>
+ok g.eg | 111 kB | 12.3 kB reclaimed | <time>
 $ echo $?
 0
 ```

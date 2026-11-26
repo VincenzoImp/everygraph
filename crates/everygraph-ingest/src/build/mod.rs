@@ -22,14 +22,15 @@
 //!
 //! When everything fits, nothing is written but the output: no spill.
 //!
-//! Property columns are not carried: each entry's multiplicity, kept in module
-//! `finish`, gives its pair's range of events.
+//! A weight or a time column is carried by every item through these passes and stored
+//! beside the lists, per event or per pair (module `columns`, `docs/spec/eg-columns.md`
+//! § 6), with the histogram of the degrees.
 //!
 //! # Determinism
 //!
 //! Every boundary that depends on the budget (buckets, rounds, what spills) or on the
 //! schedule (the order of spill chunks) is followed by a sort of each list, whose key is
-//! total; the scatter is stable; the dictionary's form depends on its keys alone. So
+//! total (an item with columns carries its input position); the scatter is stable; the dictionary's form depends on its keys alone. So
 //! the sections are a function of the input and the options: a budget gives these
 //! bytes or a refusal, never other bytes (DESIGN D14).
 //!
@@ -40,12 +41,16 @@
 //! between passes is refused ([`BuildError::InputChanged`]), never built from two
 //! files.
 
+mod columns;
 mod estimate;
 mod fill;
 mod finish;
 mod layout;
+mod lists;
 mod rows;
 
+#[cfg(test)]
+mod column_tests;
 #[cfg(test)]
 mod tests;
 
@@ -54,15 +59,12 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::num::NonZeroUsize;
-use std::sync::{Mutex, PoisonError};
 
 use everygraph_core::{
     ByteSink, ByteSource, InsufficientBudget, Memory, MemoryError, MemoryKind, widen,
 };
-use everygraph_format::adjacency::{
-    AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError, IndexBuilder, encode_events,
-    events_section_bytes,
-};
+use everygraph_format::adjacency::{AdjacencyEvents, AdjacencyIndex, EncodeError, FormatError};
+use everygraph_format::columns::ColumnError;
 use everygraph_format::container::{Container, ContainerError, Kind, Provenance, Writer};
 
 use crate::ids::{
@@ -70,10 +72,10 @@ use crate::ids::{
 };
 use crate::text::{IdType, Layout as TextLayout, OnInvalid, Tally, TextError, TextReader};
 
+use columns::{Item, Tagged};
 pub use estimate::{Estimate, Sample, estimate};
-use finish::{Multiplicities, Output, PairCounts, finish_round, multiplicities};
-use layout::Layout;
-use rows::{ItemCounts, Rows, TextKeys, each_block};
+use lists::{Context, Input, Lists, write_lists};
+use rows::TextKeys;
 
 pub(crate) const ONE: NonZeroUsize = NonZeroUsize::MIN;
 
@@ -299,6 +301,9 @@ pub struct Report {
     pub events: u64,
     /// Bytes of the `.events` section; 0 when there is none.
     pub events_bytes: u64,
+    /// The largest multiplicity of a pair (`docs/spec/graph-semantics.md` § 2.7); 0
+    /// without a pair.
+    pub most_events: u64,
     /// In memory, or with spills.
     pub regime: Regime,
     /// Buckets the items were cut into.
@@ -357,6 +362,8 @@ pub enum BuildError {
     Encode(EncodeError),
     /// A section read back is not valid ([`check`]).
     Format(FormatError),
+    /// A property column could not be written.
+    Column(ColumnError),
 }
 
 impl fmt::Display for BuildError {
@@ -378,6 +385,7 @@ impl fmt::Display for BuildError {
             Self::Container(e) => e.fmt(f),
             Self::Encode(e) => e.fmt(f),
             Self::Format(e) => e.fmt(f),
+            Self::Column(e) => e.fmt(f),
         }
     }
 }
@@ -393,6 +401,7 @@ impl Error for BuildError {
             Self::Container(e) => Some(e),
             Self::Encode(e) => Some(e),
             Self::Format(e) => Some(e),
+            Self::Column(e) => Some(e),
             _ => None,
         }
     }
@@ -460,6 +469,15 @@ impl From<EncodeError> for BuildError {
 impl From<FormatError> for BuildError {
     fn from(e: FormatError) -> Self {
         Self::Format(e)
+    }
+}
+
+impl From<ColumnError> for BuildError {
+    fn from(e: ColumnError) -> Self {
+        match e {
+            ColumnError::Container(e) => Self::Container(e),
+            other => Self::Column(other),
+        }
     }
 }
 
@@ -544,11 +562,13 @@ where
 /// rounding, thread stacks): a sixteenth of what is available.
 const SLACK_SHIFT: u32 = 4;
 
-/// Buffers of the spill files and of the multiplicities, held whatever the input.
-fn fixed_bytes(threads: usize, tuning: &Tuning) -> u64 {
-    widen(threads) * widen(tuning.spill_batch) * 8
+/// Buffers of the spill files, the multiplicities and the column files, held whatever
+/// the input, for items `T` and `columns` stored columns.
+fn fixed_bytes<T: Item>(threads: usize, tuning: &Tuning, columns: usize) -> u64 {
+    widen(threads) * widen(tuning.spill_batch) * widen(size_of::<(u32, T)>())
         + 8 * fill::SPILL_BUFFER
         + widen(finish::MULTIPLICITY_BUFFER)
+        + widen(columns * columns::COLUMN_BUFFER)
 }
 
 fn build_tuned<S, Sc, K>(
@@ -566,7 +586,6 @@ where
     K: ByteSink,
 {
     let blocks = reader.blocks()?.ok_or(BuildError::Compressed)?;
-    let threads = options.threads.get();
     let graph = options.graph;
 
     progress.begin(Phase::Reading, Some(widen(blocks)));
@@ -592,113 +611,39 @@ where
     progress.end(Phase::Identifiers, u64::from(nodes));
 
     progress.begin(Phase::Building, None);
-    // The mapped rows are kept for the next passes when they take at most an eighth of
-    // what is left: they are freed before the lists are finished, but the buckets
-    // filled in memory live beside them.
-    let cache_bytes = summary.rows.saturating_mul(rows::CACHE_BYTES_PER_ROW);
-    let cached_rows = (cache_bytes <= memory.available() / 8).then_some(summary.rows);
-    let flight = rows::Flight {
-        threads,
-        blocks,
-        block_bytes: widen(reader.block_bytes()),
-        most_rows,
-    };
-    let cached_rows = cached_rows.filter(|_| tuning.cache_rows);
-    let mut rows = Rows::new(
+    let input = Input {
         reader,
-        &dictionary,
-        graph,
-        &fingerprints,
-        &flight,
-        memory,
-        cached_rows,
-    )?;
-    let counts = ItemCounts::new(memory, nodes, graph.directed)?;
-    let pass = each_block(blocks, |block| {
-        rows.items(block, |u, v| {
-            counts.add(u);
-            if graph.directed {
-                counts.target(v);
-            }
-        })
-    })?;
-    let isolates = counts.isolates();
-    let index = IndexBuilder::new(memory, nodes)?;
-
-    let events = graph.duplicates == Duplicates::Events;
-    let available = memory.available() + counts.bytes();
-    let fixed = fixed_bytes(threads, tuning);
-    let work = (available - (available >> SLACK_SHIFT)).saturating_sub(fixed);
-    let values = counts
-        .values()
-        .ok_or(BuildError::TooLarge("a node with 2^32 items or more"))?;
-    let layout = Layout::new(values, nodes, blocks, work, events, tuning)?;
-    drop(counts);
-
-    let (mut resident, spills, spilled_bytes) =
-        fill::fill(&rows, &layout, memory, scratch, tuning, threads)?;
-    rows.release_cache();
-
-    let mut writer = Writer::create(out)?;
-    let mut output = Output {
-        data: writer.begin_section(OUT_DATA, Kind::ADJACENCY_DATA, None)?,
-        index,
-        multiplicities: Multiplicities::new(memory),
-        counts: PairCounts::default(),
+        dictionary: &dictionary,
+        fingerprints: &fingerprints,
+        rows: summary.rows,
+        most_rows,
+        columns: columns::outputs(reader.layout(), graph.duplicates),
     };
-    for round in 0..layout.resident_rounds {
-        for bucket in finish_round(&mut resident, 0, &layout, round, graph, memory)? {
-            output.take(bucket, scratch)?;
-        }
-        progress.advance(Phase::Building, 1);
-    }
-    drop(resident);
-    for (round, spill) in (layout.resident_rounds..layout.round_count()).zip(&spills) {
-        let mut columns = fill::load_round(spill, &layout, round, memory, tuning)?;
-        let held_from = layout.offsets[layout.rounds[round]];
-        for bucket in finish_round(&mut columns, held_from, &layout, round, graph, memory)? {
-            output.take(bucket, scratch)?;
-        }
-        progress.advance(Phase::Building, 1);
-    }
-    drop(spills);
-    drop(rows);
-    progress.end(Phase::Building, widen(layout.buckets()));
-
-    let Output {
-        data,
-        index,
-        multiplicities: stored,
-        counts: pairs,
-    } = output;
-    data.finish()?;
-    let stored = stored.finish(scratch)?;
-    let (index, held) = index.finish(stored.is_some())?;
-    writer.add_section(OUT_INDEX, Kind::ADJACENCY_INDEX, &index, None)?;
-    drop((index, held));
-    let mut events_bytes = 0;
-    if let Some((ones, file)) = &stored {
-        let section_bytes = events_section_bytes(pairs.entries, pairs.events)
-            .ok_or(BuildError::TooLarge("the .events section"))?;
-        // The sequence, then its bytes beside it.
-        let mut held = memory.reserve(
-            "events section",
-            MemoryKind::Anonymous,
-            section_bytes.saturating_mul(2),
-        )?;
-        let error = Mutex::new(None);
-        let sequence = multiplicities(*ones, file, memory, &error)?;
-        let section = encode_events(pairs.entries, pairs.events, sequence);
-        if let Some(e) = error.into_inner().unwrap_or_else(PoisonError::into_inner) {
-            return Err(e);
-        }
-        let section = section?;
-        held.shrink(section_bytes);
-        events_bytes = widen(section.len());
-        writer.add_section(OUT_EVENTS, Kind::ADJACENCY_EVENTS, &section, None)?;
-    }
+    let cx = Context {
+        options,
+        memory,
+        scratch,
+        tuning,
+        progress,
+    };
+    let layout = reader.layout();
+    let (mut writer, lists) = if layout.weight.is_none() && layout.time.is_none() {
+        write_lists::<u32, _, _, _, _>(&input, &cx, out)?
+    } else {
+        write_lists::<Tagged, _, _, _, _>(&input, &cx, out)?
+    };
+    let Lists {
+        pass,
+        isolates,
+        pairs,
+        events_bytes,
+        regime,
+        buckets,
+        spilled_bytes,
+    } = lists;
     copy_dictionary(&dictionary, &mut writer, memory)?;
 
+    let events = graph.duplicates == Duplicates::Events;
     let rejected = summary.invalid_rows + pass.rejected;
     let (dropped_duplicates, merged, repeated) = match graph.duplicates {
         Duplicates::Events => (0, 0, pairs.repeats),
@@ -724,8 +669,12 @@ where
         entries: pairs.entries,
         events: pairs.events,
         events_bytes,
-        regime: layout.regime(),
-        buckets: layout.buckets(),
+        most_events: match graph.duplicates {
+            Duplicates::Collapse => pairs.most.min(1),
+            _ => pairs.most,
+        },
+        regime,
+        buckets,
         spilled_bytes,
     };
     let mut parameters = parameters(&graph, reader.layout());
@@ -739,6 +688,7 @@ where
         .into(),
     );
     put("isolated_kept", report.isolates.to_string());
+    put("multiplicity.max", report.most_events.to_string());
     put("isolated_dropped", "0".into());
     Ok(Unfinished {
         writer,
@@ -749,10 +699,10 @@ where
 
 /// The parameters that a build of the text read as `layout` with `graph` records in its
 /// provenance, before what the build itself finds (graph order, isolated nodes): the
-/// direction, self-loops, duplicates, the identifier type and the source and target
-/// columns. Two builds with the same parameters from the same input make the same graph,
-/// so a file whose provenance holds these is the cache of that build
-/// (`docs/api-sketch.md` § 2.7).
+/// direction, self-loops, duplicates, the identifier type, the source and target
+/// columns, and the weight and time columns when there are. Two builds with the same
+/// parameters from the same input make the same graph, so a file whose provenance holds
+/// these is the cache of that build (`docs/api-sketch.md` § 2.7).
 #[must_use]
 pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String, String> {
     let self_loops = match graph.self_loops {
@@ -769,6 +719,7 @@ pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String,
         IdType::Hex => "hex",
         _ => "integer",
     };
+    let columns = [("weight", layout.weight), ("time", layout.time)];
     [
         ("directed", graph.directed.to_string()),
         ("self_loops", self_loops.into()),
@@ -778,6 +729,11 @@ pub fn parameters(graph: &GraphOptions, layout: &TextLayout) -> BTreeMap<String,
         ("target", layout.column_name(layout.target)),
     ]
     .into_iter()
+    .chain(
+        columns
+            .into_iter()
+            .filter_map(|(role, at)| Some((role, layout.column_name(at?)))),
+    )
     .map(|(k, v)| (k.to_owned(), v))
     .collect()
 }

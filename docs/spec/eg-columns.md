@@ -242,6 +242,7 @@ empty and holds no `/`, says what its rows are:
 | `<adj>.pair` | one per entry of adjacency `<adj>` (`adjacency.out`, `adjacency.in`) | the entry offset (`eg-adjacency.md` § 3) |
 | `<adj>.event` | one per stored event of `<adj>` | the event offset (`eg-adjacency.md` § 3.1; the entry offset when there is no `.events` section) |
 | `edges` | one per stored edge (`num_edges`), in input order | the edge id |
+| `<adj>.degrees` | one per distinct degree of adjacency `<adj>`, in increasing degree | — |
 
 The role comes after a scope without `/` and before the column's name, so that no
 column name can make one section's name equal another's.
@@ -267,7 +268,16 @@ column name can make one section's name equal another's.
   it, when it is not `float64`) and what reported sums show; the same stored value
   serves both, so they cannot disagree. Under `duplicates="sum"` it is the weight column
   itself (`graph-semantics.md` § 2.4), and the per-pair `edges` column (`uint64`) holds
-  each pair's multiplicity; `first` and `last` are per-pair too.
+  each pair's multiplicity, with or without a weight; `first` and `last` are per-pair
+  too, under these names. Under `duplicates="collapse"` the kept row's weight and time
+  are per-pair columns under their own names.
+- **The columns of a text input.** The text reader gives a `float64` weight and a time
+  in microseconds, never null: the build stores `float64` and `timestamp[us]` columns,
+  named as the input's header names them (`column N` without a header). So a directed
+  graph read with `--weight value --time at` stores, under `"events"`,
+  `adjacency.out.event/…/value`, `adjacency.out.event/…/at` and
+  `adjacency.out.pair/…/value`; under `"sum"`, `adjacency.out.pair/…/value`, `edges`,
+  `first` and `last`; under `"collapse"`, `adjacency.out.pair/…/value` and `…/at`.
 - **Computed from the events when asked, not stored**: everything else over a pair's
   events — the smallest event cost of `path()` (`graph-semantics.md` § 4.2), counts and
   sums in a time window (§ 6 there), and the multiplicity under `duplicates="events"`,
@@ -282,8 +292,19 @@ column name can make one section's name equal another's.
 - **Nulls**: a null weight is skipped by sums, a null time is in no window
   (`graph-semantics.md` § 2.6); in storage, a null is a cleared validity bit (§ 3.3).
 - **Statistics** are written for every numeric column of every scope. The largest
-  multiplicity of a pair (`graph-semantics.md` § 2.7) is a property of the adjacency, not
-  of a column: the build records it, where #35 (`m2-08-csr-build`) decides.
+  multiplicity of a pair (`graph-semantics.md` § 2.7) is a property of the graph, not
+  of a column: the build records it in the parameters of its provenance record
+  (`provenance/ingest`) as `multiplicity.max`, a decimal count, 0 for a graph without
+  a pair and 1 under `"collapse"`. It is a parameter because it is a fact of the
+  commit, like the counts of the ingest report beside it, and because a statistics
+  section belongs to a column.
+- **The degree histogram** (`<adj>.degrees`): two `uint64` columns, `degree` (the
+  distinct degrees, increasing) and `nodes` (how many nodes have that degree), over
+  every node. The degree is that of `graph-semantics.md` § 3: `degree` on an undirected
+  graph (a kept loop adds 2), `out_degree` in `adjacency.out` of a directed one. It is
+  exact; every quantile follows from it in one read of a small section, so none is
+  stored apart. The isolates are the report's `counts.isolates`. A graph has fewer
+  than `√(2 (entries + nodes)) + 2` distinct degrees, so the histogram is small.
 
 ## 7. Reading
 
@@ -317,6 +338,12 @@ Across sections (the graph layer): the three sections of a column have kinds 7, 
 the names of § 6; a column of scope `<adj>.pair` has the adjacency's `entries` rows, one
 of `<adj>.event` its `events` (or `entries` without a `.events` section), one of `nodes`
 the node count, one of `edges` `num_edges`.
+
+`everygraph verify --deep` checks all of this for every column of the file but the rows
+of `nodes` and `edges`, and also what a reader leaves to the hash: it reads every value,
+refuses a float that is not canonical, a null row that is not zero, a code that names no
+string and a decimal past its precision, and recomputes the statistics from the values
+and compares them byte for byte with the stored ones (`everygraph_format::verify`).
 
 ## 8. Versions
 

@@ -24,6 +24,13 @@ specification:
 - reads the same bytes with Polars and requires the same values (decimal256, which
   Polars does not read, excepted and reported).
 
+Then it builds three graphs with `everygraph ingest --weight --time`, one per
+`duplicates` option, and reads every column the build stored the same way
+(docs/spec/eg-columns.md § 6). Besides, it checks them against the input, read here: the
+event weights and the pair sums add up to the input's weights, the event times are the
+input's, `edges` adds up to the rows, `first` is never after `last`, and the degree
+histogram counts every node once.
+
 With `--big` it runs instead the check of docs/research/sota-ingest-query.md C4: a
 float32 column of 2^27 rows in two batches and a dictionary-encoded uint8 column,
 written twice (RAYON_NUM_THREADS=1 and 32) to identical bytes, then read as above.
@@ -56,6 +63,7 @@ import pyarrow as pa
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORK = ROOT / "target" / "columns-python"
 SAMPLE = ["cargo", "run", "--quiet", "--locked", "-p", "everygraph-io", "--example", "columns_sample", "--"]
+INGEST = ["cargo", "run", "--quiet", "--locked", "-p", "everygraph-cli", "--", "ingest"]
 
 spec = importlib.util.spec_from_file_location("eg_container", ROOT / "tools" / "eg_container.py")
 eg = importlib.util.module_from_spec(spec)
@@ -243,15 +251,25 @@ def polars_values(data):
     return nan_as_text(pl.read_ipc(io.BytesIO(data)).to_series(0).to_list())
 
 
-def small():
-    path = WORK / "sample.eg"
-    columns = json.loads(run([*SAMPLE, "write", path]))["columns"]
+def type_of(layout):
+    """The type name of `WIDTH` that a layout's code and parameters give (§ 2)."""
+    code, p1, p2 = layout["code"], layout["p1"], layout["p2"]
+    if code == 1:
+        return ("Int" if p2 else "UInt") + str(p1)
+    return {2: f"Float{p1}", 4: "Timestamp"}[code]
+
+
+def read_columns(path, columns):
+    """Reads `columns` (scope, name, type, nullable, and for `small` the values given to
+    the writer) of the file at `path` with pyarrow and Polars; returns the values pyarrow
+    read, by section name."""
     sections = column_files(path)
     data = path.read_bytes()
     mapped = pa.memory_map(str(path))
     whole = mapped.read_buffer()
     base = whole.address
     polars_skipped = []
+    read = {}
     for column in columns:
         names = {r: f"{column['scope']}/{r}/{column['name']}" for r in ("arrow", "layout", "stats")}
         kind, offset, length = sections[names["arrow"]]
@@ -268,8 +286,10 @@ def small():
         arrow = table.column(0)
         check_buffers(arrow_file, layout, base, offset)
         got = read_values(column, arrow, None)
-        want = stored_values(column, arrow)
-        need(got == want, f"{names['arrow']}: pyarrow read {got}, the writer was given {want}")
+        read[names["arrow"]] = got
+        if "values" in column:
+            want = stored_values(column, arrow)
+            need(got == want, f"{names['arrow']}: pyarrow read {got}, the writer was given {want}")
         t = kind_of(column["type"])
         has_stats = names["stats"] in sections
         need(has_stats == (t in WIDTH), f"{names['arrow']}: statistics present for numeric columns only")
@@ -289,6 +309,13 @@ def small():
     print("not read with Polars, which has no decimal256: " + (", ".join(polars_skipped) or "nothing"))
     del whole
     mapped.close()
+    return sections, data, read
+
+
+def small():
+    path = WORK / "sample.eg"
+    columns = json.loads(run([*SAMPLE, "write", path]))["columns"]
+    sections, data, _ = read_columns(path, columns)
 
     # The golden test pins these sections' hashes; the bytes it pins are the ones read above.
     test = (ROOT / "crates" / "everygraph-format" / "tests" / "columns.rs").read_text()
@@ -298,6 +325,50 @@ def small():
         _, offset, length = sections[f"golden/{role}/{name}"]
         need(eg.blake3(data[offset:offset + length]).hex() == digest, f"golden/{role}/{name} is not the golden test's")
     print(f"ok: the {len(pinned)} sections of the golden test are among those read")
+
+
+def as_float(bits):
+    return struct.unpack("<d", struct.pack("<Q", bits))[0]
+
+
+def built():
+    """Graphs built by `everygraph ingest` with a weight and a time column."""
+    rows = []
+    x = 0x9E3779B97F4A7C15
+    for i in range(3000):
+        x = (x * 6364136223846793005 + 1442695040888963407) % 2**64
+        u, v = (x >> 20) % 40, (x >> 40) % 40
+        rows.append((u, v, ((x >> 8) % 200 - 50) / 8, (x >> 30) % 9))
+    csv = WORK / "edges.csv"
+    csv.write_text("from,to,amount,at\n" + "".join(f"{u},{v},{w},{t}\n" for u, v, w, t in rows))
+    weights = [Fraction(w) for u, v, w, t in rows if u != v]
+    times = sorted(t * 10**6 for u, v, w, t in rows if u != v)
+    nodes = len({u for u, *_ in rows} | {v for _, v, *_ in rows})
+    for duplicates in ("events", "sum", "collapse"):
+        path = WORK / f"edges-{duplicates}.eg"
+        run([*INGEST, csv, "--weight", "amount", "--time", "at", "--duplicates", duplicates, "--out", path])
+        sections = column_files(path)
+        data = path.read_bytes()
+        columns = []
+        for name, (kind, offset, length) in sections.items():
+            if kind == 7:
+                scope, _, column = name.split("/", 2)
+                _, lo, ll = sections[f"{scope}/layout/{column}"]
+                layout = parse_layout(data[lo:lo + ll])
+                columns.append({"scope": scope, "name": column, "type": type_of(layout), "nullable": False})
+        _, _, read = read_columns(path, columns)
+        value = lambda scope, name: read[f"adjacency.out.{scope}/arrow/{name}"]
+        total = lambda xs: sum((Fraction(as_float(b)) for b in xs), Fraction(0))
+        if duplicates == "events":
+            need(total(value("event", "amount")) == sum(weights), "the event weights are not the input's")
+            need(total(value("pair", "amount")) == sum(weights), "the pair sums do not add up to the weights")
+            need(sorted(value("event", "at")) == times, "the event times are not the input's")
+        if duplicates == "sum":
+            need(sum(value("pair", "edges")) == len(weights), "edges does not add up to the rows")
+            need(total(value("pair", "amount")) == sum(weights), "the summed weights are not the input's")
+            need(all(a <= b for a, b in zip(value("pair", "first"), value("pair", "last"))), "first after last")
+        need(sum(value("degrees", "nodes")) == nodes, "the degree histogram does not count every node once")
+        print(f"ok: {path.name}: {len(columns)} columns built by everygraph ingest agree with the input")
 
 
 def big():
@@ -342,7 +413,11 @@ def big():
 def main(argv):
     shutil.rmtree(WORK, ignore_errors=True)
     WORK.mkdir(parents=True)
-    big() if "--big" in argv else small()
+    if "--big" in argv:
+        big()
+    else:
+        small()
+        built()
     shutil.rmtree(WORK)
     return 0
 

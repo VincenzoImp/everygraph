@@ -46,6 +46,14 @@ struct Sample {
 }
 
 fn sample(reader: &TextReader<FileSource>) -> Result<Sample, TextError> {
+    let layout = reader.layout();
+    let columns = layout.weight.is_some() || layout.time.is_some();
+    let mut sample = sample_rows(reader)?;
+    sample.build = sample.build.with_edge_columns(columns);
+    Ok(sample)
+}
+
+fn sample_rows(reader: &TextReader<FileSource>) -> Result<Sample, TextError> {
     let bytes = reader.source().len();
     let block_bytes = u64::try_from(reader.block_bytes()).unwrap_or(u64::MAX);
     let Some(blocks) = reader.blocks()? else {
@@ -228,13 +236,17 @@ impl Plan {
             );
         }
         let arrow = style.arrow();
-        let _ = writeln!(
-            out,
-            "  {}   {} {arrow} source{dot}{} {arrow} target",
-            style.dim("columns"),
-            layout.column_name(layout.source),
-            layout.column_name(layout.target)
-        );
+        let roles = [
+            ("source", Some(layout.source)),
+            ("target", Some(layout.target)),
+            ("weight", layout.weight),
+            ("time", layout.time),
+        ];
+        let columns: Vec<String> = roles
+            .iter()
+            .filter_map(|&(role, at)| Some(format!("{} {arrow} {role}", layout.column_name(at?))))
+            .collect();
+        let _ = writeln!(out, "  {}   {}", style.dim("columns"), columns.join(dot));
         if !block {
             return out;
         }
@@ -375,7 +387,7 @@ impl Plan {
              \"detected\":{{\"ids\":{{\"kind\":\"{ids_kind}\",\"distinct\":{distinct}}},\
              \"edges\":{{\"directed\":{dir},\"directed_from\":\"{directed_from}\",\
              \"duplicates\":\"{dup_text}\",\"self_loops\":\"{loop_text}\"}},\
-             \"columns\":[{{\"name\":{s},\"role\":\"source\"}},{{\"name\":{t},\"role\":\"target\"}}]}},\
+             \"columns\":[{columns}]}},\
              \"machine\":{{\"cores\":{cores},\"hardware_threads\":{hw},\"memory_bytes\":{total},\
              \"memory_free_bytes\":{free},\"memory_limit_bytes\":{limit},\
              \"storage\":{{\"kind\":\"unknown\",\"free_bytes\":{output_free_bytes}}}}},\
@@ -392,6 +404,19 @@ impl Plan {
              \"fits\":{fits},\"refusal\":{refusal}}}",
             s = json_string(&source),
             t = json_string(&target),
+            columns = [
+                ("source", Some(layout.source)),
+                ("target", Some(layout.target)),
+                ("weight", layout.weight),
+                ("time", layout.time),
+            ]
+            .iter()
+            .filter_map(|&(role, at)| {
+                let name = json_string(&layout.column_name(at?));
+                Some(format!("{{\"name\":{name},\"role\":\"{role}\"}}"))
+            })
+            .collect::<Vec<_>>()
+            .join(","),
             dir = self.directed.0,
             loops = match args.self_loops {
                 SelfLoops::Drop => "drop",

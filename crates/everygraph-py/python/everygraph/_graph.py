@@ -111,16 +111,6 @@ def read(
 
     `memory`, `threads` and `temp_dir` become the defaults of the graph's calls.
     """
-    if weight is not None or time is not None:
-        which = "weight" if weight is not None else "time"
-        raise _errors.Unsupported(
-            f"read(): {which}= cannot be stored yet.",
-            why="This version keeps the identifiers and the edges, not their columns.",
-            ways_forward=[_errors.Way(f"leave out --{which}", f"leave out {which}=", "the edges are read without it")],
-            operation="read",
-            reason=f"{which} columns are not stored yet",
-            written=True,
-        )
     path = pathlib.Path(data)
     budget, origin = _memory(memory)
     pool = _threads(threads)
@@ -136,6 +126,8 @@ def read(
         "out": None if out is None else str(out),
         "source": source,
         "target": target,
+        "weight": weight,
+        "time": time,
         "directed": directed,
         "self_loops": self_loops,
         "duplicates": duplicates,
@@ -201,9 +193,10 @@ def _understood(path: pathlib.Path, seen: dict[str, Any], asked: dict[str, Any],
     repeated = {"events": "duplicates kept as events", "collapse": "duplicates collapsed",
                 "sum": "duplicates summed"}[asked["duplicates"]]
     loops = "self-loops dropped" if asked["self_loops"] == "drop" else "self-loops kept"
-    used = {seen["source"], seen["target"]}
+    roles = [(seen[role], role) for role in ("source", "target", "weight", "time") if seen[role] is not None]
+    used = {name for name, _ in roles}
     ignored = [c for c in seen["header"] or [] if c not in used]
-    columns = f"{seen['source']} → source · {seen['target']} → target"
+    columns = " · ".join(f"{name} → {role}" for name, role in roles)
     if ignored:
         columns += f" · ignored: {', '.join(ignored)}" if len(ignored) <= 3 else f" · ignored: {len(ignored)} columns"
     compression = "" if seen["compression"] == "plain text" else f" · {seen['compression']}"
@@ -452,11 +445,13 @@ class Graph:
     # --- plumbing -----------------------------------------------------------
 
     def _no_weight(self, weight: bool | str) -> None:
-        if isinstance(weight, str):
+        declared = self._native.weight_column
+        if isinstance(weight, str) or (weight is True and declared is not None):
+            name = weight if isinstance(weight, str) else declared
             raise _errors.Unsupported(
-                f"weight={weight!r}: this graph has no edge columns.",
+                f"weight={weight!r}: the weight column {name!r} cannot be used yet.",
                 ways_forward=[_errors.Way("--no-weight", "weight=False", "every connected pair counts 1")],
-                operation="weight", reason="edge columns are not stored yet",
+                operation="weight", reason="the operations do not read weight columns yet",
             )
 
     def _ids(self, nodes: Node | Iterable[Node], operation: str) -> list[int]:

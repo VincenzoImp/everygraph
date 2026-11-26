@@ -15,7 +15,11 @@
 //!   index announces one (whole, § 5), every record, lists strictly increasing
 //!   with every neighbour below the node count; no self-loops and symmetric lists when
 //!   its provenance declares `self_loops` = `drop` and `directed` = `false` (spec § 6);
-//!   and an in-adjacency (`<base>.in`) that is the transpose of its out-adjacency.
+//!   and an in-adjacency (`<base>.in`) that is the transpose of its out-adjacency;
+//!   and every property column (`docs/spec/eg-columns.md` § 7): its layout and
+//!   statistics under the names of § 6, its framing, every value, statistics that are
+//!   those of its values, and the rows its adjacency gives a scope `<adj>.pair` or
+//!   `<adj>.event`.
 //!
 //! Sections are hashed in parallel (`everygraph_core::par`), each in 1 MiB pieces unless
 //! the source is in memory or mapped. Lists are decoded block by block, in parallel; from
@@ -165,6 +169,9 @@ pub fn verify<S: ByteSource + Sync>(
     check_names(&file, &mut report);
     if depth == Depth::Deep {
         check_adjacencies(&file, memory, &mut report)?;
+        let adjacencies = std::mem::take(&mut report.adjacencies);
+        crate::columns::verify_columns(&file, &adjacencies, memory, &mut report)?;
+        report.adjacencies = adjacencies;
     }
     Ok(report)
 }

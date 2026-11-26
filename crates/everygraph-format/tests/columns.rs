@@ -1189,3 +1189,55 @@ fn clean_columns() {
     assert!(!int(-5.0).is_clean(ColumnType::Int64));
     assert!(int(5.0).is_clean(ColumnType::UInt64));
 }
+
+/// A batch given in pieces through `begin_batch`, `push` and `end_batch` makes the bytes
+/// of the same batch given whole, for any cut of the pieces; and the calls refuse what
+/// breaks a batch, as `write_batch` does.
+#[test]
+fn a_batch_in_pieces_is_the_batch_given_whole() {
+    let values: Vec<i64> = (0..2_500).map(|i| i * 7 - 3_000).collect();
+    let spec = ColumnSpec {
+        batch_rows: 1024,
+        ..ColumnSpec::new("t", ColumnType::Timestamp(TimeUnit::Microsecond), 2_500)
+    };
+    let whole = {
+        let mut w = Writer::create(Mem::default()).unwrap();
+        write_column(&mut w, "s", &spec, &values[..], None).unwrap();
+        sections(&commit(w), "s", "t")
+    };
+    for cut in [1, 7, 1000, 1024] {
+        let mut w = Writer::create(Mem::default()).unwrap();
+        let mut c = ColumnWriter::begin(&mut w, "s", &spec, None).unwrap();
+        for batch in values.chunks(1024) {
+            c.begin_batch().unwrap();
+            for piece in batch.chunks(cut) {
+                c.push(Values::I64(piece)).unwrap();
+            }
+            c.end_batch().unwrap();
+        }
+        c.finish().unwrap();
+        assert!(sections(&commit(w), "s", "t") == whole, "pieces of {cut}");
+    }
+
+    let mut w = Writer::create(Mem::default()).unwrap();
+    let mut c = ColumnWriter::begin(&mut w, "s", &spec, None).unwrap();
+    assert!(
+        input(c.push(Values::I64(&values[..1]))),
+        "a push outside a batch"
+    );
+    assert!(input(c.end_batch()), "an end outside a batch");
+    c.begin_batch().unwrap();
+    assert!(input(c.begin_batch()), "a batch inside a batch");
+    assert!(input(c.push(Values::U64(&[1]))), "values of another type");
+    assert!(
+        input(c.push(Values::I64(&values[..1025]))),
+        "more rows than the batch"
+    );
+    c.push(Values::I64(&values[..1023])).unwrap();
+    assert!(input(c.end_batch()), "an end before the batch's rows");
+    assert!(
+        input(c.write_batch(&[Values::I64(&values[..1024])], &[])),
+        "a whole batch inside one"
+    );
+    assert!(input(c.finish()), "a finish inside a batch");
+}

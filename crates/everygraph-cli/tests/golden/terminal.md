@@ -36,12 +36,12 @@ export with --out bfs.parquet
 
 ```console
 $ everygraph info g.eg
-g.eg · 77.8 kB · created <date> from g.txt
+g.eg · 111 kB · created <date> from g.txt
 
   nodes     8
   edges     6 · undirected · duplicates kept as events · self-loops dropped
   ids       text
-  file      generation 1 · 16 sections
+  file      generation 1 · 22 sections
 
   computed so far
     components  48 B · <time> · <date> · <age>

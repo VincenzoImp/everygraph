@@ -230,7 +230,6 @@ fn usage_errors_exit_with_two() {
         &["ingest"][..],
         &["ingest", "a.txt", "--duplicates", "some"],
         &["ingest", "a.txt", "--memroy", "8GB"],
-        &["ingest", "a.txt", "--weight", "w"],
         &["frobnicate"],
     ] {
         let out = run(&dir, args);
@@ -367,6 +366,34 @@ fn a_graph_with_repeated_pairs_passes_the_deep_check() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let file = Container::open(FileSource::open(dir.join("edges.eg")).unwrap()).unwrap();
     assert!(file.get("adjacency.out.events").is_some());
+    let out = run(&dir, &["verify", "--deep", "edges.eg"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}
+
+/// `--weight` and `--time` store their columns beside the lists, the plan names them,
+/// and `everygraph verify --deep` reads every value and finds the file intact.
+#[test]
+fn weight_and_time_columns_are_stored() {
+    let dir = dir("columns");
+    let text = "from,to,amount,at\n1,2,0.5,2024-01-01T00:00:00Z\n2,3,1.5,10\n1,2,2.0,5\n";
+    std::fs::write(dir.join("edges.csv"), text).unwrap();
+    let args = ["ingest", "edges.csv", "--weight", "amount", "--time", "at"];
+    let out = run(&dir, &args);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("amount -> weight | at -> time"),
+        "{}",
+        stderr(&out)
+    );
+    let file = Container::open(FileSource::open(dir.join("edges.eg")).unwrap()).unwrap();
+    for name in [
+        "adjacency.out.event/arrow/amount",
+        "adjacency.out.event/arrow/at",
+        "adjacency.out.pair/arrow/amount",
+        "adjacency.out.degrees/arrow/degree",
+    ] {
+        assert!(file.get(name).is_some(), "{name}");
+    }
     let out = run(&dir, &["verify", "--deep", "edges.eg"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
 }
