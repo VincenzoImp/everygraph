@@ -59,7 +59,20 @@ id; the sub-round count is a function of how many they are; ties go by the draws
 candidate communities; and a community starts named by its smallest node. Labels are
 then compared only by their order, which a mask and a materialized view share.
 
-**The price in quality.** QUALITY_PLACEHOLDER
+**The price in quality** (exploratory: modularity does not depend on load; production
+Leiden, `leiden_bench`, raw source, 8 threads, seeds 0–4, one run each; PR #NNN). Mean
+modularity, deterministic against `fast`:
+
+| graph | 1 iteration (default) | 3 iterations (quality mode) |
+|---|---|---|
+| lj | 0.7511 against 0.7529 (−0.0017) | 0.7679 against 0.7691 (−0.0012) |
+| orkut | 0.6726 against 0.6712 (+0.0014) | 0.6918 against 0.6890 (+0.0028) |
+
+The differences are below the spread from seed to seed (standard deviation 0.0018–0.0048
+on either side). So on these two graphs the deterministic default costs no measurable
+modularity against production `fast` mode. The lab's gap of about 1 point on orkut
+(`lab/m1-04-det-leiden-scaling/README.md`, finding 7) was against the lab's
+asynchronous prototype, not against production `fast` mode. The price of the default is time (below).
 
 ## Evidence
 
