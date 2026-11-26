@@ -82,6 +82,8 @@ everything prepared.
 
 **Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
 
+**Official window running** (from 2026-11-26 23:33): `/home/tux/graphlab/scratch/window/window.sh`, log `window.log` beside it. headline ×2, edge-map, semi-external, scc, transpose, components-kcore, references on orkut. No agent compiles on this host until it ends.
+
 ## Lessons that still change behaviour
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.
