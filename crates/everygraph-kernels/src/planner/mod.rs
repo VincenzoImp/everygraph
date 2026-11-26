@@ -30,6 +30,9 @@
 //! - **Threads** (DESIGN D13): the physical cores for the memory-bound kernels of this
 //!   crate, fewer for a small graph, at most what was asked, and fewer again when the
 //!   readers of more threads would not fit.
+//! - **The form of a view** ([`view_form`]): a mask, or materialized when the work reads
+//!   its lists more than once and the copy fits (ADR 0010; provisional until #93's
+//!   crossover measurement). Either gives the same bits.
 //! - **A kept result** (`run::kept`): served from the file in place of the kernel, by
 //!   the lookup `run::execute` serves it with.
 //! - **Access advice per phase** (ADR 0029): `MADV_RANDOM` only for a random-access

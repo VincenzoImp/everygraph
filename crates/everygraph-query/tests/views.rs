@@ -8,7 +8,8 @@
 #![allow(
     clippy::disallowed_methods,
     clippy::cast_possible_truncation,
-    clippy::float_cmp
+    clippy::float_cmp,
+    clippy::cast_possible_wrap
 )]
 
 use std::sync::{Arc, Mutex};

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Where the lists come from: the [`Source`] trait and its four implementations.
+//! Where the lists come from: the [`Source`] trait and its implementations.
 //!
 //! | Source | Lists | Per-worker reader |
 //! |---|---|---|
 //! | [`Csr`] | raw offsets and targets, slices in memory | nothing |
-//! | [`RawCopy`] | a raw copy of a compressed adjacency, owned, in parts | nothing |
+//! | [`RawCopy`] | a raw copy of a compressed adjacency or of any source, owned, in parts | nothing |
 //! | [`Compressed`] | the adjacency codec (DESIGN D4) over bytes in memory: a heap buffer or a memory map | a decode batch |
 //! | [`Stream`] | raw targets read through a [`ByteSource`]; offsets in memory | a read buffer |
 //! | [`CompressedStream`](super::CompressedStream) | the adjacency codec over a [`ByteSource`]; its index in memory | a read window and a decode batch |
+//! | [`View`](super::View) | a filtered view of another source: a mask over its lists, or a [`RawCopy`] of the view | the parent's reader and a list buffer |
 //!
 //! Every source checks what it hands out: a list names only nodes below
 //! [`nodes`](Source::nodes). The codec checks the framing of its records, not the graph,

@@ -69,7 +69,7 @@ fn events(g: &Lists) -> (Vec<u64>, Vec<i64>, Vec<f64>) {
             let v = g.targets[e as usize];
             let mut rng = SplitMix(u64::from(u.min(v)) << 32 | u64::from(u.max(v)));
             for _ in 0..=rng.below(2) {
-                times.push(rng.below(100) as i64);
+                times.push(rng.below(100).cast_signed());
                 weights.push(rng.wide_weight());
             }
             offsets.push(times.len() as u64);

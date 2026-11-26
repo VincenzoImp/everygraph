@@ -64,9 +64,10 @@
 //!   [`ExactSum`]: its value does not depend on how the values are grouped, so it does
 //!   not rely on the reduction blocks either (`docs/research/sota-numerics.md`, R6).
 //!   No float reduces through the blocks: there is no [`Reduce`] for `f32` or `f64`.
-//!   The blocks are cut by node count and ids, which a view as a mask and the same
-//!   view materialized do not share; integers and [`ExactSum`] give the same value
-//!   either way (DESIGN D14).
+//!   The blocks are a choice of this version, cut by node count; integers and
+//!   [`ExactSum`] give the same value however they are cut (DESIGN D14).
+//! - **Views.** A [`View`] hands out the same lists, in the same ids, as a mask and
+//!   materialized, so the two forms share their blocks too.
 //!
 //! Shared state that bodies change (atomics, [`NodeCells`]) is the kernel's affair. The
 //! kernels of [`crate::proof`] give results that do not depend on the order in which racing
@@ -306,10 +307,9 @@ impl Default for Settings {
 ///
 /// Implement it only for values whose sum does not depend on the grouping: integers,
 /// [`ExactSum`], tuples of these. Never for a type that holds an `f32` or `f64`, a
-/// newtype included. The blocks are cut by node count and ids, so a mask and the same
-/// view materialized group the values differently, and a float sum would change its
-/// bits (DESIGN D14). `tools/numerics_lint.py --check` refuses such an `impl` in a
-/// product crate.
+/// newtype included: a float sum would change its bits with the cut of the blocks,
+/// which is a choice of this version (DESIGN D14). `tools/numerics_lint.py --check`
+/// refuses such an `impl` in a product crate.
 pub trait Reduce: Send + Sized {
     /// The value of no nodes.
     const ZERO: Self;
