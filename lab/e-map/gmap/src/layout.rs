@@ -17,6 +17,19 @@ pub struct Params {
     pub seed: u64,
     pub use_ext: bool,
     pub iters: usize,
+    /// m1-18: place siblings by stress on the quotient graph instead of the force solve
+    pub stress: bool,
+    /// m1-18 diagnostic: children of tree nodes shallower than `seed_depth` start at the
+    /// centroid of their members in this external layout (no force solve, packing only)
+    pub seed_pos: Option<Vec<[f32; 2]>>,
+    pub seed_depth: u8,
+}
+
+/// Where a parent's children start before packing.
+enum Start {
+    Force,
+    Stress,
+    Given(Vec<f32>, Vec<f32>),
 }
 
 struct Ctx<'a> {
@@ -99,7 +112,7 @@ fn merge(mut a: Acc, b: Acc) -> Acc {
 }
 
 /// Dense force-directed layout of k circles in the unit disc. Returns (x, y, r) and area retention.
-fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], seed: u64, iters: usize, shrink: bool) -> Vec<[f32; 3]> {
+fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], seed: u64, iters: usize, shrink: bool, start: Start) -> Vec<[f32; 3]> {
     if k == 1 {
         return vec![[0.0, 0.0, rad[0]]];
     }
@@ -133,11 +146,24 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
     let mut s = seed;
     let mut px = vec![0f32; k];
     let mut py = vec![0f32; k];
-    for i in 0..k {
-        let a = rnd01(&mut s) * std::f32::consts::TAU;
-        let r = rnd01(&mut s).sqrt() * 0.5;
-        px[i] = r * a.cos() + 0.4 * aw[i] * ax[i];
-        py[i] = r * a.sin() + 0.4 * aw[i] * ay[i];
+    let mut iters = iters;
+    if !matches!(start, Start::Force) {
+        let vol: Vec<f32> = (0..k).map(|i| wdeg[i] + ew[i]).collect();
+        (px, py) = match start {
+            Start::Given(x, y) => (x, y),
+            _ => crate::stress::place(k, rad, dense, &vol, seed),
+        };
+        // fit the start positions to the parent disc; the overlap sweeps below finish the packing
+        let fit = (0..k).map(|i| (1.0 - rad[i]) / (px[i] * px[i] + py[i] * py[i]).sqrt().max(1e-9)).fold(f32::MAX, f32::min);
+        px.iter_mut().chain(py.iter_mut()).for_each(|v| *v *= fit);
+        iters = 0;
+    } else {
+        for i in 0..k {
+            let a = rnd01(&mut s) * std::f32::consts::TAU;
+            let r = rnd01(&mut s).sqrt() * 0.5;
+            px[i] = r * a.cos() + 0.4 * aw[i] * ax[i];
+            py[i] = r * a.sin() + 0.4 * aw[i] * ay[i];
+        }
     }
     let kc = 0.9 * (std::f32::consts::PI / k as f32).sqrt();
     let kc2 = kc * kc;
@@ -430,7 +456,24 @@ fn process(c: &Ctx, p: u32) -> Res {
     if dense {
         let t1 = Instant::now();
         let rad = radii(&sizes, if leafp { c.prm.phi_leaf } else { c.prm.phi });
-        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, seed, c.prm.iters, !leafp);
+        let start = match &c.prm.seed_pos {
+            Some(sp) if !leafp && t.depth < c.prm.seed_depth => {
+                let (mut x, mut y) = (vec![0f32; k], vec![0f32; k]);
+                for (i, &q) in kids.iter().enumerate() {
+                    let qt = c.tn[q as usize];
+                    let m = &c.order[qt.start as usize..qt.end as usize];
+                    let (sx, sy) = m.iter().fold((0f64, 0f64), |a, &u| (a.0 + sp[u as usize][0] as f64, a.1 + sp[u as usize][1] as f64));
+                    (x[i], y[i]) = ((sx / m.len() as f64) as f32, (sy / m.len() as f64) as f32);
+                }
+                let (mx, my) = (x.iter().sum::<f32>() / k as f32, y.iter().sum::<f32>() / k as f32);
+                x.iter_mut().for_each(|v| *v -= mx);
+                y.iter_mut().for_each(|v| *v -= my);
+                Start::Given(x, y)
+            }
+            _ if c.prm.stress => Start::Stress,
+            _ => Start::Force,
+        };
+        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, seed, c.prm.iters, !leafp, start);
         c.t_fr.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
         let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
         let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
@@ -474,7 +517,7 @@ fn process(c: &Ctx, p: u32) -> Res {
     c.t_group.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let t2 = Instant::now();
     let rad = radii(&gs, c.prm.phi);
-    let lay = fr(g, &rad, &d, &gew, &gux, &guy, seed, c.prm.iters, true);
+    let lay = fr(g, &rad, &d, &gew, &gux, &guy, seed, c.prm.iters, true, if c.prm.stress { Start::Stress } else { Start::Force });
     c.t_fr.fetch_add(t2.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
     let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
@@ -676,6 +719,9 @@ pub fn run() {
         seed: argf(&a, "seed", 1.0) as u64,
         use_ext: !a.contains_key("no-ext"),
         iters: argf(&a, "iters", 50.0) as usize,
+        stress: a.get("solve").is_some_and(|v| v == "stress"),
+        seed_pos: a.get("seed-pos").map(|f| read_vec(f)),
+        seed_depth: argf(&a, "seed-depth", 1.0) as u8,
     };
     std::fs::create_dir_all(&out).unwrap();
     let t_all = Instant::now();
