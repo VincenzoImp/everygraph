@@ -56,6 +56,9 @@
 //!   fixes their number in its code, not by target feature. No result goes through
 //!   `f64::max`, which may return either zero. A pull and a push form of one kernel add
 //!   in different orders, so they are not interchangeable.
+//! - **Global scalars** (a dangling mass, a residual, a total) reduce into
+//!   [`ExactSum`]: its value does not depend on how the values are grouped, so it does
+//!   not rely on the reduction blocks either (`docs/research/sota-numerics.md`, R6).
 //!
 //! Shared state that bodies change (atomics, [`NodeCells`]) is the kernel's affair. The
 //! kernels of [`crate::proof`] give results that do not depend on the order in which racing
@@ -95,7 +98,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{InsufficientBudget, Memory, MemoryError, ReadError, par};
+use everygraph_core::{ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, SegVec, par};
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
@@ -120,6 +123,26 @@ pub(crate) fn ix(x: u64) -> usize {
     usize::try_from(x).expect("an index into memory")
 }
 
+const SEGMENTS: Error = Error::Invalid("node state longer than one segment (#m3-15)");
+
+/// The values of `v` as one slice, as the drivers take per-node state.
+///
+/// # Errors
+///
+/// [`Error::Invalid`] if `v` has more than one segment (#m3-15).
+pub fn one_segment<T: Copy>(v: &SegVec<T>) -> Result<&[T], Error> {
+    v.as_slice().ok_or(SEGMENTS)
+}
+
+/// As [`one_segment`], mutable.
+///
+/// # Errors
+///
+/// [`Error::Invalid`] if `v` has more than one segment (#m3-15).
+pub fn one_segment_mut<T: Copy>(v: &mut SegVec<T>) -> Result<&mut [T], Error> {
+    v.as_mut_slice().ok_or(SEGMENTS)
+}
+
 /// Why a driver failed.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -138,10 +161,21 @@ pub enum Error {
         /// The entry that is out of range.
         target: u32,
     },
-    /// Arrays that are not a graph.
+    /// Arrays that are not a graph, or a column a kernel cannot use.
     Invalid(&'static str),
     /// A buffer does not fit in the memory budget.
     Memory(MemoryError),
+    /// A weight or a cost that the kernel cannot use: negative, NaN or infinite
+    /// (`docs/spec/graph-semantics.md` § 4.4). `entry` is its position in the column.
+    Weight {
+        /// The position of the value in its per-entry column.
+        entry: u64,
+        /// The value.
+        value: f64,
+    },
+    /// A parameter that the kernel cannot use: an empty seed set, a node that is not in
+    /// the graph.
+    Argument(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -156,6 +190,11 @@ impl fmt::Display for Error {
             ),
             Self::Invalid(what) => write!(f, "not a graph: {what}"),
             Self::Memory(e) => e.fmt(f),
+            Self::Weight { entry, value } => write!(
+                f,
+                "entry {entry} has weight {value}; a weight must be finite and not negative"
+            ),
+            Self::Argument(what) => f.write_str(what),
         }
     }
 }
@@ -167,7 +206,9 @@ impl StdError for Error {
             Self::Format(e) => Some(e),
             Self::Read(e) => Some(e),
             Self::Memory(e) => Some(e),
-            Self::Target { .. } | Self::Invalid(_) => None,
+            Self::Target { .. } | Self::Invalid(_) | Self::Weight { .. } | Self::Argument(_) => {
+                None
+            }
         }
     }
 }
@@ -230,7 +271,7 @@ impl Default for Settings {
 }
 
 /// A value the drivers add up in a fixed order.
-pub trait Reduce: Copy + Send {
+pub trait Reduce: Send + Sized {
     /// The value of no nodes.
     const ZERO: Self;
     /// `self + other`.
@@ -255,6 +296,14 @@ macro_rules! reduce_by_add {
     )*};
 }
 reduce_by_add!(u32: 0, u64: 0, f32: 0.0, f64: 0.0);
+
+impl Reduce for ExactSum {
+    const ZERO: Self = Self::new();
+    fn add(mut self, other: Self) -> Self {
+        self.merge(&other);
+        self
+    }
+}
 
 impl<A: Reduce, B: Reduce> Reduce for (A, B) {
     const ZERO: Self = (A::ZERO, B::ZERO);
@@ -548,6 +597,29 @@ impl<'s, S: Source> Plan<'s, '_, S> {
         f: impl for<'g> FnOnce(Plan<'s, 'g, S>) -> R,
     ) -> R {
         f(Plan::new(source, memory, settings))
+    }
+
+    /// As [`with`](Self::with), with two sources over the same nodes, such as the out-
+    /// and the in-adjacency of a directed graph. The two plans share the brand `'g`, so
+    /// a node of one indexes the state of the other.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] if the two sources do not have the same node count.
+    pub fn with_pair<T: Source, R>(
+        source: &'s S,
+        other: &'s T,
+        memory: &Memory,
+        settings: Settings,
+        f: impl for<'g> FnOnce(Plan<'s, 'g, S>, Plan<'s, 'g, T>) -> R,
+    ) -> Result<R, Error> {
+        if source.nodes() != other.nodes() {
+            return Err(Error::Invalid("two adjacencies with different node counts"));
+        }
+        Ok(f(
+            Plan::new(source, memory, settings),
+            Plan::new(other, memory, settings),
+        ))
     }
 }
 

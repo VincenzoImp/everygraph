@@ -148,6 +148,7 @@ fn invariants_reject_obviously_wrong_answers() {
     let pr = Kernel::PageRank {
         damping: 0.85,
         weighted: false,
+        personalize: Vec::new(),
     };
     assert!(!invariants::check(&pr, &p, None, &wrong_pr).is_empty());
     let split = Output::Labels((0..u32::try_from(n).expect("small")).collect());
