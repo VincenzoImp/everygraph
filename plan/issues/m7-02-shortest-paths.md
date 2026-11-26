@@ -15,6 +15,7 @@ labels: type:feature, area:query, P0, risk:medium, size:M, lab-evidence
 - [ ] Constraints: maximum hops, node/edge filters (a view), avoid-set; these are what make paths useful in investigations (e.g. "not through the exchange hub")
 - [ ] Budgets and timeouts — tails reach 113 ms p99 on twitter-2010 because of hubs (shared machine; idle, #118: 32.3 ms raw, 27.3 ms default storage, graph in heap)
 - [ ] Batch pairs API
+- [ ] A parent column for single-source SSSP, as BFS has (moved from {{#m3-06-traversal}}, whose Δ*-stepping kernel returns distances only), and its tie rule added to `docs/api-sketch.md` § 2.12
 
 **Acceptance**
 - Verified against plain BFS on 1,000 random pairs per tier-2 graph

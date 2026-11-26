@@ -8,7 +8,8 @@ using all the hardware it is given, and staying inside the memory budget it is g
 > repository holds the product and architecture baseline, the evidence from a feasibility
 > lab, the prototypes that produced it, the full work plan as GitHub milestones and
 > issues, and the first production crates: the file format, I/O, the readers and the
-> graph build, the first kernels, and a command line with `ingest` and `verify`.
+> graph build, the first kernels, a command line with `ingest` and `verify`, and a first
+> slice of the Python package (built from source; nothing is published).
 
 ![A map of com-Orkut (3.1 M nodes, 117 M edges) from the lab prototype](docs/img/map-overview-orkut.png)
 
@@ -94,9 +95,12 @@ The Rust workspace holds the crate layout, the coding rules, the portable core
 (`crates/everygraph-core`), and the first product pieces: the `.eg` container, the
 compressed adjacency and the property columns (`everygraph-format`), the I/O layer
 (`everygraph-io`), the text reader, the identifier dictionary and the graph build
-(`everygraph-ingest`), the edge-map framework with PageRank and BFS
-(`everygraph-kernels`), and the `everygraph` command with `ingest` and `verify`
-(`everygraph-cli`). It needs Rust 1.100 or newer and nothing else.
+(`everygraph-ingest`), the edge-map framework with PageRank, BFS, SSSP, components, core
+numbers and degrees (`everygraph-kernels`), the `everygraph` command with `ingest` and
+`verify` (`everygraph-cli`), and the Python package `everygraph` (`everygraph-py`). The
+Rust crates need Rust 1.100 or newer and nothing else; the Python package also needs
+Python 3.10 or newer (`tools/check_python_package.sh` builds and tests it with uv and
+maturin).
 
 ```sh
 cargo build --workspace

@@ -103,9 +103,9 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 - The documentation says plainly that out of core costs about one read of the graph per
   pass: small for PageRank, 10× for components on Friendster.
 
-- Regime 2 for random access whose working set exceeds the budget: amendment proposed in
-  [ADR 0029](0029-random-access-under-a-budget.md) (an explicit budgeted cache over
-  `ByteSource`; per-phase `MADV_RANDOM` until it exists), from #172.
+- Regime 2 for random access whose working set exceeds the budget: amended by
+  [ADR 0029](0029-random-access-under-a-budget.md), accepted 2026-11-26 (an explicit
+  budgeted cache over `ByteSource`; per-phase `MADV_RANDOM` until it exists), from #172.
 
 ## What would change our mind
 
@@ -116,5 +116,5 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 
 ## Closed by
 
-#60 (production out-of-core Leiden) for community detection; #46 for iterative scans.
-#16 reported on 2026-11-25 (above).
+#60 (production out-of-core Leiden) for community detection; #46 for iterative scans; #178
+(the block cache, ADR 0029) for random access under a budget.

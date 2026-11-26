@@ -5,6 +5,8 @@ labels: type:infra, area:engine, P2, risk:low, size:S
 ---
 **Why.** `crates/everygraph-core/clippy.toml` holds the portability rule (no `std::fs`, threads, clocks, …). The ingest and format crates must also reach the browser, but copying the core's 141-line list with core-specific messages would rot (text reader PR #152). The allocation lint of {{#m2-04-arrays-accountant}} (PR #154) covers only the kernel crates for now.
 
+**Owner of the shared lint configuration** (decided 2026-11-26): this issue writes and owns it; {{#m2-31-cleanup-audit}} only applies it in its cleanup.
+
 **Scope**
 - [ ] One generated or shared list for every crate that must build for wasm32 (core, format, ingest, kernels, community, map, query), with crate-neutral messages; the portability canary checks each crate
 - [ ] Extend the allocation lint to `everygraph-ingest`, `-format` and `-io` once their M2 issues have merged

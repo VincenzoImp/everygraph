@@ -3,7 +3,7 @@ title: M3 performance pass: close the measured speed gaps
 milestone: M3 · Engine and kernels
 labels: type:feature, area:engine, P1, risk:medium, size:L
 ---
-**Why.** Under the rule "official runs only when a number is published" (CLAUDE.md § 6, owner 2026-11-26), issues close on correctness and exploratory evidence, and their missed speed targets come here. All numbers below are exploratory (interleaved A/B on a loaded machine) unless a result file is named.
+**Why.** Under the rule "official runs only when a number is published" (CLAUDE.md § 6, owner 2026-11-26), issues close on correctness and exploratory evidence, and their missed speed targets come here, those of M2 issues included (M2 has no performance pass of its own). All numbers below are exploratory (interleaved A/B on a loaded machine) unless a result file is named.
 
 **Gaps to close**
 - [ ] Build (#35): lj 1.30–1.84 s vs ≤ 0.5 s, orkut 5.7–6.2 s vs ≤ 1.0 s (PR #215). Profile on orkut: parsing twice 26 %, finishing buckets 18 %, dictionary collection 13 %, shared atomic item counts 11 %, id look-ups 10 %, scatter 12 %. Friendster targets not yet measured.
@@ -11,6 +11,9 @@ labels: type:feature, area:engine, P1, risk:medium, size:L
 - [ ] BFS (#49): 1.33× GAP on orkut; SSSP 2.06× GAP on orkut, 2.4× on roadnet-ca (PR #220): `NodeSet::list_into` per step (20 %), rayon overhead (14 %), cost-check pass (10 %).
 - [ ] k-core (#50): 1.4–1.9× the lab at 1 and 16 threads after the per-round fixes (PR #218): per-entry bucket check and Philox draw per hub edge are the candidates.
 - [ ] Compressed BFS/WCC: whole-list decode; batched prefix decode with early exit (#48/#49 follow-up).
+- [ ] PageRank (#47): weighted on a per-pair column within 15% of the unweighted kernel on orkut; the out-of-core cost against in RAM from interleaved rounds ({{#m3-19-harness-interleave}}), not from a fixed run order.
+- [ ] WCC sampling (#48): first-neighbour against hybrid k-out sampling, interleaved, on orkut, Friendster and a web graph in clustered order (uk-2005, once in the dataset registry).
+- [ ] BFS under a memory limit below the adjacency size (#49): Friendster in at most the time of three sequential reads of the graph file.
 - [ ] Same-machine comparison with GAP/GBBS/NetworKit/igraph/GVE (#55's reference runs) decides which gaps matter most.
 
 **Done when.** Each gap is either closed (interleaved A/B against the reference, ratio stated) or its remaining cause is written down with a follow-up; the milestone-end official run records the final numbers.
