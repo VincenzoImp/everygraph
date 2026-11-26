@@ -41,27 +41,31 @@ impl Table {
         }
     }
 
-    /// Empties the table and makes room for `keys` distinct keys.
+    /// Empties the table and makes room for `keys` distinct keys. Only the first slots
+    /// that many keys need are used, so a table that once grew for a long list keeps a
+    /// small working set for short ones.
     pub(crate) fn begin(&mut self, keys: usize) -> Result<(), InsufficientBudget> {
         for &s in &self.used {
             self.slots[s as usize].0 = EMPTY;
         }
         self.used.clear();
-        let slots = (keys.max(4) * 2).next_power_of_two().min(1 << 32);
+        // At most 2^32 slots: their positions are `u32`.
+        let most = usize::try_from(1_u64 << 32).unwrap_or(1 << (usize::BITS - 1));
+        let slots = (keys.max(4) * 2).next_power_of_two().min(most);
         if slots > self.slots.len() {
             let more = (slots - self.slots.len()) as u64 * SLOT_BYTES;
             self.reservation.try_grow(more)?;
             self.slots = (0..slots).map(|_| (EMPTY, 0)).collect();
-            self.bits = slots.trailing_zeros();
         }
+        self.bits = slots.trailing_zeros();
         Ok(())
     }
 
-    /// Adds `w` to the sum of `key`. There is always an empty slot: at most
-    /// `slots / 2` keys, or fewer than 2^32 in a table of 2^32 slots.
+    /// Adds `w` to the sum of `key`. There is always an empty slot among the slots in
+    /// use: at most half of them hold keys, or fewer than 2^32 of 2^32.
     #[inline(always)]
     pub(crate) fn add(&mut self, key: u32, w: u64) {
-        let mask = self.slots.len() - 1;
+        let mask = usize::MAX >> (usize::BITS - self.bits);
         let mut s = (key.wrapping_mul(0x9E37_79B1) >> (32 - self.bits)) as usize;
         loop {
             let slot = &mut self.slots[s];

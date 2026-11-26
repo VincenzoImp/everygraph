@@ -32,6 +32,7 @@
 //! A sweep visits blocks of 64 consecutive ids in a seeded random order and applies
 //! each move at once. Its result depends on the schedule.
 
+use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
 
@@ -58,6 +59,9 @@ const ORDER_BLOCK: u32 = 64;
 /// In local moving at level 0, this many low bits of an id are dropped before its
 /// sub-round is drawn.
 const ROUND_SHIFT: u32 = 4;
+/// Nodes per task when a sub-round's nodes are taken or its moves committed: a
+/// sub-round of 1,024 nodes or more is spread over every thread.
+const ROUND_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 10).expect("non-zero");
 
 /// Per-entry weights of a level: `None` at level 0 (unweighted).
 #[derive(Clone, Copy, Debug)]
@@ -147,6 +151,16 @@ fn fixed(gain: f64) -> u64 {
     )]
     let units = (gain * GAIN_SCALE) as u64;
     units
+}
+
+/// `x` as a float. Every weight sum is below 2^62 (`strengths`), so the signed
+/// conversion is exact in range, and it is one instruction where the unsigned one is
+/// several.
+#[inline]
+fn real(x: u64) -> f64 {
+    #[expect(clippy::cast_possible_wrap, reason = "below 2^62")]
+    let x = x as i64;
+    x as f64
 }
 
 /// The node of id `v` of a plan: a community label is always one.
@@ -302,7 +316,7 @@ impl Schedule {
             };
             const BLOCK: u32 = 1 << 16;
             let blocks = n.div_ceil(BLOCK) as usize;
-            let buckets = std::num::NonZeroUsize::new(rounds as usize).expect("non-zero");
+            let buckets = NonZeroUsize::new(rounds as usize).expect("non-zero");
             let starts = par::scatter(
                 memory,
                 "sub-rounds",
@@ -352,7 +366,7 @@ fn take<'g, S: Source>(
     ids: &[u32],
     keep: impl Fn(Node<'g>) -> bool + Send + Sync,
 ) -> Vec<Node<'g>> {
-    let parts = par::map_ranges(ids.len(), GRAIN, |r| {
+    let parts = par::map_ranges(ids.len(), ROUND_GRAIN, |r| {
         ids[r]
             .iter()
             .filter_map(|&v| plan.node(v))
@@ -387,7 +401,7 @@ fn each<'g>(frontier: &[Node<'g>], f: impl Fn(Node<'g>) + Send + Sync) {
     if frontier.len() < SERIAL {
         frontier.iter().copied().for_each(f);
     } else {
-        par::for_each_range(frontier.len(), GRAIN, |r| {
+        par::for_each_range(frontier.len(), ROUND_GRAIN, |r| {
             frontier[r].iter().copied().for_each(&f);
         });
     }
@@ -422,7 +436,7 @@ fn decide<'g, S: Source>(
             table.add(st.comm.load(v, Relaxed).get(), x);
         }
     });
-    let f = ctx.options.resolution * k as f64 * ctx.inv_total();
+    let f = ctx.options.resolution * real(k) * ctx.inv_total();
     let sigma = |d: u32| st.sigma[d as usize].load(Relaxed);
     let salt = st.salt[u.index()];
     let (mut stay, mut best) = (0, None::<(f64, u32)>);
@@ -431,14 +445,14 @@ fn decide<'g, S: Source>(
             stay = kud;
             continue;
         }
-        let value = kud as f64 - f * sigma(d) as f64;
+        let value = real(kud) - f * real(sigma(d));
         let better = best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
         if better {
             best = Some((value, d));
         }
     }
     let (value, d) = best?;
-    let stay = stay as f64 - f * sigma(c).saturating_sub(k) as f64;
+    let stay = real(stay) - f * real(sigma(c).saturating_sub(k));
     if value <= stay {
         return None;
     }
@@ -584,7 +598,7 @@ pub(crate) fn refine<'g, S: Source>(
     let n = plan.nodes() as usize;
     let det = ctx.det();
     let theta = match ctx.options.refinement {
-        Refinement::Greedy => None,
+        Refinement::Greedy | Refinement::Louvain => None,
         Refinement::Randomized { theta } => Some(theta),
     };
     let per = |on: bool| if on { n } else { 0 };
@@ -714,13 +728,13 @@ fn pick<'g, S: Source>(
         }
     });
     let gamma = ctx.options.resolution * ctx.inv_total();
-    let f = gamma * ku as f64;
-    let rsigma = |d: u32| r.rsigma[d as usize].load(Relaxed) as f64;
+    let f = gamma * real(ku);
+    let rsigma = |d: u32| real(r.rsigma[d as usize].load(Relaxed));
     let Some(theta) = theta else {
         let salt = st.salt[u.index()];
         let mut best = None::<(f64, u32)>;
         for (d, kud) in table.entries() {
-            let value = kud as f64 - f * rsigma(d);
+            let value = real(kud) - f * rsigma(d);
             let better =
                 best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
             if value > 0.0 && d != u.get() && better {
@@ -731,15 +745,15 @@ fn pick<'g, S: Source>(
     };
     // Traag et al.: only a node well connected to its community moves, and only into a
     // refined community that is.
-    let total = st.sigma[b.index()].load(Relaxed) as f64;
-    if (inside as f64) < f * (total - ku as f64) {
+    let total = real(st.sigma[b.index()].load(Relaxed));
+    if real(inside) < f * (total - real(ku)) {
         return None;
     }
     table.sort();
     let candidates = || {
         table.sorted.iter().filter_map(|&(d, kud)| {
             let (rs, cut) = (rsigma(d), r.cut[d as usize].load(Relaxed) as f64);
-            let value = kud as f64 - f * rs;
+            let value = real(kud) - f * rs;
             (d != u.get() && value >= 0.0 && cut >= gamma * rs * (total - rs))
                 .then_some((d, kud, value))
         })

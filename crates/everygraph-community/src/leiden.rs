@@ -74,6 +74,10 @@ pub enum Refinement {
         /// The randomness, above 0.
         theta: f64,
     },
+    /// None: Louvain (Blondel et al. 2008), aggregating the communities of local moving,
+    /// with no split. An internal baseline, never a default: its communities can be
+    /// disconnected (17-94 per run in the lab, FINDINGS § B2).
+    Louvain,
 }
 
 /// When disconnected communities are split into their components.
@@ -184,9 +188,9 @@ struct Level {
     /// Its nodes' places one level up; `None` if the level merged nothing and so ends
     /// the iteration where the level below ended.
     map: Option<Column<u32>>,
-    /// The next level, its strengths and its nodes' starting communities, unless this
-    /// was the last.
-    next: Option<(Quotient, Strengths, Column<u32>)>,
+    /// The next level, its strengths and its nodes' starting communities (alone for
+    /// Louvain), unless this was the last.
+    next: Option<(Quotient, Strengths, Option<Column<u32>>)>,
     /// The modularity of the communities of the last level.
     modularity: f64,
     stats: LevelStats,
@@ -231,23 +235,32 @@ fn level<S: Source>(
     let moved = local_move(g, &st, &schedule, &tables, ctx, tol)?;
     (stats.sweeps, stats.moves) = (moved.sweeps, moved.moves);
 
+
+
     (stats.parallel_rounds, stats.serial_rounds) = (moved.parallel_rounds, moved.serial_rounds);
-    if ctx.options.split == crate::leiden::SplitAt::EveryLevel {
+    if ctx.options.split == SplitAt::EveryLevel {
         let before = count(plan, memory, &st.comm)?;
         let parts = split(plan, memory, &st.comm)?;
         st.relabel(plan, &k.of, parts)?;
         stats.split_added = count(plan, memory, &st.comm)? - before;
     }
-    let schedule = match schedule {
-        Schedule::Rounds { .. } => {
-            drop(schedule);
-            Schedule::new(n, memory, ctx, true)?
-        }
-        order @ Schedule::Order { .. } => order,
+    let louvain = ctx.options.refinement == Refinement::Louvain;
+    let refined = if louvain {
+        None
+    } else {
+        let schedule = match schedule {
+            Schedule::Rounds { .. } => {
+                drop(schedule);
+                Schedule::new(n, memory, ctx, true)?
+            }
+            order @ Schedule::Order { .. } => order,
+        };
+        Some(refine(g, memory, &st, &schedule, &tables, ctx)?)
     };
-    let refined = refine(g, memory, &st, &schedule, &tables, ctx)?;
-    drop(schedule);
-    let d = dense(plan, memory, |v| refined.rcomm.load(v, Relaxed).get())?;
+    let d = match &refined {
+        Some(r) => dense(plan, memory, |v| r.rcomm.load(v, Relaxed).get())?,
+        None => dense(plan, memory, |v| st.comm.load(v, Relaxed).get())?,
+    };
     stats.communities = d.count;
     let alone = k.alone;
     let first_of_later = ctx.iteration > 0 && ctx.level == 0;
@@ -255,12 +268,17 @@ fn level<S: Source>(
         || ctx.level + 1 == MAX_LEVELS
         || u64::from(stats.communities - alone) * 5 > u64::from(n - alone) * 4;
     if last {
-        drop((d, refined));
-        let before = count(plan, memory, &st.comm)?;
-        let parts = split(plan, memory, &st.comm)?;
-        drop(st);
-        let d = dense(plan, memory, |v| parts.load(v, Relaxed).get())?;
-        stats.split_added += d.count - before;
+        let d = if louvain {
+            d
+        } else {
+            drop((d, refined));
+            let before = count(plan, memory, &st.comm)?;
+            let parts = split(plan, memory, &st.comm)?;
+            drop(st);
+            let d = dense(plan, memory, |v| parts.load(v, Relaxed).get())?;
+            stats.split_added += d.count - before;
+            d
+        };
         stats.communities = d.count;
         let modularity =
             tally(plan, memory, w, &d.map, d.count)?.modularity(ctx.options.resolution);
@@ -275,7 +293,11 @@ fn level<S: Source>(
     drop(refined);
     let members = Members::new(memory, &d)?;
     let (q, kq) = quotient(plan, memory, w, &d, &members, &tables)?;
-    let bound = next_bound(plan, memory, &st, &d, &members)?;
+    let bound = if louvain {
+        None
+    } else {
+        Some(next_bound(plan, memory, &st, &d, &members)?)
+    };
     Ok(Level {
         map: Some(d.map),
         next: Some((q, kq, bound)),
@@ -445,7 +467,7 @@ pub fn leiden<S: Source>(
             let csr = q.csr()?;
             let w = Weights(Some(&q.weights));
             out = Plan::with(&csr, memory, settings, |plan| {
-                level(&plan, memory, w, &kq, Some(&bound), &ctx)
+                level(&plan, memory, w, &kq, bound.as_deref(), &ctx)
             })?;
             if options.prolong {
                 graphs.push((q, kq));

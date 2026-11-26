@@ -252,11 +252,9 @@ fn check(name: &str, lists: &Lists, p: Option<&Projection>, c: &Communities, o: 
         next = next.max(x + 1);
     }
     assert_eq!(next, c.count, "{name}: community count");
-    assert_eq!(
-        disconnected(lists, m),
-        0,
-        "{name}: a disconnected community"
-    );
+    if o.refinement != Refinement::Louvain {
+        assert_eq!(disconnected(lists, m), 0, "{name}: disconnected");
+    }
     let csr = Csr::new(&lists.offsets, &lists.targets).unwrap();
     let memory = Memory::unlimited();
     let q = modularity(&csr, &memory, Settings::default(), m, gamma).unwrap();
@@ -321,6 +319,8 @@ fn variants() -> Vec<(&'static str, Options)> {
     };
     let mut gamma = Options::default();
     gamma.resolution = 2.5;
+    let mut louvain = Options::default();
+    louvain.refinement = Refinement::Louvain;
     vec![
         ("quality", quality()),
         ("randomized", randomized),
@@ -328,6 +328,7 @@ fn variants() -> Vec<(&'static str, Options)> {
         ("split every level", every),
         ("converge", converge),
         ("resolution 2.5", gamma),
+        ("louvain", louvain),
     ]
 }
 
@@ -557,11 +558,13 @@ fn same_partition(a: &[u32], b: &[u32]) -> bool {
             .all(|(&x, &y)| *ab.entry(x).or_insert(y) == y && *ba.entry(y).or_insert(x) == x)
 }
 
-fn communities_of(n: u32, pairs: &[(u32, u32)]) -> Vec<u32> {
+fn communities_with(n: u32, pairs: &[(u32, u32)], o: &Options) -> Vec<u32> {
     let s = store(&Lists::from_pairs(n, pairs));
-    run(&s, Kind::Raw, 3, 1 << 16, &Options::default())
-        .membership
-        .to_vec()
+    run(&s, Kind::Raw, 3, 1 << 16, o).membership.to_vec()
+}
+
+fn communities_of(n: u32, pairs: &[(u32, u32)]) -> Vec<u32> {
+    communities_with(n, pairs, &Options::default())
 }
 
 #[test]
@@ -627,6 +630,19 @@ fn no_community_spans_two_parts_of_a_union() {
             pair[0].0,
             pair[1].0
         );
+    }
+}
+
+/// Nodes without edges, added after the others, change nothing for the others: they
+/// draw no sub-round or tie of another node, and the stopping test leaves them out (#19:
+/// counting them stopped aggregation one level early).
+#[test]
+fn isolated_nodes_change_nothing_else() {
+    let (n, pairs) = planted(20, 100, 80, 8, 3);
+    for o in [Options::default(), Options::quality()] {
+        let base = communities_with(n, &pairs, &o);
+        let padded = communities_with(n + 9000, &pairs, &o);
+        assert_eq!(&padded[..n as usize], &base[..]);
     }
 }
 

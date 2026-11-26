@@ -8,7 +8,8 @@
 //! leiden_bench encode --graph DIR --out STORE
 //! leiden_bench run --graph DIR [--store STORE] [--source raw|compressed|mmap|stream]
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
-//!     [--seed S] [--refine greedy|random] [--theta X] [--prolong 1] [--split last|every]
+//!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
+//!     [--split last|every]
 //!     [--chunk ENTRIES] [--budget-gib G] [--check 1]
 //! ```
 //!
@@ -89,9 +90,13 @@ fn options(a: &Args) -> Options {
     if let Some(s) = a.get("seed") {
         o.seed = s.parse().expect("--seed");
     }
-    if a.get("refine").is_some_and(|r| r == "random") {
-        let theta = a.get("theta").map_or(0.01, |t| t.parse().expect("--theta"));
-        o.refinement = Refinement::Randomized { theta };
+    match a.get("refine").map(String::as_str) {
+        Some("random") => {
+            let theta = a.get("theta").map_or(0.01, |t| t.parse().expect("--theta"));
+            o.refinement = Refinement::Randomized { theta };
+        }
+        Some("louvain") => o.refinement = Refinement::Louvain,
+        _ => {}
     }
     o.prolong = a.get("prolong").is_some_and(|p| p == "1");
     if a.get("split").is_some_and(|s| s == "every") {
