@@ -9,7 +9,6 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::Duration;
 
 use everygraph_format::container::{Container, Kind};
 use everygraph_io::FileSource;
@@ -276,7 +275,7 @@ fn a_killed_ingest_leaves_no_damaged_graph() {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        std::thread::sleep(Duration::from_millis(15 * step * step));
+        std::thread::sleep(std::time::Duration::from_millis(15 * step * step));
         if child.try_wait().unwrap().is_none() {
             child.kill().unwrap();
             killed += 1;
