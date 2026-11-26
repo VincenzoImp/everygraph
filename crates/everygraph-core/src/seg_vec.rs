@@ -7,7 +7,8 @@ use std::num::NonZeroUsize;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::memory::{Memory, MemoryError, MemoryKind, Reservation};
-use crate::{par, widen};
+use crate::par::{self, Columns};
+use crate::widen;
 
 /// The largest single allocation the engine makes, in bytes: 1 GiB.
 ///
@@ -259,6 +260,32 @@ impl<T: Copy> SegVec<T> {
             let base = index * segment_len;
             par::for_each_chunk_mut(segment, grain, |start, chunk| f(base + start, chunk));
         }
+    }
+
+    /// Calls `f(i, rows offsets[i]..offsets[i + 1])` for each `i` below
+    /// `offsets.len() - 1`, possibly in parallel: [`SegColumns::for_each_range_mut`] on
+    /// one vector, which states the rules.
+    ///
+    /// # Errors
+    ///
+    /// As [`SegColumns::for_each_range_mut`].
+    ///
+    /// # Panics
+    ///
+    /// As [`SegColumns::for_each_range_mut`].
+    pub fn for_each_range_mut<O, F>(
+        &mut self,
+        offsets: &[O],
+        grain: NonZeroUsize,
+        f: F,
+    ) -> Result<(), MemoryError>
+    where
+        T: Send + 'static,
+        O: Copy + Sync,
+        usize: TryFrom<O>,
+        F: Fn(usize, &mut [T]) + Send + Sync,
+    {
+        SegColumns::for_each_range_mut(self, offsets, grain, f)
     }
 
     /// Reserves room for at least `additional` more elements, exactly as many as
@@ -536,6 +563,286 @@ impl<T: Copy> SegVec<T> {
         for segment in self.segments_mut() {
             segment.fill(value);
         }
+    }
+}
+
+/// The row slices of segmented columns, for any borrow: `&mut [T]` for a
+/// [`SegVec<T>`], a pair of them for a pair. It names the type that
+/// [`SegColumns::for_each_range_mut`] lends to its closure.
+pub trait SegRows {
+    /// The slices, borrowed for `'s`.
+    type Rows<'s>: Columns;
+}
+
+impl<T: Copy + Send + 'static> SegRows for SegVec<T> {
+    type Rows<'s> = &'s mut [T];
+}
+
+impl<A: SegRows, B: SegRows> SegRows for (A, B) {
+    type Rows<'s> = (A::Rows<'s>, B::Rows<'s>);
+}
+
+/// The rows of `S`, borrowed for `'s`.
+type RowsOf<'s, S> = <<S as SegColumns>::Of as SegRows>::Rows<'s>;
+
+/// Segmented columns of equal length: `&mut SegVec<T>`, or a pair of [`SegColumns`]
+/// (nest pairs for more). All columns must have the same segment length (make them
+/// with the same [`SegVec::with_segment_bits`]), so that their segments end at the same
+/// rows. Element types are plain data (`'static`).
+pub trait SegColumns: Send + Sized {
+    /// The [`SegRows`] that names the lent slices.
+    type Of: SegRows;
+    /// Buffers that hold one range of every column, with their reservation.
+    type Scratch: Send;
+
+    /// Number of rows.
+    ///
+    /// # Panics
+    ///
+    /// For a pair, if the columns have different lengths.
+    fn rows(&self) -> usize;
+
+    /// Rows per segment.
+    ///
+    /// # Panics
+    ///
+    /// For a pair, if the columns have different segment lengths.
+    fn segment_rows(&self) -> usize;
+
+    /// The rows of `range`, cut at segment ends: one piece per segment it touches.
+    ///
+    /// # Panics
+    ///
+    /// If the range is decreasing or ends beyond [`rows`](Self::rows).
+    fn parts(&mut self, range: Range<usize>) -> Vec<RowsOf<'_, Self>>;
+
+    /// Empty buffers with room for `rows` rows, reserved before they are allocated.
+    ///
+    /// # Errors
+    ///
+    /// [`MemoryError::Budget`] if they do not fit; [`MemoryError::AllocationFailed`] if
+    /// `rows` is larger than a segment or the allocator refused.
+    fn scratch(&self, rows: usize) -> Result<Self::Scratch, MemoryError>;
+
+    /// Copies the rows of `range` into `scratch`, replacing what it held.
+    fn load(&self, range: Range<usize>, scratch: &mut Self::Scratch);
+
+    /// The rows held in `scratch`.
+    fn lend(scratch: &mut Self::Scratch) -> RowsOf<'_, Self>;
+
+    /// Copies the rows of `scratch` back, from row `start` on.
+    fn store(&mut self, start: usize, scratch: &Self::Scratch);
+
+    /// Calls `f(i, rows offsets[i]..offsets[i + 1])` for each `i` below
+    /// `offsets.len() - 1`, possibly in parallel: [`par::for_each_range_mut`] for
+    /// segmented columns, with the same rules for the offsets and the grain. The
+    /// segments run in parallel with each other.
+    ///
+    /// A range that crosses the end of a segment cannot be lent in place. It is copied
+    /// into a scratch buffer, `f` runs on the copy, and the copy is written back. These
+    /// calls run one after the other on the calling thread. There is at most one such
+    /// range per segment end. The buffer is as long as the longest of them, and is
+    /// reserved before `f` is called for any range.
+    ///
+    /// # Errors
+    ///
+    /// [`MemoryError::Budget`] if the scratch buffer does not fit, and
+    /// [`MemoryError::AllocationFailed`] if a range is longer than a segment (it can
+    /// never be one slice) or the allocator refused; in all cases before `f` is called.
+    ///
+    /// # Panics
+    ///
+    /// If an offset is smaller than the one before it, or the last is larger than
+    /// [`rows`](Self::rows), before `f` is called.
+    fn for_each_range_mut<O, F>(
+        mut self,
+        offsets: &[O],
+        grain: NonZeroUsize,
+        f: F,
+    ) -> Result<(), MemoryError>
+    where
+        O: Copy + Sync,
+        usize: TryFrom<O>,
+        F: for<'s> Fn(usize, RowsOf<'s, Self>) + Send + Sync,
+    {
+        const CHECK_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).unwrap();
+        let Some(ranges) = offsets.len().checked_sub(1) else {
+            return Ok(());
+        };
+        let (len, segment_len) = (self.rows(), self.segment_rows());
+        let at = |i| par::offset_at(offsets, i);
+        let sorted = par::map_ranges(ranges, CHECK_GRAIN, |mut r| r.all(|i| at(i) <= at(i + 1)));
+        assert!(
+            sorted.into_iter().all(|ok| ok) && at(ranges) <= len,
+            "offsets decrease or end beyond columns of length {len}"
+        );
+
+        // Each range goes to the segment it starts in. The last range of a segment may
+        // cross its end; it goes through the scratch buffer. The last segment takes the
+        // remaining ranges, also the empty ones at `len`.
+        let segments = len.div_ceil(segment_len).max(1);
+        let mut inner = Vec::with_capacity(segments);
+        let mut crossing = Vec::new();
+        let mut low = 0;
+        for segment in 1..=segments {
+            let mut high = ranges;
+            if segment < segments {
+                let end = segment * segment_len;
+                high = offsets
+                    .partition_point(|&o| usize::try_from(o).unwrap_or(usize::MAX) < end)
+                    .clamp(low, ranges);
+                if high > low && at(high) > end {
+                    inner.push(low..high - 1);
+                    crossing.push(high - 1);
+                    low = high;
+                    continue;
+                }
+            }
+            inner.push(low..high);
+            low = high;
+        }
+        let longest = crossing
+            .iter()
+            .map(|&i| at(i + 1) - at(i))
+            .max()
+            .unwrap_or(0);
+        let mut scratch = self.scratch(longest)?;
+
+        let mut jobs = Vec::with_capacity(segments);
+        let parts = self
+            .parts(0..len)
+            .into_iter()
+            .chain(std::iter::repeat_with(Default::default));
+        for ((segment, range), part) in inner.into_iter().enumerate().zip(parts) {
+            if !range.is_empty() {
+                let (start, end, base) = (at(range.start), at(range.end), segment * segment_len);
+                let part = part.split_rows(end - base).0.split_rows(start - base).1;
+                jobs.push((part, start, range));
+            }
+        }
+        par::for_each_chunk_mut(&mut jobs, NonZeroUsize::MIN, |_, job| {
+            let (part, start, range) = std::mem::take(&mut job[0]);
+            let offsets = &offsets[range.start..=range.end];
+            par::ranges_mut(part, start, offsets, range.start, grain.get(), &f);
+        });
+        drop(jobs);
+        for i in crossing {
+            let range = at(i)..at(i + 1);
+            self.load(range.clone(), &mut scratch);
+            f(i, Self::lend(&mut scratch));
+            self.store(range.start, &scratch);
+        }
+        Ok(())
+    }
+}
+
+impl<T: Copy + Send + 'static> SegColumns for &mut SegVec<T> {
+    type Of = SegVec<T>;
+    type Scratch = (Vec<T>, Reservation);
+
+    fn rows(&self) -> usize {
+        self.len
+    }
+
+    fn segment_rows(&self) -> usize {
+        SegVec::segment_len(self)
+    }
+
+    fn parts(&mut self, range: Range<usize>) -> Vec<&mut [T]> {
+        assert!(
+            range.start <= range.end && range.end <= self.len,
+            "range {range:?} out of bounds for a SegVec of length {}",
+            self.len
+        );
+        let bits = self.bits;
+        let mut parts = Vec::new();
+        for (index, segment) in self.segments_mut().enumerate() {
+            let base = index << bits;
+            let (low, high) = (range.start.max(base), range.end.min(base + segment.len()));
+            if low < high {
+                parts.push(&mut segment[low - base..high - base]);
+            }
+        }
+        parts
+    }
+
+    fn scratch(&self, rows: usize) -> Result<Self::Scratch, MemoryError> {
+        if rows > SegVec::segment_len(self) {
+            return Err(self.allocation_failed(rows));
+        }
+        let memory = self.reservation.memory();
+        let bytes = SegVec::<T>::bytes_of(rows);
+        let reservation = memory.reserve(self.purpose(), MemoryKind::Anonymous, bytes)?;
+        let mut buffer = Vec::new();
+        buffer
+            .try_reserve_exact(rows)
+            .map_err(|_| self.allocation_failed(rows))?;
+        Ok((buffer, reservation))
+    }
+
+    fn load(&self, range: Range<usize>, scratch: &mut Self::Scratch) {
+        scratch.0.clear();
+        for part in self.range_slices(range) {
+            scratch.0.extend_from_slice(part);
+        }
+    }
+
+    fn lend(scratch: &mut Self::Scratch) -> &mut [T] {
+        &mut scratch.0
+    }
+
+    fn store(&mut self, start: usize, scratch: &Self::Scratch) {
+        let mut rest = &scratch.0[..];
+        for part in self.parts(start..start + rest.len()) {
+            let (now, later) = rest.split_at(part.len());
+            part.copy_from_slice(now);
+            rest = later;
+        }
+    }
+}
+
+impl<A: SegColumns, B: SegColumns> SegColumns for (A, B) {
+    type Of = (A::Of, B::Of);
+    type Scratch = (A::Scratch, B::Scratch);
+
+    fn rows(&self) -> usize {
+        let rows = self.0.rows();
+        assert_eq!(rows, self.1.rows(), "columns of different lengths");
+        rows
+    }
+
+    fn segment_rows(&self) -> usize {
+        let rows = self.0.segment_rows();
+        assert_eq!(
+            rows,
+            self.1.segment_rows(),
+            "columns of different segment lengths"
+        );
+        rows
+    }
+
+    fn parts(&mut self, range: Range<usize>) -> Vec<RowsOf<'_, Self>> {
+        self.segment_rows();
+        let first = self.0.parts(range.clone());
+        first.into_iter().zip(self.1.parts(range)).collect()
+    }
+
+    fn scratch(&self, rows: usize) -> Result<Self::Scratch, MemoryError> {
+        Ok((self.0.scratch(rows)?, self.1.scratch(rows)?))
+    }
+
+    fn load(&self, range: Range<usize>, scratch: &mut Self::Scratch) {
+        self.0.load(range.clone(), &mut scratch.0);
+        self.1.load(range, &mut scratch.1);
+    }
+
+    fn lend(scratch: &mut Self::Scratch) -> RowsOf<'_, Self> {
+        (A::lend(&mut scratch.0), B::lend(&mut scratch.1))
+    }
+
+    fn store(&mut self, start: usize, scratch: &Self::Scratch) {
+        self.0.store(start, &scratch.0);
+        self.1.store(start, &scratch.1);
     }
 }
 

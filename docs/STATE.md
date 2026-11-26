@@ -29,10 +29,14 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
 - **Started 2026-11-26 00:15:** #34 OOM investigation (build-500m), #18 deterministic Leiden sub-rounds A/B, #172 mmap hints / block cache (step 1 first), #189 safe parallel scatter (prerequisite of #35). #19's Friendster official run: 7/10 rows ok; the 3 shape rows failed only on a boolean metric (`super_level_built`) — spec fix in PR #162, re-run of the shape cases (~27 min) queued.
 
+- **Night of 2026-11-26 (owner away until ~08:00, full autonomy):** streams running — #202 edge-map fixes, #201 scatter fixes, #18 Leiden sub-rounds, #172 mmap hints, #37 property columns, #187+#188 core math and counter RNG, #41+#190+#191 verify / fault injection / fuzz CI, #177 LDBC Graphalytics. Next on merge: #35 CSR build (after #201), kernels batch #47–#49 (after #202), CLI+Python slice (after #35). Shared implementer brief: builds with `CARGO_BUILD_JOBS=6`, tests ≤ 8 threads, so nine agents share the machine.
+
 ## Measurement queue (official runs, batched into one window)
 
 - #34 id dictionary: done 2026-11-25 (build-500m OOM, re-run after the fix) (~20 min, ~45 GB disk).
 - #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
+- #18 deterministic Leiden (PR #208): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
+- #34 build-500m after PR #203: `everygraph-bench run id-dictionary --official --only build-500m`.
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
 ## Needs the owner's hands (nothing here blocks development)
