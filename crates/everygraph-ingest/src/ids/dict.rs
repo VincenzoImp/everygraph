@@ -5,7 +5,8 @@
 
 use std::sync::OnceLock;
 
-use everygraph_core::{ByteSource, MemoryAccountant, NodeId, ReadError};
+use everygraph_core::le::{array, u32_at, u64_at};
+use everygraph_core::{ByteSource, MemoryAccountant, NodeId, ReadError, widen};
 
 use super::build::for_each_record_chunk;
 use super::dense::RankBitmap;
@@ -15,9 +16,7 @@ use super::kind::{
 };
 use super::mphf::{Mphf, Part, PartRow, part_shape};
 use super::prefix::PrefixIndex;
-use super::scratch::{
-    Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, buf, filled, read_range, widen,
-};
+use super::scratch::{Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, buf, filled, read_range};
 use super::{DictionaryError, IdOrder, Layout};
 
 /// How the keys are found: through the hash function, or (dense integers in sorted
@@ -46,6 +45,33 @@ pub(crate) struct Header {
 const MAGIC: &[u8; 8] = b"EGIDDICT";
 const VERSION: u32 = 1;
 const HEADER_BYTES: usize = 64;
+// The header codes of the order, the layout and the representation (module
+// documentation, "Sections"). Decoding searches the values for the code, so each code
+// is written once. The order of a built dictionary is never `Natural`.
+const fn order_code(order: IdOrder) -> u8 {
+    match order {
+        IdOrder::Natural | IdOrder::FirstAppearance => 1,
+        IdOrder::SortedKey => 2,
+    }
+}
+
+const fn layout_code(layout: Layout) -> u8 {
+    match layout {
+        Layout::Split => 1,
+        Layout::SlotOrdered => 2,
+    }
+}
+
+const fn repr_code(repr: Repr) -> u8 {
+    match repr {
+        Repr::Hashed => 1,
+        Repr::Dense => 2,
+    }
+}
+
+fn decoded<T: Copy>(values: &[T], code_of: fn(T) -> u8, code: u8) -> Option<T> {
+    values.iter().copied().find(|&v| code_of(v) == code)
+}
 
 impl Header {
     fn encode(&self) -> [u8; HEADER_BYTES] {
@@ -54,18 +80,9 @@ impl Header {
         h[8..12].copy_from_slice(&VERSION.to_le_bytes());
         h[12..16].copy_from_slice(&self.kind.encode());
         h[16..18].copy_from_slice(&self.column.encode());
-        h[18] = match self.order {
-            IdOrder::SortedKey => 2,
-            _ => 1,
-        };
-        h[19] = match self.layout {
-            Layout::Split => 1,
-            Layout::SlotOrdered => 2,
-        };
-        h[20] = match self.repr {
-            Repr::Hashed => 1,
-            Repr::Dense => 2,
-        };
+        h[18] = order_code(self.order);
+        h[19] = layout_code(self.layout);
+        h[20] = repr_code(self.repr);
         h[21] = u8::from(self.renumbered);
         h[24..32].copy_from_slice(&self.n.to_le_bytes());
         h[32..40].copy_from_slice(&self.hash_seed.to_le_bytes());
@@ -79,38 +96,30 @@ impl Header {
         if h.len() != HEADER_BYTES || &h[0..8] != MAGIC {
             return Err(bad("not an identifier dictionary header"));
         }
-        let u32_at = |i: usize| u32::from_le_bytes(h[i..i + 4].try_into().expect("four bytes"));
-        let u64_at = |i: usize| u64::from_le_bytes(h[i..i + 8].try_into().expect("eight bytes"));
-        if u32_at(8) != VERSION {
+        if u32_at(h, 8) != VERSION {
             return Err(bad("unknown identifier dictionary version"));
         }
         if h[22..24].iter().chain(&h[48..64]).any(|&b| b != 0) || h[21] > 1 {
             return Err(bad("reserved header bytes are not zero"));
         }
         let header = Self {
-            kind: KeyKind::decode(h[12..16].try_into().expect("four bytes"))
-                .ok_or(bad("unknown key kind"))?,
+            kind: KeyKind::decode(array(h, 12)).ok_or(bad("unknown key kind"))?,
             column: ColumnType::decode([h[16], h[17]]).ok_or(bad("unknown column type"))?,
-            order: match h[18] {
-                1 => IdOrder::FirstAppearance,
-                2 => IdOrder::SortedKey,
-                _ => return Err(bad("unknown id order")),
-            },
-            layout: match h[19] {
-                1 => Layout::Split,
-                2 => Layout::SlotOrdered,
-                _ => return Err(bad("unknown layout")),
-            },
-            repr: match h[20] {
-                1 => Repr::Hashed,
-                2 => Repr::Dense,
-                _ => return Err(bad("unknown representation")),
-            },
+            order: decoded(
+                &[IdOrder::FirstAppearance, IdOrder::SortedKey],
+                order_code,
+                h[18],
+            )
+            .ok_or(bad("unknown id order"))?,
+            layout: decoded(&[Layout::Split, Layout::SlotOrdered], layout_code, h[19])
+                .ok_or(bad("unknown layout"))?,
+            repr: decoded(&[Repr::Hashed, Repr::Dense], repr_code, h[20])
+                .ok_or(bad("unknown representation"))?,
             renumbered: h[21] == 1,
-            n: u64_at(24),
-            hash_seed: u64_at(32),
-            part_bits: u32_at(40),
-            parts: u32_at(44),
+            n: u64_at(h, 24),
+            hash_seed: u64_at(h, 32),
+            part_bits: u32_at(h, 40),
+            parts: u32_at(h, 44),
         };
         super::check_node_count(header.n)?;
         let parts_ok = match header.repr {
@@ -162,6 +171,60 @@ enum Sec {
     Order,
     RankToId,
     IdToRank,
+}
+
+impl Sec {
+    /// Every section, in the order of [`SECTION_NAMES`].
+    const ALL: [Self; 14] = [
+        Self::Header,
+        Self::Parts,
+        Self::Pilots,
+        Self::Remap,
+        Self::Dense,
+        Self::SlotToId,
+        Self::Keys,
+        Self::KeyOffsets,
+        Self::Records,
+        Self::RecordOffsets,
+        Self::IdToSlot,
+        Self::Order,
+        Self::RankToId,
+        Self::IdToRank,
+    ];
+}
+
+/// What a header requires of one section.
+#[derive(Clone, Copy)]
+enum Want {
+    Absent,
+    Present,
+    Len(u64),
+}
+
+/// The table of the module documentation ("Sections"): what `h` requires of `sec`.
+fn wanted(h: &Header, sec: Sec) -> Want {
+    let n = h.n;
+    let hashed = h.repr == Repr::Hashed;
+    let split = hashed && h.layout == Layout::Split;
+    let slots = hashed && h.layout == Layout::SlotOrdered;
+    let width = h.kind.width().map(widen);
+    let (wanted, want) = match sec {
+        Sec::Header => (true, Want::Present),
+        Sec::Parts | Sec::Pilots | Sec::Remap => (hashed, Want::Present),
+        Sec::Dense => (!hashed, Want::Present),
+        Sec::SlotToId => (split, Want::Len(4 * n)),
+        Sec::Keys => (split, width.map_or(Want::Present, |w| Want::Len(w * n))),
+        Sec::KeyOffsets => (split && width.is_none(), Want::Len(8 * (n + 1))),
+        Sec::Records => (
+            slots,
+            width.map_or(Want::Present, |w| Want::Len((w + 4) * n)),
+        ),
+        Sec::RecordOffsets => (slots && width.is_none(), Want::Len(8 * (n + 1))),
+        Sec::IdToSlot => (slots, Want::Len(4 * n)),
+        Sec::Order => (hashed && h.renumbered, Want::Len(4 * n)),
+        Sec::RankToId | Sec::IdToRank => (!hashed && h.renumbered, Want::Len(4 * n)),
+    };
+    if wanted { want } else { Want::Absent }
 }
 
 /// Writers of the sections a build produces.
@@ -285,19 +348,13 @@ impl<'a, W: std::io::Write + Send> SectionWriters<'a, W> {
             put(Sec::Pilots, Some(pilots))?;
             let mut remap = Spill::new(scratch, "id dictionary section")?;
             for p in &m.parts {
-                for chunk in p.remap.chunks(1 << 12) {
-                    let bytes: Vec<u8> = chunk.iter().flat_map(|r| r.to_le_bytes()).collect();
-                    remap.write(&bytes)?;
-                }
+                remap.write_le(&p.remap, u32::to_le_bytes)?;
             }
             put(Sec::Remap, Some(remap))?;
         }
         if let Some(d) = &dense {
             let mut words = Spill::new(scratch, "id dictionary section")?;
-            for chunk in d.words().chunks(1 << 13) {
-                let bytes: Vec<u8> = chunk.iter().flat_map(|w| w.to_le_bytes()).collect();
-                words.write(&bytes)?;
-            }
+            words.write_le(d.words(), u64::to_le_bytes)?;
             put(Sec::Dense, Some(words))?;
         }
         let (slot_sec, slot_off_sec) = match self.layout {
@@ -459,7 +516,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                     let remap_len = u64::from(r.slots - r.n);
                     let remap = read_range(remaps, 4 * u64::from(r.remap_base), 4 * remap_len)?
                         .chunks_exact(4)
-                        .map(|c| u32::from_le_bytes(c.try_into().expect("four bytes")))
+                        .map(|c| u32_at(c, 0))
                         .collect();
                     mphf.push(Part {
                         n: r.n,
@@ -489,11 +546,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                 )?;
                 let mut words = Vec::with_capacity(words_len);
                 for_each_record_chunk(source, 8, accountant.pages(), |_, bytes| {
-                    words.extend(
-                        bytes
-                            .chunks_exact(8)
-                            .map(|c| u64::from_le_bytes(c.try_into().expect("eight bytes"))),
-                    );
+                    words.extend(bytes.chunks_exact(8).map(|c| u64_at(c, 0)));
                     Ok(())
                 })?;
                 (Mphf::default(), Some(RankBitmap::new(words)?), resident)
@@ -517,23 +570,6 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
     fn validate(&self) -> Result<(), DictionaryError> {
         let h = &self.header;
         let n = h.n;
-        let width = h.kind.width().map(widen);
-        let size = |sec: Sec, expected: u64| -> Result<(), DictionaryError> {
-            if self.need(sec)?.len() == expected {
-                Ok(())
-            } else {
-                Err(DictionaryError::Corrupt("a section has the wrong size"))
-            }
-        };
-        let absent = |secs: &[Sec]| -> Result<(), DictionaryError> {
-            if secs.iter().any(|&s| self.sec(s).is_some()) {
-                Err(DictionaryError::Corrupt(
-                    "a section that does not belong to this layout is present",
-                ))
-            } else {
-                Ok(())
-            }
-        };
         match h.repr {
             Repr::Dense => {
                 let d = self
@@ -542,24 +578,6 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                     .ok_or(DictionaryError::Corrupt("no dense bitmap"))?;
                 if u64::from(d.len()) != n {
                     return Err(DictionaryError::Corrupt("ids.dense does not hold n keys"));
-                }
-                absent(&[
-                    Sec::Parts,
-                    Sec::Pilots,
-                    Sec::Remap,
-                    Sec::SlotToId,
-                    Sec::Keys,
-                    Sec::KeyOffsets,
-                    Sec::Records,
-                    Sec::RecordOffsets,
-                    Sec::IdToSlot,
-                    Sec::Order,
-                ])?;
-                if h.renumbered {
-                    size(Sec::RankToId, 4 * n)?;
-                    size(Sec::IdToRank, 4 * n)?;
-                } else {
-                    absent(&[Sec::RankToId, Sec::IdToRank])?;
                 }
             }
             Repr::Hashed => {
@@ -591,49 +609,28 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                         "the hash function does not cover n keys",
                     ));
                 }
-                absent(&[Sec::Dense, Sec::RankToId, Sec::IdToRank])?;
-                match (h.layout, width) {
-                    (Layout::Split, Some(w)) => {
-                        size(Sec::SlotToId, 4 * n)?;
-                        size(Sec::Keys, w * n)?;
-                        absent(&[
-                            Sec::KeyOffsets,
-                            Sec::Records,
-                            Sec::RecordOffsets,
-                            Sec::IdToSlot,
-                        ])?;
-                    }
-                    (Layout::Split, None) => {
-                        size(Sec::SlotToId, 4 * n)?;
-                        size(Sec::KeyOffsets, 8 * (n + 1))?;
-                        self.offsets_cover(Sec::KeyOffsets, Sec::Keys, n)?;
-                        absent(&[Sec::Records, Sec::RecordOffsets, Sec::IdToSlot])?;
-                    }
-                    (Layout::SlotOrdered, Some(w)) => {
-                        size(Sec::Records, (w + 4) * n)?;
-                        size(Sec::IdToSlot, 4 * n)?;
-                        absent(&[
-                            Sec::SlotToId,
-                            Sec::Keys,
-                            Sec::KeyOffsets,
-                            Sec::RecordOffsets,
-                        ])?;
-                    }
-                    (Layout::SlotOrdered, None) => {
-                        size(Sec::RecordOffsets, 8 * (n + 1))?;
-                        size(Sec::IdToSlot, 4 * n)?;
-                        self.offsets_cover(Sec::RecordOffsets, Sec::Records, n)?;
-                        // Every record holds its id: at least 4 bytes each.
-                        if self.need(Sec::Records)?.len() < 4 * n {
-                            return Err(DictionaryError::Corrupt("ids.records is too short"));
-                        }
-                        absent(&[Sec::SlotToId, Sec::Keys, Sec::KeyOffsets])?;
-                    }
+            }
+        }
+        for sec in Sec::ALL {
+            let problem = match (wanted(h, sec), self.sec(sec)) {
+                (Want::Absent, Some(_)) => {
+                    "a section that does not belong to this layout is present"
                 }
-                if h.renumbered {
-                    size(Sec::Order, 4 * n)?;
-                } else {
-                    absent(&[Sec::Order])?;
+                (Want::Present | Want::Len(_), None) => "a section the header requires is missing",
+                (Want::Len(len), Some(s)) if s.len() != len => "a section has the wrong size",
+                _ => continue,
+            };
+            return Err(DictionaryError::Corrupt(problem));
+        }
+        if h.repr == Repr::Hashed && h.kind.width().is_none() {
+            match h.layout {
+                Layout::Split => self.offsets_cover(Sec::KeyOffsets, Sec::Keys, n)?,
+                Layout::SlotOrdered => {
+                    self.offsets_cover(Sec::RecordOffsets, Sec::Records, n)?;
+                    // Every record holds its id: at least 4 bytes each.
+                    if self.need(Sec::Records)?.len() < 4 * n {
+                        return Err(DictionaryError::Corrupt("ids.records is too short"));
+                    }
                 }
             }
         }
@@ -850,7 +847,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
             Some(w) => {
                 out.resize(w + 4, 0);
                 records.read_at(u64::from(slot) * widen(w + 4), out)?;
-                let id = u32::from_le_bytes(out[w..].try_into().expect("four bytes"));
+                let id = u32_at(out, w);
                 out.truncate(w);
                 Ok(id)
             }
@@ -862,7 +859,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                 if out.len() < 4 {
                     return Err(DictionaryError::Corrupt("a record shorter than its id"));
                 }
-                let id = u32::from_le_bytes(out[..4].try_into().expect("four bytes"));
+                let id = u32_at(out, 0);
                 out.drain(..4);
                 Ok(id)
             }
@@ -1112,16 +1109,15 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
             scatter.finish(scratch, accountant, &mut out, None)?;
             Ok(out.seal(scratch)?)
         };
-        let as_u32 = |raw: &[u8]| u32::from_le_bytes(raw.try_into().expect("four bytes"));
         let identity = |old: u64, _: &[u8]| u32::try_from(old).expect("ids below 2^32");
-        let stored = |_: u64, raw: &[u8]| as_u32(raw);
+        let stored = |_: u64, raw: &[u8]| u32_at(raw, 0);
         // old id -> new id, applied to a stream of ids.
         let map_ids = |src: &S| -> Result<Sc::Source, DictionaryError> {
             let mut s = Spill::new(scratch, "id dictionary section")?;
             for_each_record_chunk(src, 4, accountant.pages(), |_, bytes| {
                 let mut mapped = buf(accountant.pages(), bytes.len())?;
                 for c in bytes.chunks_exact(4) {
-                    let old = self.checked_id(as_u32(c))?;
+                    let old = self.checked_id(u32_at(c, 0))?;
                     mapped.extend_from_slice(&permutation[index(u64::from(old))].to_le_bytes());
                 }
                 Ok(s.write(&mapped)?)
@@ -1141,11 +1137,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                     Some(src) => map_ids(src)?,
                     None => {
                         let mut s = Spill::new(scratch, "id dictionary section")?;
-                        for chunk in permutation.chunks(1 << 16) {
-                            let bytes: Vec<u8> =
-                                chunk.iter().flat_map(|p| p.to_le_bytes()).collect();
-                            s.write(&bytes)?;
-                        }
+                        s.write_le(permutation, u32::to_le_bytes)?;
                         s.seal(scratch)?
                     }
                 };
@@ -1239,7 +1231,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                                     let mut chunk = buf(accountant.pages(), bytes.len())?;
                                     chunk.extend_from_slice(bytes);
                                     for rec in chunk.chunks_exact_mut(w + 4) {
-                                        let old = self.checked_id(as_u32(&rec[w..]))?;
+                                        let old = self.checked_id(u32_at(rec, w))?;
                                         rec[w..].copy_from_slice(
                                             &permutation[index(u64::from(old))].to_le_bytes(),
                                         );
@@ -1259,7 +1251,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                                             "a record shorter than its id",
                                         ));
                                     }
-                                    let old = self.checked_id(as_u32(&rec[..4]))?;
+                                    let old = self.checked_id(u32_at(&rec, 0))?;
                                     rec[..4].copy_from_slice(
                                         &permutation[index(u64::from(old))].to_le_bytes(),
                                     );
@@ -1315,8 +1307,7 @@ fn read_offsets(
 ) -> Result<(u64, u64), DictionaryError> {
     let mut b = [0_u8; 16];
     source.read_at(i * 8, &mut b)?;
-    let a = u64::from_le_bytes(b[..8].try_into().expect("eight bytes"));
-    let c = u64::from_le_bytes(b[8..].try_into().expect("eight bytes"));
+    let (a, c) = (u64_at(&b, 0), u64_at(&b, 8));
     // `extra` is the id stored in each record: a record is at least that long.
     if c < a || c > data_len || c - a > widen(MAX_KEY_BYTES + extra) || c - a < widen(extra) {
         return Err(DictionaryError::Corrupt("an offset is out of its section"));

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# cargo-mutants (CONTRIBUTING.md, "Mutation testing"). Read by every run, local or CI.
+
+test_tool = "nextest"
+additional_cargo_args = ["--locked"]
+
+# cargo-mutants skips the arguments of `with_capacity` by default, as Google's arid-node
+# rules skip capacity arithmetic. Here those mutants test the memory promise: a wrong
+# capacity breaks the budget, and the heap tests compare the ledger with what the
+# counting allocator saw.
+skip_calls_defaults = false
+
+# Arid: code whose mutants say nothing about results. Message text (`Display`, `Debug`)
+# and the build's progress output.
+exclude_re = [
+    '<impl (std::|core::)?(fmt::)?(Display|Debug) for ',
+    '<impl Progress for ',
+    ' Progress::',
+    ' Phase::name ',
+]

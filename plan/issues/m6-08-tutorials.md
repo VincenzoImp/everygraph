@@ -3,7 +3,7 @@ title: Tutorials and notebooks for the ten user stories
 milestone: M6 · Python and interop
 labels: type:docs, area:docs, P1, risk:low, size:M
 ---
-**Why.** DuckDB and Polars grew through documentation that starts from tasks. The old prototype's documentation read defensively; this one should read like a tool that wants to be used, while keeping the honesty about limits.
+**Why.** DuckDB and Polars grew through documentation that starts from tasks. Ours reads like a tool that wants to be used, and stays honest about limits.
 
 **Scope**
 - [ ] One executable notebook per user story from {{#m0-11-api-sketch}}, each on a public dataset small enough for a laptop, with a "scale it up" section

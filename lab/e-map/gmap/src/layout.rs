@@ -4,6 +4,7 @@
 //! the already-placed regions of external neighbours), then packs them without overlap.
 //! Parents with more than kmax children get derived intermediate levels (size-constrained
 //! label propagation on the sibling quotient graph).
+use crate::cells::{self, Poly};
 use crate::common::*;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -26,6 +27,13 @@ pub struct Params {
     /// m1-18: after packing, rotate (and maybe mirror) the siblings as one rigid body so
     /// that children face the already-placed regions their external edges go to
     pub orient: bool,
+    /// m1-07 (b): spring strength towards external neighbours in the stress solve; 0 = off
+    pub boundary: f32,
+    /// m1-07 (a): power-diagram cells instead of nested discs, with this many Lloyd steps
+    pub cells: Option<usize>,
+    /// m1-07: cells inside each parent's bubble (its inscribed circle) rather than its cell,
+    /// so that every bubble nests in its parent's bubble
+    pub cells_in_disc: bool,
 }
 
 /// Where a parent's children start before packing.
@@ -43,7 +51,12 @@ struct Ctx<'a> {
     cur: &'a [u32],
     childidx: SyncPtr<u32>,
     cxy: &'a [[f32; 2]],
+    /// per tree node: centre and scale of the frame its children are laid out in
+    /// (the disc itself, or a cell's centroid and sqrt(area / pi))
+    frame: &'a [[f32; 3]],
+    poly: &'a [Poly],
     pos: SyncPtr<[f32; 2]>,
+    noder: SyncPtr<f32>,
     prm: &'a Params,
     t_scan: &'a AtomicU64,
     t_fr: &'a AtomicU64,
@@ -56,6 +69,8 @@ struct Acc {
     ew: Vec<f32>,
     eux: Vec<f32>,
     euy: Vec<f32>,
+    etx: Vec<f64>,
+    ety: Vec<f64>,
     internal: u64,
 }
 
@@ -66,9 +81,12 @@ fn scan_chunk(c: &Ctx, p: u32, members: &[u32], k: usize, dense: bool) -> Acc {
         ew: vec![0.0; k],
         eux: vec![0.0; k],
         euy: vec![0.0; k],
+        etx: vec![0.0; k],
+        ety: vec![0.0; k],
         internal: 0,
     };
     let pc = c.cxy[p as usize];
+    let fp = c.frame[p as usize];
     for &u in members {
         let ia = unsafe { c.childidx.get(u as usize) } as usize;
         for &v in c.csr.adj(u as usize) {
@@ -93,6 +111,11 @@ fn scan_chunk(c: &Ctx, p: u32, members: &[u32], k: usize, dense: bool) -> Acc {
                     a.eux[ia] += dx / d;
                     a.euy[ia] += dy / d;
                 }
+                if c.prm.boundary > 0.0 {
+                    let t = c.cxy[cv as usize];
+                    a.etx[ia] += ((t[0] - fp[0]) / fp[2]) as f64;
+                    a.ety[ia] += ((t[1] - fp[1]) / fp[2]) as f64;
+                }
             }
         }
     }
@@ -109,6 +132,8 @@ fn merge(mut a: Acc, b: Acc) -> Acc {
         a.ew[i] += b.ew[i];
         a.eux[i] += b.eux[i];
         a.euy[i] += b.euy[i];
+        a.etx[i] += b.etx[i];
+        a.ety[i] += b.ety[i];
     }
     a.internal += b.internal;
     a
@@ -116,7 +141,8 @@ fn merge(mut a: Acc, b: Acc) -> Acc {
 
 /// Layout of k circles in the unit disc: a start (dense force solve, stress, or given
 /// positions), then overlap removal and packing. Returns (x, y, r) per circle.
-fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], seed: u64, iters: usize, shrink: bool, start: Start, orient: bool) -> Vec<[f32; 3]> {
+#[allow(clippy::too_many_arguments)]
+fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], et: (&[f64], &[f64], f32), seed: u64, iters: usize, shrink: bool, start: Start, orient: bool) -> Vec<[f32; 3]> {
     if k == 1 {
         return vec![[0.0, 0.0, rad[0]]];
     }
@@ -155,7 +181,13 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
         let vol: Vec<f32> = (0..k).map(|i| wdeg[i] + ew[i]).collect();
         (px, py) = match start {
             Start::Given(x, y) => (x, y),
-            _ => crate::stress::place(k, rad, dense, &vol, seed),
+            _ if et.2 > 0.0 => {
+                let ax: Vec<f32> = (0..k).map(|i| if ew[i] > 0.0 { (et.0[i] / ew[i] as f64) as f32 } else { 0.0 }).collect();
+                let ay: Vec<f32> = (0..k).map(|i| if ew[i] > 0.0 { (et.1[i] / ew[i] as f64) as f32 } else { 0.0 }).collect();
+                let anchors = crate::stress::Anchors { ax: &ax, ay: &ay, aw: &aw, beta: et.2 };
+                crate::stress::place(k, rad, dense, &vol, seed, Some(anchors))
+            }
+            _ => crate::stress::place(k, rad, dense, &vol, seed, None),
         };
         // fit the start positions to the parent disc; the overlap sweeps below finish the packing
         let fit = (0..k).map(|i| (1.0 - rad[i]) / (px[i] * px[i] + py[i] * py[i]).sqrt().max(1e-9)).fold(f32::MAX, f32::min);
@@ -300,7 +332,7 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
 /// sum_i ew_i * (p_i . u_i), u_i = mean unit vector from the parent's centre to child i's
 /// external neighbours. Closed form: for a rotation by t the sum is cos(t) A + sin(t) B.
 /// Distances between siblings and containment in the disc do not change.
-fn rotate_to_outside(px: &mut [f32], py: &mut [f32], ew: &[f32], ux: &[f32], uy: &[f32]) {
+pub(crate) fn rotate_to_outside(px: &mut [f32], py: &mut [f32], ew: &[f32], ux: &[f32], uy: &[f32]) {
     let ab = |m: f32| {
         let (mut a, mut b) = (0f64, 0f64);
         for i in 0..px.len() {
@@ -455,16 +487,59 @@ fn group(k: usize, sizes: &[f32], ent: &[(u64, u32)], gt: usize) -> (Vec<u32>, u
     (label, g as usize)
 }
 
+/// m1-07 (a): a child's cell in map coordinates, its largest inscribed circle (drawn as the
+/// bubble) and the frame its own children start in.
+struct CellOut {
+    poly: Poly,
+    inc: [f32; 3],
+    frame: [f32; 3],
+    area: f64,
+}
 enum Out {
-    Direct(Vec<[f32; 3]>),
+    Direct(Vec<[f32; 3]>, Option<Vec<CellOut>>),
     Leaf(f32),
-    Group { clusters: Vec<Vec<u32>>, lay: Vec<[f32; 3]>, new_order: Vec<u32> },
+    Group { clusters: Vec<Vec<u32>>, lay: Vec<[f32; 3]>, new_order: Vec<u32>, cells: Option<Vec<CellOut>> },
 }
 struct Res {
     tid: u32,
     internal: u64,
     out: Out,
     area: (f64, f64),
+    /// cells mode: share of the parent's area given to the wrong child, NaN on fallback
+    mis: Option<f64>,
+}
+
+/// Cells for the children of `p`, started from the disc layout `lay` mapped into p's frame.
+/// Falls back to the discs inside p's inscribed circle when a cell degenerates.
+fn to_cells(c: &Ctx, p: u32, lay: &[[f32; 3]], sizes: &[f32], iters: usize) -> (Vec<CellOut>, f64) {
+    let t = c.tn[p as usize];
+    let f = c.frame[p as usize];
+    let start: Vec<[f64; 2]> = lay.iter().map(|l| [(f[0] + f[2] * l[0]) as f64, (f[1] + f[2] * l[1]) as f64]).collect();
+    let tot: f64 = sizes.iter().map(|&x| x as f64).sum();
+    let share: Vec<f64> = sizes.iter().map(|&x| x as f64 / tot).collect();
+    let in_disc = c.prm.cells_in_disc;
+    let own;
+    let parent: &[[f64; 2]] = if in_disc {
+        own = cells::disc([t.x as f64, t.y as f64], t.r as f64, 48);
+        &own
+    } else {
+        &c.poly[p as usize]
+    };
+    let (polys, mis) = match cells::layout(parent, &start, &share, iters) {
+        Some(r) => (r.cells, r.misallocated),
+        None => (lay.iter().map(|l| cells::disc([(t.x + t.r * l[0]) as f64, (t.y + t.r * l[1]) as f64], (t.r * l[2]) as f64, 24)).collect(), f64::NAN),
+    };
+    let out = polys
+        .into_iter()
+        .map(|poly| {
+            let (area, cen) = cells::area_centroid(&poly);
+            let (ic, ir) = cells::inscribed(&poly);
+            let inc = [ic[0] as f32, ic[1] as f32, ir as f32];
+            let frame = if in_disc { inc } else { [cen[0] as f32, cen[1] as f32, (area / std::f64::consts::PI).sqrt() as f32] };
+            CellOut { inc, frame, area, poly }
+        })
+        .collect();
+    (out, mis)
 }
 
 fn process(c: &Ctx, p: u32) -> Res {
@@ -505,17 +580,35 @@ fn process(c: &Ctx, p: u32) -> Res {
             _ if c.prm.stress => Start::Stress,
             _ => Start::Force,
         };
-        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, seed, c.prm.iters, !leafp, start, c.prm.orient);
+        let et = (&acc.etx[..], &acc.ety[..], c.prm.boundary);
+        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, et, seed, c.prm.iters, !leafp, start, c.prm.orient);
+        let cl = c.prm.cells.map(|it| to_cells(c, p, &lay, &sizes, it));
         c.t_fr.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
         let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
         let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
+        let mis = cl.as_ref().map(|x| x.1);
         if leafp {
-            for (i, &u) in members.iter().enumerate() {
-                unsafe { c.pos.set(u as usize, [t.x + t.r * lay[i][0], t.y + t.r * lay[i][1]]) };
-            }
-            return Res { tid: p, internal: acc.internal, out: Out::Leaf(rad[0]), area: (0.0, 0.0) };
+            let nr = match &cl {
+                Some((co, _)) => {
+                    for (i, &u) in members.iter().enumerate() {
+                        unsafe { c.pos.set(u as usize, [co[i].inc[0], co[i].inc[1]]) };
+                        unsafe { c.noder.set(u as usize, co[i].inc[2]) };
+                    }
+                    let mut r: Vec<f32> = co.iter().map(|x| x.inc[2]).collect();
+                    r.sort_by(f32::total_cmp);
+                    r[r.len() / 2]
+                }
+                None => {
+                    for (i, &u) in members.iter().enumerate() {
+                        unsafe { c.pos.set(u as usize, [t.x + t.r * lay[i][0], t.y + t.r * lay[i][1]]) };
+                        unsafe { c.noder.set(u as usize, t.r * lay[i][2]) };
+                    }
+                    rad[0]
+                }
+            };
+            return Res { tid: p, internal: acc.internal, out: Out::Leaf(nr), area: (0.0, 0.0), mis };
         }
-        return Res { tid: p, internal: acc.internal, out: Out::Direct(lay), area: (a0, a1) };
+        return Res { tid: p, internal: acc.internal, out: Out::Direct(lay, cl.map(|x| x.0)), area: (a0, a1), mis };
     }
     // too many children: derive an intermediate level
     let t1 = Instant::now();
@@ -531,12 +624,15 @@ fn process(c: &Ctx, p: u32) -> Res {
     let mut gew = vec![0f32; g];
     let mut gux = vec![0f32; g];
     let mut guy = vec![0f32; g];
+    let (mut gtx, mut gty) = (vec![0f64; g], vec![0f64; g]);
     for i in 0..k {
         let l = label[i] as usize;
         gs[l] += sizes[i];
         gew[l] += acc.ew[i];
         gux[l] += acc.eux[i];
         guy[l] += acc.euy[i];
+        gtx[l] += acc.etx[i];
+        gty[l] += acc.ety[i];
     }
     let mut d = vec![0u32; g * g];
     for &(key, w) in &ent {
@@ -549,7 +645,8 @@ fn process(c: &Ctx, p: u32) -> Res {
     c.t_group.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let t2 = Instant::now();
     let rad = radii(&gs, c.prm.phi);
-    let lay = fr(g, &rad, &d, &gew, &gux, &guy, seed, c.prm.iters, true, if c.prm.stress { Start::Stress } else { Start::Force }, c.prm.orient);
+    let lay = fr(g, &rad, &d, &gew, &gux, &guy, (&gtx, &gty, c.prm.boundary), seed, c.prm.iters, true, if c.prm.stress { Start::Stress } else { Start::Force }, c.prm.orient);
+    let cl = c.prm.cells.map(|it| to_cells(c, p, &lay, &gs, it));
     c.t_fr.fetch_add(t2.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
     let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
@@ -564,7 +661,8 @@ fn process(c: &Ctx, p: u32) -> Res {
             }
         }
     }
-    Res { tid: p, internal: acc.internal, out: Out::Group { clusters, lay, new_order }, area: (a0, a1) }
+    let mis = cl.as_ref().map(|x| x.1);
+    Res { tid: p, internal: acc.internal, out: Out::Group { clusters, lay, new_order, cells: cl.map(|x| x.0) }, area: (a0, a1), mis }
 }
 
 pub struct Hier {
@@ -755,7 +853,11 @@ pub fn run() {
         seed_pos: a.get("seed-pos").map(|f| read_vec(f)),
         seed_depth: argf(&a, "seed-depth", 1.0) as u8,
         orient: a.contains_key("orient"),
+        boundary: argf(&a, "boundary", 0.0) as f32,
+        cells: (a.contains_key("cells") || a.contains_key("cells-in-disc")).then(|| argf(&a, "lloyd", 20.0) as usize),
+        cells_in_disc: a.contains_key("cells-in-disc"),
     };
+    assert!(prm.boundary == 0.0 || prm.stress, "--boundary needs --solve stress");
     std::fs::create_dir_all(&out).unwrap();
     let t_all = Instant::now();
     let csr = Csr::load(&graph);
@@ -769,9 +871,19 @@ pub fn run() {
     tn[0].y = 0.5;
     tn[0].r = 0.5;
     let mut cxy: Vec<[f32; 2]> = tn.iter().map(|t| [t.x, t.y]).collect();
+    let mut frame: Vec<[f32; 3]> = tn.iter().map(|t| [t.x, t.y, t.r]).collect();
+    let mut poly: Vec<Poly> = vec![Vec::new(); tn.len()];
+    if prm.cells.is_some() && !prm.cells_in_disc {
+        // the map is the unit square; its frame is the disc of the same area
+        poly[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        frame[0] = [0.5, 0.5, (1.0 / std::f32::consts::PI).sqrt()];
+    }
     let mut cur = vec![0u32; n];
     let mut childidx = vec![0u32; n];
     let mut pos = vec![[0f32; 2]; n];
+    let mut noder = vec![0f32; n];
+    let mut cell_area: Vec<f64> = vec![];
+    let mut mis: Vec<f64> = vec![];
     let mut frontier: Vec<u32> = vec![0];
     let (t_scan, t_fr, t_group) = (AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0));
     let mut passes = vec![];
@@ -811,7 +923,10 @@ pub fn run() {
                 cur: &cur,
                 childidx: SyncPtr(childidx.as_mut_ptr()),
                 cxy: &cxy,
+                frame: &frame,
+                poly: &poly,
                 pos: SyncPtr(pos.as_mut_ptr()),
+                noder: SyncPtr(noder.as_mut_ptr()),
                 prm: &prm,
                 t_scan: &t_scan,
                 t_fr: &t_fr,
@@ -827,28 +942,54 @@ pub fn run() {
             tn[p].internal = r.internal / 2;
             area.0 += r.area.0;
             area.1 += r.area.1;
+            if let Some(m) = r.mis {
+                if kids[p].len() > 1 || (kids[p].is_empty() && pt.end - pt.start > 1) {
+                    mis.push(m);
+                }
+            }
+            let d1 = pt.depth as usize + 1;
+            if cell_area.len() <= d1 {
+                cell_area.resize(d1 + 1, 0.0);
+            }
+            // places child `q` (index i of p's layout) and records its frame and cell
+            let mut place = |tn: &mut Vec<TNode>, cxy: &mut Vec<[f32; 2]>, frame: &mut Vec<[f32; 3]>, poly: &mut Vec<Poly>, q: usize, l: [f32; 3], co: Option<&mut CellOut>| {
+                match co {
+                    Some(co) => {
+                        (tn[q].x, tn[q].y, tn[q].r) = (co.inc[0], co.inc[1], co.inc[2]);
+                        frame[q] = co.frame;
+                        cxy[q] = [co.frame[0], co.frame[1]];
+                        poly[q] = std::mem::take(&mut co.poly);
+                        cell_area[d1] += co.area;
+                    }
+                    None => {
+                        tn[q].x = pt.x + pt.r * l[0];
+                        tn[q].y = pt.y + pt.r * l[1];
+                        tn[q].r = pt.r * l[2];
+                        frame[q] = [tn[q].x, tn[q].y, tn[q].r];
+                        cxy[q] = [tn[q].x, tn[q].y];
+                        cell_area[d1] += std::f64::consts::PI * (tn[q].r as f64).powi(2);
+                    }
+                }
+                tn[q].depth = pt.depth + 1;
+            };
             match r.out {
                 Out::Leaf(nr) => {
                     tn[p].flags |= F_LEAFP;
-                    tn[p].node_r = nr * pt.r;
+                    tn[p].node_r = if prm.cells.is_some() { nr } else { nr * pt.r };
                     tn[p].nkids = pt.end - pt.start;
                 }
-                Out::Direct(lay) => {
+                Out::Direct(lay, mut cl) => {
                     tn[p].nkids = lay.len() as u32;
                     for (i, &q) in kids[p].iter().enumerate() {
                         let q = q as usize;
-                        tn[q].x = pt.x + pt.r * lay[i][0];
-                        tn[q].y = pt.y + pt.r * lay[i][1];
-                        tn[q].r = pt.r * lay[i][2];
-                        tn[q].depth = pt.depth + 1;
-                        cxy[q] = [tn[q].x, tn[q].y];
+                        place(&mut tn, &mut cxy, &mut frame, &mut poly, q, lay[i], cl.as_mut().map(|v| &mut v[i]));
                         for &u in &order[tn[q].start as usize..tn[q].end as usize] {
                             cur[u as usize] = q as u32;
                         }
                         next.push(q as u32);
                     }
                 }
-                Out::Group { clusters, lay, new_order } => {
+                Out::Group { clusters, lay, new_order, mut cells } => {
                     let leafp = kids[p].is_empty();
                     order[pt.start as usize..pt.end as usize].copy_from_slice(&new_order);
                     let mut offp = pt.start;
@@ -863,6 +1004,8 @@ pub fn run() {
                             tn.push(TNode { parent: p as u32, start: s, end: offp, comm: u32::MAX, level: -1, flags: F_VIRTUAL, ..Default::default() });
                             kids.push(vec![]);
                             cxy.push([0.0; 2]);
+                            frame.push([0.0; 3]);
+                            poly.push(Vec::new());
                             n_virtual += 1;
                         } else {
                             for &ci2 in cl {
@@ -892,14 +1035,12 @@ pub fn run() {
                                 }
                                 kids.push(kk);
                                 cxy.push([0.0; 2]);
+                                frame.push([0.0; 3]);
+                                poly.push(Vec::new());
                                 n_virtual += 1;
                             }
                         }
-                        tn[ent].x = pt.x + pt.r * lay[ci][0];
-                        tn[ent].y = pt.y + pt.r * lay[ci][1];
-                        tn[ent].r = pt.r * lay[ci][2];
-                        tn[ent].depth = pt.depth + 1;
-                        cxy[ent] = [tn[ent].x, tn[ent].y];
+                        place(&mut tn, &mut cxy, &mut frame, &mut poly, ent, lay[ci], cells.as_mut().map(|v| &mut v[ci]));
                         for &u in &order[tn[ent].start as usize..tn[ent].end as usize] {
                             cur[u as usize] = ent as u32;
                         }
@@ -910,6 +1051,9 @@ pub fn run() {
                     kids[p] = newk;
                 }
             }
+        }
+        for &p in &frontier {
+            poly[p as usize] = Vec::new();
         }
         passes.push((depth, frontier.len(), tp.elapsed().as_secs_f64()));
         eprintln!("depth {depth}: {} parents, {:.2}s", frontier.len(), tp.elapsed().as_secs_f64());
@@ -937,6 +1081,7 @@ pub fn run() {
         }
     }
     let lay_s = t_lay.elapsed().as_secs_f64();
+    let area_j = area_stats(&tn, &noder, &cell_area, &mut mis, prm.cells.is_some());
     let tw = Instant::now();
     write_slice(&format!("{out}/pos.f32"), &pos);
     write_slice(&format!("{out}/order.u32"), &order);
@@ -951,7 +1096,7 @@ pub fn run() {
         "{{\"graph\":\"{graph}\",\"hier\":\"{hier}\",\"n\":{n},\"entries\":{},\"threads\":{},\"seed\":{},\"kmax\":{},\"phi\":{},\"iters\":{},\"use_ext\":{},\
 \"load_s\":{t_load:.3},\"tree_s\":{t_tree:.3},\"layout_s\":{lay_s:.3},\"write_s\":{:.3},\"total_s\":{:.3},\
 \"cpu_scan_s\":{:.3},\"cpu_fr_s\":{:.3},\"cpu_group_s\":{:.3},\"peak_rss_mb\":{:.0},\
-\"tnodes_alive\":{alive},\"virtual\":{n_virtual},\"leaf_parents\":{leafps},\"max_depth\":{maxdepth},\"hier_levels\":{:?},\"area_retention\":{:.4},\"passes\":[{}]}}",
+\"boundary\":{},\"cells\":{},\"area\":{area_j},\"tnodes_alive\":{alive},\"virtual\":{n_virtual},\"leaf_parents\":{leafps},\"max_depth\":{maxdepth},\"hier_levels\":{:?},\"area_retention\":{:.4},\"passes\":[{}]}}",
         csr.tgt.len(),
         rayon::current_num_threads(),
         prm.seed,
@@ -965,10 +1110,75 @@ pub fn run() {
         t_fr.load(Ordering::Relaxed) as f64 / 1e9,
         t_group.load(Ordering::Relaxed) as f64 / 1e9,
         peak_rss_mb(),
+        prm.boundary,
+        prm.cells.map_or("null".to_string(), |i| i.to_string()),
         h.levels,
         area.1 / area.0.max(1e-9),
         passes_j.join(",")
     );
     std::fs::write(format!("{out}/layout.json"), &j).unwrap();
     println!("{j}");
+}
+
+/// m1-07: how much of the unit-square map each depth and hierarchy level covers. "bubbles" is
+/// the area of the drawn circles (nested discs, or each cell's largest inscribed circle);
+/// "cells" the area each depth's regions own (equal to the bubbles for nested discs).
+/// Node discs are the drawn node circles; zmax_p10 is the tile zoom at which the
+/// 10th-percentile node radius reaches 4 px on 256-px tiles (the tiles stage's rule).
+fn area_stats(tn: &[TNode], noder: &[f32], cell_area: &[f64], mis: &mut [f64], cells: bool) -> String {
+    let pi = std::f64::consts::PI;
+    let alive = |t: &&TNode| t.flags & F_DEAD == 0;
+    let maxd = tn.iter().filter(alive).map(|t| t.depth as usize).max().unwrap_or(0);
+    let mut by_depth = vec![(0usize, 0f64); maxd + 1];
+    let mut parent_bub = vec![0f64; maxd + 1];
+    let mut seen = vec![false; tn.len()];
+    let mut by_level: Vec<(usize, f64)> = vec![];
+    let mut finest = 0f64;
+    for t in tn.iter().filter(alive) {
+        let a = pi * (t.r as f64).powi(2);
+        by_depth[t.depth as usize].0 += 1;
+        by_depth[t.depth as usize].1 += a;
+        if t.depth > 0 && !seen[t.parent as usize] {
+            seen[t.parent as usize] = true;
+            parent_bub[t.depth as usize] += pi * (tn[t.parent as usize].r as f64).powi(2);
+        }
+        if (0..100).contains(&t.level) {
+            let l = t.level as usize;
+            if by_level.len() <= l {
+                by_level.resize(l + 1, (0, 0.0));
+            }
+            by_level[l].0 += 1;
+            by_level[l].1 += a;
+        }
+        if t.flags & F_LEAFP != 0 {
+            finest += a;
+        }
+    }
+    let mut nr: Vec<f32> = noder.to_vec();
+    let nodes: f64 = nr.iter().map(|&r| pi * (r as f64).powi(2)).sum();
+    nr.sort_by(f32::total_cmp);
+    let q = |f: f64| nr[((nr.len() - 1) as f64 * f) as usize];
+    let r10 = q(0.1) as f64;
+    let zmax = (4.0 / (256.0 * r10)).log2().ceil();
+    mis.sort_by(f64::total_cmp);
+    let fb = mis.iter().filter(|m| m.is_nan()).count();
+    let ok: Vec<f64> = mis.iter().copied().filter(|m| !m.is_nan()).collect();
+    let mq = |f: f64| if ok.is_empty() { 0.0 } else { ok[((ok.len() - 1) as f64 * f) as usize] };
+    let depth: Vec<String> = by_depth
+        .iter()
+        .enumerate()
+        .map(|(d, &(c, b))| format!("{{\"depth\":{d},\"regions\":{c},\"bubbles\":{b:.6},\"parents_bubbles\":{:.6},\"cells\":{:.6}}}", parent_bub[d], if cells { *cell_area.get(d).unwrap_or(&0.0) } else { b }))
+        .collect();
+    let level: Vec<String> = by_level.iter().enumerate().map(|(l, &(c, b))| format!("{{\"level\":{l},\"regions\":{c},\"bubbles\":{b:.6}}}")).collect();
+    format!(
+        "{{\"map\":\"unit square\",\"by_depth\":[{}],\"by_level\":[{}],\"finest_regions_bubbles\":{finest:.6},\"node_discs\":{nodes:.6},\"node_r_p10\":{:.3e},\"node_r_p50\":{:.3e},\"zmax_p10\":{zmax},\"cells_parents\":{},\"cells_fallbacks\":{fb},\"misallocated_mean\":{:.5},\"misallocated_p90\":{:.5},\"misallocated_max\":{:.5}}}",
+        depth.join(","),
+        level.join(","),
+        r10,
+        q(0.5),
+        mis.len(),
+        if ok.is_empty() { 0.0 } else { ok.iter().sum::<f64>() / ok.len() as f64 },
+        mq(0.9),
+        mq(1.0)
+    )
 }

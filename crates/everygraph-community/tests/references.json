@@ -1,0 +1,88 @@
+{
+ "graphs": {
+  "karate": {
+   "edges": 78,
+   "igraph_leiden": {
+    "best": 0.41978961209730437,
+    "mean": 0.4197896120973043
+   },
+   "igraph_multilevel": {
+    "best": 0.41978961209730437,
+    "mean": 0.411102892833662
+   },
+   "networkx_louvain": {
+    "best": 0.41978961209730437,
+    "mean": 0.41794049967126884
+   },
+   "nodes": 34
+  },
+  "planted-20x100-80-8": {
+   "edges": 22881,
+   "igraph_leiden": {
+    "best": 0.2908809014940117,
+    "mean": 0.2867847981580156
+   },
+   "igraph_multilevel": {
+    "best": 0.28978828713008703,
+    "mean": 0.2797842374121132
+   },
+   "networkx_louvain": {
+    "best": 0.2867119529345906,
+    "mean": 0.27689801203235676
+   },
+   "nodes": 2000
+  },
+  "planted-50x40-300-3": {
+   "edges": 17655,
+   "igraph_leiden": {
+    "best": 0.6457405761856327,
+    "mean": 0.6457405761856327
+   },
+   "igraph_multilevel": {
+    "best": 0.6457405761856327,
+    "mean": 0.6456005102999598
+   },
+   "networkx_louvain": {
+    "best": 0.645740576185633,
+    "mean": 0.645695008831035
+   },
+   "nodes": 2000
+  },
+  "planted-8x100-120-4": {
+   "edges": 5955,
+   "igraph_leiden": {
+    "best": 0.6813470183950296,
+    "mean": 0.6813470183950296
+   },
+   "igraph_multilevel": {
+    "best": 0.6813470183950296,
+    "mean": 0.6813470183950296
+   },
+   "networkx_louvain": {
+    "best": 0.6813470183950296,
+    "mean": 0.6813470183950296
+   },
+   "nodes": 800
+  },
+  "ring-30x5": {
+   "edges": 330,
+   "igraph_leiden": {
+    "best": 0.8870707070707068,
+    "mean": 0.8864242424242421
+   },
+   "igraph_multilevel": {
+    "best": 0.8878787878787875,
+    "mean": 0.8870707070707068
+   },
+   "networkx_louvain": {
+    "best": 0.8878787878787877,
+    "mean": 0.8863434343434342
+   },
+   "nodes": 150
+  }
+ },
+ "versions": {
+  "igraph": "1.0.0",
+  "networkx": "3.7"
+ }
+}

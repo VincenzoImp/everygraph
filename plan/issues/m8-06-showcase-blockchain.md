@@ -3,7 +3,7 @@ title: Showcase 3: a blockchain transaction graph with public labels
 milestone: M8 · CLI, docs and v0.1 launch
 labels: type:feature, area:launch, P1, risk:medium, size:L
 ---
-**Why.** Follow-the-money analysis is the founder's domain and a field where commercial tools cost tens of thousands per year and keep data on their servers. It exercises everything the old prototype could not handle: directed multigraph, weights (amounts), timestamps, 42-byte address ids.
+**Why.** Follow-the-money analysis is a field where commercial tools cost tens of thousands per year and keep data on their servers. It exercises the hard inputs together: directed multigraph, weights (amounts), timestamps, 42-byte address ids.
 
 **Scope**
 - [ ] Ingest a public Ethereum transaction dataset (a bounded period to start) with address ids, value and block time
@@ -15,4 +15,4 @@ labels: type:feature, area:launch, P1, risk:medium, size:L
 **Acceptance**
 - A reproducible notebook plus a recorded walkthrough; all stages within a 16 GiB budget
 
-**Depends on** {{#m5-13-attribute-overlays}}, {{#m5-10-jupyter-widget}}
+**Depends on** {{#m2-34-build-columns}} (amounts and times), {{#m5-08-live-mode}} (the walkthrough), {{#m5-13-attribute-overlays}}, {{#m5-10-jupyter-widget}}

@@ -3,7 +3,7 @@ title: Preflight, progress and resume: the UX contract
 milestone: M0 · Foundations and decisions
 labels: type:spec, area:foundations, P1, risk:low, size:S
 ---
-**Why.** "Never run out of memory" and "works at any size" are only credible if the tool tells the user what it is about to do and survives interruption. The old largegraph prototype already had resumable phases and a `--dry-run`; that discipline carries over.
+**Why.** "Never run out of memory" and "works at any size" are only credible if the tool tells the user what it is about to do and survives interruption. Resumable phases and a `--dry-run` are part of that.
 
 **Scope**
 - [ ] Preflight output format: regime chosen and why, estimated wall time, peak RAM, temp disk, output size; refusal message when the O(n) state cannot fit the budget, with the smallest budget that would work

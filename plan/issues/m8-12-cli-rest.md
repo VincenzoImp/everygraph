@@ -1,5 +1,5 @@
 ---
-title: "Command line, the rest: map, open, query, doctor, stopping, completions"
+title: Command line, the rest: map, open, query, doctor, stopping, completions
 milestone: M8 · CLI, docs and v0.1 launch
 labels: type:feature, area:cli, P0, risk:low, size:M
 ---
@@ -17,6 +17,7 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 - [ ] `run --dry-run` and the plan block of `run` once the planner gives estimates ({{#m3-02-planner}}); `--temp-dir` on `run`, `map` and `export`
 - [ ] Shell completions (bash, zsh, fish, PowerShell) and a man page, generated from the `clap` definitions
 - [ ] The single static binary per platform, also installed by the Python wheel
+- [ ] Every other box of {{#m8-01-cli}} that the description of PR #231 leaves unticked (progress forms, `--progress=plain`, the remaining `ingest` and `export` options)
 
 **Acceptance**
 - `everygraph ingest edges.csv && everygraph map edges.eg && everygraph open edges.eg` produces a browsable map of a 1 M-edge file in under 10 s on a laptop (measured by the harness on an idle machine)

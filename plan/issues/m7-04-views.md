@@ -30,4 +30,4 @@ labels: type:feature, area:query, P0, risk:medium, size:L, lab-evidence
 
 **Pointers.** `lab/f1-query/src/bin/props.rs`.
 
-**Depends on** {{#m2-10-property-columns}}, {{#m3-01-edge-map}}
+**Depends on** {{#m2-10-property-columns}}, {{#m2-34-build-columns}} (no graph carries a property to filter on before it), {{#m3-01-edge-map}}

@@ -4,8 +4,7 @@ Attribution 4.0 International licence (CC BY 4.0). SPDX identifier: CC-BY-4.0.
 What this covers
 - Everything under docs/, including the format specifications (docs/spec/, as they are
   written) and the images under docs/img/.
-- Everything under design/, except the fonts in design/preview/style/assets/fonts/,
-  which are under the SIL Open Font License 1.1 (see THIRD-PARTY-NOTICES.md).
+- Everything under design/, except design/system/ (below).
 - Markdown files anywhere else in the repository (README.md, CONTRIBUTING.md,
   GOVERNANCE.md, SECURITY.md, CLAUDE.md, plan/issues/, .claude/agents/), except those
   under crates/ and lab/ and except CODE_OF_CONDUCT.md, which is adapted from the
@@ -18,6 +17,10 @@ What this does not cover
   and the scripts and styles inside the HTML mockups under design/preview/ may be used
   under Apache-2.0 OR MIT instead.
 - Everything under crates/ and lab/, Markdown included: Apache-2.0 OR MIT.
+- Everything under design/system/, the package shipped with the product: Apache-2.0 OR
+  MIT, except the fonts in design/system/fonts/, which are under the SIL Open Font
+  License 1.1 (see THIRD-PARTY-NOTICES.md). The licence does not grant use of the
+  Everygraph name or mark as a trademark.
 - Third-party material listed in THIRD-PARTY-NOTICES.md, which keeps its own licence.
 
 To attribute material you reuse under this licence: credit "the Everygraph

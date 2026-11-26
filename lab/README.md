@@ -9,7 +9,7 @@ shared-memory code that has not been through Miri or ThreadSanitizer.
 it is not extended, and bugs in it are not fixed. Some binaries stay in use as the A/B
 reference of a benchmark spec (`bench/specs/*.toml`), so they must keep building.
 
-The first lab (2026-11-24, a few hours per experiment):
+The first lab (a few hours per experiment):
 
 | Directory | Question | FINDINGS | Production counterpart | Reference in |
 |---|---|---|---|---|
@@ -31,6 +31,7 @@ Second-round experiments and measurements of production code:
 | `m1-03-louvain-collapse` | #17, the async Louvain collapse on Friendster | § M1-03 | — |
 | `m1-04-det-leiden-scaling` | #18, the sub-round rule of deterministic Leiden, A/B | its own `README.md` (exploratory) | `det-leiden.toml` |
 | `m1-05-hierarchy-shaping` | #19, a hierarchy the map can use | § M1-05 | `hierarchy-shaping.toml` |
+| `m1-09-hierarchy-order` | #23, node orders against our codec and kernels | its own `results/README.md` (exploratory) | `hierarchy-order.toml` |
 | `m1-13-compressed` | #118, the default storage end to end | § M1-13 | — |
 | `m1-15-mmap-hints-block-cache` | #172, mmap hints and a budgeted block cache | ADR 0029, `results/README.md` | `mmap-hints.toml` |
 | `m1-18-layout-baseline` | #175, our map layout against published large-graph layouts | § M1-18 | — |
@@ -40,14 +41,14 @@ Second-round experiments and measurements of production code:
 | `m2-08-build` | #35, the size of `.events` on a temporal graph (results only) | `docs/spec/eg-adjacency.md` § 7 | — |
 | `m2-28-par-scatter` | #189, safe scattered writes, A/B | `plan/issues/m2-28-par-scatter.md` | — |
 
-`LAB.md` is the brief the first lab worked from (machine, shared data, rules). Raw result
-files are under each `results/` directory; datasets and build outputs are not included.
-Issue #8 ("Make the first lab reproducible with one command") tracks turning the remaining
-`bench.sh` scripts into benchmark specs. `lab/tools/timev.py` is the time and peak-memory
-wrapper the first lab's scripts call.
+Raw result files are under each `results/` directory; datasets and build outputs are not
+included. The first lab's prototypes read graphs in a format of their own, `glab-csr-v0`,
+one directory per graph under `$EVERYGRAPH_DATA/csr/`: `meta.json` (n, edges, flags),
+`offsets.u64` (n + 1 little-endian values), `targets.u32` (symmetric, sorted per node, no
+duplicates, no self-loops) and `ids.u64` (the input id of each dense id).
 
 Only `e-map` has its own `REPORT.md`; `m1-03-louvain-collapse` and
 `m1-04-det-leiden-scaling` have a `README.md`, and `m1-15-mmap-hints-block-cache` and
-`m1-18-layout-baseline` a results `README.md`. The other experiments are reported in
+`m1-09-hierarchy-order` and `m1-18-layout-baseline` a results `README.md`. The other experiments are reported in
 `docs/FINDINGS.md`. Some source headers still say "see REPORT.md": that report is the
 FINDINGS section of the table above.
