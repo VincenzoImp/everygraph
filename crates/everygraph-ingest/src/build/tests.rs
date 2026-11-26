@@ -215,6 +215,19 @@ fn compare_with_oracle(g: &Graph, run: &Run<'_>) {
     let (bytes, report) = run
         .bytes(&text_of(&g))
         .unwrap_or_else(|e| panic!("{}: {e}", g.name));
+    // The file passes the deep check of `everygraph verify`.
+    let verified = everygraph_format::verify::verify(
+        &MemorySource::new(&bytes[..]),
+        everygraph_format::verify::Depth::Deep,
+        &Memory::unlimited(),
+    )
+    .unwrap();
+    assert!(
+        verified.problems.is_empty(),
+        "{}: {:?}",
+        g.name,
+        verified.problems
+    );
     let stored = read_back(&bytes);
     assert_eq!(stored.keys, graph_order(&g, run.ids), "{}", g.name);
 
