@@ -14,6 +14,12 @@
 //! - [`degrees`]: degree and strength columns (#50).
 //! - [`proof`]: `PageRank`, components and BFS, written once on the framework. The
 //!   production kernels (#47–#52) replace them.
+//! - [`pagerank`]: `PageRank` (f32 and f64 state, weighted, personalized) and
+//!   eigenvector centrality, by pull power iteration (#47).
+//! - [`traversal`]: direction-optimizing BFS and bit-parallel multi-source BFS (#49).
+//! - [`sssp`]: weighted shortest distances by Δ*-stepping with bucket fusion (#49).
+//! - [`proof`]: connected components, written once on the framework; the production
+//!   kernel (#48) replaces it.
 //!
 //! A kernel body is a closure over one node and its list:
 //!
@@ -63,8 +69,12 @@ pub mod components;
 pub mod degrees;
 pub mod edge_map;
 pub mod kcore;
-pub mod proof;
 
 /// Per-node values in atomics, as a kernel computed them, and the reservation that
 /// holds them.
 pub type Atomics = (Vec<AtomicU32>, Reservation);
+pub mod pagerank;
+pub mod proof;
+pub mod sssp;
+pub mod traversal;
+mod weights;

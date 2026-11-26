@@ -78,13 +78,21 @@ pub fn check(
         {
             degrees(&mut c, kernel, p, d);
         }
-        (Kernel::PageRank { damping, weighted }, Output::Reals(r)) if r.len() == n => {
+        (
+            Kernel::PageRank {
+                damping,
+                weighted,
+                personalize,
+            },
+            Output::Reals(r),
+        ) if r.len() == n => {
             pagerank(&mut c, p, r);
             if r.iter().all(Option::is_some) {
                 let x: Vec<f64> = r.iter().flatten().copied().collect();
-                pagerank_fixed_point(&mut c, p, *damping, *weighted, &x);
+                pagerank_fixed_point(&mut c, p, *damping, *weighted, personalize, &x);
             }
         }
+        (Kernel::Eigenvector { .. }, Output::Reals(r)) if r.len() == n => eigenvector(&mut c, r),
         (Kernel::IngestReport, Output::Counts(r)) => report(&mut c, r),
         (Kernel::Wcc, Output::Labels(l)) if l.len() == n => {
             labels_smallest(&mut c, l);
@@ -333,11 +341,19 @@ fn pagerank(c: &mut Checker, p: &Projection, r: &[Option<f64>]) {
 /// (the reference pulls along the in-lists). If every value is within the PageRank
 /// tolerance `b(v)` of the fixed point, the step moves the vector by at most
 /// `(1 + α) Σ b(v)` in L1, because the step's linear part is α times a stochastic matrix.
-fn pagerank_fixed_point(c: &mut Checker, p: &Projection, damping: f64, weighted: bool, x: &[f64]) {
+fn pagerank_fixed_point(
+    c: &mut Checker,
+    p: &Projection,
+    damping: f64,
+    weighted: bool,
+    personalize: &[u32],
+    x: &[f64],
+) {
     let n = p.len();
     if n == 0 {
         return;
     }
+    let t = p.teleport(personalize);
     let w = |e: usize| if weighted { p.out.weight_sum[e] } else { 1.0 };
     let diag = |v: usize| {
         let l = p.loop_pair_weight(v, weighted);
@@ -346,9 +362,11 @@ fn pagerank_fixed_point(c: &mut Checker, p: &Projection, damping: f64, weighted:
     let s: Vec<f64> = (0..n)
         .map(|u| p.out.range(u).map(w).sum::<f64>() + diag(u))
         .collect();
-    let nf = f64::from(p.n);
     let dangling: f64 = (0..n).filter(|&u| s[u] == 0.0).map(|u| x[u]).sum();
-    let mut next = vec![(1.0 - damping) / nf + damping * dangling / nf; n];
+    let mut next: Vec<f64> = t
+        .iter()
+        .map(|t| (1.0 - damping) * t + damping * dangling * t)
+        .collect();
     for u in (0..n).filter(|&u| s[u] > 0.0) {
         let share = damping * x[u] / s[u];
         for e in p.out.range(u) {
@@ -362,6 +380,25 @@ fn pagerank_fixed_point(c: &mut Checker, p: &Projection, damping: f64, weighted:
     c.require(moved <= limit, "pagerank_fixed_point", || {
         format!("one step moves the result by {moved:e} in L1, more than {limit:e}")
     });
+}
+
+/// Eigenvector centrality: no negative value, unit L2 norm.
+fn eigenvector(c: &mut Checker, r: &[Option<f64>]) {
+    c.require(r.iter().all(Option::is_some), "shape", || {
+        "a node without a value".into()
+    });
+    let x: Vec<f64> = r.iter().flatten().copied().collect();
+    c.require(
+        x.iter().all(|&v| v >= 0.0),
+        "eigenvector_nonnegative",
+        || "a negative value".into(),
+    );
+    if !x.is_empty() {
+        let norm = x.iter().map(|v| v * v).sum::<f64>().sqrt();
+        c.require((norm - 1.0).abs() <= 1e-12, "eigenvector_unit_norm", || {
+            format!("L2 norm {norm:.17}")
+        });
+    }
 }
 
 /// Modularity of the quotient graph of `partition` (community pairs and loops, kept input
