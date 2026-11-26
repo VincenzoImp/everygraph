@@ -47,7 +47,7 @@ The tests named are in `crates/everygraph-determinism/tests/` unless a path is g
 | CPU vs GPU | not promised | no kernel runs on a GPU |
 | Bitwise | guaranteed | every test above compares bits: hashes of the output columns, floats by their bits |
 | Partition up to renumbering | guaranteed, as bits | the membership is numbered by each community's smallest node, so the same partition has the same bits |
-| Same stored order vs a permuted one | not promised | `compact` without `--order` keeps the communities: `leiden_views.rs` `compact_keeps_the_communities`. With the ids renumbered by a locality order or at random, 4 of 5 orders changed the communities of a planted graph of 10,000 nodes, by 7 to 131 nodes (#54's probe; PR #NNN) |
+| Same stored order vs a permuted one | not promised | `compact` without `--order` keeps the communities: `leiden_views.rs` `compact_keeps_the_communities`. With the ids renumbered by a locality order or at random, 4 of 5 orders changed the communities of a planted graph of 10,000 nodes, by 7 to 131 nodes (#54's probe; PR #287) |
 | View as a mask vs materialized | guaranteed for Leiden | `leiden_views.rs` `a_view_as_a_mask_and_materialized_give_the_same_communities`, default, quality, randomized and prolonged; other kernels: #93 builds views, with this test |
 | Nodes without edges | guaranteed for Leiden | `leiden_views.rs` `nodes_without_edges_change_neither_the_sub_rounds_nor_the_communities`: the sub-round count counts nodes with edges |
 | A map after a rebuild | not promised: depends on the previous map | ADR 0016: the super level keeps the previous map's choice while the partition needs 56 to 72 communities to cover 90% of its nodes; a first map depends on the graph and the seed only |
@@ -60,7 +60,7 @@ candidate communities; and a community starts named by its smallest node. Labels
 then compared only by their order, which a mask and a materialized view share.
 
 **The price in quality** (exploratory: modularity does not depend on load; production
-Leiden, `leiden_bench`, raw source, 8 threads, seeds 0–4, one run each; PR #NNN). Mean
+Leiden, `leiden_bench`, raw source, 8 threads, seeds 0–4, one run each; PR #287). Mean
 modularity, deterministic against `fast`:
 
 | graph | 1 iteration (default) | 3 iterations (quality mode) |
