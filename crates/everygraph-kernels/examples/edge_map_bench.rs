@@ -168,8 +168,9 @@ fn run(a: &Args) {
         }
         "compressed" | "mmap" => {
             let (index, data) = store_paths(Path::new(&a["store"]));
-            let index =
-                AdjacencyIndex::parse(&std::fs::read(index).expect("index")).expect("an index");
+            let index = std::fs::read(&index)
+                .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
+            let index = AdjacencyIndex::parse(&index).expect("an index");
             let map = MmapSource::open(&data).expect("map");
             let mapped = source == "mmap";
             let heap = if mapped {
