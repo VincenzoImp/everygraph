@@ -24,14 +24,61 @@
 //! Every round runs all variants, the order rotating each round. One JSON line on
 //! standard output: median seconds per variant, the median over rounds of each variant's
 //! time over its baseline's in the same round, and the hash of each variant's output,
-//! plus the hashes of `safe` and `sort` at 1, 4 and the requested thread count.
+//! plus the hashes of `safe` and `sort` at 1, 4 and the requested thread count. Each
+//! variant also reports its peak heap above what was held before it started, output
+//! included (`peak_heap_bytes`, from a counting allocator; the largest over rounds).
+//! The ranged variants sort a copy made before that point, which is not counted.
 
+use std::alloc::{GlobalAlloc, Layout, System};
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use std::time::Instant;
 
 use everygraph_core::{Memory, par};
 use rayon::prelude::*;
+
+/// Heap bytes held now and their peak, for the memory of each variant.
+static HELD: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+struct Counting;
+
+fn grew(bytes: usize) {
+    let now = HELD.fetch_add(bytes, Relaxed) + bytes;
+    PEAK.fetch_max(now, Relaxed);
+}
+
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let p = unsafe { System.alloc(layout) };
+        if !p.is_null() {
+            grew(layout.size());
+        }
+        p
+    }
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let p = unsafe { System.alloc_zeroed(layout) };
+        if !p.is_null() {
+            grew(layout.size());
+        }
+        p
+    }
+    unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(p, layout) };
+        HELD.fetch_sub(layout.size(), Relaxed);
+    }
+    unsafe fn realloc(&self, p: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        let q = unsafe { System.realloc(p, layout, size) };
+        if !q.is_null() {
+            HELD.fetch_sub(layout.size(), Relaxed);
+            grew(size);
+        }
+        q
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Counting = Counting;
 
 /// The lab's raw-pointer wrapper (`lab/b2-leiden/src/util.rs`), reduced to what is used.
 #[derive(Clone, Copy)]
@@ -165,17 +212,15 @@ fn safe(memory: &Memory, inp: &Input) -> Vec<u32> {
     let shift = (communities.div_ceil(4096)).next_power_of_two().trailing_zeros();
     let buckets = NonZeroUsize::new(((communities - 1) >> shift) + 1).unwrap();
     let mut pairs = vec![0u64; n];
-    let offsets = par::scatter(
-        memory,
-        "member scatter",
-        n,
-        buckets,
-        BLOCK,
-        |u| ((inp.comm[u] >> shift) as usize, pack(inp, u)),
-        [&mut pairs[..]],
-    )
-    .expect("unlimited budget");
-    par::for_each_range_mut(&mut pairs, &offsets, NonZeroUsize::MIN, |_, s| s.sort_unstable());
+    let block = BLOCK.get();
+    let emit = |k: usize, sink: &mut par::Sink<'_, &mut [u64]>| {
+        for u in k * block..n.min((k + 1) * block) {
+            sink.push((inp.comm[u] >> shift) as usize, pack(inp, u));
+        }
+    };
+    let offsets = par::scatter(memory, "member scatter", n.div_ceil(block), buckets, emit, [&mut pairs[..]])
+        .expect("unlimited budget");
+    par::for_each_range_mut(&mut pairs[..], &offsets, NonZeroUsize::MIN, |_, s| s.sort_unstable());
     extract(&pairs)
 }
 
@@ -231,10 +276,13 @@ fn main() {
     let names = ["lab", "safe", "sort", "lab-ranged", "safe-ranged"];
     let mut times: Vec<Vec<f64>> = vec![Vec::new(); names.len()];
     let mut hashes = [0u64; 5];
+    let mut peaks = [0usize; 5];
     for round in 0..rounds {
         for k in 0..names.len() {
             let v = (round + k) % names.len();
             let mut work = unsorted.clone();
+            let held = HELD.load(Relaxed);
+            PEAK.store(held, Relaxed);
             let start = Instant::now();
             let out = main_pool.install(|| match v {
                 0 => lab(&main_pool, &inp, true),
@@ -250,6 +298,7 @@ fn main() {
                 }
             });
             times[v].push(start.elapsed().as_secs_f64());
+            peaks[v] = peaks[v].max(PEAK.load(Relaxed) - held);
             hashes[v] = hash(&out);
         }
     }
@@ -264,9 +313,10 @@ fn main() {
         .map(|(v, name)| {
             let mut t = times[v].clone();
             format!(
-                "\"{name}\":{{\"median_s\":{:.6},\"ratio_to_baseline\":{:.4},\"hash\":\"{:016x}\"}}",
+                "\"{name}\":{{\"median_s\":{:.6},\"ratio_to_baseline\":{:.4},\"peak_heap_bytes\":{},\"hash\":\"{:016x}\"}}",
                 median(&mut t),
                 ratios[v],
+                peaks[v],
                 hashes[v]
             )
         })

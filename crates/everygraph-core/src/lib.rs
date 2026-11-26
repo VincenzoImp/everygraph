@@ -72,7 +72,7 @@ pub use memory::{
     MemoryReport, PurposeUsage, Reservation, SystemMemory,
 };
 pub use scratch::ScratchPool;
-pub use seg_vec::{MAX_ALLOCATION_BYTES, SegVec};
+pub use seg_vec::{MAX_ALLOCATION_BYTES, SegColumns, SegRows, SegVec};
 pub use segment::{AlignedBuf, DEFAULT_SEGMENT_SIZE, SEGMENT_ALIGN, SegmentReader, Segments};
 
 // Every conversion in this crate relies on these two facts: a `u32` always fits in a

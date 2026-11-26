@@ -1,4 +1,2 @@
- 00:28:02 up 14 days, 23:37,  4 users,  load average: 32.11, 29.74, 19.03
- 00:28:08 up 14 days, 23:37,  4 users,  load average: 32.66, 29.89, 19.14
- 00:28:16 up 14 days, 23:37,  4 users,  load average: 32.23, 29.88, 19.25
- 00:28:19 up 14 days, 23:37,  4 users,  load average: 31.73, 29.82, 19.28
+ 01:38:15 up 15 days, 47 min,  4 users,  load average: 23.18, 23.66, 23.74
+ 01:38:23 up 15 days, 47 min,  4 users,  load average: 23.24, 23.65, 23.74
