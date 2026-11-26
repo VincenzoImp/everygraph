@@ -132,8 +132,10 @@ fn one_build() {
     let n: u64 = n.parse().unwrap();
     warm_up();
     let budget = Budget::new(BUDGET).with_pages(pages);
+    // Not `temp_dir()`: on a tmpfs `/tmp`, scratch files are memory.
     let scratch = Files::new(
-        std::env::temp_dir().join(format!("everygraph-retention-{}", std::process::id())),
+        std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("everygraph-retention-{}", std::process::id())),
     );
     let source = Synthetic {
         column: ColumnType::Utf8,
