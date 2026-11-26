@@ -37,9 +37,9 @@ const TIGHT: [u64; 5] = [105, 110, 125, 150, 200];
 ///
 /// Each run that takes a budget is measured at a tight one: 1.05 times the declared
 /// minimum where the engine declares one, else 1.05 times the smallest budget that
-/// completes (bisected to 1/32 of the ledger's unlimited peak), or the first of
-/// [`TIGHT`] that completes. Without a limit, an operation may reserve headroom it never
-/// fills, and untracked heap can hide in it.
+/// completes (bisected to 1/32 of the ledger's unlimited peak), or the first of the
+/// larger multiples that completes. Without a limit, an operation may reserve headroom
+/// it never fills, and untracked heap can hide in it.
 ///
 /// # Panics
 ///

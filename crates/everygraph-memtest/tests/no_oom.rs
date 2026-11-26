@@ -286,8 +286,13 @@ fn a_search_finds_no_graph_where_untracked_heap_grows() {
     });
 }
 
+/// The search leaves out the operations with a known finding. A thread that made no
+/// reservation has its bytes put in the phase of the last reservation on any thread, so
+/// the bytes of ingest's first pass can land in a phase reserved just after it, on one
+/// run and not the next (seen once on macOS, PR #251); the slope test still covers them.
 fn search(sizes: &[u32], steps: usize, dir: &Path) {
-    let worst = climb(&OPS, &FAMILIES, sizes, steps, 0x5eed, dir);
+    let ops: Vec<Op> = OPS.into_iter().filter(|&op| known(op).is_none()).collect();
+    let worst = climb(&ops, &FAMILIES, sizes, steps, 0x5eed, dir);
     let mut failures = Vec::new();
     for (op, w) in &worst {
         let top = w.phases.iter().max_by(|a, b| a.1.0.total_cmp(&b.1.0));
