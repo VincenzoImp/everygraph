@@ -33,13 +33,34 @@ use crate::weights::{EdgeWeights, Scaled, power_of_two, scaled};
 const QUALITY_ITERATIONS: NonZeroU32 = NonZeroU32::new(3).expect("non-zero");
 /// The largest resolution: see `check`.
 const MAX_RESOLUTION: f64 = 8191.0;
-/// Levels per iteration, at most.
-const MAX_LEVELS: NonZeroU32 = NonZeroU32::new(10).expect("non-zero");
 /// Local moving stops when a sweep gains at most this much modularity: `0.01` on level
 /// 0 of iteration 0, ten times less for each level and each iteration after.
 const TOLERANCE: [f64; 12] = [
     1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13,
 ];
+
+/// When a level ends an iteration, besides a level where nothing moved: at the level
+/// `levels`, or when refinement leaves more communities than `keep.0 / keep.1` of its
+/// nodes (nodes without a neighbour other than themselves are left out of both
+/// counts).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Coarsening {
+    levels: u32,
+    keep: (u64, u64),
+}
+
+impl Coarsening {
+    /// The rule of [`leiden`]: 10 levels, 80%.
+    pub(crate) const USUAL: Self = Self {
+        levels: 10,
+        keep: (4, 5),
+    };
+    /// 60 levels, 99%: [`coarse_leiden`](crate::map::coarse_leiden).
+    pub(crate) const DEEP: Self = Self {
+        levels: 60,
+        keep: (99, 100),
+    };
+}
 
 /// Whether the result must not depend on the schedule.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -140,9 +161,10 @@ pub struct Options {
     /// reads of the next window overlap the work on this one. It changes no result of the
     /// deterministic mode.
     pub read_ahead: u32,
-    /// Levels per iteration, at most; 10, the default, is also the largest. One level
-    /// is local moving and refinement on the graph alone, with no quotient graph.
-    pub max_levels: NonZeroU32,
+    /// Levels per iteration, at most, below the rule's own (10 levels for [`leiden`]);
+    /// `None`, the default, adds no cap. One level is local moving and refinement on the
+    /// graph alone, with no quotient graph.
+    pub max_levels: Option<NonZeroU32>,
 }
 
 impl Default for Options {
@@ -158,7 +180,7 @@ impl Default for Options {
             prolong: false,
             split: SplitAt::Last,
             read_ahead: 0,
-            max_levels: MAX_LEVELS,
+            max_levels: None,
         }
     }
 }
@@ -317,9 +339,10 @@ fn level<S: Source>(
     stats.communities = d.count;
     let alone = k.alone;
     let first_of_later = ctx.iteration > 0 && ctx.level == 0;
+    let (levels, (kept, of)) = (ctx.coarsening.levels, ctx.coarsening.keep);
     let last = (stats.moves == 0 && !first_of_later)
-        || ctx.level + 1 >= ctx.options.max_levels.min(MAX_LEVELS).get()
-        || u64::from(stats.communities - alone) * 5 > u64::from(n - alone) * 4;
+        || ctx.level + 1 >= levels.min(ctx.options.max_levels.map_or(u32::MAX, NonZeroU32::get))
+        || u64::from(stats.communities - alone) * of > u64::from(n - alone) * kept;
     if last {
         let d = if louvain {
             d
@@ -499,6 +522,25 @@ pub fn leiden_weighted<S: Source>(
     settings: Settings,
     options: &Options,
 ) -> Result<Communities, Error> {
+    leiden_with(
+        source,
+        weights,
+        memory,
+        settings,
+        options,
+        Coarsening::USUAL,
+    )
+}
+
+/// [`leiden_weighted`] with the rule that ends an iteration.
+pub(crate) fn leiden_with<S: Source>(
+    source: &S,
+    weights: EdgeWeights<'_>,
+    memory: &Memory,
+    settings: Settings,
+    options: &Options,
+    coarsening: Coarsening,
+) -> Result<Communities, Error> {
     let Scaled {
         w: w0,
         scale: weight_scale,
@@ -552,6 +594,7 @@ pub fn leiden_weighted<S: Source>(
             level: 0,
             iteration,
             stage: 0,
+            coarsening,
         };
         let bound = previous.as_ref().map(|p| &p.0[..]);
         let mut out = Plan::with(source, memory, settings, |plan| {

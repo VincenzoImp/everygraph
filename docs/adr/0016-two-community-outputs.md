@@ -103,8 +103,8 @@ exploratory-deterministic (shared machine, deterministic metrics) under
 - #63 stores a tree with parent pointers and, per region: role, kind, aggregate count and a
   "nested aggregate, not drawn" flag. It does not store per-level parent maps.
 - The production Leiden (#57) leaves vertices of strength 0 out of its pass-stopping test.
-- In production, the region filter runs inside the Leiden kernel; the lab builds a cut graph
-  per round, which streams the whole store every round.
+- In production, each region is solved by Leiden on its own induced subgraph; the lab
+  builds a cut graph per round, which streams the whole store every round.
 - Follow-ups: #181 (m4-10, each oversized region solved as its own job), #182 (m4-11,
   labelled binning for leaves that cannot be split).
 

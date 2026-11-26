@@ -132,7 +132,7 @@ fn options(a: &Args) -> Options {
         o.resolution = g.parse().expect("--gamma");
     }
     if let Some(l) = a.get("levels") {
-        o.max_levels = l.parse().expect("--levels");
+        o.max_levels = Some(l.parse().expect("--levels"));
     }
     if let Some(k) = a.get("read-ahead") {
         o.read_ahead = k.parse().expect("--read-ahead");

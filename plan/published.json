@@ -125,6 +125,7 @@
  "m4-16-community-summary-stats": 279,
  "m4-17-friendster-hierarchy": 280,
  "m4-18-weighted-hierarchy": 302,
+ "m4-19-leiden-thread-budget": 316,
  "m5-00-epic": 66,
  "m5-01-layout": 67,
  "m5-02-tile-format": 68,
@@ -142,6 +143,7 @@
  "m5-14-design-system": 121,
  "m5-15-summary-export": 196,
  "m5-16-nonvisual-navigation": 197,
+ "m5-17-coordinate-precision": 308,
  "m6-00-epic": 80,
  "m6-01-python-api": 81,
  "m6-02-wheels": 82,
@@ -190,5 +192,11 @@
  "m9-09-domain-integrations": 116,
  "m9-10-statistical-rigor": 117,
  "m9-11-compaction-invariant": 198,
- "m9-12-dp-map-export": 199
+ "m9-12-dp-map-export": 199,
+ "m9-13-server-cartography": 309,
+ "m9-14-web-hyperlink-map": 310,
+ "m9-15-cells-end-to-end": 311,
+ "m9-16-local-topological-view": 312,
+ "m9-17-resource-efficiency": 313,
+ "m9-18-map-pipeline-resume": 314
 }

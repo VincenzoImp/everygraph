@@ -737,7 +737,7 @@ fn one_level_stops_after_level_zero() {
     let (n, pairs) = sparse_planted(40, 250, 8, 2, 5);
     let s = store(&Lists::from_pairs(n, &pairs));
     let one = Options {
-        max_levels: NonZeroU32::MIN,
+        max_levels: Some(NonZeroU32::MIN),
         ..Options::default()
     };
     let c = run(&s, Kind::Heap, 4, 1 << 16, &one);
