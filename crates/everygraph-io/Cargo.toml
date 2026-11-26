@@ -16,6 +16,11 @@ everygraph-core = { path = "../everygraph-core", default-features = false }
 # files (deny.toml).
 memmap2 = "0.9"
 
+[features]
+# `everygraph_io::faults`: a source and sink that fail the k-th operation, for the
+# fault-injection tests of other crates (issue #190). Never enabled by a shipped crate.
+faults = []
+
 [target.'cfg(unix)'.dependencies]
 # `O_DIRECT`, `fallocate`, `posix_fadvise`, `F_NOCACHE`: what std does not expose.
 # Used in `src/sys.rs` only.

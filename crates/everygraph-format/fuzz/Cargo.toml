@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# Fuzzing of the adjacency decoder (issue #30) and the column reader (issue #37). Not
-# a member of the workspace: it needs nightly and libFuzzer. Run: cargo +nightly fuzz
-# run adjacency (or columns), from this crate's directory, crates/everygraph-format.
+# Fuzz targets of the format crate: the adjacency decoder (issue #30), the container
+# (issue #191) and the column reader (issue #37). Not a member of the workspace: it needs
+# nightly and libFuzzer. Run tools/fuzz.sh (CONTRIBUTING.md, "Fuzzing"), or cargo
+# +nightly fuzz run TARGET from this crate's directory, crates/everygraph-format.
+# Corpora are in corpus/TARGET.
 
 [package]
 name = "everygraph-format-fuzz"
@@ -26,6 +28,13 @@ members = ["."]
 [[bin]]
 name = "adjacency"
 path = "fuzz_targets/adjacency.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "container"
+path = "fuzz_targets/container.rs"
 test = false
 doc = false
 bench = false

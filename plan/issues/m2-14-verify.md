@@ -15,4 +15,10 @@ labels: type:feature, area:format, P1, risk:low, size:S, lab-evidence
 - Deep verify of Friendster in < 60 s on the lab machine
 - Every single-bit flip injected into a test file is detected
 
+**Left after PR #212 (2026-11-26).** PR #212 built `everygraph_format::verify`, `Dictionary::verify` and `everygraph verify FILE [--deep] [--strict] [--json]`, and showed the single-bit-flip criterion. Still open:
+- [ ] The Friendster time: `systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0 /usr/bin/time -v target/release/everygraph verify --deep friendster.eg`, on an idle machine, once {{#m2-08-csr-build}} and the ingest pipeline can write the file
+- [ ] The content checks of the `.events` section (strictly increasing, equal `events` in out and in), with {{#m2-08-csr-build}}, which builds the section
+- [ ] Column lengths, with {{#m2-10-property-columns}}
+- [ ] A guard on huge lists in the codec: one list decodes into one buffer of 4·d bytes. `verify` reserves that buffer against its budget and reports a list too large as unchecked, but the decoding API offers kernels no such bound; a crafted list of about 2^32 entries asks for 16 GiB (review of PR #212)
+
 **Pointers.** `glab verify` and `glc checksym` in the lab prototypes.

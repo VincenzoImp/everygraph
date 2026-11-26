@@ -1,0 +1,46 @@
+{
+  "chunk_entries": 65536,
+  "graph": "test-pr-undirected",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11497472,
+  "rows": [
+    {
+      "algorithm": "pr",
+      "checked": 50,
+      "examples": [],
+      "graph": "test-pr-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 5.9003319194020634e-8,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 5.651e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 50,
+      "examples": [],
+      "graph": "test-pr-undirected",
+      "implementation": "lab-pr-f64/ldbc",
+      "max_rel_error": 5.9003319194020634e-8,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.000079809,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 50,
+      "examples": [],
+      "graph": "test-pr-undirected",
+      "implementation": "lab-pr-f32/ldbc",
+      "max_rel_error": 3.5894261855882674e-7,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.000052769,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}

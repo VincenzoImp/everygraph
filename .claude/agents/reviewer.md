@@ -30,6 +30,9 @@ Look for, in this order:
 
 Do not review style that `rustfmt` and `clippy` already enforce.
 
+Put scratch files, probe builds and review drafts under `/home/tux/graphlab/scratch/`
+(never `/tmp`, which other jobs share), and delete them before your final message.
+
 Your final message is the review as plain text: a verdict (approve / changes needed), then
 findings ordered by severity, each with file and line, a concrete failing input or
 scenario, and what would convince you it is fixed. Say explicitly what you did not check.

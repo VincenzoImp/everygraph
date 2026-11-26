@@ -37,6 +37,7 @@ step clippy-format-simd128 env RUSTFLAGS="-C target-feature=+simd128" CARGO_TARG
 step deny cargo deny check
 step doc env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 step canary python3 tools/check_portability_canary.py
+step fuzz-replay tools/fuzz.sh replay
 step wasm-toy python3 tools/check_wasm_toy.py
 step wasm-codec python3 tools/check_wasm_codec.py
 step container python3 tools/check_container_python.py

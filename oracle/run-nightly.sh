@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # The nightly oracle suite (issue #6): the CI suite at larger scale, the golden files of
-# every tier-1 dataset of the registry and of the extra SNAP graphs, and the lab prototype
-# through its adapter. Needs network (SNAP, Wikimedia) and, for the lab step, a toolchain
-# that builds lab/b1-core.
+# every tier-1 dataset of the registry and of the extra SNAP graphs, the LDBC Graphalytics
+# graphs of the S class (issue #177), and the lab prototype through its adapter. Needs
+# network (SNAP, Wikimedia, LDBC) and, for the lab step, a toolchain that builds
+# lab/b1-core.
 #
 #   oracle/run-nightly.sh               # work directory under $TMPDIR, removed at the end
 #   ORACLE_WORK=dir oracle/run-nightly.sh
@@ -56,6 +57,16 @@ step "In-process references, toy kernel and seeded bugs on the nightly corpus"
 "$ORACLE" check --corpus "$WORK/nightly" --plugin reference --require-python
 "$ORACLE" check --corpus "$WORK/nightly" --plugin toy --require-python
 "$ORACLE" seeded-bugs --corpus "$WORK/nightly"
+
+step "LDBC Graphalytics: test graphs, graph500-22 and dota-league against their reference outputs (330 MB)"
+. "$ROOT/oracle/ldbc-unpack.sh"
+ldbc_unpack "$ROOT/target/release/everygraph-bench" "$DATA" "$WORK/ldbc" \
+    ldbc-test ldbc-graph500-22 ldbc-dota-league
+# graph500-22 needs about 3 GiB; LCC on dota-league (50 M edges on 61 k vertices) takes
+# a few minutes, sequential.
+"$ORACLE" ldbc --graphs "$WORK/ldbc" --expect "$ROOT/oracle/ldbc-expected.json" --max-memory 7
+EVERYGRAPH_LDBC_GRAPHS="$WORK/ldbc" cargo test -p everygraph-kernels --release --locked \
+    --test ldbc -- --nocapture
 
 if [[ -z "${ORACLE_SKIP_LAB:-}" ]]; then
     step "Lab prototype B1 through its adapter (undirected graphs; 3 regimes x 2 thread counts x 2 chunk sizes)"

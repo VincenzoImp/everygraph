@@ -1,0 +1,70 @@
+{
+  "chunk_entries": 65536,
+  "graph": "dota-league",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 1235349504,
+  "rows": [
+    {
+      "algorithm": "bfs",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "lab-bfs-do/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 0.001282993,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "lab-pr-f64/ldbc",
+      "max_rel_error": 1.0651644788815165e-14,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.124840098,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "lab-pr-f32/ldbc",
+      "max_rel_error": 1.280854596395754e-6,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.125644103,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "lab-wcc-afforest/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.000767197,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "lab-wcc-stream/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.009195579,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}

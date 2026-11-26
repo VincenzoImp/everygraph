@@ -1,0 +1,38 @@
+{
+  "chunk_entries": 65536,
+  "graph": "test-pr-directed",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11431936,
+  "rows": [
+    {
+      "algorithm": "pr",
+      "checked": 50,
+      "examples": [],
+      "graph": "test-pr-directed",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 1.2677113294486482e-6,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 4.248e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "error": "skipped: the lab PageRank pulls over the lists it divides by, so it needs symmetric lists (undirected graphs only)",
+      "graph": "test-pr-directed",
+      "implementation": "lab-pr-f64/ldbc",
+      "seconds": 3.81e-7,
+      "status": "skipped"
+    },
+    {
+      "algorithm": "pr",
+      "error": "skipped: the lab PageRank pulls over the lists it divides by, so it needs symmetric lists (undirected graphs only)",
+      "graph": "test-pr-directed",
+      "implementation": "lab-pr-f32/ldbc",
+      "seconds": 2.51e-7,
+      "status": "skipped"
+    }
+  ],
+  "threads": 8
+}

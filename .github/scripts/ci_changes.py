@@ -45,7 +45,10 @@ ORACLE = [
     "datasets/",
     "crates/everygraph-bench/src/datasets/",
 ]
-FLAGS = ("core", "oracle", "msrv", "full")
+# The crates of the fuzz targets (fuzz.yml's 5-minute campaigns), with what they build on.
+FUZZ_FORMAT = ["crates/everygraph-format/", "crates/everygraph-core/", "tools/fuzz.sh"]
+FUZZ_INGEST = ["crates/everygraph-ingest/", "crates/everygraph-core/", "tools/fuzz.sh"]
+FLAGS = ("core", "oracle", "msrv", "fuzz_format", "fuzz_ingest", "full")
 # Any change here re-runs everything: a change to CI is checked by a full run.
 EVERYTHING = [".github/"]
 
@@ -133,6 +136,8 @@ def main():
             groups = {
                 "core": touches(files, core),
                 "oracle": touches(files, ORACLE),
+                "fuzz_format": touches(files, FUZZ_FORMAT),
+                "fuzz_ingest": touches(files, FUZZ_INGEST),
                 "msrv": sorted(f for f in files if manifest(f)),
             }
             for k, hits in groups.items():
