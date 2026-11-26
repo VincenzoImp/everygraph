@@ -1,0 +1,362 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #19 (m1-05): a hierarchy the map can use. Lab driver lab/m1-05-hierarchy-shaping/shape.py
+# over lab/m1-02-ooc-leiden (`m102`: deterministic Leiden, in RAM or out of core; `cutgraph` and
+# `regionstats`, added for this issue). Every Leiden run is deterministic, one iteration, 16
+# threads, f64 weights, level 0 in the compressed store of lab/m1-13 (DESIGN D4).
+#
+# Variants (the issue's candidates; fan-out target F = 64; see shape.py's docstring):
+#   capin      the lab baseline: cap 64 during coarsening, level compaction 3 (the tracer's and
+#              #16's "map-shaped" setting), hierarchy as produced
+#   capin+agg  the same, plus the satellite-aggregate post-pass
+#   sat        the plain (uncapped) natural hierarchy plus the satellite-aggregate post-pass
+#   capafter   cap applied after an uncapped solve: capped coarsening inside every community of the
+#              plain partition T (cut graph with degree-restoring self-loops), then T, then the post-pass
+#   rec        recursive sub-clustering: every region above 64 nodes is split again by Leiden on its
+#              own subgraph with its own null model (one m102 run per round on the renumbered cut
+#              graph of that round's active regions); super-communities above T when T needs more
+#              than 63 communities to cover 90% of the nodes; then the post-pass
+#   rec-up     rec with the super level always built
+#   nest       nested resolution levels: full degrees, the region's own volume as null model,
+#              gamma = 2^(k+1) for the k-th split below T; nest-up: with the super level always
+#
+# Quality and stability cases are deterministic: one repetition, no warm-up; their wall times
+# are not the subject. The Friendster cases are the measurement the issue asks for: shaping under
+# MemoryMax=16G, the driver and every m102 it starts in one scope (the driver frees its per-round
+# arrays before each m102 call; its own peak, 4.5 GB in exploratory runs, comes between calls),
+# m102 out of core with a 10 GB accountant budget. The issue's reference is the tracer's plain
+# Louvain solve (4.2 GiB, 115.1 s); the reference here is m102's deterministic Leiden out of core
+# under the same 16 GiB (solve-friendster), the input of the shaping: same binary, same storage.
+#
+# Inputs: $EVERYGRAPH_DATA/store-m113/{lj,orkut,friendster} (written for #16, see ooc-leiden.toml);
+# $EVERYGRAPH_DATA/store-m105/{web-google,roadnet-ca}, written once by
+#   systemd-run --user --scope -p MemoryMax=4G -p MemorySwapMax=0 lab/b1-core/target/release/glab \
+#     ingest --input $EVERYGRAPH_DATA/<g>/<file>.txt.gz --gz-inproc --out $EVERYGRAPH_DATA/csr/<g> \
+#     --tmp <scratch> --mem-gb 2 --threads 8
+#   systemd-run --user --scope -p MemoryMax=4G -p MemorySwapMax=0 lab/m1-02-ooc-leiden/target/release/m102 \
+#     encode --graph $EVERYGRAPH_DATA/csr/<g> --out $EVERYGRAPH_DATA/store-m105/<g> --threads 8
+# (<g>/<file>: web-google/web-Google, roadnet-ca/roadNet-CA, as fetched by `everygraph-bench fetch`).
+#
+# Order matters: the plain partitions are [[prepare]] steps (untimed); the stability cases compare
+# with the trees the quality cases leave in {work}; the Friendster metrics and layout read the
+# trees of the shape-*-friendster cases. Run the whole spec, or a group with its predecessors.
+# The lab scripts run with NOLIM=1: no nested systemd scope (the harness's scope is the limit).
+#
+# Wall time, from exploratory runs on a shared machine (2026-11-25, load 5-25; lab/m1-05-
+# hierarchy-shaping/results/dev): prepare ~8 min (Friendster plain solve ~3 min, the others < 1
+# min each, builds); quality 4 graphs x 8 variants + capfix ~12 min; stability lj ~26 min, orkut
+# ~40 min (estimate); Friendster: two 10.4 GB cold copies ~2 min, solve 2 x ~3 min, rec 2 x 679 s,
+# rec-up 806 s, capin 397-495 s, metrics 3 x ~4 min, layout ~3 min, about 68 min. Sum: about
+# 2 h 35 min (estimate; an idle machine should be faster). The groups can run in separate windows:
+# --only friendster (~70 min; its prepare step needs ~3 min), --only quality (~20 min with
+# prepare), --only stability (~66 min, after quality). Disk: up to ~10 GB of cut graph per
+# Friendster round in {work}/friendster (overwritten each round), up to ~30 GB of m102 spill,
+# 25 GB for capin's hierarchy output (m102 out of core with --out-hier keeps every level's
+# quotient store), the cold copies.
+
+schema = 1
+name = "hierarchy-shaping"
+description = "Issue #19: shaping a community hierarchy for the map, candidates compared on four graphs, the chosen one on Friendster under 16 GiB"
+reference = "plan/issues/m1-05-hierarchy-shaping.md; docs/FINDINGS.md § B2, § E, § M1-01, § M1-02"
+binaries = ["{m102}", "{gmap}", "{lab}/shape.py"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 1
+warmup = 0
+threads = [16]
+timeout = "30m"
+
+[gate]
+max_load = 1.0
+disturbed_above_cores = 0.5
+disturbed_above_io_mb_s = 50
+
+[vars]
+m102 = "{repo}/lab/m1-02-ooc-leiden/target/release/m102"
+gmap = "{repo}/lab/e-map/gmap/target/release/gmap"
+lab = "{repo}/lab/m1-05-hierarchy-shaping"
+py = "{work}/venv/bin/python"
+shape = "{py} -I {lab}/shape.py"
+fr = "--ooc --budget-gb 10"
+
+[[prepare]]
+name = "build-m102"
+cwd = "{repo}/lab/m1-02-ooc-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+
+[[prepare]]
+name = "build-gmap"
+cwd = "{repo}/lab/e-map/gmap"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+
+[[prepare]]
+name = "python"
+creates = "{work}/venv/bin/python"
+shell = "uv venv -q {work}/venv && VIRTUAL_ENV={work}/venv uv pip install -q --offline numpy==2.5.5"
+
+[[prepare]]
+name = "plain-small"
+creates = "{work}/roadnet-ca/plain.memb.u32"
+shell = "for g in store-m113/lj store-m113/orkut store-m105/web-google store-m105/roadnet-ca; do {shape} solve --store {data}/$g --work {work}/${{g#*/}} --threads 16 || exit 1; done"
+
+[[prepare]]
+name = "plain-friendster"
+creates = "{work}/friendster/plain.memb.u32"
+memory_limit = "16G"
+needed_by = ["shape-friendster", "shape-friendster-up", "metrics-friendster", "layout-friendster"]
+shell = "{shape} solve --store {data}/store-m113/friendster --work {work}/friendster --no-hier --threads 16 {fr}"
+
+# --- quality: every candidate on four graphs -------------------------------------------
+
+[[benchmark]]
+name = "quality-social"
+group = "quality"
+description = "every candidate on lj and orkut: build the tree, then its metrics"
+dataset_path = "store-m113/{graph}"
+matrix = { graph = ["lj", "orkut"], method = ["capin", "capin+agg", "sat", "capafter", "rec", "rec-up", "nest", "nest-up"] }
+shell = "{shape} build --method {method} --store {dataset} --work {work}/{graph} --threads {threads} > {case_work}/build.json && {shape} metrics --tree {work}/{graph}/tree_{method}.npz --store {dataset} --graph {graph} --plain-json {work}/{graph}/plain.json --out {case_work}/metrics.json --threads {threads}"
+conditions = { graph = "{graph}", method = "{method}", algorithm = "Leiden deterministic, 1 iteration", storage = "compressed level 0 (mmap, warm)", fanout_target = "64" }
+metric = [
+  { name = "fanout_median", json = "/fanout_median" },
+  { name = "fanout_p95", json = "/fanout_p95" },
+  { name = "fanout_max", json = "/fanout_max" },
+  { name = "share_parents_4_64", json = "/share_parents_4_64" },
+  { name = "share_parents_2_3", json = "/share_parents_2_3" },
+  { name = "leaf_nodes_median", json = "/leaf_nodes_median" },
+  { name = "leaf_nodes_max", json = "/leaf_nodes_max" },
+  { name = "nodes_in_leaves_over_384", json = "/nodes_in_leaves_over_kmax" },
+  { name = "share_nodes_under_aggregate", json = "/share_nodes_under_aggregate" },
+  { name = "modularity_plain", json = "/modularity_plain" },
+  { name = "modularity_d1_drawn", json = "/modularity_d1_drawn" },
+  { name = "modularity_d1_resolved", json = "/modularity_d1" },
+  { name = "modularity_super", json = "/modularity_super", optional = true },
+  { name = "modularity_t", json = "/modularity_T" },
+  { name = "modularity_t1", json = "/modularity_T1", optional = true },
+  { name = "modularity_t2", json = "/modularity_T2", optional = true },
+  { name = "conductance_t1", json = "/conductance_T1", optional = true },
+  { name = "conductance_t2", json = "/conductance_T2", optional = true },
+  { name = "depth_max", json = "/depth_max" },
+  { name = "tree_nodes", json = "/tree_nodes" },
+]
+primary = "share_parents_4_64"
+
+[[benchmark]]
+name = "quality-nonsocial"
+group = "quality"
+description = "every candidate on web-google and roadnet-ca"
+dataset_path = "store-m105/{graph}"
+matrix = { graph = ["web-google", "roadnet-ca"], method = ["capin", "capin+agg", "sat", "capafter", "rec", "rec-up", "nest", "nest-up"] }
+shell = "{shape} build --method {method} --store {dataset} --work {work}/{graph} --threads {threads} > {case_work}/build.json && {shape} metrics --tree {work}/{graph}/tree_{method}.npz --store {dataset} --graph {graph} --plain-json {work}/{graph}/plain.json --out {case_work}/metrics.json --threads {threads}"
+conditions = { graph = "{graph}", method = "{method}", algorithm = "Leiden deterministic, 1 iteration", storage = "compressed level 0 (mmap, warm)", fanout_target = "64" }
+metric = [
+  { name = "fanout_median", json = "/fanout_median" },
+  { name = "fanout_p95", json = "/fanout_p95" },
+  { name = "fanout_max", json = "/fanout_max" },
+  { name = "share_parents_4_64", json = "/share_parents_4_64" },
+  { name = "share_parents_2_3", json = "/share_parents_2_3" },
+  { name = "leaf_nodes_median", json = "/leaf_nodes_median" },
+  { name = "leaf_nodes_max", json = "/leaf_nodes_max" },
+  { name = "nodes_in_leaves_over_384", json = "/nodes_in_leaves_over_kmax" },
+  { name = "share_nodes_under_aggregate", json = "/share_nodes_under_aggregate" },
+  { name = "modularity_plain", json = "/modularity_plain" },
+  { name = "modularity_d1_drawn", json = "/modularity_d1_drawn" },
+  { name = "modularity_d1_resolved", json = "/modularity_d1" },
+  { name = "modularity_super", json = "/modularity_super", optional = true },
+  { name = "modularity_t", json = "/modularity_T" },
+  { name = "modularity_t1", json = "/modularity_T1", optional = true },
+  { name = "modularity_t2", json = "/modularity_T2", optional = true },
+  { name = "conductance_t1", json = "/conductance_T1", optional = true },
+  { name = "conductance_t2", json = "/conductance_T2", optional = true },
+  { name = "depth_max", json = "/depth_max" },
+  { name = "tree_nodes", json = "/tree_nodes" },
+]
+primary = "share_parents_4_64"
+
+# The known bug of the cap baseline (ADR 0016): with --iterations 2 the second iteration's
+# refinement ignored the cap (its bound is the previous flat partition), so the lowest levels had
+# parents with 28,847 and 53,972 children on lj. Fixed in m102's refine (refined communities are
+# capped too). /fanout/k/max is the maximum fan-out of kept level k (after compaction).
+[[benchmark]]
+name = "capfix-lj"
+group = "quality"
+description = "cap baseline with 1 and 2 iterations after the refinement fix: maximum fan-out of the lowest levels"
+dataset_path = "store-m113/lj"
+matrix = { iterations = ["1", "2"] }
+command = ["{m102}", "leiden", "run", "--config", "comp", "--store", "{dataset}", "--mem", "mmap", "--threads", "{threads}", "--det", "--cap", "64", "--max-passes", "20", "--min-ratio", "3", "--iterations", "{iterations}"]
+conditions = { graph = "lj", algorithm = "Leiden deterministic, cap 64, compaction 3", iterations = "{iterations}" }
+metric = [
+  { name = "fanout_max_level0", json = "/fanout/0/max" },
+  { name = "fanout_max_level1", json = "/fanout/1/max" },
+  { name = "fanout_max_level2", json = "/fanout/2/max" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+]
+primary = "fanout_max_level1"
+
+# --- stability: six perturbations, every variant rebuilt and compared level by level --------
+
+[[benchmark]]
+name = "stability"
+group = "stability"
+description = "ARI and NMI between the tree of the graph and the trees of 6 perturbed graphs (1% of the edges dropped, seeds 11-15; seed 21 without isolating any node), levels matched by role (super, T, T+1, T+2), aggregates resolved, nodes the drop isolated left out; medians over the 6"
+dataset_path = "store-m113/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+timeout = "60m"
+env = { S = "{work}", PY = "{py}", NOLIM = "1", OUT = "{case_work}/stab.jsonl" }
+shell = "{lab}/dev_stab.sh {graph} {dataset} capin sat capafter rec rec-up nest nest-up"
+conditions = { graph = "{graph}", perturbation = "1% of undirected edges dropped, 6 hash seeds", comparison = "by role, aggregates resolved, isolated nodes left out" }
+metric = [
+  { name = "perturbations", json = "/perturbations" },
+  { name = "rec_t_ari", json = "/rec__T__ari_median" },
+  { name = "rec_t1_ari", json = "/rec__T+1__ari_median" },
+  { name = "rec_t1_nmi", json = "/rec__T+1__nmi_median" },
+  { name = "rec_t2_nmi", json = "/rec__T+2__nmi_median" },
+  { name = "recup_super_ari", json = "/rec-up__super__ari_median", optional = true },
+  { name = "recup_t1_ari", json = "/rec-up__T+1__ari_median" },
+  { name = "sat_t1_ari", json = "/sat__T+1__ari_median" },
+  { name = "sat_t1_nmi", json = "/sat__T+1__nmi_median" },
+  { name = "nestup_t1_ari", json = "/nest-up__T+1__ari_median" },
+  { name = "nestup_t1_nmi", json = "/nest-up__T+1__nmi_median" },
+  { name = "capin_t_ari", json = "/capin__T__ari_median" },
+  { name = "capin_t1_ari", json = "/capin__T+1__ari_median" },
+  { name = "rec_auto_super_flips", json = "/rec_auto_super_flips" },
+]
+primary = "rec_t1_nmi"
+
+# --- Friendster under 16 GiB --------------------------------------------------------------
+
+[[benchmark]]
+name = "solve-friendster"
+group = "friendster"
+description = "the plain partition alone: m102 deterministic Leiden out of core, 16 GiB (the input of the shaping; the reference)"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+memory_limit = "16G"
+repetitions = 2
+shell = "{shape} solve --store {dataset} --work {case_work} --no-hier --threads {threads} {fr} && cat {case_work}/plain.json"
+conditions = { graph = "friendster", algorithm = "Leiden deterministic, 1 iteration", mode = "out of core, 16 GiB, accountant budget 10 GB", storage = "compressed level 0 (mmap, cold copy)", timing = "the Leiden run (time_s); wall time includes open and the flat membership write" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]
+
+[[benchmark]]
+name = "shape-friendster"
+group = "friendster"
+description = "the recommended variant (rec, super level by the 90%-cover rule: not built on Friendster): shaping of the plain partition (from the prepare step) under 16 GiB: driver plus every cutgraph and Leiden run, the super level when built, the post-pass"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+memory_limit = "16G"
+timeout = "60m"
+matrix = { variant = ["rec"] }
+repetitions = 2
+shell = "{shape} build --method {variant} --store {dataset} --work {work}/friendster --threads {threads} {fr}"
+conditions = { graph = "friendster", method = "{variant}", mode = "out of core, 16 GiB, accountant budget 10 GB", storage = "compressed level 0 (mmap, cold copy); cut graphs as compressed stores in {work}", timing = "wall time of the whole shaping (all rounds, the super level, the post-pass, writing the tree)" }
+metric = [
+  { name = "build_seconds", json = "/build_s", unit = "s" },
+  { name = "rounds", json = "/split/rounds" },
+  { name = "cutgraph_seconds", json = "/split/cutgraph_s", unit = "s" },
+  { name = "leiden_seconds", json = "/split/leiden_s", unit = "s" },
+  { name = "leiden_wall_seconds", json = "/split/leiden_wall_s", unit = "s" },
+  { name = "upward_seconds", json = "/split/upward_s", unit = "s" },
+  { name = "post_seconds", json = "/split/post_s", unit = "s" },
+  { name = "max_round_leiden_anon_peak", json = "/split/max_round_leiden_anon_peak_kb", scale = 1024, unit = "B" },
+  { name = "max_upward_leiden_anon_peak", json = "/split/max_upward_leiden_anon_peak_kb", scale = 1024, unit = "B" },
+  { name = "driver_maxrss", json = "/driver_maxrss_kb", scale = 1024, unit = "B" },
+  { name = "tree_nodes_before_post", json = "/tree_nodes_before_post" },
+]
+primary = "build_seconds"
+
+[[benchmark]]
+name = "shape-friendster-up"
+group = "friendster"
+description = "rec-up (super level always: one more out-of-core Leiden at resolution 1/2), single run for its cost: shaping of the plain partition under 16 GiB: driver plus every cutgraph and Leiden run, the super level when built, the post-pass"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+memory_limit = "16G"
+timeout = "60m"
+matrix = { variant = ["rec-up"] }
+repetitions = 1
+shell = "{shape} build --method {variant} --store {dataset} --work {work}/friendster --threads {threads} {fr}"
+conditions = { graph = "friendster", method = "{variant}", mode = "out of core, 16 GiB, accountant budget 10 GB", storage = "compressed level 0 (mmap, cold copy); cut graphs as compressed stores in {work}", timing = "wall time of the whole shaping (all rounds, the super level, the post-pass, writing the tree)" }
+metric = [
+  { name = "build_seconds", json = "/build_s", unit = "s" },
+  { name = "rounds", json = "/split/rounds" },
+  { name = "cutgraph_seconds", json = "/split/cutgraph_s", unit = "s" },
+  { name = "leiden_seconds", json = "/split/leiden_s", unit = "s" },
+  { name = "leiden_wall_seconds", json = "/split/leiden_wall_s", unit = "s" },
+  { name = "upward_seconds", json = "/split/upward_s", unit = "s" },
+  { name = "post_seconds", json = "/split/post_s", unit = "s" },
+  { name = "max_round_leiden_anon_peak", json = "/split/max_round_leiden_anon_peak_kb", scale = 1024, unit = "B" },
+  { name = "max_upward_leiden_anon_peak", json = "/split/max_upward_leiden_anon_peak_kb", scale = 1024, unit = "B" },
+  { name = "driver_maxrss", json = "/driver_maxrss_kb", scale = 1024, unit = "B" },
+  { name = "tree_nodes_before_post", json = "/tree_nodes_before_post" },
+]
+primary = "build_seconds"
+
+[[benchmark]]
+name = "capin-friendster"
+group = "friendster"
+description = "the cap baseline under 16 GiB: map-shaped deterministic Leiden out of core, then its tree (single run)"
+dataset_path = "store-m113/friendster"
+cache = "cold"
+memory_limit = "16G"
+shell = "{shape} build --method capin --store {dataset} --work {work}/friendster --threads {threads} {fr}"
+conditions = { graph = "friendster", method = "capin", mode = "out of core, 16 GiB, accountant budget 10 GB", storage = "compressed level 0 (mmap, cold copy); quotient graphs as compressed stores on disk (25 GB of hierarchy output, exploratory)" }
+metric = [
+  { name = "build_seconds", json = "/build_s", unit = "s" },
+  { name = "leiden_seconds", json = "/solve/time_s", unit = "s" },
+  { name = "modularity", json = "/solve/modularity" },
+  { name = "driver_maxrss", json = "/driver_maxrss_kb", scale = 1024, unit = "B" },
+]
+primary = "build_seconds"
+
+[[benchmark]]
+name = "metrics-friendster"
+group = "friendster-evaluation"
+description = "EVALUATION ONLY, outside the 16 GiB claim: metrics of the Friendster trees under 24 GiB (the metrics keep two depth memberships and their dense relabelling)"
+dataset_path = "store-m113/friendster"
+memory_limit = "24G"
+matrix = { method = ["rec", "rec-up", "capin"] }
+shell = "{shape} metrics --tree {work}/friendster/tree_{method}.npz --store {dataset} --graph friendster --plain-json {work}/friendster/plain.json --out {case_work}/metrics.json --threads {threads}"
+conditions = { graph = "friendster", method = "{method}", note = "evaluation, not part of the shaping's 16 GiB measurement" }
+metric = [
+  { name = "fanout_median", json = "/fanout_median" },
+  { name = "fanout_p95", json = "/fanout_p95" },
+  { name = "fanout_max", json = "/fanout_max" },
+  { name = "share_parents_4_64", json = "/share_parents_4_64" },
+  { name = "leaf_nodes_median", json = "/leaf_nodes_median" },
+  { name = "leaf_nodes_max", json = "/leaf_nodes_max" },
+  { name = "nodes_in_leaves_over_384", json = "/nodes_in_leaves_over_kmax" },
+  { name = "share_nodes_under_aggregate", json = "/share_nodes_under_aggregate" },
+  { name = "modularity_plain", json = "/modularity_plain" },
+  { name = "modularity_d1_drawn", json = "/modularity_d1_drawn" },
+  { name = "modularity_d1_resolved", json = "/modularity_d1" },
+  { name = "modularity_super", json = "/modularity_super", optional = true },
+  { name = "modularity_t", json = "/modularity_T" },
+  { name = "modularity_t1", json = "/modularity_T1", optional = true },
+  { name = "conductance_t1", json = "/conductance_T1", optional = true },
+  { name = "depth_max", json = "/depth_max" },
+]
+primary = "share_parents_4_64"
+
+[[benchmark]]
+name = "layout-friendster"
+group = "friendster"
+description = "the lab layout places the rec hierarchy under 16 GiB (graph memory-mapped, as the tracer's 16 GiB layout)"
+dataset_path = "csr/friendster"
+memory_limit = "16G"
+matrix = { variant = ["rec"] }
+env = { GMAP_LOAD = "mmap", GMAP_THREADS = "{threads}" }
+shell = "{shape} export --tree {work}/friendster/tree_{variant}.npz --graph friendster --out {case_work}/hier > /dev/null && {gmap} layout --graph {dataset} --hier {case_work}/hier --out {case_work}/layout"
+conditions = { graph = "friendster", hierarchy = "{variant}", load = "CSR memory-mapped (glab-csr-v0)", timing = "export of the tree plus the layout (layout_s is the layout alone)" }
+metric = [
+  { name = "layout_seconds", json = "/layout_s", unit = "s" },
+  { name = "derived_regions_by_layout", json = "/virtual" },
+  { name = "max_depth", json = "/max_depth" },
+  { name = "tree_nodes", json = "/tnodes_alive" },
+]
+primary = "layout_seconds"
