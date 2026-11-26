@@ -603,7 +603,7 @@ fn process(c: &Ctx, p: u32) -> Res {
                         unsafe { c.pos.set(u as usize, [t.x + t.r * lay[i][0], t.y + t.r * lay[i][1]]) };
                         unsafe { c.noder.set(u as usize, t.r * lay[i][2]) };
                     }
-                    rad[0] * t.r
+                    rad[0]
                 }
             };
             return Res { tid: p, internal: acc.internal, out: Out::Leaf(nr), area: (0.0, 0.0), mis };

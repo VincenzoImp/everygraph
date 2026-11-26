@@ -57,15 +57,25 @@ fn power_cells(poly: &[[f64; 2]], s: &[[f64; 2]], w: &[f64]) -> Vec<Poly> {
     let k = s.len();
     let wmax = w.iter().fold(0f64, |a, &b| a.max(b));
     let mut order: Vec<(f64, u32)> = Vec::with_capacity(k);
-    let (mut cur, mut tmp) = (Vec::with_capacity(poly.len() + 8), Vec::with_capacity(poly.len() + 8));
+    let (mut cur, mut tmp) = (
+        Vec::with_capacity(poly.len() + 8),
+        Vec::with_capacity(poly.len() + 8),
+    );
     let mut cells = Vec::with_capacity(k);
     for i in 0..k {
         order.clear();
-        order.extend((0..k).filter(|&j| j != i).map(|j| ((s[j][0] - s[i][0]).hypot(s[j][1] - s[i][1]), j as u32)));
+        order.extend(
+            (0..k)
+                .filter(|&j| j != i)
+                .map(|j| ((s[j][0] - s[i][0]).hypot(s[j][1] - s[i][1]), j as u32)),
+        );
         order.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         cur.clear();
         cur.extend_from_slice(poly);
-        let mut rmax = cur.iter().map(|x| (x[0] - s[i][0]).hypot(x[1] - s[i][1])).fold(0f64, f64::max);
+        let mut rmax = cur
+            .iter()
+            .map(|x| (x[0] - s[i][0]).hypot(x[1] - s[i][1]))
+            .fold(0f64, f64::max);
         for &(d, j) in &order {
             // no point within rmax of s_i is closer in power distance to any site this far away
             if d > rmax && (d - rmax).powi(2) >= rmax * rmax - w[i] + wmax {
@@ -73,13 +83,19 @@ fn power_cells(poly: &[[f64; 2]], s: &[[f64; 2]], w: &[f64]) -> Vec<Poly> {
             }
             let j = j as usize;
             let a = [2.0 * (s[j][0] - s[i][0]), 2.0 * (s[j][1] - s[i][1])];
-            let b = (s[j][0] * s[j][0] + s[j][1] * s[j][1]) - (s[i][0] * s[i][0] + s[i][1] * s[i][1]) - w[j] + w[i];
+            let b = (s[j][0] * s[j][0] + s[j][1] * s[j][1])
+                - (s[i][0] * s[i][0] + s[i][1] * s[i][1])
+                - w[j]
+                + w[i];
             clip(&cur, a, b, &mut tmp);
             std::mem::swap(&mut cur, &mut tmp);
             if cur.len() < 3 {
                 break;
             }
-            rmax = cur.iter().map(|x| (x[0] - s[i][0]).hypot(x[1] - s[i][1])).fold(0f64, f64::max);
+            rmax = cur
+                .iter()
+                .map(|x| (x[0] - s[i][0]).hypot(x[1] - s[i][1]))
+                .fold(0f64, f64::max);
         }
         cells.push(cur.clone());
     }
@@ -100,7 +116,11 @@ pub fn layout(poly: &[[f64; 2]], start: &[[f64; 2]], share: &[f64], iters: usize
     let k = start.len();
     let (pa, pc) = area_centroid(poly);
     if k == 1 {
-        return Some(Cells { sites: vec![pc], cells: vec![poly.to_vec()], misallocated: 0.0 });
+        return Some(Cells {
+            sites: vec![pc],
+            cells: vec![poly.to_vec()],
+            misallocated: 0.0,
+        });
     }
     // sites strictly inside the parent, pairwise distinct
     let mut s: Vec<[f64; 2]> = start
@@ -111,7 +131,10 @@ pub fn layout(poly: &[[f64; 2]], start: &[[f64; 2]], share: &[f64], iters: usize
             let mut t = 1.0;
             while !inside(poly, x) && t > 1e-3 {
                 t *= 0.9;
-                x = [pc[0] + t * (start[i][0] - pc[0]), pc[1] + t * (start[i][1] - pc[1])];
+                x = [
+                    pc[0] + t * (start[i][0] - pc[0]),
+                    pc[1] + t * (start[i][1] - pc[1]),
+                ];
             }
             if !inside(poly, x) {
                 x = pc;
@@ -123,15 +146,25 @@ pub fn layout(poly: &[[f64; 2]], start: &[[f64; 2]], share: &[f64], iters: usize
     for i in 1..k {
         while (0..i).any(|j| (s[i][0] - s[j][0]).hypot(s[i][1] - s[j][1]) < eps) {
             let a = i as f64 * 2.399963;
-            let t = [s[i][0] + 10.0 * eps * a.cos(), s[i][1] + 10.0 * eps * a.sin()];
-            s[i] = if inside(poly, t) { t } else { [0.5 * (s[i][0] + pc[0]), 0.5 * (s[i][1] + pc[1])] };
+            let t = [
+                s[i][0] + 10.0 * eps * a.cos(),
+                s[i][1] + 10.0 * eps * a.sin(),
+            ];
+            s[i] = if inside(poly, t) {
+                t
+            } else {
+                [0.5 * (s[i][0] + pc[0]), 0.5 * (s[i][1] + pc[1])]
+            };
         }
     }
     let target: Vec<f64> = share.iter().map(|&f| f * pa).collect();
     let mut w: Vec<f64> = target.iter().map(|&t| t / std::f64::consts::PI).collect();
     let cap = |s: &[[f64; 2]], w: &mut [f64]| {
         for i in 0..k {
-            let dmin = (0..k).filter(|&j| j != i).map(|j| (s[i][0] - s[j][0]).powi(2) + (s[i][1] - s[j][1]).powi(2)).fold(f64::MAX, f64::min);
+            let dmin = (0..k)
+                .filter(|&j| j != i)
+                .map(|j| (s[i][0] - s[j][0]).powi(2) + (s[i][1] - s[j][1]).powi(2))
+                .fold(f64::MAX, f64::min);
             w[i] = w[i].max(1e-12 * pa).min(0.98 * dmin);
         }
     };
@@ -161,7 +194,11 @@ pub fn layout(poly: &[[f64; 2]], start: &[[f64; 2]], share: &[f64], iters: usize
         }
         mis += (a - target[i]).abs();
     }
-    Some(Cells { sites: s, cells, misallocated: mis / (2.0 * pa) })
+    Some(Cells {
+        sites: s,
+        cells,
+        misallocated: mis / (2.0 * pa),
+    })
 }
 
 /// Largest inscribed circle of a counter-clockwise convex polygon: bisection on the radius;
@@ -198,7 +235,11 @@ pub fn inscribed(p: &[[f64; 2]]) -> ([f64; 2], f64) {
             hi = mid;
         } else {
             lo = mid;
-            best = if cur.len() >= 3 { area_centroid(&cur).1 } else { cur[0] };
+            best = if cur.len() >= 3 {
+                area_centroid(&cur).1
+            } else {
+                cur[0]
+            };
         }
     }
     (best, lo)
@@ -206,10 +247,12 @@ pub fn inscribed(p: &[[f64; 2]]) -> ([f64; 2], f64) {
 
 /// Counter-clockwise regular `n`-gon inscribed in a disc.
 pub fn disc(c: [f64; 2], r: f64, n: usize) -> Poly {
-    (0..n).map(|i| {
-        let a = i as f64 * std::f64::consts::TAU / n as f64;
-        [c[0] + r * a.cos(), c[1] + r * a.sin()]
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let a = i as f64 * std::f64::consts::TAU / n as f64;
+            [c[0] + r * a.cos(), c[1] + r * a.sin()]
+        })
+        .collect()
 }
 
 #[cfg(test)]

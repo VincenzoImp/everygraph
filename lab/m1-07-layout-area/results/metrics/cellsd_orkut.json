@@ -1,0 +1,117 @@
+{
+ "layout": "cellsd",
+ "pos": "/home/tux/graphlab/scratch/m1-07-layout-area/pos/cellsd_orkut.f32",
+ "seeds": "fixed (numpy default_rng 1..5)",
+ "n": 3072441,
+ "edges": {
+  "m": 117185083,
+  "random_pairs": 10000000,
+  "median_ratio": 0.10891953789606244,
+  "mean_ratio": 0.3185873768151996,
+  "p90_over_random_median": 1.0029748077491738,
+  "p90_ratio": 0.6060279803295155,
+  "edge_len_cv": 1.3479925109021955,
+  "frac_shorter_than_1pct_of_random_median": 0.25366077523706665
+ },
+ "np1": 0.10892601179115517,
+ "np2": 0.05365038283578985,
+ "np_nodes": {
+  "np1": 10000,
+  "np2": 4957,
+  "np2_cap": 5000
+ },
+ "quotient_np": [
+  {
+   "level": 0,
+   "communities": 722593,
+   "sampled": 10000,
+   "np1": 0.0565488397901212,
+   "np_top10": 0.10225638041181384,
+   "mean_quotient_degree": 177.60866767322685
+  },
+  {
+   "level": 1,
+   "communities": 121573,
+   "sampled": 10000,
+   "np1": 0.04700363400887435,
+   "np_top10": 0.09405200775488701,
+   "mean_quotient_degree": 572.1167199953937
+  },
+  {
+   "level": 2,
+   "communities": 22531,
+   "sampled": 10000,
+   "np1": 0.11945143845159244,
+   "np_top10": 0.09833815213166607,
+   "mean_quotient_degree": 1164.2738005414762
+  },
+  {
+   "level": 3,
+   "communities": 4613,
+   "sampled": 4613,
+   "np1": 0.22253706726416522,
+   "np_top10": 0.09399448761502023,
+   "mean_quotient_degree": 892.6323433774116
+  },
+  {
+   "level": 4,
+   "communities": 1031,
+   "sampled": 1031,
+   "np1": 0.13673131653933637,
+   "np_top10": 0.07567819469381871,
+   "mean_quotient_degree": 196.627546071775
+  },
+  {
+   "level": 5,
+   "communities": 313,
+   "sampled": 313,
+   "np1": 0.0828229338180656,
+   "np_top10": 0.05086793332967875,
+   "mean_quotient_degree": 23.440894568690094
+  },
+  {
+   "level": 6,
+   "communities": 84,
+   "sampled": 83,
+   "np1": 0.0686488494472348,
+   "np_top10": 0.06720655515836238,
+   "mean_quotient_degree": 3.3214285714285716
+  },
+  {
+   "level": 7,
+   "communities": 14,
+   "sampled": 0,
+   "np1": null,
+   "np_top10": null,
+   "mean_quotient_degree": 13.0
+  }
+ ],
+ "stress": {
+  "pairs": 100000,
+  "sources": 100,
+  "alpha": 7.756189225177823,
+  "normalized_stress_at_optimal_scale": 0.1879691655441406,
+  "spearman_layout_vs_graph_distance": 0.3059999096415382,
+  "mean_hops": 4.23069
+ },
+ "ground_truth": {
+  "source": "/home/tux/graphlab/scratch/m1-07-layout-area/gt/com-orkut.top5000.cmty.txt.gz",
+  "labelled_nodes": 494179,
+  "communities": 4589,
+  "silhouette": -0.7671476597610692,
+  "knn10_label_agreement": 0.5243347046313178,
+  "kmeans_ari": 0.18991675893817353,
+  "chance_knn10": 0.000798994712200529,
+  "hierarchy_level_ari_reference": [
+   0.03142163859352369,
+   0.11058703917665877,
+   0.21765988823761634,
+   0.22851983204665713,
+   0.08294985517597647,
+   0.027000076982127447,
+   0.005136622079398996,
+   0.005136477207840061
+  ]
+ },
+ "metrics_s": 1219.2
+}

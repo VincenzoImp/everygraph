@@ -1,0 +1,5 @@
+hcls_lj_t8 {"depth 1": -3.1024, "depth 2": 0.0149, "depth 3": -0.0001, "depth 4": 0.0001, "depth 5": 0.0002, "depth 6": -0.0, "depth 7": -0.0, "depth 8": 0.0, "node": 0.0}
+hclsb_lj_t8 {"depth 1": -3.2045, "depth 2": 0.0539, "depth 3": 0.0627, "depth 4": 0.0069, "depth 5": 0.0023, "depth 6": 0.0012, "depth 7": 0.0007, "depth 8": 0.0, "node": 0.001}
+hclsb10_lj_t8 {"depth 1": -3.192, "depth 2": 0.0531, "depth 3": 0.0618, "depth 4": 0.0069, "depth 5": 0.0024, "depth 6": 0.0011, "depth 7": 0.0007, "depth 8": 0.0, "node": 0.001}
+cells_lj_t8 {"depth 1": -2.3532, "depth 2": -0.0159, "depth 3": -0.0045, "depth 4": 0.0005, "depth 5": 0.0004, "depth 6": 0.0, "depth 7": -0.0, "depth 8": 0.0, "node": 0.0}
+cellsb_lj_t8 {"depth 1": -2.4803, "depth 2": 0.012, "depth 3": 0.0152, "depth 4": 0.0026, "depth 5": 0.0009, "depth 6": 0.0009, "depth 7": 0.0008, "depth 8": 0.0, "node": 0.002}

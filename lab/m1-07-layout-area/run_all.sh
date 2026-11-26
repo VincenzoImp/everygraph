@@ -1,13 +1,14 @@
 #!/bin/bash
 # m1-07 (#21): layout area and the global gap, lj and orkut.
 #
-#   ./run_all.sh [build] [layouts] [determinism] [metrics] [tiles]   (default: all)
+#   ./run_all.sh [build] [layouts] [determinism] [metrics] [diagnostics] [tiles]   (default: all)
 #
 # build        gmap (lab/e-map/gmap) into $S/target; a Python env with numpy, scipy, scikit-learn
-# layouts      hcl hcls hclsb cells cellsb at 8 threads (layouts.sh), 8G each
+# layouts      hcl hcls hclsb cells cellsb cellsd at 8 threads (layouts.sh), 8G each
 # determinism  the same at 1 thread; pos.f32, tnodes.bin, order.u32 compared byte for byte
 # metrics      m1-18's metrics.py and crosslevel.py, unchanged, plus gap.py; 12G each
-# tiles        gmap tiles for hcl, hcls and cells (tile count, file size, zmax)
+# diagnostics  facing.py and depth_facing.py, gap.py on the extra variants
+# tiles        gmap tiles (zmax chosen by the tiles stage) for hcls, cells, cellsd: tile count, file size
 # Every time and memory figure is exploratory: the machine is shared.
 set -uo pipefail
 L="$(cd "$(dirname "$0")" && pwd)"
@@ -17,9 +18,9 @@ export S=${S:-/home/tux/graphlab/scratch/m1-07-layout-area}
 D=${EVERYGRAPH_DATA:-/home/tux/graphlab/data}
 PY="$S/env/bin/python -I"
 GT=$S/gt
-V=${VARIANTS:-hcl hcls hclsb cells cellsb}
+V=${VARIANTS:-hcl hcls hclsb cells cellsb cellsd}
 G=${GRAPHS:-lj orkut}
-STEPS=${*:-build layouts determinism metrics tiles}
+STEPS=${*:-build layouts determinism metrics diagnostics tiles}
 mkdir -p "$S"/{pos,out,logs} "$GT" "$R"/{layout,metrics,tiles}
 lim() { systemd-run --user --scope -q -p MemoryMax="$1" -p MemorySwapMax=0 nice -n 10 "${@:2}"; }
 
@@ -66,11 +67,24 @@ if [[ $STEPS == *metrics* ]]; then
   done
 fi
 
+if [[ $STEPS == *diagnostics* ]]; then
+  for g in $G; do
+    lim 12G $PY "$L/facing.py" "$D/csr/$g" "$D/hier/$g" 6 "$S/pos/hcls_$g.f32" "$R/facing_$g.json" > /dev/null
+    "$L/layouts.sh" $g 8 hclsb3 hclsb10 hclsb100
+    lim 12G $PY "$L/gap.py" "$D/csr/$g" "$D/hier/$g" 6 "$R/gap_extra_$g.json" \
+      $(for v in hclsb3 hclsb10 hclsb100; do echo "$v=$S/pos/${v}_$g.f32"; done) > /dev/null
+    for v in hclsb3 hclsb10 hclsb100; do cp "$S/out/${v}_${g}_t8/layout.json" "$R/layout/${v}_$g.json"; done
+    lim 12G $PY "$L/depth_facing.py" "$D/csr/$g" "$D/hier/$g" 6 \
+      $(for v in hcls hclsb hclsb10 cells cellsb; do echo "$S/out/${v}_${g}_t8"; done) > "$R/depth_facing_$g.txt"
+  done
+fi
+
 if [[ $STEPS == *tiles* ]]; then
   for g in $G; do
-    for v in hcl hcls cells; do
+    for v in hcls cells cellsd; do
       lim 8G env GMAP_THREADS=8 "$S/target/release/gmap" tiles --graph "$D/csr/$g" --layout "$S/out/${v}_${g}_t8" \
         --out "$S/out/tiles_${v}_$g.pmtiles" > "$R/tiles/${v}_$g.json" 2> "$S/logs/tiles_${v}_$g.err" || echo "tiles $v $g failed"
+      rm -f "$S/out/tiles_${v}_$g.pmtiles"
     done
   done
 fi
