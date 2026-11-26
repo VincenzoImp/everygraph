@@ -3,9 +3,10 @@
 //! The kernels of the crate against the LDBC Graphalytics reference outputs (#177), with
 //! the specification's match rules: BFS (direction-optimizing, bottom-up along the true
 //! in-lists of a directed graph), `PageRank` (f64, the data set's fixed iteration count:
-//! `tol = 0`, directed and undirected), SSSP on weighted data sets, and the proof WCC on
-//! the merged lists of a directed graph. Each runs on raw arrays and on targets streamed
-//! from a file, at 1 and 8 threads; the results must be identical bit for bit as well.
+//! `tol = 0`, directed and undirected), SSSP on weighted data sets, and WCC (#48),
+//! sampled and in one pass, on the merged lists of a directed graph. Each runs on raw
+//! arrays and on targets streamed from a file, at 1 and 8 threads; the results must be
+//! identical bit for bit as well.
 //!
 //! Opt-in: `EVERYGRAPH_LDBC_GRAPHS` names a directory with one unpacked data set per
 //! subdirectory (`oracle/ldbc-unpack.sh`; `oracle/run-ci.sh` sets it). Data sets with more
@@ -23,9 +24,9 @@ use std::sync::atomic::AtomicU32;
 
 use everygraph_core::{Memory, par};
 use everygraph_io::FileSource;
+use everygraph_kernels::components::{WccOptions, wcc};
 use everygraph_kernels::edge_map::{Csr, Plan, Settings, Source, Stream};
 use everygraph_kernels::pagerank::{Graph, PageRank, pagerank, strength};
-use everygraph_kernels::proof::wcc;
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs};
 use everygraph_oracle::ldbc::read::{Lists, merge_directions};
@@ -33,10 +34,11 @@ use everygraph_oracle::ldbc::run::{Row, row};
 use everygraph_oracle::ldbc::{Algorithm, Dataset, LdbcGraph, UNREACHABLE, Values};
 
 /// One algorithm on one pair of sources: `out` (out-lists, or symmetric lists) and `inn`
-/// (in-lists; the same lists on an undirected graph).
+/// (in-lists; the same lists on an undirected graph). `sample` is WCC's.
 fn run_on<S: Source>(
     (out, inn): (&S, &S),
     weights: Option<&[f64]>,
+    sample: bool,
     threads: usize,
     ds: &Dataset,
     g: &LdbcGraph,
@@ -75,7 +77,13 @@ fn run_on<S: Source>(
                         .collect(),
                 ))
             }
-            Algorithm::Wcc => wcc(&po, &memory).map(|(l, _)| ids(l)).map_err(e),
+            Algorithm::Wcc => {
+                let options = WccOptions {
+                    symmetric: true,
+                    sample,
+                };
+                wcc(&po, &memory, options).map(|(l, _)| ids(l)).map_err(e)
+            }
             Algorithm::Pr => {
                 let s = strength(&po, None, directed, &memory).map_err(e)?;
                 let graph = Graph {
@@ -141,11 +149,20 @@ fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
             Stream::new(inn.offsets, &fi).expect("stream"),
         );
         let mut first: Option<Values> = None;
-        for (name, threads) in [("raw", 1), ("raw", 8), ("stream", 1), ("stream", 8)] {
+        let samples: &[bool] = if a == Algorithm::Wcc {
+            &[true, false]
+        } else {
+            &[true]
+        };
+        let configs = samples.iter().flat_map(|&sample| {
+            [("raw", 1), ("raw", 8), ("stream", 1), ("stream", 8)].map(|(n, t)| (sample, n, t))
+        });
+        for (sample, name, threads) in configs {
+            let w = out.weights;
             let got = if name == "raw" {
-                run_on((&raw.0, &raw.1), out.weights, threads, &ds, &g, a)
+                run_on((&raw.0, &raw.1), w, sample, threads, &ds, &g, a)
             } else {
-                run_on((&streamed.0, &streamed.1), out.weights, threads, &ds, &g, a)
+                run_on((&streamed.0, &streamed.1), w, sample, threads, &ds, &g, a)
             };
             if let Ok(v) = &got {
                 let same = first.get_or_insert_with(|| v.clone()) == v;
@@ -160,7 +177,10 @@ fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
                 &ds,
                 &g.ids,
                 a,
-                &format!("kernels/{name}/{threads}"),
+                &format!(
+                    "kernels/{name}/{threads}{}",
+                    if sample { "" } else { "/one-pass" }
+                ),
                 got,
                 0.0,
             ));

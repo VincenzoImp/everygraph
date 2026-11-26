@@ -326,6 +326,7 @@ dependencies = [
  "everygraph-format",
  "everygraph-io",
  "everygraph-oracle",
+ "proptest",
 ]
 
 [[package]]

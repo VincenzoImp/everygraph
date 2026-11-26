@@ -13,8 +13,11 @@
 //!   eigenvector centrality, by pull power iteration (#47).
 //! - [`traversal`]: direction-optimizing BFS and bit-parallel multi-source BFS (#49).
 //! - [`sssp`]: weighted shortest distances by Δ*-stepping with bucket fusion (#49).
-//! - [`proof`]: connected components, written once on the framework; the production
-//!   kernel (#48) replaces it.
+//! - [`components`]: weakly connected components and their numbering (#48).
+//! - [`kcore`]: core numbers and shells (#50).
+//! - [`degrees`]: degree and strength columns (#50).
+//! - [`proof`]: the lab's Afforest on the framework, the first-neighbour baseline of
+//!   [`components`].
 //!
 //! A kernel body is a closure over one node and its list:
 //!
@@ -56,9 +59,20 @@
     clippy::disallowed_macros
 )]
 
+use std::sync::atomic::AtomicU32;
+
+use everygraph_core::Reservation;
+
+pub mod components;
+pub mod degrees;
 pub mod edge_map;
+pub mod kcore;
 pub mod pagerank;
 pub mod proof;
 pub mod sssp;
 pub mod traversal;
 mod weights;
+
+/// Per-node values in atomics, as a kernel computed them, and the reservation that
+/// holds them.
+pub type Atomics = (Vec<AtomicU32>, Reservation);
