@@ -195,6 +195,8 @@ metric = [
 #                    frames, O_DIRECT, CLOCK; 3.0 GiB at 8G and 0.75 GiB at 4G (about what the
 #                    page cache holds during local moving in the mmap runs), reserved in the
 #                    accountant and released before aggregation, which reads the map.
+# variant=cache4k-pf cache4k, plus one coalesced read of each block's missing frames when
+#                    local moving starts the block (--cache-prefetch)
 # Async mode, as M1-02's 406/799 GB: partitions differ run to run. Identity of the cache path
 # is checked in deterministic mode on lj (results/README.md).
 
@@ -203,10 +205,10 @@ name = "leiden-friendster-cache"
 group = "leiden-cache"
 description = "level-0 local moving at 8G and 4G: mmap, per-phase MADV_RANDOM, budgeted block cache (O_DIRECT), interleaved"
 dataset_path = "store-m113/friendster"
-matrix = { limit = ["8G", "4G"], pass = ["1", "2"], variant = ["none", "random-lm", "cache4k", "cache16k"] }
+matrix = { limit = ["8G", "4G"], pass = ["1", "2"], variant = ["none", "random-lm", "cache4k", "cache16k", "cache4k-pf"] }
 exclude = [{ limit = "4G", variant = "cache4k" }]
 memory_limit = "{limit}"
-shell = "case {limit} in 8G) c=3.0 ;; 4G) c=0.75 ;; esac; case {variant} in none) x='' ;; random-lm) x='--advise random-lm' ;; cache4k) x=\"--cache-gb $c --cache-frame-kb 4\" ;; cache16k) x=\"--cache-gb $c --cache-frame-kb 16\" ;; esac; exec python3 -I {probe} -- {m102} leiden run --config comp --algo leiden --threads {threads} --store {dataset} --mem mmap-lazy --ooc --spill {case_work}/spill $x"
+shell = "case {limit} in 8G) c=3.0 ;; 4G) c=0.75 ;; esac; case {variant} in none) x='' ;; random-lm) x='--advise random-lm' ;; cache4k) x=\"--cache-gb $c --cache-frame-kb 4\" ;; cache16k) x=\"--cache-gb $c --cache-frame-kb 16\" ;; cache4k-pf) x=\"--cache-gb $c --cache-frame-kb 4 --cache-prefetch\" ;; esac; exec python3 -I {probe} -- {m102} leiden run --config comp --algo leiden --threads {threads} --store {dataset} --mem mmap-lazy --ooc --spill {case_work}/spill $x"
 conditions = { graph = "friendster", algorithm = "Leiden async, 1 iteration", mode = "out of core, limit {limit}", access = "{variant}", storage = "compressed level 0 (mmap, cold copy); quotient graphs as compressed stores on disk", precision = "f64 weights (integer)", timing = "kernel only: excludes open and evaluation" }
 metric = [
   { name = "seconds", json = "/tool/time_s", unit = "s" },
@@ -219,6 +221,7 @@ metric = [
   { name = "cache_hits", json = "/tool/block_cache/hits", optional = true },
   { name = "cache_misses", json = "/tool/block_cache/misses", optional = true },
   { name = "cache_read_bytes", json = "/tool/block_cache/read_bytes", unit = "B", optional = true },
+  { name = "cache_coalesced_reads", json = "/tool/block_cache/coalesced_reads", optional = true },
   { name = "tool_read_bytes", json = "/cg/read_bytes", unit = "B" },
   { name = "refault_file", json = "/cg/delta/workingset_refault_file", unit = "pages" },
   { name = "major_faults", json = "/cg/delta/pgmajfault" },

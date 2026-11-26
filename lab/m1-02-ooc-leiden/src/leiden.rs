@@ -440,7 +440,11 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
             par_for(pool, ord.nb, ord.chunk(o.chunk), |tid, r| {
                 let mut guard = tls[tid].lock().unwrap();
                 let t = &mut *guard;
-                for u in r.flat_map(|j| ord.block(j)) {
+                for u in r.flat_map(|j| {
+                    let b = ord.block(j);
+                    cx.g.prefetch_nodes(&b);
+                    b
+                }) {
                     if cx.flag[u].load(Relaxed) == 0 {
                         continue;
                     }
@@ -1742,13 +1746,14 @@ pub fn main_leiden(args: Vec<String>) {
     });
     let load_s = t_load.elapsed().as_secs_f64();
     // m1-15: --cache-gb G reads level-0 records through a budgeted block cache
-    // (frames of --cache-frame-kb, default 16; O_DIRECT unless --cache-buffered)
+    // (frames of --cache-frame-kb, default 16; O_DIRECT unless --cache-buffered; one
+    // coalesced read per block of local moving with --cache-prefetch)
     if let Some(gb) = get("--cache-gb") {
         let frame = get("--cache-frame-kb").map(|s| s.parse::<usize>().expect("--cache-frame-kb")).unwrap_or(16) << 10;
         let bytes = (gb.parse::<f64>().expect("--cache-gb") * (1u64 << 30) as f64) as u64;
         let path = std::path::Path::new(&get("--store").expect("--cache-gb needs --store")).join("adj.bin");
         let c = g0.comp_mut().expect("--cache-gb needs --config comp");
-        c.cache = Some(crate::bcache::BlockCache::open(&path, bytes, frame, !has("--cache-buffered")).expect("block cache"));
+        c.cache = Some(crate::bcache::BlockCache::open(&path, bytes, frame, !has("--cache-buffered"), has("--cache-prefetch")).expect("block cache"));
     }
     // m1-02: the level-0 graph in the accountant (anonymous if read into the heap, else file-backed)
     let _r_g0: Vec<Res> = match g0.comp() {

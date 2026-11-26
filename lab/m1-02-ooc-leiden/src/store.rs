@@ -717,6 +717,14 @@ impl Comp {
         }
     }
 
+    /// m1-15: announces that the records of nodes lo..hi come next (block cache with
+    /// `coalesce` only).
+    pub fn prefetch_nodes(&self, lo: usize, hi: usize) {
+        if let Some(bc) = self.cache.as_ref().filter(|b| b.on() && b.coalesce) {
+            bc.prefetch(self.boff.get(lo), self.boff.get(hi));
+        }
+    }
+
     /// madvise on the mapped data (no-op for heap data).
     pub fn advise(&self, a: memmap2::Advice) {
         if let Buf::Mmap(m, _) = &self.data {

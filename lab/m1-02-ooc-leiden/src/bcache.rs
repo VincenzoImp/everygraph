@@ -8,8 +8,8 @@
 //!   run of neighbouring frames shares a lock.
 //! - A miss reads the 4 KiB-aligned frame with `pread`, with `O_DIRECT` when asked: then no
 //!   page cache is used and the bytes read are the misses times the frame size.
-//! - Not done: batched, sorted and coalesced requests for a whole frontier. Each list is one
-//!   request; a list that spans frames reads each missing frame on its own.
+//! - With `coalesce`, the caller announces each block of nodes (`prefetch`): its missing
+//!   frames are read with one `pread` per run. Not done: batching across blocks, io_uring.
 //!
 //! No `unsafe`: the frame memory is a `Vec<u8>`, aligned for `O_DIRECT` by skipping to the
 //! first 4 KiB boundary inside it.
@@ -44,6 +44,9 @@ pub struct BlockCache {
     slot_of: Vec<AtomicU32>,
     pub hits: AtomicU64,
     pub misses: AtomicU64,
+    pub coalesced_reads: AtomicU64,
+    /// `prefetch` does something only when this is set (`--cache-prefetch`)
+    pub coalesce: bool,
     pub read_bytes: AtomicU64,
     pub direct: bool,
     pub bytes: u64,
@@ -53,7 +56,7 @@ pub struct BlockCache {
 
 impl BlockCache {
     /// A cache of `bytes` (rounded down to whole frames, at least one per shard) over `path`.
-    pub fn open(path: &Path, bytes: u64, frame: usize, direct: bool) -> std::io::Result<BlockCache> {
+    pub fn open(path: &Path, bytes: u64, frame: usize, direct: bool, coalesce: bool) -> std::io::Result<BlockCache> {
         assert!(frame.is_power_of_two() && frame >= ALIGN, "frame size must be a power of two >= 4 KiB");
         let mut o = std::fs::OpenOptions::new();
         o.read(true);
@@ -85,6 +88,8 @@ impl BlockCache {
             slot_of,
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
+            coalesced_reads: AtomicU64::new(0),
+            coalesce,
             read_bytes: AtomicU64::new(0),
             direct,
             bytes: total,
@@ -126,8 +131,7 @@ impl BlockCache {
     }
 
     fn with_frame<F: FnOnce(&[u8])>(&self, f: u64, use_it: F) {
-        let nshards = self.shards.len() as u64;
-        let mut sh = self.shards[((f >> GROUP_BITS) % nshards) as usize].lock().unwrap();
+        let mut sh = self.shard(f);
         let fr = self.frame;
         let s = self.slot_of[f as usize].load(Relaxed);
         if s != EMPTY {
@@ -138,9 +142,66 @@ impl BlockCache {
             return;
         }
         self.misses.fetch_add(1, Relaxed);
-        // CLOCK: the first slot not referenced since the hand last passed it
+        let v = self.take_slot(&mut sh);
+        let o = sh.base + v * fr;
+        let got = self.read_frames(f, &mut sh.mem[o..o + fr]);
+        self.read_bytes.fetch_add(got as u64, Relaxed);
+        self.install(&mut sh, v, f);
+        use_it(&sh.mem[o..o + fr]);
+    }
+
+    /// Reads the missing frames of bytes `[start, end)` before they are used: one `pread` per
+    /// run of neighbouring missing frames within a shard group. Called once per block of
+    /// nodes, whose records are contiguous, this is the block's coalesced request.
+    pub fn prefetch(&self, start: u64, end: u64) {
+        let end = end.min(self.file_len);
+        if start >= end {
+            return;
+        }
+        let (mut f, last) = (start >> self.shift, (end - 1) >> self.shift);
+        while f <= last {
+            let group_last = (((f >> GROUP_BITS) + 1) << GROUP_BITS) - 1;
+            let b = last.min(group_last);
+            let mut sh = self.shard(f);
+            while f <= b {
+                let s = self.slot_of[f as usize].load(Relaxed);
+                if s != EMPTY {
+                    sh.referenced[s as usize] = true;
+                    f += 1;
+                    continue;
+                }
+                let mut e = f;
+                while e < b && self.slot_of[e as usize + 1].load(Relaxed) == EMPTY {
+                    e += 1;
+                }
+                let k = (e - f + 1) as usize;
+                let fr = self.frame;
+                let mut tmp = vec![0u8; k * fr + ALIGN];
+                let base = (ALIGN - tmp.as_ptr() as usize % ALIGN) % ALIGN;
+                let got = self.read_frames(f, &mut tmp[base..base + k * fr]);
+                self.read_bytes.fetch_add(got as u64, Relaxed);
+                self.misses.fetch_add(k as u64, Relaxed);
+                self.coalesced_reads.fetch_add(1, Relaxed);
+                for i in 0..k {
+                    let v = self.take_slot(&mut sh);
+                    let o = sh.base + v * fr;
+                    sh.mem[o..o + fr].copy_from_slice(&tmp[base + i * fr..base + (i + 1) * fr]);
+                    self.install(&mut sh, v, f + i as u64);
+                }
+                f = e + 1;
+            }
+        }
+    }
+
+    fn shard(&self, f: u64) -> std::sync::MutexGuard<'_, Shard> {
+        self.shards[((f >> GROUP_BITS) % self.shards.len() as u64) as usize].lock().unwrap()
+    }
+
+    /// CLOCK: the first slot not referenced since the hand last passed it; its old frame is
+    /// forgotten.
+    fn take_slot(&self, sh: &mut Shard) -> usize {
         let n = sh.frame_of.len();
-        let victim = loop {
+        let v = loop {
             let h = sh.hand;
             sh.hand = (h + 1) % n;
             if sh.referenced[h] {
@@ -149,33 +210,40 @@ impl BlockCache {
                 break h;
             }
         };
-        let old = sh.frame_of[victim];
+        let old = sh.frame_of[v];
         if old != u64::MAX {
             self.slot_of[old as usize].store(EMPTY, Relaxed);
         }
-        let o = sh.base + victim * fr;
+        v
+    }
+
+    fn install(&self, sh: &mut Shard, v: usize, f: u64) {
+        sh.frame_of[v] = f;
+        sh.referenced[v] = true;
+        self.slot_of[f as usize].store(v as u32, Relaxed);
+    }
+
+    /// Fills `buf` (whole frames, 4 KiB-aligned) from frame `f` on; zeros past the end of the
+    /// file. Returns the bytes read.
+    fn read_frames(&self, f: u64, buf: &mut [u8]) -> usize {
         let off = f << self.shift;
         let mut got = 0usize;
-        while got < fr {
-            match self.file.read_at(&mut sh.mem[o + got..o + fr], off + got as u64) {
+        while got < buf.len() {
+            match self.file.read_at(&mut buf[got..], off + got as u64) {
                 Ok(0) => break,
                 Ok(k) => got += k,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) => panic!("block cache: pread at {}: {e}", off + got as u64),
             }
         }
-        sh.mem[o + got..o + fr].fill(0);
-        self.read_bytes.fetch_add(got as u64, Relaxed);
-        sh.frame_of[victim] = f;
-        sh.referenced[victim] = true;
-        self.slot_of[f as usize].store(victim as u32, Relaxed);
-        use_it(&sh.mem[o..o + fr]);
+        buf[got..].fill(0);
+        got
     }
 
     pub fn report(&self) -> serde_json::Value {
         serde_json::json!({
             "bytes": self.bytes, "frame_bytes": self.frame, "shards": self.shards.len(),
-            "o_direct": self.direct, "hits": self.hits.load(Relaxed), "misses": self.misses.load(Relaxed),
+            "o_direct": self.direct, "hits": self.hits.load(Relaxed), "misses": self.misses.load(Relaxed), "coalesced_reads": self.coalesced_reads.load(Relaxed), "coalesce": self.coalesce,
             "read_bytes": self.read_bytes.load(Relaxed),
         })
     }
@@ -194,7 +262,7 @@ mod tests {
         let data: Vec<u8> = (0..300_001u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
         std::fs::write(&p, &data).unwrap();
         // 8 frames of 4 KiB over a 293 KiB file: most reads miss and evict
-        let c = BlockCache::open(&p, 8 * 4096, 4096, false).unwrap();
+        let c = BlockCache::open(&p, 8 * 4096, 4096, false, true).unwrap();
         let mut x = 12345u64;
         let mut out = Vec::new();
         for _ in 0..20_000 {
@@ -202,6 +270,9 @@ mod tests {
             let a = (x >> 33) % data.len() as u64;
             let b = (a + (x >> 20) % 9000).min(data.len() as u64 + 50);
             out.clear();
+            if x % 3 == 0 {
+                c.prefetch(a, b);
+            }
             c.read_into(a, b, &mut out);
             assert_eq!(&out[..], &data[a as usize..(b as usize).min(data.len())]);
         }
