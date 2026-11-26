@@ -10,7 +10,7 @@ number is marked *idle re-run* or belongs to § M1-13, § M1-01 or § M1-02 (sec
 idle machine, 2026-11-25), it was taken under load (load average 20–40) and is
 pessimistic and noisy (±30% typical, more for 32-thread and cold-I/O runs). Relative
 orderings were stable. Extrapolations are marked as such. Code and raw results are in
-`~/graphlab/exp/<experiment>/`.
+`lab/<experiment>/` (raw files under `results/`).
 
 ---
 
@@ -175,6 +175,9 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   10.8 s at 32t (whole dictionary with its key store 19.4 s), 2.61 bits/key (163 MB), forward lookup 0.56 µs, batch mapping 132 M/s unverified. Front-coded sorted
   blocks give prefix search (3 µs) at 18 B/key for URL-like keys. Ingest bottleneck is
   the first dedupe pass: 15 M keys/s (≈4 min per 3.6B endpoints, extrapolated).
+  *Note 2026-11-25 (D8, ADR 0008, #34):* the product does not use the `ptr_hash` crate;
+  it implements the same construction in the workspace. The MPHF numbers above belong to
+  the crate, not to that implementation.
 - **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50), shared machine:**
   degree/neighbors 0.1–0.6 µs; common neighbors 0.4–0.8 µs; 3-hop with 10k budget
   56–115 µs; bidirectional BFS 0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter). p99 tails
@@ -192,6 +195,9 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
 - **Directed graphs:** CSC costs +4.23 B/arc (twitter +6.2 GB), built in 12.3 s at 32t.
 - **Properties:** duplicate small hot columns per CSR entry; edge-id indirection makes
   weighted PageRank 1.7× (4 threads) to 2.1× (32 threads) slower — one kernel, orkut.
+  *Note 2026-11-25 (ADR 0028):* the adjacency stores pairs, so a hot column is per pair
+  (indexed by entry offset) or per event (indexed by event offset), not "per CSR entry".
+  On a graph without repeated pairs the two are the same, which is the case measured.
   **Bitset masks never clearly beat the unfiltered scan** (0.91–2.09× per PageRank
   iteration); a materialized filtered CSR (47–135 ms to build on orkut at 32 threads)
   gives PageRank at 0.09× for 1% selectivity and 0.09–0.17× for 10% (4 / 32 threads), and
@@ -230,7 +236,7 @@ no hand-written SIMD. The machine was never quiet (load 10–45): the same orkut
   55.4 GB at 8 GB (the cgroup's `io.write_bytes` in every row; `temp_disk` 29.6 / 39.9 GB
   plus the CSR). The first ingest after a light period took 17.7 and 19.5 s at 32 GB
   (92–102 M edges/s; repetition 1 of `bench/results/headline/20261125T101402Z-79634d76b95b.jsonl`
-  and of `…/20261125T104322Z-79634d76b95b.jsonl`, rows 37) and used 14–16 cores on
+  and of `…/20261125T104322Z-79634d76b95b.jsonl`, row 37) and used 14–16 cores on
   average; the back-to-back repetitions after it took 27.2–30.8 s and used 7.8–9.3 of 32
   cores (rows 38–39 of the same files). So the CPU was waiting, not saturated.
   - *Cause (inference with strong support, exploratory, not in a committed result file;
@@ -467,7 +473,7 @@ see § B1, "Write-heavy ingest is bounded by the drive's sustained write rate".
 | orkut BFS | 99 ms (1T) → 22 ms (16T) |
 | orkut k-core | 1.35 s (1T) → 0.28 s (8T) → 0.30 (16T) → 0.37 (32T) |
 | orkut triangles | 9.24 s (4T) → 1.46 s (32T) |
-| u64 vs u32 targets, PageRank f32 | 0.70 s vs 0.38 s (+85%) |
+| u64 vs u32 targets, PageRank f32 | 0.70 s vs 0.375 s (+87%) |
 | node order, PageRank f32 | original 0.38, BFS 0.38, degree 0.41, random 0.47 s |
 | Friendster PageRank f32 in RAM (mmap) | 3.37 s/iter |
 | Friendster PageRank, semi-external, no limit / 8 GB / 2 GB | 3.71 / 3.69 / 3.64 s/iter, RSS 1.35–1.47 GB, 3.9 GB/s read |

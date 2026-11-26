@@ -11,7 +11,7 @@ on GitHub.
 | **M2 · Format and ingest** | `.eg` container, compressed adjacency, I/O layer, ingest for integer, hex and string ids | Friendster → `.eg` in < 60 s at an 8 GB budget |
 | **M3 · Engine and kernels** | Planner, memory accountant, edge-map framework, core kernels | Identical results in every regime and thread count; never over budget |
 | **M4 · Communities and hierarchy** | Production Leiden, out-of-core, quality gates, map hierarchy | Friendster communities under 16 GiB, quality mode within 1% of the better of NetworKit PLM and GVE-Leiden run on the same machine (DESIGN § 6, restated 2026-11-25) |
-| **M5 · The map** | Layout, tiles, `.egmap`, viewer, static and live modes, Jupyter widget | A 1 B-edge graph opens from a static URL, first view < 250 KB |
+| **M5 · The map** | Layout, tiles, `.egmap`, viewer, static export (live mode is in M7, the Jupyter widget in M6) | A 1 B-edge graph opens from a static URL, first view < 250 KB |
 | **M6 · Python and interop** | Python package, Arrow interop, import/export, notebook widget | `pip install` on three OSes; zero-copy into Polars/pandas/DuckDB |
 | **M7 · Queries and views** | Point queries, shortest paths, filtered and temporal views | Neighbours < 1.5 µs p99 in RAM; path p50 < 2 ms on 10^9 arcs |
 | **M8 · CLI, docs and v0.1 launch** | CLI, docs, public benchmarks, three showcase maps, release | v0.1.0 published with reproducible benchmarks |

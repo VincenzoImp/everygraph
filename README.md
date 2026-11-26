@@ -4,10 +4,10 @@
 query and map graphs from a thousand to a hundred billion edges on a single computer —
 using all the hardware it is given, and staying inside the memory budget it is given.
 
-> **Status: design and planning.** There is no installable software here yet. This
+> **Status: early development.** There is no installable software here yet. This
 > repository holds the product and architecture baseline, the evidence from a feasibility
-> lab, the prototypes that produced it, and the full work plan as GitHub milestones and
-> issues.
+> lab, the prototypes that produced it, the full work plan as GitHub milestones and
+> issues, and the first production crates (file format, I/O, readers).
 
 ![A map of com-Orkut (3.1 M nodes, 117 M edges) from the lab prototype](docs/img/map-overview-orkut.png)
 
@@ -82,14 +82,16 @@ iteration on the 1.8 B-edge graph runs under a 16 GiB limit at 1.17× and under 
 0 disconnected communities, the deterministic partition identical to the in-RAM one), but
 only that graph and one iteration were measured. Also open: the quality of the map's
 hierarchy and edges on dense graphs, and the cost of determinism. The headline
-"a billion edges to a map on a 16 GB laptop" has not been run end to end: the tile builder
-does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. These are the
-subject of the first work milestone. See [docs/DESIGN.md § 5](docs/DESIGN.md).
+"1.8 B edges to a map on a 16 GB laptop" has not been run end to end: the tile builder
+does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. The second lab
+round (milestone M1) took these on first; see [docs/DESIGN.md § 5](docs/DESIGN.md#5-what-is-not-solved-yet).
 
 ## Building
 
-The Rust workspace is a skeleton: the crate layout, the coding rules, and the first
-pieces of the portable core (`crates/everygraph-core`). It needs Rust 1.87 or newer and
+The Rust workspace holds the crate layout, the coding rules, the portable core
+(`crates/everygraph-core`), and the first product pieces: the `.eg` container and the
+compressed adjacency (`everygraph-format`), the I/O layer (`everygraph-io`), and the text
+reader and identifier dictionary (`everygraph-ingest`). It needs Rust 1.87 or newer and
 nothing else.
 
 ```sh
