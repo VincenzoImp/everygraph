@@ -8,7 +8,9 @@
 //!   the nodes of the smallest degree and no round scans the nodes left (§ 3, § 5).
 //! - **Local queues** (vertical granularity control, § 4.2). A task peels its node, then,
 //!   in the same subround, the neighbours whose degree that drops to `k`, through a
-//!   queue that takes up to 128 nodes. What does not fit waits for the next subround.
+//!   queue that takes up to 128 nodes. What does not fit waits for the next subround, as
+//!   does a node of more than [`RUN_ENTRIES`] entries: there its list is cut into parts
+//!   that run in parallel ([`Plan::push_with`]).
 //! - **Sampled hubs** (§ 4.1). A node of high degree does not count its peeled
 //!   neighbours one by one, which would make every worker update one counter. Each
 //!   peeled neighbour adds to a sample counter with a small probability, drawn by a
@@ -32,7 +34,9 @@ use everygraph_core::rng::{Purpose, draw};
 use everygraph_core::{Memory, MemoryKind, SegVec, par};
 
 use crate::Atomics;
-use crate::edge_map::{Buckets, Error, Node, NodeList, NodeSet, PerNode, Plan, Source, all, ix};
+use crate::edge_map::{
+    Buckets, Error, Node, NodeList, NodeSet, PerNode, Plan, RUN_ENTRIES, Source, all, ix,
+};
 
 /// A node without a core number yet.
 const UNSET: u32 = u32::MAX;
@@ -257,7 +261,7 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
                 }
                 let old = d.fetch_sub(1, Relaxed);
                 if old == k + 1 {
-                    if queue.len() < QUEUE {
+                    if queue.len() < QUEUE && ix(self.plan.degree(u).into()) <= RUN_ENTRIES {
                         queue.push(u);
                     } else {
                         self.next.insert(u);
