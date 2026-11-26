@@ -18,7 +18,7 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 - [ ] Modes: `deterministic` (default) and `fast`; iterations 1 (default) and 3 ("quality"), plus convergence-based stopping
 - [ ] The default number of iterations is confirmed or changed with evidence: quality and time at 1, 2, 3 iterations and at convergence on the six graph families, recorded in FINDINGS; a change of default goes through an ADR (`design/DECISIONS.md`, 2026-11-25)
 - [ ] Apply the fixes from {{#m1-03-louvain-collapse}} and {{#m1-04-det-leiden-scaling}}
-- [ ] Seeds: the visiting-order permutation is seeded; same seed → same result
+- [ ] Seeds: the visiting-order permutation is seeded; same seed → same result. Every draw comes from `everygraph_core::rng::draw` with a key written next to it (its module docs, {{#m2-27-counter-rng}}), and that includes the sub-round priority hash: the lab's `x.wrapping_mul(0x85EB_CA6B)` takes no seed, so seeds do not vary it. Test: the hash at two seeds differs; at one seed it is equal at 1, 4 and 16 threads. The tolerance `0.1^iter` is a table of constants, not `powi`
 - [ ] Louvain kept as an internal baseline, not a public default (17–94 disconnected communities per run)
 - [ ] Outputs: membership column per level, community table (size, internal edges, volume, cut), modularity
 - [ ] Modularity with kept loops as `docs/spec/graph-semantics.md` § 5.5 (S5): `Q = Σ_c [L(c)/W − γ(S(c)/2W)²]`, L(c) counting each loop once, s(v) including the loop's 2w, Q = 0 when W = 0; the aggregation's quotient carries the input's kept loops on its diagonal with the internal edges (§ 5.5, S6)

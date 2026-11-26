@@ -281,6 +281,24 @@ is a counting global allocator in the kernel tests that asserts heap bytes ≤
 `Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` have
 code but not yet this `clippy.toml`; the M2 cleanup (#200) adds it.
 
+## The numerics rule
+
+A result has the same bits on every supported platform (DESIGN D14). The rules are
+R1–R15 of `docs/research/sota-numerics.md` § 4; the module docs of
+`everygraph_core::math` and `everygraph_core::rng` say how to follow them. What is
+checked:
+
+| What is checked | By |
+|---|---|
+| No std transcendental (`sin`, `exp`, `ln`, `powf`, `powi`, … on `f64` and `f32`) and no `rand`, `getrandom` or `fastrand` generator in a crate that produces results; use `everygraph_core::math` and `everygraph_core::rng` | The same list in the `clippy.toml` of the core, the format and the four kernel crates, and in the root `clippy.toml`, which every other crate without a `clippy.toml` of its own reads. The canary probes each crate. The harness has its own empty `clippy.toml`: its statistics are not results |
+| No `rand` except through proptest, no `getrandom` except through `rand_core` and TLS, no `fastrand` | `deny.toml` |
+| The pinned functions and the generator give the same bits on x86-64, i686, aarch64, macOS, Windows and wasm32 | `crates/everygraph-core/tests/numerics_golden.rs` in every test run of the core, and in Node through `tools/check_wasm_toy.py` |
+
+The numerics list is a copy in seven files until issue m2-18 makes it one shared list.
+Not checked by any lint: `Iterator::sum` on floats (use `math::sum`), `f64::max` where
+signed zeros or NaN can tie (use `total_cmp`), and float sums whose order depends on the
+schedule (use `ExactSum`, or integers).
+
 ## Integers
 
 Node ids are `u32`, edge offsets are `u64`, and `usize` is only an index into memory

@@ -9,8 +9,11 @@ generated graph through the public pieces of everygraph-core (`ByteSource`, `Nod
 1. builds and runs it natively, with the `parallel` feature (rayon), and
 2. builds it for wasm32-unknown-unknown without threads, runs the module in Node,
 
-and requires both to print the same line. Issue m3-11 (determinism CI) replaces the
-toy with the real kernels.
+and requires both to print the same lines. The toy also prints the golden digests of
+the core's numerics (crates/everygraph-core/tests/numerics_golden.rs: the pinned math
+functions, the counter-based generator, canonical NaN and zero); the native run checks
+them against the frozen values, so equal lines mean wasm32 has them too. Issue m3-11
+(determinism CI) replaces the toy with the real kernels.
 
 Usage: python3 tools/check_wasm_toy.py
        (from anywhere; needs cargo with the wasm32-unknown-unknown target, and node)
