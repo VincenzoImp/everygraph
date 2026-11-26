@@ -26,7 +26,7 @@
 #
 # Run (about 15 minutes, an estimate: the exploratory run with one repetition took
 # 6.6 minutes of command time on a loaded machine, and an official run has four processes
-# per case instead of two; the orkut store is encoded once under {work}/stores, about
+# per case instead of two; the orkut store is encoded once under {work}/{spec}, about
 # 2 s more):
 #   everygraph-bench run edge-map --official --data /home/tux/graphlab/data
 
@@ -46,7 +46,9 @@ timeout = "15m"
 [vars]
 bench = "{repo}/target/release/examples/edge_map_bench"
 glab = "{work}/lab-b1/release/glab"
-store = "{work}/stores/orkut"
+# Under this spec's own directory: `{work}` is shared by every spec, and codec.toml keeps
+# a store of another layout at {work}/stores/orkut.
+store = "{work}/{spec}/store-orkut"
 
 [[prepare]]
 name = "build-bench"
@@ -63,8 +65,8 @@ needed_by = ["lab"]
 
 [[prepare]]
 name = "store-orkut"
-shell = "{bench} encode --graph {data}/csr/orkut --out {store}.part > /dev/null && mv {store}.part {store}"
-creates = "{store}"
+shell = "rm -rf {store}.part {store} && {bench} encode --graph {data}/csr/orkut --out {store}.part > /dev/null && mv {store}.part {store}"
+creates = "{store}/adjacency.data"
 needed_by = ["edge-map", "edge-map-sources"]
 
 [[benchmark]]
