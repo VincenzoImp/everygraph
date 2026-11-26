@@ -18,3 +18,4 @@ Tracking issue for milestone M6.
 - [ ] {{#m6-08-tutorials}}
 - [ ] {{#m6-09-api-gaps}} — names for the API gaps the literature review found, before the 0.1 freeze
 - [ ] Map in the notebook: {{#m5-10-jupyter-widget}} (needs the viewer from M5)
+- [ ] Milestone close (CLAUDE.md § 6, § 10): the dogfood pass, the cleanup and test audit, the official measurement window, and the report `docs/reports/M6.md`. Its issues are filed when the last P0 of the milestone starts
