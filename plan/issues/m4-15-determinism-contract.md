@@ -3,7 +3,7 @@ title: Determinism contract stated exactly, and its cheap holes closed
 milestone: M4 · Communities and hierarchy
 labels: type:spec, area:community, P0, risk:medium, size:S
 ---
-**Why.** D14 promises bit-identical results for a view as a mask or materialized. The state-of-the-art review of 2026-11-26 (`/home/tux/graphlab/sota-2026-11-26/synthesis.md` § 1 rows 5–8; `communities.md` § 0.1) found four places where the code keeps less than that:
+**Why.** D14 promises bit-identical results for a view as a mask or materialized. The state-of-the-art review of 2026-11-26 (`docs/research/sota-review-2026-11.md` § 1 rows 5–8; `communities.md` § 0.1) found four places where the code keeps less than that:
 - Leiden's sub-round count is `clamp(next_pow2(n / 65,536), 4, 1,024)`, with `n = plan.nodes()`, and its draws and tie order use stored ids (`crates/everygraph-community/src/level.rs` l. 146–149, 303–320). A materialized view has another n and other ids.
 - `compact --order` renumbers ids, so the communities change.
 - The super level's hysteresis makes a map depend on the previous map (ADR 0016).

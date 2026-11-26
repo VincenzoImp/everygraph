@@ -87,6 +87,8 @@ everything prepared.
 - Is Graphalytics eligibility (#209) a gate of the 0.1 release, or a goal beside it? The
   plan treats it as a goal beside it: the release (#105) does not depend on #209.
 
+**Decision changes recorded:** ADR 0021 and DESIGN D21 amended on 2026-11-26 (PR #272): the query language comes by choosing an embedded engine (LadybugDB on Arrow CSR or Grafeo over a read-only `.eg` store) and bridging to it, not by our own parser; review in `docs/research/sota-review-2026-11.md`.
+
 ## Lessons that still change behaviour
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.
