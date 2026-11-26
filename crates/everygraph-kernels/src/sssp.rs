@@ -19,9 +19,9 @@
 //! The active set has two parts, as the near-far pile of Davidson et al. (IPDPS'14):
 //! nodes within eight buckets of the lowest distance, which each step scans, and the
 //! rest, which is scanned only when the near part is empty.
-//! Bucket fusion: a worker that lowers a node below `θ` relaxes it at once, from a local
-//! queue of at most [`FUSE`] nodes, instead of in a later step. That removes most steps
-//! on graphs of large diameter.
+//! Bucket fusion: in a step of at most [`FUSE`] nodes, a worker that lowers a node below
+//! `θ` relaxes it at once, from a local queue, instead of in a later step. That saves
+//! steps where they are many and small: on road graphs (`GraphIt` reports up to 3.4×).
 //!
 //! # Choosing Δ
 //!
@@ -42,7 +42,8 @@ use crate::weights;
 
 /// Nodes a worker may hold in its local queue for bucket fusion (`GraphIt`'s 1,000).
 /// First in, first out: a stack would make the order depth-first, whose repeated
-/// relaxations grow without bound when one bucket holds most of the graph.
+/// relaxations grow exponentially in the worst case when one bucket holds most of the
+/// graph.
 pub const FUSE: usize = 1024;
 
 /// Buckets the near set spans.

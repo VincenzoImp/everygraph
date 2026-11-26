@@ -565,6 +565,24 @@ fn quotient_labels_in_range() {
     );
 }
 
+const EIGEN: Kernel = Kernel::Eigenvector { weighted: false };
+
+#[test]
+fn eigenvector_nonnegative() {
+    let g = sample();
+    let mut r = reals(good(&g, &EIGEN));
+    r[0] = r[0].map(|x| -x);
+    rejects(&g, &EIGEN, &Output::Reals(r), "eigenvector_nonnegative");
+}
+
+#[test]
+fn eigenvector_unit_norm() {
+    let g = sample();
+    let r = reals(good(&g, &EIGEN));
+    let doubled = r.iter().map(|x| x.map(|x| 2.0 * x)).collect();
+    rejects(&g, &EIGEN, &Output::Reals(doubled), "eigenvector_unit_norm");
+}
+
 /// The list of invariants above is complete: every name the checker can report has a test.
 #[test]
 fn every_invariant_has_a_negative_test() {
@@ -583,7 +601,7 @@ fn every_invariant_has_a_negative_test() {
         .collect();
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 32, "31 invariants plus `shape`: {names:?}");
+    assert_eq!(names.len(), 34, "33 invariants plus `shape`: {names:?}");
     for name in names {
         assert!(
             this.contains(&format!("fn {name}()")),
