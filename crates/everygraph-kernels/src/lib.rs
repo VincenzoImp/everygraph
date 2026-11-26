@@ -75,6 +75,7 @@ pub mod kcore;
 pub type Atomics = (Vec<AtomicU32>, Reservation);
 pub mod pagerank;
 pub mod proof;
+pub mod run;
 pub mod sssp;
 pub mod traversal;
 mod weights;

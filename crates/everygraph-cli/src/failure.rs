@@ -31,7 +31,10 @@ pub(crate) const UNKNOWN_NODE: u8 = 6;
 /// An error, with its class (§ 6.1), its text, the further keys of its document and its
 /// exit status.
 #[derive(Debug)]
-pub(crate) struct Failure {
+pub(crate) struct Failure(Box<Inner>);
+
+#[derive(Debug)]
+struct Inner {
     class: &'static str,
     headline: String,
     why: Vec<String>,
@@ -45,7 +48,7 @@ pub(crate) struct Failure {
 
 impl Failure {
     pub(crate) fn new(class: &'static str, headline: String, status: u8) -> Self {
-        Self {
+        Self(Box::new(Inner {
             class,
             headline,
             why: Vec::new(),
@@ -53,36 +56,36 @@ impl Failure {
             status,
             keys: Map::new(),
             changed_file: false,
-        }
+        }))
     }
 
     /// The lines that say why.
     pub(crate) fn why(mut self, why: Vec<String>) -> Self {
-        self.why = why;
+        self.0.why = why;
         self
     }
 
     /// The ways forward: what can be typed, and what it does.
     pub(crate) fn ways(mut self, ways: Vec<(String, String)>) -> Self {
-        self.ways = ways;
+        self.0.ways = ways;
         self
     }
 
     /// A further key of the document (`path`, `holds`, `needs_bytes`, …).
     pub(crate) fn key(mut self, name: &str, value: impl Into<Value>) -> Self {
-        self.keys.insert(name.to_owned(), value.into());
+        self.0.keys.insert(name.to_owned(), value.into());
         self
     }
 
     /// The operation was on an existing file: the last line is `Nothing was changed.`
     pub(crate) fn on_existing_file(mut self) -> Self {
-        self.changed_file = true;
+        self.0.changed_file = true;
         self
     }
 
     /// The exit status.
     pub(crate) fn status(&self) -> u8 {
-        self.status
+        self.0.status
     }
 
     /// Prints the error, and with `json` its document, and returns the exit status.
@@ -91,21 +94,21 @@ impl Failure {
         if json {
             let _ = writeln!(io::stdout(), "{}", self.document());
         }
-        self.status
+        self.0.status
     }
 
     /// Prints the text form on standard error (M-1, M-2).
     pub(crate) fn print_text(&self) {
         let style = Style::stderr();
-        let mut text = format!("{} {}\n", style.error(), style.bold(&self.headline));
-        if !self.why.is_empty() {
+        let mut text = format!("{} {}\n", style.error(), style.bold(&self.0.headline));
+        if !self.0.why.is_empty() {
             text.push('\n');
-            for line in &self.why {
+            for line in &self.0.why {
                 let _ = writeln!(text, "{}", wrap("  ", 2, line));
             }
         }
-        text.push_str(&ways_text(style, &self.ways));
-        let left = if self.changed_file {
+        text.push_str(&ways_text(style, &self.0.ways));
+        let left = if self.0.changed_file {
             "Nothing was changed."
         } else {
             "Nothing was written."
@@ -117,20 +120,21 @@ impl Failure {
     /// The error document (M-5).
     pub(crate) fn document(&self) -> Value {
         let ways: Vec<Value> = self
+            .0
             .ways
             .iter()
             .map(|(command, note)| json!({"command": command, "python": "", "note": note}))
             .collect();
         let mut doc = json!({
             "schema": 1,
-            "error": self.class,
-            "message": self.headline,
+            "error": self.0.class,
+            "message": self.0.headline,
         });
         let map = doc.as_object_mut().expect("an object");
-        if !self.why.is_empty() {
-            map.insert("why".into(), self.why.join("\n").into());
+        if !self.0.why.is_empty() {
+            map.insert("why".into(), self.0.why.join("\n").into());
         }
-        map.extend(self.keys.clone());
+        map.extend(self.0.keys.clone());
         map.insert("ways_forward".into(), ways.into());
         map.insert("changed".into(), false.into());
         doc
@@ -411,7 +415,7 @@ pub(crate) fn refusal(smallest: u64, budget: u64, machine: Option<u64>, threads:
         size(budget)
     )]);
     if threads > 1 {
-        failure.ways.push((
+        failure.0.ways.push((
             "--threads 1".into(),
             "fewer blocks in flight need less memory".into(),
         ));

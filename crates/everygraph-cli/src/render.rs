@@ -140,7 +140,15 @@ impl Style {
 
     /// The line of a finished phase (§ 4.2, § 4.5).
     pub(crate) fn phase_done(self, name: &str, detail: &str, seconds: f64) -> String {
-        let time = duration(seconds);
+        self.phase_line(name, detail, &duration(seconds))
+    }
+
+    /// The line of a phase whose result already exists (G-3).
+    pub(crate) fn phase_kept(self, name: &str, detail: &str) -> String {
+        self.phase_line(name, detail, "kept")
+    }
+
+    fn phase_line(self, name: &str, detail: &str, time: &str) -> String {
         if self.piped {
             let width = 45_usize.saturating_sub(detail.chars().count());
             format!("  {name:<13}{detail}{time:>width$}")

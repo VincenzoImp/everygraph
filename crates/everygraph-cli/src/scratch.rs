@@ -11,6 +11,25 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use everygraph_ingest::ids::Scratch;
 use everygraph_io::MmapSource;
 
+/// The job's identifier: the first 16 hexadecimal digits of the XXH3-128 of its
+/// `fingerprint` (§ 5.3, R-4).
+pub(crate) fn job_id(fingerprint: &str) -> String {
+    let hash = xxhash_rust::xxh3::xxh3_128(fingerprint.as_bytes());
+    format!("{:016x}", hash >> 64)
+}
+
+/// `path` with its directory made absolute, for a fingerprint.
+pub(crate) fn absolute(path: &Path) -> PathBuf {
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    std::fs::canonicalize(dir).map_or_else(
+        |_| path.to_path_buf(),
+        |d| d.join(path.file_name().unwrap_or_default()),
+    )
+}
+
 /// The scratch directory of one job, removed on drop. On Unix its files are unlinked as
 /// soon as they are made, so a hard stop leaves at most the empty directory, which the
 /// next run of the same job takes over.

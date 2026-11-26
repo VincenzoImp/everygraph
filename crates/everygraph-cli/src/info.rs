@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use everygraph_core::ByteSource;
 use everygraph_format::container::{Kind, ListedResult};
 use everygraph_ingest::graph::Graph;
 use everygraph_ingest::ids::KeyKind;
@@ -187,10 +188,18 @@ impl Info<'_> {
         }
         t.push_str("\n\n");
         let label = |name: &str| style.dim(&format!("{name:<10}"));
-        let (nodes, edges) = (count(u64::from(self.graph.nodes())), count(self.graph.edges()));
+        let (nodes, edges) = (
+            count(u64::from(self.graph.nodes())),
+            count(self.graph.edges()),
+        );
         let width = nodes.len().max(edges.len());
         let _ = writeln!(t, "  {}{nodes:>width$}", label("nodes"));
-        let _ = writeln!(t, "  {}{edges:>width$}{dot}{}", label("edges"), self.edges_text(style));
+        let _ = writeln!(
+            t,
+            "  {}{edges:>width$}{dot}{}",
+            label("edges"),
+            self.edges_text(style)
+        );
         let _ = writeln!(t, "  {}{}", label("ids"), self.ids_text());
         let reclaimable = file.reclaimable_bytes();
         let _ = write!(
@@ -243,15 +252,18 @@ impl Info<'_> {
     fn document(&self) -> Value {
         let file = self.graph.file();
         let record = self.graph.record();
-        let counts: Map<String, Value> = record
-            .parameters
-            .iter()
-            .filter_map(|(k, v)| {
-                let key = k.strip_prefix("counts.").or_else(|| k.strip_prefix("dropped."))?;
-                let value = v.parse::<u64>().ok()?;
-                Some((format!("{}{key}", if k.starts_with('d') { "dropped_" } else { "" }), value.into()))
-            })
-            .collect();
+        let counts = |prefix: &str| -> Map<String, Value> {
+            record
+                .parameters
+                .iter()
+                .filter_map(|(k, v)| {
+                    Some((
+                        k.strip_prefix(prefix)?.to_owned(),
+                        v.parse::<u64>().ok()?.into(),
+                    ))
+                })
+                .collect()
+        };
         let sections: Vec<Value> = file
             .entries()
             .iter()
@@ -297,7 +309,8 @@ impl Info<'_> {
                 "finished": record.finished.map(timestamp),
                 "seconds": seconds(record.started, record.finished),
                 "inputs": inputs,
-                "counts": counts,
+                "counts": counts("counts."),
+                "dropped": counts("dropped."),
             },
             "reclaimable_bytes": file.reclaimable_bytes(),
             "sections": sections,

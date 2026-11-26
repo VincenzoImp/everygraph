@@ -34,7 +34,10 @@ impl<S: ByteSource> Graph<S> {
     /// [`BuildError::Budget`] when the index does not fit `memory`; read errors.
     pub fn open(file: Container<S>, memory: &Memory) -> Result<Self, BuildError> {
         let record = file.read_provenance(PROVENANCE)?;
-        let directed = record.parameters.get("directed").is_some_and(|d| d == "true");
+        let directed = record
+            .parameters
+            .get("directed")
+            .is_some_and(|d| d == "true");
         let section = file.section(OUT_INDEX)?;
         let len = usize::try_from(section.len()).map_err(|_| BuildError::TooLarge(OUT_INDEX))?;
         // The bytes, then the parsed index, which holds about as much again.

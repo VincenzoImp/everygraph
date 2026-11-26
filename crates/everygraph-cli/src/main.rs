@@ -15,13 +15,19 @@
 )]
 
 mod args;
+mod compact;
+mod export;
 mod failure;
+mod graph;
+mod info;
 mod ingest;
 mod machine;
 mod plan;
 mod progress;
 mod render;
+mod run;
 mod scratch;
+mod table;
 mod verify;
 
 use std::ffi::OsString;
@@ -38,7 +44,11 @@ Usage
 
 Commands
   ingest FILE           read a file of edges and build a graph (.eg) beside it
+  run NAME GRAPH        analyze the whole graph: pagerank, components, …
+  info GRAPH            what a graph file holds and what was computed so far
+  export GRAPH          write the graph's edges in another format
   verify FILE           check that a graph file is intact
+  compact FILE          reclaim the bytes of replaced results
 
 Options
   -h, --help            this text; after a command, the help for that command
@@ -66,6 +76,10 @@ fn run(args: &[OsString]) -> u8 {
             0
         }
         Some("ingest") => ingest::main(rest),
+        Some("info") => info::main(rest),
+        Some("export") => export::main(rest),
+        Some("compact") => compact::main(rest),
+        Some("run") => run::main(rest),
         Some("verify") => verify::main(rest),
         _ => failure::usage(
             format!("Unknown command {}.", command.to_string_lossy()),

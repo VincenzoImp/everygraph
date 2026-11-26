@@ -7,14 +7,13 @@
 use std::fs::File;
 use std::path::Path;
 
-use everygraph_core::{ByteSource, Memory, ReadError};
+use everygraph_core::{Memory, ReadError};
 use everygraph_format::container::{Container, ContainerError};
 use everygraph_ingest::build::BuildError;
 use everygraph_ingest::graph::Graph;
 use everygraph_io::{FileSource, MmapSource};
 
 use crate::failure::{self, Failure};
-use crate::render::{Style, counted, size};
 
 /// The container of the graph file at `path`, on a map of its committed part.
 ///
@@ -45,11 +44,16 @@ pub(crate) fn container(path: &Path) -> Result<Container<MmapSource>, Failure> {
 ///
 /// As [`container`]; `CorruptFile` when the graph's sections are not valid;
 /// `InsufficientBudget` when its index does not fit.
-pub(crate) fn open(path: &Path, memory: &Memory, budget: u64) -> Result<Graph<MmapSource>, Failure> {
+pub(crate) fn open(
+    path: &Path,
+    memory: &Memory,
+    budget: u64,
+) -> Result<Graph<MmapSource>, Failure> {
     Graph::open(container(path)?, memory).map_err(|e| match e {
         BuildError::Container(e) => container_error(path, &e),
-        BuildError::Budget(e) => failure::memory("opening of the graph", budget, None, &e)
-            .on_existing_file(),
+        BuildError::Budget(e) => {
+            failure::memory("opening of the graph", budget, None, &e).on_existing_file()
+        }
         other => failure::corrupt(path, &other),
     })
 }
@@ -86,19 +90,4 @@ pub(crate) fn container_error(path: &Path, e: &ContainerError) -> Failure {
         .on_existing_file(),
         other => failure::corrupt(path, other),
     }
-}
-
-/// The headline of an operation on a graph (§ 3.4): name · size · nodes · edges.
-pub(crate) fn headline<S: ByteSource>(path: &Path, graph: &Graph<S>, style: Style) -> String {
-    let dot = style.dot();
-    let name = path
-        .file_name()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    format!(
-        "{}{dot}{}{dot}{}{dot}{}",
-        style.bold(&name),
-        size(graph.file().committed_len()),
-        counted(u64::from(graph.nodes()), "node", "nodes"),
-        counted(graph.edges(), "edge", "edges")
-    )
 }

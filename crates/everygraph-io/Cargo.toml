@@ -15,11 +15,20 @@ everygraph-core = { path = "../everygraph-core", default-features = false }
 # Memory maps (D11: mmap warm is the only in-RAM mode). The one crate allowed to map
 # files (deny.toml).
 memmap2 = "0.9"
+# `everygraph_io::table` (feature `tables`): result tables as Parquet and Arrow IPC files,
+# the formats the plan reads and writes through arrow-rs (#33, #85). No compression codec
+# is built in.
+arrow-array = { version = "58.4", default-features = false, optional = true }
+arrow-ipc = { version = "58.4", default-features = false, optional = true }
+arrow-schema = { version = "58.4", default-features = false, optional = true }
+parquet = { version = "58.4", default-features = false, features = ["arrow"], optional = true }
 
 [features]
 # `everygraph_io::faults`: a source and sink that fail the k-th operation, for the
 # fault-injection tests of other crates (issue #190). Never enabled by a shipped crate.
 faults = []
+# `everygraph_io::table`: tables written as Parquet, Arrow IPC, CSV or JSON files.
+tables = ["dep:arrow-array", "dep:arrow-ipc", "dep:arrow-schema", "dep:parquet"]
 
 [target.'cfg(unix)'.dependencies]
 # `O_DIRECT`, `fallocate`, `posix_fadvise`, `F_NOCACHE`: what std does not expose.

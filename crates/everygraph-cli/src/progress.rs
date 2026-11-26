@@ -6,11 +6,24 @@
 
 use std::io::{self, Write};
 use std::sync::{Mutex, PoisonError};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use everygraph_ingest::build::{Phase, Progress};
 
 use crate::render::{Style, counted};
+
+/// An operation estimated to take at least this long prints its plan and progress
+/// (P-3, `T_PLAN`; placeholder). Without an estimate, a phase that took this long
+/// prints its line.
+pub(crate) const LONG_SECONDS: f64 = 5.0;
+
+/// Now, in nanoseconds since 1970-01-01 UTC, as provenance records hold times.
+pub(crate) fn now_ns() -> Option<i64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|d| i64::try_from(d.as_nanos()).ok())
+}
 
 /// The phase lines of one operation.
 #[derive(Debug)]
@@ -39,6 +52,23 @@ impl Lines {
         let line = self.style.phase_done(name, detail, seconds);
         let _ = writeln!(io::stderr(), "{line}");
         seconds
+    }
+
+    /// Phase `name` ended with `detail`: prints its line if it was long (P-3), and
+    /// returns its time in seconds.
+    pub(crate) fn done_if_long(&self, name: &'static str, detail: &str) -> f64 {
+        let seconds = self.seconds(name);
+        if seconds >= LONG_SECONDS {
+            let line = self.style.phase_done(name, detail, seconds);
+            let _ = writeln!(io::stderr(), "{line}");
+        }
+        seconds
+    }
+
+    /// Phase `name` was not run: its result exists (G-3).
+    pub(crate) fn kept(&self, name: &'static str, detail: &str) {
+        let line = self.style.phase_kept(name, detail);
+        let _ = writeln!(io::stderr(), "{line}");
     }
 
     /// The time since phase `name` began, and its end.

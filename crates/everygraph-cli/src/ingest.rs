@@ -29,8 +29,10 @@ use crate::failure::{self, Failure};
 use crate::machine;
 use crate::plan::Plan;
 use crate::progress::Lines;
+use crate::progress::now_ns;
 use crate::render::{Style, counted, duration, size};
-use crate::scratch::JobScratch;
+use crate::scratch::{self, JobScratch};
+use crate::table::Partial;
 
 /// What was asked.
 #[derive(Debug, Default)]
@@ -165,17 +167,6 @@ fn default_output(input: &Path) -> PathBuf {
         name = stem.to_owned();
     }
     input.with_file_name(format!("{name}.eg"))
-}
-
-/// Removes `NAME.eg.partial` unless the graph was renamed into place.
-struct Partial(Option<PathBuf>);
-
-impl Drop for Partial {
-    fn drop(&mut self) {
-        if let Some(path) = self.0.take() {
-            let _ = std::fs::remove_file(path);
-        }
-    }
 }
 
 fn run(args: &Args) -> Result<u8, Failure> {
@@ -458,20 +449,10 @@ fn file_document(job: &str, output: &Path, bytes: u64, report: &Report, seconds:
 /// The first 16 hexadecimal digits of the job's fingerprint (XXH3-128): the input, the
 /// output and every option that changes the graph, not the budget or the threads (R-4).
 fn job_id(args: &Args, output: &Path, reader: &TextReader<FileSource>) -> String {
-    let absolute = |path: &Path| {
-        let dir = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        std::fs::canonicalize(dir).map_or_else(
-            |_| path.to_path_buf(),
-            |d| d.join(path.file_name().unwrap_or_default()),
-        )
-    };
-    let fingerprint = format!(
+    scratch::job_id(&format!(
         "{}\0{}\0{}\0{:?}\0{:?}\0{:?}\0{:?}\0{:?}\0{:?}",
-        absolute(&args.input).display(),
-        absolute(output).display(),
+        scratch::absolute(&args.input).display(),
+        scratch::absolute(output).display(),
         reader.source().len(),
         args.source,
         args.target,
@@ -479,13 +460,7 @@ fn job_id(args: &Args, output: &Path, reader: &TextReader<FileSource>) -> String
         args.self_loops,
         args.duplicates,
         args.ids,
-    );
-    let hash = xxhash_rust::xxh3::xxh3_128(fingerprint.as_bytes());
-    format!("{:016x}", hash >> 64)
-}
-
-fn now_ns() -> Option<i64> {
-    ns_since_epoch(SystemTime::now())
+    ))
 }
 
 fn ns_since_epoch(t: SystemTime) -> Option<i64> {
