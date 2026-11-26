@@ -14,7 +14,7 @@ scopes (`bench/README.md`). The official commands are at the end.
 |---|---|
 | `layout_16g.jsonl`, `layout_32g.jsonl` | harness rows: gmap layout, no madvise against MADV_RANDOM |
 | `leiden_ooc.jsonl` | harness rows: M1-02 out-of-core Leiden, no madvise against MADV_RANDOM for the whole run |
-| `leiden_cache.jsonl`, `leiden_inram.jsonl` | harness rows: step 2, mmap against per-phase MADV_RANDOM against the block cache; the in-RAM reference |
+| `leiden_cache.jsonl` (run A), `leiden_cache_pf.jsonl` (run B), `leiden_inram.jsonl` (run R) | harness rows: step 2, mmap against per-phase MADV_RANDOM against the block cache; the in-RAM reference |
 | `pq_cold.jsonl` | harness rows: cold point queries, MADV_NORMAL against MADV_RANDOM |
 | `hier.json`, `hier_b2.json` | the Friendster hierarchy the layout read (b2 Louvain, map-shaped) |
 | `../cgprobe.py` | runs inside the scope; records `memory.stat` (kernel terms, refaults, faults) and the command's bytes read |
@@ -155,29 +155,74 @@ Conditions are those of the Leiden table above. Run A and run B are two harness 
 each, all variants of a pass alternate. Run R is the same algorithm in RAM (48G, warm,
 nothing spilled), in the same session.
 
-PF_TABLE
+| run | limit | pass | variant | total s | level-0 LM s | refinement s | aggregation s | LM+ref bytes | cache misses | coalesced reads | Q | load |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A | 8G | 1 | none | 325.1 | 190.1 | 38.8 | 56.7 | 375.2 GB | - | - | 0.6063 | 31.87 |
+| A | 8G | 1 | random-lm | 304.5 | 169.2 | 28.6 | 51.2 | 56.9 GB | - | - | 0.6002 | 31.98 |
+| A | 8G | 1 | cache4k | 230.1 | 134.1 | 17.7 | 42.1 | 62.5 GB | 17.8 M | - | 0.6062 | 35.59 |
+| A | 8G | 1 | cache16k | 168.0 | 87.6 | 16.4 | 37.3 | 161.5 GB | 10.5 M | - | 0.6063 | 18.58 |
+| A | 8G | 2 | none | 182.2 | 94.6 | 19.1 | 47.3 | 375.9 GB | - | - | 0.5982 | 17.04 |
+| A | 8G | 2 | random-lm | 220.8 | 118.6 | 18.3 | 50.1 | 58.5 GB | - | - | 0.6053 | 16.92 |
+| A | 8G | 2 | cache4k | 198.7 | 98.7 | 17.7 | 45.7 | 62.5 GB | 17.8 M | - | 0.6035 | 14.23 |
+| A | 8G | 2 | cache16k | 189.3 | 98.5 | 17.2 | 46.6 | 161.5 GB | 10.5 M | - | 0.6040 | 17.94 |
+| A | 4G | 1 | none | 340.7 | 217.2 | 34.2 | 56.2 | 932.8 GB | - | - | 0.6060 | 21.41 |
+| A | 4G | 1 | random-lm | 248.6 | 105.2 | 19.1 | 54.5 | 62.9 GB | - | - | 0.6045 | 25.65 |
+| A | 4G | 1 | cache16k | 243.4 | 101.6 | 18.1 | 51.7 | 162.6 GB | 10.6 M | - | 0.6065 | 20.47 |
+| A | 4G | 2 | none | 296.8 | 159.7 | 29.9 | 52.6 | 799.4 GB | - | - | 0.6045 | 17.84 |
+| A | 4G | 2 | random-lm | 248.6 | 107.7 | 19.9 | 56.8 | 63.0 GB | - | - | 0.6065 | 22.67 |
+| A | 4G | 2 | cache16k | 235.4 | 102.4 | 18.2 | 71.4 | 162.6 GB | 10.6 M | - | 0.5978 | 23.25 |
+| B | 8G | 1 | none | 195.3 | 107.2 | 21.1 | 43.5 | 375.5 GB | - | - | 0.6041 | 18.31 |
+| B | 8G | 1 | random-lm | 219.1 | 103.9 | 24.3 | 52.8 | 57.9 GB | - | - | 0.6037 | 20.6 |
+| B | 8G | 1 | cache4k-pf | 216.3 | 91.3 | 28.2 | 59.6 | 62.5 GB | 17.8 M | 5.48 M | 0.6052 | 27.03 |
+| B | 8G | 2 | none | 292.6 | 153.4 | 31.1 | 64.9 | 374.9 GB | - | - | 0.6069 | 27.26 |
+| B | 8G | 2 | random-lm | 218.2 | 106.8 | 19.7 | 51.6 | 55.8 GB | - | - | 0.6052 | 31.58 |
+| B | 8G | 2 | cache4k-pf | 201.3 | 80.9 | 20.0 | 54.2 | 62.5 GB | 17.8 M | 5.48 M | 0.6058 | 28.99 |
+| B | 4G | 1 | none | 386.6 | 210.9 | 40.7 | 72.2 | 799.4 GB | - | - | 0.6051 | 21.72 |
+| B | 4G | 1 | random-lm | 537.6 | 273.0 | 43.9 | 91.7 | 73.4 GB | - | - | 0.6084 | 33.54 |
+| B | 4G | 1 | cache4k-pf | 453.0 | 222.1 | 52.1 | 70.2 | 87.3 GB | 23.9 M | 5.91 M | 0.6048 | 34.45 |
+| B | 4G | 2 | none | 832.2 | 464.6 | 96.8 | 106.1 | 798.7 GB | - | - | 0.6061 | 27.62 |
+| B | 4G | 2 | random-lm | 492.8 | 274.6 | 45.9 | 61.3 | 66.7 GB | - | - | 0.6065 | 30.39 |
+| B | 4G | 2 | cache4k-pf | 213.8 | 72.0 | 22.0 | 48.1 | 87.3 GB | 23.9 M | 5.91 M | 0.6008 | 24.91 |
+| R | 48G | - | in RAM | 91.2 | 42.0 | 7.9 | 23.4 | 0 | - | - | 0.6057 | 17.29 |
 
 Medians of the per-pass ratios against `none` in the same run:
 
-PF_RATIOS
+| run | limit | variant / none | LM+ref bytes | level-0 local moving | total |
+|---|---|---|---|---|---|
+| A | 8G | random-lm | 0.154 | 1.072 (0.890, 1.255) | 1.074 |
+| A | 8G | cache4k | 0.166 | 0.875 (0.706, 1.043) | 0.899 |
+| A | 8G | cache16k | 0.430 | 0.751 (0.461, 1.041) | 0.778 |
+| B | 8G | random-lm | 0.152 | 0.833 (0.696, 0.969) | 0.934 |
+| B | 8G | cache4k-pf | 0.167 | 0.689 (0.527, 0.851) | 0.898 |
+| A | 4G | random-lm | 0.073 | 0.579 (0.484, 0.674) | 0.784 |
+| A | 4G | cache16k | 0.189 | 0.554 (0.468, 0.641) | 0.754 |
+| B | 4G | random-lm | 0.088 | 0.943 (0.591, 1.294) | 0.991 |
+| B | 4G | cache4k-pf | 0.109 | 0.604 (0.155, 1.053) | 0.714 |
+
+Time ratios are medians of two passes (the two values in brackets). At 4G in run B the
+load was 22–34 and the time ratios span 0.16–1.29; they decide nothing there.
 
 What this shows:
-- **Bytes.** Every non-default variant reads about the bytes that are needed. The 4 KiB
-  cache reads 62.5 GB at both limits, against 375 GB (8G) and 799–933 GB (4G) for mmap.
-  Per-phase MADV_RANDOM reads 56–63 GB. 16 KiB frames read 2.6× more than 4 KiB frames.
-- **Cache size hardly matters.** The 0.75 GiB cache at 4G misses as often as the 3 GiB
-  cache at 8G (10.56 M against 10.49 M misses with 16 KiB frames). Local moving visits
-  the blocks in a new permuted order each sweep, so a sweep reuses almost nothing from the
-  last one. The hit rate (98%) comes from neighbouring lists within a frame.
-- **Time follows the number of synchronous reads, not the bytes.** 17.8 M misses of 4 KiB,
-  10.5 M of 16 KiB and 5.5 M coalesced reads give local moving times in that order. The
+- **Bytes.** Every non-default variant reads close to the bytes that are needed. The 4 KiB
+  cache reads 62.5 GB at 8G and 87.3 GB at 4G, against 375 GB (8G) and 799–933 GB (4G) for
+  mmap. Per-phase MADV_RANDOM reads 56–73 GB. 16 KiB frames read 2.6× more than 4 KiB
+  frames at 8G.
+- **Cache size matters little.** With 16 KiB frames, the 0.75 GiB cache at 4G misses as
+  often as the 3 GiB cache at 8G (10.56 M against 10.49 M). With 4 KiB frames it misses
+  1.34× as often (23.9 M against 17.8 M). Local moving visits the blocks in a new permuted
+  order each sweep, so a sweep reuses little from the last one. The hit rate (98%) comes
+  from neighbouring lists within a frame.
+- **Time follows the number of synchronous reads more than the bytes.** 17.8 M misses of
+  4 KiB, 10.5 M of 16 KiB and 5.5 M coalesced reads tend to give local moving times in that
+  order. This comes from two runs at different loads, so it is not a clean test. The
   kernel's read-around reads 375 GB at about 4 GB/s and is not slower than the
   uncoalesced cache when the machine is quieter (run A, pass 2).
 - **The issue's step-2 criterion is not met.** Level-0 local moving at 8G with the best
   variant (coalesced cache) takes 80.9–91.3 s against 42.0 s in RAM in the same session:
-  1.9–2.2×, not ≤ 1.5×. Each block's read is still synchronous. Overlapping it with the
-  compute of the previous block (read-ahead of the next block, or io_uring) is the missing
-  piece. This is an inference from the miss counts and the times; it was not tested.
+  1.9–2.2×, not ≤ 1.5×. At 4G the coalesced cache took 72.0 s in one pass (1.7×) and
+  222.1 s in the other, at load 34. Each block's read is still synchronous. Overlapping
+  it with the compute of the previous block (read-ahead of the next block, or io_uring) is
+  the missing piece. This is an inference from the miss counts and the times; it was not tested.
 - In both runs and at both limits, Q is 0.598–0.607 for every variant, as in M1-02's async
   range.
 
@@ -195,12 +240,14 @@ Peaks are sampled every 100 ms from the scope's `memory.stat`.
 | Leiden 4G, block cache | 40 MiB | 125–126 MiB | 0 |
 
 The kernel terms are small against the limits (at most 186 MiB of `kernel` at 8G, 2.3%).
-MADV_RANDOM raises `kernel` by 10–30% in Leiden. The block cache does not change it.
+Whole-run MADV_RANDOM raises `kernel` in Leiden by 12–14% (4G) and 23–30% (8G).
+Per-phase MADV_RANDOM (136–153 MiB at 8G) and the block cache do not raise it.
 
 ## Not done, and limits
 
 - No official run. All times are from a loaded machine and only their ratios are used.
-  The time ratios vary from pass to pass by up to ±30%. The byte ratios vary by less than 3%.
+  The time ratios vary widely from pass to pass (one of them from 0.16 to 1.05). The byte
+  ratios vary by less than 3% within a variant and limit.
 - One graph (Friendster), one layout hierarchy, async Leiden only. The cache's identity is
   checked in deterministic mode on lj only (below), not on Friendster.
 - The 32G MADV_RANDOM result is one run under global memory pressure. On an idle machine
@@ -221,9 +268,10 @@ per-phase advice gives the same hash too. Unit test `bcache::tests::reads_equal_
 
 1. **Use MADV_RANDOM now, per phase, in m2-02's `advise()` callers and the m3-02
    planner.** Use it only for a random-access phase whose working set is larger than its
-   budget, and go back to MADV_NORMAL or MADV_SEQUENTIAL for scans. Measured here:
+   budget, and go back to MADV_NORMAL for scans (MADV_SEQUENTIAL was not tested). Measured
+   here:
    - layout under 16G: bytes 0.16×, time 0.45×;
-   - Leiden level-0 local moving and refinement: bytes 0.15× (8G) and 0.07–0.08× (4G);
+   - Leiden level-0 local moving and refinement: bytes 0.15× (8G) and 0.07–0.09× (4G);
    - cold point queries: about 30× fewer bytes per single-list query.
 
    For the whole Leiden run it is wrong: the aggregation scan becomes 1.4–1.6× slower.
@@ -237,9 +285,10 @@ per-phase advice gives the same hash too. Unit test `bcache::tests::reads_equal_
      reads 37–42× its CSR (578–652 GB for 15.5 GB), and Leiden's level-0 local moving and
      refinement read 36–90× the store (375–933 GB for 10.4 GB). MADV_RANDOM loses its
      pages to any global reclaim.
-   - The explicit cache gets the exact bytes (62.5 GB, like MADV_RANDOM). Its memory is in
+   - The explicit cache reads close to the needed bytes (62.5–87.3 GB with 4 KiB frames;
+     per-phase MADV_RANDOM 56–73 GB). Its memory is in
      the accountant, global reclaim cannot take it (anonymous, no swap), and its size can
-     be small (0.75 GiB did as well as 3 GiB here).
+     be small (with 16 KiB frames, 0.75 GiB missed as often as 3 GiB).
    - The ADR must also say what the prototype did not reach. On time it is at best 0.53×
      the mmap default and 0.76–0.88× per-phase MADV_RANDOM in local moving (8G, run B).
      It is 1.9–2.2× the in-RAM time, so the issue's 1.5× criterion is not met.
@@ -266,11 +315,12 @@ cargo build --release -p everygraph-bench
 ./target/release/everygraph-bench run mmap-hints --official --only leiden-friendster-cache
 ./target/release/everygraph-bench run mmap-hints --official --only leiden-friendster-inram
 ./target/release/everygraph-bench run mmap-hints --official --only pq-friendster-cold
-python3 -I lab/m1-15-mmap-hints-block-cache/summarize.py bench/results/mmap-hints/*.jsonl
+for f in bench/results/mmap-hints/*.jsonl; do python3 -I lab/m1-15-mmap-hints-block-cache/summarize.py $f; done
 ```
 
 The first run also builds the hierarchy (prepare step, about 2.5 minutes under 40G).
 Wall time (estimate from these runs, idle machine faster): layout 16G about 40 min,
-32G about 7 min, Leiden ooc about 40 min, Leiden cache about 60 min, in RAM about 4 min,
+32G about 7 min, Leiden ooc about 40 min, Leiden cache (18 cases) about 75 min, in RAM
+about 4 min,
 point queries about 5 min. Disk: about 52 GB of copies, plus up to 40 GB of spill per
 running case. The gate needs 44 GiB available.

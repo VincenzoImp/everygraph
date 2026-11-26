@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# Issue #172 (m1-15), step 1: MADV_RANDOM against the kernel's default advice for random
-# access through a memory map under a hard memory limit. One `madvise` call, no other change.
+# Issue #172 (m1-15): random access under a hard memory limit. Step 1: MADV_RANDOM against
+# the kernel's default advice (one `madvise` call). Step 2: a budgeted block cache over the
+# level-0 store against mmap (leiden-friendster-cache, described below).
 #
 #   layout   lab/e-map `gmap layout` (the tracer's layout stage, FINDINGS § M1-01) on
 #            Friendster, CSR memory-mapped (GMAP_LOAD=mmap) from a cold private copy,
@@ -42,16 +43,19 @@
 #
 # Hierarchy: written once by the preparation step below (b2 Louvain, async, so it differs
 # from the tracer's run to run; every case of a run reads the same one). --no-quot keeps
-# b2 from holding and writing the quotient graphs (gmap reads level_k.u32 only); b2's
-# anonymous peak is about 28 GiB with or without it (exploratory, 2026-11-26), hence 40G.
+# b2 from holding and writing the quotient graphs (gmap reads level_k.u32 only). b2's own
+# anonymous peak was 28.4 GiB with it (exploratory, 2026-11-26; the tracer's, without it,
+# 28.3 GiB), hence 40G.
 #
-# Wall time (estimate from exploratory runs): layout 16G ~6-10 min per case x 6, 32G ~2 min
-# x 2, pq ~3 min per case x 8, cold copies 2 x 15.5 GB ~1 min, hierarchy ~2.5 min.
-# Disk: ~31 GB of copies, 2 GB of layout output per case, 0.35 GB of hierarchy.
+# Wall time (estimate from exploratory runs on a loaded machine): layout 16G 4-12 min per
+# case x 6, 32G 2-5 min x 2, Leiden ooc 3.5-6 min x 8, Leiden cache 3-6 min x 18, in RAM
+# 2 x 1.7 min, pq ~40 s x 8, cold copies ~3 min, hierarchy ~2.5 min. About 3.5 hours.
+# Disk: ~52 GB of copies (Friendster CSR and store, 2 each), 2 GB of layout output per case,
+# up to ~40 GB of spill per Leiden case, 0.35 GB of hierarchy.
 
 schema = 1
 name = "mmap-hints"
-description = "Issue #172 step 1: MADV_RANDOM against default advice, gmap layout and cold point queries on Friendster under a hard limit"
+description = "Issue #172: MADV_RANDOM against default advice (gmap layout, out-of-core Leiden, cold point queries) and a budgeted block cache against mmap (Leiden level 0), Friendster under hard limits"
 reference = "plan/issues/m1-15-mmap-hints-block-cache.md; docs/FINDINGS.md § M1-01 (layout under 16 GiB: 733 GB read) and § F1 (cold point queries)"
 binaries = ["{gmap}", "{pq}", "{b2}", "{m102}", "{probe}"]
 

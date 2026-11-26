@@ -4,8 +4,9 @@
     python3 -I summarize.py ROWS.jsonl [ROWS.jsonl ...]
 
 For each benchmark, one line per row (in run order) with its matrix values and metrics,
-then, per pair of cases that differ only in `variant` within the same `pass` (and limit /
-prefetch), the ratio B/A of every metric, and the median of those per-pass ratios.
+then, for cases of one harness run that differ only in `variant` within the same `pass`
+(and limit / prefetch), the ratio of every metric against variant `none` (pq: random=0),
+and the median of those per-pass ratios.
 Bytes in GB (10^9), memory in MiB, refaults and faults in millions.
 """
 import json
@@ -71,6 +72,7 @@ def main():
                 continue
             v = dict(r.get("vars") or {})
             var = v.pop("variant", None)
+            v["run"] = r.get("run_id", "")
             key = tuple(sorted(v.items()))
             groups[key][var] = r.get("metrics") or {}
         ratios = defaultdict(lambda: defaultdict(list))
