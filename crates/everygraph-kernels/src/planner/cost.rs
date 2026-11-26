@@ -17,7 +17,9 @@
 
 use std::num::NonZeroUsize;
 
-use everygraph_core::{AccessHint, MAX_ALLOCATION_BYTES, Storage, StorageKind, SystemMemory, math};
+use everygraph_core::{
+    AccessHint, ExactSum, MAX_ALLOCATION_BYTES, Storage, StorageKind, SystemMemory, math,
+};
 use everygraph_format::adjacency::Batch;
 
 use super::{Estimate, Graph, Regime, Tier};
@@ -185,21 +187,30 @@ impl Cost {
                 u64::from(!graph.directed),
                 4 * n,
             ),
-            // Distances and parents (8), the frontier and its move (8, and the least of
-            // a list on a small graph), the next and the bottom-up set; then the two
-            // result columns (8) beside the state, when the frontiers are gone.
+            // Distances and parents (8), the next and the bottom-up set; the frontier of
+            // the largest level `m` with its move (8 m) and the counts of `l` levels with
+            // their move (24 l, a vector that doubles): `m + l <= n + 1`, so 24 (n + 1)
+            // at most, with the least of a list on a small graph. The two result columns
+            // (8) come beside the state when the frontiers are gone.
             Operation::Bfs { .. } => {
-                let sets = if graph.directed { set } else { 2 * set } + SMALLEST_LIST;
-                ("bfs", Access::Mixed, 16, sets, 1, 0)
+                let sets = if graph.directed { set } else { 2 * set } + 24 + SMALLEST_LIST;
+                ("bfs", Access::Mixed, 32, sets, 1, 0)
             }
         };
+        // Each driver call holds one partial value per reduction block: two `ExactSum`s
+        // for `PageRank`'s iterations, a count at most for the others.
+        let partial = match op {
+            Operation::PageRank { .. } => 2 * size_of::<ExactSum>() as u64,
+            _ => 8,
+        };
+        let partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * partial;
         Self {
             phase,
             access,
             nodes: n,
             threads,
             per_node,
-            sets,
+            sets: sets + partials,
             buffers: readers * workers * reader,
             raw,
             output,

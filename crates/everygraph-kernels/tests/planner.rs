@@ -854,7 +854,8 @@ fn a_refusal_states_its_arithmetic() {
     let doc = json(&plan.refusal().unwrap().to_json());
     assert_eq!(doc["error"], "InsufficientBudget");
     assert_eq!(doc["arithmetic"]["count"], 7);
-    assert_eq!(doc["arithmetic"]["bytes_each"], 25);
+    // 7 × 24 bytes, 12 bytes and one partial value of 8: 188 bytes, 26 a node.
+    assert_eq!(doc["arithmetic"]["bytes_each"], 26);
     assert_eq!(doc["smallest_budget_bytes"], plan.peak_bytes());
     assert_eq!(doc["changed"], Value::Bool(false));
 }
