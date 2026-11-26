@@ -23,9 +23,9 @@ use crate::args::{Common, Progress};
 use crate::failure::{self, Failure};
 use crate::graph;
 use crate::ingest::is_graph;
+use crate::native;
 use crate::progress::Lines;
 use crate::render::{Style, counted, duration, size};
-use crate::scratch;
 use crate::table::Partial;
 
 const HELP: &str = "\
@@ -141,14 +141,14 @@ fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
     );
     let _ = io::stderr().write_all(line.as_bytes());
     if common.json {
-        let fingerprint = format!(
-            "compact\0{}\0{}",
-            scratch::absolute(path).display(),
-            scratch::absolute(&destination).display()
-        );
+        let job = native::job_id(&[
+            "compact",
+            &graph::absolute(path).display().to_string(),
+            &graph::absolute(&destination).display().to_string(),
+        ]);
         let doc = json!({
             "schema": 1,
-            "job": scratch::job_id(&fingerprint),
+            "job": job,
             "operation": "compact",
             "made": {"path": destination.display().to_string(), "kind": "graph", "bytes": bytes},
             "counts": {"sections": sections, "reclaimed_bytes": reclaimed},

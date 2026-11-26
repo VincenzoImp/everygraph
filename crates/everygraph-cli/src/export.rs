@@ -21,9 +21,9 @@ use crate::failure::{self, Failure, usage};
 use crate::graph;
 use crate::ingest::is_graph;
 use crate::machine::{self, Machine};
+use crate::native;
 use crate::progress::Lines;
 use crate::render::{Style, counted, duration, size};
-use crate::scratch;
 use crate::table::{self, Nodes};
 
 const HELP: &str = "\
@@ -129,14 +129,15 @@ fn run(path: &Path, common: &Common, topology: bool) -> Result<u8, Failure> {
     );
     let _ = io::stderr().write_all(line.as_bytes());
     if common.json {
-        let fingerprint = format!(
-            "export\0{}\0{}\0{topology}",
-            scratch::absolute(path).display(),
-            scratch::absolute(out).display()
-        );
+        let job = native::job_id(&[
+            "export",
+            &graph::absolute(path).display().to_string(),
+            &graph::absolute(out).display().to_string(),
+            &topology.to_string(),
+        ]);
         let doc = json!({
             "schema": 1,
-            "job": scratch::job_id(&fingerprint),
+            "job": job,
             "operation": "export",
             "made": {"path": out.display().to_string(), "kind": "file", "bytes": written},
             "counts": {"rows": rows},

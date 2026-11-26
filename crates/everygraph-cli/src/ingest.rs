@@ -8,7 +8,7 @@
 //! renamed (C-1): a stop at any moment leaves no `NAME.eg` that is not whole.
 
 use std::fs::File;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -20,20 +20,20 @@ use everygraph_ingest::build::{
 };
 use everygraph_ingest::ids::KeyKind;
 use everygraph_ingest::text::{Column, IdType, TextOptions, TextReader};
-use everygraph_io::{FileSink, FileSource, MmapSource};
+use everygraph_io::FileSource;
 use serde_json::{Map, Value, json};
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 
 use crate::args::Common;
 use crate::failure::{self, Failure};
+use crate::graph::absolute;
 use crate::machine;
+use crate::native::{self, JobScratch, WriteError};
 use crate::plan::Plan;
 use crate::progress::Lines;
 use crate::progress::now_ns;
 use crate::render::{Style, counted, duration, size};
-use crate::scratch::{self, JobScratch};
-use crate::table::Partial;
 
 /// What was asked.
 #[derive(Debug, clap::Args)]
@@ -131,24 +131,6 @@ Options
 Short forms: -o for --out, -m for --memory, -t for --threads.
 ";
 
-/// `NAME.eg` beside the input, `NAME` being its name without the extensions an edge
-/// list may have (`transfers.csv.gz` → `transfers.eg`).
-fn default_output(input: &Path) -> PathBuf {
-    const EXTENSIONS: [&str; 9] = [
-        "gz", "zst", "txt", "csv", "tsv", "edges", "el", "edgelist", "ssv",
-    ];
-    let mut name = input
-        .file_name()
-        .map_or_else(|| "graph".to_owned(), |n| n.to_string_lossy().into_owned());
-    while let Some((stem, ext)) = name.rsplit_once('.') {
-        if stem.is_empty() || !EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) {
-            break;
-        }
-        name = stem.to_owned();
-    }
-    input.with_file_name(format!("{name}.eg"))
-}
-
 fn run(args: &Args) -> Result<u8, Failure> {
     let started = Instant::now();
     let started_at = now_ns();
@@ -165,7 +147,7 @@ fn run(args: &Args) -> Result<u8, Failure> {
         .common
         .out
         .clone()
-        .unwrap_or_else(|| default_output(&args.input));
+        .unwrap_or_else(|| native::default_output(&args.input));
     if output.exists() && !args.common.overwrite {
         return Err(failure::output_exists(&output, is_graph(&output)));
     }
@@ -210,18 +192,7 @@ fn run(args: &Args) -> Result<u8, Failure> {
     }
     // A compressed input is read once into a plain copy in the scratch directory.
     lines.begin(Phase::Reading, None);
-    let path = scratch.dir().join("input.txt");
-    let file = File::create(&path).map_err(|e| failure::io("write", &path, &e))?;
-    let mut writer = BufWriter::with_capacity(1 << 20, file);
-    reader
-        .decompress_into(&mut writer)
-        .map_err(|e| failure::text(&args.input, e))?;
-    writer
-        .into_inner()
-        .map_err(|e| failure::io("write", &path, e.error()))?;
-    let copy = MmapSource::open(&path).map_err(|e| failure::io("read", &path, &e))?;
-    let _ = std::fs::remove_file(&path);
-    let plain = TextReader::open(copy, &options).map_err(|e| failure::text(&args.input, e))?;
+    let plain = native::decompress(&reader, &scratch, &options).map_err(|e| job.failure(e))?;
     in_pool(plan.threads, || job.write(&plain, &scratch, &lines))
 }
 
@@ -295,6 +266,18 @@ struct Job<'a> {
 }
 
 impl Job<'_> {
+    fn failure(&self, e: WriteError) -> Failure {
+        match e {
+            WriteError::Build(e) => failure::build(
+                &self.args.input,
+                self.plan.budget,
+                self.plan.machine_memory(),
+                e,
+            ),
+            WriteError::Io { path, error } => failure::io("write", &path, &error),
+        }
+    }
+
     /// Builds the graph from `reader` into `NAME.eg.partial`, checks it, and renames it.
     fn write<S: ByteSource + Sync>(
         &self,
@@ -303,18 +286,11 @@ impl Job<'_> {
         lines: &Lines,
     ) -> Result<(), Failure> {
         let (args, plan, output) = (self.args, self.plan, self.output);
-        let fail = |e| failure::build(&args.input, plan.budget, plan.machine_memory(), e);
         let memory = machine::memory(plan.budget);
         let mut options = BuildOptions::new(self.graph, plan.threads);
         if args.ids == IdType::String {
             options.ids = options.ids.with_kind(KeyKind::Bytes);
         }
-        let partial_path = PathBuf::from(format!("{}.partial", output.display()));
-        let sink =
-            FileSink::create(&partial_path).map_err(|e| failure::io("write", &partial_path, &e))?;
-        let mut partial = Partial(Some(partial_path.clone()));
-        let unfinished =
-            build::build(reader, &options, &memory, scratch, sink, lines).map_err(fail)?;
         let metadata = std::fs::metadata(&args.input).ok();
         let input = Input {
             name: args.input.display().to_string(),
@@ -331,23 +307,20 @@ impl Job<'_> {
             inputs: vec![input],
             ..Provenance::default()
         };
-        let (sink, report) = unfinished.commit(provenance).map_err(fail)?;
-        drop(sink.into_file());
-
-        lines.begin(Phase::Checking, None);
-        let written =
-            MmapSource::open(&partial_path).map_err(|e| failure::io("read", &partial_path, &e))?;
-        let checked =
-            build::check(written, &memory).map_err(|e| failure::corrupt(&partial_path, &e))?;
-        lines.end(
-            Phase::Checking,
-            u64::try_from(checked.sections).unwrap_or(u64::MAX),
-        );
-        everygraph_io::persist(&partial_path, output)
-            .map_err(|e| failure::io("write", output, &e))?;
-        partial.0 = None;
-
-        let bytes = std::fs::metadata(output).map_or(0, |m| m.len());
+        let (written, report, _) = native::write(
+            reader,
+            &options,
+            &memory,
+            scratch,
+            native::Output::File(output),
+            provenance,
+            lines,
+        )
+        .map_err(|e| self.failure(e))?;
+        let bytes = match written {
+            native::Written::File(bytes) => bytes,
+            native::Written::Memory(b) => b.len() as u64,
+        };
         let elapsed = self.started.elapsed().as_secs_f64();
         result_block(output, bytes, &report, elapsed, self.style);
         if args.common.json {
@@ -429,41 +402,22 @@ fn file_document(job: &str, output: &Path, bytes: u64, report: &Report, seconds:
 /// The first 16 hexadecimal digits of the job's fingerprint (XXH3-128): the input, the
 /// output and every option that changes the graph, not the budget or the threads (R-4).
 fn job_id(args: &Args, output: &Path, reader: &TextReader<FileSource>) -> String {
-    scratch::job_id(&format!(
-        "{}\0{}\0{}\0{:?}\0{:?}\0{:?}\0{:?}\0{:?}\0{:?}",
-        scratch::absolute(&args.input).display(),
-        scratch::absolute(output).display(),
-        reader.source().len(),
-        args.source,
-        args.target,
-        args.directed(),
-        args.self_loops,
-        args.duplicates,
-        args.ids,
-    ))
+    let (input, output) = (absolute(&args.input), absolute(output));
+    native::job_id(&[
+        &input.display().to_string(),
+        &output.display().to_string(),
+        &reader.source().len().to_string(),
+        &format!("{:?}", args.source),
+        &format!("{:?}", args.target),
+        &format!("{:?}", args.directed()),
+        &format!("{:?}", args.self_loops),
+        &format!("{:?}", args.duplicates),
+        &format!("{:?}", args.ids),
+    ])
 }
 
 fn ns_since_epoch(t: SystemTime) -> Option<i64> {
     t.duration_since(UNIX_EPOCH)
         .ok()
         .and_then(|d| i64::try_from(d.as_nanos()).ok())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_output_drops_the_extensions_of_an_edge_list() {
-        assert_eq!(
-            default_output(Path::new("a/transfers.csv.gz")),
-            Path::new("a/transfers.eg")
-        );
-        assert_eq!(default_output(Path::new("lj.txt")), Path::new("lj.eg"));
-        assert_eq!(
-            default_output(Path::new("graph.v2.tsv")),
-            Path::new("graph.v2.eg")
-        );
-        assert_eq!(default_output(Path::new(".csv")), Path::new(".csv.eg"));
-    }
 }

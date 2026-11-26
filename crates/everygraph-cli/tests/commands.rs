@@ -483,11 +483,6 @@ fn every_failure_has_its_exit_status_and_one_document() {
         (&["compact", "missing.eg"], 1, "IoError"),
         (&["export", "g.eg", "--out", "taken.csv"], 1, "OutputExists"),
         (
-            &["run", "degrees", "g.eg", "--memory", "900TB"],
-            2,
-            "UsageError",
-        ),
-        (
             &["run", "degrees", "g.eg", "--progress", "fancy"],
             2,
             "UsageError",

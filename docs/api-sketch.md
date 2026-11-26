@@ -2489,6 +2489,52 @@ when the build's record does not say. Times are ISO 8601, UTC.
 }
 ```
 
+For example, after `run pagerank` (shortened here: the dictionary's sections are
+left out, not in the real output):
+
+```json
+{
+  "schema": 1,
+  "info": "lj.eg",
+  "bytes": 236478464,
+  "generation": 2,
+  "graph": {
+    "nodes": 3997962, "edges": 34681189, "directed": false,
+    "self_loops": "drop", "duplicates": "events", "ids": "integers"
+  },
+  "build": {
+    "engine": "everygraph 0.1.0",
+    "finished": "2026-11-26T06:57:04Z",
+    "seconds": 4.2,
+    "inputs": [{"name": "com-lj.ungraph.txt.gz", "bytes": 123969047}],
+    "counts": {"nodes": 3997962, "edges": 34681189, "rows": 34681189},
+    "dropped": {"self_loops": 0}
+  },
+  "reclaimable_bytes": 4096,
+  "sections": [
+    {"name": "adjacency.out.data", "kind": "adjacency data",
+     "bytes": 138724756},
+    {"name": "adjacency.out.index", "kind": "adjacency index",
+     "bytes": 1999024}
+  ],
+  "results": [
+    {
+      "operation": "pagerank",
+      "section": "results/pagerank/3c1b44f2d1a0b7e95f60c2a7d9e81f03",
+      "bytes": 31983712,
+      "engine": "everygraph 0.1.0",
+      "finished": "2026-11-26T06:57:15Z",
+      "seconds": 10.1,
+      "parameters": {
+        "damping": "0.85", "deterministic": "true", "max_iter": "100",
+        "precision": "full", "tol": "0.000001", "version": "1"
+      },
+      "stale": null
+    }
+  ]
+}
+```
+
 `verify` is the file checked, as given; `generation` is the commit it reads as, `null`
 when it is not a graph file; `lost_generation` is a newer commit the file holds but
 cannot read (its table or its header block is damaged, or its commit was cut short),
