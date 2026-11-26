@@ -566,9 +566,14 @@ class Graph:
             with _stopping(events, f"g.{operation}(…), the same call again", unchanged):
                 table, info = native(settings, events)
         except _native.NativeError as e:
+            # One `error` event ends the events, whether or not a plan came first (G-16).
             cls, fields = e.args
+            if cls == "UsageError":
+                document = json.loads(fields["document"])
+                events.error(document)
+                raise _errors.usage(document) from None
             if cls == "Refusal":
-                refused = _errors.from_plan(json.loads(fields["document"]), operation, where)
+                refused = _errors.from_plan(fields, operation, where)
             else:
                 machine = _machine()
                 try:
@@ -576,10 +581,7 @@ class Graph:
                                          machine_memory=machine[0] if machine else None)
                 except _errors.EverygraphError as raised:
                     refused = raised
-                except ValueError:
-                    raise
-            if events.plan is not None:
-                events.error(refused.to_dict())
+            events.error(refused.to_dict())
             raise refused from None
         took = _clock() - began
         plan = Plan(info.pop("plan"), info.pop("plan_text"))

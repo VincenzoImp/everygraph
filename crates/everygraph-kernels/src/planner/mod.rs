@@ -64,7 +64,7 @@ use everygraph_core::{AccessHint, Storage, SystemMemory};
 use everygraph_format::adjacency::AdjacencyIndex;
 
 pub use cost::{advice, break_even};
-pub use document::typed;
+pub use document::{about, typed};
 
 use crate::edge_map::{CompressedStream, Settings};
 use crate::run::{self, Operation};
@@ -279,8 +279,15 @@ pub struct Refusal {
 /// What a plan needs that the budget does not have (P-13).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shortfall {
-    /// The state: per-node arrays, sets and the raw copy.
+    /// All the plan needs: the state, the readers' buffers, and what the open graph and
+    /// the session hold.
     pub needs_bytes: u64,
+    /// The state: per-node arrays, sets, the raw copy and the projection.
+    pub state_bytes: u64,
+    /// What the state is, in words: `per-node state`, and the copy it holds.
+    pub what: &'static str,
+    /// Whether the edges stay on disk, whatever the budget.
+    pub on_disk: bool,
     /// The budget.
     pub budget_bytes: u64,
     /// The exact smallest budget that fits, the state and the readers' buffers (P-14);
@@ -289,7 +296,7 @@ pub struct Shortfall {
     /// The nodes of the arithmetic.
     pub nodes: u64,
     /// The bytes each node needs, rounded down: `nodes × bytes_each` is most of
-    /// `needs_bytes`.
+    /// `state_bytes`.
     pub bytes_each: u64,
 }
 

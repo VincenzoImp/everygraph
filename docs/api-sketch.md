@@ -503,8 +503,9 @@ g.communities(memory="4GB")                 # or just try: it is refused first
 >>> g.communities(memory="4GB")
 Traceback (most recent call last):
   File "<stdin>", line 1, in <module>
-InsufficientBudget: communities() needs 5.1 GB for per-node state
-(212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
+InsufficientBudget: communities() needs 5.6 GB: 5.1 GB for per-node state
+(212,418,907 nodes × 24 bytes), and 0.5 GB for buffers and the graph's indexes;
+the budget is 4.0 GB.
 The edges stay on disk either way.
 
   Ways forward:
@@ -534,8 +535,9 @@ Plan for communities() on transfers.eg — Leiden, resolution 1.0, deterministic
 $ everygraph run communities transfers.eg --memory 4GB
 ✗ Not enough memory for this step.
 
-  communities needs 5.1 GB for per-node state (212,418,907 nodes × 24 bytes).
-  The budget is 4.0 GB. The edges stay on disk either way.
+  communities needs 5.6 GB: 5.1 GB for per-node state (212,418,907 nodes × 24
+  bytes), and 0.5 GB for buffers and the graph's indexes. The budget is 4.0 GB.
+  The edges stay on disk either way.
 
   Ways forward:
     --memory 6GB            the smallest budget that works
@@ -889,7 +891,7 @@ in — and the same content as attributes.
 
 | Exception | Also a | Raised when | Particular attributes | Exit status |
 |---|---|---|---|---|
-| `InsufficientBudget` | — | The per-node state of an operation does not fit the memory budget. Always before any work. | `step`, `needs_bytes`, `budget_bytes`, `smallest_budget_bytes` | 4 |
+| `InsufficientBudget` | — | The per-node state of an operation does not fit the memory budget. Always before any work, except for an operation whose plan has no bound (`components(strong=True)`, whose pairs found grow with the graph), which can also be refused while it runs; its `smallest_budget_bytes` is then `None`. | `step`, `needs_bytes`, `budget_bytes`, `smallest_budget_bytes` | 4 |
 | `InsufficientDisk` | — | The scratch or output directory lacks room for the plan. Before any work; or during a run if the disk fills. | `step`, `needs_bytes`, `available_bytes` (free on that disk), `path` | 4 |
 | `InvalidInput` | — | The input cannot be read as described: a row with the wrong number of fields, a value that is not of the column's type, a missing column, an unknown format, a file with no bytes. Or the data cannot be used as asked: a weight that is negative, NaN or infinite where an operation needs weights (§ 2.13). | `problems` (each with `file`, `line`, `problem`, `column`, `excerpt`), `invalid_rows`, `rows_checked`; for a weight, `column` | 3 |
 | `InvalidExpression` | `ValueError` | The text of a filter does not parse or names a column the graph lacks. Raised by `g.filter()` itself, not later. | `expression`, `position` | 2 |

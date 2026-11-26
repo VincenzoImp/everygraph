@@ -131,10 +131,12 @@ def text(message: str, why: str | None, ways: list[Way], state: str) -> str:
     """The message of `docs/ux-contract.md` § 6.1 as Python shows it (story 8): what, then
     why on the next line, each wrapped at 80 columns; the ways forward as calls; and the
     state things were left in."""
-    lines = textwrap.wrap(message, 80) or [message]
+    # A path or an identifier is never cut, so that it can be copied.
+    wrap = {"width": 80, "break_long_words": False, "break_on_hyphens": False}
+    lines = textwrap.wrap(message, **wrap) or [message]
     for paragraph in (why or "").splitlines():
         indent = paragraph[: len(paragraph) - len(paragraph.lstrip())]
-        lines += textwrap.wrap(paragraph, 80, subsequent_indent=indent) or [""]
+        lines += textwrap.wrap(paragraph, subsequent_indent=indent, **wrap) or [""]
     if ways:
         lines += ["", "  Ways forward:"]
         for way in ways:
@@ -146,22 +148,24 @@ def _ways(document: Mapping[str, Any]) -> list[Way]:
     return [Way(w["command"], w["python"], w["note"], w.get("needs_bytes")) for w in document["ways_forward"]]
 
 
-def from_plan(document: Mapping[str, Any], operation: str, where: str) -> EverygraphError:
-    """The exception of a plan's refusal, from its error document: `InsufficientBudget`
-    in the words of story 8, or `Unsupported`; `where` names the graph."""
-    common = {"ways_forward": _ways(document), "machine_memory_bytes": document.get("machine_memory_bytes")}
-    why = document["why"]
+def from_plan(fields: Mapping[str, Any], operation: str, where: str) -> EverygraphError:
+    """The exception of a plan's refusal, from the engine's `fields`: its error document
+    and, for a budget, the state and what it is. `InsufficientBudget` in the words of
+    story 8, or `Unsupported`; `where` names the graph."""
+    document = json.loads(fields["document"])
+    machine = document.get("machine_memory_bytes")
+    common = {"ways_forward": _ways(document), "machine_memory_bytes": machine}
     if document["error"] == "InsufficientBudget":
         arithmetic = document["arithmetic"]
-        what = why.split(" for ", 1)[1].split(" (", 1)[0]
-        message = (f"{operation}() needs {_text.size(document['needs_bytes'])} for {what} "
-                   f"({arithmetic['count']:,} nodes × {arithmetic['bytes_each']} bytes); "
+        needs, state = document["needs_bytes"], fields["state_bytes"]
+        rest = f", and {_text.size(needs - state)} for buffers and the graph's indexes" if needs > state else ""
+        message = (f"{operation}() needs {_text.size(needs)}: {_text.size(state)} for {fields['what']} "
+                   f"({arithmetic['count']:,} nodes × {arithmetic['bytes_each']} bytes){rest}; "
                    f"the budget is {_text.size(document['budget_bytes'])}.")
         after = []
-        if "so no budget on it is enough" in why:
-            after.append(f"This machine has {_text.size(document['machine_memory_bytes'])} of memory "
-                         "in all, so no budget on it is enough.")
-        if "The edges stay on disk either way." in why:
+        if machine is not None and needs > machine:
+            after.append(f"This machine has {_text.size(machine)} of memory in all, so no budget on it is enough.")
+        if fields["on_disk"]:
             after.append("The edges stay on disk either way.")
         return InsufficientBudget(
             message,
@@ -173,7 +177,7 @@ def from_plan(document: Mapping[str, Any], operation: str, where: str) -> Everyg
             smallest_budget_bytes=document["smallest_budget_bytes"],
             **common,
         )
-    reason = document.get("reason", why)
+    reason = document.get("reason", document["why"])
     return Unsupported(
         f"{operation}() cannot be done on {where}.",
         why=reason[:1].upper() + reason[1:] + ".",

@@ -155,7 +155,11 @@ class Progress:
         })
 
     def error(self, document: dict[str, Any]) -> None:
-        """The `error` event (G-16), with the error document of § 6.1."""
+        """The `error` event (G-16), with the error document of § 6.1, after the final
+        state of a phase that was running (G-17)."""
+        if self.current is not None:
+            self._send(self._event(self.current, "stopped", self.done.get(self.current, 0), None), quiet=True)
+            self.current = None
         self._send({**self._head("error"), "error": document}, quiet=True)
 
     def warning(self, code: str, message: str, why: str | None, continuing: str | None) -> None:

@@ -279,6 +279,19 @@ fn keep(
     writer.commit().map(drop).map_err(|e| e.to_string())
 }
 
+/// A plan's refusal: its error document, and for a budget the facts the package writes
+/// its message from (story 8 of `docs/api-sketch.md`).
+pub(crate) fn refused(r: &planner::Refusal) -> Failure {
+    let f = Failure::new("Refusal").text("document", r.to_json());
+    match &r.shortfall {
+        Some(s) => f
+            .count("state_bytes", s.state_bytes)
+            .text("what", s.what)
+            .count("on_disk", u64::from(s.on_disk)),
+        None => f,
+    }
+}
+
 /// The failure of `op` within a budget of `budget` bytes.
 fn failure(op: &Operation<'_>, e: RunError, budget: u64) -> Failure {
     match e {
@@ -289,7 +302,7 @@ fn failure(op: &Operation<'_>, e: RunError, budget: u64) -> Failure {
         RunError::Stored(e) => Failure::new("CorruptFile")
             .text("section", "results")
             .text("why", e),
-        RunError::Refused(r) => Failure::new("Refusal").text("document", r.to_json()),
+        RunError::Refused(r) => refused(&r),
         RunError::Threads(e) => Failure::new("EverygraphError")
             .text("message", format!("Cannot start the threads: {e}.")),
     }

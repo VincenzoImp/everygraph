@@ -37,6 +37,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(machine_memory, m)?)?;
     m.add_function(wrap_pyfunction!(default_threads, m)?)?;
     m.add_function(wrap_pyfunction!(job_id, m)?)?;
+    m.add_function(wrap_pyfunction!(about, m)?)?;
     Ok(())
 }
 
@@ -55,6 +56,13 @@ fn machine_memory() -> Option<(u64, u64)> {
 fn job_id(parts: Vec<String>) -> String {
     let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
     everygraph_ingest::native::job_id(&parts)
+}
+
+/// A time whose interval is wide, as the step table writes it: "about" and two
+/// significant digits (`docs/ux-contract.md` P-8).
+#[pyfunction]
+fn about(seconds: f64) -> String {
+    everygraph_kernels::planner::about(seconds)
 }
 
 /// The threads a call uses at most by default: the physical cores this process may use

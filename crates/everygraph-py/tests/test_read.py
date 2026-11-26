@@ -204,8 +204,11 @@ def test_wrong_arguments_are_type_and_value_errors(tmp_path):
 
 def test_a_missing_column_is_invalid_input(tmp_path, validate):
     path = write_edges(tmp_path / "e.csv", [(1, 2)])
-    with pytest.raises(eg.InvalidInput, match="no column named value") as e:
+    with pytest.raises(eg.InvalidInput) as e:
         eg.read(path, weight="value", progress=False)
+    # The text is wrapped at 80 columns, the path never cut.
+    assert "it has no column named value." in " ".join(str(e.value).split())
+    assert str(path) in str(e.value)
     assert not isinstance(e.value, ValueError) and e.value.column == "value"
     assert "The header has: a, b." in str(e.value)
     validate(e.value.to_dict(), "urn:everygraph:schema:error:1")
@@ -353,5 +356,6 @@ def test_weight_and_time_columns_are_read_and_part_of_the_graph(tmp_path, capsys
 def test_a_weight_column_named_like_a_stored_one_is_refused(tmp_path):
     path = tmp_path / "s.csv"
     path.write_text("a,b,edges\n1,2,0.5\n")
-    with pytest.raises(eg.InvalidInput, match="two stored columns would be named edges"):
+    with pytest.raises(eg.InvalidInput) as e:
         eg.read(path, weight="edges", duplicates="sum", progress=False)
+    assert "two stored columns would be named edges" in " ".join(str(e.value).split())

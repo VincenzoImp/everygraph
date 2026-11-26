@@ -10,7 +10,7 @@ import types
 from collections.abc import Mapping
 from typing import Any
 
-from . import _text
+from . import _native, _text
 
 _REGIMES = {"in_memory": "in memory", "mapped": "edges on disk, read as needed",
             "streamed": "edges on disk, read in passes"}
@@ -89,22 +89,9 @@ def block(doc: Mapping[str, Any]) -> str:
     lines.append(f"  plan      {_REGIMES[r['name']]} — {r['reason']}")
     peak = e["peak_memory_bytes"]["value"]
     output = e["output_bytes"]["value"]
-    estimate = f"{about(e['seconds']['value'])} · peak {_text.size(peak)} · no scratch"
+    estimate = f"{_native.about(e['seconds']['value'])} · peak {_text.size(peak)} · no scratch"
     if output:
         estimate += f" · result {_text.size(output)} in {name}"
     lines.append(f"  estimate  {estimate}")
     return "\n".join(lines) + "\n"
 
-
-def about(seconds: float) -> str:
-    """A time whose interval is wide: "about" and two significant digits (P-8), as the
-    step table writes it."""
-    def rounded(x: float) -> str:
-        return f"{x:.0f}" if x >= 10 else f"{x:.1f}"
-    if seconds < 1:
-        return f"about {rounded(seconds * 1000)} ms"
-    if seconds < 120:
-        return f"about {rounded(seconds)} s"
-    if seconds < 7200:
-        return f"about {rounded(seconds / 60)} min"
-    return f"about {rounded(seconds / 3600)} h"

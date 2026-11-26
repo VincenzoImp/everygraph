@@ -27,7 +27,7 @@ use everygraph_format::adjacency::{Batch, index_bytes_bound};
 
 use super::{Estimate, Graph, InLists, Regime, Tier};
 use crate::edge_map::{CompressedStream, Error, FRONTIER_GRAIN, RawCopy, Settings};
-use crate::run::{self, Direction, Operation, Precision, Weight};
+use crate::run::{self, Operation, Precision, Weight};
 
 // ---- The constants of the model, with their sources ------------------------------
 //
@@ -310,13 +310,18 @@ impl Cost {
     /// The cost of `op` on the undirected projection of the directed `graph`, whose
     /// in-adjacency is `inn`: the merge (`adjacency::merge`), then the kernel on what it
     /// made. A list of the projection holds at most the entries of the node's two
-    /// lists, each coded in no more bytes than in its own list, so the projection has at
-    /// most the entries, the data and the longest list of both together.
+    /// lists, so at most their entries and their longest lists together. A record codes
+    /// its first entry from the node and each other entry as a gap from the one before
+    /// it (`docs/spec/eg-adjacency.md` § 1). In the union every entry keeps a gap no
+    /// longer than in its own list, but one: the first entry of the list that starts
+    /// later becomes a gap from an entry of the other list, at most 4 bytes where it
+    /// took at least 1. So the projection's data is at most both data parts and 3 bytes
+    /// a node.
     fn projected(op: &Operation<'_>, graph: &Graph, inn: InLists, threads: NonZeroUsize) -> Self {
         let n = u64::from(graph.nodes);
         let both = Graph {
             entries: 2 * graph.entries,
-            data_bytes: graph.data_bytes + inn.data_bytes,
+            data_bytes: graph.data_bytes + inn.data_bytes + 3 * n,
             max_degree: graph.max_degree.saturating_add(inn.max_degree),
             directed: false,
             kept: false,
@@ -325,16 +330,7 @@ impl Cost {
             inn: None,
             ..graph.clone()
         };
-        let undirected = match *op {
-            Operation::Bfs {
-                source, max_hops, ..
-            } => Operation::Bfs {
-                source,
-                max_hops,
-                direction: Direction::Out,
-            },
-            other => other,
-        };
+        let undirected = op.undirected();
         let kernel = Self::of(&undirected, &both, threads, Tier::Compressed);
         let index = index_bytes_bound(n, both.entries, both.data_bytes).unwrap_or(u64::MAX);
         let tasks = n.div_ceil(MERGE_GRAIN).max(1);

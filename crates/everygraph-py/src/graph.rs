@@ -9,7 +9,7 @@
 use std::fs::File;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use arrow_array::ArrayRef;
 use arrow_array::builder::{
@@ -29,7 +29,7 @@ use everygraph_kernels::run::{Direction, Operation, Precision, Session, Weight};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::error::{self, Fail, Failure};
+use crate::error::{self, Fail};
 use crate::kernels::{self, Asked, Extra, Parts};
 use crate::run::{Event, run};
 use crate::source::Bytes;
@@ -51,8 +51,8 @@ pub(crate) struct Shared {
     ids: ColumnType,
     /// What the planner reads of the file, but whether it keeps a result.
     facts: planner::Graph,
-    /// Taken by a call for its run, and given back after it.
-    session: Mutex<Session>,
+    /// The session, lent to one call at a time.
+    sessions: Sessions,
 }
 
 impl Shared {
@@ -86,7 +86,7 @@ impl Shared {
             path,
             ids,
             facts,
-            session: Mutex::new(Session::new()),
+            sessions: Sessions::default(),
         })
     }
 
@@ -275,6 +275,76 @@ pub(crate) fn in_memory(bytes: Vec<u8>, budget: Arc<Budget>) -> Result<Shared, F
     Shared::open(Bytes::Memory(MemorySource::new(bytes)), None, budget)
 }
 
+/// The session of a graph, lent to one call at a time: a call on another Python thread
+/// waits for it, with the interpreter released, so that each plan counts the raw copy
+/// the session holds.
+pub(crate) struct Sessions {
+    slot: Mutex<Option<Session>>,
+    given: Condvar,
+}
+
+impl Default for Sessions {
+    fn default() -> Self {
+        Self {
+            slot: Mutex::new(Some(Session::new())),
+            given: Condvar::new(),
+        }
+    }
+}
+
+impl Sessions {
+    /// The session, once no other call holds it.
+    fn take(&self, py: Python<'_>) -> Lent<'_> {
+        let session = py.detach(|| {
+            let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+            loop {
+                if let Some(session) = slot.take() {
+                    return session;
+                }
+                slot = self
+                    .given
+                    .wait(slot)
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
+        });
+        Lent {
+            sessions: self,
+            session: Some(session),
+        }
+    }
+}
+
+/// A session lent to a call, given back when the call lets go of it.
+pub(crate) struct Lent<'a> {
+    sessions: &'a Sessions,
+    session: Option<Session>,
+}
+
+impl std::ops::Deref for Lent<'_> {
+    type Target = Session;
+    fn deref(&self) -> &Session {
+        self.session.as_ref().expect("lent until dropped")
+    }
+}
+
+impl std::ops::DerefMut for Lent<'_> {
+    fn deref_mut(&mut self) -> &mut Session {
+        self.session.as_mut().expect("lent until dropped")
+    }
+}
+
+impl Drop for Lent<'_> {
+    fn drop(&mut self) {
+        let mut slot = self
+            .sessions
+            .slot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        *slot = self.session.take();
+        self.sessions.given.notify_one();
+    }
+}
+
 /// How the package asks a call to run: the budget and its origin, the most threads and
 /// their origin (`argument`, `graph`, `environment`, `default`), and whether only to plan.
 #[derive(FromPyObject)]
@@ -301,34 +371,18 @@ impl Shared {
             threads: threads.map(|t| (t, kernels::origin(threads_from))),
         };
         let parts = Parts::of(self, op).map_err(|e| e.into_err(py))?;
-        let mut session =
-            std::mem::take(&mut *self.session.lock().unwrap_or_else(PoisonError::into_inner));
-        let give_back =
-            |session| *self.session.lock().unwrap_or_else(PoisonError::into_inner) = session;
-        let plan = match kernels::plan(self, op, &parts, &session, asked) {
-            Ok(plan) => plan,
-            Err(e) => {
-                give_back(session);
-                return Err(e.into_err(py));
-            }
-        };
+        let mut session = self.sessions.take(py);
+        let plan = kernels::plan(self, op, &parts, &session, asked).map_err(|e| e.into_err(py))?;
         let document = plan.to_json();
         let info = PyDict::new(py);
         info.set_item("plan", &document)?;
         info.set_item("plan_text", plan.to_string())?;
-        if let Err(e) = on_event.call1(("plan", &document, None::<u64>, 0.0, 0)) {
-            give_back(session);
-            return Err(e);
-        }
+        on_event.call1(("plan", &document, None::<u64>, 0.0, 0))?;
         if *dry_run {
-            give_back(session);
             return Ok((None, info));
         }
         if let Some(r) = plan.refusal() {
-            give_back(session);
-            return Err(Failure::new("Refusal")
-                .text("document", r.to_json())
-                .into_err(py));
+            return Err(kernels::refused(r).into_err(py));
         }
         let limit = kernels::budget_of(self, &plan, &parts, &session);
         let budget = budget(limit);
@@ -344,7 +398,7 @@ impl Shared {
             }
             out
         });
-        give_back(session);
+        drop(session);
         let (out, unkept) = out?.map_err(|e| e.into_err(py))?;
         if let Some(why) = unkept {
             info.set_item("unkept", why)?;

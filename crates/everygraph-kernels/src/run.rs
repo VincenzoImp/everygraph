@@ -229,6 +229,24 @@ impl Operation<'_> {
     }
 }
 
+impl Operation<'_> {
+    /// The operation on the undirected projection of a directed graph, which `execute`
+    /// runs for one that [`projects`]: a search in both directions follows its lists.
+    #[must_use]
+    pub fn undirected(&self) -> Self {
+        match *self {
+            Self::Bfs {
+                source, max_hops, ..
+            } => Self::Bfs {
+                source,
+                max_hops,
+                direction: Direction::Out,
+            },
+            other => other,
+        }
+    }
+}
+
 /// Whether `op` reads the in-lists of a directed graph whose file holds them. A search
 /// along the out-lists reads them only to step bottom-up, which it can do without, and
 /// weak components never read them.
@@ -557,16 +575,7 @@ fn compute<S: ByteSource + Sync>(
             let (index, data, _held) = merged?;
             next(false);
             let lists = Compressed::new(Adjacency::new(&index, &data).map_err(Error::Format)?);
-            let undirected = match *op {
-                Operation::Bfs {
-                    source, max_hops, ..
-                } => Operation::Bfs {
-                    source,
-                    max_hops,
-                    direction: Direction::Out,
-                },
-                other => other,
-            };
+            let undirected = op.undirected();
             return Plan::with(&lists, memory, plan.settings(), |p| {
                 run(&undirected, &Lanes::out(&p, false), memory)
             });

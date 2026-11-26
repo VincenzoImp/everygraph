@@ -4,7 +4,9 @@ promise: one row per node in graph order, types, ties, zero copy."""
 
 from __future__ import annotations
 
+import pathlib
 import random
+import re
 
 import networkx as nx
 import pyarrow as pa
@@ -148,7 +150,10 @@ def test_a_kernel_that_does_not_fit_is_refused_with_the_smallest_budget(small, v
     assert e.value.ways_forward[0].python.startswith('g.pagerank(memory="')
     assert e.value.ways_forward[0].needs_bytes == smallest
     text = str(e.value)
-    assert text.startswith(f"pagerank() needs {eg._text.size(doc['needs_bytes'])} for per-node state")
+    # All it needs comes first, never less than the budget; then the state, its arithmetic.
+    assert doc["needs_bytes"] == smallest > doc["budget_bytes"]
+    assert text.startswith(f"pagerank() needs {eg._text.size(smallest)}: ")
+    assert f"for per-node state ({g.num_nodes:,} nodes × {doc['arithmetic']['bytes_each']} bytes)" in " ".join(text.split())
     flat = " ".join(text.split())
     assert "; the budget is 64 B. The edges stay on disk either way." in flat
     assert text.splitlines()[-1] == "Nothing was changed."
@@ -341,8 +346,10 @@ def test_threads_and_memory_say_where_they_came_from(small, tmp_path, monkeypatc
     assert (opened["memory_from"], opened["threads_from"], opened["memory_bytes"]) == ("graph", "graph", 3 * 10**9)
     monkeypatch.setenv("EVERYGRAPH_MEMORY", "4GB")
     assert g.explain("kcore").to_dict()["budget"]["memory_from"] == "environment"
+    events = []
     with pytest.raises(ValueError, match="more than this machine has"):
-        g.kcore(memory="1000TB", progress=False)
+        g.kcore(memory="1000TB", progress=events.append)
+    assert [e["event"] for e in events] == ["error"] and events[0]["error"]["error"] == "UsageError"
 
 
 def test_components_match_networkx_and_are_numbered_by_size(small):
@@ -474,8 +481,59 @@ def test_edges_that_do_not_fit_are_streamed_from_the_file(tmp_path):
     budget = held["estimate"]["peak_memory_bytes"]["value"] + held["regime"]["working_bytes"] - 1
     plan = g.explain("pagerank", threads=4, memory=budget).to_dict()
     assert plan["regime"]["name"] == "streamed" and plan["fits"], plan["regime"]
+    io = pathlib.Path("/proc/self/io")
+    read = (lambda: int(re.search(r"rchar: (\d+)", io.read_text()).group(1))) if io.exists() else (lambda: 0)
+    before = read()
     streamed = g.pagerank(threads=4, memory=budget, progress=False)
+    streamed_bytes = read() - before
     assert streamed.meta["plan"]["regime"]["name"] == "streamed"
+    # The stream reads the edges by positional reads of the file, every pass; a run that
+    # holds them reads them through the map, which no read call counts.
+    before = read()
+    g.pagerank(threads=4, damping=0.5, progress=False)
+    mapped_bytes = read() - before
+    if io.exists():
+        data = plan["regime"]["working_bytes"]
+        assert streamed_bytes >= 2 * data > mapped_bytes, (streamed_bytes, mapped_bytes, data)
     assert streamed.meta["peak_memory_bytes"] <= plan["estimate"]["peak_memory_bytes"]["value"] <= budget
     reference = eg.read(path, progress=False).pagerank(progress=False)
     assert pa.table(streamed).equals(pa.table(reference))
+
+
+def test_an_error_during_a_run_closes_its_phase(small, validate):
+    from everygraph._progress import Progress
+
+    _, path = small
+    with pytest.raises(eg.InsufficientBudget) as refused:
+        eg.read(path, progress=False).kcore(memory=64, progress=False)
+    events = []
+    p = Progress("kcore", ["kcore"], "0" * 16, events.append)
+    p("begin", "kcore", None, 0.0, 0)
+    p.error(refused.value.to_dict())
+    assert [(e["event"], e.get("state")) for e in events] == [("phase", "running"), ("phase", "stopped"), ("error", None)]
+    for event in events:
+        validate(event, "urn:everygraph:schema:event:1")
+
+
+def test_calls_from_two_threads_share_the_session_in_turn(small):
+    import threading
+
+    _, path = small
+    g = eg.read(path, progress=False)
+    source = pa.table(g.nodes())["node"][0].as_py()
+    want = pa.table(g.bfs(source, progress=False))
+    got, failed = [], []
+
+    def search():
+        try:
+            for _ in range(10):
+                got.append(pa.table(g.bfs(source, progress=False)))
+        except Exception as e:  # noqa: BLE001 - reported below
+            failed.append(e)
+
+    workers = [threading.Thread(target=search) for _ in range(4)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join(timeout=60)
+    assert not failed and len(got) == 40 and all(t.equals(want) for t in got)
