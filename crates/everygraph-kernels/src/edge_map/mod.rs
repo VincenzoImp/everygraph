@@ -97,10 +97,9 @@
 //! The readers' buffers, the blocks' partial values, a frontier's runs and results, and
 //! the copies and parts of its long lists are reserved against the plan's [`Memory`], and
 //! a reader frees a buffer that a long list grew when it goes back to the pool. Some
-//! small allocations are not counted: the task list (`O(n / block)`), the runs and
-//! results of a `Plan::push_with` frontier of at most 16 groups, and the pool itself (one entry per
-//! worker). The no-OOM suite (`everygraph-memtest`) checks that what is not
-//! counted does not grow with the graph.
+//! small allocations are not counted: the task list (`O(n / block)`) and the pool
+//! itself (one entry per worker). The no-OOM suite (`everygraph-memtest`) checks that
+//! what is not counted does not grow with the graph.
 //!
 //! # `unsafe`
 //!
@@ -155,8 +154,9 @@ pub const RUN_ENTRIES: usize = 1 << 15;
 pub const PART_ENTRIES: usize = PART.get();
 const PART: NonZeroUsize = NonZeroUsize::new(1024).expect("non-zero");
 
-/// Nodes of a frontier up to which its runs are cut on the calling thread.
-const CUT_ALONE: usize = 16 * FRONTIER_GRAIN;
+/// Groups of a frontier with long lists up to which their runs are cut on the calling
+/// thread.
+const CUT_ALONE: usize = 16;
 
 /// Entries of the first piece of a list in [`Plan::scan_until`], or all of them if the
 /// list is shorter. A multiple of four, the codec's group of words.
@@ -1194,12 +1194,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     /// no more slots than there are workers. A body that forks may hold its slot while
     /// it waits, and its worker may then take a second one: k-core's exact count splits
     /// a hub's list inside its body, and the planner's two readers per k-core worker
-    /// cover that depth. A run reads its lists and calls the body on each. With lists
-    /// whole, a task per group cuts the group, and forks its runs if it has more than
-    /// one: so a frontier whose groups are one run each forks as a plain map over its
-    /// groups. In [`Mode::Parts`], the whole frontier is cut first
-    /// ([`cut`](Self::cut)); a long list is a run of its own: it is copied out of a slot,
-    /// which is given back, and its parts then take a slot each.
+    /// cover that depth. A run reads its lists and calls the body on each. A task per
+    /// group cuts the group, and forks its runs if it has more than one: so a frontier
+    /// whose groups are one run each forks as a plain map over its groups. In
+    /// [`Mode::Parts`], a group with a long list waits until the others are done; then
+    /// those groups are cut ([`cut`](Self::cut)), and a long list is a run of its own:
+    /// it is copied out of a slot, which is given back, and its parts then take a slot
+    /// each.
     fn drive<A, W>(
         &self,
         frontier: &[Node<'g>],
@@ -1318,69 +1319,64 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             );
             acc
         };
-        // Lists whole: a task per group, as `par::map_ranges` cuts the frontier, and in a
-        // group of more than one run, a fork of its runs. A group's task holds no slot while
-        // it waits. On the calling thread, the runs add as they end.
-        if mode != Mode::Parts {
-            let group = |g: Range<usize>| {
-                let mut runs = self.group_runs(frontier, g, mode);
-                let first = runs.next().expect("a group is at least one run");
-                let Some(second) = runs.next() else {
-                    return run(&frontier[first]);
-                };
-                let runs = [first, second].into_iter().chain(runs);
-                if mode == Mode::Serial {
-                    return add_all(runs.map(|r| run(&frontier[r])));
-                }
-                // A run holds at least one node, so a group has no more runs than nodes.
-                let (mut cuts, mut count) = ([const { 0..0 }; FRONTIER_GRAIN], 0);
-                for (cut, r) in cuts.iter_mut().zip(runs) {
-                    (*cut, count) = (r, count + 1);
-                }
-                let _held = self.hold::<Result<(A, Work), Error>>(count)?;
-                add_all(par::map_ranges(count, NonZeroUsize::MIN, |r| {
-                    run(&frontier[cuts[r.start].clone()])
-                }))
+        // A task per group, as `par::map_ranges` cuts the frontier: it cuts its group, and
+        // forks its runs if it has more than one; it holds no slot while it waits. In
+        // `Mode::Parts`, a group with a long list waits for the waves below (`None`). On
+        // the calling thread, the runs add as they end.
+        let group = |i: usize| -> Option<Result<(A, Work), Error>> {
+            let g = i * FRONTIER_GRAIN..((i + 1) * FRONTIER_GRAIN).min(frontier.len());
+            let mut runs = self.group_runs(frontier, g, mode);
+            let first = runs.next().expect("a group is at least one run");
+            let Some(second) = runs.next() else {
+                return (!long(&first)).then(|| run(&frontier[first]));
             };
-            let groups = (0..frontier.len().max(1)).step_by(FRONTIER_GRAIN);
-            let group_at =
-                |start: usize| group(start..(start + FRONTIER_GRAIN).min(frontier.len()));
-            let total = if mode == Mode::Serial || frontier.len() <= FRONTIER_GRAIN {
-                add_all(groups.map(group_at))?
-            } else {
-                let _held = self.hold::<Result<(A, Work), Error>>(groups.len())?;
-                add_all(par::map_ranges(frontier.len(), GRAIN, group))?
-            };
+            let runs = [first, second].into_iter().chain(runs);
+            if mode == Mode::Serial {
+                return Some(add_all(runs.map(|r| run(&frontier[r]))));
+            }
+            // A run holds at least one node, so a group has no more runs than nodes.
+            let (mut cuts, mut count) = ([const { 0..0 }; FRONTIER_GRAIN], 0);
+            for (cut, r) in cuts.iter_mut().zip(runs) {
+                (*cut, count) = (r, count + 1);
+            }
+            let cuts = &cuts[..count];
+            if cuts.iter().any(long) {
+                return None;
+            }
+            Some(
+                self.hold::<Result<(A, Work), Error>>(count)
+                    .and_then(|_held| {
+                        add_all(par::map_ranges(count, NonZeroUsize::MIN, |r| {
+                            run(&frontier[cuts[r.start].clone()])
+                        }))
+                    }),
+            )
+        };
+        let groups = frontier.len().div_ceil(FRONTIER_GRAIN).max(1);
+        if mode == Mode::Serial {
+            let mut total = <(A, Work)>::ZERO;
+            for i in 0..groups {
+                total = total.add(group(i).expect("lists whole: no group waits")?);
+            }
             return Ok(finish(total));
         }
-        // A small frontier without long lists is cut on the calling thread and its runs
-        // run as one fork, as many as there are; one run is done on the calling thread.
-        // Its few cuts and results are not reserved (module documentation, "Memory").
-        if frontier.len() <= CUT_ALONE {
-            let group = |s: usize| s..(s + FRONTIER_GRAIN).min(frontier.len());
-            let runs: Vec<Range<usize>> = (0..frontier.len().max(1))
-                .step_by(FRONTIER_GRAIN)
-                .flat_map(|s| self.group_runs(frontier, group(s), mode))
-                .collect();
-            if !runs.iter().any(long) {
-                if let [one] = &runs[..] {
-                    return Ok(finish(run(&frontier[one.clone()])?));
-                }
-                let done = mode.map_ranges(runs.len(), NonZeroUsize::MIN, |r| {
-                    run(&frontier[runs[r.start].clone()])
-                });
-                let (mut total, mut group, mut at) = (<(A, Work)>::ZERO, <(A, Work)>::ZERO, 0);
-                for (r, value) in runs.iter().zip(done) {
-                    if r.start / FRONTIER_GRAIN != at {
-                        total = total.add(std::mem::replace(&mut group, <(A, Work)>::ZERO));
-                        at = r.start / FRONTIER_GRAIN;
-                    }
-                    group = group.add(value?);
-                }
-                return Ok(finish(total.add(group)));
+        if groups == 1 {
+            if let Some(value) = group(0) {
+                return Ok(finish(value?));
             }
         }
-        let cuts = self.cut(frontier)?;
+        let _held = self.hold::<Option<Result<(A, Work), Error>>>(groups)?;
+        let done = par::map_ranges(groups, NonZeroUsize::MIN, |r| group(r.start));
+        let waiting = done.iter().filter(|d| d.is_none()).count();
+        if waiting == 0 {
+            return Ok(finish(add_all(done.into_iter().flatten())?));
+        }
+        let _wait = self.hold::<usize>(waiting)?;
+        let mut at = (0..groups).filter(|&i| done[i].is_none());
+        let wait: Vec<usize> = (0..waiting)
+            .map(|_| at.next().expect("a waiting group"))
+            .collect();
+        let cuts = self.cut(frontier, &wait)?;
         let runs = &cuts.runs[..];
         let (acc, work) = {
             // A result per run, and the first error apart: the results stay small.
@@ -1507,12 +1503,16 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             }
             // Runs add in order within their group, the groups in order.
             let mut results = results.into_iter().map(|r| r.expect("every run is done"));
+            let mut counts = cuts.groups.iter();
             let mut total = <(A, Work)>::ZERO;
-            for &count in &cuts.groups {
-                let group = results
-                    .by_ref()
-                    .take(count)
-                    .fold(<(A, Work)>::ZERO, Reduce::add);
+            for value in done {
+                let group = match value {
+                    Some(value) => value?,
+                    None => results
+                        .by_ref()
+                        .take(*counts.next().expect("a count per waiting group"))
+                        .fold(<(A, Work)>::ZERO, Reduce::add),
+                };
                 total = total.add(group);
             }
             total
@@ -1581,20 +1581,24 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             .reserve("edge-map frontier results", MemoryKind::Anonymous, bytes)?)
     }
 
-    /// The runs of `frontier` in [`Mode::Parts`], as ranges of positions in it, and the
-    /// number of runs of each group of [`FRONTIER_GRAIN`] nodes
+    /// The runs of the groups `wait` of `frontier` in [`Mode::Parts`], as ranges of
+    /// positions in it, and the number of runs of each
     /// ([`group_runs`](Self::group_runs)). The runs are counted first, then written into
     /// memory of that size.
-    fn cut(&self, frontier: &[u32]) -> Result<Cuts, Error> {
-        // A small frontier is cut on the calling thread: a fork costs more than its cuts.
-        let how = if frontier.len() <= CUT_ALONE {
+    fn cut(&self, frontier: &[u32], wait: &[usize]) -> Result<Cuts, Error> {
+        // A few groups are cut on the calling thread: a fork costs more than their cuts.
+        let how = if wait.len() <= CUT_ALONE {
             Mode::Serial
         } else {
             Mode::Parallel
         };
-        let group = |g: Range<usize>| g.start..g.end.min(frontier.len());
-        let groups = how.map_ranges(frontier.len().max(1), GRAIN, |g| {
-            self.group_runs(frontier, group(g), Mode::Parts).count()
+        let group = |i: usize| {
+            let start = wait[i] * FRONTIER_GRAIN;
+            start..(start + FRONTIER_GRAIN).min(frontier.len())
+        };
+        let groups = how.map_ranges(wait.len(), NonZeroUsize::MIN, |r| {
+            self.group_runs(frontier, group(r.start), Mode::Parts)
+                .count()
         });
         let count: usize = groups.iter().sum();
         let _held = self.hold::<Range<usize>>(count)?;
@@ -1607,8 +1611,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             }))
             .collect();
         let fill = |g: usize, out: &mut [u32]| {
-            let start = g * FRONTIER_GRAIN;
-            let runs = self.group_runs(frontier, group(start..start + FRONTIER_GRAIN), Mode::Parts);
+            let runs = self.group_runs(frontier, group(g), Mode::Parts);
             for (end, r) in out.iter_mut().zip(runs) {
                 *end = u32::try_from(r.end).expect("a position in the frontier");
             }
@@ -1619,10 +1622,16 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                 fill(g, &mut out[at[g]..at[g + 1]]);
             }
         } else {
-            par::for_each_range_mut(out, &at, GRAIN, |g, out: &mut [u32]| fill(g, out));
+            par::for_each_range_mut(out, &at, NonZeroUsize::MIN, |g, out: &mut [u32]| {
+                fill(g, out);
+            });
         }
         let ends = one_segment(&ends)?;
-        let start = |i: usize| if i == 0 { 0 } else { ix(ends[i - 1].into()) };
+        // A group's first run starts at the group; any other where the run before ends.
+        let start = |i: usize| match at.binary_search(&i) {
+            Ok(g) => group(g).start,
+            Err(_) => ix(ends[i - 1].into()),
+        };
         let runs = (0..count).map(|i| start(i)..ix(ends[i].into())).collect();
         Ok(Cuts {
             runs,
