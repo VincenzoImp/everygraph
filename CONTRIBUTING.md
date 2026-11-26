@@ -43,6 +43,7 @@ python3 tools/check_wasm_toy.py             # toy kernel and the edge-map kernel
 python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
 python3 tools/check_container_python.py     # .eg container: the Python reader reads what Rust wrote
 uv run --script tools/check_columns_python.py  # columns: pyarrow and Polars read what Rust wrote
+tools/check_python_package.sh               # the Python package: maturin build, pytest against NetworkX
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 

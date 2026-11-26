@@ -212,6 +212,9 @@ jobs:
           save-cache: ${{ github.ref == 'refs/heads/main' }}
       - name: Columns, pyarrow and Polars against the Rust writer
         run: uv run --script tools/check_columns_python.py
+      # The Python package (#81): its wheel built by maturin, its tests against NetworkX.
+      - name: Python package, built and tested
+        run: tools/check_python_package.sh
       # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
       # fails if any probe is accepted.
       - name: Portability canary

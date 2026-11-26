@@ -210,6 +210,27 @@ fn meminfo_field(meminfo: &str, name: &str) -> io::Result<u64> {
     kib.checked_mul(1024).ok_or_else(invalid)
 }
 
+/// `statfs` types of the file systems held in memory (Linux `magic.h`: tmpfs, ramfs).
+#[cfg(target_os = "linux")]
+const MEMORY_FILE_SYSTEMS: [u64; 2] = [0x0102_1994, 0x8584_58f6];
+
+/// Whether the file system that holds `dir` keeps its files in memory (tmpfs, ramfs):
+/// scratch there is memory (`docs/ux-contract.md` P-18). `false` where this cannot be
+/// told (other platforms, or a directory that cannot be queried).
+#[must_use]
+pub fn memory_backed(dir: &Path) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        rustix::fs::statfs(dir)
+            .is_ok_and(|s| u64::try_from(s.f_type).is_ok_and(|t| MEMORY_FILE_SYSTEMS.contains(&t)))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = dir;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
