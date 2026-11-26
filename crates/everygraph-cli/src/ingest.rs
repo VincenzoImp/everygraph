@@ -406,7 +406,9 @@ impl Job<'_> {
     ) -> Result<(), Failure> {
         let (args, plan, output) = (self.args, self.plan, self.output);
         let fail = |e| failure::build(&args.input, plan.budget, plan.machine_memory(), e);
-        let memory = Memory::from(Arc::new(Budget::new(plan.budget)));
+        let memory = Memory::from(Arc::new(
+            Budget::new(plan.budget).with_pages(everygraph_io::PAGES),
+        ));
         let mut options = BuildOptions::new(self.graph, plan.threads);
         if args.ids == IdType::String {
             options.ids = options.ids.with_kind(KeyKind::Bytes);

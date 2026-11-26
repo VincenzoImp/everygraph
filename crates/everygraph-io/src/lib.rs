@@ -35,12 +35,15 @@
 //!
 //! **Memory:** [`ProcMemoryProbe`], the Linux implementation of
 //! `everygraph_core::MemoryProbe`: physical memory and the limits of the process's
-//! control group.
+//! control group. [`PAGES`], the page backend of `everygraph_core::Budget`: buffers of
+//! [`LARGE_BLOCK`] bytes or more are mapped on their own and unmapped when freed, so
+//! the process gives them back to the system.
 //!
-//! Every `unsafe` block of the crate is in one private module (`sys`): the memory map
-//! and three calls into the C library. The map is safe to offer under the invariant
-//! stated on [`MmapSource`], which the sinks enforce within the process; a graph file
-//! is mapped by range, which commits by any process leave alone.
+//! The `unsafe` blocks of the crate are in two private modules. `sys`: the memory map
+//! of a file and three calls into the C library; the map is safe to offer under the
+//! invariant stated on [`MmapSource`], which the sinks enforce within the process, and
+//! a graph file is mapped by range, which commits by any process leave alone. `pages`:
+//! the allocator behind [`PAGES`], anonymous maps and their unmaps.
 
 #[cfg(feature = "faults")]
 pub mod faults;
@@ -50,6 +53,7 @@ mod claim;
 mod file;
 mod memory_probe;
 mod mmap;
+mod pages;
 mod sys;
 
 use std::io;
@@ -60,6 +64,7 @@ pub use everygraph_core::{AccessHint, ByteSource, MemorySource};
 pub use file::FileSource;
 pub use memory_probe::ProcMemoryProbe;
 pub use mmap::MmapSource;
+pub use pages::{LARGE_BLOCK, PAGES};
 pub use sink::{AppendSink, BlockWriter, FileSink, SpillLogs, persist};
 
 /// The error for a read of `len` bytes at `offset` outside a source of `source_len`.

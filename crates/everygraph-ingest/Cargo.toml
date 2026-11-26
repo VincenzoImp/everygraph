@@ -35,7 +35,8 @@ native = ["dep:everygraph-io"]
 # tests check that its results do not depend on how many).
 everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
 everygraph-oracle = { path = "../everygraph-oracle" }
-# The build benchmark writes its graphs to files (examples/build_ab.rs).
+# The page backend of native builds (the dictionary benchmark and the retention test),
+# and files for the build benchmark's graphs (examples/build_ab.rs).
 everygraph-io = { path = "../everygraph-io" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 

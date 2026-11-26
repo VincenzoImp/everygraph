@@ -2,6 +2,7 @@
 
 //! [`SegVec`]: a vector made of fixed-size segments, every byte of it reserved.
 
+use std::alloc::Allocator;
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops::{Index, IndexMut, Range};
@@ -19,6 +20,9 @@ pub const MAX_ALLOCATION_BYTES: u64 = 1 << 30;
 /// Smallest capacity a growing vector allocates, in elements.
 const MIN_GROWTH: usize = 4;
 
+/// One allocation of a [`SegVec`], from the accountant's [`Pages`](crate::Pages).
+type Segment<T> = Vec<T, &'static (dyn Allocator + Sync)>;
+
 /// A vector of `T` stored as segments of `2^k` elements, each one allocation of at most
 /// [`MAX_ALLOCATION_BYTES`], with every byte of capacity reserved against a [`Memory`]
 /// budget before it is allocated.
@@ -29,7 +33,8 @@ const MIN_GROWTH: usize = 4;
 /// refused before anything is allocated. There is no `Clone` (an untracked copy) and no
 /// access to the segments as `Vec`s (untracked growth): [`try_clone`](Self::try_clone)
 /// reserves, and segments are lent out as slices. Dropping the vector releases its
-/// reservation.
+/// reservation. Segments are allocated from the accountant's
+/// [`Pages`](crate::Pages) ([`Memory::pages`]).
 ///
 /// **Elements are `Copy`**: an element that owned heap memory (a `Vec`, a `String`)
 /// would allocate it outside the budget, through every clone and push.
@@ -57,7 +62,7 @@ const MIN_GROWTH: usize = 4;
 /// [`par`] are placed by the grain only.
 pub struct SegVec<T: Copy> {
     // Dropped before the reservation: memory is freed before it is given back.
-    segments: Vec<Vec<T>>,
+    segments: Vec<Segment<T>>,
     len: usize,
     bits: u32,
     reservation: Reservation,
@@ -440,7 +445,7 @@ impl<T: Copy> SegVec<T> {
         }
         while covered < target {
             let size = (target - covered).min(segment_len);
-            let mut segment = Vec::new();
+            let mut segment = Vec::new_in(self.allocator());
             if self.segments.try_reserve(1).is_err() || segment.try_reserve_exact(size).is_err() {
                 self.reservation.shrink(pending);
                 return Err(self.allocation_failed(size));
@@ -467,6 +472,10 @@ impl<T: Copy> SegVec<T> {
         // the process aborts, as for any reallocation in `std`.
         last.shrink_to(len);
         self.reservation.shrink(Self::bytes_of(capacity));
+    }
+
+    fn allocator(&self) -> &'static (dyn Allocator + Sync) {
+        self.reservation.memory().pages().allocator()
     }
 
     fn allocation_failed(&self, elements: usize) -> MemoryError {
@@ -740,7 +749,7 @@ pub trait SegColumns: Send + Sized {
 
 impl<T: Copy + Send + 'static> SegColumns for &mut SegVec<T> {
     type Of = SegVec<T>;
-    type Scratch = (Vec<T>, Reservation);
+    type Scratch = (Segment<T>, Reservation);
 
     fn rows(&self) -> usize {
         self.len
@@ -775,7 +784,7 @@ impl<T: Copy + Send + 'static> SegColumns for &mut SegVec<T> {
         let memory = self.reservation.memory();
         let bytes = SegVec::<T>::bytes_of(rows);
         let reservation = memory.reserve(self.purpose(), MemoryKind::Anonymous, bytes)?;
-        let mut buffer = Vec::new();
+        let mut buffer = Vec::new_in(self.allocator());
         buffer
             .try_reserve_exact(rows)
             .map_err(|_| self.allocation_failed(rows))?;
