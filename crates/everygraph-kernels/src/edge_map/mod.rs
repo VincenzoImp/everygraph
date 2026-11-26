@@ -12,12 +12,18 @@
 //!
 //! - [`Plan::scan`] calls it for every node that passes a filter, with the node's list
 //!   (pull, scan-shaped). Lists are decoded or read in batches of about
-//!   [`Settings::batch_entries`] entries before the body runs on them. A block in which
-//!   no node passes is not decoded.
+//!   [`Settings::batch_entries`] entries before the body runs on them. A compressed
+//!   source decodes only the records of the nodes that pass.
 //! - [`Plan::vertices`] calls it for every node, with its degree, without its list.
+//! - [`Plan::scan_until`] is a scan whose body reads each list from its start, in
+//!   pieces, and may stop early (bottom-up BFS stops at the first parent). A compressed
+//!   source then decodes a prefix of each list, and the rest only when the body asks.
 //! - [`Plan::frontier`] calls it for the nodes of a frontier, with their lists, by random
 //!   access (push, traversal-shaped). Consecutive nodes are decoded together. If
 //!   [`Settings::prefetch`] is set, the frontier's byte ranges are advised first.
+//!   `Plan::push_with` may also cut a long list into parts that run in parallel, for
+//!   bodies whose updates commute; [`Plan::frontier_serial_with`] runs on the calling
+//!   thread.
 //!
 //! The body of a scan receives a [`Row`]: the node, its list, and the list's first entry,
 //! which indexes per-entry columns (weights) with [`Row::entries`]. It receives a
@@ -50,11 +56,17 @@
 //!   values in block order. A parallel task holds whole blocks (about
 //!   [`Settings::chunk_entries`] entries). So no reduction follows a task, a batch or a
 //!   thread.
-//! - **Frontiers.** [`Plan::frontier`] cuts the frontier into runs of [`FRONTIER_GRAIN`]
-//!   nodes, a constant, and adds their values in frontier order.
+//! - **Frontiers.** [`Plan::frontier`] cuts the frontier into groups of
+//!   [`FRONTIER_GRAIN`] nodes, and each group into runs of about [`RUN_ENTRIES`] entries
+//!   by the degrees of its nodes. `Plan::push_with` also makes a list of more than
+//!   [`PART_ENTRIES`] entries a run of its own, cut into parts at multiples of
+//!   [`PART_ENTRIES`]. The cuts depend
+//!   on the frontier and the degrees alone; the values of parts, runs and groups add in
+//!   frontier order.
 //! - **Outputs.** The one task that owns a node writes its outputs.
-//! - **Lists are whole.** A batch, a read buffer or a task never cuts a list. So a node's
-//!   own sum over its list runs in one call of the body.
+//! - **Lists are whole**, except in the parts of `Plan::push_with` and the pieces of
+//!   [`Plan::scan_until`]. A batch, a read buffer or a task never cuts a list. So a
+//!   node's own sum over its list runs in one call of the body.
 //! - **Floats.** A body's own sums start from `+0.0`; `Iterator::sum` starts from
 //!   `-0.0`. A body with several lanes (the four of the `PageRank` gather)
 //!   fixes their number in its code, not by target feature. No result goes through
@@ -82,11 +94,12 @@
 //!
 //! # Memory
 //!
-//! The readers' buffers, the blocks' partial values and the frontier runs' results are
-//! reserved against the plan's [`Memory`], and a reader frees a buffer that a long list
-//! grew when it goes back to the pool. Some small allocations are not counted: the task
-//! list (`O(n / block)`) and the pool itself (one entry per worker). The no-OOM suite
-//! (`everygraph-memtest`) checks that what is not counted does not grow with the graph.
+//! The readers' buffers, the blocks' partial values, a frontier's runs and results, and
+//! the copies and parts of its long lists are reserved against the plan's [`Memory`], and
+//! a reader frees a buffer that a long list grew when it goes back to the pool. Some
+//! small allocations are not counted: the task list (`O(n / block)`) and the pool
+//! itself (one entry per worker). The no-OOM suite (`everygraph-memtest`) checks that
+//! what is not counted does not grow with the graph.
 //!
 //! # `unsafe`
 //!
@@ -106,12 +119,13 @@ mod source;
 use std::error::Error as StdError;
 use std::fmt;
 use std::num::NonZeroUsize;
-use std::ops::Range;
+use std::ops::{ControlFlow, Range};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use everygraph_core::{
-    ExactSum, InsufficientBudget, Memory, MemoryError, MemoryKind, ReadError, SegVec, par,
+    ExactSum, InsufficientBudget, Memory, MemoryError, MemoryKind, ReadError, Reservation, SegVec,
+    par,
 };
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
@@ -122,10 +136,36 @@ pub use source::{Compressed, Csr, DecodeReader, RawCopy, Source, Stream, StreamR
 
 use node::{Brand, as_nodes, node_range};
 
-/// Nodes of a frontier per task of [`Plan::frontier`]. A constant: the frontier's
-/// partial reductions are taken over runs of it.
+/// Nodes of a frontier per group of [`Plan::frontier`]: a group is cut into runs by
+/// entries, and the frontier's partial reductions are taken over its runs.
 pub const FRONTIER_GRAIN: usize = GRAIN.get();
 const GRAIN: NonZeroUsize = NonZeroUsize::new(256).expect("non-zero");
+
+/// Entries of a frontier run, about: a run of [`Plan::frontier`] ends before the node
+/// that would take it past this many entries (a node counts its degree plus one). A run
+/// is one task, so a body that does little per entry keeps the work per task of a group
+/// of [`FRONTIER_GRAIN`] nodes of degree up to 127: a fork costs more than such a body
+/// (`frontier` on orkut, 300 nodes per call: PR #291).
+pub const RUN_ENTRIES: usize = 1 << 15;
+
+/// Entries of a part of a long list: `Plan::push_with` cuts a list of more entries into
+/// parts at multiples of it. `PASGAL` cuts lists at 1,024 entries, Parallel-KCore at 128
+/// (`docs/research/sota-review-2026-11.md`, S3).
+pub const PART_ENTRIES: usize = PART.get();
+const PART: NonZeroUsize = NonZeroUsize::new(1024).expect("non-zero");
+
+/// Groups of a frontier with long lists up to which their runs are cut on the calling
+/// thread.
+const CUT_ALONE: usize = 16;
+
+/// Entries of the first piece of a list in [`Plan::scan_until`], or all of them if the
+/// list is shorter. A multiple of four, the codec's group of words.
+pub const PREFIX: usize = 16;
+
+/// How much longer each piece of [`Plan::scan_until`] after the first ends than the one
+/// before: a piece decoded past the entry a body stops at is at most this many times
+/// what it read.
+const GROWTH: usize = 4;
 
 /// Fewest nodes in a reduction block.
 const MIN_BLOCK: u32 = 64;
@@ -133,6 +173,56 @@ const MIN_BLOCK: u32 = 64;
 const MAX_BLOCK: u32 = 4096;
 /// About this many blocks per graph, between the two bounds.
 const BLOCKS: u32 = 4096;
+
+/// Entries of the long lists that `Plan::push_with` holds copied out at a time, if the
+/// longest list of the frontier is shorter: 256 KiB of nodes.
+pub(crate) const WAVE: usize = 1 << 16;
+
+/// The runs of a frontier ([`Plan::frontier_with`]).
+struct Cuts {
+    /// Positions in the frontier, in order.
+    runs: Vec<Range<usize>>,
+    /// The number of runs of each group, in order.
+    groups: Vec<usize>,
+    _held: Reservation,
+}
+
+/// How the frontier drivers run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Runs in parallel, lists whole.
+    Parallel,
+    /// Runs and the parts of long lists in parallel.
+    Parts,
+    /// Runs on the calling thread, lists whole.
+    Serial,
+}
+
+impl Mode {
+    /// [`par::map_ranges`], or the same chunks in order on the calling thread.
+    fn map_ranges<T: Send>(
+        self,
+        len: usize,
+        grain: NonZeroUsize,
+        f: impl Fn(Range<usize>) -> T + Send + Sync,
+    ) -> Vec<T> {
+        if self == Self::Serial {
+            let g = grain.get();
+            (0..len.div_ceil(g))
+                .map(|i| f(i * g..((i + 1) * g).min(len)))
+                .collect()
+        } else {
+            par::map_ranges(len, grain, f)
+        }
+    }
+}
+
+/// The values of `results` added in order, or the first error.
+fn add_all<T: Reduce>(results: impl IntoIterator<Item = Result<T, Error>>) -> Result<T, Error> {
+    results
+        .into_iter()
+        .try_fold(T::ZERO, |sum, x| x.map(|x| sum.add(x)))
+}
 
 /// A `u64` as an index into memory.
 pub(crate) fn ix(x: u64) -> usize {
@@ -267,6 +357,19 @@ pub struct Work {
     pub lists: u64,
     /// Their entries: the edges traversed.
     pub entries: u64,
+}
+
+impl Reduce for Work {
+    const ZERO: Self = Self {
+        lists: 0,
+        entries: 0,
+    };
+    fn add(self, other: Self) -> Self {
+        Self {
+            lists: self.lists + other.lists,
+            entries: self.entries + other.entries,
+        }
+    }
 }
 
 /// How a [`Plan`] cuts and reads. None of it changes a result.
@@ -509,13 +612,21 @@ fn block_nodes(n: u32) -> u32 {
 }
 
 /// Takes a value from `pool`, or makes one.
+/// A value of no size (no scratch, the reader of [`Csr`]) is made, not pooled: frontier
+/// runs are short, and every worker would take the one lock.
 fn take<T>(pool: &Mutex<Vec<T>>, make: impl FnOnce() -> T) -> T {
+    if size_of::<T>() == 0 {
+        return make();
+    }
     let taken = pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
     taken.unwrap_or_else(make)
 }
 
 /// Gives a value back to `pool`.
 fn give<T>(pool: &Mutex<Vec<T>>, value: T) {
+    if size_of::<T>() == 0 {
+        return;
+    }
     pool.lock()
         .unwrap_or_else(PoisonError::into_inner)
         .push(value);
@@ -728,11 +839,11 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         }
     }
 
-    fn count(&self, lists: u64, entries: u64) {
+    fn count(&self, work: Work) {
         #[cfg(feature = "frontier-counters")]
-        counters::handed(entries);
-        self.work[0].fetch_add(lists, Ordering::Relaxed);
-        self.work[1].fetch_add(entries, Ordering::Relaxed);
+        counters::handed(work.entries);
+        self.work[0].fetch_add(work.lists, Ordering::Relaxed);
+        self.work[1].fetch_add(work.entries, Ordering::Relaxed);
     }
 
     /// Node `id`, if it is one.
@@ -791,11 +902,14 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         &self,
         f: impl FnOnce(&mut Slot<S::Reader>) -> Result<R, Error>,
     ) -> Result<R, Error> {
-        let taken = self
-            .pool
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .pop();
+        let taken = if size_of::<S::Reader>() == 0 {
+            None
+        } else {
+            self.pool
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .pop()
+        };
         let mut slot = match taken {
             Some(slot) => slot,
             None => Slot {
@@ -808,7 +922,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         if let Some(side) = &mut slot.side {
             self.source.idle(side);
         }
-        give(&self.pool, slot);
+        if size_of::<S::Reader>() != 0 {
+            give(&self.pool, slot);
+        }
         result
     }
 
@@ -942,7 +1058,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         })?;
                     *sum = acc;
                 }
-                self.count(lists + work.lists, entries + work.entries);
+                self.count(work.add(Work { lists, entries }));
                 #[cfg(feature = "frontier-counters")]
                 counters::flush();
                 Ok(())
@@ -999,9 +1115,9 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     }
 
     /// Calls `body(acc, row, worker)` for each node of `frontier`, with its list, decoded
-    /// by random access. Returns the sum of the `acc` of each run of [`FRONTIER_GRAIN`]
-    /// nodes, in order. A frontier of one run is done on the calling thread, so a level
-    /// of a traversal with many small levels costs no fork-join.
+    /// by random access. Returns the sum of the `acc` of each run, in frontier order
+    /// (module documentation, "Frontiers"). A frontier of one run is done on the calling
+    /// thread, so a level of a traversal with many small levels costs no fork-join.
     ///
     /// `frontier` should be increasing (a [`NodeList`] made by [`NodeSet::list_into`]):
     /// then consecutive nodes are decoded together. That is needed for speed only: a
@@ -1020,18 +1136,113 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
         W: Send,
     {
+        self.drive(frontier, Mode::Parallel, init, body)
+    }
+
+    /// As [`frontier_with`](Self::frontier_with), with the same value, but every run on
+    /// the calling thread: for small frontiers whose kernel wants no fork-join and a
+    /// memory peak that does not depend on the schedule.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan_with`](Self::scan_with).
+    pub fn frontier_serial_with<A, W>(
+        &self,
+        frontier: &[Node<'g>],
+        init: impl Fn() -> W + Sync,
+        body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
+    ) -> Result<A, Error>
+    where
+        A: Reduce,
+        W: Send,
+    {
+        self.drive(frontier, Mode::Serial, init, body)
+    }
+
+    /// As [`frontier_with`](Self::frontier_with), but a list of more than
+    /// [`PART_ENTRIES`] entries is a run of its own, cut into parts at multiples of
+    /// [`PART_ENTRIES`], and the
+    /// parts run in parallel: `body` is called once per part, with the part as
+    /// `row.list` and the part's first entry as `row.first_entry`, and with scratch and
+    /// random access of its own. So that a frontier of a few hubs runs on every thread.
+    ///
+    /// A body may not assume that it is called once per node, that `row.list` is the
+    /// whole list or its length the degree, or that its scratch holds what an earlier
+    /// part of the same node left there. Its updates must commute (an atomic minimum,
+    /// an atomic decrement), a write it makes once per node must give the same value
+    /// from every part, and a value that another part of the same node changes may be
+    /// read stale. k-core's peel and SSSP's relaxation are such bodies.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan_with`](Self::scan_with).
+    pub(crate) fn push_with<A, W>(
+        &self,
+        frontier: &[Node<'g>],
+        init: impl Fn() -> W + Sync,
+        body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
+    ) -> Result<A, Error>
+    where
+        A: Reduce,
+        W: Send,
+    {
+        self.drive(frontier, Mode::Parts, init, body)
+    }
+
+    /// The frontier drivers (module documentation, "Frontiers"). The drivers' own tasks
+    /// that hold a reader slot run to their end and wait for no other task, so they take
+    /// no more slots than there are workers. A body that forks may hold its slot while
+    /// it waits, and its worker may then take a second one: k-core's exact count splits
+    /// a hub's list inside its body, and the planner's two readers per k-core worker
+    /// cover that depth. A run reads its lists and calls the body on each. A task per
+    /// group cuts the group, and forks its runs if it has more than one: so a frontier
+    /// whose groups are one run each forks as a plain map over its groups. In
+    /// [`Mode::Parts`], a group with a long list waits until the others are done; then
+    /// those groups are cut ([`cut`](Self::cut)), and a long list is a run of its own:
+    /// it is copied out of a slot, which is given back, and its parts then take a slot
+    /// each.
+    fn drive<A, W>(
+        &self,
+        frontier: &[Node<'g>],
+        mode: Mode,
+        init: impl Fn() -> W + Sync,
+        body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
+    ) -> Result<A, Error>
+    where
+        A: Reduce,
+        W: Send,
+    {
         let frontier = ids(frontier);
         let scratch = Mutex::new(Vec::new());
         #[cfg(feature = "frontier-counters")]
-        let runs = Mutex::new(Vec::new());
-        let run = |r: Range<usize>| {
+        let tasks = Mutex::new(Vec::new());
+        // One call of the body with a worker's scratch and a slot's side reader; returns
+        // what the body read through `Lists::get`.
+        let call = |acc: &mut A, row: Row<'_, 'g>, w: &mut W, side: &mut Option<S::Reader>| {
+            let mut work = Work::ZERO;
+            let mut worker = Worker {
+                scratch: w,
+                lists: Lists {
+                    reader: side,
+                    work: &mut work,
+                    plan: self,
+                },
+            };
+            body(acc, row, &mut worker);
+            work
+        };
+        // A run: lists read by one reader, each handed to the body whole.
+        let run = |nodes: &[u32]| {
             let mut w = take(&scratch, &init);
             let result = self.with_slot(|Slot { reader, side }| {
-                let nodes = &frontier[r];
                 if self.prefetch {
                     self.source.prefetch(nodes);
                 }
-                let (mut acc, mut entries, mut work) = (A::ZERO, 0, Work::default());
+                let mut acc = A::ZERO;
+                let mut work = Work {
+                    lists: nodes.len() as u64,
+                    entries: 0,
+                };
                 #[cfg(feature = "frontier-counters")]
                 let mut tally = counters::Run::default();
                 self.source.lists(reader, nodes, |v, first_entry, list| {
@@ -1039,64 +1250,485 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     let node = unsafe { Node::new_unchecked(v) };
                     // SAFETY: the source hands out lists of its nodes only.
                     let list = unsafe { as_nodes(list) };
-                    entries += list.len() as u64;
                     let row = Row {
                         node,
                         list,
                         first_entry,
                     };
-                    #[cfg(feature = "frontier-counters")]
-                    let side_before = work.entries;
-                    let mut worker = Worker {
-                        scratch: &mut w,
-                        lists: Lists {
-                            reader: &mut *side,
-                            work: &mut work,
-                            plan: self,
-                        },
-                    };
-                    body(&mut acc, row, &mut worker);
+                    let side_work = call(&mut acc, row, &mut w, side);
+                    work.entries += list.len() as u64;
+                    work = work.add(side_work);
                     #[cfg(feature = "frontier-counters")]
                     {
+                        tally.entries += list.len() as u64 + side_work.entries;
                         tally.max_list = tally.max_list.max(list.len() as u64);
-                        tally.max_chain = tally.max_chain.max(work.entries - side_before);
+                        tally.max_chain = tally.max_chain.max(side_work.entries);
+                        tally.side_lists += side_work.lists;
                     }
                 })?;
-                self.count(nodes.len() as u64 + work.lists, entries + work.entries);
                 #[cfg(feature = "frontier-counters")]
                 {
-                    tally.entries = entries + work.entries;
-                    tally.side_lists = work.lists;
                     tally.draws = counters::flush();
-                    runs.lock()
+                    tasks
+                        .lock()
                         .unwrap_or_else(PoisonError::into_inner)
                         .push(tally);
                 }
-                Ok(acc)
+                Ok((acc, work))
             });
             give(&scratch, w);
             result
         };
-        let result = if frontier.len() <= FRONTIER_GRAIN {
-            run(0..frontier.len())
-        } else {
-            // One result per run, and an accumulator can be large (Leiden's).
-            let count = frontier.len().div_ceil(GRAIN.get()) as u64;
-            let _held = self.memory.reserve(
-                "edge-map frontier results",
-                MemoryKind::Anonymous,
-                count.saturating_mul(size_of::<Result<A, Error>>() as u64),
-            )?;
-            par::map_ranges(frontier.len(), GRAIN, run)
-                .into_iter()
-                .try_fold(A::ZERO, |sum, part| Ok(sum.add(part?)))
+        // One part of a list that was copied out.
+        let part = |node: Node<'g>, first_entry: u64, list: &[Node<'g>]| {
+            let mut w = take(&scratch, &init);
+            let result = self.with_slot(|Slot { side, .. }| {
+                let mut acc = A::ZERO;
+                let row = Row {
+                    node,
+                    list,
+                    first_entry,
+                };
+                let work = call(&mut acc, row, &mut w, side);
+                #[cfg(feature = "frontier-counters")]
+                tasks
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(counters::Run {
+                        entries: list.len() as u64 + work.entries,
+                        max_list: list.len() as u64,
+                        max_chain: work.entries,
+                        side_lists: work.lists,
+                        draws: counters::flush(),
+                    });
+                Ok((acc, work))
+            });
+            give(&scratch, w);
+            result
         };
-        #[cfg(feature = "frontier-counters")]
-        counters::call(
-            frontier.len(),
-            &runs.into_inner().unwrap_or_else(PoisonError::into_inner),
-        );
-        result
+        let degree = |i: usize| ix(self.source.degree(frontier[i]).into());
+        let long = |t: &Range<usize>| {
+            mode == Mode::Parts && t.len() == 1 && degree(t.start) > PART_ENTRIES
+        };
+        let finish = |(acc, work): (A, Work)| {
+            self.count(work);
+            #[cfg(feature = "frontier-counters")]
+            counters::call(
+                frontier.len(),
+                &tasks.lock().unwrap_or_else(PoisonError::into_inner)[..],
+            );
+            acc
+        };
+        // A task per group, as `par::map_ranges` cuts the frontier: it cuts its group, and
+        // forks its runs if it has more than one; it holds no slot while it waits. In
+        // `Mode::Parts`, a group with a long list waits for the waves below (`None`). On
+        // the calling thread, the runs add as they end.
+        let group = |i: usize| -> Option<Result<(A, Work), Error>> {
+            let g = i * FRONTIER_GRAIN..((i + 1) * FRONTIER_GRAIN).min(frontier.len());
+            let mut runs = self.group_runs(frontier, g, mode);
+            let first = runs.next().expect("a group is at least one run");
+            let Some(second) = runs.next() else {
+                return (!long(&first)).then(|| run(&frontier[first]));
+            };
+            let runs = [first, second].into_iter().chain(runs);
+            if mode == Mode::Serial {
+                return Some(add_all(runs.map(|r| run(&frontier[r]))));
+            }
+            // A run holds at least one node, so a group has no more runs than nodes.
+            let (mut cuts, mut count) = ([const { 0..0 }; FRONTIER_GRAIN], 0);
+            for (cut, r) in cuts.iter_mut().zip(runs) {
+                (*cut, count) = (r, count + 1);
+            }
+            let cuts = &cuts[..count];
+            if cuts.iter().any(long) {
+                return None;
+            }
+            Some(
+                self.hold::<Result<(A, Work), Error>>(count)
+                    .and_then(|_held| {
+                        add_all(par::map_ranges(count, NonZeroUsize::MIN, |r| {
+                            run(&frontier[cuts[r.start].clone()])
+                        }))
+                    }),
+            )
+        };
+        let groups = frontier.len().div_ceil(FRONTIER_GRAIN).max(1);
+        if mode == Mode::Serial {
+            let mut total = <(A, Work)>::ZERO;
+            for i in 0..groups {
+                total = total.add(group(i).expect("lists whole: no group waits")?);
+            }
+            return Ok(finish(total));
+        }
+        if groups == 1 {
+            if let Some(value) = group(0) {
+                return Ok(finish(value?));
+            }
+        }
+        let _held = self.hold::<Option<Result<(A, Work), Error>>>(groups)?;
+        let done = par::map_ranges(groups, NonZeroUsize::MIN, |r| group(r.start));
+        let waiting = done.iter().filter(|d| d.is_none()).count();
+        if waiting == 0 {
+            return Ok(finish(add_all(done.into_iter().flatten())?));
+        }
+        let _wait = self.hold::<usize>(waiting)?;
+        let mut at = (0..groups).filter(|&i| done[i].is_none());
+        let wait: Vec<usize> = (0..waiting)
+            .map(|_| at.next().expect("a waiting group"))
+            .collect();
+        let cuts = self.cut(frontier, &wait)?;
+        let runs = &cuts.runs[..];
+        let (acc, work) = {
+            // A result per run, and the first error apart: the results stay small.
+            let failed = Mutex::new(None);
+            let keep = |r: Result<(A, Work), Error>| match r {
+                Ok(x) => Some(x),
+                Err(e) => {
+                    let mut f = failed.lock().unwrap_or_else(PoisonError::into_inner);
+                    f.get_or_insert(e);
+                    None
+                }
+            };
+            let _held = self.hold::<Option<(A, Work)>>(runs.len())?;
+            let mut results: Vec<Option<(A, Work)>> = (0..runs.len()).map(|_| None).collect();
+            let hubs: Vec<usize> = (0..runs.len()).filter(|&i| long(&runs[i])).collect();
+            // The long lists, a wave at a time: copied out, then their parts in parallel,
+            // those of the first wave with the other runs. A wave holds no more entries
+            // than the longest of them, or `WAVE`, so the copies stay within one
+            // reader's longest buffer.
+            let most = hubs
+                .iter()
+                .map(|&h| degree(runs[h].start))
+                .max()
+                .unwrap_or(0)
+                .max(WAVE);
+            let (mut at, mut first) = (0, true);
+            while first || at < hubs.len() {
+                let (mut end, mut entries) = (at, 0);
+                while end < hubs.len()
+                    && (end == at || entries + degree(runs[hubs[end]].start) <= most)
+                {
+                    entries += degree(runs[hubs[end]].start);
+                    end += 1;
+                }
+                let wave = &hubs[at..end];
+                // The wave's lists in one buffer, each copied by a task of its own.
+                let hub = |h: usize| frontier[runs[wave[h]].start];
+                let mut ends = vec![0];
+                for h in 0..wave.len() {
+                    ends.push(ends[h] + ix(self.source.degree(hub(h)).into()));
+                }
+                let mut buffer = SegVec::new(&self.memory, "edge-map long lists");
+                if let Some(&v) = wave.first() {
+                    // SAFETY: a node of the frontier, to fill the buffer before the copies.
+                    let any = unsafe { Node::new_unchecked(frontier[runs[v].start]) };
+                    buffer.try_resize(ends[wave.len()], any)?;
+                    par::for_each_range_mut(
+                        one_segment_mut(&mut buffer)?,
+                        &ends,
+                        NonZeroUsize::MIN,
+                        |h, out| {
+                            let copied = self.with_slot(|Slot { reader, .. }| {
+                                self.source.lists(reader, &[hub(h)], |_, _, list| {
+                                    // SAFETY: the source hands out lists of its nodes only.
+                                    out.copy_from_slice(unsafe { as_nodes(list) });
+                                })
+                            });
+                            if let Err(e) = copied {
+                                keep(Err(e));
+                            }
+                        },
+                    );
+                }
+                if let Some(e) = failed.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                    return Err(e);
+                }
+                let buffer = one_segment(&buffer)?;
+                let copies: Vec<(u64, &[Node<'g>])> = (0..wave.len())
+                    .map(|h| {
+                        (
+                            self.source.entry_offset(hub(h)),
+                            &buffer[ends[h]..ends[h + 1]],
+                        )
+                    })
+                    .collect();
+                let pieces: Vec<(usize, Range<usize>)> = copies
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(h, (_, list))| {
+                        (0..list.len())
+                            .step_by(PART_ENTRIES)
+                            .map(move |s| (h, s..(s + PART_ENTRIES).min(list.len())))
+                    })
+                    .collect();
+                let others = if first { runs.len() } else { 0 };
+                let _parts = self.hold::<Option<(A, Work)>>(others + pieces.len())?;
+                let done = mode.map_ranges(others + pieces.len(), NonZeroUsize::MIN, |r| {
+                    let Some((h, range)) = r.start.checked_sub(others).map(|p| &pieces[p]) else {
+                        let t = &runs[r.start];
+                        return if long(t) {
+                            None
+                        } else {
+                            keep(run(&frontier[t.clone()]))
+                        };
+                    };
+                    let (first_entry, list) = &copies[*h];
+                    // SAFETY: a node of the frontier.
+                    let node = unsafe { Node::new_unchecked(hub(*h)) };
+                    keep(part(
+                        node,
+                        first_entry + range.start as u64,
+                        &list[range.clone()],
+                    ))
+                });
+                let mut done = done.into_iter();
+                for (i, r) in done.by_ref().take(others).enumerate() {
+                    results[i] = r;
+                }
+                for (h, (_, list)) in copies.iter().enumerate() {
+                    let whole = Work {
+                        lists: 1,
+                        entries: list.len() as u64,
+                    };
+                    let mut sum = Some((A::ZERO, whole));
+                    for next in done.by_ref().take(list.len().div_ceil(PART_ENTRIES)) {
+                        sum = sum.zip(next).map(|(s, x)| s.add(x));
+                    }
+                    results[wave[h]] = sum;
+                }
+                (at, first) = (end, false);
+            }
+            if let Some(e) = failed.into_inner().unwrap_or_else(PoisonError::into_inner) {
+                return Err(e);
+            }
+            // Runs add in order within their group, the groups in order.
+            let mut results = results.into_iter().map(|r| r.expect("every run is done"));
+            let mut counts = cuts.groups.iter();
+            let mut total = <(A, Work)>::ZERO;
+            for value in done {
+                let group = match value {
+                    Some(value) => value?,
+                    None => results
+                        .by_ref()
+                        .take(*counts.next().expect("a count per waiting group"))
+                        .fold(<(A, Work)>::ZERO, Reduce::add),
+                };
+                total = total.add(group);
+            }
+            total
+        };
+        Ok(finish((acc, work)))
+    }
+
+    /// The runs of the nodes `g` of `frontier`, a group, as positions in the frontier. A
+    /// run ends before the node that would take it past [`RUN_ENTRIES`] (a node counts
+    /// its degree plus one), and holds at least one node; in [`Mode::Parts`], a node of
+    /// more than [`PART_ENTRIES`] entries is a run of its own.
+    fn group_runs<'a>(
+        &'a self,
+        frontier: &'a [u32],
+        g: Range<usize>,
+        mode: Mode,
+    ) -> impl Iterator<Item = Range<usize>> + 'a {
+        let whole = mode != Mode::Parts && self.one_run(&frontier[g.clone()]);
+        let (mut at, mut done) = (g.start, false);
+        std::iter::from_fn(move || {
+            if done {
+                return None;
+            }
+            if whole {
+                done = true;
+                return Some(g.clone());
+            }
+            let (start, mut entries) = (at, 0);
+            while at < g.end {
+                let degree = ix(self.source.degree(frontier[at]).into());
+                let long = mode == Mode::Parts && degree > PART_ENTRIES;
+                if entries > 0 && (long || entries + degree + 1 > RUN_ENTRIES) {
+                    break;
+                }
+                entries += degree + 1;
+                at += 1;
+                if long {
+                    break;
+                }
+            }
+            // An empty group is one empty run.
+            done = at == g.end;
+            Some(start..at)
+        })
+    }
+
+    /// Whether `nodes` is increasing and the lists of the node range it spans hold no
+    /// more than [`RUN_ENTRIES`] with one per node: then its exact cut is one run, found
+    /// without a degree per node (a frontier of consecutive nodes, Leiden's).
+    fn one_run(&self, nodes: &[u32]) -> bool {
+        let (Some(&first), Some(&last)) = (nodes.first(), nodes.last()) else {
+            return true;
+        };
+        if !nodes.windows(2).fold(true, |ok, w| ok & (w[0] < w[1])) {
+            return false;
+        }
+        let span = self.source.entry_offset(last + 1) - self.source.entry_offset(first);
+        span + nodes.len() as u64 <= RUN_ENTRIES as u64
+    }
+
+    /// A reservation for `count` values of `T`: the results of parallel tasks.
+    fn hold<T>(&self, count: usize) -> Result<Reservation, Error> {
+        let bytes = (count as u64).saturating_mul(size_of::<T>() as u64);
+        Ok(self
+            .memory
+            .reserve("edge-map frontier results", MemoryKind::Anonymous, bytes)?)
+    }
+
+    /// The runs of the groups `wait` of `frontier` in [`Mode::Parts`], as ranges of
+    /// positions in it, and the number of runs of each
+    /// ([`group_runs`](Self::group_runs)). The runs are counted first, then written into
+    /// memory of that size.
+    fn cut(&self, frontier: &[u32], wait: &[usize]) -> Result<Cuts, Error> {
+        // A few groups are cut on the calling thread: a fork costs more than their cuts.
+        let how = if wait.len() <= CUT_ALONE {
+            Mode::Serial
+        } else {
+            Mode::Parallel
+        };
+        let group = |i: usize| {
+            let start = wait[i] * FRONTIER_GRAIN;
+            start..(start + FRONTIER_GRAIN).min(frontier.len())
+        };
+        let groups = how.map_ranges(wait.len(), NonZeroUsize::MIN, |r| {
+            self.group_runs(frontier, group(r.start), Mode::Parts)
+                .count()
+        });
+        let count: usize = groups.iter().sum();
+        let _held = self.hold::<Range<usize>>(count)?;
+        // Each group's runs end where the index says: they are written where they go.
+        let mut ends = SegVec::try_with_len(&self.memory, "edge-map frontier runs", count, 0_u32)?;
+        let at: Vec<usize> = std::iter::once(0)
+            .chain(groups.iter().scan(0, |sum, &c| {
+                *sum += c;
+                Some(*sum)
+            }))
+            .collect();
+        let fill = |g: usize, out: &mut [u32]| {
+            let runs = self.group_runs(frontier, group(g), Mode::Parts);
+            for (end, r) in out.iter_mut().zip(runs) {
+                *end = u32::try_from(r.end).expect("a position in the frontier");
+            }
+        };
+        let out = one_segment_mut(&mut ends)?;
+        if how == Mode::Serial {
+            for g in 0..groups.len() {
+                fill(g, &mut out[at[g]..at[g + 1]]);
+            }
+        } else {
+            par::for_each_range_mut(out, &at, NonZeroUsize::MIN, |g, out: &mut [u32]| {
+                fill(g, out);
+            });
+        }
+        let ends = one_segment(&ends)?;
+        // A group's first run starts at the group; any other where the run before ends.
+        let start = |i: usize| match at.binary_search(&i) {
+            Ok(g) => group(g).start,
+            Err(_) => ix(ends[i - 1].into()),
+        };
+        let runs = (0..count).map(|i| start(i)..ix(ends[i].into())).collect();
+        Ok(Cuts {
+            runs,
+            groups,
+            _held,
+        })
+    }
+
+    /// Calls `body(acc, out, i, row)` for every node with `filter(node)`, as
+    /// [`scan`](Self::scan) does, but hands its list out in pieces, while `body` returns
+    /// [`ControlFlow::Continue`]: the entries before [`PREFIX`], then those before
+    /// `GROWTH × PREFIX`, `GROWTH² × PREFIX`, and so on. `row.list` is the piece and
+    /// `row.first_entry` the piece's first entry. An empty list is one empty piece. The
+    /// pieces are the same on every source.
+    ///
+    /// A compressed source decodes the first piece of each list in its batches, and each
+    /// later piece, by random access, only when the body asks for it: for a body that
+    /// stops early, as bottom-up BFS at the first parent.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan_with`](Self::scan_with).
+    pub fn scan_until<O, A>(
+        &self,
+        out: O,
+        filter: impl Fn(Node<'g>) -> bool + Sync,
+        body: impl Fn(&mut A, &mut O, usize, Row<'_, 'g>) -> ControlFlow<()> + Sync,
+    ) -> Result<A, Error>
+    where
+        O: Split,
+        A: Reduce,
+    {
+        let backward = self.alternate && self.scans.fetch_add(1, Ordering::Relaxed) % 2 == 1;
+        self.run(out, backward, |task, mut out, sums| {
+            self.with_slot(|Slot { reader, side }| {
+                self.source.begin_task(reader, task.clone());
+                let (mut work, mut failed) = (Work::ZERO, None);
+                for (b, sum) in self.blocks(task.clone()).zip(sums) {
+                    let mut acc = A::ZERO;
+                    let filter = |v| {
+                        // SAFETY: the source asks only about nodes of `b` (`Source`'s
+                        // contract), which is within the plan's nodes.
+                        filter(unsafe { Node::new_unchecked(v) })
+                    };
+                    let f = |v, first_entry, prefix: &[u32], degree: u32| {
+                        if failed.is_some() {
+                            return;
+                        }
+                        // SAFETY: `v` is in `b` (`Source`'s contract).
+                        let node = unsafe { Node::new_unchecked(v) };
+                        // SAFETY: the source hands out lists of its nodes only.
+                        let have = unsafe { as_nodes(prefix) };
+                        let degree = ix(degree.into());
+                        let i = ix((v - task.start).into());
+                        work.lists += 1;
+                        let (mut at, mut prev) = (0, 0);
+                        loop {
+                            let to = degree.min(if at == 0 { PREFIX } else { at * GROWTH });
+                            let piece = if to <= have.len() {
+                                &have[at..to]
+                            } else {
+                                let side = match side {
+                                    Some(r) => Ok(r),
+                                    None => self.new_reader().map(|r| side.insert(r)),
+                                };
+                                match side.and_then(|r| self.source.list_part(r, v, (at, prev), to))
+                                {
+                                    // SAFETY: as above.
+                                    Ok(part) => unsafe { as_nodes(part) },
+                                    Err(e) => {
+                                        failed = Some(e);
+                                        return;
+                                    }
+                                }
+                            };
+                            work.entries += piece.len() as u64;
+                            let row = Row {
+                                node,
+                                list: piece,
+                                first_entry: first_entry + at as u64,
+                            };
+                            let stop = body(&mut acc, &mut out, i, row).is_break();
+                            match piece.last() {
+                                Some(last) if !stop && to < degree => (at, prev) = (to, last.get()),
+                                _ => return,
+                            }
+                        }
+                    };
+                    self.source.scan_prefixes(reader, b, filter, PREFIX, f)?;
+                    *sum = acc;
+                }
+                self.count(work);
+                #[cfg(feature = "frontier-counters")]
+                counters::flush();
+                failed.map_or(Ok(()), Err)
+            })
+        })
     }
 
     /// The reduction blocks of `task`.
@@ -1109,190 +1741,4 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
 }
 
 #[cfg(test)]
-mod tests {
-    use everygraph_core::MemorySource;
-    use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
-
-    use super::*;
-
-    #[test]
-    fn blocks_follow_the_node_count_only() {
-        assert_eq!(block_nodes(0), MIN_BLOCK);
-        assert_eq!(block_nodes(1000), MIN_BLOCK);
-        assert_eq!(block_nodes(64 * 4096 + 1), 128);
-        assert_eq!(block_nodes(3_072_441), 1024);
-        assert_eq!(block_nodes(u32::MAX), MAX_BLOCK);
-    }
-
-    /// Tasks are whole blocks, in order, covering every node, whatever the chunk size.
-    #[test]
-    fn tasks_are_whole_blocks_covering_the_graph() {
-        let n: u32 = 1000;
-        let offsets: Vec<u64> = (0..=u64::from(n))
-            .scan(0, |sum, v| {
-                let at = *sum;
-                *sum += v % 7;
-                Some(at)
-            })
-            .collect();
-        let targets: Vec<u32> = (0..offsets[ix(n.into())])
-            .map(|e| u32::try_from(e % 1000).unwrap())
-            .collect();
-        let csr = Csr::new(&offsets, &targets).unwrap();
-        for chunk in [1, 64, 1000, 1 << 16, u64::MAX] {
-            let settings = Settings {
-                chunk_entries: chunk,
-                ..Settings::default()
-            };
-            Plan::with(&csr, &Memory::unlimited(), settings, |plan| {
-                let mut at = 0;
-                for t in &plan.tasks {
-                    assert_eq!(t.start, at);
-                    assert!(t.end > t.start && (t.end % plan.block == 0 || t.end == n));
-                    at = t.end;
-                }
-                assert_eq!(at, n, "chunk {chunk}");
-            });
-        }
-    }
-
-    /// A small graph: node `v` lists `v + 1 .. v + 1 + v % 4` (mod `n`), and node `bad`
-    /// lists `n + 5` if `bad` is given.
-    fn lists(n: u32, bad: Option<u32>) -> (Vec<u64>, Vec<u32>) {
-        let (mut offsets, mut targets) = (vec![0], Vec::new());
-        for v in 0..n {
-            if bad == Some(v) {
-                targets.push(n + 5);
-            } else {
-                let mut list: Vec<u32> = (1..=v % 4).map(|k| (v + k) % n).collect();
-                list.sort_unstable();
-                list.dedup();
-                targets.extend(list);
-            }
-            offsets.push(targets.len() as u64);
-        }
-        (offsets, targets)
-    }
-
-    /// Every driver, over every source built in memory: each target indexes a
-    /// `PerNode`, so Miri sees every unchecked read the drivers allow.
-    fn drive<S: Source>(source: &S, offsets: &[u64]) -> Result<(u64, u64, u64), Error> {
-        let memory = Memory::unlimited();
-        let settings = Settings {
-            chunk_entries: 16,
-            batch_entries: 5,
-            prefetch: true,
-            alternate: true,
-        };
-        Plan::with(source, &memory, settings, |plan| {
-            let values: Vec<u64> = (0..u64::from(plan.nodes())).collect();
-            let per = plan.per_node(&values)?;
-            let mut out: Vec<u64> = values.iter().map(|_| 0).collect();
-            let scanned: u64 = plan.scan(&mut out[..], all, |acc: &mut u64, out, i, row, w| {
-                out[i] = row.list.iter().map(|&u| per[u]).sum();
-                *acc += out[i];
-                if let Some(&u) = row.list.first() {
-                    let side = w.lists.get(u).expect("a good list");
-                    *acc += side.list.iter().map(|&t| per[t]).sum::<u64>();
-                }
-                assert_eq!(row.first_entry, offsets[row.node.index()]);
-            })?;
-            let few = |v: Node<'_>| v.get().is_multiple_of(5);
-            let filtered: u64 = plan.scan((), few, |acc: &mut u64, (), _, row, _| {
-                *acc += row.list.iter().map(|&u| per[u]).sum::<u64>() + per[row.node];
-            })?;
-            let scanned = scanned ^ filtered << 32;
-            let frontier: Vec<Node<'_>> = plan.all_nodes().filter(|v| v.get() % 3 != 0).collect();
-            let pushed: u64 = plan.frontier(&frontier, |acc: &mut u64, row, _| {
-                *acc += row.list.iter().map(|&u| per[u]).sum::<u64>();
-            })?;
-            let degrees: u64 = plan.vertices((), |acc: &mut u64, (), _, v, d| {
-                *acc += per[v] * u64::from(d);
-            })?;
-            Ok((scanned, pushed, degrees))
-        })
-    }
-
-    #[test]
-    fn drivers_over_every_source_in_memory() {
-        let n = 70;
-        let (offsets, targets) = lists(n, None);
-        let encoded = encode(&offsets, &targets).unwrap();
-        let index = AdjacencyIndex::parse(&encoded.index).unwrap();
-        let bytes: Vec<u8> = targets.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let stream_bytes = MemorySource::new(bytes);
-        let data = MemorySource::new(encoded.data.clone());
-        let csr = drive(&Csr::new(&offsets, &targets).unwrap(), &offsets).unwrap();
-        let heap = Adjacency::new(&index, &encoded.data).unwrap();
-        assert_eq!(drive(&Compressed::new(heap), &offsets).unwrap(), csr);
-        let mapped = Compressed::mapped(&index, &data).unwrap();
-        assert_eq!(drive(&mapped, &offsets).unwrap(), csr);
-        let stream = Stream::new(&offsets, &stream_bytes).unwrap();
-        assert_eq!(drive(&stream, &offsets).unwrap(), csr);
-        // In one part, and in parts of at most 7 entries: lists are never cut.
-        for part in [u64::MAX >> 8, 7] {
-            let raw = RawCopy::decode_in_parts(&heap, &Memory::unlimited(), part).unwrap();
-            assert_eq!(drive(&raw, &offsets).unwrap(), csr, "parts of {part}");
-        }
-        let streamed = CompressedStream::new(&index, &data, 0).unwrap();
-        assert_eq!(drive(&streamed, &offsets).unwrap(), csr);
-    }
-
-    /// One corrupt list: the scan and the frontier that reach it fail and hand out no
-    /// list of it; a scan that skips its block, and a frontier without it, then succeed
-    /// with the same reader.
-    #[test]
-    fn a_corrupt_list_is_refused_and_the_reader_stays_usable() {
-        let (n, bad) = (70, 40);
-        let (offsets, targets) = lists(n, Some(bad));
-        let encoded = encode(&offsets, &targets).unwrap();
-        let index = AdjacencyIndex::parse(&encoded.index).unwrap();
-        let bytes: Vec<u8> = targets.iter().flat_map(|t| t.to_le_bytes()).collect();
-        let stream_bytes = MemorySource::new(bytes);
-        let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
-        let stream = Stream::new(&offsets, &stream_bytes).unwrap();
-        let data = MemorySource::new(encoded.data.clone());
-        let streamed = CompressedStream::new(&index, &data, 0).unwrap();
-        check_corrupt(&heap, bad);
-        check_corrupt(&stream, bad);
-        check_corrupt(&streamed, bad);
-    }
-
-    fn check_corrupt<S: Source>(source: &S, bad: u32) {
-        let memory = Memory::unlimited();
-        Plan::with(source, &memory, Settings::default(), |plan| {
-            let values: Vec<u8> = (0..plan.nodes()).map(|_| 0).collect();
-            let per = plan.per_node(&values).unwrap();
-            fn sum<'g>(per: PerNode<'_, 'g, u8>, acc: &mut u64, row: Row<'_, 'g>) {
-                *acc += row.list.iter().map(|&u| u64::from(per[u])).sum::<u64>();
-            }
-            let good: Vec<Node<'_>> = (0..10).filter_map(|v| plan.node(v)).collect();
-            let with_bad: Vec<Node<'_>> = (bad - 2..bad + 2).filter_map(|v| plan.node(v)).collect();
-            for _ in 0..2 {
-                assert!(
-                    plan.frontier(&good, |a: &mut u64, r, _| sum(per, a, r))
-                        .is_ok()
-                );
-                let e = plan
-                    .frontier(&with_bad, |a: &mut u64, r, _| sum(per, a, r))
-                    .unwrap_err();
-                assert!(
-                    matches!(e, Error::Target { node, .. } if node == bad),
-                    "{e}"
-                );
-                let e = plan
-                    .scan((), all, |a: &mut u64, (), _, r, _| sum(per, a, r))
-                    .unwrap_err();
-                assert!(
-                    matches!(e, Error::Target { node, .. } if node == bad),
-                    "{e}"
-                );
-                let far = |v: Node<'_>| v.get().abs_diff(bad) > 64;
-                assert!(
-                    plan.scan((), far, |a: &mut u64, (), _, r, _| sum(per, a, r))
-                        .is_ok()
-                );
-            }
-        });
-    }
-}
+mod tests;

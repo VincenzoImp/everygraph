@@ -64,7 +64,7 @@ use everygraph_core::rng::{Purpose, draw, unit_f64};
 use everygraph_core::{Memory, MemoryKind, Reservation, math, par};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
-    Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all, ids,
+    Error, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all, ids,
 };
 
 use crate::column::{Column, GRAIN};
@@ -664,21 +664,18 @@ fn take<'g, S: Source>(
 }
 
 /// Runs `body` on the rows of `frontier` and adds up its values. Fewer than [`SERIAL`]
-/// nodes run on the calling thread, in runs the framework does not split.
+/// nodes run on the calling thread.
 fn drive<'g, 't, S: Source, A: Reduce>(
     plan: &Plan<'_, 'g, S>,
     frontier: &[Node<'g>],
     tables: &'t Tables,
     body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, Lent<'t>>) + Sync,
 ) -> Result<A, Error> {
-    let mut sum = A::ZERO;
-    if frontier.len() < SERIAL {
-        for run in frontier.chunks(FRONTIER_GRAIN) {
-            sum = sum.add(plan.frontier_with(run, || tables.lend(), &body)?);
-        }
+    let sum = if frontier.len() < SERIAL {
+        plan.frontier_serial_with(frontier, || tables.lend(), &body)?
     } else {
-        sum = plan.frontier_with(frontier, || tables.lend(), &body)?;
-    }
+        plan.frontier_with(frontier, || tables.lend(), &body)?
+    };
     tables.check()?;
     Ok(sum)
 }

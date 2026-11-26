@@ -19,6 +19,7 @@
 //! to the thread count by the speedup measured from 1 to 16 threads.
 
 use std::num::NonZeroUsize;
+use std::ops::Range;
 
 use everygraph_core::{
     AccessHint, ExactSum, MAX_ALLOCATION_BYTES, Storage, StorageKind, SystemMemory, math,
@@ -26,7 +27,10 @@ use everygraph_core::{
 use everygraph_format::adjacency::{Batch, index_bytes_bound};
 
 use super::{Estimate, Graph, InLists, Regime, Tier};
-use crate::edge_map::{CompressedStream, Error, FRONTIER_GRAIN, RawCopy, Settings};
+use crate::edge_map::{
+    CompressedStream, Error, FRONTIER_GRAIN, PART_ENTRIES, RUN_ENTRIES, RawCopy, Settings, WAVE,
+    Work,
+};
 use crate::run::{self, Operation, Precision, Weight};
 
 // ---- The constants of the model, with their sources ------------------------------
@@ -166,12 +170,18 @@ impl Cost {
         });
         let set = node_set_bytes(graph.nodes);
         // A reader per task running at once: the tasks of a scan hold `chunk_entries`
-        // entries each but the last, and a frontier runs in pieces of
-        // `FRONTIER_GRAIN` nodes.
+        // entries each but the last, and a frontier runs in runs of `RUN_ENTRIES`
+        // entries or fewer (`runs` below).
         let tasks = graph.entries / Settings::default().chunk_entries.max(1) + 1;
+        let groups = n.div_ceil(FRONTIER_GRAIN as u64) + 1;
+        // A long list of `push_with` is a run of its own, so it adds a run before and
+        // after it: at most two per `PART_ENTRIES` entries.
+        let runs = 2 * (graph.entries + n) / RUN_ENTRIES as u64
+            + 2 * graph.entries / PART_ENTRIES as u64
+            + groups;
         let pieces = match op {
             Operation::Bfs { .. } | Operation::KCore | Operation::Components { strong: true } => {
-                n.div_ceil(FRONTIER_GRAIN as u64)
+                runs
             }
             _ => 0,
         };
@@ -247,7 +257,7 @@ impl Cost {
                     "kcore",
                     Access::Mixed,
                     8 + sampled + 36,
-                    4 * set + lists,
+                    4 * set + lists + long_lists(graph),
                     2,
                     4 * n,
                 )
@@ -268,11 +278,19 @@ impl Cost {
             // the largest level `m` with its move (8 m) and the counts of `l` levels with
             // their move (24 l, a vector that doubles): `m + l <= n + 1`, so 24 (n + 1)
             // at most, with the least of a list on a small graph. The two result columns
-            // (8) come beside the state when the frontiers are gone.
+            // (8) come beside the state when the frontiers are gone. A bottom-up step's
+            // later pieces of a list are read by a second reader (`Plan::scan_until`).
             Operation::Bfs { .. } => {
                 let bottom_up = !graph.directed || inn.is_some();
                 let sets = if bottom_up { 2 * set } else { set } + 24 + SMALLEST_LIST;
-                ("bfs", Access::Mixed, 32, sets, 1, 0)
+                (
+                    "bfs",
+                    Access::Mixed,
+                    32,
+                    sets,
+                    if bottom_up { 2 } else { 1 },
+                    0,
+                )
             }
         };
         // Each driver call holds one partial value per reduction block: two `ExactSum`s
@@ -282,11 +300,21 @@ impl Cost {
             _ => 8,
         };
         let mut partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * partial;
-        // A frontier driver holds one result per run of `FRONTIER_GRAIN` nodes, and a
-        // frontier holds at most every node.
+        // A frontier driver holds, per group, its result, and for a group that waits for
+        // the waves its index, its count of runs and where its runs start; per run, its
+        // range, its end while it is cut and the index of a long list (`Plan::drive`,
+        // `Plan::cut`). The `2 * result` per run is the slack for two results per run: in
+        // the first wave of `push_with`, a run's result beside the one the wave's map
+        // returns. A frontier holds at most every node: two consecutive runs of a group
+        // hold more than `RUN_ENTRIES` entries and nodes, so a frontier of `m` entries is
+        // cut into at most `2 (m + n) / RUN_ENTRIES` runs, two more per long list and one
+        // more per group (`runs` above).
         if access == Access::Mixed {
-            let results = n.div_ceil(FRONTIER_GRAIN as u64);
-            partials += results * size_of::<Result<u64, Error>>() as u64;
+            let result = size_of::<Option<(u64, Work)>>()
+                .max(size_of::<Option<Result<(u64, Work), Error>>>());
+            let run = 2 * result + size_of::<Range<usize>>() + 4 + 8;
+            let group = result + 3 * size_of::<usize>();
+            partials += runs * run as u64 + groups * group as u64;
         }
         Self {
             phase,
@@ -412,6 +440,15 @@ fn reader_bytes(graph: &Graph, max_degree: u32) -> u64 {
     let longest = usual.max((max_degree as usize).min(entries) + SLACK);
     let lists = (block_nodes(graph.nodes) as usize).max(FRONTIER_GRAIN);
     (Batch::bytes_for(usual, lists) + Batch::bytes_for(longest, lists)) as u64
+}
+
+/// What `Plan::push_with` holds for the long lists of one wave: their copy (no more
+/// entries than the longest list, or `WAVE`), and a range and a result per part.
+fn long_lists(graph: &Graph) -> u64 {
+    let entries = u64::from(graph.max_degree).max(WAVE as u64);
+    let parts = 2 * entries / PART_ENTRIES as u64 + 1;
+    let part = size_of::<(usize, Range<usize>)>() + size_of::<Option<(u64, Work)>>();
+    4 * entries + parts * part as u64
 }
 
 /// Nodes per reduction block, as the framework cuts them (`edge_map::block_nodes`).
