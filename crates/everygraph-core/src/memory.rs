@@ -38,7 +38,7 @@
 //! (`design/DECISIONS.md`, "The memory promise covers the process"). A general
 //! allocator keeps blocks that were freed, so the process can hold more than the
 //! ledger says: glibc kept 1.2–2.3× the budget in the dictionary builds of PR #158 and
-//! PR #203. So the buffers that [`SegVec`](crate::SegVec) and
+//! PR #203 (exploratory runs). So the buffers that [`SegVec`](crate::SegVec) and
 //! [`ScratchPool`](crate::ScratchPool) allocate come from the accountant's [`Pages`]: an
 //! allocator that a native build points at `everygraph_io::PAGES`, which maps every
 //! large block on its own and unmaps it when the block is freed. The core makes no
@@ -139,8 +139,9 @@ pub trait MemoryAccountant: Send + Sync {
     fn available(&self) -> u64;
 
     /// Where the buffers reserved through this accountant are allocated (module
-    /// documentation, "Where the buffers come from"). It must not change while any
-    /// buffer is held.
+    /// documentation, "Where the buffers come from"). Each buffer keeps the allocator
+    /// it was made with, so an answer that changes only leaves older buffers where they
+    /// are.
     fn pages(&self) -> Pages {
         Pages::HEAP
     }

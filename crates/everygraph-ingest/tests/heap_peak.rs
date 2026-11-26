@@ -143,7 +143,7 @@ fn measure(case: &Case) -> (u64, u64) {
     let heap = counting::peak() - start;
     assert!(!built.dictionary.is_empty());
     drop(built);
-    scratch.remove();
+    drop(scratch);
     (u64::try_from(heap).unwrap(), ledger.peak())
 }
 

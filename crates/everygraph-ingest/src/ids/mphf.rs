@@ -13,7 +13,10 @@
 
 use std::collections::BinaryHeap;
 
+use everygraph_core::Pages;
+
 use super::hash::{KeyHash, bucket, index, pilot_hash, slot, top_bits};
+use super::scratch::{Buf, NoMemory, buf, filled};
 
 /// Parts aim at about this many keys (2^15): the slot table of one part (130 KiB) stays
 /// in the L2 cache while it is solved, and the part table stays small (512 KiB at
@@ -110,6 +113,14 @@ pub(crate) enum PartError {
     Collision,
     /// No seed led to a solution within the eviction limit. Not expected to happen.
     Unsolvable,
+    /// The system refused the solver's working memory.
+    NoMemory(NoMemory),
+}
+
+impl From<NoMemory> for PartError {
+    fn from(e: NoMemory) -> Self {
+        Self::NoMemory(e)
+    }
 }
 
 impl Part {
@@ -147,21 +158,23 @@ pub(crate) fn local_slot(
     }
 }
 
-/// Builds the part for `hashes`, which must be the hashes of distinct keys. The result
-/// depends only on the set of hashes, not on their order.
-pub(crate) fn build_part(hashes: &[KeyHash]) -> Result<Part, PartError> {
+/// Builds the part for `hashes`, which must be the hashes of distinct keys, with its
+/// working memory from `pages`. The result depends only on the set of hashes, not on
+/// their order.
+pub(crate) fn build_part(hashes: &[KeyHash], pages: Pages) -> Result<Part, PartError> {
     let n = u32::try_from(hashes.len()).expect("a part holds fewer than 2^32 keys");
     let (slots, buckets) = part_shape(n);
     if n == 0 {
         return Ok(Part::default());
     }
-    let mut sorted = hashes.to_vec();
+    let mut sorted = buf(pages, hashes.len())?;
+    sorted.extend_from_slice(hashes);
     sorted.sort_unstable();
     if sorted.windows(2).any(|w| w[0] == w[1]) {
         return Err(PartError::Collision);
     }
     for seed in 0..MAX_SEEDS {
-        if let Some((pilots, taken)) = Solver::new(&sorted, seed, slots, buckets).solve() {
+        if let Some((pilots, taken)) = Solver::new(&sorted, seed, slots, buckets, pages)?.solve() {
             let remap = remap_table(&taken, n);
             return Ok(Part {
                 n,
@@ -202,11 +215,11 @@ const FREE: u32 = u32::MAX;
 struct Solver {
     slots: u32,
     /// Keys' low hash halves grouped by bucket.
-    los: Vec<u64>,
+    los: Buf<u64>,
     starts: Vec<u32>,
     pilot_hashes: [u64; 256],
     /// Owner bucket of each slot, or `FREE`.
-    taken: Vec<u32>,
+    taken: Buf<u32>,
     /// One bit per slot, set when taken: what the search tests (a part's bitset is
     /// 4 KiB, its owners 130 KiB).
     used: Vec<u64>,
@@ -219,12 +232,20 @@ struct Solver {
 }
 
 impl Solver {
-    fn new(hashes: &[KeyHash], seed: u32, slots: u32, buckets: u32) -> Self {
+    fn new(
+        hashes: &[KeyHash],
+        seed: u32,
+        slots: u32,
+        buckets: u32,
+        pages: Pages,
+    ) -> Result<Self, NoMemory> {
         let nb = index(u64::from(buckets));
-        let bucket_of: Vec<u32> = hashes
-            .iter()
-            .map(|h| u32::try_from(bucket(h.hi, seed, buckets)).expect("bucket below 2^32"))
-            .collect();
+        let mut bucket_of = buf(pages, hashes.len())?;
+        bucket_of.extend(
+            hashes
+                .iter()
+                .map(|h| u32::try_from(bucket(h.hi, seed, buckets)).expect("bucket below 2^32")),
+        );
         let mut starts = vec![0_u32; nb + 1];
         for &b in &bucket_of {
             starts[index(u64::from(b)) + 1] += 1;
@@ -233,8 +254,8 @@ impl Solver {
             starts[i + 1] += starts[i];
         }
         let mut fill = starts.clone();
-        let mut los = vec![0_u64; hashes.len()];
-        for (h, &b) in hashes.iter().zip(&bucket_of) {
+        let mut los = filled(pages, hashes.len(), 0_u64)?;
+        for (h, &b) in hashes.iter().zip(bucket_of.iter()) {
             let at = &mut fill[index(u64::from(b))];
             los[index(u64::from(*at))] = h.lo;
             *at += 1;
@@ -244,12 +265,12 @@ impl Solver {
             *ph = pilot_hash(p, seed);
         }
         let n = u64::try_from(hashes.len()).expect("length fits in u64");
-        Self {
+        Ok(Self {
             slots,
             los,
             starts,
             pilot_hashes,
-            taken: vec![FREE; index(u64::from(slots))],
+            taken: filled(pages, index(u64::from(slots)), FREE)?,
             used: vec![0; index(u64::from(slots)).div_ceil(64)],
             pilots: vec![0; nb],
             recent: [FREE; RECENT],
@@ -257,7 +278,7 @@ impl Solver {
             recent_at: 0,
             evictions: 0,
             max_evictions: 20 * n + 10_000,
-        }
+        })
     }
 
     fn keys(&self, b: u32) -> &[u64] {
@@ -274,7 +295,7 @@ impl Solver {
         index(slot(lo, self.pilot_hashes[usize::from(pilot)], self.slots))
     }
 
-    fn solve(mut self) -> Option<(Vec<u8>, Vec<u32>)> {
+    fn solve(mut self) -> Option<(Vec<u8>, Buf<u32>)> {
         // Buckets by decreasing size, then by index: a counting sort on the size.
         let nb = self.pilots.len();
         let max_size = (0..nb)
@@ -520,7 +541,7 @@ mod tests {
         #[test]
         fn a_part_is_a_bijection_onto_0_to_n(n in 0_u64..3000, offset in any::<u64>(), seed in any::<u64>()) {
             let hs = hashes((0..n).map(|i| i.wrapping_add(offset)), seed);
-            let part = build_part(&hs).unwrap();
+            let part = build_part(&hs, Pages::HEAP).unwrap();
             assert_bijection(&part, &hs);
             prop_assert_eq!(part.pilots.len(), index(u64::from(part.buckets)));
             prop_assert_eq!(part.remap.len(), index(u64::from(part.slots - part.n)));
@@ -533,7 +554,7 @@ mod tests {
             let mut rotated = hs.clone();
             rotated.rotate_left(rotate % hs.len());
             rotated.reverse();
-            prop_assert_eq!(build_part(&hs).unwrap(), build_part(&rotated).unwrap());
+            prop_assert_eq!(build_part(&hs, Pages::HEAP).unwrap(), build_part(&rotated, Pages::HEAP).unwrap());
         }
     }
 
@@ -542,7 +563,7 @@ mod tests {
     fn a_part_of_target_size_is_solved_at_about_2_6_bits_per_key() {
         let n = 1_u64 << PART_TARGET_BITS;
         let hs = hashes(0..n, 1);
-        let part = build_part(&hs).unwrap();
+        let part = build_part(&hs, Pages::HEAP).unwrap();
         assert_bijection(&part, &hs);
         let bits = (part.pilots.len() + 4 * part.remap.len()) as f64 * 8.0 / n as f64;
         assert!(bits < 2.7, "{bits} bits per key");
@@ -553,13 +574,13 @@ mod tests {
     #[test]
     fn equal_hashes_are_a_collision_even_when_apart() {
         let h = KeyHash::of(b"x", 0);
-        assert_eq!(build_part(&[h, h]), Err(PartError::Collision));
+        assert_eq!(build_part(&[h, h], Pages::HEAP), Err(PartError::Collision));
         let mut hs: Vec<KeyHash> = (0..1000_u64)
             .map(|i| KeyHash::of(&i.to_le_bytes(), 0))
             .collect();
         hs.push(hs[3]);
         hs.rotate_left(500);
-        assert_eq!(build_part(&hs), Err(PartError::Collision));
+        assert_eq!(build_part(&hs, Pages::HEAP), Err(PartError::Collision));
     }
 
     /// Hash sets no pilot can separate end in `Unsolvable`, which the builder turns into
@@ -568,7 +589,7 @@ mod tests {
     #[test]
     fn inseparable_hash_sets_are_unsolvable() {
         let same_lo = [KeyHash { hi: 1, lo: 7 }, KeyHash { hi: 2, lo: 7 }];
-        assert_eq!(build_part(&same_lo), Err(PartError::Unsolvable));
+        assert_eq!(build_part(&same_lo, Pages::HEAP), Err(PartError::Unsolvable));
     }
 
     /// The solver's memory estimate covers what it allocates for a full part.
@@ -583,7 +604,7 @@ mod tests {
             + u64::from(slots).div_ceil(64) * 8
             + (u64::from(buckets) + 1) * 9;
         assert!(Part::solver_bytes(n) >= measured);
-        let part = build_part(&hashes(0..u64::from(n), 5)).unwrap();
+        let part = build_part(&hashes(0..u64::from(n), 5), Pages::HEAP).unwrap();
         assert_eq!(part.bytes(), Part::bytes_for(n));
     }
 
@@ -601,7 +622,7 @@ mod tests {
             ..Mphf::default()
         };
         for p in &by_part {
-            f.push(build_part(p).unwrap());
+            f.push(build_part(p, Pages::HEAP).unwrap());
         }
         let mut seen = vec![false; hs.len()];
         for &h in &hs {

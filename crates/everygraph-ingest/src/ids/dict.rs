@@ -15,7 +15,9 @@ use super::kind::{
 };
 use super::mphf::{Mphf, Part, PartRow, part_shape};
 use super::prefix::PrefixIndex;
-use super::scratch::{Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, read_range, widen};
+use super::scratch::{
+    Reservation, Scatter, Scratch, Spill, WRITE_BUFFER, buf, filled, read_range, widen,
+};
 use super::{DictionaryError, IdOrder, Layout};
 
 /// How the keys are found: through the hash function, or (dense integers in sorted
@@ -1041,7 +1043,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         {
             let _seen_memory =
                 Reservation::new(accountant, "id dictionary renumbering", n.div_ceil(8))?;
-            let mut seen = vec![0_u64; index(n.div_ceil(64))];
+            let mut seen = filled(accountant.pages(), index(n.div_ceil(64)), 0_u64)?;
             for &p in permutation {
                 let p = index(u64::from(p));
                 if widen(p) >= n || seen[p / 64] & (1 << (p % 64)) != 0 {
@@ -1117,7 +1119,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
         let map_ids = |src: &S| -> Result<Sc::Source, DictionaryError> {
             let mut s = Spill::new(scratch, "id dictionary section")?;
             for_each_record_chunk(src, 4, accountant.pages(), |_, bytes| {
-                let mut mapped = Vec::with_capacity(bytes.len());
+                let mut mapped = buf(accountant.pages(), bytes.len())?;
                 for c in bytes.chunks_exact(4) {
                     let old = self.checked_id(as_u32(c))?;
                     mapped.extend_from_slice(&permutation[index(u64::from(old))].to_le_bytes());
@@ -1234,7 +1236,8 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
                                 w + 4,
                                 accountant.pages(),
                                 |_, bytes| {
-                                    let mut chunk = bytes.to_vec();
+                                    let mut chunk = buf(accountant.pages(), bytes.len())?;
+                                    chunk.extend_from_slice(bytes);
                                     for rec in chunk.chunks_exact_mut(w + 4) {
                                         let old = self.checked_id(as_u32(&rec[w..]))?;
                                         rec[w..].copy_from_slice(

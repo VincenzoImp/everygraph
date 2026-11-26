@@ -106,16 +106,33 @@ pub(crate) fn widen(len: usize) -> u64 {
 /// given back to the system when it is dropped (`everygraph_core::Pages`).
 pub(crate) type Buf<T> = Vec<T, &'static (dyn Allocator + Sync)>;
 
-/// An empty buffer with room for `capacity` elements.
-pub(crate) fn buf<T>(pages: Pages, capacity: usize) -> Buf<T> {
-    Vec::with_capacity_in(capacity, pages.allocator())
+/// The system refused a buffer of `bytes` bytes that the budget had room for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NoMemory {
+    pub(crate) bytes: u64,
+}
+
+impl From<NoMemory> for DictionaryError {
+    fn from(e: NoMemory) -> Self {
+        Self::AllocationFailed { bytes: e.bytes }
+    }
+}
+
+/// An empty buffer with room for `capacity` elements, allocated fallibly: a page
+/// backend can refuse a map the budget allowed (`vm.max_map_count`).
+pub(crate) fn buf<T>(pages: Pages, capacity: usize) -> Result<Buf<T>, NoMemory> {
+    let mut v = Vec::new_in(pages.allocator());
+    v.try_reserve_exact(capacity).map_err(|_| NoMemory {
+        bytes: widen(capacity).saturating_mul(widen(size_of::<T>())),
+    })?;
+    Ok(v)
 }
 
 /// A buffer of `len` copies of `value`.
-pub(crate) fn filled<T: Clone>(pages: Pages, len: usize, value: T) -> Buf<T> {
-    let mut v = buf(pages, len);
+pub(crate) fn filled<T: Clone>(pages: Pages, len: usize, value: T) -> Result<Buf<T>, NoMemory> {
+    let mut v = buf(pages, len)?;
     v.resize(len, value);
-    v
+    Ok(v)
 }
 
 /// Reads `len` bytes at `offset` of `source` into a new buffer.
@@ -135,7 +152,9 @@ pub(crate) fn read_range(
 pub(crate) fn read_all(source: &dyn ByteSource, pages: Pages) -> Result<Buf<u8>, DictionaryError> {
     let len = usize::try_from(source.len())
         .map_err(|_| DictionaryError::Corrupt("a section larger than memory"))?;
-    let mut bytes = filled(pages, len, 0);
+    // Zeroed first: `read_at` fills initialized bytes, and safe code has no zeroed
+    // allocation through an allocator other than the global one.
+    let mut bytes = filled(pages, len, 0)?;
     source.read_at(0, &mut bytes)?;
     Ok(bytes)
 }
@@ -461,8 +480,8 @@ fn place(
     };
     match width {
         Some(w) => {
-            let mut out = filled(pages, len * w, 0_u8);
-            let mut seen = filled(pages, len, false);
+            let mut out = filled(pages, len * w, 0_u8)?;
+            let mut seen = filled(pages, len, false)?;
             while at < records.len() {
                 let (t, payload) = next(&mut at)?;
                 if std::mem::replace(&mut seen[t], true) {
@@ -473,10 +492,10 @@ fn place(
             if seen.iter().any(|f| !f) {
                 return Err(missing());
             }
-            Ok((out, buf(pages, 0)))
+            Ok((out, buf(pages, 0)?))
         }
         None => {
-            let mut items: Buf<(usize, &[u8])> = buf(pages, len);
+            let mut items: Buf<(usize, &[u8])> = buf(pages, len)?;
             while at < records.len() {
                 items.push(next(&mut at)?);
             }
@@ -484,8 +503,8 @@ fn place(
             if items.len() != len || items.iter().enumerate().any(|(i, (t, _))| i != *t) {
                 return Err(missing());
             }
-            let mut out = buf(pages, items.iter().map(|(_, p)| p.len()).sum());
-            let mut lens = buf(pages, len);
+            let mut out = buf(pages, items.iter().map(|(_, p)| p.len()).sum())?;
+            let mut lens = buf(pages, len)?;
             for &(_, p) in &items {
                 out.extend_from_slice(p);
                 lens.push(u32::try_from(p.len()).expect("a key shorter than 4 GiB"));

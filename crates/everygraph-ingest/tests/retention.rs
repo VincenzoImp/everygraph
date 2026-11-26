@@ -2,12 +2,17 @@
 
 //! What the process holds above the ledger, as the input grows. A dictionary build at a
 //! fixed budget is run at three sizes; at each, the anonymous memory of the process
-//! (`RssAnon`, sampled every millisecond) peaks some bytes above the ledger's peak, or
-//! none. Those bytes must not grow with the number of keys: an allocator that keeps freed
-//! blocks holds more of them the longer the build runs, until the process exceeds the
-//! budget it was promised (`design/DECISIONS.md`, "The memory promise covers the
+//! (`RssAnon`, sampled every millisecond) peaks some bytes above or below the ledger's
+//! peak. That difference must not grow with the number of keys: an allocator that keeps
+//! freed blocks holds more of them the longer the build runs, until the process exceeds
+//! the budget it was promised (`design/DECISIONS.md`, "The memory promise covers the
 //! process"; `docs/research/sota-testing.md`, challenge 3). With the build's large
 //! buffers from `everygraph_io::PAGES`, they are given back when freed.
+//!
+//! What it catches: buffers that go back to glibc's heap instead of the page backend,
+//! at these sizes. What it does not: the choice of the backend's threshold, whose effect
+//! shows at hundreds of millions of keys (the benchmark's `build-500m`), and a peak
+//! between two samples, which can only make the test pass when it should fail.
 //!
 //! Each build runs in a child process, this test binary again, so that no allocator
 //! state carries from one size to the next. The control test runs the same builds on
@@ -33,10 +38,10 @@ const BUDGET: u64 = 32 << 20;
 const SIZES: [u64; 3] = [250_000, 500_000, 1_000_000];
 /// Threads of every build: retention is kept per allocator arena, about one per thread.
 const THREADS: &str = "8";
-/// Most bytes the excess above the ledger may grow from the smallest build to the
-/// largest. In exploratory runs (release build, 8 threads, a loaded machine) it grew by
-/// 24–40 MiB on glibc's heap and by at most 1 MiB with the page backend.
-const GROWTH_LIMIT: u64 = 8 << 20;
+/// Most bytes the difference may grow from the smallest build to the largest. In
+/// exploratory runs of this test (debug build, a loaded machine, PR #219) it grew by
+/// 20–46 MB on glibc's heap and by 2 MB or less with the page backend.
+const GROWTH_LIMIT: i64 = 8 << 20;
 
 /// Set in a child: how many keys to build, and where the buffers come from.
 const KEYS_VAR: &str = "EVERYGRAPH_RETENTION_KEYS";
@@ -45,7 +50,7 @@ const PAGES_VAR: &str = "EVERYGRAPH_RETENTION_PAGES";
 #[test]
 fn the_excess_above_the_ledger_does_not_grow_with_the_input() {
     let excess = excess_by_size("maps");
-    let growth = excess[SIZES.len() - 1].saturating_sub(excess[0]);
+    let growth = excess[SIZES.len() - 1] - excess[0];
     assert!(
         growth <= GROWTH_LIMIT,
         "with the page backend the excess above the ledger grew by {growth} B from {} to {} keys: {excess:?}",
@@ -59,17 +64,18 @@ fn the_excess_above_the_ledger_does_not_grow_with_the_input() {
 #[ignore = "depends on glibc's allocator: cargo test -p everygraph-ingest --test retention -- --ignored"]
 fn on_the_heap_the_excess_grows() {
     let excess = excess_by_size("heap");
-    let growth = excess[SIZES.len() - 1].saturating_sub(excess[0]);
+    let growth = excess[SIZES.len() - 1] - excess[0];
     assert!(
         growth > GROWTH_LIMIT,
         "on the heap the excess grew by only {growth} B: {excess:?}"
     );
 }
 
-/// The excess above the ledger, in bytes, at each of [`SIZES`], each in its own process.
-fn excess_by_size(pages: &str) -> Vec<u64> {
+/// The anonymous peak minus the ledger's peak, in bytes, at each of [`SIZES`], each in
+/// its own process.
+fn excess_by_size(pages: &str) -> Vec<i64> {
     let exe = std::env::current_exe().unwrap();
-    let excess: Vec<u64> = SIZES
+    let excess: Vec<i64> = SIZES
         .iter()
         .map(|n| {
             let out = Command::new(&exe)
@@ -104,8 +110,7 @@ fn excess_by_size(pages: &str) -> Vec<u64> {
 }
 
 /// One build, in a child: prints the peak of the anonymous memory above what the
-/// process held before, minus the ledger's peak (0 if below it). Does nothing in the
-/// parent.
+/// process held before, minus the ledger's peak. Does nothing in the parent.
 #[test]
 fn one_build() {
     let (Ok(n), Ok(pages)) = (std::env::var(KEYS_VAR), std::env::var(PAGES_VAR)) else {
@@ -150,8 +155,8 @@ fn one_build() {
         drop(stop);
         assert!(!built.unwrap().dictionary.is_empty());
     });
-    scratch.remove();
-    let excess = (peak.into_inner() - baseline).saturating_sub(budget.peak());
+    let above = i64::try_from(peak.into_inner() - baseline).unwrap();
+    let excess = above - i64::try_from(budget.peak()).unwrap();
     #[expect(clippy::print_stdout, reason = "the parent reads the result here")]
     {
         println!("excess {excess}");

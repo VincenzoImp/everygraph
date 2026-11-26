@@ -10,7 +10,7 @@ use everygraph_core::Pages;
 
 use super::DictionaryError;
 use super::hash::{KeyHash, index};
-use super::scratch::{Buf, Reservation, buf, widen};
+use super::scratch::{Buf, NoMemory, Reservation, widen};
 
 /// Memory a table may use: a reservation of which `used` bytes are taken, never
 /// shrinking below `base`.
@@ -139,9 +139,9 @@ impl Table {
     /// An empty table whose arrays will come from `pages`.
     pub(crate) fn new(pages: Pages) -> Self {
         Self {
-            entries: buf(pages, 0),
-            arena: buf(pages, 0),
-            slots: buf(pages, 0),
+            entries: Vec::new_in(pages.allocator()),
+            arena: Vec::new_in(pages.allocator()),
+            slots: Vec::new_in(pages.allocator()),
         }
     }
 
@@ -162,15 +162,20 @@ impl Table {
     }
 
     /// Inserts `key` seen at `pos`, keeping the smaller position if it is already there.
-    /// Growth is reserved through `reservation` when one is given (otherwise the
-    /// caller has reserved for the whole table).
+    /// Growth is reserved through `credit` when one is given (otherwise the caller has
+    /// reserved for the whole table).
+    ///
+    /// # Errors
+    ///
+    /// The system refused memory that the credit had room for. The table is then only
+    /// to be dropped.
     pub(crate) fn insert(
         &mut self,
         hash: KeyHash,
         pos: u64,
         key: &[u8],
         credit: Option<&mut Credit<'_>>,
-    ) -> Inserted {
+    ) -> Result<Inserted, NoMemory> {
         if self.slots.is_empty()
             || self.entries.len() == self.entries.capacity()
             || self.arena.len() + key.len() > self.arena.capacity()
@@ -178,10 +183,10 @@ impl Table {
             if let Some(found) = self.find(hash, key) {
                 let e = &mut self.entries[found];
                 e.pos = e.pos.min(pos);
-                return Inserted::Done;
+                return Ok(Inserted::Done);
             }
-            if !self.grow(key.len(), credit) {
-                return Inserted::Full;
+            if !self.grow(key.len(), credit)? {
+                return Ok(Inserted::Full);
             }
         }
         let mask = self.slots.len() - 1;
@@ -195,7 +200,7 @@ impl Table {
             if e.hash == hash && self.key(e) == key {
                 let e = &mut self.entries[index(u64::from(slot))];
                 e.pos = e.pos.min(pos);
-                return Inserted::Done;
+                return Ok(Inserted::Done);
             }
             at = (at + 1) & mask;
         }
@@ -208,7 +213,7 @@ impl Table {
             len: u32::try_from(key.len()).expect("a key shorter than 4 GiB"),
         });
         self.arena.extend_from_slice(key);
-        Inserted::Done
+        Ok(Inserted::Done)
     }
 
     fn find(&self, hash: KeyHash, key: &[u8]) -> Option<usize> {
@@ -231,8 +236,9 @@ impl Table {
     }
 
     /// Makes room for one more key of `key_len` bytes. False if the reservation was
-    /// refused.
-    fn grow(&mut self, key_len: usize, credit: Option<&mut Credit<'_>>) -> bool {
+    /// refused; an error if the system refused the memory, and then the credit keeps
+    /// what it took.
+    fn grow(&mut self, key_len: usize, credit: Option<&mut Credit<'_>>) -> Result<bool, NoMemory> {
         let entries_cap = if self.entries.len() == self.entries.capacity() {
             (self.entries.capacity() * 2).max(1 << 10)
         } else {
@@ -253,7 +259,7 @@ impl Table {
             || widen(arena_cap) > limit
             || widen(slots_len * size_of::<u32>()) > limit
         {
-            return false;
+            return Ok(false);
         }
         let bytes = |entries: usize, arena: usize, slots: usize| {
             widen(entries * size_of::<Entry>() + arena + slots * size_of::<u32>())
@@ -265,22 +271,35 @@ impl Table {
         );
         let more =
             bytes(entries_cap, arena_cap, slots_len).saturating_sub(bytes(old.0, old.1, old.2));
-        // While an array grows, its old and new blocks both exist.
+        // While the entries or the arena grow, their old and new blocks both exist. The
+        // slots are an index of the entries: they are freed before they are made again.
         let transient = bytes(
             if entries_cap == old.0 { 0 } else { old.0 },
             if arena_cap == old.1 { 0 } else { old.1 },
-            if slots_len == old.2 { 0 } else { old.2 },
+            0,
         );
         let mut credit = credit;
         if let Some(c) = credit.as_deref_mut() {
             if more > 0 && !c.take(more + transient) {
-                return false;
+                return Ok(false);
             }
         }
-        self.entries.reserve_exact(entries_cap - self.entries.len());
-        self.arena.reserve_exact(arena_cap - self.arena.len());
+        let refused = |elements: usize, size: usize| NoMemory {
+            bytes: widen(elements.saturating_mul(size)),
+        };
+        let more_entries = entries_cap - self.entries.len();
+        self.entries
+            .try_reserve_exact(more_entries)
+            .map_err(|_| refused(more_entries, size_of::<Entry>()))?;
+        let more_arena = arena_cap - self.arena.len();
+        self.arena
+            .try_reserve_exact(more_arena)
+            .map_err(|_| refused(more_arena, 1))?;
         if slots_len != self.slots.len() {
             self.slots = Vec::new_in(*self.slots.allocator());
+            self.slots
+                .try_reserve_exact(slots_len)
+                .map_err(|_| refused(slots_len, size_of::<u32>()))?;
             self.slots.resize(slots_len, EMPTY);
             let mask = slots_len - 1;
             for (i, e) in self.entries.iter().enumerate() {
@@ -296,7 +315,7 @@ impl Table {
                 c.give(transient);
             }
         }
-        true
+        Ok(true)
     }
 
     /// Empties the table, keeping its memory.
@@ -353,7 +372,7 @@ mod tests {
                 let key = (i % 1234).to_string();
                 let h = KeyHash::of(key.as_bytes(), 0);
                 assert_eq!(
-                    t.insert(h, 10_000 - i - round, key.as_bytes(), None),
+                    t.insert(h, 10_000 - i - round, key.as_bytes(), None).unwrap(),
                     Inserted::Done
                 );
             }
@@ -371,9 +390,9 @@ mod tests {
     fn equal_hashes_of_different_keys_are_kept_apart() {
         let mut t = Table::new(Pages::HEAP);
         let h = KeyHash { hi: 1, lo: 2 };
-        t.insert(h, 5, b"a", None);
-        t.insert(h, 3, b"b", None);
-        t.insert(h, 1, b"a", None);
+        t.insert(h, 5, b"a", None).unwrap();
+        t.insert(h, 3, b"b", None).unwrap();
+        t.insert(h, 1, b"a", None).unwrap();
         assert_eq!(t.len(), 2);
         assert_eq!(t.entries()[0].pos, 1);
         assert_eq!(t.entries()[1].pos, 3);
@@ -384,7 +403,7 @@ mod tests {
         let mut t = Table::new(Pages::HEAP);
         for i in 0..10_000_u64 {
             let key = i.to_le_bytes();
-            t.insert(KeyHash::of(&key, 0), i, &key, None);
+            t.insert(KeyHash::of(&key, 0), i, &key, None).unwrap();
         }
         let mut before: Vec<u64> = t.entries().iter().map(|e| e.pos).collect();
         let starts = t.group_entries_by(37, |e| usize::try_from(e.pos % 37).unwrap());
@@ -409,7 +428,7 @@ mod tests {
         let mut inserted = 0;
         for i in 0..100_000_u64 {
             let key = i.to_le_bytes();
-            match t.insert(KeyHash::of(&key, 0), i, &key, Some(&mut r)) {
+            match t.insert(KeyHash::of(&key, 0), i, &key, Some(&mut r)).unwrap() {
                 Inserted::Done => inserted += 1,
                 Inserted::Full => break,
             }
@@ -422,7 +441,7 @@ mod tests {
         assert!(t.is_empty());
         let key = 7_u64.to_le_bytes();
         assert_eq!(
-            t.insert(KeyHash::of(&key, 0), 0, &key, Some(&mut r)),
+            t.insert(KeyHash::of(&key, 0), 0, &key, Some(&mut r)).unwrap(),
             Inserted::Done
         );
     }

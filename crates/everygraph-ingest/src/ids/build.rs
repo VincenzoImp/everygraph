@@ -662,11 +662,11 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         let fixed = self.kind.width();
         let mut credit = Credit::new(self.accountant, "id dictionary sample", 0)?;
         credit.require(widen(READ_WINDOW))?;
-        let mut window = vec![0_u8; READ_WINDOW];
+        let mut window = filled(self.accountant.pages(), READ_WINDOW, 0_u8)?;
         let mut table = Table::new(self.accountant.pages());
         for run in std::mem::take(&mut *lock(&self.sample_runs)) {
             for_each_record(&run, 0, run.len(), fixed, &mut window, |hash, pos, key| {
-                if table.insert(hash, pos, key, Some(&mut credit)) == Inserted::Full {
+                if table.insert(hash, pos, key, Some(&mut credit))? == Inserted::Full {
                     return Err(refused(self.accountant));
                 }
                 Ok(())
@@ -681,8 +681,8 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         )?;
         let pages = self.accountant.pages();
         let mut sample = Sample {
-            items: buf(pages, table.len()),
-            arena: buf(pages, key_bytes),
+            items: buf(pages, table.len())?,
+            arena: buf(pages, key_bytes)?,
         };
         for e in table.entries() {
             let key = table.key(e);
@@ -804,13 +804,13 @@ impl<'a, Sc: Scratch> Worker<'_, 'a, Sc> {
         norm: &[u8],
     ) -> Result<(), DictionaryError> {
         let hash = KeyHash::of(norm, c.seed);
-        if st.table.insert(hash, position, norm, Some(&mut st.credit)) == Inserted::Done {
+        if st.table.insert(hash, position, norm, Some(&mut st.credit))? == Inserted::Done {
             return Ok(());
         }
         // The budget is taken (by this table or by others): spill, keep the base, retry.
         // The base holds a table for any key up to MAX_KEY_BYTES, so this succeeds.
         c.flush(st)?;
-        if st.table.insert(hash, position, norm, Some(&mut st.credit)) == Inserted::Done {
+        if st.table.insert(hash, position, norm, Some(&mut st.credit))? == Inserted::Done {
             return Ok(());
         }
         Err(DictionaryError::Budget(InsufficientBudget::new(
@@ -1056,8 +1056,11 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
                 for it in &items {
                     range_sizes[index(u64::from(slot_of(it)) / range_len)] += record_len(it);
                 }
-                let mut ranges: Vec<Buf<u8>> = range_sizes.iter().map(|&s| buf(pages, s)).collect();
-                let mut keys = buf(pages, if slot_layout { 0 } else { key_bytes });
+                let mut ranges = range_sizes
+                    .iter()
+                    .map(|&s| buf(pages, s))
+                    .collect::<Result<Vec<Buf<u8>>, _>>()?;
+                let mut keys = buf(pages, if slot_layout { 0 } else { key_bytes })?;
                 let mut lens = buf(
                     pages,
                     if slot_layout || width.is_some() {
@@ -1065,8 +1068,8 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
                     } else {
                         count
                     },
-                );
-                let mut id_to_slot = buf(pages, if slot_layout { 4 * count } else { 0 });
+                )?;
+                let mut id_to_slot = buf(pages, if slot_layout { 4 * count } else { 0 })?;
                 let mut payload = Vec::with_capacity(4 + MAX_KEY_BYTES);
                 for (i, it) in items.iter().enumerate() {
                     let id = u32::try_from(bucket_base[r] + widen(i)).expect("checked below 2^32");
@@ -1189,7 +1192,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         let pages = self.accountant.pages();
         let mut table = Table::new(pages);
         credit.require(widen(READ_WINDOW))?;
-        let mut window = vec![0_u8; READ_WINDOW];
+        let mut window = filled(pages, READ_WINDOW, 0_u8)?;
         for run in &self.runs {
             let (start, len) = run.span(a, b)?;
             for_each_record(
@@ -1199,7 +1202,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
                 fixed,
                 &mut window,
                 |hash, pos, key| {
-                    if table.insert(hash, pos, key, Some(&mut credit)) == Inserted::Full {
+                    if table.insert(hash, pos, key, Some(&mut credit))? == Inserted::Full {
                         return Err(refused(self.accountant));
                     }
                     Ok(())
@@ -1235,10 +1238,10 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             + widen(bucket_sizes.len()) * 8
             + widen(parts_per_unit) * 12;
         credit.require(hashes_bytes + Part::solver_bytes(largest) + parts_bytes + outputs)?;
-        let mut by_part: Vec<Vec<KeyHash>> = part_sizes
+        let mut by_part = part_sizes
             .iter()
-            .map(|&s| Vec::with_capacity(index(u64::from(s))))
-            .collect();
+            .map(|&s| buf(pages, index(u64::from(s))))
+            .collect::<Result<Vec<Buf<KeyHash>>, _>>()?;
         for e in table.entries() {
             by_part[part_of(e.hash)].push(e.hash);
         }
@@ -1246,16 +1249,20 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
         let mut part_base = Vec::with_capacity(parts_per_unit);
         let mut n = 0_u32;
         for hashes in &by_part {
-            let part = build_part(hashes).map_err(|e| match e {
+            let part = build_part(hashes, pages).map_err(|e| match e {
                 PartError::Collision => DictionaryError::HashCollision,
                 PartError::Unsolvable => DictionaryError::Unsolvable,
+                PartError::NoMemory(e) => e.into(),
             })?;
             part_base.push(n);
             n += part.n;
             parts.push(part);
         }
         drop(by_part);
-        let mut buckets: Vec<Buf<u8>> = bucket_sizes.iter().map(|&s| buf(pages, s)).collect();
+        let mut buckets = bucket_sizes
+            .iter()
+            .map(|&s| buf(pages, s))
+            .collect::<Result<Vec<Buf<u8>>, _>>()?;
         let mut counts = vec![0_u64; splitters.len() + 1];
         let unit_u32 = u32::try_from(unit).expect("at most 2^10 units");
         for e in table.entries() {
@@ -1411,7 +1418,7 @@ fn parse_located(
     count: usize,
     pages: Pages,
 ) -> Result<Buf<Located<'_>>, DictionaryError> {
-    let mut items = buf(pages, count);
+    let mut items = buf(pages, count)?;
     let mut at = 0;
     let truncated = || DictionaryError::Corrupt("truncated order bucket");
     while at < bytes.len() {
@@ -1458,7 +1465,7 @@ pub(crate) fn for_each_record_chunk(
 ) -> Result<(), DictionaryError> {
     let per_read = ((1 << 20) / record.max(1)).max(1);
     let total = source.len() / widen(record.max(1));
-    let mut buf = filled(pages, per_read * record, 0_u8);
+    let mut buf = filled(pages, per_read * record, 0_u8)?;
     let mut i = 0_u64;
     while i < total {
         let count = index((total - i).min(widen(per_read)));

@@ -6,15 +6,26 @@
 //! that for every block below its mmap threshold, which starts at 128 KiB and rises
 //! after each free of a mapped block, up to 32 MiB (mallopt(3)). In the dictionary
 //! builds of PR #158 and PR #203 the process held 1.2–2.3× the budget while the ledger
-//! stayed within it. A block mapped on its own is given back to the system when it is
-//! freed, so a freed large buffer is never kept. Smaller blocks go to the global
-//! allocator; glibc maps none of the blocks that come through here, so these never
-//! raise its threshold.
+//! stayed within it (exploratory runs). A block mapped on its own is given back to the
+//! system when it is freed, so a freed large buffer is never kept. Smaller blocks go to
+//! the global allocator; glibc maps none of them, so the blocks that come through here
+//! never raise its threshold. Blocks that other code takes from the global allocator
+//! directly still can.
+//!
+//! Two costs come with it, which the planner's headroom carries:
+//!
+//! - A mapped block holds its size rounded up to whole pages, and a ledger counts the
+//!   size: at most one page more per block, 3.1 % at the smallest mapped size.
+//! - Every live mapped block is one kernel mapping, unless it touches a neighbour. A
+//!   process may hold `vm.max_map_count` mappings (65,530 by default on Linux); past
+//!   that, `mmap` fails and so does the allocation. The containers that use these pages
+//!   allocate fallibly, so a build then ends with `AllocationFailed` instead of an
+//!   abort. Reaching the limit takes about 65,000 live blocks, 8 GiB or more of them.
 //!
 //! Why safe code is not enough: std has no anonymous maps, and an allocator is an
 //! `unsafe impl`. Each `unsafe` block is one call: `mmap`, `mremap` or `munmap` of a
 //! region this module mapped, `sysconf`, a copy between two live blocks, or the global
-//! allocator's `deallocate` with the caller's pointer. Miri runs the tests below
+//! allocator's `deallocate`, `grow` or `shrink` with the caller's pointer. Miri runs the tests below
 //! (CONTRIBUTING.md, "`unsafe`").
 
 #![allow(unsafe_code)]
@@ -26,8 +37,8 @@ use everygraph_core::Pages;
 
 /// Blocks of this size or more are mapped on their own: 128 KiB, glibc's own mmap
 /// threshold before it rises. At 1 MiB the blocks between the two stayed in glibc's
-/// arenas, and the 500 M-key dictionary build held 1.10× its ledger against 0.95× at
-/// 128 KiB (exploratory A/B, PR of issue #167).
+/// arenas, and the 500 M-key dictionary build held 1.08–1.10× its ledger against 0.95×
+/// at 128 KiB (exploratory A/B, PR #219).
 pub const LARGE_BLOCK: usize = 128 << 10;
 
 /// The page backend of a native build: give it to
@@ -35,7 +46,7 @@ pub const LARGE_BLOCK: usize = 128 << 10;
 ///
 /// On Unix, blocks of [`LARGE_BLOCK`] bytes or more are anonymous private maps, at a
 /// multiple of 2 MiB from 2 MiB on; freeing one unmaps it. Smaller blocks, and blocks
-/// aligned to more than 4 KiB, come from the global allocator. Elsewhere every block
+/// aligned to more than a page, come from the global allocator. Elsewhere every block
 /// does.
 pub static PAGES: Pages = Pages::new("anonymous maps", &Maps);
 
@@ -43,7 +54,7 @@ struct Maps;
 
 /// Whether a block of `layout` is mapped on its own.
 fn mapped(layout: Layout) -> bool {
-    cfg!(unix) && layout.size() >= LARGE_BLOCK && layout.align() <= 4096
+    cfg!(unix) && layout.size() >= LARGE_BLOCK && layout.align() <= sys::page()
 }
 
 /// Whether a mapped block is resized in place by the kernel (`mremap`, Linux only; not
@@ -54,9 +65,10 @@ const REMAP: bool = cfg!(any(target_os = "linux", target_os = "android")) && !cf
 // alone, and `deallocate` gets the layout the block was allocated with (or one of the
 // same size and alignment), so it frees each block the way it was made. A mapped block
 // is `layout.size()` bytes of fresh pages, zeroed, page-aligned, owned by no one else
-// until it is unmapped. `grow` and `shrink` move a mapped block to a mapped size with
-// `mremap`, which keeps its bytes and gives the same kind of block; any other change
-// is the trait's default (allocate, copy, deallocate), which keeps the rule too.
+// until it is unmapped. `grow` and `shrink` pass a block that is not mapped before or
+// after to `Global`, move a mapped block to a mapped size with `mremap`, which keeps
+// its bytes and gives the same kind of block, and make any other change by allocate,
+// copy, deallocate, which keeps the rule too.
 unsafe impl Allocator for Maps {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if !mapped(layout) {
@@ -93,6 +105,11 @@ unsafe impl Allocator for Maps {
         old: Layout,
         new: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
+        if !mapped(old) && !mapped(new) {
+            // SAFETY: the block came from `Global` with `old`; the caller's guarantees
+            // for `grow` are passed on unchanged.
+            return unsafe { Global.grow(ptr, old, new) };
+        }
         if REMAP && mapped(old) && mapped(new) {
             // SAFETY: `ptr` is a mapped block of `old.size()` bytes (the caller's
             // guarantee and `mapped(old)`), and the caller gives it up on success.
@@ -110,6 +127,10 @@ unsafe impl Allocator for Maps {
         old: Layout,
         new: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
+        if !mapped(old) && !mapped(new) {
+            // SAFETY: as in `grow`, for `shrink`.
+            return unsafe { Global.shrink(ptr, old, new) };
+        }
         if REMAP && mapped(old) && mapped(new) {
             // SAFETY: as in `grow`.
             return unsafe { sys::remap(ptr, old.size(), new.size()) }
@@ -126,8 +147,8 @@ unsafe impl Allocator for Maps {
 ///
 /// # Safety
 ///
-/// `ptr` is a live block of `maps` with layout `old`, and `new` has the same alignment;
-/// on success the caller uses only the new block.
+/// `ptr` is a live block of `maps` with layout `old`; on success the caller uses only
+/// the new block.
 unsafe fn default_resize(
     maps: &Maps,
     ptr: NonNull<u8>,
@@ -160,7 +181,7 @@ mod sys {
     pub(super) const HUGE_PAGE: usize = 2 << 20;
 
     /// The size of a page, read once.
-    fn page() -> usize {
+    pub(super) fn page() -> usize {
         static PAGE: AtomicUsize = AtomicUsize::new(0);
         let mut page = PAGE.load(Ordering::Relaxed);
         if page == 0 {
@@ -282,6 +303,10 @@ mod sys {
 #[cfg(not(unix))]
 mod sys {
     use std::ptr::NonNull;
+
+    pub(super) fn page() -> usize {
+        unreachable!("only Unix maps blocks")
+    }
 
     pub(super) fn map(_: usize) -> Option<NonNull<u8>> {
         unreachable!("only Unix maps blocks")

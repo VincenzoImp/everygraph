@@ -21,7 +21,8 @@ pub struct Files {
 }
 
 impl Files {
-    /// Scratch files in a new directory `dir`, removed with [`Files::remove`].
+    /// Scratch files in a new directory `dir`, removed when dropped (also when a test
+    /// panics).
     pub fn new(dir: PathBuf) -> Self {
         std::fs::create_dir_all(&dir).unwrap();
         Self {
@@ -29,10 +30,11 @@ impl Files {
             next: AtomicU64::new(0),
         }
     }
+}
 
-    /// Removes the directory.
-    pub fn remove(self) {
-        std::fs::remove_dir_all(&self.dir).unwrap();
+impl Drop for Files {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
