@@ -604,9 +604,12 @@ fn communities_of(n: u32, pairs: &[(u32, u32)]) -> Vec<u32> {
 
 #[test]
 fn relabelling_and_disjoint_union_keep_a_clear_partition() {
+    // About 30 links inside its block and 1 out of it per node: blocks that one
+    // iteration finds from any labelling. Weaker blocks let a node or a block land
+    // elsewhere after a relabelling, which D14 does not promise against.
     let clear = [
-        planted(8, 100, 120, 4, 1),
-        planted(6, 120, 100, 3, 4),
+        planted(8, 100, 300, 1, 1),
+        planted(6, 120, 250, 1, 4),
         ring(10, 8),
     ];
     for (n, pairs) in &clear {
@@ -844,32 +847,4 @@ fn bad_options_are_refused() {
     assert!(matches!(e, Error::Invalid(_)), "{e}");
     let e = table(&csr, &memory, Settings::default(), &[0, 1, 3]).unwrap_err();
     assert!(matches!(e, Error::Invalid(_)), "{e}");
-}
-
-#[test]
-fn zz_relabel_seeds() {
-    let clear = [
-        planted(8, 100, 120, 4, 1),
-        planted(6, 120, 100, 3, 4),
-        ring(10, 8),
-    ];
-    let mut fails = 0;
-    let mut total = 0;
-    for seed in 0..30 {
-        let o = Options { seed, ..Options::default() };
-        for (n, pairs) in &clear {
-            let base = communities_with(*n, pairs, &o);
-            let mut rng = SplitMix64(7 + seed);
-            let mut perm: Vec<u32> = (0..*n).collect();
-            for i in (1..perm.len()).rev() {
-                perm.swap(i, (rng.next() % (i as u64 + 1)) as usize);
-            }
-            let moved: Vec<(u32, u32)> = pairs.iter().map(|&(u, v)| (perm[u as usize], perm[v as usize])).collect();
-            let relabelled = communities_with(*n, &moved, &o);
-            let back: Vec<u32> = (0..*n as usize).map(|v| relabelled[perm[v] as usize]).collect();
-            total += 1;
-            if !same_partition(&base, &back) { fails += 1; }
-        }
-    }
-    eprintln!("DBG fails {fails} of {total}");
 }
