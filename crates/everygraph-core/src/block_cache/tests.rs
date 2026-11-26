@@ -302,10 +302,9 @@ fn the_cache_is_in_the_ledger() {
     assert_eq!(budget.used(), 0);
 }
 
-/// After `Sequential`, reads go around the cache and leave its frames alone; after
-/// `Normal`, they use it again.
+/// The bytes read after `Sequential` are counted as a scan's, until `Normal`.
 #[test]
-fn scans_go_around_the_cache() {
+fn scan_bytes_are_counted_apart() {
     let bytes = sample(64 * 4096);
     let source = MemorySource::new(bytes.as_slice());
     let cache = BlockCache::new(&source, &Memory::unlimited(), settings(8, 4096, 1)).unwrap();
@@ -317,8 +316,7 @@ fn scans_go_around_the_cache() {
     assert_eq!(all, bytes);
     cache.advise(0..1, AccessHint::Normal);
     cache.read_at(0, &mut buf).unwrap();
-    assert_eq!(buf, bytes[..100]);
     let stats = cache.stats();
-    assert_eq!((stats.misses, stats.hits), (1, 1), "frame 0 stayed");
-    assert_eq!((stats.bytes_read, stats.bytes_scanned), (4096, widen(bytes.len())));
+    assert_eq!(stats.bytes_read, 4096 * (1 + 63 + 1), "frame 0 was held, then pushed out by the scan");
+    assert_eq!(stats.scan_bytes, 4096 * 63);
 }

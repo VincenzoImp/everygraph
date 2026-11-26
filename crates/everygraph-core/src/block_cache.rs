@@ -22,11 +22,11 @@
 //!   within [`CacheSettings::max_extra_percent`] of the bytes asked for. Without a
 //!   `ReadAhead` (wasm32), the advice is ignored and reads are synchronous.
 //!
-//! - **Scans go around it.** After [`AccessHint::Sequential`], reads go straight to the
-//!   source until [`AccessHint::Normal`] or [`AccessHint::Random`]: a scan reads each
-//!   byte once, so caching it would only push out the frames of the random-access phase
-//!   (advice per phase, ADR 0029). The cache does not pass the hints on: passing
-//!   `Sequential` to a buffered file would fill the page cache that the cache replaces.
+//! - **Phases.** The other hints are not passed on: `Sequential` on a buffered file would
+//!   fill the page cache that the cache replaces. [`AccessHint::Sequential`] starts a
+//!   scan phase, until [`AccessHint::Normal`] or [`AccessHint::Random`], whose bytes are
+//!   counted apart ([`CacheStats::scan_bytes`]). Scans still read through the frames: a
+//!   scan's body may read other lists by random access, as Leiden's aggregation does.
 
 use std::fmt;
 use std::ops::Range;
@@ -102,10 +102,11 @@ pub struct CacheStats {
     pub prefetched: u64,
     /// Reads of the source: by readers and ahead.
     pub reads: u64,
-    /// Bytes read from the source into frames, by readers and ahead.
+    /// Bytes read from the source, by readers and ahead.
     pub bytes_read: u64,
-    /// Bytes read around the cache, after [`AccessHint::Sequential`].
-    pub bytes_scanned: u64,
+    /// The part of [`bytes_read`](Self::bytes_read) read in a scan phase: after
+    /// [`AccessHint::Sequential`].
+    pub scan_bytes: u64,
 }
 
 /// Reader threads that run a [`BlockCache`]'s reads ahead of need. The core has no
@@ -174,8 +175,7 @@ impl Fetch {
         let len = self.len();
         let buf = &mut buf[..len];
         source.read_at(self.range.start, buf)?;
-        self.frames.stats.reads.fetch_add(1, Relaxed);
-        self.frames.stats.bytes_read.fetch_add(widen(len), Relaxed);
+        self.frames.stats.read(len);
         self.frames.install(self.first, self.mine, buf);
         self.done = true;
         Ok(())
@@ -218,7 +218,19 @@ struct Stats {
     prefetched: AtomicU64,
     reads: AtomicU64,
     bytes_read: AtomicU64,
-    bytes_scanned: AtomicU64,
+    scan_bytes: AtomicU64,
+    /// Whether the last phase hint was [`AccessHint::Sequential`].
+    scanning: AtomicBool,
+}
+
+impl Stats {
+    fn read(&self, bytes: usize) {
+        self.reads.fetch_add(1, Relaxed);
+        self.bytes_read.fetch_add(widen(bytes), Relaxed);
+        if self.scanning.load(Relaxed) {
+            self.scan_bytes.fetch_add(widen(bytes), Relaxed);
+        }
+    }
 }
 
 /// The state shared with fetches in flight.
@@ -444,8 +456,6 @@ pub struct BlockCache<'s> {
     /// Frames per read.
     read_frames: usize,
     max_extra_percent: u64,
-    /// Whether the last hint was [`AccessHint::Sequential`].
-    scanning: AtomicBool,
 }
 
 impl fmt::Debug for BlockCache<'_> {
@@ -549,7 +559,6 @@ impl<'s> BlockCache<'s> {
             }),
             read_frames,
             max_extra_percent: u64::from(settings.max_extra_percent),
-            scanning: AtomicBool::new(false),
         })
     }
 
@@ -592,7 +601,7 @@ impl<'s> BlockCache<'s> {
             prefetched: s.prefetched.load(Relaxed),
             reads: s.reads.load(Relaxed),
             bytes_read: s.bytes_read.load(Relaxed),
-            bytes_scanned: s.bytes_scanned.load(Relaxed),
+            scan_bytes: s.scan_bytes.load(Relaxed),
         }
     }
 
@@ -641,8 +650,7 @@ impl<'s> BlockCache<'s> {
         let buf = spare.bytes().as_mut_slice();
         stats.misses.fetch_add(1, Relaxed);
         self.source.read_at(range.start, &mut buf[..len])?;
-        stats.reads.fetch_add(1, Relaxed);
-        stats.bytes_read.fetch_add(widen(len), Relaxed);
+        stats.read(len);
         let from = usize::try_from(pos - range.start).expect("in a frame");
         out.copy_from_slice(&buf[from..from + out.len()]);
         Ok(())
@@ -720,11 +728,6 @@ impl ByteSource for BlockCache<'_> {
                 len: widen(buf.len()),
                 source_len: f.len,
             })?;
-        if self.scanning.load(Relaxed) {
-            self.source.read_at(offset, buf)?;
-            f.stats.bytes_scanned.fetch_add(widen(buf.len()), Relaxed);
-            return Ok(());
-        }
         let last = if end > offset { (end - 1) >> f.shift } else { 0 };
         let mut pos = offset;
         while pos < end {
@@ -756,8 +759,10 @@ impl ByteSource for BlockCache<'_> {
 
     fn advise(&self, range: Range<u64>, hint: AccessHint) {
         match hint {
-            AccessHint::Sequential => self.scanning.store(true, Relaxed),
-            AccessHint::Normal | AccessHint::Random => self.scanning.store(false, Relaxed),
+            AccessHint::Sequential => self.frames.stats.scanning.store(true, Relaxed),
+            AccessHint::Normal | AccessHint::Random => {
+                self.frames.stats.scanning.store(false, Relaxed);
+            }
             AccessHint::WillNeed => {
                 if let Some(ahead) = self.ahead {
                     self.read_ahead(ahead, range);

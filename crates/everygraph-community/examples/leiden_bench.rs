@@ -343,7 +343,7 @@ fn cached(a: &Args, threads: NonZeroUsize, settings: Settings, t: Instant) -> (f
         let line = format!(
             "{out}, \"cache\": {{\"frame_bytes\": {}, \"pool_threads\": {}, \"direct\": {}, \
              \"hits\": {}, \"misses\": {}, \"waits\": {}, \"prefetched\": {}, \"reads\": {}, \
-             \"bytes_read\": {}, \"bytes_scanned\": {}}}",
+             \"bytes_read\": {}, \"scan_bytes\": {}}}",
             cache.frame_bytes(),
             pool.threads,
             file.is_direct(),
@@ -353,7 +353,7 @@ fn cached(a: &Args, threads: NonZeroUsize, settings: Settings, t: Instant) -> (f
             c.prefetched,
             c.reads,
             c.bytes_read,
-            c.bytes_scanned
+            c.scan_bytes
         );
         (load, line)
     })
