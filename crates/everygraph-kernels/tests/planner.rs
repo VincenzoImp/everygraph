@@ -482,9 +482,9 @@ fn the_break_even_follows_the_cost_model() {
     assert!(break_even(threads(1)) >= 1);
 }
 
-/// Probe A of the review of PR #249: two traversals build the copy, then `PageRank` on
-/// the same budget. The copy counts in its plan; it does not fit beside `PageRank`, so
-/// the plan drops it first, and the run fits.
+/// Traversals build the raw copy, then `PageRank` runs in the same budget: the copy
+/// counts in its plan, it does not fit beside `PageRank`, so the plan drops it first and
+/// the run fits. Beside an operation it fits with, the copy is kept and counted.
 #[test]
 fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
     let s = path(20_001);
@@ -539,8 +539,49 @@ fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
     assert!(kept.raw_bytes().is_some());
 }
 
-/// Probe B of the review of PR #249: a session that built the copy of a path, asked for
-/// a BFS on a star, drops the path's copy and gives the star's distances.
+/// A forced choice meets the checks of an automatic one: a forced raw tier on a graph
+/// with no raw copy is refused, and a held copy counts beside a kept result.
+#[test]
+fn a_forced_choice_is_checked_as_an_automatic_one() {
+    let s = path(1000);
+    let bfs = Operation::Bfs {
+        source: 0,
+        max_hops: None,
+    };
+    let raw = Force {
+        tier: Some(Tier::Raw),
+        threads: Some(threads(1)),
+        ..Force::default()
+    };
+    let mut hub = s.graph();
+    hub.max_degree = u32::MAX;
+    let plan = planner::plan(&bfs, &hub, &machine(), &request(PLENTY, raw)).unwrap();
+    assert_eq!(plan.refusal().map(|r| r.error), Some("Unsupported"));
+    let held = planner::Held {
+        bytes: 1000,
+        usable: true,
+    };
+    let mut kept = s.graph();
+    kept.kept = true;
+    let op = Operation::Components;
+    let at = |force, held| {
+        let r = Request {
+            held,
+            ..request(PLENTY, force)
+        };
+        planner::plan(&op, &kept, &machine(), &r)
+            .unwrap()
+            .peak_bytes()
+    };
+    assert_eq!(at(raw, Some(held)), at(raw, None) + 1000);
+    assert_eq!(
+        at(Force::default(), Some(held)),
+        at(Force::default(), None) + 1000
+    );
+}
+
+/// A session that built the raw copy of a path, asked for a BFS on a star, drops the
+/// path's copy and gives the star's distances.
 #[test]
 fn a_session_belongs_to_one_graph() {
     let (p, s) = (path(1000), star(1000));
@@ -563,8 +604,9 @@ fn a_session_belongs_to_one_graph() {
     assert!(session.raw_bytes().is_none());
 }
 
-/// Probe F of the review of PR #249: a plan sized for serving a kept result serves it,
-/// and a plan told of a result that the file does not keep refuses without running.
+/// A plan sized for serving a kept result serves it from the file, by the lookup it was
+/// made with; a plan told of a result that the file does not keep is refused, with
+/// nothing reserved.
 #[test]
 fn a_kept_result_is_served_by_the_lookup_the_plan_was_made_with() {
     let mut s = path(20_001);
@@ -594,12 +636,13 @@ fn a_kept_result_is_served_by_the_lookup_the_plan_was_made_with() {
     let accountant = Arc::new(Budget::new(served));
     let memory = Memory::from(Arc::clone(&accountant));
     let lists = other.lists(false);
-    assert!(execute(&plan, &lists, &memory, &mut Session::new()).is_err());
+    let refused = execute(&plan, &lists, &memory, &mut Session::new());
+    assert!(matches!(refused, Err(RunError::Refused(_))), "{refused:?}");
     assert_eq!(accountant.peak(), 0);
 }
 
-/// The planner takes fewer threads before it refuses: each holds a reader of a hub's
-/// length (probe D of the review of PR #249, a star).
+/// The planner takes fewer threads before it refuses, since each holds a reader of a
+/// hub's length (a star), and the refusal names the one-thread budget.
 #[test]
 fn the_smallest_budget_is_the_one_of_the_fewest_threads() {
     let s = star(200_001);

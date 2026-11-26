@@ -60,8 +60,9 @@ const KCORE_SPEEDUP: f64 = 3.9;
 /// Seconds per entry of BFS with parents on the compressed lists (0.135 s), on the raw
 /// copy (0.106 s), and of `RawCopy::decode` with its new arrays (0.124 s): the medians
 /// of five rounds that run the three in turn (exploratory; PR #249 holds the command
-/// and its output). The break-even they give is 5 traversals; the rounds' own ratios
-/// were 2.3–5.6 on orkut and 1.8–3.1 on lj.
+/// and its output). The ratio of these medians gives a break-even of 5 traversals; the
+/// median of the rounds' own ratios is 3.79 on orkut (2.3–5.6) and 2.12 on lj
+/// (1.8–3.1), so 5 decodes later, not earlier, than the rounds suggest.
 const BFS_PER_ENTRY: f64 = 0.577e-9;
 const BFS_RAW_PER_ENTRY: f64 = 0.45e-9;
 const DECODE_PER_ENTRY: f64 = 0.53e-9;

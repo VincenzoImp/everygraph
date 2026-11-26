@@ -155,6 +155,22 @@ pub(super) fn too_much(op: &Operation, bytes: u64, memory: &SystemMemory) -> Ref
     }
 }
 
+/// A plan that serves a kept result the file does not hold: it was made for another
+/// file, or told of a result `run::kept` did not find.
+impl Refusal {
+    pub(crate) fn not_kept(op: &Operation) -> Self {
+        Self {
+            error: "Unsupported",
+            operation: op.name(),
+            message: format!("The kept result of {} is not in this file.", op.name()),
+            why: "the plan was made for a kept result that the file does not hold".to_owned(),
+            shortfall: None,
+            machine_memory_bytes: None,
+            ways_forward: Vec::new(),
+        }
+    }
+}
+
 /// An operation that this graph, or this version, cannot run.
 pub(super) fn unsupported(op: &Operation, reason: &'static str) -> Refusal {
     Refusal {

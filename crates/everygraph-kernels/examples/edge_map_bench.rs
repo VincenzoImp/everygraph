@@ -253,17 +253,34 @@ fn time_decode(adj: &Adjacency<'_>, a: &Args) -> (Vec<f64>, u64, String) {
     ));
     let mut secs = Vec::new();
     let mut held = 0;
-    for _ in 0..reps {
+    let mut hash = 0;
+    for rep in 0..reps {
         // As the planner builds it: new arrays from the budget's pages, each time.
         let t = Instant::now();
         let raw = RawCopy::decode(adj, &memory).expect("decode");
         secs.push(t.elapsed().as_secs_f64());
         held = raw.held();
+        if rep + 1 == reps {
+            let mut targets = Vec::new();
+            raw.scan(
+                &mut (),
+                0..raw.nodes(),
+                |_| true,
+                |_, _, list| {
+                    targets.extend(list.iter().map(|&x| u64::from(x)));
+                },
+            )
+            .expect("the lists");
+            hash = fnv(targets.into_iter());
+        }
     }
     (
         secs,
-        held,
-        format!("{{\"entries\": {}}}", adj.index().entries()),
+        hash,
+        format!(
+            "{{\"entries\": {}, \"held_bytes\": {held}}}",
+            adj.index().entries()
+        ),
     )
 }
 

@@ -291,6 +291,10 @@ pub struct Plan {
     refusal: Option<Refusal>,
 }
 
+/// Why a forced raw tier cannot run (`RawCopy`).
+const NO_RAW_COPY: &str = "a raw copy needs its offsets in one segment and every list \
+     within one part of at most 1 GiB, and this graph has more nodes or a longer list";
+
 /// Decides how `op` runs on `graph` (module documentation). When the plan does not fit
 /// on the threads it would choose, it takes fewer: each holds a reader, and the thread
 /// count never changes a result (DESIGN D14). A refusal names the smallest budget over
@@ -336,6 +340,8 @@ pub fn plan(
     }
     if let Some(reason) = run::unsupported(op, graph.directed, graph.nodes) {
         plan.refusal = Some(document::unsupported(op, reason));
+    } else if plan.tier == Tier::Raw && !cost::raw_fits(graph) {
+        plan.refusal = Some(document::unsupported(op, NO_RAW_COPY));
     } else if plan.peak > budget {
         plan.refusal = Some(document::refusal(&plan, first));
     }
@@ -354,15 +360,18 @@ fn choose(
     let usable = request.held.filter(|h| h.usable);
     let compressed = cost::Cost::of(op, graph, threads, Tier::Compressed);
     let raw = cost::Cost::of(op, graph, threads, Tier::Raw);
-    let tier = request.force.tier.unwrap_or_else(|| {
-        let wanted =
-            traverses(op) && (usable.is_some() || request.traversals_before >= break_even(threads));
-        if wanted && cost::raw_fits(graph) && cost::fits_with_margin(raw.peak(), budget) {
-            Tier::Raw
-        } else {
-            Tier::Compressed
+    let tier = match request.force.tier {
+        Some(t) => t,
+        None => {
+            let wanted = traverses(op)
+                && (usable.is_some() || request.traversals_before >= break_even(threads));
+            if wanted && cost::raw_fits(graph) && cost::fits_with_margin(raw.peak(), budget) {
+                Tier::Raw
+            } else {
+                Tier::Compressed
+            }
         }
-    });
+    };
     let cost = if tier == Tier::Raw { raw } else { compressed };
     let build_raw = tier == Tier::Raw && usable.is_none() && !graph.kept;
     // A kept result is read into the budget instead of computed.
@@ -371,7 +380,7 @@ fn choose(
     // when it does not fit beside it, or is of another graph, the run drops it first.
     let (peak, drop_raw) = match request.held {
         None => (own, false),
-        Some(_) if tier == Tier::Raw && !build_raw => (own, false),
+        Some(_) if tier == Tier::Raw && !build_raw && !graph.kept => (own, false),
         Some(h) if h.usable && own.saturating_add(h.bytes) <= budget => (own + h.bytes, false),
         Some(_) => (own, true),
     };

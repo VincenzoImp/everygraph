@@ -595,14 +595,14 @@ impl<'a> Adjacency<'a> {
     ///
     /// # Panics
     ///
-    /// If `nodes` is not a range within `0..nodes()`, or `targets` does not have the
-    /// length of its lists.
+    /// If `nodes` is not a range within [`nodes`](Self::nodes), or `targets` does not
+    /// have the length of its lists.
     pub fn decode_lists(&self, nodes: Range<u32>, targets: &mut [u32]) -> Result<(), DecodeError> {
         let index = self.index;
         assert!(
-            nodes.start <= nodes.end && nodes.end <= index.nodes(),
-            "nodes {nodes:?} outside 0..{}",
-            index.nodes()
+            self.first <= nodes.start && nodes.start <= nodes.end && nodes.end <= self.end,
+            "nodes {nodes:?} outside {:?}",
+            self.first..self.end
         );
         let at = |v: u32| index.entry_offset(NodeId::new(v)).get();
         let total = to_usize(at(nodes.end) - at(nodes.start));

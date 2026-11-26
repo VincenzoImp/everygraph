@@ -351,9 +351,8 @@ pub fn execute<S: ByteSource + Sync>(
     let work = || {
         if plan.kept() {
             let nodes = lists.index.nodes();
-            return stored(lists.file, op, lists.directed, nodes, memory)?.ok_or(RunError::Kernel(
-                Error::Invalid("the plan serves a kept result that the file does not hold"),
-            ));
+            return stored(lists.file, op, lists.directed, nodes, memory)?
+                .ok_or_else(|| RunError::Refused(Box::new(planner::Refusal::not_kept(op))));
         }
         compute(plan, lists, memory, &mut session.raw)
     };
