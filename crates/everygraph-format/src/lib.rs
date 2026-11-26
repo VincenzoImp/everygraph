@@ -11,6 +11,8 @@
 //! - [`container`]: the `.eg` container (DESIGN D7, `docs/spec/eg-container.md`):
 //!   named, BLAKE3-hashed sections behind a table of contents, appended and committed
 //!   by a crash-safe protocol over `everygraph_core::ByteSink`, issue #28.
+//! - [`columns`]: property columns (DESIGN D9, `docs/spec/eg-columns.md`), issue #37:
+//!   each a complete Arrow IPC file in a section, beside a layout and statistics.
 //! - [`verify`]: what `everygraph verify` checks: the container's rules, every section's
 //!   hash and every adjacency's structure, issue #41.
 //!
@@ -28,5 +30,6 @@
 )]
 
 pub mod adjacency;
+pub mod columns;
 pub mod container;
 pub mod verify;

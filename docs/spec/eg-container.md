@@ -178,6 +178,8 @@ Kinds 2–5 define the graph and are not optional for a reader that reads the gr
 added after 1.0 that a reader must understand is announced with a required feature.
 (Within the adjacency format, whether an adjacency has `.events` is announced by its
 index's own flags, `eg-adjacency.md`; the container needs no bit for it.)
+Kinds 7–9 hold property columns (`eg-columns.md`): a reader that reads a column reads
+its sections of all three kinds, and one that uses no column may leave them unread.
 
 | Kind | Meaning | Specified in |
 |---|---|---|
@@ -188,7 +190,10 @@ index's own flags, `eg-adjacency.md`; the container needs no bit for it.)
 | 4 | one section of an identifier dictionary (the name, `ids.*`, says which) | `everygraph_ingest::ids` (#34) |
 | 5 | event offsets of an adjacency (`<name>.events`): where each pair's events start, for graphs that keep repeated pairs as events | `eg-adjacency.md` |
 | 6 | segment manifest (`segments`, one per file); reserved, not written by 1.0 | § 13 |
-| 7 … 0x7FFFFFFF | assigned by later specifications (columns #37, results #39, hierarchy, layout, indexes) | — |
+| 7 | a property column: a complete Arrow IPC file (`<scope>/arrow/<column>`) | `eg-columns.md` § 3 |
+| 8 | the layout of a property column (`<scope>/layout/<column>`) | `eg-columns.md` § 4 |
+| 9 | the statistics of a numeric property column (`<scope>/stats/<column>`) | `eg-columns.md` § 5 |
+| 10 … 0x7FFFFFFF | assigned by later specifications (results #39, hierarchy, layout, indexes) | — |
 | 0x80000000 … 0xFFFFFFFF | private and experimental use; never assigned | — |
 
 The **codec** says how the stored bytes encode the content. Version 1.0 defines only 0:
@@ -236,10 +241,11 @@ name order, over every section that defines the graph, of `kind` (`u32`), the na
 length in bytes (`u32`), the name, and the section's 32-byte hash. So two files whose
 graph sections differ in kind, name or content never share an identity. The kinds that
 define the graph are those 1.0 defines as such — 2 to 5 (adjacency index and data,
-`.events`, dictionary) and the property-column kinds #37 assigns before 1.0 is
-released. A kind added later that defines the graph is announced with a required
-feature bit (§ 10), so that a reader that does not know it refuses the file instead of
-computing an identity without it. For a segmented file (§ 13) the identity is BLAKE3 of
+`.events`, dictionary) and 7 (property columns, `eg-columns.md` § 8; their layouts
+and statistics, kinds 8 and 9, follow from kind 7 and are left out). A kind added
+later that defines the graph is announced with a required feature bit (§ 10), so that a
+reader that does not know it refuses the file instead of computing an identity without
+it. For a segmented file (§ 13) the identity is BLAKE3 of
 the manifest's `(kind, name length, name, hash)` alone, since the manifest lists the
 hashes of every run's sections. A reader serves a stored result only for a graph with
 that identity: after an append the graph has a new identity, and results stored before
