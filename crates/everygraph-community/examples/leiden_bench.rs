@@ -19,7 +19,7 @@
 //! MiB (1024 by default), read ahead by a pool of `--pool-threads` threads (64), `K`
 //! blocks of 256 nodes ahead of the visits (`Options::read_ahead`, 0 by default), from
 //! the file opened for direct reads with `--direct 1`; it adds the cache's counts to the
-//! line. Every run reports `read_bytes`, the process's bytes read from storage while
+//! line. `--advise random` gives the memory map `MADV_RANDOM` for the whole run. Every run reports `read_bytes`, the process's bytes read from storage while
 //! Leiden ran (`/proc/self/io`, Linux), and `peak_reserved`, the budget's peak.
 //!
 //! `run` prints one JSON line: the times of every repetition, the modularity, the
@@ -55,7 +55,9 @@ use everygraph_community::hierarchy::Hierarchy;
 use everygraph_community::{
     Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity,
 };
-use everygraph_core::{BlockCache, Budget, ByteSource, CacheSettings, Memory, MemorySource, par};
+use everygraph_core::{
+    AccessHint, BlockCache, Budget, ByteSource, CacheSettings, Memory, MemorySource, par,
+};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_format::container::{Container, Provenance, Writer};
 use everygraph_io::{FileSink, FileSource, MmapSource, PoolSettings, ReadPool};
@@ -398,6 +400,9 @@ fn run(a: &Args) {
                 .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
             let index = AdjacencyIndex::parse(&index).expect("an index");
             let map = MmapSource::open(&data).expect("map");
+            if a.get("advise").is_some_and(|x| x == "random") {
+                map.advise(0..map.len(), AccessHint::Random);
+            }
             let heap = if source == "mmap" {
                 Vec::new()
             } else {

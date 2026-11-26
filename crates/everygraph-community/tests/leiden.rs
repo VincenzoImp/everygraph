@@ -808,7 +808,11 @@ fn one_level_stops_after_level_zero() {
     check("one level", &s.lists, None, &c, &one);
     assert_eq!((c.levels.len(), c.stats.len()), (1, 1));
     let all = run(&s, Kind::Heap, 4, 1 << 16, &Options::default());
-    assert!(all.stats.len() > 1 && all.count <= c.count, "{} levels", all.stats.len());
+    assert!(
+        all.stats.len() > 1 && all.count <= c.count,
+        "{} levels",
+        all.stats.len()
+    );
 }
 
 /// Stars whose hubs form a ring: many leaves try to join their hub's refined community
