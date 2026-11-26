@@ -746,3 +746,17 @@ fn the_schema_check_refuses_what_the_schema_refuses() {
         assert!(plan_schema::error(&bad, "e").is_err(), "{bad}");
     }
 }
+
+/// A graph with a repeated pair has a `.events` section that its index announces, and
+/// `everygraph verify --deep` finds it intact.
+#[test]
+fn a_graph_with_repeated_pairs_passes_the_deep_check() {
+    let dir = dir("repeated");
+    std::fs::write(dir.join("edges.csv"), "u,v\n1,2\n2,3\n1,2\n").unwrap();
+    let out = run(&dir, &["ingest", "edges.csv"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let file = Container::open(FileSource::open(dir.join("edges.eg")).unwrap()).unwrap();
+    assert!(file.get("adjacency.out.events").is_some());
+    let out = run(&dir, &["verify", "--deep", "edges.eg"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}

@@ -11,7 +11,8 @@
 //!   table's padding, the names and kinds of the adjacency sections, and the hash and
 //!   padding of every section of at most [`FAST_SECTION_BYTES`].
 //! - [`Depth::Deep`] reads everything: the hash and padding of every section, and the
-//!   structure of every adjacency — its index, every record, lists strictly increasing
+//!   structure of every adjacency — its index, its `.events` section exactly when the
+//!   index announces one (whole, § 5), every record, lists strictly increasing
 //!   with every neighbour below the node count; no self-loops and symmetric lists when
 //!   its provenance declares `self_loops` = `drop` and `directed` = `false` (spec § 6);
 //!   and an in-adjacency (`<base>.in`) that is the transpose of its out-adjacency.
@@ -36,7 +37,7 @@ use everygraph_core::{
     ByteSource, MAX_ALLOCATION_BYTES, Memory, MemoryKind, NodeId, ReadError, Reservation, par,
 };
 
-use crate::adjacency::{AdjacencyIndex, Decoder, FormatError};
+use crate::adjacency::{AdjacencyEvents, AdjacencyIndex, Decoder, FormatError};
 use crate::container::layout::{self, BLOCK_USIZE, Block, HEADER_USED, MAGIC, padded, small};
 use crate::container::read::hash_range;
 use crate::container::{Container, ContainerError, Entry, Kind, MAX_TOC_BYTES};
@@ -83,6 +84,8 @@ pub struct AdjacencyFacts {
     pub nodes: u32,
     /// Its number of entries (pairs).
     pub entries: u64,
+    /// Its stored events, when it has a `.events` section (some pair has more than one).
+    pub events: Option<u64>,
 }
 
 /// What [`verify`] found.
@@ -527,6 +530,7 @@ fn check_adjacencies<S: ByteSource + Sync>(
         };
         if out.facts.nodes != inn.facts.nodes
             || out.facts.entries != inn.facts.entries
+            || out.facts.events != inn.facts.events
             || out.scan.forward != inn.scan.backward
         {
             report.problem(
@@ -539,9 +543,9 @@ fn check_adjacencies<S: ByteSource + Sync>(
     Ok(())
 }
 
-/// The bytes of the index `entry`, whole, as [`AdjacencyIndex::parse`] reads them;
-/// `None` when they do not fit in `held`.
-fn index_bytes<'f, S: ByteSource>(
+/// The bytes of section `entry` (an index or a `.events` section), whole, as their
+/// parsers read them; `None` when they do not fit in `held`.
+fn section_bytes<'f, S: ByteSource>(
     file: &'f Container<S>,
     entry: &Entry,
     held: &mut Reservation,
@@ -583,7 +587,7 @@ fn check_adjacency<S: ByteSource + Sync>(
         ));
     };
     let mut held = Reservation::empty(memory, PURPOSE, MemoryKind::Anonymous);
-    let Some(index_bytes) = index_bytes(file, index_entry, &mut held)? else {
+    let Some(index_bytes) = section_bytes(file, index_entry, &mut held)? else {
         unchecked(report);
         return Ok(None);
     };
@@ -594,13 +598,40 @@ fn check_adjacency<S: ByteSource + Sync>(
             return Ok(None);
         }
     };
-    // This version's index refuses flag bit 1, so a parsed index never announces one.
-    if file.get(&events_name).is_some() {
-        report.problem(
-            Some(&events_name),
-            format!("an events section, but {index_name} does not announce one"),
-        );
-    }
+    // Index flag bit 1 is set exactly when the `.events` section exists (spec § 3, § 5).
+    let events = match (index.has_events(), file.get(&events_name)) {
+        (false, None) => None,
+        (false, Some(_)) => {
+            report.problem(
+                Some(&events_name),
+                format!("an events section, but {index_name} does not announce one"),
+            );
+            None
+        }
+        (true, None) => {
+            report.problem(
+                Some(&index_name),
+                format!("it announces an events section, and {events_name} is missing"),
+            );
+            None
+        }
+        (true, Some(entry)) => {
+            let Some(bytes) = section_bytes(file, entry, &mut held)? else {
+                unchecked(report);
+                return Ok(None);
+            };
+            match AdjacencyEvents::parse(&bytes, &index).and_then(|e| {
+                e.check()?;
+                Ok(e.events())
+            }) {
+                Ok(events) => Some(events),
+                Err(e) => {
+                    report.problem(Some(&events_name), e.to_string());
+                    None
+                }
+            }
+        }
+    };
     let data = Bytes::of(file, data_entry);
     if data.len != index.data_bytes() {
         let e = FormatError::Length {
@@ -660,6 +691,7 @@ fn check_adjacency<S: ByteSource + Sync>(
             name: base.to_owned(),
             nodes: index.nodes(),
             entries: index.entries(),
+            events,
         },
         scan,
     }))
