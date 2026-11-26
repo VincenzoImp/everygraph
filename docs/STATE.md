@@ -25,6 +25,8 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 
 **Agents running:** production Leiden (#57), Louvain collapse (#17), ordering bake-off (#23), layout baseline (#175), CLI (#98, moving to clap, will reuse `everygraph_ingest::native` from #229).
 
+**ADR 0017 amended (PR #234, #175 closed):** disc packing kept; stress solve per parent adopted for m5-01; claim narrowed (distance between large regions means little); re-decision trigger is now NP@10 per level, ground-truth 10-NN, Spearman and top-region edge length against DRGraph.
+
 **Merged after 07:45:** #219 page backend (part of #167), #218 components + k-core + degrees (#48/#50 open for official speed). **Next:** in-adjacency (#38) then SCC (m3-20); #229 out of draft after #218; m2-31 (#200) code-size half with per-crate targets (sweep 2: format 2,706 → 9,453, ingest 10,584 → 14,171, core 3,640 → 6,079 src lines); the second measurement window.
 
 **Decided by the coordinator tonight (records in DECISIONS, ADRs or issue files):** S1 lost-generation warning in `verify` (exit 0, `--strict` 5); dictionary dense form chosen from the data only, never the budget; `find_result` reads key and provenance only; MSRV 1.100 for a safe page backend; arrow-rs in the py crate with three deny exceptions; clap for the CLI; window splitting; merge order #220 before #218.
