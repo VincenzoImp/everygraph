@@ -64,7 +64,7 @@ use everygraph_core::rng::{Purpose, draw, unit_f64};
 use everygraph_core::{Memory, MemoryKind, Reservation, math, par};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
-    Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all, ids,
+    Error, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all, ids,
 };
 
 use crate::column::{Column, GRAIN};
