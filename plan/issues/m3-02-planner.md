@@ -24,10 +24,11 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 
 **Built by PR #249 (part of this issue)**: `everygraph_kernels::planner` and `run::execute`; the regime, the decode tier with its break-even, threads, advice per phase, overrides, refusals with the exact smallest budget over thread counts, the plan and error documents and `explain`; the machine probe in `everygraph-io`. Left:
 - The 10% criterion below: measured in {{#m3-22-performance-pass}}
-- The plan and the actual figures in result provenance (P-9): {{#m3-25-plan-in-provenance}}
-- Thrashing as a refusal: {{#m3-26-thrashing-refusal}}
-- The bandwidth probe, and the device under btrfs, ZFS and overlayfs: {{#m3-27-storage-probe}}
-- Allocations outside the budget, and tighter bounds for components and k-core: {{#m3-28-kernel-memory-bounds}}
+- The plan and the actual figures in result provenance (P-9): {{#m3-29-plan-in-provenance}}
+- Thrashing as a refusal: {{#m3-30-thrashing-refusal}}
+- The read-rate probe, and the device under btrfs, ZFS and overlayfs: {{#m3-31-storage-probe}}
+- `WillNeed` advice that warms what the plan says, and the measured device read rate in the cost model: {{#m3-25-memory-headroom}}
+- Allocations outside the budget, and tighter bounds for components and k-core: {{#m3-32-kernel-memory-bounds}}
 - The callers: the command line through `planner::plan` and `run::execute` ({{#m8-12-cli-rest}}), and Python ({{#m6-01-python-api}})
 - Streams ({{#m3-03-semi-external}}), the block cache ({{#m2-23-block-cache}}) and views ({{#m7-04-views}}) when they exist
 
