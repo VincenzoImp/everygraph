@@ -7,7 +7,8 @@ has `everygraph-io`'s example `container_sample` write a sample container (two
 commits: block 0 holds generation 1, block 1 generation 2), then makes files from it
 that exercise the reading rules of § 7, and for each requires the Python reader and the
 Rust reader (`container_sample list`) to report the same commit, the same fallback and
-the same sections (name, kind, codec, offset, length, hash, provenance):
+the same sections (name, kind, codec, offset, length, hash, provenance) and the same
+graph identity (§ 6):
 
 - the sample itself, whose hashes the Python reader must also verify;
 - the newest table damaged (its hash fails): both fall back to commit 1;
@@ -62,7 +63,7 @@ def compare(path, expect_generation, expect_recovered, what):
     """The two readers agree on `path`, and on what is expected."""
     rust = json.loads(run([*SAMPLE, "list", path]).stdout)
     python = json.loads(python_reader("list", path, "--json").stdout)
-    keys = ("generation", "recovered", "sections")
+    keys = ("generation", "recovered", "identity", "sections")
     same = all(rust.get(k) == python.get(k) for k in keys)
     expected = rust.get("generation") == expect_generation and rust.get("recovered") == expect_recovered
     if not (same and expected):

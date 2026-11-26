@@ -9,12 +9,12 @@
 //!   (the check script uses it on files it has patched), or `{"error": "…"}`.
 //!
 //! The listing is JSON on standard output: generation, version, whether the reader
-//! fell back to an older commit, and every section.
+//! fell back to an older commit, the graph identity, and every section.
 //!
 //! The sample has two commits: a small graph (a provenance record, the two sections of
-//! a compressed adjacency, an empty section, one of a kind no specification defines,
-//! and sections of 0 to 70,000 bytes, so that BLAKE3's tree has one and several
-//! chunks), then a result appended with its own record and one section removed — so
+//! a compressed adjacency, a property column with its layout and statistics, an empty
+//! section, one of a kind no specification defines, and sections of 0 to 70,000 bytes,
+//! so that BLAKE3's tree has one and several chunks), then a result appended with its own record and one section removed — so
 //! it also holds a replaced table of contents and bytes no commit refers to.
 //!
 //! ```sh
@@ -27,11 +27,13 @@
 #[path = "../tests/support/bytes.rs"]
 mod support;
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
 use everygraph_format::adjacency;
-use everygraph_format::container::{Container, Input, Kind, Provenance, Writer};
+use everygraph_format::columns::{ColumnSpec, ColumnType, write_column};
+use everygraph_format::container::{Container, Input, Kind, Provenance, ResultKey, Writer};
 use everygraph_io::{FileSink, FileSource, persist};
 use support::bytes;
 
@@ -89,6 +91,11 @@ fn write(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         ingest,
     )?;
     w.add_section("ids.header", Kind::ID_DICTIONARY, &bytes(1, 64), ingest)?;
+    // A property column: kind 7 enters the graph identity, its layout (kind 8) and
+    // statistics (kind 9) do not.
+    let degrees: Vec<u64> = (0..n).map(|v| u64::from(v % 3 + 2)).collect();
+    let spec = ColumnSpec::new("degree", ColumnType::UInt64, u64::from(n));
+    write_column(&mut w, "nodes", &spec, &degrees[..], ingest)?;
     w.add_section("empty", private, &[], None)?;
     w.add_section("x.chunk-boundary", private, &bytes(2, 1024), None)?;
     w.add_section("x.many-chunks", private, &bytes(3, 70_000), None)?;
@@ -99,13 +106,14 @@ fn write(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
     w.commit()?;
-    w.add_provenance("provenance/pagerank", &record("pagerank"))?;
-    w.add_section(
-        "results/pagerank",
-        private,
-        &bytes(5, 4000),
-        Some("provenance/pagerank"),
-    )?;
+    let key = ResultKey::new(w.graph_identity(), "pagerank", 1, true)?.with("damping", "0.85")?;
+    let ranks: Vec<f64> = (0..n).map(|v| f64::from(v + 1) / 500_500.0).collect();
+    let about = Provenance {
+        operation: String::new(),
+        parameters: BTreeMap::new(),
+        ..record("pagerank")
+    };
+    w.add_result(&key, &about, &ranks)?;
     w.remove("x.chunk-boundary")?;
     w.commit()?;
     drop(w);
@@ -124,11 +132,12 @@ fn list(path: &Path) -> String {
         Err(e) => return format!("{{\"error\": {e:?}}}\n"),
     };
     let mut out = format!(
-        "{{\"generation\": {}, \"version\": [{}, {}], \"recovered\": {}, \"sections\": [",
+        "{{\"generation\": {}, \"version\": [{}, {}], \"recovered\": {}, \"identity\": \"{}\", \"sections\": [",
         file.generation(),
         file.version().0,
         file.version().1,
         file.recovered_from().is_some(),
+        file.graph_identity(),
     );
     for (i, e) in file.entries().iter().enumerate() {
         let hash: String = e.hash.iter().map(|b| format!("{b:02x}")).collect();

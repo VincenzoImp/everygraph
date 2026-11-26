@@ -19,6 +19,8 @@ blake3 = { version = "1.8", default-features = false, features = ["std", "pure"]
 everygraph-core = { path = "../everygraph-core", default-features = false }
 
 [dev-dependencies]
+# The fault-injecting sink and source of the error-path sweeps (tests/faults.rs).
+everygraph-io = { path = "../everygraph-io", features = ["faults"] }
 everygraph-oracle = { path = "../everygraph-oracle" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 

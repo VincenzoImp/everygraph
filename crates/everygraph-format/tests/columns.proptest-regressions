@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b6391980bed34def3448af6585bffe52b160f2efde283fbcfe52234f786805d4 # shrinks to t = 8, rows = 14, r = 0, nullable = false, seed = 4334157035333551747, at = Index(0), flip = 1
+cc 5b6ab7097c3337185f9d6e4b89113435fdf31692090f17e52f7ffae1c3da4074 # shrinks to t = 8, rows = 28, r = 0, seed = 3490876606221044274, at = Index(0), flip = 1
+cc 65760bda836873807ab1a9c6cbd5feb172f296dfd0398126801f83594dc686ee # shrinks to t = 8, rows = 98, r = 0, nullable = true, split = false, seed = 6773660547705879353
+cc 11c5630d2a4626e4bd63d920db9194ecd2a7cac4c2f3bd022611ced7b5e8cdc0 # shrinks to t = 16, rows = 1, r = 0, nullable = false, seed = 9148743384180625974, at = Index(0), flip = 1
+cc 5348d935b360eb0aea83f307a30b006e77d20aa0ef29e44f97dc3d0d92820ab1 # shrinks to t = 16, rows = 1, r = 0, seed = 4432374486644137159, at = Index(0), flip = 1
+cc 435780f8ee463e92e1854254b4501e5e750875329689707ae497cbab75a30d4d # shrinks to t = 0, rows = 1, r = 2, seed = 0, at = Index(3458764513820540928), flip = 5

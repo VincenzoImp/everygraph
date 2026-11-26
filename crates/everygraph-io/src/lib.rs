@@ -30,14 +30,20 @@
 //! cache) and may take [`AccessHint::WillNeed`] as the signal to prefetch; an
 //! `io_uring` source does the same with a submission queue. Both are planned, not built.
 //!
+//! **Tests:** with the feature `faults`, `faults::Faulty` wraps any source or sink and
+//! fails its k-th operation (`ENOSPC`, `EIO`, a short read).
+//!
 //! **Memory:** [`ProcMemoryProbe`], the Linux implementation of
 //! `everygraph_core::MemoryProbe`: physical memory and the limits of the process's
 //! control group.
 //!
 //! Every `unsafe` block of the crate is in one private module (`sys`): the memory map
 //! and three calls into the C library. The map is safe to offer under the invariant
-//! stated on [`MmapSource`], which the sinks enforce within the process.
+//! stated on [`MmapSource`], which the sinks enforce within the process; a graph file
+//! is mapped by range, which commits by any process leave alone.
 
+#[cfg(feature = "faults")]
+pub mod faults;
 pub mod sink;
 
 mod claim;

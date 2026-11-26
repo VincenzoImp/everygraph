@@ -26,6 +26,8 @@ ADJUSTMENTS = {
     "igraph.modularity": "NaN (no edges) mapped to 0 (row 'modularity, no edges')",
     "networkx.pagerank.loops": "an undirected kept loop is given weight 2w (2 unweighted), so that A[v][v] = 2w as in igraph and docs/spec/graph-semantics.md S1; NetworkX puts w on the diagonal (row 'PageRank, undirected, loops kept')",
     "core_number.loops": "loops removed before core numbers: igraph counts them (a lone looped node is a 2-core), NetworkX refuses them; S2 ignores them (row 'core numbers, loops kept')",
+    "networkx.eigenvector_centrality_numpy": "an undirected kept loop is given weight 2w, as for PageRank, so that A[v][v] = 2w; listed only on graphs with at least 3 nodes, where its sparse solver runs",
+    "igraph.eigenvector_centrality": "igraph scales the largest value to 1; rescaled here to unit L2 norm, NetworkX's and Everygraph's normalization",
     "networkx.pagerank": "tol = 1e-14 / n, so that NetworkX's stopping rule (L1 change < n * tol) means L1 change < 1e-14 whatever n; retried with 1e-12 / n and 1e-10 / n if rounding noise prevents convergence; max_iter = 20000",
 }
 
@@ -56,7 +58,7 @@ def _dist_reals(row) -> list:
     return [None if math.isinf(x) else float(x) for x in row]
 
 
-def _nx_pagerank(G, damping, weight):
+def _nx_pagerank(G, damping, weight, personalization=None):
     """NetworkX PageRank as close to the fixed point as its stopping rule allows.
 
     NetworkX stops when the L1 change between iterates is below n * tol, so tol is scaled
@@ -70,12 +72,21 @@ def _nx_pagerank(G, damping, weight):
         return []
     for bound in (1e-14, 1e-12, 1e-10):
         try:
-            pr = nx.pagerank(G, alpha=damping, max_iter=20000, tol=bound / n, weight=weight)
+            pr = nx.pagerank(G, alpha=damping, max_iter=20000, tol=bound / n, weight=weight, personalization=personalization)
             LAST_NX_TOL["tol"] = bound / n
             return [pr[v] for v in range(n)]
         except nx.PowerIterationFailedConvergence:
             continue
     raise nx.PowerIterationFailedConvergence(20000)
+
+
+def _loops_doubled(p: Projection, weighted: bool):
+    """The NetworkX graph with each pair's weight in "pr", an undirected loop's doubled."""
+    G = to_networkx(p, loops=True)
+    for u, v, a in G.edges(data=True):
+        w = a["wsum"] if weighted else 1.0
+        a["pr"] = 2.0 * w if u == v and not p.directed else w
+    return G
 
 
 def _triangles_scipy(p: Projection) -> list[int]:
@@ -143,17 +154,33 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
 
     if k == "pagerank":
         d, weighted = kernel["damping"], kernel["weighted"]
-        G = to_networkx(p, loops=True)
-        for u, v, a in G.edges(data=True):
-            w = a["wsum"] if weighted else 1.0
-            a["pr"] = 2.0 * w if u == v and not p.directed else w
-        out["networkx"] = {"reals": _nx_pagerank(G, d, "pr")}
+        seeds = sorted(set(kernel.get("personalize", [])))
+        G = _loops_doubled(p, weighted)
+        # Dangling mass follows the personalization vector in both libraries (S1).
+        personalization = {s: 1.0 for s in seeds} if seeds else None
+        out["networkx"] = {"reals": _nx_pagerank(G, d, "pr", personalization)}
         H = to_igraph(p, loops=True)  # igraph doubles an undirected loop itself
-        if n:
-            pr = H.pagerank(damping=d, directed=p.directed, weights="wsum" if weighted else None, implementation="prpack")
-        else:
+        weights = "wsum" if weighted else None
+        if not n:
             pr = []
+        elif seeds:
+            pr = H.personalized_pagerank(damping=d, directed=p.directed, weights=weights, reset_vertices=seeds, implementation="prpack")
+        else:
+            pr = H.pagerank(damping=d, directed=p.directed, weights=weights, implementation="prpack")
         out["igraph"] = {"reals": list(pr)}
+        return out
+
+    if k == "eigenvector":
+        weighted = kernel["weighted"]
+        G = _loops_doubled(p, weighted)
+        x = nx.eigenvector_centrality_numpy(G, weight="pr", max_iter=100000)
+        out["networkx"] = {"reals": [float(x[v]) for v in range(n)]}
+        H = to_igraph(p, loops=True)
+        # directed=False is refused on an undirected graph (python-igraph 1.0.0).
+        mode = {"directed": True} if p.directed else {}
+        y = H.eigenvector_centrality(weights="wsum" if weighted else None, **mode)
+        norm = math.sqrt(sum(a * a for a in y))
+        out["igraph"] = {"reals": [a / norm for a in y]}
         return out
 
     if k in ("wcc", "scc"):

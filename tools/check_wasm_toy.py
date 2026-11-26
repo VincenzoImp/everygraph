@@ -4,7 +4,7 @@
 
 tools/wasm-toy computes the degree of every node of a generated graph through the
 public pieces of everygraph-core (`ByteSource`, `NodeId`, `par::map_ranges`), and runs
-the edge-map framework's proof kernels (PageRank, WCC, BFS; everygraph-kernels, #44)
+kernels of the edge-map framework (PageRank, the proof WCC, BFS; everygraph-kernels)
 on the same graph over the raw and the compressed source, and hashes the results. This
 script
 

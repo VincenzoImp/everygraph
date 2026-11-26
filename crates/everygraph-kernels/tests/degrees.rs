@@ -49,7 +49,7 @@ fn run(lists: &(Vec<u64>, Vec<u32>, Vec<f64>), own: Loop, threads: usize) -> (Ve
             },
             |plan| {
                 let d = degrees(&plan, &memory, own).unwrap();
-                let s = strengths(&plan, &memory, &lists.2, own).unwrap();
+                let s = strengths(&plan, &memory, Some(&lists.2), own).unwrap();
                 (d.iter().copied().collect(), s.iter().copied().collect())
             },
         )

@@ -25,6 +25,12 @@
 //! state, and a torn header block fails its hash and is ignored. [`compact`] copies the
 //! live sections into a new container to reclaim what was replaced or abandoned.
 //!
+//! **Results** (spec § 6) are sections of typed values whose provenance record holds a
+//! [`ResultKey`]: the [`GraphIdentity`] of the graph they were computed on, the
+//! operation and its version, determinism, and the parameters.
+//! [`Writer::add_result`] appends one (replacing one under the same key);
+//! [`Container::find_result`] serves it only for that key on that graph.
+//!
 //! ```
 //! use everygraph_core::MemorySource;
 //! use everygraph_format::container::{Container, Kind, Provenance, Writer};
@@ -44,9 +50,10 @@
 //! The crate never opens files: a native file is an `everygraph_io::FileSink` (writing)
 //! or any `ByteSource` of `everygraph-io` (reading).
 
-mod layout;
+pub(crate) mod layout;
 mod provenance;
-mod read;
+pub(crate) mod read;
+mod result;
 mod write;
 
 use std::error::Error;
@@ -58,6 +65,7 @@ use everygraph_core::{ReadError, WriteError};
 pub use layout::{MAJOR, MINOR};
 pub use provenance::{Input, Provenance};
 pub use read::{Container, Section};
+pub use result::{GraphIdentity, ResultKey, StoredResult, Value, ValueType};
 pub use write::{SectionWriter, Writer, compact};
 
 /// Sections, the TOC and the header blocks start at multiples of this.
@@ -104,6 +112,15 @@ impl Kind {
     /// The segment manifest of a segmented file (`segments`, spec § 13). Reserved:
     /// version 1.0 neither writes nor reads segments.
     pub const SEGMENTS: Self = Self(6);
+    /// A property column: a complete Arrow IPC file (`docs/spec/eg-columns.md` § 3).
+    pub const COLUMN: Self = Self(7);
+    /// Where the buffers of a property column lie (`docs/spec/eg-columns.md` § 4).
+    pub const COLUMN_LAYOUT: Self = Self(8);
+    /// The statistics of a numeric property column (`docs/spec/eg-columns.md` § 5).
+    pub const COLUMN_STATS: Self = Self(9);
+    /// A result kept in the graph file: typed values, with a provenance record that
+    /// holds its key (spec § 6, "Results"), written by [`Writer::add_result`].
+    pub const RESULT: Self = Self(10);
     /// The first of the kinds reserved for private and experimental use, which no
     /// specification will ever assign.
     pub const PRIVATE: Self = Self(0x8000_0000);
@@ -123,7 +140,14 @@ impl Kind {
     /// Whether this version of the specification defines the kind.
     #[must_use]
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 1..=6)
+        matches!(self.0, 1..=10)
+    }
+
+    /// Whether sections of this kind define the graph, and so enter its identity
+    /// ([`GraphIdentity`], spec § 6).
+    #[must_use]
+    pub const fn defines_graph(self) -> bool {
+        matches!(self.0, 2..=5 | 7)
     }
 }
 
@@ -246,6 +270,9 @@ pub enum ContainerError {
     },
     /// A provenance record that cannot be encoded or decoded.
     InvalidProvenance(&'static str),
+    /// A result section that breaks its layout, or a result that cannot be stored or
+    /// read as asked (spec § 6, "Results").
+    InvalidResult(&'static str),
     /// The table of contents or a record would exceed its limit.
     TooLarge(&'static str),
     /// An earlier write failed: this writer does nothing more.
@@ -319,6 +346,7 @@ impl fmt::Display for ContainerError {
                 "provenance record {name:?} cannot be removed: section {by:?} refers to it"
             ),
             Self::InvalidProvenance(what) => write!(f, "invalid provenance record: {what}"),
+            Self::InvalidResult(what) => write!(f, "invalid result: {what}"),
             Self::TooLarge(what) => write!(f, "too large: {what}"),
             Self::Poisoned => write!(
                 f,
@@ -363,6 +391,51 @@ impl From<ReadError> for ContainerError {
 impl From<WriteError> for ContainerError {
     fn from(e: WriteError) -> Self {
         Self::Write(e)
+    }
+}
+
+/// Entry points for the fuzz targets (`crates/everygraph-format/fuzz`), built only by
+/// `cargo fuzz`, which sets `cfg(fuzzing)`: the decoders of the table of contents and of
+/// provenance records, without the hashes that keep a fuzzer's bytes from reaching them.
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzzing {
+    use super::{ContainerError, Entry, Provenance};
+
+    /// Decodes a table of contents that starts at `toc_offset`.
+    ///
+    /// # Errors
+    ///
+    /// As `Container::open` for a table that breaks the specification.
+    pub fn decode_toc(bytes: &[u8], toc_offset: u64) -> Result<Vec<Entry>, ContainerError> {
+        super::layout::decode_toc(bytes, toc_offset)
+    }
+
+    /// Encodes entries that [`decode_toc`] returned.
+    ///
+    /// # Errors
+    ///
+    /// A table that would exceed 16 MiB.
+    pub fn encode_toc(entries: &[Entry]) -> Result<Vec<u8>, ContainerError> {
+        super::layout::encode_toc(entries.iter())
+    }
+
+    /// Decodes a provenance record.
+    ///
+    /// # Errors
+    ///
+    /// As `Container::read_provenance` for a record that cannot be decoded.
+    pub fn decode_provenance(bytes: &[u8]) -> Result<Provenance, ContainerError> {
+        Provenance::decode(bytes)
+    }
+
+    /// Encodes a provenance record.
+    ///
+    /// # Errors
+    ///
+    /// As `Writer::add_provenance` for a record that cannot be encoded.
+    pub fn encode_provenance(record: &Provenance) -> Result<Vec<u8>, ContainerError> {
+        record.encode()
     }
 }
 

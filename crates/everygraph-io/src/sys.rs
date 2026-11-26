@@ -4,9 +4,9 @@
 //! crate.
 //!
 //! Why safe code is not enough: std has no memory maps, no way to preallocate a file,
-//! no `posix_fadvise` and no `F_NOCACHE`. Each `unsafe` block below is one call into the
-//! C library (or memmap2's `Mmap::map`, which is one `mmap`). None of them passes a
-//! pointer: their arguments are a file descriptor this module borrows from a live
+//! no `posix_fadvise` and no `F_NOCACHE`. Each `unsafe` block below is one call into
+//! the C library (or memmap2's `MmapOptions::map`, which is one `mmap`). None of them
+//! passes a pointer: their arguments are a file descriptor this module borrows from a live
 //! `File`, and integers. Miri cannot run foreign calls, so these blocks are reached by
 //! the crate's tests natively (`tests/conformance.rs`), not under Miri.
 //!
@@ -231,20 +231,132 @@ pub(crate) fn fadvise(file: &File, range: Range<u64>, hint: AccessHint) {
     }
 }
 
-/// Maps all of `file` read-only.
+/// Maps `len` bytes of `file` from `offset`, read-only. memmap2 maps from the page
+/// boundary at or below `offset` and hands out exactly the bytes asked for.
 ///
 /// Sound only under the invariant of `design/DECISIONS.md`, "Memory-mapped files are read
 /// through a safe constructor", which `MmapSource` documents: no writer, in this process
-/// or any other, modifies or truncates the file while it is mapped.
-pub(crate) fn map(file: &File) -> io::Result<Mmap> {
-    // SAFETY: `Mmap::map` is sound while nothing modifies or truncates the file for the
-    // life of the map: the bytes are handed out as `&[u8]`, and a write by anyone (this
-    // process included) would change them under that borrow, a truncation would make
-    // reading them raise SIGBUS. That is not enforced against other processes or against
-    // `std::fs` writes in this one; it is the invariant accepted by the decision above.
-    // Inside the process the sinks of this crate refuse to write a mapped file (`claim`),
-    // and the caller (`MmapSource::from_file`) holds that claim before calling this.
-    unsafe { Mmap::map(file) }
+/// or any other, modifies the mapped bytes or truncates the file into them while they
+/// are mapped.
+pub(crate) fn map(file: &File, offset: u64, len: usize) -> io::Result<Mmap> {
+    let mut options = memmap2::MmapOptions::new();
+    options.offset(offset).len(len);
+    // SAFETY: `map` is sound while nothing modifies the mapped bytes or truncates the
+    // file into them for the life of the map: the bytes are handed out as `&[u8]`, and a
+    // write by anyone (this process included) would change them under that borrow, a
+    // truncation would make reading them raise SIGBUS. That is not enforced against
+    // other processes or against `std::fs` writes in this one; it is the invariant
+    // accepted by the decision above. Inside the process the sinks of this crate refuse
+    // to write a mapped range (`claim`). The caller (`MmapSource`) holds that claim
+    // before calling this, and read the file's length and checked the range under the
+    // claim's lock, so that `offset + len` is inside the file and no sink of this
+    // process can shorten the file into the range from then on.
+    unsafe { options.map(file) }
+}
+
+/// Takes the exclusive, advisory lock of `file` without waiting (`File::try_lock`, which
+/// is `flock(LOCK_EX | LOCK_NB)` on Unix). The lock belongs to the open file and ends
+/// when it is closed, or when the process dies. `Ok(false)` when another open file holds
+/// it. Not on Windows: there `File::try_lock` is `LockFileEx`, a mandatory lock under
+/// which other processes cannot even read the file, so Windows locks through the share
+/// mode instead ([`lock_options`]).
+pub(crate) fn try_lock(file: &File) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        match file.try_lock() {
+            Ok(()) => Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+            // A Unix that std has no lock for (Solaris, Haiku): none of the release's
+            // platforms (D14). Only the in-process guard then keeps writers apart.
+            Err(std::fs::TryLockError::Error(e)) if e.kind() == io::ErrorKind::Unsupported => {
+                Ok(true)
+            }
+            Err(std::fs::TryLockError::Error(e)) => Err(e),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = file;
+        Ok(true)
+    }
+}
+
+/// On Windows, opens for writing so that no other handle may write the file while this
+/// one is open: the share mode leaves out `FILE_SHARE_WRITE`. A second writer's open
+/// then fails with a sharing violation ([`is_sharing_violation`]).
+pub(crate) fn lock_options(options: &mut OpenOptions) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ | FILE_SHARE_DELETE (winnt.h).
+        options.share_mode(0x1 | 0x4);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = options;
+    }
+}
+
+/// Whether `error` is Windows' `ERROR_SHARING_VIOLATION` (32), what an open refused by
+/// [`lock_options`] returns.
+pub(crate) fn is_sharing_violation(error: &io::Error) -> bool {
+    cfg!(windows) && error.raw_os_error() == Some(32)
+}
+
+/// Whether `file` is still the file at `path`, by device and inode; always true where
+/// there is no inode (Windows).
+pub(crate) fn same_file(file: &File, path: &Path) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (held, named) = (file.metadata()?, std::fs::metadata(path)?);
+        Ok((held.dev(), held.ino()) == (named.dev(), named.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (file, path);
+        Ok(true)
+    }
+}
+
+/// Whether `error` is Windows' `ERROR_USER_MAPPED_FILE` (1224): a file that a process
+/// maps cannot be shortened.
+pub(crate) fn is_user_mapped(error: &io::Error) -> bool {
+    cfg!(windows) && error.raw_os_error() == Some(1224)
+}
+
+/// The process that holds the `flock` of `file`, where the system tells: Linux lists
+/// every lock in `/proc/locks` with its process and its device and inode. `None`
+/// elsewhere, or when it is not found: `/proc/locks` writes the device of the file
+/// system's superblock, which on btrfs and overlayfs is not the file's `st_dev`.
+pub(crate) fn lock_holder(file: &File) -> Option<u32> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = file.metadata().ok()?;
+        // `/proc/locks` writes the device as major:minor in hexadecimal, then the inode.
+        let id = format!(
+            "{:02x}:{:02x}:{}",
+            libc::major(meta.dev()),
+            libc::minor(meta.dev()),
+            meta.ino()
+        );
+        let locks = std::fs::read_to_string("/proc/locks").ok()?;
+        locks.lines().find_map(|line| {
+            // `N: FLOCK ADVISORY WRITE PID DEVICE:INODE START END`; a waiter has `->`
+            // after `N:`.
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            match fields[..] {
+                [_, "FLOCK", _, _, pid, at, ..] if at == id => pid.parse().ok(),
+                _ => None,
+            }
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = file;
+        None
+    }
 }
 
 /// Creates a new, empty file in `dir`, open for reading and writing, that the operating

@@ -202,6 +202,10 @@ pub struct Opts {
     trace_io: bool,
     /// out of core with --out-hier: the quotient store of every level is kept here
     hier_dir: Option<String>,
+    /// m1-05 (#19): per-node resolution multiplier of level 0 (empty = 1 everywhere), carried to
+    /// every supervertex by aggregation. Constant on each connected component, it turns one run
+    /// on a disjoint union of subgraphs into independent runs with their own null models.
+    gmul: Vec<f64>,
 }
 
 #[derive(Clone, Default)]
@@ -220,6 +224,9 @@ pub struct PassStat {
     acct_used: u64,
     anon_kb: u64,
     io_lm_read: u64,
+    /// issue #172: the same span from this process's /proc/self/io read_bytes (block-layer
+    /// reads it caused, page-fault reads of the mapped store included; not machine-wide)
+    io_lm_read_self: u64,
     io_agg_read: u64,
     io_agg_write: u64,
 }
@@ -238,6 +245,7 @@ struct Cx<'a> {
     tie_hash: bool,
     want: &'a [AtomicU32],
     indep: bool,
+    gm: &'a [f64],
 }
 
 #[inline(always)]
@@ -306,7 +314,7 @@ fn decide(cx: &Cx, u: usize, tab: &mut Tab) -> Option<(u32, u32, f64)> {
         }
     });
     let ku = cx.k[u];
-    let f = cx.gamma * ku * cx.minv;
+    let f = cx.gamma * gmul_of(cx.gm, u) * ku * cx.minv;
     let mut kuc = 0.0;
     let mut best = NONE;
     let mut bestval = f64::NEG_INFINITY;
@@ -338,6 +346,15 @@ fn decide(cx: &Cx, u: usize, tab: &mut Tab) -> Option<(u32, u32, f64)> {
         Some((c, best, 2.0 * (bestval - stay) * cx.minv))
     } else {
         None
+    }
+}
+
+#[inline(always)]
+fn gmul_of(gm: &[f64], u: usize) -> f64 {
+    if gm.is_empty() {
+        1.0
+    } else {
+        gm[u]
     }
 }
 
@@ -441,7 +458,11 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
             par_for(pool, ord.nb, ord.chunk(o.chunk), |tid, r| {
                 let mut guard = tls[tid].lock().unwrap();
                 let t = &mut *guard;
-                for u in r.flat_map(|j| ord.block(j)) {
+                for u in r.flat_map(|j| {
+                    let b = ord.block(j);
+                    cx.g.prefetch_nodes(&b);
+                    b
+                }) {
                     if cx.flag[u].load(Relaxed) == 0 {
                         continue;
                     }
@@ -624,10 +645,23 @@ fn refine(
     tls: &[Mutex<Tls>],
     o: &Opts,
     sub_rounds: usize,
+    gm: &[f64],
+    rsize: &[AtomicU32],
+    cap: u32,
 ) {
     let n = g.n;
     let ord = Order::new(n, o);
     let lb = sub_rounds.max(1).trailing_zeros();
+    // m1-05 (#19): the fan-out cap also bounds the refined communities. Without it, a later
+    // iteration (whose bound is the previous flat partition) refines into uncapped communities
+    // and the hierarchy's lower levels lose the cap (lj, cap 64, 2 iterations: 28,847 children).
+    if cap > 0 {
+        par_for(pool, n, 8192, |_, r| {
+            for u in r {
+                rsize[u].store(1, Relaxed)
+            }
+        });
+    }
     let pick = |u: usize, tab: &mut Tab| -> Option<u32> {
         let ku = k[u];
         if rcomm[u].load(Relaxed) != u as u32 || fload(&rsigma[u]) != ku {
@@ -646,12 +680,15 @@ fn refine(
                 tab.add(rcomm[v as usize].load(Relaxed), w)
             }
         });
-        let f = o.gamma * ku * minv;
+        let f = o.gamma * gmul_of(gm, u) * ku * minv;
         let mut best = NONE;
         let mut bestval = 0.0;
         for &s in &tab.used {
             let d = tab.keys[s as usize];
             if d == uu {
+                continue;
+            }
+            if cap > 0 && rsize[d as usize].load(Relaxed) >= cap {
                 continue;
             }
             let val = tab.vals[s as usize] - f * fload(&rsigma[d as usize]);
@@ -675,13 +712,25 @@ fn refine(
                 for u in r.flat_map(|j| ord.block(j)) {
                     if let Some(d) = pick(u, &mut t.tab) {
                         let ku = k[u];
+                        if cap > 0 {
+                            if rsize[d as usize].fetch_add(1, Relaxed) >= cap {
+                                rsize[d as usize].fetch_sub(1, Relaxed);
+                                continue;
+                            }
+                        }
                         if rsigma[u].compare_exchange(ku.to_bits(), 0f64.to_bits(), Relaxed, Relaxed).is_err() {
+                            if cap > 0 {
+                                rsize[d as usize].fetch_sub(1, Relaxed);
+                            }
                             continue;
                         }
                         let old = fadd(&rsigma[d as usize], ku);
                         if old == 0.0 {
                             fadd(&rsigma[d as usize], -ku);
                             fadd(&rsigma[u], ku);
+                            if cap > 0 {
+                                rsize[d as usize].fetch_sub(1, Relaxed);
+                            }
                         } else {
                             rcomm[u].store(d, Relaxed);
                         }
@@ -719,6 +768,11 @@ fn refine(
                         for &(u, d, _) in &t.moves {
                             if prop[d as usize].load(Relaxed) == NONE {
                                 let ku = k[u as usize];
+                                if cap > 0 {
+                                    // decided against the frozen sizes of the sub-round: as in local
+                                    // moving, concurrent joins of one sub-round may pass the cap
+                                    rsize[d as usize].fetch_add(1, Relaxed);
+                                }
                                 rcomm[u as usize].store(d, Relaxed);
                                 fadd(&rsigma[d as usize], ku);
                                 fadd(&rsigma[u as usize], -ku);
@@ -995,6 +1049,9 @@ fn diskstats() -> (u64, u64) {
     }
     (r, w)
 }
+/// m1-15: `--advise random-lm`: MADV_RANDOM on the level-0 map for local moving and
+/// refinement, back to MADV_NORMAL for the aggregation scan.
+static PHASE_ADVICE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn io_read_bytes() -> u64 {
     diskstats().0
 }
@@ -1096,11 +1153,15 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
     let mut split_extra = 0usize;
     let mut iter = 0;
     let mut cur_cap;
+    // m1-05: per-vertex resolution multiplier of the current level
+    let _r_gm = if o.gmul.is_empty() { None } else { Some(res("m1-05: resolution multipliers (level 0 and current level)", 2 * sz::<f64>(n0))) };
+    let mut gm_cur: Vec<f64> = Vec::new();
     // m1-02: reservations that live with `levels` and with `cur_owned`
     let mut levels_res: Vec<Res> = Vec::new();
     let mut cur_res: Vec<Res> = Vec::new();
     loop {
     cur_cap = o.cap;
+    gm_cur.clone_from(&o.gmul);
     owned.clear();
     levels.clear();
     levels_res.clear();
@@ -1117,6 +1178,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         r_tmp = None;
         r_tmp = Some(res("leiden state: sigma, flag, rsigma of the level", tmp_per_node * n as u64));
         let io_p0 = io_read_bytes();
+        let io_p0_self = proc_io("read_bytes:");
         let t0 = Instant::now();
         // init
         match &next_bound {
@@ -1152,7 +1214,7 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
                 });
             }
         }
-        let cx = Cx { g, k: kk, comm: &comm[..n], sigma: &sigma[..n], size, flag: &flag[..n], minv, gamma: o.gamma, cap: cur_cap, det: o.det, tie_hash: o.tie_hash, want: prop, indep: o.indep };
+        let cx = Cx { g, k: kk, comm: &comm[..n], sigma: &sigma[..n], size, flag: &flag[..n], minv, gamma: o.gamma, cap: cur_cap, det: o.det, tie_hash: o.tie_hash, want: prop, indep: o.indep, gm: &gm_cur };
         let sub = if o.sub_rounds > 0 {
             o.sub_rounds
         } else {
@@ -1177,13 +1239,24 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
                     rsigma[u].store(kk[u].to_bits(), Relaxed);
                 }
             });
-            refine(g, kk, &comm[..n], &rcomm[..n], &rsigma[..n], prop, minv, pool, &tls, o, sub);
+            // m1-05: `size` is not read again before the next level's init; refinement borrows it
+            refine(g, kk, &comm[..n], &rcomm[..n], &rsigma[..n], prop, minv, pool, &tls, o, sub, &gm_cur, if cur_cap > 0 { &size[..n] } else { &size[..0] }, cur_cap);
             &rcomm[..n]
         } else {
             &comm[..n]
         };
         st.t_ref = t1.elapsed().as_secs_f64();
         st.io_lm_read = io_read_bytes() - io_p0;
+        st.io_lm_read_self = proc_io("read_bytes:") - io_p0_self;
+        if let Some(c) = g.comp() {
+            // m1-15: the random-access phases of the level are over; aggregation scans
+            if let Some(bc) = &c.cache {
+                bc.release();
+            }
+            if PHASE_ADVICE.load(Relaxed) {
+                c.advise(memmap2::Advice::Normal);
+            }
+        }
         if o.ooc {
             for t in tls.iter() {
                 t.lock().unwrap().tab = Tab::new(); // the aggregation's own tables come next
@@ -1213,7 +1286,14 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
         });
         let c_new = par_sum_u(pool, n, |u| flag[u].load(Relaxed) as u64) as usize;
         st.comms = c_new;
-        let converged = (moves == 0 && !(iter > 0 && pass == 0)) || pass + 1 == o.max_passes || (cur_cap == 0 && (c_new as f64) > o.agg_tol * (n as f64));
+        // m1-05 (#19): vertices of strength 0 (isolated) are singleton communities forever; they
+        // are left out of the shrinkage test, else a graph with many of them stops aggregating
+        // early (lj with 1% of its edges dropped, 7,799 isolated nodes: 6 passes instead of 7,
+        // 1,760 other communities instead of 1,688, Q 0.7450 instead of 0.7477, and 82 instead
+        // of 49 communities to cover 90% of the nodes; lab/m1-05-hierarchy-shaping/results/
+        // stopfix.jsonl). A graph without isolated vertices is unchanged.
+        let iso = par_sum_u(pool, n, |u| (kk[u] == 0.0) as u64) as usize;
+        let converged = (moves == 0 && !(iter > 0 && pass == 0)) || pass + 1 == o.max_passes || (cur_cap == 0 && ((c_new - iso) as f64) > o.agg_tol * ((n - iso) as f64));
         if o.verbose {
             eprintln!(
                 "pass {} n {} entries {} iters {} moves {} -> {} comms  lm {:.3}s ref {:.3}s",
@@ -1296,6 +1376,14 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             check_agg_equal(g, kk, lab, pool, &tls, o, &gq, &kq, &dm);
         }
         levels_res.push(agg_res.pop().unwrap()); // dmap lives in `levels`
+        if !gm_cur.is_empty() {
+            // m1-05: a supervertex inherits the multiplier of its members (all in one component)
+            let mut nx = vec![0f64; gq.n];
+            for u in 0..n {
+                nx[dm[u] as usize] = gm_cur[u];
+            }
+            gm_cur = nx;
+        }
         sample_anon();
         next_bound = None;
         if o.leiden {
@@ -1717,7 +1805,7 @@ pub fn main_leiden(args: Vec<String>) {
     let mem = get("--mem").unwrap_or_else(|| "mmap".into());
     let t_load = Instant::now();
     // raw + mmap is the lab loader (lab/b2-leiden); the other combinations are new in this experiment
-    let g0 = pool.install(|| match (config.as_str(), mem.as_str()) {
+    let mut g0 = pool.install(|| match (config.as_str(), mem.as_str()) {
         ("raw", "mmap") => Graph::load(&gdir, !has("--no-populate")),
         ("raw", "heap") => Graph::from_raw(crate::adj::Raw::load(std::path::Path::new(&gdir), crate::adj::Mem::Heap).expect("load raw")),
         ("comp", m) => Graph::from_comp(crate::store::Comp::open(std::path::Path::new(&get("--store").expect("--store DIR")), crate::adj::Mem::parse(m)).expect("open store")),
@@ -1728,12 +1816,25 @@ pub fn main_leiden(args: Vec<String>) {
         (c, m) => panic!("bad --config {c} / --mem {m}"),
     });
     let load_s = t_load.elapsed().as_secs_f64();
+    // m1-15: --cache-gb G reads level-0 records through a budgeted block cache
+    // (frames of --cache-frame-kb, default 16; O_DIRECT unless --cache-buffered; one
+    // coalesced read per block of local moving with --cache-prefetch)
+    if let Some(gb) = get("--cache-gb") {
+        let frame = get("--cache-frame-kb").map(|s| s.parse::<usize>().expect("--cache-frame-kb")).unwrap_or(16) << 10;
+        let bytes = (gb.parse::<f64>().expect("--cache-gb") * (1u64 << 30) as f64) as u64;
+        let path = std::path::Path::new(&get("--store").expect("--cache-gb needs --store")).join("adj.bin");
+        let c = g0.comp_mut().expect("--cache-gb needs --config comp");
+        c.cache = Some(crate::bcache::BlockCache::open(&path, bytes, frame, !has("--cache-buffered"), has("--cache-prefetch")).expect("block cache"));
+    }
     // m1-02: the level-0 graph in the accountant (anonymous if read into the heap, else file-backed)
     let _r_g0: Vec<Res> = match g0.comp() {
         Some(c) => {
             if let Some(a) = get("--advise") {
+                if a == "random-lm" {
+                    PHASE_ADVICE.store(true, Relaxed);
+                }
                 c.advise(match a.as_str() {
-                    "random" => memmap2::Advice::Random,
+                    "random" | "random-lm" => memmap2::Advice::Random,
                     "sequential" => memmap2::Advice::Sequential,
                     "normal" => memmap2::Advice::Normal,
                     x => panic!("bad --advise {x}"),
@@ -1805,7 +1906,9 @@ pub fn main_leiden(args: Vec<String>) {
         order_window: get("--order-window").map(|s| s.parse().unwrap()).unwrap_or(0),
         trace_io: has("--trace-io"),
         hier_dir: if ooc { get("--out-hier").map(|d| format!("{}.quot.{}", d.trim_end_matches('/'), std::process::id())) } else { None },
+        gmul: get("--gmul").map(|p| read_vec::<f64>(&p)).unwrap_or_default(),
     };
+    assert!(o.gmul.is_empty() || o.gmul.len() == g0.n, "--gmul: one f64 per node");
     BUCKET_SHIFT.store(get("--bucket-shift").map(|s| s.parse().unwrap()).unwrap_or(4), Relaxed);
     let repeat: usize = get("--repeat").map(|s| s.parse().unwrap()).unwrap_or(1);
     let mut times = Vec::new();
@@ -1847,7 +1950,7 @@ pub fn main_leiden(args: Vec<String>) {
         .iter()
         .map(|s| {
             format!(
-                "{{\"n\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2},\"seq_agg\":{},\"acct_used_bytes\":{},\"anon_kb\":{},\"lm_ref_read_bytes\":{},\"agg_read_bytes\":{},\"agg_write_bytes\":{}}}",
+                "{{\"n\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2},\"seq_agg\":{},\"acct_used_bytes\":{},\"anon_kb\":{},\"lm_ref_read_bytes\":{},\"lm_ref_read_self_bytes\":{},\"agg_read_bytes\":{},\"agg_write_bytes\":{}}}",
                 s.n,
                 s.entries,
                 s.iters,
@@ -1861,6 +1964,7 @@ pub fn main_leiden(args: Vec<String>) {
                 s.acct_used,
                 s.anon_kb,
                 s.io_lm_read,
+                s.io_lm_read_self,
                 s.io_agg_read,
                 s.io_agg_write
             )
@@ -1962,7 +2066,10 @@ pub fn main_leiden(args: Vec<String>) {
         h & ((1u64 << 53) - 1)
     );
     // m1-02: valid JSON for the harness (the lab printed NaN for values not computed)
-    let json = json.replace(":NaN", ":null").replace(":inf", ":null");
+    let mut json = json.replace(":NaN", ":null").replace(":inf", ":null");
+    if let Some(bc) = g0.comp().and_then(|c| c.cache.as_ref()) {
+        json = format!("{},\"block_cache\":{}}}", &json[..json.len() - 1], bc.report());
+    }
     println!("{}", json);
     if let Some(p) = get("--json") {
         use std::io::Write;
@@ -2025,6 +2132,7 @@ mod tests {
             order_window: 0,
             trace_io: false,
             hier_dir: None,
+            gmul: Vec::new(),
         }
     }
 

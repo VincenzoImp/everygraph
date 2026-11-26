@@ -17,11 +17,13 @@ mod support;
 use std::fs;
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use everygraph_core::ByteSource;
-use everygraph_format::container::{Container, Kind, Writer};
+use everygraph_core::{ByteSource, WriteError};
+use everygraph_format::container::{
+    Container, ContainerError, Kind, Provenance, ResultKey, Writer,
+};
 use everygraph_io::{FileSink, FileSource, MmapSource, persist};
 use support::bytes;
 
@@ -179,14 +181,235 @@ fn a_container_written_to_a_file_reads_back_through_every_source() {
     mapped.verify_all().unwrap();
     let section = mapped.section("base").unwrap();
     assert_eq!(section.as_slice().unwrap(), &bytes(0, 10_000)[..]);
-    // While the file is mapped, this process cannot commit to it (the guard is Unix
-    // only, `src/claim.rs`).
+    // While the whole file is mapped, this process cannot commit to it: the header
+    // write is refused, and the file reads as before (the guard is Unix only,
+    // `src/claim.rs`).
     if cfg!(unix) {
-        let refused = FileSink::open(&path).unwrap_err();
-        assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
+        let mut w = Writer::update(FileSink::open(&path).unwrap()).unwrap();
+        w.add_section("s2", kind(), &bytes(2, len_of(2)), None)
+            .unwrap();
+        match w.commit() {
+            Err(ContainerError::Write(WriteError::Backend(e))) => assert_eq!(
+                e.downcast_ref::<std::io::Error>().unwrap().kind(),
+                ErrorKind::ResourceBusy
+            ),
+            other => panic!("the commit beside a whole-file map: {other:?}"),
+        }
+        drop(w);
+        assert_eq!(check_file(&path), 2);
     }
     drop(mapped);
-    FileSink::open(&path).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// Maps the committed sections of the graph file at `path`, as a reader should
+/// (`MmapSource`, spec § 11).
+fn map_by_range(path: &Path) -> Container<MmapSource> {
+    let file = fs::File::open(path).unwrap();
+    let probe = Container::open(FileSource::from_file(file.try_clone().unwrap()).unwrap()).unwrap();
+    let map = MmapSource::from_file_range(&file, probe.stable_range()).unwrap();
+    probe.with_source(map).unwrap()
+}
+
+/// Commits one section `s{i}` to the graph at `path`.
+fn commit_one(path: &Path, i: u64) {
+    let mut w = Writer::update(FileSink::open(path).unwrap()).unwrap();
+    w.add_section(&format!("s{i}"), kind(), &bytes(i, len_of(i)), None)
+        .unwrap();
+    w.commit().unwrap();
+}
+
+/// The recipe of spec § 11 reads the commit it probed, whatever is committed between
+/// the probe and the map: one commit could make the second header read fall back
+/// (the file then looks damaged), two could put the table past the map (review of
+/// PR #216).
+#[test]
+fn a_range_map_reads_the_commit_it_probed_even_after_more_commits() {
+    for between in [1, 2] {
+        let dir = scratch(&format!("probe-{between}"));
+        let path = dir.join("g.eg");
+        create_graph(&path);
+        let file = fs::File::open(&path).unwrap();
+        let probe =
+            Container::open(FileSource::from_file(file.try_clone().unwrap()).unwrap()).unwrap();
+        let map = MmapSource::from_file_range(&file, probe.stable_range()).unwrap();
+        for i in 1..=between {
+            commit_one(&path, i);
+        }
+        let graph = probe.with_source(map).unwrap();
+        assert_eq!(graph.generation(), 1);
+        assert_eq!(graph.recovered_from(), None);
+        graph.verify_all().unwrap();
+        let base = graph.section("base").unwrap();
+        assert!(base.as_slice().expect("mapped") == bytes(0, 10_000));
+        drop(graph);
+        assert_eq!(check_file(&path), 1 + between);
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn a_process_commits_a_result_to_a_graph_it_holds_mapped() {
+    let dir = scratch("mapped-commit");
+    let path = dir.join("g.eg");
+    create_graph(&path);
+    let graph = map_by_range(&path);
+    let before = graph.source().mapped().to_vec();
+    // The result: the sum of each 1,000 bytes of `base`, read through the map.
+    let base = graph.section("base").unwrap();
+    let sums: Vec<u64> = base
+        .as_slice()
+        .expect("mapped")
+        .chunks(1000)
+        .map(|c| c.iter().map(|&b| u64::from(b)).sum())
+        .collect();
+    let key = ResultKey::new(graph.graph_identity(), "block-sums", 1, true)
+        .unwrap()
+        .with("block", "1000")
+        .unwrap();
+    let about = Provenance {
+        engine: "test".into(),
+        ..Provenance::default()
+    };
+    let mut w = Writer::update(FileSink::open(&path).unwrap()).unwrap();
+    w.add_result(&key, &about, &sums).unwrap();
+    w.commit().unwrap();
+    drop(w);
+    assert!(
+        graph.source().mapped() == before,
+        "the mapped bytes changed"
+    );
+    assert_eq!(graph.generation(), 1);
+    let again = map_by_range(&path);
+    assert_eq!(again.generation(), 2);
+    let stored = again.find_result(&key).unwrap().expect("the stored result");
+    let mut got = vec![0_u64; usize::try_from(stored.len()).unwrap()];
+    stored.read(0, &mut got).unwrap();
+    assert_eq!(got, sums);
+    drop(graph);
+    drop(again);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// Waits for a line that ends with `want` from a child (the test harness may have
+/// started the line).
+fn wait_for(lines: &mut impl Iterator<Item = std::io::Result<String>>, want: &str) {
+    while !lines
+        .next()
+        .expect("the child ended early")
+        .unwrap()
+        .ends_with(want)
+    {}
+}
+
+/// Runs test `name` again in a child process, with `var` set to `path`.
+fn spawn_child(name: &str, var: &str, path: &Path) -> Child {
+    Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture", "--test-threads=1"])
+        .env(var, path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap()
+}
+
+/// Set in the child of the lock test, to the file it holds.
+const HOLD: &str = "EVERYGRAPH_TEST_HOLD_CHILD";
+const LOCK_TEST: &str = "a_second_writer_is_refused_while_the_first_lives_and_not_after_kill_9";
+
+#[test]
+fn a_second_writer_is_refused_while_the_first_lives_and_not_after_kill_9() {
+    if let Some(path) = std::env::var_os(HOLD) {
+        let _sink = FileSink::open(Path::new(&path)).unwrap();
+        let mut out = std::io::stdout().lock();
+        writeln!(out, "holding").unwrap();
+        out.flush().unwrap();
+        // Killed by the parent long before.
+        std::thread::sleep(Duration::from_secs(60));
+        return;
+    }
+    let dir = scratch("lock");
+    let path = dir.join("g.eg");
+    create_graph(&path);
+    let mut child = spawn_child(LOCK_TEST, HOLD, &path);
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    wait_for(&mut lines, "holding");
+    let refused = FileSink::open(&path).unwrap_err();
+    assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
+    let message = refused.to_string();
+    assert!(message.contains("g.eg"), "{message}");
+    // Linux names the holder, unless the file system's device in `/proc/locks` is not
+    // the file's (btrfs, overlayfs).
+    assert!(
+        message.contains(&format!("process {} is writing", child.id()))
+            || message.contains("another process is writing")
+            || message.contains("another program has this file open"),
+        "{message}"
+    );
+    let refused = FileSink::create(&path).unwrap_err();
+    assert_eq!(refused.kind(), ErrorKind::ResourceBusy);
+    // Nothing was truncated, and readers are not stopped.
+    assert_eq!(check_file(&path), 1);
+    // `Child::kill` is SIGKILL on Unix, sent to this child's PID.
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let mut w = Writer::update(FileSink::open(&path).unwrap()).unwrap();
+    w.add_section("s1", kind(), &bytes(1, len_of(1)), None)
+        .unwrap();
+    w.commit().unwrap();
+    drop(w);
+    assert_eq!(check_file(&path), 2);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+/// Set in the child of the range-map test, to the file it commits to.
+const COMMIT: &str = "EVERYGRAPH_TEST_COMMIT_CHILD";
+const RANGE_TEST: &str = "another_process_commits_100_times_to_a_file_this_one_maps_by_range";
+
+/// The child of the range-map test: 100 commits, each through a sink of its own; every
+/// tenth is preceded by a section that is never committed, so that the next commit
+/// cuts off a tail.
+fn child_committer(path: &Path) {
+    for i in 1..=100 {
+        let mut w = Writer::update(FileSink::open(path).unwrap()).unwrap();
+        if i % 10 == 0 {
+            w.add_section("abandoned", kind(), &bytes(999, 50_000), None)
+                .unwrap();
+            drop(w);
+            w = Writer::update(FileSink::open(path).unwrap()).unwrap();
+        }
+        w.add_section(&format!("s{i}"), kind(), &bytes(i, len_of(i)), None)
+            .unwrap();
+        w.commit().unwrap();
+    }
+}
+
+#[test]
+fn another_process_commits_100_times_to_a_file_this_one_maps_by_range() {
+    if let Some(path) = std::env::var_os(COMMIT) {
+        child_committer(Path::new(&path));
+        return;
+    }
+    let dir = scratch("range-map");
+    let path = dir.join("g.eg");
+    create_graph(&path);
+    let graph = map_by_range(&path);
+    let map = graph.source();
+    let before = map.mapped().to_vec();
+    let base = graph.section("base").unwrap();
+    let mut child = spawn_child(RANGE_TEST, COMMIT, &path);
+    let mut reads = 0;
+    while child.try_wait().unwrap().is_none() {
+        // A SIGBUS here would end the test process.
+        assert!(map.mapped() == before, "the mapped bytes changed");
+        assert!(base.as_slice().expect("mapped") == bytes(0, 10_000));
+        reads += 1;
+    }
+    assert!(child.wait().unwrap().success());
+    assert!(map.mapped() == before, "the mapped bytes changed");
+    assert!(reads > 0);
+    drop(graph);
+    assert_eq!(check_file(&path), 101);
     fs::remove_dir_all(dir).unwrap();
 }
 

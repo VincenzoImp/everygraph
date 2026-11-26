@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # The wasm toy check: a degree count over a generated graph, written against the public
-# pieces of everygraph-core, and the edge-map framework's proof kernels (PageRank, WCC,
-# BFS; everygraph-kernels, #44) on the raw and the compressed source, run natively and as
+# pieces of everygraph-core, and kernels of the edge-map framework (PageRank, the proof
+# WCC, BFS; everygraph-kernels) on the raw and the compressed source, run natively and as
 # wasm32 in Node; the hashes must be equal. `tools/check_wasm_toy.py` runs it. Not a
 # member of the workspace (it has its own `[workspace]` table); the determinism CI
 # (#m3-11) replaces it.

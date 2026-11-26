@@ -38,9 +38,10 @@ And the checks of the checks, each one command (what they do: "CI" below):
 
 ```sh
 python3 tools/check_portability_canary.py   # the portability checks still catch each probe
-python3 tools/check_wasm_toy.py             # toy kernel and the edge-map proof kernels: native and wasm32 in Node agree
+python3 tools/check_wasm_toy.py             # toy kernel and the edge-map kernels: native and wasm32 in Node agree
 python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
 python3 tools/check_container_python.py     # .eg container: the Python reader reads what Rust wrote
+uv run --script tools/check_columns_python.py  # columns: pyarrow and Polars read what Rust wrote
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 
@@ -107,16 +108,37 @@ upstream does not turn every pull request red. To run exactly what CI runs, repl
 `+nightly` by `+$(cat tools/nightly-toolchain)`. Moving the pin is a pull request of its
 own.
 
+### Fuzzing
+
+Code that parses bytes has a fuzz target (CLAUDE.md § 6, issue #191), in a `fuzz/`
+package of its crate that is not part of the workspace: `everygraph-format` has
+`adjacency`, `container` and `columns`, `everygraph-ingest` has `text`. Each target's corpus is
+committed under `fuzz/corpus/TARGET`. With `cargo-fuzz` and the pinned nightly:
+
+```sh
+tools/fuzz.sh replay                 # every corpus, once: what every pull request runs
+tools/fuzz.sh run container 300      # fuzz one target for 300 seconds
+tools/fuzz.sh cmin container         # then shrink its corpus before committing it
+```
+
+Every run refuses one allocation above 64 MiB, so that a size an input declares (a zstd
+window) cannot become memory. A crash leaves its input under `fuzz/artifacts/TARGET`;
+the fix commits it to the corpus, so that the replay keeps it fixed. Code that writes
+has a fault-injection sweep: `everygraph_io::faults` (feature `faults`) fails the k-th
+operation of any source or sink, and a test runs the work for every k
+(`crates/everygraph-format/tests/faults.rs`).
+
 ## CI
 
-GitHub Actions, four workflows under `.github/workflows/`, on GitHub-hosted runners. The
+GitHub Actions, five workflows under `.github/workflows/`, on GitHub-hosted runners. The
 repository is public, so standard runners cost nothing. The queue is still shared by every
 agent's pull request, so on a pull request the expensive jobs run only when it changed
 what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `numerics_lint.py --check`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map proof kernels), the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map proof kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two and the kernels' included), the kernels' doc tests on nightly, then `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `numerics_lint.py --check`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map kernels), the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two and the kernels' included), the kernels' doc tests on nightly, then `check_tsan.py`. All on Linux x86_64 |
+| `fuzz.yml` | as `ci.yml`; nightly at 02:17 UTC; by hand | **replay** (always, merge only when green): `tools/fuzz.sh replay`. **campaign** (advisory), when a pull request changes `everygraph-format`, `-ingest`, the core or `tools/fuzz.sh` (`ci_changes.py`'s `fuzz_*` flags): 5 minutes per target of that crate. **nightly**: 1 hour per target, then `cmin`; the corpus is uploaded as an artifact, and its new entries come back by pull request ("Fuzzing" above) |
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 | `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, and `plan/publish.py VincenzoImp/everygraph --dry-run`. Standard library only |
 | `dco.yml` | every pull request | the `Signed-off-by` check ("Sign-off" below) |
@@ -173,7 +195,7 @@ What the scripts at the end of "Checks" are for:
   crate.
 - **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
   through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) and the edge-map
-  framework's proof kernels (PageRank, WCC, BFS over the raw and the compressed source)
+  framework's kernels (PageRank, the proof WCC, BFS over the raw and the compressed source)
   natively with rayon and as wasm32 in Node, and compares the hashes. The determinism
   CI (m3-11) replaces it.
 - **`tools/check_wasm_codec.py`** applies the wasm toy's pattern to the adjacency codec:
@@ -184,6 +206,14 @@ What the scripts at the end of "Checks" are for:
   and on files patched to exercise the reading rules (fallback past a damaged or
   rule-breaking table, the tie between header blocks, required features of the older
   block). It must also verify the hashes and report a damaged section.
+- **`tools/check_columns_python.py`** has the example `columns_sample` write property
+  columns of every type (`docs/spec/eg-columns.md`). pyarrow, on a slice of a memory map
+  of the file, must read the values given to the writer, with every buffer in the map at
+  a multiple of 4096 where the layout section says; the statistics must equal those it
+  recomputes exactly (`fractions.Fraction`); Polars must read the same values; and the
+  sections pinned by the golden test of `crates/everygraph-format/tests/columns.rs` must
+  be among those read. `--big` runs the 2^27-row check of the research decision B17
+  (about 3 GB of memory, two minutes).
 - **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
   ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
   `tools/canary/tsan/`, a toy kernel on `par` with a deliberate data race, which must be
@@ -198,14 +228,14 @@ describing it).
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
 | `everygraph-core` | id types, `ByteSource` and its writable counterpart `ByteSink`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31, #28 | no — the one crate for OS I/O |
-| `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes, enforced (with and without `simd128`) |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits); with the feature `faults`, the fault-injecting wrapper of tests | #29, #31, #28, #190 | no — the one crate for OS I/O |
+| `everygraph-format` | the `.eg` container, the adjacency codec, property columns, and `verify` | #28, #30, #37, #41 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes, built and linted in CI |
 | `everygraph-community` | Leiden and the map hierarchy | #57 | yes |
 | `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
-| `everygraph-cli` | the `everygraph` command | #98 | no |
+| `everygraph-cli` | the `everygraph` command | #41 (`verify`), #98 | no |
 | `everygraph-py` | Python bindings | #81, #82 | no |
 | `everygraph-wasm` | browser bindings | #108 | yes, built in CI |
 | `everygraph-bench` | the `everygraph-bench` harness; the dataset registry and fetcher (`datasets/`) | #4, #5 | no |
@@ -332,7 +362,7 @@ forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests
 
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
-| `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
+| `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `MmapOptions::map` of a range of a file, sound under the invariant that no writer modifies the mapped bytes or truncates the file into them (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor" and "Range maps of a graph file"; in-process the sinks refuse every write that would reach a mapped range, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` and `a_file_sink_writes_beside_a_range_map_and_never_into_it` check the guard; `tests/container.rs` checks the lock across processes (`a_second_writer_is_refused_while_the_first_lives_and_not_after_kill_9`) and a range map against another process's commits; the macOS block runs on the macOS runner of `other-platforms.yml` |
 | `crates/everygraph-io/tests/allocation_failure.rs`, module `refusing` | A test that makes the allocator refuse, to reach every `MemoryError::AllocationFailed` path of `SegVec` and `ScratchPool`: replacing the global allocator is an `unsafe impl GlobalAlloc`. It is not in `everygraph-core` because the core forbids `unsafe` in every crate root, its tests included | `cargo +nightly miri test -p everygraph-io --test allocation_failure` |
 | `crates/everygraph-ingest/tests/heap_peak.rs`, module `counting` | A test that counts the bytes the program holds from the allocator, to check that the identifier dictionary's heap stays within the budget its accountant was given (review of PR #158): replacing the global allocator is an `unsafe impl GlobalAlloc` | `MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-disable-isolation -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-ingest --test heap_peak` (Tree Borrows because rayon's dependencies need it; isolation off because the test's scratch is files) |
 | `everygraph-kernels`, `src/edge_map/` (the brand and the unchecked indexing are in `node.rs`; the drivers turn checked lists into nodes; `Csr` reads its checked arrays without bounds checks; the sources state their guarantee in `unsafe impl Source`) | Kernels index per-node state with the targets of lists many times per entry, and the compiler cannot see that they are in range. Each source checks its lists once, in the memory it hands them out from, and a `Node<'g>` carries the proof (a generative lifetime brand, as in `GhostCell`). The bounds checks cost up to a third of the time of WCC on orkut at one thread (interleaved A/B against `lab/b1-core`, PR #202). `Csr` over a memory map relies also on the invariant of `everygraph-io`, `src/sys.rs` (no writer changes a mapped file) | `MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-kernels --lib --test heap`: the unit tests drive `scan`, `frontier`, `vertices` and random access over `Csr`, `Compressed` and `Stream` built in memory, with a corrupt list; the brand's `compile_fail` doc tests run on nightly (`cargo +nightly test -p everygraph-kernels --doc`), which checks their error code |

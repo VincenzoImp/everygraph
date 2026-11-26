@@ -20,7 +20,7 @@
 
 use everygraph_core::{Memory, SegVec};
 
-use crate::edge_map::{Error, Plan, Source, all};
+use crate::edge_map::{Error, Plan, Source, all, one_segment_mut};
 
 /// How a node's own entry (a kept loop) counts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,12 +29,6 @@ pub enum Loop {
     Once,
     /// Twice: the diagonal `2w` of an undirected adjacency.
     Twice,
-}
-
-fn one_segment<T: Copy>(v: &mut SegVec<T>) -> Result<&mut [T], Error> {
-    v.as_mut_slice().ok_or(Error::Invalid(
-        "node state longer than one segment (#m3-15)",
-    ))
 }
 
 /// The number of entries of each list, a node's own entry counted as `own` says.
@@ -54,7 +48,7 @@ pub fn degrees<S: Source>(
 ) -> Result<SegVec<u32>, Error> {
     let n = usize::try_from(plan.nodes()).expect("a node count in memory");
     let mut out = SegVec::try_with_len(memory, "degrees", n, 0_u32)?;
-    let column = one_segment(&mut out)?;
+    let column = one_segment_mut(&mut out)?;
     match own {
         Loop::Once => plan.vertices(column, |(): &mut (), out, i, _, d| out[i] = d)?,
         Loop::Twice => plan.scan(column, all, |(): &mut (), out, i, row, _| {
@@ -65,35 +59,47 @@ pub fn degrees<S: Source>(
     Ok(out)
 }
 
-/// The sum of `weights` over each list, a node's own entry counted as `own` says.
-/// `weights` holds one value per entry, in node order.
+/// The sum of `weights` over each list, a node's own entry counted as `own` says;
+/// without weights, every entry weighs 1. `weights` holds one value per entry, in node
+/// order.
 ///
 /// # Errors
 ///
 /// [`Error::Invalid`] if `weights` is shorter than the entries; from the plan's source,
 /// or the column does not fit in the budget.
-///
-/// # Panics
-///
-/// If the node count does not fit in memory on this target.
 pub fn strengths<S: Source>(
     plan: &Plan<'_, '_, S>,
     memory: &Memory,
-    weights: &[f64],
+    weights: Option<&[f64]>,
     own: Loop,
 ) -> Result<SegVec<f64>, Error> {
-    if (weights.len() as u64) < plan.source().entries() {
+    scaled_strengths(plan, memory, weights, 1.0, own)
+}
+
+/// [`strengths`] of the weights times `scale`, a power of two that `PageRank` takes to
+/// keep its state in range; the products are exact, so the sums are those of the scaled
+/// column.
+pub(crate) fn scaled_strengths<S: Source>(
+    plan: &Plan<'_, '_, S>,
+    memory: &Memory,
+    weights: Option<&[f64]>,
+    scale: f64,
+    own: Loop,
+) -> Result<SegVec<f64>, Error> {
+    if weights.is_some_and(|w| (w.len() as u64) < plan.source().entries()) {
         return Err(Error::Invalid("weights: fewer than the entries"));
     }
-    let n = usize::try_from(plan.nodes()).expect("a node count in memory");
+    let n =
+        usize::try_from(plan.nodes()).map_err(|_| Error::Invalid("a node count above memory"))?;
     let mut out = SegVec::try_with_len(memory, "strengths", n, 0.0_f64)?;
     plan.scan(
-        one_segment(&mut out)?,
+        one_segment_mut(&mut out)?,
         all,
         |(): &mut (), out, i, row, _| {
-            let w = &weights[row.entries()];
+            let weight = |e: usize| weights.map_or(1.0, |w| w[e] * scale);
             let mut sum = 0.0;
-            for (&u, &x) in row.list.iter().zip(w) {
+            for (&u, e) in row.list.iter().zip(row.entries()) {
+                let x = weight(e);
                 sum += if u == row.node && own == Loop::Twice {
                     2.0 * x
                 } else {

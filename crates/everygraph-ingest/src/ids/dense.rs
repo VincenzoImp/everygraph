@@ -20,18 +20,15 @@ const SEGMENT_BITS: u32 = 16;
 const SEGMENT_WORDS: usize = 1 << (SEGMENT_BITS - 6);
 const SEGMENTS: usize = 1 << (32 - SEGMENT_BITS);
 
-fn refused() -> DictionaryError {
-    DictionaryError::Budget(everygraph_core::InsufficientBudget::new(
-        "id dictionary dense bitmap",
-        widen(SEGMENT_WORDS * 8),
-        0,
-    ))
-}
+const PURPOSE: &str = "id dictionary dense bitmap";
 
 /// The bitmap of keys seen, shared by every reader thread.
 pub(crate) struct DenseBits<'a> {
     segments: Vec<OnceLock<Box<[AtomicU64]>>>,
     reservation: std::sync::Mutex<Reservation<'a>>,
+    /// The most the bitmap can take: its table and every segment below the key limit.
+    /// A refusal names it, so that a larger budget is known to be enough.
+    bound: u64,
 }
 
 impl std::fmt::Debug for DenseBits<'_> {
@@ -40,15 +37,41 @@ impl std::fmt::Debug for DenseBits<'_> {
     }
 }
 
+/// A refusal for want of budget, of which `available` was left.
+fn budget_error(available: u64) -> DictionaryError {
+    DictionaryError::Budget(everygraph_core::InsufficientBudget::new(
+        PURPOSE, 0, available,
+    ))
+}
+
 impl<'a> DenseBits<'a> {
-    pub(crate) fn new(accountant: &'a dyn MemoryAccountant) -> Result<Self, DictionaryError> {
+    /// A bitmap for keys below `limit` (at most 2^32); the caller stops at a key at or
+    /// above it.
+    pub(crate) fn new(
+        accountant: &'a dyn MemoryAccountant,
+        limit: u64,
+    ) -> Result<Self, DictionaryError> {
         // The table of segments itself (65,536 entries).
         let table = widen(SEGMENTS * std::mem::size_of::<OnceLock<Box<[AtomicU64]>>>());
-        let reservation = Reservation::new(accountant, "id dictionary dense bitmap", table)?;
+        let segments = limit.min(1 << 32).div_ceil(1 << SEGMENT_BITS);
+        let bound = table + segments * widen(SEGMENT_WORDS * 8);
+        let reservation =
+            Reservation::new(accountant, PURPOSE, table).map_err(|e| Self::refused(bound, e))?;
         Ok(Self {
             segments: (0..SEGMENTS).map(|_| OnceLock::new()).collect(),
             reservation: std::sync::Mutex::new(reservation),
+            bound,
         })
+    }
+
+    /// A refusal of the budget, naming the bitmap's bound as what it needs.
+    fn refused(bound: u64, e: DictionaryError) -> DictionaryError {
+        match e {
+            DictionaryError::Budget(b) => DictionaryError::Budget(
+                everygraph_core::InsufficientBudget::new(PURPOSE, bound, b.available),
+            ),
+            other => other,
+        }
     }
 
     /// Marks `key` as present.
@@ -57,7 +80,10 @@ impl<'a> DenseBits<'a> {
         let segment = &self.segments[bit >> SEGMENT_BITS];
         let words = match segment.get() {
             Some(w) if !w.is_empty() => w,
-            Some(_) => return Err(refused()),
+            Some(_) => {
+                let available = self.reservation_available();
+                return Err(Self::refused(self.bound, budget_error(available)));
+            }
             None => {
                 let mut failed = None;
                 let w = segment.get_or_init(|| {
@@ -73,10 +99,11 @@ impl<'a> DenseBits<'a> {
                     (0..SEGMENT_WORDS).map(|_| AtomicU64::new(0)).collect()
                 });
                 if let Some(e) = failed {
-                    return Err(e);
+                    return Err(Self::refused(self.bound, e));
                 }
                 if w.is_empty() {
-                    return Err(refused());
+                    let available = self.reservation_available();
+                    return Err(Self::refused(self.bound, budget_error(available)));
                 }
                 w
             }
@@ -84,6 +111,13 @@ impl<'a> DenseBits<'a> {
         let word = (bit >> 6) & (SEGMENT_WORDS - 1);
         words[word].fetch_or(1 << (bit & 63), Ordering::Relaxed);
         Ok(())
+    }
+
+    fn reservation_available(&self) -> u64 {
+        self.reservation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .available()
     }
 
     /// Number of words [`DenseBits::into_words`] allocates (at most).
@@ -249,7 +283,7 @@ mod tests {
     #[test]
     fn rank_and_select_are_inverse_over_a_bitmap_filled_from_threads() {
         let budget = Budget::new(1 << 30);
-        let bits = DenseBits::new(&budget).unwrap();
+        let bits = DenseBits::new(&budget, 1 << 32).unwrap();
         let keys: Vec<u32> = (0..20_000_u32)
             .map(|i| i.wrapping_mul(2_654_435_761) >> 9)
             .collect();
@@ -282,11 +316,19 @@ mod tests {
     #[test]
     fn a_bitmap_that_does_not_fit_the_budget_is_refused() {
         let table = widen(SEGMENTS * std::mem::size_of::<OnceLock<Box<[AtomicU64]>>>());
-        assert!(DenseBits::new(&Budget::new(table - 1)).is_err());
+        assert!(DenseBits::new(&Budget::new(table - 1), 1 << 32).is_err());
         let budget = Budget::new(table + 1000);
-        let bits = DenseBits::new(&budget).unwrap();
-        assert!(matches!(bits.set(5), Err(DictionaryError::Budget(_))));
-        assert!(matches!(bits.set(6), Err(DictionaryError::Budget(_))));
+        // The refusal names the whole bound: the table and the segments below the
+        // limit, here 3 of them.
+        let limit = 2 << SEGMENT_BITS | 1;
+        let bound = table + 3 * widen(SEGMENT_WORDS * 8);
+        let bits = DenseBits::new(&budget, limit).unwrap();
+        for key in [5, 6] {
+            match bits.set(key) {
+                Err(DictionaryError::Budget(b)) => assert_eq!(b.needed, bound),
+                other => panic!("{other:?}"),
+            }
+        }
         let empty = RankBitmap::new(Vec::new()).unwrap();
         assert_eq!(empty.len(), 0);
         assert_eq!(empty.rank(0), None);

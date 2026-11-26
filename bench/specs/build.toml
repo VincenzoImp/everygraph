@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The graph build of issue #35 (plan/issues/m2-08-csr-build.md): `everygraph ingest`, a
+# plain-text edge list to a `.eg` graph in the default compressed format, committed with
+# fsync, read back and checked, then renamed. Each repetition is a separate process.
+#
+# - ingest-social: lj and orkut at an 8 GB budget (everything in memory) and at 300 MB
+#   (most buckets spilled): the in-memory path against the spill path, with the bytes
+#   each writes (`write_bytes`, the harness's own counter).
+# - ingest-friendster: 1.8 B edges at 32 GB and 8 GB, after one untimed warm-up so that
+#   every repetition meets the drive's sustained write rate (ADR 0026).
+# - scaling: orkut at 1 to 32 threads, whole command.
+#
+# Acceptance of #35: lj <= 0.5 s, orkut <= 1.0 s, Friendster <= 25 s at 32 GB and <= 60 s
+# at 8 GB, bytes written reported next to every time.
+#
+# Run (an estimate, not measured: about 30 minutes, plus a release build and about
+# 2 minutes to decompress the inputs the first time):
+#   everygraph-bench run build --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "build"
+description = "everygraph ingest (#35): text edge list to .eg, in memory and with spills"
+reference = "plan/issues/m2-08-csr-build.md, Acceptance"
+
+binaries = ["{everygraph}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+threads = [16, 32]
+timeout = "10m"
+
+[vars]
+everygraph = "{repo}/target/release/everygraph"
+inputs = "{work}/inputs"
+ingest = "rm -f {case_work}/out.eg && exec {everygraph} ingest --out {case_work}/out.eg --overwrite --json"
+
+[[prepare]]
+name = "build-everygraph"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--locked", "-p", "everygraph-cli"]
+
+# The same plain-text copies as `headline`, at the same paths.
+[[prepare]]
+name = "text-lj"
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-lj.ungraph.txt.gz > {inputs}/lj.txt.part && mv {inputs}/lj.txt.part {inputs}/lj.txt"
+creates = "{inputs}/lj.txt"
+needed_by = ["ingest-social"]
+
+[[prepare]]
+name = "text-orkut"
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-orkut.ungraph.txt.gz > {inputs}/orkut.txt.part && mv {inputs}/orkut.txt.part {inputs}/orkut.txt"
+creates = "{inputs}/orkut.txt"
+needed_by = ["ingest-social", "scaling"]
+
+[[prepare]]
+name = "text-friendster"
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-friendster.ungraph.txt.gz > {inputs}/friendster.txt.part && mv {inputs}/friendster.txt.part {inputs}/friendster.txt"
+creates = "{inputs}/friendster.txt"
+needed_by = ["ingest-friendster"]
+
+[[benchmark]]
+name = "ingest-social"
+group = "ingest"
+description = "lj and orkut, in memory (8 GB) and with spills (300 MB)"
+dataset_path = "raw/com-{graph}.ungraph.txt.gz"
+matrix = { graph = ["lj", "orkut"], budget = ["8GB", "300MB"] }
+shell = "{ingest} {inputs}/{graph}.txt --memory {budget} --threads {threads}"
+conditions = { graph = "{graph}", input = "plain text, page cache warm", budget = "{budget} (--memory)", fsync = "yes, commit and rename", output = "default compressed format" }
+metric = [
+  { name = "seconds", json = "/elapsed_seconds", unit = "s" },
+  { name = "edges", json = "/counts/edges", unit = "edges" },
+]
+
+[[benchmark]]
+name = "ingest-friendster"
+group = "ingest"
+description = "Friendster, 1.8 B edges from 31 GiB of text, at two budgets"
+dataset_path = "raw/com-friendster.ungraph.txt.gz"
+memory_limit = "40G"
+warmup = 1
+timeout = "20m"
+matrix = { budget = ["32GB", "8GB"] }
+shell = "{ingest} {inputs}/friendster.txt --memory {budget} --threads {threads}"
+conditions = { graph = "friendster", input = "plain text, page cache", budget = "{budget} (--memory)", fsync = "yes, commit and rename", output = "default compressed format" }
+metric = [
+  { name = "seconds", json = "/elapsed_seconds", unit = "s" },
+  { name = "edges", json = "/counts/edges", unit = "edges" },
+]
+
+[[benchmark]]
+name = "scaling"
+group = "scaling"
+description = "orkut at 8 GB, 1 to 32 threads"
+dataset_path = "raw/com-orkut.ungraph.txt.gz"
+threads = [1, 2, 4, 8, 16, 32]
+shell = "{ingest} {inputs}/orkut.txt --memory 8GB --threads {threads}"
+conditions = { graph = "orkut", input = "plain text, page cache warm", budget = "8 GB (--memory)", fsync = "yes, commit and rename", output = "default compressed format" }
+metric = [
+  { name = "seconds", json = "/elapsed_seconds", unit = "s" },
+]
