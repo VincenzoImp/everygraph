@@ -86,6 +86,10 @@ impl<S: ByteSource + ?Sized> ByteSource for &mut S {
         (**self).as_slice()
     }
 
+    fn slice(&self, range: std::ops::Range<u64>) -> Option<&[u8]> {
+        (**self).slice(range)
+    }
+
     fn advise(&self, range: std::ops::Range<u64>, hint: crate::AccessHint) {
         (**self).advise(range, hint);
     }

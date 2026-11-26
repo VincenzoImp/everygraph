@@ -11,6 +11,7 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 - [ ] Point queries with batch variants: `neighbors(ids)`, `degrees(ids)`, `khop(id, k, limit=…, timeout=…)`, `path(a, b)` ({{#m7-01-point-queries}})
 - [ ] `explain()` / preflight on every long operation; progress callbacks; cancellation on `KeyboardInterrupt`
 - [ ] Options: `threads`, `memory`, `deterministic=True`, `seed`
+- [ ] The budget behind `memory=` is `Budget::new(limit).with_pages(everygraph_io::PAGES)`: the engine's large buffers are mapped and given back when freed, which the interpreter's allocator cannot do for them (`design/DECISIONS.md`, "Large buffers get pages of their own"); a test checks that the module's accountant returns `PAGES` from `pages()`
 - [ ] External ids in, external ids out by default; dense ids available for performance
 - [ ] Typed exceptions (`InsufficientBudget`, `InvalidInput`, …)
 - [ ] Type stubs, docstrings with examples, a consistent naming scheme from {{#m0-11-api-sketch}}

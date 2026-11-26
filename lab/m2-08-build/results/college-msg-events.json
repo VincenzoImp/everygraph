@@ -1,0 +1,16 @@
+{
+  "what": "size of the .events section of the out-adjacency, directed ingest of college-msg (columns 1-2; time not stored)",
+  "input": {
+    "path": "college-msg/CollegeMsg.txt.gz, decompressed",
+    "sha256_of_gz": "50ae2d98ed3bad9ddb18dbd495a89e5e10cfb8f7e86932827db29fc41b41f9fa"
+  },
+  "command": "RAYON_NUM_THREADS=4 target/release/examples/build_ab --input college-msg.txt --out DIR --budgets 1G --reps 1 --directed yes",
+  "branch": "m2-08-csr-build",
+  "entries": 20296,
+  "events": 59835,
+  "events_per_entry": 2.948,
+  "events_section_bytes": 8856,
+  "bits_per_pair": 3.49,
+  "arithmetic": "Elias-Fano with len 20,297, U 59,835 and l = 1: 1,103 words and a 32-byte header make 8,856 bytes; eg-adjacency.md section 7 gives 3 to 4 bits per entry for r = 2.95",
+  "note": "a size, not a time: it does not depend on the machine or its load"
+}

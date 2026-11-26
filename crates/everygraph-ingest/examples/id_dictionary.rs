@@ -7,7 +7,7 @@
 //! id_dictionary --keys eth|ethbin|user|int|sparse|file:PATH [--n N] [--stream M]
 //!     [--budget BYTES] [--scratch memory|dir:PATH] [--layout split|slot]
 //!     [--order natural|first|sorted] [--lookups Q] [--map M] [--pregenerate yes]
-//!     [--cold Q] [--build-only yes]
+//!     [--cold Q] [--build-only yes] [--pages maps|heap]
 //! ```
 //!
 //! `--keys`: synthetic Ethereum-like addresses as 42-character text (`eth`) or 20
@@ -17,7 +17,9 @@
 //! times (default: each once, in a scrambled order; more: drawn with repetition).
 //! `--map M` maps M keys drawn from the set after the build (the second pass of an
 //! ingest), in parallel, and reports the rate with and without generating the keys.
-//! Threads: `RAYON_NUM_THREADS`.
+//! `--pages`: where the build's large buffers come from, `everygraph_io::PAGES` (`maps`,
+//! the default) or the global allocator (`heap`), for A/B runs of the allocator policy
+//! (issue #167). Threads: `RAYON_NUM_THREADS`.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -37,7 +39,7 @@ mod bench {
     use std::time::Instant;
 
     use everygraph_core::{
-        ByteSource, InsufficientBudget, MemoryAccountant, MemoryKind, MemorySource, NodeId,
+        ByteSource, InsufficientBudget, MemoryAccountant, MemoryKind, MemorySource, NodeId, Pages,
         ReadError, par,
     };
     use everygraph_ingest::ids::{
@@ -61,6 +63,7 @@ mod bench {
         pregenerated: bool,
         cold: u64,
         build_only: bool,
+        pages: Pages,
     }
 
     fn parse_args() -> Result<Args, BoxError> {
@@ -78,6 +81,7 @@ mod bench {
             pregenerated: false,
             cold: 0,
             build_only: false,
+            pages: everygraph_io::PAGES,
         };
         let mut it = std::env::args().skip(1);
         while let Some(flag) = it.next() {
@@ -108,6 +112,13 @@ mod bench {
                 "--pregenerate" => a.pregenerate = value == "yes",
                 "--cold" => a.cold = value.parse()?,
                 "--build-only" => a.build_only = value == "yes",
+                "--pages" => {
+                    a.pages = match value.as_str() {
+                        "maps" => everygraph_io::PAGES,
+                        "heap" => Pages::HEAP,
+                        _ => return Err("--pages maps|heap".into()),
+                    }
+                }
                 _ => return Err(format!("unknown flag {flag}").into()),
             }
         }
@@ -231,6 +242,7 @@ mod bench {
         total: u64,
         used: AtomicU64,
         peak: AtomicU64,
+        pages: Pages,
     }
 
     impl MemoryAccountant for Budget {
@@ -271,6 +283,10 @@ mod bench {
 
         fn available(&self) -> u64 {
             self.total - self.used.load(Ordering::Relaxed)
+        }
+
+        fn pages(&self) -> Pages {
+            self.pages
         }
     }
 
@@ -459,6 +475,7 @@ mod bench {
             total: args.budget,
             used: AtomicU64::new(0),
             peak: AtomicU64::new(0),
+            pages: args.pages,
         };
         let dir_scratch;
         let result = if let Some(dir) = args.scratch.strip_prefix("dir:") {
@@ -554,12 +571,14 @@ mod bench {
         if args.build_only {
             // The build alone, for memory measurements: nothing is loaded afterwards.
             return Ok(format!(
-                "{{\"keys\":\"{}\",\"kind\":\"{:?}\",\"n\":{},\"budget\":{},\"build_s\":{:.4},\"peak_reserved_bytes\":{},\"invalid\":{},\"bytes_per_key\":{:.3}}}",
+                "{{\"keys\":\"{}\",\"kind\":\"{:?}\",\"n\":{},\"budget\":{},\"pages\":\"{}\",\"build_s\":{:.4},\"phases_s\":{:.4},\"peak_reserved_bytes\":{},\"invalid\":{},\"bytes_per_key\":{:.3}}}",
                 args.keys,
                 kind,
                 n,
                 args.budget,
+                args.pages.name(),
                 build_s,
+                phases_s,
                 peak_reserved,
                 invalid,
                 total_bytes as f64 / n.max(1) as f64
@@ -612,7 +631,7 @@ mod bench {
             / n.max(1) as f64;
         Ok(format!(
             concat!(
-                "{{\"keys\":\"{}\",\"kind\":\"{:?}\",\"n\":{},\"stream\":{},\"threads\":\"{}\",\"budget\":{},\"scratch\":\"{}\",",
+                "{{\"keys\":\"{}\",\"kind\":\"{:?}\",\"n\":{},\"stream\":{},\"threads\":\"{}\",\"budget\":{},\"pages\":\"{}\",\"scratch\":\"{}\",",
                 "\"layout\":\"{:?}\",\"order\":\"{:?}\",\"build_s\":{:.4},\"distinct_s\":{:.4},\"phases_s\":{:.4},",
                 "\"keys_per_s\":{:.0},\"peak_reserved_bytes\":{},\"hash_function_bits_per_key\":{:.4},",
                 "\"bytes_per_key\":{:.3},\"invalid\":{},\"sections\":{{{}}},{},{}}}"
@@ -623,6 +642,7 @@ mod bench {
             args.stream,
             std::env::var("RAYON_NUM_THREADS").unwrap_or_default(),
             args.budget,
+            args.pages.name(),
             args.scratch,
             args.layout,
             args.order,

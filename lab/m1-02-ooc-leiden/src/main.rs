@@ -19,6 +19,7 @@ mod bcache;
 mod ef;
 mod leiden;
 mod lutil;
+mod shapeio;
 mod store;
 mod svb;
 
@@ -49,6 +50,9 @@ fn main() {
         "encode" => encode(a, threads),
         "verify" => verify(a),
         "shuffle" => shuffle(a),
+        // m1-05 (#19): helpers of the hierarchy-shaping driver
+        "cutgraph" => shapeio::cutgraph(a),
+        "regionstats" => shapeio::regionstats(a),
         "evict" => {
             let d = get(a, "--store").expect("--store");
             for f in ["adj.bin", "boff.ef", "blocks.u32"] {

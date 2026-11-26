@@ -16,6 +16,9 @@ pub(crate) const VERSION: u32 = 1;
 pub(crate) const HEADER_BYTES: usize = 48;
 /// The only block codec of version 1: records as written by this crate.
 pub(crate) const CODEC_RECORDS: u8 = 0;
+/// Flag bit 1: the adjacency has a `.events` section (`docs/spec/eg-adjacency.md` § 3.1).
+/// Bit 0 is reserved for segments and refused, as every other bit.
+pub(crate) const FLAG_EVENTS: u32 = 1 << 1;
 
 /// Nodes per task when the index is checked in parallel.
 const CHECK_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
@@ -27,6 +30,7 @@ const CHECK_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
 /// records, and tells where each node's record lies.
 #[derive(Clone, Debug)]
 pub struct AdjacencyIndex {
+    events: bool,
     nodes: u32,
     entries: u64,
     data_bytes: u64,
@@ -71,6 +75,7 @@ fn part_lengths(
 
 impl AdjacencyIndex {
     pub(crate) fn from_parts(
+        events: bool,
         nodes: u32,
         entries: u64,
         data_bytes: u64,
@@ -79,6 +84,7 @@ impl AdjacencyIndex {
         entry_offsets: EliasFano,
     ) -> Self {
         Self {
+            events,
             nodes,
             entries,
             data_bytes,
@@ -91,10 +97,18 @@ impl AdjacencyIndex {
     /// The index bytes, as [`parse`](Self::parse) reads them.
     pub(crate) fn write(&self) -> Vec<u8> {
         let blocks = self.blocks();
-        let mut out = Vec::new();
+        let parts = part_lengths(
+            u64::from(self.nodes),
+            self.entries,
+            self.data_bytes,
+            blocks as u64,
+        )
+        .map_or(0, |(_, lengths)| lengths.iter().sum::<usize>());
+        let mut out = Vec::with_capacity(HEADER_BYTES + parts);
         out.extend_from_slice(&MAGIC);
         out.extend_from_slice(&VERSION.to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes());
+        let flags = if self.events { FLAG_EVENTS } else { 0 };
+        out.extend_from_slice(&flags.to_le_bytes());
         out.extend_from_slice(&u64::from(self.nodes).to_le_bytes());
         out.extend_from_slice(&self.entries.to_le_bytes());
         out.extend_from_slice(&self.data_bytes.to_le_bytes());
@@ -131,7 +145,7 @@ impl AdjacencyIndex {
             return Err(FormatError::UnsupportedVersion(version));
         }
         let flags = read_u32(header, 12);
-        if flags != 0 {
+        if flags & !FLAG_EVENTS != 0 {
             return Err(FormatError::UnsupportedFlags(flags));
         }
         let (nodes, entries, data_bytes, blocks) = (
@@ -194,6 +208,7 @@ impl AdjacencyIndex {
         let entry_offsets =
             EliasFano::read(entries_ef, count, entries).map_err(FormatError::Invalid)?;
         let index = Self::from_parts(
+            flags == FLAG_EVENTS,
             nodes,
             entries,
             data_bytes,
@@ -238,6 +253,13 @@ impl AdjacencyIndex {
         Ok(())
     }
 
+    /// Whether the adjacency has a `.events` section (flag bit 1): some pair has more
+    /// than one stored event.
+    #[must_use]
+    pub fn has_events(&self) -> bool {
+        self.events
+    }
+
     /// Number of nodes (lists).
     #[must_use]
     pub fn nodes(&self) -> u32 {
@@ -268,7 +290,9 @@ impl AdjacencyIndex {
     }
 
     /// Number of entries before the list of `v`, for `v` in `0..=nodes` (`nodes` gives
-    /// [`entries`](Self::entries)). Edge-indexed columns are indexed by it.
+    /// [`entries`](Self::entries)). Per-pair columns are indexed by it; per-event
+    /// columns by the event offset of [`AdjacencyEvents`](super::AdjacencyEvents),
+    /// which is the same when the adjacency has no `.events` section.
     ///
     /// # Panics
     ///
@@ -439,10 +463,15 @@ mod tests {
             refused(&g.with(|r| r.version = 2)),
             FormatError::UnsupportedVersion(2)
         );
-        assert_eq!(
-            refused(&g.with(|r| r.flags = 1)),
-            FormatError::UnsupportedFlags(1)
-        );
+        for flags in [1, 3, 4, 1 << 31] {
+            assert_eq!(
+                refused(&g.with(|r| r.flags = flags)),
+                FormatError::UnsupportedFlags(flags)
+            );
+        }
+        let events = AdjacencyIndex::parse(&g.with(|r| r.flags = FLAG_EVENTS)).unwrap();
+        assert!(events.has_events());
+        assert_eq!(events.write(), g.with(|r| r.flags = FLAG_EVENTS));
         let mut longer = b.clone();
         longer.extend_from_slice(&[0; 8]);
         assert!(matches!(refused(&longer), FormatError::Length { .. }));

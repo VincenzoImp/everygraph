@@ -20,9 +20,12 @@ labels: type:feature, area:algorithms, P0, risk:low, size:M, lab-evidence
 - Weighted PageRank on a per-pair weight column (indexed by entry offset; on orkut, which has no repeated pairs, the same as per event) within 15% of the unweighted kernel on orkut (moved from {{#m2-10-property-columns}}, which built the column format)
 - On graphs with kept loops, matches igraph within 1e-9 (NetworkX puts w, not 2w, on an undirected loop and matches only when given the loop weight 2w); probe: undirected [0.475, 0.2625, 0.2625], loop weight 3 [38/63, 25/126, 25/126], directed [0.480056, 0.254024, 0.265920] (`docs/spec/graph-semantics.md` § 5.1, § 5.6)
 - orkut, 20 iterations, f64: ≤ 0.5 s at 16 threads; identical bytes at 1, 4, 16 threads
+- Re-running an identical call on a graph file returns the stored result in milliseconds (moved from {{#m2-12-artifact-cache}})
 - Runs in all three regimes; the out-of-core cost against in RAM (D11's "~10%" for Friendster PageRank f32 under 8 GB and 2 GB) is restated only from interleaved in-RAM and out-of-core rounds with a ratio interval ({{#m3-19-harness-interleave}}): 10% is inside what a fixed run order and drive state can produce (added 2026-11-25, `docs/research/README.md` M6; `docs/research/sota-measurement.md` § 3.4)
 - With f64 state the result has identical bytes (the hash of {{#m3-11-determinism-ci}}) at 1, 4 and 16 threads, in each of the three regimes, at memory budgets of 2, 8 and 16 GiB and unlimited, and on a view whether it is held as a mask or materialized; f32 state is used only when `precision="low"` is asked for, never chosen by the planner (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises")
 
 **Pointers.** `lab/b1-core` kernels; top-5 on orkut matched NetworKit to ~15 digits.
+
+**Left after PR #220 (2026-11-26).** PR #220 built `everygraph_kernels::pagerank` (f32 and f64 state, weighted, personalized, eigenvector centrality); its description lists the evidence per box. Still open: the official `kernels` run (`everygraph-bench run kernels --official --data /home/tux/graphlab/data`) for the time and the hashes; the out-of-core cost from interleaved rounds, which needs {{#m3-19-harness-interleave}}; the weighted run on a per-pair column against the unweighted kernel.
 
 **Depends on** {{#m3-01-edge-map}}, {{#m2-08-csr-build}}, {{#m2-10-property-columns}}

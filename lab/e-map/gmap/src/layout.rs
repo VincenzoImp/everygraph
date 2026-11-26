@@ -17,6 +17,22 @@ pub struct Params {
     pub seed: u64,
     pub use_ext: bool,
     pub iters: usize,
+    /// m1-18: place siblings by stress on the quotient graph instead of the force solve
+    pub stress: bool,
+    /// m1-18 diagnostic: children of tree nodes shallower than `seed_depth` start at the
+    /// centroid of their members in this external layout (no force solve, packing only)
+    pub seed_pos: Option<Vec<[f32; 2]>>,
+    pub seed_depth: u8,
+    /// m1-18: after packing, rotate (and maybe mirror) the siblings as one rigid body so
+    /// that children face the already-placed regions their external edges go to
+    pub orient: bool,
+}
+
+/// Where a parent's children start before packing.
+enum Start {
+    Force,
+    Stress,
+    Given(Vec<f32>, Vec<f32>),
 }
 
 struct Ctx<'a> {
@@ -98,8 +114,9 @@ fn merge(mut a: Acc, b: Acc) -> Acc {
     a
 }
 
-/// Dense force-directed layout of k circles in the unit disc. Returns (x, y, r) and area retention.
-fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], seed: u64, iters: usize, shrink: bool) -> Vec<[f32; 3]> {
+/// Layout of k circles in the unit disc: a start (dense force solve, stress, or given
+/// positions), then overlap removal and packing. Returns (x, y, r) per circle.
+fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], seed: u64, iters: usize, shrink: bool, start: Start, orient: bool) -> Vec<[f32; 3]> {
     if k == 1 {
         return vec![[0.0, 0.0, rad[0]]];
     }
@@ -133,11 +150,24 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
     let mut s = seed;
     let mut px = vec![0f32; k];
     let mut py = vec![0f32; k];
-    for i in 0..k {
-        let a = rnd01(&mut s) * std::f32::consts::TAU;
-        let r = rnd01(&mut s).sqrt() * 0.5;
-        px[i] = r * a.cos() + 0.4 * aw[i] * ax[i];
-        py[i] = r * a.sin() + 0.4 * aw[i] * ay[i];
+    let mut iters = iters;
+    if !matches!(start, Start::Force) {
+        let vol: Vec<f32> = (0..k).map(|i| wdeg[i] + ew[i]).collect();
+        (px, py) = match start {
+            Start::Given(x, y) => (x, y),
+            _ => crate::stress::place(k, rad, dense, &vol, seed),
+        };
+        // fit the start positions to the parent disc; the overlap sweeps below finish the packing
+        let fit = (0..k).map(|i| (1.0 - rad[i]) / (px[i] * px[i] + py[i] * py[i]).sqrt().max(1e-9)).fold(f32::MAX, f32::min);
+        px.iter_mut().chain(py.iter_mut()).for_each(|v| *v *= fit);
+        iters = 0;
+    } else {
+        for i in 0..k {
+            let a = rnd01(&mut s) * std::f32::consts::TAU;
+            let r = rnd01(&mut s).sqrt() * 0.5;
+            px[i] = r * a.cos() + 0.4 * aw[i] * ax[i];
+            py[i] = r * a.sin() + 0.4 * aw[i] * ay[i];
+        }
     }
     let kc = 0.9 * (std::f32::consts::PI / k as f32).sqrt();
     let kc2 = kc * kc;
@@ -242,6 +272,9 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
             break;
         }
     }
+    if orient {
+        rotate_to_outside(&mut px, &mut py, ew, &ax, &ay);
+    }
     let mut out = Vec::with_capacity(k);
     for i in 0..k {
         let mut r = rad[i];
@@ -261,6 +294,31 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
         out.push([px[i], py[i], r]);
     }
     out
+}
+
+/// Rigid rotation, or mirror then rotation, of positions in the unit disc that maximizes
+/// sum_i ew_i * (p_i . u_i), u_i = mean unit vector from the parent's centre to child i's
+/// external neighbours. Closed form: for a rotation by t the sum is cos(t) A + sin(t) B.
+/// Distances between siblings and containment in the disc do not change.
+fn rotate_to_outside(px: &mut [f32], py: &mut [f32], ew: &[f32], ux: &[f32], uy: &[f32]) {
+    let ab = |m: f32| {
+        let (mut a, mut b) = (0f64, 0f64);
+        for i in 0..px.len() {
+            let (x, y, w) = ((m * px[i]) as f64, py[i] as f64, ew[i] as f64);
+            a += w * (x * ux[i] as f64 + y * uy[i] as f64);
+            b += w * (x * uy[i] as f64 - y * ux[i] as f64);
+        }
+        (a, b)
+    };
+    let (a1, b1) = ab(1.0);
+    let (a2, b2) = ab(-1.0);
+    let (m, a, b) = if a2.hypot(b2) > a1.hypot(b1) { (-1.0, a2, b2) } else { (1.0, a1, b1) };
+    let t = b.atan2(a);
+    let (c, s) = (t.cos() as f32, t.sin() as f32);
+    for i in 0..px.len() {
+        let x = m * px[i];
+        (px[i], py[i]) = (c * x - s * py[i], s * x + c * py[i]);
+    }
 }
 
 fn radii(sizes: &[f32], phi: f32) -> Vec<f32> {
@@ -430,7 +488,24 @@ fn process(c: &Ctx, p: u32) -> Res {
     if dense {
         let t1 = Instant::now();
         let rad = radii(&sizes, if leafp { c.prm.phi_leaf } else { c.prm.phi });
-        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, seed, c.prm.iters, !leafp);
+        let start = match &c.prm.seed_pos {
+            Some(sp) if !leafp && t.depth < c.prm.seed_depth => {
+                let (mut x, mut y) = (vec![0f32; k], vec![0f32; k]);
+                for (i, &q) in kids.iter().enumerate() {
+                    let qt = c.tn[q as usize];
+                    let m = &c.order[qt.start as usize..qt.end as usize];
+                    let (sx, sy) = m.iter().fold((0f64, 0f64), |a, &u| (a.0 + sp[u as usize][0] as f64, a.1 + sp[u as usize][1] as f64));
+                    (x[i], y[i]) = ((sx / m.len() as f64) as f32, (sy / m.len() as f64) as f32);
+                }
+                let (mx, my) = (x.iter().sum::<f32>() / k as f32, y.iter().sum::<f32>() / k as f32);
+                x.iter_mut().for_each(|v| *v -= mx);
+                y.iter_mut().for_each(|v| *v -= my);
+                Start::Given(x, y)
+            }
+            _ if c.prm.stress => Start::Stress,
+            _ => Start::Force,
+        };
+        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, seed, c.prm.iters, !leafp, start, c.prm.orient);
         c.t_fr.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
         let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
         let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
@@ -474,7 +549,7 @@ fn process(c: &Ctx, p: u32) -> Res {
     c.t_group.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let t2 = Instant::now();
     let rad = radii(&gs, c.prm.phi);
-    let lay = fr(g, &rad, &d, &gew, &gux, &guy, seed, c.prm.iters, true);
+    let lay = fr(g, &rad, &d, &gew, &gux, &guy, seed, c.prm.iters, true, if c.prm.stress { Start::Stress } else { Start::Force }, c.prm.orient);
     c.t_fr.fetch_add(t2.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
     let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
@@ -496,6 +571,10 @@ pub struct Hier {
     pub levels: Vec<usize>,
     pub l0: Vec<u32>,
     pub parents: Vec<Vec<u32>>,
+    /// m1-05: per level, region kind (1 community, 2 aggregate, 3 subdivision) and, for an
+    /// aggregate, the number of communities it holds; empty when the hierarchy has no kinds
+    pub kinds: Vec<Vec<u8>>,
+    pub counts: Vec<Vec<u32>>,
 }
 pub fn load_hier(dir: &str) -> Hier {
     let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/hier.json")).unwrap()).unwrap();
@@ -507,7 +586,17 @@ pub fn load_hier(dir: &str) -> Hier {
         assert_eq!(p.len(), levels[k - 1]);
         parents.push(p);
     }
-    Hier { levels, l0, parents }
+    let (mut kinds, mut counts) = (vec![], vec![]);
+    if std::path::Path::new(&format!("{dir}/level_0.kind.u8")).exists() {
+        for k in 0..levels.len() {
+            let kk: Vec<u8> = read_vec(&format!("{dir}/level_{k}.kind.u8"));
+            let cc: Vec<u32> = read_vec(&format!("{dir}/level_{k}.count.u32"));
+            assert_eq!((kk.len(), cc.len()), (levels[k], levels[k]));
+            kinds.push(kk);
+            counts.push(cc);
+        }
+    }
+    Hier { levels, l0, parents, kinds, counts }
 }
 
 fn build_tree(n: usize, h: &Hier) -> (Vec<TNode>, Vec<Vec<u32>>, Vec<u32>, Vec<u32>) {
@@ -570,6 +659,16 @@ fn build_tree(n: usize, h: &Hier) -> (Vec<TNode>, Vec<Vec<u32>>, Vec<u32>, Vec<u
             let id = base[k] + c;
             tn[id].level = k as i8;
             tn[id].comm = c as u32;
+            if !h.kinds.is_empty() {
+                match h.kinds[k][c] {
+                    2 => {
+                        tn[id].flags |= F_AGG;
+                        tn[id].comm = h.counts[k][c]; // an aggregate's comm is its community count
+                    }
+                    3 => tn[id].flags |= F_SUBDIV,
+                    _ => {}
+                }
+            }
             if size[k][c] == 0 {
                 tn[id].flags |= F_DEAD;
                 continue;
@@ -608,11 +707,19 @@ fn build_tree(n: usize, h: &Hier) -> (Vec<TNode>, Vec<Vec<u32>>, Vec<u32>, Vec<u
             if id != 0 {
                 tn[id].level = tn[c].level;
                 tn[id].comm = tn[c].comm;
+                tn[id].flags = (tn[id].flags & !(F_AGG | F_SUBDIV)) | (tn[c].flags & (F_AGG | F_SUBDIV));
             }
             kids[id] = std::mem::take(&mut kids[c]);
             for &q in &kids[id] {
                 tn[q as usize].parent = id as u32;
             }
+        }
+    }
+    // m1-05: aggregates whose parent is an aggregate are drawn as part of it
+    for id in 1..ntn {
+        let p = tn[id].parent as usize;
+        if tn[id].flags & F_DEAD == 0 && tn[id].flags & F_AGG != 0 && tn[p].flags & F_AGG != 0 {
+            tn[id].flags |= F_AGG_INNER;
         }
     }
     // colour rank of each node's top-level community (0 = largest)
@@ -644,6 +751,10 @@ pub fn run() {
         seed: argf(&a, "seed", 1.0) as u64,
         use_ext: !a.contains_key("no-ext"),
         iters: argf(&a, "iters", 50.0) as usize,
+        stress: a.get("solve").is_some_and(|v| v == "stress"),
+        seed_pos: a.get("seed-pos").map(|f| read_vec(f)),
+        seed_depth: argf(&a, "seed-depth", 1.0) as u8,
+        orient: a.contains_key("orient"),
     };
     std::fs::create_dir_all(&out).unwrap();
     let t_all = Instant::now();

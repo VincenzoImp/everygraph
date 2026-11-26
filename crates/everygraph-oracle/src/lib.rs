@@ -9,7 +9,8 @@
 //!
 //! | Module | What it holds |
 //! |---|---|
-//! | [`generators`], [`corpus`] | deterministic graph generators and the fixed CI and nightly corpora |
+//! | [`graph`] | the input graph as the oracle sees it: one row per event, before any semantics |
+//! | [`generators`], [`corpus`] | deterministic graph generators (seeded by [`rng`], whose output never changes) and the fixed CI and nightly corpora |
 //! | [`strategies`] | `proptest` strategies over the generators |
 //! | [`exchange`] | the on-disk exchange form shared with Python and external programs |
 //! | [`projection`] | the analytic graph: the semantics of `m2-09` applied to the events |

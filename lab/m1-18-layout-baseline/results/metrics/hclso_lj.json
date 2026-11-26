@@ -1,0 +1,108 @@
+{
+ "layout": "hclso",
+ "pos": "/home/tux/graphlab/scratch/m1-18-layout-baseline/pos/hclso_lj.f32",
+ "seeds": "fixed (numpy default_rng 1..5)",
+ "n": 3997962,
+ "edges": {
+  "m": 34681189,
+  "random_pairs": 10000000,
+  "median_ratio": 0.011172119479891548,
+  "mean_ratio": 0.25586609804684907,
+  "p90_over_random_median": 1.0477727748548915,
+  "p90_ratio": 0.6221944404506708,
+  "edge_len_cv": 1.7831440987780025,
+  "frac_shorter_than_1pct_of_random_median": 0.4926775434371642
+ },
+ "np1": 0.3442156004275063,
+ "np2": 0.1539603125264027,
+ "np_nodes": {
+  "np1": 10000,
+  "np2": 9437,
+  "np2_cap": 5000
+ },
+ "quotient_np": [
+  {
+   "level": 0,
+   "communities": 1243440,
+   "sampled": 10000,
+   "np1": 0.1679603366904133,
+   "np_top10": 0.1976907964661757,
+   "mean_quotient_degree": 28.762882808981534
+  },
+  {
+   "level": 1,
+   "communities": 298419,
+   "sampled": 10000,
+   "np1": 0.08243593683825527,
+   "np_top10": 0.13457659499685043,
+   "mean_quotient_degree": 69.67358981834266
+  },
+  {
+   "level": 2,
+   "communities": 70206,
+   "sampled": 10000,
+   "np1": 0.04377973317807257,
+   "np_top10": 0.0965608169367612,
+   "mean_quotient_degree": 186.85059681508702
+  },
+  {
+   "level": 3,
+   "communities": 17915,
+   "sampled": 10000,
+   "np1": 0.052847165106162663,
+   "np_top10": 0.08125504234585504,
+   "mean_quotient_degree": 414.7609265978231
+  },
+  {
+   "level": 4,
+   "communities": 5512,
+   "sampled": 5512,
+   "np1": 0.06321875728627045,
+   "np_top10": 0.05954178769738517,
+   "mean_quotient_degree": 424.013969521045
+  },
+  {
+   "level": 5,
+   "communities": 1680,
+   "sampled": 1680,
+   "np1": 0.010699781580696914,
+   "np_top10": 0.00974740395074318,
+   "mean_quotient_degree": 10.51845238095238
+  },
+  {
+   "level": 6,
+   "communities": 71,
+   "sampled": 71,
+   "np1": 0.5936501552369348,
+   "np_top10": 0.07293105035441405,
+   "mean_quotient_degree": 43.971830985915496
+  }
+ ],
+ "stress": {
+  "pairs": 100000,
+  "sources": 100,
+  "alpha": 10.259729720629862,
+  "normalized_stress_at_optimal_scale": 0.21758966240486086,
+  "spearman_layout_vs_graph_distance": -0.02730796242119697,
+  "mean_hops": 5.64487
+ },
+ "ground_truth": {
+  "source": "/home/tux/graphlab/scratch/m1-18-layout-baseline/dl/gt/com-lj.top5000.cmty.txt.gz",
+  "labelled_nodes": 52592,
+  "communities": 3320,
+  "silhouette": 0.00647914562227335,
+  "knn10_label_agreement": 0.7946836020687557,
+  "kmeans_ari": 0.3239641232033467,
+  "chance_knn10": 0.002171683684165175,
+  "hierarchy_level_ari_reference": [
+   0.17525817545060704,
+   0.33607622348202626,
+   0.43678939092415253,
+   0.44487698965806066,
+   0.33721090744707466,
+   0.08851800236992635,
+   0.05027864651569177
+  ]
+ },
+ "metrics_s": 393.0
+}

@@ -38,12 +38,25 @@ pub enum Kernel {
     /// PageRank at its fixed point: uniform teleport, dangling mass spread uniformly,
     /// out-edges for directed graphs, a kept loop as `A[v][v]` (S1). `weighted` uses the
     /// summed event weight of each pair (the multiplicity when the graph has no weight
-    /// column). Output: [`Output::Reals`].
+    /// column). With seeds, teleport and dangling mass are uniform over the seeds.
+    /// Output: [`Output::Reals`].
     #[serde(rename = "pagerank")]
     PageRank {
         /// Damping factor (probability of following an edge).
         damping: f64,
         /// Weight transitions by the pair's summed weight.
+        weighted: bool,
+        /// The seeds of a personalized PageRank (distinct, increasing); empty: every node.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        personalize: Vec<u32>,
+    },
+    /// Eigenvector centrality: the eigenvector of the largest eigenvalue of `Aᵀ` (in-edges
+    /// on a directed graph, a kept loop as `A[v][v]` as for PageRank), with unit L2 norm
+    /// and no negative value. Listed only where that eigenvector is unique: a connected
+    /// (strongly connected, if directed) graph with an edge. `weighted` as for PageRank.
+    /// Output: [`Output::Reals`].
+    Eigenvector {
+        /// Weight the matrix by the pair's summed weight.
         weighted: bool,
     },
     /// Weakly connected components; label = smallest node id of the component.
@@ -103,6 +116,7 @@ impl Kernel {
             Self::DegreeOut => "degree_out",
             Self::DegreeIn => "degree_in",
             Self::PageRank { .. } => "pagerank",
+            Self::Eigenvector { .. } => "eigenvector",
             Self::Wcc => "wcc",
             Self::Scc => "scc",
             Self::Bfs { .. } => "bfs",
@@ -121,11 +135,23 @@ impl Kernel {
     #[must_use]
     pub fn label(&self) -> String {
         match self {
-            Self::PageRank { damping, weighted } => {
+            Self::PageRank {
+                damping,
+                weighted,
+                personalize,
+            } => {
+                let seeds = if personalize.is_empty() {
+                    String::new()
+                } else {
+                    format!(",seeds={personalize:?}")
+                };
                 format!(
-                    "pagerank(d={damping}{})",
+                    "pagerank(d={damping}{}{seeds})",
                     if *weighted { ",weighted" } else { "" }
                 )
+            }
+            Self::Eigenvector { weighted } => {
+                format!("eigenvector({})", if *weighted { "weighted" } else { "" })
             }
             Self::Bfs { source } => format!("bfs(source={source})"),
             Self::Sssp { source } => format!("sssp(source={source})"),

@@ -1,0 +1,41 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=16G",
+  "-p",
+  "MemorySwapMax=0",
+  "bash",
+  "-c",
+  "ulimit -s 4000000; exec nice -n 10 /home/tux/graphlab/scratch/m1-18-layout-baseline/build/batchlayout/bin/BatchLayout -input /home/tux/graphlab/scratch/m1-18-layout-baseline/work/lj/graph.mtx -output /home/tux/graphlab/scratch/m1-18-layout-baseline/out/bl/ -iter 600 -threads 8 -algo 4"
+ ],
+ "rc": -9,
+ "timed_out": false,
+ "wall_s": 8.02,
+ "user_s": 15.3,
+ "sys_s": 12.8,
+ "peak_rss_mb": 16351,
+ "peak_anon_mb_sampled": 15593,
+ "memory_limit": "16G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  20.14,
+  23.84,
+  15.72
+ ],
+ "loadavg_end": [
+  17.88,
+  23.24,
+  15.61
+ ],
+ "started_utc": "2026-11-26T05:13:42Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "BatchLayout",
+ "version": "khaled-rahman/BatchLayout@d2e260d",
+ "threads": "8",
+ "options": "-algo 4 (Barnes-Hut) -iter 600 -init 0 (greedy)",
+ "note": "8G: oom-kill during input conversion"
+}

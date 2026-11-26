@@ -262,6 +262,10 @@ dependencies = [
  "everygraph-format",
  "everygraph-ingest",
  "everygraph-io",
+ "flate2",
+ "rustix",
+ "serde_json",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -293,6 +297,9 @@ name = "everygraph-ingest"
 version = "0.0.0"
 dependencies = [
  "everygraph-core",
+ "everygraph-format",
+ "everygraph-io",
+ "everygraph-oracle",
  "flate2",
  "proptest",
  "rustix",
@@ -319,6 +326,7 @@ dependencies = [
  "everygraph-format",
  "everygraph-io",
  "everygraph-oracle",
+ "proptest",
 ]
 
 [[package]]

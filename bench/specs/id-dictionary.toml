@@ -18,7 +18,9 @@
 # - "Bounded-memory build of a 500 M-key dictionary under a 4 GiB budget": `build-500m`,
 #   20-byte binary keys (the lab's ethbin), budget 4 GiB, scratch files in the case's
 #   work directory, under MemoryMax = budget + 1 GiB. Its page cache counts against the
-#   limit and is reclaimed under it; anon_peak_bytes is the anonymous memory.
+#   limit and is reclaimed under it; anon_peak_bytes is the anonymous memory. The
+#   build's large buffers come from the page backend (issue #167), the example's
+#   default (`--pages maps`).
 # - The two layouts ("measure both"): every benchmark runs both, and `cold-65m` times a
 #   look-up with every section evicted before each (the hash function stays in memory).
 #
@@ -123,9 +125,8 @@ warmup = 0
 memory_limit = "5G"
 timeout = "60m"
 command = ["{bin}", "--keys", "ethbin", "--n", "500000000", "--budget", "4G", "--scratch", "dir:{case_work}/scratch", "--layout", "split", "--lookups", "10000"]
-# Fixed glibc thresholds: a stopgap until the allocator policy, m2-19 (#167).
-env = { RAYON_NUM_THREADS = "{threads}", GLIBC_TUNABLES = "glibc.malloc.mmap_threshold=131072:glibc.malloc.trim_threshold=131072" }
-conditions = { keys = "500 M distinct, 20 bytes, generated while read", budget = "4 GiB (accountant)", limit = "MemoryMax 5 GiB", scratch = "files in the work directory", layout = "split", allocator = "glibc mmap and trim thresholds fixed at 128 KiB" }
+env = { RAYON_NUM_THREADS = "{threads}" }
+conditions = { keys = "500 M distinct, 20 bytes, generated while read", budget = "4 GiB (accountant)", limit = "MemoryMax 5 GiB", scratch = "files in the work directory", layout = "split", allocator = "page backend everygraph_io::PAGES (blocks of 128 KiB or more mapped on their own), glibc defaults" }
 metric = [
   { name = "build_s", json = "/build_s", unit = "s" },
   { name = "distinct_s", json = "/distinct_s", unit = "s" },

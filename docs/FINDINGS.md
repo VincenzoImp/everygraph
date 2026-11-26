@@ -177,7 +177,8 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   the first dedupe pass: 15 M keys/s (≈4 min per 3.6B endpoints, extrapolated).
   *Note 2026-11-25 (D8, ADR 0008, #34):* the product does not use the `ptr_hash` crate;
   it implements the same construction in the workspace. The MPHF numbers above belong to
-  the crate, not to that implementation.
+  the crate, not to that implementation. The implementation's official numbers are in
+  ADR 0008 (`bench/results/id-dictionary/`).
 - **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50), shared machine:**
   degree/neighbors 0.1–0.6 µs; common neighbors 0.4–0.8 µs; 3-hop with 10k budget
   56–115 µs; bidirectional BFS 0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter). p99 tails
@@ -347,8 +348,9 @@ to ~100k children in these runs; the idle re-run has 102,821 on lj and 338,769 o
 `lab/b2-leiden/results/hier/`). A fan-out cap (64) during coarsening plus level compaction (ratio ≥ 3)
 bounds fan-out on all but the top 1–2 levels at a cost of 2–5 modularity points
 (lj 0.750 → 0.727, orkut 0.685 → 0.631; idle re-run 0.749 → 0.726 and 0.680 → 0.630). Structural limit: top levels are star-like
-(giants with thousands of satellite communities). Not tested: recursive sub-clustering,
-nested resolution sweeps. Exact per-level aggregates verified independently.
+(giants with thousands of satellite communities). Recursive sub-clustering and nested
+resolution levels were tested later (§ M1-05, #19): recursive sub-clustering of the
+partition is the method chosen for the map. Exact per-level aggregates verified independently.
 
 **Memory / out-of-core:** O(n) state is small (21–53 B/node); the dominant term for Leiden
 is the level-1 quotient graph (22–44% of input entries). Friendster: Leiden in RAM
@@ -1181,3 +1183,275 @@ estimate: 14.4 GB of lists and 9 GB of forward lists), and CDLP and PageRank `sp
 a budget; SSSP on a large graph other than dota-league; directed graphs
 above the test size (twitter_mpi, cit-Patents, wiki-Talk); the edge-map proof kernels on
 com-friendster; any timing for the record.
+
+## M1-05 — a hierarchy the map can use (#19; 2026-11-25/26)
+
+**Question.** How do we get a map hierarchy with fan-out of about 8–64, whose regions mean
+something, in bounded memory? **Answer: recursive sub-clustering of the partition T
+(`rec`).** It keeps T exactly as one level of the tree. It bounds fan-out at 64 with
+90.7–99.9% of parents in 4–64 on five graphs. On Friendster it fits `MemoryMax=16G` and
+the lab layout places it.
+
+**Code and records.** Lab driver `lab/m1-05-hierarchy-shaping/shape.py` over
+`lab/m1-02-ooc-leiden` (`m102`: deterministic Leiden, one iteration, 16 threads, f64
+weights, level 0 in the D4 compressed store). Spec `bench/specs/hierarchy-shaping.toml`.
+- Official, Friendster (idle machine; the gate's 1-minute load was 0.73–0.74 at the start
+  of each run):
+  - `bench/results/hierarchy-shaping/20261125T221248Z-4efe4bc4defe.jsonl`: solve,
+    `capin`, metrics and layout rows. Its three shape rows exited 0 but carry status
+    `failed` (a boolean metric the harness cannot read); they are superseded by the
+    re-run below.
+  - `bench/results/hierarchy-shaping/20261126T035728Z-157b423f2463.jsonl`: the shape
+    re-run, 3 rows, all ok.
+- Exploratory-deterministic (shared machine; the metrics are deterministic, the times and
+  memory are not quotable): `lab/m1-05-hierarchy-shaping/results/harness/exploratory-quality-capfix-stability.jsonl`
+  (36 rows, spec groups `quality`, `capfix` and `stability`), `results/dev/*.json`,
+  `results/dev/*.stab.jsonl`, `results/independence.jsonl`, `results/stopfix.jsonl`,
+  `results/determinism.jsonl`. Screenshots in `results/screens/`.
+
+Paths below without a directory are under `lab/m1-05-hierarchy-shaping/results/`.
+
+**Candidates.** All build on the plain deterministic partition T, except `capin`.
+- `capin`: the cap during coarsening (cap 64, compaction 3), as produced. `capin+agg`: the
+  same plus the aggregate post-pass.
+- `sat`: the natural (uncapped) Leiden hierarchy plus aggregates.
+- `capafter`: capped coarsening inside every community of T, then T, then aggregates.
+- `rec`: every region above 64 nodes is split again by Leiden on its own subgraph, with
+  its own null model (local modularity, γ = 1). One Leiden run per round, over that
+  round's active regions only. A super level above T is built when T needs more than 63
+  communities to cover 90% of the nodes (`rec-up`: always).
+- `nest`: as `rec`, with full degrees, the region's own volume as null model, and γ =
+  2^(k+1) at the k-th split below T. `nest-up`: with the super level always.
+- Aggregates: a region with more than 64 children keeps its 63 largest; the rest go into
+  one aggregate, drawn as one hatched area "+N smaller communities".
+
+**Quality, four graphs** (exploratory-deterministic; `dev/<graph>.<variant>.json`, equal to
+the `quality-*` rows of the harness file). Fan-out of internal regions (median / maximum,
+share of parents with 4–64 children), leaf communities (median / maximum nodes), share of
+nodes under an aggregate, modularity of T's level:
+
+| graph | variant | fan-out | parents 4–64 | leaf | under aggregate | Q of T level (plain) |
+|---|---|---|---|---|---|---|
+| lj | capin | 3 / 613 | 38.6% | 7 / 673 | 0 | 0.7291 (0.7480) |
+| lj | sat | 3 / 64 | 30.1% | 2 / 26,119 | 37.2% | 0.7480 |
+| lj | capafter | 3 / 64 | 37.6% | 7 / 708 | 17.6% | 0.7480 |
+| lj | nest | 41 / 64 | 98.7% | 3 / 64 | 32.8% | 0.7480 |
+| lj | rec | 7 / 64 | 98.2% | 16 / 1,046 | 6.6% | 0.7480 |
+| orkut | capin | 3 / 79 | 41.3% | 2 / 64 | 0 | 0.6333 (0.6760) |
+| orkut | sat | 3 / 64 | 49.9% | 2 / 174,155 | 45.3% | 0.6760 |
+| orkut | nest | 34 / 64 | 98.9% | 1 / 64 | 44.9% | 0.6760 |
+| orkut | rec | 5 / 48 | 90.7% | 20 / 308 | 0% | 0.6760 |
+| web-google | capin | 3 / 2,974 | 37.6% | 3 / 65 | 0 | 0.9753 (0.9775) |
+| web-google | sat | 3 / 64 | 34.2% | 3 / 988 | 35.6% | 0.9775 |
+| web-google | rec | 7 / 64 | 93.6% | 15 / 861 | 10.2% | 0.9775 |
+| roadnet-ca | capin | 7 / 3,027 | 98.3% | 5 / 21 | 0 | 0.9923 |
+| roadnet-ca | sat | 2 / 64 | 9.6% | 2 / 7 | 75.4% | 0.9923 |
+| roadnet-ca | rec | 10 / 64 | 99.9% | 13 / 64 | 2.9% | 0.9923 |
+
+- For `capin`, "Q of T level" is its own top partition; the plain T is in brackets.
+- `capafter` keeps median fan-out 3 and puts 17.6–75.4% of nodes under aggregates on lj,
+  web-google and roadnet-ca; `capin+agg` puts 41.7–75.4% under aggregates on web-google and
+  roadnet-ca. On lj, orkut and web-google, both have 37.6–41.3% of parents in 4–64.
+- `nest` reaches the fan-out band but splits into tiny leaves (median 1–3 nodes on lj, orkut
+  and web-google) with 16.4–44.9% of nodes under aggregates.
+- Below T, `rec` is weak as a partition of the whole graph: Q at T+1 / T+2 is lj
+  0.62 / 0.47, orkut 0.58 / 0.40. Node-weighted conductance at T+1 is 0.36 on lj and 0.40
+  on orkut (`summary.txt`).
+- The drawn top level has lower modularity than T where it holds an aggregate or a super
+  level: lj 0.7423 against 0.7480; web-google 0.9666 and roadnet-ca 0.9812, where the
+  super level is built.
+
+**Friendster under `MemoryMax=16G`** (official). Every run is one scope with the driver
+and every m102 run it starts. m102 runs out of core with a 10 GB accountant budget. Cold
+copy of the store. Times are the tool's own seconds. The cgroup peak reads 16.0 GiB
+(the limit) in the solve and shape rows because the page cache fills it, so only the
+anonymous peak is given.
+
+| case | time | anonymous peak | read / written | rows |
+|---|---|---|---|---|
+| plain solve (deterministic Leiden; the reference) | 102.2 s, 113.4 s | 7.4 GiB | 48–50 GB / 30 GB | first file 1–2 |
+| `rec` shaping (after the solve) | 499.3 s, 506.1 s | 10.0 GiB | 128.6 GB / 106.8 GB | re-run 1–2 |
+| `rec-up` shaping | 610.0 s | 10.0 GiB | 166.1 GB / 134.9 GB | re-run 3 |
+| `capin` (capped Leiden and its tree) | 341.0 s | 8.6 GiB | 114.0 GB / 106.5 GB | first file 6 |
+| lab layout of the `rec` tree (graph memory-mapped) | 64.7 s | 2.8 GiB | 4.8 GB / 1.9 GB | first file 10 |
+
+- **Plain solve:** Q 0.6055, 44,641 communities, hash `2a12e5882874c38d` in both
+  repetitions.
+- **`rec` split** (re-run row 1): 9 rounds; cut graphs 67.6 s; Leiden 311.1 s; the
+  super-level check 13.4 s (not built: T needs 6 communities to cover 90% of the nodes);
+  post-pass 0.04 s. The largest per-round Leiden anonymous peak is 8.4 GiB. The driver's
+  own peak RSS is 4.5 GiB, reached between m102 runs.
+- **`rec-up`:** the super level costs 108.2 s (one more out-of-core Leiden at γ = 1/2,
+  anonymous peak 7.3 GiB).
+- **The first window's shape rows** (exit 0, marked failed only for the metric) agree:
+  `rec` 507.2 s and 510.3 s, `rec-up` 607.8 s, anonymous 10.0 GiB.
+- **Against the tracer's plain Louvain solve** (4.2 GiB, 115.1 s; FINDINGS § M1-01):
+  shaping takes about 4.3–4.4× that time and 2.4× its anonymous memory. Not like for like
+  (different algorithm and input partition). Against m102's deterministic solve: 4.4–5.0×
+  the time.
+- **Trees, from the official metrics rows** (first file 7–9, 24 GiB scope, evaluation
+  outside the 16 GiB claim; they read the trees the shape rows wrote):
+
+| variant | fan-out | parents 4–64 | leaf | nodes in leaves over 384 | under aggregate | Q drawn top level | Q of T level | Q T+1 |
+|---|---|---|---|---|---|---|---|---|
+| `rec` | 7 / 64 | 99.7% | 15 / 897 | 4,242 | 2.1% | 0.6055 | 0.6055 | 0.5524 |
+| `rec-up` | 7 / 64 | 99.7% | 15 / 897 | 4,242 | 2.1% | 0.5304 | 0.6055 | 0.5524 |
+| `capin` | 3 / 603 | 42.0% | 6 / 494 | 1,735 | 0 | 0.5894 | 0.5894 | 0.4838 |
+
+  The trees the metrics read are byte-for-byte the exploratory trees (SHA-256 over
+  `par`, `kind`, `nn`, `ncomm`, `role`, `leaf`: `rec` `59087a0b8bbf840c`, `rec-up`
+  `6d8ab11a1ae502c1`, `capin` `70013030d9c06734`; PR #162).
+- **Layout:** every parent is placed. The 99 groups it derives all lie inside 8 leaves
+  that cannot be split: star-shaped regions above 384 nodes, 4,242 nodes in total.
+
+**Stability** (exploratory-deterministic; `dev/{lj,orkut}.stab.jsonl`, `stability` rows of
+the harness file).
+- **Protocol:** six perturbations: 1% of the undirected edges dropped with 5 hash seeds,
+  plus one drop that keeps every node's largest-hash edge, so no node is isolated. Every
+  variant is rebuilt on each perturbed graph. Levels are matched by role (super, T, T+1,
+  T+2), aggregates are resolved, and nodes the drop isolated are left out.
+- **Medians of ARI / NMI:**
+
+| level | variant | lj | orkut |
+|---|---|---|---|
+| T | all that keep T | 0.754 / 0.792 | 0.831 / 0.871 |
+| T+1 | `sat` | 0.656 / 0.772 | 0.831 / 0.856 |
+| T+1 | `rec` | 0.437 / 0.810 | 0.554 / 0.809 |
+| T+1 | `capin` | 0.020 / 0.563 | 0.048 / 0.525 |
+| T+2 | `sat` | 0.667 / 0.795 | 0.825 / 0.821 |
+| T+2 | `rec` | 0.329 / 0.872 | 0.376 / 0.801 |
+
+- `rec` below T is less stable by ARI than `sat` and `capafter`, with similar NMI. This
+  is a property of `rec`, not an argument for it.
+- The automatic super-level decision did not change on any of the 12 perturbed graphs
+  (lj needs 42–49 communities against 49 unperturbed; orkut 10–11 against 10).
+
+**Independence of a round** (exploratory-deterministic; `independence.jsonl`). A round's
+cut graph holds only that round's active regions, renumbered, so no isolated vertex enters
+Leiden's stopping test. A region solved alone and the same region in the union of its
+round give nearly the same number of sub-communities. Web-google, 20th region (9,403
+nodes): 63 in the union, 58 alone. Before this fix, the reviewer measured 72 in the union
+and 1,045 alone. The partitions still differ: ARI 0.69–0.99. The same region alone under
+another visiting order gives 0.80–1.0 on web-google and 0.64–0.97 on lj. lj's 589,084-node
+giant: 0.34 against 0.64. The regions of a round share Leiden's visiting order and its
+global stopping rules. Solving each region as its own job makes the partition identical
+by construction: follow-up #181 (m4-10).
+
+**A defect in the stopping test of the lab Leiden** (exploratory-deterministic;
+`stopfix.jsonl`).
+- Isolated vertices stay singletons at every level. The pass-stopping test counted them,
+  so a graph with many of them stopped aggregating one pass early.
+- lj with 1% of its edges dropped (seed 11, 7,799 isolated nodes), the m102 of b48f822
+  against the fixed one:
+  - 6 passes instead of 7;
+  - 1,760 communities other than the isolated singletons, instead of 1,688;
+  - Q 0.7450 instead of 0.7477;
+  - **82 instead of 49 communities to cover 90% of the nodes.**
+- orkut (668 isolated nodes): 12 instead of 10.
+- This, not the graph, made the super-level decision change under perturbation.
+- The fix leaves vertices of strength 0 out of the test. Graphs without isolated vertices
+  are unchanged: lj `44ae14c7774277eb`, Friendster `2a12e5882874c38d` (`capfix_lj.jsonl`,
+  official solve rows).
+- The production Leiden carries the same rule (#57).
+
+**The cap baseline's known bug.** With `--iterations 2`, the second iteration refined into
+uncapped communities. Lowest levels on lj: 28,847 and 53,972 children. Fixed by capping the
+refined communities too: 71 / 68 / 66 (exploratory-deterministic, `capfix-lj` rows,
+`capfix_lj.jsonl`). In deterministic mode the fix also changes the one-iteration capped
+run slightly: lj Q 0.7293 → 0.7291, 75 → 78 top communities.
+`lab/m1-02-ooc-leiden/results/map_identity.jsonl` (orkut, deterministic, capped) is a
+measurement of the old binary.
+
+**The super level** (exploratory-deterministic; `dev/<graph>.rec.json`, `.rec-up.json`;
+rule in `design/DECISIONS.md`, "The map's super level").
+- An always-built super level lowers the drawn top level against T: lj 0.7226 against
+  0.7480, orkut 0.5293 against 0.6760, Friendster 0.5304 against 0.6055 (official metrics
+  row 8).
+- With the 90%-cover rule (more than 63 communities), the margins measured are lj 14
+  below, orkut 53 below, Friendster 57 below, web-google 28 above and roadnet-ca 256 above.
+- The rule adopted is a heuristic, with no prior art found: hysteresis on rebuilds (on
+  above 72, off below 56).
+
+**Map.** The lab viewer draws three kinds of region, as in the approved design: found
+communities (solid), aggregates (one hatched area per parent, "+N smaller communities")
+and subdivisions or layout-derived groups (dashed, labelled). Every drawn artificial region
+carries a label. An artificial region under 10 px is not drawn (its communities are), and
+the head-up display counts those. Tiles are format `GMT1` (48-byte region records).
+Screenshots of `rec` and the baselines on lj, orkut, web-google, roadnet-ca and Friendster
+are in `screens/`.
+
+**Prior art.** Recursive sub-clustering is not new: ASK-GraphView (2006), hierarchical
+Infomap, graspologic's `hierarchical_leiden` (`docs/research/sota-communities.md`). This
+section records measurements only.
+
+**Not done.**
+- Stability on web-google, roadnet-ca and Friendster.
+- A degree-preserving rewiring as perturbation, and a no-perturbation control.
+- Async Leiden and more than one iteration.
+- Fan-out targets other than 64.
+- Tiles and the viewer on Friendster: the lab tile builder does not fit 16 GiB, so the
+  pictures are drawn from the layout.
+- Labelled binning for leaves that cannot be split: follow-up #182 (m4-11).
+
+## M1-18 — our map layout against published large-graph layouts (#175; 2026-11-26, shared machine)
+
+**Question.** Is hierarchy-constrained disc packing (D17) behind, level or ahead of a
+published large-graph layout, on metrics that do not depend on our own hierarchy?
+**Answer.** It is ahead on local and community structure and behind on global structure,
+on lj and on orkut. Stress on the parent's quotient graph (sota-maps challenge 1,
+candidate (a)) closes part of the global gap on orkut, but none on lj.
+
+**Records.** `lab/m1-18-layout-baseline/results/`: `runs/*.json` (what ran, limit, time,
+memory), `metrics/*.json` (one script, `metrics.py`, for every layout), `crosslevel_*.json`,
+`ab_lj.jsonl`, `table.md`, and the write-up `README.md`. The metrics are deterministic
+(fixed seeds). Times and memory are exploratory: the load average was 14–62. The hierarchy
+is `data/hier/<g>` (b2-leiden v2, map-shaped, cap 64), not M1-05's `rec`.
+
+**What ran** (8 threads unless stated; hard memory limits):
+- ours (`hcl`, 8G) and ours with stress (`hcls`, 8G);
+- DRGraph@4f3fda2 with its README options (lj 8G, orkut 24G);
+- ForceAtlas2 in cuGraph 26.10 on the GPU, a reference only (8–12G);
+- BatchLayout@d2e260d (Barnes-Hut, 600 iterations, random start; its default greedy start
+  was killed at 16G).
+
+**OGDF FM³ (foxglove-202510) was killed at 16G and at 24G on lj, and Graphviz sfdp 14.1.2
+at 24G,** before either produced a layout.
+
+| | median ratio | mean ratio | NP₁ | Spearman (layout vs hops) | GT 10-NN agreement | GT k-means ARI | NP@10 L2 / L4 / top |
+|---|---|---|---|---|---|---|---|
+| lj ours | **0.013** | 0.248 | 0.247 | 0.033 | 0.786 | **0.319** | 0.082 / 0.047 / 0.075 |
+| lj ours + stress | 0.013 | 0.261 | **0.335** | −0.032 | **0.792** | 0.317 | **0.095 / 0.059** / 0.074 |
+| lj DRGraph | 0.079 | **0.133** | 0.015 | **0.311** | 0.553 | 0.306 | 0.002 / 0.013 / **0.202** |
+| lj FA2 (GPU) | 0.149 | 0.141 | 0.012 | 0.167 | 0.515 | 0.187 | 0.003 / 0.013 / 0.211 |
+| lj BatchLayout | 0.802 | 0.692 | 0.001 | 0.086 | 0.022 | 0.001 | 0.000 / 0.001 / 0.100 |
+| lj random | 1.000 | 1.000 | 0.000 | 0.032 | 0.002 | 0.000 | 0.000 / 0.001 / 0.115 |
+| orkut ours | 0.088 | 0.369 | 0.102 | 0.035 | 0.524 | **0.199** | 0.094 / 0.079 / 0.045 |
+| orkut ours + stress | 0.093 | 0.298 | **0.115** | 0.326 | **0.533** | 0.197 | **0.105** / 0.080 / 0.055 |
+| orkut DRGraph | **0.070** | 0.103 | 0.002 | **0.547** | 0.036 | 0.015 | 0.013 / **0.085** / 0.063 |
+| orkut FA2 (GPU) | 0.076 | **0.100** | 0.002 | 0.521 | 0.030 | 0.010 | 0.013 / 0.069 / 0.063 |
+| orkut random | 1.000 | 1.000 | 0.000 | 0.020 | 0.001 | 0.000 | 0.000 / 0.006 / 0.104 |
+
+- The ground truth is SNAP `com-<g>.top5000`, restricted to nodes in exactly one community
+  (lj: 52,592 nodes in 3,320 communities; orkut: 494,179 in 4,589). NP@10 compares the 10
+  strongest quotient neighbours with the 10 nearest community centroids. With 100 BFS
+  sources, a Spearman |ρ| ≤ 0.03 is noise.
+- **Ahead.** NP₁ is 16–50× DRGraph's and FA2's. NP@10 is 4–50× higher on lj L0–L4 and
+  2–90× on orkut L0–L3. The ground-truth 10-NN agreement is 0.79 against 0.55 (lj) and 0.52
+  against 0.04 (orkut).
+- **Behind.** Without stress, layout distance has no correlation with graph distance:
+  Spearman equals a random layout's on both graphs. 21% (lj) and 24% (orkut) of edges
+  cross the top regions. Their median length is 0.98 and 1.27 of a random pair, against
+  0.23 and 0.16 in DRGraph. On orkut even the median ratio is behind (0.088 against 0.070).
+- **Stress per parent** is deterministic and costs about 1.8× the solve CPU (interleaved
+  A/B, `ab_lj.jsonl`). On orkut it brings Spearman to 0.33 and the top crossing edges to
+  0.88. Starting the top tree depths from DRGraph's centroids gives the same (0.30–0.31).
+  On lj, where each top region links to 44 of the other 70, neither changes the global
+  numbers. Rotating sibling groups to face their outside neighbours changes nothing.
+- BatchLayout with a random start stayed near random after 4,795 s. This is not a fair
+  picture of the method.
+- Stress at the optimal scale does not separate the layouts: random scores 0.21, ours
+  0.18–0.22, DRGraph 0.29–0.31. On a small-world graph, nearly constant distances score
+  well.
+- No layout reaches ADR 0017's trigger "orkut ratio below 0.05" (DRGraph 0.070).
+- Cost, exploratory: ours 4–12 s and ≤ 1.2 GB; DRGraph 700 s and 7.0 GB on lj, 919 s and
+  18.4 GB on orkut (the paper's figure).
