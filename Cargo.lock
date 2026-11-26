@@ -579,7 +579,9 @@ dependencies = [
  "everygraph-ingest",
  "everygraph-io",
  "everygraph-oracle",
+ "jsonschema",
  "proptest",
+ "serde_json",
 ]
 
 [[package]]

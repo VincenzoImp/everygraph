@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #263: random-read rate of the drive by read size and queue depth, a `pread`
+# thread pool against io_uring, buffered and O_DIRECT. Not part of the workspace.
+
+[package]
+name = "m235-random-read-probe"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[[bin]]
+name = "rrprobe"
+path = "src/main.rs"
+
+[dependencies]
+io-uring = "0.7"
+libc = "0.2"
+
+[workspace]
+
+[profile.release]
+codegen-units = 1

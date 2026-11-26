@@ -42,6 +42,7 @@ Second-round experiments and measurements of production code:
 | `m2-04-segvec` | #31, segmented arrays against `Vec` | ADR 0002 | `segvec.toml` |
 | `m2-08-build` | #35, the size of `.events` on a temporal graph (results only) | `docs/spec/eg-adjacency.md` § 7 | — |
 | `m2-28-par-scatter` | #189, safe scattered writes, A/B | `plan/issues/m2-28-par-scatter.md` | — |
+| `m2-35-random-read-probe` | #263, random-read rate by size and queue depth, `pread` pool against io_uring | its own `README.md` (exploratory) | — |
 | `m3-27-frontier-counters` | #266, frontier driver and decode counters | `plan/issues/m3-27-frontier-counters.md` | — |
 | `m5-02-tile-format` | #68, the tile payload against MapLibre Tile and Arrow IPC on the lab tiles (bytes only) | `docs/spec/egmap.md` § 10, its own `README.md` (exploratory) | — |
 

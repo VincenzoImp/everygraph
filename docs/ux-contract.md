@@ -2513,8 +2513,8 @@ obligation below into the issue file it names and republished it.
 
 | Point | Where it shows | Suggested owner |
 |---|---|---|
-| `terminal.html` still describes seven colour instructions and keeps blue "until that is decided"; `SPEC.md` has decided. It also still shows "a fifth of free RAM", "groups", `--precision low`, `/tmp/everygraph-7c1e`, `rm -r`, and a `map` result line without its time (§ 9, items 2, 14 – 18). | `design/preview/style/terminal.html` | #121 |
-| `notebook.html` uses `budget=10_000` for `khop` (now `limit=`), "start over" on interruption, bullets in the exception text, "cut short" for display, "groups" in the step table and `precision="low"` in the error card. | `design/preview/style/notebook.html` | #121, #76 |
+| `terminal.html` still describes seven colour instructions and keeps blue "until that is decided"; `SPEC.md` has decided. It also still shows "a fifth of free RAM", "groups", `--precision low`, `/tmp/everygraph-7c1e`, `rm -r`, and a `map` result line without its time (§ 9, items 2, 14 – 18). | `design/preview/style/terminal.html` | `m8-16-previews-follow-contract` |
+| `notebook.html` uses `budget=10_000` for `khop` (now `limit=`), "start over" on interruption, bullets in the exception text, "cut short" for display, "groups" in the step table and `precision="low"` in the error card. | `design/preview/style/notebook.html` | `m8-16-previews-follow-contract`, #76 |
 | The text reader of #32 can skip invalid rows and count them (`OnInvalid::Skip`), but no public option exposes it, and the option has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | a preview, then #81 and #98 |
 | A phase that lasts hours prints nothing in a job log until it ends (the approved piped form has no heartbeat). | § 4.5 | #98 |
 | No command lists or removes scratch left by stopped runs; the stop block's `discard:` line and the `old-scratch` warning (R-10) are the only pointers. `everygraph doctor` could list them. | § 5.3 | #98 |
