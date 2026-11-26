@@ -121,7 +121,12 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                 let mut at = r.start;
                 let mut seen = Vec::new();
                 while at < r.end {
+                    // Sized first, the decode does not allocate.
+                    let lists = ix(r.end - at);
+                    batch.reserve(adj.batch_entries(at..r.end, budget), lists);
+                    let held = batch.heap_bytes();
                     let next = adj.decode_nodes(at..r.end, budget, &mut batch).unwrap();
+                    assert_eq!(batch.heap_bytes(), held, "{name} batch {r:?} grew");
                     assert_eq!(batch.first(), at);
                     assert_eq!(ix(next - at), batch.len(), "{name} batch {r:?}");
                     assert!(batch.len() == 1 || batch.targets().len() <= budget);

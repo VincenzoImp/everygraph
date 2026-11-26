@@ -141,18 +141,74 @@ fn grow(buf: &mut Vec<u32>, len: usize) {
     }
 }
 
+/// Entries the SIMD decoders may write past the last list: their last group needs no
+/// scalar loop.
+const SLACK: usize = 3;
+
 /// Decoded lists of consecutive nodes: the caller's reusable buffer for
 /// [`Adjacency::decode_nodes`].
+///
+/// A batch grows as it decodes. A caller that counts its memory sizes it first:
+/// [`Adjacency::batch_entries`] says how many entries a call may need, [`reserve`](Self::reserve)
+/// makes room for them, and the call then does not allocate.
 #[derive(Clone, Debug, Default)]
 pub struct Batch {
     first: u32,
     entries: usize,
-    /// At least `entries + 3`: the SIMD decoders' last group needs no scalar loop.
+    /// At least `entries + SLACK`.
     targets: Vec<u32>,
     ends: Ends,
 }
 
 impl Batch {
+    /// Heap bytes a batch holds after [`reserve`](Self::reserve) of `entries` and
+    /// `lists` from empty.
+    #[must_use]
+    pub const fn bytes_for(entries: usize, lists: usize) -> usize {
+        entries * size_of::<u32>() + lists * 2 * size_of::<usize>()
+    }
+
+    /// Entries and lists the batch has room for without allocating.
+    #[must_use]
+    pub fn capacity(&self) -> (usize, usize) {
+        let lists = self.ends.entries.capacity().min(self.ends.bytes.capacity());
+        (self.targets.capacity(), lists)
+    }
+
+    /// Heap bytes the batch holds.
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        self.targets.capacity() * size_of::<u32>()
+            + (self.ends.entries.capacity() + self.ends.bytes.capacity()) * size_of::<usize>()
+    }
+
+    /// Makes room, without spare capacity, for a decode of `entries` entries (the value
+    /// of [`Adjacency::batch_entries`]) into at most `lists` lists, so that the decode
+    /// does not allocate.
+    pub fn reserve(&mut self, entries: usize, lists: usize) {
+        self.targets
+            .reserve_exact(entries.saturating_sub(self.targets.len()));
+        for ends in [&mut self.ends.entries, &mut self.ends.bytes] {
+            ends.reserve_exact(lists.saturating_sub(ends.len()));
+        }
+    }
+
+    /// Empties the batch and frees memory beyond `entries` entries and `lists` lists.
+    pub fn shrink_to(&mut self, entries: usize, lists: usize) {
+        self.clear();
+        self.targets.truncate(entries);
+        self.targets.shrink_to(entries);
+        self.ends.entries.shrink_to(lists);
+        self.ends.bytes.shrink_to(lists);
+    }
+
+    /// Empties the batch: no lists. The memory is kept.
+    pub fn clear(&mut self) {
+        self.entries = 0;
+        self.ends.entries.clear();
+        self.ends.bytes.clear();
+    }
+
     /// The first node decoded.
     #[must_use]
     pub fn first(&self) -> u32 {
@@ -311,7 +367,7 @@ impl<'a> Adjacency<'a> {
             end: v.get() + 1,
         };
         let range = self.index.record_range(v);
-        grow(buf, k + 3);
+        grow(buf, k + SLACK);
         let used = self
             .decoder
             .list(&self.data[to_usize(range.start)..], v.get(), d, k, buf)
@@ -378,17 +434,14 @@ impl<'a> Adjacency<'a> {
             self.index.nodes()
         );
         batch.first = nodes.start;
-        batch.entries = 0;
-        batch.ends.entries.clear();
+        batch.clear();
         if nodes.is_empty() {
             return Ok(nodes.end);
         }
-        let ef = self.index.entry_offsets();
-        let (start, end) = (to_usize(nodes.start.into()), to_usize(nodes.end.into()));
-        let (first, second) = ef.get_pair(start);
-        let span = to_usize(ef.get(end) - first);
-        let room = max_entries.max(to_usize(second - first)).min(span);
-        grow(&mut batch.targets, room + 3);
+        grow(
+            &mut batch.targets,
+            self.batch_entries(nodes.clone(), max_entries),
+        );
         match self.decode_into(nodes, max_entries, &mut batch.targets, &mut batch.ends) {
             Ok(done) => {
                 batch.entries = done.entries;
@@ -399,6 +452,25 @@ impl<'a> Adjacency<'a> {
                 Err(e)
             }
         }
+    }
+
+    /// The length [`decode_nodes`](Self::decode_nodes) with these arguments grows a
+    /// batch's buffer to, at most: the entries it may decode (the first list always, then
+    /// lists up to `max_entries`), and the decoders' slack. For [`Batch::reserve`].
+    ///
+    /// # Panics
+    ///
+    /// If `nodes` is not a range within `0..nodes()`.
+    #[must_use]
+    pub fn batch_entries(&self, nodes: Range<u32>, max_entries: usize) -> usize {
+        if nodes.is_empty() {
+            return 0;
+        }
+        let ef = self.index.entry_offsets();
+        let (start, end) = (to_usize(nodes.start.into()), to_usize(nodes.end.into()));
+        let (first, second) = ef.get_pair(start);
+        let span = to_usize(ef.get(end) - first);
+        max_entries.max(to_usize(second - first)).min(span) + SLACK
     }
 
     /// Decodes the whole adjacency into a raw CSR: `offsets` (`nodes + 1` entries) and

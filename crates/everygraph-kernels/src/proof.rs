@@ -139,7 +139,8 @@ pub fn pagerank<S: Source, F: Real>(
         ))?;
         let c = plan.per_node(c)?;
         let out = (one_segment(&mut next)?, one_segment(&mut rank)?);
-        dangling = plan.scan(out, all, |dang: &mut f64, (next, rank), i, _, list| {
+        dangling = plan.scan(out, all, |dang: &mut f64, (next, rank), i, row, _| {
+            let list = row.list;
             let r = base.plus(dmp.times(gather(c, list)));
             if list.is_empty() {
                 *dang += r.to_f64();
@@ -207,7 +208,8 @@ pub fn wcc<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory) -> Result<Atomics
     const ROUNDS: usize = 2;
     let comp = plan.node_cells(memory)?;
     for r in 0..ROUNDS {
-        plan.scan((), all, |(): &mut (), (), _, u, list| {
+        plan.scan((), all, |(): &mut (), (), _, row, _| {
+            let (u, list) = (row.node, row.list);
             if let Some(&v) = list.get(r) {
                 link(&comp, u, v);
             }
@@ -219,7 +221,8 @@ pub fn wcc<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory) -> Result<Atomics
         plan.scan(
             (),
             |u| !in_giant(u),
-            |(): &mut (), (), _, u, list| {
+            |(): &mut (), (), _, row, _| {
+                let (u, list) = (row.node, row.list);
                 for &v in list.get(ROUNDS..).unwrap_or_default() {
                     link(&comp, u, v);
                 }
@@ -282,7 +285,8 @@ pub fn bfs<S: Source>(
                 awake = plan.scan(
                     (),
                     |v| at[v].load(Relaxed) == UNREACHED,
-                    |found: &mut u64, (), _, v, list| {
+                    |found: &mut u64, (), _, row, _| {
+                        let (v, list) = (row.node, row.list);
                         if list.iter().any(|&u| front.contains(u)) {
                             at[v].store(level + 1, Relaxed);
                             next.insert(v);
@@ -301,7 +305,8 @@ pub fn bfs<S: Source>(
             scout = 1;
         } else {
             edges_to_check = edges_to_check.saturating_sub(scout);
-            scout = plan.frontier(frontier.as_slice()?, |scout: &mut u64, _, list| {
+            scout = plan.frontier(frontier.as_slice()?, |scout: &mut u64, row, _| {
+                let list = row.list;
                 for &v in list {
                     let d = &at[v];
                     if d.load(Relaxed) == UNREACHED

@@ -5,12 +5,12 @@
 //!
 //! What lives here:
 //!
-//! - [`edge_map`]: the framework (#44): adjacency [`Source`](edge_map::Source)s (raw
+//! - [`edge_map`]: the framework: the adjacency [`Source`](edge_map::Source)s (raw
 //!   arrays, the compressed format in the heap or memory-mapped, streams), the
 //!   [`Plan`](edge_map::Plan) whose drivers run a kernel body over them, and the rules
-//!   that make every result independent of threads, chunking and source.
-//! - [`proof`]: `PageRank`, components and BFS written once on the framework, the proof of
-//!   its acceptance; the production kernels (#47–#52) replace them.
+//!   that keep every result independent of threads, chunking and source.
+//! - [`proof`]: `PageRank`, components and BFS, written once on the framework. The
+//!   production kernels (#47–#52) replace them.
 //!
 //! A kernel body is a closure over one node and its list:
 //!
@@ -25,13 +25,13 @@
 //!
 //! let mut heaviest = [0_u32; 3];
 //! let total: f64 = Plan::with(&csr, &Memory::unlimited(), Settings::default(), |plan| {
-//!     let w = plan.per_node(&weight).unwrap(); // indexed by nodes without bounds checks
-//!     // For each node: its heaviest neighbour (an output), and the sum of its
-//!     // neighbours' weights over all nodes (a reduction, in a fixed order).
-//!     plan.scan(&mut heaviest[..], all, |sum: &mut f64, out, i, _v, list| {
-//!         let best = list.iter().max_by(|a, b| w[**a].total_cmp(&w[**b]));
+//!     let w = plan.per_node(&weight).unwrap(); // indexed by nodes, without bounds checks
+//!     // For each node: its heaviest neighbour (an output), and the sum of the weights
+//!     // of the neighbours of all nodes (a reduction, in a fixed order).
+//!     plan.scan(&mut heaviest[..], all, |sum: &mut f64, out, i, row, _| {
+//!         let best = row.list.iter().max_by(|a, b| w[**a].total_cmp(&w[**b]));
 //!         out[i] = best.map_or(0, |u| u.get());
-//!         *sum += list.iter().map(|&u| w[u]).sum::<f64>();
+//!         *sum = row.list.iter().fold(*sum, |s, &u| s + w[u]);
 //!     })
 //! })
 //! .unwrap();
@@ -39,13 +39,13 @@
 //! ```
 //!
 //! The same closure runs over a [`Compressed`](edge_map::Compressed) or a
-//! [`Stream`](edge_map::Stream) source with identical results. The crate must build for
+//! [`Stream`](edge_map::Stream) source with the same result. The crate builds for
 //! wasm32: it reads through `ByteSource`, splits work through `everygraph_core::par`, and
 //! is under the portability lists of the core and the allocation rule (`clippy.toml`).
 
 // `forbid`: the portability and allocation lists in `clippy.toml` cannot be allowed
-// away (issue #31). `unsafe_code` is denied by the workspace and allowed in the one
-// registered module, `edge_map` (CONTRIBUTING.md, "`unsafe`").
+// away. `unsafe_code` is denied by the workspace and allowed in the one registered
+// module, `edge_map` (CONTRIBUTING.md, "`unsafe`").
 #![forbid(
     clippy::disallowed_methods,
     clippy::disallowed_types,

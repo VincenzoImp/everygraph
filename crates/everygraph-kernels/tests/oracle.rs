@@ -114,15 +114,15 @@ fn kernel<S: Source>(
     symmetric: bool,
 ) -> Result<Output, String> {
     let memory = Memory::unlimited();
+    let threads = NonZeroUsize::new(config.threads).unwrap();
     let settings = Settings {
-        threads: NonZeroUsize::new(config.threads).unwrap(),
         chunk_entries: config.chunk_entries,
         batch_entries: usize::try_from(config.chunk_entries.min(8192)).unwrap(),
         prefetch: config.regime != Regime::InMemory,
     };
     let e = |e: everygraph_kernels::edge_map::Error| e.to_string();
     let out = Plan::with(source, &memory, settings, |plan| {
-        par::with_threads(settings.threads, || match kernel {
+        par::with_threads(threads, || match kernel {
             Kernel::PageRank { damping, .. } => {
                 pagerank::<_, f64>(&plan, &memory, *damping, ITERATIONS)
                     .map_err(e)
@@ -192,15 +192,13 @@ impl KernelUnderTest for Proof {
                 let csr = Csr::new(&s.offsets, &s.targets).map_err(|e| e.to_string())?;
                 kernel(&csr, k, config, symmetric)
             }
-            (Storage::Compressed, regime) => {
-                let bytes = if regime == Regime::Mmap {
-                    everygraph_core::ByteSource::as_slice(&s.map).unwrap()
-                } else {
-                    &s.data
-                };
-                let adj = Adjacency::new(&s.index, bytes).map_err(|e| e.to_string())?;
-                let source = Compressed::new(adj).with_hints(&s.map);
+            (Storage::Compressed, Regime::Mmap) => {
+                let source = Compressed::mapped(&s.index, &s.map).map_err(|e| e.to_string())?;
                 kernel(&source, k, config, symmetric)
+            }
+            (Storage::Compressed, _) => {
+                let adj = Adjacency::new(&s.index, &s.data).map_err(|e| e.to_string())?;
+                kernel(&Compressed::new(adj), k, config, symmetric)
             }
             (Storage::Raw, _) => {
                 let stream = Stream::new(&s.offsets, &s.stream).map_err(|e| e.to_string())?;

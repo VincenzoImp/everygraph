@@ -5,30 +5,27 @@
 //!
 //! # Why `unsafe`
 //!
-//! Every list a [`Source`](super::Source) hands out has been checked to name only nodes
-//! below the graph's node count (#44: a corrupt file must not make a kernel misbehave).
-//! A kernel then indexes its per-node arrays with those targets millions of times, and
-//! the compiler cannot know they are in range: removing the bounds checks took WCC from
-//! 1.36× to 1.03× of the lab's hand-written loop at one thread and BFS from 1.16× to
-//! 0.99× (orkut, raw arrays in the heap, interleaved exploratory runs on a loaded
-//! machine, binaries alternated; PR of #44). Without the checks, a target that is out
-//! of range would be undefined behaviour, so the proof that it is in range travels in
-//! the type.
+//! Every list a [`Source`](super::Source) hands out is checked to name only nodes below
+//! the node count. Kernels then index per-node arrays with those targets many times per
+//! entry, and the compiler cannot see that the targets are in range. The bounds checks
+//! cost up to a third of the time of WCC on orkut at one thread (interleaved A/B against
+//! `lab/b1-core`, PR #202). So the proof that a target is in range is carried in its
+//! type, and indexing with it skips the check.
 //!
 //! # The proof
 //!
-//! A [`Plan`](super::Plan) exists only inside [`Plan::with`](super::Plan::with), which
-//! gives it a fresh lifetime `'g`, invariant, that no other plan shares (the "generative
-//! brand" of `GhostCell` and of the `indexing` crate). A `Node<'g>` can only be made by
-//! that plan — from a checked list, from a checked id ([`Plan::node`](super::Plan::node))
-//! or from a range of the plan's nodes — so its id is below the plan's node count `n`.
-//! A `PerNode<'_, 'g, T>` holds at least `n` values, a `NodeCells<'g>` exactly `n` cells
-//! each holding a `Node<'g>`, a `NodeSet<'g>` a bit for each of `n` nodes. Indexing one
-//! with a `Node<'g>` is therefore in bounds; a node of another plan has another brand and
-//! does not type-check.
+//! A [`Plan`](super::Plan) exists only inside [`Plan::with`](super::Plan::with). That
+//! call gives the plan a new lifetime `'g`. The lifetime is invariant, and no other plan
+//! has it (a generative brand, as in `GhostCell`). Only that plan makes a `Node<'g>`:
+//! from a checked list, from a checked id ([`Plan::node`](super::Plan::node)), or from a
+//! range of its nodes. So the id of a `Node<'g>` is below the plan's node count `n`.
 //!
-//! The raw CSR reader [`csr_list`] is here too: its arrays are checked once when the
-//! source is made, and each list then costs one comparison.
+//! - A `PerNode<'_, 'g, T>` holds at least `n` values.
+//! - A `NodeCells<'g>` holds exactly `n` cells, and each cell holds a `Node<'g>`.
+//! - A `NodeSet<'g>` has a bit for each of the `n` nodes.
+//!
+//! So indexing one of them with a `Node<'g>` is in bounds. A node of another plan has
+//! another brand, and the code does not compile.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -201,6 +198,7 @@ impl<'g> NodeCells<'g> {
         let cells = par::collect(ix(n.into()), GRAIN, |i| {
             AtomicU32::new(u32::try_from(i).expect("below n"))
         });
+        assert_eq!(cells.len(), ix(n.into()), "one cell per node");
         Ok(Self {
             cells,
             _reservation: reservation,
@@ -281,14 +279,13 @@ impl<'g> NodeCells<'g> {
 
 /// A set of nodes of the plan of brand `'g` that workers add to concurrently: a
 /// frontier, the nodes found in a step, a view's mask. Listing it gives its nodes in
-/// increasing order whatever order they were added in.
+/// increasing order, whatever order they were added in.
 ///
-/// Two levels of bits: one per node, and one per word of those, set when the word gets
-/// its first node. Listing and clearing a set of `k` nodes visit the `n / 4096` summary
-/// words and the touched words only, on the calling thread, until there are so many
-/// that a parallel pass over every word is cheaper: a small frontier stays sparse, and
-/// each of the thousands of levels of a traversal of a road graph costs neither a pass
-/// over `n / 64` words nor a fork-join (research review of #44, `docs/research/sota-kernels.md`).
+/// The set has two levels of bits: one bit per node, and one bit per word of those,
+/// which is set when the word gets its first node. While few words are touched, listing
+/// and clearing visit only the `n / 4096` summary words and the touched words, on the
+/// calling thread. Above that, one parallel pass goes over every word. So a small
+/// frontier costs no pass over `n / 64` words and no fork-join.
 pub struct NodeSet<'g> {
     /// One bit per node; bits from the node count up are never set.
     words: Vec<AtomicU64>,
@@ -470,7 +467,9 @@ impl<'g> NodeSet<'g> {
 /// [`NodeSet::list_into`]: a frontier.
 #[derive(Debug)]
 pub struct NodeList<'g> {
-    /// Every id is a node of the plan: only `list_into` and `push` write it.
+    /// Every id is a node of the plan. Only `list_into` and `push` write it.
+    /// `list_into` fills with 0 before it writes the ids; 0 is a node, because a set bit
+    /// means `n > 0`, so the invariant holds also if a fill stops early.
     ids: SegVec<u32>,
     brand: Brand<'g>,
 }
@@ -520,84 +519,6 @@ impl<'g> NodeList<'g> {
     }
 }
 
-/// The list of `v` in a CSR whose arrays [`check_csr`] accepted.
-///
-/// # Panics
-///
-/// If `v` is not below `offsets.len() - 1`.
-#[inline]
-pub(crate) fn csr_list<'a>(csr: &CheckedCsr<'a>, v: u32) -> &'a [u32] {
-    let v = ix(v.into());
-    assert!(v < csr.offsets.len() - 1, "node {v} outside the graph");
-    // SAFETY: `v + 1 < offsets.len()`, checked above.
-    let a = ix(*unsafe { csr.offsets.get_unchecked(v) });
-    // SAFETY: as above.
-    let b = ix(*unsafe { csr.offsets.get_unchecked(v + 1) });
-    // SAFETY: the offsets never decrease and end at `targets.len()` (checked by
-    // `check_csr`), so `a <= b <= targets.len()`.
-    unsafe { csr.targets.get_unchecked(a..b) }
-}
-
-/// CSR arrays that [`check_csr`] accepted: `offsets` from 0, never decreasing, ending at
-/// `targets.len()`, every degree below 2^32, at most 2^32 − 1 nodes.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct CheckedCsr<'a> {
-    offsets: &'a [u64],
-    targets: &'a [u32],
-}
-
-impl<'a> CheckedCsr<'a> {
-    pub(crate) fn targets(&self) -> &'a [u32] {
-        self.targets
-    }
-}
-
-/// Checks CSR offsets over `entries` targets (in parallel); returns the node count.
-///
-/// # Errors
-///
-/// [`Error::Invalid`] naming the problem.
-pub(crate) fn check_offsets(offsets: &[u64], entries: u64) -> Result<u32, Error> {
-    let n = offsets
-        .len()
-        .checked_sub(1)
-        .ok_or(Error::Invalid("offsets: none"))?;
-    let n = u32::try_from(n).map_err(|_| Error::Invalid("offsets: more than 2^32 - 1 nodes"))?;
-    if offsets[0] != 0 || offsets[ix(n.into())] != entries {
-        return Err(Error::Invalid(
-            "offsets: do not run from 0 to the number of entries",
-        ));
-    }
-    let ok = par::map_ranges(offsets.len() - 1, CHECK_GRAIN, |r| {
-        offsets[r.start..=r.end]
-            .windows(2)
-            .all(|w| w[0] <= w[1] && u32::try_from(w[1] - w[0]).is_ok())
-    });
-    if ok.into_iter().all(|x| x) {
-        Ok(n)
-    } else {
-        Err(Error::Invalid(
-            "offsets: decrease, or a degree is 2^32 or more",
-        ))
-    }
-}
-
-/// Nodes per task when offsets are checked in parallel.
-const CHECK_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
-
-/// Checks `offsets` as a CSR over `targets` ([`check_offsets`]).
-///
-/// # Errors
-///
-/// As [`check_offsets`].
-pub(crate) fn check_csr<'a>(
-    offsets: &'a [u64],
-    targets: &'a [u32],
-) -> Result<(CheckedCsr<'a>, u32), Error> {
-    let n = check_offsets(offsets, targets.len() as u64)?;
-    Ok((CheckedCsr { offsets, targets }, n))
-}
-
 #[cfg(test)]
 mod tests {
     //! Every `unsafe` block of the module, reached from safe code (and run under Miri).
@@ -645,24 +566,5 @@ mod tests {
         set.clear();
         set.list_into(&mut out).unwrap();
         assert!(out.is_empty());
-
-        let (offsets, targets) = ([0, 2, 2, 3], [1, 2, 0]);
-        let (csr, n) = check_csr(&offsets, &targets).unwrap();
-        assert_eq!(n, 3);
-        let lists: [&[u32]; 3] = [&[1, 2], &[], &[0]];
-        assert_eq!(
-            [csr_list(&csr, 0), csr_list(&csr, 1), csr_list(&csr, 2)],
-            lists
-        );
-        assert!(check_csr(&[0, 2, 1], &targets).is_err());
-        assert!(check_csr(&[0, 1], &targets).is_err());
-    }
-
-    #[test]
-    #[should_panic = "outside the graph"]
-    fn a_csr_list_outside_the_graph_panics() {
-        let (offsets, targets) = ([0, 1], [0]);
-        let (csr, _) = check_csr(&offsets, &targets).unwrap();
-        let _ = csr_list(&csr, 1);
     }
 }

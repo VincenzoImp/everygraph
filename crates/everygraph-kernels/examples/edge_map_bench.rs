@@ -35,7 +35,7 @@ use std::process::ExitCode;
 use std::sync::atomic::AtomicU32;
 use std::time::Instant;
 
-use everygraph_core::{ByteSource, Memory, par};
+use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
@@ -151,7 +151,6 @@ fn run(a: &Args) {
     )
     .expect("--threads > 0");
     let settings = Settings {
-        threads,
         chunk_entries: a
             .get("chunk")
             .map_or(1 << 16, |s| s.parse().expect("--chunk")),
@@ -172,14 +171,17 @@ fn run(a: &Args) {
             let index =
                 AdjacencyIndex::parse(&std::fs::read(index).expect("index")).expect("an index");
             let map = MmapSource::open(&data).expect("map");
-            let heap;
-            let bytes = if source == "mmap" {
-                map.as_slice().expect("a map")
+            let mapped = source == "mmap";
+            let heap = if mapped {
+                Vec::new()
             } else {
-                heap = std::fs::read(&data).expect("data");
-                &heap[..]
+                std::fs::read(&data).expect("data")
             };
-            let adj = Compressed::new(Adjacency::new(&index, bytes).expect("data part"));
+            let adj = if mapped {
+                Compressed::mapped(&index, &map).expect("data part")
+            } else {
+                Compressed::new(Adjacency::new(&index, &heap).expect("data part"))
+            };
             let load = t.elapsed().as_secs_f64();
             (load, time(&adj, a, settings))
         }
