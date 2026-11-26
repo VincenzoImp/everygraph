@@ -41,7 +41,12 @@ allow = [
 ]
 # Licences allowed for one named crate only: { crate = "name", allow = ["MPL-2.0"] },
 # with a comment saying why the crate is needed and that it is used unmodified.
-exceptions = []
+exceptions = [
+    # Keccak in a procedural macro of const-random, which ahash uses for arrow-array on
+    # wasm32 only; the Python package is never built for wasm32, and the macro's code
+    # runs at build time and ships in nothing. Used unmodified.
+    { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+]
 confidence-threshold = 0.9
 # The list is a policy, not an inventory: entries no dependency uses yet are expected.
 unused-allowed-license = "allow"
@@ -67,10 +72,21 @@ deny = [
     # Randomness comes from everygraph_core::rng, keyed by what each draw is for (rule R9
     # of docs/research/sota-numerics.md). These generators are seeded from the OS or
     # change their streams between versions and platforms. proptest draws test cases with
-    # rand; TLS in the harness draws keys with getrandom.
+    # rand; TLS in the harness draws keys with getrandom; arrow-array, the Python
+    # package's Arrow export, seeds the hash tables of its own builders through ahash
+    # (at run time, or at build time through const-random on wasm32),
+    # which no result of ours reads.
     { crate = "rand", wrappers = ["proptest"], reason = "use everygraph_core::rng" },
-    { crate = "getrandom", wrappers = ["rand_core", "ring"], reason = "use everygraph_core::rng" },
+    { crate = "getrandom", wrappers = ["rand_core", "ring", "ahash", "const-random-macro"], reason = "use everygraph_core::rng" },
     { crate = "fastrand", reason = "use everygraph_core::rng" },
+]
+
+[advisories]
+ignore = [
+    # "chrono is unmaintained": arrow-array depends on it for temporal arrays, which the
+    # Python package does not make yet; revisit when its time columns come (#94) or when
+    # arrow-rs moves off chrono.
+    { id = "RUSTSEC-2026-0543", reason = "arrow-array's dependency, not called by us" },
 ]
 
 [sources]
