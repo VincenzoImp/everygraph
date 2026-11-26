@@ -323,8 +323,8 @@ jobs:
     needs: lint
     if: needs.lint.outputs.core == 'true'
     runs-on: ubuntu-24.04
-    # 24–30 minutes since the core's buffers take an allocator (Vec<T, A>, #219):
-    # Miri interprets the extra calls, and the rayon run of the core takes 17 of them.
+    # The job takes 24–30 minutes: the core's buffers are `Vec<T, A>`, whose allocator
+    # calls Miri interprets, and the rayon run of the core alone takes about 17.
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
