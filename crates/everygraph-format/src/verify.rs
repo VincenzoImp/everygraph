@@ -529,8 +529,8 @@ fn check_adjacencies<S: ByteSource + Sync>(
             continue;
         };
         if out.facts.nodes != inn.facts.nodes
-            || out.facts.entries != inn.facts.entries // mutants demo, reverted before merge
-            || out.facts.events != inn.facts.events // mutants demo
+            || out.facts.entries != inn.facts.entries
+            || out.facts.events != inn.facts.events
             || out.scan.forward != inn.scan.backward
         {
             report.problem(
