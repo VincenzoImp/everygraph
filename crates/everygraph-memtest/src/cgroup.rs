@@ -215,10 +215,21 @@ pub fn child() -> bool {
     std::fs::create_dir_all(&scratch).expect("the scratch directory");
     let input = Input::reopen(Path::new(&input));
     let group = own_group();
-    // The scope is the child's own group, with the limit asked for, and its accounting.
-    let asked = std::env::var(MEMORY_MAX).expect("the scope's limit");
-    let applied = read(&group.join("memory.max"));
-    assert_eq!(applied.trim(), asked, "memory.max of {}", group.display());
+    // The scope is the child's own group, with the limit asked for (rounded down to a
+    // whole page by the kernel), and its accounting.
+    let asked: u64 = std::env::var(MEMORY_MAX)
+        .ok()
+        .and_then(|m| m.parse().ok())
+        .expect("the scope's limit");
+    let applied: u64 = read(&group.join("memory.max"))
+        .trim()
+        .parse()
+        .unwrap_or(u64::MAX);
+    assert!(
+        applied <= asked && asked - applied < 64 << 10,
+        "memory.max of {} is {applied}, not {asked}",
+        group.display()
+    );
     assert!(
         stat(&group).contains_key("anon"),
         "no memory.stat in {}",
