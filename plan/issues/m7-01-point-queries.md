@@ -23,3 +23,5 @@ labels: type:feature, area:query, P0, risk:low, size:M, lab-evidence
 - A `khop` cut at `limit` returns the same rows at 1, 4 and 16 threads, and on hub nodes of twitter-2010 and Friendster its time grows with `limit`, not with the size of the hop it stops in
 
 **Pointers.** `lab/f1-query/src/bin/pq.rs`.
+
+**Depends on** {{#m2-08-csr-build}}, {{#m2-10-property-columns}}, {{#m3-02-planner}}

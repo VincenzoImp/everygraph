@@ -17,4 +17,4 @@ labels: type:feature, area:community, P1, risk:medium, size:M, lab-evidence
 - Aggregation ≤ 25% of total time at 16 threads on lj and orkut
 - Friendster in-RAM Leiden, one async iteration, 16 threads, idle machine: ≤ 58 s against the idle baseline of 82.4 s (#118, `lab/m1-13-compressed/results/leiden_big.jsonl`) — the same 0.71× ratio as the original target (110 s from 154.5 s, measured on a shared machine at 32 threads, not comparable). Re-measure the baseline in the same configuration when the issue starts; the ratio is the target (decided 2026-11-25)
 
-**Depends on** {{#m4-01-leiden-production}}
+**Depends on** {{#m4-01-leiden-production}}, {{#m4-02-weights-resolution}}

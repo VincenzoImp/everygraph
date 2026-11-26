@@ -19,4 +19,4 @@ labels: type:feature, area:interop, P1, risk:medium, size:M
 - An agent answers ≥ 80% of the evaluation questions with correct numbers
 - No tool call can exceed its declared budget
 
-**Depends on** M7
+**Depends on** {{#m7-04-views}}, {{#m5-15-summary-export}}, {{#m8-06-showcase-blockchain}}

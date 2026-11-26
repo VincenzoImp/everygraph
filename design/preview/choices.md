@@ -1,7 +1,9 @@
 # Preview — choices that are not about pixels or syntax
 
-Defaults, vocabulary and project decisions where reasonable people differ. Each **Choice**
-has a recommendation (★). Answers go to `design/DECISIONS.md`.
+Defaults, vocabulary and project decisions where reasonable people differ. Approved by
+the owner on 2026-11-25: in each **Choice** the option marked ★ is the decision, except
+where a later row of `design/DECISIONS.md` changes it (D1: the repository became public
+during development, not at 0.1).
 
 ## A. What the engine does when you do not say
 

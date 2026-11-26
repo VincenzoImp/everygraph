@@ -2,14 +2,13 @@
 #
 # Developer Certificate of Origin: every commit of a pull request must carry a
 # `Signed-off-by: Name <email>` trailer whose e-mail address is the commit author's
-# (see "Licensing and sign-off" in CONTRIBUTING.md).
+# (see "Sign-off" in CONTRIBUTING.md).
 #
 # Which pull requests are checked:
 # - always, a pull request from a fork (that is, from anyone outside this repository);
 # - every pull request, once the repository variable DCO_ALL_PULL_REQUESTS is set to
-#   `true` (Settings > Secrets and variables > Actions > Variables).
-# Until then, branches pushed to this repository are not checked: their commits so far
-# are unsigned, and the job is skipped (a skipped job uses no Actions minutes).
+#   `true` (Settings > Secrets and variables > Actions > Variables). It is, since
+#   2026-11-26.
 #
 # No third-party action and no checkout: the commit list comes from the GitHub API
 # through the `gh` command preinstalled on the runner.

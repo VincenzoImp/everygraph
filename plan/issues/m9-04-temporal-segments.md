@@ -23,3 +23,5 @@ labels: type:feature, area:format, P1, risk:high, size:XL, lab-evidence
 - *Retractions:* deletions as retraction runs get only a reserved run flag in the manifest (under the `segments` required bit), written into the manifest's layout by this issue; they are not built (C8)
 
 **Depends on** {{#m7-05-temporal}}, {{#m9-11-compaction-invariant}}
+
+**Where it plugs in (edge-map, #44).** A merged base-plus-delta source implements `Source` and merges each node's lists, in canonical order, into its reader's buffer; the drivers do not change.

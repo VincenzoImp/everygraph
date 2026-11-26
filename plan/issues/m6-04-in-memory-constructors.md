@@ -14,3 +14,5 @@ labels: type:feature, area:python, P1, risk:low, size:S
 **Acceptance**
 - 10 M edges from NumPy arrays to a usable `Graph` in < 1 s at 16 threads
 - Same results as the file-based path (oracle test)
+
+**Depends on** {{#m6-03-arrow-interop}}

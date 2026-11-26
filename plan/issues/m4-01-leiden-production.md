@@ -42,4 +42,6 @@ labels: type:feature, area:community, P0, risk:high, size:XL, lab-evidence
 
 **Pointers.** `lab/b2-leiden/src/main.rs`, FINDINGS § B2 and idle re-runs.
 
+**Depends on** {{#m3-01-edge-map}}, {{#m1-03-louvain-collapse}}, {{#m1-04-det-leiden-scaling}}, {{#m2-27-counter-rng}}
+
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Repeatable results are the default (`api.md` Choice 6, approved); the fast mode is opt-in and labelled in the output. The method is exposed as `g.communities()`, not `g.leiden()`.

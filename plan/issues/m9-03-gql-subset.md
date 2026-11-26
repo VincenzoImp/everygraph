@@ -15,4 +15,4 @@ labels: type:feature, area:query, P2, risk:high, size:XL
 **Acceptance**
 - A written scope and go/no-go before any implementation; if go, the SNB short reads run correctly
 
-**Depends on** M7
+**Depends on** {{#m8-09-feedback-loop}}, {{#m7-02-shortest-paths}}

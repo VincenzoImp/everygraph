@@ -198,7 +198,7 @@ unsafe fn decode_with<L: Lanes>(
     out: &mut [u32],
 ) -> Result<usize, Corrupt> {
     // The bound every store below relies on, checked here rather than trusted from the
-    // callers (review of #30, S1).
+    // callers.
     assert!(k <= out.len(), "output of {} words for {k}", out.len());
     let (control, base) = svb::prologue(bytes, v, total, k)?;
     let groups = simd_groups(k, out.len());

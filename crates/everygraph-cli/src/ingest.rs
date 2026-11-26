@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use everygraph_core::{Budget, ByteSource, InsufficientBudget, Memory, MemoryProbe};
+use everygraph_core::{Budget, ByteSource, InsufficientBudget, Memory, MemoryProbe, par};
 use everygraph_format::container::{Container, Input, Provenance};
 use everygraph_ingest::build::{
     self, BuildError, BuildOptions, DirectedFrom, Duplicates, GraphOptions, Phase, Progress,
@@ -830,8 +830,6 @@ fn run(args: &Args) -> Result<(), Failure> {
         return Err(refusal(&plan));
     }
 
-    // Threads are the binary's to decide; the library only reserves for them.
-    everygraph_core::par::set_threads(plan.threads);
     let root = match &args.temp_dir {
         Some(dir) => dir.clone(),
         None => output
@@ -863,7 +861,7 @@ fn run(args: &Args) -> Result<(), Failure> {
         .map_err(|e| text_failure(&args.input, e))?
         .is_some()
     {
-        return job.write(&reader, &scratch, &lines);
+        return in_pool(plan.threads, || job.write(&reader, &scratch, &lines));
     }
     // A compressed input is read once into a plain copy in the scratch directory.
     lines.begin(Phase::Reading, None);
@@ -879,7 +877,22 @@ fn run(args: &Args) -> Result<(), Failure> {
     let copy = MmapSource::open(&path).map_err(|e| io_failure("read", &path, &e))?;
     let _ = std::fs::remove_file(&path);
     let plain = TextReader::open(copy, &options).map_err(|e| text_failure(&args.input, e))?;
-    job.write(&plain, &scratch, &lines)
+    in_pool(plan.threads, || job.write(&plain, &scratch, &lines))
+}
+
+/// Runs `f` on a pool of `threads` threads: the binary decides how many exist, and the
+/// build reserves its buffers for that many.
+fn in_pool(
+    threads: NonZeroUsize,
+    f: impl FnOnce() -> Result<(), Failure> + Send,
+) -> Result<(), Failure> {
+    par::with_threads(threads, f).unwrap_or_else(|e| {
+        Err(Failure::new(
+            "EverygraphError",
+            format!("Cannot start the threads: {e}."),
+            1,
+        ))
+    })
 }
 
 /// What a run needs once its plan fits.

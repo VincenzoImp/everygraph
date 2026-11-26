@@ -295,6 +295,31 @@ impl AdjacencyIndex {
         EdgeOffset::new(self.entry_offsets.get(v.index()))
     }
 
+    /// The degrees of `nodes`, in order, from one sequential pass over the entry
+    /// offsets: a few nanoseconds a node, where [`degree`](Self::degree) pays a select
+    /// for each.
+    ///
+    /// # Panics
+    ///
+    /// If `nodes` is not a range within `0..nodes()`.
+    pub fn degrees(&self, nodes: Range<u32>) -> impl Iterator<Item = u32> + '_ {
+        assert!(
+            nodes.start <= nodes.end && nodes.end <= self.nodes,
+            "nodes {nodes:?} outside 0..{}",
+            self.nodes
+        );
+        let count = nodes.len();
+        let mut offsets = self
+            .entry_offsets
+            .iter_from(usize::try_from(nodes.start).expect("usize holds u32"));
+        let mut prev = offsets.next().unwrap_or(0);
+        offsets.take(count).map(move |next| {
+            let d = next - prev;
+            prev = next;
+            u32::try_from(d).expect("checked by parse")
+        })
+    }
+
     /// The bytes of the data part that hold the record of `v`.
     ///
     /// # Panics
@@ -342,7 +367,7 @@ impl AdjacencyIndex {
 
 #[cfg(test)]
 mod tests {
-    //! Hostile indexes (review of #30, S2): each breaks one rule of `parse`, and each
+    //! Hostile indexes: each breaks one rule of `parse`, and each
     //! must be refused. The good index is built field by field, so that the header
     //! may disagree with the parts.
 

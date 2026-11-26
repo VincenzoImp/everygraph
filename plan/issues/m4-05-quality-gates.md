@@ -18,4 +18,4 @@ labels: type:infra, area:community, P0, risk:medium, size:M, lab-evidence
 **Acceptance**
 - Nightly job produces the quality table; a regression beyond the gates fails the build
 
-**Depends on** {{#m4-01-leiden-production}}, {{#m0-03-bench-harness}}
+**Depends on** {{#m4-01-leiden-production}}, {{#m0-03-bench-harness}}, {{#m1-10-graph-families}}

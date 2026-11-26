@@ -317,7 +317,7 @@ fn check_checksum(decoder: &ruzstd::decoding::FrameDecoder) -> Result<(), FrameE
 }
 
 /// Most bytes a frame of `compressed` bytes may decode to in a parallel group. Text
-/// compresses 3–10×; a frame that expands more is streamed instead.
+/// compresses about 3–10× (an estimate); a frame that expands more is streamed instead.
 const fn expansion_cap(compressed: u64) -> u64 {
     16 * compressed + (64 << 10)
 }

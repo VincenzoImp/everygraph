@@ -5,8 +5,7 @@
 # on main, and by hand. Also the weekly security-advisory check of main (ci.yml's
 # nightly lint job checks advisories too; this one runs whatever happens to ci.yml).
 #
-# While the repository is private these minutes count (macOS ten-fold, Windows
-# two-fold); once it is public, standard runners are free.
+# The repository is public, so standard runners are free.
 #
 # Run it on a branch: gh workflow run other-platforms.yml --ref <branch>
 # One platform and one crate, while fixing one failure:

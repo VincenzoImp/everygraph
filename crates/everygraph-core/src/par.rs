@@ -31,6 +31,13 @@
 //! The functions take the same `Send`/`Sync` bounds whether or not `parallel` is
 //! enabled, so code that compiles in one mode compiles in the other.
 //!
+//! # Choosing the number of threads
+//!
+//! Work runs on whatever pool is current: rayon's global pool, or the one that
+//! [`with_threads`] installs for the duration of a call. The thread count is the
+//! caller's (the planner's) choice, made once outside the kernel; tests use
+//! [`with_threads`] to run the same kernel at several thread counts in one process.
+//!
 //! # Parallel writes without `unsafe`
 //!
 //! The core forbids `unsafe`, and the crates above it should not need it to write an
@@ -61,6 +68,7 @@
 //! the thread count. That order must never reach a result (DESIGN D14), so such code
 //! has to sort afterwards anyway. [`scatter`] writes the same order on every run.
 
+use std::error::Error;
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops::Range;
@@ -68,24 +76,47 @@ use std::ops::Range;
 use crate::memory::{Memory, MemoryError, MemoryKind};
 use crate::{MAX_ALLOCATION_BYTES, widen};
 
-/// Sets the number of threads the parallel functions of this module run on, for the
-/// whole process. A binary calls it once, before any parallel work: libraries never
-/// do. Returns `false` when the pool exists already (it keeps its size), and always
-/// without the `parallel` feature, which has no pool.
-pub fn set_threads(threads: NonZeroUsize) -> bool {
+/// Runs `f` with the functions of this module spread over `threads` threads: a pool of
+/// that size is made for the call and dropped after it. Without the `parallel` feature
+/// `f` runs on the calling thread, as everything else here does.
+///
+/// Results do not depend on `threads` (see the module documentation); only the time
+/// does.
+///
+/// # Errors
+///
+/// [`ThreadsError`] if the pool could not be made (the system refused a thread).
+pub fn with_threads<R, F>(threads: NonZeroUsize, f: F) -> Result<R, ThreadsError>
+where
+    R: Send,
+    F: FnOnce() -> R + Send,
+{
     #[cfg(feature = "parallel")]
     {
-        rayon::ThreadPoolBuilder::new()
+        let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads.get())
-            .build_global()
-            .is_ok()
+            .build()
+            .map_err(|e| ThreadsError(e.to_string()))?;
+        Ok(pool.install(f))
     }
     #[cfg(not(feature = "parallel"))]
     {
         let _ = threads;
-        false
+        Ok(f())
     }
 }
+
+/// Why [`with_threads`] could not make its pool.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadsError(String);
+
+impl fmt::Display for ThreadsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "could not start a thread pool: {}", self.0)
+    }
+}
+
+impl Error for ThreadsError {}
 
 /// Calls `f` once for each chunk of `0..len`, possibly in parallel.
 ///
@@ -132,6 +163,35 @@ where
     #[cfg(not(feature = "parallel"))]
     {
         (0..chunks).map(call).collect()
+    }
+}
+
+/// The vector `[f(0), f(1), …, f(len - 1)]`, its elements computed in parallel in chunks
+/// of `grain`, each chunk writing its own part of the vector.
+///
+/// For per-node state that `SegVec` cannot hold (atomics): a sequential fill of a large
+/// vector is a single-threaded pass over memory that a parallel kernel then waits for.
+/// The vector is allocated here, outside any [`MemoryAccountant`](crate::MemoryAccountant):
+/// the caller reserves `len * size_of::<T>()` bytes first and keeps the reservation next
+/// to it (CONTRIBUTING.md, "The allocation rule").
+pub fn collect<T, F>(len: usize, grain: NonZeroUsize, f: F) -> Vec<T>
+where
+    T: Send,
+    F: Fn(usize) -> T + Send + Sync,
+{
+    #[cfg(feature = "parallel")]
+    {
+        use rayon::prelude::*;
+        (0..len)
+            .into_par_iter()
+            .with_min_len(grain.get())
+            .map(f)
+            .collect()
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        let _ = grain;
+        (0..len).map(f).collect()
     }
 }
 
@@ -708,6 +768,15 @@ mod tests {
     }
 
     #[test]
+    fn collect_puts_every_element_at_its_index() {
+        for &(len, g) in CASES {
+            let v = collect(len.min(5000), grain(g), |i| 3 * i + 1);
+            assert!(v.iter().enumerate().all(|(i, &x)| x == 3 * i + 1));
+            assert_eq!(v.len(), len.min(5000), "len {len}, grain {g}");
+        }
+    }
+
+    #[test]
     fn for_each_chunk_mut_hands_out_every_element_once_with_its_position() {
         for &(len, g) in CASES {
             let mut data = vec![0_usize; len];
@@ -791,6 +860,42 @@ mod tests {
             chunked_sum(&values, 2).to_bits(),
             (1e16_f64 + 4.0).to_bits()
         );
+    }
+
+    /// The pool `with_threads` installs is the one the facade's functions run on.
+    #[test]
+    fn with_threads_runs_the_facade_on_a_pool_of_that_size() {
+        let values = terms();
+        let expected = reference_sum(&values, 64).to_bits();
+        for threads in [1, 3, 8] {
+            let (sum, seen) = with_threads(grain(threads), || {
+                let workers = Mutex::new(std::collections::BTreeSet::new());
+                for_each_range(1 << 12, grain(1), |_| {
+                    workers.lock().unwrap().insert(rayon_index().unwrap_or(0));
+                });
+                (
+                    chunked_sum(&values, 64).to_bits(),
+                    workers.into_inner().unwrap(),
+                )
+            })
+            .unwrap();
+            assert_eq!(sum, expected, "threads {threads}");
+            if cfg!(feature = "parallel") {
+                assert!(seen.len() <= threads && seen.iter().all(|&w| w < threads));
+            }
+        }
+    }
+
+    /// The index of the current worker in the current pool, when there is one.
+    fn rayon_index() -> Option<usize> {
+        #[cfg(feature = "parallel")]
+        {
+            rayon::current_thread_index()
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            None
+        }
     }
 
     #[cfg(feature = "parallel")]

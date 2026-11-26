@@ -12,3 +12,5 @@ labels: type:feature, area:python, P1, risk:low, size:S
 
 **Acceptance**
 - Ego network (2 hops, `limit=10_000` nodes) of a node in Friendster → NetworkX graph in < 100 ms in RAM
+
+**Depends on** {{#m6-01-python-api}}, {{#m7-01-point-queries}}, {{#m7-04-views}}, {{#m5-01-layout}}
