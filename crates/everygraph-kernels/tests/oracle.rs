@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The proof kernels of the edge-map framework through the correctness oracle (#44):
-//! `PageRank`, components and BFS, written once, on the CI corpus, under every
-//! configuration that must not change a result — 1, 3 and 8 threads, chunks of 64 and
+//! The kernels through the correctness oracle: the framework's proof kernels (#44:
+//! `PageRank`, components and BFS) and the production ones (#48 components, #50 core
+//! numbers and degrees), written once, on the CI corpus, under every configuration that
+//! must not change a result — 1, 3 and 8 threads, chunks of 64 and
 //! 65,536 entries, and four sources: raw arrays, the compressed format in the heap, the
 //! compressed format memory-mapped from a file, and raw targets streamed from a file.
 //! Results must be identical bit for bit across all 24, and match the in-process
@@ -32,8 +33,11 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
+use everygraph_kernels::components::{WccOptions, wcc};
+use everygraph_kernels::degrees::{Loop, degrees};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
-use everygraph_kernels::proof::{UNREACHED, bfs, pagerank, wcc};
+use everygraph_kernels::kcore::kcore;
+use everygraph_kernels::proof::{self, UNREACHED, bfs, pagerank};
 use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::plugin::{
     Case, Config, KernelUnderTest, Options, Prepared, Regime, Storage, run,
@@ -87,14 +91,15 @@ fn store(lists: &Lists) -> Stored {
     }
 }
 
-/// The framework's proof kernels as an oracle plug-in.
+/// The framework's proof kernels, or the production kernels, as an oracle plug-in.
 #[derive(Default)]
-struct Proof {
+struct Kernels {
+    production: bool,
     /// The last graph's stored adjacencies, by (graph, which adjacency).
     cache: Mutex<Vec<((String, &'static str), std::sync::Arc<Stored>)>>,
 }
 
-impl Proof {
+impl Kernels {
     fn stored(&self, graph: &str, which: &'static str, lists: &Lists) -> std::sync::Arc<Stored> {
         let mut cache = self.cache.lock().unwrap();
         cache.retain(|((g, _), _)| g == graph);
@@ -107,11 +112,34 @@ impl Proof {
     }
 }
 
+/// `lists` with a node's own entry added where it has a kept loop.
+fn with_loops(lists: &Lists, p: &everygraph_oracle::projection::Projection) -> Lists {
+    let mut out = Lists {
+        offsets: Vec::from([0]),
+        ..Lists::default()
+    };
+    for v in 0..lists.n() {
+        let mut list = lists.list(v).to_vec();
+        if p.keep_loops && p.loops[v] > 0 {
+            list.push(u32::try_from(v).unwrap());
+            list.sort_unstable();
+        }
+        out.targets.extend(list);
+        out.offsets.push(out.targets.len() as u64);
+    }
+    out
+}
+
+fn ints(values: impl Iterator<Item = u64>) -> Output {
+    Output::Ints(values.map(Some).collect())
+}
+
 fn kernel<S: Source>(
     source: &S,
     kernel: &Kernel,
     config: &Config,
     symmetric: bool,
+    production: bool,
 ) -> Result<Output, String> {
     let memory = Memory::unlimited();
     let threads = NonZeroUsize::new(config.threads).unwrap();
@@ -123,12 +151,34 @@ fn kernel<S: Source>(
     let e = |e: everygraph_kernels::edge_map::Error| e.to_string();
     let out = Plan::with(source, &memory, settings, |plan| {
         par::with_threads(threads, || match kernel {
+            Kernel::Wcc if production => {
+                let options = WccOptions {
+                    symmetric,
+                    ..WccOptions::default()
+                };
+                wcc(&plan, &memory, options).map_err(e).map(|(l, _)| {
+                    Output::Labels(l.into_iter().map(AtomicU32::into_inner).collect())
+                })
+            }
+            Kernel::CoreNumber => kcore(&plan, &memory)
+                .map_err(e)
+                .map(|(c, _)| ints(c.into_iter().map(|c| c.into_inner().into()))),
+            Kernel::Degree | Kernel::DegreeOut | Kernel::DegreeIn => {
+                let own = if *kernel == Kernel::Degree {
+                    Loop::Twice
+                } else {
+                    Loop::Once
+                };
+                degrees(&plan, &memory, own)
+                    .map_err(e)
+                    .map(|d| ints(d.iter().map(|&d| d.into())))
+            }
             Kernel::PageRank { damping, .. } => {
                 pagerank::<_, f64>(&plan, &memory, *damping, ITERATIONS)
                     .map_err(e)
                     .map(|r| Output::Reals(r.iter().map(|&x| Some(x)).collect()))
             }
-            Kernel::Wcc => wcc(&plan, &memory)
+            Kernel::Wcc => proof::wcc(&plan, &memory)
                 .map_err(e)
                 .map(|(l, _)| Output::Labels(l.into_iter().map(AtomicU32::into_inner).collect())),
             Kernel::Bfs { source } => {
@@ -145,13 +195,27 @@ fn kernel<S: Source>(
     out.map_err(|e| e.to_string())?
 }
 
-impl KernelUnderTest for Proof {
+impl KernelUnderTest for Kernels {
     fn name(&self) -> String {
-        "edge-map proof kernels".into()
+        if self.production {
+            "production kernels".into()
+        } else {
+            "edge-map proof kernels".into()
+        }
     }
 
     fn supports(&self, kernel: &Kernel, case: &Case<'_>) -> bool {
         let p = case.projection;
+        if self.production {
+            return matches!(
+                kernel,
+                Kernel::Wcc
+                    | Kernel::CoreNumber
+                    | Kernel::Degree
+                    | Kernel::DegreeOut
+                    | Kernel::DegreeIn
+            );
+        }
         match kernel {
             Kernel::Wcc | Kernel::Bfs { .. } => true,
             Kernel::PageRank { weighted, .. } => {
@@ -181,28 +245,40 @@ impl KernelUnderTest for Proof {
 
     fn run(&self, case: &Case<'_>, k: &Kernel, config: &Config) -> Result<Output, String> {
         let p = case.projection;
-        let (which, lists) = match k {
-            Kernel::Wcc => ("undirected", &p.undirected),
-            _ => ("out", &p.out),
-        };
-        let s = self.stored(&case.graph.name, which, lists);
         let symmetric = !p.directed;
+        let s = if self.production {
+            // Lists with kept loops, as the build stores them; WCC reads the out-lists
+            // of a directed graph, which are not symmetric.
+            let (which, lists) = match k {
+                Kernel::Wcc | Kernel::DegreeOut => ("out+loops", &p.out),
+                Kernel::DegreeIn => ("in+loops", &p.inn),
+                _ => ("undirected+loops", &p.undirected),
+            };
+            self.stored(&case.graph.name, which, &with_loops(lists, p))
+        } else {
+            let (which, lists) = match k {
+                Kernel::Wcc => ("undirected", &p.undirected),
+                _ => ("out", &p.out),
+            };
+            self.stored(&case.graph.name, which, lists)
+        };
+        let production = self.production;
         match (config.storage, config.regime) {
             (Storage::Raw, Regime::InMemory) => {
                 let csr = Csr::new(&s.offsets, &s.targets).map_err(|e| e.to_string())?;
-                kernel(&csr, k, config, symmetric)
+                kernel(&csr, k, config, symmetric, production)
             }
             (Storage::Compressed, Regime::Mmap) => {
                 let source = Compressed::mapped(&s.index, &s.map).map_err(|e| e.to_string())?;
-                kernel(&source, k, config, symmetric)
+                kernel(&source, k, config, symmetric, production)
             }
             (Storage::Compressed, _) => {
                 let adj = Adjacency::new(&s.index, &s.data).map_err(|e| e.to_string())?;
-                kernel(&Compressed::new(adj), k, config, symmetric)
+                kernel(&Compressed::new(adj), k, config, symmetric, production)
             }
             (Storage::Raw, _) => {
                 let stream = Stream::new(&s.offsets, &s.stream).map_err(|e| e.to_string())?;
-                kernel(&stream, k, config, symmetric)
+                kernel(&stream, k, config, symmetric, production)
             }
         }
     }
@@ -230,8 +306,24 @@ fn graphs() -> (Vec<Prepared>, bool) {
     ignore = "minutes in a debug build; `oracle/run-ci.sh` (the oracle job) runs it in release"
 )]
 fn proof_kernels_pass_the_oracle_under_every_configuration() {
+    check(&Kernels::default());
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "minutes in a debug build; `oracle/run-ci.sh` (the oracle job) runs it in release"
+)]
+fn production_kernels_pass_the_oracle_under_every_configuration() {
+    check(&Kernels {
+        production: true,
+        ..Kernels::default()
+    });
+}
+
+fn check(kernels: &Kernels) {
     let (graphs, python) = graphs();
-    let report = run(&Proof::default(), &graphs, Options::default());
+    let report = run(kernels, &graphs, Options::default());
     let shown: Vec<String> = report
         .findings
         .iter()

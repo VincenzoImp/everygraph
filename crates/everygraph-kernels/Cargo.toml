@@ -20,6 +20,7 @@ everygraph-format = { path = "../everygraph-format" }
 everygraph-core = { path = "../everygraph-core" }
 everygraph-io = { path = "../everygraph-io" }
 everygraph-oracle = { path = "../everygraph-oracle" }
+proptest = { version = "1.7", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

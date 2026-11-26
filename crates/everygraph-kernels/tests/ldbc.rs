@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The proof kernels of the edge-map framework against the LDBC Graphalytics reference
+//! The kernels of the edge-map framework against the LDBC Graphalytics reference
 //! outputs (#177), with the specification's match rules: BFS on every graph, WCC on the
-//! merged lists of a directed graph, `PageRank` (f64, the data set's iteration count) on
-//! undirected graphs. Each runs on raw arrays and on targets streamed from a file, at 1
-//! and 8 threads; the results must be identical bit for bit as well.
+//! merged lists of a directed graph (the undirected projection), `PageRank` (f64, the data
+//! set's iteration count) on undirected graphs. The proof kernels, and for WCC the
+//! production components (#48) sampled and in one pass, each run on raw arrays and on
+//! targets streamed from a file, at 1 and 8 threads; the results must be identical bit
+//! for bit as well.
 //!
 //! Opt-in: `EVERYGRAPH_LDBC_GRAPHS` names a directory with one unpacked data set per
 //! subdirectory (`oracle/ldbc-unpack.sh`; `oracle/run-ci.sh` sets it). Data sets with more
@@ -22,14 +24,19 @@ use std::sync::atomic::AtomicU32;
 
 use everygraph_core::{Memory, par};
 use everygraph_io::FileSource;
+use everygraph_kernels::components::{self, WccOptions};
 use everygraph_kernels::edge_map::{Csr, Plan, Settings, Source, Stream};
 use everygraph_kernels::proof::{UNREACHED, bfs, pagerank, wcc};
 use everygraph_oracle::ldbc::read::merge_directions;
 use everygraph_oracle::ldbc::run::{Row, row};
 use everygraph_oracle::ldbc::{Algorithm, Dataset, LdbcGraph, UNREACHABLE, Values};
 
+/// The production components, sampled or in one pass; `None` for a proof kernel.
+type Production = Option<bool>;
+
 fn run_on<S: Source>(
     source: &S,
+    production: Production,
     threads: usize,
     ds: &Dataset,
     g: &LdbcGraph,
@@ -66,7 +73,18 @@ fn run_on<S: Source>(
                         .collect(),
                 ))
             }
-            Algorithm::Wcc => wcc(&plan, &memory).map(|(l, _)| ids(l)).map_err(e),
+            Algorithm::Wcc => match production {
+                None => wcc(&plan, &memory),
+                Some(sample) => {
+                    let options = WccOptions {
+                        symmetric: true,
+                        sample,
+                    };
+                    components::wcc(&plan, &memory, options)
+                }
+            }
+            .map(|(l, _)| ids(l))
+            .map_err(e),
             Algorithm::Pr => {
                 let d = ds.damping().map_err(|e| e.to_string())?;
                 let it = ds.iterations(a).map_err(|e| e.to_string())?;
@@ -100,17 +118,29 @@ fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
         let raw = Csr::new(&lists.offsets, &lists.targets).expect("csr");
         let streamed = Stream::new(&lists.offsets, &file).expect("stream");
         let mut first: Option<Values> = None;
-        for (name, threads) in [("raw", 1), ("raw", 8), ("stream", 1), ("stream", 8)] {
+        let kernels: &[(&str, Production)] = if a == Algorithm::Wcc {
+            &[
+                ("proof", None),
+                ("cc", Some(true)),
+                ("cc-one-pass", Some(false)),
+            ]
+        } else {
+            &[("proof", None)]
+        };
+        let configs = kernels.iter().flat_map(|&k| {
+            [("raw", 1), ("raw", 8), ("stream", 1), ("stream", 8)].map(|(s, t)| (k, s, t))
+        });
+        for ((kernel, production), name, threads) in configs {
             let got = if name == "raw" {
-                run_on(&raw, threads, &ds, &g, a)
+                run_on(&raw, production, threads, &ds, &g, a)
             } else {
-                run_on(&streamed, threads, &ds, &g, a)
+                run_on(&streamed, production, threads, &ds, &g, a)
             };
             if let Ok(v) = &got {
                 let same = first.get_or_insert_with(|| v.clone()) == v;
                 assert!(
                     same,
-                    "{} {}: {name} at {threads} threads differs",
+                    "{} {}: {kernel} on {name} at {threads} threads differs",
                     ds.name,
                     a.name()
                 );
@@ -119,7 +149,7 @@ fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
                 &ds,
                 &g.ids,
                 a,
-                &format!("proof/{name}/{threads}"),
+                &format!("{kernel}/{name}/{threads}"),
                 got,
                 0.0,
             ));
@@ -130,7 +160,7 @@ fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
 }
 
 #[test]
-fn proof_kernels_match_the_ldbc_reference_outputs() {
+fn kernels_match_the_ldbc_reference_outputs() {
     let Some(root) = std::env::var_os("EVERYGRAPH_LDBC_GRAPHS") else {
         eprintln!("EVERYGRAPH_LDBC_GRAPHS is not set: no LDBC data set checked");
         return;
