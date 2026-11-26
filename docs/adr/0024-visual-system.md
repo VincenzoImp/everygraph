@@ -14,7 +14,7 @@ fail colour-blind readers.
 
 One visual system, "Vernier", for viewer, docs, notebook, terminal and figures: warm paper
 and soft black, one ink-blue accent, every number in monospace, the two-ring mark. Values
-live in `design/preview/style/assets/tokens.css`, rules in `design/preview/style/SPEC.md`.
+live in `design/system/tokens.css`, rules in `design/preview/style/SPEC.md`.
 
 ## Evidence
 

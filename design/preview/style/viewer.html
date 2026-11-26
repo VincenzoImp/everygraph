@@ -7,12 +7,12 @@
 <!--
   STYLE PREVIEW — NOT PRODUCT CODE.
   The first viewer mockup (branch design-previews-archive, design/preview/viewer/index.html) re-skinned in the "Vernier" style: every colour, size,
-  radius and duration comes from assets/tokens.css; the canvas reads the same tokens through
+  radius and duration comes from design/system/tokens.css; the canvas reads the same tokens through
   getComputedStyle. Every name, number, address and estimate is invented by a seeded generator.
   All states are addressable through the URL hash; see the "Preview options" popover.
 -->
-<link rel="stylesheet" href="assets/fonts.css">
-<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="../../system/fonts.css">
+<link rel="stylesheet" href="../../system/tokens.css">
 <style>
 /* =====================================================================
    LOCAL OVERRIDE — curated data palette (identical block in data.html).
@@ -923,7 +923,7 @@ const DEF = { screen: 'map', theme: 'dark', style: 'bubbles', edges: 'none', den
 const state = Object.assign({}, DEF);
 const on = k => state[k] === '1';
 
-/* Colours, fonts and durations are read from the design tokens (assets/tokens.css plus the local data-palette override),
+/* Colours, fonts and durations are read from the design tokens (design/system/tokens.css plus the local data-palette override),
    once per theme. Nothing on the canvas is a literal colour. */
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const _norm = document.createElement('canvas').getContext('2d');

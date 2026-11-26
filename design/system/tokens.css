@@ -1,6 +1,8 @@
 /* Everygraph design tokens — the "Vernier" system.
-   This file is the single source of truth for the style preview. Pages must use these
-   variables and never hard-code a colour, size or radius.
+   This file is the single source of truth for the viewer, the docs site, the notebook, the
+   terminal and the previews. Stylesheets use these variables and never hard-code a colour.
+   tokens.json and mark/ are generated from it: tools/build.py. */
+/* Rules that values cannot say: design/preview/style/SPEC.md.
 
    Character: a calm measuring instrument. Warm paper and soft black, one ink-blue accent,
    exact numbers in monospace, hairlines instead of boxes, almost no shadow, no gradients. */

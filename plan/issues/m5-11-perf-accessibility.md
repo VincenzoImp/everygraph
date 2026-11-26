@@ -15,6 +15,7 @@ labels: type:infra, area:viewer, P1, risk:medium, size:M, lab-evidence
 - [ ] Browser matrix: Chromium, Firefox, Safari (desktop and mobile)
 
 **Acceptance**
+- ≥ 30 fps on the integrated-GPU reference machine from {{#m1-12-viewer-no-gpu}} (moved from {{#m5-05-viewer-core}}, which must not wait for hardware this host lacks)
 - CI fails when a scripted session exceeds the frame budget on the reference configurations
 - CI fails when an automated WCAG 2.2 AA check of the list above fails
 
