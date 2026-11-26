@@ -178,7 +178,7 @@ fn a_budget_that_cannot_hold_the_build_is_refused_before_any_work() {
     assert!(text.trim_end().ends_with("Nothing was written."), "{text}");
     let document: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(document["error"], "InsufficientBudget");
-    schema::error(&document, "error").unwrap_or_else(|e| panic!("{e}: {document}"));
+    schema::check("error", &document).unwrap_or_else(|e| panic!("{e}: {document}"));
     assert_eq!(document["budget_bytes"], 1_000_000);
     only(&dir, &["edges.txt"]);
 }
@@ -260,10 +260,10 @@ fn a_dry_run_prints_the_plan_and_writes_nothing() {
     let out = run(&dir, &["ingest", "edges.txt", "--dry-run", "--json"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    schema::plan(&plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
+    schema::check("plan", &plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
     let mut misspelt = plan.clone();
     misspelt["machine"]["memroy_bytes"] = 1.into();
-    assert!(schema::plan(&misspelt).is_err());
+    assert!(schema::check("plan", &misspelt).is_err());
     assert_eq!(plan["fits"], true);
     assert!(plan["refusal"].is_null());
     assert_eq!(plan["input"]["rows"]["value"], 100.0 + 6.0);
@@ -283,7 +283,7 @@ fn a_dry_run_prints_the_plan_and_writes_nothing() {
     );
     assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
     let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    schema::plan(&plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
+    schema::check("plan", &plan).unwrap_or_else(|e| panic!("{e}: {plan}"));
     assert_eq!(plan["fits"], false);
     assert_eq!(plan["refusal"]["error"], "InsufficientBudget");
     only(&dir, &["edges.txt"]);
@@ -355,22 +355,4 @@ fn a_killed_ingest_leaves_no_damaged_graph() {
         only(&dir, &["edges.eg", "edges.txt", "reference.eg"]);
     }
     assert!(killed > 0, "every run finished before it was killed");
-}
-
-#[test]
-fn the_schema_check_refuses_what_the_schema_refuses() {
-    let good: serde_json::Value = serde_json::from_str(
-        r#"{"schema":1,"error":"UsageError","message":"m","ways_forward":[{"command":"c","python":"","note":""}],"changed":false}"#,
-    )
-    .unwrap();
-    assert!(schema::error(&good, "e").is_ok());
-    for bad in [
-        r#"{"schema":1,"error":"UsageError","message":"m","ways_forward":[],"changed":false,"mesage":"x"}"#,
-        r#"{"schema":1,"error":"Oops","message":"m","ways_forward":[],"changed":false}"#,
-        r#"{"schema":1,"error":"UsageError","message":"m","ways_forward":[{"command":"c","note":""}],"changed":false}"#,
-        r#"{"schema":1,"error":"InsufficientBudget","message":"m","ways_forward":[],"changed":false}"#,
-    ] {
-        let bad: serde_json::Value = serde_json::from_str(bad).unwrap();
-        assert!(schema::error(&bad, "e").is_err(), "{bad}");
-    }
 }

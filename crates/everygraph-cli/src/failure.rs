@@ -314,7 +314,7 @@ pub(crate) fn text(input: &Path, e: TextError) -> Failure {
 pub(crate) fn build(input: &Path, budget: u64, machine: Option<u64>, e: BuildError) -> Failure {
     match e {
         BuildError::Text(e) => text(input, e),
-        BuildError::Budget(refused) => memory("build", budget, machine, &refused),
+        BuildError::Budget(refused) => memory("The build", budget, machine, &refused),
         BuildError::InputChanged => changed(input),
         BuildError::InvalidKeys(keys) => {
             let mut why: Vec<String> = keys
@@ -353,33 +353,32 @@ pub(crate) fn internal(what: &str) -> Failure {
     )])
 }
 
-/// A step that the budget cannot hold (P-13 to P-15). `what` names the work in the
-/// first line of why: `The build needs …`.
+/// A step that the budget cannot hold (P-13 to P-15). `what` is the subject of the
+/// first line of why: `The build needs …`, `pagerank needs …`.
+///
+/// Without the planner (#45) the smallest budget that would work is not known: only
+/// that it is more than what was spent before this step and this step's need, so the
+/// document's `smallest_budget_bytes` is `null` and the way forward says "at least".
 pub(crate) fn memory(
     what: &str,
     budget: u64,
     machine: Option<u64>,
     refused: &InsufficientBudget,
 ) -> Failure {
-    let smallest = budget
+    let at_least = budget
         .saturating_sub(refused.available)
         .saturating_add(refused.needed);
-    let fits_machine = machine.is_none_or(|m| smallest <= m);
-    let way = if fits_machine {
+    let way = if machine.is_none_or(|m| at_least <= m) {
         (
-            format!("--memory {}", typed(smallest)),
-            "a budget that holds this step".to_owned(),
+            format!("--memory {}", typed(at_least)),
+            "at least this; the whole run may need more".to_owned(),
         )
     } else {
         (
-            format!("a machine with at least {} of memory", rough_size(smallest)),
+            format!("a machine with at least {} of memory", rough_size(at_least)),
             String::new(),
         )
     };
-    let mut what = what.to_owned();
-    if let Some(first) = what.get_mut(..1) {
-        first.make_ascii_uppercase();
-    }
     Failure::new(
         "InsufficientBudget",
         "Not enough memory for this step.".into(),
@@ -387,7 +386,7 @@ pub(crate) fn memory(
     )
     .why(vec![
         format!(
-            "The {what} needs {} for {}.",
+            "{what} needs {} for {}.",
             size(refused.needed),
             refused.purpose
         ),
@@ -400,30 +399,39 @@ pub(crate) fn memory(
     .key("step", refused.purpose)
     .key("needs_bytes", refused.needed)
     .key("budget_bytes", budget)
-    .key(
-        "smallest_budget_bytes",
-        if fits_machine {
-            json!(smallest)
-        } else {
-            Value::Null
-        },
-    )
+    .key("smallest_budget_bytes", Value::Null)
     .ways(vec![way])
 }
 
 /// The refusal before any work of a budget below the build's smallest.
 pub(crate) fn refusal(smallest: u64, budget: u64, machine: Option<u64>, threads: usize) -> Failure {
     let refused = InsufficientBudget::new("the blocks read at once", smallest, budget);
-    let mut failure = memory("build", budget, machine, &refused).why(vec![format!(
-        "{} read blocks at once; they need about {} and the budget is {}.",
-        counted(
-            u64::try_from(threads).unwrap_or(u64::MAX),
-            "thread",
-            "threads"
-        ),
-        rough_size(smallest),
-        size(budget)
-    )]);
+    let fits_machine = machine.is_none_or(|m| smallest <= m);
+    let mut failure = memory("The build", budget, machine, &refused)
+        .key(
+            "smallest_budget_bytes",
+            if fits_machine {
+                json!(smallest)
+            } else {
+                Value::Null
+            },
+        )
+        .why(vec![format!(
+            "{} read blocks at once; they need about {} and the budget is {}.",
+            counted(
+                u64::try_from(threads).unwrap_or(u64::MAX),
+                "thread",
+                "threads"
+            ),
+            rough_size(smallest),
+            size(budget)
+        )]);
+    if fits_machine {
+        failure.0.ways = vec![(
+            format!("--memory {}", typed(smallest)),
+            "a budget that holds this step".into(),
+        )];
+    }
     if threads > 1 {
         failure.0.ways.push((
             "--threads 1".into(),

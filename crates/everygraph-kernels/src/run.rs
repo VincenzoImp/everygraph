@@ -53,7 +53,9 @@ pub enum Operation {
     Components,
     /// Core numbers.
     KCore,
-    /// The degree of each node: distinct neighbours.
+    /// The degree of each node: the entries of its list, a kept loop counted twice on an
+    /// undirected graph (`docs/spec/graph-semantics.md` § 3); its out-degree on a directed
+    /// one.
     Degrees,
     /// Hops from one node.
     Bfs {
@@ -67,6 +69,10 @@ pub enum Operation {
 /// The names, in the order the help lists them.
 pub const NAMES: [&str; 5] = ["pagerank", "components", "kcore", "degrees", "bfs"];
 
+/// The version of every operation's algorithm: a stored result of another version is
+/// not served.
+pub const VERSION: u32 = 1;
+
 impl Operation {
     /// The name, as typed after `everygraph run`.
     #[must_use]
@@ -78,18 +84,6 @@ impl Operation {
             Self::Degrees => "degrees",
             Self::Bfs { .. } => "bfs",
         }
-    }
-
-    /// The algorithm's version: a stored result of another version is not served.
-    #[must_use]
-    pub fn version(&self) -> u32 {
-        1
-    }
-
-    /// The version of the operation named `name`, if there is one.
-    #[must_use]
-    pub fn version_of(name: &str) -> Option<u32> {
-        NAMES.contains(&name).then_some(1)
     }
 
     /// The name of the column it computes, the first for `bfs` (`docs/api-sketch.md`
@@ -121,7 +115,7 @@ impl Operation {
     /// As [`ResultKey::with`], for a parameter the key cannot hold.
     pub fn key(&self, graph: GraphIdentity) -> Result<ResultKey, ContainerError> {
         self.parameters().into_iter().try_fold(
-            ResultKey::new(graph, self.name(), self.version(), true)?,
+            ResultKey::new(graph, self.name(), VERSION, true)?,
             |key, (name, value)| key.with(name, &value),
         )
     }
@@ -164,13 +158,8 @@ pub enum Column {
         values: SegVec<u32>,
         /// The value that means null, if any.
         null: Option<u32>,
-    },
-    /// Nodes, by their number; `null` stands for none.
-    Nodes {
-        /// The nodes.
-        values: SegVec<u32>,
-        /// The value that means null.
-        null: u32,
+        /// Whether the values are nodes, by their number (`bfs`'s `parent`).
+        nodes: bool,
     },
     /// f64 values.
     F64(SegVec<f64>),
@@ -230,6 +219,9 @@ impl From<MemoryError> for RunError {
     }
 }
 
+const ONE_SEGMENT: &str = "it needs per-node state of more than one segment, which this \
+     version does not run (#m3-15): more than 134,217,728 nodes";
+
 const NEEDS_IN_LISTS: &str =
     "on a directed graph it needs the in-adjacency, which this file does not hold";
 
@@ -251,7 +243,14 @@ pub fn run<S: Source>(
         iterations: None,
         converged: None,
     };
-    let labels = |values| Column::U32 { values, null: None };
+    let labels = |values| Column::U32 {
+        values,
+        null: None,
+        nodes: false,
+    };
+    if u64::from(out.nodes()) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
+        return Err(RunError::Unsupported(ONE_SEGMENT));
+    }
     match *op {
         Operation::PageRank { params, precision } => {
             if directed {
@@ -263,9 +262,9 @@ pub fn run<S: Source>(
                 directed,
             };
             let strength = pagerank::strength(out, None, directed, memory)?;
-            let strength = strength.as_slice().ok_or(Error::Invalid(
-                "node state longer than one segment (#m3-15)",
-            ))?;
+            let strength = strength
+                .as_slice()
+                .ok_or(RunError::Unsupported(ONE_SEGMENT))?;
             let (column, iterations, change) = match precision {
                 Precision::Full => {
                     let r = pagerank::pagerank::<_, f64>(&g, strength, &params, memory)?;
@@ -315,14 +314,16 @@ pub fn run<S: Source>(
                 Column::U32 {
                     values: to_column(&hops.distance, memory)?,
                     null: Some(UNREACHED),
+                    nodes: false,
                 },
             )];
             if let Some(parent) = &hops.parent {
                 columns.push((
                     "parent",
-                    Column::Nodes {
+                    Column::U32 {
                         values: to_column(parent, memory)?,
-                        null: UNREACHED,
+                        null: Some(UNREACHED),
+                        nodes: true,
                     },
                 ));
             }
@@ -335,25 +336,34 @@ pub fn run<S: Source>(
     }
 }
 
-/// The result of `op` on the graph of `file`, a graph that is `directed` or not, if
-/// the file keeps one: checked against its hash and read into `memory`.
+/// The result of `op` on the graph of `file`, a graph of `nodes` nodes that is
+/// `directed` or not, if the file keeps one with one value per node: checked against
+/// its hash and read into `memory`.
 ///
 /// # Errors
 ///
 /// [`RunError::Stored`] for a result that is damaged; [`RunError::Kernel`] with
-/// [`Error::Memory`] when its values do not fit the budget.
+/// [`Error::Memory`] when its values do not fit the budget; [`RunError::Unsupported`]
+/// for a graph whose node state is longer than one segment.
 pub fn stored<S: ByteSource>(
     file: &Container<S>,
     op: &Operation,
     directed: bool,
+    nodes: u32,
     memory: &Memory,
 ) -> Result<Option<Output>, RunError> {
     if !op.stored() {
         return Ok(None);
     }
+    if u64::from(nodes) * 8 > everygraph_core::MAX_ALLOCATION_BYTES {
+        return Err(RunError::Unsupported(ONE_SEGMENT));
+    }
     let Some(found) = file.find_result(&op.key(file.graph_identity())?)? else {
         return Ok(None);
     };
+    if found.len() != u64::from(nodes) {
+        return Ok(None);
+    }
     file.verify_result(&found)?;
     let len = usize::try_from(found.len())
         .map_err(|_| Error::Invalid("a result longer than the address space"))?;
@@ -361,6 +371,7 @@ pub fn stored<S: ByteSource>(
         ValueType::U32 => Column::U32 {
             values: read(&found, len, memory)?,
             null: None,
+            nodes: false,
         },
         ValueType::F64 => Column::F64(read(&found, len, memory)?),
         ValueType::F32 => Column::F32(read(&found, len, memory)?),
@@ -387,26 +398,29 @@ fn read<S: ByteSource, T: Value + Default>(
     Ok(values)
 }
 
-/// Adds the first column of `output` to `writer` as the result of `op` on its graph,
-/// with `about` for the engine and the times; [`Writer::commit`] makes it stored.
+/// Adds the first column of `output` to `writer` as the result of `op` on the graph
+/// `graph` it was computed on, with `about` for the engine and the times;
+/// [`Writer::commit`] makes it stored.
 ///
 /// # Errors
 ///
-/// The errors of [`Writer::add_result`]; [`ContainerError::InvalidResult`] for a
-/// column longer than one segment.
+/// [`ContainerError::InvalidResult`] when the writer's file holds another graph than
+/// `graph` (it was replaced during the run), or for a column longer than one segment;
+/// the other errors of [`Writer::add_result`].
 pub fn store<K: ByteSink>(
     writer: &mut Writer<K>,
     op: &Operation,
+    graph: GraphIdentity,
     about: &Provenance,
     output: &Output,
 ) -> Result<(), ContainerError> {
-    let key = op.key(writer.graph_identity())?;
+    let key = op.key(graph)?;
     let Some((_, column)) = output.columns.first() else {
         return Ok(());
     };
     let long = ContainerError::InvalidResult("a result longer than one segment (#m3-15)");
     match column {
-        Column::U32 { values, .. } | Column::Nodes { values, .. } => {
+        Column::U32 { values, .. } => {
             writer.add_result(&key, about, values.as_slice().ok_or(long)?)
         }
         Column::F64(values) => writer.add_result(&key, about, values.as_slice().ok_or(long)?),
@@ -439,6 +453,48 @@ mod tests {
     }
 
     #[test]
+    fn a_result_of_one_graph_is_not_stored_in_another() {
+        let (offsets, targets) = ([0, 1, 2], [1, 0]);
+        let csr = Csr::new(&offsets, &targets).unwrap();
+        let memory = Memory::unlimited();
+        let output = Plan::with(&csr, &memory, Settings::default(), |plan| {
+            run(&Operation::Degrees, &plan, false, &memory)
+        })
+        .unwrap();
+        let mut computed_on = Writer::create(MemorySource::new(Vec::new())).unwrap();
+        computed_on
+            .add_section(
+                "adjacency.out.index",
+                everygraph_format::container::Kind::ADJACENCY_INDEX,
+                b"a",
+                None,
+            )
+            .unwrap();
+        let graph = computed_on.graph_identity();
+        // The file was replaced while the run computed: it now holds another graph.
+        let mut replaced = Writer::create(MemorySource::new(Vec::new())).unwrap();
+        replaced
+            .add_section(
+                "adjacency.out.index",
+                everygraph_format::container::Kind::ADJACENCY_INDEX,
+                b"b",
+                None,
+            )
+            .unwrap();
+        let refused = store(
+            &mut replaced,
+            &Operation::Degrees,
+            graph,
+            &Provenance::default(),
+            &output,
+        );
+        assert!(
+            matches!(refused, Err(ContainerError::InvalidResult(_))),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
     fn a_stored_result_is_found_under_its_own_operation_only() {
         // The triangle 0 1 2 and the edge 2 3, as symmetric lists.
         let (offsets, targets) = ([0, 2, 4, 7, 8], [1, 2, 0, 2, 0, 1, 3, 2]);
@@ -451,16 +507,24 @@ mod tests {
         assert_eq!(values(&output), [2, 2, 3, 1]);
 
         let mut writer = Writer::create(MemorySource::new(Vec::new())).unwrap();
+        let graph = writer.graph_identity();
         store(
             &mut writer,
             &Operation::Degrees,
+            graph,
             &Provenance::default(),
             &output,
         )
         .unwrap();
         writer.commit().unwrap();
         let file = Container::open(writer.into_sink()).unwrap();
-        let found = stored(&file, &Operation::Degrees, false, &memory)
+        // A result is served only with one value per node.
+        assert!(
+            stored(&file, &Operation::Degrees, false, 5, &memory)
+                .unwrap()
+                .is_none()
+        );
+        let found = stored(&file, &Operation::Degrees, false, 4, &memory)
             .unwrap()
             .unwrap();
         assert_eq!(found.columns[0].0, "degree");
@@ -472,7 +536,7 @@ mod tests {
                 max_hops: None,
             },
         ] {
-            assert!(stored(&file, &other, false, &memory).unwrap().is_none());
+            assert!(stored(&file, &other, false, 4, &memory).unwrap().is_none());
         }
         let damped = |damping| Operation::PageRank {
             params: PageRank {

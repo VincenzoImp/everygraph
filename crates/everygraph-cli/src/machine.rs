@@ -150,3 +150,16 @@ fn too_much(bytes: u64, text: &str, memory: &SystemMemory) -> Failure {
         ),
     ])
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_accountant_of_the_command_allocates_from_its_own_pages() {
+        let pages = super::memory(1 << 20).pages();
+        assert_eq!(pages.name(), everygraph_io::PAGES.name());
+        assert!(std::ptr::addr_eq(
+            pages.allocator(),
+            everygraph_io::PAGES.allocator()
+        ));
+    }
+}

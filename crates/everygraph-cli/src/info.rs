@@ -15,7 +15,7 @@ use everygraph_ingest::build::PROVENANCE;
 use everygraph_ingest::graph::Graph;
 use everygraph_ingest::ids::KeyKind;
 use everygraph_io::MmapSource;
-use everygraph_kernels::run::Operation;
+use everygraph_kernels::run::{NAMES, VERSION};
 use serde_json::{Map, Value, json};
 
 use crate::args::Common;
@@ -88,7 +88,9 @@ fn stale(result: &ListedResult) -> Option<&'static str> {
         return Some("graph");
     }
     let version = result.provenance.parameters.get("version");
-    let current = Operation::version_of(&result.provenance.operation).map(|v| v.to_string());
+    let current = NAMES
+        .contains(&result.provenance.operation.as_str())
+        .then(|| VERSION.to_string());
     (version != current.as_ref()).then_some("version")
 }
 
@@ -204,14 +206,9 @@ impl Info<'_> {
         if self.results.is_empty() {
             t.push_str("    nothing yet\n");
         }
-        let width = self
-            .results
-            .iter()
-            .map(|r| r.provenance.operation.chars().count())
-            .max()
-            .unwrap_or(0)
-            + 2;
-        for r in self.results {
+        let labels: Vec<String> = self.results.iter().map(|r| self.label(r)).collect();
+        let width = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0) + 2;
+        for (r, label) in self.results.iter().zip(&labels) {
             let p = &r.provenance;
             let mut facts = vec![size(r.bytes)];
             facts.extend(seconds(p.started, p.finished).map(duration));
@@ -227,14 +224,41 @@ impl Info<'_> {
                 Some(_) => facts.push("stale: of another version".into()),
                 None => {}
             }
-            let operation = printable(&p.operation);
-            let _ = writeln!(t, "    {operation:<width$}{}", facts.join(dot));
+            let _ = writeln!(t, "    {label:<width$}{}", facts.join(dot));
         }
         if reclaimable > 0 {
             let next = format!("everygraph compact {}", self.path.display());
             let _ = write!(t, "\n  next: {}\n", style.bold(&next));
         }
         t
+    }
+
+    /// The operation of `r`, with the parameters in which it differs from the other
+    /// results of that operation: `pagerank (damping 0.5)`.
+    fn label(&self, r: &ListedResult) -> String {
+        let p = &r.provenance;
+        let others: Vec<&ListedResult> = self
+            .results
+            .iter()
+            .filter(|o| o.provenance.operation == p.operation && o.name != r.name)
+            .collect();
+        let differ: Vec<String> = p
+            .parameters
+            .iter()
+            .filter(|(k, v)| {
+                k.as_str() != "graph"
+                    && others
+                        .iter()
+                        .any(|o| o.provenance.parameters.get(k.as_str()) != Some(v))
+            })
+            .map(|(k, v)| format!("{k} {v}"))
+            .collect();
+        let operation = printable(&p.operation);
+        if differ.is_empty() {
+            operation
+        } else {
+            printable(&format!("{operation} ({})", differ.join(", ")))
+        }
     }
 
     fn document(&self) -> Value {

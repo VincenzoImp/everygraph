@@ -13,6 +13,7 @@ use everygraph_ingest::graph::{Graph, OpenError};
 use everygraph_io::{FileSource, MmapSource};
 
 use crate::failure::{self, Failure};
+use crate::native;
 
 /// The committed part of the file at `path`, mapped: the range a probe of its header
 /// and table of contents gives.
@@ -61,7 +62,7 @@ pub(crate) fn open(
             failure::io("read", path, &std::io::Error::other(e.to_string())).on_existing_file()
         }
         OpenError::Budget(e) => {
-            failure::memory("opening of the graph", budget, None, &e).on_existing_file()
+            failure::memory("Opening the graph", budget, None, &e).on_existing_file()
         }
         other => failure::corrupt(path, &other),
     })
@@ -78,10 +79,20 @@ pub(crate) fn container_error(path: &Path, e: &ContainerError) -> Failure {
             format!("{} is not an Everygraph graph file.", path.display()),
             failure::DAMAGED,
         )
-        .ways(vec![(
-            format!("everygraph ingest FILE --out {}", path.display()),
-            "build a graph from a file of edges".into(),
-        )])
+        .ways(vec![if path.extension().is_some_and(|e| e == "eg") {
+            (
+                format!("everygraph verify {}", path.display()),
+                "what the file holds".into(),
+            )
+        } else {
+            (
+                format!("everygraph ingest {}", path.display()),
+                format!(
+                    "if it is a file of edges: builds {}",
+                    native::default_output(path).display()
+                ),
+            )
+        }])
         .on_existing_file(),
         ContainerError::NoSuchSection(_) => Failure::new(
             "CorruptFile",

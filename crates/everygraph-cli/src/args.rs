@@ -87,7 +87,36 @@ fn memory(text: &str) -> Result<(u64, String), String> {
 }
 
 fn threads(text: &str) -> Result<NonZeroUsize, String> {
-    text.parse().map_err(|_| "a positive number".to_owned())
+    text.parse()
+        .map_err(|_| "a positive whole number".to_owned())
+}
+
+/// A count: `--top`, `--max-iter`, `--max-hops`.
+pub(crate) fn count(text: &str) -> Result<u32, String> {
+    text.parse()
+        .map_err(|_| "a whole number of at least 0".to_owned())
+}
+
+/// `--top`.
+pub(crate) fn rows(text: &str) -> Result<usize, String> {
+    text.parse()
+        .map_err(|_| "a whole number of at least 0".to_owned())
+}
+
+/// A probability: `--damping`.
+pub(crate) fn probability(text: &str) -> Result<f64, String> {
+    text.parse()
+        .ok()
+        .filter(|x: &f64| (0.0..=1.0).contains(x))
+        .ok_or_else(|| "a number between 0 and 1".to_owned())
+}
+
+/// A tolerance: `--tol`.
+pub(crate) fn tolerance(text: &str) -> Result<f64, String> {
+    text.parse()
+        .ok()
+        .filter(|x: &f64| *x >= 0.0 && x.is_finite())
+        .ok_or_else(|| "a number of at least 0".to_owned())
 }
 
 /// The command asked for, or `None` when the help or the version was printed; the

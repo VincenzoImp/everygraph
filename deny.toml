@@ -46,6 +46,10 @@ exceptions = [
     # wasm32 only; the Python package is never built for wasm32, and the macro's code
     # runs at build time and ships in nothing. Used unmodified.
     { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+    # MIT-0 (MIT without its attribution clause): borrow-or-share, in `jsonschema`, a
+    # dev-dependency of the CLI's tests that checks their documents against the schemas
+    # of the docs. Permissive; it ships in nothing. Used unmodified.
+    { crate = "borrow-or-share", allow = ["MIT-0"] },
 ]
 confidence-threshold = 0.9
 # The list is a policy, not an inventory: entries no dependency uses yet are expected.
@@ -77,7 +81,8 @@ deny = [
     # (at run time, or at build time through const-random on wasm32),
     # which no result of ours reads.
     { crate = "rand", wrappers = ["proptest"], reason = "use everygraph_core::rng" },
-    { crate = "getrandom", wrappers = ["rand_core", "ring", "ahash", "const-random-macro"], reason = "use everygraph_core::rng" },
+    # `jsonschema` (the CLI tests' schema check) seeds its hash tables the same way.
+    { crate = "getrandom", wrappers = ["rand_core", "ring", "ahash", "const-random-macro", "referencing", "jsonschema-value", "jsonschema"], reason = "use everygraph_core::rng" },
     { crate = "fastrand", reason = "use everygraph_core::rng" },
 ]
 

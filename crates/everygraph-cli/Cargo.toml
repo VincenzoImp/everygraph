@@ -35,9 +35,12 @@ xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"
 rustix = { version = "1.1", default-features = false, features = ["std", "fs"] }
 
 [dev-dependencies]
-# The tests write a gzip input, and read back the Parquet and Arrow files of `--out`.
+# The tests write a gzip input, read back the Parquet and Arrow files of `--out`, and
+# check every JSON document against the schemas of the docs.
 arrow-array = { version = "58.4", default-features = false }
 arrow-ipc = { version = "58.4", default-features = false }
+arrow-schema = { version = "58.4", default-features = false }
+jsonschema = { version = "0.63", default-features = false }
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 parquet = { version = "58.4", default-features = false, features = ["arrow"] }
 

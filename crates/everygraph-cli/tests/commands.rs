@@ -41,7 +41,7 @@ fn rows(dir: &Path, args: &[&str]) -> BTreeMap<String, Vec<Value>> {
     let out = run(dir, &all);
     assert_eq!(out.status.code(), Some(0), "{args:?}: {}", stderr(&out));
     let doc = document(&out);
-    schema::result(&doc).unwrap_or_else(|e| panic!("{e}: {doc}"));
+    schema::check("result", &doc).unwrap_or_else(|e| panic!("{e}: {doc}"));
     doc["rows"]
         .as_array()
         .unwrap()
@@ -196,7 +196,7 @@ fn a_result_is_kept_in_the_graph_file_and_served_from_it() {
     let out = run(&dir, &["run", "pagerank", "g.eg", "--json"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let computed = document(&out);
-    schema::result(&computed).unwrap();
+    schema::check("result", &computed).unwrap();
     assert_eq!(computed["cached"], false);
     assert_eq!(computed["stored_in"], "g.eg");
     assert_eq!(computed["meta"]["converged"], true);
@@ -226,7 +226,7 @@ fn a_result_is_kept_in_the_graph_file_and_served_from_it() {
     let out = run(&dir, &["info", "g.eg", "--json"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let info = document(&out);
-    schema::info(&info).unwrap_or_else(|e| panic!("{e}: {info}"));
+    schema::check("info", &info).unwrap_or_else(|e| panic!("{e}: {info}"));
     let results = info["results"].as_array().unwrap();
     assert_eq!(results.len(), 2);
     assert!(
@@ -263,7 +263,7 @@ fn compact_reclaims_what_replaced_commits_left_and_keeps_every_result() {
     // With --out, the file is not changed.
     let out = run(&dir, &["compact", "g.eg", "--out", "copy.eg", "--json"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
-    schema::file(&document(&out)).unwrap();
+    schema::check("file", &document(&out)).unwrap();
     assert_eq!(std::fs::read(dir.join("g.eg")).unwrap(), original);
     let out = run(&dir, &["compact", "g.eg", "--out", "copy.eg"]);
     assert_eq!(
@@ -356,7 +356,7 @@ fn a_whole_result_is_written_in_every_format() {
         Some(2),
         "an extension that names no format"
     );
-    schema::error(&document(&out), "error").unwrap();
+    schema::check("error", &document(&out)).unwrap();
     assert!(!dir.join("bfs.txt").exists() && !dir.join("bfs.txt.partial").exists());
 }
 
@@ -419,7 +419,7 @@ fn export_writes_each_pair_once_and_says_it_is_not_anonymized() {
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let doc = document(&out);
-    schema::file(&doc).unwrap();
+    schema::check("file", &doc).unwrap();
     assert_eq!(doc["made"]["kind"], "file");
     assert_eq!(doc["counts"]["rows"], 6);
     assert!(
@@ -461,8 +461,13 @@ fn every_failure_has_its_exit_status_and_one_document() {
         (&["run", "bfs", "g.eg", "zz"], 6, "UnknownNode"),
         (&["run", "pagerank", "d.eg"], 2, "Unsupported"),
         (&["run", "kcore", "d.eg"], 2, "Unsupported"),
-        (&["run", "triangles", "g.eg"], 2, "Unsupported"),
-        (&["run", "components", "g.eg", "--strong"], 2, "Unsupported"),
+        (&["run", "triangles", "g.eg"], 2, "UsageError"),
+        (&["run", "components", "g.eg", "--strong"], 2, "UsageError"),
+        (
+            &["run", "bfs", "g.eg", "a", "--direction", "in"],
+            2,
+            "Unsupported",
+        ),
         (
             &["run", "pagerank", "g.eg", "--max-hops", "2"],
             2,
@@ -512,7 +517,7 @@ fn every_failure_has_its_exit_status_and_one_document() {
             stderr(&out)
         );
         let doc = document(&out);
-        schema::error(&doc, "error").unwrap_or_else(|e| panic!("{args:?}: {e}: {doc}"));
+        schema::check("error", &doc).unwrap_or_else(|e| panic!("{args:?}: {e}: {doc}"));
         assert_eq!(doc["error"], class, "{args:?}");
         let out = run(&dir, args);
         assert_eq!(out.status.code(), Some(i32::from(status)));
@@ -531,27 +536,320 @@ fn every_failure_has_its_exit_status_and_one_document() {
 }
 
 #[test]
-fn the_closed_checks_refuse_a_misspelt_key() {
+fn the_schemas_of_the_docs_are_closed_to_a_misspelt_key() {
     let dir = graph("commands", "closed");
     let result = document(&run(&dir, &["run", "degrees", "g.eg", "--json"]));
     let info = document(&run(&dir, &["info", "g.eg", "--json"]));
     let file = document(&run(&dir, &["export", "g.eg", "--out", "e.csv", "--json"]));
-    for (doc, check) in [
-        (&result, schema::result as fn(&Value) -> Result<(), String>),
-        (&info, schema::info),
-        (&file, schema::file),
-    ] {
-        check(doc).unwrap();
+    for (name, doc) in [("result", &result), ("info", &info), ("file", &file)] {
+        schema::check(name, doc).unwrap();
         let mut bad = doc.clone();
         bad["rwos"] = 1.into();
-        assert!(check(&bad).is_err());
+        assert!(schema::check(name, &bad).is_err(), "{name}");
     }
-    let mut bad = result.clone();
-    bad["rows_returned"] = 99.into();
-    assert!(schema::result(&bad).is_err());
-    let mut bad = info.clone();
-    bad["results"] = serde_json::json!([{"operation": "x"}]);
-    assert!(schema::info(&bad).is_err());
+}
+
+#[test]
+fn the_parameters_of_a_result_are_typed_as_given() {
+    let dir = graph("commands", "parameters");
+    let doc = document(&run(
+        &dir,
+        &["run", "pagerank", "g.eg", "--json", "--max-iter", "50"],
+    ));
+    let p = &doc["meta"]["parameters"];
+    assert_eq!(p["max_iter"], 50, "{p}");
+    assert!(p["max_iter"].is_u64(), "{p}");
+    assert_eq!(p["damping"], 0.85);
+    assert_eq!(p["precision"], "full");
+    let doc = document(&run(&dir, &["run", "bfs", "g.eg", "c", "--json"]));
+    assert_eq!(
+        doc["meta"]["parameters"]["source"], "c",
+        "the identifier typed"
+    );
+}
+
+#[test]
+fn numbers_out_of_range_are_said_in_sentences() {
+    let dir = graph("commands", "numbers");
+    for (args, said) in [
+        (
+            &["run", "pagerank", "g.eg", "--tol", "-1"][..],
+            "--tol -1 is not a number of at least 0.",
+        ),
+        (
+            &["run", "pagerank", "g.eg", "--damping", "abc"],
+            "--damping abc is not a number between 0 and 1.",
+        ),
+        (
+            &["run", "pagerank", "g.eg", "--max-iter", "-3"],
+            "--max-iter -3 is not a whole number of at least 0.",
+        ),
+        (
+            &["run", "degrees", "g.eg", "--top", "x"],
+            "--top x is not a whole number of at least 0.",
+        ),
+    ] {
+        let out = run(&dir, args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        assert!(
+            stderr(&out).starts_with(&format!("error: {said}\n")),
+            "{args:?}: {}",
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn a_refusal_for_memory_claims_no_exact_smallest_budget() {
+    let dir = graph("commands", "budget");
+    let out = run(&dir, &["run", "pagerank", "g.eg", "-m", "1kB", "--json"]);
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    let doc = document(&out);
+    schema::check("error", &doc).unwrap();
+    assert!(doc["smallest_budget_bytes"].is_null(), "{doc}");
+    assert!(
+        doc["why"].as_str().unwrap().starts_with("pagerank needs "),
+        "{doc}"
+    );
+    assert!(stderr(&out).contains("at least this"), "{}", stderr(&out));
+}
+
+#[test]
+fn a_stored_result_without_one_value_per_node_is_not_served() {
+    use everygraph_format::container::{Container, Provenance, Writer};
+    use everygraph_kernels::run::Operation;
+    let dir = graph("commands", "length");
+    let path = dir.join("g.eg");
+    // A result of the right key but of 3 values, where the graph has 8 nodes: what a
+    // result of another graph committed to this file would look like.
+    let sink = everygraph_io::FileSink::open(&path).unwrap();
+    let mut writer = Writer::update(sink).unwrap();
+    let key = Operation::Degrees.key(writer.graph_identity()).unwrap();
+    writer
+        .add_result(&key, &Provenance::default(), &[7_u32, 7, 7])
+        .unwrap();
+    writer.commit().unwrap();
+    drop(writer);
+    let file = Container::open(everygraph_io::FileSource::open(&path).unwrap()).unwrap();
+    assert_eq!(file.results().unwrap().len(), 1);
+    drop(file);
+    let doc = document(&run(
+        &dir,
+        &["run", "degrees", "g.eg", "--json", "--top", "100"],
+    ));
+    assert_eq!(doc["cached"], false, "{doc}");
+    assert_eq!(doc["rows_total"], 8);
+    assert!(
+        doc["rows"].as_array().unwrap().iter().all(|r| r[1] != 7),
+        "{doc}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_piped_table_is_printed_within_the_budget() {
+    use std::io::Read;
+    let dir = dir("commands", "piped-budget");
+    // A path of 400,000 nodes: its table in text is far more than the rows in flight.
+    let mut text = String::new();
+    for i in 0..400_000_u32 {
+        text.push_str(&format!("{i} {}\n", i + 1));
+    }
+    std::fs::write(dir.join("p.txt"), text).unwrap();
+    assert_eq!(
+        run(&dir, &["ingest", "p.txt", "--undirected"])
+            .status
+            .code(),
+        Some(0)
+    );
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_everygraph"))
+        .current_dir(&dir)
+        .args(["run", "degrees", "p.eg", "-m", "40MB"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let status = format!("/proc/{}/status", child.id());
+    let mut peak = 0_u64;
+    let mut out = Vec::new();
+    let mut stdout = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        stdout.read_to_end(&mut out).unwrap();
+        out
+    });
+    while child.try_wait().unwrap().is_none() {
+        if let Ok(s) = std::fs::read_to_string(&status) {
+            let anon = |key: &str| {
+                s.lines()
+                    .find(|l| l.starts_with(key))
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .and_then(|kb| kb.parse::<u64>().ok())
+                    .unwrap_or(0)
+            };
+            // Anonymous memory only: the mapped graph file is the page cache's.
+            peak = peak.max(anon("RssAnon:") * 1024);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let out = reader.join().unwrap();
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+    assert_eq!(out.iter().filter(|&&b| b == b'\n').count(), 400_002);
+    assert!(
+        peak < 40_000_000,
+        "{peak} bytes of anonymous memory, budget 40 MB"
+    );
+}
+
+#[test]
+fn identifiers_that_need_quoting_round_trip_through_csv_and_json() {
+    let dir = dir("commands", "quoting");
+    let names = ["a,b", "c\"d", "e\\f", "x y"];
+    let mut text = String::from("from\tto\n");
+    text.push_str(&format!(
+        "{}\t{}\n{}\t{}\n",
+        names[0], names[1], names[2], names[3]
+    ));
+    std::fs::write(dir.join("q.tsv"), text).unwrap();
+    let out = run(
+        &dir,
+        &["ingest", "q.tsv", "--ids", "string", "--undirected"],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(
+        run(&dir, &["run", "degrees", "q.eg", "-o", "d.csv"])
+            .status
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        run(&dir, &["run", "degrees", "q.eg", "-o", "d.json"])
+            .status
+            .code(),
+        Some(0)
+    );
+    let csv = std::fs::read_to_string(dir.join("d.csv")).unwrap();
+    let mut seen = BTreeSet::new();
+    for line in csv.lines().skip(1) {
+        let (node, degree) = line.rsplit_once(',').unwrap();
+        let node = match node.strip_prefix('"').and_then(|n| n.strip_suffix('"')) {
+            Some(quoted) => quoted.replace("\"\"", "\""),
+            None => node.to_owned(),
+        };
+        assert_eq!(degree, "1");
+        seen.insert(node);
+    }
+    assert_eq!(seen, names.iter().map(|n| (*n).to_owned()).collect());
+    let json: Value = serde_json::from_slice(&std::fs::read(dir.join("d.json")).unwrap()).unwrap();
+    let from_json: BTreeSet<String> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["node"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(from_json, seen);
+}
+
+/// A graph whose identifiers are signed integers: the dictionary of a signed column.
+fn signed_graph(dir: &Path) -> std::path::PathBuf {
+    use everygraph_core::{Budget, ByteSource, MemorySource};
+    use everygraph_format::adjacency::encode;
+    use everygraph_format::container::{Kind, Provenance, Writer};
+    use everygraph_ingest::ids::{
+        BuildOptions, ColumnType, DictionaryError, Key, KeySource, MemoryScratch, build_dictionary,
+    };
+    struct Keys;
+    impl KeySource for Keys {
+        fn column(&self) -> ColumnType {
+            ColumnType::Int { bits: 64 }
+        }
+        fn chunks(&self) -> usize {
+            1
+        }
+        fn read_chunk(
+            &self,
+            _: usize,
+            f: &mut dyn FnMut(u64, Key<'_>) -> Result<(), DictionaryError>,
+        ) -> Result<(), DictionaryError> {
+            for (i, k) in [-5_i64, 3, -1].into_iter().enumerate() {
+                f(i as u64, Key::Int(k))?;
+            }
+            Ok(())
+        }
+    }
+    let e = encode(&[0, 1, 2, 2], &[1, 0]).unwrap();
+    let mut w = Writer::create(MemorySource::new(Vec::new())).unwrap();
+    let record = Provenance {
+        engine: "everygraph test".into(),
+        operation: "ingest".into(),
+        parameters: [
+            ("directed", "false"),
+            ("self_loops", "drop"),
+            ("counts.edges", "1"),
+        ]
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .into_iter()
+        .collect(),
+        ..Provenance::default()
+    };
+    w.add_provenance("provenance/ingest", &record).unwrap();
+    for (name, kind, bytes) in [
+        ("adjacency.out.index", Kind::ADJACENCY_INDEX, &e.index),
+        ("adjacency.out.data", Kind::ADJACENCY_DATA, &e.data),
+    ] {
+        w.add_section(name, kind, bytes, Some("provenance/ingest"))
+            .unwrap();
+    }
+    let budget = Budget::unlimited();
+    let built = build_dictionary(&Keys, &BuildOptions::default(), &budget, &MemoryScratch).unwrap();
+    for (name, section) in built.dictionary.sections() {
+        let mut bytes = vec![0; usize::try_from(section.len()).unwrap()];
+        section.read_at(0, &mut bytes).unwrap();
+        w.add_section(name, Kind::ID_DICTIONARY, &bytes, None)
+            .unwrap();
+    }
+    w.commit().unwrap();
+    let path = dir.join("s.eg");
+    std::fs::write(&path, w.into_sink().into_inner()).unwrap();
+    path
+}
+
+#[test]
+fn signed_identifiers_stay_signed_integers() {
+    let dir = dir("commands", "signed");
+    signed_graph(&dir);
+    let doc = document(&run(&dir, &["run", "degrees", "s.eg", "--json"]));
+    schema::check("result", &doc).unwrap_or_else(|e| panic!("{e}: {doc}"));
+    let nodes: BTreeSet<i64> = doc["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r[0].as_i64().unwrap())
+        .collect();
+    assert_eq!(nodes, BTreeSet::from([-5, -1, 3]), "{doc}");
+    assert_eq!(
+        run(&dir, &["run", "degrees", "s.eg", "-o", "d.csv"])
+            .status
+            .code(),
+        Some(0)
+    );
+    let csv = std::fs::read_to_string(dir.join("d.csv")).unwrap();
+    assert!(csv.lines().any(|l| l.starts_with("-5,")), "{csv}");
+    assert_eq!(
+        run(&dir, &["run", "degrees", "s.eg", "-o", "d.parquet"])
+            .status
+            .code(),
+        Some(0)
+    );
+    let file = std::fs::File::open(dir.join("d.parquet")).unwrap();
+    let batch = parquet::arrow::arrow_reader::ParquetRecordBatchReader::try_new(file, 16)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        batch.schema().field(0).data_type(),
+        &arrow_schema::DataType::Int64
+    );
 }
 
 /// Runs `args` in a pseudo-terminal through util-linux `script`, with `env`; returns

@@ -76,7 +76,12 @@ pub(crate) fn main(args: &Args) -> u8 {
 
 fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
     let started = Instant::now();
-    if let Some(out) = &common.out {
+    // `--out FILE` is in place.
+    let out = common.out.as_ref().filter(|out| {
+        let real = |p: &Path| std::fs::canonicalize(p).ok();
+        real(out).is_none() || real(out) != real(path)
+    });
+    if let Some(out) = out {
         if out.exists() && !common.overwrite {
             return Err(failure::output_exists(out, is_graph(out)));
         }
@@ -98,12 +103,12 @@ fn run(path: &Path, common: &Common) -> Result<u8, Failure> {
         }
     };
     // Held until the copy has replaced the file: no other writer commits meanwhile.
-    let held = match common.out {
+    let held = match out {
         None => Some(FileSink::open(path).map_err(busy)?),
         Some(_) => None,
     };
     let file = graph::container(path)?;
-    let destination = common.out.clone().unwrap_or_else(|| path.to_path_buf());
+    let destination = out.cloned().unwrap_or_else(|| path.to_path_buf());
     let partial = PathBuf::from(format!("{}.partial", destination.display()));
     let sink = FileSink::create(&partial).map_err(|e| failure::io("write", &partial, &e))?;
     let mut guard = Partial(Some(partial.clone()));

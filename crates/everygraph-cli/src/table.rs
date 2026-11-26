@@ -4,13 +4,19 @@
 //! (`docs/api-sketch.md` § 5.3): aligned for a terminal, tab-separated when piped, and
 //! the rows of the result document; and written whole to a file with `--out`. Columns
 //! of nodes (`bfs`'s `parent`) show the nodes' identifiers.
+//!
+//! Rows are turned into text a batch at a time, under a reservation of the budget, so
+//! a table of any length is printed or written in the memory of one batch.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs::File;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use everygraph_core::{ByteSource, NodeId, SegVec};
+use everygraph_core::{
+    ByteSource, InsufficientBudget, Memory, MemoryKind, NodeId, Reservation, SegVec,
+};
 use everygraph_ingest::ids::{ColumnType, Dictionary, DictionaryError, KeyKind};
 use everygraph_io::table::{Format, TableWriter, Type, Values};
 use everygraph_kernels::run::Column;
@@ -19,8 +25,10 @@ use serde_json::Value;
 use crate::failure::{self, Failure};
 use crate::render::{Style, count};
 
-/// Rows per batch written to a file.
-const BATCH: u32 = 1 << 16;
+/// Rows per batch.
+const BATCH: usize = 1 << 14;
+/// Bytes reserved per row of a batch: its identifiers and its text.
+const ROW_BYTES: u64 = 256;
 /// Rows shown on a terminal without `--top` (§ 5.3).
 pub(crate) const SHOWN: usize = 10;
 /// The sign bit, which the dictionary flips in a signed key (`KeyKind::Integers`).
@@ -49,6 +57,24 @@ impl Ids {
             Self::Text(v) => Values::Text(v),
         }
     }
+
+    /// Identifier `j`, as text; empty for none.
+    fn text(&self, j: usize) -> String {
+        match self {
+            Self::Unsigned(v) => v[j].map_or_else(String::new, |x| x.to_string()),
+            Self::Signed(v) => v[j].map_or_else(String::new, |x| x.to_string()),
+            Self::Text(v) => v[j].clone().unwrap_or_default(),
+        }
+    }
+
+    /// Identifier `j`, as JSON: a number for integers.
+    fn json(&self, j: usize) -> Value {
+        match self {
+            Self::Unsigned(v) => v[j].map_or(Value::Null, Value::from),
+            Self::Signed(v) => v[j].map_or(Value::Null, Value::from),
+            Self::Text(v) => v[j].clone().map_or(Value::Null, Value::from),
+        }
+    }
 }
 
 /// The identifiers of a graph's nodes.
@@ -71,31 +97,6 @@ impl<'a, S: ByteSource> Nodes<'a, S> {
         &self.dictionary
     }
 
-    fn integer(&self, id: u32, buf: &mut Vec<u8>) -> Result<u64, DictionaryError> {
-        buf.clear();
-        self.dictionary.normalized_key(NodeId::new(id), buf)?;
-        let bytes: [u8; 8] = buf
-            .as_slice()
-            .try_into()
-            .map_err(|_| DictionaryError::Corrupt("an integer key that is not 8 bytes"))?;
-        Ok(u64::from_be_bytes(bytes))
-    }
-
-    /// The identifier of `id`, as text.
-    pub(crate) fn text(&self, id: u32) -> Result<String, DictionaryError> {
-        Ok(self.dictionary.key(NodeId::new(id))?.to_string())
-    }
-
-    /// The identifier of `id`, as JSON: a number for integers.
-    pub(crate) fn json(&self, id: u32) -> Result<Value, DictionaryError> {
-        let mut buf = Vec::new();
-        Ok(match self.kind {
-            Kind::Unsigned => self.integer(id, &mut buf)?.into(),
-            Kind::Signed => (self.integer(id, &mut buf)? ^ SIGN).cast_signed().into(),
-            Kind::Text => self.text(id)?.into(),
-        })
-    }
-
     /// The file type of a column of identifiers.
     pub(crate) fn file_type(&self, nullable: bool) -> Type {
         match self.kind {
@@ -105,42 +106,54 @@ impl<'a, S: ByteSource> Nodes<'a, S> {
         }
     }
 
-    /// The identifiers of `ids`, for a file.
+    /// The identifiers of `ids`.
     pub(crate) fn ids(
         &self,
         ids: impl Iterator<Item = Option<u32>>,
     ) -> Result<Ids, DictionaryError> {
         let mut buf = Vec::new();
+        let mut integer = |id: u32| -> Result<u64, DictionaryError> {
+            buf.clear();
+            self.dictionary.normalized_key(NodeId::new(id), &mut buf)?;
+            let bytes: [u8; 8] = buf
+                .as_slice()
+                .try_into()
+                .map_err(|_| DictionaryError::Corrupt("an integer key that is not 8 bytes"))?;
+            Ok(u64::from_be_bytes(bytes))
+        };
         Ok(match self.kind {
             Kind::Unsigned => Ids::Unsigned(
-                ids.map(|id| id.map(|id| self.integer(id, &mut buf)).transpose())
+                ids.map(|id| id.map(&mut integer).transpose())
                     .collect::<Result<_, _>>()?,
             ),
             Kind::Signed => Ids::Signed(
                 ids.map(|id| {
-                    id.map(|id| Ok((self.integer(id, &mut buf)? ^ SIGN).cast_signed()))
+                    id.map(|id| Ok((integer(id)? ^ SIGN).cast_signed()))
                         .transpose()
                 })
                 .collect::<Result<_, DictionaryError>>()?,
             ),
             Kind::Text => Ids::Text(
-                ids.map(|id| id.map(|id| self.text(id)).transpose())
-                    .collect::<Result<_, _>>()?,
+                ids.map(|id| {
+                    id.map(|id| Ok(self.dictionary.key(NodeId::new(id))?.to_string()))
+                        .transpose()
+                })
+                .collect::<Result<_, DictionaryError>>()?,
             ),
         })
     }
 }
 
-/// The values of a column as a slice.
+/// The values of a column as a slice: one segment, which `run::run` and `run::stored`
+/// make sure of.
 fn slice<T: Copy>(v: &SegVec<T>) -> &[T] {
-    v.as_slice().unwrap_or_default()
+    v.as_slice().expect("a result column of one segment")
 }
 
 /// Value `i` of a column of integers or nodes, `None` for a null.
 fn integer(column: &Column, i: usize) -> Option<u32> {
     match column {
-        Column::U32 { values, null } => Some(slice(values)[i]).filter(|v| Some(*v) != *null),
-        Column::Nodes { values, null } => Some(slice(values)[i]).filter(|v| v != null),
+        Column::U32 { values, null, .. } => Some(slice(values)[i]).filter(|v| Some(*v) != *null),
         Column::F64(_) | Column::F32(_) => None,
     }
 }
@@ -148,40 +161,86 @@ fn integer(column: &Column, i: usize) -> Option<u32> {
 /// Value `i` of a measure as `f64`, `None` for a null: the order of `--top`.
 fn number(column: &Column, i: usize) -> Option<f64> {
     match column {
+        Column::U32 { nodes: true, .. } => None,
         Column::U32 { .. } => integer(column, i).map(f64::from),
         Column::F64(v) => Some(slice(v)[i]),
         Column::F32(v) => Some(f64::from(slice(v)[i])),
-        Column::Nodes { .. } => None,
     }
 }
 
-/// The nodes of the largest `n` values of `column`, largest first, ties in node order,
-/// nulls left out (`docs/api-sketch.md` § 2.12).
-pub(crate) fn top(column: &Column, rows: usize, n: usize) -> Vec<u32> {
-    // Ordered best first: a larger value, or the same value at an earlier node.
-    let before = |a: &(f64, u32), b: &(f64, u32)| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1));
-    let mut best: Vec<(f64, u32)> = Vec::with_capacity(n.min(rows) + 1);
-    for (i, id) in (0..rows).zip(0_u32..) {
-        let Some(x) = number(column, i) else { continue };
-        if best.len() == n
-            && best
-                .last()
-                .is_none_or(|last| before(&(x, id), last).is_ge())
-        {
-            continue;
+/// The rows a table shows.
+pub(crate) enum Rows {
+    /// The first rows, in graph order.
+    First(usize),
+    /// These rows, in this order.
+    Chosen {
+        ids: Vec<u32>,
+        /// The budget they hold.
+        _held: Reservation,
+    },
+}
+
+impl Rows {
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::First(n) => *n,
+            Self::Chosen { ids, .. } => ids.len(),
         }
-        let at = best.partition_point(|b| before(b, &(x, id)).is_lt());
-        best.insert(at, (x, id));
-        best.truncate(n);
     }
-    best.into_iter().map(|(_, id)| id).collect()
+
+    /// Rows `range` of this order.
+    fn ids(&self, range: std::ops::Range<usize>) -> Vec<u32> {
+        match self {
+            Self::First(_) => (range.start..range.end)
+                .map(|i| u32::try_from(i).expect("a node number"))
+                .collect(),
+            Self::Chosen { ids, .. } => ids[range].to_vec(),
+        }
+    }
+}
+
+/// The nodes of the largest `n` values of `column` among `rows` nodes, largest first,
+/// ties in node order, nulls left out (`docs/api-sketch.md` § 2.12): a selection and a
+/// sort of the `n`, in an array of the budget.
+///
+/// # Errors
+///
+/// The array of every node does not fit the budget.
+pub(crate) fn top(
+    column: &Column,
+    rows: usize,
+    n: usize,
+    memory: &Memory,
+) -> Result<Rows, InsufficientBudget> {
+    let held = memory.reserve("the rows of --top", MemoryKind::Anonymous, rows as u64 * 4)?;
+    let mut ids: Vec<u32> = (0..rows)
+        .filter(|&i| number(column, i).is_some())
+        .map(|i| u32::try_from(i).expect("a node number"))
+        .collect();
+    let value = |id: u32| number(column, id as usize).unwrap_or(f64::NEG_INFINITY);
+    let order = |a: &u32, b: &u32| value(*b).total_cmp(&value(*a)).then(a.cmp(b));
+    if n < ids.len() {
+        ids.select_nth_unstable_by(n, order);
+        ids.truncate(n);
+    }
+    ids.sort_unstable_by(order);
+    Ok(Rows::Chosen { ids, _held: held })
 }
 
 /// The rows of one result to show, and whether they are ranked.
 pub(crate) struct Shown<'r> {
     pub(crate) columns: &'r [(&'static str, Column)],
-    pub(crate) rows: Vec<u32>,
+    pub(crate) rows: Rows,
     pub(crate) ranked: bool,
+}
+
+/// One batch of rows with their identifiers: of the rows, and of each column of nodes.
+struct Batch {
+    ids: Vec<u32>,
+    nodes: Ids,
+    columns: Vec<Option<Ids>>,
+    /// The rank of the first row.
+    first: u64,
 }
 
 impl Shown<'_> {
@@ -195,100 +254,169 @@ impl Shown<'_> {
         names
     }
 
-    /// Each row as `node`, its values and its rank, through `cell`.
-    fn each<T>(
+    /// Calls `f` on the rows, a batch at a time, under a reservation of `memory`.
+    fn batches<S: ByteSource>(
         &self,
-        node: impl Fn(u32) -> Result<T, DictionaryError>,
-        cell: impl Fn(usize, &Column, usize) -> Result<T, DictionaryError>,
-        rank: impl Fn(u64) -> T,
-    ) -> Result<Vec<Vec<T>>, DictionaryError> {
-        self.rows
-            .iter()
-            .zip(1_u64..)
-            .map(|(&id, r)| {
-                let mut row = vec![node(id)?];
-                for (k, (_, c)) in self.columns.iter().enumerate() {
-                    row.push(cell(k, c, id as usize)?);
+        nodes: &Nodes<'_, S>,
+        memory: &Memory,
+        mut f: impl FnMut(&Batch) -> Result<(), Failure>,
+        corrupt: &dyn Fn(DictionaryError) -> Failure,
+    ) -> Result<(), Failure> {
+        let _held = reserve(memory)?;
+        let mut start = 0;
+        while start < self.rows.len() {
+            let end = (start + BATCH).min(self.rows.len());
+            let ids = self.rows.ids(start..end);
+            let columns = self
+                .columns
+                .iter()
+                .map(|(_, c)| match c {
+                    Column::U32 { nodes: true, .. } => nodes
+                        .ids(ids.iter().map(|&i| integer(c, i as usize)))
+                        .map(Some),
+                    _ => Ok(None),
+                })
+                .collect::<Result<_, _>>()
+                .map_err(corrupt)?;
+            let batch = Batch {
+                nodes: nodes.ids(ids.iter().copied().map(Some)).map_err(corrupt)?,
+                columns,
+                ids,
+                first: start as u64 + 1,
+            };
+            f(&batch)?;
+            start = end;
+        }
+        Ok(())
+    }
+
+    /// The text of row `j` of `batch`: identifiers, values (`human` for a terminal,
+    /// plain otherwise, N-2), and the rank.
+    fn cells(&self, batch: &Batch, j: usize, human: Option<&[usize]>) -> Vec<String> {
+        let id = batch.ids[j] as usize;
+        let mut row = vec![batch.nodes.text(j)];
+        for (k, (_, c)) in self.columns.iter().enumerate() {
+            let none = if human.is_some() { "-" } else { "" };
+            row.push(
+                match (c, &batch.columns[k], human) {
+                    (_, Some(ids), _) => Some(ids.text(j)).filter(|t| !t.is_empty()),
+                    (Column::U32 { .. }, None, Some(_)) => {
+                        integer(c, id).map(|v| count(u64::from(v)))
+                    }
+                    (Column::U32 { .. }, None, None) => integer(c, id).map(|v| v.to_string()),
+                    (Column::F64(v), None, None) => Some(slice(v)[id].to_string()),
+                    (Column::F32(v), None, None) => Some(slice(v)[id].to_string()),
+                    (_, None, Some(decimals)) => {
+                        number(c, id).map(|x| format!("{x:.d$}", d = decimals[k]))
+                    }
                 }
-                if self.ranked {
-                    row.push(rank(r));
-                }
-                Ok(row)
-            })
-            .collect()
+                .unwrap_or_else(|| none.to_owned()),
+            );
+        }
+        if self.ranked {
+            let rank = batch.first + j as u64;
+            row.push(if human.is_some() {
+                count(rank)
+            } else {
+                rank.to_string()
+            });
+        }
+        row
     }
 
     /// The rows, as the result document holds them.
     pub(crate) fn json_rows<S: ByteSource>(
         &self,
         nodes: &Nodes<'_, S>,
-    ) -> Result<Vec<Value>, DictionaryError> {
-        let cell = |_, c: &Column, i: usize| -> Result<Value, DictionaryError> {
-            Ok(match c {
-                Column::Nodes { .. } => match integer(c, i) {
-                    Some(id) => nodes.json(id)?,
-                    None => Value::Null,
-                },
-                Column::U32 { .. } => integer(c, i).map_or(Value::Null, Value::from),
-                Column::F64(_) | Column::F32(_) => number(c, i)
-                    .and_then(serde_json::Number::from_f64)
-                    .map_or(Value::Null, Value::Number),
-            })
-        };
-        let rows = self.each(|id| nodes.json(id), cell, Value::from)?;
-        Ok(rows.into_iter().map(Value::Array).collect())
+        memory: &Memory,
+        corrupt: &dyn Fn(DictionaryError) -> Failure,
+    ) -> Result<Vec<Value>, Failure> {
+        let mut rows = Vec::new();
+        self.batches(
+            nodes,
+            memory,
+            |batch| {
+                for j in 0..batch.ids.len() {
+                    let id = batch.ids[j] as usize;
+                    let mut row = vec![batch.nodes.json(j)];
+                    for (k, (_, c)) in self.columns.iter().enumerate() {
+                        row.push(match (&batch.columns[k], c) {
+                            (Some(ids), _) => ids.json(j),
+                            (None, Column::U32 { .. }) => {
+                                integer(c, id).map_or(Value::Null, Value::from)
+                            }
+                            (None, _) => number(c, id)
+                                .and_then(serde_json::Number::from_f64)
+                                .map_or(Value::Null, Value::Number),
+                        });
+                    }
+                    if self.ranked {
+                        row.push((batch.first + j as u64).into());
+                    }
+                    rows.push(Value::Array(row));
+                }
+                Ok(())
+            },
+            corrupt,
+        )?;
+        Ok(rows)
     }
 
-    /// The tab-separated form: a header, then every row shown, plain numbers (N-2).
+    /// The tab-separated form, written to `out` a batch at a time: a header, then every
+    /// row shown, plain numbers (N-2).
     pub(crate) fn piped<S: ByteSource>(
         &self,
         nodes: &Nodes<'_, S>,
-    ) -> Result<String, DictionaryError> {
-        let cell = |_, c: &Column, i: usize| -> Result<String, DictionaryError> {
-            Ok(match c {
-                Column::Nodes { .. } => integer(c, i)
-                    .map(|id| nodes.text(id))
-                    .transpose()?
-                    .unwrap_or_default(),
-                Column::U32 { .. } => integer(c, i).map_or_else(String::new, |v| v.to_string()),
-                Column::F64(v) => slice(v)[i].to_string(),
-                Column::F32(v) => slice(v)[i].to_string(),
-            })
-        };
-        let mut out = self.names().join("\t");
-        out.push('\n');
-        for row in self.each(|id| nodes.text(id), cell, |r| r.to_string())? {
-            out.push_str(&row.join("\t"));
-            out.push('\n');
-        }
-        Ok(out)
+        memory: &Memory,
+        out: &mut impl Write,
+        corrupt: &dyn Fn(DictionaryError) -> Failure,
+    ) -> Result<(), Failure> {
+        let gone = |e: io::Error| failure::io("write", Path::new("standard output"), &e);
+        writeln!(out, "{}", self.names().join("\t")).map_err(gone)?;
+        let mut text = String::new();
+        self.batches(
+            nodes,
+            memory,
+            |batch| {
+                text.clear();
+                for j in 0..batch.ids.len() {
+                    text.push_str(&self.cells(batch, j, None).join("\t"));
+                    text.push('\n');
+                }
+                out.write_all(text.as_bytes()).map_err(gone)
+            },
+            corrupt,
+        )?;
+        out.flush().map_err(gone)
     }
 
     /// The terminal form: aligned with spaces, a dim header, numbers with separators,
-    /// decimals to three significant digits of the smallest value shown, identifiers
-    /// shortened in the middle only past 80 columns (W-4).
+    /// as many decimals as tell the values shown apart (at least three significant
+    /// digits of the smallest), identifiers shortened in the middle only past 80
+    /// columns (W-4).
     pub(crate) fn aligned<S: ByteSource>(
         &self,
         nodes: &Nodes<'_, S>,
+        memory: &Memory,
         style: Style,
-    ) -> Result<String, DictionaryError> {
-        let decimals: Vec<usize> = self.columns.iter().map(|(_, c)| self.decimals(c)).collect();
-        let cell = |k: usize, c: &Column, i: usize| -> Result<String, DictionaryError> {
-            Ok(match c {
-                Column::Nodes { .. } => match integer(c, i) {
-                    Some(id) => nodes.text(id)?,
-                    None => "-".to_owned(),
-                },
-                Column::U32 { .. } => {
-                    integer(c, i).map_or_else(|| "-".to_owned(), |v| count(u64::from(v)))
-                }
-                Column::F64(_) | Column::F32(_) => {
-                    let x = number(c, i).unwrap_or(f64::NAN);
-                    format!("{x:.d$}", d = decimals[k])
-                }
-            })
-        };
-        let mut cells = self.each(|id| nodes.text(id), cell, count)?;
+        corrupt: &dyn Fn(DictionaryError) -> Failure,
+    ) -> Result<String, Failure> {
+        let ids = self.rows.ids(0..self.rows.len());
+        let decimals: Vec<usize> = self
+            .columns
+            .iter()
+            .map(|(_, c)| decimals(c, &ids))
+            .collect();
+        let mut cells = Vec::new();
+        self.batches(
+            nodes,
+            memory,
+            |batch| {
+                cells.extend((0..batch.ids.len()).map(|j| self.cells(batch, j, Some(&decimals))));
+                Ok(())
+            },
+            corrupt,
+        )?;
         let names = self.names();
         let width = |cells: &[Vec<String>], k: usize| {
             cells
@@ -322,27 +450,54 @@ impl Shown<'_> {
         }
         Ok(out)
     }
+}
 
-    /// The decimals that show three significant digits of the smallest non-zero value
-    /// of a floating-point column among the rows shown.
-    fn decimals(&self, column: &Column) -> usize {
-        let mut smallest = self
-            .rows
-            .iter()
-            .filter_map(|&id| number(column, id as usize))
-            .filter(|x| *x != 0.0 && x.is_finite())
-            .map(f64::abs)
-            .fold(f64::INFINITY, f64::min);
-        if !smallest.is_finite() {
-            return 2;
-        }
-        let mut digits = 0;
-        while smallest < 100.0 && digits < 15 {
-            smallest *= 10.0;
-            digits += 1;
-        }
-        digits
+/// The budget of one batch of rows.
+fn reserve(memory: &Memory) -> Result<Reservation, Failure> {
+    memory
+        .reserve(
+            "a batch of rows",
+            MemoryKind::Anonymous,
+            BATCH as u64 * ROW_BYTES,
+        )
+        .map_err(|e| {
+            failure::memory("Printing the rows", memory.available(), None, &e).on_existing_file()
+        })
+}
+
+/// The decimals of a floating-point column among `ids`: three significant digits of
+/// the smallest non-zero value, and more while two different values would print alike.
+fn decimals(column: &Column, ids: &[u32]) -> usize {
+    let values: Vec<f64> = ids
+        .iter()
+        .filter_map(|&id| number(column, id as usize))
+        .filter(|x| x.is_finite())
+        .collect();
+    let mut smallest = values
+        .iter()
+        .filter(|x| **x != 0.0)
+        .map(|x| x.abs())
+        .fold(f64::INFINITY, f64::min);
+    if !smallest.is_finite() {
+        return 2;
     }
+    let mut digits = 0;
+    while smallest < 100.0 && digits < 15 {
+        smallest *= 10.0;
+        digits += 1;
+    }
+    let distinct: BTreeSet<u64> = values.iter().map(|x| x.to_bits()).collect();
+    while digits < 17
+        && values
+            .iter()
+            .map(|x| format!("{x:.digits$}"))
+            .collect::<BTreeSet<_>>()
+            .len()
+            < distinct.len()
+    {
+        digits += 1;
+    }
+    digits
 }
 
 /// `text` shortened in the middle to `room` columns: its first six and last four
@@ -388,65 +543,57 @@ pub(crate) fn write(
     Ok(bytes)
 }
 
-/// Writes the whole result (`node`, then `columns`, for every node) to `path`.
+/// Writes the whole result (`node`, then `columns`, for every node) to `path`, a batch
+/// at a time.
 ///
 /// # Errors
 ///
 /// As [`write()`]; `CorruptFile` when an identifier cannot be read.
 pub(crate) fn write_result<S: ByteSource>(
     path: &Path,
-    graph: &Path,
     nodes: &Nodes<'_, S>,
+    memory: &Memory,
     columns: &[(&'static str, Column)],
+    corrupt: &dyn Fn(DictionaryError) -> Failure,
 ) -> Result<u64, Failure> {
-    let rows = nodes.dictionary().len();
     let mut schema = vec![("node", nodes.file_type(false))];
     schema.extend(columns.iter().map(|(name, c)| {
         let ty = match c {
+            Column::U32 { nodes: true, .. } => nodes.file_type(true),
             Column::U32 { null, .. } => Type::U32(null.is_some()),
-            Column::Nodes { .. } => nodes.file_type(true),
             Column::F64(_) => Type::F64,
             Column::F32(_) => Type::F32,
         };
         (*name, ty)
     }));
-    let corrupt = |e: DictionaryError| failure::corrupt(graph, &e);
+    let shown = Shown {
+        columns,
+        rows: Rows::First(nodes.dictionary().len() as usize),
+        ranked: false,
+    };
     write(path, &schema, |writer| {
-        let mut start = 0_u32;
-        loop {
-            let end = start.saturating_add(BATCH).min(rows);
-            let range = start as usize..end as usize;
-            let ids = nodes.ids((start..end).map(Some)).map_err(corrupt)?;
-            let mut owned = Vec::new();
-            for (_, c) in columns {
-                if let Column::Nodes { .. } = c {
-                    owned.push(
-                        nodes
-                            .ids(range.clone().map(|i| integer(c, i)))
-                            .map_err(corrupt)?,
-                    );
+        shown.batches(
+            nodes,
+            memory,
+            |batch| {
+                let range = batch.ids[0] as usize..batch.ids[0] as usize + batch.ids.len();
+                let mut values = vec![batch.nodes.values()];
+                for ((_, c), ids) in columns.iter().zip(&batch.columns) {
+                    values.push(match (c, ids) {
+                        (_, Some(ids)) => ids.values(),
+                        (Column::U32 { values, null, .. }, None) => {
+                            Values::U32(&slice(values)[range.clone()], *null)
+                        }
+                        (Column::F64(v), None) => Values::F64(&slice(v)[range.clone()]),
+                        (Column::F32(v), None) => Values::F32(&slice(v)[range.clone()]),
+                    });
                 }
-            }
-            let mut owned = owned.iter();
-            let mut batch = vec![ids.values()];
-            for (_, c) in columns {
-                batch.push(match c {
-                    Column::U32 { values, null } => {
-                        Values::U32(&slice(values)[range.clone()], *null)
-                    }
-                    Column::F64(v) => Values::F64(&slice(v)[range.clone()]),
-                    Column::F32(v) => Values::F32(&slice(v)[range.clone()]),
-                    Column::Nodes { .. } => owned.next().map_or(Values::F64(&[]), Ids::values),
-                });
-            }
-            writer
-                .write(&batch)
-                .map_err(|e| failure::io("write", path, &e))?;
-            if end == rows {
-                return Ok(());
-            }
-            start = end;
-        }
+                writer
+                    .write(&values)
+                    .map_err(|e| failure::io("write", path, &e))
+            },
+            corrupt,
+        )
     })
 }
 
@@ -491,20 +638,69 @@ impl Drop for Partial {
 mod tests {
     use super::*;
 
+    fn column(values: &[u32]) -> Column {
+        let memory = Memory::unlimited();
+        let mut v = SegVec::try_with_len(&memory, "t", values.len(), 0_u32).unwrap();
+        for (i, x) in values.iter().enumerate() {
+            v[i] = *x;
+        }
+        Column::U32 {
+            values: v,
+            null: Some(u32::MAX),
+            nodes: false,
+        }
+    }
+
+    fn chosen(rows: Rows) -> Vec<u32> {
+        rows.ids(0..rows.len())
+    }
+
     #[test]
     fn the_top_is_largest_first_ties_in_node_order_nulls_out() {
-        let memory = everygraph_core::Memory::unlimited();
-        let mut values = SegVec::try_with_len(&memory, "t", 7, 0_u32).unwrap();
-        for (i, v) in [3, 9, u32::MAX, 9, 1, 3, 0].into_iter().enumerate() {
-            values[i] = v;
+        let memory = Memory::unlimited();
+        let c = column(&[3, 9, u32::MAX, 9, 1, 3, 0]);
+        assert_eq!(chosen(top(&c, 7, 4, &memory).unwrap()), [1, 3, 0, 5]);
+        assert_eq!(
+            chosen(top(&c, 7, 100, &memory).unwrap()),
+            [1, 3, 0, 5, 4, 6]
+        );
+        assert!(chosen(top(&c, 7, 0, &memory).unwrap()).is_empty());
+        let small = Memory::from(std::sync::Arc::new(everygraph_core::Budget::new(8)));
+        assert!(
+            top(&c, 7, 1, &small).is_err(),
+            "the array of every node is budgeted"
+        );
+    }
+
+    #[test]
+    fn the_top_agrees_with_a_full_sort() {
+        let memory = Memory::unlimited();
+        let mut x = 0x9E37_79B9_u32;
+        let values: Vec<u32> = (0..5000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x % 50
+            })
+            .collect();
+        let c = column(&values);
+        let mut all: Vec<u32> = (0..5000).collect();
+        all.sort_by(|a, b| values[*b as usize].cmp(&values[*a as usize]).then(a.cmp(b)));
+        for n in [0, 1, 7, 49, 50, 51, 4999, 5000, 6000] {
+            let got = chosen(top(&c, 5000, n, &memory).unwrap());
+            assert_eq!(got, all[..n.min(5000)], "{n}");
         }
-        let column = Column::U32 {
-            values,
-            null: Some(u32::MAX),
-        };
-        assert_eq!(top(&column, 7, 4), [1, 3, 0, 5]);
-        assert_eq!(top(&column, 7, 100), [1, 3, 0, 5, 4, 6]);
-        assert!(top(&column, 7, 0).is_empty());
+    }
+
+    #[test]
+    fn decimals_tell_the_values_shown_apart() {
+        let memory = Memory::unlimited();
+        let mut v = SegVec::try_with_len(&memory, "t", 3, 0.0_f64).unwrap();
+        v[0] = 0.123_456_7;
+        v[1] = 0.123_456_8;
+        v[2] = 0.5;
+        assert_eq!(decimals(&Column::F64(v), &[0, 1, 2]), 7);
     }
 
     #[test]

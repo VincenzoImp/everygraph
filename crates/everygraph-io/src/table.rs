@@ -46,7 +46,7 @@ impl Format {
     pub fn of(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
         match ext.as_str() {
-            "parquet" | "pq" => Some(Self::Parquet),
+            "parquet" => Some(Self::Parquet),
             "arrow" | "feather" | "ipc" => Some(Self::Arrow),
             "csv" => Some(Self::Csv),
             "json" => Some(Self::Json),

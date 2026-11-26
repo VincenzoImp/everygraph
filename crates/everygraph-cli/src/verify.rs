@@ -96,7 +96,7 @@ fn run(path: &Path, options: &Args) -> u8 {
             .report(options.json);
         }
         Err(Stop::Memory(e)) => {
-            return failure::memory("check", free, None, &e)
+            return failure::memory("The check", free, None, &e)
                 .on_existing_file()
                 .report(options.json);
         }
