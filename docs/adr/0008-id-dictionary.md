@@ -147,5 +147,5 @@ order of 0.1 do not have to change when they arrive.
 
 ## Closed by
 
-#34 (dictionary with spilling dedupe), #25 (real-world inputs: string ids, Parquet,
+#25 (real-world inputs: string ids, Parquet,
 compressed files).

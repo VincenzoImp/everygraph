@@ -190,6 +190,5 @@ format, and the earlier measurement that still carries D9.
 
 ## Closed by
 
-#35 writes the `.events` section; its cost is measured in #240. #37 specified
-per-event and per-pair columns; the build that fills them is
-`plan/issues/m2-34-build-columns.md`.
+#240 measures the cost of the `.events` section in the build. The build that fills the
+per-event and per-pair columns is `plan/issues/m2-34-build-columns.md`.

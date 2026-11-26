@@ -26,11 +26,16 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 **Pointers.** `lab/f2-python/rust/glabpy`.
 
 **Left after PR #229 (2026-11-26).** PR #229 built the first slice (`crates/everygraph-py`): `eg.read` of text edge lists, `eg.open`, `Graph` with `pagerank`, `bfs`, `components`, `kcore`, `degrees`, `top`, Arrow-backed `Table`s, the exception classes, and progress events; its description lists the evidence per box. Still open:
-- The user stories' steps that need other issues: communities ({{#m4-01-leiden-production}}), Parquet ({{#m2-06-parquet-reader}}), views ({{#m7-04-views}}), point queries ({{#m7-01-point-queries}}, {{#m7-02-shortest-paths}}), `from_edges` ({{#m6-04-in-memory-constructors}}), weight and time columns ({{#m2-34-build-columns}}), directed graphs' in-edges ({{#m2-11-in-adjacency}})
-- PageRank from Python within 3% of the native binary: needs `everygraph run pagerank` ({{#m8-01-cli}}); an interleaved A/B closes it (CLAUDE.md § 6)
-- `explain()`, `dry_run`, the `plan` and `result` events and the smallest budget of `InsufficientBudget`: need the planner ({{#m3-02-planner}})
-- Cancellation inside a kernel (`docs/ux-contract.md` C-4): the engine has none, so `Ctrl-C` is raised when the kernel ends
-- The disagreements with `docs/api-sketch.md` and `docs/ux-contract.md` listed in PR #243 (the third sweep of 2026-11-26), each fixed in the code or in the documents
+- [ ] The user stories' steps that need other issues: communities ({{#m4-01-leiden-production}}), Parquet ({{#m2-06-parquet-reader}}), views ({{#m7-04-views}}), point queries ({{#m7-01-point-queries}}, {{#m7-02-shortest-paths}}), `from_edges` ({{#m6-04-in-memory-constructors}}), weight and time columns ({{#m2-34-build-columns}}), directed graphs' in-edges ({{#m2-11-in-adjacency}})
+- [ ] PageRank from Python within 3% of the native binary: needs `everygraph run pagerank` ({{#m8-01-cli}}); an interleaved A/B closes it (CLAUDE.md § 6)
+- [ ] `explain()`, `dry_run`, and the `plan`, `result` and `error` events of `docs/ux-contract.md` G-16 (one `plan` first, one `result`, `stopped` or `error` last): they come with the planner ({{#m3-02-planner}}); today only `phase` and `stopped` are sent
+- [ ] Cancellation inside a kernel (`docs/ux-contract.md` C-4): the engine has none, so `Ctrl-C` is raised when the kernel ends
+
+Disagreements with `docs/api-sketch.md` and `docs/ux-contract.md` found by PR #243 (decided 2026-11-26: the documents win; the code is fixed in a later Python pull request):
+- [ ] A missing or unknown column, a missing header or a column beyond the header raises `InvalidInput` (an `eg.EverygraphError`, exit 3; the table of `docs/api-sketch.md` § 2.7 gives it no `ValueError` base), not a plain `ValueError` (`crates/everygraph-py/src/error.rs`)
+- [ ] OS errors keep their subclass (`FileNotFoundError`, `PermissionError`, …; `docs/api-sketch.md` § 2.7), not a generic `OSError` made with `io::Error::other`
+- [ ] Default threads are the physical cores the process may use (`docs/api-sketch.md` § 2.4; D13), not `available_parallelism()`; the planner ({{#m3-02-planner}}) later chooses per kernel
+- [ ] The other gaps of PR #243's list (messages, the stop block, the cache-hit notice, `Unsupported` cases no document lists), each fixed in the code or the document. `smallest_budget_bytes = None` without the planner is settled by the amendment in PR #231
 
 **Depends on** {{#m2-08-csr-build}}
 

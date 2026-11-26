@@ -118,4 +118,3 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 
 #60 (production out-of-core Leiden) for community detection; #46 for iterative scans; #178
 (the block cache, ADR 0029) for random access under a budget.
-#16 reported on 2026-11-25 (above).

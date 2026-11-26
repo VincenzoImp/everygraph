@@ -3,7 +3,7 @@ title: M3 performance pass: close the measured speed gaps
 milestone: M3 · Engine and kernels
 labels: type:feature, area:engine, P1, risk:medium, size:L
 ---
-**Why.** Under the rule "official runs only when a number is published" (CLAUDE.md § 6, owner 2026-11-26), issues close on correctness and exploratory evidence, and their missed speed targets come here. All numbers below are exploratory (interleaved A/B on a loaded machine) unless a result file is named.
+**Why.** Under the rule "official runs only when a number is published" (CLAUDE.md § 6, owner 2026-11-26), issues close on correctness and exploratory evidence, and their missed speed targets come here, those of M2 issues included (M2 has no performance pass of its own). All numbers below are exploratory (interleaved A/B on a loaded machine) unless a result file is named.
 
 **Gaps to close**
 - [ ] Build (#35): lj 1.30–1.84 s vs ≤ 0.5 s, orkut 5.7–6.2 s vs ≤ 1.0 s (PR #215). Profile on orkut: parsing twice 26 %, finishing buckets 18 %, dictionary collection 13 %, shared atomic item counts 11 %, id look-ups 10 %, scatter 12 %. Friendster targets not yet measured.

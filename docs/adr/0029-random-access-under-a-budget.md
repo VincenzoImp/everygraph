@@ -188,6 +188,6 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 
 ## Closed by
 
-Accepted on #172's bytes read (2026-11-26). #178 builds the block cache; its acceptance is
+Accepted on 2026-11-26 on the bytes read of m1-15. #178 builds the block cache; its acceptance is
 level-0 local moving at 8 GiB within 1.5× of in RAM. When it lands, D11's text changes
 from per-phase `MADV_RANDOM` to the cache.

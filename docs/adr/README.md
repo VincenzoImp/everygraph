@@ -88,9 +88,9 @@ A measurable condition.
 | [0013](0013-threads-per-kernel.md) | Thread count chosen per kernel | accepted, partly validated | #22 |
 | [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #57, #54, #60 |
 | [0015](0015-leiden-visiting-order.md) | Leiden with block-permuted order and a connectivity guarantee | accepted, partly validated | #24, #57 |
-| [0016](0016-two-community-outputs.md) | Two community outputs, one artifact: the partition T inside the map tree | accepted | #19 |
+| [0016](0016-two-community-outputs.md) | Two community outputs, one artifact: the partition T inside the map tree | accepted | #63 |
 | [0017](0017-layout-disc-packing.md) | Layout by hierarchy-constrained disc packing | accepted, partly validated | #21 |
-| [0018](0018-data-tiles.md) | Data tiles in PMTiles v3 and a WebGL2 viewer | accepted, partly validated | #26, #15 |
+| [0018](0018-data-tiles.md) | Data tiles in PMTiles v3 and a WebGL2 viewer | accepted, partly validated | #26, #69 |
 | [0019](0019-python-pyo3-arrow.md) | Python through PyO3 abi3 and Arrow PyCapsule | accepted | — |
 | [0020](0020-networkx-backend.md) | The NetworkX backend is an adoption channel | accepted | — |
 | [0021](0021-queries-traversal-api.md) | Queries in v0.1: a traversal API, no query language | accepted, partly validated | #91 |
@@ -105,4 +105,7 @@ A measurable condition.
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of
 `docs/DESIGN.md` agree, that each ADR has the required sections and a known status, that
-every cited issue exists in `plan/published.json` and every cited `lab/` path exists.
+every cited issue exists in `plan/published.json` and every cited `lab/` path exists. It
+also fails when a closed issue (`plan/closed.json`, written by `plan/board.py sync`) is
+still cited in a "Closed by" or in a DESIGN.md status cell, and when a DESIGN.md status
+cell calls an accepted ADR proposed.

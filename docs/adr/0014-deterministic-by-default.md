@@ -86,5 +86,5 @@ silently.
 
 ## Closed by
 
-#57 (cost, with #18's sub-round rule), #54 (the tests across threads, platforms, budgets and regimes), #60 (the case
+#57 (cost, with the sub-round rule of `lab/m1-04-det-leiden-scaling`), #54 (the tests across threads, platforms, budgets and regimes), #60 (the case
 that would narrow it).
