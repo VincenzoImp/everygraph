@@ -1240,129 +1240,178 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             result
         };
         let degree = |i: usize| ix(self.source.degree(frontier[i]).into());
-        let cuts = self.cut(frontier, mode)?;
         let long =
             |t: &Range<usize>| mode == Mode::Parts && t.len() == 1 && degree(t.start) > RUN_ENTRIES;
-        let (acc, work) = match &cuts.runs[..] {
-            // A frontier of one run is done on the calling thread.
-            [one] if !long(one) => run(&frontier[one.clone()])?,
-            runs => {
-                // A result per run, and the first error apart: the results stay small.
-                let failed = Mutex::new(None);
-                let keep = |r: Result<(A, Work), Error>| match r {
-                    Ok(x) => Some(x),
-                    Err(e) => {
-                        let mut f = failed.lock().unwrap_or_else(PoisonError::into_inner);
-                        f.get_or_insert(e);
-                        None
-                    }
-                };
-                let _held = self.hold::<Option<(A, Work)>>(runs.len())?;
-                let mut results = mode.map_ranges(runs.len(), NonZeroUsize::MIN, |r| {
-                    let t = &runs[r.start];
-                    if long(t) {
-                        None
-                    } else {
-                        keep(run(&frontier[t.clone()]))
-                    }
-                });
-                let hubs: Vec<usize> = (0..runs.len()).filter(|&i| long(&runs[i])).collect();
-                // The long lists, a wave at a time: copied out, then all their parts in
-                // parallel. A wave holds no more entries than the longest of them, or
-                // `WAVE`, so the copies stay within one reader's longest buffer.
-                let most = hubs
-                    .iter()
-                    .map(|&h| degree(runs[h].start))
-                    .max()
-                    .unwrap_or(0);
-                let most = most.max(WAVE);
-                let mut at = 0;
-                while at < hubs.len() {
-                    let (mut end, mut entries) = (at, 0);
-                    while end < hubs.len()
-                        && (end == at || entries + degree(runs[hubs[end]].start) <= most)
-                    {
-                        entries += degree(runs[hubs[end]].start);
-                        end += 1;
-                    }
-                    let wave = &hubs[at..end];
-                    let copies = mode.map_ranges(wave.len(), NonZeroUsize::MIN, |r| {
-                        let v = frontier[runs[wave[r.start]].start];
-                        self.with_slot(|Slot { reader, .. }| {
-                            let mut copy = SegVec::new(&self.memory, "edge-map long list");
-                            let (mut first, mut copied) = (0, Ok(()));
-                            self.source.lists(reader, &[v], |_, first_entry, list| {
-                                first = first_entry;
-                                // SAFETY: the source hands out lists of its nodes only.
-                                copied = copy.try_extend_from_slice(unsafe { as_nodes(list) });
-                            })?;
-                            copied?;
-                            Ok((first, copy))
-                        })
-                    });
-                    let copies = copies.into_iter().collect::<Result<Vec<_>, Error>>()?;
-                    let copies = copies
-                        .iter()
-                        .map(|(first, copy)| Ok((*first, one_segment(copy)?)))
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    let pieces: Vec<(usize, Range<usize>)> = copies
-                        .iter()
-                        .enumerate()
-                        .flat_map(|(h, (_, list))| {
-                            (0..list.len())
-                                .step_by(RUN_ENTRIES)
-                                .map(move |s| (h, s..(s + RUN_ENTRIES).min(list.len())))
-                        })
-                        .collect();
-                    let _parts = self.hold::<Option<(A, Work)>>(pieces.len())?;
-                    let done = mode.map_ranges(pieces.len(), NonZeroUsize::MIN, |r| {
-                        let (h, range) = &pieces[r.start];
-                        let (first_entry, list) = &copies[*h];
-                        // SAFETY: a node of the frontier.
-                        let node = unsafe { Node::new_unchecked(frontier[runs[wave[*h]].start]) };
-                        keep(part(
-                            node,
-                            first_entry + range.start as u64,
-                            &list[range.clone()],
-                        ))
-                    });
-                    let mut done = done.into_iter();
-                    for (h, (_, list)) in copies.iter().enumerate() {
-                        let whole = Work {
-                            lists: 1,
-                            entries: list.len() as u64,
-                        };
-                        let mut sum = Some((A::ZERO, whole));
-                        for next in done.by_ref().take(list.len().div_ceil(RUN_ENTRIES)) {
-                            sum = sum.zip(next).map(|(s, x)| s.add(x));
-                        }
-                        results[wave[h]] = sum;
-                    }
-                    at = end;
-                }
-                if let Some(e) = failed.into_inner().unwrap_or_else(PoisonError::into_inner) {
-                    return Err(e);
-                }
-                // Runs add in order within their group, the groups in order.
-                let mut results = results.into_iter().map(|r| r.expect("every run is done"));
-                let mut total = <(A, Work)>::ZERO;
-                for &count in &cuts.groups {
-                    let group = results
-                        .by_ref()
-                        .take(count)
-                        .fold(<(A, Work)>::ZERO, Reduce::add);
-                    total = total.add(group);
-                }
-                total
-            }
+        let finish = |(acc, work): (A, Work)| {
+            self.count(work);
+            #[cfg(feature = "frontier-counters")]
+            counters::call(
+                frontier.len(),
+                &tasks.lock().unwrap_or_else(PoisonError::into_inner)[..],
+            );
+            acc
         };
-        self.count(work);
-        #[cfg(feature = "frontier-counters")]
-        counters::call(
-            frontier.len(),
-            &tasks.into_inner().unwrap_or_else(PoisonError::into_inner),
-        );
-        Ok(acc)
+        // On the calling thread, the runs add as they end: nothing is held.
+        if mode == Mode::Serial {
+            let mut total = <(A, Work)>::ZERO;
+            for start in (0..frontier.len()).step_by(FRONTIER_GRAIN) {
+                let g = start..(start + FRONTIER_GRAIN).min(frontier.len());
+                let mut group = <(A, Work)>::ZERO;
+                for r in self.group_runs(frontier, g) {
+                    group = group.add(run(&frontier[r])?);
+                }
+                total = total.add(group);
+            }
+            return Ok(finish(total));
+        }
+        // A frontier of one run is done on the calling thread.
+        if frontier.len() <= FRONTIER_GRAIN {
+            let mut runs = self.group_runs(frontier, 0..frontier.len());
+            if let (Some(one), None) = (runs.next(), runs.next()) {
+                if !long(&one) {
+                    return Ok(finish(run(frontier)?));
+                }
+            }
+        }
+        let cuts = self.cut(frontier, mode)?;
+        let runs = &cuts.runs[..];
+        let (acc, work) = {
+            // A result per run, and the first error apart: the results stay small.
+            let failed = Mutex::new(None);
+            let keep = |r: Result<(A, Work), Error>| match r {
+                Ok(x) => Some(x),
+                Err(e) => {
+                    let mut f = failed.lock().unwrap_or_else(PoisonError::into_inner);
+                    f.get_or_insert(e);
+                    None
+                }
+            };
+            let _held = self.hold::<Option<(A, Work)>>(runs.len())?;
+            let mut results = mode.map_ranges(runs.len(), NonZeroUsize::MIN, |r| {
+                let t = &runs[r.start];
+                if long(t) {
+                    None
+                } else {
+                    keep(run(&frontier[t.clone()]))
+                }
+            });
+            let hubs: Vec<usize> = (0..runs.len()).filter(|&i| long(&runs[i])).collect();
+            // The long lists, a wave at a time: copied out, then all their parts in
+            // parallel. A wave holds no more entries than the longest of them, or
+            // `WAVE`, so the copies stay within one reader's longest buffer.
+            let most = hubs
+                .iter()
+                .map(|&h| degree(runs[h].start))
+                .max()
+                .unwrap_or(0);
+            let most = most.max(WAVE);
+            let mut at = 0;
+            while at < hubs.len() {
+                let (mut end, mut entries) = (at, 0);
+                while end < hubs.len()
+                    && (end == at || entries + degree(runs[hubs[end]].start) <= most)
+                {
+                    entries += degree(runs[hubs[end]].start);
+                    end += 1;
+                }
+                let wave = &hubs[at..end];
+                let copies = mode.map_ranges(wave.len(), NonZeroUsize::MIN, |r| {
+                    let v = frontier[runs[wave[r.start]].start];
+                    self.with_slot(|Slot { reader, .. }| {
+                        let mut copy = SegVec::new(&self.memory, "edge-map long list");
+                        let (mut first, mut copied) = (0, Ok(()));
+                        self.source.lists(reader, &[v], |_, first_entry, list| {
+                            first = first_entry;
+                            // SAFETY: the source hands out lists of its nodes only.
+                            copied = copy.try_extend_from_slice(unsafe { as_nodes(list) });
+                        })?;
+                        copied?;
+                        Ok((first, copy))
+                    })
+                });
+                let copies = copies.into_iter().collect::<Result<Vec<_>, Error>>()?;
+                let copies = copies
+                    .iter()
+                    .map(|(first, copy)| Ok((*first, one_segment(copy)?)))
+                    .collect::<Result<Vec<_>, Error>>()?;
+                let pieces: Vec<(usize, Range<usize>)> = copies
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(h, (_, list))| {
+                        (0..list.len())
+                            .step_by(RUN_ENTRIES)
+                            .map(move |s| (h, s..(s + RUN_ENTRIES).min(list.len())))
+                    })
+                    .collect();
+                let _parts = self.hold::<Option<(A, Work)>>(pieces.len())?;
+                let done = mode.map_ranges(pieces.len(), NonZeroUsize::MIN, |r| {
+                    let (h, range) = &pieces[r.start];
+                    let (first_entry, list) = &copies[*h];
+                    // SAFETY: a node of the frontier.
+                    let node = unsafe { Node::new_unchecked(frontier[runs[wave[*h]].start]) };
+                    keep(part(
+                        node,
+                        first_entry + range.start as u64,
+                        &list[range.clone()],
+                    ))
+                });
+                let mut done = done.into_iter();
+                for (h, (_, list)) in copies.iter().enumerate() {
+                    let whole = Work {
+                        lists: 1,
+                        entries: list.len() as u64,
+                    };
+                    let mut sum = Some((A::ZERO, whole));
+                    for next in done.by_ref().take(list.len().div_ceil(RUN_ENTRIES)) {
+                        sum = sum.zip(next).map(|(s, x)| s.add(x));
+                    }
+                    results[wave[h]] = sum;
+                }
+                at = end;
+            }
+            if let Some(e) = failed.into_inner().unwrap_or_else(PoisonError::into_inner) {
+                return Err(e);
+            }
+            // Runs add in order within their group, the groups in order.
+            let mut results = results.into_iter().map(|r| r.expect("every run is done"));
+            let mut total = <(A, Work)>::ZERO;
+            for &count in &cuts.groups {
+                let group = results
+                    .by_ref()
+                    .take(count)
+                    .fold(<(A, Work)>::ZERO, Reduce::add);
+                total = total.add(group);
+            }
+            total
+        };
+        Ok(finish((acc, work)))
+    }
+
+    /// The runs of the nodes `g` of `frontier`, a group, as positions in the frontier
+    /// ([`cut`](Self::cut)).
+    fn group_runs<'a>(
+        &'a self,
+        frontier: &'a [u32],
+        g: Range<usize>,
+    ) -> impl Iterator<Item = Range<usize>> + 'a {
+        let (mut at, mut done) = (g.start, false);
+        std::iter::from_fn(move || {
+            if done {
+                return None;
+            }
+            let (start, mut entries) = (at, 0);
+            while at < g.end {
+                let cost = ix(self.source.degree(frontier[at]).into()) + 1;
+                if entries > 0 && entries + cost > RUN_ENTRIES {
+                    break;
+                }
+                entries += cost;
+                at += 1;
+            }
+            // An empty group is one empty run.
+            done = at == g.end;
+            Some(start..at)
+        })
     }
 
     /// A reservation for `count` values of `T`: the results of parallel tasks.
@@ -1382,18 +1431,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         let held = self.hold::<Vec<Range<usize>>>(groups)?;
         let per_group = mode.map_ranges(frontier.len().max(1), GRAIN, |g| {
             let g = g.start..g.end.min(frontier.len());
-            let mut runs = Vec::new();
-            let (mut start, mut entries) = (g.start, 0);
-            for i in g.clone() {
-                let cost = ix(self.source.degree(frontier[i]).into()) + 1;
-                if entries > 0 && entries + cost > RUN_ENTRIES {
-                    runs.push(start..i);
-                    (start, entries) = (i, 0);
-                }
-                entries += cost;
-            }
-            runs.push(start..g.end);
-            runs
+            self.group_runs(frontier, g).collect::<Vec<_>>()
         });
         let count: usize = per_group.iter().map(Vec::len).sum();
         let mut cuts = Cuts {
