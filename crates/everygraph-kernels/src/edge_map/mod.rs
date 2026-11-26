@@ -56,6 +56,9 @@
 //!   fixes their number in its code, not by target feature. No result goes through
 //!   `f64::max`, which may return either zero. A pull and a push form of one kernel add
 //!   in different orders, so they are not interchangeable.
+//! - **Global scalars** (a dangling mass, a residual, a total) reduce into
+//!   [`ExactSum`]: its value does not depend on how the values are grouped, so it does
+//!   not rely on the reduction blocks either (`docs/research/sota-numerics.md`, R6).
 //!
 //! Shared state that bodies change (atomics, [`NodeCells`]) is the kernel's affair. The
 //! kernels of [`crate::proof`] give results that do not depend on the order in which racing
@@ -95,7 +98,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{InsufficientBudget, Memory, MemoryError, ReadError, par};
+use everygraph_core::{ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, par};
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
@@ -248,7 +251,7 @@ impl Default for Settings {
 }
 
 /// A value the drivers add up in a fixed order.
-pub trait Reduce: Copy + Send {
+pub trait Reduce: Send + Sized {
     /// The value of no nodes.
     const ZERO: Self;
     /// `self + other`.
@@ -273,6 +276,14 @@ macro_rules! reduce_by_add {
     )*};
 }
 reduce_by_add!(u32: 0, u64: 0, f32: 0.0, f64: 0.0);
+
+impl Reduce for ExactSum {
+    const ZERO: Self = Self::new();
+    fn add(mut self, other: Self) -> Self {
+        self.merge(&other);
+        self
+    }
+}
 
 impl<A: Reduce, B: Reduce> Reduce for (A, B) {
     const ZERO: Self = (A::ZERO, B::ZERO);

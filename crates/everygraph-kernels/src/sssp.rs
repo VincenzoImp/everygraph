@@ -16,6 +16,9 @@
 //! Nodes whose distance dropped wait in an active set. A step takes the smallest
 //! distance `d` among them, extracts every active node below `θ = (⌊d / Δ⌋ + 1)·Δ` and
 //! relaxes their lists in parallel; a node whose distance drops becomes active again.
+//! The active set has two parts, as the near-far pile of Davidson et al. (IPDPS'14):
+//! nodes within eight buckets of the lowest distance, which each step scans, and the
+//! rest, which is scanned only when the near part is empty.
 //! Bucket fusion: a worker that lowers a node below `θ` relaxes it at once, from a local
 //! queue of at most [`FUSE`] nodes, instead of in a later step. That removes most steps
 //! on graphs of large diameter.
@@ -41,6 +44,9 @@ use crate::weights;
 /// First in, first out: a stack would make the order depth-first, whose repeated
 /// relaxations grow without bound when one bucket holds most of the graph.
 pub const FUSE: usize = 1024;
+
+/// Buckets the near set spans.
+const NEAR: f64 = 8.0;
 
 /// Costs sampled by [`delta`].
 const SAMPLES: u64 = 1024;
@@ -144,38 +150,32 @@ pub fn sssp<S: Source>(
     let bits: Vec<AtomicU64> = par::collect(ix(n), GRAIN, |_| AtomicU64::new(infinity));
     let dist = out.per_node(&bits)?;
     dist[source].store(0.0_f64.to_bits(), Relaxed);
-    let active = out.node_set(memory)?;
-    active.insert(source);
+    let (near, far) = (out.node_set(memory)?, out.node_set(memory)?);
+    near.insert(source);
+    let mut split = bucket_end(0.0, width, NEAR);
     let mut now = out.node_set(memory)?;
     let (mut waiting, mut frontier) = (NodeList::new(memory), NodeList::new(memory));
     let failed = Mutex::new(None);
     loop {
-        active.list_into(&mut waiting)?;
-        let list = waiting.as_slice()?;
-        if list.is_empty() {
-            break;
-        }
-        // Non-negative `f64`s order as their bits do.
-        let lowest = par::map_ranges(list.len(), GRAIN, |r| {
-            list[r].iter().map(|&v| dist[v].load(Relaxed)).min()
-        });
-        let lowest = f64::from_bits(lowest.into_iter().flatten().min().unwrap_or(infinity));
-        let theta = ((lowest / width).floor() + 1.0) * width;
-        let theta = if theta > lowest {
-            theta
-        } else {
-            lowest.next_up()
-        };
-        par::for_each_range(list.len(), GRAIN, |r| {
-            for &v in &list[r] {
-                if f64::from_bits(dist[v].load(Relaxed)) < theta {
-                    active.remove(v);
-                    now.insert(v);
-                }
+        near.list_into(&mut waiting)?;
+        if waiting.is_empty() {
+            far.list_into(&mut waiting)?;
+            let list = waiting.as_slice()?;
+            if list.is_empty() {
+                break;
             }
-        });
+            split = bucket_end(lowest(list, dist), width, NEAR);
+            move_below(list, dist, split, &far, &near);
+            continue;
+        }
+        let list = waiting.as_slice()?;
+        let theta = bucket_end(lowest(list, dist), width, 1.0);
+        move_below(list, dist, theta, &near, &now);
         now.list_into(&mut frontier)?;
         now.clear();
+        // Fusion pays where steps are small (high diameter); in a large step it only
+        // repeats relaxations that the step itself is about to do.
+        let room = if frontier.len() <= FUSE { FUSE } else { 0 };
         out.frontier_with(
             frontier.as_slice()?,
             VecDeque::new,
@@ -184,7 +184,10 @@ pub fn sssp<S: Source>(
                     dist,
                     costs,
                     theta,
-                    active: &active,
+                    room,
+                    split,
+                    near: &near,
+                    far: &far,
                 };
                 step.relax(row, w.scratch);
                 while let Some(v) = w.scratch.pop_front() {
@@ -210,28 +213,72 @@ pub fn sssp<S: Source>(
     })
 }
 
+/// The smallest distance of `list`'s nodes. Non-negative `f64`s order as their bits do.
+fn lowest<'g>(list: &[Node<'g>], dist: PerNode<'_, 'g, AtomicU64>) -> f64 {
+    let parts = par::map_ranges(list.len(), GRAIN, |r| {
+        list[r].iter().map(|&v| dist[v].load(Relaxed)).min()
+    });
+    f64::from_bits(
+        parts
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(f64::INFINITY.to_bits()),
+    )
+}
+
+/// The end of the `k`-th bucket of width `width` from the one holding `lowest`: above
+/// `lowest` even where rounding would put it on it.
+fn bucket_end(lowest: f64, width: f64, k: f64) -> f64 {
+    let end = ((lowest / width).floor() + k) * width;
+    if end > lowest { end } else { lowest.next_up() }
+}
+
+/// Moves the nodes of `list` whose distance is below `bound` from `from` to `to`.
+fn move_below<'g>(
+    list: &[Node<'g>],
+    dist: PerNode<'_, 'g, AtomicU64>,
+    bound: f64,
+    from: &NodeSet<'g>,
+    to: &NodeSet<'g>,
+) {
+    par::for_each_range(list.len(), GRAIN, |r| {
+        for &v in &list[r] {
+            if f64::from_bits(dist[v].load(Relaxed)) < bound {
+                from.remove(v);
+                to.insert(v);
+            }
+        }
+    });
+}
+
 /// What a relaxation reads and writes in one step of [`sssp`].
 struct Step<'a, 'g> {
     dist: PerNode<'a, 'g, AtomicU64>,
     costs: &'a [f64],
     theta: f64,
-    active: &'a NodeSet<'g>,
+    room: usize,
+    split: f64,
+    near: &'a NodeSet<'g>,
+    far: &'a NodeSet<'g>,
 }
 
 impl<'g> Step<'_, 'g> {
     /// Lowers the distances of the list of `row`'s node through it. A node lowered below
-    /// `θ` goes on `queue` while it has room (bucket fusion), any other into the active
-    /// set.
+    /// `θ` goes on `queue` while it has room (bucket fusion), any other into the near or
+    /// the far set.
     fn relax(&self, row: Row<'_, 'g>, queue: &mut VecDeque<Node<'g>>) {
         let d = f64::from_bits(self.dist[row.node].load(Relaxed));
         for (&v, &c) in row.list.iter().zip(&self.costs[row.entries()]) {
             let new = (d + c).to_bits();
             let to = &self.dist[v];
             if new < to.load(Relaxed) && new < to.fetch_min(new, Relaxed) {
-                if f64::from_bits(new) < self.theta && queue.len() < FUSE {
+                if f64::from_bits(new) < self.theta && queue.len() < self.room {
                     queue.push_back(v);
+                } else if f64::from_bits(new) < self.split {
+                    self.near.insert(v);
                 } else {
-                    self.active.insert(v);
+                    self.far.insert(v);
                 }
             }
         }

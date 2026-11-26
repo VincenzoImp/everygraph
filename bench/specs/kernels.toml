@@ -7,6 +7,11 @@
 #
 # - `lab`: lab/b1-core's hand-written PageRank and BFS (`glab run`), the same build flags
 #   as ours (no `target-cpu=native`): the A/B of the kernels against the lab.
+# - `gap`: the GAP Benchmark Suite's BFS (direction-optimizing) and SSSP (Δ-stepping with
+#   bucket fusion, Δ = 2) at a pinned commit, from the same source node, on the same graph
+#   and costs (GAP's serialized graphs); its best trial time of 5, which times the kernel
+#   alone (`bench/runners/run.py gap`). Not like for like in one point: GAP's costs and
+#   distances are int32, ours f64.
 # - `pagerank`: f64 and f32, 20 iterations at damping 0.85 (tol = 0: the LDBC rule), on
 #   orkut, raw and compressed sources, at 1, 4 and 16 threads. The `hash` of a kernel
 #   must be the same in every row (identical bytes at any thread count and source).
@@ -40,7 +45,7 @@ schema = 1
 name = "kernels"
 description = "Issues #47 and #49: PageRank, eigenvector, BFS, multi-source BFS and SSSP on the edge-map framework"
 reference = "plan/issues/m3-04-pagerank.md; plan/issues/m3-06-traversal.md; docs/FINDINGS.md § B1"
-binaries = ["{bench}", "{glab}"]
+binaries = ["{bench}", "{glab}", "{py}", "{runners}/run.py"]
 
 [defaults]
 memory_limit = "8G"
@@ -53,6 +58,10 @@ timeout = "15m"
 bench = "{repo}/target/release/examples/edge_map_bench"
 glab = "{work}/lab-b1/release/glab"
 stores = "{work}/stores"
+gap = "{work}/gap"
+gap_commit = "941462c7c42e786e4e006a9211b0576ef78d23f7"
+runners = "{repo}/bench/runners"
+py = "{runners}/.venv/bin/python"
 
 [[prepare]]
 name = "build-bench"
@@ -91,6 +100,39 @@ if [ ! -d {stores}/friendster ]; then
 fi
 """
 needed_by = ["friendster-ooc", "friendster-read"]
+
+[[prepare]]
+name = "gap"
+# Downloads github.com/sbeamer/gapbs (BSD-3-Clause) and the runners' wheels the first
+# time: needs the network then.
+shell = """
+set -e
+uv sync --frozen --quiet --project {runners}
+if [ ! -x {gap}/gapbs/sssp ]; then
+  rm -rf {gap}/gapbs
+  git clone -q https://github.com/sbeamer/gapbs {gap}/gapbs
+  git -C {gap}/gapbs checkout -q {gap_commit}
+  make -C {gap}/gapbs bfs sssp > /dev/null
+fi
+for kind in sg wsg; do
+  [ -s {gap}/orkut.$kind ] || {py} {runners}/run.py convert $kind --graph {data}/csr/orkut --out {gap}/orkut.$kind
+done
+"""
+needed_by = ["gap"]
+
+[[benchmark]]
+name = "gap"
+group = "gap"
+description = "GAP Benchmark Suite BFS and SSSP (Δ = 2) on orkut from the same source, best trial of 5"
+dataset_path = "csr/orkut"
+threads = [1, 16]
+matrix = { kernel = ["bfs", "sssp"] }
+command = ["sh", "-c", "OMP_NUM_THREADS={threads} exec {py} {runners}/run.py gap {kernel} --graph {dataset} --work {gap} --threads {threads}"]
+conditions = { graph = "orkut", code = "GAP Benchmark Suite {gap_commit}", kernel = "{kernel}", storage = "GAP CSR in anonymous memory", level = "in-process kernel time, best of 5 trials", build = "g++ -O3 -fopenmp (GAP's Makefile)" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+]
+primary = "seconds"
 
 [[benchmark]]
 name = "lab"

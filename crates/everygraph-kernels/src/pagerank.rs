@@ -38,9 +38,10 @@
 //!
 //! The ranks are the same bits for any thread count, chunk size, batch size and source
 //! (DESIGN D14). Each node's sum over its list runs in one call, with four lanes fixed in
-//! the code. The dangling mass and the change are reductions of the drivers: added in
-//! node order within fixed node blocks, then in block order. f32 state (`F = f32`,
-//! `precision="low"`) keeps the contributions in f32 and the global sums in f64.
+//! the code. The dangling mass, the change and the eigenvector's norm are exact sums
+//! ([`ExactSum`]), so they do not depend on how nodes are grouped at all (PR #131 found
+//! the lab's dangling mass following the chunk size). f32 state (`F = f32`,
+//! `precision="low"`) keeps the contributions in f32 and the global sums exact.
 //!
 //! # Eigenvector centrality
 //!
@@ -54,7 +55,7 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
-use everygraph_core::{Memory, MemoryKind, SegVec};
+use everygraph_core::{ExactSum, Memory, MemoryKind, SegVec};
 
 use crate::edge_map::{Error, NodeSet, PerNode, Plan, Row, Source, all};
 use crate::weights;
@@ -259,13 +260,14 @@ pub fn pagerank<S: Source, F: Real>(
     let mut contrib = SegVec::try_with_len(memory, "pagerank contributions", n, F::ZERO)?;
     let mut next = SegVec::try_with_len(memory, "pagerank next", n, F::ZERO)?;
     let mut rank = SegVec::try_with_len(memory, "pagerank", n, F::from_f64(inv_n))?;
-    let mut dangling: f64 = plan.vertices(one_segment(&mut contrib)?, |dang, c, i, v, _| {
+    let sinks: u64 = plan.vertices(one_segment(&mut contrib)?, |sinks, c, i, v, _| {
         if s[v] == 0.0 {
-            *dang += inv_n;
+            *sinks += 1;
         } else {
             c[i] = F::from_f64(inv_n / s[v]);
         }
     })?;
+    let mut dangling = float(sinks) * inv_n;
     let damping = F::from_f64(p.damping);
     // With `tol = 0` no change is needed, and the ranks only after the last iteration.
     let track = p.tol > 0.0;
@@ -280,8 +282,10 @@ pub fn pagerank<S: Source, F: Real>(
         });
         let c = plan.per_node(contrib.as_slice().ok_or(SEGMENTS)?)?;
         let out = (one_segment(&mut next)?, one_segment(&mut rank)?);
-        let sums: (f64, f64) =
-            plan.scan(out, all, |acc: &mut (f64, f64), (next, rank), i, row, _| {
+        let sums: (ExactSum, ExactSum) = plan.scan(
+            out,
+            all,
+            |acc: &mut (ExactSum, ExactSum), (next, rank), i, row, _| {
                 let v = row.node;
                 let teleport = match &seeds {
                     Some((set, _)) if !set.contains(v) => F::ZERO,
@@ -289,21 +293,22 @@ pub fn pagerank<S: Source, F: Real>(
                 };
                 let r = teleport.plus(damping.times(pull(c, &row, g.weights, looped.as_ref())));
                 if track {
-                    acc.1 += (r.to_f64() - rank[i].to_f64()).abs();
+                    ExactSum::add(&mut acc.1, (r.to_f64() - rank[i].to_f64()).abs());
                 }
                 if keep {
                     rank[i] = r;
                 }
                 if s[v] == 0.0 {
-                    acc.0 += r.to_f64();
+                    ExactSum::add(&mut acc.0, r.to_f64());
                     next[i] = F::ZERO;
                 } else {
                     next[i] = r.over(F::from_f64(s[v]));
                 }
-            })?;
-        dangling = sums.0;
+            },
+        )?;
+        dangling = sums.0.value();
         if track {
-            change = sums.1;
+            change = sums.1.value();
         }
         std::mem::swap(&mut contrib, &mut next);
         iterations += 1;
@@ -340,18 +345,24 @@ pub fn eigenvector<S: Source>(
     let (mut iterations, mut change) = (0, f64::INFINITY);
     while iterations < p.max_iter && change >= p.tol {
         let xs = plan.per_node(x.as_slice().ok_or(SEGMENTS)?)?;
-        let squares: f64 = plan.scan(one_segment(&mut y)?, all, |sq: &mut f64, y, i, row, _| {
-            let v = row.node;
-            y[i] = xs[v] + pull(xs, &row, g.weights, looped.as_ref());
-            *sq += y[i] * y[i];
-        })?;
-        let norm = squares.sqrt();
+        let squares: ExactSum = plan.scan(
+            one_segment(&mut y)?,
+            all,
+            |sq: &mut ExactSum, y, i, row, _| {
+                let v = row.node;
+                y[i] = xs[v] + pull(xs, &row, g.weights, looped.as_ref());
+                sq.add(y[i] * y[i]);
+            },
+        )?;
+        let norm = squares.value().sqrt();
         let ys = plan.per_node(y.as_slice().ok_or(SEGMENTS)?)?;
-        change = plan.vertices(one_segment(&mut x)?, |d: &mut f64, x, i, v, _| {
-            let new = ys[v] / norm;
-            *d += (new - x[i]).abs();
-            x[i] = new;
-        })?;
+        let moved: ExactSum =
+            plan.vertices(one_segment(&mut x)?, |d: &mut ExactSum, x, i, v, _| {
+                let new = ys[v] / norm;
+                ExactSum::add(d, (new - x[i]).abs());
+                x[i] = new;
+            })?;
+        change = moved.value();
         iterations += 1;
     }
     Ok(Ranks {

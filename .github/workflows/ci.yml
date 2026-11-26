@@ -191,7 +191,7 @@ jobs:
       # The edge-map framework and its kernels (#44), linted as wasm32 compiles them.
       - name: wasm32 build and clippy (kernels)
         run: cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown --locked -- -D warnings
-      - name: Toy kernel and the edge-map proof kernels, native and wasm32 in Node, same hash
+      - name: Toy kernel and the edge-map kernels, native and wasm32 in Node, same hash
         run: python3 tools/check_wasm_toy.py
       # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
       - name: Adjacency codec, simd128 in Node against scalar, same as native

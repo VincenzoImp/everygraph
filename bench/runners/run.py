@@ -18,7 +18,12 @@ measures the whole process around it and stores `tool`, `version`, `algorithm` a
 `options` in every row. Thread counts come from the environment the spec sets
 (OMP_NUM_THREADS before any import) and from `--threads`.
 
-Also `python run.py convert mtx --graph DIR --out FILE`: MatrixMarket for GVE.
+Also `python run.py convert mtx --graph DIR --out FILE`: MatrixMarket for GVE; `sg` and
+`wsg`: GAP's serialized graphs, the second with the costs of `edge_map_bench --kernel
+sssp` (integers 1 to 255, a function of the entry). And `python run.py gap bfs|sssp
+--graph DIR --work DIR`: the GAP Benchmark Suite binaries built in `--work`, on the
+serialized graph made there, from the highest-degree node; `seconds` is GAP's best trial
+time of 5, which times its kernel alone.
 """
 
 import argparse
@@ -372,10 +377,43 @@ TOOLS = {"networkit": networkit, "igraph": igraph, "rustworkx": rustworkx, "duck
 # ----------------------------------------------------------------------------- main
 
 
+def uniform_costs(m):
+    """`cost(e, false)` of crates/everygraph-kernels/examples/edge_map_bench.rs."""
+    z = np.arange(m, dtype=np.uint64) + np.uint64(0x9E3779B97F4A7C15)
+    z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    z ^= z >> np.uint64(31)
+    return (np.uint64(1) + z % np.uint64(255)).astype(np.int32)
+
+
+def gap_serialized(csr, weighted, out):
+    """GAP's .sg / .wsg (src/reader.h, ReadSerializedGraph), undirected: a bool, the
+    number of entries and of nodes as int64, the int64 offsets, then the int32 targets,
+    or (target, weight) pairs of int32."""
+    m = len(csr.targets)
+    tmp = out + ".part"
+    with np.errstate(over="ignore"), open(tmp, "wb") as f:
+        f.write(np.array([0], dtype=np.uint8).tobytes())
+        f.write(np.array([m, csr.n], dtype=np.int64).tobytes())
+        csr.offsets.astype(np.int64).tofile(f)
+        if weighted:
+            pairs = np.empty(2 * m, dtype=np.int32)
+            pairs[0::2] = csr.targets.view(np.int32)
+            pairs[1::2] = uniform_costs(m)
+            pairs.tofile(f)
+        else:
+            csr.targets.tofile(f)
+    os.replace(tmp, out)
+
+
 def convert(csr, kind, out):
     """`mtx`: MatrixMarket 'pattern symmetric', each edge once, 1-based (as
     lab/a-baselines/csr2mtx.py, for GVE). `edges`: "u v" lines, each edge once, 0-based
-    (for igraph and rustworkx, as lab/f2-python)."""
+    (for igraph and rustworkx, as lab/f2-python). `sg`, `wsg`: GAP's (above)."""
+    if kind in ("sg", "wsg"):
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        gap_serialized(csr, kind == "wsg", out)
+        return
     import pyarrow as pa
     import pyarrow.csv as pc
 
@@ -389,7 +427,7 @@ def convert(csr, kind, out):
         cols = {"u": src[keep].astype(np.int64), "v": csr.targets[keep].astype(np.int64)}
         header = ""
     else:
-        raise SystemExit(f"convert {kind}: use mtx or edges")
+        raise SystemExit(f"convert {kind}: use mtx, edges, sg or wsg")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     tmp = out + ".part"
     with open(tmp, "wb") as f:
@@ -398,9 +436,29 @@ def convert(csr, kind, out):
     os.replace(tmp, out)
 
 
+def gap(task, csr, args):
+    """GAP's own BFS or SSSP binary (Δ = 2, its best on these costs among 2, 8 and 32 in
+    an exploratory sweep), parsed: its trial times, not the process."""
+    import subprocess
+
+    graph = os.path.join(args.work, f"{csr.name}.{'sg' if task == 'bfs' else 'wsg'}")
+    extra = [] if task == "bfs" else ["-d", "2"]
+    cmd = [os.path.join(args.work, "gapbs", task), "-f", graph, "-r", str(csr.hub()), "-n", "5", *extra]
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    trials = [float(line.split()[-1]) for line in out.splitlines() if line.startswith("Trial Time")]
+    commit = subprocess.run(["git", "-C", os.path.join(args.work, "gapbs"), "rev-parse", "HEAD"],
+                            check=True, capture_output=True, text=True).stdout.strip()
+    print(json.dumps({
+        "tool": "gap", "version": commit, "task": task,
+        "algorithm": {"bfs": "bfs.cc direction-optimizing", "sssp": "sssp.cc delta-stepping, -d 2"}[task],
+        "options": {"OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS"), "source": csr.hub()},
+        "graph": csr.name, "threads": args.threads, "seconds": min(trials), "seconds_all": trials,
+    }))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("tool", choices=sorted(TOOLS) + ["convert"])
+    p.add_argument("tool", choices=sorted(TOOLS) + ["convert", "gap"])
     p.add_argument("task")
     p.add_argument("--graph", help="glab-csr-v0 directory")
     p.add_argument("--threads", type=int, default=1)
@@ -416,8 +474,11 @@ def main():
     csr = Csr(args.graph) if args.graph else None
     if args.tool == "convert":
         if not args.out:
-            p.error("convert mtx|edges --graph DIR --out FILE")
+            p.error("convert mtx|edges|sg|wsg --graph DIR --out FILE")
         convert(csr, args.task, args.out)
+        return
+    if args.tool == "gap":
+        gap(args.task, csr, args)
         return
     version, load, tasks, storage = TOOLS[args.tool](args.task, csr, args)
     if args.task not in tasks:

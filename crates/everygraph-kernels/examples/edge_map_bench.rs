@@ -189,12 +189,15 @@ fn time_plan<S: Source>(
                 let p = Sssp {
                     delta: Some(delta(plan, &costs) * scale),
                 };
+                let before = plan.work().entries;
                 let d = sssp(plan, &costs, hub, &p, memory).expect("sssp");
                 secs.push(t.elapsed().as_secs_f64());
+                let relaxed = plan.work().entries - before;
                 let reached = (0..n).filter(|&v| d.get(v).is_some()).count();
                 let hash = fnv(d.bits.iter().map(|b| b.load(Relaxed)));
                 let summary = format!(
-                    "{{\"source\": {hub}, \"reached\": {reached}, \"delta\": {}, \"costs\": \"{}\"}}",
+                    "{{\"source\": {hub}, \"reached\": {reached}, \"delta\": {}, \"costs\": \"{}\", \
+                     \"entries_relaxed\": {relaxed}}}",
                     d.delta,
                     a.get("costs").map_or("uniform", String::as_str)
                 );
