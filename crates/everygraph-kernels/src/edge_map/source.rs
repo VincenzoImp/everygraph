@@ -5,6 +5,7 @@
 //! | Source | Lists | Per-worker reader |
 //! |---|---|---|
 //! | [`Csr`] | raw offsets and targets, slices in memory | nothing |
+//! | [`RawCopy`] | a raw copy of a compressed adjacency, owned, in parts | nothing |
 //! | [`Compressed`] | the adjacency codec (DESIGN D4) over bytes in memory: a heap buffer or a memory map | a decode batch |
 //! | [`Stream`] | raw targets read through a [`ByteSource`]; offsets in memory | a read buffer |
 //!
@@ -23,7 +24,8 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use everygraph_core::{
-    AccessHint, ByteSource, Memory, MemoryKind, NodeId, Reservation, SegVec, par,
+    AccessHint, ByteSource, MAX_ALLOCATION_BYTES, Memory, MemoryKind, NodeId, Reservation, SegVec,
+    par,
 };
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, Batch};
 
@@ -343,6 +345,212 @@ unsafe impl Source for Csr<'_> {
     fn list<'r>(&'r self, (): &'r mut (), v: u32) -> Result<(u64, &'r [u32]), Error> {
         Ok(self.get(v))
     }
+}
+
+/// A raw CSR copy of a compressed adjacency, owned and reserved against a budget: the
+/// decode tier of DESIGN D4, which the planner builds for a session of repeated
+/// traversals. Its arrays are `SegVec`s from the budget's pages, the targets cut at
+/// list ends into parts of at most `MAX_ALLOCATION_BYTES`. They are checked once,
+/// when decoded, and never change after.
+#[derive(Debug)]
+pub struct RawCopy {
+    /// `n + 1` entry offsets, one segment (the planner runs nothing with more nodes).
+    offsets: SegVec<u64>,
+    /// The first node of each part, and the part's targets in one segment.
+    parts: Vec<(u32, SegVec<u32>)>,
+    n: u32,
+}
+
+impl RawCopy {
+    /// Entries of one part: one allocation of at most `MAX_ALLOCATION_BYTES` (DESIGN D2).
+    pub const PART_ENTRIES: u64 = MAX_ALLOCATION_BYTES / 4;
+
+    /// Decodes the whole of `adjacency` into arrays reserved against `memory`, part by
+    /// part, each in parallel, and checks that every target is a node.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Memory`] if the copy does not fit the budget; [`Error::Invalid`] for
+    /// more nodes than one segment of offsets holds or a list longer than a part;
+    /// [`Error::Decode`] or [`Error::Target`] for a damaged adjacency.
+    pub fn decode(adjacency: &Adjacency<'_>, memory: &Memory) -> Result<Self, Error> {
+        Self::decode_in_parts(adjacency, memory, Self::PART_ENTRIES)
+    }
+
+    /// As [`decode`](Self::decode), with parts of at most `part_entries` entries.
+    pub(super) fn decode_in_parts(
+        adjacency: &Adjacency<'_>,
+        memory: &Memory,
+        part_entries: u64,
+    ) -> Result<Self, Error> {
+        let index = adjacency.index();
+        let n = index.nodes();
+        let mut offsets = SegVec::try_with_len(memory, "raw copy offsets", ix(n.into()) + 1, 0)?;
+        {
+            let all = offsets
+                .as_mut_slice()
+                .ok_or(Error::Invalid("raw copy: offsets longer than one segment"))?;
+            par::for_each_chunk_mut(all, CHECK_GRAIN, |first, chunk| {
+                for (v, o) in (first..).zip(chunk) {
+                    let v = u32::try_from(v).expect("a node or the end");
+                    *o = index.entry_offset(NodeId::new(v)).get();
+                }
+            });
+        }
+        let at = offsets.as_slice().ok_or(Error::Invalid("one segment"))?;
+        let mut parts = Vec::new();
+        for nodes in cut(at, part_entries)? {
+            let base = at[ix(nodes.start.into())];
+            let len = ix(at[ix(nodes.end.into())] - base);
+            let mut targets = SegVec::try_with_len(memory, "raw copy of the edges", len, 0)?;
+            let out = targets
+                .as_mut_slice()
+                .ok_or(Error::Invalid("raw copy: a part longer than one segment"))?;
+            adjacency.decode_lists(nodes.clone(), out)?;
+            let ok = par::map_ranges(out.len(), CHECK_GRAIN, |r| in_range(&out[r], n));
+            if !ok.into_iter().all(|x| x) {
+                let lists = nodes.clone().map(|v| {
+                    let v = ix(v.into());
+                    &out[ix(at[v] - base)..ix(at[v + 1] - base)]
+                });
+                return Err(bad_target(nodes.start, lists, n));
+            }
+            parts.push((nodes.start, targets));
+        }
+        Ok(Self { offsets, parts, n })
+    }
+
+    /// The node ranges of the parts of a copy whose entry offsets are `offsets`: each
+    /// part ends at a list end and holds at most [`PART_ENTRIES`](Self::PART_ENTRIES)
+    /// entries.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] for a list longer than a part, or offsets that are not a CSR's.
+    pub fn parts(offsets: &[u64]) -> Result<Vec<Range<u32>>, Error> {
+        cut(offsets, Self::PART_ENTRIES)
+    }
+
+    /// Bytes it holds of its budget.
+    #[must_use]
+    pub fn held(&self) -> u64 {
+        self.offsets.reserved_bytes()
+            + self
+                .parts
+                .iter()
+                .map(|(_, t)| t.reserved_bytes())
+                .sum::<u64>()
+    }
+
+    /// The offsets, one segment (`decode`).
+    fn at(&self) -> &[u64] {
+        self.offsets.as_slice().unwrap_or_default()
+    }
+
+    /// The first entry and the list of `v`, from the part `part` it is in.
+    #[inline]
+    fn get_in(&self, part: usize, v: u32) -> (u64, &[u32]) {
+        let at = self.at();
+        let (first_node, targets) = &self.parts[part];
+        let base = at[ix((*first_node).into())];
+        let (a, b) = (at[ix(v.into())], at[ix(v.into()) + 1]);
+        let list = &targets.as_slice().unwrap_or_default()[ix(a - base)..ix(b - base)];
+        (a, list)
+    }
+
+    /// The part that holds the list of `v`.
+    #[inline]
+    fn part_of(&self, v: u32) -> usize {
+        self.parts.partition_point(|(first, _)| *first <= v) - 1
+    }
+}
+
+// SAFETY: every target is below `n`, checked in `decode` on the memory the lists are
+// handed out from, and the arrays never change after: the fields are private and
+// nothing lends them mutably. `scan` and `lists` call back only with nodes they were
+// given; `list` panics (through the slice index) for a node above `n`.
+unsafe impl Source for RawCopy {
+    type Reader = ();
+
+    fn nodes(&self) -> u32 {
+        self.n
+    }
+
+    fn entries(&self) -> u64 {
+        self.at()[ix(self.n.into())]
+    }
+
+    fn entry_offset(&self, v: u32) -> u64 {
+        self.at()[ix(v.into())]
+    }
+
+    fn reader(&self, _: &Memory, _: usize, _: usize) -> Result<(), Error> {
+        Ok(())
+    }
+
+    #[inline]
+    fn scan(
+        &self,
+        (): &mut (),
+        nodes: Range<u32>,
+        filter: impl Fn(u32) -> bool,
+        mut f: impl FnMut(u32, u64, &[u32]),
+    ) -> Result<(), Error> {
+        if nodes.is_empty() {
+            return Ok(());
+        }
+        let mut part = self.part_of(nodes.start);
+        for v in nodes.filter(|&v| filter(v)) {
+            while self
+                .parts
+                .get(part + 1)
+                .is_some_and(|(first, _)| *first <= v)
+            {
+                part += 1;
+            }
+            let (first, list) = self.get_in(part, v);
+            f(v, first, list);
+        }
+        Ok(())
+    }
+
+    fn lists(
+        &self,
+        (): &mut (),
+        nodes: &[u32],
+        mut f: impl FnMut(u32, u64, &[u32]),
+    ) -> Result<(), Error> {
+        for &v in nodes {
+            let (first, list) = self.get_in(self.part_of(v), v);
+            f(v, first, list);
+        }
+        Ok(())
+    }
+
+    fn list<'r>(&'r self, (): &'r mut (), v: u32) -> Result<(u64, &'r [u32]), Error> {
+        assert!(v < self.n, "node {v} outside the graph");
+        Ok(self.get_in(self.part_of(v), v))
+    }
+}
+
+/// The node ranges into which `offsets` cut at list ends hold at most `part_entries`
+/// entries each.
+fn cut(offsets: &[u64], part_entries: u64) -> Result<Vec<Range<u32>>, Error> {
+    let n = u32::try_from(offsets.len().saturating_sub(1))
+        .map_err(|_| Error::Invalid("offsets: 2^32 nodes or more"))?;
+    let mut parts = Vec::new();
+    let mut start = 0;
+    while start < n {
+        let limit = offsets[ix(start.into())].saturating_add(part_entries);
+        let end = offsets.partition_point(|&o| o <= limit).saturating_sub(1);
+        let end = u32::try_from(end).map_or(n, |e| e.min(n));
+        if end <= start {
+            return Err(Error::Invalid("raw copy: a list longer than one part"));
+        }
+        parts.push(start..end);
+        start = end;
+    }
+    Ok(parts)
 }
 
 /// The reader of a [`Compressed`] source: one decode batch, and the reservation that

@@ -192,4 +192,4 @@ within 1.35× of in-RAM on this format.
 
 #46 (streaming reader on the compressed format), #240 (the speed of ingest writing the format
 under a budget), #24 (web, weighted and directed graphs); #90 for point-query throughput at
-16 threads. Implementation: #45.
+16 threads. The decode-tier evidence on twitter-sym is in #240.

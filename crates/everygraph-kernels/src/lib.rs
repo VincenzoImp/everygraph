@@ -21,6 +21,13 @@
 //!   [`components`].
 //! - [`run`]: the whole-graph operations by name, as the command line and Python ask
 //!   for them, and their results kept in the graph file.
+//! - [`planner`]: how each of those operations runs within its memory budget (regime,
+//!   decode tier, threads, access advice), its estimate, its refusal with the smallest
+//!   budget, and the plan documents of `docs/ux-contract.md` § 3 (#45). It lives here
+//!   because the cost of each kernel is read from the kernel's own reservations, which
+//!   change with it, and because the command line and Python reach both through
+//!   [`run::execute`]. It reads no file and starts no thread: the caller probes the
+//!   machine (`everygraph_io::physical_cores`, `storage`, `ProcMemoryProbe`).
 //!
 //! A kernel body is a closure over one node and its list:
 //!
@@ -71,6 +78,7 @@ pub mod degrees;
 pub mod edge_map;
 pub mod kcore;
 pub mod pagerank;
+pub mod planner;
 pub mod proof;
 pub mod run;
 pub mod scc;

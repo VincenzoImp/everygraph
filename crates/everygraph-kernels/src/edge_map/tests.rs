@@ -149,6 +149,12 @@ fn drivers_over_every_source_in_memory() {
     assert_eq!(drive(&mapped, &offsets).unwrap(), csr);
     let stream = Stream::new(&offsets, &stream_bytes).unwrap();
     assert_eq!(drive(&stream, &offsets).unwrap(), csr);
+    // In one part, and in parts of at most 1,200 entries, a little more than the hub's
+    // list: lists are never cut.
+    for part in [u64::MAX >> 8, 1200] {
+        let raw = RawCopy::decode_in_parts(&heap, &Memory::unlimited(), part).unwrap();
+        assert_eq!(drive(&raw, &offsets).unwrap(), csr, "parts of {part}");
+    }
 }
 
 /// One corrupt list: the scan and the frontier that reach it fail and hand out no
@@ -346,10 +352,9 @@ fn push_with_holds_a_reader_slot_per_worker() {
         // At most a run per node of the frontier, and a part per 1,024 entries of a hub.
         let runs = frontier.len();
         let parts = hubs.len() * ix(degree.into()).div_ceil(RUN_ENTRIES);
-        let results = runs
-            * (size_of::<Option<Result<(u64, Work), Error>>>() + size_of::<Range<usize>>())
+        let results = runs * (size_of::<Option<(u64, Work)>>() + size_of::<Range<usize>>())
             + frontier.len().div_ceil(FRONTIER_GRAIN) * size_of::<Vec<Range<usize>>>()
-            + parts * size_of::<Result<(u64, Work), Error>>();
+            + parts * size_of::<Option<(u64, Work)>>();
         let bound = (threads * 2 * reader + copies + results) as u64;
         assert!(
             peak <= bound,

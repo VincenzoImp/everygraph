@@ -125,7 +125,7 @@ use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use buckets::Buckets;
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
-pub use source::{Compressed, Csr, DecodeReader, Source, Stream, StreamReader};
+pub use source::{Compressed, Csr, DecodeReader, RawCopy, Source, Stream, StreamReader};
 
 use node::{Brand, as_nodes, node_range};
 
@@ -160,7 +160,7 @@ const BLOCKS: u32 = 4096;
 
 /// Entries of the long lists that `Plan::push_with` holds copied out at a time, if the
 /// longest list of the frontier is shorter: 256 KiB of nodes.
-const WAVE: usize = 1 << 16;
+pub(crate) const WAVE: usize = 1 << 16;
 
 /// The runs of a frontier ([`Plan::frontier_with`]).
 struct Cuts {
@@ -1247,10 +1247,24 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             // A frontier of one run is done on the calling thread.
             [one] if !long(one) => run(&frontier[one.clone()])?,
             runs => {
-                let _held = self.hold::<Option<Result<(A, Work), Error>>>(runs.len())?;
+                // A result per run, and the first error apart: the results stay small.
+                let failed = Mutex::new(None);
+                let keep = |r: Result<(A, Work), Error>| match r {
+                    Ok(x) => Some(x),
+                    Err(e) => {
+                        let mut f = failed.lock().unwrap_or_else(PoisonError::into_inner);
+                        f.get_or_insert(e);
+                        None
+                    }
+                };
+                let _held = self.hold::<Option<(A, Work)>>(runs.len())?;
                 let mut results = mode.map_ranges(runs.len(), NonZeroUsize::MIN, |r| {
                     let t = &runs[r.start];
-                    (!long(t)).then(|| run(&frontier[t.clone()]))
+                    if long(t) {
+                        None
+                    } else {
+                        keep(run(&frontier[t.clone()]))
+                    }
                 });
                 let hubs: Vec<usize> = (0..runs.len()).filter(|&i| long(&runs[i])).collect();
                 // The long lists, a wave at a time: copied out, then all their parts in
@@ -1300,13 +1314,17 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                                 .map(move |s| (h, s..(s + RUN_ENTRIES).min(list.len())))
                         })
                         .collect();
-                    let _parts = self.hold::<Result<(A, Work), Error>>(pieces.len())?;
+                    let _parts = self.hold::<Option<(A, Work)>>(pieces.len())?;
                     let done = mode.map_ranges(pieces.len(), NonZeroUsize::MIN, |r| {
                         let (h, range) = &pieces[r.start];
                         let (first_entry, list) = &copies[*h];
                         // SAFETY: a node of the frontier.
                         let node = unsafe { Node::new_unchecked(frontier[runs[wave[*h]].start]) };
-                        part(node, first_entry + range.start as u64, &list[range.clone()])
+                        keep(part(
+                            node,
+                            first_entry + range.start as u64,
+                            &list[range.clone()],
+                        ))
                     });
                     let mut done = done.into_iter();
                     for (h, (_, list)) in copies.iter().enumerate() {
@@ -1314,22 +1332,25 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                             lists: 1,
                             entries: list.len() as u64,
                         };
-                        let mut sum = Ok((A::ZERO, whole));
+                        let mut sum = Some((A::ZERO, whole));
                         for next in done.by_ref().take(list.len().div_ceil(RUN_ENTRIES)) {
-                            sum = sum.and_then(|s: (A, Work)| Ok(s.add(next?)));
+                            sum = sum.zip(next).map(|(s, x)| s.add(x));
                         }
-                        results[wave[h]] = Some(sum);
+                        results[wave[h]] = sum;
                     }
                     at = end;
+                }
+                if let Some(e) = failed.into_inner().unwrap_or_else(PoisonError::into_inner) {
+                    return Err(e);
                 }
                 // Runs add in order within their group, the groups in order.
                 let mut results = results.into_iter().map(|r| r.expect("every run is done"));
                 let mut total = <(A, Work)>::ZERO;
                 for &count in &cuts.groups {
-                    let mut group = <(A, Work)>::ZERO;
-                    for r in results.by_ref().take(count) {
-                        group = group.add(r?);
-                    }
+                    let group = results
+                        .by_ref()
+                        .take(count)
+                        .fold(<(A, Work)>::ZERO, Reduce::add);
                     total = total.add(group);
                 }
                 total
