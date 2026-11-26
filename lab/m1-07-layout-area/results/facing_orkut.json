@@ -1,0 +1,57 @@
+{
+ "graph": "/home/tux/graphlab/data/csr/orkut",
+ "level": 6,
+ "pos": "/home/tux/graphlab/scratch/m1-07-layout-area/pos/hcls_orkut.f32",
+ "crossing_edge_ends": 56948736,
+ "groups": [
+  {
+   "group": "node",
+   "groups_with_crossing_edges": 2642994,
+   "facing_bound": 0.8017128684934933,
+   "chance": 0.1477674116745322,
+   "centred_bound": 0.2173344484990231
+  },
+  {
+   "group": "L0",
+   "groups_with_crossing_edges": 668309,
+   "facing_bound": 0.7774136079411647,
+   "chance": 0.06796613258829085,
+   "centred_bound": 0.15206315995792366
+  },
+  {
+   "group": "L1",
+   "groups_with_crossing_edges": 112977,
+   "facing_bound": 0.7624484530645717,
+   "chance": 0.02693736829846746,
+   "centred_bound": 0.10478342919799759
+  },
+  {
+   "group": "L2",
+   "groups_with_crossing_edges": 19833,
+   "facing_bound": 0.7552230745652321,
+   "chance": 0.011709434735935916,
+   "centred_bound": 0.07610288703983088
+  },
+  {
+   "group": "L3",
+   "groups_with_crossing_edges": 3522,
+   "facing_bound": 0.7512238396346718,
+   "chance": 0.0049820985431948996,
+   "centred_bound": 0.05596457874723985
+  },
+  {
+   "group": "L4",
+   "groups_with_crossing_edges": 576,
+   "facing_bound": 0.7488078973761629,
+   "chance": 0.002021875669114623,
+   "centred_bound": 0.03896628009668993
+  },
+  {
+   "group": "L5",
+   "groups_with_crossing_edges": 155,
+   "facing_bound": 0.7478328174454946,
+   "chance": 0.0009494540011034594,
+   "centred_bound": 0.025602335023378327
+  }
+ ]
+}

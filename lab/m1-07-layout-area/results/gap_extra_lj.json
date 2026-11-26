@@ -1,0 +1,45 @@
+{
+ "graph": "/home/tux/graphlab/data/csr/lj",
+ "level": 6,
+ "regions": 71,
+ "crossing_edges": 7283774,
+ "share_of_edges": 0.21002088480876477,
+ "layouts": {
+  "hclsb3": {
+   "L_median": 0.9973219435282852,
+   "C_median": 0.9750942963351662,
+   "G_median": 0.6797708239109219,
+   "L_mean": 1.032988000431812,
+   "C_mean": 1.0303862706610178,
+   "G_mean": 0.6661821863982884,
+   "share_to_3_nearest_regions": 0.01278567951174762,
+   "median_rank_of_other_region": 41.0,
+   "region_R_median_per_node": 0.17259543629474045,
+   "facing_mean": 0.024744599395027468
+  },
+  "hclsb10": {
+   "L_median": 0.9949970634088338,
+   "C_median": 0.9722150255091392,
+   "G_median": 0.6779430841226399,
+   "L_mean": 1.0309550944860983,
+   "C_mean": 1.028078195848001,
+   "G_mean": 0.6646905803995619,
+   "share_to_3_nearest_regions": 0.013031156650384814,
+   "median_rank_of_other_region": 41.0,
+   "region_R_median_per_node": 0.1723466498075785,
+   "facing_mean": 0.023749663719942846
+  },
+  "hclsb100": {
+   "L_median": 0.9952479752741662,
+   "C_median": 0.9709994306931348,
+   "G_median": 0.6775083839333009,
+   "L_mean": 1.0313354966390347,
+   "C_mean": 1.0281955090071762,
+   "G_mean": 0.6649376994617036,
+   "share_to_3_nearest_regions": 0.01271936773436408,
+   "median_rank_of_other_region": 40.0,
+   "region_R_median_per_node": 0.17209185190305223,
+   "facing_mean": 0.02281562924206747
+  }
+ }
+}

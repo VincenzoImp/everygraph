@@ -1,0 +1,5 @@
+hcls_orkut_t8 {"depth 1": -2.2218, "depth 2": 0.016, "depth 3": 0.0089, "depth 4": 0.0051, "depth 5": 0.0013, "depth 6": -0.0002, "depth 7": -0.0001, "depth 8": 0.0, "node": -0.0}
+hclsb_orkut_t8 {"depth 1": -2.1191, "depth 2": 0.022, "depth 3": 0.005, "depth 4": 0.0224, "depth 5": 0.0069, "depth 6": 0.003, "depth 7": 0.001, "depth 8": 0.0002, "node": 0.0008}
+hclsb10_orkut_t8 {"depth 1": -2.1377, "depth 2": 0.018, "depth 3": 0.0047, "depth 4": 0.0229, "depth 5": 0.0065, "depth 6": 0.003, "depth 7": 0.0009, "depth 8": 0.0002, "node": 0.0008}
+cells_orkut_t8 {"depth 1": -1.7413, "depth 2": 0.0177, "depth 3": 0.0031, "depth 4": 0.009, "depth 5": -0.0003, "depth 6": -0.0003, "depth 7": -0.0, "depth 8": 0.0, "node": -0.0}
+cellsb_orkut_t8 {"depth 1": -1.859, "depth 2": 0.047, "depth 3": 0.0018, "depth 4": 0.0097, "depth 5": 0.0023, "depth 6": 0.0013, "depth 7": 0.0003, "depth 8": -0.0001, "node": 0.0011}

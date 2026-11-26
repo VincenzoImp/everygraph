@@ -1,3 +1,4 @@
+mod cells;
 mod common;
 mod embed;
 mod hier;
