@@ -746,7 +746,8 @@ def validate(csr, args):
         ("kcore", "pkc", ucr_args("pkc", "kcore"), np.uint32, "exact", "-o"),
         ("pr64", "gap", [os.path.join(gap_bin, "dump_pr"), "-f", os.path.join(w, f"{g}.sg"), "-i", "20", "-t", "0"],
          np.float64, "ranks", None),
-        ("pr64", "gbbs", gbbs_args("pr"), np.float64, "ranks", "-dump"),
+        # Not GBBS PageRank: at the iteration cap it returns its zeroed work buffer
+        # (PageRank.h); bench/specs/references.toml marks it unavailable.
         ("pr64", "cost", [args.cost, "--graph", args.graph, "--kernel", "pr", "--reps", "1"], np.float64, "ranks",
          "--dump"),
         ("bfs", "gap", [os.path.join(gap_bin, "dump_bfs"), "-f", os.path.join(w, f"{g}.sg")], np.int32,
@@ -841,6 +842,10 @@ def validate(csr, args):
                             "detail": f"counts {counts}"})
     line = {"graph": g, "threads": args.threads, "source": src, "checked": len(results),
             "invalid": sum(not r["valid"] for r in results), "results": results, "skipped": skipped}
+    if args.out:
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+        with open(args.out, "w") as f:
+            f.write(json.dumps(line) + "\n")
     print(json.dumps(line), flush=True)
 
 

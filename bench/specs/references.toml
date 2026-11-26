@@ -137,7 +137,7 @@ dataset_path = "csr/{on}"
 threads = [16]
 matrix = { on = ["lj", "orkut", "roadnet-ca", "web-google"] }
 repetitions = 1
-command = ["{pin}", "sh", "-c", "OMP_NUM_THREADS=16 PARLAY_NUM_THREADS=16 exec {run} validate --graph {dataset} {tool} --sources {sources}/{on}.txt --binary {eg} --cost {cost} --python --tc"]
+command = ["{pin}", "sh", "-c", "OMP_NUM_THREADS=16 PARLAY_NUM_THREADS=16 exec {run} validate --graph {dataset} {tool} --sources {sources}/{on}.txt --binary {eg} --cost {cost} --out {refs}/validation/{on}.json --python --tc"]
 conditions = { graph = "{on}", check = "partition, core numbers, distances from the first source, PageRank L1 <= 1e-6, triangle counts" }
 metric = [
   { name = "invalid", json = "/invalid" },
@@ -155,7 +155,7 @@ dataset_path = "csr/{on}"
 threads = [16]
 matrix = { on = ["twitter-sym", "friendster"] }
 repetitions = 1
-command = ["{pin}", "sh", "-c", "OMP_NUM_THREADS=16 PARLAY_NUM_THREADS=16 exec {run} validate --graph {dataset} {tool} --sources {sources}/{on}.txt --binary {eg} --cost {cost} --kernels $([ {on} = friendster ] && echo cc,kcore,bfs || echo cc,kcore,pr64,bfs,sssp)"]
+command = ["{pin}", "sh", "-c", "OMP_NUM_THREADS=16 PARLAY_NUM_THREADS=16 exec {run} validate --graph {dataset} {tool} --sources {sources}/{on}.txt --binary {eg} --cost {cost} --out {refs}/validation/{on}.json --kernels $([ {on} = friendster ] && echo cc,kcore,bfs || echo cc,kcore,pr64,bfs,sssp)"]
 conditions = { graph = "{on}", check = "partition, core numbers, distances from the first source, PageRank L1 <= 1e-6" }
 metric = [
   { name = "invalid", json = "/invalid" },
