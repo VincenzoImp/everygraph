@@ -126,7 +126,7 @@ fn an_intact_file_passes_both_checks_with_its_report_on_standard_output() {
         "{doc}"
     );
     assert!(
-        doc.ends_with("\"problems\":[],\"unchecked\":[]}\n"),
+        doc.ends_with("\"problems\":[],\"notes\":[],\"unchecked\":[]}\n"),
         "{doc}"
     );
     std::fs::remove_dir_all(dir).unwrap();

@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use everygraph_core::Budget;
 use everygraph_core::MemoryProbe;
 use everygraph_format::container::Container;
-use everygraph_format::verify::{Depth, Report, verify};
+use everygraph_format::verify::{Depth, Problem, Report, verify};
 use everygraph_ingest::ids::Dictionary;
 use everygraph_io::{MmapSource, ProcMemoryProbe};
 
@@ -152,6 +152,13 @@ fn text(path: &str, deep: bool, report: &Report, style: &Style) -> String {
                 wrap(&format!("  {}", label("unchecked")), 12, what)
             );
         }
+        for note in &report.notes {
+            let _ = writeln!(
+                t,
+                "{}",
+                wrap(&format!("  {}", label("note")), 12, &note.what)
+            );
+        }
         return t;
     }
     let n = report.problems.len();
@@ -168,6 +175,9 @@ fn text(path: &str, deep: bool, report: &Report, style: &Style) -> String {
         };
         let _ = writeln!(t, "{}", wrap("  ", 4, &line));
     }
+    for note in &report.notes {
+        let _ = writeln!(t, "{}", wrap("  note: ", 4, &note.what));
+    }
     let _ = write!(
         t,
         "\n  Ways forward:\n    restore a copy of the file, or build it again from its input\n\n\
@@ -178,26 +188,29 @@ fn text(path: &str, deep: bool, report: &Report, style: &Style) -> String {
 
 /// The verify document (`docs/api-sketch.md` § 5.3, `urn:everygraph:schema:verify:1`).
 fn document(path: &str, deep: bool, report: &Report) -> String {
-    let problems: Vec<String> = report
-        .problems
-        .iter()
-        .map(|p| {
-            let section = p.section.as_deref().map_or_else(|| "null".to_owned(), json);
-            format!(r#"{{"section":{section},"problem":{}}}"#, json(&p.what))
-        })
-        .collect();
+    let list = |problems: &[Problem]| {
+        let items: Vec<String> = problems
+            .iter()
+            .map(|p| {
+                let section = p.section.as_deref().map_or_else(|| "null".to_owned(), json);
+                format!(r#"{{"section":{section},"problem":{}}}"#, json(&p.what))
+            })
+            .collect();
+        items.join(",")
+    };
     let unchecked: Vec<String> = report.unchecked.iter().map(|u| json(u)).collect();
     let generation = report
         .generation
         .map_or_else(|| "null".to_owned(), |g| g.to_string());
     format!(
-        r#"{{"schema":1,"verify":{},"deep":{deep},"intact":{},"generation":{generation},"sections":{},"sections_hashed":{},"bytes_hashed":{},"problems":[{}],"unchecked":[{}]}}"#,
+        r#"{{"schema":1,"verify":{},"deep":{deep},"intact":{},"generation":{generation},"sections":{},"sections_hashed":{},"bytes_hashed":{},"problems":[{}],"notes":[{}],"unchecked":[{}]}}"#,
         json(path),
         report.is_intact(),
         report.sections,
         report.sections_hashed,
         report.bytes_hashed,
-        problems.join(","),
+        list(&report.problems),
+        list(&report.notes),
         unchecked.join(",")
     )
 }

@@ -97,7 +97,9 @@ fn a_sound_file_is_intact_at_both_depths() {
 
 /// Acceptance: "every single-bit flip injected into a test file is detected". The file
 /// is written once, so every byte belongs to a header block, a section, the table of
-/// contents or their padding, and each must be checked.
+/// contents or their padding, and each must be checked. A flip in the first 128 bytes
+/// of header block 1, which the file does not read from, cannot be told from a commit
+/// cut short: it is a note; every other flip is a problem.
 #[test]
 fn every_single_bit_flip_is_detected() {
     let file = graph(&triangle(), UNDIRECTED);
@@ -113,7 +115,14 @@ fn every_single_bit_flip_is_detected() {
                     let mut missed = Vec::new();
                     for bit in (t..bits).step_by(threads) {
                         damaged[bit / 8] ^= 1 << (bit % 8);
-                        if check(&damaged, Depth::Deep).is_intact() {
+                        let report = check(&damaged, Depth::Deep);
+                        let unused_head = (4096 * 8..4224 * 8).contains(&bit);
+                        let found = if unused_head {
+                            report.is_intact() && report.notes.len() == 1
+                        } else {
+                            !report.is_intact()
+                        };
+                        if !found {
                             missed.push(bit);
                         }
                         damaged[bit / 8] ^= 1 << (bit % 8);

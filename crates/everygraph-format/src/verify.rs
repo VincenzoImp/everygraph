@@ -7,7 +7,7 @@
 //! first problem: the [`Report`] lists each one with the section it is in.
 //!
 //! - [`Depth::Fast`] reads a bounded part of the file: both header blocks (bytes 128 to
-//!   4095 zero; a block without the magic wholly zero), the table of contents, the file's
+//!   4095 zero; the other block valid or empty, else a note), the table of contents, the file's
 //!   length and the table's padding, the names and kinds of the adjacency sections, and
 //!   the hash and padding of every section of at most [`FAST_SECTION_BYTES`].
 //! - [`Depth::Deep`] reads everything: the hash and padding of every section, and the
@@ -88,6 +88,9 @@ pub struct Report {
     pub adjacencies: Vec<AdjacencyFacts>,
     /// Everything that is wrong, header first, then in the order of the file.
     pub problems: Vec<Problem>,
+    /// What may be damage or the trace of a commit that was cut short, which no reader
+    /// can tell apart, and which leaves what the file holds whole.
+    pub notes: Vec<Problem>,
     /// Checks that could not be made, each one sentence without a full stop.
     pub unchecked: Vec<String>,
 }
@@ -161,25 +164,27 @@ fn check_commit<S: ByteSource>(file: &Container<S>, report: &mut Report) -> Resu
         let end = (start + BLOCK_USIZE as u64).min(source.len());
         let mut block = vec![0u8; small(end.saturating_sub(start))];
         source.read_at(start, &mut block)?;
-        let used = HEADER_USED.min(block.len());
-        match layout::decode_header(&block[..used], index) {
-            Block::Absent if block.iter().any(|&b| b != 0) => report.problem(
-                None,
-                format!("header block {index} has no header but is not empty"),
-            ),
-            Block::Absent => {}
-            Block::Torn | Block::Foreign(_) => report.problem(
-                None,
-                format!(
-                    "header block {index} does not match its hash: a commit was cut short or \
-                     the block is damaged"
-                ),
-            ),
-            Block::Valid(_) if block[used..].iter().any(|&b| b != 0) => report.problem(
+        let (head, rest) = block.split_at(HEADER_USED.min(block.len()));
+        // No commit writes there (spec § 2).
+        if rest.iter().any(|&b| b != 0) {
+            report.problem(
                 None,
                 format!("header block {index}: bytes 128 to 4095 are not zero"),
-            ),
+            );
+        }
+        match layout::decode_header(head, index) {
             Block::Valid(_) => {}
+            Block::Absent if head.iter().all(|&b| b == 0) => {}
+            // Not the block the file reads from (that one is valid): a commit cut short
+            // leaves any bytes here, and the next commit writes the block whole (§ 8).
+            _ => report.notes.push(Problem {
+                section: None,
+                what: format!(
+                    "header block {index} holds no valid header: a commit was cut short, or \
+                     the block is damaged; the file reads as generation {}",
+                    file.generation()
+                ),
+            }),
         }
     }
     let header = file.header();
