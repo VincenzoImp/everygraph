@@ -94,12 +94,12 @@
 //!
 //! # Memory
 //!
-//! The readers' buffers, the blocks' partial values, and the results of the frontier's
-//! groups and of a hub's parts are reserved against the plan's [`Memory`], and a reader
-//! frees a buffer that a long list grew when it goes back to the pool. Some small
-//! allocations are not counted: the task list (`O(n / block)`), the results of the runs
-//! of a group being driven (at most [`FRONTIER_GRAIN`] each) and the pool itself (one
-//! entry per worker). The no-OOM suite (`everygraph-memtest`) checks that what is not
+//! The readers' buffers, the blocks' partial values, a frontier's runs and results, and
+//! the copies and parts of its long lists are reserved against the plan's [`Memory`], and
+//! a reader frees a buffer that a long list grew when it goes back to the pool. Some
+//! small allocations are not counted: the task list (`O(n / block)`), the runs and
+//! results of a frontier of at most 16 groups, and the pool itself (one entry per
+//! worker). The no-OOM suite (`everygraph-memtest`) checks that what is not
 //! counted does not grow with the graph.
 //!
 //! # `unsafe`
@@ -1320,13 +1320,33 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             }
             return Ok(finish(total));
         }
-        // A frontier of one run is done on the calling thread.
-        if frontier.len() <= FRONTIER_GRAIN {
-            let mut runs = self.group_runs(frontier, 0..frontier.len(), mode);
-            if let (Some(one), None) = (runs.next(), runs.next()) {
-                if !long(&one) {
-                    return Ok(finish(run(frontier)?));
+        // A small frontier without long lists is cut on the calling thread and its runs
+        // run as one fork, as many as there are; one run is done on the calling thread.
+        // Its few cuts and results are not reserved (module documentation, "Memory").
+        if frontier.len() <= CUT_ALONE {
+            let runs: Vec<Range<usize>> = (0..frontier.len().max(1))
+                .step_by(FRONTIER_GRAIN)
+                .flat_map(|s| {
+                    let g = s..(s + FRONTIER_GRAIN).min(frontier.len());
+                    self.group_runs(frontier, g, mode)
+                })
+                .collect();
+            if !runs.iter().any(long) {
+                if let [one] = &runs[..] {
+                    return Ok(finish(run(&frontier[one.clone()])?));
                 }
+                let done = mode.map_ranges(runs.len(), NonZeroUsize::MIN, |r| {
+                    run(&frontier[runs[r.start].clone()])
+                });
+                let (mut total, mut group, mut at) = (<(A, Work)>::ZERO, <(A, Work)>::ZERO, 0);
+                for (r, value) in runs.iter().zip(done) {
+                    if r.start / FRONTIER_GRAIN != at {
+                        total = total.add(std::mem::replace(&mut group, <(A, Work)>::ZERO));
+                        at = r.start / FRONTIER_GRAIN;
+                    }
+                    group = group.add(value?);
+                }
+                return Ok(finish(total.add(group)));
             }
         }
         let cuts = self.cut(frontier, mode)?;
