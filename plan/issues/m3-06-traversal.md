@@ -18,6 +18,6 @@ labels: type:feature, area:algorithms, P0, risk:medium, size:M, lab-evidence
 - orkut BFS ≤ 30 ms at 16 threads (default storage measured 28.0 ms in #118); a road graph completes without per-level fork-join overhead dominating
 - Under a memory limit below the adjacency size, BFS on Friendster completes in at most the time of three sequential reads of the graph file (in RAM it takes 0.34 s, so a ratio to in-RAM time is not a meaningful target)
 
-**Left after PR #220 (2026-11-26).** PR #220 built `everygraph_kernels::traversal` (direction-optimizing BFS, bit-parallel multi-source BFS) and `everygraph_kernels::sssp` (Δ*-stepping); its description lists the evidence per box. Still open: the official `kernels` rows (orkut BFS time, the road graph, Friendster under a limit); SSSP parents; on compressed input, bottom-up steps that stop at the first hit (a prefix decode on `Source`).
+**Left after PR #220 (2026-11-26).** PR #220 built `everygraph_kernels::traversal` (direction-optimizing BFS, bit-parallel multi-source BFS) and `everygraph_kernels::sssp` (Δ*-stepping); its description lists the evidence per box. Closed on 2026-11-26 on its tests and exploratory evidence (CLAUDE.md § 6). The `kernels` rows (orkut BFS time, the road graph, Friendster under a limit) come from the M3 milestone window; the BFS and SSSP gaps and the compressed bottom-up prefix decode are {{#m3-22-performance-pass}}'s; SSSP parents are {{#m7-02-shortest-paths}}'s.
 
 **Depends on** {{#m3-01-edge-map}}

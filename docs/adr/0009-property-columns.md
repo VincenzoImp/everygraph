@@ -60,4 +60,6 @@ event offset, one value per event), and since a graph can have 2^32 events or mo
 
 ## Closed by
 
-#37 (property columns).
+The build carrying columns
+(`plan/issues/m2-34-build-columns.md`) and weighted PageRank on a per-pair column against
+the unweighted kernel (#240).

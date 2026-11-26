@@ -1,0 +1,176 @@
+Exploratory (shared machine). Kernel columns: median time on the reordered graph / median on the original ids, interleaved in one process, 16 threads, proof kernels (PageRank f32 20 iterations, direction-optimizing BFS from the largest-degree node, Afforest WCC). bits/e: codec 0, index included. loggap: mean log2 gap per entry (first gap |x0 - v|). ratio: bits/e over the random-list bound. 0124 est: Stream VByte 0124 data bits per entry, estimated from word sizes (no index).
+
+## lj: n = 3,997,962, entries = 69,362,378, random-list bound 2 + log2(n/d) = 19.81 bits
+
+order | order s | perm s | enc s | bits/e | vs orig | loggap | ratio | BV b/arc | 0124 est
+--- | --- | --- | --- | --- | --- | --- | --- | --- | ---
+identity | — | 0.17 | 0.28 | 17.99 | +0.0% | 10.08 | 0.908 | 14.33 | 17.93
+random | 0.1 | 0.23 | 0.21 | 22.62 | +25.8% | 15.63 | 1.142 | 23.08 | 25.32
+dbg | 0.0 | 0.18 | 0.11 | 18.44 | +2.5% | 10.74 | 0.930 | 15.35 | 18.48
+bfs | 0.9 | 0.21 | 0.13 | 18.34 | +1.9% | 10.50 | 0.925 | 14.71 | 18.39
+flat | 0.1 | 0.22 | 0.19 | 17.59 | -2.2% | 9.47 | 0.888 | 13.81 | 17.57
+hier | 0.6 | 0.26 | 0.19 | 15.43 | -14.2% | 7.44 | 0.779 | 11.56 | 14.17
+hier-deg | 0.6 | 0.41 | 0.25 | 15.43 | -14.2% | 7.48 | 0.779 | 11.65 | 14.23
+hier-bfs | 1.5 | 0.16 | 0.12 | 15.44 | -14.2% | 7.45 | 0.779 | 11.58 | 14.17
+hier-cap64 | 0.8 | 0.34 | 0.19 | 14.98 | -16.7% | 6.82 | 0.756 | 10.87 | 13.54
+llp | 63.9 | 0.37 | 0.21 | 15.32 | -14.8% | 6.92 | 0.773 | 10.95 | 13.96
+bp | 74.0 | 0.32 | 0.25 | 15.73 | -12.5% | 7.70 | 0.794 | 11.91 | 14.87
+bp-input | 87.4 | 0.14 | 0.10 | 15.70 | -12.7% | 7.68 | 0.792 | 11.87 | 14.81
+bp-nocool | 81.2 | 0.14 | 0.09 | 15.58 | -13.4% | 7.52 | 0.786 | 11.70 | 14.63
+bp-self | 70.6 | 0.15 | 0.08 | 15.61 | -13.2% | 7.58 | 0.788 | 11.78 | 14.69
+bp-full | 84.9 | 0.17 | 0.09 | 15.73 | -12.5% | 7.44 | 0.794 | 11.50 | 14.34
+
+Kernels, B/A: wall ratio / CPU ratio (median of the repetitions). A's median wall seconds across these runs (they vary with the load): pr compressed 0.377-0.891, bfs compressed 0.050-0.150, wcc compressed 0.031-0.150, pr raw 0.348-0.576, bfs raw 0.024-0.073, wcc raw 0.021-0.075
+
+order | PR compressed | BFS compressed | WCC compressed | PR raw | BFS raw | WCC raw | WCC entries B/A
+--- | --- | --- | --- | --- | --- | --- | ---
+identity | 1.06 / 1.03 | 1.03 / 1.02 | 0.97 / 0.96 | 1.05 / 0.96 | 1.03 / 0.99 | 0.89 / 0.99 | —
+random | 1.09 / 1.06 | 1.29 / 1.38 | 1.84 / 2.08 | 1.18 / 1.32 | 1.56 / 1.61 | 1.82 / 2.02 | —
+dbg | 1.01 / 1.04 | 0.92 / 0.89 | 0.95 / 0.98 | 1.14 / 1.17 | 1.04 / 0.98 | 0.88 / 1.03 | —
+bfs | 0.91 / 0.98 | 0.50 / 0.44 | 0.94 / 0.85 | 0.98 / 0.99 | 0.61 / 0.64 | 0.89 / 0.86 | —
+flat | 0.95 / 0.97 | 1.28 / 1.17 | 1.18 / 1.17 | 1.10 / 1.02 | 1.30 / 1.36 | 2.05 / 1.26 | —
+hier | 0.99 / 0.98 | 1.08 / 1.11 | 1.19 / 1.16 | 1.12 / 0.88 | 1.37 / 1.22 | 1.51 / 1.32 | —
+hier-deg | 0.94 / 0.93 | 1.28 / 1.07 | 1.00 / 1.13 | 1.02 / 0.93 | 1.08 / 1.24 | 1.14 / 1.29 | —
+hier-bfs | 1.01 / 0.91 | 0.98 / 1.06 | 1.18 / 1.11 | 0.95 / 0.92 | 1.19 / 1.19 | 1.42 / 1.21 | —
+hier-cap64 | 1.08 / 0.92 | 1.25 / 1.13 | 1.04 / 1.13 | 1.13 / 0.90 | 1.21 / 1.40 | 1.49 / 1.24 | —
+llp | 0.72 / 0.96 | 1.07 / 1.05 | 1.16 / 1.28 | 0.81 / 0.87 | 0.89 / 1.17 | 1.27 / 1.42 | —
+bp | 1.18 / 1.00 | 0.91 / 0.97 | 2.06 / 2.02 | 0.97 / 0.96 | 0.94 / 1.07 | 1.72 / 1.61 | —
+
+Leiden natural (lab b2, 16 threads): 1.0 s, Q = 0.7499, levels [1141793, 217002, 38679, 8564, 1711]
+
+Leiden cap64 (lab b2, 16 threads): 1.3 s, Q = 0.7266, levels [1244158, 300254, 71097, 18347, 5908, 68]
+
+## orkut: n = 3,072,441, entries = 234,370,166, random-list bound 2 + log2(n/d) = 17.30 bits
+
+order | order s | perm s | enc s | bits/e | vs orig | loggap | ratio | BV b/arc | 0124 est
+--- | --- | --- | --- | --- | --- | --- | --- | --- | ---
+identity | — | 0.16 | 0.55 | 16.64 | +0.0% | 10.35 | 0.962 | 15.25 | 17.08
+random | 0.1 | 0.49 | 0.51 | 19.30 | +16.0% | 13.61 | 1.116 | 20.00 | 20.28
+dbg | 0.1 | 0.19 | 0.20 | 16.70 | +0.4% | 10.19 | 0.966 | 15.09 | 17.05
+bfs | 1.5 | 0.36 | 0.28 | 16.52 | -0.8% | 10.17 | 0.955 | 14.98 | 16.50
+flat | 0.2 | 0.47 | 0.22 | 15.63 | -6.1% | 8.91 | 0.903 | 13.42 | 15.66
+hier | 0.9 | 0.56 | 0.43 | 14.61 | -12.2% | 7.83 | 0.845 | 12.10 | 14.13
+hier-deg | 1.6 | 0.91 | 0.59 | 14.55 | -12.6% | 7.82 | 0.841 | 12.12 | 14.12
+hier-bfs | 2.1 | 1.20 | 0.79 | 14.60 | -12.3% | 7.82 | 0.844 | 12.08 | 14.10
+hier-cap64 | 0.4 | 0.81 | 0.72 | 14.37 | -13.6% | 7.43 | 0.831 | 11.61 | 13.72
+llp | 360.6 | 1.18 | 0.98 | 14.28 | -14.2% | 7.19 | 0.826 | 11.32 | 13.63
+bp | 281.6 | 0.68 | 0.65 | 13.92 | -16.4% | 6.81 | 0.805 | 10.82 | 13.15
+
+Kernels, B/A: wall ratio / CPU ratio (median of the repetitions). A's median wall seconds across these runs (they vary with the load): pr compressed 0.517-3.508, bfs compressed 0.045-0.272, wcc compressed 0.033-0.190, pr raw 0.648-2.974, bfs raw 0.029-0.164, wcc raw 0.019-0.165
+
+order | PR compressed | BFS compressed | WCC compressed | PR raw | BFS raw | WCC raw | WCC entries B/A
+--- | --- | --- | --- | --- | --- | --- | ---
+identity | 1.00 / 1.02 | 1.18 / 1.01 | 0.99 / 1.00 | 1.05 / 1.07 | 0.64 / 1.08 | 1.07 / 1.06 | —
+random | 1.18 / 1.13 | 1.68 / 1.55 | 1.37 / 1.44 | 1.28 / 1.24 | 1.52 / 1.46 | 1.72 / 1.66 | —
+dbg | 1.11 / 0.94 | 0.85 / 0.79 | 0.84 / 0.90 | 1.06 / 0.92 | 0.86 / 1.00 | 1.06 / 0.98 | —
+bfs | 1.13 / 0.99 | 0.45 / 0.50 | 1.02 / 1.05 | 0.88 / 1.02 | 0.61 / 0.58 | 1.56 / 0.96 | —
+flat | 0.92 / 1.01 | 0.97 / 1.02 | 1.04 / 1.09 | 0.73 / 0.83 | 0.87 / 0.80 | 1.14 / 1.19 | —
+hier | 0.83 / 1.11 | 1.07 / 0.93 | 1.44 / 1.35 | 0.66 / 0.69 | 1.28 / 1.47 | 1.53 / 1.66 | —
+hier-deg | 0.87 / 0.98 | 0.83 / 0.83 | 1.08 / 1.09 | 0.73 / 0.70 | 0.88 / 0.80 | 1.71 / 1.91 | —
+hier-bfs | 0.91 / 0.97 | 0.79 / 0.81 | 1.22 / 1.17 | 0.89 / 0.81 | 0.89 / 0.93 | 1.44 / 1.30 | —
+hier-cap64 | 0.81 / 0.91 | 0.87 / 0.95 | 1.06 / 1.27 | 0.92 / 0.87 | 0.87 / 1.01 | 1.19 / 1.23 | —
+llp | 0.92 / 0.96 | 0.98 / 0.92 | 1.07 / 1.12 | 0.81 / 0.75 | 1.02 / 1.01 | 1.49 / 1.33 | —
+bp | 0.90 / 0.92 | 0.85 / 0.76 | 1.56 / 1.42 | 0.81 / 0.75 | 1.01 / 1.01 | 1.89 / 2.01 | —
+
+Leiden natural (lab b2, 16 threads): 2.2 s, Q = 0.6736, levels [594397, 36513, 3249, 265, 25]
+
+Leiden cap64 (lab b2, 16 threads): 3.2 s, Q = 0.6335, levels [723199, 121278, 22435, 4504, 903, 223, 64, 14]
+
+## twitter-sym: n = 41,652,230, entries = 2,405,026,092, random-list bound 2 + log2(n/d) = 21.46 bits
+
+order | order s | perm s | enc s | bits/e | vs orig | loggap | ratio | BV b/arc | 0124 est
+--- | --- | --- | --- | --- | --- | --- | --- | --- | ---
+identity | — | 3.03 | 4.49 | 16.09 | +0.0% | 9.14 | 0.750 | — | 16.61
+random | 0.6 | 3.43 | 3.09 | 21.13 | +31.3% | 14.87 | 0.985 | — | 24.24
+dbg | 0.3 | 3.01 | 7.21 | 15.59 | -3.1% | 8.59 | 0.726 | — | 15.48
+bfs | 25.0 | 2.95 | 2.81 | 17.13 | +6.4% | 10.27 | 0.798 | — | 17.53
+flat | 2.5 | 2.61 | 2.58 | 17.24 | +7.1% | 10.55 | 0.803 | — | 18.23
+hier | 7.0 | 3.27 | 4.74 | 17.32 | +7.6% | 10.53 | 0.807 | — | 18.41
+hier-deg | 10.9 | 2.84 | 2.55 | 17.50 | +8.7% | 10.81 | 0.815 | — | 18.72
+hier-bfs | 47.2 | 2.80 | 2.53 | 17.58 | +9.2% | 10.87 | 0.819 | — | 18.75
+hier-cap64 | 8.2 | 2.75 | 2.84 | 17.94 | +11.5% | 11.23 | 0.836 | — | 19.29
+bp | 9713.7 | 3.27 | 2.43 | 14.76 | -8.3% | 7.58 | 0.688 | — | 14.22
+
+Kernels, B/A: wall ratio / CPU ratio (median of the repetitions). A's median wall seconds across these runs (they vary with the load): pr raw 21.907-33.316, bfs raw 0.192-0.274, wcc raw 0.232-0.428
+
+order | PR raw | BFS raw | WCC raw | WCC entries B/A
+--- | --- | --- | --- | ---
+identity | 1.00 / 1.01 | 1.01 / 1.01 | 1.00 / 1.00 | 1.00
+random | 1.21 / 2.08 | 1.10 / 1.14 | 1.13 / 1.09 | 1.00
+dbg | 1.33 / 0.63 | 0.78 / 0.76 | 0.66 / 0.66 | 1.00
+bfs | 0.78 / 1.07 | 0.49 / 0.53 | 0.59 / 0.59 | 1.00
+hier | 0.74 / 1.18 | 0.92 / 0.94 | 0.88 / 0.90 | 1.00
+hier-cap64 | 0.86 / 1.43 | 1.07 / 0.98 | 0.84 / 0.89 | 1.00
+bp | 0.62 / 0.61 | 0.80 / 0.78 | 1.47 / 1.47 | 1.00
+
+Leiden natural (lab b2, 16 threads): 127.3 s, Q = 0.4755, levels [6766476, 863395, 77476, 14746, 2172]
+
+Leiden cap64 (lab b2, 16 threads): 173.1 s, Q = 0.3563, levels [10687449, 2931857, 629623, 12940, 676]
+
+## friendster: n = 65,608,366, entries = 3,612,134,270, random-list bound 2 + log2(n/d) = 22.18 bits
+
+order | order s | perm s | enc s | bits/e | vs orig | loggap | ratio | BV b/arc | 0124 est
+--- | --- | --- | --- | --- | --- | --- | --- | --- | ---
+identity | — | 12.23 | 9.72 | 23.17 | +0.0% | 16.60 | 1.044 | — | 27.41
+random | 1.7 | 12.55 | 8.58 | 24.39 | +5.3% | 17.54 | 1.099 | — | 29.73
+dbg | 1.1 | 5.74 | 5.93 | 21.17 | -8.6% | 14.82 | 0.954 | — | 23.61
+bfs | 217.6 | 6.68 | 5.10 | 20.81 | -10.2% | 14.25 | 0.938 | — | 23.54
+hier | 12.2 | 7.79 | 4.48 | 19.65 | -15.2% | 13.14 | 0.886 | — | 21.46
+
+Kernels, B/A: wall ratio / CPU ratio (median of the repetitions). A's median wall seconds across these runs (they vary with the load): pr compressed 77.541-102.077, bfs compressed 0.871-1.310, wcc compressed 0.751-1.580
+
+order | PR compressed | BFS compressed | WCC compressed | WCC entries B/A
+--- | --- | --- | --- | ---
+identity | 0.97 / 1.01 | 1.04 / 1.01 | 0.95 / 1.00 | 1.00
+random | 1.05 / 1.07 | 1.07 / 1.06 | 1.36 / 1.36 | 1.00
+dbg | 0.54 / 0.55 | 0.75 / 0.70 | 0.82 / 0.81 | 1.00
+bfs | 0.59 / 0.56 | 0.31 / 0.31 | 0.60 / 0.60 | 1.00
+hier | 0.69 / 0.60 | 0.92 / 0.92 | 0.89 / 0.89 | 1.00
+
+Leiden natural (lab b2, 16 threads): 149.9 s, Q = 0.6071, levels [17847318, 1593371, 145200, 26167]
+
+## Locality score of the input order against the best gain measured
+
+graph | ratio (input ids) | loggap (input) | best order | bits/e best | gain vs input | random vs input
+--- | --- | --- | --- | --- | --- | ---
+lj | 0.908 | 10.08 | hier-cap64 | 14.98 | -16.7% | +25.8%
+orkut | 0.962 | 10.35 | bp | 13.92 | -16.4% | +16.0%
+twitter-sym | 0.750 | 9.14 | bp | 14.76 | -8.3% | +31.3%
+friendster | 1.044 | 16.60 | hier | 19.65 | -15.2% | +5.3%
+
+## Leiden on the graph stored in each order (#146's fifth arm, in RAM, lab b2, 16 threads)
+
+graph | mode | visit | stored order | Q (each run) | communities | median s
+--- | --- | --- | --- | --- | --- | ---
+lj | async | block | bp | 0.7550, 0.7540, 0.7557 | 1837, 1647, 1791 | 1.21
+lj | async | block | hier-cap64 | 0.7516, 0.7538, 0.7524 | 1162, 1230, 1301 | 2.01
+lj | async | block | identity | 0.7505, 0.7491, 0.7494 | 1667, 1525, 1648 | 4.57
+lj | async | block | random | 0.7546, 0.7537, 0.7551 | 1078, 1168, 1518 | 1.92
+lj | async | natural | bp | 0.7548, 0.7566, 0.7558 | 1310, 1203, 1821 | 3.26
+lj | async | natural | hier-cap64 | 0.7458, 0.7489, 0.7477 | 2546, 2533, 2505 | 1.47
+lj | async | natural | identity | 0.7269, 0.7286, 0.7351 | 6752, 3522, 4503 | 2.38
+lj | async | natural | random | 0.7549, 0.7476, 0.7481 | 1372, 1097, 1494 | 2.72
+lj | det | block | bp | 0.7514, 0.7514, 0.7514 | 1809, 1809, 1809 | 20.70
+lj | det | block | hier-cap64 | 0.7484, 0.7484, 0.7484 | 1713, 1713, 1713 | 9.51
+lj | det | block | identity | 0.7480, 0.7480, 0.7480 | 1363, 1363, 1363 | 18.09
+lj | det | block | random | 0.7481, 0.7481, 0.7481 | 1172, 1172, 1172 | 11.30
+lj | det | natural | bp | 0.7514, 0.7514, 0.7514 | 1809, 1809, 1809 | 22.66
+lj | det | natural | hier-cap64 | 0.7484, 0.7484, 0.7484 | 1713, 1713, 1713 | 5.55
+lj | det | natural | identity | 0.7480, 0.7480, 0.7480 | 1363, 1363, 1363 | 9.10
+lj | det | natural | random | 0.7481, 0.7481, 0.7481 | 1172, 1172, 1172 | 7.82
+orkut | async | block | bp | 0.6825, 0.6813, 0.6861 | 28, 23, 24 | 6.84
+orkut | async | block | hier-cap64 | 0.6811, 0.6829, 0.6776 | 29, 31, 24 | 4.07
+orkut | async | block | identity | 0.6829, 0.6799, 0.6756 | 31, 26, 25 | 2.72
+orkut | async | block | random | 0.6718, 0.6641, 0.6580 | 32, 28, 27 | 15.63
+orkut | async | natural | bp | 0.6724, 0.6731, 0.6631 | 31, 31, 35 | 5.97
+orkut | async | natural | hier-cap64 | 0.6715, 0.6854, 0.6789 | 30, 28, 29 | 2.16
+orkut | async | natural | identity | 0.6596, 0.6506, 0.6472 | 41, 36, 39 | 3.24
+orkut | async | natural | random | 0.6838, 0.6663, 0.6664 | 24, 32, 30 | 12.82
+orkut | det | block | bp | 0.6774, 0.6774, 0.6774 | 32, 32, 32 | 42.73
+orkut | det | block | hier-cap64 | 0.6765, 0.6765, 0.6765 | 32, 32, 32 | 24.78
+orkut | det | block | identity | 0.6760, 0.6760, 0.6760 | 29, 29, 29 | 33.04
+orkut | det | block | random | 0.6773, 0.6773, 0.6773 | 26, 26, 26 | 60.06
+orkut | det | natural | bp | 0.6774, 0.6774, 0.6774 | 32, 32, 32 | 34.38
+orkut | det | natural | hier-cap64 | 0.6765, 0.6765, 0.6765 | 32, 32, 32 | 32.34
+orkut | det | natural | identity | 0.6760, 0.6760, 0.6760 | 29, 29, 29 | 33.44
+orkut | det | natural | random | 0.6773, 0.6773, 0.6773 | 26, 26, 26 | 50.57

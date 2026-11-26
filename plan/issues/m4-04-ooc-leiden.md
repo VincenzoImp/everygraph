@@ -31,6 +31,6 @@ labels: type:feature, area:community, P0, risk:high, size:L, lab-evidence
 - Friendster under `MemoryMax=16G`: completes, Q ≥ 0.60, 0 disconnected, ≤ 2.5× the in-RAM time. Q ≥ 0.60 is a floor for one iteration, not the quality target: DESIGN § 6 (restated 2026-11-25) asks the quality mode under 16 GiB to come within 1% of the better of NetworKit PLM and GVE-Leiden run on this machine, measured by {{#m4-01-leiden-production}}
 - The same with the map hierarchy output on (fan-out-bounded levels for {{#m4-07-map-hierarchy}}): completes under `MemoryMax=16G`, with bytes read reported (the tracer's map-shaped runs were killed in pass-0 aggregation after 1.80–2.74 TB of reads, `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 9, 11–12)
 - orkut with a limit of 50% of its edge array: ≤ 3× the in-RAM time (lab: 5.6× at 100%, OOM below)
-- Deterministic mode works out of core with the same hash as in RAM, on an unweighted graph and on a graph with real weights (the fixed-point scheme of {{#m4-02-weights-resolution}})
+- Deterministic mode works out of core with the same hash as in RAM, on an unweighted graph and on a graph with real weights (the fixed-point scheme of {{#m4-02-weights-resolution}}): stable across thread counts and two memory budgets with random real weights, f32 and log-uniform over 2^-20…2^20 on orkut (moved from {{#m4-02-weights-resolution}}, whose acceptance covers RAM only)
 
 **Depends on** {{#m1-02-ooc-aggregation}}, {{#m3-03-semi-external}}, {{#m4-03-parallel-aggregation}}
