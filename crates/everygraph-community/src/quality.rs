@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64};
 use everygraph_core::{Memory, par};
 use everygraph_kernels::edge_map::{Error, Plan, Settings, Source, all};
 
+#[cfg(test)]
 use crate::aggregate::Quotient;
 use crate::column::{Column, GRAIN};
 use crate::level::Weights;
@@ -155,18 +156,11 @@ pub fn modularity<S: Source>(
     Ok(table(source, memory, settings, membership)?.modularity(gamma))
 }
 
+#[cfg(test)]
 impl Quotient {
     /// The community table of the quotient's nodes, each alone: equal to the table of
     /// the partition it was made from, row for row.
-    ///
-    /// # Errors
-    ///
-    /// The budget's refusal.
-    ///
-    /// # Panics
-    ///
-    /// Never: a quotient has fewer than 2^32 nodes.
-    pub fn table(&self, memory: &Memory, settings: Settings) -> Result<Table, Error> {
+    pub(crate) fn table(&self, memory: &Memory, settings: Settings) -> Result<Table, Error> {
         let csr = self.csr()?;
         let n = self.nodes();
         let single = Column::new(memory, "membership", n as usize, |v| {

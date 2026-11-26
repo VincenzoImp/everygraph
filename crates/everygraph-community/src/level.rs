@@ -31,7 +31,10 @@
 //!
 //! A sweep visits blocks of 64 consecutive ids in a seeded random order and applies
 //! each move at once; the heavy nodes are visited after it by one thread ([`heavy`]).
-//! Its result depends on the schedule.
+//! Its result depends on the schedule. A node may also decide on a neighbour's old
+//! community and miss the wake-up of that neighbour's move (its flag is cleared while
+//! the neighbour writes): like the other races of the mode, a cost in quality, and the
+//! sweep can stop while such a node still has a move.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering::Relaxed;
@@ -145,12 +148,14 @@ fn before(salt: u32, a: u32, b: u32) -> bool {
     (key(a), a) < (key(b), b)
 }
 
-/// A gain as a fixed-point integer; gains of moves are positive and below 2.
+/// A gain as a fixed-point integer. A move's claimed gain is positive and at most
+/// `2(1 + γ)·k_u / 2W`, so a sweep's gains add to at most `2(1 + γ)`, below 2^64 in
+/// these units for the resolutions `leiden` accepts.
 fn fixed(gain: f64) -> u64 {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "a gain is positive and below 2, so below 2^51 once scaled"
+        reason = "positive, and below 2^64 once scaled (above)"
     )]
     let units = (gain * GAIN_SCALE) as u64;
     units
@@ -172,8 +177,7 @@ fn node<'g, S: Source>(plan: &Plan<'_, 'g, S>, v: u32) -> Node<'g> {
 }
 
 /// Strengths `s(v)` of a level, their sum `2W`, and the nodes without a neighbour other
-/// than themselves: they stay alone at every level, so the stopping test leaves them
-/// out (#19, PR #162: counting them stopped aggregation one level early).
+/// than themselves: they stay alone at every level, so the stopping test leaves them out.
 pub(crate) struct Strengths {
     pub(crate) of: Column<u64>,
     pub(crate) total: u64,
@@ -498,12 +502,10 @@ fn heavy<'g, S: Source>(g: Graph<'_, '_, 'g, S>, total: u64) -> Vec<Node<'g>> {
 
 /// Local moving until a sweep gains at most `tol` in modularity, or [`MAX_SWEEPS`].
 ///
-/// Heavy nodes ([`heavy`]) are left out of the parallel part of a sweep and visited
-/// after it, one at a time in the sweep's order, each move applied before the next
-/// decision. (On a small graph most nodes are heavy, and id order would cost the order's
-/// quality, ADR 0015.) That is done
-/// always in the fast mode, and in the deterministic mode with
-/// [`Options::heavy_alone`](crate::Options::heavy_alone).
+/// In the fast mode the heavy nodes ([`heavy`]) are left out of the parallel part of a
+/// sweep and visited after it, one at a time in the sweep's order (on a small graph most
+/// nodes are heavy, and the order carries the quality, ADR 0015), each move applied
+/// before the next decision.
 pub(crate) fn local_move<'g, S: Source>(
     g: Graph<'_, '_, 'g, S>,
     st: &Moving<'g>,
@@ -513,15 +515,14 @@ pub(crate) fn local_move<'g, S: Source>(
     tol: f64,
 ) -> Result<Moved, Error> {
     let (plan, k, det) = (g.plan, g.k, ctx.det());
-    let heavy = if det && !ctx.options.heavy_alone {
-        Vec::new()
-    } else {
-        heavy(g, ctx.total)
+    let heavy = match schedule {
+        Schedule::Rounds { .. } => Vec::new(),
+        Schedule::Order { .. } => heavy(g, ctx.total),
     };
     let light = |v: Node<'g>| heavy.binary_search(&v).is_err();
     let heavy_in_order = match schedule {
-        _ if heavy.is_empty() => Vec::new(),
-        Schedule::Rounds { ids, .. } | Schedule::Order { ids } => take(plan, ids, |v| !light(v)),
+        Schedule::Order { ids } if !heavy.is_empty() => take(plan, ids, |v| !light(v)),
+        _ => Vec::new(),
     };
     // A sequential visit: each move is applied before the next node decides.
     let visit =
@@ -532,7 +533,7 @@ pub(crate) fn local_move<'g, S: Source>(
                 return;
             };
             if let Some((d, gain)) = decide(g, &row, st, table, ctx) {
-                relocate(st, u, d, k[u.index()], det);
+                relocate(st, u, d, k[u.index()], false);
                 wake(&st.active, row.list);
                 *acc = acc.add((fixed(gain), 1));
             }
@@ -548,7 +549,7 @@ pub(crate) fn local_move<'g, S: Source>(
             Schedule::Rounds { ids, starts } => {
                 for r in starts.windows(2) {
                     let frontier = take(plan, &ids[r[0]..r[1]], |v| {
-                        light(v) && st.active[v.index()].swap(false, Relaxed)
+                        st.active[v.index()].swap(false, Relaxed)
                     });
                     if frontier.is_empty() {
                         continue;
@@ -731,20 +732,24 @@ pub(crate) fn refine<'g, S: Source>(
                 let Some((d, change)) = pick(g, &row, st, &r, table, ctx, theta) else {
                     return;
                 };
+                // `rsigma[x] == 0` exactly while `x` is claimed (strength-0 nodes never
+                // refine): a claimed node takes no member, and a node with a member
+                // cannot be claimed, so every join follows an edge into a community
+                // that holds its seed.
                 let ku = k[u.index()];
                 let claimed = r.rsigma[u.index()].compare_exchange(ku, 0, Relaxed, Relaxed);
                 if claimed.is_err() {
                     return;
                 }
-                if r.rsigma[d.index()].fetch_add(ku, Relaxed) == 0 {
-                    // `d`'s node left it: undo.
-                    r.rsigma[d.index()].fetch_sub(ku, Relaxed);
-                    r.rsigma[u.index()].fetch_add(ku, Relaxed);
-                } else {
+                let joined =
+                    r.rsigma[d.index()].try_update(Relaxed, Relaxed, |s| (s != 0).then(|| s + ku));
+                if joined.is_ok() {
                     r.rcomm.store(u, d, Relaxed);
                     if theta.is_some() {
                         r.cut[d.index()].fetch_add(change, Relaxed);
                     }
+                } else {
+                    r.rsigma[u.index()].store(ku, Relaxed);
                 }
             })?;
         }
@@ -814,7 +819,7 @@ fn pick<'g, S: Source>(
     let bits = draw(
         ctx.options.seed,
         Purpose::LEIDEN_REFINE,
-        [u.get(), ctx.level, ctx.iteration, 0],
+        ctx.counter(u.get()),
     );
     let mut at = unit_f64(bits) * sum - weight(0.0);
     for (d, kud, value) in candidates() {
@@ -872,22 +877,6 @@ pub(crate) fn split<'g, S: Source>(
     })?;
     parent.flatten();
     Ok(parent)
-}
-
-/// The number of distinct labels.
-pub(crate) fn count<'g, S: Source>(
-    plan: &Plan<'_, 'g, S>,
-    memory: &Memory,
-    label: &NodeCells<'g>,
-) -> Result<u32, Error> {
-    let n = plan.nodes() as usize;
-    let seen = Column::new(memory, "labels seen", n, |_| AtomicBool::new(false))?;
-    plan.vertices((), |(): &mut (), (), _, v, _| {
-        seen[label.load(v, Relaxed).index()].store(true, Relaxed);
-    })?;
-    plan.vertices((), |acc: &mut u32, (), _, v, _| {
-        *acc += u32::from(seen[v.index()].load(Relaxed));
-    })
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Community detection (DESIGN D14–D16): Leiden on the edge-map framework, the
-//! community table and modularity, and the quotient graph of a partition.
+//! Community detection (DESIGN D14–D16): Leiden on the edge-map framework, and the
+//! community table and modularity of a partition.
 //!
 //! - [`leiden`]: the communities of an undirected graph given as any
 //!   [`Source`](everygraph_kernels::edge_map::Source): raw arrays, the compressed
@@ -9,8 +9,6 @@
 //!   input and seed give the same result at any thread count, chunking and source.
 //! - [`table`] and [`modularity`]: the community table of any partition and its
 //!   modularity, with kept loops as `docs/spec/graph-semantics.md` § 5.5 counts them.
-//! - [`quotient_of`]: the quotient graph of a partition, whose modularity under singletons
-//!   equals the partition's.
 //!
 //! In memory only: level 0 is read through the source, coarser levels are held in RAM
 //! (out of core: #60). The crate builds for wasm32 and has no `unsafe`; it is under
@@ -43,8 +41,9 @@ mod leiden;
 mod level;
 mod quality;
 mod table;
+#[cfg(test)]
+mod tests;
 
-pub use aggregate::{Quotient, quotient_of};
 pub use column::Column;
 pub use leiden::{Communities, Iterations, LevelStats, Mode, Options, Refinement, SplitAt, leiden};
 pub use quality::{Table, modularity, table};

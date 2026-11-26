@@ -37,8 +37,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use everygraph_community::{
-    Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity, quotient_of,
-    table,
+    Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity, table,
 };
 use everygraph_core::{Budget, Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
@@ -279,21 +278,20 @@ fn check(name: &str, lists: &Lists, p: Option<&Projection>, c: &Communities, o: 
             "{name}: {q} against the oracle's {expected}"
         );
     }
+    // Every level is a partition of connected communities: refinement joins along edges
+    // into a community that holds its seed.
     let mut prefix: Vec<u32> = (0..n).collect();
-    for level in &c.levels {
+    for (k, level) in c.levels.iter().enumerate() {
         for x in &mut prefix {
             *x = level[*x as usize];
         }
-        let t = table(&csr, &memory, Settings::default(), &prefix).unwrap();
-        let quotient = quotient_of(&csr, &memory, Settings::default(), &prefix).unwrap();
-        let tq = quotient.table(&memory, Settings::default()).unwrap();
-        assert_eq!(
-            t.modularity(gamma).to_bits(),
-            tq.modularity(gamma).to_bits(),
-            "{name}: a level against its quotient"
-        );
-        assert_eq!(&t.internal[..], &tq.internal[..], "{name}");
-        assert_eq!(&t.volume[..], &tq.volume[..], "{name}");
+        if o.refinement != Refinement::Louvain {
+            assert_eq!(
+                disconnected(lists, &prefix),
+                0,
+                "{name}: level {k} disconnected"
+            );
+        }
     }
     if !c.levels.is_empty() && !o.prolong {
         assert_eq!(prefix, m, "{name}: the levels compose to the membership");
@@ -506,11 +504,10 @@ fn reference_graphs() -> Vec<(&'static str, Pairs)> {
 ///
 /// Except on `planted-20x100-80-8`, a planted partition near the limit of detection
 /// (two thirds of each node's edges leave its block): there the lab's stopping rule
-/// (local moving stops when a sweep gains at most 0.01 on level 0) stops one iteration
-/// early. Measured: default 0.2602, quality 0.2879, fast 0.2495 against 0.2909 (−10.5%,
-/// −1.0%, −14%); a first tolerance of 1e-4 gives 0.2824, 0.2881, 0.2765 but takes about
-/// 1.9 times as long on lj (exploratory). That graph is held to 15% and 2%, and the
-/// fast mode, whose result there moves with the schedule (0.237-0.250 seen), to none.
+/// (local moving stops when a sweep gains at most 0.01 on level 0) stops local moving
+/// after too few sweeps (`plan/issues/m4-13-relative-tolerance.md`). Its values today are
+/// pinned with a small margin: default 0.2602, quality 0.2879, fast 0.237-0.258 (it moves
+/// with the schedule) against 0.2909.
 #[test]
 fn modularity_is_within_the_gates_of_networkx_and_igraph() {
     let text = std::fs::read_to_string(concat!(
@@ -532,7 +529,7 @@ fn modularity_is_within_the_gates_of_networkx_and_igraph() {
             .fold(f64::MIN, f64::max);
         let s = store(&Lists::from_pairs(n, &pairs));
         let gates = if name == "planted-20x100-80-8" {
-            [Some(0.15), Some(0.02), None]
+            [0.255, 0.285, 0.23].map(|q| Some(1.0 - q / best))
         } else {
             [Some(0.03), Some(0.01), Some(0.03)]
         };
@@ -684,59 +681,77 @@ fn isolated_nodes_change_nothing_else() {
     }
 }
 
-/// Galaxies of 100 nodes in pairs: each node has most of its edges in its galaxy and a
-/// few to the partner galaxy, so the two only merge on a coarse level, where each galaxy
-/// is one heavy node. 3,000 triangles around them keep that level larger than one
-/// frontier run, so its nodes are decided by several threads at once.
-fn paired_galaxies() -> Pairs {
-    let mut rng = SplitMix64(11);
-    let (galaxies, size) = (20_u32, 100_u32);
+/// `blocks` blocks of `size` nodes: each node draws `d_in` neighbours in its block and
+/// `d_out` anywhere (repeats and loops dropped).
+fn sparse_planted(blocks: u32, size: u32, d_in: u32, d_out: u32, seed: u64) -> Pairs {
+    let mut rng = SplitMix64(seed);
+    let n = blocks * size;
     let mut edges = Vec::new();
-    for u in 0..galaxies * size {
-        for v in u + 1..galaxies * size {
-            let (a, b) = (u / size, v / size);
-            let p = if a == b {
-                200
-            } else if a / 2 == b / 2 {
-                50
+    for u in 0..n {
+        let block = u / size * size;
+        for i in 0..d_in + d_out {
+            let v = if i < d_in {
+                block + (rng.next() % u64::from(size)) as u32
             } else {
-                0
+                (rng.next() % u64::from(n)) as u32
             };
-            if rng.next() % 1000 < p {
+            if v != u {
                 edges.push((u, v));
             }
         }
     }
-    let base = galaxies * size;
-    for t in 0..3000 {
-        let x = base + 3 * t;
-        edges.extend([(x, x + 1), (x + 1, x + 2), (x, x + 2)]);
-    }
-    (base + 9000, edges)
+    (n, edges)
 }
 
-/// #17: with the heavy-node rule the fast mode's worst result over 20 runs at 16 threads
-/// is within 0.001 of its result at one thread (`lab/m1-03-louvain-collapse`, the test it
-/// recommends). This graph has heavy coarse nodes but does not reproduce the collapse:
-/// the test passed with the rule removed too (checked by hand). The reproduction is the
-/// lab's Friendster level-1 dump, 11 M entries, too large for CI.
+/// Sub-rounds of at least 1,024 nodes run on several threads. 10,000 nodes in 40 blocks
+/// give 4 sub-rounds of about 2,500 on level 0: the result must still be the same at 1,
+/// 3, 8 and 16 threads, with either refinement.
 #[test]
-fn heavy_nodes_do_not_race_in_the_fast_mode() {
-    let (n, pairs) = paired_galaxies();
+fn parallel_sub_rounds_do_not_depend_on_threads() {
+    let (n, pairs) = sparse_planted(40, 250, 8, 2, 5);
     let s = store(&Lists::from_pairs(n, &pairs));
+    for refinement in [Refinement::Greedy, Refinement::Randomized { theta: 0.01 }] {
+        let o = Options {
+            refinement,
+            ..Options::default()
+        };
+        let one = run(&s, Kind::Raw, 1, 1 << 16, &o);
+        check("sparse planted", &s.lists, None, &one, &o);
+        assert!(one.stats[0].parallel_rounds > 0, "no parallel sub-round");
+        for t in [3, 8, 16] {
+            let c = run(&s, Kind::Heap, t, 64, &o);
+            assert_eq!(
+                Outcome::from(&c),
+                Outcome::from(&one),
+                "{refinement:?}, {t} threads"
+            );
+        }
+    }
+}
+
+/// Stars whose hubs form a ring: many leaves try to join their hub's refined community
+/// while the hub itself may be leaving it. Every refined community of every level must
+/// be connected (`check`), in the fast mode at 16 threads, run after run.
+#[test]
+fn stars_refine_into_connected_communities_in_the_fast_mode() {
+    let (stars, leaves) = (40_u32, 3000_u32);
+    let hub = |i: u32| i * (leaves + 1);
+    let mut pairs = Vec::new();
+    for i in 0..stars {
+        pairs.push((hub(i), hub((i + 1) % stars)));
+        pairs.extend((1..=leaves).map(|l| (hub(i), hub(i) + l)));
+    }
+    let s = store(&Lists::from_pairs(stars * (leaves + 1), &pairs));
     let fast = Options {
         mode: Mode::Fast,
         ..Options::default()
     };
-    let one = run(&s, Kind::Raw, 1, 1 << 16, &fast).modularity;
-    let runs = if cfg!(debug_assertions) { 4 } else { 20 };
-    let worst = (0..runs)
-        .map(|_| run(&s, Kind::Raw, 16, 1 << 16, &fast).modularity)
-        .fold(f64::MAX, f64::min);
-    eprintln!(
-        "paired galaxies, fast: one thread {one:.6}, worst of {runs} at 16 threads {worst:.6}"
-    );
-    assert!(worst >= one - 0.001, "{worst} against {one}");
+    let runs = if cfg!(debug_assertions) { 2 } else { 20 };
+    for _ in 0..runs {
+        let c = run(&s, Kind::Raw, 16, 1 << 16, &fast);
+        check("stars on a ring", &s.lists, None, &c, &fast);
+        assert!(c.stats.iter().any(|l| l.heavy > 0), "no heavy node");
+    }
 }
 
 #[test]
@@ -771,7 +786,7 @@ fn a_budget_too_small_is_refused_not_exceeded() {
 }
 
 /// D14 across budgets: every budget that is enough gives the same result, including the
-/// smallest, where aggregation combines each row twice instead of using spare room.
+/// smallest, and the run never holds more than its budget; one byte less is refused.
 #[test]
 fn results_do_not_depend_on_the_budget() {
     let (n, pairs) = planted(20, 100, 80, 8, 3);
@@ -795,15 +810,12 @@ fn results_do_not_depend_on_the_budget() {
             low = mid;
         }
     }
-    for limit in [high, high + high / 5, free.peak()] {
+    for limit in [high, high + high / 5, 4 * free.peak()] {
         let (c, peak) = under(limit);
         assert_eq!(Outcome::from(&c.unwrap()), expected, "budget {limit}");
         assert!(peak <= limit);
     }
-    assert!(
-        high < free.peak(),
-        "the smallest budget, {high}, is the peak without one"
-    );
+    assert!(matches!(under(high - 1).0, Err(Error::Memory(_))));
 }
 
 #[test]

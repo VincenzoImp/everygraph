@@ -112,7 +112,7 @@ impl Purpose {
     pub const LEIDEN_TIE: Self = Self(*b"LTIE");
 
     /// The choice of a node's community in Leiden's randomized refinement. Counter:
-    /// `[node, level, iteration, 0]`.
+    /// `[node, level, iteration, stage]`.
     pub const LEIDEN_REFINE: Self = Self(*b"LREF");
 
     /// Every purpose, so that the test below can check that they are distinct.

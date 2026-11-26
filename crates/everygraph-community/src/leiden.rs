@@ -22,13 +22,15 @@ use everygraph_kernels::edge_map::{Error, NodeCells, Plan, Settings, Source};
 use crate::aggregate::{Dense, Members, Quotient, dense, quotient};
 use crate::column::Column;
 use crate::level::{
-    Ctx, Graph, Moving, Schedule, Strengths, Weights, count, local_move, refine, split, strengths,
+    Ctx, Graph, Moving, Schedule, Strengths, Weights, local_move, refine, split, strengths,
 };
 use crate::quality::tally;
 use crate::table::Tables;
 
 /// Iterations of the quality mode.
 const QUALITY_ITERATIONS: NonZeroU32 = NonZeroU32::new(3).expect("non-zero");
+/// The largest resolution: see `check`.
+const MAX_RESOLUTION: f64 = 8191.0;
 /// Levels per iteration, at most.
 const MAX_LEVELS: u32 = 10;
 /// Local moving stops when a sweep gains at most this much modularity: `0.01` on level
@@ -44,9 +46,9 @@ pub enum Mode {
     /// source (DESIGN D14). The default.
     #[default]
     Deterministic,
-    /// Moves applied as they are found, by every thread at once: faster, and its result
-    /// changes from run to run. Opt-in, and labelled in the output; whether it ships
-    /// depends on #17.
+    /// Moves applied as they are found, by every thread at once, except the heavy nodes,
+    /// which one thread visits after each sweep (#17): faster, and its result changes
+    /// from run to run. Opt-in, and labelled in the output.
     Fast,
 }
 
@@ -109,10 +111,6 @@ pub struct Options {
     pub prolong: bool,
     /// After the last level by default.
     pub split: SplitAt,
-    /// Deterministic mode: visit the heavy nodes (strength above 0.1% of `2W`) one at a
-    /// time after each sweep, as the fast mode always does (#17). Off by default: it
-    /// changes the result, and is measured first (`bench/specs/leiden.toml`).
-    pub heavy_alone: bool,
 }
 
 impl Default for Options {
@@ -125,7 +123,6 @@ impl Default for Options {
             refinement: Refinement::Greedy,
             prolong: false,
             split: SplitAt::Last,
-            heavy_alone: false,
         }
     }
 }
@@ -162,10 +159,7 @@ pub struct LevelStats {
     pub serial_rounds: u64,
     /// Communities after refinement, or after the split on the last level.
     pub communities: u32,
-    /// Communities the split added.
-    pub split_added: u32,
-    /// Heavy nodes visited one at a time after each sweep (fast mode, or
-    /// [`Options::heavy_alone`]).
+    /// Heavy nodes visited one at a time after each sweep (fast mode).
     pub heavy: u32,
 }
 
@@ -242,14 +236,11 @@ fn level<S: Source>(
     let g = Graph { plan, w, k: &k.of };
     let moved = local_move(g, &st, &schedule, &tables, ctx, tol)?;
     (stats.sweeps, stats.moves) = (moved.sweeps, moved.moves);
-
     (stats.parallel_rounds, stats.serial_rounds) = (moved.parallel_rounds, moved.serial_rounds);
     stats.heavy = moved.heavy;
     if ctx.options.split == SplitAt::EveryLevel {
-        let before = count(plan, memory, &st.comm)?;
         let parts = split(plan, memory, &st.comm)?;
         st.relabel(plan, &k.of, parts)?;
-        stats.split_added = count(plan, memory, &st.comm)? - before;
     }
     let louvain = ctx.options.refinement == Refinement::Louvain;
     let refined = if louvain {
@@ -279,12 +270,9 @@ fn level<S: Source>(
             d
         } else {
             drop((d, refined));
-            let before = count(plan, memory, &st.comm)?;
             let parts = split(plan, memory, &st.comm)?;
             drop(st);
-            let d = dense(plan, memory, |v| parts.load(v, Relaxed).get())?;
-            stats.split_added += d.count - before;
-            d
+            dense(plan, memory, |v| parts.load(v, Relaxed).get())?
         };
         stats.communities = d.count;
         let modularity =
@@ -389,10 +377,9 @@ fn project(memory: &Memory, map: &[u32], above: &[u32]) -> Result<Column<u32>, E
 
 /// Checks the options.
 fn check(options: &Options) -> Result<(), Error> {
-    if !(options.resolution.is_finite() && options.resolution >= 0.0) {
-        return Err(Error::Invalid(
-            "resolution: not a finite number of at least 0",
-        ));
+    // A sweep's gains add to at most 2(1 + γ), kept below 2^64 in units of 2^-50.
+    if !(options.resolution >= 0.0 && options.resolution <= MAX_RESOLUTION) {
+        return Err(Error::Invalid("resolution: not a number from 0 to 8,191"));
     }
     if let Refinement::Randomized { theta } = options.refinement {
         if !(theta.is_finite() && theta > 0.0) {

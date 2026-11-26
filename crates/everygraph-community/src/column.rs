@@ -6,7 +6,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
 
-use everygraph_core::{InsufficientBudget, Memory, MemoryKind, Reservation, par};
+use everygraph_core::{MAX_ALLOCATION_BYTES, Memory, MemoryError, MemoryKind, Reservation, par};
 
 /// Elements per task when a column is made, summed or scanned.
 pub(crate) const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");
@@ -20,13 +20,20 @@ pub struct Column<T> {
 
 impl<T: Send> Column<T> {
     /// `[f(0), …, f(len - 1)]`, made in parallel after its size is reserved.
+    ///
+    /// A column is one allocation, not segments (DESIGN D2 asks for segments: #m4-14).
+    /// On a 32-bit target, where one allocation above about 2 GiB fails, a column above
+    /// [`MAX_ALLOCATION_BYTES`] is refused instead.
     pub(crate) fn new(
         memory: &Memory,
         purpose: &'static str,
         len: usize,
         f: impl Fn(usize) -> T + Send + Sync,
-    ) -> Result<Self, InsufficientBudget> {
+    ) -> Result<Self, MemoryError> {
         let bytes = (len as u64).saturating_mul(size_of::<T>() as u64);
+        if usize::BITS < 64 && bytes > MAX_ALLOCATION_BYTES {
+            return Err(MemoryError::AllocationFailed { purpose, bytes });
+        }
         let reservation = memory.reserve(purpose, MemoryKind::Anonymous, bytes)?;
         Ok(Self {
             values: par::collect(len, GRAIN, f),
@@ -75,7 +82,7 @@ pub(crate) fn offsets(
     purpose: &'static str,
     len: usize,
     count: impl Fn(usize) -> u64 + Send + Sync,
-) -> Result<Column<u64>, InsufficientBudget> {
+) -> Result<Column<u64>, MemoryError> {
     let sums = par::map_ranges(len, GRAIN, |r| r.map(&count).sum::<u64>());
     let starts: Vec<u64> = sums
         .iter()

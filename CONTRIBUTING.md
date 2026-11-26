@@ -235,7 +235,7 @@ describing it).
 | `everygraph-format` | the `.eg` container, the adjacency codec, property columns, and `verify` | #28, #30, #37, #41 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes, built and linted in CI |
-| `everygraph-community` | Leiden, the community table and modularity, the quotient graph; the map hierarchy | #57, #62, #63 | yes, built and linted in CI |
+| `everygraph-community` | Leiden, the community table and modularity; the map hierarchy | #57, #62, #63 | yes, built and linted in CI |
 | `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
 | `everygraph-cli` | the `everygraph` command | #41 (`verify`), #98 | no |
