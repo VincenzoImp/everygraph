@@ -26,7 +26,7 @@ labels: type:feature, area:engine, P1, risk:medium, size:L
 - Bytes read for level-0 local moving and refinement at 8 GiB and 4 GiB no worse than the prototype's (62.5 GB and 87.3 GB with 4 KiB frames; `lab/m1-15-mmap-hints-block-cache/results/leiden_cache_pf.jsonl`), and time no worse than per-phase `MADV_RANDOM` in the same run
 
 **Left after the first pull request (2026-11-26).** Built: `everygraph_core::BlockCache`, `everygraph_io::ReadPool`, Leiden's `Options::read_ahead` and `Options::max_levels`, the cached regime in the oracle's cross-source check and in the no-OOM suite (`Op::Kernel(_, Regime::Cached)`). Measured, exploratory: ADR 0029, "The cache as built"; rows in `bench/results/block-cache/exploratory/20261126-friendster.jsonl`. Not met here, and where it went:
-- Level-0 local moving at 8 GiB within 1.5× of in RAM, and the time against per-phase `MADV_RANDOM`: {{#m3-22-performance-pass}} (fast mode 1.59–1.62× on a loaded machine; the official run decides).
+- Level-0 local moving at 8 GiB within 1.5× of in RAM, and the time against per-phase `MADV_RANDOM`: {{#m3-22-performance-pass}} (fast mode 1.2–1.8× on a loaded machine; the official run decides).
 - The deterministic mode at 4 GiB: Leiden's own level-0 state on Friendster is 4.22 GiB, above the limit before any cache; {{#m4-04-ooc-leiden}} owns that state.
 - The deterministic mode's bytes: 333 GB at 8 GiB, about 4.7× the fast mode's, because sub-rounds visit groups of 16 nodes and refinement single nodes, so a frame is read again in many sub-rounds; {{#m3-22-performance-pass}}.
 - The planner rule: no planner operation has a random-access phase yet (Leiden is not one); {{#m3-02-planner}} says what it does when one does.

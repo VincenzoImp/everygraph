@@ -197,27 +197,43 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 - **Kernels** read the cache through `CompressedStream` with a 4 KiB window, so a
   frontier reads the records it needs and no more.
 
-**Measured** (exploratory, Friendster, Leiden with one level (`max_levels` 1: level-0
-local moving and refinement, no quotient graph), one iteration, 16 threads, the 10.3 GB
-data part read with `O_DIRECT`, so cold; production code; the command and rows are in
-PR #… ; shared machine, load 16–58, so times are ratios only and weak):
+**Measured** (exploratory; `bench/results/block-cache/exploratory/20261126-friendster.jsonl`,
+commands in its `args`). Friendster, production Leiden with one level (`max_levels` 1:
+level-0 local moving and refinement, no quotient graph), one iteration, 16 threads; the
+10.3 GB data part read with `O_DIRECT`, so cold; bytes from `/proc/self/io` and the
+cache's counts. The machine was shared (load 16–58), so times are weak ratios:
 
-| mode | limit, cache | K | hash = in RAM | bytes read (scans) | reads | time / in RAM |
+| mode | limit, cache | K | hash = in RAM | bytes read (in scans) | reads | time / in RAM |
 |---|---|---|---|---|---|---|
 | deterministic | 8G, 2.5 GiB | 64 | yes | 332.6 GB (30.5) | 59.7 M | 2.7× |
 | deterministic | 8G, 2.5 GiB | 0 | yes | 304.9 GB (30.7) | 63.2 M | 5.4× (load 57) |
 | deterministic | 6G, 1 GiB | 64 | yes | 403.8 GB (30.9) | 71.0 M | 3.2× |
-| fast | 8G, 2.5 GiB | 1 | — | 94.2 GB (30.5) | 6.4 M | 1.62× |
-| fast | 8G, 2.5 GiB | 64 | — | 94.1 GB (30.3) | 6.4 M | 1.59× |
+| deterministic, no refinement | 8G, 2.5 GiB | 64 | — | 105.9 GB (20.2) | 14.9 M | — |
+| deterministic, mmap, `MADV_RANDOM` | 8G, page cache | — | yes | 220.1 GB | — | 5.0× (load 48) |
+| fast | 8G, 2.5 GiB | 1, 8, 64, 512 | — | 93.9–106.9 GB (30.1–30.5) | 6.4–7.4 M | 1.2–1.8× |
 
-- **Deterministic mode at 4 GiB cannot run**: Leiden itself reserves 4.22 GiB at its
+- **The hash is the in-RAM hash** in the deterministic mode, at 8G and 6G and with and
+  without read-ahead (`753f4fff229657f6`, Q 0.57281).
+- **The deterministic mode at 4 GiB cannot run**: Leiden itself reserves 4.22 GiB at its
   peak on level 0 of Friendster (the in-RAM run), more than the limit before any cache.
-- **The deterministic mode reads about 5 times the fast mode's bytes.** Its sub-rounds
-  visit groups of 16 nodes, and refinement single nodes, so a 4 KiB frame (records of
-  about 26 nodes) is read again in many sub-rounds of one sweep. A cache does not fix
-  that; an order that keeps a frame's nodes in one sub-round would.
-- **Read-ahead**: in the deterministic mode, K = 64 against K = 0 read 9% more bytes,
-  and took half the time at a third of the load (not a clean A/B).
+- **The deterministic mode reads 3–5 times the fast mode's bytes, and refinement most of
+  them.** Without refinement, local moving read 85.7 GB in 4 sweeps (2.1× the data part
+  a sweep); with it, 302 GB. Local moving's sub-rounds visit groups of 16 nodes, and
+  refinement's single nodes, so a 4 KiB frame (the records of about 26 nodes) is read
+  again in many sub-rounds of one pass. A cache does not fix that; an order that keeps a
+  frame's nodes in one sub-round would.
+- **`MADV_RANDOM` on the map read fewer bytes than the cache** in the deterministic mode
+  (220.1 against 332.6 GB): the page cache could use all the memory Leiden left (about
+  3.7 GB against 2.5 GiB of frames), and reads single pages where the cache merges up to
+  64 KiB. Its time was 1.8× the cache's, at three times the load. Not like with like.
+- **The fast mode** read 63.7 GB in local moving and refinement at K = 1 (4 sweeps), close
+  to the prototype's 62.5 GB (5 sweeps). Its sweeps vary from 4 to 6 between runs, and the
+  two in-RAM runs took 68.6 and 93.9 s, so its time ratio is 1.2–1.8×, not a measurement.
+- **Read-ahead**: in the fast mode, K from 1 to 512 changed neither the bytes nor the
+  reads; a window of 16,384 visits read ahead is already enough. In the deterministic
+  mode, K = 64 against K = 0 read 9% more bytes and took half the time, at a third of
+  the load (not a clean A/B). The synchronous misses left (7.4 M) are the scans', which
+  are not read ahead.
 
 ## What would change our mind
 
