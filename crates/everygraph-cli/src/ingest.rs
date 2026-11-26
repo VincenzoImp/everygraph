@@ -12,21 +12,24 @@ use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use everygraph_core::{Budget, ByteSource, Memory, par};
+use everygraph_core::{ByteSource, par};
 use everygraph_format::container::{Container, Input, Provenance};
 use everygraph_ingest::build::{
-    self, BuildOptions, Duplicates, GraphOptions, Phase, Progress, SelfLoops,
+    self, BuildOptions, Duplicates, GraphOptions, Phase, Progress, Report, SelfLoops,
 };
 use everygraph_ingest::ids::KeyKind;
 use everygraph_ingest::text::{Column, IdType, TextOptions, TextReader};
 use everygraph_io::{FileSink, FileSource, MmapSource};
+use serde_json::{Map, Value, json};
 
-use crate::failure::{self, Failure, usage};
+use crate::args::{self as cli, Arg, Common};
+use crate::failure::{self, Failure};
+use crate::machine;
 use crate::plan::Plan;
-use crate::render::{Style, counted, file_document, parse_size, result_block};
+use crate::progress::Lines;
+use crate::render::{Style, counted, duration, size};
 use crate::scratch::JobScratch;
 
 /// What was asked.
@@ -39,115 +42,86 @@ pub(crate) struct Args {
     pub(crate) self_loops: SelfLoops,
     pub(crate) duplicates: Duplicates,
     pub(crate) ids: IdType,
-    pub(crate) out: Option<PathBuf>,
-    pub(crate) memory: Option<(u64, String)>,
-    pub(crate) threads: Option<NonZeroUsize>,
     pub(crate) temp_dir: Option<PathBuf>,
     pub(crate) dry_run: bool,
-    pub(crate) json: bool,
-    pub(crate) overwrite: bool,
+    pub(crate) common: Common,
 }
 
 /// Runs the command; returns the exit status.
 pub(crate) fn main(args: &[OsString]) -> u8 {
     let json = args.iter().any(|a| a == "--json");
-    match parse(args).and_then(|args| run(&args)) {
+    match parse(args).and_then(|args| args.map_or(Ok(0), |args| run(&args))) {
         Ok(status) => status,
         Err(failure) => failure.report(json),
     }
 }
 
-fn choice<T: Copy>(name: &str, value: &str, options: &[(&str, T)]) -> Result<T, Failure> {
-    options
-        .iter()
-        .find(|(word, _)| *word == value)
-        .map(|&(_, v)| v)
-        .ok_or_else(|| {
-            let words: Vec<&str> = options.iter().map(|(w, _)| *w).collect();
-            usage(format!("{name} takes {}, not {value}.", words.join(" or ")))
-        })
-}
-
-fn parse(raw: &[OsString]) -> Result<Args, Failure> {
+/// What was asked, or `None` for the help.
+fn parse(raw: &[OsString]) -> Result<Option<Args>, Failure> {
     let mut args = Args::default();
     let mut input = None;
-    let mut it = raw.iter();
-    while let Some(arg) = it.next() {
-        let arg = arg
-            .to_str()
-            .ok_or_else(|| usage("An argument is not valid text.".into()))?;
-        let mut value = |name: &str| -> Result<String, Failure> {
-            it.next()
-                .and_then(|v| v.to_str())
-                .map(str::to_owned)
-                .ok_or_else(|| usage(format!("{name} needs a value.")))
+    let mut it = cli::Args::new(raw, "ingest");
+    while let Some(arg) = it.next()? {
+        let option = match arg {
+            Arg::Plain(path) if input.is_none() => {
+                input = Some(PathBuf::from(path));
+                continue;
+            }
+            Arg::Plain(extra) => {
+                return Err(it.usage(format!(
+                    "ingest takes one FILE; {} is one more.",
+                    extra.to_string_lossy()
+                )));
+            }
+            Arg::Option(option) => option,
         };
-        match arg {
-            "--source" => args.source = Some(value(arg)?),
-            "--target" => args.target = Some(value(arg)?),
+        if args.common.take(option, &mut it)? {
+            continue;
+        }
+        match option {
+            "--source" => args.source = Some(it.value(option)?.to_owned()),
+            "--target" => args.target = Some(it.value(option)?.to_owned()),
             "--directed" => args.directed = Some(true),
             "--undirected" => args.directed = Some(false),
             "--self-loops" => {
-                let options = [("drop", SelfLoops::Drop), ("keep", SelfLoops::Keep)];
-                args.self_loops = choice(arg, &value(arg)?, &options)?;
+                let choices = [("drop", SelfLoops::Drop), ("keep", SelfLoops::Keep)];
+                args.self_loops = it.choice(option, &choices)?;
             }
             "--duplicates" => {
-                let options = [
+                let choices = [
                     ("events", Duplicates::Events),
                     ("collapse", Duplicates::Collapse),
                     ("sum", Duplicates::Sum),
                 ];
-                args.duplicates = choice(arg, &value(arg)?, &options)?;
+                args.duplicates = it.choice(option, &choices)?;
             }
             "--ids" => {
-                let options = [("auto", IdType::Auto), ("string", IdType::String)];
-                args.ids = choice(arg, &value(arg)?, &options)?;
+                let choices = [("auto", IdType::Auto), ("string", IdType::String)];
+                args.ids = it.choice(option, &choices)?;
             }
-            "--out" | "-o" => args.out = Some(PathBuf::from(value(arg)?)),
-            "--memory" => {
-                let text = value(arg)?;
-                let bytes = parse_size(&text)
-                    .ok_or_else(|| usage(format!("--memory {text} is not a size, such as 8GB.")))?;
-                args.memory = Some((bytes, text));
-            }
-            "--threads" => {
-                let text = value(arg)?;
-                let threads = text
-                    .parse()
-                    .map_err(|_| usage(format!("--threads {text} is not a positive number.")))?;
-                args.threads = Some(threads);
-            }
-            "--temp-dir" => args.temp_dir = Some(PathBuf::from(value(arg)?)),
+            "--temp-dir" => args.temp_dir = Some(PathBuf::from(it.value(option)?)),
             "--dry-run" => args.dry_run = true,
-            "--json" => args.json = true,
-            "--overwrite" => args.overwrite = true,
             "--weight" | "--time" => {
-                return Err(
-                    Failure::new("Unsupported", format!("{arg} cannot be stored yet."), 2)
-                        .why(vec!["This version stores no weight or time column.".into()])
-                        .ways(vec![(
-                            format!("leave out {arg}"),
-                            "the edges are read without it".into(),
-                        )]),
-                );
+                return Err(Failure::new(
+                    "Unsupported",
+                    format!("{option} cannot be stored yet."),
+                    failure::USAGE,
+                )
+                .why(vec!["This version stores no weight or time column.".into()])
+                .ways(vec![(
+                    format!("leave out {option}"),
+                    "the edges are read without it".into(),
+                )]));
             }
-            "-h" | "--help" => {
-                let _ = io::stdout().write_all(HELP.as_bytes());
-                std::process::exit(0);
+            help if cli::is_help(help) => {
+                print!("{HELP}");
+                return Ok(None);
             }
-            option if option.starts_with('-') => {
-                return Err(usage(format!("Unknown option {option}.")));
-            }
-            path if input.is_none() => input = Some(PathBuf::from(path)),
-            extra => {
-                return Err(usage(format!(
-                    "ingest takes one FILE; {extra} is one more."
-                )));
-            }
+            other => return Err(it.unknown(other)),
         }
     }
-    args.input = input.ok_or_else(|| usage("ingest needs a FILE of edges.".into()))?;
-    Ok(args)
+    args.input = input.ok_or_else(|| it.usage("ingest needs a FILE of edges.".into()))?;
+    Ok(Some(args))
 }
 
 const HELP: &str = "\
@@ -172,6 +146,7 @@ Options
   --dry-run             print the plan and the estimate, then stop
   --json                print the result as JSON, with nothing around it
   --overwrite           replace a file that is in the way
+  --progress plain      progress as one line per finished phase, never redrawn
 ";
 
 /// `NAME.eg` beside the input, `NAME` being its name without the extensions an edge
@@ -190,38 +165,6 @@ fn default_output(input: &Path) -> PathBuf {
         name = stem.to_owned();
     }
     input.with_file_name(format!("{name}.eg"))
-}
-
-/// The phase lines, printed as each phase ends.
-struct Lines {
-    style: Style,
-    started: Mutex<Option<(Phase, Instant)>>,
-}
-
-impl Progress for Lines {
-    fn begin(&self, phase: Phase, _total: Option<u64>) {
-        *self.started.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some((phase, Instant::now()));
-    }
-
-    fn end(&self, phase: Phase, done: u64) {
-        let detail = match phase {
-            Phase::Reading => counted(done, "row", "rows"),
-            Phase::Identifiers => counted(done, "identifier", "identifiers"),
-            Phase::Building => counted(done, "part", "parts"),
-            Phase::Checking => format!("{} verified", counted(done, "section", "sections")),
-        };
-        let began = self
-            .started
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        let seconds = began
-            .filter(|b| b.0 == phase)
-            .map_or(0.0, |b| b.1.elapsed().as_secs_f64());
-        let line = self.style.phase_done(phase.name(), &detail, seconds);
-        let _ = writeln!(io::stderr(), "{line}");
-    }
 }
 
 /// Removes `NAME.eg.partial` unless the graph was renamed into place.
@@ -248,11 +191,12 @@ fn run(args: &Args) -> Result<u8, Failure> {
     let reader = TextReader::open(source, &options).map_err(|e| failure::text(&args.input, e))?;
     let directed = build::infer_direction(reader.layout(), args.directed);
     let output = args
+        .common
         .out
         .clone()
         .unwrap_or_else(|| default_output(&args.input));
-    if output.exists() && !args.overwrite {
-        return Err(output_exists(&output));
+    if output.exists() && !args.common.overwrite {
+        return Err(failure::output_exists(&output, is_graph(&output)));
     }
     let root = match &args.temp_dir {
         Some(dir) => dir.clone(),
@@ -265,7 +209,7 @@ fn run(args: &Args) -> Result<u8, Failure> {
     if args.dry_run {
         return Ok(dry_run(args, &reader, &plan, &output));
     }
-    let err = Style::of(true);
+    let err = Style::stderr();
     let text = plan.text(args, &reader, err, plan.long());
     let _ = writeln!(io::stderr(), "{text}");
     if !plan.fits() {
@@ -288,10 +232,7 @@ fn run(args: &Args) -> Result<u8, Failure> {
     };
     let scratch =
         JobScratch::create(&root, &job.id).map_err(|e| failure::io("write", &root, &e))?;
-    let lines = Lines {
-        style: err,
-        started: Mutex::new(None),
-    };
+    let lines = Lines::new(err.progress(args.common.plain));
     let blocks = reader.blocks().map_err(|e| failure::text(&args.input, e))?;
     if blocks.is_some() {
         return in_pool(plan.threads, || job.write(&reader, &scratch, &lines));
@@ -313,35 +254,23 @@ fn run(args: &Args) -> Result<u8, Failure> {
     in_pool(plan.threads, || job.write(&plain, &scratch, &lines))
 }
 
-fn output_exists(output: &Path) -> Failure {
-    let ours = File::open(output)
+/// Whether `path` is a graph file.
+pub(crate) fn is_graph(path: &Path) -> bool {
+    File::open(path)
         .ok()
         .and_then(|f| FileSource::from_file(f).ok())
-        .is_some_and(|s| Container::open(s).is_ok());
-    let holds = if ours {
-        "holds another graph"
-    } else {
-        "was not written by Everygraph"
-    };
-    Failure::new(
-        "OutputExists",
-        format!("{} exists and {holds}.", output.display()),
-        1,
-    )
-    .ways(vec![
-        (
-            "--out NEW.eg".into(),
-            "write the graph under another name".into(),
-        ),
-        ("--overwrite".into(), "replace it".into()),
-    ])
+        .is_some_and(|s| Container::open(s).is_ok())
 }
 
 /// Prints the plan and what would happen, writes nothing, and returns the exit status
 /// (§ 2.1: all of it on standard output; with `--json` the plan document there and
 /// the text on standard error).
 fn dry_run(args: &Args, reader: &TextReader<FileSource>, plan: &Plan, output: &Path) -> u8 {
-    let style = Style::of(!args.json);
+    let style = if args.common.json {
+        Style::stderr()
+    } else {
+        Style::stdout()
+    };
     let mut text = plan.text(args, reader, style, true);
     let arrow = style.arrow();
     text.push_str(&format!(
@@ -352,7 +281,7 @@ fn dry_run(args: &Args, reader: &TextReader<FileSource>, plan: &Plan, output: &P
         output.display()
     ));
     let refusal = (!plan.fits()).then(|| plan.refusal());
-    if args.json {
+    if args.common.json {
         let _ = io::stderr().write_all(text.as_bytes());
         let document = plan.document(args, reader, refusal.as_ref());
         let _ = writeln!(io::stdout(), "{document}");
@@ -376,11 +305,9 @@ fn in_pool(
 ) -> Result<u8, Failure> {
     match par::with_threads(threads, f) {
         Ok(result) => result.map(|()| 0),
-        Err(e) => Err(Failure::new(
-            "EverygraphError",
-            format!("Cannot start the threads: {e}."),
-            1,
-        )),
+        Err(e) => Err(failure::internal(&format!(
+            "Cannot start the threads: {e}."
+        ))),
     }
 }
 
@@ -406,7 +333,7 @@ impl Job<'_> {
     ) -> Result<(), Failure> {
         let (args, plan, output) = (self.args, self.plan, self.output);
         let fail = |e| failure::build(&args.input, plan.budget, plan.machine_memory(), e);
-        let memory = Memory::from(Arc::new(Budget::new(plan.budget)));
+        let memory = machine::memory(plan.budget);
         let mut options = BuildOptions::new(self.graph, plan.threads);
         if args.ids == IdType::String {
             options.ids = options.ids.with_kind(KeyKind::Bytes);
@@ -439,13 +366,8 @@ impl Job<'_> {
         lines.begin(Phase::Checking, None);
         let written =
             MmapSource::open(&partial_path).map_err(|e| failure::io("read", &partial_path, &e))?;
-        let checked = build::check(written, &memory).map_err(|e| {
-            Failure::new(
-                "CorruptFile",
-                format!("{} is damaged: {e}.", partial_path.display()),
-                5,
-            )
-        })?;
+        let checked =
+            build::check(written, &memory).map_err(|e| failure::corrupt(&partial_path, &e))?;
         lines.end(
             Phase::Checking,
             u64::try_from(checked.sections).unwrap_or(u64::MAX),
@@ -457,12 +379,80 @@ impl Job<'_> {
         let bytes = std::fs::metadata(output).map_or(0, |m| m.len());
         let elapsed = self.started.elapsed().as_secs_f64();
         result_block(output, bytes, &report, elapsed, self.style);
-        if args.json {
+        if args.common.json {
             let document = file_document(&self.id, output, bytes, &report, elapsed);
             let _ = writeln!(io::stdout(), "{document}");
         }
         Ok(())
     }
+}
+
+/// The result block of a graph made (G-11 to G-13), on standard error.
+fn result_block(output: &Path, bytes: u64, report: &Report, seconds: f64, style: Style) {
+    let dot = style.dot();
+    let name = output
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let mut text = format!(
+        "\n{} {}{dot}{}{dot}{}{dot}{}{dot}{}\n",
+        style.ok(),
+        style.bold(&name),
+        size(bytes),
+        counted(report.nodes, "node", "nodes"),
+        counted(report.edges, "edge", "edges"),
+        duration(seconds)
+    );
+    let mut dropped = Vec::new();
+    if report.dropped_self_loops > 0 {
+        dropped.push(counted(
+            report.dropped_self_loops,
+            "self-loop",
+            "self-loops",
+        ));
+    }
+    if report.dropped_duplicates > 0 {
+        dropped.push(counted(
+            report.dropped_duplicates,
+            "duplicate",
+            "duplicates",
+        ));
+    }
+    if report.rejected > 0 {
+        dropped.push(counted(report.rejected, "rejected row", "rejected rows"));
+    }
+    if !dropped.is_empty() {
+        text.push_str(&format!("  dropped: {}\n", dropped.join(dot)));
+    }
+    if report.merged > 0 {
+        let merged = counted(report.merged, "duplicate", "duplicates");
+        text.push_str(&format!("  merged: {merged}, summed into their pairs\n"));
+    }
+    let next = format!("everygraph map {}", output.display());
+    text.push_str(&format!("  next: {}\n", style.bold(&next)));
+    let _ = io::stderr().write_all(text.as_bytes());
+}
+
+/// The file document of `docs/ux-contract.md` § 4.7.
+fn file_document(job: &str, output: &Path, bytes: u64, report: &Report, seconds: f64) -> Value {
+    let mut counts = Map::new();
+    let mut dropped = Map::new();
+    for (key, value) in report.counts() {
+        if let Some(key) = key.strip_prefix("counts.") {
+            counts.insert(key.into(), value.into());
+        } else if let Some(key) = key.strip_prefix("dropped.").filter(|_| value > 0) {
+            dropped.insert(key.into(), value.into());
+        }
+    }
+    json!({
+        "schema": 1,
+        "job": job,
+        "operation": "ingest",
+        "made": {"path": output.display().to_string(), "kind": "graph", "bytes": bytes},
+        "counts": counts,
+        "dropped": dropped,
+        "kept": [],
+        "elapsed_seconds": seconds,
+    })
 }
 
 /// The first 16 hexadecimal digits of the job's fingerprint (XXH3-128): the input, the

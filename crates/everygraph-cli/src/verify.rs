@@ -9,9 +9,9 @@
 //! reports on standard output"). A newest commit that cannot be read is a warning on
 //! standard error, status 0, or 5 with `--strict` ("A lost newest commit").
 
+use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::path::Path;
-use std::process::ExitCode;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use everygraph_core::{Budget, InsufficientBudget, Memory, MemoryProbe, ReadError};
@@ -19,30 +19,81 @@ use everygraph_format::container::Container;
 use everygraph_format::verify::{Depth, Problem, Report, verify};
 use everygraph_ingest::ids::{Dictionary, DictionaryError};
 use everygraph_io::{MmapSource, ProcMemoryProbe};
+use serde_json::{Value, json};
 
-use crate::out::{self, Style, count, json, printable, wrap};
+use crate::args::{self as cli, Arg};
+use crate::failure::{self, Failure};
+use crate::render::{Style, count, printable, wrap};
 
-/// Exit status 1: a file could not be read (ux-contract § 6.4).
-const IO_ERROR: u8 = 1;
-/// Exit status 4: refused for lack of memory.
-const NO_MEMORY: u8 = 4;
-/// Exit status 5: a graph file is damaged.
-const DAMAGED: u8 = 5;
+const HELP: &str = "\
+Check that a graph file (.eg) is intact.
+
+Usage
+  everygraph verify FILE [--deep] [--strict] [--json]
+
+Options
+  --deep                every byte and every invariant; without it, the header,
+                        the table of contents and the sections up to 1 MiB
+  --strict              exit with status 5 also when the newest commit cannot
+                        be read and the file reads as the one before
+  --json                print the report as JSON, with nothing around it
+  -h, --help            this text
+  --                    what follows is the file, even if it starts with -
+
+Exit status: 0 intact, 5 damaged, 1 the file cannot be read, 4 not enough
+memory.
+";
 
 /// What the command was asked.
-pub(crate) struct Options {
-    pub(crate) deep: bool,
-    pub(crate) strict: bool,
-    pub(crate) json: bool,
+#[derive(Default)]
+struct Options {
+    deep: bool,
+    strict: bool,
+    json: bool,
 }
 
 /// Why the check could not be finished.
-enum Failure {
+enum Stop {
     Io(String),
     Memory(InsufficientBudget),
 }
 
-pub(crate) fn run(path: &Path, options: &Options, style: &Style) -> ExitCode {
+/// Runs the command; returns the exit status.
+pub(crate) fn main(raw: &[OsString]) -> u8 {
+    let json = raw.iter().any(|a| a == "--json");
+    let mut options = Options::default();
+    let mut file = None;
+    let mut it = cli::Args::new(raw, "verify");
+    let parsed = (|| {
+        while let Some(arg) = it.next()? {
+            match arg {
+                Arg::Option(help) if cli::is_help(help) => {
+                    print!("{HELP}");
+                    return Ok(false);
+                }
+                Arg::Option("--deep") => options.deep = true,
+                Arg::Option("--strict") => options.strict = true,
+                Arg::Option("--json") => options.json = true,
+                Arg::Option(other) => return Err(it.unknown(other)),
+                Arg::Plain(_) if file.is_some() => {
+                    return Err(it.usage("verify takes one file.".into()));
+                }
+                Arg::Plain(path) => file = Some(PathBuf::from(path)),
+            }
+        }
+        Ok(true)
+    })();
+    match parsed {
+        Ok(false) => 0,
+        Ok(true) => match file {
+            Some(file) => run(&file, &options),
+            None => it.usage("verify needs a FILE.".into()).report(json),
+        },
+        Err(failure) => failure.report(json),
+    }
+}
+
+fn run(path: &Path, options: &Options) -> u8 {
     let shown = path.display().to_string();
     // The structural check and the dictionary share half of the free memory.
     let free = ProcMemoryProbe::new()
@@ -50,72 +101,61 @@ pub(crate) fn run(path: &Path, options: &Options, style: &Style) -> ExitCode {
         .map_or(u64::MAX, |m| m.available() / 2);
     let budget = Arc::new(Budget::new(free));
     let outcome = if path.is_dir() {
-        Err(Failure::Io("it is a directory".to_owned()))
+        Err(Stop::Io("it is a directory".to_owned()))
     } else {
         check(path, options, &budget)
     };
     let report = match outcome {
         Ok(report) => report,
-        Err(Failure::Io(reason)) => {
-            let message = format!("Cannot read {shown}: {reason}.");
-            if options.json {
-                out::error_json(
-                    "IoError",
-                    &message,
-                    &format!(r#","path":{}"#, json(&shown)),
-                    &[],
-                );
-            } else {
-                out::error(&message, &[], "Nothing was changed.");
-            }
-            return ExitCode::from(IO_ERROR);
+        Err(Stop::Io(reason)) => {
+            return Failure::new(
+                "IoError",
+                format!("Cannot read {shown}: {reason}."),
+                failure::FAILED,
+            )
+            .key("path", shown)
+            .ways(vec![(
+                "check the path and the permissions of the file".into(),
+                String::new(),
+            )])
+            .on_existing_file()
+            .report(options.json);
         }
-        Err(Failure::Memory(e)) => {
-            let message = "Not enough memory for this step.";
-            let smallest = budget
-                .limit()
-                .saturating_sub(e.available)
-                .saturating_add(e.needed);
-            if options.json {
-                let extra = format!(
-                    r#","why":{},"step":"verify","needs_bytes":{},"budget_bytes":{},"smallest_budget_bytes":{smallest}"#,
-                    json(&e.to_string()),
-                    e.needed,
-                    budget.limit()
-                );
-                out::error_json("InsufficientBudget", message, &extra, &[]);
-            } else {
-                out::error(message, &[], "Nothing was changed.");
-            }
-            return ExitCode::from(NO_MEMORY);
+        Err(Stop::Memory(e)) => {
+            return failure::memory("check", budget.limit(), None, &e)
+                .on_existing_file()
+                .report(options.json);
         }
     };
     if let (Some(lost), Some(generation)) = (report.lost_generation, report.generation) {
-        out::warning(
+        failure::warning(
             &format!("The newest commit, generation {lost}, could not be read."),
             &format!(
                 "The file reads as generation {generation}, which is whole. Generation {lost} \
                  is damaged, or its commit was cut short."
             ),
-            &["restore a copy of the file to get it back"],
+            &[(
+                "restore a copy of the file to get it back".into(),
+                String::new(),
+            )],
             "Nothing was changed.",
         );
     }
     if options.json {
         println!("{}", document(&shown, options.deep, &report));
     } else {
-        print!("{}", text(&shown, options.deep, &report, style));
+        print!("{}", text(&shown, options.deep, &report, Style::stdout()));
     }
     let lost = options.strict && report.lost_generation.is_some();
     if report.is_intact() && !lost {
-        ExitCode::SUCCESS
+        0
     } else {
-        ExitCode::from(DAMAGED)
+        failure::DAMAGED
     }
 }
 
-fn check(path: &Path, options: &Options, budget: &Arc<Budget>) -> Result<Report, Failure> {
-    let io = |e: &dyn std::fmt::Display| Failure::Io(e.to_string());
+fn check(path: &Path, options: &Options, budget: &Arc<Budget>) -> Result<Report, Stop> {
+    let io = |e: &dyn std::fmt::Display| Stop::Io(e.to_string());
     let source = MmapSource::open(path).map_err(|e| io(&e))?;
     let depth = if options.deep {
         Depth::Deep
@@ -132,11 +172,7 @@ fn check(path: &Path, options: &Options, budget: &Arc<Budget>) -> Result<Report,
 
 /// The identifier dictionary, when the file has one whose sections are undamaged: ids
 /// and keys a bijection, one key per node of every adjacency.
-fn check_dictionary(
-    source: &MmapSource,
-    budget: &Budget,
-    report: &mut Report,
-) -> Result<(), Failure> {
+fn check_dictionary(source: &MmapSource, budget: &Budget, report: &mut Report) -> Result<(), Stop> {
     let Ok(file) = Container::open(source) else {
         return Ok(());
     };
@@ -154,8 +190,8 @@ fn check_dictionary(
         return Ok(());
     }
     let damaged = |report: &mut Report, e: DictionaryError| match e {
-        DictionaryError::Budget(e) => Err(Failure::Memory(e)),
-        DictionaryError::Read(e @ ReadError::Backend(_)) => Err(Failure::Io(e.to_string())),
+        DictionaryError::Budget(e) => Err(Stop::Memory(e)),
+        DictionaryError::Read(e @ ReadError::Backend(_)) => Err(Stop::Io(e.to_string())),
         e => {
             report.problem(Some("ids.header"), e.to_string());
             Ok(())
@@ -195,7 +231,7 @@ fn line(p: &Problem) -> String {
 }
 
 /// The text form: a headline, then labels and values, or the problems.
-fn text(path: &str, deep: bool, report: &Report, style: &Style) -> String {
+fn text(path: &str, deep: bool, report: &Report, style: Style) -> String {
     let label = |name: &str| style.dim(&format!("{name:<10}"));
     let path = printable(path);
     let mut t = String::new();
@@ -280,30 +316,25 @@ fn text(path: &str, deep: bool, report: &Report, style: &Style) -> String {
 }
 
 /// The verify document (`docs/api-sketch.md` § 5.3, `urn:everygraph:schema:verify:1`).
-fn document(path: &str, deep: bool, report: &Report) -> String {
-    let list = |problems: &[Problem]| {
-        let items: Vec<String> = problems
+fn document(path: &str, deep: bool, report: &Report) -> Value {
+    let list = |problems: &[Problem]| -> Vec<Value> {
+        problems
             .iter()
-            .map(|p| {
-                let section = p.section.as_deref().map_or_else(|| "null".to_owned(), json);
-                format!(r#"{{"section":{section},"problem":{}}}"#, json(&p.what))
-            })
-            .collect();
-        items.join(",")
+            .map(|p| json!({"section": p.section, "problem": p.what}))
+            .collect()
     };
-    let unchecked: Vec<String> = report.unchecked.iter().map(|u| json(u)).collect();
-    let number = |n: Option<u64>| n.map_or_else(|| "null".to_owned(), |g| g.to_string());
-    format!(
-        r#"{{"schema":1,"verify":{},"deep":{deep},"intact":{},"generation":{},"lost_generation":{},"sections":{},"sections_hashed":{},"bytes_hashed":{},"problems":[{}],"notes":[{}],"unchecked":[{}]}}"#,
-        json(path),
-        report.is_intact(),
-        number(report.generation),
-        number(report.lost_generation),
-        report.sections,
-        report.sections_hashed,
-        report.bytes_hashed,
-        list(&report.problems),
-        list(&report.notes),
-        unchecked.join(",")
-    )
+    json!({
+        "schema": 1,
+        "verify": path,
+        "deep": deep,
+        "intact": report.is_intact(),
+        "generation": report.generation,
+        "lost_generation": report.lost_generation,
+        "sections": report.sections,
+        "sections_hashed": report.sections_hashed,
+        "bytes_hashed": report.bytes_hashed,
+        "problems": list(&report.problems),
+        "notes": list(&report.notes),
+        "unchecked": report.unchecked,
+    })
 }
