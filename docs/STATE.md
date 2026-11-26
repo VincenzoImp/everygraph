@@ -105,5 +105,10 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - Review rounds in series are the main slowdown on product pull requests. Send the
   findings of both reviews to the author in one message, and skip a further round when no
   must-fix touches correctness.
+- Each agent builds cold in its own worktree (24 worktrees held 149 GB, 10–28 GB of
+  `target/` each) with no shared compiler cache; load reached 77 with eleven agents that
+  ran `cargo`. Build efficiency is being measured.
+- Load-sensitive tests (heap and retention bounds, file locks; #230) failed on four pull
+  requests in one day, and each cost a CI rerun.
 - When every stream waits on CI or review at once, the machine is idle. Keep a queue of
   ready experiments (M1 issues that need no merge) to start when the load drops.

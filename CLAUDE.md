@@ -134,8 +134,8 @@ coordinator itself runs on the session's model.
   rules in this file.
 - **Keep many streams going.** Every issue whose dependencies are closed and whose files
   do not overlap with another running agent's can run now. The limit is this machine's
-  CPU: about eight agents that compile at once, each with `CARGO_BUILD_JOBS=6`; research
-  and reviews come on top.
+  CPU: about eight agents that run `cargo` at once, each with `CARGO_BUILD_JOBS=6`.
+  Reviewers and review-fix rounds count; research does not.
 - Code-writing subagents work in their own git worktree and open a pull request. They
   never push to `main`.
 - Every commit carries `Signed-off-by`: `git commit -s`, and `git merge --signoff` when
