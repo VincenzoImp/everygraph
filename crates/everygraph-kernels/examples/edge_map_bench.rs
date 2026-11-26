@@ -10,19 +10,25 @@
 //!
 //! ```text
 //! edge_map_bench encode --graph DIR --out STORE
-//! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|stream
-//!     --kernel pr32|pr64|eig|wcc|cc|cc-one-pass|kcore|bfs|bfs-parents|msbfs|sssp
+//! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|rawcopy|stream
+//!     --kernel pr32|pr64|eig|wcc|cc|cc-one-pass|kcore|bfs|bfs-parents|msbfs|sssp|scc|tarjan|decode
 //!     --threads T [--reps R]
 //!     [--iters I] [--chunk ENTRIES] [--batch ENTRIES] [--costs uniform|skewed|file]
-//!     [--delta-scale X]
+//!     [--delta-scale X] [--in same|DIR] [--in-store same|STORE]
 //! ```
+//!
+//! `scc` is the strong components of #223 on the out-lists of `--graph` and the in-lists
+//! of `--in` (a CSR directory; `same` for a symmetric graph), or of `--in-store` for the
+//! compressed sources. `tarjan` is its sequential baseline, Tarjan's algorithm on the
+//! raw out-lists in the heap, labelled the same way, so the two hashes are equal.
 //!
 //! `run` prints one JSON line: the times of every repetition, the best, and a hash of
 //! the result, which is the same for every source and thread count. `wcc` is the lab's
 //! Afforest (first neighbours only, `proof`), `cc` the components of #48 with hybrid
 //! sampling, `cc-one-pass` the same without sampling. Sources: `raw`,
 //! arrays read into the heap; `compressed`, the store's data part read into the heap;
-//! `mmap`, the data part memory-mapped (warm after the first repetition); `stream`,
+//! `mmap`, the data part memory-mapped (warm after the first repetition); `rawcopy`, the
+//! planner's decode tier (`RawCopy`, decoded from the map once); `stream`,
 //! the raw targets read through the page cache with positional reads.
 
 #![forbid(unsafe_code)]
@@ -47,10 +53,11 @@ use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::components::{WccOptions, wcc};
-use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
+use everygraph_kernels::edge_map::{Compressed, Csr, Plan, RawCopy, Settings, Source, Stream};
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{Eigenvector, Graph, PageRank, Real, eigenvector, strength};
 use everygraph_kernels::proof;
+use everygraph_kernels::scc::scc;
 use everygraph_kernels::sssp::{Sssp, delta, sssp};
 use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs, multi_bfs};
 
@@ -67,12 +74,26 @@ fn args() -> (String, Args) {
     (cmd, a)
 }
 
+/// A little-endian array file of `W`-byte words, read in pieces of 64 MiB, so that the
+/// bytes and the words are never both whole in memory.
 fn read_words<const W: usize, T>(path: &Path, from: fn([u8; W]) -> T) -> Vec<T> {
-    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    bytes
-        .chunks_exact(W)
-        .map(|c| from(c.try_into().expect("W bytes")))
-        .collect()
+    use std::io::Read;
+    let fail = |e: std::io::Error| -> ! { panic!("{}: {e}", path.display()) };
+    let mut file = std::fs::File::open(path).unwrap_or_else(|e| fail(e));
+    let len = file.metadata().unwrap_or_else(|e| fail(e)).len() as usize / W;
+    let mut out = Vec::with_capacity(len);
+    let mut piece = vec![0_u8; W << 24];
+    while out.len() < len {
+        let bytes = (len - out.len()).min(1 << 24) * W;
+        file.read_exact(&mut piece[..bytes])
+            .unwrap_or_else(|e| fail(e));
+        out.extend(
+            piece[..bytes]
+                .chunks_exact(W)
+                .map(|c| from(c.try_into().expect("W bytes"))),
+        );
+    }
+    out
 }
 
 fn fnv(words: impl Iterator<Item = u64>) -> u64 {
@@ -244,6 +265,223 @@ fn time_plan<S: Source>(
     (secs, last.0, last.1)
 }
 
+/// `decode`: the whole adjacency decoded into raw arrays, the planner's decode tier (#45).
+fn time_decode(adj: &Adjacency<'_>, a: &Args) -> (Vec<f64>, u64, String) {
+    let reps: usize = a.get("reps").map_or(3, |s| s.parse().expect("--reps"));
+    let memory = Memory::from(std::sync::Arc::new(
+        everygraph_core::Budget::unlimited().with_pages(everygraph_io::PAGES),
+    ));
+    let mut secs = Vec::new();
+    let mut held = 0;
+    let mut hash = 0;
+    for rep in 0..reps {
+        // As the planner builds it: new arrays from the budget's pages, each time.
+        let t = Instant::now();
+        let raw = RawCopy::decode(adj, &memory).expect("decode");
+        secs.push(t.elapsed().as_secs_f64());
+        held = raw.held();
+        if rep + 1 == reps {
+            let mut targets = Vec::new();
+            raw.scan(
+                &mut (),
+                0..raw.nodes(),
+                |_| true,
+                |_, _, list| {
+                    targets.extend(list.iter().map(|&x| u64::from(x)));
+                },
+            )
+            .expect("the lists");
+            hash = fnv(targets.into_iter());
+        }
+    }
+    (
+        secs,
+        hash,
+        format!(
+            "{{\"entries\": {}, \"held_bytes\": {held}}}",
+            adj.index().entries()
+        ),
+    )
+}
+
+/// Times `reps` runs of `scc` on the out-lists `out` and in-lists `inn`.
+fn time_pair<S: Source>(out: &S, inn: &S, a: &Args, settings: Settings) -> (Vec<f64>, u64, String) {
+    let memory = Memory::unlimited();
+    let reps: usize = a.get("reps").map_or(3, |s| s.parse().expect("--reps"));
+    Plan::with_pair(out, inn, &memory, settings, |po, pi| {
+        let mut secs = Vec::new();
+        let mut labels = Vec::new();
+        for _ in 0..reps {
+            let t = Instant::now();
+            let (l, _held) = scc(&po, &pi, &memory).expect("scc");
+            secs.push(t.elapsed().as_secs_f64());
+            labels = l.into_iter().map(AtomicU32::into_inner).collect();
+        }
+        let r = reps.max(1) as u64;
+        let (wo, wi) = (po.work(), pi.work());
+        let work = format!(
+            "\"out_lists\": {}, \"out_entries\": {}, \"in_lists\": {}, \"in_entries\": {}",
+            wo.lists / r,
+            wo.entries / r,
+            wi.lists / r,
+            wi.entries / r
+        );
+        let (hash, summary) = strong_summary(&labels, &work);
+        (secs, hash, summary)
+    })
+    .expect("two adjacencies of one graph")
+}
+
+/// The hash of strong-component labels, and their number and largest size.
+fn strong_summary(labels: &[u32], more: &str) -> (u64, String) {
+    let mut size = vec![0_u32; labels.len()];
+    for &l in labels {
+        size[l as usize] += 1;
+    }
+    let components = size.iter().filter(|&&s| s > 0).count();
+    let largest = size.iter().copied().max().unwrap_or(0);
+    let sep = if more.is_empty() { "" } else { ", " };
+    (
+        fnv(labels.iter().map(|&l| u64::from(l))),
+        format!("{{\"components\": {components}, \"largest\": {largest}{sep}{more}}}"),
+    )
+}
+
+/// Strong components by Tarjan's algorithm, iterative and sequential: the baseline of
+/// `scc`, labelled by the smallest node of each component. A node is on the stack
+/// while it has an index and no label.
+fn tarjan(offsets: &[u64], targets: &[u32]) -> Vec<u32> {
+    const NONE: u32 = u32::MAX;
+    let n = offsets.len() - 1;
+    let (mut index, mut low, mut label) = (vec![NONE; n], vec![0_u32; n], vec![NONE; n]);
+    let (mut stack, mut call) = (Vec::<u32>::new(), Vec::<(u32, u64)>::new());
+    let mut next = 0_u32;
+    for root in 0..n {
+        if index[root] != NONE {
+            continue;
+        }
+        index[root] = next;
+        low[root] = next;
+        next += 1;
+        stack.push(root as u32);
+        call.push((root as u32, offsets[root]));
+        while let Some(top) = call.last_mut() {
+            let v = top.0 as usize;
+            if top.1 < offsets[v + 1] {
+                let w = targets[top.1 as usize] as usize;
+                top.1 += 1;
+                if index[w] == NONE {
+                    index[w] = next;
+                    low[w] = next;
+                    next += 1;
+                    stack.push(w as u32);
+                    call.push((w as u32, offsets[w]));
+                } else if label[w] == NONE {
+                    low[v] = low[v].min(index[w]);
+                }
+                continue;
+            }
+            call.pop();
+            if let Some(&(p, _)) = call.last() {
+                low[p as usize] = low[p as usize].min(low[v]);
+            }
+            if low[v] == index[v] {
+                let at = stack
+                    .iter()
+                    .rposition(|&u| u as usize == v)
+                    .expect("on the stack");
+                let smallest = stack[at..].iter().copied().min().expect("v itself");
+                for &u in &stack[at..] {
+                    label[u as usize] = smallest;
+                }
+                stack.truncate(at);
+            }
+        }
+    }
+    label
+}
+
+/// `scc` or `tarjan` on the graph of `a`: the load time, and the times and summary.
+fn strong(
+    a: &Args,
+    graph: &Path,
+    source: &str,
+    offsets: &[u64],
+    settings: Settings,
+    t: Instant,
+) -> (f64, (Vec<f64>, u64, String)) {
+    let same = |key: &str| a.get(key).is_none_or(|v| v == "same");
+    let targets = |dir: &Path| read_words(&dir.join("targets.u32"), u32::from_le_bytes);
+    if a.get("kernel").is_some_and(|k| k == "tarjan") {
+        assert_eq!(source, "raw", "tarjan reads raw lists in the heap");
+        let targets = targets(graph);
+        let load = t.elapsed().as_secs_f64();
+        let reps: usize = a.get("reps").map_or(3, |s| s.parse().expect("--reps"));
+        let mut secs = Vec::new();
+        let mut labels = Vec::new();
+        for _ in 0..reps {
+            let t = Instant::now();
+            labels = tarjan(offsets, &targets);
+            secs.push(t.elapsed().as_secs_f64());
+        }
+        let (hash, summary) = strong_summary(&labels, "");
+        return (load, (secs, hash, summary));
+    }
+    let in_dir = (!same("in")).then(|| PathBuf::from(&a["in"]));
+    let in_offsets = in_dir
+        .as_ref()
+        .map(|d| read_words(&d.join("offsets.u64"), u64::from_le_bytes));
+    let in_offsets = in_offsets.as_deref().unwrap_or(offsets);
+    match source {
+        "raw" => {
+            let out = targets(graph);
+            let inn = in_dir.as_deref().map(targets);
+            let inn = inn.as_deref().unwrap_or(&out);
+            let (out, inn) = (
+                Csr::new(offsets, &out).expect("a CSR"),
+                Csr::new(in_offsets, inn).expect("a CSR"),
+            );
+            (
+                t.elapsed().as_secs_f64(),
+                time_pair(&out, &inn, a, settings),
+            )
+        }
+        "compressed" | "mmap" => {
+            let open = |store: &Path| {
+                let (index, data) = store_paths(store);
+                let index = std::fs::read(&index)
+                    .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
+                (AdjacencyIndex::parse(&index).expect("an index"), data)
+            };
+            let out = open(Path::new(&a["store"]));
+            let inn = (!same("in-store")).then(|| open(Path::new(&a["in-store"])));
+            let inn = inn.as_ref().unwrap_or(&out);
+            if source == "mmap" {
+                let maps = [&out.1, &inn.1].map(|d| MmapSource::open(d).expect("map"));
+                let o = Compressed::mapped(&out.0, &maps[0]).expect("data part");
+                let i = Compressed::mapped(&inn.0, &maps[1]).expect("data part");
+                return (t.elapsed().as_secs_f64(), time_pair(&o, &i, a, settings));
+            }
+            let heap = [&out.1, &inn.1].map(|d| std::fs::read(d).expect("data"));
+            let o = Compressed::new(Adjacency::new(&out.0, &heap[0]).expect("data part"));
+            let i = Compressed::new(Adjacency::new(&inn.0, &heap[1]).expect("data part"));
+            (t.elapsed().as_secs_f64(), time_pair(&o, &i, a, settings))
+        }
+        "stream" => {
+            let in_dir = in_dir.as_deref().unwrap_or(graph);
+            let files =
+                [graph, in_dir].map(|d| FileSource::open(d.join("targets.u32")).expect("targets"));
+            let out = Stream::new(offsets, &files[0]).expect("a CSR");
+            let inn = Stream::new(in_offsets, &files[1]).expect("a CSR");
+            (
+                t.elapsed().as_secs_f64(),
+                time_pair(&out, &inn, a, settings),
+            )
+        }
+        other => panic!("unknown --source {other}"),
+    }
+}
+
 /// The graph as `PageRank` pulls it: the benchmark graphs are undirected.
 fn graph<'p, 's, 'g, S: Source>(plan: &'p Plan<'s, 'g, S>) -> Graph<'p, 's, 'g, S> {
     Graph {
@@ -301,6 +539,20 @@ fn run(a: &Args) {
     };
     let t = Instant::now();
     let offsets = read_words(&graph.join("offsets.u64"), u64::from_le_bytes);
+    let kernel = a.get("kernel").map_or("pr32", String::as_str);
+    if kernel == "scc" || kernel == "tarjan" {
+        let result =
+            par::with_threads(threads, || strong(a, &graph, source, &offsets, settings, t));
+        print_run(
+            a,
+            &graph,
+            source,
+            threads,
+            settings,
+            result.expect("a thread pool"),
+        );
+        return;
+    }
     let result = par::with_threads(threads, || match source {
         "raw" => {
             let targets = read_words(&graph.join("targets.u32"), u32::from_le_bytes);
@@ -308,18 +560,28 @@ fn run(a: &Args) {
             let load = t.elapsed().as_secs_f64();
             (load, time(&csr, a, settings))
         }
-        "compressed" | "mmap" => {
+        "compressed" | "mmap" | "rawcopy" => {
             let (index, data) = store_paths(Path::new(&a["store"]));
             let index = std::fs::read(&index)
                 .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
             let index = AdjacencyIndex::parse(&index).expect("an index");
             let map = MmapSource::open(&data).expect("map");
-            let mapped = source == "mmap";
+            let mapped = source != "compressed";
             let heap = if mapped {
                 Vec::new()
             } else {
                 std::fs::read(&data).expect("data")
             };
+            if a.get("kernel").map(String::as_str) == Some("decode") {
+                let bytes = if mapped { map.mapped() } else { &heap[..] };
+                let adj = Adjacency::new(&index, bytes).expect("data part");
+                return (t.elapsed().as_secs_f64(), time_decode(&adj, a));
+            }
+            if source == "rawcopy" {
+                let adj = Adjacency::new(&index, map.mapped()).expect("data part");
+                let raw = RawCopy::decode(&adj, &Memory::unlimited()).expect("decode");
+                return (t.elapsed().as_secs_f64(), time(&raw, a, settings));
+            }
             let adj = if mapped {
                 Compressed::mapped(&index, &map).expect("data part")
             } else {
@@ -337,7 +599,18 @@ fn run(a: &Args) {
         other => panic!("unknown --source {other}"),
     })
     .expect("a thread pool");
-    let (load, (secs, hash, summary)) = result;
+    print_run(a, &graph, source, threads, settings, result);
+}
+
+/// The JSON line of one `run`.
+fn print_run(
+    a: &Args,
+    graph: &Path,
+    source: &str,
+    threads: NonZeroUsize,
+    settings: Settings,
+    (load, (secs, hash, summary)): (f64, (Vec<f64>, u64, String)),
+) {
     let best = secs.iter().copied().fold(f64::INFINITY, f64::min);
     let all: Vec<String> = secs.iter().map(f64::to_string).collect();
     println!(

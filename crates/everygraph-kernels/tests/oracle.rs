@@ -2,7 +2,8 @@
 
 //! The kernels of the crate through the correctness oracle: `PageRank` (weighted,
 //! directed, personalized, with kept loops) and eigenvector centrality (#47), BFS with
-//! its parents and SSSP (#49), weak components (#48), core numbers and degrees (#50).
+//! its parents and SSSP (#49), weak components (#48), strong components (#223), core
+//! numbers and degrees (#50).
 //! Each runs on the CI corpus under every configuration that must not change a result —
 //! 1, 3 and 8 threads,
 //! chunks of 64 and 65,536 entries, and four sources: raw arrays, the compressed format
@@ -45,14 +46,16 @@ use everygraph_kernels::degrees::{Loop, degrees};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{self, Eigenvector, Graph, PageRank};
+use everygraph_kernels::scc::scc;
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs};
 use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::plugin::{
     Case, Config, KernelUnderTest, Options, Prepared, Regime, Storage, run,
 };
-use everygraph_oracle::projection::{Adjacency as Analytic, Projection};
+use everygraph_oracle::projection::Projection;
 use everygraph_oracle::{Kernel, Output};
+use support::{Lists, with_loops};
 
 mod support;
 
@@ -71,40 +74,6 @@ const EIGENVECTOR: Eigenvector = Eigenvector {
     tol: 1e-13,
     max_iter: 200_000,
 };
-
-/// One adjacency of the analytic graph with its kept loops written in, and its
-/// per-entry columns.
-struct Lists {
-    offsets: Vec<u64>,
-    targets: Vec<u32>,
-    /// The pair's summed weight; a loop's weight.
-    weight: Vec<f64>,
-    /// The pair's smallest event weight; 0 for a loop.
-    cost: Vec<f64>,
-}
-
-fn with_loops(adj: &Analytic, p: &Projection) -> Lists {
-    let mut l = Lists {
-        offsets: vec![0],
-        targets: Vec::new(),
-        weight: Vec::new(),
-        cost: Vec::new(),
-    };
-    for v in 0..adj.n() {
-        let r = adj.range(v);
-        let at = r.start + adj.list(v).partition_point(|&u| (u as usize) < v);
-        let entry = |e: usize| (adj.targets[e], adj.weight_sum[e], adj.weight_min[e]);
-        let lower = (r.start..at).map(entry);
-        let kept = (p.kept_loops(v) == 1).then_some((v as u32, p.loop_weight[v], 0.0));
-        for (t, w, c) in lower.chain(kept).chain((at..r.end).map(entry)) {
-            l.targets.push(t);
-            l.weight.push(w);
-            l.cost.push(c);
-        }
-        l.offsets.push(l.targets.len() as u64);
-    }
-    l
-}
 
 /// The lists a kernel reads on a directed graph: the in-adjacency derived from the
 /// out-adjacency, or the undirected projection merged from both, checked byte-equal to
@@ -303,6 +272,9 @@ fn run_kernel<S: Source>(
                     .map_err(e)
                     .map(|(l, _)| Output::Labels(load(l)))
             }
+            Kernel::Scc => scc(&po, &pi, &memory)
+                .map_err(e)
+                .map(|(l, _)| Output::Labels(load(l))),
             Kernel::CoreNumber => kcore(&po, &memory)
                 .map_err(e)
                 .map(|(c, _)| Output::Ints(load(c).into_iter().map(|c| Some(c.into())).collect())),
@@ -350,6 +322,7 @@ impl KernelUnderTest for Kernels {
             Kernel::PageRank { .. }
                 | Kernel::Eigenvector { .. }
                 | Kernel::Wcc
+                | Kernel::Scc
                 | Kernel::CoreNumber
                 | Kernel::Degree
                 | Kernel::DegreeOut

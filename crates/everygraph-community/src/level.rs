@@ -18,14 +18,20 @@
 //! # Deterministic mode
 //!
 //! A sweep visits the nodes in sub-rounds. A node's sub-round is drawn from the seed:
-//! in local moving at level 0 for groups of 16 consecutive ids (so that a sub-round
-//! reads runs of neighbouring lists), otherwise for each id. The count of sub-rounds per level is
-//! `clamp(next_pow2(n / 65,536), 4, 1,024)`, a function of the level's node count only
-//! (`lab/m1-04-det-leiden-scaling`, rule L64k). In a sub-round every node decides
-//! against the state frozen at its start; the moves are then committed with
-//! commutative integer updates. A sub-round of fewer than 1,024 nodes runs on the
-//! calling thread. Two singletons never swap: one only joins the other if the other's
-//! label is smaller.
+//! in local moving at level 0 for groups of 16 consecutive nodes (so that a sub-round
+//! reads runs of neighbouring lists), otherwise for each node. The count of sub-rounds
+//! per level is `clamp(next_pow2(m / 65,536), 4, 1,024)` (`lab/m1-04-det-leiden-scaling`,
+//! rule L64k). In a sub-round every node decides against the state frozen at its start;
+//! the moves are then committed with commutative integer updates. A sub-round of fewer
+//! than 1,024 nodes runs on the calling thread. Two singletons never swap: one only
+//! joins the other if the other's label is smaller.
+//!
+//! Here `m` is the number of nodes with an entry, and every draw is counted by a node's
+//! place among them ([`Ranks`]): a node without an entry never moves and no node joins
+//! it. Ties go by the draws of the labels, then by the labels' order, and a community
+//! starts named by its smallest node. So the result does not depend on the nodes
+//! without an entry, nor on the ids beyond their order: a view as a mask over its graph
+//! and the same view materialized give the same communities (DESIGN D14).
 //!
 //! # Fast mode
 //!
@@ -41,7 +47,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
 
 use everygraph_core::rng::{Purpose, draw, unit_f64};
-use everygraph_core::{Memory, math, par};
+use everygraph_core::{Memory, MemoryKind, Reservation, math, par};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
     Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all,
@@ -167,11 +173,80 @@ impl Ctx<'_> {
     }
 }
 
-/// Whether candidate `a` goes before candidate `b` of equal value, for a node whose
-/// draw is `salt`: a bijection of the ids, so a total order that changes with the seed.
-fn before(salt: u32, a: u32, b: u32) -> bool {
-    let key = |x: u32| (x ^ salt).wrapping_mul(0x9E37_79B1);
+/// Whether label `a` goes before label `b` as a candidate of equal value, for a node
+/// whose draw is `mine`: by the labels' draws in `salt`, then by their order. A total
+/// order that changes with the seed and not with the ids (module documentation).
+fn before(salt: &[u32], mine: u32, a: u32, b: u32) -> bool {
+    let key = |x: u32| (salt[x as usize] ^ mine).wrapping_mul(0x9E37_79B1);
     (key(a), a) < (key(b), b)
+}
+
+/// Nodes per block of [`Ranks`].
+const RANK_BLOCK: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
+
+/// The nodes of a level with an entry (a positive strength), numbered from 0 in id
+/// order: the counter of every draw.
+pub(crate) struct Ranks<'k> {
+    k: &'k [u64],
+    /// The number of the first such node of each block of [`RANK_BLOCK`] nodes, and
+    /// the count after the last block.
+    starts: Vec<u32>,
+}
+
+impl<'k> Ranks<'k> {
+    pub(crate) fn new(k: &'k [u64]) -> Self {
+        let counts = par::map_ranges(k.len(), RANK_BLOCK, |r| {
+            let c = k[r].iter().filter(|&&s| s > 0).count();
+            u32::try_from(c).expect("a node count")
+        });
+        let starts = std::iter::once(0)
+            .chain(counts.iter().scan(0, |at, &c| {
+                *at += c;
+                Some(*at)
+            }))
+            .collect();
+        Self { k, starts }
+    }
+
+    /// How many nodes have an entry.
+    pub(crate) fn count(&self) -> u32 {
+        *self.starts.last().expect("never empty")
+    }
+
+    fn blocks(&self) -> usize {
+        self.starts.len() - 1
+    }
+
+    /// Calls `f(v, r)` for each node `v` with an entry in block `b`, in order, where
+    /// `r` is its number.
+    fn each(&self, b: usize, mut f: impl FnMut(u32, u32)) {
+        let first = b * RANK_BLOCK.get();
+        let nodes = first..(first + RANK_BLOCK.get()).min(self.k.len());
+        let mut r = self.starts[b];
+        for (v, &s) in nodes.clone().zip(&self.k[nodes]) {
+            if s > 0 {
+                f(u32::try_from(v).expect("a node id"), r);
+                r += 1;
+            }
+        }
+    }
+
+    /// One value per node: `f(r)` for the node of number `r`, `T::default()` for a node
+    /// without an entry.
+    fn column<T: Copy + Default + Send + Sync>(
+        &self,
+        memory: &Memory,
+        purpose: &'static str,
+        f: impl Fn(u32) -> T + Sync,
+    ) -> Result<Column<T>, Error> {
+        let mut out = Column::new(memory, purpose, self.k.len(), |_| T::default())?;
+        par::for_each_chunk_mut(&mut out[..], RANK_BLOCK, |first, chunk| {
+            self.each(first / RANK_BLOCK, |v, r| {
+                chunk[v as usize - first] = f(r);
+            });
+        });
+        Ok(out)
+    }
 }
 
 /// A gain as a fixed-point integer. A move's claimed gain is positive and at most
@@ -247,19 +322,20 @@ pub(crate) struct Moving<'g> {
 }
 
 impl<'g> Moving<'g> {
-    /// Every node in the community of `bound` (its own when `None`), every node active.
+    /// Every node in the community of `bound` (its own when `None`), named by its
+    /// smallest node, and every node active.
     pub(crate) fn new<S: Source>(
         plan: &Plan<'_, 'g, S>,
         memory: &Memory,
         k: &[u64],
+        ranks: &Ranks<'_>,
         bound: Option<&[u32]>,
         ctx: &Ctx<'_>,
     ) -> Result<Self, Error> {
         let (n, det) = (plan.nodes() as usize, ctx.det());
         let comm = plan.node_cells(memory)?;
-        let salt = Column::new(memory, "tie draws", n, |v| {
-            let v = u32::try_from(v).expect("a node id");
-            let bits = draw(ctx.options.seed, Purpose::LEIDEN_TIE, ctx.counter(v));
+        let salt = ranks.column(memory, "tie draws", |r| {
+            let bits = draw(ctx.options.seed, Purpose::LEIDEN_TIE, ctx.counter(r));
             u32::try_from(bits >> 32).expect("32 bits")
         })?;
         let sigma = Column::new(memory, "community volumes", n, |_| AtomicU64::new(0))?;
@@ -267,9 +343,16 @@ impl<'g> Moving<'g> {
         let size = Column::new(memory, "community sizes", per, |_| AtomicU32::new(0))?;
         let target = Column::new(memory, "decisions", per, |_| AtomicU32::new(NONE))?;
         let active = Column::new(memory, "active nodes", n, |_| AtomicBool::new(true))?;
-        plan.vertices((), |(): &mut (), (), _, v, _| {
-            comm.store(v, bound.map_or(v, |b| node(plan, b[v.index()])), Relaxed);
-        })?;
+        if let Some(b) = bound {
+            let least = Column::new(memory, "least members", n, |_| AtomicU32::new(u32::MAX))?;
+            plan.vertices((), |(): &mut (), (), _, v, _| {
+                least[b[v.index()] as usize].fetch_min(v.get(), Relaxed);
+            })?;
+            plan.vertices((), |(): &mut (), (), _, v, _| {
+                let first = least[b[v.index()] as usize].load(Relaxed);
+                comm.store(v, node(plan, first), Relaxed);
+            })?;
+        }
         let st = Self {
             comm,
             salt,
@@ -325,47 +408,45 @@ pub(crate) enum Schedule {
 }
 
 impl Schedule {
-    /// The schedule of local moving or, with `refining`, of refinement.
+    /// The schedule of local moving or, with `refining`, of refinement. The
+    /// deterministic mode leaves out the nodes without an entry.
     pub(crate) fn new(
-        n: u32,
+        ranks: &Ranks<'_>,
         memory: &Memory,
         ctx: &Ctx<'_>,
         refining: bool,
     ) -> Result<Self, Error> {
         let seed = ctx.options.seed;
-        let len = n as usize;
-        let mut ids = Column::new(memory, "schedule", len, |_| 0_u32)?;
         if ctx.det() {
-            let rounds = (n / 65_536).next_power_of_two().clamp(4, 1024);
+            let m = ranks.count();
+            let mut ids = Column::new(memory, "schedule", m as usize, |_| 0_u32)?;
+            let rounds = (m / 65_536).next_power_of_two().clamp(4, 1024);
             let (purpose, shift) = match (refining, ctx.level) {
                 (true, _) => (Purpose::LEIDEN_REFINE_ROUND, 0),
                 (false, 0) => (Purpose::LEIDEN_ROUND, ROUND_SHIFT),
                 (false, _) => (Purpose::LEIDEN_ROUND, 0),
             };
             let bits = 64 - rounds.trailing_zeros();
-            let round = |v: u32| {
-                let r = draw(seed, purpose, ctx.counter(v >> shift)) >> bits;
+            let round = |r: u32| {
+                let r = draw(seed, purpose, ctx.counter(r >> shift)) >> bits;
                 usize::try_from(r).expect("below the round count")
             };
-            const BLOCK: u32 = 1 << 16;
-            let blocks = n.div_ceil(BLOCK) as usize;
             let buckets = NonZeroUsize::new(rounds as usize).expect("non-zero");
             let starts = par::scatter(
                 memory,
                 "sub-rounds",
-                blocks,
+                ranks.blocks(),
                 buckets,
                 |b, sink| {
-                    let first = u32::try_from(b).expect("a block") * BLOCK;
-                    for v in first..first.saturating_add(BLOCK).min(n) {
-                        sink.push(round(v), v);
-                    }
+                    ranks.each(b, |v, r| sink.push(round(r), v));
                     Ok::<(), Error>(())
                 },
                 [&mut ids[..]],
             )?;
             return Ok(Self::Rounds { ids, starts });
         }
+        let n = u32::try_from(ranks.k.len()).expect("a node count");
+        let mut ids = Column::new(memory, "schedule", n as usize, |_| 0_u32)?;
         let whole = n / ORDER_BLOCK;
         let mut blocks: Vec<(u64, u32)> = (0..whole)
             .map(|b| (draw(seed, Purpose::LEIDEN_ORDER, ctx.counter(b)), b))
@@ -397,9 +478,17 @@ pub(crate) struct Moved {
 /// The nodes of `ids` that pass `keep`, in order, filtered in parallel.
 fn take<'g, S: Source>(
     plan: &Plan<'_, 'g, S>,
+    tables: &Tables,
     ids: &[u32],
     keep: impl Fn(Node<'g>) -> bool + Send + Sync,
-) -> Vec<Node<'g>> {
+) -> Result<(Vec<Node<'g>>, Reservation), Error> {
+    // The parts grow by doubling, each with its old block beside the new one while it
+    // moves (3×), then are joined into one copy (1×), which alone stays held.
+    let mut held = tables.memory().reserve(
+        "frontier",
+        MemoryKind::Anonymous,
+        (ids.len() as u64).saturating_mul(4 * size_of::<Node<'g>>() as u64),
+    )?;
     let parts = par::map_ranges(ids.len(), ROUND_GRAIN, |r| {
         ids[r]
             .iter()
@@ -407,7 +496,10 @@ fn take<'g, S: Source>(
             .filter(|&v| keep(v))
             .collect::<Vec<_>>()
     });
-    parts.concat()
+    let frontier = parts.concat();
+    drop(parts);
+    held.shrink(held.bytes() - (frontier.len() * size_of::<Node<'g>>()) as u64);
+    Ok((frontier, held))
 }
 
 /// Runs `body` on the rows of `frontier` and adds up its values. Fewer than [`SERIAL`]
@@ -480,7 +572,8 @@ fn decide<'g, S: Source>(
             continue;
         }
         let value = real(kud) - f * real(sigma(d));
-        let better = best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
+        let better =
+            best.is_none_or(|(b, bd)| value > b || (value == b && before(&st.salt, salt, d, bd)));
         if better {
             best = Some((value, d));
         }
@@ -546,9 +639,12 @@ pub(crate) fn local_move<'g, S: Source>(
         Schedule::Order { .. } => heavy(g, ctx.total),
     };
     let light = |v: Node<'g>| heavy.binary_search(&v).is_err();
-    let heavy_in_order = match schedule {
-        Schedule::Order { ids } if !heavy.is_empty() => take(plan, ids, |v| !light(v)),
-        _ => Vec::new(),
+    let (heavy_in_order, _heavy_held) = match schedule {
+        Schedule::Order { ids } if !heavy.is_empty() => take(plan, tables, ids, |v| !light(v))?,
+        _ => (
+            Vec::new(),
+            Reservation::empty(tables.memory(), "frontier", MemoryKind::Anonymous),
+        ),
     };
     // A sequential visit: each move is applied before the next node decides.
     let visit =
@@ -574,9 +670,9 @@ pub(crate) fn local_move<'g, S: Source>(
         match schedule {
             Schedule::Rounds { ids, starts } => {
                 for r in starts.windows(2) {
-                    let frontier = take(plan, &ids[r[0]..r[1]], |v| {
+                    let (frontier, _held) = take(plan, tables, &ids[r[0]..r[1]], |v| {
                         st.active[v.index()].swap(false, Relaxed)
-                    });
+                    })?;
                     if frontier.is_empty() {
                         continue;
                     }
@@ -615,9 +711,9 @@ pub(crate) fn local_move<'g, S: Source>(
                 }
             }
             Schedule::Order { ids } => {
-                let frontier = take(plan, ids, |v| {
+                let (frontier, _held) = take(plan, tables, ids, |v| {
                     light(v) && st.active[v.index()].load(Relaxed)
-                });
+                })?;
                 processed = frontier.len();
                 let (sum, m) = drive(plan, &frontier, tables, visit)?;
                 gain += sum;
@@ -652,6 +748,8 @@ pub(crate) struct Refining<'g> {
     /// of its community, and what a merging node adds to it.
     cut: Column<AtomicI64>,
     cut_change: Column<AtomicI64>,
+    /// Randomized refinement: each node's draw.
+    draws: Column<u64>,
 }
 
 /// The refinement of `st`'s partition: every node starts alone and may join, once, a
@@ -666,6 +764,7 @@ pub(crate) struct Refining<'g> {
 pub(crate) fn refine<'g, S: Source>(
     g: Graph<'_, '_, 'g, S>,
     memory: &Memory,
+    ranks: &Ranks<'_>,
     st: &Moving<'g>,
     schedule: &Schedule,
     tables: &Tables,
@@ -689,6 +788,13 @@ pub(crate) fn refine<'g, S: Source>(
         cut_change: Column::new(memory, "cut changes", per(theta.is_some() && det), |_| {
             AtomicI64::new(0)
         })?,
+        draws: if theta.is_some() {
+            ranks.column(memory, "refinement draws", |r| {
+                draw(ctx.options.seed, Purpose::LEIDEN_REFINE, ctx.counter(r))
+            })?
+        } else {
+            Column::new(memory, "refinement draws", 0, |_| 0)?
+        },
     };
     if theta.is_some() {
         plan.scan((), all, |(): &mut (), (), _, row, _| {
@@ -715,7 +821,7 @@ pub(crate) fn refine<'g, S: Source>(
     match schedule {
         Schedule::Rounds { ids, starts } => {
             for (stamp, b) in (0_u64..).zip(starts.windows(2)) {
-                let frontier = take(plan, &ids[b[0]..b[1]], alive);
+                let (frontier, _held) = take(plan, tables, &ids[b[0]..b[1]], alive)?;
                 if frontier.is_empty() {
                     continue;
                 }
@@ -749,7 +855,7 @@ pub(crate) fn refine<'g, S: Source>(
             }
         }
         Schedule::Order { ids } => {
-            let frontier = take(plan, ids, alive);
+            let (frontier, _held) = take(plan, tables, ids, alive)?;
             let (): () = drive(plan, &frontier, tables, |(), row, worker| {
                 let u = row.node;
                 let Some(table) = worker.scratch.begin(row.list.len()) else {
@@ -816,8 +922,8 @@ fn pick<'g, S: Source>(
         let mut best = None::<(f64, u32)>;
         for (d, kud) in table.entries() {
             let value = real(kud) - f * rsigma(d);
-            let better =
-                best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
+            let better = best
+                .is_none_or(|(b, bd)| value > b || (value == b && before(&st.salt, salt, d, bd)));
             if value > 0.0 && d != u.get() && better {
                 best = Some((value, d));
             }
@@ -842,12 +948,7 @@ fn pick<'g, S: Source>(
     let top = candidates().fold(0.0_f64, |m, c| if c.2 > m { c.2 } else { m });
     let weight = |value: f64| math::exp((value - top) / theta);
     let sum = candidates().fold(weight(0.0), |s, c| s + weight(c.2));
-    let bits = draw(
-        ctx.options.seed,
-        Purpose::LEIDEN_REFINE,
-        ctx.counter(u.get()),
-    );
-    let mut at = unit_f64(bits) * sum - weight(0.0);
+    let mut at = unit_f64(r.draws[u.index()]) * sum - weight(0.0);
     for (d, kud, value) in candidates() {
         if at < 0.0 {
             break;
@@ -906,55 +1007,4 @@ pub(crate) fn split<'g, S: Source>(
 }
 
 #[cfg(test)]
-mod tests {
-    use everygraph_kernels::edge_map::{Csr, Settings};
-
-    use super::*;
-
-    /// The heavy nodes of a star with `leaves` leaves, and of a cycle of `n` nodes.
-    fn heavy_ids(offsets: &[u64], targets: &[u32]) -> Vec<u32> {
-        let csr = Csr::new(offsets, targets).unwrap();
-        let memory = Memory::unlimited();
-        Plan::with(&csr, &memory, Settings::default(), |plan| {
-            let k = strengths(&plan, &memory, Weights::Unit).unwrap();
-            let g = Graph {
-                plan: &plan,
-                w: Weights::Unit,
-                k: &k.of,
-            };
-            heavy(g, k.total).iter().map(|v| v.get()).collect()
-        })
-    }
-
-    #[test]
-    fn heavy_nodes_hold_more_than_a_thousandth_of_the_volume() {
-        // A star: the hub holds half of 2W, a leaf 1 / (2 * leaves).
-        for leaves in [10_u32, 600, 3000] {
-            let offsets: Vec<u64> = std::iter::once(0)
-                .chain((0..=leaves).map(|i| u64::from(leaves + i)))
-                .collect();
-            let targets: Vec<u32> = (1..=leaves)
-                .chain(std::iter::repeat_n(0, leaves as usize))
-                .collect();
-            let heavy = heavy_ids(&offsets, &targets);
-            let expected: Vec<u32> = if leaves < 500 {
-                (0..=leaves).collect()
-            } else {
-                vec![0]
-            };
-            assert_eq!(heavy, expected, "{leaves} leaves");
-        }
-        // A cycle of n nodes: each holds 1 / n of 2W, heavy only below 1,000 nodes.
-        for (n, count) in [(999_u32, 999), (1000, 0), (4000, 0)] {
-            let offsets: Vec<u64> = (0..=u64::from(n)).map(|i| 2 * i).collect();
-            let targets: Vec<u32> = (0..n)
-                .flat_map(|v| {
-                    let mut l = [(v + n - 1) % n, (v + 1) % n];
-                    l.sort_unstable();
-                    l
-                })
-                .collect();
-            assert_eq!(heavy_ids(&offsets, &targets).len(), count, "cycle of {n}");
-        }
-    }
-}
+mod tests;

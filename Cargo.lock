@@ -579,12 +579,26 @@ dependencies = [
  "everygraph-ingest",
  "everygraph-io",
  "everygraph-oracle",
+ "jsonschema",
  "proptest",
+ "serde_json",
 ]
 
 [[package]]
 name = "everygraph-map"
 version = "0.0.0"
+
+[[package]]
+name = "everygraph-memtest"
+version = "0.0.0"
+dependencies = [
+ "everygraph-community",
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-ingest",
+ "everygraph-io",
+ "everygraph-kernels",
+]
 
 [[package]]
 name = "everygraph-oracle"

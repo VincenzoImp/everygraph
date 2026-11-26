@@ -54,14 +54,18 @@
 //! - **Outputs.** The one task that owns a node writes its outputs.
 //! - **Lists are whole.** A batch, a read buffer or a task never cuts a list. So a node's
 //!   own sum over its list runs in one call of the body.
-//! - **Floats.** Accumulators start from `+0.0` ([`Reduce::ZERO`]); `Iterator::sum`
-//!   starts from `-0.0`. A body with several lanes (the four of the `PageRank` gather)
+//! - **Floats.** A body's own sums start from `+0.0`; `Iterator::sum` starts from
+//!   `-0.0`. A body with several lanes (the four of the `PageRank` gather)
 //!   fixes their number in its code, not by target feature. No result goes through
 //!   `f64::max`, which may return either zero. A pull and a push form of one kernel add
 //!   in different orders, so they are not interchangeable.
 //! - **Global scalars** (a dangling mass, a residual, a total) reduce into
 //!   [`ExactSum`]: its value does not depend on how the values are grouped, so it does
 //!   not rely on the reduction blocks either (`docs/research/sota-numerics.md`, R6).
+//!   No float reduces through the blocks: there is no [`Reduce`] for `f32` or `f64`.
+//!   The blocks are cut by node count and ids, which a view as a mask and the same
+//!   view materialized do not share; integers and [`ExactSum`] give the same value
+//!   either way (DESIGN D14).
 //!
 //! Shared state that bodies change (atomics, [`NodeCells`]) is the kernel's affair. The
 //! kernels of [`crate::proof`] give results that do not depend on the order in which racing
@@ -77,11 +81,11 @@
 //!
 //! # Memory
 //!
-//! The readers' buffers are reserved against the plan's [`Memory`], and a reader frees a
-//! buffer that a long list grew when it goes back to the pool. Some small allocations are
-//! not counted: the task list and one partial value per block (`O(n / block)` each),
-//! one result per frontier run (`O(frontier / 256)`), and the pool itself (one entry per
-//! worker).
+//! The readers' buffers, the blocks' partial values and the frontier runs' results are
+//! reserved against the plan's [`Memory`], and a reader frees a buffer that a long list
+//! grew when it goes back to the pool. Some small allocations are not counted: the task
+//! list (`O(n / block)`) and the pool itself (one entry per worker). The no-OOM suite
+//! (`everygraph-memtest`) checks that what is not counted does not grow with the graph.
 //!
 //! # `unsafe`
 //!
@@ -104,12 +108,14 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, SegVec, par};
+use everygraph_core::{
+    ExactSum, InsufficientBudget, Memory, MemoryError, MemoryKind, ReadError, SegVec, par,
+};
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use buckets::Buckets;
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
-pub use source::{Compressed, Csr, DecodeReader, Source, Stream, StreamReader};
+pub use source::{Compressed, Csr, DecodeReader, RawCopy, Source, Stream, StreamReader};
 
 use node::{Brand, as_nodes, node_range};
 
@@ -277,7 +283,15 @@ impl Default for Settings {
     }
 }
 
-/// A value the drivers add up in a fixed order.
+/// A value the drivers add up in a fixed order: by reduction blocks, then blocks in
+/// order (module documentation, "Determinism").
+///
+/// Implement it only for values whose sum does not depend on the grouping: integers,
+/// [`ExactSum`], tuples of these. Never for a type that holds an `f32` or `f64`, a
+/// newtype included. The blocks are cut by node count and ids, so a mask and the same
+/// view materialized group the values differently, and a float sum would change its
+/// bits (DESIGN D14). `tools/numerics_lint.py --check` refuses such an `impl` in a
+/// product crate.
 pub trait Reduce: Send + Sized {
     /// The value of no nodes.
     const ZERO: Self;
@@ -302,7 +316,7 @@ macro_rules! reduce_by_add {
         }
     )*};
 }
-reduce_by_add!(u32: 0, u64: 0, f32: 0.0, f64: 0.0);
+reduce_by_add!(u32: 0, u64: 0);
 
 impl Reduce for ExactSum {
     const ZERO: Self = Self::new();
@@ -789,6 +803,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
     {
         let blocks = ix(self.nodes().div_ceil(self.block).into());
+        // An accumulator can be large (two `ExactSum`s are 1.2 KB), and below 2^18
+        // nodes a block is 64 of them.
+        let _held = self.memory.reserve(
+            "edge-map partial values",
+            MemoryKind::Anonymous,
+            (blocks as u64).saturating_mul(size_of::<A>() as u64),
+        )?;
         let mut partials: Vec<A> = (0..blocks).map(|_| A::ZERO).collect();
         let mut pieces = Vec::new();
         let (mut out, mut rest) = (out, partials.as_mut_slice());
@@ -1028,6 +1049,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         let result = if frontier.len() <= FRONTIER_GRAIN {
             run(0..frontier.len())
         } else {
+            // One result per run, and an accumulator can be large (Leiden's).
+            let count = frontier.len().div_ceil(GRAIN.get()) as u64;
+            let _held = self.memory.reserve(
+                "edge-map frontier results",
+                MemoryKind::Anonymous,
+                count.saturating_mul(size_of::<Result<A, Error>>() as u64),
+            )?;
             par::map_ranges(frontier.len(), GRAIN, run)
                 .into_iter()
                 .try_fold(A::ZERO, |sum, part| Ok(sum.add(part?)))
@@ -1164,6 +1192,11 @@ mod tests {
         assert_eq!(drive(&mapped, &offsets).unwrap(), csr);
         let stream = Stream::new(&offsets, &stream_bytes).unwrap();
         assert_eq!(drive(&stream, &offsets).unwrap(), csr);
+        // In one part, and in parts of at most 7 entries: lists are never cut.
+        for part in [u64::MAX >> 8, 7] {
+            let raw = RawCopy::decode_in_parts(&heap, &Memory::unlimited(), part).unwrap();
+            assert_eq!(drive(&raw, &offsets).unwrap(), csr, "parts of {part}");
+        }
     }
 
     /// One corrupt list: the scan and the frontier that reach it fail and hand out no

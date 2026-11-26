@@ -48,6 +48,9 @@ them with `plan/publish.py`); coding rules and CI in `CONTRIBUTING.md`.
 - If a criterion cannot be met, do not quietly relax it. Record the measured value and the
   reason; then change the issue text and republish, or open a follow-up. A missed speed
   target moves to the milestone's performance-pass issue (§ 6).
+- A pull request that closes an issue, or a slice of one, also updates every forward-looking
+  reference to it (`rg '#N|<issue-file>'`), and moves each leftover criterion to a named open
+  issue.
 - New ideas become new issue files, not code. Nothing outside the plan gets built.
 - An issue file's name is a stable identifier; its front matter gives the milestone. A
   file is not removed or renamed while anything cites it: an issue merged into another
