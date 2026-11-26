@@ -632,6 +632,45 @@ fn bad_weights_and_options_are_refused() {
     );
 }
 
+/// Nodes whose edges all weigh 0 have strength 0: they never move, no node joins them,
+/// and they change nothing for the others. 2,000 such nodes, each with three zero-weight
+/// edges to the nodes of a planted graph, leave every other node in the community it
+/// has without them, and the values' bits; each stays alone. Undirected and directed,
+/// for every variant.
+#[test]
+fn nodes_whose_edges_weigh_zero_change_nothing() {
+    let (n, edges, weights) = weighted_planted(8, 100, 120, 4, 1, false);
+    let mut rng = SplitMix64(17);
+    let extra = 2000;
+    let (mut more, mut zeros) = (edges.clone(), weights.clone());
+    for x in n..n + extra {
+        for _ in 0..3 {
+            more.push((x, (rng.next() % u64::from(n)) as u32));
+            zeros.push(0.0);
+        }
+    }
+    for directed in [false, true] {
+        let base = Lists::new(&(n, edges.clone(), weights.clone()), directed);
+        let padded = Lists::new(&(n + extra, more.clone(), zeros.clone()), directed);
+        for (variant, o) in variants() {
+            let o = Options {
+                use_direction: directed && o.objective == Objective::Modularity,
+                ..o
+            };
+            let what = format!("{variant}, directed: {directed}");
+            let (a, b) = (run(&base, &o), run(&padded, &o));
+            assert_eq!(&b.membership[..n as usize], &a.membership[..], "{what}");
+            assert_eq!(b.modularity.to_bits(), a.modularity.to_bits(), "{what}");
+            assert_eq!(b.quality.to_bits(), a.quality.to_bits(), "{what}");
+            assert_eq!(
+                b.count,
+                a.count + extra,
+                "{what}: each node of strength 0 alone"
+            );
+        }
+    }
+}
+
 /// Multiplicities (the weights of a multigraph's projection, `graph-semantics.md` § 2.7)
 /// and other integer weights are exact: the table holds their sums times `2^s`, and
 /// the directed projection holds the sum of both arcs.

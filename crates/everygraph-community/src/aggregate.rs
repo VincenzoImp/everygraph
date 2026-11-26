@@ -240,7 +240,7 @@ fn combine<'t, 'g, S: Source>(
 
 /// Writes the row of each community at its smallest node `v`, into `rows` at
 /// `offsets[v]`, and its sum into `strength`. Returns the number of communities whose
-/// row names no other community.
+/// row gives no weight to another community.
 fn write<S: Source>(
     plan: &Plan<'_, '_, S>,
     w: Weights<'_>,
@@ -265,7 +265,7 @@ fn write<S: Source>(
                     s += sum;
                 }
                 strength[c as usize].store(s, Relaxed);
-                *alone += u32::from(table.entries().all(|(key, _)| key == c));
+                *alone += u32::from(table.entries().all(|(key, sum)| key == c || sum == 0));
             }
         },
     )?;

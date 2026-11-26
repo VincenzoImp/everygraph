@@ -37,9 +37,11 @@
 //! than 1,024 nodes runs on the calling thread. Two singletons never swap: one only
 //! joins the other if the other's label is smaller.
 //!
-//! Here `m` is the number of nodes with an entry, and every draw is counted by a node's
-//! place among them ([`Ranks`]): a node without an entry never moves and no node joins
-//! it. Ties go by the draws of the labels, then by the labels' order, and a community
+//! Here `m` is the number of nodes with an entry of positive weight, and every draw is
+//! counted by a node's place among them ([`Ranks`]): a node without one never moves and
+//! no node joins it. A zero weight is no edge to local moving, refinement and the
+//! stopping rule (a candidate with no weight to it is skipped); only the split into
+//! connected components reads it. Ties go by the draws of the labels, then by the labels' order, and a community
 //! starts named by its smallest node. So the result does not depend on the nodes
 //! without an entry, nor on the ids beyond their order: a view as a mask over its graph
 //! and the same view materialized give the same communities (DESIGN D14).
@@ -240,8 +242,8 @@ fn before(salt: &[u32], mine: u32, a: u32, b: u32) -> bool {
 /// Nodes per block of [`Ranks`].
 const RANK_BLOCK: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
 
-/// The nodes of a level with an entry (a positive strength), numbered from 0 in id
-/// order: the counter of every draw.
+/// The nodes of a level with an entry of positive weight (a positive strength), numbered
+/// from 0 in id order: the counter of every draw.
 pub(crate) struct Ranks<'k> {
     k: &'k [u64],
     /// The number of the first such node of each block of [`RANK_BLOCK`] nodes, and
@@ -352,8 +354,9 @@ fn node<'g, S: Source>(plan: &Plan<'_, 'g, S>, v: u32) -> Node<'g> {
     plan.node(v).expect("a community label is a node")
 }
 
-/// Strengths `s(v)` of a level, their sum `2W`, and the nodes without a neighbour other
-/// than themselves: they stay alone at every level, so the stopping test leaves them out.
+/// Strengths `s(v)` of a level, their sum `2W`, and the nodes without a positive weight to
+/// a node other than themselves: they stay alone at every level, so the stopping test
+/// leaves them out.
 /// Also the masses when they are not the strengths, and the skews of directed modularity
 /// (see "Objectives").
 pub(crate) struct Strengths {
@@ -417,7 +420,7 @@ pub(crate) fn strengths<S: Source>(
             let (mut s, mut others) = (0, false);
             w.each(&row, |v, x| {
                 s += x;
-                others |= v != row.node;
+                others |= v != row.node && x > 0;
             });
             out[i] = s;
             *acc = acc.add((s, u32::from(!others)));
@@ -730,6 +733,9 @@ fn decide<'g, S: Source>(
     for (d, kud) in table.entries() {
         if d == c {
             stay = kud;
+            continue;
+        }
+        if kud == 0 {
             continue;
         }
         let value = value_in(kud, d);
@@ -1120,7 +1126,7 @@ fn pick<'g, S: Source>(
             let value = value(kud, d);
             let better = best
                 .is_none_or(|(b, bd)| value > b || (value == b && before(&st.salt, salt, d, bd)));
-            if value > 0.0 && d != u.get() && better {
+            if kud > 0 && value > 0.0 && d != u.get() && better {
                 best = Some((value, d));
             }
         }
@@ -1150,7 +1156,7 @@ fn pick<'g, S: Source>(
             let cut = signed(r.cut[d as usize].load(Relaxed));
             let rd = if g.skew.is_some() { rdelta(d) } else { 0.0 };
             let value = value(kud, d);
-            (d != u.get() && value >= 0.0 && cut >= penalty(rsigma(d), rd))
+            (kud > 0 && d != u.get() && value >= 0.0 && cut >= penalty(rsigma(d), rd))
                 .then_some((d, kud, value))
         })
     };
