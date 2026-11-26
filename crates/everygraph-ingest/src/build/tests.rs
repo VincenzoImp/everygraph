@@ -641,10 +641,10 @@ fn an_input_that_changes_while_it_is_read_is_refused() {
 
 /// A sink that fails every write after the first `ok` bytes.
 #[derive(Debug)]
-struct FailingSink {
-    inner: MemorySource<Vec<u8>>,
-    ok: u64,
-    written: u64,
+pub(super) struct FailingSink {
+    pub(super) inner: MemorySource<Vec<u8>>,
+    pub(super) ok: u64,
+    pub(super) written: u64,
 }
 
 impl ByteSource for FailingSink {

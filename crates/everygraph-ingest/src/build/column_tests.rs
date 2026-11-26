@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use everygraph_core::{Budget, ByteSource, Memory, MemorySource, par};
+use everygraph_core::{Budget, ByteSink, ByteSource, Memory, MemorySource, par};
 use everygraph_format::columns::{Column, ColumnLayout, ColumnStats, SectionNames};
 use everygraph_format::container::{Container, Provenance};
 use everygraph_format::verify::{Depth, verify};
@@ -15,7 +15,7 @@ use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
 use everygraph_oracle::rng::SplitMix64;
 
-use super::tests::{SMALL, SPILLING, all_options, read_back};
+use super::tests::{FailingSink, SMALL, SPILLING, all_options, read_back};
 use super::*;
 use crate::ids::MemoryScratch;
 use crate::text::{Delimiter, Header, TextOptions};
@@ -67,6 +67,15 @@ struct Case<'t> {
 }
 
 fn build_bytes(case: &Case<'_>, text: &[u8]) -> Result<(Vec<u8>, Report), BuildError> {
+    let (sink, report) = build_into(case, text, MemorySource::new(Vec::new()))?;
+    Ok((sink.into_inner(), report))
+}
+
+fn build_into<K: ByteSink>(
+    case: &Case<'_>,
+    text: &[u8],
+    sink: K,
+) -> Result<(K, Report), BuildError> {
     let options = TextOptions {
         delimiter: Delimiter::Byte(b'\t'),
         header: Header::Absent,
@@ -77,7 +86,6 @@ fn build_bytes(case: &Case<'_>, text: &[u8]) -> Result<(Vec<u8>, Report), BuildE
     let reader = TextReader::open_with_chunk(MemorySource::new(text), &options, 96).unwrap();
     let memory = Memory::from(Arc::new(Budget::new(case.budget)));
     let options = BuildOptions::new(case.graph, NonZeroUsize::new(4).unwrap());
-    let sink = MemorySource::new(Vec::new());
     let unfinished = build_tuned(
         &reader,
         &options,
@@ -87,8 +95,7 @@ fn build_bytes(case: &Case<'_>, text: &[u8]) -> Result<(Vec<u8>, Report), BuildE
         &Silent,
         case.tuning,
     )?;
-    let (sink, report) = unfinished.commit(Provenance::default())?;
-    Ok((sink.into_inner(), report))
+    unfinished.commit(Provenance::default())
 }
 
 /// A column read back: its values as `u64` bits, and its statistics.
@@ -427,6 +434,44 @@ fn columns_do_not_depend_on_threads_or_budget() {
             assert!(
                 seen.windows(2).all(|w| w[0].0 == w[1].0),
                 "{graph:?}: the bytes differ"
+            );
+        }
+    }
+}
+
+/// A write that fails at any point of the output, columns included, ends the build
+/// with an error and leaves no graph in the sink.
+#[test]
+fn a_failed_write_of_a_column_leaves_no_graph() {
+    let rows = rows_of(&[1, 2, 2, 3, 1, 4], &[2, 3, 3, 1, 2, 4], 9);
+    let text = text(&rows);
+    for duplicates in [Duplicates::Events, Duplicates::Sum] {
+        let case = Case {
+            graph: GraphOptions {
+                duplicates,
+                ..GraphOptions::default()
+            },
+            weight: true,
+            time: true,
+            budget: 1 << 30,
+            tuning: &TUNING,
+        };
+        let sink = |ok| FailingSink {
+            inner: MemorySource::new(Vec::new()),
+            ok,
+            written: 0,
+        };
+        let total = build_into(&case, &text, sink(u64::MAX)).unwrap().0.written;
+        for ok in (0..total).step_by(4096) {
+            let mut failing = sink(ok);
+            let result = build_into(&case, &text, &mut failing);
+            assert!(
+                matches!(result, Err(BuildError::Container(_))),
+                "failing after {ok} bytes: {result:?}"
+            );
+            assert!(
+                Container::open(failing.inner).is_err(),
+                "failing after {ok} bytes"
             );
         }
     }
