@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 """Tables of the m1-09 bake-off from results/*.jsonl: results/summary.txt and summary.json.
 
-The last row of a (graph, order) pair wins, so a re-run replaces an earlier one."""
+The last row of a (graph, order) pair wins, so a re-run replaces an earlier one; in
+eval.jsonl a row with kernel results wins over a later sizes-only row."""
 import json
 import pathlib
 
@@ -24,17 +25,21 @@ def last(rs, key):
     return out
 
 
-ev = last(rows("eval.jsonl"), lambda r: (r["graph"], r["order"]))
+# A line with kernel rows wins over a later one without (a sizes-only re-run).
+_ev = rows("eval.jsonl")
+ev = last([r for r in _ev if not r["kernels"]] + [r for r in _ev if r["kernels"]],
+          lambda r: (r["graph"], r["order"]))
 od = last(rows("orders.jsonl"), lambda r: (r["graph"], r["name"]))
 bv = last(rows("bv.jsonl"), lambda r: (r["graph"], r["order"]))
 leiden = {p.stem: json.loads(p.read_text()) for p in (R / "leiden").glob("*.json")}
 
 
 def ratio(e, source, kernel):
+    """(wall ratio, CPU ratio or None, check passed, A's median wall seconds)."""
     for k in e["kernels"]:
         if k["source"] == source and k["kernel"] == kernel:
-            return k["ratio_b_over_a"], k["ok"]
-    return None, True
+            return k["ratio_b_over_a"], k.get("cpu_ratio_b_over_a"), k["ok"], k["a_median"]
+    return None, None, True, None
 
 
 def fmt(x, f="{:.2f}"):
@@ -50,10 +55,11 @@ for g in GRAPHS:
                  f"random-list bound 2 + log2(n/d) = {base['random_bound']:.2f} bits\n")
     sources = sorted({k["source"] for e in ev.values() if e["graph"] == g for k in e["kernels"]})
     head = ["order", "order s", "perm s", "enc s", "bits/e", "vs orig", "loggap", "ratio", "BV b/arc", "0124 est"]
-    for s in sources:
-        head += [f"PR {s}", f"BFS {s}", f"WCC {s}"]
     lines.append(" | ".join(head))
     lines.append(" | ".join("---" for _ in head))
+    khead = ["order"] + [f"{k} {s}" for s in sources for k in ("PR", "BFS", "WCC")] + ["WCC entries B/A"]
+    klines = [" | ".join(khead), " | ".join("---" for _ in khead)]
+    a_times = {}
     for o in ORDERS:
         e = ev.get((g, o))
         if not e:
@@ -66,18 +72,30 @@ for g in GRAPHS:
         rec = {k: e[k] for k in ("graph", "order", "bits_per_entry", "data_bits_per_entry", "loggap",
                                   "locality_ratio", "permute_s", "encode_s", "svb0124_data_bits_est")}
         rec.update(order_s=t, bv_bits_per_arc=b)
-        bad = []
+        bad, krow = [], [o]
         for s in sources:
             for k in ("pr", "bfs", "wcc"):
-                x, ok = ratio(e, s, k)
-                row.append(fmt(x))
+                x, c, ok, a = ratio(e, s, k)
+                krow.append("—" if x is None else f"{x:.2f} / {fmt(c)}")
                 rec[f"{k}_{s}_ratio"] = x
+                rec[f"{k}_{s}_cpu_ratio"] = c
+                if a is not None:
+                    a_times.setdefault(f"{k} {s}", []).append(a)
                 if not ok:
                     bad.append(f"{k}/{s}")
+        wcc = [k for k in e["kernels"] if k["kernel"] == "wcc" and "a_entries" in k]
+        krow.append(f"{wcc[0]['b_entries'] / wcc[0]['a_entries']:.2f}" if wcc else "—")
         if bad:
             row[0] += " (CHECK FAILED: " + ",".join(bad) + ")"
         lines.append(" | ".join(row))
+        if len(krow) > 1 and any(x != "—" for x in krow[1:]):
+            klines.append(" | ".join(krow))
         summary.append(rec)
+    if len(klines) > 2:
+        lines.append("\nKernels, B/A: wall ratio / CPU ratio (median of the repetitions). A's median wall "
+                     "seconds across these runs (they vary with the load): "
+                     + ", ".join(f"{k} {min(v):.3f}-{max(v):.3f}" for k, v in a_times.items()) + "\n")
+        lines.extend(klines)
     for v in ("natural", "cap64"):
         L = leiden.get(f"{g}-{v}")
         if L:

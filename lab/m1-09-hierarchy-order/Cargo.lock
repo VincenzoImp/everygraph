@@ -132,6 +132,7 @@ dependencies = [
  "everygraph-core",
  "everygraph-format",
  "everygraph-kernels",
+ "libc",
  "memmap2",
  "rayon",
 ]

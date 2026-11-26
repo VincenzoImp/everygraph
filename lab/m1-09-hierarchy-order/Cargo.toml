@@ -18,6 +18,7 @@ path = "src/main.rs"
 everygraph-core = { path = "../../crates/everygraph-core" }
 everygraph-format = { path = "../../crates/everygraph-format" }
 everygraph-kernels = { path = "../../crates/everygraph-kernels" }
+libc = "0.2"
 memmap2 = "0.9"
 rayon = "1"
 

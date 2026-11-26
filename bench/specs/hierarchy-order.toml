@@ -14,9 +14,10 @@
 #           random-list bound 2 + log2(n/d)), and the proof kernels (PageRank f32 20
 #           iterations, direction-optimizing BFS from the largest-degree node, Afforest WCC)
 #           on the original and the reordered graph as interleaved A/B runs in one process,
-#           16 threads, 5 repetitions each after one untimed run. The B/A ratios are the
-#           result; the answers on B are checked against A's (BFS depths and component
-#           partitions exactly, PageRank to 1e-3 of the largest rank).
+#           16 threads, 5 repetitions each (Friendster 3) after one untimed run. The B/A
+#           ratios (wall and CPU time) are the result; the answers on B are checked against
+#           A's (BFS depths and component partitions exactly, PageRank to 1e-3 of the
+#           largest rank).
 #   bv      BV bits per arc of each order (webgraph default flags), lj and orkut only
 #
 # Sources of the kernels: lj and orkut raw CSR and compressed (both in the heap);
@@ -24,12 +25,15 @@
 # reordered ones in the heap; friendster compressed only, both in the heap (two raw copies
 # do not fit next to the encoder in 32 GiB).
 #
-# Wall time, from exploratory runs on a loaded machine (2026-11-26, load 25-57;
-# lab/m1-09-hierarchy-order/results): leiden ~10 min (Friendster ~4 min); order: BP lj 74 s,
-# orkut 282 s, twitter-sym and Friendster see the README; LLP lj 64 s, orkut 361 s; eval
-# about 1 min per small case, several per big case; bv ~20 s per small case. Sum: see the
-# README (estimate; an idle machine should be faster). Run the groups in separate windows
-# with --only if needed, in order.
+# Wall time, from exploratory runs on a loaded machine (2026-11-26, load 25-75;
+# lab/m1-09-hierarchy-order/results/README.md, "Reorder cost"): leiden ~10 min; order
+# without the large BP ~25 min (LLP orkut 6 min, BP orkut 5 min, BFS Friendster 4 min);
+# order-bp-big: twitter-sym more than 2.5 h unfinished on the loaded machine, Friendster
+# not run (an estimate of 3 h or more); eval ~2 h (Friendster PageRank took 80-100 s per
+# run there); bv ~5 min. Sum: about 3 h without order-bp-big, 6-8 h with it (estimates;
+# an idle machine should be faster). Run the groups in separate windows with --only, in
+# order; order-bp-big can be left out (the eval cases of its orders are then skipped by
+# hand: eval-twitter order=bp, eval-friendster order=bp).
 #
 #   everygraph-bench run hierarchy-order --official --data /home/tux/graphlab/data
 
@@ -107,10 +111,25 @@ group = "order"
 description = "orders computed by m109 (seeded, deterministic)"
 dataset_path = "csr/{graph}"
 matrix = { graph = ["lj", "orkut", "twitter-sym", "friendster"], method = ["random", "dbg", "bfs", "flat", "hier", "hier-deg", "hier-bfs", "bp"] }
-exclude = [{ graph = "friendster", method = "flat" }, { graph = "friendster", method = "hier-deg" }, { graph = "friendster", method = "hier-bfs" }]
+exclude = [{ graph = "friendster", method = "flat" }, { graph = "friendster", method = "hier-deg" }, { graph = "friendster", method = "hier-bfs" }, { graph = "twitter-sym", method = "bp" }, { graph = "friendster", method = "bp" }]
 memory_limit = "32G"
 shell = "mkdir -p {w}/perm/{graph} && {m109} order --graph {dataset} --method {method} --hier {w}/hier/{graph}-natural --seed 1 --threads {threads} --out {w}/perm/{graph}/{method}.perm"
 conditions = { graph = "{graph}", order = "{method}", seed = "1", bp = "random start, depth floor(log2 n) - 5, 20 iterations, cooling 1 per iteration" }
+metric = [{ name = "seconds", json = "/order_s", unit = "s" }]
+primary = "seconds"
+
+# BP on the two large graphs: twitter-sym took more than 2 hours in the exploratory run on
+# a loaded machine; Friendster was not run (an estimate of 3 hours or more, from its size).
+[[benchmark]]
+name = "order-bp-big"
+group = "order"
+description = "BP on twitter-sym and Friendster"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["twitter-sym", "friendster"] }
+memory_limit = "32G"
+timeout = "5h"
+shell = "mkdir -p {w}/perm/{graph} && {m109} order --graph {dataset} --method bp --seed 1 --threads {threads} --out {w}/perm/{graph}/bp.perm"
+conditions = { graph = "{graph}", order = "bp", seed = "1", bp = "random start, depth floor(log2 n) - 5, 20 iterations, cooling 1 per iteration" }
 metric = [{ name = "seconds", json = "/order_s", unit = "s" }]
 primary = "seconds"
 
@@ -189,8 +208,8 @@ description = "friendster: bits, log-gap cost, locality score; kernels compresse
 dataset_path = "csr/friendster"
 matrix = { order = ["identity", "random", "dbg", "bfs", "hier", "bp"] }
 memory_limit = "32G"
-shell = "p={w}/perm/friendster/{order}.perm; test {order} = identity && p=identity; {m109} eval --graph {dataset} --perm $p --name {order} --threads {threads} --reps 5 --mmap 1 --sources compressed"
-conditions = { graph = "friendster", order = "{order}", kernels = "proof kernels, A = original ids, B = reordered, interleaved, 5 reps", storage = "codec 0 in the heap" }
+shell = "p={w}/perm/friendster/{order}.perm; test {order} = identity && p=identity; {m109} eval --graph {dataset} --perm $p --name {order} --threads {threads} --reps 3 --mmap 1 --sources compressed"
+conditions = { graph = "friendster", order = "{order}", kernels = "proof kernels, A = original ids, B = reordered, interleaved, 3 reps", storage = "codec 0 in the heap" }
 metric = [
   { name = "bits_per_entry", json = "/bits_per_entry" },
   { name = "loggap", json = "/loggap" },

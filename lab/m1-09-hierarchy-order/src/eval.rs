@@ -125,27 +125,39 @@ fn hub<S: Source>(s: &S) -> u32 {
     (0..s.nodes()).max_by_key(|&v| (s.degree(v), std::cmp::Reverse(v))).unwrap_or(0)
 }
 
-fn run<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory, kernel: &str, source: u32) -> (f64, Answer) {
-    let t = Instant::now();
+/// User plus system CPU time of the whole process: unlike wall time, it does not grow
+/// while a worker waits for a core that another process holds.
+fn cpu_seconds() -> f64 {
+    // SAFETY: `getrusage` only writes the struct it is given.
+    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
+    let tv = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 * 1e-6;
+    tv(u.ru_utime) + tv(u.ru_stime)
+}
+
+/// One kernel run: (wall seconds, CPU seconds, answer, list entries handed to the kernel's
+/// bodies: a measure of its work that does not depend on the load).
+fn run<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory, kernel: &str, source: u32) -> (f64, f64, Answer, u64) {
+    let work = plan.work().entries;
+    let (t, c) = (Instant::now(), cpu_seconds());
+    let stop = || (t.elapsed().as_secs_f64(), cpu_seconds() - c);
     let into = |v: Vec<AtomicU32>| v.into_iter().map(AtomicU32::into_inner).collect();
-    match kernel {
+    let ((w, c), a) = match kernel {
         "pr" => {
             let r = proof::pagerank::<_, f32>(plan, memory, 0.85, 20).expect("pagerank");
-            let s = t.elapsed().as_secs_f64();
-            (s, Answer::Rank(r.iter().copied().collect()))
+            (stop(), Answer::Rank(r.iter().copied().collect()))
         }
         "bfs" => {
             let (d, _held) = proof::bfs(plan, memory, source, true).expect("bfs");
-            let s = t.elapsed().as_secs_f64();
-            (s, Answer::Labels(into(d)))
+            (stop(), Answer::Labels(into(d)))
         }
         "wcc" => {
             let (l, _held) = proof::wcc(plan, memory).expect("wcc");
-            let s = t.elapsed().as_secs_f64();
-            (s, Answer::Labels(into(l)))
+            (stop(), Answer::Labels(into(l)))
         }
         other => panic!("unknown kernel {other}"),
-    }
+    };
+    (w, c, a, plan.work().entries - work)
 }
 
 /// Whether B's answer is A's relabelled by `p`, as a JSON fragment.
@@ -206,33 +218,46 @@ fn ab<SA: Source, SB: Source>(
         Plan::with(b, &memory, settings, |pb| {
             let mut rows = Vec::new();
             for &k in kernels {
-                let (mut ta, mut tb) = (Vec::new(), Vec::new());
+                let (mut ta, mut tb, mut ca, mut cb) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
                 let mut last = (None, None);
+                let mut work = (0, 0);
                 // One untimed run of each first: page faults, allocator and caches.
                 run(&pa, &memory, k, src_a);
                 run(&pb, &memory, k, src_b);
                 for rep in 0..reps {
                     for first_a in [rep % 2 == 0, rep % 2 == 1] {
                         if first_a {
-                            let (s, r) = run(&pa, &memory, k, src_a);
+                            let (s, c, r, e) = run(&pa, &memory, k, src_a);
                             ta.push(s);
+                            ca.push(c);
                             last.0 = Some(r);
+                            work.0 = e;
                         } else {
-                            let (s, r) = run(&pb, &memory, k, src_b);
+                            let (s, c, r, e) = run(&pb, &memory, k, src_b);
                             tb.push(s);
+                            cb.push(c);
                             last.1 = Some(r);
+                            work.1 = e;
                         }
                     }
                 }
                 let checked = check(k, last.0.as_ref().unwrap(), last.1.as_ref().unwrap(), p);
                 let fmt = |v: &[f64]| v.iter().map(|x| format!("{x:.4}")).collect::<Vec<_>>().join(", ");
                 let (ma, mb) = (median(ta.clone()), median(tb.clone()));
+                let (mca, mcb) = (median(ca.clone()), median(cb.clone()));
                 rows.push(format!(
                     "{{\"source\": \"{label}\", \"kernel\": \"{k}\", \"a_s\": [{}], \"b_s\": [{}], \
-                     \"a_median\": {ma:.4}, \"b_median\": {mb:.4}, \"ratio_b_over_a\": {:.4}, {checked}}}",
+                     \"a_median\": {ma:.4}, \"b_median\": {mb:.4}, \"ratio_b_over_a\": {:.4}, \
+                     \"a_cpu_s\": [{}], \"b_cpu_s\": [{}], \"cpu_ratio_b_over_a\": {:.4}, \
+                     \"a_entries\": {}, \"b_entries\": {}, {checked}}}",
                     fmt(&ta),
                     fmt(&tb),
-                    mb / ma
+                    mb / ma,
+                    fmt(&ca),
+                    fmt(&cb),
+                    mcb / mca,
+                    work.0,
+                    work.1
                 ));
             }
             rows
