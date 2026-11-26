@@ -16,6 +16,6 @@ labels: type:experiment, area:map, P2, risk:medium, size:L
 - One case could win clearly: a compressed graph that fits in VRAM. Friendster's compressed store is 10.4 GB (ADR 0029) and an RTX 4090 has 24 GB. It needs a GPU Stream VByte decoder and is an untested hypothesis. It concerns a workstation with a large discrete GPU, not the laptop promise.
 - Routes for kernel bodies in Rust: WGSL through wgpu has no f64, so a browser GPU path cannot give our f64 PageRank. CubeCL (kernels written once in Rust, compiled to CUDA, HIP, Metal, Vulkan or WebGPU) is the only route without a second kernel language, and it is pre-1.0 (0.11 pre-releases). Its CPU backend never replaces the product's CPU path.
 
-**Done when.** Speed-up measured on lj/orkut and Friendster-size layouts on integrated and discrete GPUs, with a go/no-go.
+**Done when.** Speed-up measured on lj/orkut and Friendster-size layouts on this host's RTX 4090 and with software rendering (Mesa llvmpipe for Vulkan, SwiftShader for WebGPU) as the lower bound, with a go/no-go. A run on a real integrated GPU is advisable, not a gate.
 
 **Depends on** {{#m5-01-layout}}

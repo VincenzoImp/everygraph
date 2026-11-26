@@ -284,6 +284,12 @@ pub struct StoredResult<'a, S> {
 }
 
 impl<S: ByteSource> StoredResult<'_, S> {
+    /// The name of its section.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// The type of the values.
     #[must_use]
     pub const fn value_type(&self) -> ValueType {
@@ -378,6 +384,15 @@ impl<S: ByteSource> Container<S> {
         if !key.matches(&provenance) {
             return Ok(None);
         }
+        self.typed(name, provenance).map(Some)
+    }
+
+    /// The typed values of result section `name`, made as `provenance` says.
+    fn typed(
+        &self,
+        name: String,
+        provenance: Provenance,
+    ) -> Result<StoredResult<'_, S>, ContainerError> {
         let section = self.section(&name)?;
         let mut head = [0u8; HEAD];
         section
@@ -396,13 +411,47 @@ impl<S: ByteSource> Container<S> {
                 "not a whole number of values",
             ));
         }
-        Ok(Some(StoredResult {
+        Ok(StoredResult {
             name,
             section,
             value_type,
             len: body / size,
             provenance,
-        }))
+        })
+    }
+
+    /// The section of part `part` of `result` (spec § 6, "Parts of a result"), named
+    /// `<result>/<part>`; `None` when the file has none that refers to the result's
+    /// record.
+    #[must_use]
+    pub fn result_part_entry(&self, result: &StoredResult<'_, S>, part: &str) -> Option<&Entry> {
+        let record = self.get(&result.name)?.provenance.as_ref()?;
+        self.get(&format!("{}/{part}", result.name))
+            .filter(|e| e.provenance.as_ref() == Some(record))
+    }
+
+    /// Part `part` of `result` when it holds typed values (kind 10); `None` when there
+    /// is no such part. Like [`find_result`](Self::find_result), reads 16 bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::InvalidResult`] for a part of another kind or one that breaks
+    /// the layout of a result section; [`ContainerError::Read`].
+    pub fn result_part(
+        &self,
+        result: &StoredResult<'_, S>,
+        part: &str,
+    ) -> Result<Option<StoredResult<'_, S>>, ContainerError> {
+        let Some(entry) = self.result_part_entry(result, part) else {
+            return Ok(None);
+        };
+        if entry.kind != Kind::RESULT {
+            return Err(ContainerError::InvalidResult(
+                "a part of a result that holds no typed values",
+            ));
+        }
+        let name = entry.name.to_string();
+        self.typed(name, result.provenance.clone()).map(Some)
     }
 }
 
@@ -411,7 +460,7 @@ impl<S: ByteSource> Container<S> {
 pub struct ListedResult {
     /// The section's name.
     pub name: String,
-    /// Its length in bytes.
+    /// Its length in bytes, with its parts.
     pub bytes: u64,
     /// Its record: the operation, the key's parameters, the engine and the times.
     pub provenance: Provenance,
@@ -421,8 +470,9 @@ pub struct ListedResult {
 }
 
 impl<S: ByteSource> Container<S> {
-    /// Every result section with its record, in name order, for listing (`everygraph
-    /// info`). Reads each record, not the values.
+    /// Every result with its record, in name order, for listing (`everygraph info`);
+    /// its parts are counted in its bytes, not listed. Reads each record, not the
+    /// values.
     ///
     /// # Errors
     ///
@@ -432,19 +482,43 @@ impl<S: ByteSource> Container<S> {
         let identity = self.graph_identity().to_string();
         self.entries()
             .iter()
-            .filter(|e| e.kind == Kind::RESULT)
+            .filter(|e| e.kind == Kind::RESULT && !is_part(&e.name))
             .map(|e| {
+                // Entries are in name order, so the parts follow the first name above
+                // the prefix.
+                let parts = format!("{}/", e.name);
+                let all = self.entries();
+                let from = all.partition_point(|p| *p.name < *parts);
+                let bytes = all[from..]
+                    .iter()
+                    .take_while(|p| p.name.starts_with(&parts))
+                    .map(|p| p.len)
+                    .sum::<u64>();
                 let provenance = self
                     .provenance(&e.name)?
                     .ok_or(ContainerError::InvalidResult("a result without its record"))?;
                 Ok(ListedResult {
                     name: e.name.to_string(),
-                    bytes: e.len,
+                    bytes: e.len + bytes,
                     of_this_graph: provenance.parameters.get("graph") == Some(&identity),
                     provenance,
                 })
             })
             .collect()
+    }
+
+    /// The values of a result that [`results`](Self::results) listed, for a check of
+    /// every stored result (`everygraph verify`); a result is served for a request only
+    /// by [`find_result`](Self::find_result).
+    ///
+    /// # Errors
+    ///
+    /// As [`result_part`](Self::result_part).
+    pub fn listed_result(
+        &self,
+        listed: &ListedResult,
+    ) -> Result<StoredResult<'_, S>, ContainerError> {
+        self.typed(listed.name.clone(), listed.provenance.clone())
     }
 
     /// Checks a result found by [`find_result`](Self::find_result) against its hash,
@@ -467,9 +541,9 @@ impl<S: ByteSink> Writer<S> {
     }
 
     /// Appends `values` as the result of `key`, with a provenance record of its own; a
-    /// result already stored under `key` is replaced. `about` gives the engine, the
-    /// times and the inputs of the record; the operation and the parameters come from
-    /// the key. Nothing is a stored result until [`commit`](Self::commit).
+    /// result already stored under `key` is replaced, with its parts. `about` gives the
+    /// engine, the times and the inputs of the record; the operation and the parameters
+    /// come from the key. Nothing is a stored result until [`commit`](Self::commit).
     ///
     /// # Errors
     ///
@@ -495,8 +569,14 @@ impl<S: ByteSink> Writer<S> {
         }
         let name = key.section_name()?;
         let record = format!("{name}.provenance");
-        // The section first: it refers to the record.
-        for old in [&name, &record] {
+        let parts = format!("{name}/");
+        let old: Vec<String> = self
+            .entries()
+            .filter(|e| e.name.starts_with(&parts))
+            .map(|e| e.name.to_string())
+            .collect();
+        // The sections first: they refer to the record.
+        for old in old.iter().chain([&name, &record]) {
             if self.get(old).is_some() {
                 self.remove(old)?;
             }
@@ -507,22 +587,86 @@ impl<S: ByteSink> Writer<S> {
             ..about.clone()
         };
         self.add_provenance(&record, &provenance)?;
-        let mut section = self.begin_section(&name, Kind::RESULT, Some(&record))?;
-        let mut head = [0u8; HEAD];
-        head[..8].copy_from_slice(&MAGIC);
-        head[8..12].copy_from_slice(&T::TYPE.code().to_le_bytes());
-        section.write(&head)?;
-        let size = T::TYPE.size();
-        let mut buf = [0u8; CHUNK];
-        for chunk in values.chunks(CHUNK / size) {
-            let bytes = &mut buf[..chunk.len() * size];
-            for (value, b) in chunk.iter().zip(bytes.chunks_exact_mut(size)) {
-                value.to_le(b);
-            }
-            section.write(bytes)?;
-        }
-        section.finish()
+        let section = self.begin_section(&name, Kind::RESULT, Some(&record))?;
+        write_values(section, values.iter().copied())
     }
+
+    /// Starts part `part` of the result of `key`, added before by
+    /// [`add_result`](Self::add_result): a section named `<result>/<part>` of kind
+    /// `kind`, with the result's record (spec § 6, "Parts of a result").
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::InvalidResult`] when the result is not in the next commit, or
+    /// `part` is empty; then as [`begin_section`](Self::begin_section).
+    pub fn begin_result_part(
+        &mut self,
+        key: &ResultKey,
+        part: &str,
+        kind: Kind,
+    ) -> Result<super::SectionWriter<'_, S>, ContainerError> {
+        let name = key.section_name()?;
+        if self.get(&name).is_none_or(|e| e.kind != Kind::RESULT) {
+            return Err(ContainerError::InvalidResult(
+                "a part is added after its result",
+            ));
+        }
+        if part.is_empty() {
+            return Err(ContainerError::InvalidResult("an empty part name"));
+        }
+        self.begin_section(
+            &format!("{name}/{part}"),
+            kind,
+            Some(&format!("{name}.provenance")),
+        )
+    }
+
+    /// Appends `values` as part `part` of the result of `key`, a section of typed
+    /// values (kind 10); see [`begin_result_part`](Self::begin_result_part). The values
+    /// are encoded as they come.
+    ///
+    /// # Errors
+    ///
+    /// As [`begin_result_part`](Self::begin_result_part) and
+    /// [`SectionWriter::write`](super::SectionWriter::write).
+    pub fn add_result_part<T: Value>(
+        &mut self,
+        key: &ResultKey,
+        part: &str,
+        values: impl IntoIterator<Item = T>,
+    ) -> Result<Entry, ContainerError> {
+        let section = self.begin_result_part(key, part, Kind::RESULT)?;
+        write_values(section, values)
+    }
+}
+
+/// Whether a result section's name is that of a part: `results/<operation>/<key>/…`.
+fn is_part(name: &str) -> bool {
+    name.split('/').count() > 3
+}
+
+/// Writes the header and `values` into a result section, and finishes it.
+fn write_values<S: ByteSink, T: Value>(
+    mut section: super::SectionWriter<'_, S>,
+    values: impl IntoIterator<Item = T>,
+) -> Result<Entry, ContainerError> {
+    let mut head = [0u8; HEAD];
+    head[..8].copy_from_slice(&MAGIC);
+    head[8..12].copy_from_slice(&T::TYPE.code().to_le_bytes());
+    section.write(&head)?;
+    let size = T::TYPE.size();
+    let mut buf = [0u8; CHUNK];
+    let mut at = 0;
+    for value in values {
+        value.to_le(&mut buf[at..at + size]);
+        at += size;
+        if at == CHUNK {
+            section.write(&buf)?;
+            at = 0;
+        }
+    }
+    section.write(&buf[..at])?;
+    section.finish()
 }
 
 #[cfg(test)]

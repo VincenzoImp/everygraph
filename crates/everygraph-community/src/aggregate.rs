@@ -31,7 +31,7 @@ use crate::table::{Lent, Table, Tables};
 const BLOCK: usize = 1 << 16;
 
 /// A `u64` as an index into memory.
-fn ix(x: u64) -> usize {
+pub(crate) fn ix(x: u64) -> usize {
     usize::try_from(x).expect("an index into memory")
 }
 
@@ -45,6 +45,22 @@ fn node<'g, S: Source>(plan: &Plan<'_, 'g, S>, v: u32) -> Node<'g> {
 #[derive(Debug)]
 pub(crate) struct Dense {
     pub(crate) map: Column<u32>,
+    pub(crate) count: u32,
+}
+
+impl Dense {
+    pub(crate) fn parts(&self) -> Parts<'_> {
+        Parts {
+            map: &self.map,
+            count: self.count,
+        }
+    }
+}
+
+/// A [`Dense`] partition borrowed: its map may be held by someone else.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Parts<'a> {
+    pub(crate) map: &'a [u32],
     pub(crate) count: u32,
 }
 
@@ -82,7 +98,7 @@ pub(crate) struct Members {
 }
 
 impl Members {
-    pub(crate) fn new(memory: &Memory, d: &Dense) -> Result<Self, Error> {
+    pub(crate) fn new(memory: &Memory, d: Parts<'_>) -> Result<Self, Error> {
         let (n, count) = (d.map.len(), d.count as usize);
         let sizes = Column::new(memory, "community sizes", count, |_| AtomicU32::new(0))?;
         par::for_each_range(n, GRAIN, |r| {
@@ -103,9 +119,10 @@ impl Members {
             n.div_ceil(BLOCK),
             NonZeroUsize::new(buckets).expect("non-zero"),
             |b, sink| {
-                for v in b * BLOCK..(b * BLOCK + BLOCK).min(n) {
+                let nodes = b * BLOCK..(b * BLOCK + BLOCK).min(n);
+                for (v, &c) in nodes.clone().zip(&d.map[nodes]) {
                     let id = u32::try_from(v).expect("a node id");
-                    sink.push(d.map[v] as usize / per, id);
+                    sink.push(c as usize / per, id);
                 }
                 Ok::<(), Error>(())
             },
@@ -193,11 +210,11 @@ fn combine<'t, 'g, S: Source>(
     row: &Row<'_, 'g>,
     worker: &'t mut Worker<'_, 'g, S, Lent<'_>>,
     w: Weights<'_>,
-    d: &Dense,
+    d: Parts<'_>,
     members: &Members,
     tables: &Tables,
 ) -> Option<&'t mut Table> {
-    let map = &d.map;
+    let map = d.map;
     let mine = members.of(map[row.node.index()]);
     let keys: usize = mine
         .iter()
@@ -227,7 +244,7 @@ fn combine<'t, 'g, S: Source>(
 fn write<S: Source>(
     plan: &Plan<'_, '_, S>,
     w: Weights<'_>,
-    d: &Dense,
+    d: Parts<'_>,
     members: &Members,
     tables: &Tables,
     rows: Rows<'_>,
@@ -262,7 +279,7 @@ pub(crate) fn quotient<S: Source>(
     plan: &Plan<'_, '_, S>,
     memory: &Memory,
     w: Weights<'_>,
-    d: &Dense,
+    d: Parts<'_>,
     members: &Members,
     tables: &Tables,
 ) -> Result<(Quotient, Strengths), Error> {
@@ -325,12 +342,12 @@ pub(crate) fn quotient_of<S: Source>(
     crate::quality::communities(source.nodes(), membership)?;
     Plan::with(source, memory, settings, |plan| {
         let d = dense(&plan, memory, |v| membership[v.index()])?;
-        let members = Members::new(memory, &d)?;
+        let members = Members::new(memory, d.parts())?;
         let q = quotient(
             &plan,
             memory,
-            Weights(None),
-            &d,
+            Weights::Unit,
+            d.parts(),
             &members,
             &Tables::new(memory),
         )?;

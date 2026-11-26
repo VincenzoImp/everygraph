@@ -104,6 +104,8 @@
 #![allow(unsafe_code)]
 
 mod buckets;
+#[cfg(feature = "frontier-counters")]
+pub mod counters;
 mod node;
 mod source;
 
@@ -764,6 +766,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     }
 
     fn count(&self, work: Work) {
+        #[cfg(feature = "frontier-counters")]
+        counters::handed(work.entries);
         self.work[0].fetch_add(work.lists, Ordering::Relaxed);
         self.work[1].fetch_add(work.entries, Ordering::Relaxed);
     }
@@ -959,6 +963,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     *sum = acc;
                 }
                 self.count(work.add(Work { lists, entries }));
+                #[cfg(feature = "frontier-counters")]
+                counters::flush();
                 Ok(())
             });
             give(&scratch, w);
@@ -1095,16 +1101,20 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
     {
         let frontier = ids(frontier);
         let scratch = Mutex::new(Vec::new());
+        #[cfg(feature = "frontier-counters")]
+        let tasks = Mutex::new(Vec::new());
         // The parts of a long list, each with a slot's side reader for `Lists::get`.
         let parts = |node: Node<'g>, first_entry: u64, list: &[Node<'g>]| {
             par::map_ranges(list.len(), RUN, |r| {
                 let mut w = take(&scratch, &init);
                 let result = self.with_slot(|Slot { side, .. }| {
                     let (mut acc, mut work) = (A::ZERO, Work::ZERO);
+                    let first_entry = first_entry + r.start as u64;
+                    let part = &list[r];
                     let row = Row {
                         node,
-                        first_entry: first_entry + r.start as u64,
-                        list: &list[r],
+                        list: part,
+                        first_entry,
                     };
                     let mut worker = Worker {
                         scratch: &mut w,
@@ -1115,6 +1125,17 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         },
                     };
                     body(&mut acc, row, &mut worker);
+                    #[cfg(feature = "frontier-counters")]
+                    tasks
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(counters::Run {
+                            entries: part.len() as u64 + work.entries,
+                            max_list: part.len() as u64,
+                            max_chain: work.entries,
+                            side_lists: work.lists,
+                            draws: counters::flush(),
+                        });
                     Ok((acc, work))
                 });
                 give(&scratch, w);
@@ -1136,6 +1157,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     entries: 0,
                 };
                 let mut failed = None;
+                #[cfg(feature = "frontier-counters")]
+                let mut tally = counters::Run::default();
                 self.source.lists(reader, nodes, |v, first_entry, list| {
                     if failed.is_some() {
                         return;
@@ -1160,6 +1183,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         list,
                         first_entry,
                     };
+                    #[cfg(feature = "frontier-counters")]
+                    let (before, lists_before) = (work.entries, work.lists);
                     let mut worker = Worker {
                         scratch: &mut w,
                         lists: Lists {
@@ -1169,7 +1194,23 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         },
                     };
                     body(&mut acc, row, &mut worker);
+                    #[cfg(feature = "frontier-counters")]
+                    {
+                        let chain = work.entries - before;
+                        tally.entries += list.len() as u64 + chain;
+                        tally.max_list = tally.max_list.max(list.len() as u64);
+                        tally.max_chain = tally.max_chain.max(chain);
+                        tally.side_lists += work.lists - lists_before;
+                    }
                 })?;
+                #[cfg(feature = "frontier-counters")]
+                {
+                    tally.draws = counters::flush();
+                    tasks
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(tally);
+                }
                 failed.map_or(Ok((acc, work)), Err)
             });
             give(&scratch, w);
@@ -1198,6 +1239,11 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                 })?
         };
         self.count(work);
+        #[cfg(feature = "frontier-counters")]
+        counters::call(
+            frontier.len(),
+            &tasks.into_inner().unwrap_or_else(PoisonError::into_inner),
+        );
         Ok(acc)
     }
 
@@ -1301,6 +1347,8 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                     *sum = acc;
                 }
                 self.count(work);
+                #[cfg(feature = "frontier-counters")]
+                counters::flush();
                 failed.map_or(Ok(()), Err)
             })
         })

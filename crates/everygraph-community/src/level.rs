@@ -42,6 +42,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
 
 use everygraph_core::rng::{Purpose, draw, unit_f64};
 use everygraph_core::{Memory, math, par};
+use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
     Error, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all,
 };
@@ -69,23 +70,47 @@ const ROUND_SHIFT: u32 = 4;
 /// sub-round of 1,024 nodes or more is spread over every thread.
 const ROUND_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 10).expect("non-zero");
 
-/// Per-entry weights of a level: `None` at level 0 (unweighted).
+/// The weights of a level's entries, in the units of `A`.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Weights<'a>(pub(crate) Option<&'a [u64]>);
+pub(crate) enum Weights<'a> {
+    /// 1 per entry and 2 per loop: level 0, an unweighted graph.
+    Unit,
+    /// One value per entry: a quotient graph in memory.
+    Entries(&'a [u64]),
+    /// A stored quotient graph, whose entries hold their weight as events: `w(p)`
+    /// events, so `A` is that and twice that for a loop. Checked whole before use.
+    Events(&'a AdjacencyEvents<'a>),
+}
 
 impl Weights<'_> {
     /// Calls `f(v, A[u][v])` for each entry of `row`, where `u = row.node`.
     #[inline(always)]
     pub(crate) fn each<'g>(self, row: &Row<'_, 'g>, mut f: impl FnMut(Node<'g>, u64)) {
-        match self.0 {
-            None => {
+        match self {
+            Self::Unit => {
                 for &v in row.list {
                     f(v, if v == row.node { 2 } else { 1 });
                 }
             }
-            Some(w) => {
+            Self::Entries(w) => {
                 for (&v, &x) in row.list.iter().zip(&w[row.entries()]) {
                     f(v, x);
+                }
+            }
+            Self::Events(events) => {
+                for (&v, e) in row.list.iter().zip(row.first_entry..) {
+                    let r = events.event_range(e).expect("the events were checked");
+                    let x = r.end - r.start;
+                    // A reader refuses a stored quotient of 2^62 events or more
+                    // (`hierarchy::check`): its sums never reach 2^64.
+                    f(
+                        v,
+                        if v == row.node {
+                            x.saturating_mul(2)
+                        } else {
+                            x
+                        },
+                    );
                 }
             }
         }
@@ -887,10 +912,10 @@ mod tests {
         let csr = Csr::new(offsets, targets).unwrap();
         let memory = Memory::unlimited();
         Plan::with(&csr, &memory, Settings::default(), |plan| {
-            let k = strengths(&plan, &memory, Weights(None)).unwrap();
+            let k = strengths(&plan, &memory, Weights::Unit).unwrap();
             let g = Graph {
                 plan: &plan,
-                w: Weights(None),
+                w: Weights::Unit,
                 k: &k.of,
             };
             heavy(g, k.total).iter().map(|v| v.get()).collect()

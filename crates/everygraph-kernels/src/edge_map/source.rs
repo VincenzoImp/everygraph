@@ -454,6 +454,8 @@ impl<'a> Compressed<'a> {
         if checked.is_err() {
             r.batch.clear();
         }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(r.batch.targets().len());
         checked
     }
 
@@ -673,6 +675,8 @@ unsafe impl Source for Compressed<'_> {
         if checked.is_err() {
             r.batch.clear();
         }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(r.batch.targets().len());
         checked.map(|()| r.batch.list(0))
     }
 

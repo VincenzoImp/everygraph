@@ -213,6 +213,13 @@ fn build(input: &Path, budget_bytes: u64, e: BuildError) -> Fail {
             .count("invalid_rows", keys.count)
             .into(),
         BuildError::Scratch(e) => Fail::Os(e, "the scratch files".into()),
+        BuildError::ColumnClash(name) => Failure::new("InvalidInput")
+            .text("file", input.display())
+            .text(
+                "reason",
+                format!("two stored columns would be named {name}"),
+            )
+            .into(),
         BuildError::Format(e) => Failure::new("CorruptFile").text("why", e).into(),
         BuildError::Container(e) => Failure::new("CorruptFile").text("why", e).into(),
         other => Failure::new("EverygraphError")

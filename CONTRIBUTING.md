@@ -181,7 +181,7 @@ What is mutated:
 
 ## CI
 
-GitHub Actions, six workflows under `.github/workflows/`, on GitHub-hosted runners. The
+GitHub Actions, seven workflows under `.github/workflows/`, on GitHub-hosted runners. The
 repository is public, so standard runners cost nothing. The queue is still shared by every
 agent's pull request, so on a pull request the expensive jobs run only when it changed
 what they check.
@@ -194,6 +194,7 @@ what they check.
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 | `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, `check_schemas.py docs/ux-contract.md docs/api-sketch.md` (with `jsonschema`, through `uv`), `plan/publish.py VincenzoImp/everygraph --dry-run`, and the design system: `design/system/tools/build.py --check`, `measure.mjs` (Node), `lint_colours.py`. Standard library only, except the schema check |
 | `dco.yml` | every pull request | the `Signed-off-by` check ("Sign-off" below) |
+| `determinism.yml` | nightly at 01:53 UTC; by hand; pull requests that change it | **grid**: `everygraph-determinism` with `EVERYGRAPH_DETERMINISM=full` (every combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, over a third of the CI corpus) and the determinism tests of the kernels, Leiden and the build, optimized. **schedules**: Miri with `-Zmiri-many-seeds` over seeds 0 to 15, in four jobs, on the tests of the core's `par`. A failed scheduled run opens an issue. The sampled grid runs in `ci.yml`'s test job |
 
 Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
 in the lint job, from `git diff` of GitHub's merge commit against its base (run it
@@ -264,7 +265,10 @@ What the scripts at the end of "Checks" are for:
   a multiple of 4096 where the layout section says; the statistics must equal those it
   recomputes exactly (`fractions.Fraction`); Polars must read the same values; and the
   sections pinned by the golden test of `crates/everygraph-format/tests/columns.rs` must
-  be among those read. `--big` runs the 2^27-row check of the research decision B17
+  be among those read. Then the same reading of every column of three graphs built by
+  `everygraph ingest --weight --time` (one per `duplicates` option), which must also
+  agree with the input as the script reads it. `--big` runs the 2^27-row check of the
+  research decision B17
   (about 3 GB of memory, two minutes).
 - **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
   ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
@@ -292,6 +296,7 @@ describing it).
 | `everygraph-wasm` | browser bindings | #108 | yes, built in CI |
 | `everygraph-bench` | the `everygraph-bench` harness; the dataset registry and fetcher (`datasets/`) | #4, #5 | no |
 | `everygraph-oracle` | the correctness oracle: generators, references, comparators, invariants, the `KernelUnderTest` trait (a development crate, `publish = false`, used by other crates' tests only; see `oracle/README.md`) | #6 | no |
+| `everygraph-determinism` | the determinism suite of DESIGN D14: the build, the kernels and Leiden at every thread count, chunking, source and repetition; order probes; Leiden on views and renumbered ids (a development crate, `publish = false`) | #54 | no |
 
 The oracle's reference implementations are Python (NetworkX, python-igraph, scipy) in
 `oracle/`, a `uv` project with a lock file. Python lives there and nowhere else: no engine
@@ -390,6 +395,7 @@ checked:
 |---|---|
 | No std transcendental (`sin`, `exp`, `ln`, `powf`, `powi`, … on `f64` and `f32`), no `libm::pow`, and no `rand`, `getrandom` or `fastrand` generator in a crate that produces results; use `everygraph_core::math` and `everygraph_core::rng` | The same list in the `clippy.toml` of the core, the format and the four kernel crates, and in the root `clippy.toml`, which every other crate without a `clippy.toml` of its own reads. `tools/numerics_lint.py` writes the seven copies, and its `--check` (in the lint job) fails if one differs. The canary probes every product crate. The harness has its own empty `clippy.toml`: its statistics are not results |
 | No `rand` except through proptest, no `getrandom` except through `rand_core` and TLS, no `fastrand` | `deny.toml` |
+| A result does not depend on the thread count, chunking, source or repetition; the edge-map reduction and `par::map_ranges` add in their specified order | `crates/everygraph-determinism` (weighted graphs with weights over 2^-20 to 2^21; order probes, R15b), sampled on every pull request, in full in `determinism.yml` |
 | The pinned functions, `sqrt`, `mul_add`, `ExactSum` and the generator give the same bits on x86-64, i686, aarch64, macOS, Windows and wasm32 | `crates/everygraph-core/tests/numerics_golden.rs` in every test run of the core, and in Node through `tools/check_wasm_toy.py` |
 
 To change the numerics list, edit `tools/numerics_lint.py` and run it. Not checked by
@@ -447,23 +453,17 @@ instead (#189). `everygraph-core` is expected to stay free of `unsafe`.
 
 ## Comments and documents
 
-Everything written in the repository and on GitHub is in English, in Simple Technical
-English: short sentences, one idea each, common words, active voice. Go beyond it only
-where a precise term needs it. A code comment says only what the code cannot: why, an
-invariant, a reference to the specification or to a measurement. It does not narrate the
-next line or tell the history of the change ([CLAUDE.md](CLAUDE.md)).
+The rules for language, comments and documents are in the introduction of
+[CLAUDE.md](CLAUDE.md).
 
 ## Rust version
 
 The minimum supported Rust version is **1.100**, recorded as `rust-version` in the
-workspace manifest. It was 1.85 (the first release with edition 2024 and the MSRV-aware
-resolver, and Debian 13's toolchain), then 1.87 from 2026-11-25 (the fix for
-RUSTSEC-2026-0344 in `ruzstd` 0.9.1, needed by the text reader, #32). It was raised to
-1.100 on 2026-11-26 because 1.100 stabilizes `std::alloc::Allocator` and `Vec::new_in`
-(release notes of 1.100.0, "Stabilize custom allocators"): the memory accountant's page
-backend (#167) gives `SegVec` segments an allocator, and the core cannot implement a
-container of its own over foreign memory without `unsafe`. `Vec::try_with_capacity_in` is
-not stable in 1.100; code uses `Vec::new_in` and `try_reserve_exact`. Everything builds on stable. The
+workspace manifest. 1.100 stabilizes `std::alloc::Allocator` and `Vec::new_in` (release
+notes of 1.100.0, "Stabilize custom allocators"): the memory accountant's page backend
+(#167) gives `SegVec` segments an allocator, and the core cannot implement a container of
+its own over foreign memory without `unsafe`. `Vec::try_with_capacity_in` is not stable in
+1.100; code uses `Vec::new_in` and `try_reserve_exact`. Everything builds on stable. The
 one planned exception is the threaded browser build (#108), which needs a nightly
 toolchain pinned by that build's own script, not by a `rust-toolchain.toml` at the root,
 which would move the whole workspace to nightly.
@@ -539,7 +539,7 @@ git rebase --signoff origin/main    # adds it to every commit of the branch
 
 `.github/workflows/dco.yml` checks every commit of a pull request. It always runs on
 pull requests from forks, and on every pull request while the repository variable
-`DCO_ALL_PULL_REQUESTS` is `true` (it is, since 2026-11-26). When you merge `origin/main`
+`DCO_ALL_PULL_REQUESTS` is `true` (it is). When you merge `origin/main`
 into a branch, sign the merge commit too: `git merge --signoff origin/main`. Commits made
 before this rule are unsigned and stay as they are.
 
@@ -556,14 +556,8 @@ is responsible for that work.)
 ### Review
 
 Every change of code or of a specification reaches `main` through a pull request that
-follows `.github/pull_request_template.md`. (Only coordination goes to `main` directly:
-`docs/STATE.md`, the plan and records of decisions, [CLAUDE.md § 2](CLAUDE.md).) The pull
-request names the issue it closes and copies the issue's acceptance criteria, each ticked
-only with its evidence (a test, a result file, or a command and its output). It passes the
-checks under "Checks". Changes to kernels, on-disk formats, `unsafe` code, the planner or
-memory accounting, and experiments whose result changes a decision or a public number, get
-an independent review whose findings are fixed or answered before merge
-([CLAUDE.md § 4](CLAUDE.md)).
+follows `.github/pull_request_template.md` and passes the checks under "Checks". How a
+pull request is scoped, reviewed and merged is in [CLAUDE.md](CLAUDE.md) § 2 and § 4.
 Pull requests are merged by squash. Who decides, and how that changes as more people
 join, is in [GOVERNANCE.md](GOVERNANCE.md). Behaviour in the project follows the
 [code of conduct](CODE_OF_CONDUCT.md); security problems are reported privately as

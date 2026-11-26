@@ -135,6 +135,8 @@ pub fn wcc<S: Source>(
             |(): &mut (), (), _, row| {
                 let (u, list) = (row.node, row.list);
                 if let Some(&first) = list.first() {
+                    #[cfg(feature = "frontier-counters")]
+                    crate::edge_map::counters::examined(1);
                     unite(&parent, u, first);
                 }
                 if let Some(rest) = list.len().checked_sub(1).filter(|&r| r > 0) {
@@ -142,11 +144,15 @@ pub fn wcc<S: Source>(
                         draw(SEED, Purpose::COMPONENTS_NEIGHBOUR, [u.get(), 0, 0, 0]),
                         rest as u64,
                     );
+                    #[cfg(feature = "frontier-counters")]
+                    crate::edge_map::counters::examined(1 + ix(at));
                     unite(&parent, u, list[1 + ix(at)]);
                 }
                 ControlFlow::Break(())
             },
         )?;
+        #[cfg(feature = "frontier-counters")]
+        crate::edge_map::counters::mark("wcc.sample", 0);
         parent.flatten();
         if options.symmetric {
             skip = giant(plan, &parent);
@@ -156,11 +162,15 @@ pub fn wcc<S: Source>(
         (),
         |u| skip.is_none_or(|g| parent.load(u, Relaxed) != g),
         |(): &mut (), (), _, row, _| {
+            #[cfg(feature = "frontier-counters")]
+            crate::edge_map::counters::examined(row.list.len());
             for &v in row.list {
                 unite(&parent, row.node, v);
             }
         },
     )?;
+    #[cfg(feature = "frontier-counters")]
+    crate::edge_map::counters::mark("wcc.finish", 0);
     parent.flatten();
     Ok(parent.into_ids())
 }

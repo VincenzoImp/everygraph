@@ -9,13 +9,13 @@ labels: type:infra, area:launch, P0, risk:low, size:M
 - [ ] Changelog, upgrade notes, security policy contact
 - [ ] README with a 30-second demo (animated map), quickstart, honest comparison table, links to benchmarks
 - [ ] Launch material: blog post with the method behind each claim, short demo video, posts for Hacker News / relevant subreddits / network-science and graph-database communities
-- [ ] Pre-launch review by 3–5 outside practitioners, with a cognitive-walkthrough script of the ten user stories (added 2026-11-25, `docs/research/README.md` H4); fix what confuses them. Formative: its findings are reported, no success rate is claimed from it. The public names listed in `docs/api-sketch.md` § 2.10 are frozen only after this review (finding the reviewers needs the owner: messages from the owner's accounts)
+- [ ] Pre-launch review by 3–5 agent-driven sessions, each briefed as one of the target personas, with a cognitive-walkthrough script of the ten user stories (`docs/research/README.md` H4; `design/DECISIONS.md`, "Usability, accessibility and hardware checks"); fix what confuses them. Formative: its findings are reported, no success rate is claimed from it. The public names listed in `docs/api-sketch.md` § 2.10 are frozen only after this review. A review by outside practitioners is advisable after 0.1, not a gate
 - [x] Repository made public during development by the owner's decision of 2026-11-25 (`design/DECISIONS.md`, "When the repository becomes public"); the legal opinions ({{#m8-10-legal-opinions}}) remain advisable before the first release, not a blocker
 - [ ] Legal opinions recorded or skipped with the reason ({{#m8-10-legal-opinions}})
 
 **Acceptance**
 - `pip install everygraph==0.1.0` and `cargo install everygraph-cli` work on all supported platforms on release day
-- Every claim in the launch post links to a reproducible result; a usability claim states n and its exact interval (n ≥ 20 per task), and "usable with a screen reader" appears only after the session of {{#m5-16-nonvisual-navigation}}
+- Every claim in the launch post links to a reproducible result; a usability claim comes only from a study with people and states n and its exact interval (n ≥ 20 per task); agent-driven sessions are reported as formative checks, never as a usability claim; "usable with a screen reader" appears only after a session with screen-reader users ({{#m5-16-nonvisual-navigation}})
 
 **Depends on** {{#m6-02-wheels}}, {{#m5-09-static-export}} (the viewer inside the wheel), {{#m8-12-cli-rest}}, {{#m8-02-docs-site}}, {{#m8-03-public-benchmarks}}, {{#m8-04-showcase-wikipedia}}, {{#m8-10-legal-opinions}}
 

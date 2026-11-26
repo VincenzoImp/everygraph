@@ -1,25 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Passes 2 to 4 for any source of items ([`Items`]): the counts, the buckets and the
-//! lists of one adjacency, written as its sections. The out-adjacency reads the rows;
-//! the in-adjacency reads the out-adjacency (module `transpose`).
+//! Passes 2 to 4 for any source of items ([`Items`]) of any kind ([`Item`]): the counts,
+//! the buckets and the lists of one adjacency, written as its sections, with the
+//! columns stored beside it. The out-adjacency reads the rows; the in-adjacency reads
+//! the out-adjacency and its columns (module `transpose`).
 
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{ByteSink, Memory, MemoryKind};
+use everygraph_core::{ByteSink, MAX_ALLOCATION_BYTES, Memory, MemoryKind};
 use everygraph_format::adjacency::{IndexBuilder, encode_events, events_section_bytes};
 use everygraph_format::container::{Kind, Writer};
 
+use super::columns::{self, Item, Out, Stored};
 use super::fill::{self, Resident};
-use super::finish::{Multiplicities, Output, PairCounts, finish_round, multiplicities};
-use super::layout::Layout;
+use super::finish::{Finish, Multiplicities, Output, PairCounts, finish_round, multiplicities};
+use super::layout::{Costs, Layout};
 use super::rows::{BlockCounts, ItemCounts, Items, each_block};
 use super::{BuildError, Duplicates, GraphOptions, Phase, Progress, SLACK_SHIFT, Tuning, widen};
 use crate::ids::Scratch;
 
-/// The section names of one adjacency.
+/// The section names of one adjacency, and the prefix of its column scopes.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Names {
+    pub(super) adjacency: &'static str,
     pub(super) data: &'static str,
     pub(super) index: &'static str,
     pub(super) events: &'static str,
@@ -36,9 +39,9 @@ pub(super) struct Context<'a, Sc> {
 }
 
 /// The items of an adjacency in their buckets: in memory, or spilled.
-pub(super) struct Filled<R> {
+pub(super) struct Filled<T: Copy, R> {
     layout: Layout,
-    resident: Resident,
+    resident: Resident<T>,
     spills: Vec<R>,
     index: IndexBuilder,
     /// What the counting pass counted.
@@ -49,7 +52,7 @@ pub(super) struct Filled<R> {
     pub(super) spilled_bytes: u64,
 }
 
-impl<R> Filled<R> {
+impl<T: Copy, R> Filled<T, R> {
     /// The cut of the items.
     pub(super) fn layout(&self) -> &Layout {
         &self.layout
@@ -63,29 +66,43 @@ pub(super) struct Written {
     pub(super) events_bytes: u64,
 }
 
-/// Buffers of the spill files and of the multiplicities, held whatever the input.
-pub(super) fn fixed_bytes(threads: usize, tuning: &Tuning) -> u64 {
-    widen(threads) * widen(tuning.spill_batch) * 8
+/// Buffers of the spill files, the multiplicities and the column files, held whatever
+/// the input, for items `T` and `columns` stored columns.
+pub(super) fn fixed_bytes<T: Item>(threads: usize, tuning: &Tuning, columns: usize) -> u64 {
+    widen(threads) * widen(tuning.spill_batch) * widen(size_of::<(u32, T)>())
         + 8 * fill::SPILL_BUFFER
         + widen(super::finish::MULTIPLICITY_BUFFER)
+        + widen(columns * columns::COLUMN_BUFFER)
+}
+
+/// `tuning` for items `T`: a segment of the bucket columns is one allocation.
+fn tuned<T: Item>(tuning: &Tuning) -> Tuning {
+    let most_bits = (MAX_ALLOCATION_BYTES / widen(size_of::<T>())).ilog2();
+    Tuning {
+        segment_bits: tuning.segment_bits.min(most_bits),
+        ..*tuning
+    }
 }
 
 /// Passes 2 and 3: the items of each of `nodes` nodes counted, cut into buckets within
 /// the budget, and sent to them. With `ends`, the nodes items end at are marked too, for
-/// the isolates of a directed graph.
-pub(super) fn fill_lists<I: Items, Sc: Scratch>(
+/// the isolates of a directed graph. `columns` is the number of columns stored beside
+/// the lists.
+pub(super) fn fill_lists<T: Item, I: Items<T>, Sc: Scratch>(
     items: &I,
     nodes: u32,
     ends: bool,
+    columns: usize,
     cx: &Context<'_, Sc>,
-) -> Result<Filled<Sc::Source>, BuildError> {
+) -> Result<Filled<T, Sc::Source>, BuildError> {
     let (graph, memory) = (cx.graph, cx.memory);
+    let tuning = &tuned::<T>(cx.tuning);
     let counts = ItemCounts::new(memory, nodes, ends)?;
     let pass = each_block(items.blocks(), |block| {
-        items.items(block, |u, v| {
+        items.items(block, |u, v: T| {
             counts.add(u);
             if ends {
-                counts.target(v);
+                counts.target(v.target());
             }
         })
     })?;
@@ -94,16 +111,17 @@ pub(super) fn fill_lists<I: Items, Sc: Scratch>(
 
     let events = graph.duplicates == Duplicates::Events;
     let available = memory.available() + counts.bytes();
-    let fixed = fixed_bytes(cx.threads, cx.tuning);
+    let fixed = fixed_bytes::<T>(cx.threads, tuning, columns);
     let work = (available - (available >> SLACK_SHIFT)).saturating_sub(fixed);
     let values = counts
         .values()
         .ok_or(BuildError::TooLarge("a node with 2^32 items or more"))?;
-    let layout = Layout::new(values, nodes, items.blocks(), work, events, cx.tuning)?;
+    let costs = Costs::of::<T>(events, columns);
+    let layout = Layout::new(values, nodes, items.blocks(), work, (events, costs), tuning)?;
     drop(counts);
 
     let (resident, spills, spilled_bytes) =
-        fill::fill(items, &layout, memory, cx.scratch, cx.tuning, cx.threads)?;
+        fill::fill(items, &layout, memory, cx.scratch, tuning, cx.threads)?;
     Ok(Filled {
         layout,
         resident,
@@ -116,11 +134,13 @@ pub(super) fn fill_lists<I: Items, Sc: Scratch>(
 }
 
 /// Pass 4: the buckets finished in node order, their records written to the data
-/// section, then the index and, when some pair repeats, the `.events` section.
-pub(super) fn write_lists<K: ByteSink, Sc: Scratch>(
-    filled: Filled<Sc::Source>,
+/// section, then the index, when some pair repeats the `.events` section, and the
+/// columns of `columns` under the scopes of `names`.
+pub(super) fn write_lists<T: Item, K: ByteSink, Sc: Scratch>(
+    filled: Filled<T, Sc::Source>,
     writer: &mut Writer<K>,
     names: Names,
+    columns: &[Out],
     cx: &Context<'_, Sc>,
 ) -> Result<Written, BuildError> {
     let Filled {
@@ -130,24 +150,30 @@ pub(super) fn write_lists<K: ByteSink, Sc: Scratch>(
         index,
         ..
     } = filled;
-    let (graph, memory, scratch) = (cx.graph, cx.memory, cx.scratch);
+    let (memory, scratch) = (cx.memory, cx.scratch);
+    let tuning = &tuned::<T>(cx.tuning);
     let mut output = Output {
         data: writer.begin_section(names.data, Kind::ADJACENCY_DATA, None)?,
         index,
         multiplicities: Multiplicities::new(memory),
+        columns: Stored::new(columns, scratch, memory)?,
         counts: PairCounts::default(),
     };
+    let how = Finish {
+        graph: cx.graph,
+        columns,
+    };
     for round in 0..layout.resident_rounds {
-        for bucket in finish_round(&mut resident, 0, &layout, round, graph, memory)? {
+        for bucket in finish_round(&mut resident, 0, &layout, round, how, memory)? {
             output.take(bucket, scratch)?;
         }
         cx.progress.advance(Phase::Building, 1);
     }
     drop(resident);
     for (round, spill) in (layout.resident_rounds..layout.round_count()).zip(&spills) {
-        let mut columns = fill::load_round(spill, &layout, round, memory, cx.tuning)?;
+        let mut items = fill::load_round::<T, _>(spill, &layout, round, memory, tuning)?;
         let held_from = layout.offsets[layout.rounds[round]];
-        for bucket in finish_round(&mut columns, held_from, &layout, round, graph, memory)? {
+        for bucket in finish_round(&mut items, held_from, &layout, round, how, memory)? {
             output.take(bucket, scratch)?;
         }
         cx.progress.advance(Phase::Building, 1);
@@ -158,6 +184,7 @@ pub(super) fn write_lists<K: ByteSink, Sc: Scratch>(
         data,
         index,
         multiplicities: stored,
+        columns: values,
         counts: pairs,
     } = output;
     data.finish()?;
@@ -186,6 +213,8 @@ pub(super) fn write_lists<K: ByteSink, Sc: Scratch>(
         events_bytes = widen(section.len());
         writer.add_section(names.events, Kind::ADJACENCY_EVENTS, &section, None)?;
     }
+    let shape = (pairs.entries, pairs.events);
+    values.write(columns, names.adjacency, shape, scratch, writer, memory)?;
     Ok(Written {
         pairs,
         events_bytes,

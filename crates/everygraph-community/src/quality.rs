@@ -136,7 +136,7 @@ pub fn table<S: Source>(
 ) -> Result<Table, Error> {
     let count = communities(source.nodes(), membership)?;
     Plan::with(source, memory, settings, |plan| {
-        tally(&plan, memory, Weights(None), membership, count)
+        tally(&plan, memory, Weights::Unit, membership, count)
     })
 }
 
@@ -167,7 +167,7 @@ impl Quotient {
             u32::try_from(v).expect("a node id")
         })?;
         Plan::with(&csr, memory, settings, |plan| {
-            tally(&plan, memory, Weights(Some(&self.weights)), &single, n)
+            tally(&plan, memory, Weights::Entries(&self.weights), &single, n)
         })
     }
 }

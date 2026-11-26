@@ -307,6 +307,12 @@ impl Graph {
         self.0.file.directed()
     }
 
+    /// The weight column declared when the graph was read, if one was.
+    #[getter]
+    fn weight_column(&self) -> Option<&str> {
+        self.0.file.weight()
+    }
+
     /// The `.eg` file, or `None` for a graph in memory.
     #[getter]
     fn file(&self) -> Option<PathBuf> {

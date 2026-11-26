@@ -9,6 +9,8 @@
 //!   input and seed give the same result at any thread count, chunking and source.
 //! - [`table`] and [`modularity`]: the community table of any partition and its
 //!   modularity, with kept loops as `docs/spec/graph-semantics.md` § 5.5 counts them.
+//! - [`hierarchy`]: every level of a result with exact counts and its quotient graph,
+//!   kept in the graph file (`docs/spec/eg-communities.md`), read back, and checked.
 //!
 //! In memory only: level 0 is read through the source, coarser levels are held in RAM
 //! (out of core: #60). The crate builds for wasm32 and has no `unsafe`; it is under
@@ -37,6 +39,7 @@
 
 mod aggregate;
 mod column;
+pub mod hierarchy;
 mod leiden;
 mod level;
 mod quality;

@@ -109,7 +109,11 @@ fn decompose<S: Source>(
 ) -> Result<Atomics, Error> {
     match peel(plan, memory, sampler)? {
         Some(core) => Ok(core),
-        None => peel(plan, memory, None)?.ok_or(Error::Invalid("k-core: an exact peel failed")),
+        None => {
+            #[cfg(feature = "frontier-counters")]
+            crate::edge_map::counters::restart();
+            peel(plan, memory, None)?.ok_or(Error::Invalid("k-core: an exact peel failed"))
+        }
     }
 }
 
@@ -193,6 +197,8 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
             return Ok(());
         };
         let passed = buckets.base();
+        #[cfg(feature = "frontier-counters")]
+        crate::edge_map::counters::tag("kcore.exact", k.into());
         self.plan.frontier(nodes, |(): &mut (), row, _| {
             let v = row.node;
             // Hub lists: a few nodes of millions of entries are split between workers.
@@ -239,6 +245,8 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
                 }
                 if now & SAMPLED != 0 {
                     if let Some(s) = self.samples {
+                        #[cfg(feature = "frontier-counters")]
+                        crate::edge_map::counters::draw();
                         let coin = draw(SEED, Purpose::CORE_SAMPLE, [u.get(), v.get(), 0, 0]) >> 32;
                         let hit = coin < u64::from(s.rate[u].load(Relaxed));
                         if hit && s.taken[u].fetch_add(1, Relaxed) + 1 == s.sampler.mu {
@@ -259,6 +267,8 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
                 }
             }
         };
+        #[cfg(feature = "frontier-counters")]
+        crate::edge_map::counters::tag("kcore.subround", k.into());
         // `fetch_sub` commutes, so a hub's list may be cut into parts.
         self.plan
             .push_with(frontier, Vec::new, |(): &mut (), row, w| {
