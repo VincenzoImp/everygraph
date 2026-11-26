@@ -1227,13 +1227,13 @@ fn grid(side: u32) -> (u32, Vec<(u32, u32)>) {
 }
 
 /// The super level's Leiden coarsens on: on grids at a low resolution, the usual rule
-/// of `leiden` stops with 9 and 15 communities, the super level's with 3.
+/// of `leiden` stops with 15 to 17 communities, the super level's with 2 or 3.
 #[test]
 fn the_super_level_leiden_coarsens_further_than_leiden() {
     let memory = Memory::unlimited();
     for (name, (n, pairs), gamma) in [
-        ("grid of 200 x 200", grid(200), 1.0 / 64.0),
         ("grid of 300 x 300", grid(300), 1.0 / 128.0),
+        ("grid of 400 x 400", grid(400), 1.0 / 128.0),
     ] {
         let lists = Lists::from_pairs(n, &pairs);
         let o = Options::default();
