@@ -1,106 +1,199 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! WCC against the reference outputs of LDBC Graphalytics (`<graph>-WCC`: each vertex
-//! and the smallest vertex id of its component). Runs when `EVERYGRAPH_LDBC_GRAPHS`
-//! names the directory of the unpacked graphs (`$EVERYGRAPH_DATA/ldbc-graphalytics/graphs`):
-//! the four test graphs always, `dota-league` and `graph500-22` in a release build. Vertex
-//! ids are renumbered in increasing order, so the smallest id of a component is its
-//! smallest node.
+//! The kernels of the edge-map framework against the LDBC Graphalytics reference
+//! outputs (#177), with the specification's match rules: BFS on every graph, WCC on the
+//! merged lists of a directed graph (the undirected projection), `PageRank` (f64, the data
+//! set's iteration count) on undirected graphs. The proof kernels, and for WCC the
+//! production components (#48) sampled and in one pass, each run on raw arrays and on
+//! targets streamed from a file, at 1 and 8 threads; the results must be identical bit
+//! for bit as well.
+//!
+//! Opt-in: `EVERYGRAPH_LDBC_GRAPHS` names a directory with one unpacked data set per
+//! subdirectory (`oracle/ldbc-unpack.sh`; `oracle/run-ci.sh` sets it). Data sets with more
+//! than `EVERYGRAPH_LDBC_MAX_EDGES` edges (default 2^27) are skipped.
+//! These are not LDBC Benchmark Results.
 
 #![forbid(unsafe_code)]
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    clippy::disallowed_macros,
-    clippy::print_stderr,
-    clippy::cast_possible_truncation
-)]
+// The test writes the file the streamed source reads.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+#![allow(clippy::disallowed_macros, clippy::print_stderr)]
 
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU32;
 
-use everygraph_core::Memory;
-use everygraph_kernels::components::{WccOptions, wcc};
-use everygraph_kernels::edge_map::{Csr, Plan, Settings};
+use everygraph_core::{Memory, par};
+use everygraph_io::FileSource;
+use everygraph_kernels::components::{self, WccOptions};
+use everygraph_kernels::edge_map::{Csr, Plan, Settings, Source, Stream};
+use everygraph_kernels::proof::{UNREACHED, bfs, pagerank, wcc};
+use everygraph_oracle::ldbc::read::merge_directions;
+use everygraph_oracle::ldbc::run::{Row, row};
+use everygraph_oracle::ldbc::{Algorithm, Dataset, LdbcGraph, UNREACHABLE, Values};
 
-fn rows(path: &Path) -> impl Iterator<Item = Vec<u64>> {
-    let file = std::fs::File::open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    BufReader::new(file).lines().map(|line| {
-        line.unwrap()
-            .split_whitespace()
-            .take(2)
-            .map(|w| w.parse().unwrap())
-            .collect()
+/// The production components, sampled or in one pass; `None` for a proof kernel.
+type Production = Option<bool>;
+
+fn run_on<S: Source>(
+    source: &S,
+    production: Production,
+    threads: usize,
+    ds: &Dataset,
+    g: &LdbcGraph,
+    a: Algorithm,
+) -> Result<Values, String> {
+    let memory = Memory::unlimited();
+    let settings = Settings {
+        chunk_entries: 1 << 16,
+        batch_entries: 8192,
+        prefetch: false,
+    };
+    let e = |e: everygraph_kernels::edge_map::Error| e.to_string();
+    let ids = |labels: Vec<AtomicU32>| {
+        Values::Ints(
+            labels
+                .into_iter()
+                .map(|l| g.ids.ids[usize::try_from(l.into_inner()).expect("u32 fits")])
+                .collect(),
+        )
+    };
+    let threads = NonZeroUsize::new(threads).expect("threads > 0");
+    Plan::with(source, &memory, settings, |plan| {
+        par::with_threads(threads, || match a {
+            Algorithm::Bfs => {
+                let id = ds.source(a).map_err(|e| e.to_string())?;
+                let s = g.ids.index(id).ok_or("source is not a vertex")?;
+                let (d, _) = bfs(&plan, &memory, s, !g.directed).map_err(e)?;
+                Ok(Values::Ints(
+                    d.into_iter()
+                        .map(|d| match d.into_inner() {
+                            UNREACHED => UNREACHABLE,
+                            d => d.into(),
+                        })
+                        .collect(),
+                ))
+            }
+            Algorithm::Wcc => match production {
+                None => wcc(&plan, &memory),
+                Some(sample) => {
+                    let options = WccOptions {
+                        symmetric: true,
+                        sample,
+                    };
+                    components::wcc(&plan, &memory, options)
+                }
+            }
+            .map(|(l, _)| ids(l))
+            .map_err(e),
+            Algorithm::Pr => {
+                let d = ds.damping().map_err(|e| e.to_string())?;
+                let it = ds.iterations(a).map_err(|e| e.to_string())?;
+                let r = pagerank::<_, f64>(&plan, &memory, d, it).map_err(e)?;
+                Ok(Values::Reals(r.iter().copied().collect()))
+            }
+            _ => Err("not a proof kernel".into()),
+        })
     })
+    .map_err(|e| e.to_string())?
 }
 
-fn check(dir: &Path, name: &str) {
-    let at = |suffix: &str| dir.join(name).join(format!("{name}{suffix}"));
-    let mut ids: Vec<u64> = rows(&at(".v")).map(|r| r[0]).collect();
-    ids.sort_unstable();
-    let node: HashMap<u64, u32> = ids
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i as u32))
-        .collect();
-    let mut lists: Vec<Vec<u32>> = ids.iter().map(|_| Vec::new()).collect();
-    for r in rows(&at(".e")) {
-        let (u, v) = (node[&r[0]], node[&r[1]]);
-        lists[u as usize].push(v);
-        lists[v as usize].push(u);
-    }
-    let (mut offsets, mut targets) = (Vec::from([0_u64]), Vec::new());
-    for mut l in lists {
-        l.sort_unstable();
-        l.dedup();
-        targets.extend(l);
-        offsets.push(targets.len() as u64);
-    }
-    let csr = Csr::new(&offsets, &targets).unwrap();
-    let memory = Memory::unlimited();
-    for sample in [true, false] {
-        let options = WccOptions {
-            sample,
-            ..WccOptions::default()
+fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
+    let ds = Dataset::open(dir).expect("data set");
+    let g = ds.load().expect("graph");
+    let merged = g
+        .directed
+        .then(|| merge_directions(g.out.lists(), g.inn()).0);
+    let targets_file = tmp.join(format!("{}-{}.targets", std::process::id(), ds.name));
+    let mut rows = Vec::new();
+    for a in ds.algorithms() {
+        let lists = match (a, &merged) {
+            (Algorithm::Pr, _) if g.directed => continue,
+            (Algorithm::Bfs | Algorithm::Pr, _) | (Algorithm::Wcc, None) => &g.out,
+            (Algorithm::Wcc, Some(m)) => m,
+            _ => continue,
         };
-        let labels = Plan::with(&csr, &memory, Settings::default(), |plan| {
-            let (l, _) = wcc(&plan, &memory, options).unwrap();
-            l.into_iter().map(AtomicU32::into_inner).collect::<Vec<_>>()
+        let bytes: Vec<u8> = lists.targets.iter().flat_map(|t| t.to_le_bytes()).collect();
+        std::fs::write(&targets_file, bytes).expect("write targets");
+        let file = FileSource::open(&targets_file).expect("open targets");
+        let raw = Csr::new(&lists.offsets, &lists.targets).expect("csr");
+        let streamed = Stream::new(&lists.offsets, &file).expect("stream");
+        let mut first: Option<Values> = None;
+        let kernels: &[(&str, Production)] = if a == Algorithm::Wcc {
+            &[
+                ("proof", None),
+                ("cc", Some(true)),
+                ("cc-one-pass", Some(false)),
+            ]
+        } else {
+            &[("proof", None)]
+        };
+        let configs = kernels.iter().flat_map(|&k| {
+            [("raw", 1), ("raw", 8), ("stream", 1), ("stream", 8)].map(|(s, t)| (k, s, t))
         });
-        let mut checked = 0;
-        for r in rows(&at("-WCC")) {
-            let v = node[&r[0]] as usize;
-            assert_eq!(ids[labels[v] as usize], r[1], "{name}: vertex {}", r[0]);
-            checked += 1;
+        for ((kernel, production), name, threads) in configs {
+            let got = if name == "raw" {
+                run_on(&raw, production, threads, &ds, &g, a)
+            } else {
+                run_on(&streamed, production, threads, &ds, &g, a)
+            };
+            if let Ok(v) = &got {
+                let same = first.get_or_insert_with(|| v.clone()) == v;
+                assert!(
+                    same,
+                    "{} {}: {kernel} on {name} at {threads} threads differs",
+                    ds.name,
+                    a.name()
+                );
+            }
+            rows.push(row(
+                &ds,
+                &g.ids,
+                a,
+                &format!("{kernel}/{name}/{threads}"),
+                got,
+                0.0,
+            ));
         }
-        assert_eq!(checked, ids.len(), "{name}: one reference row per vertex");
     }
-    eprintln!(
-        "{name}: {} vertices, {} entries, labels equal",
-        ids.len(),
-        targets.len()
-    );
+    let _ = std::fs::remove_file(&targets_file);
+    rows
 }
 
 #[test]
-fn wcc_matches_ldbc_graphalytics() {
-    let Some(dir) = std::env::var_os("EVERYGRAPH_LDBC_GRAPHS") else {
-        eprintln!("EVERYGRAPH_LDBC_GRAPHS is not set: nothing checked");
+fn kernels_match_the_ldbc_reference_outputs() {
+    let Some(root) = std::env::var_os("EVERYGRAPH_LDBC_GRAPHS") else {
+        eprintln!("EVERYGRAPH_LDBC_GRAPHS is not set: no LDBC data set checked");
         return;
     };
-    let dir = Path::new(&dir);
-    for name in [
-        "example-directed",
-        "example-undirected",
-        "test-wcc-directed",
-        "test-wcc-undirected",
-    ] {
-        check(dir, name);
+    let max_edges: u64 = std::env::var("EVERYGRAPH_LDBC_MAX_EDGES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1 << 27);
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+        .expect("LDBC directory")
+        .map(|e| e.expect("entry").path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    let mut checked = 0;
+    for dir in dirs {
+        let (_, edges) = Dataset::open(&dir)
+            .expect("data set")
+            .declared_size()
+            .expect("size");
+        if edges > max_edges {
+            eprintln!("{}: skipped, {edges} edges", dir.display());
+            continue;
+        }
+        for r in check_dataset(&dir, &tmp) {
+            eprintln!("  {}", r.describe());
+            // The lab's PageRank, which these kernels port, needs symmetric lists; directed
+            // graphs were skipped above. Everything else must match.
+            assert_eq!(r.status(), "match", "{}", r.describe());
+            checked += 1;
+        }
     }
-    if !cfg!(debug_assertions) {
-        check(dir, "dota-league");
-        check(dir, "graph500-22");
-    }
+    assert!(checked > 0, "no (graph, kernel) pair checked");
+    eprintln!("{checked} (graph, algorithm, configuration) rows match LDBC");
 }

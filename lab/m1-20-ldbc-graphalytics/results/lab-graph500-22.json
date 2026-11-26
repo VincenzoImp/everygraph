@@ -1,0 +1,70 @@
+{
+  "chunk_entries": 65536,
+  "graph": "graph500-22",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 655622144,
+  "rows": [
+    {
+      "algorithm": "bfs",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "lab-bfs-do/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 0.020088175,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "lab-pr-f64/ldbc",
+      "max_rel_error": 2.9517251992628467e-14,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.330028244,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "lab-pr-f32/ldbc",
+      "max_rel_error": 4.843157752377289e-6,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.243035921,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "lab-wcc-afforest/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.023959483,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "lab-wcc-stream/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.029589081,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}

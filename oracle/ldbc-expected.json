@@ -1,0 +1,41 @@
+{
+  "_note": "Expected outcomes of `everygraph-oracle ldbc` on the LDBC Graphalytics test graphs (registry dataset ldbc-test) and the two S-class graphs. A row not listed here is gated only if its implementation is `spec`, which must always match. A change of outcome fails the run: a mismatch that goes away is news too. These are not LDBC Benchmark Results. Issue #177.",
+  "causes": {
+    "pr/oracle": "The oracle's PageRank is the fixed point (docs/spec/graph-semantics.md § 5.1, Q13); LDBC stops after the data set's iteration count (2 on the example graphs). The two agree where the count is large enough for the iteration to converge to 1e-4 (test-pr-*: 14 and 26 iterations).",
+    "lcc/oracle": "The oracle's clustering is defined on the undirected projection (§ 5.3, S3): 2 T / (k (k - 1)). LDBC's directed LCC counts arcs between neighbours (specification § 2.3.5), so on a directed graph it lies between half of ours and ours, equal only where every linked pair of neighbours has both arcs. Equal on undirected graphs.",
+    "cdlp/first-seen": "Label propagation with initial labels in order of first appearance in the edge file, not in vertex-id order: ties then go to a different label. Shows that design/DECISIONS.md 'Label propagation follows LDBC CDLP' holds only if 'original key order' is increasing id order for integer keys.",
+    "cdlp/oracle": "The oracle has no label propagation yet (m4-09)."
+  },
+  "outcomes": {
+    "dota-league/cdlp/first-seen": "match",
+    "graph500-22/cdlp/first-seen": "mismatch",
+    "example-directed/bfs/oracle": "match",
+    "example-directed/cdlp/first-seen": "mismatch",
+    "example-directed/cdlp/oracle": "skipped",
+    "example-directed/lcc/oracle": "mismatch",
+    "example-directed/pr/oracle": "mismatch",
+    "example-directed/sssp/oracle": "match",
+    "example-directed/wcc/oracle": "match",
+    "example-undirected/bfs/oracle": "match",
+    "example-undirected/cdlp/first-seen": "match",
+    "example-undirected/cdlp/oracle": "skipped",
+    "example-undirected/lcc/oracle": "match",
+    "example-undirected/pr/oracle": "mismatch",
+    "example-undirected/sssp/oracle": "match",
+    "example-undirected/wcc/oracle": "match",
+    "test-bfs-directed/bfs/oracle": "match",
+    "test-bfs-undirected/bfs/oracle": "match",
+    "test-cdlp-directed/cdlp/first-seen": "mismatch",
+    "test-cdlp-directed/cdlp/oracle": "skipped",
+    "test-cdlp-undirected/cdlp/first-seen": "mismatch",
+    "test-cdlp-undirected/cdlp/oracle": "skipped",
+    "test-lcc-directed/lcc/oracle": "mismatch",
+    "test-lcc-undirected/lcc/oracle": "match",
+    "test-pr-directed/pr/oracle": "match",
+    "test-pr-undirected/pr/oracle": "match",
+    "test-sssp-directed/sssp/oracle": "match",
+    "test-sssp-undirected/sssp/oracle": "match",
+    "test-wcc-directed/wcc/oracle": "match",
+    "test-wcc-undirected/wcc/oracle": "match"
+  }
+}
