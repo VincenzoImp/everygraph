@@ -22,6 +22,11 @@ use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source};
 use everygraph_kernels::proof;
 
+/// The golden vectors of the core's numerics, from the core's own test file, so that
+/// wasm32 computes exactly what the native tests check.
+#[path = "../../../crates/everygraph-core/tests/numerics_golden.rs"]
+pub mod golden;
+
 /// Bytes per edge in the generated edge list: two little-endian `u32` node ids.
 const EDGE_BYTES: usize = 8;
 
@@ -187,4 +192,12 @@ pub extern "C" fn everygraph_toy_kernels_hash(nodes: u32, edges: u32, seed: u64)
 #[unsafe(no_mangle)]
 pub extern "C" fn everygraph_toy_degree_hash(nodes: u32, edges: u32, seed: u64) -> u64 {
     degree_hash(nodes, edges, seed)
+}
+
+/// Digest `index` of [`golden::digests`]. A plain C ABI export, like the one above.
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub extern "C" fn everygraph_toy_golden_digest(index: u32) -> u64 {
+    let index = usize::try_from(index).expect("u32 fits in usize");
+    golden::digests()[index].1
 }

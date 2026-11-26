@@ -53,6 +53,9 @@ ALLOWED_DEPENDENCIES = {
     "crossbeam-epoch",
     "crossbeam-utils",
     "either",
+    # The transcendentals of `everygraph_core::math`: arithmetic only, no I/O, no
+    # dependencies of its own.
+    "libm",
 }
 
 # The only conditions code in everygraph-core may be compiled under. Each one is

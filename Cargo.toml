@@ -10,11 +10,10 @@ exclude = ["lab"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-# MSRV: 1.87, raised from 1.85 on 2026-11-25 because the fix for RUSTSEC-2026-0344 in
-# ruzstd (0.9.1, used by the text reader) needs it. 1.85 was the first release with
-# edition 2024 and the MSRV-aware resolver.
-# Policy for raising it: CONTRIBUTING.md, "Rust version".
-rust-version = "1.87"
+# MSRV: 1.100, the first release with a stable `std::alloc::Allocator`, which the memory
+# accountant's page backend needs (issue #167). History and policy: CONTRIBUTING.md,
+# "Rust version".
+rust-version = "1.100"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/VincenzoImp/everygraph"
 # Nothing is published until the release issue (#105) lifts this, crate by crate.
@@ -79,6 +78,12 @@ uninlined_format_args = "warn"
 redundant_closure_for_method_calls = "warn"
 explicit_iter_loop = "warn"
 cloned_instead_of_copied = "warn"
+
+# Style lints that the MSRV turns on: let chains for nested `if let`, and `as_chunks`
+# for `chunks_exact` with a constant size (both stable since 1.88). The workspace keeps
+# one form of each, the older one.
+collapsible_if = "allow"
+chunks_exact_to_as_chunks = "allow"
 
 [profile.release]
 # Shipped builds: whole-program optimization, and no `target-cpu=native` anywhere in the
