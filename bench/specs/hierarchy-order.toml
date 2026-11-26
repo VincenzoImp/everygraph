@@ -1,0 +1,216 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #23 (m1-09), widened by docs/research/README.md B2: an ordering bake-off. Lab code
+# lab/m1-09-hierarchy-order (`m109`), the lab Leiden of lab/b2-leiden (`b2`, for the
+# hierarchies), and webgraph-cli 0.5.0 (`webgraph run llp`, for LLP and the BV sizes).
+#
+# Groups, in the order they must run (later groups read what earlier ones leave in {work}):
+#   leiden  the Leiden hierarchy of each graph (lab b2, 16 threads, gamma 1, natural and
+#           cap 64 "map-shaped"): time and modularity
+#   order   every order of every graph: the time to compute it (one repetition; the
+#           permutation is the same at every repetition and thread count)
+#   eval    per graph and order: permute and re-encode (timed), our codec's bits per entry
+#           (codec 0, index included), the log-gap cost, the locality score (bits over the
+#           random-list bound 2 + log2(n/d)), and the proof kernels (PageRank f32 20
+#           iterations, direction-optimizing BFS from the largest-degree node, Afforest WCC)
+#           on the original and the reordered graph as interleaved A/B runs in one process,
+#           16 threads, 5 repetitions each after one untimed run. The B/A ratios are the
+#           result; the answers on B are checked against A's (BFS depths and component
+#           partitions exactly, PageRank to 1e-3 of the largest rank).
+#   bv      BV bits per arc of each order (webgraph default flags), lj and orkut only
+#
+# Sources of the kernels: lj and orkut raw CSR and compressed (both in the heap);
+# twitter-sym raw CSR, original targets memory-mapped (warm after the untimed run) and the
+# reordered ones in the heap; friendster compressed only, both in the heap (two raw copies
+# do not fit next to the encoder in 32 GiB).
+#
+# Wall time, from exploratory runs on a loaded machine (2026-11-26, load 25-57;
+# lab/m1-09-hierarchy-order/results): leiden ~10 min (Friendster ~4 min); order: BP lj 74 s,
+# orkut 282 s, twitter-sym and Friendster see the README; LLP lj 64 s, orkut 361 s; eval
+# about 1 min per small case, several per big case; bv ~20 s per small case. Sum: see the
+# README (estimate; an idle machine should be faster). Run the groups in separate windows
+# with --only if needed, in order.
+#
+#   everygraph-bench run hierarchy-order --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "hierarchy-order"
+description = "Issue #23: node orderings against our codec, the log-gap cost and the proof kernels"
+reference = "plan/issues/m1-09-hierarchy-order.md; docs/research/sota-storage.md challenges 1, 5, 7"
+binaries = ["{m109}", "{b2}", "{webgraph}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 1
+warmup = 0
+threads = [16]
+timeout = "60m"
+
+[gate]
+max_load = 1.0
+disturbed_above_cores = 0.5
+disturbed_above_io_mb_s = 50
+
+[vars]
+lab = "{repo}/lab/m1-09-hierarchy-order"
+m109 = "{lab}/target/release/m109"
+b2 = "{repo}/lab/b2-leiden/target-w32/release/b2"
+webgraph = "{work}/{spec}/wg/bin/webgraph"
+w = "{work}/{spec}"
+
+[[prepare]]
+name = "build-m109"
+cwd = "{lab}"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+
+[[prepare]]
+name = "build-b2"
+cwd = "{repo}/lab/b2-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked", "--features", "w32", "--target-dir", "target-w32"]
+
+[[prepare]]
+name = "webgraph-cli"
+creates = "{webgraph}"
+shell = "CARGO_TARGET_DIR={w}/wg-target cargo install webgraph-cli --version 0.5.0 --locked --offline --root {w}/wg"
+
+[[prepare]]
+name = "bv-identity"
+memory_limit = "8G"
+creates = "{w}/bv/orkut/identity.dcf"
+needed_by = ["order-llp", "bv"]
+shell = "for g in lj orkut; do mkdir -p {w}/bv/$g && n=$(python3 -c \"import json;print(json.load(open('{data}/csr/'+'$g'+'/meta.json'))['n'])\") && {m109} arcs --graph {data}/csr/$g | {webgraph} from arcs --num-nodes $n {w}/bv/$g/identity && {webgraph} build ef {w}/bv/$g/identity && {webgraph} build dcf {w}/bv/$g/identity || exit 1; done"
+
+# --- leiden ----------------------------------------------------------------------------
+
+[[benchmark]]
+name = "leiden"
+group = "leiden"
+description = "the Leiden hierarchy whose DFS order is the hier* orders (lab b2, written to {work})"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym", "friendster"], variant = ["natural", "cap64"] }
+exclude = [{ graph = "friendster", variant = "cap64" }]
+memory_limit = "36G"
+shell = "rm -rf {w}/hier/{graph}-{variant} && mkdir -p {w}/hier && {b2} run --graph {dataset} --algo leiden --threads {threads} $(test {variant} = cap64 && echo --cap 64 --max-passes 20) --min-ratio 3 --lowmem --no-quot --out-hier {w}/hier/{graph}-{variant} --json {case_work}/leiden.json > /dev/null && cat {case_work}/leiden.json"
+conditions = { graph = "{graph}", algorithm = "Leiden (lab b2), gamma 1, async, 1 iteration, levels kept if they shrink 3x", variant = "{variant}" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+]
+primary = "seconds"
+
+# --- order -----------------------------------------------------------------------------
+
+[[benchmark]]
+name = "order"
+group = "order"
+description = "orders computed by m109 (seeded, deterministic)"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym", "friendster"], method = ["random", "dbg", "bfs", "flat", "hier", "hier-deg", "hier-bfs", "bp"] }
+exclude = [{ graph = "friendster", method = "flat" }, { graph = "friendster", method = "hier-deg" }, { graph = "friendster", method = "hier-bfs" }]
+memory_limit = "32G"
+shell = "mkdir -p {w}/perm/{graph} && {m109} order --graph {dataset} --method {method} --hier {w}/hier/{graph}-natural --seed 1 --threads {threads} --out {w}/perm/{graph}/{method}.perm"
+conditions = { graph = "{graph}", order = "{method}", seed = "1", bp = "random start, depth floor(log2 n) - 5, 20 iterations, cooling 1 per iteration" }
+metric = [{ name = "seconds", json = "/order_s", unit = "s" }]
+primary = "seconds"
+
+[[benchmark]]
+name = "order-cap64"
+group = "order"
+description = "the DFS order of the cap-64 (map-shaped) hierarchy"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut", "twitter-sym"] }
+memory_limit = "24G"
+shell = "mkdir -p {w}/perm/{graph} && {m109} order --graph {dataset} --method hier --hier {w}/hier/{graph}-cap64 --threads {threads} --out {w}/perm/{graph}/hier-cap64.perm"
+conditions = { graph = "{graph}", order = "hier-cap64" }
+metric = [{ name = "seconds", json = "/order_s", unit = "s" }]
+primary = "seconds"
+
+[[benchmark]]
+name = "order-llp"
+group = "order"
+description = "LLP through webgraph-cli 0.5.0 (default gammas, seed 1); wall time of the tool"
+matrix = { graph = ["lj", "orkut"] }
+memory_limit = "12G"
+shell = "mkdir -p {w}/perm/{graph} && s=$(date +%s.%N) && TMPDIR={case_work} {webgraph} run llp -t {threads} -s 1 --fmt java {w}/bv/{graph}/identity {case_work}/llp.java > {case_work}/llp.log 2>&1 && e=$(date +%s.%N) && {m109} frombin --perm {case_work}/llp.java --out {w}/perm/{graph}/llp.perm && python3 -c \"print('{{\\\"order_s\\\": ' + str($e - $s) + '}}')\""
+conditions = { graph = "{graph}", order = "llp", tool = "webgraph-cli 0.5.0 run llp" }
+metric = [{ name = "seconds", json = "/order_s", unit = "s" }]
+
+# --- eval ------------------------------------------------------------------------------
+
+[[benchmark]]
+name = "eval-social"
+group = "eval"
+description = "lj and orkut: bits, log-gap cost, locality score; kernels raw and compressed, A/B"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], order = ["identity", "random", "dbg", "bfs", "flat", "hier", "hier-deg", "hier-bfs", "hier-cap64", "llp", "bp"] }
+shell = "p={w}/perm/{graph}/{order}.perm; test {order} = identity && p=identity; {m109} eval --graph {dataset} --perm $p --name {order} --threads {threads} --reps 5 --sources raw,compressed"
+conditions = { graph = "{graph}", order = "{order}", kernels = "proof kernels, A = original ids, B = reordered, interleaved, 5 reps", storage = "raw CSR and codec 0, both in the heap" }
+metric = [
+  { name = "bits_per_entry", json = "/bits_per_entry" },
+  { name = "loggap", json = "/loggap" },
+  { name = "locality_ratio", json = "/locality_ratio" },
+  { name = "permute_s", json = "/permute_s", unit = "s" },
+  { name = "encode_s", json = "/encode_s", unit = "s" },
+  { name = "pr_raw_ratio", json = "/kernels/0/ratio_b_over_a" },
+  { name = "bfs_raw_ratio", json = "/kernels/1/ratio_b_over_a" },
+  { name = "wcc_raw_ratio", json = "/kernels/2/ratio_b_over_a" },
+  { name = "pr_compressed_ratio", json = "/kernels/3/ratio_b_over_a" },
+  { name = "bfs_compressed_ratio", json = "/kernels/4/ratio_b_over_a" },
+  { name = "wcc_compressed_ratio", json = "/kernels/5/ratio_b_over_a" },
+]
+primary = "bits_per_entry"
+
+[[benchmark]]
+name = "eval-twitter"
+group = "eval"
+description = "twitter-sym: bits, log-gap cost, locality score; kernels raw, A/B"
+dataset_path = "csr/twitter-sym"
+matrix = { order = ["identity", "random", "dbg", "bfs", "flat", "hier", "hier-deg", "hier-bfs", "hier-cap64", "bp"] }
+memory_limit = "28G"
+shell = "p={w}/perm/twitter-sym/{order}.perm; test {order} = identity && p=identity; {m109} eval --graph {dataset} --perm $p --name {order} --threads {threads} --reps 5 --mmap 1 --sources raw"
+conditions = { graph = "twitter-sym", order = "{order}", kernels = "proof kernels, A = original ids (targets mmap, warm), B = reordered (heap), interleaved, 5 reps", storage = "raw CSR" }
+metric = [
+  { name = "bits_per_entry", json = "/bits_per_entry" },
+  { name = "loggap", json = "/loggap" },
+  { name = "locality_ratio", json = "/locality_ratio" },
+  { name = "permute_s", json = "/permute_s", unit = "s" },
+  { name = "encode_s", json = "/encode_s", unit = "s" },
+  { name = "pr_raw_ratio", json = "/kernels/0/ratio_b_over_a" },
+  { name = "bfs_raw_ratio", json = "/kernels/1/ratio_b_over_a" },
+  { name = "wcc_raw_ratio", json = "/kernels/2/ratio_b_over_a" },
+]
+primary = "bits_per_entry"
+
+[[benchmark]]
+name = "eval-friendster"
+group = "eval"
+description = "friendster: bits, log-gap cost, locality score; kernels compressed, A/B"
+dataset_path = "csr/friendster"
+matrix = { order = ["identity", "random", "dbg", "bfs", "hier", "bp"] }
+memory_limit = "32G"
+shell = "p={w}/perm/friendster/{order}.perm; test {order} = identity && p=identity; {m109} eval --graph {dataset} --perm $p --name {order} --threads {threads} --reps 5 --mmap 1 --sources compressed"
+conditions = { graph = "friendster", order = "{order}", kernels = "proof kernels, A = original ids, B = reordered, interleaved, 5 reps", storage = "codec 0 in the heap" }
+metric = [
+  { name = "bits_per_entry", json = "/bits_per_entry" },
+  { name = "loggap", json = "/loggap" },
+  { name = "locality_ratio", json = "/locality_ratio" },
+  { name = "permute_s", json = "/permute_s", unit = "s" },
+  { name = "encode_s", json = "/encode_s", unit = "s" },
+  { name = "pr_compressed_ratio", json = "/kernels/0/ratio_b_over_a" },
+  { name = "bfs_compressed_ratio", json = "/kernels/1/ratio_b_over_a" },
+  { name = "wcc_compressed_ratio", json = "/kernels/2/ratio_b_over_a" },
+]
+primary = "bits_per_entry"
+
+# --- bv --------------------------------------------------------------------------------
+
+[[benchmark]]
+name = "bv"
+group = "bv"
+description = "BV bits per arc of each order (webgraph from arcs, default flags)"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], order = ["identity", "random", "dbg", "bfs", "flat", "hier", "hier-deg", "hier-bfs", "hier-cap64", "llp", "bp"] }
+shell = "n=$(python3 -c \"import json;print(json.load(open('{dataset}/meta.json'))['n'])\"); p=\"--perm {w}/perm/{graph}/{order}.perm\"; test {order} = identity && p=; {m109} arcs --graph {dataset} $p | {webgraph} from arcs --num-nodes $n {case_work}/g > /dev/null 2>&1 && python3 -c \"import json,os;print(json.dumps({{'bv_bits_per_arc': 8 * os.path.getsize('{case_work}/g.graph') / json.load(open('{dataset}/meta.json'))['entries']}}))\""
+conditions = { graph = "{graph}", order = "{order}", codec = "BV (webgraph-cli 0.5.0 defaults)" }
+metric = [{ name = "bv_bits_per_arc", json = "/bv_bits_per_arc" }]

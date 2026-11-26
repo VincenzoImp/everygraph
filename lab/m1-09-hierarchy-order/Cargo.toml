@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+
+[package]
+name = "m109"
+version = "0.0.1"
+edition = "2024"
+description = "Issue #23 (m1-09): node orderings against our codec, the log-gap cost and the proof kernels"
+publish = false
+
+# Standalone research package: not a member of the product workspace at the repository root.
+[workspace]
+
+[[bin]]
+name = "m109"
+path = "src/main.rs"
+
+[dependencies]
+everygraph-core = { path = "../../crates/everygraph-core" }
+everygraph-format = { path = "../../crates/everygraph-format" }
+everygraph-kernels = { path = "../../crates/everygraph-kernels" }
+memmap2 = "0.9"
+rayon = "1"
+
+# The workspace's release profile, and no target-cpu=native: codec and kernels as they ship.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+debug = 1
