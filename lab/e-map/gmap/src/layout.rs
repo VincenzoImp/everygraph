@@ -23,6 +23,9 @@ pub struct Params {
     /// centroid of their members in this external layout (no force solve, packing only)
     pub seed_pos: Option<Vec<[f32; 2]>>,
     pub seed_depth: u8,
+    /// m1-18: after packing, rotate (and maybe mirror) the siblings as one rigid body so
+    /// that children face the already-placed regions their external edges go to
+    pub orient: bool,
 }
 
 /// Where a parent's children start before packing.
@@ -111,8 +114,9 @@ fn merge(mut a: Acc, b: Acc) -> Acc {
     a
 }
 
-/// Dense force-directed layout of k circles in the unit disc. Returns (x, y, r) and area retention.
-fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], seed: u64, iters: usize, shrink: bool, start: Start) -> Vec<[f32; 3]> {
+/// Layout of k circles in the unit disc: a start (dense force solve, stress, or given
+/// positions), then overlap removal and packing. Returns (x, y, r) per circle.
+fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32], seed: u64, iters: usize, shrink: bool, start: Start, orient: bool) -> Vec<[f32; 3]> {
     if k == 1 {
         return vec![[0.0, 0.0, rad[0]]];
     }
@@ -268,6 +272,9 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
             break;
         }
     }
+    if orient {
+        rotate_to_outside(&mut px, &mut py, ew, &ax, &ay);
+    }
     let mut out = Vec::with_capacity(k);
     for i in 0..k {
         let mut r = rad[i];
@@ -287,6 +294,31 @@ fn fr(k: usize, rad: &[f32], dense: &[u32], ew: &[f32], eux: &[f32], euy: &[f32]
         out.push([px[i], py[i], r]);
     }
     out
+}
+
+/// Rigid rotation, or mirror then rotation, of positions in the unit disc that maximizes
+/// sum_i ew_i * (p_i . u_i), u_i = mean unit vector from the parent's centre to child i's
+/// external neighbours. Closed form: for a rotation by t the sum is cos(t) A + sin(t) B.
+/// Distances between siblings and containment in the disc do not change.
+fn rotate_to_outside(px: &mut [f32], py: &mut [f32], ew: &[f32], ux: &[f32], uy: &[f32]) {
+    let ab = |m: f32| {
+        let (mut a, mut b) = (0f64, 0f64);
+        for i in 0..px.len() {
+            let (x, y, w) = ((m * px[i]) as f64, py[i] as f64, ew[i] as f64);
+            a += w * (x * ux[i] as f64 + y * uy[i] as f64);
+            b += w * (x * uy[i] as f64 - y * ux[i] as f64);
+        }
+        (a, b)
+    };
+    let (a1, b1) = ab(1.0);
+    let (a2, b2) = ab(-1.0);
+    let (m, a, b) = if a2.hypot(b2) > a1.hypot(b1) { (-1.0, a2, b2) } else { (1.0, a1, b1) };
+    let t = b.atan2(a);
+    let (c, s) = (t.cos() as f32, t.sin() as f32);
+    for i in 0..px.len() {
+        let x = m * px[i];
+        (px[i], py[i]) = (c * x - s * py[i], s * x + c * py[i]);
+    }
 }
 
 fn radii(sizes: &[f32], phi: f32) -> Vec<f32> {
@@ -473,7 +505,7 @@ fn process(c: &Ctx, p: u32) -> Res {
             _ if c.prm.stress => Start::Stress,
             _ => Start::Force,
         };
-        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, seed, c.prm.iters, !leafp, start);
+        let lay = fr(k, &rad, &acc.dense, &acc.ew, &acc.eux, &acc.euy, seed, c.prm.iters, !leafp, start, c.prm.orient);
         c.t_fr.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
         let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
         let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
@@ -517,7 +549,7 @@ fn process(c: &Ctx, p: u32) -> Res {
     c.t_group.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let t2 = Instant::now();
     let rad = radii(&gs, c.prm.phi);
-    let lay = fr(g, &rad, &d, &gew, &gux, &guy, seed, c.prm.iters, true, if c.prm.stress { Start::Stress } else { Start::Force });
+    let lay = fr(g, &rad, &d, &gew, &gux, &guy, seed, c.prm.iters, true, if c.prm.stress { Start::Stress } else { Start::Force }, c.prm.orient);
     c.t_fr.fetch_add(t2.elapsed().as_nanos() as u64, Ordering::Relaxed);
     let a0: f64 = rad.iter().map(|&r| (r * r) as f64).sum();
     let a1: f64 = lay.iter().map(|l| (l[2] * l[2]) as f64).sum();
@@ -722,6 +754,7 @@ pub fn run() {
         stress: a.get("solve").is_some_and(|v| v == "stress"),
         seed_pos: a.get("seed-pos").map(|f| read_vec(f)),
         seed_depth: argf(&a, "seed-depth", 1.0) as u8,
+        orient: a.contains_key("orient"),
     };
     std::fs::create_dir_all(&out).unwrap();
     let t_all = Instant::now();

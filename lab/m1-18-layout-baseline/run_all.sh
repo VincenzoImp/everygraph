@@ -4,7 +4,7 @@
 # under a hard memory limit, scores every layout with the same metrics.py, and writes
 # results/runs/<layout>_<graph>.json (what ran, time, memory) and results/metrics/*.json.
 #
-#   ./run_all.sh [setup] [layouts] [metrics]          (default: all three)
+#   ./run_all.sh [setup] [layouts] [ab] [metrics]          (default: all four)
 #
 # Threads: 8 for every multi-threaded CPU tool; FM3 and sfdp are single-threaded; FA2 runs
 # on the GPU (cuGraph), as a reference only. Timings are exploratory unless the machine is idle.
@@ -18,7 +18,7 @@ E=$S/env/tools
 PY="$E/bin/python -I"
 RP="$S/env/rapids/bin/python -I"
 GM=$S/target/release/gmap
-STEPS=${*:-setup layouts metrics}
+STEPS=${*:-setup layouts ab metrics}
 mkdir -p "$S"/{dl/gt,src,build,work,out,pos,logs} "$R"/{runs,metrics}
 
 lim() { # lim GRAPH LIMIT NAME TAG=V... -- CMD: run CMD in a memory-limited scope, record time and memory
@@ -68,7 +68,7 @@ fi
 if [[ $STEPS == *layouts* ]]; then
   for g in lj orkut; do
     n=$(python3 -c "import json;print(json.load(open('$D/csr/$g/meta.json'))['n'])")
-    for v in "hcl:" "hcls:--solve stress"; do
+    for v in "hcl:" "hcls:--solve stress" "hclo:--orient" "hclso:--solve stress --orient"; do
       nm=${v%%:*}; opt=${v#*:}
       lim $g 8G $nm tool="gmap layout $opt" -- env GMAP_THREADS=$T "$GM" layout --graph "$D/csr/$g" \
         --hier "$D/hier/$g" --out "$S/out/${nm}_$g" --phi 0.72 $opt
@@ -83,11 +83,13 @@ if [[ $STEPS == *layouts* ]]; then
     [ -f "$S/out/drgraph_$g.txt" ] && $PY "$L/topos.py" drgraph "$S/out/drgraph_$g.txt" "$n" "$S/pos/drgraph_$g.f32"
   done
   # diagnostic: our layout with the top tree levels started from DRGraph's community centroids
-  for d in 1 3; do
-    lim lj 8G hclg$d tool="gmap layout --seed-pos drgraph --seed-depth $d" -- env GMAP_THREADS=$T "$GM" layout \
-      --graph "$D/csr/lj" --hier "$D/hier/lj" --out "$S/out/hclg${d}_lj" --phi 0.72 \
-      --seed-pos "$S/pos/drgraph_lj.f32" --seed-depth $d
-    cp "$S/out/hclg${d}_lj/pos.f32" "$S/pos/hclg${d}_lj.f32"
+  for g in lj orkut; do
+    for d in 1 3; do
+      lim $g 8G hclg$d tool="gmap layout --seed-pos drgraph --seed-depth $d" -- env GMAP_THREADS=$T "$GM" layout \
+        --graph "$D/csr/$g" --hier "$D/hier/$g" --out "$S/out/hclg${d}_$g" --phi 0.72 \
+        --seed-pos "$S/pos/drgraph_$g.f32" --seed-depth $d
+      cp "$S/out/hclg${d}_$g/pos.f32" "$S/pos/hclg${d}_$g.f32"
+    done
   done
   # lj only: the tools that did not fit or did not finish there are not tried on orkut
   lim lj 24G fm3 tool="OGDF FMMMLayout" version=ogdf/ogdf@foxglove-202510 threads=1 \
@@ -105,6 +107,19 @@ if [[ $STEPS == *layouts* ]]; then
   [ -n "$f" ] && $PY "$L/topos.py" batchlayout "$f" 3997962 "$S/pos/batchlayout_lj.f32"
 fi
 
+if [[ $STEPS == *ab* ]]; then
+  # interleaved A/B, force solve against stress solve, 3 rounds: the time ratio, not absolute times
+  : > "$R/ab_lj.jsonl"
+  for r in 1 2 3; do
+    for v in "hcl:" "hcls:--solve stress"; do
+      nm=${v%%:*}; opt=${v#*:}
+      systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 env GMAP_THREADS=$T "$GM" layout \
+        --graph "$D/csr/lj" --hier "$D/hier/lj" --out "$S/out/${nm}_lj_ab" --phi 0.72 $opt 2>/dev/null |
+        python3 -c "import json,sys;j=json.load(sys.stdin);print(json.dumps({'layout':'$nm','rep':$r,**{k:j[k] for k in ('threads','layout_s','cpu_fr_s','cpu_scan_s','area_retention','peak_rss_mb')}}))" >> "$R/ab_lj.jsonl"
+    done
+  done
+fi
+
 if [[ $STEPS == *metrics* ]]; then
   for p in "$S"/pos/*.f32; do
     b=$(basename "$p" .f32); nm=${b%_*}; g=${b##*_}
@@ -114,7 +129,7 @@ if [[ $STEPS == *metrics* ]]; then
       echo "metrics $nm on $g failed"
   done
   for g in lj orkut; do
-    args=(); for nm in hcl hcls hclg1 drgraph fa2 batchlayout random; do
+    args=(); for nm in hcl hcls hclo hclso hclg1 hclg3 drgraph fa2 batchlayout random; do
       [ -f "$S/pos/${nm}_$g.f32" ] && args+=("$nm=$S/pos/${nm}_$g.f32"); done
     systemd-run --user --scope -q -p MemoryMax=12G -p MemorySwapMax=0 nice -n 10 \
       $PY "$L/crosslevel.py" "$D/csr/$g" "$D/hier/$g" "$R/crosslevel_$g.json" "${args[@]}" > /dev/null

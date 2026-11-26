@@ -36,4 +36,17 @@ for lv in range(len(json.load(open(f"{h}/hier.json"))["levels"])):
         row[nm] = {"inside_median_ratio": float(np.median(el[~x]) / r), "across_median_ratio": float(np.median(el[x]) / r)}
     levels.append(row)
     print(json.dumps(row), flush=True)
-json.dump({"graph": g, "hier": h, "levels": levels}, open(out, "w"), indent=1)
+# Geometry of the 10 largest top-level regions: how far their centroids sit from the
+# layout's centre, and how far their members sit from their own centroid.
+cnt = np.bincount(c)
+big = np.argsort(-cnt, kind="stable")[:10]
+top = {}
+for arg in sys.argv[4:]:
+    nm, path = arg.split("=", 1)
+    p = np.fromfile(path, dtype=np.float32).reshape(-1, 2).astype(np.float64)
+    r = lay[nm][1]
+    cen = np.stack([np.bincount(c, p[:, 0]), np.bincount(c, p[:, 1])], 1) / cnt[:, None]
+    top[nm] = {"centroid_to_centre_median_ratio": float(np.median(np.hypot(*(cen[big] - p.mean(0)).T)) / r),
+               "member_to_centroid_median_ratio": float(np.median([np.median(np.hypot(*(p[c == k] - cen[k]).T)) for k in big]) / r)}
+    print(nm, json.dumps(top[nm]), flush=True)
+json.dump({"graph": g, "hier": h, "levels": levels, "top_level_10_largest": top}, open(out, "w"), indent=1)
