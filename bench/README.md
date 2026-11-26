@@ -31,6 +31,7 @@ everygraph-bench run headline --only kernels-orkut --repetitions 1   # explorato
 everygraph-bench run headline --official     # an official run (see below)
 everygraph-bench report bench/results/headline/*.jsonl --json chart.json
 everygraph-bench report --compare A.jsonl B.jsonl --max-diff 0.05
+everygraph-bench run SPEC --interleave --seed 1 --compare-by build=main   # an A/B
 everygraph-bench clean
 ```
 
@@ -155,6 +156,31 @@ therefore needs a warm-up run (`warmup = 1`), so that every measured repetition 
 from the same, sustained drive state; otherwise the first repetition is faster than the
 others by a third (Friendster ingest, 2026-11-25).
 
+**Order: consecutive or interleaved.** By default each case's repetitions run back to
+back, the cases in spec order. `run --interleave [--seed S]` runs in rounds instead
+(randomized multiple interleaved trials: Abedi and Brecht, ICPE'17): round *r* runs
+every case with at least *r* repetitions once. Odd rounds take a new random order from
+the seed; each even round reverses the round before it, so two cases run A B B A or
+B A A B and slow drift weighs on both alike. Every row records `seed`, `round` and
+`position`. A case's warm-ups run just before its first repetition; a case whose
+warm-up fails leaves the later rounds. Interleaving changes the drive state and the
+cold copy each repetition starts from: a spec with cold-cache cases must opt in with
+`interleave = true`, and `interleave = false` forbids it (both refuse with exit 3).
+Interleave every A/B (CLAUDE.md § 6): put the two binaries or settings in a matrix
+variable and add `--compare-by VAR=BASELINE` to get the ratio after the run.
+
+**Repetitions and intervals.** The report gives each median with an exact rank interval
+`[x(j), x(n+1-j)]` at the largest `j` whose confidence, `1 - 2 P(Binomial(n, 1/2) < j)`,
+is at least 95% (Le Boudec, 2010, Theorem 2.1; Hoefler and Belli, SC'15). It holds for
+any continuous distribution. Below 6 counted repetitions no interval reaches 95%: the
+report then shows `[min, max]` and its confidence (75% for 3) and says "no 95%
+interval". The default is therefore 6 repetitions (`repetitions = 3` stays allowed).
+The column `n for ±2%` (`--target` to change it) estimates the repetitions a 95%
+interval within ±2% of the primary metric's median needs: `(1.96 · sqrt(π/2) · σ / (h ·
+median))²`, with σ = 1.4826 × the median absolute deviation, at least 6. It is a
+normal-theory estimate; `tests/stats.rs` checks all three statistics on normal,
+lognormal and exponential samples.
+
 **What a row ran.** Every row records the spec's SHA-256 and path, the SHA-256 of each
 binary the spec declares (`binaries`) and of the program of an argument-list command,
 and a digest of its dataset's listing (relative path, size and modification time of
@@ -188,11 +214,12 @@ schema = 1
 name = "demo"
 description = "what it measures"
 reference = "where the numbers it reproduces are published"   # optional
+interleave = true          # optional: allow --interleave with cold cases; false forbids it
 binaries = ["{glab}"]      # hashed into every row (top-level keys come before tables)
 
 [defaults]                 # inherited by every benchmark
 memory_limit = "8G"        # required here or in each benchmark; systemd syntax, 1024-based
-repetitions = 3
+repetitions = 6            # default 6: the fewest with a 95% median interval
 warmup = 1                 # default 1 for warm cache, 0 for cold
 cache = "warm"             # or "cold"
 cold_copies = 2
@@ -262,12 +289,13 @@ Metrics the harness measures for every row: `wall_seconds`, `user_seconds`,
 One JSON object per line, one line per repetition, written as each finishes. Schema
 version 1 (`schema`); the fields, from `harness::row::Row`. A field added later is read
 with a default from rows written before it, and keeps the version (so far: `warmup` and
-`io.unknown`, #142, both absent or `null` meaning what older rows meant):
+`io.unknown`, #142; `seed`, `round` and `position`, #195; all absent or `null` meaning
+what older rows meant):
 
 - identity: `run_id`, `spec`, `spec_sha256`, `spec_path`, `official`, `case`,
   `benchmark`, `group`, `vars`, `runner`, `repetition`, `repetitions`, `warmup` (the
   number of the failed warm-up a row records, with `repetition` 0; `null` otherwise),
-  `started_at`;
+  `seed`, `round`, `position` (of an interleaved run; `null` otherwise), `started_at`;
 - outcome: `status` (`ok`, `failed`, `timeout`, `oom`, `not_cold`, `left_processes`,
   `unavailable`, `harness_error`) and `error`;
 - where: `machine` (CPU model, cores, threads, SMT, memory, kernel, governors, boost,
@@ -293,16 +321,30 @@ with a default from rows written before it, and keeps the version (so far: `warm
 `everygraph-bench report FILES…` prints, per run, a header (official or exploratory,
 machine, revision) and one table per group: for each case its conditions, threads,
 memory limit and cache state, how many repetitions count and why the others do not,
-then each metric as `median (min–max)`, and the reference check. Then the benchmarks
+the confidence of their median intervals, the repetitions needed for ±2%, then each
+metric as `median [low, high]`, and the reference check. Then the benchmarks
 not run (with their reasons), the rows that did not complete, the estimate coverage,
 and the verdict on the references: `k within, j off, m unchecked`. A reference whose
 case has no counted repetition (all disturbed or failed) is unchecked, never a pass;
 the report exits 1 if any reference is off or unchecked. `--json FILE` writes the same
-numbers as chart-ready series (one per case and metric, with conditions and values).
-`--compare` puts the primary metric of each case side by side across runs, against
-the first: only official runs of the same spec (same SHA-256) on the same machine are
-compared, each case needs at least two counted repetitions in every run, and the
-command exits 1 when a difference reaches `--max-diff` or a case is not comparable.
+numbers as chart-ready series (one per case and metric, with conditions, values,
+interval, confidence and repetitions needed).
+
+`--compare` gives, for the primary metric, the ratio of medians (case / baseline) with a
+95% percentile-bootstrap interval (10,000 seeded resamples, each side resampled on its
+own; Efron and Tibshirani, 1993, § 13.3). A pair passes when the interval lies within
+1 ± δ; δ is `--max-diff` (default 0.05), or the case's entry in `--deltas FILE`. Two
+modes:
+- across runs, each later run against the first: only official runs of the same spec
+  (same SHA-256) on the same machine. To calibrate δ, compare two official runs of one
+  revision (an A/A comparison) with `--write-deltas FILE`: it writes, per case, the
+  smallest δ its interval meets, rounded up to 0.1%.
+- `--by VAR=BASELINE`, within each run: the cases with that matrix value against those
+  that differ from them only in `VAR`. Exploratory runs are allowed here: their ratios,
+  never their times, may be quoted (CLAUDE.md § 3).
+
+Each side needs at least two counted repetitions; the command exits 1 when an interval
+leaves 1 ± δ or a pair is not comparable.
 
 ## Comparison runners
 
