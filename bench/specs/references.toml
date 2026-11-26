@@ -49,7 +49,9 @@
 # The orkut window of the review's experiment F4, validation first:
 #   everygraph-bench run references --official --only validate/on=orkut --data /home/tux/graphlab/data
 #   everygraph-bench run references --official --only graph=orkut/t1 --only leiden-gve/graph=orkut --repetitions 6 --data /home/tux/graphlab/data
-# The whole spec (an estimate: several hours, from the exploratory runs' wall times):
+# About 3 h, an estimate (32 min per repetition of the orkut cases in an exploratory
+# pass on a loaded machine, lab/m3-12-reference-runs/results/once.jsonl).
+# The whole spec (about 8 h at 3 repetitions, an extrapolation from the same pass):
 #   everygraph-bench run references --official --data /home/tux/graphlab/data
 # The preparation downloads the sources and wheels the first time (the network is needed
 # then) and writes about 120 GB of converted graphs under {work}/refs.
