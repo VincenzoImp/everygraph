@@ -1,0 +1,14 @@
+== Determinism: hash_levels per (graph, iterations, variant) over all thread counts and rounds
+  friendster it1       auto: IDENTICAL {'2a12e5882874c38d': [8, 16]}
+  friendster it1       L16k: IDENTICAL {'4b062e29d507e109': [16]}
+  friendster it1       L64k: IDENTICAL {'fe95529b65bab316': [8, 16]}
+
+== Per variant (medians over rounds). ratio_async: det time / async time at the same threads, in-block; ratio_auto: time / auto time, in-block
+graph  it    variant thr  n  time_s   lm_s  ref_s  agg_s r_async r_auto speedup        Q  comms disc passes iters capped  work par_sr seq_sr subs
+friendster  1       auto   8  1 245.899 141.863 35.136 66.456     nan   1.00     nan   0.6055  44641    0      6    31      0   5.1   None   None [0]
+friendster  1       auto  16  1 171.955 101.267 23.208 45.359    1.44   1.00     nan   0.6055  44641    0      6    31      0   5.1   None   None [0]
+friendster  1       L16k  16  1 178.138 100.969 26.147 48.802    1.49   1.04     nan   0.6057  44965    0      6    44      1   5.1   None   None [0]
+friendster  1       L64k   8  1 243.495 146.285 36.336 58.980     nan   0.99     nan   0.6057  44803    0      6    50      1   5.1   None   None [0]
+friendster  1       L64k  16  1 157.197 89.199 22.341 43.754    1.31   0.91     nan   0.6057  44803    0      6    50      1   5.1   None   None [0]
+friendster  1      async  16  1 119.646 64.347 14.764 38.832    1.00   0.70     nan   0.6057  30386    0      6    34      0   6.0   None   None [0]
+
