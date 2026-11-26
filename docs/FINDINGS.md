@@ -359,14 +359,14 @@ is the level-1 quotient graph (22–44% of input entries). Friendster: Leiden in
 iteration at 16 threads takes 82.4 s on raw arrays and 82.0 s on the compressed default
 (one repetition each, Q 0.6050 / 0.6008; § M1-13, `leiden_big.jsonl`). The two times are
 not comparable with each other as a speed-up: different thread count and machine state. Louvain under a hard 16 GiB limit completes in 109.6 s with 3.8 GiB anonymous, but
-the partition is poor (Q 0.4647, undiagnosed). *Not reproduced (2026-11-25, § M1-01, idle):*
+the partition is poor (Q 0.4647; explained in § M1-03: concurrent moves of heavy coarse vertices). *Not reproduced (2026-11-25, § M1-01, idle):*
 plain Louvain under 16 GiB again (async, 1 iteration, f32 weights, `--lowmem`, 32 threads,
 as here; this time on an idle machine and with level compaction `--min-ratio 3`) gave
 Q 0.6038 with 33,306 communities, the largest 19.8 M nodes, against 35,682 and 33.4 M here
 (`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` row 15;
 `lab/m1-01-tracer/results/b2_louvain_plain_16G.json`;
-`lab/b2-leiden/results/big/friendster_louvain_semiext16g.json`). One run each, cause not
-diagnosed (#17). Scaled-down semi-external test (orkut,
+`lab/b2-leiden/results/big/friendster_louvain_semiext16g.json`). Both runs are draws from one
+distribution, not a difference of flags or limits: § M1-03 (#17). Scaled-down semi-external test (orkut,
 limit ≈ edge array): 5.6× slower; below it, 51× slower or OOM. **Semi-external community
 detection is not yet a product feature:** aggregation needs a sequential sort/bucket
 implementation and the level-1 graph must be budgeted or spilled.
@@ -990,7 +990,7 @@ on lj (map-shaped Louvain, 8 threads), not on Friendster.
   layout took 69.6 s with 17.7 GiB anonymous and the tiles 244.5 s for a 6.84 GB file, on
   this hierarchy, with 56 GiB. § E is corrected in place.
 - **The § B2 Louvain figure was not reproduced:** plain Louvain under 16 GiB gave Q 0.6038
-  here against 0.4647 (one run each, not diagnosed; § B2 is annotated). This run's passes
+  here against 0.4647 (one run each; § M1-03 explains both). This run's passes
   1–3 converged in 6, 3 and 7 iterations; in the § B2 run passes 1–4 each hit the
   20-iteration cap (`b2_louvain_plain_16G.json`,
   `lab/b2-leiden/results/big/friendster_louvain_semiext16g.json`).
@@ -1455,3 +1455,78 @@ at 24G,** before either produced a layout.
 - No layout reaches ADR 0017's trigger "orkut ratio below 0.05" (DRGraph 0.070).
 - Cost, exploratory: ours 4–12 s and ≤ 1.2 GB; DRGraph 700 s and 7.0 GB on lj, 919 s and
   18.4 GB on orkut (the paper's figure).
+
+## M1-03 — the async Louvain collapse on Friendster (#17; 2026-11-26, shared machine)
+
+**Every timing in this section is exploratory** (load average 1–79). Q values are lab results.
+Async results depend on thread timing, so they are reported over many runs. Code: `lab/b2-leiden`
+(new flags `--trace`, `--dump-level1`, `--order-seed`, `--heavy`, `--rollback`, `--true-stop`;
+defaults unchanged, lj 1-thread hash `4614ee3ca1c6b9b1`) and `--heavy` in `lab/m1-02-ooc-leiden`.
+Write-up and every row: `lab/m1-03-louvain-collapse/` (README, `results/*.jsonl`). At most
+16 threads; limits 16G or 24G for Friendster, 8G for the rest.
+
+**Cause: concurrent moves of a few heavy vertices on the coarse levels.** After pass 0 on
+Friendster, three level-1 vertices hold 24.3%, 22.8% and 18.8% of the total volume 2m; 8 hold
+more than 1%, 61 more than 0.1% (`results/L1-t16-meta.json`, the dump of `results/dump.jsonl`).
+Their scans are the longest of the level, so different threads decide them at the same time.
+Two of them join the same community, each on a total that does not contain the other. The
+pair loses 2·k_u·k_v/(2m)² of modularity. In the next iteration one leaves again, and the cycle
+repeats. The claimed gain stays above the tolerance, so the pass runs to the 20-iteration cap,
+and the final Q depends on where in the cycle the cap stops. Example: in a replay, vertices of
+26.6% and 2.3% of 2m enter the same community in one iteration (Q 0.6033 → 0.5811), leave it
+in the next (→ 0.6034), and repeat until the cap (`results/heavy-moves-replay.log`). The § B2
+row (0.4647) and the § M1-01 row (0.6038) are two draws from one distribution.
+
+**Reproduction.**
+- Full graph, async Louvain, 1 iteration, w32 build, 16 threads: § B2 flags and tracer flags
+  interleaved, 5 runs each under 16G and 24G. Q 0.2913–0.6075; 4 of 20 runs below 0.55; the
+  worst ends with a 41.0 M-node community. 17 of 20 runs show a merge of two giants inside a
+  coarse pass (top community's share of 2m from 0.27 to 0.46–0.80) (`results/full.jsonl`).
+- Minimal: the level-1 graph of one run (1,163,162 vertices, 11,254,644 entries) replayed from
+  pass 1 on, under 2 s per run. 1 thread: Q 0.6030–0.6036 over 10 visiting orders, no pass at
+  the cap. 8 threads: min 0.4873 (w32) and 0.5918 (f64), 10 runs each. 16 threads: 25 of 140
+  runs below 0.55 (`results/replay-base.jsonl`, `replay-t16.jsonl`,
+  `replay-t16-guards-q0.jsonl`).
+
+**Ruled out.** f32 quotient weights: f64 and w32 give the same distribution at 16 threads
+(mean 0.5787 and 0.5755, 50 runs each) and identical results at 1 thread. Page-cache thrash
+under 16 GiB: runs collapse under 24G too, and in-RAM replays collapse. `--min-ratio 3`:
+level compaction runs after `run()` and only composes levels. Machine state: collapses happen
+in replays at load average ~2 and in full runs at 15–50. The deterministic mode: 0.6036 in
+every replay, also with 2, 4, 16, 64 sub-rounds and #18's L64k rule (these oscillate: passes
+hit the cap, but they did not collapse; 1 run each, printed by hand, README § 3).
+
+**Guards on the 16-thread replay** (40 runs each, w32; `results/replay-t16-guards.jsonl`,
+`replay-t16-guards-q0.jsonl`, `replay-heavy-threads.jsonl`):
+
+| guard | Q mean [min, max] | passes at the cap (mean) |
+|---|---|---|
+| none (50 runs) | 0.5755 [0.4456, 0.6037] | 2.2 |
+| iteration cap 5 | 0.5643 [0.4134, 0.6036] | 3.6 |
+| stop on the true gain | 0.5325 [0.2289, 0.6016] | 0 |
+| rollback of an iteration that lowers Q | 0.6011 [0.5923, 0.6036] | 0 |
+| heavy rule, θ = 0.01 | 0.6034 [0.6033, 0.6036] | 0 |
+| heavy rule, θ = 0.001 | 0.6034 [0.6034, 0.6034] | 0 |
+| heavy rule, θ = 0.001, 4 and 8 threads, f64 and w32 (80 runs) | 0.6034 [0.6034, 0.6034] | 0 |
+
+**The heavy-vertex rule.** In each asynchronous sweep, vertices with k_u > θ·2m are skipped by
+the parallel sweep and visited by one thread after it. At most 1/θ vertices qualify, and no two
+of them move at the same time; a race between two light vertices misjudges a gain by at most
+2θ². On full Friendster runs with θ = 0.001: Q 0.5996–0.6089, 6 of 6 runs, no pass at the cap
+(`results/full-heavy.jsonl`). No vertex of Friendster level 0 qualifies (largest degree 5,214,
+1.4·10⁻⁶ of 2m). Its cost was not measured. Replays with it took a median 0.17 s against
+0.51 s without, because passes converge (exploratory, trace included).
+
+**Other graphs and Leiden.** On lj and orkut (6 visiting orders per cell, 1/4/16 threads) no
+pass reaches the cap, and the rule does not change Q beyond the order spread
+(`results/small.jsonl`, `small-heavy.jsonl`). The orkut Leiden "drift" (0.6836 at 1 thread,
+0.6743 at 32) is visiting-order variance: at 1 thread, the order alone spans 0.6631–0.6836
+(0.6836 is today's order); the 16-thread mean is 0.0003 below the 1-thread mean. Async
+Leiden on Friendster (m102, out of core, 24G, 16 threads): Q 0.6044–0.6066 in 3 runs without the
+rule and 0.6045–0.6056 in 3 with it, no pass at the cap (`results/leiden-ooc.jsonl`). Six runs
+cannot exclude a rare collapse.
+
+**Consequence for #57:** the asynchronous `fast` mode may ship only with the heavy-vertex rule
+(θ = 0.001), in Louvain and Leiden local moving. The iteration cap stays as a bound on work,
+not as a guard. Not done: 32 threads, unlimited memory, an idle full-graph run, the rule in
+the deterministic branch, θ other than 0.01 and 0.001, non-social graphs.

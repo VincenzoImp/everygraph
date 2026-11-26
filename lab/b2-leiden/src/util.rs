@@ -337,11 +337,17 @@ impl Graph {
         let off = mo.as_ptr() as *const u64;
         let tgt = mt.as_ptr() as *const u32;
         assert_eq!(unsafe { *off.add(n) } as usize, entries);
-        // optional weights (f32, one per entry)
-        let wgt = std::fs::read(format!("{}/weights.f32", dir)).ok().map(|b| {
-            assert_eq!(b.len(), entries * 4);
-            b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as W).collect::<Vec<W>>()
-        });
+        // optional weights, one per entry: weights.f64 (m1-03 dumps) or weights.f32
+        let wgt = match std::fs::read(format!("{}/weights.f64", dir)) {
+            Ok(b) => {
+                assert_eq!(b.len(), entries * 8);
+                Some(b.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap()) as W).collect::<Vec<W>>())
+            }
+            Err(_) => std::fs::read(format!("{}/weights.f32", dir)).ok().map(|b| {
+                assert_eq!(b.len(), entries * 4);
+                b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as W).collect::<Vec<W>>()
+            }),
+        };
         Graph { n, off, tgt, wgt, entries, _own: Own::Map(mo, mt) }
     }
     pub fn from_vecs(n: usize, off: Vec<u64>, tgt: Vec<u32>, wgt: Option<Vec<W>>) -> Graph {
