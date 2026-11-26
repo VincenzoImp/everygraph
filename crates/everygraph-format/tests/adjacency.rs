@@ -146,6 +146,9 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
             assert_eq!(batch.targets(), all);
+            let mut part = vec![0; all.len()];
+            adj.decode_lists(r.clone(), &mut part).unwrap();
+            assert_eq!(part, all, "{name} decode_lists {r:?}");
         }
         let (mut o, mut t) = (vec![u64::MAX; n + 1], vec![0u32; targets.len()]);
         adj.decode_all(&mut o, &mut t).unwrap();

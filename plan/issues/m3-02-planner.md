@@ -7,7 +7,7 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 
 **Rules to implement (each from a measurement)**
 - State does not fit the budget → refuse with the minimum budget. The planner may switch by itself only between strategies that give the identical result (e.g. streaming union-find instead of the in-memory WCC kernel); a variant that changes the result (f32 state) is never substituted: it is offered in the refusal as a way forward, and only where it exists (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises")
-- Decode tier (ADR 0004): compressed for every kernel; build the raw cache only if R + S ≤ M with headroom and the session repeats traversals or point lookups past the break-even (arithmetic on #118's measurements: about 6–7 BFS runs at 16 threads, 280–970 shortest-path queries, 0.85–8.7 M neighbour lookups, orkut to Friendster); never for PageRank, WCC, k-core, triangles, Leiden; if raw does not fit and compressed does, stay compressed (raw through mmap 1.2–5.4× slower on scans)
+- Decode tier (ADR 0004): compressed for every kernel; build the raw cache only if R + S ≤ M with headroom and the session repeats traversals or point lookups past the break-even (arithmetic on #118's measurements: about 6–7 BFS runs at 16 threads, 280–970 shortest-path queries, 0.85–8.7 M neighbour lookups, orkut to Friendster; for the production BFS with parents, decoded into new arrays as the planner does, 2.3–5.6 runs on orkut and 1.8–3.1 on lj, exploratory, PR #249, until the official `planner-*` run of `bench/specs/edge-map.toml`); a BFS cut at a depth never builds the copy; never for PageRank, WCC, k-core, triangles, Leiden; if raw does not fit and compressed does, stay compressed (raw through mmap 1.2–5.4× slower on scans)
 - Budget below the compressed size → semi-external streams (fixed RSS 1.3–1.5 GB on Friendster) or mmap under pressure (same speed, RSS = limit); prefer streams when a hard bound was requested or storage is not fast local NVMe
 - Threads per kernel class: physical cores for memory-bound scans (PageRank, components, BFS and k-core gained nothing from 16 → 32 threads); all hardware threads for compute-bound kernels (triangles 2.51 → 1.46 s, Louvain on orkut 0.88 → 0.65 s); fewer for tiny inputs (parallel parse of a small file was slower at 32 threads)
 - Thrashing is a refusal, not a slow death (added 2026-11-25, `docs/research/sota-io-memory.md` C3; rule measured by {{#m2-19-allocator-policy}}'s monitor experiment): when file refaults in one pass exceed about one file's size, the stage is stopped with a refusal that names the regime that would work. The tracer ran 460–648 s before being killed (`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` rows 9, 11–12)
@@ -21,6 +21,15 @@ labels: type:feature, area:engine, P0, risk:medium, size:L, lab-evidence
 - [ ] Lookup before compute: a result on the whole graph is looked up with `Container::find_result` before it is computed and stored with `Writer::add_result` after ({{#m2-12-artifact-cache}}); `explain()` shows the reuse, the phase is shown as `kept` and `meta["cached"]` is `True` (`docs/api-sketch.md` § 2.8)
 - [ ] Plan recorded in result provenance
 - [ ] Plans and refusals as `docs/ux-contract.md` § 3: documents valid against its closed plan, error and event schemas; only ways forward that exist (P-15); a budget above the machine's memory is a usage error (P-16), one above free memory is honoured with a line (P-17), memory-backed scratch counts against the budget (P-18); estimate and actual in each result's provenance (P-9)
+
+**Built by PR #249 (part of this issue)**: `everygraph_kernels::planner` and `run::execute`; the regime, the decode tier with its break-even, threads, advice per phase, overrides, refusals with the exact smallest budget over thread counts, the plan and error documents and `explain`; the machine probe in `everygraph-io`. Left:
+- The 10% criterion below: measured in {{#m3-22-performance-pass}}
+- The plan and the actual figures in result provenance (P-9): {{#m3-23-plan-in-provenance}}
+- Thrashing as a refusal: {{#m3-24-thrashing-refusal}}
+- The bandwidth probe, and the device under btrfs, ZFS and overlayfs: {{#m3-25-storage-probe}}
+- Allocations outside the budget, and tighter bounds for components and k-core: {{#m3-26-kernel-memory-bounds}}
+- The callers: the command line through `planner::plan` and `run::execute` ({{#m8-12-cli-rest}}), and Python ({{#m6-01-python-api}})
+- Streams ({{#m3-03-semi-external}}), the block cache ({{#m2-23-block-cache}}) and views ({{#m7-04-views}}) when they exist
 
 **Acceptance**
 - On the lab machine the planner's choice is within 10% of the best manually chosen configuration for PageRank, WCC and BFS on orkut, twitter-sym and Friendster at budgets of 2, 8, 16 GiB and unlimited

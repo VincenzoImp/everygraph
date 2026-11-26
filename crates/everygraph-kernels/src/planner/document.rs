@@ -99,8 +99,6 @@ fn regime_name(r: Regime) -> &'static str {
     match r {
         Regime::InMemory => "in_memory",
         Regime::Mapped => "mapped",
-        Regime::Streamed => "streamed",
-        Regime::OnDisk => "on_disk",
     }
 }
 
@@ -170,8 +168,9 @@ pub(super) fn unsupported(op: &Operation, reason: &'static str) -> Refusal {
     }
 }
 
-/// P-13: the plan's state and buffers do not fit its budget.
-pub(super) fn refusal(plan: &Plan) -> Refusal {
+/// P-13: the plan's state and buffers do not fit its budget, even on one thread when
+/// the planner chose `first` threads.
+pub(super) fn refusal(plan: &Plan, first: std::num::NonZeroUsize) -> Refusal {
     let cost = &plan.cost;
     let machine = plan.machine.memory.map(|m| m.total());
     let smallest = plan.peak;
@@ -185,7 +184,15 @@ pub(super) fn refusal(plan: &Plan) -> Refusal {
     let bytes_each = state / cost.nodes.max(1);
     let mut ways = Vec::new();
     if possible {
-        ways.push(budget_way(op, smallest, "the smallest budget that works"));
+        let note = if plan.threads < first {
+            format!(
+                "the smallest budget that works, on {} threads",
+                plan.threads
+            )
+        } else {
+            "the smallest budget that works".to_owned()
+        };
+        ways.push(budget_way(op, smallest, &note));
     } else {
         let at_least = format!("a machine with at least {} of memory", typed(smallest));
         ways.push(Way {
@@ -214,8 +221,13 @@ pub(super) fn refusal(plan: &Plan) -> Refusal {
             });
         }
     }
+    let what = if cost.raw > 0 {
+        "per-node state and the raw copy of the edges"
+    } else {
+        "per-node state"
+    };
     let mut why = format!(
-        "{} needs {} for per-node state ({} nodes × {} bytes).",
+        "{} needs {} for {what} ({} nodes × {} bytes).",
         op.name(),
         size(state),
         count(cost.nodes),
@@ -230,7 +242,9 @@ pub(super) fn refusal(plan: &Plan) -> Refusal {
         )),
         _ => why.push_str(&format!(" The budget is {}.", size(plan.budget))),
     }
-    why.push_str(" The edges stay on disk either way.");
+    if cost.raw == 0 {
+        why.push_str(" The edges stay on disk either way.");
+    }
     Refusal {
         error: "InsufficientBudget",
         operation: op.name(),

@@ -10,7 +10,7 @@
 //!
 //! ```text
 //! edge_map_bench encode --graph DIR --out STORE
-//! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|stream
+//! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|rawcopy|stream
 //!     --kernel pr32|pr64|eig|wcc|cc|cc-one-pass|kcore|bfs|bfs-parents|msbfs|sssp|decode
 //!     --threads T [--reps R]
 //!     [--iters I] [--chunk ENTRIES] [--batch ENTRIES] [--costs uniform|skewed|file]
@@ -22,7 +22,8 @@
 //! Afforest (first neighbours only, `proof`), `cc` the components of #48 with hybrid
 //! sampling, `cc-one-pass` the same without sampling. Sources: `raw`,
 //! arrays read into the heap; `compressed`, the store's data part read into the heap;
-//! `mmap`, the data part memory-mapped (warm after the first repetition); `stream`,
+//! `mmap`, the data part memory-mapped (warm after the first repetition); `rawcopy`, the
+//! planner's decode tier (`RawCopy`, decoded from the map once); `stream`,
 //! the raw targets read through the page cache with positional reads.
 
 #![forbid(unsafe_code)]
@@ -47,7 +48,7 @@ use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::components::{WccOptions, wcc};
-use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
+use everygraph_kernels::edge_map::{Compressed, Csr, Plan, RawCopy, Settings, Source, Stream};
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{Eigenvector, Graph, PageRank, Real, eigenvector, strength};
 use everygraph_kernels::proof;
@@ -247,17 +248,23 @@ fn time_plan<S: Source>(
 /// `decode`: the whole adjacency decoded into raw arrays, the planner's decode tier (#45).
 fn time_decode(adj: &Adjacency<'_>, a: &Args) -> (Vec<f64>, u64, String) {
     let reps: usize = a.get("reps").map_or(3, |s| s.parse().expect("--reps"));
-    let index = adj.index();
-    let mut offsets = vec![0_u64; index.nodes() as usize + 1];
-    let mut targets = vec![0_u32; index.entries() as usize];
+    let memory = Memory::from(std::sync::Arc::new(
+        everygraph_core::Budget::unlimited().with_pages(everygraph_io::PAGES),
+    ));
     let mut secs = Vec::new();
+    let mut held = 0;
     for _ in 0..reps {
+        // As the planner builds it: new arrays from the budget's pages, each time.
         let t = Instant::now();
-        adj.decode_all(&mut offsets, &mut targets).expect("decode");
+        let raw = RawCopy::decode(adj, &memory).expect("decode");
         secs.push(t.elapsed().as_secs_f64());
+        held = raw.held();
     }
-    let hash = fnv(targets.iter().map(|&x| u64::from(x)));
-    (secs, hash, format!("{{\"entries\": {}}}", targets.len()))
+    (
+        secs,
+        held,
+        format!("{{\"entries\": {}}}", adj.index().entries()),
+    )
 }
 
 /// The graph as `PageRank` pulls it: the benchmark graphs are undirected.
@@ -324,13 +331,13 @@ fn run(a: &Args) {
             let load = t.elapsed().as_secs_f64();
             (load, time(&csr, a, settings))
         }
-        "compressed" | "mmap" => {
+        "compressed" | "mmap" | "rawcopy" => {
             let (index, data) = store_paths(Path::new(&a["store"]));
             let index = std::fs::read(&index)
                 .unwrap_or_else(|e| panic!("{}: {e} (run `encode` first)", index.display()));
             let index = AdjacencyIndex::parse(&index).expect("an index");
             let map = MmapSource::open(&data).expect("map");
-            let mapped = source == "mmap";
+            let mapped = source != "compressed";
             let heap = if mapped {
                 Vec::new()
             } else {
@@ -340,6 +347,11 @@ fn run(a: &Args) {
                 let bytes = if mapped { map.mapped() } else { &heap[..] };
                 let adj = Adjacency::new(&index, bytes).expect("data part");
                 return (t.elapsed().as_secs_f64(), time_decode(&adj, a));
+            }
+            if source == "rawcopy" {
+                let adj = Adjacency::new(&index, map.mapped()).expect("data part");
+                let raw = RawCopy::decode(&adj, &Memory::unlimited()).expect("decode");
+                return (t.elapsed().as_secs_f64(), time(&raw, a, settings));
             }
             let adj = if mapped {
                 Compressed::mapped(&index, &map).expect("data part")

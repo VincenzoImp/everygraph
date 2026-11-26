@@ -408,6 +408,7 @@ fn kernel_failure(
             format!("{} cannot be done on {}.", op.name(), graph.display()),
             &format!("{}: {why}.", op.name()),
         ),
+        RunError::Threads(e) => failure::internal(&format!("Cannot start the threads: {e}.")),
         RunError::Refused(r) => Failure::new(r.error, r.message, failure::NO_MEMORY)
             .why(vec![r.why])
             .ways(

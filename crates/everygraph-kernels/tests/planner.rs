@@ -3,12 +3,14 @@
 //! The planner (#45) through `run::execute`, on the oracle's CI corpus:
 //!
 //! - every choice it can make — tier, regime, threads, advice — gives the bits of the
-//!   in-memory run on raw arrays (DESIGN D14);
+//!   in-memory run on raw arrays (DESIGN D14), the mapped regime reading a memory map of
+//!   a file;
 //! - a plan's peak bounds what the run reserves, and at a budget of exactly the
 //!   smallest budget it names the run fits, while one byte less is refused before any
-//!   work;
-//! - a session decodes the raw copy after the break-even count of traversals, not
-//!   before;
+//!   work; the smallest budget is the one of the fewest threads;
+//! - a session decodes the raw copy after the break-even count of traversals, counts
+//!   the copy in every later plan, drops it when it does not fit or belongs to another
+//!   graph, and serves a kept result by the lookup the plan was made with;
 //! - plan and error documents are valid against the closed schemas of
 //!   `docs/ux-contract.md`.
 
@@ -20,18 +22,22 @@
     clippy::disallowed_methods,
     clippy::disallowed_types,
     clippy::print_stderr,
-    reason = "test code: small graphs; the schemas are read from the docs; the run on real graphs prints what it measured"
+    reason = "test code: small graphs; files for the mapped source and the schemas; the runs on real graphs print what they measured"
 )]
 
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use everygraph_core::{
-    AccessHint, Budget, Memory, MemorySource, Storage, StorageKind, SystemMemory, par,
+    AccessHint, Budget, ByteSource, Memory, MemorySource, Storage, StorageKind, SystemMemory, par,
 };
 use everygraph_format::adjacency::{AdjacencyIndex, encode};
-use everygraph_kernels::edge_map::{Csr, Plan as Lanes, Settings};
+use everygraph_format::container::{Container, Kind, Provenance, Writer};
+use everygraph_io::MmapSource;
+use everygraph_kernels::edge_map::{Csr, Plan as Lanes, RawCopy, Settings};
 use everygraph_kernels::pagerank::PageRank;
 use everygraph_kernels::planner::{
     self, Force, Graph, Machine, Origin, Plan, Regime, Request, Tier, advice, break_even,
@@ -62,21 +68,58 @@ fn machine() -> Machine {
     }
 }
 
-/// The adjacency of a test graph, encoded as a graph file holds it.
+type File = Container<MemorySource<Vec<u8>>>;
+
+/// A graph file in memory whose graph is the adjacency index `index`, keeping the
+/// result `kept` of an operation.
+fn graph_file(index: &[u8], kept: Option<(&Operation, &Output)>) -> File {
+    let mut w = Writer::create(MemorySource::new(Vec::new())).unwrap();
+    w.add_section("adjacency.out.index", Kind::ADJACENCY_INDEX, index, None)
+        .unwrap();
+    if let Some((op, out)) = kept {
+        let graph = w.graph_identity();
+        run::store(&mut w, op, graph, &Provenance::default(), out).unwrap();
+    }
+    w.commit().unwrap();
+    Container::open(w.into_sink()).unwrap()
+}
+
+/// The adjacency of a test graph, encoded as a graph file holds it: its data part in
+/// the heap, and memory-mapped from a file.
 struct Stored {
     offsets: Vec<u64>,
     targets: Vec<u32>,
+    index_bytes: Vec<u8>,
     index: AdjacencyIndex,
+    file: File,
     data: MemorySource<Vec<u8>>,
+    map: MmapSource,
+    path: PathBuf,
     directed: bool,
+}
+
+impl Drop for Stored {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 impl Stored {
     fn new(offsets: Vec<u64>, targets: Vec<u32>, directed: bool) -> Self {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
         let encoded = encode(&offsets, &targets).unwrap();
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("kernels-planner");
+        std::fs::create_dir_all(&dir).unwrap();
+        let k = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!("{}-{k}.data", std::process::id()));
+        std::fs::write(&path, &encoded.data).unwrap();
         Self {
             index: AdjacencyIndex::parse(&encoded.index).unwrap(),
+            file: graph_file(&encoded.index, None),
+            index_bytes: encoded.index,
             data: MemorySource::new(encoded.data),
+            map: MmapSource::open(&path).unwrap(),
+            path,
             offsets,
             targets,
             directed,
@@ -93,10 +136,13 @@ impl Stored {
         Self::new(l.offsets, l.targets, p.directed)
     }
 
-    fn lists(&self) -> Lists<'_> {
+    /// The lists, their data part in the heap or `mapped` from the file.
+    fn lists(&self, mapped: bool) -> Lists<'_, MemorySource<Vec<u8>>> {
+        let data: &(dyn ByteSource + Sync) = if mapped { &self.map } else { &self.data };
         Lists {
+            file: &self.file,
             index: &self.index,
-            data: &self.data,
+            data,
             directed: self.directed,
         }
     }
@@ -115,7 +161,7 @@ impl Stored {
     }
 
     /// `op` on raw arrays in the heap, 1 thread, no budget: the reference.
-    fn in_memory(&self, op: &Operation) -> Result<Vec<u64>, RunError> {
+    fn in_memory(&self, op: &Operation) -> Result<Output, RunError> {
         let csr = Csr::new(&self.offsets, &self.targets).unwrap();
         let memory = Memory::unlimited();
         par::with_threads(threads(1), || {
@@ -124,7 +170,6 @@ impl Stored {
             })
         })
         .unwrap()
-        .map(|o| bits(&o))
     }
 }
 
@@ -180,8 +225,30 @@ fn request(memory: u64, force: Force) -> Request {
     }
 }
 
-/// Plans `op` under `budget` with `force`, runs it on the plan's threads in a budget of
-/// that size, and returns its bits with the plan and the budget's peak.
+/// Plans `op` under `budget` with `force` for `session`, and runs it in `memory`; the
+/// mapped regime reads the memory map.
+fn planned_in(
+    s: &Stored,
+    op: &Operation,
+    budget: u64,
+    force: Force,
+    session: &mut Session,
+    memory: &Memory,
+) -> (Plan, Result<Vec<u64>, RunError>) {
+    let heap = s.lists(false);
+    let plan = planner::plan(
+        op,
+        &s.graph(),
+        &machine(),
+        &session.request(&heap, request(budget, force)),
+    )
+    .unwrap();
+    let lists = s.lists(plan.regime() == Regime::Mapped);
+    let out = execute(&plan, &lists, memory, session).map(|o| bits(&o));
+    (plan, out)
+}
+
+/// As [`planned_in`], in a budget of `budget` bytes of its own; with the budget's peak.
 fn planned(
     s: &Stored,
     op: &Operation,
@@ -189,20 +256,9 @@ fn planned(
     force: Force,
     session: &mut Session,
 ) -> (Plan, Result<Vec<u64>, RunError>, u64) {
-    let plan = planner::plan(
-        op,
-        &s.graph(),
-        &machine(),
-        &session.request(request(budget, force)),
-    )
-    .unwrap();
     let accountant = Arc::new(Budget::new(budget));
     let memory = Memory::from(Arc::clone(&accountant));
-    let out = par::with_threads(plan.threads(), || {
-        execute(&plan, s.lists(), &memory, session)
-    })
-    .unwrap()
-    .map(|o| bits(&o));
+    let (plan, out) = planned_in(s, op, budget, force, session, &memory);
     (plan, out, accountant.peak())
 }
 
@@ -229,7 +285,7 @@ fn check(name: &str, s: &Stored) -> usize {
             );
             continue;
         }
-        let reference = reference.unwrap_or_else(|e| panic!("{name} {}: {e}", op.name()));
+        let reference = bits(&reference.unwrap_or_else(|e| panic!("{name} {}: {e}", op.name())));
         for tier in [Tier::Compressed, Tier::Raw] {
             for regime in [Regime::InMemory, Regime::Mapped] {
                 for t in [1, 3] {
@@ -255,15 +311,16 @@ fn check(name: &str, s: &Stored) -> usize {
                 }
             }
         }
-        // The smallest budget runs; a byte less is refused, before any reservation.
-        let force = Force {
-            threads: Some(threads(3)),
+        // The smallest budget is the one of a single thread: it runs; a byte less is
+        // refused before any reservation, naming it.
+        let one = Force {
+            threads: Some(threads(1)),
             ..Force::default()
         };
-        let smallest = planned(s, &op, PLENTY, force, &mut Session::new())
+        let smallest = planned(s, &op, PLENTY, one, &mut Session::new())
             .0
             .peak_bytes();
-        let (plan, got, _) = planned(s, &op, smallest, force, &mut Session::new());
+        let (plan, got, _) = planned(s, &op, smallest, Force::default(), &mut Session::new());
         assert!(plan.fits(), "{name} {}", op.name());
         assert!(
             got.as_ref().is_ok_and(|g| *g == reference),
@@ -272,7 +329,8 @@ fn check(name: &str, s: &Stored) -> usize {
             got.err()
         );
         if smallest > 0 {
-            let (plan, got, peak) = planned(s, &op, smallest - 1, force, &mut Session::new());
+            let (plan, got, peak) =
+                planned(s, &op, smallest - 1, Force::default(), &mut Session::new());
             let r = plan.refusal().expect("refused");
             assert_eq!(r.shortfall.unwrap().smallest_budget_bytes, Some(smallest));
             assert!(
@@ -303,29 +361,40 @@ fn every_choice_gives_the_bits_of_the_in_memory_run_on_the_corpus() {
 /// the extremes of the frontier and reader bounds, small enough for a debug build.
 #[test]
 fn every_choice_gives_the_bits_of_the_in_memory_run_on_a_star_and_a_path() {
-    let n: u32 = 20_001;
-    let mut star = (vec![0_u64], Vec::new());
+    for (name, s) in [("star", star(20_001)), ("path", path(20_001))] {
+        assert!(check(name, &s) > 0);
+    }
+}
+
+/// A star of `n` nodes: node 0 lists every other node.
+fn star(n: u32) -> Stored {
+    let mut offsets = vec![0_u64];
+    let mut targets = Vec::new();
     for v in 0..n {
         if v == 0 {
-            star.1.extend(1..n);
+            targets.extend(1..n);
         } else {
-            star.1.push(0);
+            targets.push(0);
         }
-        star.0.push(star.1.len() as u64);
+        offsets.push(targets.len() as u64);
     }
-    let mut path = (vec![0_u64], Vec::new());
+    Stored::new(offsets, targets, false)
+}
+
+/// A path of `n` nodes.
+fn path(n: u32) -> Stored {
+    let mut offsets = vec![0_u64];
+    let mut targets = Vec::new();
     for v in 0..n {
         if v > 0 {
-            path.1.push(v - 1);
+            targets.push(v - 1);
         }
         if v + 1 < n {
-            path.1.push(v + 1);
+            targets.push(v + 1);
         }
-        path.0.push(path.1.len() as u64);
+        offsets.push(targets.len() as u64);
     }
-    for (name, (offsets, targets)) in [("star", star), ("path", path)] {
-        assert!(check(name, &Stored::new(offsets, targets, false)) > 0);
-    }
+    Stored::new(offsets, targets, false)
 }
 
 fn small() -> Stored {
@@ -355,7 +424,7 @@ fn a_session_decodes_the_raw_copy_after_the_break_even_count_of_traversals() {
         source: 0,
         max_hops: None,
     };
-    let reference = s.in_memory(&bfs).unwrap();
+    let reference = bits(&s.in_memory(&bfs).unwrap());
     let t = threads(4);
     let k = break_even(t);
     let mut session = Session::new();
@@ -370,9 +439,18 @@ fn a_session_decodes_the_raw_copy_after_the_break_even_count_of_traversals() {
         assert_eq!(plan.tier(), want, "run {run}, break-even {k}");
         assert_eq!(plan.builds_raw(), run == k, "run {run}");
     }
-    // A scan never reads the copy.
+    // A scan never reads the copy, nor does a BFS cut at a depth.
     let (plan, _, _) = planned(&s, &Operation::Components, PLENTY, force, &mut session);
     assert_eq!(plan.tier(), Tier::Compressed);
+    let near = Operation::Bfs {
+        source: 0,
+        max_hops: Some(1),
+    };
+    let mut shallow = Session::new();
+    for _ in 0..k + 2 {
+        let (plan, got, _) = planned(&s, &near, PLENTY, force, &mut shallow);
+        assert!(got.is_ok() && plan.tier() == Tier::Compressed && !plan.builds_raw());
+    }
     // A copy that does not fit with its margin is not built.
     let raw = Force {
         tier: Some(Tier::Raw),
@@ -399,10 +477,158 @@ fn a_session_decodes_the_raw_copy_after_the_break_even_count_of_traversals() {
 
 #[test]
 fn the_break_even_follows_the_cost_model() {
-    // Exploratory constants (cost.rs): decode 0.197 ns an entry, BFS 0.537 compressed
-    // and 0.287 raw at 16 threads.
-    assert_eq!(break_even(threads(16)), 1);
+    // The exploratory constants of cost.rs, at 16 threads.
+    assert_eq!(break_even(threads(16)), 5);
     assert!(break_even(threads(1)) >= 1);
+}
+
+/// Probe A of the review of PR #249: two traversals build the copy, then `PageRank` on
+/// the same budget. The copy counts in its plan; it does not fit beside `PageRank`, so
+/// the plan drops it first, and the run fits.
+#[test]
+fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
+    let s = path(20_001);
+    let bfs = Operation::Bfs {
+        source: 0,
+        max_hops: None,
+    };
+    let pagerank = Operation::PageRank {
+        params: PageRank::default(),
+        precision: Precision::Full,
+    };
+    let one = Force {
+        threads: Some(threads(1)),
+        ..Force::default()
+    };
+    let raw = Force {
+        tier: Some(Tier::Raw),
+        ..one
+    };
+    let with_raw = planned(&s, &bfs, PLENTY, raw, &mut Session::new())
+        .0
+        .peak_bytes();
+    let alone = planned(&s, &pagerank, PLENTY, one, &mut Session::new())
+        .0
+        .peak_bytes();
+    let budget = (with_raw * 10 / 9 + 1).max(alone);
+    let accountant = Arc::new(Budget::new(budget));
+    let memory = Memory::from(Arc::clone(&accountant));
+    let mut session = Session::new();
+    for _ in 0..=break_even(threads(1)) {
+        let (plan, got) = planned_in(&s, &bfs, budget, one, &mut session, &memory);
+        assert!(got.is_ok(), "{:?}", plan.tier());
+    }
+    let held = session.raw_bytes().expect("the copy is built");
+    assert!(
+        alone + held > budget,
+        "the test needs a copy that does not fit beside"
+    );
+    let (plan, got) = planned_in(&s, &pagerank, budget, one, &mut session, &memory);
+    assert!(plan.fits() && plan.drops_raw(), "{plan}");
+    assert_eq!(got.unwrap(), bits(&s.in_memory(&pagerank).unwrap()));
+    assert!(session.raw_bytes().is_none());
+    // Beside an operation that fits with it, the copy is kept and counted.
+    let mut kept = Session::new();
+    for _ in 0..=break_even(threads(1)) {
+        let _ = planned(&s, &bfs, PLENTY, one, &mut kept);
+    }
+    let held = kept.raw_bytes().unwrap();
+    let (plan, _, _) = planned(&s, &Operation::Degrees, PLENTY, one, &mut kept);
+    let degrees = planned(&s, &Operation::Degrees, PLENTY, one, &mut Session::new()).0;
+    assert!(!plan.drops_raw() && plan.peak_bytes() == degrees.peak_bytes() + held);
+    assert!(kept.raw_bytes().is_some());
+}
+
+/// Probe B of the review of PR #249: a session that built the copy of a path, asked for
+/// a BFS on a star, drops the path's copy and gives the star's distances.
+#[test]
+fn a_session_belongs_to_one_graph() {
+    let (p, s) = (path(1000), star(1000));
+    let bfs = Operation::Bfs {
+        source: 0,
+        max_hops: None,
+    };
+    let force = Force {
+        threads: Some(threads(2)),
+        ..Force::default()
+    };
+    let mut session = Session::new();
+    for _ in 0..=break_even(threads(2)) {
+        let _ = planned(&p, &bfs, PLENTY, force, &mut session);
+    }
+    assert!(session.raw_bytes().is_some());
+    let (plan, got, _) = planned(&s, &bfs, PLENTY, force, &mut session);
+    assert!(plan.drops_raw() && plan.tier() == Tier::Compressed);
+    assert_eq!(got.unwrap(), bits(&s.in_memory(&bfs).unwrap()));
+    assert!(session.raw_bytes().is_none());
+}
+
+/// Probe F of the review of PR #249: a plan sized for serving a kept result serves it,
+/// and a plan told of a result that the file does not keep refuses without running.
+#[test]
+fn a_kept_result_is_served_by_the_lookup_the_plan_was_made_with() {
+    let mut s = path(20_001);
+    let op = Operation::Components;
+    let reference = s.in_memory(&op).unwrap();
+    let one = Force {
+        threads: Some(threads(1)),
+        ..Force::default()
+    };
+    assert!(!run::kept(&s.file, &op, s.index.nodes()).unwrap());
+    s.file = graph_file(&s.index_bytes, Some((&op, &reference)));
+    assert!(run::kept(&s.file, &op, s.index.nodes()).unwrap());
+    assert!(!run::kept(&s.file, &Operation::KCore, s.index.nodes()).unwrap());
+    let mut graph = s.graph();
+    graph.kept = true;
+    let heap = s.lists(false);
+    let plan = planner::plan(&op, &graph, &machine(), &request(PLENTY, one)).unwrap();
+    let served = plan.peak_bytes();
+    let plan = planner::plan(&op, &graph, &machine(), &request(served, one)).unwrap();
+    assert!(plan.fits() && plan.kept());
+    let accountant = Arc::new(Budget::new(served));
+    let memory = Memory::from(Arc::clone(&accountant));
+    let got = execute(&plan, &heap, &memory, &mut Session::new()).unwrap();
+    assert_eq!(bits(&got), bits(&reference));
+    // A kept result the file does not hold: refused before any reservation.
+    let other = Stored::new(s.offsets.clone(), s.targets.clone(), false);
+    let accountant = Arc::new(Budget::new(served));
+    let memory = Memory::from(Arc::clone(&accountant));
+    let lists = other.lists(false);
+    assert!(execute(&plan, &lists, &memory, &mut Session::new()).is_err());
+    assert_eq!(accountant.peak(), 0);
+}
+
+/// The planner takes fewer threads before it refuses: each holds a reader of a hub's
+/// length (probe D of the review of PR #249, a star).
+#[test]
+fn the_smallest_budget_is_the_one_of_the_fewest_threads() {
+    let s = star(200_001);
+    let op = Operation::KCore;
+    let at = |t| {
+        let force = Force {
+            threads: Some(threads(t)),
+            ..Force::default()
+        };
+        planner::plan(&op, &s.graph(), &machine(), &request(PLENTY, force))
+            .unwrap()
+            .peak_bytes()
+    };
+    let (many, one) = (at(4), at(1));
+    assert!(one < many);
+    let ask =
+        |b| planner::plan(&op, &s.graph(), &machine(), &request(b, Force::default())).unwrap();
+    let chosen = ask(PLENTY).threads();
+    assert!(chosen.get() > 1);
+    let plan = ask(one);
+    assert!(plan.fits() && plan.threads() == threads(1));
+    let refused = ask(one - 1);
+    let r = refused.refusal().unwrap();
+    assert_eq!(r.shortfall.unwrap().smallest_budget_bytes, Some(one));
+    assert!(
+        r.ways_forward[0].note.ends_with("on 1 threads"),
+        "{:?}",
+        r.ways_forward
+    );
 }
 
 #[test]
@@ -638,9 +864,7 @@ fn probed(dir: &std::path::Path) -> Machine {
     use everygraph_core::MemoryProbe;
     let hardware = std::thread::available_parallelism().unwrap();
     Machine {
-        cores: everygraph_io::physical_cores()
-            .and_then(NonZeroUsize::new)
-            .unwrap_or(hardware),
+        cores: everygraph_io::physical_cores(),
         hardware_threads: hardware,
         memory: everygraph_io::ProcMemoryProbe::new().probe().ok(),
         storage: everygraph_io::storage(dir),
@@ -673,6 +897,24 @@ fn the_plan_bounds_what_runs_reserve_on_real_graphs() {
             threads: Some(threads(16)),
             ..Force::default()
         };
+        // A session of traversals switches to the raw copy after the break-even count.
+        let bfs = Operation::Bfs {
+            source: 0,
+            max_hops: None,
+        };
+        let mut session = Session::new();
+        let mut first = None;
+        for run in 0..=break_even(threads(16)) + 1 {
+            let (plan, out, peak) = planned(&s, &bfs, 8 << 30, force, &mut session);
+            let out = out.unwrap();
+            assert_eq!(*first.get_or_insert_with(|| out.clone()), out);
+            eprintln!(
+                "{name} bfs run {run}: {:?}, builds {}, reserved {peak} of {}",
+                plan.tier(),
+                plan.builds_raw(),
+                plan.peak_bytes()
+            );
+        }
         for op in operations(s.index.nodes()) {
             let (plan, out, peak) = planned(&s, &op, PLENTY, force, &mut Session::new());
             assert!(
@@ -721,4 +963,61 @@ fn the_plan_bounds_what_runs_reserve_on_real_graphs() {
             );
         }
     }
+}
+
+/// Exploratory, on twitter-sym's offsets (2.4 B entries): the planner switches a session
+/// to the raw copy after the break-even count of traversals, and the copy's parts each
+/// fit one allocation of at most `MAX_ALLOCATION_BYTES`.
+#[test]
+#[ignore = "reads csr/twitter-sym/offsets.u64 under $EVERYGRAPH_DATA (333 MB); run under a memory limit"]
+fn twitter_sym_switches_to_a_raw_copy_in_parts_of_one_allocation() {
+    let data = std::path::PathBuf::from(std::env::var("EVERYGRAPH_DATA").unwrap());
+    let bytes = std::fs::read(data.join("csr/twitter-sym/offsets.u64")).unwrap();
+    let offsets: Vec<u64> = bytes
+        .chunks_exact(8)
+        .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+        .collect();
+    let cap = everygraph_core::MAX_ALLOCATION_BYTES;
+    assert!(8 * offsets.len() as u64 <= cap);
+    let parts = RawCopy::parts(&offsets).unwrap();
+    for r in &parts {
+        let entries = offsets[r.end as usize] - offsets[r.start as usize];
+        assert!(4 * entries <= cap, "{r:?}: {entries} entries");
+    }
+    let entries = *offsets.last().unwrap();
+    let graph = Graph {
+        path: Some("twitter-sym.eg".into()),
+        bytes: entries * 2,
+        nodes: (offsets.len() - 1) as u32,
+        edges: entries / 2,
+        entries,
+        // About 16 bits an entry (ADR 0004, #118): an estimate, for the regime only.
+        data_bytes: entries * 2,
+        max_degree: offsets.windows(2).map(|w| w[1] - w[0]).max().unwrap() as u32,
+        directed: false,
+        kept: false,
+    };
+    let bfs = Operation::Bfs {
+        source: 0,
+        max_hops: None,
+    };
+    let budget = 16 << 30;
+    let k = break_even(threads(16));
+    for before in 0..=k {
+        let r = Request {
+            traversals_before: before,
+            threads: Some((threads(16), Origin::Argument)),
+            ..request(budget, Force::default())
+        };
+        let plan = planner::plan(&bfs, &graph, &machine(), &r).unwrap();
+        eprintln!(
+            "twitter-sym bfs after {before} traversals: {:?}, builds {}, peak {}",
+            plan.tier(),
+            plan.builds_raw(),
+            plan.peak_bytes()
+        );
+        assert_eq!(plan.tier() == Tier::Raw, before >= k);
+        assert!(plan.fits() && plan.peak_bytes() <= budget);
+    }
+    eprintln!("twitter-sym raw copy: {} parts", parts.len());
 }

@@ -212,7 +212,21 @@ fn meminfo_field(meminfo: &str, name: &str) -> io::Result<u64> {
 
 /// `statfs` types of the file systems held in memory (Linux `magic.h`: tmpfs, ramfs).
 #[cfg(target_os = "linux")]
-pub(crate) const MEMORY_FILE_SYSTEMS: [u64; 2] = [0x0102_1994, 0x8584_58f6];
+pub(crate) const MEMORY_FILE_SYSTEMS: [u32; 2] = [0x0102_1994, 0x8584_58f6];
+
+/// The `statfs` type of the file system that holds `dir`: a 32-bit magic number, which
+/// i686 stores signed.
+#[cfg(target_os = "linux")]
+pub(crate) fn magic(dir: &Path) -> Option<u32> {
+    // `allow`, not `expect`: the field is an `i64` on 64-bit targets and an `i32` on
+    // i686, so which of the two lints fires depends on the target.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "statfs magic numbers are 32 bits"
+    )]
+    rustix::fs::statfs(dir).ok().map(|s| s.f_type as u32)
+}
 
 /// Whether the file system that holds `dir` keeps its files in memory (tmpfs, ramfs):
 /// scratch there is memory (`docs/ux-contract.md` P-18). `false` where this cannot be
@@ -221,8 +235,7 @@ pub(crate) const MEMORY_FILE_SYSTEMS: [u64; 2] = [0x0102_1994, 0x8584_58f6];
 pub fn memory_backed(dir: &Path) -> bool {
     #[cfg(target_os = "linux")]
     {
-        rustix::fs::statfs(dir)
-            .is_ok_and(|s| u64::try_from(s.f_type).is_ok_and(|t| MEMORY_FILE_SYSTEMS.contains(&t)))
+        magic(dir).is_some_and(|t| MEMORY_FILE_SYSTEMS.contains(&t))
     }
     #[cfg(not(target_os = "linux"))]
     {

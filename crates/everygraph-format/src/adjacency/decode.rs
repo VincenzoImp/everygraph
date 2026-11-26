@@ -505,15 +505,41 @@ impl<'a> Adjacency<'a> {
                 *o = values.next().expect("an entry offset per node");
             }
         });
+        self.decode_lists(0..index.nodes(), targets)
+    }
+
+    /// Decodes the lists of `nodes` into `targets`, which holds exactly their entries:
+    /// one part of a raw copy decoded part by part. Runs in parallel over the blocks the
+    /// range meets. The untrusted-input rule of [`decode_all`](Self::decode_all) holds.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeError`] for the first corrupt block, in node order.
+    ///
+    /// # Panics
+    ///
+    /// If `nodes` is not a range within `0..nodes()`, or `targets` does not have the
+    /// length of its lists.
+    pub fn decode_lists(&self, nodes: Range<u32>, targets: &mut [u32]) -> Result<(), DecodeError> {
+        let index = self.index;
+        assert!(
+            nodes.start <= nodes.end && nodes.end <= index.nodes(),
+            "nodes {nodes:?} outside 0..{}",
+            index.nodes()
+        );
+        let at = |v: u32| index.entry_offset(NodeId::new(v)).get();
+        let total = to_usize(at(nodes.end) - at(nodes.start));
+        assert_eq!(targets.len(), total, "targets length");
         let mut pieces = Vec::with_capacity(index.blocks());
         let mut rest = targets;
         for b in 0..index.blocks() {
-            let nodes = index.block_nodes(b);
-            let len = to_usize(
-                offsets[to_usize(nodes.end.into())] - offsets[to_usize(nodes.start.into())],
-            );
-            let (piece, tail) = rest.split_at_mut(len);
-            pieces.push((nodes, piece, Ok(())));
+            let block = index.block_nodes(b);
+            let piece = block.start.max(nodes.start)..block.end.min(nodes.end);
+            if piece.is_empty() {
+                continue;
+            }
+            let (out, tail) = rest.split_at_mut(to_usize(at(piece.end) - at(piece.start)));
+            pieces.push((piece, out, Ok(())));
             rest = tail;
         }
         par::for_each_chunk_mut(&mut pieces, NonZeroUsize::MIN, |_, chunk| {

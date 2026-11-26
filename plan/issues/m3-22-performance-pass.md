@@ -16,6 +16,7 @@ labels: type:feature, area:engine, P1, risk:medium, size:L
 - [ ] BFS under a memory limit below the adjacency size (#49): Friendster in at most the time of three sequential reads of the graph file.
 - [ ] WCC (Afforest) on community orders: 1.2–2.0× slower than on input ids (`lab/m1-09-hierarchy-order/results/README.md`); cause not yet measured.
 - [ ] In-adjacency transpose (#38, PR #239): twitter-2010 at 16 threads 1.28–1.50× the lab's raw-array transpose (11.7–38 s at load 18–43, target ≤ 15 s); the candidates are the count pass (random atomic increments) and the scatter.
+- [ ] Planner (#45, PR #249): its choice within 10% of the best manually chosen configuration for PageRank, WCC and BFS on orkut, twitter-sym and Friendster at budgets of 2, 8, 16 GiB and unlimited; first the official `everygraph-bench run edge-map --official --only planner-` that replaces the cost model's exploratory constants
 - [ ] Same-machine comparison with GAP/GBBS/NetworKit/igraph/GVE (#55's reference runs) decides which gaps matter most.
 
 **Done when.** Each gap is either closed (interleaved A/B against the reference, ratio stated) or its remaining cause is written down with a follow-up; the milestone-end official run records the final numbers.

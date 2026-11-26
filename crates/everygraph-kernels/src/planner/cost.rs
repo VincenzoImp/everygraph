@@ -17,20 +17,20 @@
 
 use std::num::NonZeroUsize;
 
-use everygraph_core::{AccessHint, Storage, StorageKind, SystemMemory, math};
+use everygraph_core::{AccessHint, MAX_ALLOCATION_BYTES, Storage, StorageKind, SystemMemory, math};
 use everygraph_format::adjacency::Batch;
 
 use super::{Estimate, Graph, Regime, Tier};
-use crate::edge_map::{FRONTIER_GRAIN, Settings};
+use crate::edge_map::{FRONTIER_GRAIN, RawCopy, Settings};
 use crate::run::{Operation, Precision};
 
 // ---- The constants of the model, with their sources ------------------------------
 //
 // "Exploratory" rows: `edge_map_bench` (this crate's example) on orkut (234,370,166
 // entries), 16 threads unless stated, compressed data part memory-mapped and warm, raw
-// CSR in the heap; three interleaved A/B rounds, the median of each round's best of
-// three; 2026-11-26 on the lab machine (Ryzen 9 7950X) while other work ran (1-minute
-// load 8 to 14). They are not for publication: the official run of the `planner-*`
+// CSR in the heap; interleaved A/B rounds, the median of each round's best of three;
+// 2026-11-26 on the lab machine (Ryzen 9 7950X) while other work ran (1-minute load 8
+// to 26). They are not for publication: the official run of the `planner-*`
 // benchmarks in `bench/specs/edge-map.toml` replaces them.
 
 /// Threads at which the per-entry times below were taken.
@@ -55,17 +55,19 @@ const COMPONENTS_SPEEDUP: f64 = 10.0;
 const KCORE_PER_ENTRY: f64 = 3.52e-9;
 /// Speedup of core numbers from 1 to 16 threads: 3.08 s against 0.795 s (exploratory).
 const KCORE_SPEEDUP: f64 = 3.9;
-/// Seconds per entry of BFS with parents, compressed: 0.126 s; raw: 0.067 s; decoded to
-/// raw: 0.046 s (exploratory, the three interleaved in each round: the break-even of
-/// the decode tier is about one run, where #118's lab BFS without parents gave six to
-/// seven).
-const BFS_PER_ENTRY: f64 = 0.537e-9;
-const BFS_RAW_PER_ENTRY: f64 = 0.287e-9;
-const DECODE_PER_ENTRY: f64 = 0.197e-9;
+/// Seconds per entry of BFS with parents on the compressed lists (0.135 s), on the raw
+/// copy (0.106 s), and of `RawCopy::decode` with its new arrays (0.124 s): the medians
+/// of five rounds that run the three in turn (exploratory; PR #249 holds the command
+/// and its output). The break-even they give is 5 traversals; the rounds' own ratios
+/// were 2.3–5.6 on orkut and 1.8–3.1 on lj.
+const BFS_PER_ENTRY: f64 = 0.577e-9;
+const BFS_RAW_PER_ENTRY: f64 = 0.45e-9;
+const DECODE_PER_ENTRY: f64 = 0.53e-9;
 /// Speedup of BFS with parents from 1 to 16 threads: 1.21 s against 0.116 s
 /// (exploratory).
 const BFS_SPEEDUP: f64 = 10.4;
-/// Speedup of the decode from 1 to 16 threads: 0.167 s against 0.046 s (exploratory).
+/// Speedup of the decode from 1 to 16 threads: 0.167 s against 0.046 s, into arrays
+/// already allocated (exploratory).
 const DECODE_SPEEDUP: f64 = 3.6;
 /// Sequential read rate of the lab's `NVMe` drive, bytes per second (FINDINGS § B1:
 /// Friendster streamed at 3.9 GB/s). For other storage, placeholders of the model, not
@@ -244,9 +246,11 @@ pub(super) fn fits_with_margin(peak: u64, budget: u64) -> bool {
     u128::from(peak) * u128::from(RAW_SHARE.1) <= u128::from(budget) * u128::from(RAW_SHARE.0)
 }
 
-/// Whether `op` is a traversal, which the raw copy speeds up (ADR 0004).
-pub(super) fn traverses(op: &Operation) -> bool {
-    matches!(op, Operation::Bfs { .. })
+/// Whether `graph` has a raw copy: its offsets in one segment, and every list within
+/// one part of the targets (`RawCopy`).
+pub(super) fn raw_fits(graph: &Graph) -> bool {
+    8 * (u64::from(graph.nodes) + 1) <= MAX_ALLOCATION_BYTES
+        && u64::from(graph.max_degree) <= RawCopy::PART_ENTRIES
 }
 
 /// Half of the memory free now (P-11).

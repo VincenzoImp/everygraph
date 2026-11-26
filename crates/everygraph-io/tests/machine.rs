@@ -7,14 +7,27 @@
 use everygraph_io::physical_cores;
 
 #[test]
-fn physical_cores_are_at_most_the_hardware_threads() {
-    let threads = std::thread::available_parallelism().map_or(1, usize::from);
-    if let Some(cores) = physical_cores() {
-        assert!(
-            (1..=threads).contains(&cores),
-            "{cores} cores, {threads} threads"
-        );
-    }
+fn physical_cores_are_at_most_the_threads_the_process_may_use() {
+    let threads = std::thread::available_parallelism().unwrap();
+    assert!(physical_cores() <= threads);
+}
+
+/// A thread whose affinity mask holds one CPU sees one core, as under `taskset -c 0`
+/// or a cpuset of one CPU.
+#[test]
+#[cfg(target_os = "linux")]
+fn physical_cores_follow_the_affinity_mask() {
+    use rustix::thread::{CpuSet, sched_getaffinity, sched_setaffinity};
+    std::thread::spawn(|| {
+        let mine = sched_getaffinity(None).unwrap();
+        let first = (0..CpuSet::MAX_CPU).find(|&c| mine.is_set(c)).unwrap();
+        let mut one = CpuSet::new();
+        one.set(first);
+        sched_setaffinity(None, &one).unwrap();
+        assert_eq!(physical_cores().get(), 1);
+    })
+    .join()
+    .unwrap();
 }
 
 #[test]

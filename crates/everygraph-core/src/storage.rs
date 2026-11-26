@@ -25,14 +25,6 @@ pub enum StorageKind {
     Unknown,
 }
 
-impl StorageKind {
-    /// Whether files there may be memory-mapped: local block devices only.
-    #[must_use]
-    pub fn mappable(self) -> bool {
-        matches!(self, Self::Nvme | Self::Ssd | Self::Hdd)
-    }
-}
-
 impl fmt::Display for StorageKind {
     /// The `machine.storage.kind` of a plan document, as the `machine` line prints it.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
