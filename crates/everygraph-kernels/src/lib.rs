@@ -18,6 +18,8 @@
 //! - [`degrees`]: degree and strength columns (#50).
 //! - [`proof`]: the lab's Afforest on the framework, the first-neighbour baseline of
 //!   [`components`].
+//! - [`run`]: the whole-graph operations by name, as the command line and Python ask
+//!   for them, and their results kept in the graph file.
 //!
 //! A kernel body is a closure over one node and its list:
 //!
@@ -70,6 +72,7 @@ pub mod edge_map;
 pub mod kcore;
 pub mod pagerank;
 pub mod proof;
+pub mod run;
 pub mod sssp;
 pub mod traversal;
 mod weights;

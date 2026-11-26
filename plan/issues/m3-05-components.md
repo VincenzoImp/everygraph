@@ -18,4 +18,7 @@ labels: type:feature, area:algorithms, P0, risk:low, size:M, lab-evidence
 - SCC equals NetworkX on directed oracle graphs and runs on twitter-2010
 - Component labels, numbered from 0 by decreasing size with ties broken by the earliest node in graph order (`docs/api-sketch.md` § 2.12), have identical bytes at 1, 4 and 16 threads, with the in-memory sampling kernel and with streaming union-find in the semi-external regime, at memory budgets of 2, 8 and 16 GiB and unlimited, and on a view held as a mask or materialized (`design/DECISIONS.md`, 2026-11-25, "What 'repeatable' promises")
 
+**Left after PR #218 (2026-11-26).** PR #218 built `everygraph_kernels::components` (WCC with hybrid k-out sampling and a one-pass variant); its description lists the evidence per box. Closed on 2026-11-26 on its tests and exploratory evidence (CLAUDE.md § 6). Where the rest went: SCC with BGSS, {{#m3-20-scc}}; the one-pass kernel declared to the planner, {{#m3-02-planner}}; WCC on the compressed source and the first-neighbour against hybrid A/B (uk-2005 is not in the dataset registry yet), {{#m3-22-performance-pass}}; identity on a view, {{#m7-04-views}}. The official times come from the M3 milestone window.
+
+
 **Depends on** {{#m3-01-edge-map}}, {{#m2-11-in-adjacency}}

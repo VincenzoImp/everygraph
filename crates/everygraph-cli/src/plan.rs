@@ -10,16 +10,15 @@ use std::fmt::Write as _;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
-use everygraph_core::{ByteSource, MemoryProbe, SystemMemory};
+use everygraph_core::ByteSource;
 use everygraph_ingest::build::{self, DirectedFrom, Duplicates, Estimate, Regime, SelfLoops};
 use everygraph_ingest::text::{Compression, IdType, Ids, TextError, TextReader};
-use everygraph_io::{FileSource, ProcMemoryProbe};
+use everygraph_io::FileSource;
 
 use crate::failure::{self, Failure};
 use crate::ingest::Args;
-use crate::render::{
-    Style, about, count, json_string, rough_count, rough_size, size, to_f64, typed,
-};
+use crate::machine::{Disk, Machine, disk};
+use crate::render::{Style, about, count, json_string, rough_count, rough_size, size, to_f64};
 
 /// Text read per second and per thread, for the time estimate. A placeholder of the
 /// cost model, not a measurement.
@@ -37,9 +36,6 @@ const PHASES: [(&str, f64); 4] = [
 ];
 /// An operation estimated to take at least this long prints its plan (P-3; placeholder).
 const LONG_SECONDS: f64 = 5.0;
-/// `statfs` types of file systems held in memory (Linux `magic.h`).
-#[cfg(target_os = "linux")]
-const MEMORY_FILE_SYSTEMS: [u64; 2] = [0x0102_1994, 0x8584_58f6];
 
 /// What the start of the input says about its rows.
 struct Sample {
@@ -83,69 +79,6 @@ fn sample(reader: &TextReader<FileSource>) -> Result<Sample, TextError> {
     })
 }
 
-/// What the machine has.
-struct Machine {
-    cores: usize,
-    hardware_threads: usize,
-    memory: Option<SystemMemory>,
-}
-
-fn machine() -> Machine {
-    let hardware_threads = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
-    Machine {
-        cores: physical_cores().unwrap_or(hardware_threads),
-        hardware_threads,
-        memory: ProcMemoryProbe::new().probe().ok(),
-    }
-}
-
-/// Distinct (package, core) pairs of `/proc/cpuinfo`.
-fn physical_cores() -> Option<usize> {
-    let info = std::fs::read_to_string("/proc/cpuinfo").ok()?;
-    let mut cores = HashSet::new();
-    let mut package = "";
-    for line in info.lines() {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        match key.trim() {
-            "physical id" => package = value.trim(),
-            "core id" => {
-                cores.insert((package, value.trim()));
-            }
-            _ => {}
-        }
-    }
-    (!cores.is_empty()).then_some(cores.len())
-}
-
-/// Free space of the file system that holds `dir`, and whether it is held in memory.
-struct Disk {
-    free: u64,
-    memory_backed: bool,
-}
-
-fn disk(dir: &Path) -> Option<Disk> {
-    #[cfg(unix)]
-    {
-        let fs = rustix::fs::statvfs(dir).ok()?;
-        #[cfg(target_os = "linux")]
-        let memory_backed = rustix::fs::statfs(dir)
-            .is_ok_and(|s| MEMORY_FILE_SYSTEMS.contains(&u64::try_from(s.f_type).unwrap_or(0)));
-        #[cfg(not(target_os = "linux"))]
-        let memory_backed = false;
-        Some(Disk {
-            free: fs.f_bavail.saturating_mul(fs.f_frsize),
-            memory_backed,
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = dir;
-        None
-    }
-}
-
 /// Where an argument came from (`origin` of § 3.6).
 fn origin(given: bool) -> &'static str {
     if given { "argument" } else { "default" }
@@ -175,20 +108,9 @@ impl Plan {
         output: &Path,
         scratch_root: &Path,
     ) -> Result<Self, Failure> {
-        let machine = machine();
-        let free = machine.memory.map(|m| m.available());
-        if let (Some(memory), Some((bytes, text))) = (machine.memory, &args.memory) {
-            if *bytes > memory.total() {
-                return Err(too_much(*bytes, text, &memory));
-            }
-        }
-        let budget = match &args.memory {
-            Some((bytes, _)) => *bytes,
-            None => free.map_or(8_000_000_000, |f| f / 2),
-        };
-        let threads = args
-            .threads
-            .unwrap_or(NonZeroUsize::new(machine.hardware_threads).unwrap_or(NonZeroUsize::MIN));
+        let machine = Machine::probe();
+        let budget = machine.budget(&args.common)?;
+        let threads = machine.threads(&args.common);
         let sample = sample(reader).map_err(|e| failure::text(&args.input, e))?;
         let estimate = build::estimate(&sample.build, directed.0, threads, budget);
         let text_bytes = match reader.layout().compression {
@@ -231,7 +153,7 @@ impl Plan {
 
     /// The machine's memory in all, if known.
     pub(crate) fn machine_memory(&self) -> Option<u64> {
-        self.machine.memory.map(|m| m.total())
+        self.machine.total()
     }
 
     /// The refusal of a budget below the smallest.
@@ -335,7 +257,7 @@ impl Plan {
             style.dim("machine"),
             self.machine.cores
         );
-        let from = if args.memory.is_some() {
+        let from = if args.common.memory.is_some() {
             "--memory"
         } else {
             "default: half of free RAM"
@@ -497,10 +419,10 @@ impl Plan {
                 .map_or_else(|| "null".to_owned(), |l| l.to_string()),
             output_free_bytes = self.output_disk.as_ref().map_or(0, |d| d.free),
             budget = self.budget,
-            memory_from = origin(args.memory.is_some()),
+            memory_from = origin(args.common.memory.is_some()),
             above = memory.is_some_and(|_| self.budget > free),
             threads = self.threads,
-            threads_from = origin(args.threads.is_some()),
+            threads_from = origin(args.common.threads.is_some()),
             reason = json_string(&self.reason("×")),
             working = self.estimate.working_bytes,
             ratio = self.ratio(),
@@ -513,7 +435,7 @@ impl Plan {
             scratch_from = origin(args.temp_dir.is_some()),
             output = json_string(&self.output.display().to_string()),
             fits = self.fits(),
-            refusal = refusal.map_or_else(|| "null".to_owned(), Failure::document),
+            refusal = refusal.map_or_else(|| "null".to_owned(), |r| r.document().to_string()),
         );
         out
     }
@@ -544,31 +466,4 @@ fn estimate_json(value: f64, basis: &str) -> String {
         _ => (value / 2.0, value * 2.0),
     };
     format!("{{\"value\":{value},\"low\":{low},\"high\":{high},\"basis\":\"{basis}\"}}")
-}
-
-/// A budget larger than the machine (P-16): a usage error before any plan.
-fn too_much(bytes: u64, text: &str, memory: &SystemMemory) -> Failure {
-    Failure::new(
-        "UsageError",
-        "The memory budget is more than this machine has.".into(),
-        2,
-    )
-    .why(vec![format!(
-        "--memory {text} asks for {}; this machine has {} of memory in all.",
-        size(bytes),
-        rough_size(memory.total())
-    )])
-    .ways(vec![
-        (
-            format!("--memory {}", typed(memory.available())),
-            "what is free now".into(),
-        ),
-        (
-            "leave out --memory".into(),
-            format!(
-                "the default, half of free RAM: {} now",
-                size(memory.available() / 2)
-            ),
-        ),
-    ])
 }

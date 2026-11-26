@@ -66,4 +66,4 @@ PMTiles v3 file.
 
 ## Closed by
 
-#28 (container specification v0 and reader/writer).
+Nothing is pending.

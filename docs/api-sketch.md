@@ -913,8 +913,9 @@ empty) and `needs_bytes` (or `None`) — the keys of a way forward in that docum
 failure, C-8, with their `path` and `bytes`, or `None`); `machine_memory_bytes` (or
 `None`); and `to_dict()`, which is that document. Sizes in attributes are named as in
 that document: `needs_bytes`, `budget_bytes` (the memory budget),
-`smallest_budget_bytes` — which is `None` when no budget on this machine would work
-(`docs/ux-contract.md` P-15) — and `available_bytes` only for what is free on a disk or
+`smallest_budget_bytes` — which is `None` when it is not known: no budget on this
+machine would work (`docs/ux-contract.md` P-15), or the planner (#45) is not there yet
+to compute it — and `available_bytes` only for what is free on a disk or
 in the machine.
 
 **Files that exist.** Everygraph replaces a file only when it can tell what the file
@@ -2139,7 +2140,18 @@ Options that mean the same on every command that takes them (§ 2.4 has their me
 | `--limit N`, `--timeout SECONDS` | `limit=`, `timeout=` | `query` |
 | `--window START END` | `g.window(start, end)` | `run`, `query`, `map`, `export` |
 | `--edges EXPRESSION`, `--nodes EXPRESSION` | `g.filter(edges=…, nodes=…)` | `run`, `query`, `map`, `export` |
+| `--progress plain` | `progress=` | every command that shows progress (`docs/ux-contract.md` S-10) |
 | `-h`, `--help`; `--version` | — | everywhere |
+
+Short forms, the same on every command that takes the option, and no others
+(`design/DECISIONS.md`, "Short options"):
+
+| Short | Long |
+|---|---|
+| `-o FILE` | `--out FILE` |
+| `-m SIZE` | `--memory SIZE` |
+| `-t N` | `--threads N` |
+| `-h` | `--help` |
 
 Options particular to one name:
 
@@ -2322,8 +2334,8 @@ are `summary` and `meta`, whose keys depend on the operation, and the rows.
 | `meta` | The table's `meta` (§ 3.4), every key of it; the example above shows a few. |
 
 `info`, `doctor` and `verify` follow the same rule: with `--json`, one document on
-standard output with a `schema` key. The schemas of `info` and `doctor` are #98's to
-write (§ 7). That of `verify` (#41) holds the report whether the file is intact or not
+standard output with a `schema` key. The schema of `doctor` is #98's to write (§ 7);
+that of `info` is below, after the one of `verify`. That of `verify` (#41) holds the report whether the file is intact or not
 (exit status 0 or 5); a file that cannot be read gives the error document instead:
 
 ```json
@@ -2362,6 +2374,165 @@ write (§ 7). That of `verify` (#41) holds the report whether the file is intact
       }
     }
   }
+}
+```
+
+The info document (#98) is `g.info()` as data: the file, its graph, the record of
+its build, the bytes `compact` would reclaim, every section, and every stored result
+with its record. `stale` is `null` for a result that is served, `"graph"` for one
+computed on an earlier graph, `"version"` for one of another version of its
+algorithm. `self_loops` and `duplicates` are the values of the `ingest` options, `null`
+when the build's record does not say. Times are ISO 8601, UTC.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:everygraph:schema:info:1",
+  "title": "Everygraph info document, version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "info", "bytes", "generation", "graph", "build",
+    "reclaimable_bytes", "sections", "results"
+  ],
+  "properties": {
+    "schema": {"const": 1},
+    "info": {"type": "string"},
+    "bytes": {"$ref": "#/$defs/count"},
+    "generation": {"type": "integer", "minimum": 1},
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes", "edges", "directed", "self_loops", "duplicates", "ids"
+      ],
+      "properties": {
+        "nodes": {"$ref": "#/$defs/count"},
+        "edges": {"$ref": "#/$defs/count"},
+        "directed": {"type": "boolean"},
+        "self_loops": {"enum": ["drop", "keep", null]},
+        "duplicates": {"enum": ["events", "collapse", "sum", null]},
+        "ids": {"type": "string"}
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine", "finished", "seconds", "inputs", "counts", "dropped"
+      ],
+      "properties": {
+        "engine": {"type": "string"},
+        "finished": {"type": ["string", "null"]},
+        "seconds": {"type": ["number", "null"], "minimum": 0},
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "bytes"],
+            "properties": {
+              "name": {"type": "string"},
+              "bytes": {"$ref": "#/$defs/count"}
+            }
+          }
+        },
+        "counts": {"$ref": "#/$defs/counts"},
+        "dropped": {"$ref": "#/$defs/counts"}
+      }
+    },
+    "reclaimable_bytes": {"$ref": "#/$defs/count"},
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "bytes"],
+        "properties": {
+          "name": {"type": "string"},
+          "kind": {"type": "string"},
+          "bytes": {"$ref": "#/$defs/count"}
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation", "section", "bytes", "engine", "finished", "seconds",
+          "parameters", "stale"
+        ],
+        "properties": {
+          "operation": {"type": "string"},
+          "section": {"type": "string"},
+          "bytes": {"$ref": "#/$defs/count"},
+          "engine": {"type": "string"},
+          "finished": {"type": ["string", "null"]},
+          "seconds": {"type": ["number", "null"], "minimum": 0},
+          "parameters": {
+            "type": "object",
+            "additionalProperties": {"type": "string"}
+          },
+          "stale": {"enum": ["graph", "version", null]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "counts": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/count"}
+    }
+  }
+}
+```
+
+For example, after `run pagerank` (shortened here: the dictionary's sections are
+left out, not in the real output):
+
+```json
+{
+  "schema": 1,
+  "info": "lj.eg",
+  "bytes": 236478464,
+  "generation": 2,
+  "graph": {
+    "nodes": 3997962, "edges": 34681189, "directed": false,
+    "self_loops": "drop", "duplicates": "events", "ids": "integers"
+  },
+  "build": {
+    "engine": "everygraph 0.1.0",
+    "finished": "2026-11-26T06:57:04Z",
+    "seconds": 4.2,
+    "inputs": [{"name": "com-lj.ungraph.txt.gz", "bytes": 123969047}],
+    "counts": {"nodes": 3997962, "edges": 34681189, "rows": 34681189},
+    "dropped": {"self_loops": 0}
+  },
+  "reclaimable_bytes": 4096,
+  "sections": [
+    {"name": "adjacency.out.data", "kind": "adjacency data",
+     "bytes": 138724756},
+    {"name": "adjacency.out.index", "kind": "adjacency index",
+     "bytes": 1999024}
+  ],
+  "results": [
+    {
+      "operation": "pagerank",
+      "section": "results/pagerank/3c1b44f2d1a0b7e95f60c2a7d9e81f03",
+      "bytes": 31983712,
+      "engine": "everygraph 0.1.0",
+      "finished": "2026-11-26T06:57:15Z",
+      "seconds": 10.1,
+      "parameters": {
+        "damping": "0.85", "deterministic": "true", "max_iter": "100",
+        "precision": "full", "tol": "0.000001", "version": "1"
+      },
+      "stale": null
+    }
+  ]
 }
 ```
 

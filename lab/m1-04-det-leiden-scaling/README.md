@@ -220,7 +220,8 @@ orkut, 3 iteration(s)
   other way, generalizing the singleton smaller-label rule); (c) level-0 local moving and
   refinement, which stay 1.5–3× async with any sub-round rule (profiling not done: the issue's
   "barrier wait vs decide vs commit" bullet is still open).
-- D14's documented price must not change from these numbers. It changes after the official run.
+- D14's documented price must not change from these numbers. It changes after the official run,
+  which is in the M4 milestone window (CLAUDE.md § 6).
 
 ## What needs an official run before it can be quoted
 
@@ -228,7 +229,8 @@ Every time and every det/async ratio above, including Friendster. The modularity
 sub-round counts, iterations and work are load-independent lab results and can be cited from
 `results/`. The official run is the harness spec `bench/specs/det-leiden.toml`. It covers auto,
 s64 and L64k against async at 1, 2, 4, 8 and 16 threads, 1 iteration, plus 3 iterations at 16
-threads, on lj and orkut; Friendster under 24 GiB at 8 and 16 threads. On an idle machine:
+threads, on lj and orkut; Friendster under 24 GiB at 8 and 16 threads. It runs in the M4
+milestone window (CLAUDE.md § 6; #18 closed on the exploratory results). On an idle machine:
 
     everygraph-bench run det-leiden --official --data /home/tux/graphlab/data
     # lj + orkut only (~40 min, estimate):  ... --only scaling --only quality

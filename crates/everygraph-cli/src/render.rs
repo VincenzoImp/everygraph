@@ -1,33 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Text for people (`docs/ux-contract.md` § 2): the rendering of a stream, symbols and
-//! their ASCII forms, and numbers, sizes and durations.
+//! their ASCII forms, and numbers, sizes, times and dates.
 
-use std::fmt::Write as _;
-use std::io::{IsTerminal, Write as _};
-use std::path::Path;
+use std::io::IsTerminal;
 
-use everygraph_ingest::build::Report;
-
-/// How one stream is rendered (§ 2.2).
+/// How one stream is rendered (§ 2.2), chosen per stream (S-6).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Style {
     /// Unicode symbols, or their ASCII forms.
     pub(crate) unicode: bool,
     /// Colour instructions (S-7).
     pub(crate) colour: bool,
-    /// Not a terminal: no bars, one line per finished phase.
+    /// The stream is a terminal: tables are aligned, not tab-separated (§ 5.3).
+    pub(crate) terminal: bool,
+    /// Progress in the piped form: no bars, one line per finished phase (§ 4.5, S-10).
     pub(crate) piped: bool,
 }
 
 impl Style {
-    /// The rendering of standard error, or of standard output.
-    pub(crate) fn of(stderr: bool) -> Self {
-        let terminal = if stderr {
-            std::io::stderr().is_terminal()
-        } else {
-            std::io::stdout().is_terminal()
-        };
+    /// The rendering of standard output.
+    pub(crate) fn stdout() -> Self {
+        Self::of(std::io::stdout().is_terminal())
+    }
+
+    /// The rendering of standard error.
+    pub(crate) fn stderr() -> Self {
+        Self::of(std::io::stderr().is_terminal())
+    }
+
+    /// A terminal shows Unicode when its locale is UTF-8, and colour unless `NO_COLOR`
+    /// or `TERM=dumb`; `TERM=dumb` also turns progress into the piped form (S-10).
+    fn of(terminal: bool) -> Self {
         let var = |name: &str| std::env::var(name).unwrap_or_default();
         let dumb = var("TERM") == "dumb";
         let locale = [var("LC_ALL"), var("LC_CTYPE"), var("LANG")]
@@ -39,7 +43,22 @@ impl Style {
         Self {
             unicode: terminal && utf8,
             colour: terminal && !dumb && var("NO_COLOR").is_empty(),
+            terminal,
             piped: !terminal || dumb,
+        }
+    }
+
+    /// The style of progress lines: the piped form, in ASCII, with `--progress=plain`
+    /// (S-10).
+    pub(crate) fn progress(self, plain: bool) -> Self {
+        if plain {
+            Self {
+                unicode: false,
+                piped: true,
+                ..self
+            }
+        } else {
+            self
         }
     }
 
@@ -47,7 +66,7 @@ impl Style {
         if self.unicode { unicode } else { ascii }
     }
 
-    /// `·`, separating facts on one line.
+    /// `·`, separating facts on one line, with its spaces.
     pub(crate) fn dot(self) -> &'static str {
         self.pick(" · ", " | ")
     }
@@ -67,6 +86,11 @@ impl Style {
         self.pick("×", "x")
     }
 
+    /// `…`.
+    pub(crate) fn ellipsis(self) -> &'static str {
+        self.pick("…", "...")
+    }
+
     /// `✓`, green.
     pub(crate) fn ok(self) -> String {
         self.paint("32", self.pick("✓", "ok"))
@@ -75,6 +99,11 @@ impl Style {
     /// `✗`, red.
     pub(crate) fn error(self) -> String {
         self.paint("31", self.pick("✗", "error:"))
+    }
+
+    /// `!`, yellow.
+    pub(crate) fn warning(self) -> String {
+        self.paint("33", self.pick("!", "warning:"))
     }
 
     /// `text` in bold.
@@ -95,9 +124,34 @@ impl Style {
         }
     }
 
+    /// `text` with the symbols of § 2.3 in their ASCII forms when the stream is not
+    /// Unicode.
+    pub(crate) fn symbols(self, text: &str) -> String {
+        if self.unicode {
+            return text.to_owned();
+        }
+        [
+            ("—", "-"),
+            ("·", "|"),
+            ("→", "->"),
+            ("…", "..."),
+            ("×", "x"),
+        ]
+        .into_iter()
+        .fold(text.to_owned(), |t, (from, to)| t.replace(from, to))
+    }
+
     /// The line of a finished phase (§ 4.2, § 4.5).
     pub(crate) fn phase_done(self, name: &str, detail: &str, seconds: f64) -> String {
-        let time = duration(seconds);
+        self.phase_line(name, detail, &duration(seconds))
+    }
+
+    /// The line of a phase whose result already exists (G-3).
+    pub(crate) fn phase_kept(self, name: &str, detail: &str) -> String {
+        self.phase_line(name, detail, "kept")
+    }
+
+    fn phase_line(self, name: &str, detail: &str, time: &str) -> String {
         if self.piped {
             let width = 45_usize.saturating_sub(detail.chars().count());
             format!("  {name:<13}{detail}{time:>width$}")
@@ -111,7 +165,7 @@ impl Style {
 /// A count with thousands separators: `1,830,397,917`.
 pub(crate) fn count(n: u64) -> String {
     let digits = n.to_string();
-    let mut out = String::new();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
@@ -121,38 +175,60 @@ pub(crate) fn count(n: u64) -> String {
     out
 }
 
-/// An exact size or a budget: powers of 10, one decimal below 100 (§ 2.6).
-pub(crate) fn size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
-    if bytes < 1000 {
-        return format!("{bytes} B");
+/// `n` and its noun, singular for one: `1 self-loop`, `4,201 self-loops`.
+pub(crate) fn counted(n: u64, one: &str, many: &str) -> String {
+    if n == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{} {many}", count(n))
     }
+}
+
+/// An estimated count in a label-and-value line: four significant digits at most and
+/// a suffix (`212 M`).
+pub(crate) fn rough_count(n: u64) -> String {
+    let (value, suffix) = match n {
+        n if n >= 1_000_000_000 => (to_f64(n) / 1e9, " B"),
+        n if n >= 1_000_000 => (to_f64(n) / 1e6, " M"),
+        n if n >= 1_000 => (to_f64(n) / 1e3, "k"),
+        n => return n.to_string(),
+    };
+    let digits = match value {
+        v if v < 10.0 => 2,
+        v if v < 100.0 => 1,
+        _ => 0,
+    };
+    format!("{value:.digits$}{suffix}")
+}
+
+const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
+
+fn scaled(bytes: u64) -> (f64, &'static str) {
     let mut value = to_f64(bytes);
     let mut unit = 0;
     while value >= 1000.0 && unit < UNITS.len() - 1 {
         value /= 1000.0;
         unit += 1;
     }
-    if value < 100.0 {
-        format!("{value:.1} {}", UNITS[unit])
-    } else {
-        format!("{value:.0} {}", UNITS[unit])
+    (value, UNITS[unit])
+}
+
+/// An exact size or a budget: powers of 10, one decimal below 100 (§ 2.6).
+pub(crate) fn size(bytes: u64) -> String {
+    if bytes < 1000 {
+        return format!("{bytes} B");
+    }
+    match scaled(bytes) {
+        (v, unit) if v < 100.0 => format!("{v:.1} {unit}"),
+        (v, unit) => format!("{v:.0} {unit}"),
     }
 }
 
 /// An estimate or what the machine reports: two significant digits.
 pub(crate) fn rough_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
-    let mut value = to_f64(bytes);
-    let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
-        unit += 1;
-    }
-    if value < 10.0 && unit > 0 {
-        format!("{value:.1} {}", UNITS[unit])
-    } else {
-        format!("{value:.0} {}", UNITS[unit])
+    match scaled(bytes) {
+        (v, unit) if v < 10.0 && unit != "B" => format!("{v:.1} {unit}"),
+        (v, unit) => format!("{v:.0} {unit}"),
     }
 }
 
@@ -189,6 +265,46 @@ pub(crate) fn about(seconds: f64) -> String {
     format!("about {}", duration(rounded))
 }
 
+/// An age, in its largest unit only: `6 min ago`, `3 days ago` (§ 2.6).
+pub(crate) fn age(seconds: u64) -> String {
+    let (n, one, many) = match seconds {
+        s if s < 60 => return "just now".to_owned(),
+        s if s < 3600 => (s / 60, "min", "min"),
+        s if s < 86_400 => (s / 3600, "h", "h"),
+        s => (s / 86_400, "day", "days"),
+    };
+    format!("{n} {} ago", if n == 1 { one } else { many })
+}
+
+/// The date of `ns` nanoseconds after 1970-01-01 UTC, as `2026-11-24` (ISO 8601).
+pub(crate) fn date(ns: i64) -> String {
+    let days = ns.div_euclid(86_400_000_000_000);
+    // Howard Hinnant's `civil_from_days`.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// The instant `ns` nanoseconds after 1970-01-01 UTC, to the second:
+/// `2026-11-24T10:41:07Z`.
+pub(crate) fn timestamp(ns: i64) -> String {
+    let second = ns.div_euclid(1_000_000_000).rem_euclid(86_400);
+    format!(
+        "{}T{:02}:{:02}:{:02}Z",
+        date(ns),
+        second / 3600,
+        second / 60 % 60,
+        second % 60
+    )
+}
+
 fn whole_seconds(seconds: f64) -> u64 {
     // A duration is finite and far below 2^53 seconds.
     #[expect(
@@ -208,32 +324,6 @@ pub(crate) fn to_f64(x: u64) -> f64 {
     )]
     let x = x as f64;
     x
-}
-
-/// `n` and its noun, singular for one: `1 self-loop`, `4,201 self-loops`.
-pub(crate) fn counted(n: u64, one: &str, many: &str) -> String {
-    if n == 1 {
-        format!("1 {one}")
-    } else {
-        format!("{} {many}", count(n))
-    }
-}
-
-/// An estimated count in a label-and-value line: four significant digits at most and
-/// a suffix (`~212.4 M`).
-pub(crate) fn rough_count(n: u64) -> String {
-    let (value, suffix) = match n {
-        n if n >= 1_000_000_000 => (to_f64(n) / 1e9, " B"),
-        n if n >= 1_000_000 => (to_f64(n) / 1e6, " M"),
-        n if n >= 1_000 => (to_f64(n) / 1e3, "k"),
-        n => return n.to_string(),
-    };
-    let digits = match value {
-        v if v < 10.0 => 2,
-        v if v < 100.0 => 1,
-        _ => 0,
-    };
-    format!("{value:.digits$}{suffix}")
 }
 
 /// `8GB`, `512MB`, `1.5GB`, `6G`, `256MiB`, or bytes: powers of 10 for `kB`, `MB`,
@@ -283,95 +373,48 @@ pub(crate) fn typed(bytes: u64) -> String {
     }
 }
 
-/// The result block of a graph made (G-11 to G-13), on standard error.
-pub(crate) fn result_block(output: &Path, bytes: u64, report: &Report, seconds: f64, style: Style) {
-    let dot = style.dot();
-    let name = output
-        .file_name()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let mut text = format!(
-        "\n{} {}{dot}{}{dot}{}{dot}{}{dot}{}\n",
-        style.ok(),
-        style.bold(&name),
-        size(bytes),
-        counted(report.nodes, "node", "nodes"),
-        counted(report.edges, "edge", "edges"),
-        duration(seconds)
-    );
-    let mut dropped = Vec::new();
-    if report.dropped_self_loops > 0 {
-        dropped.push(counted(
-            report.dropped_self_loops,
-            "self-loop",
-            "self-loops",
-        ));
-    }
-    if report.dropped_duplicates > 0 {
-        dropped.push(counted(
-            report.dropped_duplicates,
-            "duplicate",
-            "duplicates",
-        ));
-    }
-    if report.rejected > 0 {
-        dropped.push(counted(report.rejected, "rejected row", "rejected rows"));
-    }
-    if !dropped.is_empty() {
-        let _ = writeln!(text, "  dropped: {}", dropped.join(dot));
-    }
-    if report.merged > 0 {
-        let merged = counted(report.merged, "duplicate", "duplicates");
-        let _ = writeln!(text, "  merged: {merged}, summed into their pairs");
-    }
-    let next = format!("everygraph map {}", output.display());
-    let _ = writeln!(text, "  next: {}", style.bold(&next));
-    let _ = std::io::stderr().write_all(text.as_bytes());
-}
-
-/// The file document of `docs/ux-contract.md` § 4.7.
-pub(crate) fn file_document(
-    job: &str,
-    output: &Path,
-    bytes: u64,
-    report: &Report,
-    seconds: f64,
-) -> String {
-    let keys = report.counts();
-    let counts: Vec<String> = keys
-        .iter()
-        .filter_map(|(k, v)| k.strip_prefix("counts.").map(|k| format!("\"{k}\":{v}")))
-        .collect();
-    let dropped: Vec<String> = keys
-        .iter()
-        .filter(|(_, v)| *v > 0)
-        .filter_map(|(k, v)| k.strip_prefix("dropped.").map(|k| format!("\"{k}\":{v}")))
-        .collect();
-    format!(
-        "{{\"schema\":1,\"job\":\"{job}\",\"operation\":\"ingest\",\"made\":{{\"path\":{},\
-         \"kind\":\"graph\",\"bytes\":{bytes}}},\"counts\":{{{}}},\"dropped\":{{{}}},\
-         \"kept\":[],\"elapsed_seconds\":{seconds:.3}}}",
-        json_string(&output.display().to_string()),
-        counts.join(","),
-        dropped.join(",")
-    )
-}
-
 /// `text` as a JSON string.
 pub(crate) fn json_string(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            c if u32::from(c) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", u32::from(c));
-            }
-            c => out.push(c),
+    serde_json::Value::from(text).to_string()
+}
+
+/// `text` with control characters escaped, so that a name read from a file cannot
+/// move the cursor or change the colours of the terminal.
+pub(crate) fn printable(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            let escaped: Vec<char> = if c.is_control() {
+                c.escape_default().collect()
+            } else {
+                vec![c]
+            };
+            escaped
+        })
+        .collect()
+}
+
+/// `text` broken at spaces into lines of at most 80 columns (W-1), the first starting
+/// after `first`, the others indented by `indent` spaces.
+pub(crate) fn wrap(first: &str, indent: usize, text: &str) -> String {
+    let mut out = first.to_owned();
+    let mut width = first.chars().count();
+    let mut words_on_line = false;
+    for word in text.split(' ') {
+        let len = word.chars().count();
+        if words_on_line && width + 1 + len > 80 {
+            out.push('\n');
+            out.push_str(&" ".repeat(indent));
+            width = indent;
+            words_on_line = false;
         }
+        if words_on_line {
+            out.push(' ');
+            width += 1;
+        }
+        out.push_str(word);
+        width += len;
+        words_on_line = true;
     }
-    out.push('"');
     out
 }
 
@@ -390,16 +433,31 @@ mod tests {
         assert_eq!(size(156_475_392), "156 MB");
         assert_eq!(rough_size(61_000_000_000), "61 GB");
         assert_eq!(rough_size(1_400_000_000_000), "1.4 TB");
+        assert_eq!(rough_size(512), "512 B");
         assert_eq!(duration(0.0013), "1.3 ms");
         assert_eq!(duration(38.0), "38 s");
         assert_eq!(duration(101.0), "1 min 41 s");
         assert_eq!(duration(7500.0), "2 h 5 min");
         assert_eq!(about(220.0), "about 3 min 40 s");
         assert_eq!(about(2.0), "about 5 s");
+        assert_eq!(age(6 * 60 + 5), "6 min ago");
+        assert_eq!(age(3 * 86_400 + 7), "3 days ago");
+        assert_eq!(age(86_400), "1 day ago");
         assert_eq!(counted(1, "self-loop", "self-loops"), "1 self-loop");
         assert_eq!(counted(4201, "self-loop", "self-loops"), "4,201 self-loops");
         assert_eq!(rough_count(212_400_000), "212 M");
         assert_eq!(rough_count(45_400_000), "45.4 M");
+    }
+
+    #[test]
+    fn dates_are_iso_and_utc() {
+        assert_eq!(date(0), "1970-01-01");
+        assert_eq!(date(-1), "1969-12-31");
+        // 2026-11-24T23:59:59Z.
+        assert_eq!(date(1_795_564_799_000_000_000), "2026-11-24");
+        assert_eq!(date(951_782_400_000_000_000), "2000-02-29");
+        assert_eq!(timestamp(1_795_564_799_000_000_000), "2026-11-24T23:59:59Z");
+        assert_eq!(timestamp(-1), "1969-12-31T23:59:59Z");
     }
 
     #[test]
@@ -424,8 +482,41 @@ mod tests {
     }
 
     #[test]
-    fn json_strings_are_escaped() {
-        assert_eq!(json_string("a\"b\\c\n\u{1}"), r#""a\"b\\c\n\u0001""#);
+    fn text_is_escaped_and_wrapped() {
+        assert_eq!(json_string("a\"b\\c\n\u{1}é"), r#""a\"b\\c\n\u0001é""#);
+        assert_eq!(printable("a\u{1b}[31mb\u{9b}é"), "a\\u{1b}[31mb\\u{9b}é");
+        let long = "word ".repeat(30);
+        let wrapped = wrap("  label     ", 12, long.trim());
+        assert!(wrapped.lines().all(|l| l.chars().count() <= 80));
+        assert!(wrapped.starts_with("  label     word word"));
+        assert!(
+            wrapped
+                .lines()
+                .skip(1)
+                .all(|l| l.starts_with("            word"))
+        );
+    }
+
+    #[test]
+    fn plain_progress_has_no_bar_and_no_unicode() {
+        let terminal = Style {
+            unicode: true,
+            colour: true,
+            terminal: true,
+            piped: false,
+        };
+        let line = terminal.phase_done("identifiers", "212,418,907 addresses", 38.0);
+        assert!(line.contains('█'));
+        let plain = terminal.progress(true);
+        let line = plain.phase_done("reading", "1,830,402,118 rows", 101.0);
+        assert_eq!(
+            line,
+            "  reading      1,830,402,118 rows                 1 min 41 s"
+        );
+        assert!(line.is_ascii());
+        assert_eq!(plain.dot(), " | ");
+        let unchanged = terminal.progress(false);
+        assert!(unchanged.unicode && !unchanged.piped);
     }
 
     #[test]
@@ -433,13 +524,10 @@ mod tests {
         let piped = Style {
             unicode: false,
             colour: false,
+            terminal: false,
             piped: true,
         };
         let line = piped.phase_done("reading", "1,830,402,118 rows", 101.0);
-        assert_eq!(
-            line,
-            "  reading      1,830,402,118 rows                 1 min 41 s"
-        );
         assert_eq!(line.len(), 60);
         let terminal = Style {
             piped: false,
