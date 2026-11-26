@@ -60,5 +60,5 @@ memory, and the planner rule is written from it.
 
 ## Closed by
 
-#93 (filtered views), with the planner rule in #45. #93's scope includes the measurement
+#93 (filtered views), which also adds the planner rule for views. #93's scope includes the measurement
 above (`plan/issues/m7-04-views.md`).
