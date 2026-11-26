@@ -116,7 +116,10 @@ pub(crate) fn parse(args: &[OsString]) -> Result<Result<Command, u8>, Failure> {
 
 /// The usage error of a `clap` error, in the words of the contract.
 fn from_clap(e: &clap::Error, args: &[OsString]) -> Failure {
-    let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let words: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let command = match words.first().map(String::as_str) {
         Some("run") => words
             .get(1)
@@ -129,15 +132,29 @@ fn from_clap(e: &clap::Error, args: &[OsString]) -> Failure {
     let arg = context(ContextKind::InvalidArg);
     let option = arg.split(['=', ' ']).next().unwrap_or_default().to_owned();
     let value = context(ContextKind::InvalidValue);
-    let name = if command.is_empty() { "everygraph" } else { &command };
+    let name = if command.is_empty() {
+        "everygraph"
+    } else {
+        &command
+    };
     let what = match e.kind() {
         ErrorKind::UnknownArgument if arg.starts_with('-') => format!("Unknown option {option}."),
-        ErrorKind::UnknownArgument => format!("{name} takes no {arg}; it is one argument too many."),
-        ErrorKind::InvalidSubcommand if command.starts_with("run") || words.first().is_some_and(|w| w == "run") => {
-            format!("Unknown algorithm {}.", context(ContextKind::InvalidSubcommand))
+        ErrorKind::UnknownArgument => {
+            format!("{name} takes no {arg}; it is one argument too many.")
+        }
+        ErrorKind::InvalidSubcommand
+            if command.starts_with("run") || words.first().is_some_and(|w| w == "run") =>
+        {
+            format!(
+                "Unknown algorithm {}.",
+                context(ContextKind::InvalidSubcommand)
+            )
         }
         ErrorKind::InvalidSubcommand => {
-            format!("Unknown command {}.", context(ContextKind::InvalidSubcommand))
+            format!(
+                "Unknown command {}.",
+                context(ContextKind::InvalidSubcommand)
+            )
         }
         ErrorKind::InvalidValue if value.is_empty() => format!("{option} needs a value."),
         ErrorKind::InvalidValue => {
@@ -148,7 +165,9 @@ fn from_clap(e: &clap::Error, args: &[OsString]) -> Failure {
             format!("{option} takes {valid}, not {value}.")
         }
         ErrorKind::ValueValidation => {
-            let reason = std::error::Error::source(e).map(ToString::to_string).unwrap_or_default();
+            let reason = std::error::Error::source(e)
+                .map(ToString::to_string)
+                .unwrap_or_default();
             format!("{option} {value} is not {reason}.")
         }
         ErrorKind::MissingRequiredArgument => {
@@ -161,7 +180,10 @@ fn from_clap(e: &clap::Error, args: &[OsString]) -> Failure {
         ErrorKind::TooManyValues | ErrorKind::NoEquals => format!("{option} takes no value."),
         ErrorKind::ArgumentConflict => {
             let other = context(ContextKind::PriorArg);
-            format!("{option} cannot be used with {}.", other.split(['=', ' ']).next().unwrap_or_default())
+            format!(
+                "{option} cannot be used with {}.",
+                other.split(['=', ' ']).next().unwrap_or_default()
+            )
         }
         _ => {
             let text = e.to_string();
@@ -195,9 +217,15 @@ mod tests {
 
     #[test]
     fn errors_are_said_in_the_words_of_the_contract() {
-        assert_eq!(message(&["verify", "--deeep", "a.eg"]), "Unknown option --deeep.");
+        assert_eq!(
+            message(&["verify", "--deeep", "a.eg"]),
+            "Unknown option --deeep."
+        );
         assert_eq!(message(&["frobnicate"]), "Unknown command frobnicate.");
-        assert_eq!(message(&["run", "frobnicate", "g.eg"]), "Unknown algorithm frobnicate.");
+        assert_eq!(
+            message(&["run", "frobnicate", "g.eg"]),
+            "Unknown algorithm frobnicate."
+        );
         assert_eq!(
             message(&["ingest", "a.txt", "--duplicates", "some"]),
             "--duplicates takes events or collapse or sum, not some."
@@ -208,12 +236,18 @@ mod tests {
         );
         assert_eq!(message(&["run", "bfs", "g.eg"]), "run bfs needs a NODE.");
         assert_eq!(message(&["info"]), "info needs a GRAPH.");
-        assert_eq!(message(&["info", "a.eg", "--json=yes"]), "--json takes no value.");
+        assert_eq!(
+            message(&["info", "a.eg", "--json=yes"]),
+            "--json takes no value."
+        );
         assert_eq!(
             message(&["run", "pagerank", "g.eg", "--max-hops", "2"]),
             "Unknown option --max-hops."
         );
-        assert_eq!(message(&["ingest", "a.txt", "--directed", "--undirected"]), "--directed cannot be used with --undirected.");
+        assert_eq!(
+            message(&["ingest", "a.txt", "--directed", "--undirected"]),
+            "--directed cannot be used with --undirected."
+        );
     }
 
     #[test]

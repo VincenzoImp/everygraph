@@ -5,6 +5,9 @@
 //! which make the key a stored result is found by (`docs/spec/eg-container.md` § 6),
 //! and the kernel it runs on the out-lists of a graph file.
 //!
+//! [`stored`] finds a result in the graph file before it is computed, and [`store`]
+//! keeps one there (`docs/api-sketch.md` § 2.8); `bfs` is never kept.
+//!
 //! A graph file holds the out-adjacency only; an undirected graph's out-lists are its
 //! lists. On a directed graph, `pagerank` and `kcore` need the in-adjacency or the
 //! undirected projection, which no file holds yet (#m2-11): they are
@@ -14,7 +17,11 @@
 use std::fmt;
 use std::sync::atomic::AtomicU32;
 
-use everygraph_core::{Memory, SegVec};
+use everygraph_core::{ByteSink, ByteSource, Memory, MemoryError, SegVec};
+use everygraph_format::container::{
+    Container, ContainerError, GraphIdentity, Provenance, ResultKey, StoredResult, Value,
+    ValueType, Writer,
+};
 
 use crate::components::{self, WccOptions};
 use crate::degrees::{self, Loop};
@@ -106,6 +113,19 @@ impl Operation {
         !matches!(self, Self::Bfs { .. })
     }
 
+    /// The key its result on the graph `graph` is kept under: every run is
+    /// deterministic.
+    ///
+    /// # Errors
+    ///
+    /// As [`ResultKey::with`], for a parameter the key cannot hold.
+    pub fn key(&self, graph: GraphIdentity) -> Result<ResultKey, ContainerError> {
+        self.parameters().into_iter().try_fold(
+            ResultKey::new(graph, self.name(), self.version(), true)?,
+            |key, (name, value)| key.with(name, &value),
+        )
+    }
+
     /// Every parameter that can change the result, with its value as the key holds it
     /// (spec § 6: floating-point values as Rust's `{}` writes them).
     #[must_use]
@@ -176,6 +196,8 @@ pub enum RunError {
     Kernel(Error),
     /// The operation cannot run on this graph; the reason.
     Unsupported(&'static str),
+    /// A stored result could not be read: the file is damaged.
+    Stored(ContainerError),
 }
 
 impl fmt::Display for RunError {
@@ -183,7 +205,14 @@ impl fmt::Display for RunError {
         match self {
             Self::Kernel(e) => e.fmt(f),
             Self::Unsupported(why) => f.write_str(why),
+            Self::Stored(e) => e.fmt(f),
         }
+    }
+}
+
+impl From<ContainerError> for RunError {
+    fn from(e: ContainerError) -> Self {
+        Self::Stored(e)
     }
 }
 
@@ -195,8 +224,8 @@ impl From<Error> for RunError {
     }
 }
 
-impl From<everygraph_core::MemoryError> for RunError {
-    fn from(e: everygraph_core::MemoryError) -> Self {
+impl From<MemoryError> for RunError {
+    fn from(e: MemoryError) -> Self {
         Self::Kernel(Error::Memory(e))
     }
 }
@@ -306,6 +335,86 @@ pub fn run<S: Source>(
     }
 }
 
+/// The result of `op` on the graph of `file`, a graph that is `directed` or not, if
+/// the file keeps one: checked against its hash and read into `memory`.
+///
+/// # Errors
+///
+/// [`RunError::Stored`] for a result that is damaged; [`RunError::Kernel`] with
+/// [`Error::Memory`] when its values do not fit the budget.
+pub fn stored<S: ByteSource>(
+    file: &Container<S>,
+    op: &Operation,
+    directed: bool,
+    memory: &Memory,
+) -> Result<Option<Output>, RunError> {
+    if !op.stored() {
+        return Ok(None);
+    }
+    let Some(found) = file.find_result(&op.key(file.graph_identity())?)? else {
+        return Ok(None);
+    };
+    file.verify_result(&found)?;
+    let len = usize::try_from(found.len())
+        .map_err(|_| Error::Invalid("a result longer than the address space"))?;
+    let column = match found.value_type() {
+        ValueType::U32 => Column::U32 {
+            values: read(&found, len, memory)?,
+            null: None,
+        },
+        ValueType::F64 => Column::F64(read(&found, len, memory)?),
+        ValueType::F32 => Column::F32(read(&found, len, memory)?),
+        _ => return Ok(None),
+    };
+    Ok(Some(Output {
+        columns: vec![(op.column(directed), column)],
+        iterations: None,
+        converged: None,
+    }))
+}
+
+fn read<S: ByteSource, T: Value + Default>(
+    found: &StoredResult<'_, S>,
+    len: usize,
+    memory: &Memory,
+) -> Result<SegVec<T>, RunError> {
+    let mut values = SegVec::try_with_len(memory, "stored result", len, T::default())?;
+    let mut first = 0;
+    for segment in values.segments_mut() {
+        found.read(first, segment)?;
+        first += segment.len() as u64;
+    }
+    Ok(values)
+}
+
+/// Adds the first column of `output` to `writer` as the result of `op` on its graph,
+/// with `about` for the engine and the times; [`Writer::commit`] makes it stored.
+///
+/// # Errors
+///
+/// The errors of [`Writer::add_result`]; [`ContainerError::InvalidResult`] for a
+/// column longer than one segment.
+pub fn store<K: ByteSink>(
+    writer: &mut Writer<K>,
+    op: &Operation,
+    about: &Provenance,
+    output: &Output,
+) -> Result<(), ContainerError> {
+    let key = op.key(writer.graph_identity())?;
+    let Some((_, column)) = output.columns.first() else {
+        return Ok(());
+    };
+    let long = ContainerError::InvalidResult("a result longer than one segment (#m3-15)");
+    match column {
+        Column::U32 { values, .. } | Column::Nodes { values, .. } => {
+            writer.add_result(&key, about, values.as_slice().ok_or(long)?)
+        }
+        Column::F64(values) => writer.add_result(&key, about, values.as_slice().ok_or(long)?),
+        Column::F32(values) => writer.add_result(&key, about, values.as_slice().ok_or(long)?),
+    }
+    .map(|_| ())
+}
+
 /// The values of `atomics`, in a column of the budget.
 fn to_column(atomics: &[AtomicU32], memory: &Memory) -> Result<SegVec<u32>, RunError> {
     let mut out = SegVec::try_with_len(memory, "result column", atomics.len(), 0_u32)?;
@@ -313,4 +422,68 @@ fn to_column(atomics: &[AtomicU32], memory: &Memory) -> Result<SegVec<u32>, RunE
         *slot = a.load(std::sync::atomic::Ordering::Relaxed);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use everygraph_core::MemorySource;
+
+    use super::*;
+    use crate::edge_map::{Csr, Settings};
+
+    fn values(output: &Output) -> &[u32] {
+        match &output.columns[0].1 {
+            Column::U32 { values, .. } => values.as_slice().unwrap(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_stored_result_is_found_under_its_own_operation_only() {
+        // The triangle 0 1 2 and the edge 2 3, as symmetric lists.
+        let (offsets, targets) = ([0, 2, 4, 7, 8], [1, 2, 0, 2, 0, 1, 3, 2]);
+        let csr = Csr::new(&offsets, &targets).unwrap();
+        let memory = Memory::unlimited();
+        let output = Plan::with(&csr, &memory, Settings::default(), |plan| {
+            run(&Operation::Degrees, &plan, false, &memory)
+        })
+        .unwrap();
+        assert_eq!(values(&output), [2, 2, 3, 1]);
+
+        let mut writer = Writer::create(MemorySource::new(Vec::new())).unwrap();
+        store(
+            &mut writer,
+            &Operation::Degrees,
+            &Provenance::default(),
+            &output,
+        )
+        .unwrap();
+        writer.commit().unwrap();
+        let file = Container::open(writer.into_sink()).unwrap();
+        let found = stored(&file, &Operation::Degrees, false, &memory)
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.columns[0].0, "degree");
+        assert_eq!(values(&found), [2, 2, 3, 1]);
+        for other in [
+            Operation::KCore,
+            Operation::Bfs {
+                source: 0,
+                max_hops: None,
+            },
+        ] {
+            assert!(stored(&file, &other, false, &memory).unwrap().is_none());
+        }
+        let damped = |damping| Operation::PageRank {
+            params: PageRank {
+                damping,
+                ..PageRank::default()
+            },
+            precision: Precision::Full,
+        };
+        assert_ne!(
+            damped(0.85).key(file.graph_identity()).unwrap(),
+            damped(0.5).key(file.graph_identity()).unwrap()
+        );
+    }
 }

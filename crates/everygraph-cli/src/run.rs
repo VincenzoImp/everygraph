@@ -11,11 +11,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use everygraph_core::{ByteSource, Memory, MemoryError, SegVec, par};
-use everygraph_format::container::{
-    Container, ContainerError, GraphIdentity, Provenance, ResultKey, StoredResult, Value as Stored,
-    ValueType, Writer,
-};
+use everygraph_core::{ByteSource, Memory, par};
+use everygraph_format::container::{Provenance, Writer};
 use everygraph_ingest::graph::Graph;
 use everygraph_ingest::ids::Key;
 use everygraph_io::{FileSink, MmapSource};
@@ -184,7 +181,9 @@ pub(crate) fn main(args: Args) -> u8 {
         | Algorithm::Kcore { on }
         | Algorithm::Degrees { on }
         | Algorithm::Bfs { on, .. } => on.common.json,
-        Algorithm::Triangles { rest } | Algorithm::Communities { rest } => rest.iter().any(|a| a == "--json"),
+        Algorithm::Triangles { rest } | Algorithm::Communities { rest } => {
+            rest.iter().any(|a| a == "--json")
+        }
     };
     request(args)
         .and_then(|r| execute(&r))
@@ -212,7 +211,10 @@ fn request(args: Args) -> Result<Request, Failure> {
         )
     };
     let (op, on, node) = match args.algorithm {
-        Algorithm::Pagerank { personalize: Some(_), .. } => return Err(not_yet("--personalize")),
+        Algorithm::Pagerank {
+            personalize: Some(_),
+            ..
+        } => return Err(not_yet("--personalize")),
         Algorithm::Pagerank {
             on,
             damping,
@@ -237,15 +239,31 @@ fn request(args: Args) -> Result<Request, Failure> {
         Algorithm::Components { on, .. } => (Operation::Components, on, None),
         Algorithm::Kcore { on } => (Operation::KCore, on, None),
         Algorithm::Degrees { on } => (Operation::Degrees, on, None),
-        Algorithm::Bfs { direction: Direction::In | Direction::Both, .. } => {
+        Algorithm::Bfs {
+            direction: Direction::In | Direction::Both,
+            ..
+        } => {
             return Err(unsupported(
                 "--direction in and both cannot be used yet.".into(),
                 "They need the in-adjacency, which no graph file holds yet.",
             ));
         }
-        Algorithm::Bfs { on, node, max_hops, .. } => (Operation::Bfs { source: 0, max_hops }, on, Some(node)),
+        Algorithm::Bfs {
+            on, node, max_hops, ..
+        } => (
+            Operation::Bfs {
+                source: 0,
+                max_hops,
+            },
+            on,
+            Some(node),
+        ),
         Algorithm::Triangles { .. } | Algorithm::Communities { .. } => {
-            let name = if matches!(args.algorithm, Algorithm::Triangles { .. }) { "triangles" } else { "communities" };
+            let name = if matches!(args.algorithm, Algorithm::Triangles { .. }) {
+                "triangles"
+            } else {
+                "communities"
+            };
             return Err(unsupported(
                 format!("{name} cannot be run yet."),
                 &format!("This version runs {}.", NAMES.join(", ")),
@@ -288,17 +306,11 @@ fn execute(req: &Request) -> Result<u8, Failure> {
         *source = lookup(&nodes, node, &req.graph)?;
     }
     let directed = graph.directed();
-    let identity = graph.file().graph_identity();
-    let key = result_key(identity, &op)
-        .map_err(|e| failure::internal(&format!("The result key cannot be made: {e}.")))?;
+    let fail = |e| kernel_failure(e, &op, &req.graph, budget, machine.total());
     let lines = Lines::new(Style::stderr().progress(req.common.plain()));
     let name = op.name();
     lines.start(name);
-    let cached = if op.stored() {
-        cached(graph.file(), &key, op.column(directed), &memory, &req.graph)?
-    } else {
-        None
-    };
+    let cached = run::stored(graph.file(), &op, directed, &memory).map_err(fail)?;
     let is_cached = cached.is_some();
     let output = match cached {
         Some(output) => {
@@ -309,7 +321,7 @@ fn execute(req: &Request) -> Result<u8, Failure> {
         None => {
             let output = par::with_threads(threads, || compute(&graph, &op, &memory))
                 .map_err(|e| failure::internal(&format!("Cannot start the threads: {e}.")))?
-                .map_err(|e| kernel_failure(e, &op, &req.graph, budget, machine.total()))?;
+                .map_err(fail)?;
             lines.done_if_long(name, &detail(&op, &output));
             output
         }
@@ -325,7 +337,7 @@ fn execute(req: &Request) -> Result<u8, Failure> {
                 finished: now_ns(),
                 ..Provenance::default()
             };
-            match store(&req.graph, &key, &about, &output) {
+            match store(&req.graph, &op, &about, &output) {
                 Ok(()) => stored_in = Some(req.graph.display().to_string()),
                 Err(why) => failure::warning(
                     &format!("The result could not be kept in {}.", req.graph.display()),
@@ -388,15 +400,6 @@ fn execute(req: &Request) -> Result<u8, Failure> {
     Ok(0)
 }
 
-/// The key `op`'s result on the graph `identity` is stored under: every run is
-/// deterministic.
-fn result_key(identity: GraphIdentity, op: &Operation) -> Result<ResultKey, ContainerError> {
-    op.parameters().into_iter().try_fold(
-        ResultKey::new(identity, op.name(), op.version(), true)?,
-        |key, (name, value)| key.with(name, &value),
-    )
-}
-
 /// The node `text` names, as the dictionary resolves it.
 fn lookup<S: ByteSource>(nodes: &Nodes<'_, S>, text: &str, graph: &Path) -> Result<u32, Failure> {
     let found = nodes
@@ -429,80 +432,11 @@ fn compute(graph: &Graph<MmapSource>, op: &Operation, memory: &Memory) -> Result
     })
 }
 
-/// The result stored under `key`, if there is one for this graph.
-fn cached(
-    file: &Container<MmapSource>,
-    key: &ResultKey,
-    name: &'static str,
-    memory: &Memory,
-    path: &Path,
-) -> Result<Option<Output>, Failure> {
-    let corrupt = |e: &dyn std::fmt::Display| failure::corrupt(path, e);
-    let Some(stored) = file.find_result(key).map_err(|e| corrupt(&e))? else {
-        return Ok(None);
-    };
-    file.verify_result(&stored).map_err(|e| corrupt(&e))?;
-    let len = usize::try_from(stored.len()).map_err(|e| corrupt(&e))?;
-    let held = |e: MemoryError| match e {
-        MemoryError::Budget(e) => {
-            failure::memory("reading of the result", memory.available(), None, &e)
-                .on_existing_file()
-        }
-        other => corrupt(&other),
-    };
-    let column = match stored.value_type() {
-        ValueType::U32 => {
-            let mut values = SegVec::try_with_len(memory, "result", len, 0_u32).map_err(held)?;
-            read(&stored, &mut values).map_err(|e| corrupt(&e))?;
-            Column::U32 { values, null: None }
-        }
-        ValueType::F64 => {
-            let mut values = SegVec::try_with_len(memory, "result", len, 0.0_f64).map_err(held)?;
-            read(&stored, &mut values).map_err(|e| corrupt(&e))?;
-            Column::F64(values)
-        }
-        ValueType::F32 => {
-            let mut values = SegVec::try_with_len(memory, "result", len, 0.0_f32).map_err(held)?;
-            read(&stored, &mut values).map_err(|e| corrupt(&e))?;
-            Column::F32(values)
-        }
-        _ => return Ok(None),
-    };
-    Ok(Some(Output {
-        columns: vec![(name, column)],
-        iterations: None,
-        converged: None,
-    }))
-}
-
-fn read<T: Stored>(
-    stored: &StoredResult<'_, MmapSource>,
-    values: &mut SegVec<T>,
-) -> Result<(), ContainerError> {
-    let mut first = 0;
-    for segment in values.segments_mut() {
-        stored.read(first, segment)?;
-        first += segment.len() as u64;
-    }
-    Ok(())
-}
-
-/// Commits `output` to the graph file as the result of `key`; the reason it could not.
-fn store(path: &Path, key: &ResultKey, about: &Provenance, output: &Output) -> Result<(), String> {
-    let sink = FileSink::open(path).map_err(|e| e.to_string())?;
+/// Commits `output` to the graph file as the result of `op`; the reason it could not.
+fn store(path: &Path, op: &Operation, about: &Provenance, output: &Output) -> Result<(), String> {
+    let sink = FileSink::open(path).map_err(|e| failure::reason(&e))?;
     let mut writer = Writer::update(sink).map_err(|e| e.to_string())?;
-    let Some((_, column)) = output.columns.first() else {
-        return Ok(());
-    };
-    let one = "a result longer than one segment";
-    match column {
-        Column::U32 { values, .. } | Column::Nodes { values, .. } => {
-            writer.add_result(key, about, values.as_slice().ok_or(one)?)
-        }
-        Column::F64(values) => writer.add_result(key, about, values.as_slice().ok_or(one)?),
-        Column::F32(values) => writer.add_result(key, about, values.as_slice().ok_or(one)?),
-    }
-    .map_err(|e| e.to_string())?;
+    run::store(&mut writer, op, about, output).map_err(|e| e.to_string())?;
     writer.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -531,6 +465,7 @@ fn kernel_failure(
         .ways(vec![("everygraph run --help".into(), String::new())])
         .on_existing_file(),
         RunError::Kernel(other) => failure::corrupt(graph, &other),
+        RunError::Stored(e) => failure::corrupt(graph, &e),
     }
 }
 
