@@ -8,7 +8,7 @@
 
 use std::cell::Cell;
 
-use everygraph_core::{Memory, MemoryError, MemoryKind, Reservation, SegVec};
+use everygraph_core::{Memory, MemoryError, MemoryKind, Reservation, SegVec, usize_of, widen};
 
 use super::ef::EliasFano;
 use super::encode::block_starts;
@@ -283,12 +283,4 @@ fn out_of_memory(e: MemoryError) -> EncodeError {
             _ => u64::MAX,
         },
     }
-}
-
-fn usize_of(n: u32) -> usize {
-    usize::try_from(n).expect("usize has at least 32 bits")
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).expect("usize has at most 64 bits")
 }

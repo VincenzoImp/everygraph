@@ -4,7 +4,7 @@
 //! from the item counts of the first pass, grouped into rounds that are finished one at
 //! a time; the first rounds are filled in memory, the others spilled.
 
-use everygraph_core::{InsufficientBudget, MemoryError};
+use everygraph_core::{InsufficientBudget, MemoryError, widen};
 use everygraph_format::adjacency::{events_section_bytes, index_bytes_bound, record_bound};
 
 use super::{BuildError, Regime, Tuning};
@@ -259,8 +259,4 @@ fn scatter_table(blocks: usize, buckets: usize) -> (usize, u64) {
     let grouped = blocks.div_ceil(group);
     let bytes = grouped * buckets * CELL_BYTES + grouped * 64;
     (usize::try_from(group).unwrap_or(usize::MAX), bytes)
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).unwrap_or(u64::MAX)
 }

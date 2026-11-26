@@ -62,7 +62,7 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
-use everygraph_core::{ExactSum, Memory, MemoryKind, SegVec};
+use everygraph_core::{ExactSum, Memory, MemoryKind, SegVec, usize_of};
 
 use crate::degrees::{Loop, scaled_strengths};
 use crate::edge_map::{
@@ -246,7 +246,7 @@ pub fn pagerank<S: Source, F: Real>(
     memory: &Memory,
 ) -> Result<Ranks<F>, Error> {
     let plan = g.lists;
-    let n = ix(plan.nodes());
+    let n = usize_of(plan.nodes());
     if !(0.0..=1.0).contains(&p.damping) {
         return Err(Error::Argument("damping: not between 0 and 1"));
     }
@@ -350,7 +350,7 @@ pub fn eigenvector<S: Source>(
     memory: &Memory,
 ) -> Result<Ranks<f64>, Error> {
     let plan = g.lists;
-    let n = ix(plan.nodes());
+    let n = usize_of(plan.nodes());
     check_tol(p.tol)?;
     let column = match g.weights {
         Some(w) => Some((w, column_scale(w, plan.source().entries(), f64::EXPONENTS)?)),
@@ -413,7 +413,7 @@ pub fn top<F: Real>(values: &[F], k: usize, memory: &Memory) -> Result<SegVec<(u
     while let Some(Reverse(Key(_, Reverse(id)))) = heap.pop() {
         at -= 1;
         if let Some(slot) = out.get_mut(at) {
-            *slot = (id, values[ix(id)]);
+            *slot = (id, values[usize_of(id)]);
         }
     }
     Ok(out)
@@ -451,10 +451,6 @@ fn check_tol(tol: f64) -> Result<(), Error> {
     } else {
         Err(Error::Argument("tol: negative or NaN"))
     }
-}
-
-fn ix(n: u32) -> usize {
-    usize::try_from(n).expect("a node count fits in memory")
 }
 
 /// The seed set of a personalized `PageRank`, and the number of distinct seeds.
