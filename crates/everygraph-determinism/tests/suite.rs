@@ -2,7 +2,8 @@
 
 //! DESIGN D14 across threads, chunkings, sources and repetition (#54): the graph build,
 //! every whole-graph kernel, weighted `PageRank`, eigenvector and SSSP with weights
-//! over 2^-20 to 2^21, and Leiden; and order probes of the reduction primitives.
+//! over 2^-20 to 2^21, and Leiden, also with those weights; and order probes of the
+//! reduction primitives.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -17,11 +18,11 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use everygraph_community::{Options, Refinement};
+use everygraph_community::{Objective, Options, Refinement};
 use everygraph_core::{Budget, ByteSource, Memory, MemorySource, par};
 use everygraph_determinism::{
     Config, Lists, SplitMix, Stored, THREADS, communities, communities_hash, corpus, full, grid,
-    kernels, on, planted, same, with_source,
+    kernels, on, planted, same, weighted_communities, with_source,
 };
 use everygraph_format::container::Provenance;
 use everygraph_ingest::build::{BuildOptions, Duplicates, GraphOptions, Regime, SelfLoops, Silent};
@@ -76,10 +77,19 @@ fn leiden_gives_the_same_bits_everywhere() {
         seed: 7,
         ..Options::default()
     };
+    let cpm = Options {
+        objective: Objective::Cpm,
+        resolution: 0.05,
+        ..randomized
+    };
+    // The last two read the graph's weights: 1.0 on the corpus, wide on the planted
+    // partitions (#58).
     let variants = [
         ("default", Options::default()),
         ("quality", Options::quality()),
         ("randomized", randomized),
+        ("weighted", Options::default()),
+        ("weighted, CPM", cpm),
     ];
     let mut runs = 0;
     for (i, (name, g)) in graphs().iter().enumerate() {
@@ -88,12 +98,12 @@ fn leiden_gives_the_same_bits_everywhere() {
                 continue;
             }
             let configs = grid(i + k);
+            let weights = (k >= 3).then_some(&g.lists.weights[..]);
             same(&format!("{name}, {variant}"), &configs, |c: Config| {
-                with_source!(g.source(c.kind), |s| communities_hash(&communities(
-                    &s,
-                    c.settings(),
-                    o
-                )))
+                with_source!(g.source(c.kind), |s| communities_hash(&match weights {
+                    None => communities(&s, c.settings(), o),
+                    Some(w) => weighted_communities(&s, w, c.settings(), o),
+                }))
             });
             runs += configs.len();
         }

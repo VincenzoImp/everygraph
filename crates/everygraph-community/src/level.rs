@@ -309,7 +309,7 @@ impl<'k> Ranks<'k> {
 /// order. For modularity a move's claimed gain is positive and at most
 /// `2(1 + γ)·k_u / 2W`, so a sweep's gains add to at most `2(1 + γ)`, below 2^64 in
 /// these units for the resolutions `leiden` accepts; a CPM gain has no such bound.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug)]
 struct Gain(u64);
 
 impl Gain {

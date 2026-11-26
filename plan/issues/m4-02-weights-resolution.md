@@ -19,4 +19,10 @@ labels: type:feature, area:community, P0, risk:medium, size:M, lab-evidence
 - Deterministic hash stable across thread counts and across two memory budgets in RAM (the same out of core is {{#m4-04-ooc-leiden}}'s), with random real weights: f32, and log-uniform over 2^-20…2^20 on orkut (`docs/research/sota-numerics.md` challenge 1)
 - Modularity, Leicht–Newman and CPM values equal the oracle's on graphs with kept loops, and modularity is equal across aggregation (a partition and its quotient under singletons), also with real weights — attainable only with exact sums, which the fixed-point weights above give: a float sum over members is not in general the same float sum over a quotient (`docs/spec/graph-semantics.md` § 5.5)
 
+**As built** (the pull request that closes this issue; `crates/everygraph-community/src/weights.rs`)
+- The scale is the largest `s` with `T·2^s < 2^60`, not `≤ 2^62`: the rounding of each entry (at most one unit) and a loop's `2w` then keep the total of `A` below 2^62 without a second pass.
+- Inputs with a range above the scale are not refused: a weight below `2^-(s+1)` counts as 0, like a zero weight. Refusing them would refuse this issue's own test input: log-uniform weights over 2^-20…2^20 on orkut have `T ≈ 2^43` and so a range of about 2^63. Their error is at most `2^-(s+1)` each, as for every other weight. No two-limb or `i128` fallback is built.
+- `weight_scale` is recorded in the result (`Communities::weight_scale`, `Table::weight_scale`). A weighted result is not stored as a hierarchy, so it has no provenance yet: {{#m4-xx-weighted-hierarchy}}.
+- The error kinds of the API (`Unsupported`, `InvalidInput`) are the Python layer's ({{#m6-10-communities-python}}); the crate returns `Error::Invalid` and `Error::Weight`.
+
 **Depends on** {{#m4-01-leiden-production}}, {{#m2-10-property-columns}}, {{#m2-34-build-columns}} (no weighted graph can be read before it)

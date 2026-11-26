@@ -331,28 +331,23 @@ pub(crate) fn quotient<S: Source>(
     ))
 }
 
-/// The quotient graph of a partition of an unweighted graph (`membership` as
+/// The quotient graph of a partition of a graph with `weights` (`membership` as
 /// [`table`](crate::table) takes it). Node `c` of the quotient is the `c`-th community
 /// in the order of its smallest node.
 #[cfg(test)]
 pub(crate) fn quotient_of<S: Source>(
     source: &S,
+    weights: crate::EdgeWeights<'_>,
     memory: &Memory,
     settings: everygraph_kernels::edge_map::Settings,
     membership: &[u32],
 ) -> Result<Quotient, Error> {
     crate::quality::communities(source.nodes(), membership)?;
+    let (w, _) = crate::weights::scaled(source, weights)?;
     Plan::with(source, memory, settings, |plan| {
         let d = dense(&plan, memory, |v| membership[v.index()])?;
         let members = Members::new(memory, d.parts())?;
-        let q = quotient(
-            &plan,
-            memory,
-            Weights::Unit,
-            d.parts(),
-            &members,
-            &Tables::new(memory),
-        )?;
+        let q = quotient(&plan, memory, w, d.parts(), &members, &Tables::new(memory))?;
         Ok(q.0)
     })
 }

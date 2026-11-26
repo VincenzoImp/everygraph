@@ -7,10 +7,13 @@ graphs with the same generator.
 
 For each graph and each method: the best and the mean modularity over seeds 0-9, at
 resolution 1. igraph's Leiden runs until an iteration changes nothing (n_iterations=-1);
-igraph's multilevel and NetworkX's Louvain run to their own end.
+igraph's multilevel and NetworkX's Louvain run to their own end. Then weighted graphs
+with loops (#58): igraph's Leiden for modularity at several resolutions and for CPM, the
+values of fixed partitions, and directed (Leicht-Newman) values on a directed graph.
 """
 
 import json
+import math
 import pathlib
 import random
 import statistics
@@ -77,6 +80,127 @@ def summary(values):
     return {"best": max(values), "mean": statistics.fmean(values)}
 
 
+def unit(rng):
+    """A float in [0, 1) from the top 53 bits of a draw."""
+    return (rng.next() >> 11) / 2**53
+
+
+def weighted_planted(blocks, size, p_in, p_out, seed, directed=False):
+    """As `planted`, every pair (every ordered pair when directed) drawn in order; each
+    edge then draws its weight, 1 to 3 inside a block and 0.1 to 0.5 between blocks;
+    then a loop of weight 0.5 to 1.5 at every seventh node."""
+    rng = SplitMix64(seed)
+    n = blocks * size
+    edges, weights = [], []
+    for u in range(n):
+        for v in range(n) if directed else range(u + 1, n):
+            if u == v:
+                continue
+            inside = u // size == v // size
+            if rng.next() % 1000 < (p_in if inside else p_out):
+                edges.append((u, v))
+                weights.append(1.0 + 2.0 * unit(rng) if inside else 0.1 + 0.4 * unit(rng))
+    for v in range(0, n, 7):
+        edges.append((v, v))
+        weights.append(0.5 + unit(rng))
+    return n, edges, weights
+
+
+def weighted(n, edges, seed):
+    """`edges` with a weight of 0.5 to 4.5 each."""
+    rng = SplitMix64(seed)
+    return n, edges, [0.5 + 4.0 * unit(rng) for _ in edges]
+
+
+def cpm(g, membership, weights, gamma):
+    """leidenalg's CPMVertexPartition: the weight inside each community, loops once,
+    less gamma times its pairs of nodes."""
+    inside = sum(w for e, w in zip(g.es, weights) if membership[e.source] == membership[e.target])
+    sizes = {}
+    for c in membership:
+        sizes[c] = sizes.get(c, 0) + 1
+    return inside - gamma * sum(s * (s - 1) / 2 for s in sizes.values())
+
+
+# Name: (graph, resolutions of modularity, resolution of CPM, block size).
+WEIGHTED = {
+    "w-karate": (weighted(*karate(), 11), [1.0], 0.5, 17),
+    "w-ring-30x5": (weighted(*ring(30, 5), 12), [1.0, 2.0], 1.0, 5),
+    "w-planted-8x100-120-4": (weighted_planted(8, 100, 120, 4, 1), [1.0, 0.5], 0.1, 100),
+    "w-planted-20x100-80-8": (weighted_planted(20, 100, 80, 8, 3), [1.0], 0.05, 100),
+}
+
+
+def fixed(n, block):
+    """Two partitions: `v % 5`, and blocks of `block` consecutive nodes."""
+    return {"mod5": [v % 5 for v in range(n)], "blocks": [v // block for v in range(n)]}
+
+
+def weighted_references():
+    """For each weighted graph, with loops: igraph's Leiden over seeds 0-9 for
+    modularity at each resolution and for CPM, scored by igraph's modularity and by
+    `cpm`; and the values of the partitions of `fixed`."""
+    out = {}
+    for name, ((n, edges, w), gammas, gamma_cpm, block) in WEIGHTED.items():
+        g = igraph.Graph(n=n, edges=edges)
+        r = {"nodes": n, "edges": len(edges), "weight_sum": math.fsum(w), "block": block,
+             "modularity": {}}
+        for gamma in gammas:
+            values = []
+            for seed in range(10):
+                random.seed(seed)
+                m = g.community_leiden(objective_function="modularity", weights=w,
+                                       resolution=gamma, n_iterations=-1).membership
+                values.append(g.modularity(m, weights=w, resolution=gamma))
+            r["modularity"][str(gamma)] = summary(values)
+        values = []
+        for seed in range(10):
+            random.seed(seed)
+            m = g.community_leiden(objective_function="CPM", weights=w, resolution=gamma_cpm,
+                                   n_iterations=-1).membership
+            values.append(cpm(g, m, w, gamma_cpm))
+        r["cpm"] = {"resolution": gamma_cpm, **summary(values)}
+        r["values"] = {
+            key: {
+                "modularity": {str(x): g.modularity(m, weights=w, resolution=x) for x in gammas},
+                "cpm": cpm(g, m, w, gamma_cpm),
+            }
+            for key, m in fixed(n, block).items()
+        }
+        out[name] = r
+    return out
+
+
+def directed_references():
+    """A directed planted graph with loops: Leicht-Newman and projected modularity of
+    the partitions of `fixed`, and the Leicht-Newman value over seeds 0-9 of igraph's
+    Leiden on the undirected projection (its Leiden for modularity does not read
+    direction)."""
+    n, edges, w = weighted_planted(8, 60, 150, 6, 5, directed=True)
+    g = igraph.Graph(n=n, edges=edges, directed=True)
+    projected = []
+    for seed in range(10):
+        random.seed(seed)
+        m = g.as_undirected(mode="each").community_leiden(
+            objective_function="modularity", weights=w, n_iterations=-1).membership
+        projected.append(g.modularity(m, weights=w, directed=True))
+    return {
+        "nodes": n,
+        "edges": len(edges),
+        "weight_sum": math.fsum(w),
+        "block": 60,
+        "projection_leiden_directed": summary(projected),
+        "values": {
+            key: {
+                "directed": g.modularity(m, weights=w, directed=True),
+                "undirected": g.modularity(m, weights=w, directed=False),
+                "directed_half": g.modularity(m, weights=w, resolution=0.5, directed=True),
+            }
+            for key, m in fixed(n, 60).items()
+        },
+    }
+
+
 def main():
     out = {}
     for name, (n, edges) in GRAPHS.items():
@@ -100,7 +224,13 @@ def main():
             "networkx_louvain": summary(louvain),
         }
     versions = {"igraph": igraph.__version__, "networkx": nx.__version__}
-    text = json.dumps({"versions": versions, "graphs": out}, indent=1, sort_keys=True)
+    everything = {
+        "versions": versions,
+        "graphs": out,
+        "weighted": weighted_references(),
+        "directed": directed_references(),
+    }
+    text = json.dumps(everything, indent=1, sort_keys=True)
     (HERE / "references.json").write_text(text + "\n")
 
 

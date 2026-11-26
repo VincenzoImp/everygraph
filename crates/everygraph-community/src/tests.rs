@@ -3,7 +3,7 @@
 //! S6 (`docs/spec/graph-semantics.md` § 5.5) through the crate's own aggregation: on
 //! every graph of the oracle's CI corpus, kept loops in the lists, the partition of each
 //! level of a Leiden run has the same table and modularity, bit for bit, as its quotient
-//! graph under singletons.
+//! graph under singletons, without weights and with real ones.
 
 use everygraph_core::Memory;
 use everygraph_kernels::edge_map::{Csr, Settings};
@@ -11,7 +11,7 @@ use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::projection::Projection;
 
 use crate::aggregate::quotient_of;
-use crate::{Options, leiden, table};
+use crate::{EdgeWeights, Options, leiden, leiden_weighted, weighted_table};
 
 /// The undirected lists of `p`, a kept loop once in its node's list.
 fn lists(p: &Projection) -> (Vec<u64>, Vec<u32>) {
@@ -29,6 +29,24 @@ fn lists(p: &Projection) -> (Vec<u64>, Vec<u32>) {
     (offsets, targets)
 }
 
+/// A weight for each entry, log-uniform over 2^-20 to 2^20, a function of its pair: the
+/// weights a float sum over members and over a quotient would round apart.
+fn wide(offsets: &[u64], targets: &[u32]) -> Vec<f64> {
+    let ix = |x: u64| usize::try_from(x).unwrap();
+    (0..csr_nodes(offsets))
+        .flat_map(|u| {
+            let list = &targets[ix(offsets[u as usize])..ix(offsets[u as usize + 1])];
+            list.iter().map(move |&v| {
+                let pair = u64::from(u.min(v)) << 32 | u64::from(u.max(v));
+                let mut h = pair.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                h ^= h >> 31;
+                f64::from_bits((1023 - 20 + h % 41) << 52 | (h >> 12))
+            })
+        })
+        .collect()
+}
+
 #[test]
 fn every_level_has_the_modularity_of_its_quotient() {
     let memory = Memory::unlimited();
@@ -37,25 +55,28 @@ fn every_level_has_the_modularity_of_its_quotient() {
     for e in entries(Tier::Ci).into_iter().step_by(step) {
         let (offsets, targets) = lists(&Projection::new(&e.graph));
         let csr = Csr::new(&offsets, &targets).unwrap();
-        let c = leiden(&csr, &memory, s, &Options::default()).unwrap();
-        let name = &e.graph.name;
-        let mut prefix: Vec<u32> = (0..csr_nodes(&offsets)).collect();
-        for level in &c.levels {
-            for x in &mut prefix {
-                *x = level[*x as usize];
+        let real = wide(&offsets, &targets);
+        for w in [EdgeWeights::Unit, EdgeWeights::Pairs(&real)] {
+            let c = leiden_weighted(&csr, w, &memory, s, &Options::default()).unwrap();
+            let name = format!("{}, {:?}", e.graph.name, c.weight_scale);
+            let mut prefix: Vec<u32> = (0..csr_nodes(&offsets)).collect();
+            for level in &c.levels {
+                for x in &mut prefix {
+                    *x = level[*x as usize];
+                }
+                let t = weighted_table(&csr, w, &memory, s, &prefix).unwrap();
+                let tq = quotient_of(&csr, w, &memory, s, &prefix)
+                    .unwrap()
+                    .table(&memory, s)
+                    .unwrap();
+                assert_eq!(
+                    t.modularity(1.0).to_bits(),
+                    tq.modularity(1.0).to_bits(),
+                    "{name}"
+                );
+                assert_eq!(&t.internal[..], &tq.internal[..], "{name}");
+                assert_eq!(&t.volume[..], &tq.volume[..], "{name}");
             }
-            let t = table(&csr, &memory, s, &prefix).unwrap();
-            let tq = quotient_of(&csr, &memory, s, &prefix)
-                .unwrap()
-                .table(&memory, s)
-                .unwrap();
-            assert_eq!(
-                t.modularity(1.0).to_bits(),
-                tq.modularity(1.0).to_bits(),
-                "{name}"
-            );
-            assert_eq!(&t.internal[..], &tq.internal[..], "{name}");
-            assert_eq!(&t.volume[..], &tq.volume[..], "{name}");
         }
     }
 }
