@@ -119,7 +119,7 @@ const BASE: Recipe = Recipe {
 };
 
 /// The fixed families: each stresses another kind of state.
-pub const FAMILIES: [Recipe; 7] = [
+pub const FAMILIES: [Recipe; 8] = [
     BASE,
     Recipe {
         name: "hubs",
@@ -131,6 +131,12 @@ pub const FAMILIES: [Recipe; 7] = [
     Recipe {
         name: "chain",
         degree16: 4,
+        chain_share: 1024,
+        ..BASE
+    },
+    Recipe {
+        name: "path",
+        degree16: 0,
         chain_share: 1024,
         ..BASE
     },

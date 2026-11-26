@@ -7,8 +7,9 @@
 //! stay within the ledger's peak plus a fixed gap. Every record is printed, and appended
 //! to the file `EVERYGRAPH_MEMTEST_RECORDS` names when it is set.
 //!
-//! Skipped where `systemd-run --user` does not work (no systemd user session). The
-//! pull-request set is one graph at three budgets; `--ignored` runs the nightly matrix.
+//! Where `systemd-run --user` does not work (no systemd user session) the tests fail,
+//! unless `EVERYGRAPH_MEMTEST_NO_CGROUP=1` skips them. The pull-request set is one graph
+//! at three budgets; `--ignored` runs the nightly matrix.
 
 #![cfg(target_os = "linux")]
 #![forbid(unsafe_code)]
@@ -26,13 +27,15 @@ use everygraph_memtest::ops::{Input, OPS, Op, known};
 /// What the scope holds above the budget and the input's arrays: the test binary, its
 /// threads' stacks, and the page cache of the files it maps and writes, which the kernel
 /// reclaims before it kills. The files are on the build directory's disk: on a tmpfs
-/// they would be memory the kernel cannot reclaim without swap.
+/// they would be memory the kernel cannot reclaim without swap. Issue m3-25 runs the
+/// suite with it at 0.
 const SLACK: u64 = 96 << 20;
 
 /// Most anonymous bytes above the ledger's peak (the "untracked" gap): what the counting
 /// allocator allows (512 KiB in `no_oom.rs`), what the allocator keeps after frees,
-/// thread stacks and page rounding. The nightly matrix, run once on the lab machine, saw at
-/// most 9 MB outside the known gap of ingest (34 MB; exploratory).
+/// thread stacks and page rounding. A known finding adds its own bound
+/// ([`Known::bound`](everygraph_memtest::ops::Known::bound)). One run of the nightly
+/// matrix saw at most 9 MB outside ingest (exploratory, the records in PR #251).
 const GAP: i64 = 32 << 20;
 
 /// The scope of an unlimited run.
@@ -86,8 +89,9 @@ fn matrix(op: Op, recipe: &Recipe, input: &Input, fractions: &[f64], extra: &[u6
             Ok(r) => {
                 record(op, recipe, budget, &r);
                 let clean = matches!(r.outcome.as_str(), "done" | "refused");
-                // A known gap is reported, not failed: no kill and a clean end still are.
-                let gap = r.gap() > GAP && known(op).is_none();
+                let allowed =
+                    GAP + known(op).map_or(0, |k| i64::try_from(k.bound).unwrap_or(i64::MAX));
+                let gap = r.gap() > allowed;
                 if !clean || r.oom_kill > 0 || gap {
                     failures.push(format!("{} at {budget:?}: {r:?}", op.name()));
                 }
@@ -114,8 +118,7 @@ fn matrix(op: Op, recipe: &Recipe, input: &Input, fractions: &[f64], extra: &[u6
 
 #[test]
 fn the_process_stays_within_its_budget() {
-    if !cgroup::available() {
-        eprintln!("skipped: systemd-run --user --scope does not work here");
+    if !cgroup::required() {
         return;
     }
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
@@ -135,8 +138,7 @@ fn the_process_stays_within_its_budget() {
 #[test]
 #[ignore = "an hour, gigabytes: cargo test --release -p everygraph-memtest --test cgroup -- --ignored"]
 fn the_process_stays_within_its_budget_nightly() {
-    if !cgroup::available() {
-        eprintln!("skipped: systemd-run --user --scope does not work here");
+    if !cgroup::required() {
         return;
     }
     const GIB: u64 = 1 << 30;
@@ -145,7 +147,8 @@ fn the_process_stays_within_its_budget_nightly() {
     for recipe in [
         FAMILIES[0].at(1 << 22),
         FAMILIES[1].at(1 << 21),
-        FAMILIES[6].at(1 << 20),
+        FAMILIES[3].at(1 << 20),
+        FAMILIES[7].at(1 << 20),
     ] {
         let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("everygraph-memtest-cgroup-{}", std::process::id()));

@@ -77,9 +77,9 @@ fn excess<S: Source>(source: &S) -> usize {
     worst.into_inner()
 }
 
-/// On a pool whose threads have all started ([`alone`]): threads that were still
-/// starting allocated their state while the first source was measured, up to 139 KB
-/// over the slack in 7 of 72 runs with 64 threads on 32 cores (issue #230).
+/// On a pool whose threads have all started ([`alone`]): a thread that starts during a
+/// measurement counts its own state against the readers, up to 139 KB over the slack
+/// with 64 threads on 32 cores (exploratory, PR #251).
 #[test]
 fn readers_hold_no_more_heap_than_they_reserve() {
     alone(|| {

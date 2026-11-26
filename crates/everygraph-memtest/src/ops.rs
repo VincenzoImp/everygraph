@@ -266,6 +266,8 @@ pub enum Kernel {
     PageRank,
     /// BFS from node 0, with parents.
     Bfs,
+    /// BFS from node 0, hops only.
+    Hops,
     /// SSSP from node 0.
     Sssp,
     /// Weakly connected components, numbered.
@@ -274,6 +276,8 @@ pub enum Kernel {
     KCore,
     /// Degrees.
     Degrees,
+    /// Leiden, deterministic mode.
+    Leiden,
 }
 
 /// An operation under test.
@@ -291,40 +295,71 @@ pub enum Op {
     Compact,
 }
 
-/// What an operation does against the promise today, with the issue that removes it.
-/// The slope test checks that it is still there, so that the entry goes with the fix.
-pub const KNOWN: [(Op, &str); 1] = [(
-    Op::Ingest,
-    "the first pass holds each text block's parsed rows outside the ledger, and a budget \
-     below the build's own estimate is refused only after it \
-     (plan/issues/m3-23-ingest-first-pass.md)",
-)];
+/// Untracked heap that an operation holds today, outside the ledger, in some of its
+/// phases, with the issue that removes it. The suite exempts those phases only, and
+/// checks that they still hold it, so that the entry goes with the fix.
+#[derive(Clone, Copy, Debug)]
+pub struct Known {
+    /// The operation.
+    pub op: Op,
+    /// The phases exempt: those whose purpose, the last reservation before them
+    /// ([`untracked_by_phase`](crate::counting::untracked_by_phase)), starts with one of
+    /// these.
+    pub phases: &'static [&'static str],
+    /// The most anonymous bytes these phases can add to the control group's peak, which
+    /// cannot be split by phase.
+    pub bound: u64,
+    /// Whether a budget below the declared minimum is refused only after the work has
+    /// begun, instead of before it.
+    pub refuses_late: bool,
+    /// What is held, and the issue.
+    pub why: &'static str,
+}
 
-/// Why `op` is in [`KNOWN`], if it is.
+/// The known findings.
+pub const KNOWN: [Known; 1] = [Known {
+    op: Op::Ingest,
+    // The first pass is the dictionary's read of the text: its phases, and the time
+    // before its first reservation. The dictionary alone is checked as `Op::Dictionary`.
+    phases: &["(before any reservation)", "id dictionary"],
+    // One parsed block per thread: 2 × 4 MiB of text and 24 bytes for each of at most
+    // 4 MiB / 4 rows (a row is at least `0 0` and a line end; `build/rows.rs`, `Flight`).
+    bound: THREADS.get() as u64 * ((8 << 20) + (1 << 20) * 24),
+    refuses_late: true,
+    why: "the first pass holds each text block's parsed rows outside the ledger, before the \
+          dictionary's first reservation and during its read, and a budget below the build's own estimate is \
+          refused only after the first pass (plan/issues/m3-28-ingest-first-pass.md)",
+}];
+
+/// The known finding of `op`, if there is one.
 #[must_use]
-pub fn known(op: Op) -> Option<&'static str> {
-    KNOWN.iter().find(|k| k.0 == op).map(|k| k.1)
+pub fn known(op: Op) -> Option<&'static Known> {
+    KNOWN.iter().find(|k| k.op == op)
 }
 
 /// Every operation, each kernel in both regimes.
-pub const OPS: [Op; 16] = {
-    use Kernel::{Bfs, Degrees, KCore, PageRank, Sssp, Wcc};
+pub const OPS: [Op; 20] = {
+    use Kernel::{Bfs, Degrees, Hops, KCore, Leiden, PageRank, Sssp, Wcc};
     use Regime::{Mapped, Streamed};
     [
         Op::Ingest,
         Op::Dictionary,
         Op::Kernel(PageRank, Mapped),
         Op::Kernel(Bfs, Mapped),
+        Op::Kernel(Hops, Mapped),
         Op::Kernel(Sssp, Mapped),
         Op::Kernel(Wcc, Mapped),
         Op::Kernel(KCore, Mapped),
         Op::Kernel(Degrees, Mapped),
+        Op::Kernel(Leiden, Mapped),
         Op::Kernel(PageRank, Streamed),
         Op::Kernel(Bfs, Streamed),
+        Op::Kernel(Hops, Streamed),
         Op::Kernel(Sssp, Streamed),
         Op::Kernel(Wcc, Streamed),
         Op::Kernel(KCore, Streamed),
         Op::Kernel(Degrees, Streamed),
+        Op::Kernel(Leiden, Streamed),
         Op::Verify,
         Op::Compact,
     ]
@@ -437,6 +472,12 @@ impl Op {
 
 impl Kernel {
     fn run<S: Source>(self, lists: &S, input: &Input, memory: &Memory) -> Result<(), Failure> {
+        if self == Self::Leiden {
+            let options = everygraph_community::Options::default();
+            return everygraph_community::leiden(lists, memory, Settings::default(), &options)
+                .map(drop)
+                .map_err(kernel);
+        }
         Plan::with(lists, memory, Settings::default(), |plan| match self {
             Self::PageRank => {
                 let strength = pagerank::strength(&plan, None, false, memory)?;
@@ -455,6 +496,7 @@ impl Kernel {
                 };
                 bfs(&plan, Some(&plan), 0, &p, memory).map(drop)
             }
+            Self::Hops => bfs(&plan, Some(&plan), 0, &Bfs::default(), memory).map(drop),
             Self::Sssp => sssp(&plan, &input.costs, 0, &Sssp::default(), memory).map(drop),
             Self::Wcc => {
                 let options = WccOptions {
@@ -468,6 +510,7 @@ impl Kernel {
             }
             Self::KCore => kcore::kcore(&plan, memory).map(drop),
             Self::Degrees => degrees::degrees(&plan, memory, Loop::Twice).map(drop),
+            Self::Leiden => Err(Error::Invalid("Leiden runs without a plan")),
         })
         .map_err(kernel)
     }

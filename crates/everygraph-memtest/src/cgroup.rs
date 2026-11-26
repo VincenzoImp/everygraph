@@ -29,6 +29,11 @@ const OP: &str = "EVERYGRAPH_MEMTEST_OP";
 const INPUT: &str = "EVERYGRAPH_MEMTEST_INPUT";
 const BUDGET: &str = "EVERYGRAPH_MEMTEST_BUDGET";
 const SCRATCH: &str = "EVERYGRAPH_MEMTEST_SCRATCH";
+const MEMORY_MAX: &str = "EVERYGRAPH_MEMTEST_MEMORY_MAX";
+
+/// Set to `1` to skip the control-group tests where `systemd-run --user` does not work.
+/// CI never sets it: there, a scope that cannot be made is a failure.
+pub const SKIP: &str = "EVERYGRAPH_MEMTEST_NO_CGROUP";
 
 /// The line the child prints its record on.
 const MARK: &str = "memtest-record";
@@ -102,6 +107,25 @@ impl Record {
     }
 }
 
+/// Whether the control-group tests run here: `systemd-run --user --scope` works (a
+/// systemd user session), or [`SKIP`] is set and they are skipped.
+///
+/// # Panics
+///
+/// If the scope cannot be made and [`SKIP`] is not set: a test that cannot measure
+/// does not pass.
+#[must_use]
+pub fn required() -> bool {
+    if available() {
+        return true;
+    }
+    assert!(
+        std::env::var_os(SKIP).is_some_and(|v| v == "1"),
+        "systemd-run --user --scope does not work here; set {SKIP}=1 to skip"
+    );
+    false
+}
+
 /// Whether `systemd-run --user --scope` works here (a systemd user session).
 #[must_use]
 pub fn available() -> bool {
@@ -146,6 +170,7 @@ pub fn run(
         .env(OP, op.name())
         .env(INPUT, input)
         .env(SCRATCH, &scratch)
+        .env(MEMORY_MAX, memory_max.to_string())
         .env(
             BUDGET,
             budget.map_or_else(|| "none".into(), |b| b.to_string()),
@@ -190,6 +215,15 @@ pub fn child() -> bool {
     std::fs::create_dir_all(&scratch).expect("the scratch directory");
     let input = Input::reopen(Path::new(&input));
     let group = own_group();
+    // The scope is the child's own group, with the limit asked for, and its accounting.
+    let asked = std::env::var(MEMORY_MAX).expect("the scope's limit");
+    let applied = read(&group.join("memory.max"));
+    assert_eq!(applied.trim(), asked, "memory.max of {}", group.display());
+    assert!(
+        stat(&group).contains_key("anon"),
+        "no memory.stat in {}",
+        group.display()
+    );
     let ledger = Arc::new(Ledger::new(limit, everygraph_io::PAGES, None));
     let memory = Memory::from(Arc::clone(&ledger));
     let anon_before = stat(&group).get("anon").copied().unwrap_or(0);

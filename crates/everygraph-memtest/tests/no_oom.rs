@@ -72,7 +72,9 @@ impl Drop for Dir {
     }
 }
 
-/// The slope test of `ops` on `recipes` at `sizes`; returns the failures.
+/// The slope test of `ops` on `recipes` at `sizes`, each run at a tight budget; returns
+/// the failures. A known finding's phases are left out of the fit, and must still grow on
+/// the first family, so that the entry goes with the fix.
 fn slopes(ops: &[Op], recipes: &[Recipe], sizes: &[u32], dir: &Path) -> Vec<String> {
     let mut failures = Vec::new();
     for recipe in recipes {
@@ -80,24 +82,37 @@ fn slopes(ops: &[Op], recipes: &[Recipe], sizes: &[u32], dir: &Path) -> Vec<Stri
             let s = slope(&g.points);
             let largest = g.points.iter().map(|p| p.1).fold(0.0, f64::max);
             eprintln!(
-                "{:>18} {:>20}: {s:7.3} B/node, untracked {:?} B; at the largest size by phase {:?}",
+                "{:>18} {:>20}: {s:7.3} B/node, untracked {:?} B at budgets {:?}; at the largest size by phase {:?}",
                 recipe.name,
                 op.name(),
                 g.points.iter().map(|p| p.1 as u64).collect::<Vec<_>>(),
+                g.budgets,
                 g.phases
             );
-            let over = s > SLOPE_LIMIT || largest > UNTRACKED_LIMIT as f64;
-            match (over, known(op)) {
-                (true, None) => failures.push(format!(
+            if s > SLOPE_LIMIT || largest > UNTRACKED_LIMIT as f64 {
+                failures.push(format!(
                     "{} on {}: {s:.3} B/node, {largest} B at most",
                     op.name(),
                     recipe.name
-                )),
-                (false, Some(why)) if recipe.name == FAMILIES[0].name => failures.push(format!(
-                    "{} no longer holds untracked heap that grows ({s:.3} B/node): remove it from `ops::KNOWN` ({why})",
-                    op.name()
-                )),
-                _ => {}
+                ));
+            }
+            let exempt = slope(&g.exempt);
+            if let Some(k) = known(op).filter(|_| recipe.name == FAMILIES[0].name) {
+                eprintln!(
+                    "{:>18} {:>20}: known, {exempt:.3} B/node in {:?}",
+                    recipe.name,
+                    op.name(),
+                    k.phases
+                );
+                if exempt <= SLOPE_LIMIT {
+                    failures.push(format!(
+                        "{} no longer holds untracked heap that grows in {:?} ({exempt:.3} B/node): \
+                         remove it from `ops::KNOWN` ({})",
+                        op.name(),
+                        k.phases,
+                        k.why
+                    ));
+                }
             }
         }
     }
@@ -154,8 +169,9 @@ fn check(op: Op, budget: Option<u64>, run: &Run) -> bool {
         run.ledger_left == 0 && run.scratch_left == 0 && run.heap_left <= LEFT_LIMIT,
         "left something behind: {at}"
     );
+    let exempt = known(op).map_or(&[][..], |k| k.phases);
     assert!(
-        run.untracked() <= UNTRACKED_LIMIT || known(op).is_some(),
+        run.untracked_outside(exempt) <= UNTRACKED_LIMIT,
         "untracked heap: {at}"
     );
     match &run.outcome {
@@ -191,7 +207,7 @@ fn budgets_across_the_boundary(op: Op, input: &Input, scratch: &Path, graph: &st
     };
     let (done, unlimited) = run(None);
     assert!(done);
-    let boundary = Boundary::search(unlimited.ledger_peak, |b| run(Some(b)).0);
+    let boundary = Boundary::search(unlimited.ledger_peak, 256, |b| run(Some(b)).0);
     // Near the boundary, which of two concurrent reservations is refused depends on the
     // schedule, so a run can complete at a budget and refuse at a larger one; both are
     // clean, and `check` has seen to that.
@@ -236,7 +252,7 @@ fn budgets_across_the_boundary(op: Op, input: &Input, scratch: &Path, graph: &st
         });
         assert!(
             matches!(below.outcome, Outcome::Refused(_))
-                && (below.heap_peak <= REFUSAL_LIMIT || known(op).is_some()),
+                && (below.heap_peak <= REFUSAL_LIMIT || known(op).is_some_and(|k| k.refuses_late)),
             "below the declared minimum: {below:?}"
         );
     }
@@ -271,8 +287,7 @@ fn a_search_finds_no_graph_where_untracked_heap_grows() {
 }
 
 fn search(sizes: &[u32], steps: usize, dir: &Path) {
-    let ops: Vec<Op> = OPS.into_iter().filter(|&op| known(op).is_none()).collect();
-    let worst = climb(&ops, &FAMILIES, sizes, steps, 0x5eed, dir);
+    let worst = climb(&OPS, &FAMILIES, sizes, steps, 0x5eed, dir);
     let mut failures = Vec::new();
     for (op, w) in &worst {
         let top = w.phases.iter().max_by(|a, b| a.1.0.total_cmp(&b.1.0));

@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicU32;
 use arrow_array::ArrayRef;
 use arrow_array::types::{Float32Type, Float64Type, UInt32Type};
 use everygraph_core::{Budget, Memory, MemoryKind, SegVec};
+use everygraph_ingest::graph::OpenError;
 use everygraph_kernels::components::{self, WccOptions};
 use everygraph_kernels::degrees::{self, Loop};
 use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, one_segment_mut};
@@ -76,8 +77,14 @@ impl Call<'_> {
     /// when every pair counts 1.
     fn pair_weights(&self, g: &Shared, weight: bool) -> Result<Option<SegVec<f64>>, Failure> {
         const SECTION: &str = "adjacency.out.events";
-        let events = g.file().events().map_err(|e| corrupt(SECTION, &e))?;
-        let Some(events) = events.filter(|_| weight) else {
+        if !weight {
+            return Ok(None);
+        }
+        let events = g.file().events(self.memory).map_err(|e| match e {
+            OpenError::Budget(refused) => self.fail(Error::Memory(refused.into())),
+            e => corrupt(SECTION, &e),
+        })?;
+        let Some((events, _held)) = events else {
             return Ok(None);
         };
         let entries =

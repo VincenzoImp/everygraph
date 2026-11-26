@@ -193,13 +193,19 @@ impl<S: ByteSource + Sync> Graph<S> {
     }
 
     /// The number of events of each entry of the out-adjacency, from its `.events`
-    /// section; `None` when no pair repeats, so that every entry has one event.
+    /// section, with the reservation under `memory` of the sequence it decodes when first
+    /// read (twice the section: its words and their select samples); `None` when no pair
+    /// repeats, so that every entry has one event.
     ///
     /// # Errors
     ///
     /// [`OpenError::Corrupt`] for a section that is not the index's, or that is not
-    /// held in memory (a map or a heap buffer).
-    pub fn events(&self) -> Result<Option<AdjacencyEvents<'_>>, OpenError> {
+    /// held in memory (a map or a heap buffer); [`OpenError::Budget`] when the sequence
+    /// does not fit.
+    pub fn events(
+        &self,
+        memory: &Memory,
+    ) -> Result<Option<(AdjacencyEvents<'_>, Reservation)>, OpenError> {
         if !self.index.has_events() {
             return Ok(None);
         }
@@ -212,9 +218,16 @@ impl<S: ByteSource + Sync> Graph<S> {
             .source()
             .slice(entry.offset..entry.offset + entry.len)
             .ok_or_else(|| corrupt(OUT_EVENTS, "not held in memory"))?;
+        let held = memory
+            .reserve(
+                "adjacency events",
+                MemoryKind::Anonymous,
+                entry.len.saturating_mul(2),
+            )
+            .map_err(OpenError::Budget)?;
         let events =
             AdjacencyEvents::parse(bytes, &self.index).map_err(|e| corrupt(OUT_EVENTS, e))?;
-        Ok(Some(events))
+        Ok(Some((events, held)))
     }
 
     /// The identifier dictionary, whose resident part is held under `memory`.
@@ -287,8 +300,8 @@ mod tests {
             .map(|i| d.key(NodeId::new(i)).expect("a key"))
             .collect();
         assert_eq!(keys, [5, 7, 9].map(OwnedKey::UInt));
-        let events = g
-            .events()
+        let (events, _held) = g
+            .events(&memory)
             .expect("a sound section")
             .expect("a repeated pair");
         let counts: Vec<u64> = events.multiplicities().expect("counts").collect();
@@ -305,7 +318,11 @@ mod tests {
     fn no_events_without_repeated_pairs() {
         let bytes = built("1 2\n2 3\n", false);
         let g = Graph::open(MemorySource::new(&bytes[..]), &Memory::unlimited()).expect("a graph");
-        assert!(g.events().expect("no section").is_none());
+        assert!(
+            g.events(&Memory::unlimited())
+                .expect("no section")
+                .is_none()
+        );
     }
 
     #[test]

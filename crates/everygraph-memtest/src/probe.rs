@@ -53,13 +53,27 @@ pub struct Run {
 }
 
 impl Run {
-    /// The most heap in use beyond what the ledger held at the same moment: bytes
-    /// nobody reserved. It bounds the peaks too: `heap_peak ≤ ledger_peak +
-    /// untracked()`. The difference of the two peaks alone would hide untracked bytes
-    /// behind a reservation made before its buffer, or larger than it.
+    /// The most, over the run, of the heap in use above the start minus the ledger's
+    /// anonymous bytes at the same moment, taken at each allocation. So `heap_peak ≤
+    /// ledger_peak + untracked()`. A reservation held without its buffer (headroom)
+    /// counts as covering heap, so heap that nobody reserved can hide under it; the
+    /// slope test measures at a tight budget for that reason
+    /// ([`growth`](crate::search::growth)).
     #[must_use]
     pub fn untracked(&self) -> u64 {
-        self.phases.iter().map(|&(_, b)| b).max().unwrap_or(0)
+        self.untracked_outside(&[])
+    }
+
+    /// [`untracked`](Self::untracked), leaving out the phases whose names start with one
+    /// of `exempt`.
+    #[must_use]
+    pub fn untracked_outside(&self, exempt: &[&str]) -> u64 {
+        self.phases
+            .iter()
+            .filter(|p| !exempt.iter().any(|e| p.0.starts_with(e)))
+            .map(|p| p.1)
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -75,8 +89,7 @@ static ONE: Mutex<()> = Mutex::new(());
 /// measured, and the tests of a binary run on several threads under `cargo test`.
 /// Started: a thread allocates its state (its queue, its thread-local data) when it
 /// first runs, and a measurement during which threads start counts that against the
-/// operation, more or less of it as the threads are fast or slow to start. That was
-/// the cause of the flaky heap test of issue #230.
+/// operation, more or less of it as the threads are fast or slow to start.
 ///
 /// # Panics
 ///
@@ -168,15 +181,15 @@ pub fn slope(points: &[(f64, f64)]) -> f64 {
     if sxx == 0.0 { 0.0 } else { sxy / sxx }
 }
 
-/// The smallest budget with which an operation completes, found by bisection, and what
-/// it used there.
+/// The smallest budget with which an operation completes, found by bisection.
 #[derive(Clone, Debug)]
 pub struct Boundary {
-    /// The smallest budget that completes, to within [`Boundary::STEP`] of the
-    /// ledger's peak without a limit.
+    /// The smallest budget that completes, to within [`step`](Self::step).
     pub smallest: u64,
     /// The ledger's peak without a limit.
     pub unlimited_peak: u64,
+    /// Where the bisection stopped: `unlimited_peak / parts`, at least 64 bytes.
+    pub step: u64,
 }
 
 /// What the planner's declared minimum says against the true one
@@ -192,21 +205,17 @@ pub enum Declared {
 }
 
 impl Boundary {
-    /// The bisection stops when the interval is below this share of the unlimited peak
-    /// (1/256).
-    pub const STEP: u64 = 256;
-
-    /// Bisects between 0 and twice the unlimited peak. `run(budget)` says whether the
-    /// operation completes with that budget; it must also have checked that a run
-    /// which does not complete refused cleanly.
+    /// Bisects between 0 and twice the unlimited peak, to within `1 / parts` of it.
+    /// `run(budget)` says whether the operation completes with that budget; it must also
+    /// have checked that a run which does not complete refused cleanly.
     ///
     /// # Panics
     ///
     /// If the operation does not complete at twice the unlimited peak.
-    pub fn search(unlimited_peak: u64, mut run: impl FnMut(u64) -> bool) -> Self {
+    pub fn search(unlimited_peak: u64, parts: u64, mut run: impl FnMut(u64) -> bool) -> Self {
         let (mut lo, mut hi) = (0_u64, unlimited_peak.max(1) * 2);
         assert!(run(hi), "no completion at twice the unlimited peak, {hi} B");
-        let step = (unlimited_peak / Self::STEP).max(64);
+        let step = (unlimited_peak / parts.max(1)).max(64);
         while hi - lo > step {
             let mid = lo + (hi - lo) / 2;
             if run(mid) {
@@ -218,17 +227,14 @@ impl Boundary {
         Self {
             smallest: hi,
             unlimited_peak,
+            step,
         }
     }
 
     /// Compares a planner's declared minimum with the smallest budget found.
     #[must_use]
     pub fn against(&self, declared: u64) -> Declared {
-        if declared
-            < self
-                .smallest
-                .saturating_sub(self.unlimited_peak / Self::STEP + 64)
-        {
+        if declared < self.smallest.saturating_sub(self.step) {
             Declared::TooLow
         } else {
             Declared::Ratio(declared as f64 / self.smallest.max(1) as f64)

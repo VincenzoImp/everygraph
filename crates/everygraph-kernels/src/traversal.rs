@@ -46,8 +46,9 @@ pub struct Hops {
     /// With [`Bfs::parents`]: the smallest node one hop closer to the source with an
     /// edge to the node; [`UNREACHED`] at the source and where it is not reached.
     pub parent: Option<Vec<AtomicU32>>,
-    /// The number of nodes at each distance, from 0.
-    pub levels: Vec<u64>,
+    /// The number of nodes at each distance, from 0, reserved in the budget: a path has
+    /// as many levels as nodes.
+    pub levels: SegVec<u64>,
     /// The budget held by `distance` and `parent`.
     pub held: Reservation,
 }
@@ -82,13 +83,13 @@ pub fn bfs<'g, S: Source>(
         ));
     }
     let words = if p.parents { 8 } else { 4 };
-    let mut held = memory.reserve("bfs state", MemoryKind::Anonymous, u64::from(n) * words)?;
+    let held = memory.reserve("bfs state", MemoryKind::Anonymous, u64::from(n) * words)?;
     let depth = unreached(n);
     let at = out.per_node(&depth)?;
     at[source].store(0, Relaxed);
     let max_hops = p.max_hops.unwrap_or(u32::MAX - 1);
-    let mut levels = Vec::new();
-    push_level(&mut levels, &mut held, 1)?;
+    let mut levels = SegVec::new(memory, "bfs levels");
+    levels.try_push(1)?;
     let mut frontier = NodeList::new(memory);
     frontier.push(source)?;
     let mut next = out.node_set(memory)?;
@@ -123,7 +124,7 @@ pub fn bfs<'g, S: Source>(
                     std::mem::swap(&mut front, &mut next);
                     next.clear();
                     if awake > 0 {
-                        push_level(&mut levels, &mut held, awake)?;
+                        levels.try_push(awake)?;
                     }
                     let shrunk = awake < old && awake <= u64::from(n) / BETA;
                     if awake == 0 || shrunk || level >= max_hops {
@@ -153,7 +154,7 @@ pub fn bfs<'g, S: Source>(
                 next.clear();
                 level += 1;
                 if !frontier.is_empty() {
-                    push_level(&mut levels, &mut held, frontier.len() as u64)?;
+                    levels.try_push(frontier.len() as u64)?;
                 }
             }
         }
@@ -183,21 +184,6 @@ pub fn bfs<'g, S: Source>(
         levels,
         held,
     })
-}
-
-/// Appends `count` to `levels`, whose capacity `held` covers: a path has as many levels
-/// as nodes. When the vector is full, its next block is reserved before it grows, and
-/// the old block given back after.
-fn push_level(levels: &mut Vec<u64>, held: &mut Reservation, count: u64) -> Result<(), Error> {
-    let old = levels.capacity();
-    if levels.len() == old {
-        held.try_grow((old.max(2) as u64 * 2) * 8)?;
-    }
-    levels.push(count);
-    if levels.capacity() != old {
-        held.shrink(old as u64 * 8);
-    }
-    Ok(())
 }
 
 /// `n` cells holding [`UNREACHED`], filled in parallel; the caller reserves them.

@@ -572,6 +572,7 @@ version = "0.0.0"
 name = "everygraph-memtest"
 version = "0.0.0"
 dependencies = [
+ "everygraph-community",
  "everygraph-core",
  "everygraph-format",
  "everygraph-ingest",

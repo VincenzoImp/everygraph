@@ -77,12 +77,11 @@
 //!
 //! # Memory
 //!
-//! The readers' buffers and the blocks' partial values are reserved against the plan's
-//! [`Memory`], and a reader frees a buffer that a long list grew when it goes back to the
-//! pool. Some small allocations are not counted: the task list (`O(n / block)`), one
-//! result per frontier run (`O(frontier / 256)`), and the pool itself (one entry per
-//! worker). The no-OOM suite (`everygraph-memtest`) checks that what is not counted does
-//! not grow with the graph.
+//! The readers' buffers, the blocks' partial values and the frontier runs' results are
+//! reserved against the plan's [`Memory`], and a reader frees a buffer that a long list
+//! grew when it goes back to the pool. Some small allocations are not counted: the task
+//! list (`O(n / block)`) and the pool itself (one entry per worker). The no-OOM suite
+//! (`everygraph-memtest`) checks that what is not counted does not grow with the graph.
 //!
 //! # `unsafe`
 //!
@@ -1012,6 +1011,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         if frontier.len() <= FRONTIER_GRAIN {
             return run(0..frontier.len());
         }
+        // One result per run, and an accumulator can be large (Leiden's).
+        let runs = frontier.len().div_ceil(GRAIN.get()) as u64;
+        let _held = self.memory.reserve(
+            "edge-map frontier results",
+            MemoryKind::Anonymous,
+            runs.saturating_mul(size_of::<Result<A, Error>>() as u64),
+        )?;
         par::map_ranges(frontier.len(), GRAIN, run)
             .into_iter()
             .try_fold(A::ZERO, |sum, part| Ok(sum.add(part?)))

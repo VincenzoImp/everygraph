@@ -230,7 +230,7 @@ fn run_all<S: Source>(
                 eigen: eigen.values.iter().map(|x| x.to_bits()).collect(),
                 depth: load(hops.distance),
                 parent: load(hops.parent.unwrap()),
-                levels: hops.levels,
+                levels: hops.levels.iter().copied().collect(),
                 sssp: d.bits.into_iter().map(AtomicU64::into_inner).collect(),
                 multi: (
                     multi.levels,
@@ -603,7 +603,7 @@ fn bfs_variants_agree() {
                 let (depth, parent) = (load(full.distance), load(full.parent.unwrap()));
                 assert_eq!(load(push.distance), depth);
                 assert_eq!(load(push.parent.unwrap()), parent);
-                assert_eq!(push.levels, full.levels);
+                assert!(push.levels.iter().eq(full.levels.iter()));
                 assert_eq!(
                     full.levels.iter().sum::<u64>(),
                     depth.iter().filter(|&&d| d != UNREACHED).count() as u64
@@ -631,7 +631,7 @@ fn bfs_variants_agree() {
                     .map(|&d| if d <= 2 { d } else { UNREACHED })
                     .collect();
                 assert_eq!(load(near.distance), want);
-                assert_eq!(near.levels[..], full.levels[..3]);
+                assert!(near.levels.iter().eq(full.levels.iter().take(3)));
             },
         )
         .unwrap();

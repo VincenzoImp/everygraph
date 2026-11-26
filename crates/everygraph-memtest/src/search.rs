@@ -11,37 +11,80 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::graphs::{Recipe, splitmix};
-use crate::ops::{Input, Op};
-use crate::probe::{Outcome, measure, slope};
+use crate::ops::{Input, Op, known};
+use crate::probe::{Boundary, Outcome, measure, slope};
 
 /// What an operation holds untracked at each size of one recipe.
 #[derive(Clone, Debug, Default)]
 pub struct Growth {
-    /// (nodes, untracked bytes), for the fit.
+    /// (nodes, untracked bytes outside the phases [`KNOWN`](crate::ops::KNOWN) exempts), for the fit.
     pub points: Vec<(f64, f64)>,
+    /// (nodes, untracked bytes in the exempt phases).
+    pub exempt: Vec<(f64, f64)>,
+    /// The budget of the measured run at each size; `None` for an operation without one.
+    pub budgets: Vec<Option<u64>>,
     /// The most untracked bytes by phase, at the largest size.
     pub phases: Vec<(&'static str, u64)>,
 }
 
+/// Where the tight budget may sit above the smallest one that completes, in percent: a
+/// run between two budgets that complete may still refuse, when concurrent reservations
+/// race.
+const TIGHT: [u64; 5] = [105, 110, 125, 150, 200];
+
 /// Runs each of `ops` on `recipe` at each of `sizes`, with `dir` for the inputs, and
 /// records its [`Growth`].
 ///
+/// Each run that takes a budget is measured at a tight one: 1.05 times the declared
+/// minimum where the engine declares one, else 1.05 times the smallest budget that
+/// completes (bisected to 1/32 of the ledger's unlimited peak), or the first of
+/// [`TIGHT`] that completes. Without a limit, an operation may reserve headroom it never
+/// fills, and untracked heap can hide in it.
+///
 /// # Panics
 ///
-/// If a run does not complete without a limit.
+/// If a run does not complete without a limit, or at twice the tight budget's base.
 pub fn growth(ops: &[Op], recipe: &Recipe, sizes: &[u32], dir: &Path) -> Vec<Growth> {
     let mut out = vec![Growth::default(); ops.len()];
+    let scratch = dir.join("scratch");
     for &n in sizes {
         let at = dir.join(format!("input-{n}"));
         let input = Input::prepare(&recipe.at(n), &at);
-        for (op, g) in ops.iter().zip(&mut out) {
-            let run = measure(None, None, &dir.join("scratch"), |memory, scratch| {
-                op.run(&input, memory, scratch)
-            });
-            let name = (op.name(), recipe.name);
-            assert_eq!(run.outcome, Outcome::Done, "{name:?} at n = {n}");
-            g.points
-                .push((f64::from(input.nodes), run.untracked() as f64));
+        for (&op, g) in ops.iter().zip(&mut out) {
+            let at = |budget: Option<u64>| {
+                measure(budget, None, &scratch, |memory, scratch| {
+                    op.run(&input, memory, scratch)
+                })
+            };
+            let name = (op.name(), recipe.name, n);
+            let unlimited = at(None);
+            assert_eq!(unlimited.outcome, Outcome::Done, "{name:?}");
+            let (budget, run) = if op.budgeted() {
+                let base = op.declared_minimum(&input).unwrap_or_else(|| {
+                    let done = |b| at(Some(b)).outcome == Outcome::Done;
+                    Boundary::search(unlimited.ledger_peak, 32, done).smallest
+                });
+                TIGHT
+                    .iter()
+                    .map(|percent| base * percent / 100)
+                    .map(|b| (Some(b), at(Some(b))))
+                    .find(|(_, r)| r.outcome == Outcome::Done)
+                    .unwrap_or_else(|| panic!("{name:?}: no completion up to {base} B × 2"))
+            } else {
+                (None, unlimited)
+            };
+            let exempt = known(op).map_or(&[][..], |k| k.phases);
+            let inside = run
+                .phases
+                .iter()
+                .filter(|p| exempt.iter().any(|e| p.0.starts_with(e)))
+                .map(|p| p.1)
+                .max()
+                .unwrap_or(0);
+            let nodes = f64::from(input.nodes);
+            g.points.push((nodes, run.untracked_outside(exempt) as f64));
+            g.exempt.push((nodes, inside as f64));
+            g.budgets.push(budget);
             g.phases = run.phases;
         }
         drop(input);
