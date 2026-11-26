@@ -9,7 +9,7 @@ labels: type:infra, area:bench, P1, risk:low, size:S
 - [x] The report prints the median with an exact rank interval and its confidence level: with n = 3, [min, max] is exactly a 75% interval of the median (1 − 2·0.5³); with n = 6 it is 96.9%; with n = 10, [x₍₂₎, x₍₉₎] is 97.9% (binomial arithmetic)
 - [x] Official runs default to n = 6; n = 3 stays allowed and is labelled "no 95% interval". One official `headline` window roughly doubles (about 26 → 50 minutes, the report's estimate)
 - [x] `compare` reports the ratio of medians with an interval (bootstrap over rounds, or Fieller) and passes only if the interval lies within ±δ, with δ per case from an A/A run
-- [ ] Moved to {{#m3-xx-harness-iteration-level}}. Name the measurement level of every number: record each in-process iteration and let the harness reduce (median over processes, minimum shown); drop `--reps 2 → best` inside the commands, a mixed statistic stated today only in a spec comment
+- [ ] Moved to {{#m3-33-harness-iteration-level}}. Name the measurement level of every number: record each in-process iteration and let the harness reduce (median over processes, minimum shown); drop `--reps 2 → best` inside the commands, a mixed statistic stated today only in a spec comment
 - [ ] Offline first (done: `report --compare` on the two runs, PR text): recompute both runs' intervals above (no machine needed); then one official `headline` run at n = 6 and an A/A `compare` of two runs to set δ per case
 
 **Acceptance**
