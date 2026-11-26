@@ -48,4 +48,7 @@ called as many short calls so WebAssembly engines optimize it.
 
 ## Closed by
 
-#44 (edge-map framework).
+The framework's overhead against the lab on orkut is above 5%:
+WCC, raw source, 16 threads, 1.13× (official,
+`bench/results/edge-map/20261126T043042Z-c0d7f248bb47.jsonl`). #240 finds whether the
+per-task cost behind it can be removed.

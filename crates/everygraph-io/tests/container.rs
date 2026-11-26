@@ -11,12 +11,14 @@
 
 #![forbid(unsafe_code)]
 
+#[path = "support/scratch.rs"]
+mod scratch_dir;
 #[path = "support/bytes.rs"]
 mod support;
 
 use std::fs;
 use std::io::{BufRead, BufReader, ErrorKind, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -25,6 +27,7 @@ use everygraph_format::container::{
     Container, ContainerError, Kind, Provenance, ResultKey, Writer,
 };
 use everygraph_io::{FileSink, FileSource, MmapSource, persist};
+use scratch_dir::scratch;
 use support::bytes;
 
 /// Set in the child process of the kill test, to the file it writes.
@@ -32,15 +35,6 @@ const CHILD: &str = "EVERYGRAPH_TEST_KILL_CHILD";
 /// The name of the kill test, which the child runs again in child mode.
 const KILL_TEST: &str =
     "a_writer_killed_at_any_moment_leaves_a_valid_file_with_every_acknowledged_commit";
-
-fn scratch(name: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("everygraph-io-container")
-        .join(name);
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 /// The length of section `s{i}` in the kill test: up to 300 KB, so that a kill lands
 /// in section writes as well as in syncs.

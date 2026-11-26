@@ -56,5 +56,4 @@ language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parse
 
 ## Closed by
 
-#91 (shortest paths at 10^9 arcs). #118 (point queries on compressed adjacency) reported
-on 2026-11-25 (Evidence).
+#91 (shortest paths at 10^9 arcs).

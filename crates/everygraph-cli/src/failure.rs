@@ -2,7 +2,7 @@
 
 //! Errors and refusals (`docs/ux-contract.md` § 6.1): the text on standard error, or
 //! with `--json` the error document on standard output, and the exit status (§ 6.4);
-//! and the failures of `ingest`, built from what went wrong.
+//! and the failures built from what went wrong in the library crates.
 
 use std::fmt::Write as _;
 use std::io::{self, Write};
@@ -11,58 +11,81 @@ use std::path::Path;
 use everygraph_core::InsufficientBudget;
 use everygraph_ingest::build::BuildError;
 use everygraph_ingest::text::TextError;
+use serde_json::{Map, Value, json};
 
-use crate::render::{Style, count, counted, json_string, rough_size, size, typed};
+use crate::render::{Style, count, counted, rough_size, size, typed, wrap};
 
-/// An error of `ingest`, with its class (§ 6.1), its text and its exit status. Its last
-/// line is `Nothing was written.`: a new file was to be made.
+/// Exit status 1: failed for a reason not listed below (§ 6.4).
+pub(crate) const FAILED: u8 = 1;
+/// Exit status 2: the command line cannot be understood or honoured.
+pub(crate) const USAGE: u8 = 2;
+/// Exit status 3: the input is not valid.
+pub(crate) const INVALID: u8 = 3;
+/// Exit status 4: refused for lack of memory or disk.
+pub(crate) const NO_MEMORY: u8 = 4;
+/// Exit status 5: a graph file is damaged.
+pub(crate) const DAMAGED: u8 = 5;
+/// Exit status 6: no such node.
+pub(crate) const UNKNOWN_NODE: u8 = 6;
+
+/// An error, with its class (§ 6.1), its text, the further keys of its document and its
+/// exit status.
 #[derive(Debug)]
-pub(crate) struct Failure {
+pub(crate) struct Failure(Box<Inner>);
+
+#[derive(Debug)]
+struct Inner {
     class: &'static str,
     headline: String,
     why: Vec<String>,
     ways: Vec<(String, String)>,
     status: u8,
-    bytes: Option<Box<Refused>>,
-}
-
-/// The keys an `InsufficientBudget` document must hold (§ 6.1).
-#[derive(Debug)]
-struct Refused {
-    step: &'static str,
-    needs: u64,
-    budget: u64,
-    /// `None` when no budget on this machine would work.
-    smallest: Option<u64>,
+    keys: Map<String, Value>,
+    /// The last line: `Nothing was written.` when a new file was to be made, `Nothing
+    /// was changed.` when an existing one was involved (M-1).
+    changed_file: bool,
 }
 
 impl Failure {
     pub(crate) fn new(class: &'static str, headline: String, status: u8) -> Self {
-        Self {
+        Self(Box::new(Inner {
             class,
             headline,
             why: Vec::new(),
             ways: Vec::new(),
             status,
-            bytes: None,
-        }
+            keys: Map::new(),
+            changed_file: false,
+        }))
     }
 
     /// The lines that say why.
     pub(crate) fn why(mut self, why: Vec<String>) -> Self {
-        self.why = why;
+        self.0.why = why;
         self
     }
 
     /// The ways forward: what can be typed, and what it does.
     pub(crate) fn ways(mut self, ways: Vec<(String, String)>) -> Self {
-        self.ways = ways;
+        self.0.ways = ways;
+        self
+    }
+
+    /// A further key of the document (`path`, `holds`, `needs_bytes`, …).
+    pub(crate) fn key(mut self, name: &str, value: impl Into<Value>) -> Self {
+        self.0.keys.insert(name.to_owned(), value.into());
+        self
+    }
+
+    /// The operation was on an existing file: the last line is `Nothing was changed.`
+    pub(crate) fn on_existing_file(mut self) -> Self {
+        self.0.changed_file = true;
         self
     }
 
     /// The exit status.
     pub(crate) fn status(&self) -> u8 {
-        self.status
+        self.0.status
     }
 
     /// Prints the error, and with `json` its document, and returns the exit status.
@@ -71,92 +94,147 @@ impl Failure {
         if json {
             let _ = writeln!(io::stdout(), "{}", self.document());
         }
-        self.status
+        self.0.status
     }
 
-    /// Prints the text form on standard error.
+    /// Prints the text form on standard error (M-1, M-2).
     pub(crate) fn print_text(&self) {
-        let style = Style::of(true);
-        let mut text = format!("{} {}\n", style.error(), style.bold(&self.headline));
-        if !self.why.is_empty() {
+        let style = Style::stderr();
+        let mut text = format!("{} {}\n", style.error(), style.bold(&self.0.headline));
+        if !self.0.why.is_empty() {
             text.push('\n');
-            for line in &self.why {
-                let _ = writeln!(text, "  {line}");
+            for line in &self.0.why {
+                let _ = writeln!(text, "{}", wrap("  ", 2, line));
             }
         }
-        if !self.ways.is_empty() {
-            text.push_str("\n  Ways forward:\n");
-            for (command, note) in &self.ways {
-                if note.is_empty() {
-                    let _ = writeln!(text, "    {}", style.bold(command));
-                } else {
-                    let pad = 24_usize.saturating_sub(command.chars().count()).max(2);
-                    let _ = writeln!(text, "    {}{}{note}", style.bold(command), " ".repeat(pad));
-                }
-            }
-        }
-        text.push_str("\nNothing was written.\n");
-        let _ = io::stderr().write_all(text.as_bytes());
+        text.push_str(&ways_text(style, &self.0.ways));
+        let left = if self.0.changed_file {
+            "Nothing was changed."
+        } else {
+            "Nothing was written."
+        };
+        let _ = writeln!(text, "\n{left}");
+        let _ = io::stderr().write_all(style.symbols(&text).as_bytes());
     }
 
     /// The error document (M-5).
-    pub(crate) fn document(&self) -> String {
-        let ways: Vec<String> = self
+    pub(crate) fn document(&self) -> Value {
+        let ways: Vec<Value> = self
+            .0
             .ways
             .iter()
-            .map(|(command, note)| {
-                format!(
-                    "{{\"command\":{},\"python\":\"\",\"note\":{}}}",
-                    json_string(command),
-                    json_string(note)
-                )
-            })
+            .map(|(command, note)| json!({"command": command, "python": "", "note": note}))
             .collect();
-        let mut out = format!(
-            "{{\"schema\":1,\"error\":\"{}\",\"message\":{},\"why\":{},\"ways_forward\":[{}],\
-             \"changed\":false",
-            self.class,
-            json_string(&self.headline),
-            json_string(&self.why.join("\n")),
-            ways.join(",")
-        );
-        if let Some(refused) = self.bytes.as_deref() {
-            let Refused {
-                step,
-                needs,
-                budget,
-                smallest,
-            } = refused;
-            let smallest = smallest.map_or_else(|| "null".to_owned(), |s| s.to_string());
-            let _ = write!(
-                out,
-                ",\"step\":{},\"needs_bytes\":{needs},\"budget_bytes\":{budget},\
-                 \"smallest_budget_bytes\":{smallest}",
-                json_string(step)
-            );
+        let mut doc = json!({
+            "schema": 1,
+            "error": self.0.class,
+            "message": self.0.headline,
+        });
+        let map = doc.as_object_mut().expect("an object");
+        if !self.0.why.is_empty() {
+            map.insert("why".into(), self.0.why.join("\n").into());
         }
-        out.push('}');
-        out
+        map.extend(self.0.keys.clone());
+        map.insert("ways_forward".into(), ways.into());
+        map.insert("changed".into(), false.into());
+        doc
     }
 }
 
-/// A usage error, with the help as the way forward.
-pub(crate) fn usage(what: String) -> Failure {
-    Failure::new("UsageError", what, 2).ways(vec![(
-        "everygraph ingest --help".into(),
-        "the options of ingest".into(),
-    )])
+fn ways_text(style: Style, ways: &[(String, String)]) -> String {
+    let mut text = String::new();
+    if !ways.is_empty() {
+        text.push_str("\n  Ways forward:\n");
+        for (command, note) in ways {
+            if note.is_empty() {
+                let _ = writeln!(text, "    {}", style.bold(command));
+            } else {
+                let pad = 24_usize.saturating_sub(command.chars().count()).max(2);
+                let _ = writeln!(text, "    {}{}{note}", style.bold(command), " ".repeat(pad));
+            }
+        }
+    }
+    text
 }
 
-/// An operating-system error on `path`.
-pub(crate) fn io(verb: &str, path: &Path, e: &io::Error) -> Failure {
+/// A warning in the shape of M-8, on standard error: what, its consequence, the ways to
+/// avoid it, and what happens now.
+pub(crate) fn warning(what: &str, why: &str, ways: &[(String, String)], now: &str) {
+    let style = Style::stderr();
+    let mut text = format!("{} {}\n", style.warning(), style.bold(what));
+    if !why.is_empty() {
+        let _ = write!(text, "\n{}\n", wrap("  ", 2, why));
+    }
+    text.push_str(&ways_text(style, ways));
+    let _ = write!(text, "\n  {now}\n");
+    let _ = io::stderr().write_all(style.symbols(&text).as_bytes());
+}
+
+/// A usage error, with the help of `command` as the way forward.
+pub(crate) fn usage(what: String, command: &str) -> Failure {
+    let help = if command.is_empty() {
+        "everygraph --help".to_owned()
+    } else {
+        format!("everygraph {command} --help")
+    };
+    Failure::new("UsageError", what, USAGE).ways(vec![(help, String::new())])
+}
+
+/// The operating system's reason, without its error number.
+pub(crate) fn reason(e: &io::Error) -> String {
     let text = e.to_string();
-    let reason = text.split(" (os error").next().unwrap_or(&text);
+    text.split(" (os error").next().unwrap_or(&text).to_owned()
+}
+
+/// An operating-system error on `path`; `verb` is `read` or `write`.
+pub(crate) fn io(verb: &str, path: &Path, e: &io::Error) -> Failure {
+    let way = if verb == "read" {
+        "check the path, and that the file can be read"
+    } else {
+        "check that the directory exists, can be written and has room"
+    };
     Failure::new(
         "IoError",
-        format!("Cannot {verb} {}: {reason}.", path.display()),
-        1,
+        format!("Cannot {verb} {}: {}.", path.display(), reason(e)),
+        FAILED,
     )
+    .key("path", path.display().to_string())
+    .ways(vec![(way.into(), String::new())])
+}
+
+/// A graph file that is damaged or is not one.
+pub(crate) fn corrupt(path: &Path, what: &dyn std::fmt::Display) -> Failure {
+    Failure::new(
+        "CorruptFile",
+        format!("{} is damaged: {what}.", path.display()),
+        DAMAGED,
+    )
+    .ways(vec![(
+        format!("everygraph verify {}", path.display()),
+        "what is damaged".into(),
+    )])
+    .on_existing_file()
+}
+
+/// An output in the way that `--overwrite` was not given for. `ours` says whether it
+/// is a graph file.
+pub(crate) fn output_exists(output: &Path, ours: bool) -> Failure {
+    let (holds, key) = if ours {
+        ("holds another graph", "other graph")
+    } else {
+        ("was not written by Everygraph", "not ours")
+    };
+    Failure::new(
+        "OutputExists",
+        format!("{} exists and {holds}.", output.display()),
+        FAILED,
+    )
+    .key("path", output.display().to_string())
+    .key("holds", key)
+    .ways(vec![
+        ("--out NEW".into(), "write it under another name".into()),
+        ("--overwrite".into(), "replace it".into()),
+    ])
 }
 
 /// An input that changed while it was read.
@@ -164,7 +242,7 @@ pub(crate) fn changed(input: &Path) -> Failure {
     Failure::new(
         "InvalidInput",
         format!("{} changed while it was read.", input.display()),
-        3,
+        INVALID,
     )
     .ways(vec![(
         "run the same command again once the file is complete".into(),
@@ -177,13 +255,16 @@ pub(crate) fn text(input: &Path, e: TextError) -> Failure {
     let file = input.display().to_string();
     match e {
         TextError::Read(cause) => {
-            Failure::new("IoError", format!("Cannot read {file}: {cause}."), 1)
+            Failure::new("IoError", format!("Cannot read {file}: {cause}."), FAILED)
+                .key("path", file)
         }
         TextError::InvalidRows(summary) => {
             let mut why = Vec::new();
+            let mut problems = Vec::new();
             for p in &summary.problems {
                 why.push(format!("{file}:{:<12}{p}", p.line));
                 why.push(format!("  {}", String::from_utf8_lossy(&p.excerpt)));
+                problems.push(json!({"file": file, "line": p.line, "problem": p.to_string()}));
             }
             let shown = u64::try_from(summary.problems.len()).unwrap_or(u64::MAX);
             if summary.invalid_rows > shown {
@@ -202,17 +283,30 @@ pub(crate) fn text(input: &Path, e: TextError) -> Failure {
                     count(summary.invalid_rows)
                 )
             };
+            let (invalid, lines) = (summary.invalid_rows, summary.lines);
             let headline = format!("Cannot read {file}: {}.", TextError::InvalidRows(summary));
-            Failure::new("InvalidInput", headline, 3)
+            Failure::new("InvalidInput", headline, INVALID)
                 .why(why)
+                .key("problems", problems)
+                .key("invalid_rows", invalid)
+                .key("rows_checked", lines)
                 .ways(vec![(fix, String::new())])
         }
         other @ (TextError::UnknownColumn { .. }
         | TextError::NoHeader { .. }
         | TextError::BeyondHeader { .. }) => {
-            Failure::new("UsageError", format!("Cannot read {file}: {other}."), 2)
+            Failure::new("UsageError", format!("Cannot read {file}: {other}."), USAGE)
+                .ways(vec![("everygraph ingest --help".into(), String::new())])
         }
-        other => Failure::new("InvalidInput", format!("Cannot read {file}: {other}."), 3),
+        other => Failure::new(
+            "InvalidInput",
+            format!("Cannot read {file}: {other}."),
+            INVALID,
+        )
+        .ways(vec![(
+            "correct the file, then run the same command again".into(),
+            String::new(),
+        )]),
     }
 }
 
@@ -220,7 +314,7 @@ pub(crate) fn text(input: &Path, e: TextError) -> Failure {
 pub(crate) fn build(input: &Path, budget: u64, machine: Option<u64>, e: BuildError) -> Failure {
     match e {
         BuildError::Text(e) => text(input, e),
-        BuildError::Budget(refused) => memory(budget, machine, &refused),
+        BuildError::Budget(refused) => memory("The build", budget, machine, &refused),
         BuildError::InputChanged => changed(input),
         BuildError::InvalidKeys(keys) => {
             let mut why: Vec<String> = keys
@@ -238,7 +332,7 @@ pub(crate) fn build(input: &Path, budget: u64, machine: Option<u64>, e: BuildErr
                     "Cannot read {}: some identifiers do not fit their column.",
                     input.display()
                 ),
-                3,
+                INVALID,
             )
             .why(why)
             .ways(vec![(
@@ -247,35 +341,52 @@ pub(crate) fn build(input: &Path, budget: u64, machine: Option<u64>, e: BuildErr
             )])
         }
         BuildError::Scratch(e) => io("write", Path::new("the scratch files"), &e),
-        other => Failure::new("EverygraphError", format!("The build failed: {other}."), 1),
+        other => internal(&format!("The build failed: {other}.")),
     }
 }
 
-/// A step that the budget cannot hold (P-13 to P-15).
-pub(crate) fn memory(budget: u64, machine: Option<u64>, refused: &InsufficientBudget) -> Failure {
-    let smallest = budget
+/// An error of the engine that no other class describes.
+pub(crate) fn internal(what: &str) -> Failure {
+    Failure::new("EverygraphError", what.to_owned(), FAILED).ways(vec![(
+        "report it at https://github.com/VincenzoImp/everygraph/issues".into(),
+        String::new(),
+    )])
+}
+
+/// A step that the budget cannot hold (P-13 to P-15). `what` is the subject of the
+/// first line of why: `The build needs …`, `pagerank needs …`.
+///
+/// Without the planner (#45) the smallest budget that would work is not known: only
+/// that it is more than what was spent before this step and this step's need, so the
+/// document's `smallest_budget_bytes` is `null` and the way forward says "at least".
+pub(crate) fn memory(
+    what: &str,
+    budget: u64,
+    machine: Option<u64>,
+    refused: &InsufficientBudget,
+) -> Failure {
+    let at_least = budget
         .saturating_sub(refused.available)
         .saturating_add(refused.needed);
-    let fits_machine = machine.is_none_or(|m| smallest <= m);
-    let way = if fits_machine {
+    let way = if machine.is_none_or(|m| at_least <= m) {
         (
-            format!("--memory {}", typed(smallest)),
-            "a budget that holds this step".to_owned(),
+            format!("--memory {}", typed(at_least)),
+            "at least this; the whole run may need more".to_owned(),
         )
     } else {
         (
-            format!("a machine with at least {} of memory", rough_size(smallest)),
+            format!("a machine with at least {} of memory", rough_size(at_least)),
             String::new(),
         )
     };
-    let mut failure = Failure::new(
+    Failure::new(
         "InsufficientBudget",
         "Not enough memory for this step.".into(),
-        4,
+        NO_MEMORY,
     )
     .why(vec![
         format!(
-            "The build needs {} for {}.",
+            "{what} needs {} for {}.",
             size(refused.needed),
             refused.purpose
         ),
@@ -285,31 +396,44 @@ pub(crate) fn memory(budget: u64, machine: Option<u64>, refused: &InsufficientBu
             size(refused.available)
         ),
     ])
-    .ways(vec![way]);
-    failure.bytes = Some(Box::new(Refused {
-        step: refused.purpose,
-        needs: refused.needed,
-        budget,
-        smallest: fits_machine.then_some(smallest),
-    }));
-    failure
+    .key("step", refused.purpose)
+    .key("needs_bytes", refused.needed)
+    .key("budget_bytes", budget)
+    .key("smallest_budget_bytes", Value::Null)
+    .ways(vec![way])
 }
 
 /// The refusal before any work of a budget below the build's smallest.
 pub(crate) fn refusal(smallest: u64, budget: u64, machine: Option<u64>, threads: usize) -> Failure {
     let refused = InsufficientBudget::new("the blocks read at once", smallest, budget);
-    let mut failure = memory(budget, machine, &refused).why(vec![format!(
-        "{} read blocks at once; they need about {} and the budget is {}.",
-        counted(
-            u64::try_from(threads).unwrap_or(u64::MAX),
-            "thread",
-            "threads"
-        ),
-        rough_size(smallest),
-        size(budget)
-    )]);
+    let fits_machine = machine.is_none_or(|m| smallest <= m);
+    let mut failure = memory("The build", budget, machine, &refused)
+        .key(
+            "smallest_budget_bytes",
+            if fits_machine {
+                json!(smallest)
+            } else {
+                Value::Null
+            },
+        )
+        .why(vec![format!(
+            "{} read blocks at once; they need about {} and the budget is {}.",
+            counted(
+                u64::try_from(threads).unwrap_or(u64::MAX),
+                "thread",
+                "threads"
+            ),
+            rough_size(smallest),
+            size(budget)
+        )]);
+    if fits_machine {
+        failure.0.ways = vec![(
+            format!("--memory {}", typed(smallest)),
+            "a budget that holds this step".into(),
+        )];
+    }
     if threads > 1 {
-        failure.ways.push((
+        failure.0.ways.push((
             "--threads 1".into(),
             "fewer blocks in flight need less memory".into(),
         ));
