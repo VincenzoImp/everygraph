@@ -144,9 +144,10 @@ const GRAIN: NonZeroUsize = NonZeroUsize::new(256).expect("non-zero");
 
 /// Entries of a frontier run, about: a run of [`Plan::frontier`] ends before the node
 /// that would take it past this many entries (a node counts its degree plus one). A run
-/// is one task, so a body that does little per entry keeps about the work per task of a
-/// group of [`FRONTIER_GRAIN`] nodes of degree 64.
-pub const RUN_ENTRIES: usize = 1 << 14;
+/// is one task, so a body that does little per entry keeps the work per task of a group
+/// of [`FRONTIER_GRAIN`] nodes of degree up to 127: a fork costs more than such a body
+/// (`frontier` on orkut, 300 nodes per call: PR #291).
+pub const RUN_ENTRIES: usize = 1 << 15;
 
 /// Entries of a part of a long list: `Plan::push_with` cuts a list of more entries into
 /// parts at multiples of it. `PASGAL` cuts lists at 1,024 entries, Parallel-KCore at 128
