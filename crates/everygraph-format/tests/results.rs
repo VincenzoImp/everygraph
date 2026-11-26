@@ -228,6 +228,12 @@ fn a_result_is_served_only_under_its_own_key_and_graph() {
     assert_eq!(stored.provenance().engine, "everygraph test");
     assert_eq!(stored.provenance().operation, "pagerank");
     assert_eq!(stored.provenance().finished, Some(6));
+    let listed = file.results().unwrap();
+    assert_eq!(listed.len(), 2);
+    assert!(listed.iter().all(|r| r.of_this_graph && r.bytes > 0));
+    assert!(listed.windows(2).all(|w| w[0].name < w[1].name));
+    let ops: Vec<&str> = listed.iter().map(|r| &*r.provenance.operation).collect();
+    assert_eq!(ops, ["pagerank", "pagerank"]);
 
     // After the graph changes, the stored result is not served for the new graph,
     // and the old key no longer matches the file.
@@ -252,6 +258,8 @@ fn a_result_is_served_only_under_its_own_key_and_graph() {
             .count(),
         2
     );
+    let listed = file.results().unwrap();
+    assert!(listed.len() == 2 && listed.iter().all(|r| !r.of_this_graph));
 }
 
 #[test]

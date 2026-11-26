@@ -3,7 +3,7 @@ title: Command-line interface
 milestone: M8 · CLI, docs and v0.1 launch
 labels: type:feature, area:cli, P0, risk:low, size:M
 ---
-**Why.** The analyst persona and every automation path start at the CLI. The old prototype had twelve subcommands and a defensive tone; this one should have a small verb set and say what it will do before doing it.
+**Why.** The analyst persona and every automation path start at the CLI. It has a small verb set and says what it will do before doing it.
 
 **Scope**
 - [ ] Verbs: `everygraph ingest`, `everygraph info`, `everygraph run <algorithm>`, `everygraph query`, `everygraph map`, `everygraph open`, `everygraph export`, `everygraph verify`, `everygraph compact`, `everygraph doctor`
@@ -20,6 +20,8 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 - [ ] Shell completions; man page
 - [ ] `--json` gives exactly one document on standard output in every outcome, a stop included (stop document, exit 130/143); exit statuses 0–6, 130, 143 as `docs/ux-contract.md` § 6.4; the tests § 8 assigns to this issue: interruption and `kill -9` of `everygraph map`, the C-4 work-between-checks test, the golden transcripts
 - [ ] Exit status 6 for `UnknownNode`; `--overwrite`; `ingest --self-loops`, `--duplicates`, `--ids auto|string`; `export --topology-only`, which prints a one-line notice that the output is not anonymized (`docs/research/README.md` H7); `run communities --use-direction`; `map --out FILE` requires `--reveal`; a result's summary goes to standard output, the input summary and progress to standard error; a dry run is wholly on standard output (`docs/ux-contract.md` § 2.1)
+
+**Built by PR #231 (2026-11-26).** `run`, `info`, `export` and `compact`, beside `ingest` and `verify`, with `clap`, the result store and the three forms of a result. Every box above that PR #231 left unticked, and the first acceptance criterion below, are owned by {{#m8-12-cli-rest}}. This issue is closed with that hand-over.
 
 **Acceptance**
 - `everygraph ingest edges.csv && everygraph map && everygraph open` produces a browsable map of a 1 M-edge file in < 10 s on a laptop

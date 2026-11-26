@@ -256,7 +256,8 @@ pub(crate) fn map(file: &File, offset: u64, len: usize) -> io::Result<Mmap> {
 
 /// Takes the exclusive, advisory lock of `file` without waiting (`File::try_lock`, which
 /// is `flock(LOCK_EX | LOCK_NB)` on Unix). The lock belongs to the open file and ends
-/// when it is closed, or when the process dies. `Ok(false)` when another open file holds
+/// at [`unlock`], when the last copy of the open file is closed, or when the process
+/// dies. `Ok(false)` when another open file holds
 /// it. Not on Windows: there `File::try_lock` is `LockFileEx`, a mandatory lock under
 /// which other processes cannot even read the file, so Windows locks through the share
 /// mode instead ([`lock_options`]).
@@ -278,6 +279,19 @@ pub(crate) fn try_lock(file: &File) -> io::Result<bool> {
     {
         let _ = file;
         Ok(true)
+    }
+}
+
+/// Releases the lock that [`try_lock`] took. On an error the lock ends when the last
+/// copy of the open file is closed.
+pub(crate) fn unlock(file: &File) {
+    #[cfg(unix)]
+    {
+        let _ = file.unlock();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = file;
     }
 }
 

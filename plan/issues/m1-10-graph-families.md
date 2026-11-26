@@ -1,7 +1,7 @@
 ---
 title: Beyond social networks: web, road, bipartite, weighted and directed graphs
 milestone: M1 · De-risking lab, round 2
-labels: type:experiment, area:bench, P1, risk:medium, size:L
+labels: type:experiment, area:bench, P0, risk:medium, size:L
 ---
 **Question.** Every quality and layout conclusion so far rests on two undirected, unweighted social graphs. Do they hold elsewhere?
 

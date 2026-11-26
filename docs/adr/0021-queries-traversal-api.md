@@ -13,7 +13,10 @@ the engine's strength is the in-process kernel.
 ## Decision
 
 Version 0.1 offers a traversal API with budgets (`limit`, `timeout`) and no query
-language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parser.
+language. A GQL/Cypher subset comes later (#110), through one embedded engine that reads
+our graphs: LadybugDB on the Arrow CSR that #83 lends, or Grafeo over a read-only `.eg`
+store. We do not build our own query engine (amended 2026-11-26, from the state-of-the-art
+review, `docs/research/sota-review-2026-11.md` S13).
 
 ## Evidence
 
@@ -31,6 +34,11 @@ language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parse
   It shows where the cost lies, not a speed-up to quote.
 - **Reuse is possible**: Rust parsers exist (`ocg`, Grafeo's GQL parser); SQL/PGQ was
   reverted from PostgreSQL 19 (FINDINGS R8, web research).
+- **Whole engines can run on our data** (review of 2026-11-26, documents read, nothing
+  run): LadybugDB mounts relationship tables from Arrow `indptr`/`indices` arrays, and
+  Grafeo has a storage trait that a read-only `.eg` adapter can implement. Either gives a
+  query language without a planner of our own. The LadybugDB and DuckPGQ figures above are
+  from older versions and are to be re-run (FINDINGS § F2).
 - **Idle, on the compressed default** (#118, 2026-11-25; FINDINGS § M1-13 and its
   correction of § F1; `lab/m1-13-compressed/results/pq.jsonl`; in-process, single thread,
   warm, graph in heap): bidirectional BFS p50 0.13 ms (lj) and 0.47 ms (twitter-2010) on raw
@@ -45,6 +53,9 @@ language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parse
 - #90 (point queries) and #91 (shortest paths) build the API; `limit` is the word for
   traversal budgets, "budget" is kept for memory (`design/DECISIONS.md`).
 - No query-language parsing before v0.1; #110 is in M9.
+- #83 lends the structure as Arrow `indptr`/`indices` arrays; #110 runs two short spikes
+  (LadybugDB on Arrow CSR, Grafeo over `.eg`) and chooses one. Results through an external
+  engine are outside D14, and the docs say so.
 
 ## What would change our mind
 
@@ -56,5 +67,4 @@ language. A GQL/Cypher subset comes later (#110), reusing an existing Rust parse
 
 ## Closed by
 
-#91 (shortest paths at 10^9 arcs). #118 (point queries on compressed adjacency) reported
-on 2026-11-25 (Evidence).
+#91 (shortest paths at 10^9 arcs).

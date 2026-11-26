@@ -22,11 +22,11 @@ are still needed.
 
 The research proposed two fixes: a budgeted block cache over `ByteSource` (C1) and better
 mmap hints now (C5). Experiment m1-15 (#172, its lab pull request merged on 2026-11-26) tested both on Friendster.
-This ADR records what it found and what we do now. It is **proposed**: every run of m1-15
-was on a shared machine. It becomes accepted after the official `mmap-hints` run (the
-commands at the end of `lab/m1-15-mmap-hints-block-cache/results/README.md`) confirms the
-byte ratios and the direction of the time ratios below. Until then the decision text of
-D11 in DESIGN.md does not change.
+This ADR records what it found and what we do now. Every run of m1-15 was on a shared
+machine. The decision rests on the bytes read, which do not depend on the load; the times
+are exploratory. The official `mmap-hints` run (the commands at the end of
+`lab/m1-15-mmap-hints-block-cache/results/README.md`) runs in the M3 milestone window
+(CLAUDE.md § 6) and gives the times that documents may quote.
 
 ## Decision
 
@@ -62,7 +62,7 @@ How far each kind of number can be trusted:
 - **Times are exploratory and are not to be quoted as absolute numbers.** The machine was
   shared: other agents were compiling, and the 1-minute load was 14 to 34. Only ratios
   within one interleaved run are used here, and even those vary widely (one from 0.16 to
-  1.05). The official run replaces them.
+  1.05). The official run in the milestone window replaces them.
 
 **1. Plain mmap reads far more than needed under a budget.** Bytes, exploratory:
 
@@ -152,8 +152,7 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 - **m2-23 (#178), the block cache,** is built, with asynchronous read-ahead of the next
   blocks (a reader pool over `pread`, or io_uring) from the start, not as a later step.
   Its acceptance includes: **level-0 local moving on Friendster at 8 GiB within 1.5× of
-  the same algorithm in RAM**, measured as in m1-15 (16 threads, same session). This ADR
-  becomes accepted with the official `mmap-hints` run; m2-23 does not need to wait for it.
+  the same algorithm in RAM**, measured as in m1-15 (16 threads, same session).
 - **Advice is chosen per phase.** The callers of `advise()` that m2-02 (#29) provided —
   the edge-map framework, out-of-core Leiden, the layout, the tile builder, point queries
   — take the advice from the plan for each phase. The planner (m3-02, #45) sets
@@ -169,13 +168,18 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 - The documentation must not say "mmap under pressure" for random access. Until m2-23
   lands it says: random access under a budget smaller than its working set uses
   `MADV_RANDOM`, and costs a few reads of the data per pass.
+- **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))): SPDK (it takes the drive from the kernel's
+  driver and file system), and an io_uring runtime (Glommio, tokio-uring and the like).
+  The read-ahead of #178 is a pool of `pread` threads; io_uring is at most an optional
+  Linux backend of the same interface, through the plain `io-uring` crate, kept only on
+  the evidence of #263 and with a fallback to the pool on `EPERM` or `ENOSYS`.
 - A comment in the M1-02 lab code (`leiden.rs`) says `/proc/self/io` does not count page
   faults on a mapped file. The m1-15 rows show it does. The lab is frozen; the product's
   measurement code must not repeat the claim.
 
 ## What would change our mind
 
-- The official `mmap-hints` run shows per-phase `MADV_RANDOM` does not cut the bytes read
+- The official `mmap-hints` run of the milestone window shows per-phase `MADV_RANDOM` does not cut the bytes read
   under 16G (layout) or 8G (Leiden local moving) by more than half, or makes local moving
   slower than the default: the interim rule is dropped, and regime 2 for random access
   waits for m2-23.
@@ -189,5 +193,6 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 
 ## Closed by
 
-#172 (the official `mmap-hints` run accepts this ADR); #178 (the block cache, accepted on
-level-0 local moving at 8 GiB within 1.5× of in RAM).
+Accepted on 2026-11-26 on the bytes read of m1-15. #178 builds the block cache; its acceptance is
+level-0 local moving at 8 GiB within 1.5× of in RAM. When it lands, D11's text changes
+from per-phase `MADV_RANDOM` to the cache.

@@ -27,7 +27,7 @@ PMTiles v3 file.
   reader; lj produced 173,017 tiles in one 851 MB file, orkut 63,846 tiles in 460 MB
   (`lab/e-map/results/tiles_lj_t32.json`, `lab/e-map/results/tiles_orkut_t32.json`).
 - **The `.eg` container, validated by #28** (it was not prototyped: the lab stored graphs
-  as loose files, `glab-csr-v0`, `lab/LAB.md`; its constraints come from other
+  as loose files, `glab-csr-v0`, `lab/README.md`; its constraints come from other
   experiments: 4 KiB-aligned sections and over-read padding for SIMD decoders (§ C),
   positional reads only (§ G), no section needing one allocation above 2 GiB (§ G)).
   Specification `docs/spec/eg-container.md`. Tests, not measurements (no timing is
@@ -66,4 +66,4 @@ PMTiles v3 file.
 
 ## Closed by
 
-#28 (container specification v0 and reader/writer).
+Nothing is pending.

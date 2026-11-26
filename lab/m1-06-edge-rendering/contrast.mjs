@@ -3,12 +3,10 @@
 // 1.4.11 asks 3:1 for graphical objects needed to understand the content; 1.4.3 asks 4.5:1 for text.
 import fs from 'node:fs';
 
-const root = new URL('../../design/preview/style/', import.meta.url);
-const tokens = fs.readFileSync(new URL('assets/tokens.css', root), 'utf8');
-const page = fs.readFileSync(new URL('overview.html', root), 'utf8');
+const tokens = fs.readFileSync(new URL('../../design/system/tokens.css', import.meta.url), 'utf8');
 function block(css, sel) { const i = css.indexOf(sel); return css.slice(css.indexOf('{', i) + 1, css.indexOf('}', i)); }
 function vars(text) { const o = {}; for (const m of text.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)) o[m[1]] = m[2].toLowerCase(); return o; }
-const theme = t => ({ ...vars(block(tokens, t === 'light' ? ':root, [data-theme="light"]' : '[data-theme="dark"] {')), ...vars(block(page, `html[data-theme="${t}"]`)) });
+const theme = t => vars(block(tokens, t === 'light' ? ':root, [data-theme="light"]' : '[data-theme="dark"] {'));
 const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 const lum = h => { const [r, g, b] = rgb(h).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 const cr = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };

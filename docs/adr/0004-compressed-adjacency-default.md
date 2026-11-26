@@ -162,6 +162,17 @@ kernels; web graphs; prefix decode for budgeted queries; batched prefix decode f
   input and output in RAM.
 - Public performance claims (#100) may quote the default-storage numbers of FINDINGS
   § M1-13 with their conditions; raw-array numbers are quoted as such.
+- **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))):
+  - a chunk layout of the whole graph (ChunkGraph). It fixes raw 4-byte lists read through
+    4 KiB pages; our records are compressed and an average Friendster record (about
+    157 B, arithmetic) crosses a page boundary about 4% of the time. Restart points inside
+    long hub records are a separate question (m1-17, #174);
+  - KedaGraph's codec (XOR deltas in Simple-8b words). For a sorted list the XOR of two
+    neighbours is never smaller than their gap, and Simple-8b wastes about half a 64-bit
+    word per list under per-list random access (arithmetic);
+  - FrontOrder as a storage order. It groups nodes that are active in the same BFS
+    frontiers and spreads each group over partitions, which works against gap compression
+    (inference from its code). BFS order is already measured in m1-09 (#23).
 
 ## What would change our mind
 
@@ -179,6 +190,6 @@ within 1.35× of in-RAM on this format.
 
 ## Closed by
 
-#46 (streaming reader on the compressed format), #35 (ingest writing the format under a
-budget), #24 (web, weighted and directed graphs); #90 for point-query throughput at
-16 threads. Implementation: #30, #44, #45. #118 reported on 2026-11-25 (above).
+#46 (streaming reader on the compressed format), #240 (the speed of ingest writing the format
+under a budget), #24 (web, weighted and directed graphs); #90 for point-query throughput at
+16 threads. Implementation: #45.

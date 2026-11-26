@@ -1,0 +1,173 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #57 (plan/issues/m4-01-leiden-production.md): production Leiden
+# (crates/everygraph-community, example `leiden_bench`) against the lab prototype it
+# replaces (lab/b2-leiden, `b2`), same algorithm, same build profile (release, fat LTO,
+# no target-cpu=native in either), in-process kernel time (both exclude loading the
+# graph and the final evaluation). Graph: raw CSR read into the heap (prod) or mapped and
+# pre-faulted (b2), warm. Weights: integers (prod: u64 fixed point, exact; b2: f64,
+# exact on integer weights). b2 runs the sub-round rule that prod has fixed,
+# L64k = clamp(next_pow2(n / 65536), 4, 1024) (lab/m1-04-det-leiden-scaling).
+#
+# Groups:
+# - `vs-lab`: det and fast, 1 iteration at 1-16 threads and 3 iterations at 16 threads,
+#   lj and orkut. Gives the #57 time criteria (fast: lj <= 0.8 s, orkut <= 1.5 s;
+#   det <= 2x fast at 16 threads), the det hash at every thread count (the field
+#   `hash_levels_low53` must be one value per graph, mode and iteration count), and the
+#   modularity and disconnected count of both. prod's `check_modularity` evaluates the
+#   result again on level 0 and must equal `modularity`.
+# - `sources`: prod det at 16 threads over the compressed format in the heap and mapped,
+#   and raw targets streamed: the hash must equal the raw rows'.
+# - `quality`: the experiments of #57 on prod, det, 16 threads, lj and orkut: 1
+#   iteration with prolongation against 3 iterations; greedy against randomized
+#   refinement at 3 and 10 iterations; split every level against split last; iterations
+#   until stable.
+# - `friendster`: prod in RAM, det and fast, 1 and 3 iterations, 16 threads, under
+#   48 GiB (graph 15 GB in the heap; Leiden's own reservations bounded at 30 GiB).
+#
+# Wall time (estimate, not measured: lab runs of the same sizes took 1-45 s each):
+# vs-lab about 50 minutes, sources 5, quality 15, friendster about 40. Disk: two
+# compressed stores, about 2 GB, under {work}/{spec}.
+#
+# Run, on an idle machine (`--only` selects groups by substring):
+#   everygraph-bench run leiden --official --data /home/tux/graphlab/data
+#   everygraph-bench run leiden --official --data /home/tux/graphlab/data --only vs-lab
+
+schema = 1
+name = "leiden"
+description = "Issue #57: production Leiden against lab/b2-leiden, det and fast, lj and orkut; quality experiments; Friendster in RAM"
+reference = "plan/issues/m4-01-leiden-production.md; lab/m1-04-det-leiden-scaling/README.md; docs/FINDINGS.md § B2"
+binaries = ["{bench}", "{b2}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+warmup = 1
+threads = [1, 2, 4, 8, 16]
+timeout = "20m"
+
+[gate]
+max_load = 1.0
+disturbed_above_cores = 0.5
+disturbed_above_io_mb_s = 50
+
+[vars]
+bench = "{repo}/target/release/examples/leiden_bench"
+b2 = "{repo}/lab/b2-leiden/target/release/b2"
+stores = "{work}/{spec}"
+
+[[prepare]]
+name = "build-bench"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-community", "--example", "leiden_bench"]
+needed_by = ["prod", "sources", "quality", "friendster"]
+
+[[prepare]]
+name = "build-b2"
+cwd = "{repo}/lab/b2-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+needed_by = ["b2"]
+
+[[prepare]]
+name = "stores"
+shell = "for g in lj orkut; do s={stores}/store-$g; [ -f $s/adjacency.data ] || {{ rm -rf $s.part && {bench} encode --graph {data}/csr/$g --out $s.part > /dev/null && mv $s.part $s; }}; done"
+creates = "{stores}/store-orkut/adjacency.data"
+needed_by = ["sources"]
+
+[[benchmark]]
+name = "b2"
+group = "vs-lab"
+description = "lab/b2-leiden, rule L64k (det) or async (fast)"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], mode = ["det", "fast"], iterations = [1, 3] }
+exclude = [{ iterations = 3, threads = 1 }, { iterations = 3, threads = 2 }, { iterations = 3, threads = 4 }, { iterations = 3, threads = 8 }]
+shell = "case {mode} in det) a='--det --sub-div 65536 --sub-min 4 --sub-max 1024';; fast) a='';; esac; exec {b2} run --algo leiden --graph {dataset} --threads {threads} --iterations {iterations} $a"
+conditions = { graph = "{graph}", code = "lab/b2-leiden", algorithm = "Leiden, {iterations} iteration(s), {mode}", storage = "raw CSR mapped, pre-faulted, warm", precision = "f64 weights (integers)", timing = "kernel only: excludes loading and evaluation" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "prod"
+group = "vs-lab"
+description = "crates/everygraph-community, the same algorithm and rule"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], mode = ["det", "fast"], iterations = [1, 3] }
+exclude = [{ iterations = 3, threads = 1 }, { iterations = 3, threads = 2 }, { iterations = 3, threads = 4 }, { iterations = 3, threads = 8 }]
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--threads", "{threads}", "--mode", "{mode}", "--iterations", "{iterations}", "--check", "1"]
+conditions = { graph = "{graph}", code = "everygraph-community", algorithm = "Leiden, {iterations} iteration(s), {mode}", storage = "raw CSR in the heap", precision = "u64 fixed-point weights (integers, exact)", timing = "kernel only: excludes loading and evaluation" }
+record_json = { hash = "/hash_levels" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "check_modularity", json = "/check_modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "sources"
+group = "sources"
+description = "prod det, 1 iteration, over the other sources: the hash equals the raw rows'"
+dataset_path = "csr/{graph}"
+threads = [16]
+repetitions = 1
+matrix = { graph = ["lj", "orkut"], source = ["compressed", "mmap", "stream"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{stores}/store-{graph}", "--source", "{source}", "--threads", "{threads}"]
+conditions = { graph = "{graph}", code = "everygraph-community", algorithm = "Leiden, 1 iteration, det", storage = "{source}" }
+record_json = { hash = "/hash_levels" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "quality"
+group = "quality"
+description = "prod det, 16 threads: prolongation, randomized refinement, split every level, iterations until stable"
+dataset_path = "csr/{graph}"
+threads = [16]
+repetitions = 1
+warmup = 0
+matrix = { graph = ["lj", "orkut"], variant = ["it1", "it1-prolong", "it3", "it3-prolong", "it3-random", "it10", "it10-random", "it1-split-every", "it3-split-every", "converge"] }
+shell = "case {variant} in it1) a='--iterations 1';; it1-prolong) a='--iterations 1 --prolong 1';; it3) a='--iterations 3';; it3-prolong) a='--iterations 3 --prolong 1';; it3-random) a='--iterations 3 --refine random';; it10) a='--iterations 10';; it10-random) a='--iterations 10 --refine random';; it1-split-every) a='--iterations 1 --split every';; it3-split-every) a='--iterations 3 --split every';; converge) a='--iterations converge';; esac; exec {bench} run --graph {dataset} --threads {threads} --check 1 $a"
+conditions = { graph = "{graph}", code = "everygraph-community", algorithm = "Leiden, det, {variant}", storage = "raw CSR in the heap" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "iterations_run", json = "/iterations_run" },
+]
+primary = "modularity"
+
+[[benchmark]]
+name = "friendster"
+group = "friendster"
+description = "prod in RAM, 16 threads, under 48 GiB"
+dataset_path = "csr/friendster"
+memory_limit = "48G"
+threads = [16]
+repetitions = 1
+warmup = 0
+timeout = "40m"
+matrix = { mode = ["det", "fast"], iterations = [1, 3] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--threads", "{threads}", "--mode", "{mode}", "--iterations", "{iterations}", "--budget-gib", "30"]
+conditions = { graph = "friendster", code = "everygraph-community", algorithm = "Leiden, {iterations} iteration(s), {mode}", storage = "raw CSR in the heap (15 GB)", memory = "limit 48 GiB, Leiden's reservations at most 30 GiB" }
+record_json = { hash = "/hash_levels" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]
+primary = "seconds"

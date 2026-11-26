@@ -25,7 +25,8 @@ const NOT_IN_KEY: [&str; 4] = ["memory", "progress", "temp_dir", "threads"];
 
 /// What a result was computed on: BLAKE3 over the sections that define the graph
 /// (spec § 6). Two files whose graph sections differ in kind, name or content never
-/// share one; results, provenance and anything else do not enter it.
+/// share one; results, provenance, the in-adjacency (derived from the out-adjacency,
+/// [`IN_ADJACENCY`](super::IN_ADJACENCY)) and anything else do not enter it.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GraphIdentity([u8; 32]);
 
@@ -34,7 +35,8 @@ impl GraphIdentity {
     /// increasing byte order of name.
     fn of<'a>(entries: impl IntoIterator<Item = &'a Entry>) -> Self {
         let mut hasher = blake3::Hasher::new();
-        for entry in entries.into_iter().filter(|e| e.kind.defines_graph()) {
+        let graph = |e: &&Entry| e.kind.defines_graph() && !e.name.starts_with(super::IN_ADJACENCY);
+        for entry in entries.into_iter().filter(graph) {
             // Names are at most 1024 bytes (spec § 4).
             let name_len = u32::try_from(entry.name.len()).unwrap_or(u32::MAX);
             hasher.update(&entry.kind.code().to_le_bytes());
@@ -404,7 +406,47 @@ impl<S: ByteSource> Container<S> {
     }
 }
 
+/// A result section of the file, as [`Container::results`] lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListedResult {
+    /// The section's name.
+    pub name: String,
+    /// Its length in bytes.
+    pub bytes: u64,
+    /// Its record: the operation, the key's parameters, the engine and the times.
+    pub provenance: Provenance,
+    /// Whether it was computed on the graph this file holds now (its `graph` parameter
+    /// is this file's identity). A result of another graph is never served.
+    pub of_this_graph: bool,
+}
+
 impl<S: ByteSource> Container<S> {
+    /// Every result section with its record, in name order, for listing (`everygraph
+    /// info`). Reads each record, not the values.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::InvalidResult`] for a result without a record; the errors of
+    /// [`provenance`](Self::provenance) for one whose record is damaged.
+    pub fn results(&self) -> Result<Vec<ListedResult>, ContainerError> {
+        let identity = self.graph_identity().to_string();
+        self.entries()
+            .iter()
+            .filter(|e| e.kind == Kind::RESULT)
+            .map(|e| {
+                let provenance = self
+                    .provenance(&e.name)?
+                    .ok_or(ContainerError::InvalidResult("a result without its record"))?;
+                Ok(ListedResult {
+                    name: e.name.to_string(),
+                    bytes: e.len,
+                    of_this_graph: provenance.parameters.get("graph") == Some(&identity),
+                    provenance,
+                })
+            })
+            .collect()
+    }
+
     /// Checks a result found by [`find_result`](Self::find_result) against its hash,
     /// reading all of it.
     ///

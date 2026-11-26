@@ -7,9 +7,11 @@
 
 #![forbid(unsafe_code)]
 
-use everygraph_core::NodeId;
+mod support;
+
+use everygraph_core::{Memory, NodeId};
 use everygraph_format::adjacency::{
-    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode,
+    Adjacency, AdjacencyIndex, Batch, DecodeError, Decoder, Encoded, encode, merge, union_degrees,
 };
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
@@ -17,22 +19,7 @@ use everygraph_oracle::invariants;
 use everygraph_oracle::projection::Projection;
 use everygraph_oracle::{Kernel, Output, ix, to_usize};
 use proptest::prelude::*;
-
-/// Miri interprets the tests about 1000 times slower: it runs a sample.
-const MIRI: bool = cfg!(miri);
-
-/// Few cases under Miri, and no failure file (Miri's isolation hides the file system).
-fn config() -> ProptestConfig {
-    ProptestConfig {
-        cases: if MIRI { 2 } else { 256 },
-        failure_persistence: if MIRI {
-            None
-        } else {
-            ProptestConfig::default().failure_persistence
-        },
-        ..ProptestConfig::default()
-    }
-}
+use support::{MIRI, config};
 
 fn id(v: usize) -> NodeId {
     NodeId::try_from(v).expect("test graphs have fewer than 2^32 nodes")
@@ -146,6 +133,23 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
             assert_eq!(batch.targets(), all);
+            // A window over the range's records alone decodes the same lists.
+            let bytes = index.data_range(r.clone());
+            let records = &encoded.data[to_usize(bytes.start)..to_usize(bytes.end)];
+            let window = Adjacency::window(&index, r.clone(), records)
+                .unwrap()
+                .with_decoder(decoder);
+            assert_eq!(window.nodes(), r);
+            window
+                .decode_nodes(r.clone(), usize::MAX, &mut batch)
+                .unwrap();
+            assert_eq!(batch.targets(), all, "{name} window {r:?}");
+            for v in r.clone() {
+                let got = window.neighbors(NodeId::new(v), &mut buf).unwrap();
+                assert_eq!(got, list(offsets, targets, ix(v)), "{name} window {r:?}");
+            }
+            let short = &records[..records.len().saturating_sub(1)];
+            assert!(records.is_empty() || Adjacency::window(&index, r.clone(), short).is_err());
         }
         let (mut o, mut t) = (vec![u64::MAX; n + 1], vec![0u32; targets.len()]);
         adj.decode_all(&mut o, &mut t).unwrap();
@@ -438,6 +442,47 @@ proptest! {
     #[test]
     fn arbitrary_csrs_round_trip((offsets, targets) in arb_csr()) {
         round_trip(&offsets, &targets);
+    }
+
+    /// `merge` gives the bytes `encode` gives for the union of the lists.
+    #[test]
+    fn a_merge_is_the_encoded_union((a, b) in (arb_csr(), arb_csr())) {
+        let n = (a.0.len()).min(b.0.len()) - 1;
+        let cut = |(o, t): &(Vec<u64>, Vec<u32>)| (o[..=n].to_vec(), t[..to_usize(o[n])].to_vec());
+        let (a, b) = (cut(&a), cut(&b));
+        let (mut offsets, mut targets) = (vec![0u64], Vec::new());
+        for v in 0..n {
+            let mut union: Vec<u32> = list(&a.0, &a.1, v).iter().chain(list(&b.0, &b.1, v)).copied().collect();
+            union.sort_unstable();
+            union.dedup();
+            targets.extend(union);
+            offsets.push(targets.len() as u64);
+        }
+        let (ea, eb) = (encode(&a.0, &a.1).unwrap(), encode(&b.0, &b.1).unwrap());
+        let (ia, ib) = (AdjacencyIndex::parse(&ea.index).unwrap(), AdjacencyIndex::parse(&eb.index).unwrap());
+        let (merged, held) = merge(
+            &Adjacency::new(&ia, &ea.data).unwrap(),
+            &Adjacency::new(&ib, &eb.data).unwrap(),
+            &Memory::unlimited(),
+        ).unwrap();
+        prop_assert!(merged == encode(&offsets, &targets).unwrap());
+        prop_assert!(held.bytes() >= merged.data.len() as u64);
+        // The degrees of the union, a node's own entry counted twice.
+        let mut degrees = vec![0_u32; n];
+        union_degrees(
+            &Adjacency::new(&ia, &ea.data).unwrap(),
+            &Adjacency::new(&ib, &eb.data).unwrap(),
+            &Memory::unlimited(),
+            &mut degrees,
+        ).unwrap();
+        let want: Vec<u32> = (0..n)
+            .map(|v| {
+                let l = list(&offsets, &targets, v);
+                let own = l.contains(&u32::try_from(v).unwrap());
+                u32::try_from(l.len() + usize::from(own)).unwrap()
+            })
+            .collect();
+        prop_assert_eq!(degrees, want);
     }
 
     #[test]

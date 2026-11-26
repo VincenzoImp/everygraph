@@ -11,8 +11,8 @@ use everygraph_core::{ByteSource, MemoryAccountant, MemorySource, NodeId};
 use proptest::prelude::*;
 
 use super::kind::MAX_FIXED_WIDTH;
-use super::test_support::Budget;
 use super::*;
+use everygraph_core::Budget;
 
 /// One identifier as the tests hold it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -222,11 +222,8 @@ fn reopen<'a>(
     open_bytes(&section_bytes(dict).into_iter().collect(), budget).unwrap()
 }
 
-fn splitmix(mut z: u64) -> u64 {
-    z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
+fn splitmix(z: u64) -> u64 {
+    everygraph_oracle::rng::SplitMix64::new(z).next_u64()
 }
 
 /// Ethereum-like addresses: `distinct` of them, drawn `len` times, some in upper case.
@@ -366,7 +363,7 @@ fn every_kind_order_and_layout_matches_the_reference_and_survives_reopening() {
                 check(&again, *column, keys, order);
                 assert_eq!(section_bytes(&again), section_bytes(&dict));
                 drop((dict, again));
-                assert_eq!(budget.available(), budget.total(), "everything released");
+                assert_eq!(budget.available(), budget.limit(), "everything released");
             }
         }
     }
@@ -598,7 +595,7 @@ fn a_budget_that_cannot_hold_the_work_is_refused() {
     let err =
         build_dictionary(&source, &BuildOptions::default(), &budget, &MemoryScratch).unwrap_err();
     assert!(matches!(err, DictionaryError::Budget(_)), "{err}");
-    assert_eq!(budget.available(), budget.total());
+    assert_eq!(budget.available(), budget.limit());
 }
 
 #[test]
@@ -980,7 +977,7 @@ fn damaged_sections_are_refused() {
         }),
         Err(DictionaryError::Corrupt(_))
     ));
-    assert_eq!(budget.available(), budget.total() - dict.resident_bytes());
+    assert_eq!(budget.available(), budget.limit() - dict.resident_bytes());
 }
 
 /// Sections that open but give two ids each other's keys: only `verify` reads every
@@ -1031,12 +1028,12 @@ fn digest_probe() {
                 &budget,
                 &scratch,
             );
-            if budget.total() < 1 << 24 {
+            if budget.limit() < 1 << 24 {
                 let runs = u64::try_from(scratch.count("id dictionary run")).unwrap();
                 assert!(
-                    runs > build::worker_cap(budget.total()),
+                    runs > build::worker_cap(budget.limit()),
                     "no spill at {}",
-                    budget.total()
+                    budget.limit()
                 );
             }
             for (name, bytes) in section_bytes(&dict) {

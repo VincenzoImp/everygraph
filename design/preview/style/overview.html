@@ -10,20 +10,11 @@
   readable with nothing selected. Links for the selection stay as approved.
   Data: the lab map of com-LiveJournal and com-Orkut (lab/e-map layout on the shaped hierarchies), exact counts written
   by lab/m1-06-edge-rendering/overview.py into viewer-assets/overview-*.js. Colours, sizes and durations come from
-  assets/tokens.css. Every state is addressable through the URL hash; see "Preview options".
+  design/system/tokens.css. Every state is addressable through the URL hash; see "Preview options".
 -->
-<link rel="stylesheet" href="assets/fonts.css">
-<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="../../system/fonts.css">
+<link rel="stylesheet" href="../../system/tokens.css">
 <style>
-/* the curated data palette of viewer.html and data.html (same block) */
-html[data-theme="light"] {
-  --d1: #7861cb; --d2: #604100; --d3: #739400; --d4: #522e95; --d5: #c36f8b;
-  --s1: #dde4f9; --s2: #b9c6ef; --s3: #97a8e4; --s4: #768ad8; --s5: #576bcb; --s6: #3d4cb8; --s7: #2a3590;
-}
-html[data-theme="dark"] {
-  --d1: #9383dc; --d2: #f1b959; --d3: #6e8a25; --d4: #d9d0ff; --d5: #c26083;
-  --s1: #222741; --s2: #343b6a; --s3: #475195; --s4: #5c69bc; --s5: #7483e0; --s6: #90a0f9; --s7: #b3c0ff;
-}
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { overflow: hidden; background: var(--bg); color: var(--ink); font: var(--weight-regular) var(--text-md)/var(--lh-md) var(--font-sans); font-feature-settings: "cv11", "ss03"; -webkit-font-smoothing: antialiased; }

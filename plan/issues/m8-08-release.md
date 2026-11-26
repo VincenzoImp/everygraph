@@ -4,7 +4,7 @@ milestone: M8 · CLI, docs and v0.1 launch
 labels: type:infra, area:launch, P0, risk:low, size:M
 ---
 **Scope**
-- [ ] Versioning policy: semver for the API; separate version numbers for the `.eg` and `.egmap` formats with a compatibility promise (files written by 0.1 stay readable)
+- [ ] Versioning policy: semver for the API; separate version numbers for the `.eg` and `.egmap` formats with a compatibility promise (files written by 0.1 stay readable; the `.eg` bytes are frozen by {{#m2-36-format-freeze}}, the `.egmap` bytes by {{#m5-02-tile-format}})
 - [ ] Release automation: crates.io, PyPI (wheels from {{#m6-02-wheels}}), npm (viewer), GitHub release with CLI binaries and checksums
 - [ ] Changelog, upgrade notes, security policy contact
 - [ ] README with a 30-second demo (animated map), quickstart, honest comparison table, links to benchmarks
@@ -17,6 +17,6 @@ labels: type:infra, area:launch, P0, risk:low, size:M
 - `pip install everygraph==0.1.0` and `cargo install everygraph-cli` work on all supported platforms on release day
 - Every claim in the launch post links to a reproducible result; a usability claim states n and its exact interval (n ≥ 20 per task), and "usable with a screen reader" appears only after the session of {{#m5-16-nonvisual-navigation}}
 
-**Depends on** {{#m6-02-wheels}}, {{#m8-02-docs-site}}, {{#m8-03-public-benchmarks}}, {{#m8-04-showcase-wikipedia}}, {{#m8-10-legal-opinions}}
+**Depends on** {{#m6-02-wheels}}, {{#m5-09-static-export}} (the viewer inside the wheel), {{#m8-12-cli-rest}}, {{#m8-02-docs-site}}, {{#m8-03-public-benchmarks}}, {{#m8-04-showcase-wikipedia}}, {{#m8-10-legal-opinions}}
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved (`choices.md` D1, D4, D7): 0.1 is announced with benchmarks and one showcase map (D1's "public at 0.1" was replaced for the repository by "When the repository becomes public", 2026-11-25: public during development); Apache-2.0 or MIT at the user's choice; no telemetry, stated in the README. The visual identity to ship is `design/preview/style/`.

@@ -16,11 +16,11 @@ use std::num::NonZeroUsize;
 use std::sync::{Mutex, PoisonError};
 
 use everygraph_core::{
-    ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns, SegVec, par,
+    ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns, SegVec, par, widen,
 };
 
 use super::layout::Layout;
-use super::rows::{BlockCounts, Rows, each_block, high, low};
+use super::rows::{BlockCounts, Items, each_block, high, low};
 use super::{BuildError, Tuning};
 use crate::ids::Scratch;
 
@@ -81,21 +81,16 @@ impl<W: Write> Spills<W> {
     }
 }
 
-/// Sends every item of the input to its bucket. Returns the resident columns, the
-/// spill files and the counts of the pass (rows, dropped loops).
-pub(super) fn fill<S, D, Sc>(
-    rows: &Rows<'_, '_, S, D>,
+/// Sends every item to its bucket. Returns the resident columns, the spill files and
+/// the bytes spilled.
+pub(super) fn fill<I: Items, Sc: Scratch>(
+    rows: &I,
     layout: &Layout,
     memory: &Memory,
     scratch: &Sc,
     tuning: &Tuning,
     threads: usize,
-) -> Result<(Resident, Vec<Sc::Source>, u64), BuildError>
-where
-    S: ByteSource + Sync,
-    D: ByteSource + Sync,
-    Sc: Scratch,
-{
+) -> Result<(Resident, Vec<Sc::Source>, u64), BuildError> {
     let resident = layout.resident();
     let spilled_rounds = layout.round_count() - layout.resident_rounds;
     let items = usize::try_from(layout.resident_items()).map_err(|_| too_large())?;
@@ -360,8 +355,4 @@ fn too_large() -> BuildError {
         purpose: "resident items",
         bytes: u64::MAX,
     })
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).unwrap_or(u64::MAX)
 }

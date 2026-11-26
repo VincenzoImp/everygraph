@@ -9,7 +9,7 @@ labels: type:experiment, area:viewer, P0, risk:high, size:L, lab-evidence
 
 **Candidates to prototype in the lab viewer**
 - [ ] Distance-adaptive aggregation: draw an edge only between entities of comparable screen size; aggregate the rest into per-entity "external weight" halos
-- [ ] Significance filtering: show quotient edges whose weight exceeds the degree-corrected expectation (the enrichment measure the old prototype used for its matrix view) rather than the heaviest ones
+- [ ] Significance filtering: show quotient edges whose weight exceeds the degree-corrected expectation (an enrichment measure) rather than the heaviest ones
 - [ ] On-demand ego edges: click or hover a node/region → fetch its true neighbors from a per-node adjacency section (range request in static mode, engine call in live mode)
 - [ ] Hub suppression: degree-capped drawing with an explicit "+k more" marker
 - [ ] Hierarchical edge bundling along the community tree (Holten-style), computed per tile

@@ -8,7 +8,7 @@ use std::io::{self, BufWriter, Write};
 use std::sync::{Mutex, PoisonError};
 
 use everygraph_core::{
-    ByteSink, ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns,
+    ByteSink, ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns, usize_of,
 };
 use everygraph_format::adjacency::{IndexBuilder, append_record};
 use everygraph_format::container::SectionWriter;
@@ -114,7 +114,7 @@ fn finish_bucket(
     let mut repeated = false;
     for local in 0..nodes {
         let v = first + u32::try_from(local).expect("buckets hold 2^16 nodes");
-        let (s, e) = (to_index(starts[local]), to_index(starts[local + 1]));
+        let (s, e) = (usize_of(starts[local]), usize_of(starts[local + 1]));
         let run = &mut targets[s..e];
         run.sort_unstable();
         let mut distinct = 0;
@@ -163,10 +163,6 @@ fn finish_bucket(
     Ok(out)
 }
 
-fn to_index(x: u32) -> usize {
-    usize::try_from(x).expect("usize has at least 32 bits")
-}
-
 /// Finishes the buckets of round `round`, whose items are rows `base..` of `columns`
 /// (`base` being the items before the round's first bucket, counted from the first
 /// bucket the columns hold). Returns the buckets in order.
@@ -203,7 +199,7 @@ pub(super) fn finish_round(
     let pair = (&mut columns.targets, &mut columns.locals);
     pair.for_each_range_mut(&offsets, ONE, |i, (targets, locals)| {
         let b = first + i;
-        let nodes = to_index(layout.starts[b + 1] - layout.starts[b]);
+        let nodes = usize_of(layout.starts[b + 1] - layout.starts[b]);
         let reservation = held.lock().unwrap_or_else(PoisonError::into_inner)[i]
             .take()
             .expect("one reservation per bucket");

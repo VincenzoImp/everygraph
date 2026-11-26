@@ -16,9 +16,10 @@ labels: type:infra, area:viewer, P1, risk:medium, size:M, lab-evidence
 - [ ] The measurements {{#m1-12-viewer-no-gpu}} could not take on its host (added 2026-11-26): frame cost and frame rate of the lab viewer on one Intel or AMD integrated GPU and one Apple-silicon laptop, in Chromium, Firefox and Safari, with `lab/m1-12-viewer-no-gpu/measure_viewer.mjs`; confirm or change the caps and the adaptive control found on SwiftShader. Needs the owner's hardware or a lent machine (CLAUDE.md § 8)
 
 **Acceptance**
+- ≥ 30 fps on the integrated-GPU reference machine from {{#m1-12-viewer-no-gpu}} (moved from {{#m5-05-viewer-core}}, which must not wait for hardware this host lacks)
 - CI fails when a scripted session exceeds the frame budget on the reference configurations
 - CI fails when an automated WCAG 2.2 AA check of the list above fails
 
-**Depends on** {{#m5-05-viewer-core}}
+**Depends on** {{#m5-05-viewer-core}}, {{#m1-12-viewer-no-gpu}} (the reference machines and budgets)
 
 **Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Contrast, focus, hit-target and colour-independence requirements are stated and measured in `design/preview/style/foundations.html` (§9) and `data.html` (§1–2); the viewer must meet the same figures.

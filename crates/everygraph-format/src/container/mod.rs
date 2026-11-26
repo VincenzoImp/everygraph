@@ -65,7 +65,7 @@ use everygraph_core::{ReadError, WriteError};
 pub use layout::{MAJOR, MINOR};
 pub use provenance::{Input, Provenance};
 pub use read::{Container, Section};
-pub use result::{GraphIdentity, ResultKey, StoredResult, Value, ValueType};
+pub use result::{GraphIdentity, ListedResult, ResultKey, StoredResult, Value, ValueType};
 pub use write::{SectionWriter, Writer, compact};
 
 /// Sections, the TOC and the header blocks start at multiples of this.
@@ -90,6 +90,11 @@ pub const REQUIRED_SEGMENTS: u64 = 1 << 0;
 /// `seg/` + 8 lowercase hexadecimal digits + `/` + the unsegmented name. This version
 /// does not write them.
 pub const SEGMENT_PREFIX: &str = "seg/";
+/// Sections whose names begin with this hold the in-adjacency of a directed graph
+/// (`docs/spec/eg-adjacency.md` § 3.2). It is derived from the out-adjacency, so it
+/// does not enter the graph identity (spec § 6): a file has one identity with or
+/// without it.
+pub const IN_ADJACENCY: &str = "adjacency.in.";
 
 /// What a section holds (spec § 5). A reader skips sections whose kind it does not
 /// know; that is how later issues add artifacts without a new version.
@@ -144,7 +149,8 @@ impl Kind {
     }
 
     /// Whether sections of this kind define the graph, and so enter its identity
-    /// ([`GraphIdentity`], spec § 6).
+    /// ([`GraphIdentity`], spec § 6), but for those of the in-adjacency
+    /// ([`IN_ADJACENCY`]).
     #[must_use]
     pub const fn defines_graph(self) -> bool {
         matches!(self.0, 2..=5 | 7)
