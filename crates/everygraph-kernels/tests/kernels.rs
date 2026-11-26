@@ -774,23 +774,29 @@ fn fixed_iterations_keep_the_last_iterate() {
     let g = G::random(400, 2000, 12, true);
     let memory = Memory::unlimited();
     let run = |tol: f64, max_iter: u32| -> Vec<u64> {
-        Plan::with_pair(&g.out.csr(), &g.inn.csr(), &memory, Settings::default(), |po, pi| {
-            let s = strength(&po, Some(&g.out.weight), true, &memory).unwrap();
-            let graph = Graph {
-                lists: &pi,
-                weights: Some(&g.inn.weight),
-                directed: true,
-            };
-            let p = PageRank {
-                tol,
-                max_iter,
-                ..PageRank::default()
-            };
-            let r = pagerank::pagerank::<_, f64>(&graph, s.as_slice().unwrap(), &p, &memory)
-                .unwrap();
-            assert_eq!(r.iterations, max_iter);
-            r.values.iter().map(|x| x.to_bits()).collect()
-        })
+        Plan::with_pair(
+            &g.out.csr(),
+            &g.inn.csr(),
+            &memory,
+            Settings::default(),
+            |po, pi| {
+                let s = strength(&po, Some(&g.out.weight), true, &memory).unwrap();
+                let graph = Graph {
+                    lists: &pi,
+                    weights: Some(&g.inn.weight),
+                    directed: true,
+                };
+                let p = PageRank {
+                    tol,
+                    max_iter,
+                    ..PageRank::default()
+                };
+                let r = pagerank::pagerank::<_, f64>(&graph, s.as_slice().unwrap(), &p, &memory)
+                    .unwrap();
+                assert_eq!(r.iterations, max_iter);
+                r.values.iter().map(|x| x.to_bits()).collect()
+            },
+        )
         .unwrap()
     };
     let fixed = run(0.0, 12);

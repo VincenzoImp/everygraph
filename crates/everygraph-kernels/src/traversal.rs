@@ -77,7 +77,9 @@ pub fn bfs<'g, S: Source>(
         .node(source)
         .ok_or(Error::Argument("bfs source: not a node"))?;
     if inn.is_some_and(|inn| inn.source().entries() != out.source().entries()) {
-        return Err(Error::Invalid("bfs: in-lists with another number of entries"));
+        return Err(Error::Invalid(
+            "bfs: in-lists with another number of entries",
+        ));
     }
     let words = if p.parents { 8 } else { 4 };
     let held = memory.reserve("bfs state", MemoryKind::Anonymous, u64::from(n) * words)?;
@@ -271,7 +273,10 @@ pub fn multi_bfs<S: Source>(
         while level < max_hops {
             level += 1;
             let f = inn.per_node(one_segment(&frontier)?)?;
-            let out = (one_segment_mut(&mut next)?, one_segment_mut(&mut distance_sum)?);
+            let out = (
+                one_segment_mut(&mut next)?,
+                one_segment_mut(&mut distance_sum)?,
+            );
             // A node left out keeps an older word in `next`; its bits reached all its
             // out-neighbours two or more steps ago, so they find nothing new there.
             let counts = inn.scan(
@@ -323,4 +328,3 @@ fn add_level(levels: &mut Vec<Vec<u64>>, d: usize, first: usize, counts: &[u64])
     }
     l[first..first + counts.len()].copy_from_slice(counts);
 }
-

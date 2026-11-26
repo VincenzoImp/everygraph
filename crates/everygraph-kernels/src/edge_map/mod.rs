@@ -98,9 +98,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{
-    ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, SegVec, par,
-};
+use everygraph_core::{ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, SegVec, par};
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};

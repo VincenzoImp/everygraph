@@ -365,11 +365,7 @@ fn semantic_cases() -> Vec<(Family, Decorations, Semantics)> {
 /// not connect: it is not in the matrix.
 fn has_unique_eigenvector(p: &Projection, weighted: bool) -> bool {
     let adj = if p.directed { &p.out } else { &p.undirected };
-    let kept = if weighted {
-        positive(adj)
-    } else {
-        adj.clone()
-    };
+    let kept = if weighted { positive(adj) } else { adj.clone() };
     let labels = if p.directed {
         crate::reference::scc(&kept)
     } else {

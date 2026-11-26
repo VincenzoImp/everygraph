@@ -32,9 +32,14 @@ pub(crate) fn check(column: &[f64], entries: u64) -> Result<Range, Error> {
         let values = &column[r];
         match values.iter().position(|w| !(w.is_finite() && *w >= 0.0)) {
             Some(i) => Err(start + i),
-            None => Ok(values.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &w| {
-                (if w > 0.0 && w < lo { w } else { lo }, if w > hi { w } else { hi })
-            })),
+            None => Ok(values
+                .iter()
+                .fold((f64::INFINITY, 0.0_f64), |(lo, hi), &w| {
+                    (
+                        if w > 0.0 && w < lo { w } else { lo },
+                        if w > hi { w } else { hi },
+                    )
+                })),
         }
     });
     let (mut lo, mut hi) = (f64::INFINITY, 0.0_f64);
@@ -110,7 +115,16 @@ mod tests {
 
     #[test]
     fn exponents_and_powers_of_two_are_exact() {
-        for x in [1.0, 1.5, 2.0, 1e308, f64::MAX, 1e-310, 5e-324, f64::MIN_POSITIVE] {
+        for x in [
+            1.0,
+            1.5,
+            2.0,
+            1e308,
+            f64::MAX,
+            1e-310,
+            5e-324,
+            f64::MIN_POSITIVE,
+        ] {
             let e = exponent(x);
             assert!(pow2(e) <= x && x < 2.0 * pow2(e), "{x}");
         }

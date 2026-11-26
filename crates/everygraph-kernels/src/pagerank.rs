@@ -225,22 +225,26 @@ pub fn strength<S: Source>(
         None => 1.0,
     };
     let mut s = SegVec::try_with_len(memory, "out-strength", ix(out.nodes()), 0.0)?;
-    out.scan(one_segment_mut(&mut s)?, all, |(): &mut (), s, i, row, _| {
-        let v = row.node;
-        s[i] = match weights {
-            Some(w) => row
-                .list
-                .iter()
-                .zip(&w[row.entries()])
-                .fold(0.0, |sum, (&u, &w)| {
-                    let w = w * scale;
-                    sum + if !directed && u == v { 2.0 * w } else { w }
+    out.scan(
+        one_segment_mut(&mut s)?,
+        all,
+        |(): &mut (), s, i, row, _| {
+            let v = row.node;
+            s[i] = match weights {
+                Some(w) => row
+                    .list
+                    .iter()
+                    .zip(&w[row.entries()])
+                    .fold(0.0, |sum, (&u, &w)| {
+                        let w = w * scale;
+                        sum + if !directed && u == v { 2.0 * w } else { w }
+                    }),
+                None => row.list.iter().fold(0.0, |sum, &u| {
+                    sum + if !directed && u == v { 2.0 } else { 1.0 }
                 }),
-            None => row.list.iter().fold(0.0, |sum, &u| {
-                sum + if !directed && u == v { 2.0 } else { 1.0 }
-            }),
-        };
-    })?;
+            };
+        },
+    )?;
     Ok(s)
 }
 
@@ -272,7 +276,10 @@ pub fn pagerank<S: Source, F: Real>(
             let range = weights::check(w, plan.source().entries())?;
             let entries = plan.source().entries();
             let scale = weights::scale(range, entries, F::EXPONENTS)?;
-            (scale, scale / weights::scale(range, entries, f64::EXPONENTS)?)
+            (
+                scale,
+                scale / weights::scale(range, entries, f64::EXPONENTS)?,
+            )
         }
         None => (1.0, 1.0),
     };
@@ -451,7 +458,6 @@ impl Ord for Key {
         self.0.total_cmp(&other.0).then(self.1.cmp(&other.1))
     }
 }
-
 
 /// The power of two a column's weights are scaled by in a state reaching `exponents`.
 fn column_scale(column: &[f64], entries: u64, exponents: i32) -> Result<f64, Error> {
