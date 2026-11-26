@@ -123,8 +123,9 @@ warmup = 0
 memory_limit = "5G"
 timeout = "60m"
 command = ["{bin}", "--keys", "ethbin", "--n", "500000000", "--budget", "4G", "--scratch", "dir:{case_work}/scratch", "--layout", "split", "--lookups", "10000"]
-env = { RAYON_NUM_THREADS = "{threads}" }
-conditions = { keys = "500 M distinct, 20 bytes, generated while read", budget = "4 GiB (accountant)", limit = "MemoryMax 5 GiB", scratch = "files in the work directory", layout = "split" }
+# Fixed glibc thresholds: a stopgap until the allocator policy, m2-19 (#167).
+env = { RAYON_NUM_THREADS = "{threads}", GLIBC_TUNABLES = "glibc.malloc.mmap_threshold=131072:glibc.malloc.trim_threshold=131072" }
+conditions = { keys = "500 M distinct, 20 bytes, generated while read", budget = "4 GiB (accountant)", limit = "MemoryMax 5 GiB", scratch = "files in the work directory", layout = "split", allocator = "glibc mmap and trim thresholds fixed at 128 KiB" }
 metric = [
   { name = "build_s", json = "/build_s", unit = "s" },
   { name = "distinct_s", json = "/distinct_s", unit = "s" },

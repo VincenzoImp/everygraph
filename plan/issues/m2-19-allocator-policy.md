@@ -19,6 +19,49 @@ labels: type:feature, area:engine, P0, risk:medium, size:M
 
 - [ ] The A/B of C2: PR #158's dictionary build at a 128 MiB budget with URL keys, four variants interleaved: glibc default; `mallopt` pins; pins + page backend; mimalloc. Metric: anonymous peak ÷ ledger peak, and time
 - [ ] The monitor experiment of C3: replay the tracer's Leiden-16G case (lab b2, `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` row 9, killed at 460.5 s) with the monitor logging only. Measure the time to detection against the time to kill
+- [ ] **Method: test the pin by its effect, not by `mallopt`'s return code** (review of PR #203). A unit test in `src/sys.rs`, run in its own process because `mallinfo2` is process-wide: free an 8 MiB block, allocate 1 MiB, and check that `mallinfo2().hblkhd` grew by at least 1 MiB. On glibc 2.41 here it was false without the pin and true with it. The test must fail when the pin is removed
+- [ ] **Method: a fixed threshold of 2–4 MiB as an A/B candidate** against 128 KiB. Any fixed value turns off the dynamic growth. At 128 KiB every block of 128 KiB or more is a fresh map: it cannot get THP, and its pages fault in again. That is the probable cause of the +0.3 s on in-memory phases below (an inference, not measured)
+- [ ] `mallopt` is `MT-Unsafe init const:mallopt` (glibc manual): call it before any thread starts, behind an interface that makes this the caller's obligation. Say that it affects glibc's `malloc` only, not a program's own `#[global_allocator]`
+- [ ] Replace the stopgap of PR #203 (`GLIBC_TUNABLES` in the `env` of the `build-500m` case of `bench/specs/id-dictionary.toml`), then rerun that case without it
+- [ ] Run the scale of the retention at 4, 8 and 16 threads. "Threads × the 32 MiB dynamic maximum" is an inference from 16-thread runs only
+
+**Evidence so far** (PR #203; exploratory runs, not for documents). Setup:
+- `id_dictionary --keys ethbin --scratch dir:… --layout split`, 16 threads.
+- Each run in its own `systemd-run --scope` with `MemoryMax=5G`, no swap.
+- Budget 4 GiB × n / 500 M. Load average 17–37, so the times are not comparable between rows.
+- b = `--build-only yes`.
+- Variants: "pin env" is `MALLOC_ARENA_MAX=1 MALLOC_TRIM_THRESHOLD_=0`; "in-process" is `mallopt` of the mmap and trim thresholds at 128 KiB.
+- Binaries: main 32d965d; pre f477378, before PR #158's second-review fixes. "scratch fix" removes the 1 MiB `BufWriter` that the benchmark's scratch put behind each of about 190 open writers.
+
+| n | binary | glibc | result | anon peak | ÷ ledger peak |
+|---|---|---|---|---|---|
+| 50 M b | main | default | ok | 909, 974 MiB | 2.22, 2.38 |
+| 50 M b | main | `MALLOC_MMAP_THRESHOLD_=131072` only | ok | 367 MiB | 0.89 |
+| 50 M b | main | `MALLOC_ARENA_MAX=2` only | ok | 570 MiB | 1.39 |
+| 50 M b | main | `ARENA_MAX=2`, mmap and trim 128 KiB | ok | 456 MiB | 1.11 |
+| 50 M b | main | pin env | ok | 404 MiB | 0.98 |
+| 50 M b | scratch fix | default | ok | 749 MiB | 1.83 |
+| 50 M b | scratch fix | in-process | ok | 405 MiB | 0.99 |
+| 100 M | main / pre | default | ok | 1366 / 1395 MiB | 1.67 / 1.70 |
+| 200 M | main / pre | default | ok | 2177 / 2266 MiB | 1.33 / 1.38 |
+| 200 M b | scratch fix | default / in-process | ok | 2136 / 1554 MiB | 1.30 / 0.95 |
+| 500 M | main | default | ok, 262 MiB from the limit | 4858 MiB | 1.19 |
+| 500 M | pre | default | OOM-killed at 94 s | 4991 MiB | 1.22 |
+| 500 M | main / pre | pin env | ok | 3619 / 3659 MiB | 0.88 / 0.89 |
+| 500 M | scratch fix | default | ok | 4852 MiB | 1.18 |
+| 500 M | scratch fix | in-process (2 runs) | ok | 3755, 3590 MiB | 0.92, 0.88 |
+
+Retention: anonymous peak − ledger peak, main, default glibc.
+
+| n | 50 M | 100 M | 200 M | 500 M |
+|---|---|---|---|---|
+| MiB | 499, 544, 564 | 546 | 537, 656 | 762 |
+
+It is flat in n, so it is not O(n) state. In the 500 M runs the anonymous memory peaked in phase C (2.4 ↔ 4.8 GiB against a ledger of 3.84–3.87 GiB). That this is where the official run died (`bench/results/id-dictionary/20261125T220117Z-c855fdd77cf9.jsonl`, killed at 47 s, phase not recorded) is an inference from the exploratory runs.
+
+A counting allocator showed that the library's own heap stays within its ledger: 0 MiB above it at 50 M with the scratch fix, 4 MiB at 500 M. With the 1 MiB buffers, the heap went up to 114 MiB above the ledger at 50 M.
+
+Cost of the in-process pin: interleaved A/B, 4 rounds, 15 M hex keys, `--scratch memory`, load about 28. `phases_s` went from 1.39–1.47 s to 1.65–1.75 s, `build_s` from a mean of 2.89 s to 2.97 s, and cgroup `memory.peak` from 3.2 GB to 2.6 GB.
 
 **Acceptance**
 - On the review's cases the anonymous peak stays within budget + the stated headroom, and no case is OOM-killed under `MemoryMax` = budget + headroom

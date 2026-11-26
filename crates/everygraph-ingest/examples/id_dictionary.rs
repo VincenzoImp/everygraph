@@ -274,14 +274,15 @@ mod bench {
         }
     }
 
-    /// Scratch files in a directory, deleted when their source is dropped.
+    /// Scratch files in a directory, deleted when their source is dropped. Writers have
+    /// no buffer of their own (see [`Scratch`]).
     struct DirScratch {
         dir: PathBuf,
         next: AtomicU64,
     }
 
     struct DirWriter {
-        file: io::BufWriter<File>,
+        file: File,
         path: PathBuf,
     }
 
@@ -344,14 +345,14 @@ mod bench {
                 .dir
                 .join(format!("{i:08}-{}", purpose.replace(' ', "-")));
             Ok(DirWriter {
-                file: io::BufWriter::with_capacity(1 << 20, File::create(&path)?),
+                file: File::create(&path)?,
                 path,
             })
         }
 
         fn seal(&self, writer: DirWriter) -> io::Result<DirSource> {
             let DirWriter { file, path } = writer;
-            file.into_inner().map_err(io::IntoInnerError::into_error)?;
+            drop(file);
             let file = File::open(&path)?;
             let len = file.metadata()?.len();
             Ok(DirSource { file, len, path })
