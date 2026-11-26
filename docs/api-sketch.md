@@ -1509,7 +1509,7 @@ width is not frozen (§ 2.3); identifier columns — `node`, `neighbor`, the `pa
 | `p.edges()` | `step` uint32 · `source` · `target` · `edges` uint64 · [weight under its name] · [`time` timestamp] |
 | `m.selection.nodes()` | `node` · `community` uint32 · `in_degree` · `out_degree` · `degree` uint32 |
 | `m.hierarchy.table()` | `region` uint32 · `parent` uint32, nullable · `depth` uint32 · `kind` text · `partition` bool · `name` text, nullable · `nodes` uint32 · `internal_edges` · `external_edges` uint64 |
-| `m.hierarchy.siblings(region=)` | `a` uint32 · `b` uint32 · `edges` uint64 |
+| `m.hierarchy.siblings()` | `parent` uint32 · `a` uint32 · `b` uint32 · `edges` uint64 |
 | `g.nodes()` | `node` · node columns |
 | `g.edges()` | `source` · `target` · edge columns |
 | `g.columns` | `name` · `on` · `type` · `role`, all text |
@@ -1587,7 +1587,7 @@ contains three kinds of region, which the map draws differently and never confus
 class Hierarchy:
     depth: int
     def table(self) -> Table: ...
-    def siblings(self, *, region: int) -> Table: ...
+    def siblings(self) -> Table: ...
     def of(self, nodes: Nodes) -> Table: ...
 ```
 
@@ -1595,7 +1595,7 @@ class Hierarchy:
 |---|---|---|---|
 | `depth` | `int` | Regions on the longest path below the top. | #63 |
 | `table()` | one row per region | Region 0 is the whole graph; regions are numbered from the top down, the children of a region together, and the children of a region are the rows whose `parent` is that region. `depth` is 1 for the top level; `partition` marks the communities of the partition, exactly one on every path; `name` is the region's label on the map, or null. Counts are exact. | #63 |
-| `siblings(region=)` | one row per pair of children | The edges between two children of `region`, what the map lays them out by. | #63 |
+| `siblings()` | one row per pair of siblings | `parent`, `a`, `b`, `edges`: the edges between two children of one region, what the map lays them out by. | #63 |
 | `of(nodes)` | `depth`, `region`, `kind`, `name`, `nodes` | The regions containing a node, from the top down. | #63 |
 
 ### 3.7 `Path`
