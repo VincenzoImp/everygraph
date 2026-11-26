@@ -112,4 +112,5 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
   requests in one day, and each cost a CI rerun.
 - When every stream waits on CI or review at once, the machine is idle. Keep a queue of
   ready experiments (M1 issues that need no merge) to start when the load drops.
-- Runs on `main` shared one CI concurrency group, so GitHub cancelled every pending run when a newer merge queued: most merged commits were never tested on `main` (fixed in PR #262). After the dev profile changed (#256), caches were cold and an advisory mutants shard hit its job limit and showed red.
+- Runs on `main` shared one CI concurrency group, so GitHub cancelled every pending run when a newer merge queued: most merged commits were never tested on `main` (fixed in PR #262). After the dev profile changed (#256), caches were cold and an advisory mutants shard hit its job limit and showed red.- About twelve Opus and Fable agents at once (eight research agents, four implementers, reviewers and a synthesis) used up the account's 5-hour usage window at about 12:00, and every agent stopped for 20 minutes. Usage, not only CPU, limits parallelism. Resume in priority order and stagger: the critical path and reviews first, experiments and long research later.
+
