@@ -65,18 +65,20 @@ pub(super) fn wanted(cover: u32, fan_out: u32, mode: SuperLevel) -> bool {
 
 /// The group of every community of the partition.
 pub(super) struct Groups {
-    /// The group of each community, `0..count`; any value for an empty community.
+    /// The group of each community, `0..count`; any value for a community left out.
     pub(super) of: Column<u32>,
     pub(super) count: u32,
     /// The resolution of the Leiden run that found them.
     pub(super) resolution: f64,
 }
 
-/// The super level of the partition whose communities hold `t`: [`coarse_leiden`] at
-/// resolution `2^-j` for `j` from 1 until its groups need at most `F − 1`
-/// communities to cover 90% of the nodes (or `j = 16`). Each community goes to the
-/// community of that run that holds most of its nodes, the smallest on a tie, so the
-/// levels nest.
+/// The super level of the communities `t` of the partition, those of `skip` left out:
+/// [`coarse_leiden`] at resolution `2^-j` for `j` from 1, each community in the
+/// community of that run that holds most of its nodes (the smallest on a tie), so the
+/// levels nest. The first try whose groups cover 90% of the nodes with fewer than `F`
+/// is kept. The tries stop when the cover no longer falls, or at `j = 16`; the try of
+/// the smallest cover is then kept, the larger resolution on a tie.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn groups<S: Source>(
     source: &S,
     memory: &Memory,
@@ -84,13 +86,14 @@ pub(super) fn groups<S: Source>(
     options: &Options,
     t: &Members,
     count: u32,
+    skip: &[bool],
     fan_out: u32,
 ) -> Result<Groups, Error> {
     let mut resolution = 1.0;
-    let mut tries = 0;
-    loop {
+    let mut best: Option<(u32, Groups)> = None;
+    let mut last = u32::MAX;
+    for _ in 0..TRIES {
         resolution /= 2.0;
-        tries += 1;
         let found = coarse_leiden(source, memory, settings, options, resolution)?;
         let vote = vote(memory, t, count, &found.membership)?;
         drop(found);
@@ -98,32 +101,35 @@ pub(super) fn groups<S: Source>(
         let mut dense = Column::new(memory, "super groups", t.ids.len(), |_| u32::MAX)?;
         let mut next = 0_u32;
         let mut of = Column::new(memory, "super groups", count as usize, |_| 0_u32)?;
-        for c in 0..count as usize {
-            let g = vote[c];
-            if g != u32::MAX {
-                let d = &mut dense[g as usize];
-                if *d == u32::MAX {
-                    *d = next;
-                    next += 1;
-                }
-                of[c] = *d;
+        let kept = |c: usize| vote[c] != u32::MAX && !skip[c];
+        for c in (0..count as usize).filter(|&c| kept(c)) {
+            let d = &mut dense[vote[c] as usize];
+            if *d == u32::MAX {
+                *d = next;
+                next += 1;
             }
+            of[c] = *d;
         }
         drop(dense);
         let mut nodes = Column::new(memory, "super sizes", next as usize, |_| 0_u64)?;
-        for c in 0..count {
-            if vote[c as usize] != u32::MAX {
-                nodes[of[c as usize] as usize] += t.of(c).len() as u64;
-            }
+        for c in (0..count).filter(|&c| kept(c as usize)) {
+            nodes[of[c as usize] as usize] += t.of(c).len() as u64;
         }
-        if tries == TRIES || cover(memory, nodes.len(), |g| nodes[g])? < fan_out {
-            return Ok(Groups {
+        let cover = cover(memory, nodes.len(), |g| nodes[g])?;
+        if best.as_ref().is_none_or(|b| cover < b.0) {
+            let groups = Groups {
                 of,
                 count: next,
                 resolution,
-            });
+            };
+            best = Some((cover, groups));
         }
+        if cover < fan_out || cover >= last {
+            break;
+        }
+        last = cover;
     }
+    Ok(best.expect("one try").1)
 }
 
 /// The Leiden run of the super level: Leiden with `options` at `resolution` on the

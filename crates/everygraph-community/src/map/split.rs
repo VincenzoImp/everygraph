@@ -4,16 +4,22 @@
 //! its own induced subgraph, round after round, until none is left to split.
 //!
 //! Each region is solved alone, so its split is a function of the region: the order of
-//! the work cannot change it. Small regions are solved several at a time; a region of
-//! [`ALONE`] nodes or more is solved by all threads, one at a time, so memory holds at
-//! most one large region's subgraph and Leiden state.
+//! the work cannot change it. Regions of fewer than [`ALONE`] entries are solved several
+//! at a time, one per thread; a larger region is solved by all threads, alone. When the
+//! budget refuses a small region while others run, the regions from it on are solved
+//! again one at a time, so a budget that a run on one thread fits is never refused on
+//! more threads.
+//!
+//! Memory holds, besides the tree and the per-node columns, the communities found in
+//! the round, and the subgraphs and Leiden state of the regions being solved: one large
+//! region, or one small region per thread.
 
 use std::cmp::Reverse;
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
 
-use everygraph_core::{Memory, par};
+use everygraph_core::{Memory, MemoryKind, par};
 use everygraph_kernels::edge_map::{Csr, Error, NodeList, Plan, Settings, Source};
 
 use super::{Kind, Tree};
@@ -21,9 +27,12 @@ use crate::aggregate::{Members, Parts, ix};
 use crate::column::{Column, GRAIN, offsets};
 use crate::{Options, leiden};
 
-/// Nodes from which a region is solved alone: Leiden's own parallel grain, 2^16 nodes
-/// per sub-round (`level.rs`).
-const ALONE: usize = 1 << 16;
+/// Entries (the sum of the members' degrees) from which a region is solved alone: its
+/// subgraph and Leiden state are then tens of megabytes or more.
+const ALONE: u64 = 1 << 22;
+
+/// What one region gives: its communities, or none found.
+type Outcome = Result<Option<Found>, Error>;
 
 /// Splits the regions from `from` on, and the subcommunities they give, until every
 /// leaf has at most `leaf_max` nodes or Leiden finds one community in it. `leaf` holds
@@ -63,20 +72,49 @@ pub(super) fn split<S: Source>(
             id: active[i],
             members: members.of(active[i]),
         };
+        let alone = Column::new(memory, "regions to split", active.len(), |i| {
+            let degrees = region(i)
+                .members
+                .iter()
+                .map(|&v| u64::from(source.degree(v)));
+            degrees.sum::<u64>() >= ALONE
+        })?;
+        // The outcomes of the round, twice: as the threads return them, and in order.
+        let bytes = (2 * active.len() * size_of::<Outcome>()) as u64;
+        let _held = memory
+            .reserve("split outcomes", MemoryKind::Anonymous, bytes)
+            .map_err(Error::from)?;
         let found = Plan::with(source, memory, settings, |plan| {
             let solve = |i: usize| region(i).solve(&plan, memory, settings, options, leaf, &local);
-            let small = par::map_ranges(active.len(), NonZeroUsize::MIN, |r| {
-                let alone = region(r.start).members.len() >= ALONE;
-                if alone { Ok(None) } else { solve(r.start) }
+            let mut small: Vec<Outcome> = par::map_ranges(active.len(), NonZeroUsize::MIN, |r| {
+                if alone[r.start] {
+                    Ok(None)
+                } else {
+                    solve(r.start)
+                }
             });
+            // From the first region the budget refused, the outcomes are dropped and the
+            // small regions solved again one at a time, in order: memory then holds what
+            // a run on one thread holds.
+            let refused = small
+                .iter()
+                .position(|s| matches!(s, Err(Error::Memory(_))));
+            if let Some(first) = refused {
+                small[first..].fill_with(|| Ok(None));
+                for i in (first..active.len()).filter(|&i| !alone[i]) {
+                    small[i] = solve(i);
+                    if small[i].is_err() {
+                        break;
+                    }
+                }
+            }
             let mut found = Vec::new();
             for (i, s) in small.into_iter().enumerate() {
-                let alone = region(i).members.len() >= ALONE;
-                found.push(if alone { solve(i)? } else { s? });
+                found.push(if alone[i] { solve(i)? } else { s? });
             }
             Ok::<_, Error>(found)
         })?;
-        drop(local);
+        drop((local, alone));
         for (i, found) in found.into_iter().enumerate() {
             if let Some(found) = found {
                 region(i).commit(memory, tree, leaf, &found)?;
@@ -124,6 +162,15 @@ impl Region<'_> {
         local: &[u32],
     ) -> Result<Option<Found>, Error> {
         let (offsets, targets) = self.induced(plan, memory, leaf, local)?;
+        // Leiden makes each node of a region with no edge between two of its nodes a
+        // community of its own; such a region stays a leaf.
+        let paired = (0..self.members.len()).any(|i| {
+            let row = &targets[ix(offsets[i])..ix(offsets[i + 1])];
+            row.iter().any(|&t| t as usize != i)
+        });
+        if !paired {
+            return Ok(None);
+        }
         let found = leiden(&Csr::new(&offsets, &targets)?, memory, settings, options)?;
         Ok((found.count > 1).then_some(Found {
             membership: found.membership,

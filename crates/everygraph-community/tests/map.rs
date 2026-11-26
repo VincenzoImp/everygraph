@@ -26,15 +26,17 @@
 
 mod support;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use everygraph_community::hierarchy::Hierarchy;
-use everygraph_community::map::{self, Kind, MapOptions, MapTree, SuperLevel};
+use everygraph_community::map::{self, Kind, MapOptions, MapTree, StoredMap, SuperLevel};
 use everygraph_community::{Options, leiden};
 use everygraph_core::{Budget, ByteSink, ByteSource, Memory, MemorySource, par};
-use everygraph_format::container::{Container, Kind as Section, ResultKey, Writer};
+use everygraph_format::adjacency::{IndexBuilder, append_record, encode_events};
+use everygraph_format::container::{
+    Container, Kind as Section, ResultKey, Value, ValueType, Writer,
+};
 use everygraph_io::faults::{Faulty, Plan};
 use everygraph_kernels::edge_map::{Error, Settings};
 use everygraph_oracle::corpus::{Tier, entries};
@@ -198,6 +200,19 @@ fn rules(name: &str, lists: &Lists, partition: &[u32], t: &MapTree, o: &MapOptio
                 assert!(parts.is_empty(), "{name}: {x} is small and split");
                 continue;
             }
+            let inside = |u: u32| {
+                lists
+                    .list(u)
+                    .iter()
+                    .any(|&w| w != u && members.binary_search(&w).is_ok())
+            };
+            if !members.iter().any(|&u| inside(u)) {
+                assert!(
+                    parts.is_empty(),
+                    "{name}: {x} has no edge inside and is split"
+                );
+                continue;
+            }
             let found = run(&lists.induced(members), &sub);
             let mut got: Vec<Vec<u32>> = parts
                 .iter()
@@ -231,6 +246,20 @@ fn rules(name: &str, lists: &Lists, partition: &[u32], t: &MapTree, o: &MapOptio
             }
         }
     }
+    // Communities without an edge: two or more are one aggregate under the root.
+    let lonely = |c: &[u32]| c.iter().all(|&u| lists.list(u).iter().all(|&w| w == u));
+    let edgeless: Vec<u32> = (0..r)
+        .filter(|&x| v.kind(x) == Kind::Community && lonely(&v.members[x as usize]))
+        .collect();
+    let is_edgeless: HashSet<u32> = edgeless.iter().copied().collect();
+    let apart = v.kids[0].iter().copied().find(|&c| {
+        v.kind(c) == Kind::Aggregate && v.resolved(c).iter().all(|y| is_edgeless.contains(y))
+    });
+    if edgeless.len() > 1 {
+        let mut held = v.resolved(apart.expect("an aggregate of communities without edges"));
+        held.sort_unstable();
+        assert_eq!(held, edgeless, "{name}: communities without edges");
+    }
     // Aggregates: under each parent, the fan-out minus one largest stay outside.
     for x in 0..r {
         if v.kind(x) == Kind::Aggregate {
@@ -241,7 +270,12 @@ fn rules(name: &str, lists: &Lists, partition: &[u32], t: &MapTree, o: &MapOptio
             .copied()
             .filter(|&c| v.kind(c) != Kind::Aggregate)
             .collect();
-        let all = v.resolved(x);
+        let mut all = v.resolved(x);
+        let mut f = f;
+        if let (0, Some(_), true) = (x, apart, edgeless.len() > 1) {
+            all.retain(|c| !is_edgeless.contains(c));
+            f -= 1;
+        }
         if all.len() <= f {
             assert_eq!(direct.len(), all.len(), "{name}: an aggregate under {x}");
             continue;
@@ -262,22 +296,28 @@ fn rules(name: &str, lists: &Lists, partition: &[u32], t: &MapTree, o: &MapOptio
     communities.sort();
     let all: Vec<u32> = (0..lists.nodes()).collect();
     assert_eq!(communities, sets(&all, partition), "{name}: the partition");
-    // The super level: Leiden at its resolution and a vote, here.
-    let sizes: Vec<u64> = communities.iter().map(|c| c.len() as u64).collect();
+    // The super level: Leiden at its resolutions and a vote, here, without the
+    // communities without an edge.
+    let sizes: Vec<u64> = communities
+        .iter()
+        .filter(|c| !lonely(c))
+        .map(|c| c.len() as u64)
+        .collect();
     assert_eq!(t.shape.cover, cover(&sizes), "{name}: cover");
     let group_of = |x: u32| -> Option<u32> {
         std::iter::successors(Some(x), |&y| (y != 0).then(|| t.parent[y as usize]))
             .find(|&y| v.kind(y) == Kind::Super)
     };
     let region_of: HashMap<u32, u32> = (0..r)
-        .filter(|&x| v.kind(x) == Kind::Community)
+        .filter(|&x| v.kind(x) == Kind::Community && !is_edgeless.contains(&x))
         .map(|x| (partition[v.members[x as usize][0] as usize], x))
         .collect();
     let groups_at = |gamma: f64| {
         let memory = Memory::unlimited();
         let found =
             map::coarse_leiden(&lists.csr(), &memory, Settings::default(), &o.leiden, gamma);
-        let groups = vote(partition, &found.unwrap().membership);
+        let mut groups = vote(partition, &found.unwrap().membership);
+        groups.retain(|c, _| region_of.contains_key(c));
         let mut nodes: HashMap<u32, u64> = HashMap::new();
         for (c, g) in &groups {
             *nodes.entry(*g).or_default() += u64::from(t.nodes[region_of[c] as usize]);
@@ -292,18 +332,23 @@ fn rules(name: &str, lists: &Lists, partition: &[u32], t: &MapTree, o: &MapOptio
             "{name}: no super level"
         ),
         Some(gamma) => {
-            // The largest resolution 2^-j whose groups meet the cover, or 2^-16.
-            let (groups, c) = groups_at(gamma);
-            assert!(
-                c < f32 || gamma == 0.5_f64.powi(16),
-                "{name}: cover {c} at {gamma}"
-            );
-            if gamma < 0.5 {
-                assert!(
-                    groups_at(2.0 * gamma).1 >= f32,
-                    "{name}: a larger resolution meets it"
-                );
+            // The first 2^-j that meets the cover; or, once the cover stops falling or at
+            // 2^-16, the smallest cover, the larger resolution on a tie.
+            let (mut best, mut last, mut at) = (u32::MAX, u32::MAX, 1.0);
+            let mut chosen = 0.0;
+            for _ in 0..16 {
+                at /= 2.0;
+                let c = groups_at(at).1;
+                if c < best {
+                    (best, chosen) = (c, at);
+                }
+                if c < f32 || c >= last {
+                    break;
+                }
+                last = c;
             }
+            assert_eq!(gamma, chosen, "{name}: the resolution of the super level");
+            let (groups, _) = groups_at(gamma);
             let mut by: HashMap<u32, Vec<u32>> = HashMap::new();
             for (&c, &g) in &groups {
                 by.entry(g).or_default().push(c);
@@ -332,6 +377,13 @@ fn rules(name: &str, lists: &Lists, partition: &[u32], t: &MapTree, o: &MapOptio
                 "{name}"
             );
         }
+    }
+    for &x in &edgeless {
+        assert_eq!(
+            group_of(x),
+            None,
+            "{name}: a community without edges in a group"
+        );
     }
 }
 
@@ -374,13 +426,17 @@ fn graphs() -> Vec<(String, Lists, Option<Vec<u32>>)> {
         Some(cliques),
     ));
     out.push(("star and clique".to_owned(), star_and_clique(), None));
-    // The corpus's graphs of millions of isolated nodes are left to the Leiden tests.
+    // Nodes without edges: one community of 40 of them, and 30 alone beside a super level.
+    for (cliques, extra, together) in [(20, 40, true), (90, 30, false)] {
+        let (n, pairs) = ring(cliques, 4);
+        let mut partition: Vec<u32> = (0..n).map(|v| v / 4).collect();
+        partition.extend((0..extra).map(|i| if together { n } else { n + i }));
+        let name = format!("ring of {cliques} cliques and {extra} nodes without edges");
+        out.push((name, Lists::from_pairs(n + extra, &pairs), Some(partition)));
+    }
     for e in entries(Tier::Ci) {
         let p = Projection::new(&e.graph);
         let n = p.undirected.n() as u32;
-        if n > 100_000 {
-            continue;
-        }
         let mut pairs = Vec::new();
         for u in 0..n {
             pairs.extend(p.undirected.list(u as usize).iter().map(|&w| (u, w)));
@@ -547,8 +603,39 @@ fn stored(lists: &Lists, t: &MapTree, o: &MapOptions) -> (Vec<u8>, ResultKey) {
     (w.into_sink().into_inner(), key)
 }
 
+/// A stored map read back: per region its parent, kind and nodes, and per node its leaf.
+struct Read {
+    parent: Vec<u32>,
+    kind: Vec<Kind>,
+    members: Vec<Vec<u32>>,
+}
+
+impl Read {
+    fn of(m: &StoredMap<'_, MemorySource<&[u8]>>) -> Self {
+        let memory = Memory::unlimited();
+        let parent = m.parents(&memory).unwrap().to_vec();
+        let kind = m.kinds(&memory).unwrap().to_vec();
+        let mut members = vec![Vec::new(); parent.len()];
+        for (v, &l) in m.membership(&memory).unwrap().iter().enumerate() {
+            for x in Self::path(&parent, l) {
+                members[x as usize].push(v as u32);
+            }
+        }
+        Self {
+            parent,
+            kind,
+            members,
+        }
+    }
+
+    /// `x` and its ancestors, the root last.
+    fn path(parent: &[u32], x: u32) -> Vec<u32> {
+        std::iter::successors(Some(x), |&y| (y != 0).then(|| parent[y as usize])).collect()
+    }
+}
+
 #[test]
-fn a_stored_map_reads_back_its_kinds_and_its_partition_and_verifies() {
+fn a_stored_map_reads_back_the_tree_its_counts_and_its_siblings_and_verifies() {
     let memory = Memory::unlimited();
     for (name, lists, partition) in graphs() {
         let o = MapOptions {
@@ -557,9 +644,6 @@ fn a_stored_map_reads_back_its_kinds_and_its_partition_and_verifies() {
             ..MapOptions::default()
         };
         let (partition, t) = tree(&lists, partition.as_deref(), &o);
-        if lists.nodes() == 0 {
-            continue;
-        }
         let (bytes, key) = stored(&lists, &t, &o);
         let report = checked(&bytes);
         assert!(
@@ -567,43 +651,108 @@ fn a_stored_map_reads_back_its_kinds_and_its_partition_and_verifies() {
             "{name}: {report:?}"
         );
         let file = Container::open(MemorySource::new(&bytes[..])).unwrap();
-        let h = Hierarchy::find(&file, &key).unwrap().unwrap();
-        let read = map::partition(&h, &memory).unwrap();
-        let all: Vec<u32> = (0..lists.nodes()).collect();
-        assert_eq!(sets(&all, &read), sets(&all, &partition), "{name}");
-        // At every level, each node's region has the kind of the tree region it
-        // stands for: its ancestor at that depth, or its leaf when that is shallower.
-        let depth = |x: u32| {
-            std::iter::successors(Some(x), |&y| (y != 0).then(|| t.parent[y as usize])).count()
-                as u32
-                - 1
-        };
-        for level in 1..=h.levels() {
-            let kinds = map::kinds(&h, level, &memory).unwrap();
-            let m = h.membership(level, &memory).unwrap();
-            for (u, &l) in t.leaf.iter().enumerate() {
-                let mut x = l;
-                while depth(x) > level {
-                    x = t.parent[x as usize];
-                }
-                assert_eq!(
-                    kinds[m[u] as usize], t.kind[x as usize],
-                    "{name}: level {level}, node {u}"
-                );
-            }
-        }
+        let m = StoredMap::find(&file, &key).unwrap().unwrap();
         assert_eq!(
-            h.count(1).unwrap() as usize,
-            View::new(&t).kids[0].len(),
+            m.super_level(),
+            t.shape.super_resolution.is_some(),
             "{name}"
         );
+        let read = Read::of(&m);
+        // The same tree: every region by its nodes, kind and parent's nodes.
+        let v = View::new(&t);
+        let regions = |members: &[Vec<u32>],
+                       kind: &dyn Fn(usize) -> Kind,
+                       parent: &dyn Fn(usize) -> usize| {
+            let mut out: Vec<(Vec<u32>, String, Vec<u32>)> = (1..members.len())
+                .map(|x| {
+                    (
+                        members[x].clone(),
+                        format!("{:?}", kind(x)),
+                        members[parent(x)].clone(),
+                    )
+                })
+                .collect();
+            out.sort();
+            out
+        };
+        assert_eq!(
+            regions(&read.members, &|x| read.kind[x], &|x| read.parent[x]
+                as usize),
+            regions(&v.members, &|x| t.kind[x], &|x| t.parent[x] as usize),
+            "{name}: the tree"
+        );
+        // The partition, read from the kinds.
+        let mut communities: Vec<Vec<u32>> = (0..read.kind.len())
+            .filter(|&x| read.kind[x] == Kind::Community)
+            .map(|x| read.members[x].clone())
+            .collect();
+        communities.sort();
+        let all: Vec<u32> = (0..lists.nodes()).collect();
+        assert_eq!(communities, sets(&all, &partition), "{name}: the partition");
+        // Counts and siblings, from the lists: each pair at its lowest common ancestor.
+        let r = read.parent.len();
+        let leaf = m.membership(&memory).unwrap();
+        let (mut internal, mut volume) = (vec![0_u64; r], vec![0_u64; r]);
+        let mut siblings: BTreeMap<(u32, u32), u64> = BTreeMap::new();
+        for u in 0..lists.nodes() {
+            let pu = Read::path(&read.parent, leaf[u as usize]);
+            for &w in lists.list(u) {
+                for &x in &pu {
+                    volume[x as usize] += if w == u { 2 } else { 1 };
+                }
+                if w < u {
+                    continue;
+                }
+                let pw = Read::path(&read.parent, leaf[w as usize]);
+                let common: Vec<u32> = pu.iter().copied().filter(|x| pw.contains(x)).collect();
+                for &x in &common {
+                    internal[x as usize] += 1;
+                }
+                let below = |p: &[u32]| {
+                    p.iter()
+                        .copied()
+                        .find(|y| read.parent[*y as usize] == common[0] && *y != common[0])
+                };
+                if let (Some(a), Some(b)) = (below(&pu), below(&pw)) {
+                    *siblings.entry((a, b)).or_default() += 1;
+                    *siblings.entry((b, a)).or_default() += 1;
+                }
+            }
+        }
+        let table = m.table(&memory).unwrap();
+        assert_eq!(table.internal.to_vec(), internal, "{name}: internal");
+        assert_eq!(table.volume.to_vec(), volume, "{name}: volume");
+        assert_eq!(stored_siblings(&m), siblings, "{name}: siblings");
     }
+}
+
+/// The entries of a stored sibling graph, `(a, b) → weight`.
+fn stored_siblings(m: &StoredMap<'_, MemorySource<&[u8]>>) -> BTreeMap<(u32, u32), u64> {
+    let s = m.siblings().unwrap();
+    let adjacency = s.adjacency().unwrap();
+    let events = s.events().unwrap();
+    let mut out = BTreeMap::new();
+    let (mut buf, mut entry) = (Vec::new(), 0);
+    for a in 0..m.regions() {
+        for &b in adjacency
+            .neighbors(everygraph_core::NodeId::new(a), &mut buf)
+            .unwrap()
+        {
+            let w = events.map_or(1, |e| {
+                let r = e.event_range(entry).unwrap();
+                r.end - r.start
+            });
+            out.insert((a, b), w);
+            entry += 1;
+        }
+    }
+    out
 }
 
 #[test]
 fn the_same_input_gives_the_same_bytes_at_any_thread_count() {
-    // One community of 70,000 nodes: a region solved alone, then many solved together.
-    let (n, pairs) = nested(&[500, 140], &[8, 1, 0], 11);
+    // One community of 4.5 M entries: a region solved alone, then many solved together.
+    let (n, pairs) = nested(&[500, 520], &[8, 1, 0], 11);
     let lists = Lists::from_pairs(n, &pairs);
     let everything = vec![0; n as usize];
     let o = MapOptions::default();
@@ -667,7 +816,7 @@ fn bad_options_and_small_budgets_are_refused() {
 }
 
 #[test]
-fn check_finds_kinds_that_break_the_rules() {
+fn check_finds_a_stored_map_that_breaks_its_rules() {
     let (n, pairs) = nested(&[30, 6, 12], &[5, 2, 1, 0], 1);
     let lists = Lists::from_pairs(n, &pairs);
     let o = MapOptions {
@@ -678,60 +827,301 @@ fn check_finds_kinds_that_break_the_rules() {
     let (_, t) = tree(&lists, None, &o);
     let (bytes, key) = stored(&lists, &t, &o);
     let file = Container::open(MemorySource::new(&bytes[..])).unwrap();
-    let h = Hierarchy::find(&file, &key).unwrap().unwrap();
-    let top = h.levels();
-    let codes = |level: u32| -> Vec<u32> {
-        map::kinds(&h, level, &Memory::unlimited())
-            .unwrap()
-            .iter()
-            .map(|&k| match k {
-                Kind::Super => 1,
-                Kind::Community => 2,
-                Kind::Subcommunity => 3,
-                Kind::Aggregate => 4,
-                Kind::Root => 0,
-            })
-            .collect()
-    };
-    // A region of `level` whose parent has two children or more (any at level 1).
-    let split_at = |level: u32| -> u32 {
-        let Some(parents) = h.parents(level, &Memory::unlimited()).unwrap() else {
-            return 0;
-        };
-        (0..parents.len())
-            .find(|&u| parents.iter().filter(|&&p| p == parents[u]).count() > 1)
-            .unwrap() as u32
-    };
-    // A community of level 1 split into subcommunities.
-    let parents = h.parents(2, &Memory::unlimited()).unwrap().unwrap();
-    let wide = (0..h.count(1).unwrap())
-        .find(|&p| codes(1)[p as usize] == 2 && parents.iter().filter(|&&q| q == p).count() > 1)
+    let m = StoredMap::find(&file, &key).unwrap().unwrap();
+    let memory = Memory::unlimited();
+    let read = Read::of(&m);
+    let codes: Vec<u32> = read
+        .kind
+        .iter()
+        .map(|&k| match k {
+            Kind::Root => 0,
+            Kind::Super => 1,
+            Kind::Community => 2,
+            Kind::Subcommunity => 3,
+            Kind::Aggregate => 4,
+        })
+        .collect();
+    let r = codes.len();
+    let kids = |p: usize| (1..r).filter(|&x| read.parent[x] as usize == p).count();
+    // A community with subcommunities, and a leaf below a community.
+    let wide = (1..r).find(|&x| codes[x] == 2 && kids(x) > 1).unwrap();
+    let low = (1..r)
+        .rev()
+        .find(|&x| codes[x] == 3 && kids(x) == 0)
         .unwrap();
-    for (level, at, code, what) in [
-        (1, wide, 3, "kinds out of order"),
-        (top, split_at(top), 2, "kinds out of order"),
-        (top, 0, 9, "a kind that is not one"),
-        (1, 0, 0, "a kind that is not one"),
-        (top, split_at(top), 1, "kinds out of order"),
-    ] {
-        let mut values = codes(level);
-        values[at as usize] = code;
-        let bad = forged(&bytes, &key, &format!("{level}/kind"), &values);
-        let report = checked(&bad);
+    let with = |at: usize, code: u32| {
+        let mut c = codes.clone();
+        c[at] = code;
+        c
+    };
+    let parents = read.parent.clone();
+    let mut swapped = parents.clone();
+    swapped[r - 1] = 0;
+    let table = m.table(&memory).unwrap();
+    let mut internal = table.internal.to_vec();
+    internal[wide] += 1;
+    let mut volume = table.volume.to_vec();
+    volume[low] += 2;
+    let mut nodes = table.nodes.to_vec();
+    nodes[low] += 1;
+    let mut membership = m.membership(&memory).unwrap().to_vec();
+    let other = membership.iter().position(|&l| l != membership[0]).unwrap();
+    membership.swap(0, other);
+    let cases: Vec<(&str, Vec<u8>, &str)> = vec![
+        ("kind", typed(&with(wide, 3)), "kinds out of order"),
+        ("kind", typed(&with(low, 2)), "kinds out of order"),
+        ("kind", typed(&with(0, 2)), "kinds out of order"),
+        ("kind", typed(&with(low, 9)), "a kind that is not one"),
+        ("parent", typed(&swapped), "breadth first"),
+        ("internal", typed(&internal), "counts that are not"),
+        ("volume", typed(&volume), "counts"),
+        ("nodes", typed(&nodes), "node counts"),
+        ("membership", typed(&membership), "map:"),
+    ];
+    let whole = Parts::of(&m, &file, &key);
+    let r32 = r as u32;
+    // Two sibling leaves of different sizes, numbered the wrong way round.
+    let leaves = (2..r32).find(|&x| {
+        let (a, b) = (x as usize - 1, x as usize);
+        read.parent[a] == read.parent[b]
+            && kids(a) == 0
+            && kids(b) == 0
+            && whole.nodes[a] > whole.nodes[b]
+    });
+    let forged_whole = vec![(
+        whole.swapped(leaves.unwrap() - 1, leaves.unwrap()),
+        "numbered",
+    )];
+    // One pair moved around a cycle of four siblings: `a–b` and `c–d` gain one, `a–d` and
+    // `c–b` lose one, so every row keeps its sum and every region its counts.
+    let w = |x: u32, y: u32| whole.siblings.get(&(x, y)).copied().unwrap_or(0);
+    let groups = (0..r32).map(|p| {
+        (1..r32)
+            .filter(|&x| read.parent[x as usize] == p)
+            .collect::<Vec<_>>()
+    });
+    let cycle = groups
+        .flat_map(|g| {
+            let g2 = g.clone();
+            g.into_iter().flat_map(move |a| {
+                let g3 = g2.clone();
+                g2.clone()
+                    .into_iter()
+                    .flat_map(move |b| g3.clone().into_iter().map(move |c| (a, b, c)))
+            })
+        })
+        .find_map(|(a, b, c)| {
+            let distinct = a != b && a != c && b != c;
+            let d = (1..r32).find(|&d| {
+                d != a
+                    && d != b
+                    && d != c
+                    && read.parent[d as usize] == read.parent[a as usize]
+                    && w(a, b) >= 1
+                    && w(c, d) >= 1
+                    && w(a, d) >= 2
+                    && w(c, b) >= 2
+            });
+            d.filter(|_| distinct).map(|d| (a, b, c, d))
+        })
+        .expect("four siblings with pairs between them");
+    let (a, b, c, d) = cycle;
+    let mut moved = whole.clone();
+    for (x, y, change) in [(a, b, 1_i64), (c, d, 1), (a, d, -1), (c, b, -1)] {
+        for key in [(x, y), (y, x)] {
+            let e = moved.siblings.get_mut(&key).unwrap();
+            *e = e.checked_add_signed(change).unwrap();
+        }
+    }
+    let mut forged_whole = forged_whole;
+    forged_whole.push((moved, "not what the tree makes"));
+    // One more pair inside a leaf and each of its ancestors: counts that add up, but
+    // not to the graph's.
+    let mut inside = whole.clone();
+    for x in Read::path(&read.parent, low as u32) {
+        inside.internal[x as usize] += 1;
+    }
+    forged_whole.push((inside, "not those of the graph"));
+    for (forged, what) in forged_whole {
+        let report = checked(&forged.written(&bytes, &key));
         assert!(
             report.problems.iter().any(|p| p.what.contains(what)),
-            "level {level}, code {code}: {:?}",
+            "{what}: {:?}",
+            report.problems
+        );
+    }
+    assert!(checked(&whole.written(&bytes, &key)).is_intact());
+    for (part, values, what) in cases {
+        let report = checked(&forged(&bytes, &key, part, values));
+        assert!(
+            report.problems.iter().any(|p| p
+                .section
+                .as_deref()
+                .is_some_and(|s| s.starts_with("results/map/"))
+                && p.what.contains(what)),
+            "{part}, {what}: {:?}",
             report.problems
         );
     }
 }
 
-/// A copy of `bytes` with part `name` of the result of `key` holding `values`.
-fn forged(bytes: &[u8], key: &ResultKey, name: &str, values: &[u32]) -> Vec<u8> {
+/// Every part of a stored map, to forge one.
+#[derive(Clone)]
+struct Parts {
+    head: Vec<u64>,
+    parent: Vec<u32>,
+    kind: Vec<u32>,
+    nodes: Vec<u32>,
+    internal: Vec<u64>,
+    volume: Vec<u64>,
+    membership: Vec<u32>,
+    siblings: BTreeMap<(u32, u32), u64>,
+}
+
+impl Parts {
+    fn of(
+        m: &StoredMap<'_, MemorySource<&[u8]>>,
+        file: &Container<MemorySource<&[u8]>>,
+        key: &ResultKey,
+    ) -> Self {
+        let memory = Memory::unlimited();
+        let root = file.find_result(key).unwrap().unwrap();
+        let mut head = vec![0_u64; root.len() as usize];
+        root.read(0, &mut head).unwrap();
+        let table = m.table(&memory).unwrap();
+        let read = Read::of(m);
+        Self {
+            head,
+            parent: read.parent,
+            kind: read.kind.iter().map(|&k| code(k)).collect(),
+            nodes: table.nodes.to_vec(),
+            internal: table.internal.to_vec(),
+            volume: table.volume.to_vec(),
+            membership: m.membership(&memory).unwrap().to_vec(),
+            siblings: stored_siblings(m),
+        }
+    }
+
+    /// `bytes` with the map of `key` written from these parts.
+    fn written(&self, bytes: &[u8], key: &ResultKey) -> Vec<u8> {
+        let r = self.parent.len();
+        let mut lists = vec![Vec::new(); r];
+        for (&(a, b), &w) in &self.siblings {
+            lists[a as usize].push((b, w));
+        }
+        let mut index = IndexBuilder::new(&Memory::unlimited(), r as u32).unwrap();
+        let (mut data, mut weights) = (Vec::new(), Vec::new());
+        for (a, l) in lists.iter().enumerate() {
+            let before = data.len();
+            let d = append_record(a as u32, l.iter().map(|e| e.0), &mut data).unwrap();
+            index.push(d, (data.len() - before) as u64).unwrap();
+            weights.extend(l.iter().map(|e| e.1));
+        }
+        let (entries, events) = (weights.len() as u64, weights.iter().sum::<u64>());
+        let index = index.finish(events > entries).unwrap().0;
+        let mut w = Writer::update(MemorySource::new(bytes.to_vec())).unwrap();
+        w.add_result(key, &about(), &self.head).unwrap();
+        w.add_result_part(key, "parent", self.parent.iter().copied())
+            .unwrap();
+        w.add_result_part(key, "kind", self.kind.iter().copied())
+            .unwrap();
+        w.add_result_part(key, "nodes", self.nodes.iter().copied())
+            .unwrap();
+        w.add_result_part(key, "internal", self.internal.iter().copied())
+            .unwrap();
+        w.add_result_part(key, "volume", self.volume.iter().copied())
+            .unwrap();
+        w.add_result_part(key, "membership", self.membership.iter().copied())
+            .unwrap();
+        let mut parts = vec![
+            ("index", Section::RESULT_ADJACENCY_INDEX, index),
+            ("data", Section::RESULT_ADJACENCY_DATA, data),
+        ];
+        if events > entries {
+            let e = encode_events(entries, events, weights).unwrap();
+            parts.push(("events", Section::RESULT_ADJACENCY_EVENTS, e));
+        }
+        for (suffix, kind, b) in parts {
+            let mut s = w
+                .begin_result_part(key, &format!("siblings.{suffix}"), kind)
+                .unwrap();
+            s.write(&b).unwrap();
+            s.finish().unwrap();
+        }
+        w.commit().unwrap();
+        w.into_sink().into_inner()
+    }
+
+    /// The parts with regions `a` and `b` swapped.
+    fn swapped(&self, a: u32, b: u32) -> Self {
+        let map = |x: u32| {
+            if x == a {
+                b
+            } else if x == b {
+                a
+            } else {
+                x
+            }
+        };
+        let mut p = self.clone();
+        for v in [&mut p.kind, &mut p.nodes] {
+            v.swap(a as usize, b as usize);
+        }
+        p.internal.swap(a as usize, b as usize);
+        p.volume.swap(a as usize, b as usize);
+        p.parent.swap(a as usize, b as usize);
+        for x in &mut p.parent {
+            *x = map(*x);
+        }
+        for x in &mut p.membership {
+            *x = map(*x);
+        }
+        p.siblings = self
+            .siblings
+            .iter()
+            .map(|(&(x, y), &w)| ((map(x), map(y)), w))
+            .collect();
+        p
+    }
+}
+
+fn code(k: Kind) -> u32 {
+    match k {
+        Kind::Root => 0,
+        Kind::Super => 1,
+        Kind::Community => 2,
+        Kind::Subcommunity => 3,
+        Kind::Aggregate => 4,
+    }
+}
+
+/// The bytes of a result section holding `values`.
+fn typed<T: Value>(values: &[T]) -> Vec<u8> {
+    let mut out = b"EGRES\0\0\0".to_vec();
+    out.extend_from_slice(
+        &if T::TYPE == ValueType::U32 {
+            1_u32
+        } else {
+            2_u32
+        }
+        .to_le_bytes(),
+    );
+    out.extend_from_slice(&[0; 4]);
+    let mut buf = [0; 8];
+    for &v in values {
+        let len = T::TYPE.size();
+        v.to_le(&mut buf[..len]);
+        out.extend_from_slice(&buf[..len]);
+    }
+    out
+}
+
+/// A copy of `bytes` with part `name` of the result of `key` holding `section` instead.
+fn forged(bytes: &[u8], key: &ResultKey, name: &str, section: Vec<u8>) -> Vec<u8> {
     let source = MemorySource::new(bytes.to_vec());
     let file = Container::open(&source).unwrap();
     let root = file.find_result(key).unwrap().unwrap();
-    let mut head = [0_u64; 2];
+    let mut head = vec![0_u64; root.len() as usize];
     root.read(0, &mut head).unwrap();
     let prefix = format!("{}/", root.name());
     let parts: Vec<(String, Section, Vec<u8>)> = file
@@ -747,14 +1137,9 @@ fn forged(bytes: &[u8], key: &ResultKey, name: &str, values: &[u32]) -> Vec<u8> 
     let mut w = Writer::update(MemorySource::new(bytes.to_vec())).unwrap();
     w.add_result(key, &about(), &head).unwrap();
     for (part, kind, buf) in parts {
-        if part == name {
-            w.add_result_part(key, &part, values.iter().copied())
-                .unwrap();
-        } else {
-            let mut s = w.begin_result_part(key, &part, kind).unwrap();
-            s.write(&buf).unwrap();
-            s.finish().unwrap();
-        }
+        let mut s = w.begin_result_part(key, &part, kind).unwrap();
+        s.write(if part == name { &section } else { &buf }).unwrap();
+        s.finish().unwrap();
     }
     w.commit().unwrap();
     w.into_sink().into_inner()
@@ -822,4 +1207,119 @@ fn a_graph_of_one_node_and_a_graph_without_edges_have_trees() {
         let (bytes, _) = stored(&lists, &t, &o);
         assert!(checked(&bytes).is_intact());
     }
+}
+
+/// A grid of `side` × `side` nodes.
+fn grid(side: u32) -> (u32, Vec<(u32, u32)>) {
+    let mut pairs = Vec::new();
+    for y in 0..side {
+        for x in 0..side {
+            let v = y * side + x;
+            if x + 1 < side {
+                pairs.push((v, v + 1));
+            }
+            if y + 1 < side {
+                pairs.push((v, v + side));
+            }
+        }
+    }
+    (side * side, pairs)
+}
+
+/// The super level's Leiden coarsens on: on grids at a low resolution, the usual rule
+/// of `leiden` stops with 9 and 15 communities, the super level's with 3.
+#[test]
+fn the_super_level_leiden_coarsens_further_than_leiden() {
+    let memory = Memory::unlimited();
+    for (name, (n, pairs), gamma) in [
+        ("grid of 200 x 200", grid(200), 1.0 / 64.0),
+        ("grid of 300 x 300", grid(300), 1.0 / 128.0),
+    ] {
+        let lists = Lists::from_pairs(n, &pairs);
+        let o = Options::default();
+        let usual = leiden(
+            &lists.csr(),
+            &memory,
+            Settings::default(),
+            &Options {
+                resolution: gamma,
+                ..o
+            },
+        )
+        .unwrap()
+        .count;
+        let coarse = map::coarse_leiden(&lists.csr(), &memory, Settings::default(), &o, gamma)
+            .unwrap()
+            .count;
+        assert!(2 * coarse < usual, "{name}: usual {usual}, coarse {coarse}");
+    }
+}
+
+/// Nodes without edges change no region: the map of a graph with 2,000,000 of them
+/// added is the map of the graph alone, and one aggregate of those nodes under the root.
+#[test]
+fn nodes_without_edges_add_one_region_and_change_no_other() {
+    let (n, pairs) = nested(&[40, 8, 6], &[6, 2, 1, 0], 7);
+    let lists = Lists::from_pairs(n, &pairs);
+    let o = MapOptions::default();
+    let (partition, alone) = tree(&lists, None, &o);
+    assert!(alone.shape.super_resolution.is_none() && View::new(&alone).kids[0].len() < 64);
+    let extra = 2_000_000;
+    let mut offsets = lists.offsets.clone();
+    offsets.extend(std::iter::repeat_n(*offsets.last().unwrap(), extra));
+    let wide = Lists {
+        offsets,
+        targets: lists.targets.clone(),
+    };
+    let mut wider = partition.clone();
+    wider.extend(n..n + extra as u32);
+    let (_, t) = tree(&wide, Some(&wider), &o);
+    assert_eq!(t.shape.cover, alone.shape.cover);
+    assert!(t.shape.super_resolution.is_none());
+    let v = View::new(&t);
+    let apart: Vec<u32> = v.kids[0]
+        .iter()
+        .copied()
+        .filter(|&c| v.members[c as usize].first().is_some_and(|&u| u >= n))
+        .collect();
+    assert_eq!(apart.len(), 1);
+    let apart = apart[0];
+    assert_eq!(t.kind[apart as usize], Kind::Aggregate);
+    assert_eq!(v.members[apart as usize].len(), extra);
+    let mut graph: Vec<_> = subtree(&t, 0, |u| u)
+        .into_iter()
+        .filter(|(nodes, _, _)| nodes.iter().all(|&u| u < n) || nodes.len() > extra)
+        .collect();
+    // The root holds the extra nodes too, and one more child.
+    let root = graph
+        .iter()
+        .position(|(nodes, _, _)| nodes.len() > extra)
+        .unwrap();
+    let (_, kind, mut kids) = graph.remove(root);
+    kids.retain(|&k| k < n);
+    graph.push(((0..n).collect(), kind, kids));
+    graph.sort();
+    assert_eq!(graph, subtree(&alone, 0, |u| u));
+}
+
+/// When the budget refuses regions solved together, they are solved again one at a
+/// time: just under the peak of a run on eight threads, the same tree is built.
+#[test]
+fn regions_refused_together_are_solved_one_at_a_time() {
+    let (n, pairs) = nested(&[4000, 25], &[8, 1, 0], 13);
+    let lists = Lists::from_pairs(n, &pairs);
+    let blocks: Vec<u32> = (0..n).map(|v| v / 4000).collect();
+    let o = MapOptions::default();
+    let build = |budget: &Arc<Budget>| {
+        par::with_threads(NonZeroUsize::new(8).unwrap(), || {
+            let memory = Memory::from(Arc::clone(budget));
+            map::build(&lists.csr(), &memory, Settings::default(), &blocks, &o)
+                .map(|t| t.parent.iter().copied().collect::<Vec<u32>>())
+        })
+        .unwrap()
+    };
+    let unlimited = Arc::new(Budget::unlimited());
+    let free = build(&unlimited).unwrap();
+    let tight = Arc::new(Budget::new(unlimited.peak() - 1));
+    assert_eq!(build(&tight).unwrap(), free);
 }

@@ -11,7 +11,7 @@ use super::{Children, Kind, Tree};
 use crate::column::Column;
 
 /// Bounds the fan-out of every region at `fan_out` (4 or more). Children are ranked by
-/// decreasing node count, then by id.
+/// decreasing node count, then by id; an aggregate comes first.
 pub(super) fn bound(memory: &Memory, tree: &mut Tree, fan_out: u32) -> Result<(), MemoryError> {
     let kids = Children::new(memory, &tree.parent)?;
     let f = fan_out as usize;
@@ -21,7 +21,9 @@ pub(super) fn bound(memory: &Memory, tree: &mut Tree, fan_out: u32) -> Result<()
             continue;
         }
         let mut ranked = Column::new(memory, "ranked children", children.len(), |i| children[i])?;
-        ranked.sort_unstable_by_key(|&c| (Reverse(tree.nodes[c as usize]), c));
+        // An aggregate already there, that of the communities without an edge, stays.
+        let apart = |c: u32| tree.kind[c as usize] != Kind::Aggregate;
+        ranked.sort_unstable_by_key(|&c| (apart(c), Reverse(tree.nodes[c as usize]), c));
         aggregate(tree, &ranked[f - 1..], p, f)?;
     }
     Ok(())
@@ -31,7 +33,12 @@ pub(super) fn bound(memory: &Memory, tree: &mut Tree, fan_out: u32) -> Result<()
 /// holds the first `f / 2` directly and the others in at most `f / 2` runs of
 /// consecutive ranks, each run of two or more an aggregate of its own: at most `f`
 /// children everywhere, at a depth logarithmic in the members.
-fn aggregate(tree: &mut Tree, members: &[u32], parent: u32, f: usize) -> Result<(), MemoryError> {
+pub(super) fn aggregate(
+    tree: &mut Tree,
+    members: &[u32],
+    parent: u32,
+    f: usize,
+) -> Result<(), MemoryError> {
     let nodes: u32 = members.iter().map(|&c| tree.nodes[c as usize]).sum();
     let me = tree.add(parent, Kind::Aggregate, nodes)?;
     let (direct, rest) = if members.len() <= f {

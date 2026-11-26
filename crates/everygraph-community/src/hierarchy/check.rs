@@ -35,8 +35,9 @@ use crate::quality::{Table, tally};
 ///   with probability about `2^-64`. The weights are drawn from a fixed seed, so the
 ///   check is the same on every run.
 ///
-/// A map tree (`map` results) is checked as a hierarchy, and against the rules of its
-/// kinds (`docs/spec/eg-communities.md` § 6).
+/// A map tree (`map` results) is checked against the rules of
+/// `docs/spec/eg-communities.md` § 6: its tree and kinds, its counts against its
+/// children and its sibling graph, its leaves and sibling graph against the graph.
 ///
 /// What the budget does not hold, and results whose records cannot be read, are listed
 /// as unchecked.
@@ -67,13 +68,17 @@ pub fn check<S: ByteSource + Sync>(
         let outcome = file
             .listed_result(result)
             .map_err(HierarchyError::File)
-            .and_then(|root| Hierarchy::of(file, root))
-            .and_then(|h| {
-                levels(file, &h, memory, report)?;
+            .and_then(|root| {
                 if result.provenance.operation == map::OPERATION {
-                    map::check(&h, &result.provenance, memory)?;
+                    if !map::check(file, root, &result.provenance, memory)? {
+                        report.unchecked.push(format!(
+                            "{}: against the graph (no undirected adjacency.out in memory)",
+                            result.name
+                        ));
+                    }
+                    return Ok(());
                 }
-                Ok(())
+                levels(file, &Hierarchy::of(file, root)?, memory, report)
             });
         match outcome {
             Ok(()) => {}
@@ -97,7 +102,7 @@ const MAX_EVENTS: u64 = 1 << 62;
 /// The largest prime below 2^64. The random-weight sums are taken modulo it: an entry
 /// that differs by any amount below it changes a sum with probability `1 − 1/PRIME`,
 /// where modulo 2^64 a difference by a multiple of 2^k would pass with `2^(k−64)`.
-const PRIME: u64 = u64::MAX - 58;
+pub(crate) const PRIME: u64 = u64::MAX - 58;
 
 /// The table of a partition of a level, and its random-weight sums.
 struct Sums {
@@ -124,7 +129,7 @@ fn weights(memory: &Memory, level: u32, count: u32) -> Result<Column<u64>, Hiera
 }
 
 /// `a + b` modulo [`PRIME`], for `a` and `b` below it.
-fn add(a: u64, b: u64) -> u64 {
+pub(crate) fn add(a: u64, b: u64) -> u64 {
     let (sum, over) = a.overflowing_add(b);
     if over || sum >= PRIME {
         sum.wrapping_sub(PRIME)
@@ -270,6 +275,23 @@ fn graph<S: ByteSource>(
     memory: &Memory,
     weights: &[u64],
 ) -> Result<Option<Sums>, HierarchyError> {
+    let Some((index, data)) = undirected(file)? else {
+        return Ok(None);
+    };
+    let source = Compressed::new(Adjacency::new(&index, data)?);
+    if source.nodes() as usize != membership.len() {
+        return Err(HierarchyError::Invalid(
+            "a membership of another length than the graph".into(),
+        ));
+    }
+    sums(&source, memory, Weights::Unit, membership, weights).map(Some)
+}
+
+/// The undirected `adjacency.out` of the file, when it has one in memory: its index and
+/// its data part.
+pub(crate) fn undirected<S: ByteSource>(
+    file: &Container<S>,
+) -> Result<Option<(AdjacencyIndex, &[u8])>, HierarchyError> {
     let slice = |name: &str| {
         let e = file.get(name)?;
         file.source().slice(e.offset..e.offset + e.len)
@@ -286,12 +308,5 @@ fn graph<S: ByteSource>(
     ) else {
         return Ok(None);
     };
-    let index = AdjacencyIndex::parse(index)?;
-    let source = Compressed::new(Adjacency::new(&index, data)?);
-    if source.nodes() as usize != membership.len() {
-        return Err(HierarchyError::Invalid(
-            "a membership of another length than the graph".into(),
-        ));
-    }
-    sums(&source, memory, Weights::Unit, membership, weights).map(Some)
+    Ok(Some((AdjacencyIndex::parse(index)?, data)))
 }

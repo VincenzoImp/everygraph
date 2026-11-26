@@ -1,38 +1,50 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The map tree in the graph file (`docs/spec/eg-communities.md` § 6): the levels of a
-//! hierarchy by depth, a leaf repeated on every level below its own, and the kind of
-//! every region.
+//! [`store`]: the map tree into the graph file (`docs/spec/eg-communities.md` § 6): the
+//! tree by its parents, the children of each region numbered together, the exact counts
+//! of every region, and the sibling graph.
 
-use everygraph_core::{ByteSink, ByteSource, Memory, SegVec};
-use everygraph_format::container::{ContainerError, GraphIdentity, Provenance, ResultKey, Writer};
-use everygraph_kernels::edge_map::{Settings, Source};
+use std::cmp::Reverse;
+
+use everygraph_core::{ByteSink, Memory, MemoryKind, SegVec, par};
+use everygraph_format::adjacency::{
+    IndexBuilder, append_record, encode_events, events_section_bytes,
+};
+use everygraph_format::container::{
+    ContainerError, GraphIdentity, Kind as Section, Provenance, ResultKey, Writer,
+};
+use everygraph_kernels::edge_map::{Error, Plan, Settings, Source};
 
 use super::{Children, Kind, MapOptions, MapTree, SuperLevel};
-use crate::column::Column;
-use crate::hierarchy::write::{Run, WINDOW, store_with};
-use crate::hierarchy::{Hierarchy, HierarchyError, KIND, leiden_key, part};
+use crate::aggregate::{Members, Parts, Quotient, ix, quotient};
+use crate::column::{Column, GRAIN};
+use crate::hierarchy::{HierarchyError, leiden_key};
+use crate::level::{Strengths, Weights};
+use crate::table::Tables;
 
 /// The operation of the result (`results/map/<key>`).
 pub const OPERATION: &str = "map";
 /// The version of the layout and of the algorithm that fills it, in the key.
 pub const VERSION: u32 = 1;
 
+pub(super) const PARENT: &str = "parent";
+pub(super) const KIND: &str = "kind";
+pub(super) const NODES: &str = "nodes";
+pub(super) const INTERNAL: &str = "internal";
+pub(super) const VOLUME: &str = "volume";
+pub(super) const MEMBERSHIP: &str = "membership";
+pub(super) const SIBLINGS: &str = "siblings";
+
 /// The key of the map tree built with `options` on the graph `graph`: the options of
-/// the partition's Leiden run, and those of the shaping.
+/// the partition's Leiden run, and those of the shaping. The decision of a previous map
+/// on the super level is not in it: a rebuild replaces the map.
 ///
 /// # Errors
 ///
 /// None in practice: the names are valid.
 pub fn key(graph: GraphIdentity, options: &MapOptions) -> Result<ResultKey, ContainerError> {
     let upper = match options.super_level {
-        SuperLevel::Auto { previous: None } => "auto",
-        SuperLevel::Auto {
-            previous: Some(true),
-        } => "auto, built before",
-        SuperLevel::Auto {
-            previous: Some(false),
-        } => "auto, not built before",
+        SuperLevel::Auto { .. } => "auto",
         SuperLevel::Always => "always",
         SuperLevel::Never => "never",
     };
@@ -53,8 +65,9 @@ fn code(kind: Kind) -> u32 {
     }
 }
 
-fn decode(code: u32) -> Option<Kind> {
+pub(super) fn decode(code: u32) -> Option<Kind> {
     match code {
+        0 => Some(Kind::Root),
         1 => Some(Kind::Super),
         2 => Some(Kind::Community),
         3 => Some(Kind::Subcommunity),
@@ -63,15 +76,252 @@ fn decode(code: u32) -> Option<Kind> {
     }
 }
 
+pub(super) fn invalid(what: &str) -> HierarchyError {
+    HierarchyError::Invalid(format!("map: {what}"))
+}
+
+/// The tree renumbered as the file holds it: breadth first from the root, the children
+/// of each region by decreasing node count, then by smallest node.
+struct Numbered {
+    /// The region of `tree` of each new id.
+    old_of: Column<u32>,
+    parent: Column<u32>,
+    depth: Column<u32>,
+    /// The leaf of each node.
+    membership: Column<u32>,
+}
+
+fn numbered(memory: &Memory, tree: &MapTree) -> Result<Numbered, HierarchyError> {
+    let r = tree.parent.len();
+    let mut first = Column::new(memory, "map first nodes", r, |_| u32::MAX)?;
+    for (v, &l) in tree.leaf.iter().enumerate() {
+        let f = &mut first[l as usize];
+        *f = (*f).min(u32::try_from(v).expect("a node"));
+    }
+    let mut kids = Children::new(memory, &tree.parent)?;
+    for &x in kids.order(memory)?.iter().rev().filter(|&&x| x != 0) {
+        let p = tree.parent[x as usize] as usize;
+        first[p] = first[p].min(first[x as usize]);
+    }
+    let Children { starts, ids } = &mut kids;
+    par::for_each_range_mut(&mut ids[..], &starts[..], GRAIN, |_, c| {
+        c.sort_unstable_by_key(|&x| (Reverse(tree.nodes[x as usize]), first[x as usize]));
+    });
+    let order = kids.order(memory)?;
+    let mut new_of = Column::new(memory, "map numbers", r, |_| 0_u32)?;
+    for (i, &x) in order.iter().enumerate() {
+        new_of[x as usize] = u32::try_from(i).expect("a region");
+    }
+    let parent = Column::new(memory, "map parents", r, |i| {
+        new_of[tree.parent[order[i] as usize] as usize]
+    })?;
+    let mut depth = Column::new(memory, "map depths", r, |_| 0_u32)?;
+    for i in 1..r {
+        depth[i] = depth[parent[i] as usize] + 1;
+    }
+    let membership = Column::new(memory, "map membership", tree.leaf.len(), |v| {
+        new_of[tree.leaf[v] as usize]
+    })?;
+    Ok(Numbered {
+        old_of: order,
+        parent,
+        depth,
+        membership,
+    })
+}
+
+/// The exact counts of every region and the sibling graph.
+struct Counts {
+    internal: Column<u64>,
+    volume: Column<u64>,
+    /// `(a, b, w)`: `w` pairs of nodes between the siblings `a` and `b`, both ways,
+    /// sorted.
+    siblings: SegVec<(u32, u32, u64)>,
+}
+
+/// The units of one stage, numbered by smallest node: the map from the `len` units of
+/// the stage below (the nodes, for the first), given by their region, and the region
+/// of each unit.
+fn units(
+    memory: &Memory,
+    regions: usize,
+    len: usize,
+    below: impl Iterator<Item = u32>,
+) -> Result<(Column<u32>, SegVec<u32>), HierarchyError> {
+    let mut unit = Column::new(memory, "map units", regions, |_| u32::MAX)?;
+    let mut of = SegVec::new(memory, "map units");
+    let mut map = Column::new(memory, "map units", len, |_| 0_u32)?;
+    for (m, x) in map.iter_mut().zip(below) {
+        let x = x as usize;
+        if unit[x] == u32::MAX {
+            unit[x] = u32::try_from(of.len()).expect("a unit");
+            of.try_push(u32::try_from(x).expect("a region"))?;
+        }
+        *m = unit[x];
+    }
+    Ok((map, of))
+}
+
+/// The quotient of `parts` over `source`, weighted by `w`.
+fn stage<S: Source>(
+    source: &S,
+    memory: &Memory,
+    settings: Settings,
+    w: Weights<'_>,
+    parts: Parts<'_>,
+) -> Result<(Quotient, Strengths), Error> {
+    Plan::with(source, memory, settings, |plan| {
+        let members = Members::new(memory, parts)?;
+        quotient(&plan, memory, w, parts, &members, &Tables::new(memory))
+    })
+}
+
+/// Stage by stage from the deepest: the quotient of the regions at depth `d` and of the
+/// leaves above it. The row of a region at its own depth holds its internal weight (on
+/// the loop), its volume, and its entries to its siblings; then each region at depth
+/// `d` is merged into its parent. One stage's quotient and the next are held at a time.
+fn counts<S: Source>(
+    source: &S,
+    memory: &Memory,
+    settings: Settings,
+    t: &Numbered,
+) -> Result<Counts, HierarchyError> {
+    let r = t.parent.len();
+    let mut internal = Column::new(memory, "map internal", r, |_| 0_u64)?;
+    let mut volume = Column::new(memory, "map volumes", r, |_| 0_u64)?;
+    let mut siblings = SegVec::new(memory, "map siblings");
+    let top = t
+        .membership
+        .iter()
+        .map(|&x| t.depth[x as usize])
+        .max()
+        .unwrap_or(0);
+    if top > 0 {
+        let n = t.membership.len();
+        let (mut map, mut of) = units(memory, r, n, t.membership.iter().copied())?;
+        let count = |of: &SegVec<u32>| u32::try_from(of.len()).expect("units");
+        let parts = Parts {
+            map: &map,
+            count: count(&of),
+        };
+        let (mut q, mut k) = stage(source, memory, settings, Weights::Unit, parts)?;
+        for d in (1..=top).rev() {
+            for u in 0..of.len() {
+                let x = of[u] as usize;
+                if t.depth[x] != d {
+                    continue;
+                }
+                volume[x] = k.of[u];
+                let row = ix(q.offsets[u])..ix(q.offsets[u + 1]);
+                for (&b, &w) in q.targets[row.clone()].iter().zip(&q.weights[row]) {
+                    let y = of[b as usize];
+                    if b as usize == u {
+                        internal[x] = w / 2;
+                    } else if t.parent[y as usize] == t.parent[x] {
+                        siblings.try_push((u32::try_from(x).expect("a region"), y, w))?;
+                    }
+                }
+            }
+            if d == 1 {
+                break;
+            }
+            let lift = (0..of.len()).map(|b| {
+                let x = of[b];
+                if t.depth[x as usize] == d {
+                    t.parent[x as usize]
+                } else {
+                    x
+                }
+            });
+            let (next_map, next_of) = units(memory, r, of.len(), lift)?;
+            let csr = q.csr()?;
+            let parts = Parts {
+                map: &next_map,
+                count: count(&next_of),
+            };
+            let next = stage(&csr, memory, settings, Weights::Entries(&q.weights), parts)?;
+            (q, k) = next;
+            (map, of) = (next_map, next_of);
+        }
+        drop((q, k, map));
+    }
+    let sorted = siblings
+        .as_mut_slice()
+        .ok_or_else(|| invalid("a sibling graph longer than one segment"))?;
+    sorted.sort_unstable();
+    Ok(Counts {
+        internal,
+        volume,
+        siblings,
+    })
+}
+
+/// The counts of every region with children from those of its children and the
+/// weights `between` its children in the sibling graph (each pair counted both ways):
+/// `internal(p) = Σ internal(c) + between(p) / 2` and `volume(p) = Σ volume(c)`. For
+/// the root they are its counts; any other region must have them already, or the first
+/// that does not is returned.
+pub(super) fn conserved(
+    memory: &Memory,
+    parent: &[u32],
+    internal: &mut [u64],
+    volume: &mut [u64],
+    children: &[u32],
+    between: &[u64],
+) -> Result<Option<u32>, HierarchyError> {
+    let r = parent.len();
+    let mut sums = Column::new(memory, "map check", r, |_| (0_u64, 0_u64))?;
+    for x in (1..r).rev() {
+        let p = parent[x] as usize;
+        sums[p] = (
+            sums[p].0.saturating_add(internal[x]),
+            sums[p].1.saturating_add(volume[x]),
+        );
+    }
+    for p in (0..r).filter(|&p| children[p] > 0) {
+        let made = (sums[p].0.saturating_add(between[p] / 2), sums[p].1);
+        if p == 0 {
+            (internal[0], volume[0]) = made;
+        } else if !between[p].is_multiple_of(2) || (internal[p], volume[p]) != made {
+            return Ok(Some(u32::try_from(p).expect("a region")));
+        }
+    }
+    Ok(None)
+}
+
+/// The sibling weight under each region: the weights of the entries between its
+/// children, `(child, weight)`.
+fn between(
+    memory: &Memory,
+    parent: &[u32],
+    entries: impl Iterator<Item = (u32, u64)>,
+) -> Result<Column<u64>, HierarchyError> {
+    let mut out = Column::new(memory, "map check", parent.len(), |_| 0_u64)?;
+    for (a, w) in entries {
+        let p = &mut out[parent[a as usize] as usize];
+        *p = p.saturating_add(w);
+    }
+    Ok(out)
+}
+
+/// The number of children of every region.
+pub(super) fn children_of(memory: &Memory, parent: &[u32]) -> Result<Column<u32>, HierarchyError> {
+    let mut c = Column::new(memory, "map children", parent.len(), |_| 0_u32)?;
+    for &p in &parent[1.min(parent.len())..] {
+        c[p as usize] += 1;
+    }
+    Ok(c)
+}
+
 /// Stores `tree`, made by [`build`](super::build) on `source` (the graph of the file the
-/// writer holds), as the result of `key` with the record `about`; as
-/// [`hierarchy::store`](crate::hierarchy::store) otherwise. Level 1 holds the root's
-/// children; level `ℓ` the regions at depth `ℓ` and the leaves above it.
+/// writer holds), as the result of `key` with the record `about`; a map stored under
+/// `key` is replaced. Nothing is stored until the writer commits.
 ///
 /// # Errors
 ///
-/// [`HierarchyError::Invalid`] for a tree of no region below the root or of another
-/// graph; as [`hierarchy::store`](crate::hierarchy::store).
+/// [`HierarchyError::Invalid`] for a tree of another graph, or counts that do not add
+/// up; the errors of the source, the budget and the writer. An error found before
+/// anything is written leaves the writer as it was; any later one poisons it.
 pub fn store<G: Source, K: ByteSink>(
     writer: &mut Writer<K>,
     key: &ResultKey,
@@ -82,227 +332,103 @@ pub fn store<G: Source, K: ByteSink>(
     tree: &MapTree,
 ) -> Result<(), HierarchyError> {
     if tree.leaf.len() != source.nodes() as usize {
-        return Err(HierarchyError::Invalid(
-            "map: a tree of another graph".into(),
-        ));
+        return Err(invalid("a tree of another graph"));
     }
-    let levels = levels(memory, tree)?;
-    let maps: Vec<&[u32]> = levels.iter().map(|l| &l.0[..]).collect();
-    let kinds: Vec<&[u32]> = levels.iter().map(|l| &l.1[..]).collect();
-    let run = Run {
-        source,
+    let t = numbered(memory, tree)?;
+    let mut c = counts(source, memory, settings, &t)?;
+    let children = children_of(memory, &t.parent)?;
+    let between = between(
         memory,
-        settings,
-        window: WINDOW,
-    };
-    store_with(writer, key, about, &run, &maps, &kinds)
+        &t.parent,
+        c.siblings.iter().map(|&(a, _, w)| (a, w)),
+    )?;
+    if let Some(p) = conserved(
+        memory,
+        &t.parent,
+        &mut c.internal,
+        &mut c.volume,
+        &children,
+        &between,
+    )? {
+        return Err(invalid(&format!(
+            "region {p}: its counts are not those of its children"
+        )));
+    }
+    let written = write(writer, key, about, tree, &t, &c, memory);
+    if written.is_err() {
+        writer.poison();
+    }
+    written
 }
 
-/// A level to store: the map from the level below and the kind code of each region.
-type Level = (Column<u32>, Column<u32>);
-
-/// The levels of `tree`, finest first: the map from the level below (the nodes, for
-/// the finest), numbered by smallest node, and the kind code of each region.
-fn levels(memory: &Memory, tree: &MapTree) -> Result<Vec<Level>, HierarchyError> {
-    let r = tree.parent.len();
-    let kids = Children::new(memory, &tree.parent)?;
-    let order = kids.order(memory)?;
-    let mut depth = Column::new(memory, "map depths", r, |_| 0_u32)?;
-    for &x in &order[1..] {
-        depth[x as usize] = depth[tree.parent[x as usize] as usize] + 1;
-    }
-    let top = tree
-        .leaf
-        .iter()
-        .map(|&x| depth[x as usize])
-        .max()
-        .unwrap_or(0);
-    let kinds = |regions: &SegVec<u32>| {
-        Column::new(memory, "map kinds", regions.len(), |u| {
-            code(tree.kind[regions[u] as usize])
-        })
-    };
-    // The unit of each region on the level being numbered, and that level.
-    let mut unit = Column::new(memory, "map units", r, |_| (u32::MAX, 0_u32))?;
-    let mut out = Vec::new();
-    let mut below: Option<SegVec<u32>> = None;
-    for d in (1..=top).rev() {
-        let mut regions = SegVec::new(memory, "map units");
-        let mut next = 0;
-        let mut place = |x: u32| {
-            let at = &mut unit[x as usize];
-            if at.0 != d {
-                *at = (d, next);
-                next += 1;
-                regions.try_push(x)?;
-            }
-            Ok::<_, HierarchyError>(at.1)
-        };
-        let map = match &below {
-            None => {
-                let mut map = Column::new(memory, "map level", tree.leaf.len(), |_| 0_u32)?;
-                for (m, &x) in map.iter_mut().zip(tree.leaf.iter()) {
-                    *m = place(x)?;
-                }
-                map
-            }
-            Some(b) => {
-                let mut map = Column::new(memory, "map level", b.len(), |_| 0_u32)?;
-                for (m, &x) in map.iter_mut().zip(b.iter()) {
-                    let x = if depth[x as usize] > d {
-                        tree.parent[x as usize]
-                    } else {
-                        x
-                    };
-                    *m = place(x)?;
-                }
-                map
-            }
-        };
-        out.push((map, kinds(&regions)?));
-        below = Some(regions);
-    }
-    Ok(out)
-}
-
-fn invalid(level: u32, what: &str) -> HierarchyError {
-    HierarchyError::Invalid(format!("level {level}: {what}"))
-}
-
-/// The kind of each region of `level` of a stored map tree.
-///
-/// # Errors
-///
-/// [`HierarchyError::Invalid`] for a kind part missing, of another length than the
-/// level, or holding a code that is not a kind; the file's errors and the budget's.
-pub fn kinds<S: ByteSource>(
-    map: &Hierarchy<'_, S>,
-    level: u32,
-    memory: &Memory,
-) -> Result<Column<Kind>, HierarchyError> {
-    let codes = map.column::<u32>(memory, &part(level, KIND))?;
-    if codes.len() != map.count(level)? as usize {
-        return Err(invalid(level, "kinds of another length than the level"));
-    }
-    if codes.iter().any(|&c| decode(c).is_none()) {
-        return Err(invalid(level, "a kind that is not one"));
-    }
-    Ok(Column::new(memory, "map kinds", codes.len(), |u| {
-        decode(codes[u]).unwrap_or(Kind::Root)
-    })?)
-}
-
-/// The partition a stored map tree was built from, read from its kinds: the region of
-/// kind [`Kind::Community`] that holds each node, numbered by level, then by id.
-///
-/// # Errors
-///
-/// [`HierarchyError::Invalid`] for a node under no community; as [`kinds`].
-pub fn partition<S: ByteSource>(
-    map: &Hierarchy<'_, S>,
-    memory: &Memory,
-) -> Result<Column<u32>, HierarchyError> {
-    let mut next = 0;
-    let mut label: Option<Column<u32>> = None;
-    for level in 1..=map.levels() {
-        let kinds = kinds(map, level, memory)?;
-        let parents = map.parents(level, memory)?;
-        let mut here = Column::new(memory, "map labels", kinds.len(), |_| u32::MAX)?;
-        for (u, h) in here.iter_mut().enumerate() {
-            let above = match (&label, &parents) {
-                (Some(l), Some(p)) => l[p[u] as usize],
-                _ => u32::MAX,
-            };
-            *h = if above != u32::MAX {
-                above
-            } else if kinds[u] == Kind::Community {
-                next += 1;
-                next - 1
-            } else {
-                u32::MAX
-            };
-        }
-        label = Some(here);
-    }
-    let label = label.ok_or_else(|| invalid(1, "no level"))?;
-    let membership = map.membership(map.levels(), memory)?;
-    if membership.iter().any(|&u| label[u as usize] == u32::MAX) {
-        return Err(invalid(map.levels(), "a node under no community"));
-    }
-    Ok(Column::new(memory, "partition", membership.len(), |v| {
-        label[membership[v] as usize]
-    })?)
-}
-
-/// The rules of a stored map tree that `everygraph verify --deep` checks beyond those
-/// of every hierarchy: at most `fan_out` (from the record) regions under the root and
-/// under any region; a region with one child at the next level is the same region and
-/// keeps its kind; on every path, communities only below super groups, exactly one
-/// community, and subcommunities only below it.
-pub(crate) fn check<S: ByteSource>(
-    map: &Hierarchy<'_, S>,
-    record: &Provenance,
+fn write<K: ByteSink>(
+    writer: &mut Writer<K>,
+    key: &ResultKey,
+    about: &Provenance,
+    tree: &MapTree,
+    t: &Numbered,
+    c: &Counts,
     memory: &Memory,
 ) -> Result<(), HierarchyError> {
-    let fan_out: u32 = record
-        .parameters
-        .get("fan_out")
-        .and_then(|f| f.parse().ok())
-        .ok_or_else(|| invalid(1, "a map tree without its fan-out"))?;
-    if map.count(1)? > fan_out {
-        return Err(invalid(1, "more regions under the root than the fan-out"));
+    let r = t.parent.len();
+    let built = u64::from(tree.shape.super_resolution.is_some());
+    writer.add_result(key, about, &[r as u64, tree.leaf.len() as u64, built])?;
+    let old = |i: usize| t.old_of[i] as usize;
+    writer.add_result_part(key, PARENT, t.parent.iter().copied())?;
+    writer.add_result_part(key, KIND, (0..r).map(|i| code(tree.kind[old(i)])))?;
+    writer.add_result_part(key, NODES, (0..r).map(|i| tree.nodes[old(i)]))?;
+    writer.add_result_part(key, INTERNAL, c.internal.iter().copied())?;
+    writer.add_result_part(key, VOLUME, c.volume.iter().copied())?;
+    writer.add_result_part(key, MEMBERSHIP, t.membership.iter().copied())?;
+    let siblings = c.siblings.as_slice().unwrap_or(&[]);
+    let mut index = IndexBuilder::new(memory, u32::try_from(r).expect("regions"))?;
+    let mut data = writer.begin_result_part(
+        key,
+        &format!("{SIBLINGS}.data"),
+        Section::RESULT_ADJACENCY_DATA,
+    )?;
+    let mut record = Vec::new();
+    let mut at = 0;
+    for a in 0..u32::try_from(r).expect("regions") {
+        let len = siblings[at..].iter().take_while(|e| e.0 == a).count();
+        record.clear();
+        let degree = append_record(a, siblings[at..at + len].iter().map(|e| e.1), &mut record)?;
+        data.write(&record)?;
+        index.push(degree, record.len() as u64)?;
+        at += len;
     }
-    // Whether a community is on the path to each region, and the kinds of the level.
-    let mut above: Option<(Column<bool>, Column<Kind>)> = None;
-    for level in 1..=map.levels() {
-        let kinds = kinds(map, level, memory)?;
-        let mut under = Column::new(memory, "map check", kinds.len(), |_| false)?;
-        match (&above, map.parents(level, memory)?) {
-            (Some((state, up)), Some(parents)) => {
-                let mut children = Column::new(memory, "map check", up.len(), |_| 0_u32)?;
-                for &p in parents.iter() {
-                    children[p as usize] += 1;
-                }
-                if children.iter().any(|&c| c > fan_out) {
-                    return Err(invalid(
-                        level - 1,
-                        "a region with more children than the fan-out",
-                    ));
-                }
-                for (u, &p) in parents.iter().enumerate() {
-                    let (p, k) = (p as usize, kinds[u]);
-                    under[u] = if children[p] == 1 {
-                        if k != up[p] {
-                            return Err(invalid(level, "a region repeated with another kind"));
-                        }
-                        state[p]
-                    } else {
-                        ordered(state[p], k).ok_or_else(|| invalid(level, "kinds out of order"))?
-                    };
-                }
-            }
-            _ => {
-                for (u, &k) in kinds.iter().enumerate() {
-                    under[u] =
-                        ordered(false, k).ok_or_else(|| invalid(level, "kinds out of order"))?;
-                }
-            }
+    data.finish()?;
+    let entries = siblings.len() as u64;
+    let events: u64 = siblings.iter().map(|e| e.2).sum();
+    let events_bytes = if events > entries {
+        let bytes = events_section_bytes(entries, events)
+            .ok_or_else(|| invalid("a sibling graph too large"))?;
+        let _held = memory
+            .reserve(
+                "map sibling events",
+                MemoryKind::Anonymous,
+                bytes.saturating_mul(2),
+            )
+            .map_err(Error::from)?;
+        Some(encode_events(
+            entries,
+            events,
+            siblings.iter().map(|e| e.2),
+        )?)
+    } else {
+        None
+    };
+    let (index_bytes, _held) = index.finish(events_bytes.is_some())?;
+    let parts = [
+        ("index", Section::RESULT_ADJACENCY_INDEX, Some(index_bytes)),
+        ("events", Section::RESULT_ADJACENCY_EVENTS, events_bytes),
+    ];
+    for (suffix, kind, bytes) in parts {
+        if let Some(bytes) = bytes {
+            let mut s = writer.begin_result_part(key, &format!("{SIBLINGS}.{suffix}"), kind)?;
+            s.write(&bytes)?;
+            s.finish()?;
         }
-        above = Some((under, kinds));
-    }
-    if above.is_some_and(|(under, _)| under.contains(&false)) {
-        return Err(invalid(map.levels(), "a region under no community"));
     }
     Ok(())
-}
-
-/// Whether a community is on the path once a region of kind `kind` follows a path with
-/// one (`under`) or without; `None` when the kind may not follow it.
-fn ordered(under: bool, kind: Kind) -> Option<bool> {
-    match (kind, under) {
-        (Kind::Super, false) | (Kind::Aggregate, _) => Some(under),
-        (Kind::Community, false) => Some(true),
-        (Kind::Subcommunity, true) => Some(true),
-        _ => None,
-    }
 }

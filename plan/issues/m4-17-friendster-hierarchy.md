@@ -7,7 +7,7 @@ labels: type:experiment, area:community, P1, risk:low, size:S
 
 **Scope**
 - [ ] `leiden_bench encode` and `leiden_bench run --source mmap --hier FILE` on Friendster (the commands of PR #268), under `MemoryMax=48G`: Leiden's and the writer's reserved peaks, the anonymous peak of the process, the file's bytes, and the time of each table read, cold and warm.
-- [ ] The same on the map-shaped hierarchy of {{#m4-07-map-hierarchy}} when it exists, which is what the tracer's 42.5 GB measured; until then the default Leiden levels are stated as not like for like.
+- [ ] The map tree of {{#m4-07-map-hierarchy}} (PR #285) on Friendster under `MemoryMax=16G`: `map_bench --mmap STORE --threads 16 --export DIR` (the commands of PR #285): the build's reserved peak and the anonymous peak of the process, the stored map's bytes against the tracer's map-shaped 42.5 GB, `everygraph verify --deep` intact, and the lab layout (`lab/e-map/gmap layout --hier DIR`) placing every parent under 16 GiB. This closes the last criteria of {{#m4-07-map-hierarchy}}.
 
 **Done when.** The numbers are in FINDINGS with their result file, and `everygraph verify --deep` finds the file intact.
 

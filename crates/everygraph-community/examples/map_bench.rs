@@ -35,9 +35,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use everygraph_community::hierarchy::{self, Hierarchy};
+use everygraph_community::hierarchy;
 use everygraph_community::leiden;
-use everygraph_community::map::{self, Kind, MapOptions, MapTree, SuperLevel};
+use everygraph_community::map::{self, Kind, MapOptions, MapTree, StoredMap, SuperLevel};
 use everygraph_core::{Budget, Memory, par};
 use everygraph_format::adjacency::{AdjacencyIndex, encode};
 use everygraph_format::container::{Container, Kind as Section, Provenance, Writer};
@@ -118,19 +118,18 @@ fn store(path: &Path, offsets: &[u64], targets: &[u32], o: &MapOptions, t: &MapT
     let mapped = MmapSource::open(path).expect("map");
     let file = Container::open(&mapped).expect("a container");
     let bytes = file.results().expect("results")[0].bytes;
-    let h = Hierarchy::find(&file, &key).expect("read").expect("found");
-    let levels: Vec<String> = (1..=h.levels())
-        .map(|l| h.count(l).expect("a level").to_string())
-        .collect();
+    let m = StoredMap::find(&file, &key).expect("read").expect("found");
+    let siblings = m.siblings().expect("siblings").index().entries();
+    let regions = m.regions();
     let checked = Instant::now();
     let mut report = verify(&mapped, Depth::Deep, &memory).expect("verify");
     hierarchy::check(&file, &memory, &mut report).expect("check");
     format!(
         ", \"store_seconds\": {write}, \"map_bytes\": {bytes}, \"graph_bytes\": {}, \
-         \"stored_levels\": [{}], \"verify_seconds\": {}, \"problems\": {}, \"unchecked\": {}, \
+         \"stored_regions\": {regions}, \"sibling_entries\": {siblings}, \
+         \"verify_seconds\": {}, \"problems\": {}, \"unchecked\": {}, \
          \"total_store_seconds\": {}",
         encoded.data.len() + encoded.index.len(),
-        levels.join(", "),
         checked.elapsed().as_secs_f64(),
         report.problems.len(),
         report.unchecked.len(),
@@ -258,7 +257,7 @@ fn shape<S: Source>(source: &S, o: &MapOptions, threads: NonZeroUsize) -> (Strin
         s.unsplit.0,
         s.unsplit.1,
         s.under_aggregate as f64 / t.leaf.len() as f64,
-        s.partition_modularity,
+        c.modularity,
         s.top_modularity,
         hash(&t),
     );

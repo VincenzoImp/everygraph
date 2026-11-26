@@ -22,6 +22,8 @@
 //! (`docs/spec/eg-communities.md` § 6). In memory, the shaping holds the tree, one
 //! column per node, and one region's subgraph and Leiden run at a time.
 
+mod check;
+mod read;
 mod split;
 mod store;
 mod tails;
@@ -31,15 +33,16 @@ use std::cmp::Reverse;
 use std::ops::RangeInclusive;
 
 use everygraph_core::{Memory, MemoryError, SegVec};
-use everygraph_kernels::edge_map::{Error, Settings, Source};
+use everygraph_kernels::edge_map::{Error, Plan, Settings, Source, all};
 
 use crate::aggregate::{Members, Parts, ix};
 use crate::column::Column;
 use crate::quality::communities;
 use crate::{Options, modularity};
 
-pub(crate) use store::check;
-pub use store::{OPERATION, VERSION, key, kinds, partition, store};
+pub(crate) use check::check;
+pub use read::StoredMap;
+pub use store::{OPERATION, VERSION, key, store};
 pub use upper::coarse_leiden;
 
 /// What a region of the map tree is, and so how the map draws it.
@@ -125,7 +128,7 @@ pub struct MapTree {
     pub shape: Shape,
 }
 
-/// What [`build`] achieved: the fan-out, the levels, and the modularity it cost.
+/// What [`build`] achieved: the fan-out, the levels, and the top level's modularity.
 #[derive(Debug)]
 pub struct Shape {
     /// The number of children of each region that has children, increasing.
@@ -134,7 +137,8 @@ pub struct Shape {
     pub target: RangeInclusive<u32>,
     /// Regions on the longest path below the root.
     pub depth: u32,
-    /// The communities of the partition, largest first, that cover 90% of the nodes.
+    /// The communities of the partition, largest first, that cover 90% of its nodes
+    /// with edges (communities without an edge left out).
     pub cover: u32,
     /// The resolution of the super level, when there is one.
     pub super_resolution: Option<f64>,
@@ -144,8 +148,6 @@ pub struct Shape {
     pub unsplit: (u32, u64),
     /// Nodes with an aggregate on their path from the root.
     pub under_aggregate: u64,
-    /// The modularity of the partition.
-    pub partition_modularity: f64,
     /// The modularity of the top level as drawn: the root's children, each aggregate
     /// as one region.
     pub top_modularity: f64,
@@ -297,8 +299,14 @@ pub fn build<S: Source>(
         },
     )?;
     let size = |c: u32| u32::try_from(t.of(c).len()).expect("a community of nodes");
+    let edgeless = edgeless(source, memory, settings, &t, count)?;
     let cover = upper::cover(memory, count as usize, |c| {
-        u64::from(size(u32::try_from(c).expect("a community")))
+        let c = u32::try_from(c).expect("a community");
+        if edgeless[c as usize] {
+            0
+        } else {
+            u64::from(size(c))
+        }
     })?;
     let groups = if upper::wanted(cover, fan_out, options.super_level) {
         Some(upper::groups(
@@ -308,6 +316,7 @@ pub fn build<S: Source>(
             &options.leiden,
             &t,
             count,
+            &edgeless,
             fan_out,
         )?)
     } else {
@@ -329,7 +338,8 @@ pub fn build<S: Source>(
         let mut held = Column::new(memory, "super sizes", g.count as usize, |_| {
             (0_u32, 0_u32, u32::MAX)
         })?;
-        for &c in &order[..nonempty] {
+        let grouped = || order[..nonempty].iter().filter(|&&c| !edgeless[c as usize]);
+        for &c in grouped() {
             let h = &mut held[g.of[c as usize] as usize];
             *h = (h.0 + 1, h.1 + size(c), h.2.min(t.of(c)[0]));
         }
@@ -343,7 +353,7 @@ pub fn build<S: Source>(
                 regions[x as usize] = tree.add(0, Kind::Super, nodes)?;
             }
         }
-        for &c in &order[..nonempty] {
+        for &c in grouped() {
             above[c as usize] = regions[g.of[c as usize] as usize];
         }
     }
@@ -352,7 +362,17 @@ pub fn build<S: Source>(
     for &c in &order[..nonempty] {
         region[c as usize] = tree.add(above[c as usize], Kind::Community, size(c))?;
     }
-    drop((order, above, groups, t));
+    // The communities without an edge, in one aggregate of their own under the root.
+    let alone = order[..nonempty].iter().filter(|&&c| edgeless[c as usize]);
+    let mut alone = Column::new(memory, "communities without edges", alone.count(), |_| 0)?;
+    let edgeless_regions = order[..nonempty].iter().filter(|&&c| edgeless[c as usize]);
+    for (a, &c) in alone.iter_mut().zip(edgeless_regions) {
+        *a = region[c as usize];
+    }
+    if alone.len() > 1 {
+        tails::aggregate(&mut tree, &alone, 0, fan_out as usize)?;
+    }
+    drop((order, above, groups, t, edgeless, alone));
     let mut leaf = Column::new(memory, "map leaves", n as usize, |v| {
         region[partition[v] as usize]
     })?;
@@ -377,7 +397,6 @@ pub fn build<S: Source>(
         cover,
         super_resolution: resolution,
         rounds,
-        partition_modularity: modularity(source, memory, settings, partition, 1.0)?,
         ..measure(source, memory, settings, &tree, &leaf, options.leaf)?
     };
     Ok(MapTree {
@@ -387,6 +406,38 @@ pub fn build<S: Source>(
         leaf,
         shape,
     })
+}
+
+/// Whether each community of `t` has no edge but loops: none of its nodes has a
+/// neighbour other than itself.
+fn edgeless<S: Source>(
+    source: &S,
+    memory: &Memory,
+    settings: Settings,
+    t: &Members,
+    count: u32,
+) -> Result<Column<bool>, Error> {
+    let mut lonely = Column::new(
+        memory,
+        "nodes without edges",
+        source.nodes() as usize,
+        |_| false,
+    )?;
+    Plan::with(source, memory, settings, |plan| {
+        plan.scan(&mut lonely[..], all, |(): &mut (), out, i, row, _| {
+            out[i] = row.list.iter().all(|&w| w == row.node);
+        })
+    })?;
+    Ok(Column::new(
+        memory,
+        "communities without edges",
+        count as usize,
+        |c| {
+            t.of(u32::try_from(c).expect("a community"))
+                .iter()
+                .all(|&v| lonely[v as usize])
+        },
+    )?)
 }
 
 /// The parts of the shape that come from the tree alone.
@@ -451,7 +502,6 @@ fn measure<S: Source>(
         rounds: 0,
         unsplit,
         under_aggregate,
-        partition_modularity: 0.0,
         top_modularity: modularity(source, memory, settings, &top, 1.0)?,
     })
 }

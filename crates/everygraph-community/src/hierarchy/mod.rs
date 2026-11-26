@@ -17,8 +17,8 @@
 //! numbering is a function of the partition, so a deterministic run (DESIGN D14) gives
 //! every community the same id on every run.
 
-mod check;
-mod read;
+pub(crate) mod check;
+pub(crate) mod read;
 pub(crate) mod write;
 
 use std::error::Error as StdError;
@@ -40,7 +40,7 @@ pub const OPERATION: &str = "communities";
 pub const VERSION: u32 = 1;
 
 /// The parts of a level `level` (`<level>/nodes` and so on), and of the result.
-pub(crate) fn part(level: u32, name: &str) -> String {
+fn part(level: u32, name: &str) -> String {
     format!("{level}/{name}")
 }
 const MEMBERSHIP: &str = "membership";
@@ -49,8 +49,6 @@ const INTERNAL: &str = "internal";
 const VOLUME: &str = "volume";
 const PARENT: &str = "parent";
 const QUOTIENT: &str = "quotient";
-/// The kind of each region of a map tree (§ 6).
-pub(crate) const KIND: &str = "kind";
 
 /// The key of the hierarchy of a Leiden run with `options` on the graph `graph`: every
 /// option that can change the result, none that cannot.

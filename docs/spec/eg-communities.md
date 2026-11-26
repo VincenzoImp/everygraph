@@ -103,51 +103,75 @@ fills it is a new version, and so a new key (`eg-container.md` § 6).
 
 ## 6. The map tree
 
-The **map tree** of a partition (DESIGN D16, ADR 0016) is kept as a hierarchy with one
-more part per level. It is the result `results/map/<key>` (operation `map`, version 1).
-Its key holds the options of the Leiden run that found the partition (as in § 1), and
-`fan_out` (the most children of a region), `leaf` (the most nodes of a region that is
-not split) and `super` (`auto`, `auto, built before`, `auto, not built before`,
-`always` or `never`).
+The **map tree** of a partition (DESIGN D16, ADR 0016) is a tree of regions: the root is
+the graph, and the regions without children, the leaves, partition its nodes. It is
+the result `results/map/<key>` (operation `map`, version 1). Its key holds the options
+of the Leiden run that found the partition (as in § 1), and `fan_out` (the most children
+of a region), `leaf` (the most nodes of a region that is not split) and `super` (`auto`,
+`always` or `never`). A rebuild with the same options replaces the map; whether the
+map it replaces had a super level is an input of the rebuild, not part of the key.
 
-**Levels by depth.** The tree's root is the graph and is not stored. Level `ℓ` holds the
-regions at depth `ℓ` below the root, and every leaf of a smaller depth again: a leaf is
-repeated on each level below its own, as the only child of itself. In a map tree every
-region that has children has two or more, so a region with one child at the next level
-is always that same region. The parts of § 1 and their guarantees (§ 2, § 3) hold for
-every level, so the counts and the quotient graph of every region are exact.
+**Numbering.** Region 0 is the root. The regions are numbered breadth first: every
+region after its parent, and the children of a region together, by decreasing node
+count, then by smallest node. So the numbering is a function of the tree.
 
 | Section | Kind, type | Values |
 |---|---|---|
-| `<result>/<ℓ>/kind` | 10, `u32` | one per region of level `ℓ`: its kind |
+| `<result>` | 10, `u64` | the regions `R`, the nodes `n`, and 1 when the map has a super level, else 0 |
+| `<result>/parent` | 10, `u32` | `R` values: the parent of each region; 0 for the root |
+| `<result>/kind` | 10, `u32` | the kind of each region (below) |
+| `<result>/nodes` | 10, `u32` | the nodes inside each region |
+| `<result>/internal` | 10, `u64` | `L(r)`: the weight of the pairs inside each region, a kept loop once |
+| `<result>/volume` | 10, `u64` | `S(r)`: the sum of the strengths of its nodes, a kept loop's `2w` included |
+| `<result>/membership` | 10, `u32` | `n` values: the leaf holding each node |
+| `<result>/siblings.index`, `.data`, `.events` | 11, 12, 13 | the sibling graph |
 
 | Code | Kind | Drawn as (`design/preview/style/SPEC.md`, "The map") |
 |---|---|---|
+| 0 | root: the graph | — |
 | 1 | super: a group of communities of the partition, found by Leiden on the whole graph at a lower resolution | solid outline |
 | 2 | community: a community of the partition | solid outline |
 | 3 | subcommunity: a part of a community, split again for the map | dashed outline |
-| 4 | aggregate: the smaller children of one parent, "+N smaller communities" | hatched; not drawn when its parent is an aggregate |
+| 4 | aggregate: the smaller children of one parent, "+N smaller communities"; or the communities without an edge, under the root | hatched; not drawn when its parent is an aggregate |
 
-**The partition** is read from the kinds: on the path from the root to any node there is
-exactly one region of kind 2, and these regions are the communities of the partition.
+**The sibling graph** is an undirected adjacency (`eg-adjacency.md`) over the `R`
+regions. It has an entry between two children `a ≠ b` of one region when some pair of
+nodes joins them, in both lists; its number of events is the weight of the pairs
+between them. A pair of nodes counts once: between the two children of its leaves'
+lowest common ancestor that hold its two nodes. A pair inside a leaf counts in that
+leaf's `internal` only. When every entry weighs 1 there is no `.events` section. The
+graph between the children of any region, which the layout places, is that region's
+part of it.
 
-`everygraph verify --deep` checks a map tree as every hierarchy (§ 3), and also:
+The community of the partition that holds a node is the region of kind 2 on its path
+from the root; there is exactly one.
 
-1. Level 1 holds at most `fan_out` regions, and every region at most `fan_out` children
-   at the next level.
-2. A region with one child at the next level has the kind of that child.
-3. On every path, a super region and a community follow no community, a subcommunity
-   follows one, an aggregate follows anything; a region of the finest level has a
-   community on its path.
+`everygraph verify --deep` checks every stored map of the file's graph:
+
+1. The parents and the numbering are those above; no region has more than `fan_out`
+   children (from the record); kind 0 is the root's only.
+2. On every path from the root, a super region and a community follow no community, a
+   subcommunity follows one, an aggregate follows anything; every leaf has a community
+   on its path. `membership` names leaves only.
+3. The `nodes` of each leaf are its members in `membership`, and those of every other
+   region the sum of its children's; no region is empty.
+4. Every entry of the sibling graph joins two children of one region. For every region
+   `p` with children: `volume(p)` is the sum of its children's, and `internal(p)` the
+   sum of its children's plus half the weight of the entries between them. So the
+   root's are `W` and `2W`, with integer sums that hold bit for bit.
+5. Against the graph (`adjacency.out`, when undirected and in memory): the `internal`
+   and `volume` of every leaf equal those of `membership`; and for every region `a`,
+   the sums `Σ_b S[a][b]` and `Σ_b S[a][b]·h(b)` over its row equal those over the pairs
+   of nodes that the tree gives to `a`, with a random 64-bit `h` per region, modulo
+   `2^64 − 59`, as in § 3, from the purpose `HCHK`, counter `[region, 0, 0, 1]` and seed
+   0.
 
 **Decided here.**
 
-- **Levels by depth, leaves repeated**, not a tree format of its own: the counts, the
-  quotient graphs, their checks and the reader of § 1–3 serve the map unchanged, and the
-  children of a region at level `ℓ` and the graph between them are a level `ℓ + 1` and
-  its quotient. The cost is the repeated leaves and their quotient graphs: the map tree
-  takes 1.92 times the bytes of the graph's compressed adjacency on lj (8 levels), 1.80
-  on orkut (9) and 1.12 on web-google (10) (exploratory, PR for #63).
+- **A tree with parent pointers and one sibling graph**, not a hierarchy by levels:
+  the map's levels are not partitions of the nodes, and the sibling graph is what the
+  layout reads. Every pair of nodes counts once, so its entries are at most the
+  graph's.
 - **The kind is stored, the aggregate's count is not**: the communities under an
   aggregate are its descendants of another kind through aggregates, and a stored copy
   could only disagree.
