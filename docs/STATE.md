@@ -69,23 +69,12 @@ everything prepared.
 - **Domains, a GitHub organization and the npm scope** `@everygraph` (#122).
 - **A trademark and patent professional** (#122): advisable before the first release, not
   a blocker (`design/DECISIONS.md`, "When the repository becomes public").
-- **Hardware this host does not have:** a laptop with an integrated GPU and an Apple
-  laptop with Safari for #26, which the viewer's frame budgets wait for; a 16 GB laptop
-  for the public benchmarks (#100).
-- **People:** three to five users for the edge tasks of #20 and the usability check of
-  #72; three to five screen-reader users for #197; outside reviewers before the release
-  (#105).
-- **A decision on CI runners:** see "Open questions for the owner".
+- **Optional after 0.1, never a gate** (owner, 2026-11-26; `design/DECISIONS.md`, "Usability, accessibility and hardware checks"): a session with real users and screen-reader users, a run on an integrated GPU and on Safari, outside reviewers. Before 0.1 these checks are agent-driven sessions (Playwright) and rendering bounds (software renderers, the RTX 4090).
 
-## Open questions for the owner
+## Decided on 2026-11-26
 
-- CI runs on GitHub-hosted runners, which cost nothing for a public repository. Four
-  issues (#53, #54, #55, #77) ask for nightly jobs on a self-hosted runner on this host.
-  No runner is registered, and no issue owns setting one up. A self-hosted runner on a
-  public repository runs the code of any pull request on a host with a public IP, so it
-  must take jobs from `main` and schedules only.
-- Is Graphalytics eligibility (#209) a gate of the 0.1 release, or a goal beside it? The
-  plan treats it as a goal beside it: the release (#105) does not depend on #209.
+- CI runs on GitHub-hosted runners only; no self-hosted runner is registered on this public host. Nightly jobs are GitHub-hosted scheduled workflows; tier-2 graphs and GPU checks run in the coordinator's official window on this host.
+- Graphalytics eligibility (#209) is a goal beside 0.1, not a gate.
 
 **Decision changes recorded:** ADR 0021 and DESIGN D21 amended on 2026-11-26 (PR #272): the query language comes by choosing an embedded engine (LadybugDB on Arrow CSR or Grafeo over a read-only `.eg` store) and bridging to it, not by our own parser; review in `docs/research/sota-review-2026-11.md`.
 
