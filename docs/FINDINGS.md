@@ -1392,3 +1392,66 @@ section records measurements only.
 - Tiles and the viewer on Friendster: the lab tile builder does not fit 16 GiB, so the
   pictures are drawn from the layout.
 - Labelled binning for leaves that cannot be split: follow-up #182 (m4-11).
+
+## M1-18 — our map layout against published large-graph layouts (#175; 2026-11-26, shared machine)
+
+**Question.** Is hierarchy-constrained disc packing (D17) behind, level or ahead of a
+published large-graph layout, on metrics that do not depend on our own hierarchy?
+**Answer.** It is ahead on local and community structure and behind on global structure,
+on lj and on orkut. Stress on the parent's quotient graph (sota-maps challenge 1,
+candidate (a)) closes part of the global gap on orkut, but none on lj.
+
+**Records.** `lab/m1-18-layout-baseline/results/`: `runs/*.json` (what ran, limit, time,
+memory), `metrics/*.json` (one script, `metrics.py`, for every layout), `crosslevel_*.json`,
+`ab_lj.jsonl`, `table.md`, and the write-up `README.md`. The metrics are deterministic
+(fixed seeds). Times and memory are exploratory: the load average was 14–62. The hierarchy
+is `data/hier/<g>` (b2-leiden v2, map-shaped, cap 64), not M1-05's `rec`.
+
+**What ran** (8 threads unless stated; hard memory limits):
+- ours (`hcl`, 8G) and ours with stress (`hcls`, 8G);
+- DRGraph@4f3fda2 with its README options (lj 8G, orkut 24G);
+- ForceAtlas2 in cuGraph 26.10 on the GPU, a reference only (8–12G);
+- BatchLayout@d2e260d (Barnes-Hut, 600 iterations, random start; its default greedy start
+  was killed at 16G).
+
+**OGDF FM³ (foxglove-202510) was killed at 16G and at 24G on lj, and Graphviz sfdp 14.1.2
+at 24G,** before either produced a layout.
+
+| | median ratio | mean ratio | NP₁ | Spearman (layout vs hops) | GT 10-NN agreement | GT k-means ARI | NP@10 L2 / L4 / top |
+|---|---|---|---|---|---|---|---|
+| lj ours | **0.013** | 0.248 | 0.247 | 0.033 | 0.786 | **0.319** | 0.082 / 0.047 / 0.075 |
+| lj ours + stress | 0.013 | 0.261 | **0.335** | −0.032 | **0.792** | 0.317 | **0.095 / 0.059** / 0.074 |
+| lj DRGraph | 0.079 | **0.133** | 0.015 | **0.311** | 0.553 | 0.306 | 0.002 / 0.013 / **0.202** |
+| lj FA2 (GPU) | 0.149 | 0.141 | 0.012 | 0.167 | 0.515 | 0.187 | 0.003 / 0.013 / 0.211 |
+| lj BatchLayout | 0.802 | 0.692 | 0.001 | 0.086 | 0.022 | 0.001 | 0.000 / 0.001 / 0.100 |
+| lj random | 1.000 | 1.000 | 0.000 | 0.032 | 0.002 | 0.000 | 0.000 / 0.001 / 0.115 |
+| orkut ours | 0.088 | 0.369 | 0.102 | 0.035 | 0.524 | **0.199** | 0.094 / 0.079 / 0.045 |
+| orkut ours + stress | 0.093 | 0.298 | **0.115** | 0.326 | **0.533** | 0.197 | **0.105** / 0.080 / 0.055 |
+| orkut DRGraph | **0.070** | 0.103 | 0.002 | **0.547** | 0.036 | 0.015 | 0.013 / **0.085** / 0.063 |
+| orkut FA2 (GPU) | 0.076 | **0.100** | 0.002 | 0.521 | 0.030 | 0.010 | 0.013 / 0.069 / 0.063 |
+| orkut random | 1.000 | 1.000 | 0.000 | 0.020 | 0.001 | 0.000 | 0.000 / 0.006 / 0.104 |
+
+- The ground truth is SNAP `com-<g>.top5000`, restricted to nodes in exactly one community
+  (lj: 52,592 nodes in 3,320 communities; orkut: 494,179 in 4,589). NP@10 compares the 10
+  strongest quotient neighbours with the 10 nearest community centroids. With 100 BFS
+  sources, a Spearman |ρ| ≤ 0.03 is noise.
+- **Ahead.** NP₁ is 16–50× DRGraph's and FA2's. NP@10 is 4–50× higher on lj L0–L4 and
+  2–90× on orkut L0–L3. The ground-truth 10-NN agreement is 0.79 against 0.55 (lj) and 0.52
+  against 0.04 (orkut).
+- **Behind.** Without stress, layout distance has no correlation with graph distance:
+  Spearman equals a random layout's on both graphs. 21% (lj) and 24% (orkut) of edges
+  cross the top regions. Their median length is 0.98 and 1.27 of a random pair, against
+  0.23 and 0.16 in DRGraph. On orkut even the median ratio is behind (0.088 against 0.070).
+- **Stress per parent** is deterministic and costs about 1.8× the solve CPU (interleaved
+  A/B, `ab_lj.jsonl`). On orkut it brings Spearman to 0.33 and the top crossing edges to
+  0.88. Starting the top tree depths from DRGraph's centroids gives the same (0.30–0.31).
+  On lj, where each top region links to 44 of the other 70, neither changes the global
+  numbers. Rotating sibling groups to face their outside neighbours changes nothing.
+- BatchLayout with a random start stayed near random after 4,795 s. This is not a fair
+  picture of the method.
+- Stress at the optimal scale does not separate the layouts: random scores 0.21, ours
+  0.18–0.22, DRGraph 0.29–0.31. On a small-world graph, nearly constant distances score
+  well.
+- No layout reaches ADR 0017's trigger "orkut ratio below 0.05" (DRGraph 0.070).
+- Cost, exploratory: ours 4–12 s and ≤ 1.2 GB; DRGraph 700 s and 7.0 GB on lj, 919 s and
+  18.4 GB on orkut (the paper's figure).

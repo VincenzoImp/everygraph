@@ -1,0 +1,46 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=12G",
+  "-p",
+  "MemorySwapMax=0",
+  "nice",
+  "-n",
+  "10",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/env/rapids/bin/python",
+  "-I",
+  "/home/tux/projects/everygraph/.claude/worktrees/agent-a13dfa14d9e691867/lab/m1-18-layout-baseline/fa2_cugraph.py",
+  "/home/tux/graphlab/data/csr/orkut",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/pos/fa2_orkut.f32",
+  "500"
+ ],
+ "rc": 0,
+ "timed_out": false,
+ "wall_s": 30.36,
+ "user_s": 28.9,
+ "sys_s": 1.9,
+ "peak_rss_mb": 3716,
+ "peak_anon_mb_sampled": 3290,
+ "memory_limit": "12G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  27.3,
+  24.25,
+  16.86
+ ],
+ "loadavg_end": [
+  28.76,
+  24.89,
+  17.31
+ ],
+ "started_utc": "2026-11-26T05:15:54Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "cuGraph force_atlas2 (GPU, RTX 4090)",
+ "threads": "GPU",
+ "graph": "orkut",
+ "options": "cuGraph defaults, max_iter=500"
+}
