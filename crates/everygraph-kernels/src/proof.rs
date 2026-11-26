@@ -4,13 +4,15 @@
 //! and run unchanged over every [`Source`] (ADR 0012, #44).
 //!
 //! It is the lab's kernel (`lab/b1-core/crates/glab-core/src/kernels.rs`) with the same
-//! algorithm, constants and work partition, and nothing more. The production kernel,
-//! with the semantics of `docs/spec/graph-semantics.md`, is #48, which replaces it.
+//! algorithm, constants and work partition, and nothing more: Afforest, which samples
+//! first neighbours only. The production kernel is [`crate::components`]; this one stays
+//! as the first-neighbour baseline of its A/B (#48).
 
-use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::Ordering::Relaxed;
 
-use everygraph_core::{Memory, Reservation};
+use everygraph_core::Memory;
 
+use crate::Atomics;
 use crate::edge_map::{Error, Node, NodeCells, Plan, Source, all};
 
 /// Hooks the larger of the two roots under the smaller: the final label of a component
@@ -88,6 +90,3 @@ pub fn wcc<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory) -> Result<Atomics
     }
     Ok(comp.into_ids())
 }
-
-/// Per-node values in atomics, and the reservation that holds them.
-pub type Atomics = (Vec<AtomicU32>, Reservation);

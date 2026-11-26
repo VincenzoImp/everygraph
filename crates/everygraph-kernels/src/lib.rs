@@ -9,15 +9,15 @@
 //!   arrays, the compressed format in the heap or memory-mapped, streams), the
 //!   [`Plan`](edge_map::Plan) whose drivers run a kernel body over them, and the rules
 //!   that keep every result independent of threads, chunking and source.
-//! - [`components`]: weakly connected components and their numbering (#48).
-//! - [`kcore`]: core numbers and shells (#50).
-//! - [`degrees`]: degree and strength columns (#50).
 //! - [`pagerank`]: `PageRank` (f32 and f64 state, weighted, personalized) and
 //!   eigenvector centrality, by pull power iteration (#47).
 //! - [`traversal`]: direction-optimizing BFS and bit-parallel multi-source BFS (#49).
 //! - [`sssp`]: weighted shortest distances by Δ*-stepping with bucket fusion (#49).
-//! - [`proof`]: connected components, written once on the framework; the production
-//!   kernel (#48) replaces it.
+//! - [`components`]: weakly connected components and their numbering (#48).
+//! - [`kcore`]: core numbers and shells (#50).
+//! - [`degrees`]: degree and strength columns (#50).
+//! - [`proof`]: the lab's Afforest on the framework, the first-neighbour baseline of
+//!   [`components`].
 //! - [`run`]: the whole-graph operations by name, as the command line and Python ask
 //!   for them, and their results kept in the graph file.
 //!
@@ -69,13 +69,13 @@ pub mod components;
 pub mod degrees;
 pub mod edge_map;
 pub mod kcore;
-
-/// Per-node values in atomics, as a kernel computed them, and the reservation that
-/// holds them.
-pub type Atomics = (Vec<AtomicU32>, Reservation);
 pub mod pagerank;
 pub mod proof;
 pub mod run;
 pub mod sssp;
 pub mod traversal;
 mod weights;
+
+/// Per-node values in atomics, as a kernel computed them, and the reservation that
+/// holds them.
+pub type Atomics = (Vec<AtomicU32>, Reservation);

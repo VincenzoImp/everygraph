@@ -23,7 +23,7 @@ const UNKNOWN_FREE_BUDGET: u64 = 8_000_000_000;
 
 /// The accountant of an operation under a budget of `bytes`.
 pub(crate) fn memory(bytes: u64) -> Memory {
-    Memory::from(Arc::new(Budget::new(bytes)))
+    Memory::from(Arc::new(Budget::new(bytes).with_pages(everygraph_io::PAGES)))
 }
 
 /// What the machine has.

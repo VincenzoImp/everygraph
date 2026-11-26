@@ -218,27 +218,33 @@ pub fn number(labels: &[AtomicU32], memory: &Memory) -> Result<Numbered, Error> 
             size[run.0].fetch_add(run.1, Relaxed);
         }
     });
+    // The roots in order, found in parallel; the numbering then reads only them.
+    let is_root = |v: usize| label(v) == v;
+    let count: usize = par::map_ranges(n, GRAIN, |r| r.filter(|&v| is_root(v)).count())
+        .into_iter()
+        .sum();
+    let _roots = memory.reserve(
+        "component roots",
+        MemoryKind::Anonymous,
+        (count * size_of::<usize>()) as u64,
+    )?;
+    let roots: Vec<Vec<usize>> = par::map_ranges(n, GRAIN, |r| r.filter(|&v| is_root(v)).collect());
+    let roots = || roots.iter().flatten().copied();
     // Rank by decreasing size, then by root: the components of size `s` start after all
     // larger ones, and take their numbers in root order.
     let size_of = |v: usize| ix(size[v].load(Relaxed).into());
-    let largest = (0..n)
-        .filter(|&v| label(v) == v)
-        .map(size_of)
-        .max()
-        .unwrap_or(0);
+    let largest = roots().map(size_of).max().unwrap_or(0);
     let mut start = SegVec::try_with_len(memory, "components by size", largest + 2, 0_u32)?;
-    let mut count = 0_u32;
-    for v in (0..n).filter(|&v| label(v) == v) {
+    for v in roots() {
         *start.get_mut(size_of(v)).expect("a size up to the largest") += 1;
-        count += 1;
     }
     let mut above = 0;
     for s in (0..=largest).rev() {
         let here = start.get_mut(s).expect("a size up to the largest");
         (*here, above) = (above, above + *here);
     }
-    let mut sizes = SegVec::try_with_len(memory, "component sizes", ix(count.into()), 0_u32)?;
-    for v in (0..n).filter(|&v| label(v) == v) {
+    let mut sizes = SegVec::try_with_len(memory, "component sizes", count, 0_u32)?;
+    for v in roots() {
         let s = size_of(v);
         let next = start.get_mut(s).expect("a size up to the largest");
         *sizes.get_mut(ix((*next).into())).expect("a component") =

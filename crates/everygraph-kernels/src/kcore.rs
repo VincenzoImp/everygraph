@@ -13,10 +13,11 @@
 //!   neighbours one by one, which would make every worker update one counter. Each
 //!   peeled neighbour adds to a sample counter with a small probability, drawn by a
 //!   counter-based hash of the edge. When the samples say the degree may have fallen
-//!   near `k`, the node counts its neighbours exactly and leaves sample mode. The answer
-//!   is exact (Las Vegas): every node counts exactly before it is peeled, and a count
-//!   that shows the sampling missed a round (probability below `1 / n`) restarts the
-//!   kernel without sampling.
+//!   near `k`, the node counts its neighbours exactly and leaves sample mode. Every node
+//!   counts exactly before it is peeled. A count that shows the node stayed in sample
+//!   mode past its round is a miss, and the kernel starts again without sampling. Liu et
+//!   al. bound the probability of a miss for their parameters (§ 4.1.3); here every miss
+//!   is detected, so it costs time and never gives a wrong core number.
 //!
 //! Core numbers are unique, so the result does not depend on the threads, the order in
 //! which updates land, or the draws (DESIGN D14). Lists are those of the undirected
@@ -94,7 +95,8 @@ impl Sampler {
 /// # Errors
 ///
 /// From the plan's source, or the state does not fit in the budget (about 16 bytes per
-/// node, 8 without hubs, plus the buckets).
+/// node, 8 without hubs, plus the buckets). Each per-node array is one allocation, so a
+/// graph of more than 2^29 nodes needs #m3-15, as the framework's `NodeCells` do.
 pub fn kcore<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory) -> Result<Atomics, Error> {
     decompose(plan, memory, Some(Sampler::for_nodes(plan.nodes())))
 }
@@ -126,7 +128,6 @@ struct Samples<'a, 'g> {
 /// The state of one peel.
 struct Peel<'p, 'a, 'g, S: Source> {
     plan: &'p Plan<'p, 'g, S>,
-    memory: &'p Memory,
     /// Induced degree, or [`SAMPLED`] and the degree at entry.
     degree: PerNode<'a, 'g, AtomicU32>,
     core: PerNode<'a, 'g, AtomicU32>,
@@ -146,29 +147,40 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
         (self.core[v].load(Relaxed) == UNSET && d & SAMPLED == 0).then_some(d)
     }
 
-    /// The nodes of `sampled` still in sample mode that may not stay in it through round
-    /// `k`, and those still in sample mode.
-    fn at_risk(&self, sampled: &NodeList<'g>, k: u32) -> Result<[NodeList<'g>; 2], Error> {
-        let mut out = [NodeList::new(self.memory), NodeList::new(self.memory)];
+    /// Splits the nodes of `sampled` still in sample mode into those that may not stay in
+    /// it through round `k` (`late`) and the others (`safe`).
+    fn at_risk(
+        &self,
+        sampled: &NodeList<'g>,
+        k: u32,
+        late: &mut NodeList<'g>,
+        safe: &mut NodeList<'g>,
+    ) -> Result<(), Error> {
+        late.clear();
+        safe.clear();
         if let Some(s) = self.samples {
             for &v in sampled.as_slice()? {
                 let d = self.degree[v].load(Relaxed);
                 if d & SAMPLED != 0 {
                     let (rate, taken) = (s.rate[v].load(Relaxed), s.taken[v].load(Relaxed));
-                    let late = !Sampler::safe(d & !SAMPLED, rate, taken, k);
-                    out[usize::from(!late)].push(v)?;
+                    if Sampler::safe(d & !SAMPLED, rate, taken, k) {
+                        safe.push(v)?;
+                    } else {
+                        late.push(v)?;
+                    }
                 }
             }
         }
-        Ok(out)
+        Ok(())
     }
 
     /// Counts the neighbours of each node of `nodes` (all in sample mode) exactly, and
     /// takes it out of sample mode. During round `k` (`peeling`) a node whose degree is
     /// at most `k` goes to the next subround. Otherwise it samples again if its degree
-    /// allows it in round `k`, or goes to the buckets. A node with fewer than `floor`
-    /// neighbours not peeled before round `floor` should have been peeled already: that
-    /// is a miss.
+    /// allows it in round `k`, or goes to the buckets. It is a miss if the node should
+    /// have been peeled already: it has fewer than `floor` neighbours not peeled before
+    /// round `floor`, or, between rounds, its degree is below the buckets' smallest key,
+    /// a round that has been passed.
     fn exact(
         &self,
         buckets: &Buckets<'g>,
@@ -177,9 +189,10 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
         k: u32,
         peeling: bool,
     ) -> Result<(), Error> {
-        let Some(s) = self.samples else {
+        let Some(s) = self.samples.filter(|_| !nodes.is_empty()) else {
             return Ok(());
         };
+        let passed = buckets.base();
         self.plan.frontier(nodes, |(): &mut (), row, _| {
             let v = row.node;
             // Hub lists: a few nodes of millions of entries are split between workers.
@@ -195,8 +208,9 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
             let (alive, kept) = counts
                 .into_iter()
                 .fold((0, 0), |s, c| (s.0 + c.0, s.1 + c.1));
-            if kept < floor {
+            if kept < floor || (!peeling && alive < passed) {
                 self.missed.store(true, Relaxed);
+                return;
             }
             s.taken[v].store(0, Relaxed);
             if peeling && alive <= k {
@@ -313,7 +327,6 @@ fn peel<'g, S: Source>(
     };
     let mut p = Peel {
         plan,
-        memory,
         degree: plan.per_node(&degree)?,
         core: plan.per_node(&core.0)?,
         samples,
@@ -339,7 +352,8 @@ fn peel<'g, S: Source>(
     p.recount.list_into(&mut sampled)?;
     p.recount.clear();
 
-    let mut frontier = NodeList::new(memory);
+    let [mut frontier, mut counted] = [NodeList::new(memory), NodeList::new(memory)];
+    let [mut late, mut safe] = [NodeList::new(memory), NodeList::new(memory)];
     // The smallest round not finished: every node not peeled has at least `floor`
     // neighbours not peeled before round `floor`.
     let mut floor = 0_u32;
@@ -347,17 +361,17 @@ fn peel<'g, S: Source>(
         // The round: the smallest key, once no node in sample mode may be below it.
         let k = loop {
             let k = buckets.peek(|v| p.key(v))?;
-            let [late, still] = p.at_risk(&sampled, k.unwrap_or(UNSET))?;
+            p.at_risk(&sampled, k.unwrap_or(UNSET), &mut late, &mut safe)?;
             if late.is_empty() {
                 break k;
             }
             p.exact(&buckets, late.as_slice()?, floor, k.unwrap_or(UNSET), false)?;
-            sampled = still;
+            std::mem::swap(&mut sampled, &mut safe);
             sampled.extend_from_slice(late.as_slice()?)?;
+            if p.missed.load(Relaxed) {
+                return Ok(None);
+            }
         };
-        if p.missed.load(Relaxed) {
-            return Ok(None);
-        }
         let Some(k) = k else {
             break;
         };
@@ -365,26 +379,29 @@ fn peel<'g, S: Source>(
         loop {
             while !frontier.is_empty() {
                 p.subround(&buckets, frontier.as_slice()?, k)?;
-                let mut counted = NodeList::new(memory);
                 p.recount.list_into(&mut counted)?;
                 p.recount.clear();
                 p.exact(&buckets, counted.as_slice()?, k, k, true)?;
+                // A missed node stays in sample mode, so the round would not end.
+                if p.missed.load(Relaxed) {
+                    return Ok(None);
+                }
                 p.next.list_into(&mut frontier)?;
                 p.next.clear();
             }
             // Nodes in sample mode whose degree may have fallen to `k` in this round.
-            let [late, still] = p.at_risk(&sampled, k)?;
+            p.at_risk(&sampled, k, &mut late, &mut safe)?;
             if late.is_empty() {
                 break;
             }
             p.exact(&buckets, late.as_slice()?, k, k, true)?;
-            sampled = still;
+            if p.missed.load(Relaxed) {
+                return Ok(None);
+            }
+            std::mem::swap(&mut sampled, &mut safe);
             sampled.extend_from_slice(late.as_slice()?)?;
             p.next.list_into(&mut frontier)?;
             p.next.clear();
-        }
-        if p.missed.load(Relaxed) {
-            return Ok(None);
         }
         floor = k + 1;
     }
@@ -501,25 +518,59 @@ mod tests {
     /// A star of `leaves` leaves and a triangle: the hub samples, and its leaves are
     /// peeled in round 1, so a hub that draws no sample misses its round.
     fn star(leaves: u32) -> (Vec<u64>, Vec<u32>) {
-        let n = leaves + 3;
+        let t = leaves + 1;
+        let edges = (1..=leaves).map(|leaf| (0, leaf));
+        symmetric(leaves + 3, edges.chain([(t, t + 1), (t + 1, 0), (0, t)]))
+    }
+
+    /// The symmetric lists of `n` nodes and `edges`.
+    fn symmetric(n: u32, edges: impl IntoIterator<Item = (u32, u32)>) -> (Vec<u64>, Vec<u32>) {
         let mut lists: Vec<Vec<u32>> = (0..n).map(|_| Vec::new()).collect();
-        let mut join = |a: u32, b: u32| {
+        for (a, b) in edges {
             lists[a as usize].push(b);
             lists[b as usize].push(a);
-        };
-        (1..=leaves).for_each(|leaf| join(0, leaf));
-        let t = leaves + 1;
-        join(t, t + 1);
-        join(t + 1, 0);
-        join(0, t);
-        let mut offsets = Vec::from([0]);
-        let mut targets = Vec::new();
+        }
+        let (mut offsets, mut targets) = (Vec::from([0]), Vec::new());
         for mut l in lists {
             l.sort_unstable();
             targets.extend(l);
             offsets.push(targets.len() as u64);
         }
         (offsets, targets)
+    }
+
+    /// The edges of a clique on `nodes`.
+    fn clique(nodes: &[u32]) -> impl Iterator<Item = (u32, u32)> + '_ {
+        nodes
+            .iter()
+            .enumerate()
+            .flat_map(move |(i, &a)| nodes[i + 1..].iter().map(move |&b| (a, b)))
+    }
+
+    /// After `pad` isolated nodes, a hub of degree 20: 15 leaves and 5 links into a
+    /// clique of `size` nodes. The hub's core is 5, and after the leaves the smallest
+    /// key is `size − 1`: the hub's exact count falls in the gap between them.
+    fn hub_by_clique(pad: u32, size: u32) -> (Vec<u64>, Vec<u32>) {
+        let h = pad;
+        let nodes: Vec<u32> = (pad + 16..pad + 16 + size).collect();
+        let leaves = (pad + 1..pad + 16).map(|l| (h, l));
+        let links = nodes[..5].iter().map(|&c| (h, c));
+        let edges: Vec<(u32, u32)> = leaves.chain(links).chain(clique(&nodes)).collect();
+        symmetric(pad + 16 + size, edges)
+    }
+
+    /// After `pad` isolated nodes, a hub joined to every node of 20 cliques of 6. Every
+    /// core is 6; the hub's degree falls from 120 to 0 in round 6, where, with `μ = 8`,
+    /// it takes enough samples to be counted in that round.
+    fn hub_of_cliques(pad: u32) -> (Vec<u64>, Vec<u32>) {
+        let h = pad;
+        let mut edges = Vec::new();
+        for c in 0..20 {
+            let nodes: Vec<u32> = (0..6).map(|i| pad + 1 + 6 * c + i).collect();
+            edges.extend(clique(&nodes));
+            edges.extend(nodes.iter().map(|&v| (h, v)));
+        }
+        symmetric(pad + 121, edges)
     }
 
     fn run(
@@ -580,6 +631,51 @@ mod tests {
             exact > 0 && restarts > 0,
             "{exact} exact, {restarts} restarts"
         );
+    }
+
+    /// A hub counted between rounds whose degree is below the smallest key is a miss:
+    /// peeled in that key's round, it would get a core number too high.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "safe code; Miri checks the unsafe code, which the framework tests reach"
+    )]
+    fn a_hub_counted_below_the_next_key_keeps_its_core() {
+        for size in [7, 9, 12] {
+            for pad in 0..40 {
+                let (offsets, targets) = hub_by_clique(pad, size);
+                let want = reference(&offsets, &targets);
+                assert_eq!(want[pad as usize], 5);
+                for mu in [1, 2, 4] {
+                    let sampler = Some(Sampler { mu, min_degree: 20 });
+                    let got = run(&offsets, &targets, sampler, true).unwrap();
+                    assert_eq!(got, want, "size {size}, pad {pad}, mu {mu}");
+                }
+            }
+        }
+    }
+
+    /// A hub counted in its own round, because its neighbours peeled in that round gave
+    /// it its samples, is no miss: the peel ends without a restart.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "safe code; Miri checks the unsafe code, which the framework tests reach"
+    )]
+    fn a_hub_counted_in_its_round_does_not_restart() {
+        for pad in 0..10 {
+            let (offsets, targets) = hub_of_cliques(pad);
+            let want = reference(&offsets, &targets);
+            let sampler = Some(Sampler {
+                mu: 8,
+                min_degree: 20,
+            });
+            assert_eq!(
+                run(&offsets, &targets, sampler, false),
+                Some(want),
+                "pad {pad}"
+            );
+        }
     }
 
     #[test]
