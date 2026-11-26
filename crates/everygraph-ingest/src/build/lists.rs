@@ -43,7 +43,7 @@ pub(super) struct Filled<R> {
     index: IndexBuilder,
     /// What the counting pass counted.
     pub(super) pass: BlockCounts,
-    /// Nodes that no item starts at or, on a directed graph, ends at.
+    /// Nodes that no item starts at or, with `ends`, ends at.
     pub(super) isolates: u64,
     /// Bytes written to spill files.
     pub(super) spilled_bytes: u64,
@@ -71,18 +71,20 @@ pub(super) fn fixed_bytes(threads: usize, tuning: &Tuning) -> u64 {
 }
 
 /// Passes 2 and 3: the items of each of `nodes` nodes counted, cut into buckets within
-/// the budget, and sent to them.
+/// the budget, and sent to them. With `ends`, the nodes items end at are marked too, for
+/// the isolates of a directed graph.
 pub(super) fn fill_lists<I: Items, Sc: Scratch>(
     items: &I,
     nodes: u32,
+    ends: bool,
     cx: &Context<'_, Sc>,
 ) -> Result<Filled<Sc::Source>, BuildError> {
     let (graph, memory) = (cx.graph, cx.memory);
-    let counts = ItemCounts::new(memory, nodes, graph.directed)?;
+    let counts = ItemCounts::new(memory, nodes, ends)?;
     let pass = each_block(items.blocks(), |block| {
         items.items(block, |u, v| {
             counts.add(u);
-            if graph.directed {
+            if ends {
                 counts.target(v);
             }
         })

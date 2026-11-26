@@ -40,7 +40,7 @@ pub(super) const IN: Names = Names {
 };
 
 /// A block of out-lists holds at least this many entries, unless the lists run out.
-const BLOCK_ENTRIES: u64 = 1 << 20;
+const BLOCK_ENTRIES: u64 = 1 << 18;
 
 /// What the transposition wrote.
 #[derive(Clone, Copy, Debug)]
@@ -256,7 +256,7 @@ pub(super) fn transpose_into<K: ByteSink + Sync, Sc: Scratch>(
             memory,
             cx.threads,
         )?;
-        fill_lists(&items, index.nodes(), &cx)?
+        fill_lists(&items, index.nodes(), false, &cx)?
     };
     let transposed = Transposed {
         spilled_bytes: filled.spilled_bytes,

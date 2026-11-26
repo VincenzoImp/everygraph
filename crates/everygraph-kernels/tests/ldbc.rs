@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! The kernels of the crate against the LDBC Graphalytics reference outputs (#177), with
-//! the specification's match rules: BFS (direction-optimizing, bottom-up along the true
-//! in-lists of a directed graph), `PageRank` (f64, the data set's fixed iteration count:
+//! the specification's match rules: BFS (direction-optimizing, bottom-up along the
+//! in-lists of a directed graph, from the in-adjacency `everygraph-ingest` derives), `PageRank` (f64, the data set's fixed iteration count:
 //! `tol = 0`, directed and undirected), SSSP on weighted data sets, and WCC (#48),
 //! sampled and in one pass, on the merged lists of a directed graph. Each runs on raw
 //! arrays and on targets streamed from a file, at 1 and 8 threads; the results must be
@@ -32,6 +32,8 @@ use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs};
 use everygraph_oracle::ldbc::read::{Lists, merge_directions};
 use everygraph_oracle::ldbc::run::{Row, row};
 use everygraph_oracle::ldbc::{Algorithm, Dataset, LdbcGraph, UNREACHABLE, Values};
+
+mod derived;
 
 /// One algorithm on one pair of sources: `out` (out-lists, or symmetric lists) and `inn`
 /// (in-lists; the same lists on an undirected graph). `sample` is WCC's.
@@ -129,16 +131,35 @@ fn stream_file(lists: Lists<'_>, path: &Path) -> FileSource {
 fn check_dataset(dir: &Path, tmp: &Path) -> Vec<Row> {
     let ds = Dataset::open(dir).expect("data set");
     let g = ds.load().expect("graph");
-    let merged = g
-        .directed
-        .then(|| merge_directions(g.out.lists(), g.inn()).0);
+    // The in-lists of a directed graph as a graph file stores them, checked against the
+    // reader's own transpose.
+    let derived_in = g.directed.then(|| {
+        let out = g.out.lists();
+        let (offsets, targets) = derived::in_lists(out.offsets, out.targets);
+        let theirs = g.inn();
+        assert!(
+            offsets == theirs.offsets && targets == theirs.targets,
+            "{}: the derived in-adjacency is not the transpose",
+            ds.name
+        );
+        (offsets, targets)
+    });
+    let inn = || match &derived_in {
+        Some((offsets, targets)) => Lists {
+            offsets,
+            targets,
+            weights: g.inn().weights,
+        },
+        None => g.inn(),
+    };
+    let merged = g.directed.then(|| merge_directions(g.out.lists(), inn()).0);
     let files = ["out", "in"].map(|w| tmp.join(format!("{}-{}.{w}", std::process::id(), ds.name)));
     let mut rows = Vec::new();
     for a in ds.algorithms() {
         let (out, inn) = match (a, &merged) {
             (Algorithm::Wcc, Some(m)) => (m.lists(), m.lists()),
             (Algorithm::Bfs | Algorithm::Pr | Algorithm::Sssp | Algorithm::Wcc, _) => {
-                (g.out.lists(), g.inn())
+                (g.out.lists(), inn())
             }
             _ => continue,
         };

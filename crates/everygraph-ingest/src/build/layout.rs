@@ -19,6 +19,9 @@ const TABLE_LIMIT: u64 = 1 << 28;
 /// Buckets hold at least this many items unless their nodes run out, so that the
 /// bucket directory stays small next to the items.
 const MIN_BUCKET_ITEMS: u64 = 1 << 12;
+/// Buckets hold at most this many items unless one node has more: each is finished by
+/// one thread, so that one bucket of hubs does not hold up its round.
+const MAX_BUCKET_ITEMS: u64 = 1 << 22;
 
 /// Bytes a bucket needs while it is finished: the targets reordered (`u32`), the
 /// records (at most `⌈d/4⌉ + 4d` per list), the multiplicities when events are kept
@@ -72,7 +75,7 @@ impl Layout {
         // A bucket is lent as one slice of the bucket columns, so it is cut at a
         // segment's rows unless one node has more.
         let bucket_items = (round_items / 8)
-            .max(MIN_BUCKET_ITEMS)
+            .clamp(MIN_BUCKET_ITEMS, MAX_BUCKET_ITEMS)
             .min(1 << tuning.segment_bits);
         let max_nodes = u64::from(tuning.bucket_nodes);
 

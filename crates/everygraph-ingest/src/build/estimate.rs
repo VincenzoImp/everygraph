@@ -68,7 +68,9 @@ pub struct Estimate {
 /// per-node state is left out: the number of nodes is not known before the input is
 /// read, and the build refuses, before it writes anything, a budget that cannot hold it.
 /// So the build holds no more items in memory than this estimate says, and spills no
-/// less.
+/// less. A directed graph gets its in-adjacency too, by default: as many items again,
+/// sorted after the out-adjacency's under the same budget, so it doubles what is spilled
+/// and written, not the peak.
 #[must_use]
 pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: u64) -> Estimate {
     let flight = Flight {
@@ -80,6 +82,7 @@ pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: 
     let held = flight.bytes() + fixed_bytes(threads.get(), &TUNING);
     let smallest_budget = held + DICTIONARY_BYTES;
     let items = sample.rows.saturating_mul(if directed { 1 } else { 2 });
+    let adjacencies = if directed { 2 } else { 1 };
     let working_bytes = items.saturating_mul(ITEM_BYTES);
     // The dictionary's working set is given back before the items are counted.
     let available = budget.saturating_sub(held);
@@ -96,7 +99,9 @@ pub fn estimate(sample: &Sample, directed: bool, threads: NonZeroUsize, budget: 
         working_bytes,
         smallest_budget,
         peak_bytes: (held + working_bytes.min(resident) + work / 4).min(budget),
-        scratch_bytes: working_bytes.saturating_sub(resident),
-        output_bytes: items.saturating_mul(OUTPUT_BYTES_PER_ENTRY),
+        scratch_bytes: working_bytes
+            .saturating_sub(resident)
+            .saturating_mul(adjacencies),
+        output_bytes: items.saturating_mul(OUTPUT_BYTES_PER_ENTRY * adjacencies),
     }
 }

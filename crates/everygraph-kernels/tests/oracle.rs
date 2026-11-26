@@ -12,7 +12,9 @@
 //!
 //! The adjacency is stored as the engine stores it: a kept loop is the entry `v` in the
 //! list of `v`, with the loop's weight, and a cost of 0, which must never shorten a
-//! path.
+//! path. On a directed graph the in-lists are the in-adjacency that `everygraph-ingest`
+//! derives from the out-adjacency (#38), and the undirected projection (core numbers,
+//! degrees) merges the out-lists with it; both are checked equal to the oracle's own.
 //!
 //! With `EVERYGRAPH_ORACLE_CORPUS` set to a corpus directory that `oracle-ref run` has
 //! filled (`oracle/run-ci.sh` does), the graphs are read from there and compared with
@@ -51,6 +53,8 @@ use everygraph_oracle::plugin::{
 };
 use everygraph_oracle::projection::{Adjacency as Analytic, Projection};
 use everygraph_oracle::{Kernel, Output};
+
+mod derived;
 
 /// Iterated to well inside the oracle's 1e-9: the error after stopping is at most
 /// `tol · α / (1 − α)`.
@@ -100,6 +104,45 @@ fn with_loops(adj: &Analytic, p: &Projection) -> Lists {
         l.offsets.push(l.targets.len() as u64);
     }
     l
+}
+
+/// The lists a kernel reads on a directed graph, from the out-adjacency and the
+/// in-adjacency derived from it, checked equal to the oracle's: those lists, with the
+/// oracle's per-entry columns.
+fn derived(which: Which, p: &Projection) -> Lists {
+    let out = with_loops(&p.out, p);
+    let inn = derived::in_adjacency(&encode(&out.offsets, &out.targets).unwrap());
+    let (offsets, targets) = match which {
+        Which::In => {
+            let expected = with_loops(&p.inn, p);
+            assert!(inn == encode(&expected.offsets, &expected.targets).unwrap());
+            derived::decoded(&inn)
+        }
+        _ => {
+            let (in_offsets, in_targets) = derived::decoded(&inn);
+            let (mut offsets, mut targets) = (vec![0], Vec::new());
+            for v in 0..p.n as usize {
+                let a = &out.targets[out.offsets[v] as usize..out.offsets[v + 1] as usize];
+                let b = &in_targets[in_offsets[v] as usize..in_offsets[v + 1] as usize];
+                let mut both: Vec<u32> = a.iter().chain(b).copied().collect();
+                both.sort_unstable();
+                both.dedup();
+                targets.extend(both);
+                offsets.push(targets.len() as u64);
+            }
+            (offsets, targets)
+        }
+    };
+    let expected = with_loops(
+        if which == Which::In {
+            &p.inn
+        } else {
+            &p.undirected
+        },
+        p,
+    );
+    assert_eq!((&offsets, &targets), (&expected.offsets, &expected.targets));
+    expected
 }
 
 /// One adjacency in every storage the sources read.
@@ -170,7 +213,12 @@ impl Kernels {
             Which::In => &p.inn,
             Which::Undirected => &p.undirected,
         };
-        let s = Arc::new(store(with_loops(adj, p)));
+        let lists = if p.directed && which != Which::Out {
+            derived(which, p)
+        } else {
+            with_loops(adj, p)
+        };
+        let s = Arc::new(store(lists));
         cache.push(((graph.to_owned(), which), s.clone()));
         s
     }

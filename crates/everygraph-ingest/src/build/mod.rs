@@ -632,7 +632,7 @@ where
         threads,
         progress,
     };
-    let filled = fill_lists(&rows, nodes, &cx)?;
+    let filled = fill_lists(&rows, nodes, graph.directed, &cx)?;
     drop(rows);
     let (pass, isolates) = (filled.pass, filled.isolates);
     let mut spilled_bytes = filled.spilled_bytes;
