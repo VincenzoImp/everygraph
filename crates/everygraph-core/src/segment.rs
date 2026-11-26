@@ -197,15 +197,12 @@ impl SegmentReader {
         if range.start > range.end || range.end > source_len {
             return Err(out_of_bounds());
         }
-        if let Some(all) = source.as_slice() {
-            // In bounds of a slice that exists, so both ends fit in `usize`.
-            let start = usize::try_from(range.start).map_err(|_| out_of_bounds())?;
-            let end = usize::try_from(range.end).map_err(|_| out_of_bounds())?;
-            return all.get(start..end).ok_or_else(out_of_bounds);
+        if let Some(bytes) = source.slice(range.clone()) {
+            return Ok(bytes);
         }
         let len = usize::try_from(range.end - range.start)
             .map_err(|_| ReadError::Backend("segment is larger than the address space".into()))?;
-        // TODO(#31 integration): this buffer (8 MiB per worker with the default segment
+        // TODO(#200): this buffer (8 MiB per worker with the default segment
         // size) is allocated outside the memory accountant.
         if self.buf.len() < len {
             let rounded = len.checked_next_multiple_of(SEGMENT_ALIGN).unwrap_or(len);

@@ -21,7 +21,9 @@
 //!   reservation: [`SegVec`], an array in segments of at most
 //!   [`MAX_ALLOCATION_BYTES`], and [`ScratchPool`], per-thread scratch. Every large
 //!   allocation goes through them, and a request that does not fit the budget is
-//!   refused before anything is allocated (DESIGN D2, D11). [`MemoryProbe`] is the
+//!   refused before anything is allocated (DESIGN D2, D11). Their buffers come from
+//!   the accountant's [`Pages`], which a native build points at an allocator that maps
+//!   large blocks on their own pages. [`MemoryProbe`] is the
 //!   interface through which the layers above read what the machine has.
 //! - Numerics that give the same bits on every platform (DESIGN D14): [`math`], the
 //!   pinned transcendentals and the canonical form of floats; [`ExactSum`], an exact
@@ -81,7 +83,7 @@ pub use exact_sum::ExactSum;
 pub use ids::{EdgeOffset, NodeId, NodeIdOverflow, OffsetOverflow};
 pub use memory::{
     Budget, InsufficientBudget, Memory, MemoryAccountant, MemoryError, MemoryKind, MemoryProbe,
-    MemoryReport, PurposeUsage, Reservation, SystemMemory,
+    MemoryReport, Pages, PurposeUsage, Reservation, SystemMemory,
 };
 pub use scratch::ScratchPool;
 pub use seg_vec::{MAX_ALLOCATION_BYTES, SegColumns, SegRows, SegVec};

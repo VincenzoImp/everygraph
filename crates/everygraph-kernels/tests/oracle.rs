@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The proof kernels of the edge-map framework through the correctness oracle (#44):
-//! `PageRank`, components and BFS, written once, on the CI corpus, under every
-//! configuration that must not change a result — 1, 3 and 8 threads, chunks of 64 and
-//! 65,536 entries, and four sources: raw arrays, the compressed format in the heap, the
-//! compressed format memory-mapped from a file, and raw targets streamed from a file.
-//! Results must be identical bit for bit across all 24, and match the in-process
-//! references and the invariants.
+//! The kernels of the crate through the correctness oracle: `PageRank` (weighted,
+//! directed, personalized, with kept loops) and eigenvector centrality (#47), BFS with
+//! its parents and SSSP (#49), weak components (#48), core numbers and degrees (#50).
+//! Each runs on the CI corpus under every configuration that must not change a result —
+//! 1, 3 and 8 threads,
+//! chunks of 64 and 65,536 entries, and four sources: raw arrays, the compressed format
+//! in the heap, the compressed format memory-mapped from a file, and raw targets
+//! streamed from a file. Results must be identical bit for bit across all 24, and match
+//! the in-process references and the invariants.
+//!
+//! The adjacency is stored as the engine stores it: a kept loop is the entry `v` in the
+//! list of `v`, with the loop's weight, and a cost of 0, which must never shorten a
+//! path.
 //!
 //! With `EVERYGRAPH_ORACLE_CORPUS` set to a corpus directory that `oracle-ref run` has
 //! filled (`oracle/run-ci.sh` does), the graphs are read from there and compared with
@@ -26,28 +32,79 @@
 
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
+use everygraph_kernels::components::{WccOptions, wcc};
+use everygraph_kernels::degrees::{Loop, degrees};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
-use everygraph_kernels::proof::{UNREACHED, bfs, pagerank, wcc};
+use everygraph_kernels::kcore::kcore;
+use everygraph_kernels::pagerank::{self, Eigenvector, Graph, PageRank};
+use everygraph_kernels::sssp::{Sssp, sssp};
+use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs};
 use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::plugin::{
     Case, Config, KernelUnderTest, Options, Prepared, Regime, Storage, run,
 };
-use everygraph_oracle::projection::Adjacency as Lists;
+use everygraph_oracle::projection::{Adjacency as Analytic, Projection};
 use everygraph_oracle::{Kernel, Output};
 
-/// Iterations of `PageRank`: past the oracle's convergence (241 at damping 0.85).
-const ITERATIONS: u32 = 300;
+/// Iterated to well inside the oracle's 1e-9: the error after stopping is at most
+/// `tol · α / (1 − α)`.
+const PAGERANK: PageRank<'static> = PageRank {
+    damping: 0.85,
+    tol: 1e-14,
+    max_iter: 1000,
+    personalize: None,
+};
+
+/// The error after stopping is about `tol / (1 − r)`, `r` the ratio of the two largest
+/// eigenvalues of `I + Aᵀ`: about 0.999 on the corpus's paths and grids.
+const EIGENVECTOR: Eigenvector = Eigenvector {
+    tol: 1e-13,
+    max_iter: 200_000,
+};
+
+/// One adjacency of the analytic graph with its kept loops written in, and its
+/// per-entry columns.
+struct Lists {
+    offsets: Vec<u64>,
+    targets: Vec<u32>,
+    /// The pair's summed weight; a loop's weight.
+    weight: Vec<f64>,
+    /// The pair's smallest event weight; 0 for a loop.
+    cost: Vec<f64>,
+}
+
+fn with_loops(adj: &Analytic, p: &Projection) -> Lists {
+    let mut l = Lists {
+        offsets: vec![0],
+        targets: Vec::new(),
+        weight: Vec::new(),
+        cost: Vec::new(),
+    };
+    for v in 0..adj.n() {
+        let r = adj.range(v);
+        let at = r.start + adj.list(v).partition_point(|&u| (u as usize) < v);
+        let entry = |e: usize| (adj.targets[e], adj.weight_sum[e], adj.weight_min[e]);
+        let lower = (r.start..at).map(entry);
+        let kept = (p.kept_loops(v) == 1).then_some((v as u32, p.loop_weight[v], 0.0));
+        for (t, w, c) in lower.chain(kept).chain((at..r.end).map(entry)) {
+            l.targets.push(t);
+            l.weight.push(w);
+            l.cost.push(c);
+        }
+        l.offsets.push(l.targets.len() as u64);
+    }
+    l
+}
 
 /// One adjacency in every storage the sources read.
 struct Stored {
-    offsets: Vec<u64>,
-    targets: Vec<u32>,
+    lists: Lists,
     index: AdjacencyIndex,
     data: Vec<u8>,
     map: MmapSource,
@@ -63,9 +120,9 @@ impl Drop for Stored {
     }
 }
 
-fn store(lists: &Lists) -> Stored {
+fn store(lists: Lists) -> Stored {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("edge-map-oracle");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("kernels-oracle");
     std::fs::create_dir_all(&dir).unwrap();
     let k = NEXT.fetch_add(1, Ordering::Relaxed);
     let files = [
@@ -77,8 +134,7 @@ fn store(lists: &Lists) -> Stored {
     let bytes: Vec<u8> = lists.targets.iter().flat_map(|t| t.to_le_bytes()).collect();
     std::fs::write(&files[1], bytes).unwrap();
     Stored {
-        offsets: lists.offsets.clone(),
-        targets: lists.targets.clone(),
+        lists,
         index: AdjacencyIndex::parse(&encoded.index).unwrap(),
         data: encoded.data,
         map: MmapSource::open(&files[0]).unwrap(),
@@ -87,31 +143,68 @@ fn store(lists: &Lists) -> Stored {
     }
 }
 
-/// The framework's proof kernels as an oracle plug-in.
-#[derive(Default)]
-struct Proof {
-    /// The last graph's stored adjacencies, by (graph, which adjacency).
-    cache: Mutex<Vec<((String, &'static str), std::sync::Arc<Stored>)>>,
+/// Which adjacency a kernel reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Which {
+    Out,
+    In,
+    Undirected,
 }
 
-impl Proof {
-    fn stored(&self, graph: &str, which: &'static str, lists: &Lists) -> std::sync::Arc<Stored> {
+/// The kernels as an oracle plug-in.
+#[derive(Default)]
+struct Kernels {
+    /// The last graph's stored adjacencies.
+    cache: Mutex<Vec<((String, Which), Arc<Stored>)>>,
+}
+
+impl Kernels {
+    fn stored(&self, graph: &str, which: Which, p: &Projection) -> Arc<Stored> {
         let mut cache = self.cache.lock().unwrap();
         cache.retain(|((g, _), _)| g == graph);
         if let Some((_, s)) = cache.iter().find(|((_, w), _)| *w == which) {
             return s.clone();
         }
-        let s = std::sync::Arc::new(store(lists));
+        let adj = match which {
+            Which::Out => &p.out,
+            Which::In => &p.inn,
+            Which::Undirected => &p.undirected,
+        };
+        let s = Arc::new(store(with_loops(adj, p)));
         cache.push(((graph.to_owned(), which), s.clone()));
         s
     }
 }
 
-fn kernel<S: Source>(
-    source: &S,
+/// The parent rule of `docs/api-sketch.md` § 2.12, checked from the analytic in-lists:
+/// the smallest node one hop closer to the source with an edge to the node.
+fn check_parents(p: &Projection, depth: &[u32], parent: &[u32]) -> Result<(), String> {
+    for v in 0..p.len() {
+        let want = match depth[v] {
+            0 | UNREACHED => UNREACHED,
+            d => p
+                .inn
+                .list(v)
+                .iter()
+                .copied()
+                .filter(|&u| depth[u as usize] == d - 1)
+                .min()
+                .unwrap_or(UNREACHED),
+        };
+        if parent[v] != want {
+            return Err(format!("bfs parent of {v}: {} vs {want}", parent[v]));
+        }
+    }
+    Ok(())
+}
+
+fn run_kernel<S: Source>(
+    out: &S,
+    inn: &S,
+    stored: (&Stored, &Stored),
+    p: &Projection,
     kernel: &Kernel,
     config: &Config,
-    symmetric: bool,
 ) -> Result<Output, String> {
     let memory = Memory::unlimited();
     let threads = NonZeroUsize::new(config.threads).unwrap();
@@ -121,44 +214,107 @@ fn kernel<S: Source>(
         prefetch: config.regime != Regime::InMemory,
     };
     let e = |e: everygraph_kernels::edge_map::Error| e.to_string();
-    let out = Plan::with(source, &memory, settings, |plan| {
+    let load = |cells: Vec<AtomicU32>| -> Vec<u32> {
+        cells.into_iter().map(AtomicU32::into_inner).collect()
+    };
+    let reals = |v: &[f64]| Output::Reals(v.iter().map(|&x| Some(x)).collect());
+    let directed = p.directed;
+    let result = Plan::with_pair(out, inn, &memory, settings, |po, pi| {
         par::with_threads(threads, || match kernel {
-            Kernel::PageRank { damping, .. } => {
-                pagerank::<_, f64>(&plan, &memory, *damping, ITERATIONS)
-                    .map_err(e)
-                    .map(|r| Output::Reals(r.iter().map(|&x| Some(x)).collect()))
+            Kernel::PageRank {
+                damping,
+                weighted,
+                personalize,
+            } => {
+                let w_out = weighted.then_some(&stored.0.lists.weight[..]);
+                let s = pagerank::strength(&po, w_out, directed, &memory).map_err(e)?;
+                let g = Graph {
+                    lists: &pi,
+                    weights: weighted.then_some(&stored.1.lists.weight[..]),
+                    directed,
+                };
+                let params = PageRank {
+                    damping: *damping,
+                    personalize: (!personalize.is_empty()).then_some(&personalize[..]),
+                    ..PAGERANK
+                };
+                let r = pagerank::pagerank::<_, f64>(&g, s.as_slice().unwrap(), &params, &memory)
+                    .map_err(e)?;
+                Ok(reals(r.values.as_slice().unwrap()))
             }
-            Kernel::Wcc => wcc(&plan, &memory)
-                .map_err(e)
-                .map(|(l, _)| Output::Labels(l.into_iter().map(AtomicU32::into_inner).collect())),
-            Kernel::Bfs { source } => {
-                bfs(&plan, &memory, *source, symmetric)
+            Kernel::Eigenvector { weighted } => {
+                let g = Graph {
+                    lists: &pi,
+                    weights: weighted.then_some(&stored.1.lists.weight[..]),
+                    directed,
+                };
+                let r = pagerank::eigenvector(&g, &EIGENVECTOR, &memory).map_err(e)?;
+                Ok(reals(r.values.as_slice().unwrap()))
+            }
+            Kernel::Wcc => {
+                // A directed graph's out-lists: not symmetric, so the finish reads them all.
+                let options = WccOptions {
+                    symmetric: !directed,
+                    ..WccOptions::default()
+                };
+                wcc(&po, &memory, options)
                     .map_err(e)
-                    .map(|(d, _)| {
-                        let d = d.into_iter().map(AtomicU32::into_inner);
-                        Output::Ints(d.map(|d| (d != UNREACHED).then_some(d.into())).collect())
-                    })
+                    .map(|(l, _)| Output::Labels(load(l)))
+            }
+            Kernel::CoreNumber => kcore(&po, &memory)
+                .map_err(e)
+                .map(|(c, _)| Output::Ints(load(c).into_iter().map(|c| Some(c.into())).collect())),
+            Kernel::Degree | Kernel::DegreeOut | Kernel::DegreeIn => {
+                let own = if *kernel == Kernel::Degree {
+                    Loop::Twice
+                } else {
+                    Loop::Once
+                };
+                degrees(&po, &memory, own)
+                    .map_err(e)
+                    .map(|d| Output::Ints(d.iter().map(|&d| Some(d.into())).collect()))
+            }
+            Kernel::Bfs { source } => {
+                let params = Bfs {
+                    parents: true,
+                    ..Bfs::default()
+                };
+                let hops = bfs(&po, Some(&pi), *source, &params, &memory).map_err(e)?;
+                let depth = load(hops.distance);
+                check_parents(p, &depth, &load(hops.parent.unwrap()))?;
+                let d = depth.iter().map(|&d| (d != UNREACHED).then_some(d.into()));
+                Ok(Output::Ints(d.collect()))
+            }
+            Kernel::Sssp { source } => {
+                let costs = &stored.0.lists.cost;
+                let d = sssp(&po, costs, *source, &Sssp::default(), &memory).map_err(e)?;
+                Ok(Output::Reals((0..p.n).map(|v| d.get(v)).collect()))
             }
             _ => Err("unsupported".into()),
         })
+        .map_err(|t| t.to_string())?
     });
-    out.map_err(|e| e.to_string())?
+    result.map_err(|e| e.to_string())?
 }
 
-impl KernelUnderTest for Proof {
+impl KernelUnderTest for Kernels {
     fn name(&self) -> String {
-        "edge-map proof kernels".into()
+        "everygraph-kernels".into()
     }
 
-    fn supports(&self, kernel: &Kernel, case: &Case<'_>) -> bool {
-        let p = case.projection;
-        match kernel {
-            Kernel::Wcc | Kernel::Bfs { .. } => true,
-            Kernel::PageRank { weighted, .. } => {
-                !weighted && !p.directed && !(p.keep_loops && p.loops.iter().any(|&l| l > 0))
-            }
-            _ => false,
-        }
+    fn supports(&self, kernel: &Kernel, _: &Case<'_>) -> bool {
+        matches!(
+            kernel,
+            Kernel::PageRank { .. }
+                | Kernel::Eigenvector { .. }
+                | Kernel::Wcc
+                | Kernel::CoreNumber
+                | Kernel::Degree
+                | Kernel::DegreeOut
+                | Kernel::DegreeIn
+                | Kernel::Bfs { .. }
+                | Kernel::Sssp { .. }
+        )
     }
 
     fn configurations(&self) -> Vec<Config> {
@@ -181,31 +337,45 @@ impl KernelUnderTest for Proof {
 
     fn run(&self, case: &Case<'_>, k: &Kernel, config: &Config) -> Result<Output, String> {
         let p = case.projection;
-        let (which, lists) = match k {
-            Kernel::Wcc => ("undirected", &p.undirected),
-            _ => ("out", &p.out),
+        let name = &case.graph.name;
+        let (a, b) = match k {
+            Kernel::CoreNumber | Kernel::Degree => (Which::Undirected, Which::Undirected),
+            Kernel::Wcc if !p.directed => (Which::Undirected, Which::Undirected),
+            Kernel::DegreeIn => (Which::In, Which::In),
+            _ if !p.directed => (Which::Out, Which::Out),
+            _ => (Which::Out, Which::In),
         };
-        let s = self.stored(&case.graph.name, which, lists);
-        let symmetric = !p.directed;
+        let (so, si) = (self.stored(name, a, p), self.stored(name, b, p));
+        let stored = (&*so, &*si);
         match (config.storage, config.regime) {
             (Storage::Raw, Regime::InMemory) => {
-                let csr = Csr::new(&s.offsets, &s.targets).map_err(|e| e.to_string())?;
-                kernel(&csr, k, config, symmetric)
+                run_kernel(&csr(&so)?, &csr(&si)?, stored, p, k, config)
             }
             (Storage::Compressed, Regime::Mmap) => {
-                let source = Compressed::mapped(&s.index, &s.map).map_err(|e| e.to_string())?;
-                kernel(&source, k, config, symmetric)
+                run_kernel(&mapped(&so)?, &mapped(&si)?, stored, p, k, config)
             }
-            (Storage::Compressed, _) => {
-                let adj = Adjacency::new(&s.index, &s.data).map_err(|e| e.to_string())?;
-                kernel(&Compressed::new(adj), k, config, symmetric)
-            }
-            (Storage::Raw, _) => {
-                let stream = Stream::new(&s.offsets, &s.stream).map_err(|e| e.to_string())?;
-                kernel(&stream, k, config, symmetric)
-            }
+            (Storage::Compressed, _) => run_kernel(&heap(&so)?, &heap(&si)?, stored, p, k, config),
+            (Storage::Raw, _) => run_kernel(&stream(&so)?, &stream(&si)?, stored, p, k, config),
         }
     }
+}
+
+fn csr(s: &Stored) -> Result<Csr<'_>, String> {
+    Csr::new(&s.lists.offsets, &s.lists.targets).map_err(|e| e.to_string())
+}
+
+fn mapped(s: &Stored) -> Result<Compressed<'_>, String> {
+    Compressed::mapped(&s.index, &s.map).map_err(|e| e.to_string())
+}
+
+fn heap(s: &Stored) -> Result<Compressed<'_>, String> {
+    Adjacency::new(&s.index, &s.data)
+        .map(Compressed::new)
+        .map_err(|e| e.to_string())
+}
+
+fn stream(s: &Stored) -> Result<Stream<'_>, String> {
+    Stream::new(&s.lists.offsets, &s.stream).map_err(|e| e.to_string())
 }
 
 fn graphs() -> (Vec<Prepared>, bool) {
@@ -229,9 +399,9 @@ fn graphs() -> (Vec<Prepared>, bool) {
     debug_assertions,
     ignore = "minutes in a debug build; `oracle/run-ci.sh` (the oracle job) runs it in release"
 )]
-fn proof_kernels_pass_the_oracle_under_every_configuration() {
+fn kernels_pass_the_oracle_under_every_configuration() {
     let (graphs, python) = graphs();
-    let report = run(&Proof::default(), &graphs, Options::default());
+    let report = run(&Kernels::default(), &graphs, Options::default());
     let shown: Vec<String> = report
         .findings
         .iter()
@@ -244,7 +414,7 @@ fn proof_kernels_pass_the_oracle_under_every_configuration() {
         report.findings.len(),
         shown.join("\n")
     );
-    assert!(report.checked > 3 * graphs.len() / 2, "{report:?}");
+    assert!(report.checked > 3 * graphs.len(), "{report:?}");
     assert_eq!(report.runs, report.checked * 24);
     if python {
         assert!(

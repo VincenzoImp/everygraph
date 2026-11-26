@@ -42,12 +42,19 @@ pub fn compute(g: &Graph, p: &Projection, kernel: &Kernel) -> Option<Output> {
                 .map(|v| Some(to_u64(p.inn.degree(v)) + kept(v)))
                 .collect(),
         ),
-        Kernel::PageRank { damping, weighted } => Output::Reals(
-            pagerank(p, *damping, *weighted)
+        Kernel::PageRank {
+            damping,
+            weighted,
+            personalize,
+        } => Output::Reals(
+            pagerank(p, *damping, *weighted, personalize)
                 .into_iter()
                 .map(Some)
                 .collect(),
         ),
+        Kernel::Eigenvector { weighted } => {
+            Output::Reals(eigenvector(p, *weighted).into_iter().map(Some).collect())
+        }
         Kernel::Wcc => Output::Labels(wcc(&p.undirected)),
         Kernel::Scc if !p.directed => return None,
         Kernel::Scc => Output::Labels(scc(&p.out)),
@@ -111,12 +118,13 @@ fn iterations_for(damping: f64) -> u32 {
 /// PageRank by power iteration to the fixed point (see [`Kernel::PageRank`]). A kept loop
 /// is `A[v][v]`: `2w` undirected, `w` directed (S1).
 #[must_use]
-pub fn pagerank(p: &Projection, damping: f64, weighted: bool) -> Vec<f64> {
+pub fn pagerank(p: &Projection, damping: f64, weighted: bool, personalize: &[u32]) -> Vec<f64> {
     let n = p.len();
     if n == 0 {
         return Vec::new();
     }
     let nf = f64::from(p.n);
+    let t = p.teleport(personalize);
     let w = |adj: &Adjacency, e: usize| if weighted { adj.weight_sum[e] } else { 1.0 };
     let diag = |v: usize| {
         let w = p.loop_pair_weight(v, weighted);
@@ -128,7 +136,6 @@ pub fn pagerank(p: &Projection, damping: f64, weighted: bool) -> Vec<f64> {
     let mut x = vec![1.0 / nf; n];
     for _ in 0..iterations_for(damping) {
         let dangling: f64 = (0..n).filter(|&u| out_w[u] == 0.0).map(|u| x[u]).sum();
-        let base = (1.0 - damping) / nf + damping * dangling / nf;
         let next: Vec<f64> = (0..n)
             .map(|v| {
                 let s: f64 = p
@@ -144,12 +151,45 @@ pub fn pagerank(p: &Projection, damping: f64, weighted: bool) -> Vec<f64> {
                 } else {
                     0.0
                 };
-                base + damping * (s + stay)
+                (1.0 - damping) * t[v] + damping * (s + stay + t[v] * dangling)
             })
             .collect();
         let diff: f64 = x.iter().zip(&next).map(|(a, b)| (a - b).abs()).sum();
         x = next;
         if diff == 0.0 {
+            break;
+        }
+    }
+    x
+}
+
+/// Eigenvector centrality by power iteration on `I + Aᵀ` (see [`Kernel::Eigenvector`]),
+/// normalized to unit L2 norm, until an iteration changes nothing or after 10^6
+/// iterations. The shift keeps bipartite graphs from oscillating.
+#[must_use]
+pub fn eigenvector(p: &Projection, weighted: bool) -> Vec<f64> {
+    let n = p.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let w = |e: usize| if weighted { p.inn.weight_sum[e] } else { 1.0 };
+    let diag = |v: usize| {
+        let w = p.loop_pair_weight(v, weighted);
+        if p.directed { w } else { 2.0 * w }
+    };
+    let mut x = vec![1.0 / f64::from(p.n); n];
+    for _ in 0..1_000_000 {
+        let y: Vec<f64> = (0..n)
+            .map(|v| {
+                let pulled: f64 = p.inn.range(v).map(|e| x[ix(p.inn.targets[e])] * w(e)).sum();
+                x[v] + pulled + diag(v) * x[v]
+            })
+            .collect();
+        let norm = y.iter().map(|a| a * a).sum::<f64>().sqrt();
+        let next: Vec<f64> = y.iter().map(|a| a / norm).collect();
+        let diff: f64 = x.iter().zip(&next).map(|(a, b)| (a - b).abs()).sum();
+        x = next;
+        if diff < 1e-15 {
             break;
         }
     }

@@ -322,7 +322,7 @@ proptest! {
         prop_assert_eq!(wcc, want);
 
         let pr = reals(run_spec(&ds, &lg, &sym, Algorithm::Pr).expect("pr"));
-        let want = reference::pagerank(&p, 0.85, false);
+        let want = reference::pagerank(&p, 0.85, false, &[]);
         prop_assert!((pr.iter().sum::<f64>() - 1.0).abs() < 1e-9);
         for (a, b) in pr.iter().zip(&want) {
             prop_assert!((a - b).abs() <= 1e-9 * b.abs(), "{} vs {}", a, b);

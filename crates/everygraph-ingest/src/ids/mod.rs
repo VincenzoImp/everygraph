@@ -50,8 +50,11 @@
 //! kept as a rank bitmap when the largest key `m` satisfies `m + 1 ≤ 64 · n` — the
 //! bitmap then takes at most 8 bytes per key, less than the 12.3 bytes per key of the
 //! hashed form of 8-byte keys — and otherwise go through the hash function like any
-//! other kind (same ids). A key outside `0..2^32`, or a bitmap the budget cannot hold,
-//! sends the build to the hashed form directly.
+//! other kind (same ids). A key outside `0..2^32` sends the build to the hashed form
+//! directly, and so does a key at or above 64 times an upper bound on the distinct keys
+//! when the caller gives one ([`BuildOptions::max_keys`]): such a key cannot end in a
+//! rank bitmap. A bitmap the budget cannot hold is refused ([`DictionaryError::Budget`]):
+//! which form a dictionary takes depends on its keys, never on the budget.
 //!
 //! # How a dictionary is built
 //!
@@ -70,10 +73,16 @@
 //!
 //! Every phase runs its tasks in parallel rounds whose memory is reserved through the
 //! [`MemoryAccountant`](everygraph_core::MemoryAccountant) first; a budget that cannot
-//! hold one task is refused with [`DictionaryError::Budget`]. What is reserved is the
-//! accountant's ledger; the process's real memory also includes the allocator's own
-//! retention (`design/DECISIONS.md`, "The memory promise covers the process"; issue
-//! `m2-19-allocator-policy`).
+//! hold one task is refused with [`DictionaryError::Budget`]. The buffers of the build
+//! and of [`Dictionary::renumber`] that can reach 128 KiB come from the accountant's
+//! [`Pages`](everygraph_core::MemoryAccountant::pages): with `everygraph_io::PAGES` a
+//! freed buffer goes back to the system, so the process's anonymous memory follows the
+//! ledger instead of the allocator's retention (`design/DECISIONS.md`, "The memory
+//! promise covers the process"). A refused map ends the build with
+//! [`DictionaryError::AllocationFailed`]. What stays on the global allocator: the
+//! sections read when a dictionary is opened, the hash function's parts and the rank
+//! bitmap (each allocated once and kept), the prefix index, and the writers of
+//! [`MemoryScratch`], which stand for the disk.
 //!
 //! # The stored form, for a reader
 //!
@@ -227,6 +236,11 @@ pub enum Layout {
 pub enum DictionaryError {
     /// The memory budget cannot hold even the smallest piece of the work.
     Budget(InsufficientBudget),
+    /// The budget had room for a buffer of `bytes` bytes, but the system refused it.
+    AllocationFailed {
+        /// Bytes of the buffer.
+        bytes: u64,
+    },
     /// A section, a run or the input could not be read.
     Read(ReadError),
     /// The scratch storage failed.
@@ -267,6 +281,10 @@ impl fmt::Display for DictionaryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Budget(e) => write!(f, "identifier dictionary: {e}"),
+            Self::AllocationFailed { bytes } => write!(
+                f,
+                "identifier dictionary: the system could not allocate {bytes} bytes, within the memory budget"
+            ),
             Self::Read(e) => write!(f, "identifier dictionary: {e}"),
             Self::Scratch(e) => write!(f, "identifier dictionary: temporary storage failed: {e}"),
             Self::NotDense => write!(f, "an integer key is outside 0..2^32"),

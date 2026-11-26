@@ -12,6 +12,7 @@ publish.workspace = true
 
 [dependencies]
 everygraph-core = { path = "../everygraph-core", default-features = false }
+everygraph-format = { path = "../everygraph-format" }
 # gzip through zlib-rs, a pure-Rust zlib: no C (DESIGN D1), it builds for wasm32, and it
 # is the inflate the lab measured (FINDINGS § B1).
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
@@ -22,11 +23,21 @@ ruzstd = { version = "0.9.1", default-features = false, features = ["std", "hash
 # with implementations in every common language, so the dictionary's on-disk form can
 # be read without this crate. Pure Rust, no dependencies, builds for wasm32.
 xxhash-rust = { version = "0.8.21", default-features = false, features = ["xxh3"] }
+# Files, maps and the atomic rename, for module `native` only: the crate itself builds
+# for wasm32 without it.
+everygraph-io = { path = "../everygraph-io", optional = true }
+
+[features]
+native = ["dep:everygraph-io"]
 
 [dev-dependencies]
 # The tests and the examples run the parallel facade on threads (and the dictionary's
 # tests check that its results do not depend on how many).
 everygraph-core = { path = "../everygraph-core", features = ["parallel"] }
+everygraph-oracle = { path = "../everygraph-oracle" }
+# The page backend of native builds (the dictionary benchmark and the retention test),
+# and files for the build benchmark's graphs (examples/build_ab.rs).
+everygraph-io = { path = "../everygraph-io" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 
 # The dictionary benchmark evicts its scratch files from the page cache for cold look-ups.

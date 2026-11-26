@@ -9,10 +9,11 @@ and ADR 0027 for single file against directory bundle.
 A graph file holds named, content-hashed **sections**: the parts of the graph
 (adjacency, identifier dictionary, columns) and everything derived from it later
 (in-adjacency, results, hierarchy, layout, indexes). Nothing in a section refers to the
-container: each section's own format is specified separately (`eg-adjacency.md`, the
-dictionary's sections in `everygraph_ingest::ids`). The container only says where each
-section is, what it is, how to check it and how it was made, and how sections are added
-without risk to what the file already held.
+container: each section's own format is specified separately (`eg-adjacency.md`,
+`eg-columns.md`, the dictionary's sections in `everygraph_ingest::ids`; results in
+§ 6). The container only says where each section is, what it is, how to check it and
+how it was made, and how sections are added without risk to what the file already
+held.
 
 Contents: 1 Conventions · 2 Header blocks · 3 Sections · 4 Table of contents ·
 5 Kinds and codecs · 6 Provenance records · 7 Reading · 8 Updating · 9 Compaction ·
@@ -193,7 +194,8 @@ its sections of all three kinds, and one that uses no column may leave them unre
 | 7 | a property column: a complete Arrow IPC file (`<scope>/arrow/<column>`) | `eg-columns.md` § 3 |
 | 8 | the layout of a property column (`<scope>/layout/<column>`) | `eg-columns.md` § 4 |
 | 9 | the statistics of a numeric property column (`<scope>/stats/<column>`) | `eg-columns.md` § 5 |
-| 10 … 0x7FFFFFFF | assigned by later specifications (results #39, hierarchy, layout, indexes) | — |
+| 10 | a result: typed values, one per node or per item, with its own provenance record (#39) | § 6 |
+| 11 … 0x7FFFFFFF | assigned by later specifications (hierarchy, layout, indexes) | — |
 | 0x80000000 … 0xFFFFFFFF | private and experimental use; never assigned | — |
 
 The **codec** says how the stored bytes encode the content. Version 1.0 defines only 0:
@@ -251,6 +253,36 @@ hashes of every run's sections. A reader serves a stored result only for a graph
 that identity: after an append the graph has a new identity, and results stored before
 it remain what they are, results as of the earlier graph, never served as results of
 the new one.
+
+**Results.** A result on the whole graph (`docs/api-sketch.md` § 2.8) is a section of
+kind 10 named `results/<operation>/<key>`, with a provenance record of its own named
+`results/<operation>/<key>.provenance`. The record's operation is the operation (such as
+`pagerank`), and its parameters are the result's **cache key**: `graph` (the identity
+above), `version` (the version of the operation's algorithm, in decimal; not the engine's
+version, which is the record's `engine`), `deterministic` (`true` or `false`), and every
+parameter of the call that can change the result (`seed` and `precision` included; never
+the memory budget, the thread count or the scratch directory). `<key>` is 32 lowercase
+hexadecimal digits: the first 16 bytes of BLAKE3 of the record encoded as above with only
+its operation and parameters set (engine empty, times unknown, no inputs). A reader looks
+a result up by that name and serves it only when the record's operation and parameters
+are exactly the key it asks for and the file's identity is the key's `graph`; the name
+alone is never trusted. A look-up reads the record (checked against its hash) and the
+section's first 16 bytes, not the values: like any section, a result is checked against
+its hash when it is verified (§ 7, § 12), not on every read. Storing a result under a key
+already stored removes the old section and record in the same commit. An operation name
+is not empty and holds no `/`. The section holds:
+
+```
+offset  size  field
+0       8     magic        "EGRES\0\0\0"
+8       4     value type   1 u32, 2 u64, 3 f32, 4 f64
+12      4     reserved (§ 1)
+16            the values, little-endian; (length − 16) is a whole number of values
+```
+
+The values start 16 bytes into a section that starts at a multiple of 4096, so a memory
+map serves them aligned for their type. Floating-point values follow § 1: canonical NaN,
+no −0.0.
 
 **Other parameters.** No field beyond the key/value parameters is needed for what the
 measurement review asks a build to record (`docs/research/sota-measurement.md`, § 4,
@@ -486,23 +518,33 @@ committed end, and only ever shortens the file to the TOC's padded end, which is
 after the committed end of every earlier commit. So for a reader of any earlier commit,
 the bytes from 8192 to that commit's committed end never change while it reads.
 
-That is what can make reading during an update safe, under the invariant of
+That is what makes reading during an update safe, under the invariant of
 `design/DECISIONS.md` ("Memory-mapped files are read through a safe constructor"): a
-reader that maps a graph file must map only the range from 8192 to the committed end
-of the commit it opened, and read the header blocks with positional reads. A map of the
-whole file is not safe against a commit by someone else: step 3 changes 128 bytes it
-covers, and step 1 may cut off an uncommitted tail it covers (touching those pages then
-ends the reader with `SIGBUS`). Today `everygraph_io::MmapSource` maps whole files, so:
-within one process the sinks refuse to open a file that is mapped (`ResourceBusy`), and
-a process commits to a graph file only after dropping its maps of it; a commit by
-another process to a file this one maps breaks the invariant. Mapping by range, with a
-guard that knows ranges, is issue `m2-21-range-maps`.
+reader that maps a graph file maps only the range from 8192 to the committed end of the
+commit it opened (`Container::stable_range`,
+`everygraph_io::MmapSource::from_file_range`), and keeps the header and the table it read
+before mapping (`Container::with_source`): reading the header blocks again could find a
+newer commit, whose sections lie past the map. A map of the whole file is not safe
+against a commit by someone else: step 3 changes 128 bytes it covers, and step 1 may cut
+off an uncommitted tail it covers (touching those pages then ends the reader with
+`SIGBUS`). Within one process, `everygraph_io::FileSink` refuses each write or length
+change that would reach a mapped range (`ResourceBusy`): a commit goes through beside a
+map of that range, and on Unix fails beside a whole-file map (on Windows there is no such
+guard). A map reads the file's length and registers its range in one step, so no sink of
+the process can shorten the file between the two. Windows refuses to shorten a file that
+another process maps: there step 1 leaves the bytes past the new committed end in place,
+which § 7 allows and a later commit or `compact` removes.
 
 One writer at a time: two writers appending to one file at once would write over each
-other's sections. The container itself does not lock. Within one process,
-`everygraph_io::FileSink` holds its file alone (a second sink on the same file is
-refused); across processes, a lock is issue `m2-22-single-writer-lock`. Until it lands,
-the command line and the Python layer, which own the file, keep writers apart.
+other's sections. The container itself does not lock. `everygraph_io::FileSink` holds an
+exclusive lock on its file while it lives (`File::try_lock` on Unix; on Windows the share
+mode, since `File::try_lock` there would stop readers too), and a second sink, in this
+process or another, is refused with `ResourceBusy` without waiting. The lock is on the
+open file, not on its name: a compaction in place holds a `FileSink` on the original
+until the rename over it has returned, and a sink that finds the name pointing to another
+file once it holds the lock opens it again. On Unix the lock is advisory: a program that
+does not take it is not stopped. The operating system releases it when the writer dies,
+so a crash leaves no stale lock.
 
 ## 12. Decided here
 
@@ -539,6 +581,18 @@ the command line and the Python layer, which own the file, keep writers apart.
   elsewhere. Hashing is on the path of writing sections and of `verify`, not of
   reading.
 - **Single file for every state of a graph, in-progress builds included** — ADR 0027.
+- **Results are found by name, then checked against their record.** The name holds a
+  hash of the key, so a look-up is one binary search in the TOC and one record read,
+  however many results the file holds; comparing the record with the key means a name
+  written by another program is never trusted alone.
+- **The cache key holds the algorithm's version, not the engine's.** An upgrade that
+  does not change an algorithm keeps its stored results; one that does changes the
+  version and so the key (`docs/api-sketch.md` § 2.10).
+- **One writer at a time is a lock that refuses, not one that waits**
+  (`design/DECISIONS.md`, "A second writer on a graph file is refused"). On Windows it
+  is the share mode of the writer's open (no other handle may write), not
+  `File::try_lock`: that is `LockFileEx`, a mandatory lock, under which readers in
+  other processes could not read the file either.
 - **Segments are reserved now, built later** (§ 13): required bit 0, the `seg/` names,
   kind 6 and the graph identity cost nothing in an unsegmented file, and let
   appends (m9-04) arrive without a new major version

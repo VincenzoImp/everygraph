@@ -65,16 +65,33 @@ impl EliasFano {
     /// are non-decreasing or within it (tests build damaged sequences with it). Values
     /// whose high positions `(x >> l) + i` collide lose a one.
     pub(crate) fn with_universe(values: &[u64], universe: u64) -> Self {
-        let len = values.len();
-        let len64 = u64::try_from(len).unwrap_or(u64::MAX);
+        Self::from_values(values.len(), universe, values.iter().copied())
+            .expect("the values themselves are in memory")
+    }
+
+    /// The sequence of the `len` values that `values` yields, for a universe known in
+    /// advance, so that the values need not be held in memory; `None` if the parts
+    /// cannot be allocated. `values` must yield at least `len` values, non-decreasing
+    /// and at most `universe`; they are not checked, and those beyond the first `len`
+    /// are ignored.
+    pub(crate) fn from_values(
+        len: usize,
+        universe: u64,
+        values: impl IntoIterator<Item = u64>,
+    ) -> Option<Self> {
+        let len64 = widen(len);
         let l = low_bits(len64, universe);
-        let (low_words, high_words) =
-            stored_words(len64, universe).expect("the values themselves are in memory");
-        let mut low = vec![0u64; low_words + 1];
-        let mut high = vec![0u64; high_words + 1];
+        let (low_words, high_words) = stored_words(len64, universe)?;
+        let zeros = |words: usize| {
+            let mut v = Vec::new();
+            v.try_reserve_exact(words.checked_add(1)?).ok()?;
+            v.resize(words + 1, 0u64);
+            Some(v)
+        };
+        let (mut low, mut high) = (zeros(low_words)?, zeros(high_words)?);
         let mask = low_mask(l);
         let mut bit = 0usize;
-        for (i, &x) in values.iter().enumerate() {
+        for (i, x) in values.into_iter().take(len).enumerate() {
             if l > 0 {
                 let (word, shift) = (bit / 64, bit % 64);
                 let v = x & mask;
@@ -88,13 +105,20 @@ impl EliasFano {
             high[h / 64] |= 1 << (h % 64);
         }
         let samples = build_samples(&high, len);
-        Self {
+        Some(Self {
             len,
             l,
             low,
             high,
             samples,
-        }
+        })
+    }
+
+    /// Bytes [`write`](Self::write) produces for `len` values up to `universe`, or
+    /// `None` if they would not fit in memory here.
+    pub(crate) fn stored_bytes(len: u64, universe: u64) -> Option<u64> {
+        let (low, high) = stored_words(len, universe)?;
+        widen(low.checked_add(high)?).checked_mul(8)
     }
 
     /// Reads a sequence of `len` values up to `universe` from exactly the bytes that

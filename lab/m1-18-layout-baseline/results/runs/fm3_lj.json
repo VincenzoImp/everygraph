@@ -1,0 +1,45 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=24G",
+  "-p",
+  "MemorySwapMax=0",
+  "nice",
+  "-n",
+  "10",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/build/ogdf_fmmm",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/work/lj/edges.txt",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/pos/fm3_lj.f32",
+  "1"
+ ],
+ "rc": -9,
+ "timed_out": false,
+ "wall_s": 70.86,
+ "user_s": 58.3,
+ "sys_s": 11.9,
+ "peak_rss_mb": 24531,
+ "peak_anon_mb_sampled": 24116,
+ "memory_limit": "24G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  29.55,
+  23.3,
+  13.73
+ ],
+ "loadavg_end": [
+  33.19,
+  26.13,
+  15.43
+ ],
+ "started_utc": "2026-11-26T05:10:54Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "OGDF-FMMMLayout",
+ "version": "ogdf/ogdf@foxglove-202510",
+ "threads": "1",
+ "options": "useHighLevelOptions,BeautifulAndFast",
+ "note": "16G: oom-kill after 25-33 s, twice"
+}

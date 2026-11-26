@@ -13,7 +13,12 @@
     reason = "a command-line program talks to its user on the standard streams"
 )]
 
+mod failure;
+mod ingest;
 mod out;
+mod plan;
+mod render;
+mod scratch;
 mod verify;
 
 use std::ffi::OsString;
@@ -32,6 +37,7 @@ Usage
   everygraph COMMAND [OPTIONS]
 
 Commands
+  ingest FILE           read a file of edges and build a graph (.eg) beside it
   verify FILE           check that a graph file is intact
 
 Options
@@ -99,6 +105,7 @@ fn run(args: &[OsString]) -> Result<ExitCode, Usage> {
             println!("everygraph {}", env!("CARGO_PKG_VERSION"));
             Ok(ExitCode::SUCCESS)
         }
+        Some("ingest") => Ok(ExitCode::from(ingest::main(rest))),
         Some("verify") => {
             let mut file = None;
             let mut options = verify::Options {

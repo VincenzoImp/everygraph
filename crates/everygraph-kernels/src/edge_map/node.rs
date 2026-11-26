@@ -342,6 +342,13 @@ impl<'g> NodeSet<'g> {
         old & bit == 0
     }
 
+    /// Removes `v`; true if it was in the set.
+    #[inline]
+    pub fn remove(&self, v: Node<'g>) -> bool {
+        let bit = 1 << (v.get() & 63);
+        self.word(v).fetch_and(!bit, Ordering::Relaxed) & bit != 0
+    }
+
     /// Whether `v` is in the set.
     #[inline]
     #[must_use]
@@ -493,6 +500,20 @@ impl<'g> NodeList<'g> {
         Ok(self.ids.try_push(v.get())?)
     }
 
+    /// Appends `nodes`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Memory`] if they do not fit in the budget.
+    pub fn extend_from_slice(&mut self, nodes: &[Node<'g>]) -> Result<(), Error> {
+        Ok(self.ids.try_extend_from_slice(ids(nodes))?)
+    }
+
+    /// Removes every node; the memory stays.
+    pub fn clear(&mut self) {
+        self.ids.clear();
+    }
+
     /// Number of nodes.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -559,6 +580,8 @@ mod tests {
         let mut set = NodeSet::empty(&memory, 5).unwrap();
         assert!(set.insert(list[0]) && !set.insert(list[0]) && set.insert(list[2]));
         assert!(set.contains(list[2]) && !set.contains(nodes[1]));
+        assert!(set.insert(nodes[1]) && set.remove(nodes[1]) && !set.remove(nodes[1]));
+        assert!(!set.contains(nodes[1]));
         let mut out = NodeList::new(&memory);
         out.push(nodes[3]).unwrap();
         set.list_into(&mut out).unwrap();

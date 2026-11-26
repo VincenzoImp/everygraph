@@ -2,6 +2,7 @@
 
 //! [`ScratchPool`]: per-thread scratch buffers, reserved for the scope that uses them.
 
+use std::alloc::Allocator;
 use std::cell::Cell;
 use std::fmt;
 use std::sync::{Mutex, TryLockError};
@@ -38,13 +39,17 @@ use crate::{MAX_ALLOCATION_BYTES, widen};
 /// (DESIGN D14). Debug builds check it on every return (so `fill` must equal itself: not
 /// a NaN). A buffer whose user panicked is never lent again.
 ///
-/// Elements are `Copy`, so that a buffer holds no heap memory outside the budget.
+/// Elements are `Copy`, so that a buffer holds no heap memory outside the budget. The
+/// buffers, temporary ones included, are allocated from the accountant's
+/// [`Pages`](crate::Pages).
 pub struct ScratchPool<T: Copy> {
-    slots: Vec<Mutex<Vec<T>>>,
+    slots: Vec<Mutex<Buffer<T>>>,
     len: usize,
     fill: T,
     reservation: Reservation,
 }
+
+type Buffer<T> = Vec<T, &'static (dyn Allocator + Sync)>;
 
 thread_local! {
     /// The address of the pool whose buffer this thread holds, or 0.
@@ -93,10 +98,11 @@ impl<T: Copy + PartialEq + Send> ScratchPool<T> {
         pool.try_reserve_exact(slots)
             .map_err(|_| MemoryError::AllocationFailed {
                 purpose,
-                bytes: widen(slots).saturating_mul(widen(size_of::<Mutex<Vec<T>>>())),
+                bytes: widen(slots).saturating_mul(widen(size_of::<Mutex<Buffer<T>>>())),
             })?;
+        let allocator = memory.pages().allocator();
         for _ in 0..slots {
-            pool.push(Mutex::new(filled(purpose, len, fill)?));
+            pool.push(Mutex::new(filled(allocator, purpose, len, fill)?));
         }
         Ok(Self {
             slots: pool,
@@ -150,7 +156,8 @@ impl<T: Copy + PartialEq + Send> ScratchPool<T> {
             MemoryKind::Anonymous,
             buffer_bytes::<T>(purpose, self.len)?,
         )?;
-        let mut buffer = filled(purpose, self.len, self.fill)?;
+        let allocator = self.reservation.memory().pages().allocator();
+        let mut buffer = filled(allocator, purpose, self.len, self.fill)?;
         Ok(lend(&mut buffer))
     }
 
@@ -190,10 +197,15 @@ fn buffer_bytes<T>(purpose: &'static str, len: usize) -> Result<u64, MemoryError
         })
 }
 
-/// A vector of exactly `len` copies of `fill`, allocated fallibly. The caller has
-/// reserved it.
-fn filled<T: Copy>(purpose: &'static str, len: usize, fill: T) -> Result<Vec<T>, MemoryError> {
-    let mut buffer = Vec::new();
+/// A vector of exactly `len` copies of `fill`, allocated fallibly from `allocator`. The
+/// caller has reserved it.
+fn filled<T: Copy>(
+    allocator: &'static (dyn Allocator + Sync),
+    purpose: &'static str,
+    len: usize,
+    fill: T,
+) -> Result<Buffer<T>, MemoryError> {
+    let mut buffer = Vec::new_in(allocator);
     buffer
         .try_reserve_exact(len)
         .map_err(|_| MemoryError::AllocationFailed {

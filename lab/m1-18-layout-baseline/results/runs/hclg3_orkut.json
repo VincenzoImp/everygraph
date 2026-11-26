@@ -1,0 +1,52 @@
+{
+ "cmd": [
+  "systemd-run",
+  "--user",
+  "--scope",
+  "-q",
+  "-p",
+  "MemoryMax=8G",
+  "-p",
+  "MemorySwapMax=0",
+  "env",
+  "GMAP_THREADS=8",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/target/release/gmap",
+  "layout",
+  "--graph",
+  "/home/tux/graphlab/data/csr/orkut",
+  "--hier",
+  "/home/tux/graphlab/data/hier/orkut",
+  "--out",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/out/hclg3_orkut",
+  "--phi",
+  "0.72",
+  "--seed-pos",
+  "/home/tux/graphlab/scratch/m1-18-layout-baseline/pos/drgraph_orkut.f32",
+  "--seed-depth",
+  "3"
+ ],
+ "rc": 0,
+ "timed_out": false,
+ "wall_s": 8.27,
+ "user_s": 44.9,
+ "sys_s": 0.6,
+ "peak_rss_mb": 1194,
+ "peak_anon_mb_sampled": 1191,
+ "memory_limit": "8G",
+ "swap": "MemorySwapMax=0",
+ "loadavg_start": [
+  47.58,
+  54.58,
+  53.35
+ ],
+ "loadavg_end": [
+  44.31,
+  53.65,
+  53.07
+ ],
+ "started_utc": "2026-11-26T06:12:53Z",
+ "timings": "exploratory (shared machine, other agents compiling)",
+ "tool": "gmap layout --seed-pos drgraph --seed-depth 3",
+ "threads": "8",
+ "graph": "orkut"
+}

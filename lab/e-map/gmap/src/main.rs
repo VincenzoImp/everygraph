@@ -3,6 +3,7 @@ mod embed;
 mod hier;
 mod layout;
 mod render;
+mod stress;
 mod tiles;
 fn main() {
     let cmd = std::env::args().nth(1).unwrap_or_default();

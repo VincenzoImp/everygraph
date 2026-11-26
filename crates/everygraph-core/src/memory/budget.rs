@@ -5,7 +5,7 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{InsufficientBudget, MemoryAccountant, MemoryKind};
+use super::{InsufficientBudget, MemoryAccountant, MemoryKind, Pages};
 
 /// Distinct (purpose, kind) pairs tracked one by one; any further pair is added to the
 /// shared "other purposes" entry of its kind. A kernel names a handful.
@@ -36,6 +36,7 @@ pub struct Budget {
     /// The pairs beyond the table: anonymous first, file-backed second. Labelled when
     /// the budget is made, so that no reservation ever initializes a shared label.
     other: [Slot; 2],
+    pages: Pages,
 }
 
 /// Counters of one (purpose, kind) pair. A slot is claimed by writing its key with a
@@ -162,7 +163,15 @@ impl Budget {
                 Slot::labelled(OTHER_PURPOSES, MemoryKind::Anonymous),
                 Slot::labelled(OTHER_PURPOSES, MemoryKind::FileBacked),
             ],
+            pages: Pages::HEAP,
         }
+    }
+
+    /// The same budget, with its buffers allocated from `pages` instead of the heap.
+    #[must_use]
+    pub const fn with_pages(mut self, pages: Pages) -> Self {
+        self.pages = pages;
+        self
     }
 
     /// A budget that refuses nothing (`u64::MAX` bytes) and still counts.
@@ -291,6 +300,10 @@ impl MemoryAccountant for Budget {
 
     fn available(&self) -> u64 {
         self.limit.saturating_sub(self.used())
+    }
+
+    fn pages(&self) -> Pages {
+        self.pages
     }
 }
 
