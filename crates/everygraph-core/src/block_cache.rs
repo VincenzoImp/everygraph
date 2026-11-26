@@ -599,7 +599,8 @@ impl<'s> BlockCache<'s> {
     /// Bytes the frames hold.
     #[must_use]
     pub fn frame_bytes(&self) -> u64 {
-        widen(self.frames.shards.len() * self.frames.per * self.frames.frame)
+        let f = &self.frames;
+        widen(f.shards.len()) * widen(f.per) * widen(f.frame)
     }
 
     /// What the cache did so far.
