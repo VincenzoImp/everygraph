@@ -14,6 +14,14 @@
 //! byte offset, and decoded by the scalar decoder or by a SIMD one ([`Decoder`]); all
 //! of them return the same bytes.
 //!
+//! A list holds each neighbour once (a pair); when some pair has more than one event,
+//! a third part, the **events** ([`AdjacencyEvents`], announced by index flag bit 1),
+//! gives each entry's event offsets (ADR 0028).
+//!
+//! [`encode`] encodes a CSR held in memory. A build that does not hold the graph writes
+//! the same bytes list by list: [`append_record`] for the data, [`IndexBuilder`] for the
+//! index and [`encode_events`] for the events.
+//!
 //! ```
 //! use everygraph_core::NodeId;
 //! use everygraph_format::adjacency::{AdjacencyIndex, Adjacency, Batch, encode};
@@ -35,8 +43,10 @@
 mod decode;
 mod ef;
 mod encode;
+mod events;
 mod index;
 mod simd;
+mod stream;
 mod svb;
 
 use std::error::Error;
@@ -44,8 +54,13 @@ use std::fmt;
 
 pub use decode::{Adjacency, Batch};
 pub use encode::{Encoded, encode};
+pub use events::AdjacencyEvents;
 pub use index::AdjacencyIndex;
 pub use simd::Decoder;
+pub use stream::{
+    IndexBuilder, append_record, encode_events, events_section_bytes, index_bytes_bound,
+    record_bound,
+};
 
 /// Why index bytes were refused by [`AdjacencyIndex::parse`] or data bytes by
 /// [`Adjacency::new`].

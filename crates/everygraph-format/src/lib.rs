@@ -5,9 +5,8 @@
 //! What lives here:
 //!
 //! - [`adjacency`]: the compressed adjacency codec (DESIGN D4,
-//!   `docs/spec/eg-adjacency.md`), issue #30. An adjacency stores pairs, each neighbour
-//!   once; the `.events` section of the specification's revision 2 (ADR 0028) comes with
-//!   issue #35.
+//!   `docs/spec/eg-adjacency.md`), issues #30 and #35. An adjacency stores pairs, each
+//!   neighbour once, and the events of repeated pairs in a `.events` section (ADR 0028).
 //! - [`container`]: the `.eg` container (DESIGN D7, `docs/spec/eg-container.md`):
 //!   named, BLAKE3-hashed sections behind a table of contents, appended and committed
 //!   by a crash-safe protocol over `everygraph_core::ByteSink`, issue #28; and the

@@ -129,10 +129,11 @@ pub fn encode(offsets: &[u64], targets: &[u32]) -> Result<Encoded, EncodeError> 
     });
 
     let index = AdjacencyIndex::from_parts(
+        false,
         nodes,
         last,
         byte_offsets[n],
-        block_starts(offsets),
+        block_starts(n, offsets.windows(2).map(|w| w[1] - w[0])),
         EliasFano::new(&byte_offsets),
         EliasFano::new(offsets),
     );
@@ -142,20 +143,18 @@ pub fn encode(offsets: &[u64], targets: &[u32]) -> Result<Encoded, EncodeError> 
     })
 }
 
-/// The block directory: greedy, node-aligned blocks of at most [`BLOCK_ENTRIES`]
-/// entries and [`BLOCK_NODES`] nodes; a longer list gets a block of its own.
-fn block_starts(offsets: &[u64]) -> Vec<u32> {
-    let n = offsets.len() - 1;
+/// The block directory of `n` lists of these degrees: greedy, node-aligned blocks of at
+/// most [`BLOCK_ENTRIES`] entries and [`BLOCK_NODES`] nodes; a longer list gets a block
+/// of its own.
+pub(crate) fn block_starts(n: usize, degrees: impl Iterator<Item = u64>) -> Vec<u32> {
     let mut starts = vec![0];
-    let mut first = 0;
-    for v in 0..n {
-        let degree = offsets[v + 1] - offsets[v];
-        if v > first
-            && (offsets[v] - offsets[first] + degree > BLOCK_ENTRIES || v - first == BLOCK_NODES)
-        {
+    let (mut first, mut in_block) = (0, 0);
+    for (v, degree) in degrees.enumerate() {
+        if v > first && (in_block + degree > BLOCK_ENTRIES || v - first == BLOCK_NODES) {
             starts.push(node_id(v));
-            first = v;
+            (first, in_block) = (v, 0);
         }
+        in_block += degree;
     }
     if n > 0 {
         starts.push(node_id(n));
@@ -176,12 +175,14 @@ mod tests {
         for d in degrees {
             offsets.push(offsets.last().unwrap() + d);
         }
-        assert_eq!(block_starts(&offsets), vec![0, 1, 2, 4, 5, 6]);
+        let starts = |offsets: &[u64]| {
+            block_starts(offsets.len() - 1, offsets.windows(2).map(|w| w[1] - w[0]))
+        };
+        assert_eq!(starts(&offsets), vec![0, 1, 2, 4, 5, 6]);
         // Isolated nodes: blocks of BLOCK_NODES nodes.
         let offsets = vec![0u64; 2 * BLOCK_NODES + 2];
-        let starts = block_starts(&offsets);
-        assert_eq!(starts, vec![0, 1 << 16, 2 << 16, (2 << 16) + 1]);
-        assert_eq!(block_starts(&[0]), vec![0]);
+        assert_eq!(starts(&offsets), vec![0, 1 << 16, 2 << 16, (2 << 16) + 1]);
+        assert_eq!(starts(&[0]), vec![0]);
     }
 
     #[test]

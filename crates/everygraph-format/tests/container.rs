@@ -1376,3 +1376,41 @@ fn a_section_can_be_written_in_pieces() {
     let file = Container::open(w.into_sink()).unwrap();
     assert_eq!(contents(&file)["big"], data);
 }
+
+/// A record added after its sections: they are pointed at it before the commit; a
+/// record cannot point at a record, and a section cannot point at a non-record.
+#[test]
+fn sections_can_be_pointed_at_a_record_added_after_them() {
+    let mut writer = Writer::create(Mem::new(Vec::new())).unwrap();
+    writer
+        .add_section("adjacency.out.data", Kind::ADJACENCY_DATA, b"abc", None)
+        .unwrap();
+    assert!(matches!(
+        writer.set_provenance("adjacency.out.data", Some("provenance/ingest")),
+        Err(ContainerError::NoSuchSection(_))
+    ));
+    writer
+        .add_provenance("provenance/ingest", &record("ingest"))
+        .unwrap();
+    writer
+        .set_provenance("adjacency.out.data", Some("provenance/ingest"))
+        .unwrap();
+    assert!(matches!(
+        writer.set_provenance("provenance/ingest", Some("provenance/ingest")),
+        Err(ContainerError::NotProvenance(_))
+    ));
+    assert!(matches!(
+        writer.set_provenance("adjacency.out.data", Some("adjacency.out.data")),
+        Err(ContainerError::NotProvenance(_))
+    ));
+    assert!(matches!(
+        writer.set_provenance("missing", None),
+        Err(ContainerError::NoSuchSection(_))
+    ));
+    writer.commit().unwrap();
+    let file = Container::open(writer.into_sink()).unwrap();
+    assert_eq!(
+        file.provenance("adjacency.out.data").unwrap(),
+        Some(record("ingest"))
+    );
+}

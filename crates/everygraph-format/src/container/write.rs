@@ -310,6 +310,46 @@ impl<S: ByteSink> Writer<S> {
         section.finish()
     }
 
+    /// Makes section `name` refer to the provenance record `record`, or to none, from
+    /// the next commit on; its bytes are not touched. A build whose record holds counts
+    /// known only once its sections are written adds the record last and points the
+    /// sections at it.
+    ///
+    /// # Errors
+    ///
+    /// [`ContainerError::NoSuchSection`] if either is missing;
+    /// [`ContainerError::NotProvenance`] if `record` is not a provenance record or
+    /// `name` is one (records do not refer to records); [`ContainerError::Poisoned`].
+    pub fn set_provenance(
+        &mut self,
+        name: &str,
+        record: Option<&str>,
+    ) -> Result<(), ContainerError> {
+        if self.poisoned {
+            return Err(ContainerError::Poisoned);
+        }
+        let reference = match record {
+            None => None,
+            Some(record) => match self.entries.get(record) {
+                None => return Err(ContainerError::NoSuchSection(record.to_owned())),
+                Some(e) if e.kind != Kind::PROVENANCE => {
+                    return Err(ContainerError::NotProvenance(record.to_owned()));
+                }
+                Some(e) => Some(Arc::clone(&e.name)),
+            },
+        };
+        let entry = self
+            .entries
+            .get_mut(name)
+            .ok_or_else(|| ContainerError::NoSuchSection(name.to_owned()))?;
+        if entry.kind == Kind::PROVENANCE {
+            return Err(ContainerError::NotProvenance(name.to_owned()));
+        }
+        entry.provenance = reference;
+        self.changed = true;
+        Ok(())
+    }
+
     /// Takes section `name` out of the next commit. Its bytes stay in the file, and in
     /// every earlier commit, until the file is [`compact`]ed.
     ///
