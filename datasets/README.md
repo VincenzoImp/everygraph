@@ -17,7 +17,7 @@ B=target/release/everygraph-bench
 $B list                      # what is registered, and what is on disk and verified
 $B fetch tier1               # the CI set: about 74 MB, plus the generated graphs
 $B fetch com-livejournal     # one dataset by name
-$B fetch tier2               # tiers 1 and 2: about 14 GB, mostly Friendster and Twitter
+$B fetch tier2               # tiers 1 and 2: about 22 GB, mostly Friendster (SNAP and LDBC copies) and Twitter
 $B verify tier1              # re-read the files and check them again
 $B path roadnet-ca           # where the files of a dataset are
 ```
@@ -106,6 +106,10 @@ Values marked † are not verified against the source; see each dataset's notes.
 | [`uk-2005`](https://law.di.unimi.it/webdata/uk-2005/) | 2 | web | yes | no | no | 39,459,925 | 936,364,282 | 210.0 MB | SHA-256 | [No licence stated by LAW](https://law.di.unimi.it/datasets.php) † |
 | [`europe-osm`](https://sites.cc.gatech.edu/dimacs10/archive/streets.shtml) | 2 | road | no | no | no | 50,912,018 | 54,054,660 | 258.3 MB | SHA-256 | [Derived from OpenStreetMap data (Geofabrik extract, March 2010)](https://www.openstreetmap.org/copyright) † |
 | [`sx-stackoverflow`](https://snap.stanford.edu/data/sx-stackoverflow.html) | 2 | temporal | yes | no | yes | 2,601,977 | 63,497,050 | 529.8 MB | SHA-256 | [No licence stated by SNAP for the graph](https://archive.org/details/stackexchange) † |
+| [`ldbc-test`](https://ldbcouncil.org/benchmarks/graphalytics/datasets/) | 1 | conformance | yes | yes | no | 212 | 523 | 10.1 kB | SHA-256 | [No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26)](https://ldbcouncil.org/benchmarks/fair-use-policies/) † |
+| [`ldbc-graph500-22`](https://ldbcouncil.org/benchmarks/graphalytics/datasets/) | 2 | conformance | no | no | no | 2,396,657 | 64,155,735 | 212.2 MB | SHA-256 | [No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26)](https://ldbcouncil.org/benchmarks/fair-use-policies/) † |
+| [`ldbc-dota-league`](https://ldbcouncil.org/benchmarks/graphalytics/datasets/) | 2 | conformance | no | yes | no | 61,170 | 50,870,313 | 119.8 MB | SHA-256 | [No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26)](https://ldbcouncil.org/benchmarks/fair-use-policies/) † |
+| [`ldbc-com-friendster`](https://ldbcouncil.org/benchmarks/graphalytics/datasets/) | 2 | conformance | no | no | no | 65,608,366 | 1,806,067,135 | 7.2 GB | SHA-256 | [No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26)](https://ldbcouncil.org/benchmarks/fair-use-policies/) † |
 | [`gsh-2015`](https://law.di.unimi.it/webdata/gsh-2015/) | 3 | web | yes | no | no | 988,490,691 | 33,877,399,152 | 8.6 GB | MD5 (source) only † | [No licence stated by LAW](https://law.di.unimi.it/datasets.php) † |
 
 ### `ego-facebook`
@@ -386,6 +390,71 @@ Stack Overflow interactions (answers and comments) with timestamps (SNAP sx-stac
 - **Notes:** The large transaction-style edge list of the registry: a timestamped interaction multigraph. Whether CC BY-SA carries over to the derived graph was not established.
 - **Not verified:** licence
 - **File:** [`sx-stackoverflow.txt.gz`](https://snap.stanford.edu/data/sx-stackoverflow.txt.gz), 529869668 bytes, SHA-256 `fc04264de1652bbf91c10eb8ec2465df082fc0aec2012e5f4a8edc6400f0d7a3`
+
+### `ldbc-test`
+
+LDBC Graphalytics test graphs: example-directed, example-undirected and test-<algorithm>-<directed|undirected>
+
+- **Format:** tar.zst per graph: <g>.properties, <g>.v (one vertex id per line), <g>.e ('u v' or 'u v w', space-separated), <g>-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)
+- **To an edge list:** unzstd, untar. <g>.e is the edge list; vertex ids are listed in <g>.v and are not contiguous. Undirected graphs list each edge once.
+- **Counts:** Summed over the fourteen graphs (at most 50 vertices each), from their .properties files and equal to what the reader counted. directed and weighted are true for some of them: each graph's .properties file says which.
+- **Licence / terms:** No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results.
+- **Cite:** A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023.
+- **Notes:** The test-* archives were updated on 2023-03-05 (Last-Modified), after the reference-output corrections of March 2023.
+- **Not verified:** licence
+- **File:** [`example-directed.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/example-directed.tar.zst), 1104 bytes, SHA-256 `30e0dc9984fcd4334f88eef0f419c8f9d2ff3333403c0d49e2ea062f5c4891b4`
+- **File:** [`example-undirected.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/example-undirected.tar.zst), 1066 bytes, SHA-256 `69eb344d0d8438b6ee971378da3a2b3c623e0930393e2d5777e194091c3999ec`
+- **File:** [`test-bfs-directed.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-bfs-directed.tar.zst), 504 bytes, SHA-256 `70353ffe8aa953edf85d81e238089cfec808d1a2822a69293c7a7493f4c46916`
+- **File:** [`test-bfs-undirected.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-bfs-undirected.tar.zst), 504 bytes, SHA-256 `27c9748ab5c624c64aed3bf48fd937aaf67d480f676c6a4ff41b3822b0ed84f8`
+- **File:** [`test-cdlp-directed.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-cdlp-directed.tar.zst), 482 bytes, SHA-256 `d4d068edefa596dfd13074a8c15baa06d82009240ed42d9af5b260d88c1652d6`
+- **File:** [`test-cdlp-undirected.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-cdlp-undirected.tar.zst), 475 bytes, SHA-256 `0b8bdaed6bda7ecfa5c0d1018192e44dc7e1306f1c9bb20ffcd4a55ba57bc663`
+- **File:** [`test-pr-directed.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-pr-directed.tar.zst), 1635 bytes, SHA-256 `25dbd25c1bf0d9dc55ebdeb4d45299ccacc27c91feccc3e1d448ea8b82342374`
+- **File:** [`test-pr-undirected.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-pr-undirected.tar.zst), 1380 bytes, SHA-256 `49a67b0c1978f47f552f593d7ccc0b2e1bac383e29736efeb43d7e9aba74a9a0`
+- **File:** [`test-lcc-directed.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-lcc-directed.tar.zst), 490 bytes, SHA-256 `523ddca56a5d859c543e8f967c265b3b28637e8c86a0abb44a6a12bf8795a2c1`
+- **File:** [`test-lcc-undirected.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-lcc-undirected.tar.zst), 468 bytes, SHA-256 `c3b8ec5ea1a3f55382a10b23040d1dbf4e626cf8b96439f46d3d1d3f10a43710`
+- **File:** [`test-wcc-directed.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-wcc-directed.tar.zst), 433 bytes, SHA-256 `14d5f462fa9e77823756fc87f4fc85c3d906a4ebaa0ebecac0758ac07819541b`
+- **File:** [`test-wcc-undirected.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-wcc-undirected.tar.zst), 428 bytes, SHA-256 `c3d5f73b02a4a71db55ef0bedea9618dbb01f2429cf7068b1b7e741b00890d26`
+- **File:** [`test-sssp-directed.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-sssp-directed.tar.zst), 603 bytes, SHA-256 `97b6b72184e6137af271dd2f3088aa68452510e08b3cea98da860a378bfa9bb6`
+- **File:** [`test-sssp-undirected.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/test-sssp-undirected.tar.zst), 625 bytes, SHA-256 `908f7b9c12c4a7b3fb0836547b3cd49543448999ed450c575ede88f1149d7306`
+
+### `ldbc-graph500-22`
+
+LDBC Graphalytics graph500-22: Graph500 Kronecker generator, scale 22
+
+- **Format:** tar.zst: graph500-22.properties, graph500-22.v (one vertex id per line), graph500-22.e ('u v' or 'u v w', space-separated), graph500-22-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)
+- **To an edge list:** unzstd, untar. graph500-22.e is the edge list, each undirected edge listed once; vertex ids are listed in graph500-22.v.
+- **Counts:** From the .properties file (meta.vertices, meta.edges), and equal to what the oracle's LDBC reader counted on the .v and .e files.
+- **Licence / terms:** No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results.
+- **Cite:** A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023.
+- **Notes:** Synthetic (Kronecker, Graph500 scale 22), generated by LDBC and published with reference outputs. Undirected. The .v file lists 2,396,657 of the 2^22 = 4,194,304 vertex ids of scale 22: vertices without edges are not in the data set.
+- **Not verified:** licence
+- **File:** [`graph500-22.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/graph500-22.tar.zst), 212233822 bytes, SHA-256 `d88e1cb7ca83a2348a9a90d6796991c0a780ed1e3882bd85e36c50f3346ce074`
+
+### `ldbc-dota-league`
+
+LDBC Graphalytics dota-league: Dota 2 league players, edge weight = games played together
+
+- **Format:** tar.zst: dota-league.properties, dota-league.v (one vertex id per line), dota-league.e ('u v' or 'u v w', space-separated), dota-league-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)
+- **To an edge list:** unzstd, untar. dota-league.e is the edge list, each undirected edge listed once; vertex ids are listed in dota-league.v.
+- **Counts:** From the .properties file (meta.vertices, meta.edges), and equal to what the oracle's LDBC reader counted on the .v and .e files.
+- **Licence / terms:** No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results.
+- **Cite:** A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023.
+- **Notes:** A real weighted graph from the Game Trace Archive, as packaged by LDBC with reference outputs.
+- **Not verified:** licence
+- **File:** [`dota-league.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/dota-league.tar.zst), 119883349 bytes, SHA-256 `d83a92574e177b47fbcab951c8c0e1be3bb5674a18f3e7179f772bc60e72cb2d`
+
+### `ldbc-com-friendster`
+
+LDBC Graphalytics com-friendster: SNAP com-Friendster, as packaged by LDBC with reference outputs
+
+- **Format:** tar.zst: com-friendster.properties, com-friendster.v (one vertex id per line), com-friendster.e ('u v' or 'u v w', space-separated), com-friendster-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)
+- **To an edge list:** unzstd, untar. com-friendster.e is the edge list, each undirected edge listed once; vertex ids are listed in com-friendster.v.
+- **Counts:** From the .properties file (meta.vertices, meta.edges), and equal to what the oracle's LDBC reader counted on the .v and .e files.
+- **Licence / terms:** No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results.
+- **Cite:** A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023.
+- **Notes:** The same graph as the `com-friendster` entry (SNAP), with LDBC's vertex file and reference outputs. SNAP terms also apply: SNAP asks that the dataset be cited.
+- **Not verified:** licence
+- **File:** [`com-friendster.tar.zst`](https://datasets.ldbcouncil.org/graphalytics/com-friendster.tar.zst), 7237160329 bytes, SHA-256 `f18cc17419453c68bac5174426ce5ab45c5d6973646c92651553c53b08638e03`
 
 ### `gsh-2015`
 

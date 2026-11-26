@@ -60,11 +60,17 @@ deny = [
     # is added to `wrappers` in the pull request that introduces it.
     { crate = "rayon", wrappers = ["everygraph-core"], reason = "use everygraph_core::par; only everygraph-core depends on rayon" },
     { crate = "rayon-core", wrappers = ["rayon"], reason = "use everygraph_core::par; only everygraph-core depends on rayon" },
-    # Memory maps are an I/O backend. Issue #29 allows memmap2 for everygraph-io alone,
-    # by adding `wrappers = ["everygraph-io"]` to its entry.
-    { crate = "memmap2", reason = "memory maps belong in everygraph-io, behind ByteSource (issue #29)" },
+    # Memory maps are an I/O backend: memmap2 is allowed for everygraph-io alone.
+    { crate = "memmap2", wrappers = ["everygraph-io"], reason = "memory maps belong in everygraph-io, behind ByteSource" },
     { crate = "memmap", reason = "unmaintained; memory maps belong in everygraph-io, through memmap2" },
     { crate = "mmap-rs", reason = "memory maps belong in everygraph-io, through memmap2" },
+    # Randomness comes from everygraph_core::rng, keyed by what each draw is for (rule R9
+    # of docs/research/sota-numerics.md). These generators are seeded from the OS or
+    # change their streams between versions and platforms. proptest draws test cases with
+    # rand; TLS in the harness draws keys with getrandom.
+    { crate = "rand", wrappers = ["proptest"], reason = "use everygraph_core::rng" },
+    { crate = "getrandom", wrappers = ["rand_core", "ring"], reason = "use everygraph_core::rng" },
+    { crate = "fastrand", reason = "use everygraph_core::rng" },
 ]
 
 [sources]

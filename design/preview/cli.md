@@ -1,7 +1,9 @@
 # Preview — the command line
 
-**A proposal to react to, not working software.** All figures are invented to show shape
-and tone. Each **Choice** has a recommendation (★). Answers go to `design/DECISIONS.md`.
+**Approved by the owner on 2026-11-25. Not working software.** All figures are invented
+to show shape and tone. In each **Choice** the option marked ★ is the decision. Later rows
+of `design/DECISIONS.md` change some details of this page. `docs/ux-contract.md` and
+`docs/api-sketch.md` are the current reference for commands and messages.
 
 The command is `everygraph` (the short `eg` is already another program on PyPI).
 

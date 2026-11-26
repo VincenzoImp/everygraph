@@ -95,6 +95,10 @@ pub struct Opts {
     leiden: bool,
     det: bool,
     sub_rounds: usize,
+    // auto rule (sub_rounds == 0): clamp(next_pow2(n_level / sub_div), sub_min, sub_max); m1-04 knobs
+    sub_div: usize,
+    sub_min: usize,
+    sub_max: usize,
     gamma: f64,
     cap: u32,
     max_iters: usize,
@@ -125,6 +129,9 @@ pub struct PassStat {
     t_lm: f64,
     t_ref: f64,
     t_agg: f64,
+    sub: usize,
+    sub_par: u64,
+    sub_seq: u64,
     scanned: u64,
     moves: u64,
 }
@@ -295,7 +302,8 @@ fn for_range_in_lists<F: FnMut(u32)>(cur: &[Vec<u32>], pre: &[usize], r: std::op
         li += 1;
     }
 }
-const SEQ_BELOW: usize = 1024;
+// sub-rounds with fewer active vertices than this run on one thread (default 1024; --seq-below, m1-04)
+static SEQ_BELOW: AtomicUsize = AtomicUsize::new(1024);
 static BUCKET_SHIFT: AtomicU32 = AtomicU32::new(0);
 static PEAK_ANON_KB: AtomicU64 = AtomicU64::new(0);
 fn sample_anon() {
@@ -358,7 +366,7 @@ fn local_move(cx: &Cx, pool: &rayon::ThreadPool, tls: &[Mutex<Tls>], o: &Opts, t
                     pool,
                     1usize << lb,
                     256,
-                    SEQ_BELOW,
+                    SEQ_BELOW.load(Relaxed),
                     |b| {
                         let (cur, pre, total) = take_bucket(tls, b);
                         *shared.write().unwrap() = (cur, pre, b);
@@ -552,7 +560,7 @@ fn refine(
                     pool,
                     1usize << lb,
                     256,
-                    SEQ_BELOW,
+                    SEQ_BELOW.load(Relaxed),
                     |b| {
                         let (cur, pre, total) = take_bucket(tls, b);
                         *shared.write().unwrap() = (cur, pre, b);
@@ -891,8 +899,10 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             o.sub_rounds
         } else {
             // auto: depends on the graph only (never on the thread count): sub-rounds of >= ~16k vertices
-            (n / 16384).next_power_of_two().clamp(256, 1024)
+            (n / o.sub_div.max(1)).next_power_of_two().clamp(o.sub_min, o.sub_max)
         };
+        st.sub = sub;
+        let (sp0, ss0) = (SUBROUNDS_PAR.load(Relaxed), SUBROUNDS_SEQ.load(Relaxed));
         let (iters, moves, scanned) = local_move(&cx, pool, &tls, o, tol, sub, if pass == 0 { BUCKET_SHIFT.load(Relaxed) } else { 0 });
         st.iters = iters;
         st.moves = moves;
@@ -913,6 +923,8 @@ pub fn run(g0: &Graph, pool: &rayon::ThreadPool, o: &Opts) -> RunOut {
             &comm[..n]
         };
         st.t_ref = t1.elapsed().as_secs_f64();
+        st.sub_par = SUBROUNDS_PAR.load(Relaxed) - sp0;
+        st.sub_seq = SUBROUNDS_SEQ.load(Relaxed) - ss0;
         let t2 = Instant::now();
         // count communities of lab
         let c_cnt = par_sum_u(pool, n, |u| {
@@ -1372,6 +1384,9 @@ fn main() {
         leiden: algo == "leiden",
         det: has("--det"),
         sub_rounds: get("--sub-rounds").map(|s| s.parse().unwrap()).unwrap_or(0),
+        sub_div: get("--sub-div").map(|s| s.parse().unwrap()).unwrap_or(16384),
+        sub_min: get("--sub-min").map(|s| s.parse().unwrap()).unwrap_or(256),
+        sub_max: get("--sub-max").map(|s| s.parse().unwrap()).unwrap_or(1024),
         gamma,
         cap: get("--cap").map(|s| s.parse().unwrap()).unwrap_or(0),
         max_iters: get("--max-iters").map(|s| s.parse().unwrap()).unwrap_or(20),
@@ -1380,7 +1395,9 @@ fn main() {
         tol_drop: get("--tol-drop").map(|s| s.parse().unwrap()).unwrap_or(10.0),
         agg_tol: get("--agg-tol").map(|s| s.parse().unwrap()).unwrap_or(0.8),
         lowmem: has("--lowmem"),
-        keep_graphs: get("--out-hier").is_some(),
+        // --no-quot (issue #172): write the parent maps only, without keeping or writing the
+        // quotient graphs (gmap layout reads level_k.u32 alone).
+        keep_graphs: get("--out-hier").is_some() && !has("--no-quot"),
         split_last: !has("--no-split"),
         refine_iters: get("--refine-iters").map(|s| s.parse().unwrap()).unwrap_or(1),
         chunk: get("--chunk").map(|s| s.parse().unwrap()).unwrap_or(2048),
@@ -1392,6 +1409,10 @@ fn main() {
         iterations: get("--iterations").map(|s| s.parse().unwrap()).unwrap_or(1),
         cap_stall: get("--cap-stall").map(|s| s.parse().unwrap()).unwrap_or(0.5),
     };
+    for v in [o.sub_rounds, o.sub_min, o.sub_max] {
+        assert!(v == 0 || v.is_power_of_two(), "sub-round counts must be powers of two");
+    }
+    SEQ_BELOW.store(get("--seq-below").map(|s| s.parse().unwrap()).unwrap_or(1024), Relaxed);
     BUCKET_SHIFT.store(get("--bucket-shift").map(|s| s.parse().unwrap()).unwrap_or(4), Relaxed);
     let repeat: usize = get("--repeat").map(|s| s.parse().unwrap()).unwrap_or(1);
     let mut times = Vec::new();
@@ -1429,8 +1450,11 @@ fn main() {
         .iter()
         .map(|s| {
             format!(
-                "{{\"n\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2}}}",
+                "{{\"n\":{},\"sub\":{},\"sub_par\":{},\"sub_seq\":{},\"entries\":{},\"iters\":{},\"moves\":{},\"comms\":{},\"lm_s\":{:.4},\"refine_s\":{:.4},\"agg_s\":{:.4},\"edge_passes\":{:.2}}}",
                 s.n,
+                s.sub,
+                s.sub_par,
+                s.sub_seq,
                 s.entries,
                 s.iters,
                 s.moves,
@@ -1488,8 +1512,15 @@ fn main() {
     let stat = cgread("memory.stat");
     let sget = |k: &str| stat.lines().find(|l| l.starts_with(k)).and_then(|l| l.split_whitespace().nth(1)).unwrap_or("0").to_string();
     let json = format!(
-        "{},\"cgroup\":{{\"memory_peak\":{},\"memory_max\":\"{}\",\"anon_now\":{},\"file_now\":{},\"pgmajfault\":{},\"workingset_refault_file\":{}}},\"lowmem\":{},\"populate\":{}}}",
+        "{},\"hash_levels_low53\":{},\"subrounds_par\":{},\"subrounds_seq\":{},\"sub_rule\":{{\"div\":{},\"min\":{},\"max\":{},\"seq_below\":{}}},\"cgroup\":{{\"memory_peak\":{},\"memory_max\":\"{}\",\"anon_now\":{},\"file_now\":{},\"pgmajfault\":{},\"workingset_refault_file\":{}}},\"lowmem\":{},\"populate\":{}}}",
         &json[..json.len() - 1],
+        h & ((1u64 << 53) - 1),
+        SUBROUNDS_PAR.load(Relaxed),
+        SUBROUNDS_SEQ.load(Relaxed),
+        o.sub_div,
+        o.sub_min,
+        o.sub_max,
+        SEQ_BELOW.load(Relaxed),
         cgread("memory.peak").trim().parse::<u64>().unwrap_or(0),
         cgread("memory.max").trim(),
         sget("anon "),

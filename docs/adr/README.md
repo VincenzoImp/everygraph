@@ -19,6 +19,7 @@ something different without one is drift.
 | `accepted` | The evidence supports the decision as written. Nothing is pending. |
 | `accepted, partly validated` | We build on it, but part of it is unmeasured or was measured narrowly (one graph family, one kernel, a prototype, a shared machine). The ADR names the experiment or issue that closes the gap. |
 | `open — needs experiment` | The evidence does not support the decision as `DESIGN.md` states it. The unsupported part is not built until the named experiment or issue reports. |
+| `proposed` | Written from exploratory evidence and not yet in force. `docs/DESIGN.md` points to it from the decision's status, but its decision text does not change until the ADR is accepted. The ADR names the run or issue that accepts it. |
 | `superseded by ADR NNNN` | Replaced; kept for the record. |
 
 ## Evidence rules
@@ -43,7 +44,7 @@ extrapolation is labelled as one every time.
 ```markdown
 # ADR NNNN — <title>
 
-- **Status:** accepted | accepted, partly validated | open — needs experiment
+- **Status:** accepted | accepted, partly validated | open — needs experiment | proposed
 - **Decision:** DN in [DESIGN.md](../DESIGN.md#4-decisions)  (from ADR 0026 on, when not a D-row: promise N in [DESIGN.md § 2](../DESIGN.md#2-the-product), or the section)
 - **Date:** YYYY-MM-DD
 
@@ -78,11 +79,11 @@ A measurable condition.
 | [0004](0004-compressed-adjacency-default.md) | Compressed adjacency is the default storage (amended by #118: five conditions) | accepted, partly validated | #46, #35, #24, #90 |
 | [0005](0005-webgraph-optional.md) | webgraph-rs is an optional feature | accepted | — |
 | [0006](0006-in-adjacency.md) | Directed graphs store out- and in-adjacency | accepted | — |
-| [0007](0007-eg-container.md) | One `.eg` file per graph; maps as PMTiles | accepted, partly validated | #28 |
+| [0007](0007-eg-container.md) | One `.eg` file per graph; maps as PMTiles (amended by #28: specified and validated) | accepted | — |
 | [0008](0008-id-dictionary.md) | ID dictionary: typed keys and minimal perfect hash | accepted, partly validated | #34, #25 |
 | [0009](0009-property-columns.md) | Properties as Arrow-compatible columns | accepted, partly validated | #37 |
 | [0010](0010-views-mask-or-materialize.md) | Views: mask or materialize | open — needs experiment | #93 |
-| [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state | accepted, partly validated | #16 |
+| [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state (result of #16 added) | accepted, partly validated | #60, #46 |
 | [0012](0012-edge-map-framework.md) | One edge-map framework | accepted, partly validated | #44 |
 | [0013](0013-threads-per-kernel.md) | Thread count chosen per kernel | accepted, partly validated | #22 |
 | [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #18, #54, #60 |
@@ -98,6 +99,9 @@ A measurable condition.
 | [0024](0024-visual-system.md) | One visual system, Vernier | accepted | — |
 | [0025](0025-user-facing-choices.md) | User-facing choices live in `design/DECISIONS.md` | accepted | — |
 | [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #35 |
+| [0027](0027-single-file-builds.md) | A graph is one file in every state; builds in progress use the job's scratch | accepted | — |
+| [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #35, #37 |
+| [0029](0029-random-access-under-a-budget.md) | Random access under a budget: an explicit cache, not plain mmap (amends 0011, regime 2) | proposed | #172, #178 |
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of
 `docs/DESIGN.md` agree, that each ADR has the required sections and a known status, that

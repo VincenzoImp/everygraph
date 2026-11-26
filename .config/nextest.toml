@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# A test that hangs (a deadlock, a wait that never ends) is reported as slow after a
+# minute and killed after five, instead of running into the CI job's own timeout.
+# The slowest test today, everygraph-oracle's
+# `thread_dependent_float_sum_is_caught_by_cross_config_identity`, took 67 s on a
+# loaded lab machine (2026-11-25).
+
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+# Two harness tests drive the kernel's OOM killer inside a 32 MiB systemd scope. On
+# GitHub's runners each failed once in about forty runs (2026-11-25) with the measuring
+# helper itself SIGKILLed and no report written — and under plain `cargo test` (every
+# test of the binary at once) the first one failed in two of four jobs of one push, so
+# every CI job runs tests through nextest; on the lab machine 100 repetitions of
+# the same case under 16–32 MiB never killed the helper, and the runner showed no
+# systemd-oomd and nothing in the kernel log. The likeliest cause is a second OOM kill
+# in the same scope while the first victim's memory is still being released, which then
+# skips that victim and picks the helper. Until that is understood (and the harness can
+# protect its helper), they get two retries: a real regression still fails all three
+# attempts, and nextest reports a pass on retry as FLAKY, so it stays visible.
+[[profile.default.overrides]]
+filter = 'package(everygraph-bench) & binary(harness) & (test(=an_exploratory_run_records_every_field) | test(=a_failed_warm_up_writes_its_measurement))'
+retries = 2

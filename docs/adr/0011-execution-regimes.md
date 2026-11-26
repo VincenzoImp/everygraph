@@ -66,6 +66,33 @@ O(n) state, not by the size of the graph. A memory accountant backs the no-OOM g
 So the rule is measured for PageRank and components on one graph (Friendster). It is not
 valid for community detection, whose memory is set by an intermediate graph.
 
+## Result of #16 (2026-11-25)
+
+FINDINGS § M1-02; idle; Friendster, Leiden, 1 iteration, 16 threads, f64 weights, level 0
+in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
+`bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl` and
+`…20261125T174959Z-b61036e59740.jsonl` (official, 0 disturbed).
+
+- Community detection fits the regimes once its intermediate graph is treated like the
+  input: aggregation streams in node order into range-partitioned buckets held in RAM
+  while the accountant allows and spilled to files otherwise, and every quotient graph is
+  written as a compressed store and memory-mapped. Every large allocation is reserved in
+  an accountant stub first; the anonymous peak stayed under the hard limit in all 31 rows.
+- Against the same algorithm in RAM (74.8 s, nothing spilled), async: 16 GiB 87.4 s
+  (1.17×), 8 GiB 175.3 s (2.34×), 5 GiB 2.88×, 4 GiB 3.49×; 0 disconnected communities
+  everywhere; Q 0.598–0.607 in RAM and out of core alike, with one of the two 16 GiB
+  repetitions at 0.5981. Deterministic: the same partition in RAM and under 16 GiB (hash
+  `2a12e5882874c38d`, Q 0.6055). Map-shaped Leiden completes under 16 GiB (164.1 s).
+- The cost below 16 GiB is level-0 local moving re-reading the store 6.0–12.8× per sweep
+  in block-permuted order, plus 1.6–2.0× on level-0 aggregation from bucket files.
+- "What would change our mind" (first bullet) did not fire: under 16 GiB the run
+  completes with 0 disconnected communities within 2.5× (1.17×), and Q ≥ 0.60 holds in
+  the deterministic mode and for the async median, though not for every async repetition.
+  The decision stands. Its status stays *accepted, partly validated*: one graph, one
+  iteration, the deterministic mode not measured below 16 GiB, and a lab prototype, not
+  the product's planner and accountant. Those close in #60 (production out-of-core
+  Leiden); the iterative-scan half still closes in #46.
+
 ## Consequences
 
 - The planner (#45) sizes the O(n) state per kernel and refuses with the minimum budget
@@ -76,6 +103,10 @@ valid for community detection, whose memory is set by an intermediate graph.
 - The documentation says plainly that out of core costs about one read of the graph per
   pass: small for PageRank, 10× for components on Friendster.
 
+- Regime 2 for random access whose working set exceeds the budget: amendment proposed in
+  [ADR 0029](0029-random-access-under-a-budget.md) (an explicit budgeted cache over
+  `ByteSource`; per-phase `MADV_RANDOM` until it exists), from #172.
+
 ## What would change our mind
 
 - #16 cannot run Leiden on Friendster under 16 GiB with Q ≥ 0.60, no disconnected
@@ -85,4 +116,5 @@ valid for community detection, whose memory is set by an intermediate graph.
 
 ## Closed by
 
-#16 (out-of-core Leiden aggregation) for community detection; #46 and #60 productionize.
+#60 (production out-of-core Leiden) for community detection; #46 for iterative scans.
+#16 reported on 2026-11-25 (above).

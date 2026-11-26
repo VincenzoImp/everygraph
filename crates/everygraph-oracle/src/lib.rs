@@ -21,6 +21,7 @@
 //! | [`external`] | the protocol for kernels in another process (the lab prototypes) |
 //! | [`toy`] | a toy kernel with seeded bugs, the proof that the checks catch them |
 //! | [`golden`] | known answers on small real graphs, with provenance |
+//! | [`ldbc`] | LDBC Graphalytics data sets, the six algorithms as its specification defines them, its match rules |
 //!
 //! The Python references (NetworkX, python-igraph, scipy) live in `oracle/` at the root of
 //! the repository; `oracle/README.md` describes the whole workflow and
@@ -52,8 +53,8 @@
 //! Two things a real kernel needs that the toy does not: the configuration's thread count
 //! must be honoured (the toy starts its own threads; an engine kernel runs on
 //! `everygraph_core::par`, whose pool size a test must be able to set), and the storage
-//! and regime axes only mean something once the codec (#30) and the I/O backends (#29)
-//! exist. Until then a kernel declares the configurations it has.
+//! and regime axes mean something only for a kernel that runs on the codec (#30) and the
+//! I/O backends (#29). A kernel declares the configurations it has.
 
 #![forbid(unsafe_code)]
 
@@ -66,6 +67,7 @@ pub mod golden;
 pub mod graph;
 pub mod invariants;
 pub mod kernel;
+pub mod ldbc;
 pub mod plugin;
 pub mod projection;
 pub mod reference;

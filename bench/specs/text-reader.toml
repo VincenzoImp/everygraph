@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The text reader of everygraph-ingest (issue #32): parse rate of plain text from the
+# page cache, and the cost of reading the same file compressed.
+#
+# What is timed: `TextReader::read` over the whole file through the example
+# `crates/everygraph-ingest/examples/text_parse.rs` (a positional-read file adapter in
+# place of everygraph-io, #29), handing out batches of integer (source, target) ids
+# that are dropped at once. Layout detection (`TextReader::open`, 64 KiB) is outside
+# the clock. Each process parses the file 3 times and prints the best and the median;
+# `seconds` is the best, as `glab run` reports it in `headline`.
+#
+# Acceptance of #32: >= 5 GB/s at 16 threads on plain text from the page cache, that
+# is `input_gb_per_s` of the `plain` cases at 16 threads. The compressed cases are
+# reported only: gzip is inflated on one core, single-frame zstd is decoded on one core
+# by ruzstd, and pzstd's frames are decoded in parallel.
+#
+# Run (about 3 minutes, plus a release build and about 30 s of preparation the first
+# time): everygraph-bench run text-reader --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "text-reader"
+description = "everygraph-ingest text reader: parse rate of plain text, gzip and zstd"
+reference = "issue #32 (plan/issues/m2-05-text-reader.md), acceptance: >= 5 GB/s at 16 threads"
+
+binaries = ["{parse}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+threads = [1, 16, 32]
+timeout = "10m"
+
+[vars]
+parse = "{repo}/target/release/examples/text_parse"
+inputs = "{work}/inputs"
+
+[[prepare]]
+name = "build-text-parse"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--locked", "-p", "everygraph-ingest", "--example", "text_parse"]
+
+# The same plain-text copies as `headline`, at the same paths.
+[[prepare]]
+name = "text-lj"
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-lj.ungraph.txt.gz > {inputs}/lj.txt.part && mv {inputs}/lj.txt.part {inputs}/lj.txt"
+creates = "{inputs}/lj.txt"
+
+[[prepare]]
+name = "text-orkut"
+shell = "mkdir -p {inputs} && pigz -dc {data}/raw/com-orkut.ungraph.txt.gz > {inputs}/orkut.txt.part && mv {inputs}/orkut.txt.part {inputs}/orkut.txt"
+creates = "{inputs}/orkut.txt"
+needed_by = ["plain"]
+
+[[prepare]]
+name = "zstd-lj"
+# One frame (zstd), and pzstd's independent frames.
+shell = "zstd -q -f -3 -T16 {inputs}/lj.txt -o {inputs}/lj.txt.zst && pzstd -q -f -3 -p 16 {inputs}/lj.txt -o {inputs}/lj.pzstd.txt.zst"
+creates = "{inputs}/lj.pzstd.txt.zst"
+needed_by = ["compressed"]
+
+[[benchmark]]
+name = "plain"
+group = "parse"
+description = "plain text from the page cache"
+dataset_path = "raw/com-{graph}.ungraph.txt.gz"
+matrix = { graph = ["lj", "orkut"] }
+command = ["{parse}", "{inputs}/{graph}.txt", "--repeat", "3"]
+env = { RAYON_NUM_THREADS = "{threads}" }
+conditions = { graph = "{graph}", input = "plain text, page cache warm", ids = "integer", level = "in-process, best of 3 passes", output = "batches dropped" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "seconds_median", json = "/seconds_median", unit = "s" },
+  { name = "gb_per_s", json = "/input_gb_per_s", unit = "GB/s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "compressed"
+group = "parse"
+description = "lj compressed: gzip (one core), zstd one frame (one core), pzstd frames (parallel)"
+dataset_path = "raw/com-lj.ungraph.txt.gz"
+threads = [16]
+matrix = { format = ["gzip", "zstd", "pzstd"] }
+shell = """
+case {format} in
+  gzip)  exec {parse} {data}/raw/com-lj.ungraph.txt.gz --repeat 3 ;;
+  zstd)  exec {parse} {inputs}/lj.txt.zst --repeat 3 ;;
+  pzstd) exec {parse} {inputs}/lj.pzstd.txt.zst --repeat 3 ;;
+esac
+"""
+env = { RAYON_NUM_THREADS = "{threads}" }
+conditions = { graph = "lj", input = "{format}, page cache warm", ids = "integer", level = "in-process, best of 3 passes", output = "batches dropped" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "seconds_median", json = "/seconds_median", unit = "s" },
+  { name = "compressed_gb_per_s", json = "/input_gb_per_s", unit = "GB/s" },
+]
+primary = "seconds"

@@ -6,11 +6,11 @@ Samsung 990 PRO NVMe, RTX 4090 unused by the pipelines). Datasets: com-LiveJourn
 (65.6M / 1.806B), twitter-2010 (41.7M / 1.468B arcs, directed).
 
 **Read this first.** Eight experiments ran concurrently on the same machine. Unless a
-number is marked *idle re-run* or belongs to § M1-13 or § M1-01 (second-round experiments,
+number is marked *idle re-run* or belongs to § M1-13, § M1-01 or § M1-02 (second-round experiments,
 idle machine, 2026-11-25), it was taken under load (load average 20–40) and is
 pessimistic and noisy (±30% typical, more for 32-thread and cold-I/O runs). Relative
 orderings were stable. Extrapolations are marked as such. Code and raw results are in
-`~/graphlab/exp/<experiment>/`.
+`lab/<experiment>/` (raw files under `results/`).
 
 ---
 
@@ -21,7 +21,22 @@ orderings were stable. Extrapolations are marked as such. Code and raw results a
    permissively licensed package. The closest map prior art: Uncharted Salt/Aperture-Tiles
    (Spark/HBase, 2.3M nodes / 9.9M edges, archived 2023, "patent pending" in 2015 — needs a
    patent check) and MSAGLJS tile pyramids (arXiv 2605.17498, May 2026: 32,768 nodes /
-   236,978 edges).
+   236,978 edges). *Note 2026-11-25:* the literature reviews (`docs/research/README.md`,
+   A1) found more prior art for the parts:
+   - Uncharted's pipeline (Langevin et al. 2015): Louvain hierarchy → recursive in-parent
+     layout → data-tile pyramid → web map;
+   - a fan-out cap of 64 and recursive re-clustering (ASK-GraphView 2006);
+   - compressed adjacency faster than raw in parallel (Ligra+ 2015);
+   - Elias–Fano offsets (webgraph-rs);
+   - seeded relabelling (DSLM 2018);
+   - refusal before a run (Neo4j GDS).
+
+   What remains ours is the combination. Within it, three properties were found nowhere
+   else:
+   - identity across threads, budgets, regimes and view representations;
+   - a deterministic, budgeted text → CSR build;
+   - a 1.8 B-edge map under a budget with declared omissions (an aim; not yet run end
+     to end, § M1-01).
 2. **The incumbent bar rose in 2026.** Gephi 0.11 claims up to 10M elements with a new
    OpenGL engine (vendor claim). DuckDB 2.0 recursive CTEs with `USING KEY` claim ~40× on
    reachability. Grafeo (Rust, Apache-2.0, embeddable, WASM, GQL) and LadybugDB (Kùzu fork,
@@ -29,7 +44,11 @@ orderings were stable. Extrapolations are marked as such. Code and raw results a
    reproducibility — not on drawing 10^6 points.
 3. **Determinism is feasible and a differentiator.** Recipes: Mt-KaHyPar synchronized move
    application (arXiv 2112.12704); LD-Leiden snapshot + per-thread buffers + serial commit
-   (arXiv 2502.18497).
+   (arXiv 2502.18497). *Note 2026-11-25 (`docs/research/sota-kernels.md`,
+   `sota-communities.md`):* LD-Leiden is repeatable only per thread count, not
+   deterministic. Deterministic sub-round local moving is itself prior art (Mt-KaHyPar-SDet
+   2022, DSLM 2018). What no work read offers is a Leiden, refinement included, that gives
+   identical bytes for any thread count, platform and memory budget.
 4. **Beyond-RAM is backed by literature.** ACGraph (SIGMOD'25): semi-external, 4 KB blocks,
    async io_uring. GBBS: compression lets 225B edges fit in 330 GB. Cologni & Vigna (WAW
    2026): new webgraph-rs codecs up to 15% smaller than BV, up to 54% faster random access
@@ -156,6 +175,9 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   10.8 s at 32t (whole dictionary with its key store 19.4 s), 2.61 bits/key (163 MB), forward lookup 0.56 µs, batch mapping 132 M/s unverified. Front-coded sorted
   blocks give prefix search (3 µs) at 18 B/key for URL-like keys. Ingest bottleneck is
   the first dedupe pass: 15 M keys/s (≈4 min per 3.6B endpoints, extrapolated).
+  *Note 2026-11-25 (D8, ADR 0008, #34):* the product does not use the `ptr_hash` crate;
+  it implements the same construction in the workspace. The MPHF numbers above belong to
+  the crate, not to that implementation.
 - **Point queries on mmapped *uncompressed* CSR, warm, single thread (p50), shared machine:**
   degree/neighbors 0.1–0.6 µs; common neighbors 0.4–0.8 µs; 3-hop with 10k budget
   56–115 µs; bidirectional BFS 0.3 ms (lj), 0.6 ms (orkut), 1.5 ms (twitter). p99 tails
@@ -173,6 +195,9 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
 - **Directed graphs:** CSC costs +4.23 B/arc (twitter +6.2 GB), built in 12.3 s at 32t.
 - **Properties:** duplicate small hot columns per CSR entry; edge-id indirection makes
   weighted PageRank 1.7× (4 threads) to 2.1× (32 threads) slower — one kernel, orkut.
+  *Note 2026-11-25 (ADR 0028):* the adjacency stores pairs, so a hot column is per pair
+  (indexed by entry offset) or per event (indexed by event offset), not "per CSR entry".
+  On a graph without repeated pairs the two are the same, which is the case measured.
   **Bitset masks never clearly beat the unfiltered scan** (0.91–2.09× per PageRank
   iteration); a materialized filtered CSR (47–135 ms to build on orkut at 32 threads)
   gives PageRank at 0.09× for 1% selectivity and 0.09–0.17× for 10% (4 / 32 threads), and
@@ -211,7 +236,7 @@ no hand-written SIMD. The machine was never quiet (load 10–45): the same orkut
   55.4 GB at 8 GB (the cgroup's `io.write_bytes` in every row; `temp_disk` 29.6 / 39.9 GB
   plus the CSR). The first ingest after a light period took 17.7 and 19.5 s at 32 GB
   (92–102 M edges/s; repetition 1 of `bench/results/headline/20261125T101402Z-79634d76b95b.jsonl`
-  and of `…/20261125T104322Z-79634d76b95b.jsonl`, rows 37) and used 14–16 cores on
+  and of `…/20261125T104322Z-79634d76b95b.jsonl`, row 37) and used 14–16 cores on
   average; the back-to-back repetitions after it took 27.2–30.8 s and used 7.8–9.3 of 32
   cores (rows 38–39 of the same files). So the CPU was waiting, not saturated.
   - *Cause (inference with strong support, exploratory, not in a committed result file;
@@ -343,6 +368,16 @@ diagnosed (#17). Scaled-down semi-external test (orkut,
 limit ≈ edge array): 5.6× slower; below it, 51× slower or OOM. **Semi-external community
 detection is not yet a product feature:** aggregation needs a sequential sort/bucket
 implementation and the level-1 graph must be budgeted or spilled.
+*Corrected 2026-11-25 by § M1-02 (#16, idle, Friendster, async, 1 iteration, 16 threads,
+f64 weights, compressed level 0):* the 22.6 GiB need (written "23.6 GB" earlier) is that
+of this lab's member-order aggregation, which holds the level-1 graph in memory. With
+sequential aggregation into budgeted buckets and spilled quotient graphs, the same Leiden
+runs under 16 GiB in 87.4 s, 1.17× the same algorithm in RAM (74.8 s), and under 8 GiB at
+2.34×; 0 disconnected communities
+(`bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl`,
+`…20261125T174959Z-b61036e59740.jsonl`). The orkut figures above are superseded by the
+same method: under 447 MiB (50% of the edge array) 3.10× the same algorithm in RAM, not
+5.6× or 51×. What remains is the production implementation (#60), not feasibility.
 
 Not done: twitter-sym, directed graphs, deterministic mode at 10^9 edges, quality on
 non-social graph families, Miri/TSan on the shared-memory code.
@@ -438,7 +473,7 @@ see § B1, "Write-heavy ingest is bounded by the drive's sustained write rate".
 | orkut BFS | 99 ms (1T) → 22 ms (16T) |
 | orkut k-core | 1.35 s (1T) → 0.28 s (8T) → 0.30 (16T) → 0.37 (32T) |
 | orkut triangles | 9.24 s (4T) → 1.46 s (32T) |
-| u64 vs u32 targets, PageRank f32 | 0.70 s vs 0.38 s (+85%) |
+| u64 vs u32 targets, PageRank f32 | 0.70 s vs 0.375 s (+87%) |
 | node order, PageRank f32 | original 0.38, BFS 0.38, degree 0.41, random 0.47 s |
 | Friendster PageRank f32 in RAM (mmap) | 3.37 s/iter |
 | Friendster PageRank, semi-external, no limit / 8 GB / 2 GB | 3.71 / 3.69 / 3.64 s/iter, RSS 1.35–1.47 GB, 3.9 GB/s read |
@@ -885,6 +920,12 @@ on lj (map-shaped Louvain, 8 threads), not on Friendster.
   memory reached the limit while the 15 GB mapped graph was being re-read: 1.80 TB read by
   Leiden, 2.72–2.74 TB by Louvain (rows 9, 11–12). Leiden's level-1 quotient graph alone is
   about 22 GB (arithmetic: 2.77 B entries × 8 B, from the 56 GiB warm-up log).
+  *Addressed in the lab, 2026-11-25 (§ M1-02, #16; Friendster, async, 1 iteration, 16
+  threads, compressed level 0, not b2's raw CSR at 32 threads):* with sequential
+  aggregation and quotient graphs spilled as compressed stores, Leiden completes under
+  16 GiB in 87.4 s (1.17× the same algorithm in RAM) and map-shaped Leiden under 16 GiB in
+  164.1 s (Q 0.5900, 27 top communities). The production code is #60; layout (#67) and
+  tiles (#69) remain the blockers of this chain.
 - **The partition that fits cannot be drawn.** Plain Louvain fits (4.2 GiB anonymous;
   aggregation 74.6 s of b2's 104.3 s, `b2_louvain_plain_16G.json`), but its hierarchy has a
   parent with 18,723,769 children, the largest community 19.8 M nodes and 62 disconnected
@@ -967,3 +1008,176 @@ ingest under 16 GiB with a budget other than 8 GB; tiles under 16 GiB to complet
 deterministic or multi-iteration Leiden; the compressed default storage (the lab binaries
 read raw CSR); `fsync`; frame-time headroom (vsync-capped); a viewer without a GPU.
 Repetitions: 1 for the expected-OOM cases and for tiles, 2 for communities and layout.
+
+---
+
+## M1-02 — out-of-core Leiden (#16; 2026-11-25, idle machine)
+
+Code `lab/m1-02-ooc-leiden`; spec `bench/specs/ooc-leiden.toml`; official runs
+`bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl` (25 rows, revision
+e501e2c) and `…20261125T174959Z-b61036e59740.jsonl` (the same-algorithm in-RAM reference,
+6 rows, revision b61036e, which differs from e501e2c only by the review fixes), each with
+its `.program.jsonl` (per-pass phases, bytes read and written, accountant report, hashes);
+0 disturbed rows. Exploratory records in `lab/m1-02-ooc-leiden/results/`. Times below are
+medians of the counted repetitions (1–3 per case).
+
+**Setup.** Friendster, async Leiden, 1 iteration, 16 threads, f64 weights, level 0 in the
+D4 compressed store; kernel time only (no open, no evaluation). Out of core = cold private
+copy, mmap without pre-fault, sequential aggregation into range-partitioned buckets (RAM
+while the accountant allows, else files), quotient graphs as compressed stores on disk,
+every large allocation reserved in an accountant stub (budget 0.80 × limit − 64 MiB).
+Reference: the same algorithm in RAM (nothing spilled, warm, `--ooc --budget-gb 40` under
+48 GiB): 74.8 s (74.4–75.5, 3 repetitions), Q 0.6038 (0.6034–0.6055), anonymous peak
+29.0 GiB, 27.3 GB of buckets held in RAM. The member-order `--lowmem` aggregation takes
+100.1 s (2 repetitions); M1-13's default member-order aggregation took 82.0 s with no
+limit (`lab/m1-13-compressed/results/leiden_big.jsonl`) and is OOM-killed under 48 GiB
+(exit 137, `lab/m1-02-ooc-leiden/results/default_agg_oom.jsonl`, exploratory).
+
+**Results**, against the same-algorithm reference (in brackets: against `--lowmem` 100.1 s
+and against M1-13's 82.0 s):
+- 34 GiB: 77.1 s (1.03×; 0.77×, 0.94×);
+- 16 GiB: 87.4 s (1.17×; 0.87×, 1.07×), anonymous peak 8.9 GiB;
+- 8 GiB: 175.3 s (2.34×; 1.75×, 2.14×), anonymous peak 4.8 GiB;
+- 5 GiB: 215.8 s (2.88×; 2.16×, 2.63×), 1 repetition;
+- 4 GiB: 260.9 s (3.49×; 2.61×, 3.18×), anonymous peak 2.7 GiB, 1 repetition.
+
+0 disconnected communities in every row. Async Q 0.598–0.607 with block order, in RAM and
+out of core alike (two of the eight out-of-core block-order repetitions are below 0.60:
+0.5981 at 16 GiB, 0.5979 at 8 GiB). Deterministic Leiden gives the same partition in RAM
+(`--lowmem`, 107.3 s) and under 16 GiB (97.0 s): hash `2a12e5882874c38d`, Q 0.6055, 44,641
+communities. On lj and orkut, deterministic, the hashes in RAM and out of core at 0.25,
+0.3 and 0.6 GiB budgets are equal (`44ae14c7774277eb`, `ca792d246e7f461f`), with
+`--check-agg` confirming every level's quotient graph equal to the member-order aggregation
+(6 of 6 levels), and lj also at 1 and 4 threads (`results/determinism.jsonl`, exploratory).
+Map-shaped orkut gives the same hash and byte-identical level files in RAM and out of core
+(`results/map_identity.jsonl`, exploratory).
+
+**Costs.** Level-0 aggregation takes 1.62× its in-RAM time at 16 GiB (26.3 s against
+16.2 s) and 1.94–2.01× at 8–4 GiB, because 20–27 GB of buckets go to files and are read
+back (`bucket_disk_bytes`). Below 16 GiB, level-0 local moving with ADR 0015's
+block-permuted order re-reads the store (10.4 GB) 6.0×, 8.7× and 12.8× per sweep at 8, 5
+and 4 GiB (103.4, 121.0 and 150.2 s of local moving against 35.2 s; 406, 545 and 799 GB
+read). At 16 and 34 GiB level 0 reads about nothing: the store read by the strengths pass
+stays cached. **Smallest budget within 2.5× of the same algorithm in RAM: 8 GiB** (5 GiB
+only against `--lowmem`). The accountant's reservations exceed the measured anonymous peak
+(the gap is reserved headroom); no row exceeded its limit; demotion of RAM buckets to files
+and waits on memory occur in no official row (`demoted_bytes` and `mem_waits` 0), only in
+unit tests and one reviewer reproduction on lj.
+
+Map-shaped Leiden (cap 64, compaction 3), which b2 could not run at 56 GiB (§ M1-01), runs
+under 16 GiB in 164.1 s, Q 0.5900, 27 top communities, anonymous peak 10.9 GiB; no in-RAM
+reference exists. orkut under 447 MiB (50% of its raw edge array): 6.01 s, 3.10× the same
+algorithm in RAM (1.94 s) and 3.42× `--lowmem` (1.76 s); Q 0.6799; anonymous peak 0.23 GiB
+(the old lab: 5.6× near the edge-array size, 51× or OOM below it, § B2).
+
+**Survey ideas.** A seeded relabelling plus storage-order visits (L1) reads one store per
+sweep and runs Friendster in 95.4 s under 8 GiB and 107.2 s under 4 GiB (1.28× and 1.43×
+the block-order same-algorithm reference) with Q 0.611 (0.6097–0.6118); its own in-RAM run
+(`--lowmem`) takes 95.0 s. Its costs are compression (+5% on Friendster, +16% orkut, +26%
+lj; `results/stores.jsonl`) and, in exploratory runs (`results/orders.jsonl`), in-RAM time
+1.21–1.22× on lj and orkut and modularity −0.3 points on lj and −1.7 on orkut. Id order on
+Friendster's original ids is unstable (Q 0.558–0.612, 3 exploratory runs,
+`results/friendster_idorder.jsonl`). L1's comparison is confounded (ids and order change
+together; one graph, one seed; deterministic mode not measured); it is under study in
+`plan/issues/m1-14-relabel-at-ingest.md` (#146), and ADR 0015 is unchanged. Windowed permutation
+(L2) loses the quality of block order unless the window covers the graph; at level 0, L3
+finds no inactive blocks (`results/orders.jsonl`); never building level 1 (L4) would cost
+about 3× the spill path (arithmetic on official numbers, not measured). L5 not tested.
+
+**Not measured.** twitter-sym and other graph families; more than one iteration;
+deterministic mode below 16 GiB; a same-algorithm in-RAM reference for L1 or deterministic
+mode; thread counts other than 16 on Friendster; more than 2 async repetitions per budget;
+weighted inputs (exactness across budgets relies on integer weights); a disk budget (a full
+disk is refused with exit 5, not planned for).
+
+## M1-20 — LDBC Graphalytics as oracle and workload (#177; 2026-11-26, shared machine)
+
+Correctness only: **these are not LDBC Benchmark Results**, and no time below is a
+measurement (shared machine, load average about 20). Code: the oracle module
+`crates/everygraph-oracle/src/ldbc/` (`everygraph-oracle ldbc`), the lab tool
+`lab/m1-20-ldbc-graphalytics` (lab/b1-core kernels); every row is in
+`lab/m1-20-ldbc-graphalytics/results/*.json`, reproduced by its `run.sh`. Data:
+registry datasets `ldbc-test` (14 graphs), `ldbc-graph500-22`, `ldbc-dota-league`,
+`ldbc-com-friendster`, SHA-256 pinned. Match rules of specification v1.0.5 § 2.4: exact
+(BFS, CDLP), equivalence (WCC), `|r − s| ≤ 1e-4 |r|` (PR, LCC, SSSP). 8 threads, 8 GB
+limit unless stated.
+
+| Algorithm | Implementation | Test graphs (14) | graph500-22 | dota-league | com-friendster |
+|---|---|---|---|---|---|
+| all six | `spec` (the specification, written in the oracle) | match (every algorithm each graph lists) | match (five; unweighted, no SSSP) | match (all six) | match: BFS, WCC, PR, CDLP in RAM (20 GB limit); LCC not run |
+| PR | lab PageRank f64 | match (undirected); skipped (directed: cause 1) | match, 2.9e-14 | match, 1.1e-14 | match, 2.9e-14, in RAM and streamed under 8 GB |
+| PR | lab PageRank f32 | match by value, 3.6e-7 (undirected) | match by value, 4.8e-6 | match by value, 1.3e-6 | match by value, 6.5e-6, in RAM and streamed |
+| PR | oracle reference (S1 fixed point) | mismatch on the two example graphs (cause 2); match on test-pr-* | not run (> 2^20 edges) | not run | — |
+| WCC | lab Afforest and stream union-find | match (directed via merged lists) | match | match | match: Afforest and stream in RAM, semi-external under 8 GB |
+| WCC, BFS, SSSP | oracle references | match | not run | not run | — |
+| BFS | lab direction-optimizing BFS | match (undirected); **mismatch** on example-directed (6 of 10) and test-bfs-directed (5 of 10): cause 3 | match | match | match in RAM, and on the mapped CSR under 8 GB |
+| LCC | oracle reference (clustering, S3) | match (undirected); **mismatch** on example-directed and test-lcc-directed (6 of 10 each): cause 4 | not run | not run | — |
+| BFS, WCC, PR | edge-map proof kernels (`everygraph-kernels::proof`, #202): raw arrays and streamed targets, 1 and 8 threads | match; BFS on directed graphs too (all steps top-down there); PR on undirected graphs only (cause 1, ported) | match, the same bits in all four configurations | match, the same bits | not run (the test reads the LDBC text: 26 min) |
+| CDLP | `spec` with labels in first-appearance order | **mismatch** on 3 of 4 graphs (cause 5) | **mismatch**, 2,395,176 of 2,396,657 | match | — |
+
+Causes of every mismatch:
+1. **The lab PageRank needs symmetric lists.** It pulls over the CSR it divides by, so the
+   out-degree and the in-lists are the same array. It cannot run a directed graph.
+2. **Stopping rule, not formula.** LDBC runs a fixed number of iterations (2 on the example
+   graphs); the oracle's reference and S1 (`docs/spec/graph-semantics.md` § 5.1) define the
+   fixed point. The formulas agree: S1 with uniform teleport and sinks spread uniformly
+   equals LDBC's equation 2.3 (the `spec` PageRank run for 300 iterations equals the S1
+   reference within 1e-9 on every generated graph, property test in
+   `crates/everygraph-oracle/tests/ldbc.rs`). A conforming PageRank needs a fixed
+   iteration count with no convergence stop. Oddity: on test-pr-directed (14 iterations)
+   the reference equals the fixed point (relative error 5.9e-16) better than 14 iterations
+   (1.3e-6); on test-pr-undirected (26 iterations) it equals 26 iterations (5.9e-8 against
+   1.2e-5). Both pass the rule.
+3. **The lab BFS assumes symmetric lists.** Its bottom-up step reads a vertex's out-list as
+   if it were its in-list, so on a directed graph it follows edges backwards. A directed
+   bottom-up step needs the in-lists.
+4. **Directed LCC is a different definition.** LDBC counts arcs between neighbours over
+   `|N|(|N| − 1)` (§ 2.3.5); our clustering (S3) uses the undirected projection. On a
+   directed graph LDBC's value lies between half of ours and ours. An LDBC mode needs the
+   arc count per neighbour pair (the `spec` LCC keeps two bits per merged entry).
+5. **CDLP depends on the initial-label order.** With initial labels in order of first
+   appearance in the edge file, ties go elsewhere. The CDLP decision in
+   `design/DECISIONS.md` ("position in the original key order") matches LDBC only if, for
+   integer keys, that order is increasing id order. dota-league matches only because its
+   edge file lists sources in increasing id order.
+
+**PageRank precision.** f32 passes the 1e-4 rule by value on the graphs measured (largest
+relative error 6.5e-6 on com-friendster), but the specification forbids
+single precision outright (§ 2.2.1: "We explicitly do not allow the single precision
+format"). So the f32 default of m3-04 does not qualify, whatever its error.
+
+**Data-set defects found.** test-sssp-undirected and test-wcc-directed (archives of
+2023-03-05) name the vertex file as the edge file in their `.properties`; the reader
+always reads `<g>.v` and `<g>.e` and reports the property.
+
+**com-friendster, the first large-graph references for "the same result for any
+budget".** LDBC's com-friendster is SNAP's graph with the same ids: the CSR built from
+LDBC's files is byte-identical to the lab's CSR of the SNAP file (ids, offsets and the
+3,612,134,270 targets compared with `cmp`). Each lab kernel gave the same bits in RAM
+(CSR read into the heap, 20 GB limit) and under an 8 GB limit with the CSR evicted from
+the page cache first (semi-external PageRank and WCC, BFS on the mapped CSR; peak resident
+8.37 GB including mapped pages, below the 14.4 GB of lists): equal FNV-1a hashes of the
+result bits per kernel, in `lab-com-friendster-heap.json` and
+`lab-com-friendster-stream-8g.json`, and every result matches LDBC. The `spec` and lab
+PageRank f64 differ in their last bits (summation order) and both pass the rule (3.5e-14
+and 2.9e-14). Not run: the `spec` sequential BFS on the mapped CSR under 8 GB, which
+visits lists in queue order; it read 175 GB in 10 minutes without finishing, and was
+killed.
+
+**Proposed `ldbc` profile for m3-11.** CI (every pull request, in the oracle job): the 14
+test graphs, all six algorithms, the `spec` and oracle references, expected outcomes
+pinned in `oracle/ldbc-expected.json`; about 1 s of compute after a 10 kB download.
+Nightly: graph500-22 and dota-league, all six algorithms (about 5 min on the shared
+machine, exploratory: reading 44 s, LCC 225 s, the rest under 15 s; 330 MB download).
+Weekly, or before a release: com-friendster, BFS, WCC, PageRank and CDLP, in RAM and under
+8 GB. On the shared machine, exploratory: reading the 32 GB edge text took 26 min (the
+reader is sequential, so the CSR is built once and kept); the `spec` CDLP took 8–11 min and
+the `spec` PageRank 4–5 min; the lab kernels took seconds to minutes. Each product kernel
+joins the profile by calling `everygraph_oracle::ldbc::run::row` on its result, as the proof
+kernels do in `crates/everygraph-kernels/tests/ldbc.rs` (CI and nightly run it).
+
+**Not done.** LCC on com-friendster (the `spec` LCC would need about 25 GB there, an
+estimate: 14.4 GB of lists and 9 GB of forward lists), and CDLP and PageRank `spec` under
+a budget; SSSP on a large graph other than dota-league; directed graphs
+above the test size (twitter_mpi, cit-Patents, wiki-Talk); the edge-map proof kernels on
+com-friendster; any timing for the record.

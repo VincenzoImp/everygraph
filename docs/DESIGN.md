@@ -2,7 +2,10 @@
 
 Status: design baseline, 2026-11-24; D4 amended 2026-11-25 (ADR 0004, #118); promise 1
 restated 2026-11-25 with the harness's ingest measurements (ADR 0026); § 5 and § 6 annotated
-2026-11-25 with the tracer bullet (#15). Every decision below cites the measurement that
+2026-11-25 with the tracer bullet (#15); prior art in § 2 and two § 6 targets restated
+2026-11-25 from the literature review (`docs/research/README.md`); D7 amended 2026-11-25
+(#28, ADR 0027: one file in every state); D9 amended 2026-11-25
+(ADR 0028: pairs in the adjacency, events beside it). Every decision below cites the measurement that
 supports it (see [FINDINGS.md](FINDINGS.md)); decisions without a measurement are marked
 **unvalidated**. Numbers are from one workstation (Ryzen 9 7950X, 61 GB RAM, NVMe).
 
@@ -66,6 +69,39 @@ four things nobody else offers together: graphs above 10^8 edges on a workstatio
 laptop, a hierarchical map down to single nodes, a hard memory budget, and reproducible
 results. It does not try to beat Gephi at styling 10^4 nodes or Neo4j at Cypher.
 
+Most of the parts are prior art (checked 2026-11-25, `docs/research/README.md` A1):
+
+- a hierarchical map served as data tiles: Uncharted / Aperture Tiles, Langevin et al. 2015;
+- a fan-out cap of 64: ASK-GraphView 2006;
+- compressed adjacency faster than raw in parallel: Ligra+ 2015;
+- recursive sub-clustering of oversized communities: ASK-GraphView, hierarchical Infomap,
+  graspologic;
+- Elias–Fano offsets: webgraph-rs;
+- seeded relabelling of the node order: DSLM 2018;
+- planning and refusing before a run: Neo4j GDS memory estimation.
+
+What we can claim, because no work we read does it:
+
+- identical results across thread count, memory budget, execution regime and view
+  representation — new for graph engines as far as read; the concept is not new
+  elsewhere: decomposition-invariant sums in HPC (Hallberg–Adcroft 2014) and data
+  independence of floating-point aggregation in databases (Müller et al. 2018;
+  `docs/research/sota-numerics.md` § 5, `docs/research/README.md` N7);
+- a deterministic, budgeted text → CSR build;
+- a map of a 1.8 B-edge graph on one machine, under a budget, byte-identical, with declared
+  omissions (the aim; not yet demonstrated end to end, § 5 item 1);
+- one seeded permutation for storage, layout and visiting order. The ordering itself is
+  not new (Rabbit Order, LLP); reusing the product's own hierarchy for all three is.
+
+Two more claims hold only in part:
+
+- the planner's raw decode-cache tier with its break-even rule (probably new as a planner
+  policy; the reasoning is standard);
+- a planned, typed refusal before work starts. Neo4j GDS also refuses before a run;
+  DuckDB and Velox fail mid-run.
+
+The map's super-level rule is our heuristic; no prior art was found for it.
+
 ## 3. Architecture
 
 ```
@@ -95,7 +131,8 @@ results. It does not try to beat Gephi at styling 10^4 nodes or Neo4j at Cypher.
 
 Crates: `everygraph-core` (types, memory accountant, parallel facade, ByteSource — no file
 system, no mmap, no OS threads assumed), `-io`, `-format`, `-ingest`, `-kernels`,
-`-community`, `-map`, `-query`, `-py`, `-cli`, `-wasm`, `-bench`; the viewer is a separate
+`-community`, `-map`, `-query`, `-py`, `-cli`, `-wasm`, `-bench`, and `-oracle` (the
+independent correctness oracle, a test tool, not product code); the viewer is a separate
 TypeScript package.
 
 ## 4. Decisions
@@ -108,14 +145,14 @@ TypeScript package.
 | [D4](adr/0004-compressed-adjacency-default.md) | **Compressed adjacency is the default storage:** per-node delta + Stream VByte records in node-aligned ~64K-edge blocks, 4 KiB-aligned sections; own codec (~400 lines). Conditions (amended 2026-11-25 by #118): per-node Elias–Fano byte offsets (not block offsets only); an Elias–Fano index of entry offsets in the format; sequential access decodes batches of lists in the edge-map framework; budgeted queries decode list prefixes; raw CSR is an in-RAM decode cache that the planner builds only for sessions of repeated traversals or point lookups that fit the budget and repay the decode. | End to end on an idle machine (#118; lj, orkut, twitter-sym, Friendster; same binary, raw vs compressed, graphs in RAM): 16.1–18.1 bits/edge, Friendster 23.2 (raw 32.8–35.7); compressed ÷ raw time at 16 threads PageRank 0.73–0.97, Leiden (one iteration, async and deterministic) 0.99–1.04, WCC 0.88–1.43, BFS 1.20–1.52 (1 thread: BFS 1.78–2.04, PageRank on lj 1.24–1.40); neighbour lookup +0.02–0.11 µs, 1 thread; under a cap the raw arrays exceed, PageRank 1.2–1.9× and Friendster WCC/BFS 5.4–8.8× faster compressed. The first lab's "raw PageRank 2× faster on orkut" (shared machine) is not reproduced. Not validated: web graphs, weighted or directed kernels, ingest writing the format, out-of-core streaming on it, point-query throughput at 16 threads. | accepted, partly validated (#46, #35, #24, #90) |
 | [D5](adr/0005-webgraph-optional.md) | **webgraph-rs is an optional feature** (BV import/export, LLP ordering, archival tier for web graphs), not the core codec. | BV: 2.1 bits/edge on web graphs but 5.0–21.9× slower sequential decode (9.1–21.9× on social graphs; 1 and 32 threads, shared machine); native deps make WASM unlikely (judged, not tried); 4 breaking releases in a year. | accepted |
 | [D6](adr/0006-in-adjacency.md) | **Directed graphs store out- and in-adjacency**; the in-adjacency is a derived artifact. | CSC built in 12.3 s for 1.47 B arcs (twitter-2010, 32 threads, shared machine); needed for in-neighbors and directed bidirectional BFS. | accepted |
-| [D7](adr/0007-eg-container.md) | **One `.eg` file per graph:** section table, content-hashed sections, derived artifacts appended, `compact` to reclaim space. Maps are exported as a separate standard PMTiles v3 file. | PMTiles v3 with custom payload works and is readable by the official reader. The `.eg` container itself is **unvalidated**. | accepted, partly validated (#28) |
-| [D8](adr/0008-id-dictionary.md) | **ID dictionary: typed keys + minimal perfect hash.** Integers → rank bitmap; hex → fixed-width bytes; strings → MPHF (`ptr_hash`) + id-ordered key store; optional front-coded index for prefix search. No FST by default. | MPHF over 500 M keys built in 10.8 s at 32 threads (whole dictionary with key store 19.4 s), 2.6 bits/key, 0.56 µs lookup; batch mapping 132 M/s in one unverified run; FST 1.9× raw size on random binary keys (0.28× on URL-like keys), single-threaded build. Shared machine. | accepted, partly validated (#34, #25) |
-| [D9](adr/0009-property-columns.md) | **Properties are Arrow-compatible columns.** Small hot columns (weight, timestamp) duplicated per adjacency entry; wide/cold columns once per edge behind a u32 edge id. | Edge-id indirection makes weighted PageRank 1.7× (4 threads) to 2.1× (32 threads) slower — one kernel, orkut, shared machine. | accepted, partly validated (#37) |
+| [D7](adr/0007-eg-container.md) | **One `.eg` file per graph, in every state** (builds in progress write `NAME.eg.partial` and keep intermediates in the job's scratch; [ADR 0027](adr/0027-single-file-builds.md)): a table of contents behind two alternating header blocks, BLAKE3-hashed sections, derived artifacts appended and committed by a crash-safe protocol, `compact` to reclaim space (`docs/spec/eg-container.md`). Maps are exported as a separate standard PMTiles v3 file. | PMTiles v3 with custom payload works and is readable by the official reader. Container (#28, tests, no timing): opening costs two reads on a synthetic 15 GB file; a crash at every write step, under every image the sync model allows (argued, not measured on hardware), leaves the previous or the new commit with every section the file held unchanged, and so does a real `kill -9` (process death only); an independent Python reader lists and verifies a file written by Rust. | accepted |
+| [D8](adr/0008-id-dictionary.md) | **ID dictionary: typed keys + minimal perfect hash.** Dense integers in sorted order (all in `0..2^32`, largest + 1 ≤ 64 × count) → rank bitmap; hex, UUID, base58 and fixed-size binary keys → fixed-width bytes; other keys → MPHF (the `PtrHash` construction, implemented in the workspace: the `ptr_hash` crate's output differs from run to run and it fails `cargo deny`; amended 2026-11-25 by #34) + id-ordered key store; optional front-coded index for prefix search. No FST by default. | With the replaced `ptr_hash` crate (lab, shared machine): MPHF over 500 M keys built in 10.8 s at 32 threads (whole dictionary with key store 19.4 s), 2.6 bits/key, 0.56 µs lookup; batch mapping 132 M/s in one unverified run — these belong to the crate. The implementation that replaced it, official run (16 threads, idle; `bench/results/id-dictionary/20261125T220117Z-c855fdd77cf9.jsonl`): 65 M hex keys built in 9.3–10.0 s at 2.61 bits/key, 3.6 B mappings in 34–38 s; the 500 M-key build under a 4 GiB budget was OOM-killed (#34 stays open). FST 1.9× raw size on random binary keys (0.28× on URL-like keys), single-threaded build. | accepted, partly validated (#34, #25) |
+| [D9](adr/0009-property-columns.md) | **Properties are Arrow-compatible columns.** The adjacency stores pairs; a pair's events are found through the adjacency's `.events` offsets ([ADR 0028](adr/0028-pairs-and-events.md), amended 2026-11-25). Small hot columns aligned with each adjacency (duplicated across its ends): per event (timestamp, each row's weight) by event offset, per pair (the pair aggregates kernels read) by entry offset; wide/cold columns once per edge behind an edge id (itself a per-event column; u64 from 2^32 events). | Edge-id indirection makes weighted PageRank 1.7× (4 threads) to 2.1× (32 threads) slower — one kernel, orkut, shared machine. | accepted, partly validated (#37, #35) |
 | [D10](adr/0010-views-mask-or-materialize.md) | **Views: mask or materialize, chosen by the planner.** A bitset mask or a materialized filtered CSR; the planner's rule is derived from a measured crossover by #93 (the earlier ~25% selectivity threshold was not a measurement). | orkut, shared machine: a bitset mask never clearly beats the unfiltered scan (0.91–2.09× per PageRank iteration); a materialized view runs PageRank at 0.09× (1%) and 0.09–0.17× (10%; 4 / 32 threads) and costs about 1–2.5 unfiltered iterations to build. It was faster per iteration than the mask at every selectivity measured (1–90%); the mask saves build time and memory. | open — needs experiment (#93) |
-| [D11](adr/0011-execution-regimes.md) | **Three execution regimes, chosen by the size of the O(n) state, not of the graph:** mmap warm (the only "in-RAM" mode), mmap under pressure, semi-external streams with fixed RSS. A memory accountant backs a no-OOM guarantee. | mmap-warm = heap; Friendster PageRank f32 within ~10% under 8 GB and 2 GB limits (idle, 32 threads); components 10× slower out of core (I/O-bound); the only OOM was O(n) state at 1 GB. For Leiden the dominant memory is the level-1 quotient graph, not the O(n) state. | accepted, partly validated: iterative scans yes; community detection open (#16) |
+| [D11](adr/0011-execution-regimes.md) | **Three execution regimes, chosen by the size of the O(n) state, not of the graph:** mmap warm (the only "in-RAM" mode), mmap under pressure, semi-external streams with fixed RSS. A memory accountant backs a no-OOM guarantee. | mmap-warm = heap; Friendster PageRank f32 within ~10% under 8 GB and 2 GB limits (idle, 32 threads); components 10× slower out of core (I/O-bound); the only OOM was O(n) state at 1 GB. For Leiden the dominant memory is the level-1 quotient graph, not the O(n) state; with it spilled, one Leiden iteration on Friendster runs under 16 GiB at 1.17× and under 8 GiB at 2.34× the same algorithm in RAM (lab, #16, idle, 16 threads). | accepted, partly validated: iterative scans yes; community detection in the lab, one case (#16), production #60. Regime 2 for random access: amendment proposed in [ADR 0029](adr/0029-random-access-under-a-budget.md) (an explicit budgeted cache, per-phase `MADV_RANDOM` until it exists); this row's decision text changes when that ADR is accepted |
 | [D12](adr/0012-edge-map-framework.md) | **One edge-map framework** so each kernel is written once for all regimes and for WASM (many short calls). | PageRank loop body identical for slices and streams (copied in the prototype, not shared); V8 keeps a one-shot kernel in the baseline tier (4.6× slower: lj, 1 thread, Chromium, shared machine). | accepted, partly validated (#44) |
 | [D13](adr/0013-threads-per-kernel.md) | **Thread count is chosen per kernel.** Physical cores for memory-bound scans; all hardware threads for compute-bound kernels. | From 16 to 32 threads (idle): no gain for PageRank, components, BFS, k-core on orkut; triangles 2.51 → 1.46 s; async Louvain on orkut 0.88 → 0.65 s. Not general: async Leiden on lj 0.76 → 0.78 s, and every deterministic community run is slower at 32 (lj and orkut). Friendster PageRank looked flat beyond 8 threads, but only on a loaded machine. | accepted, partly validated (#22) |
-| [D14](adr/0014-deterministic-by-default.md) | **Deterministic by default.** Same input + seed → same output for any thread count, any platform, any memory budget and whichever way the planner executes it (in memory or out of core; a view as a mask or materialized). The planner never substitutes a lower-precision variant by itself. Not covered: results cut short by `timeout`, and the opt-in `fast` mode for community detection. Widened on 2026-11-25 (`design/DECISIONS.md`, "What 'repeatable' promises"); narrowed only by ADR. | Leiden/Louvain hashes identical at 1–32 threads (lj, orkut); layout and tiles byte-identical; PageRank and components agree across native and wasm; identity across budgets and regimes not yet measured (tests: #54, #45, #47, #48, #93; the case that could narrow it: out-of-core Leiden, #60); cost at 16 threads (idle machine): Leiden 2.4–3.0×, Louvain 1.4–2.0×. | accepted, partly validated (#18, #54, #60); cost above target |
+| [D14](adr/0014-deterministic-by-default.md) | **Deterministic by default.** Same input + seed → same output for any thread count, any platform, any memory budget and whichever way the planner executes it (in memory or out of core; a view as a mask or materialized). The planner never substitutes a lower-precision variant by itself. Not covered: results cut short by `timeout`, and the opt-in `fast` mode for community detection. Widened on 2026-11-25 (`design/DECISIONS.md`, "What 'repeatable' promises"); narrowed only by ADR. The supported platforms are x86-64 (any `target-cpu`), aarch64, i686 with SSE2 and wasm32 without `relaxed-simd`; i586/x87 and 32-bit ARM NEON floating point are not among them (Rust RFC 3514; `docs/research/README.md` N6). | Leiden/Louvain hashes identical at 1–32 threads (lj, orkut); layout and tiles byte-identical; PageRank and components agree across native and wasm; identity across budgets and regimes not yet measured (tests: #54, #45, #47, #48, #93; the case that could narrow it: out-of-core Leiden, #60); cost at 16 threads (idle machine): Leiden 2.4–3.0×, Louvain 1.4–2.0×. | accepted, partly validated (#18, #54, #60); cost above target |
 | [D15](adr/0015-leiden-visiting-order.md) | **Leiden with block-permuted visiting order and an explicit connectivity guarantee**; 1 iteration = fast, 3 = quality. | Order matters more than Louvain vs Leiden: id order costs 2.0–2.1 modularity points at one iteration (idle, 16 threads; 2.6–4.2 in earlier shared runs), the two algorithms differ by ≤ 0.4; block order takes 1.38–1.63× the time; 3 iterations land within 0.74% of the best reference (lj, orkut). | accepted, partly validated: 2 social graphs (#24, #57) |
 | [D16](adr/0016-two-community-outputs.md) | **Two community outputs:** the partition (best modularity) and the map hierarchy (fan-out capped, levels compacted). | Natural hierarchies have parents with up to 102,821 (lj) and 338,769 (orkut) children; the cap costs 2.3–5.0 modularity points (idle, 16 threads). | accepted, partly validated; shaping still weak (#19) |
 | [D17](adr/0017-layout-disc-packing.md) | **Layout = hierarchy-constrained disc packing**, deterministic. | 3.3 s for 4 M nodes (lj, 32 threads, shared machine); median edge length ÷ random-pair distance 0.014 vs 0.244 for an embedding layout (a blob); node discs cover about 1–3% of the map (estimate, not measured). | accepted, partly validated (#21) |
@@ -140,22 +177,40 @@ exact page.
 
 These are the reasons the first milestone after foundations is a second lab round.
 
-1. **Out-of-core community detection.** Leiden on Friendster needs 22.6 GiB of anonymous
-   memory (32 threads); Louvain fits in 3.8 GiB under a 16 GiB limit but returns a poor
-   partition (Q 0.465 vs 0.603). The headline "1.8 B edges → map on a 16 GB laptop" has not been
-   demonstrated end to end.
-   *Measured end to end on 2026-11-25 (#15, FINDINGS § M1-01; Friendster, lab binaries,
-   32 threads, idle, uncompressed CSR, `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`):
-   the chain does not complete under 16 GiB.* Three blockers, each with its owner:
-   - *Community detection with a map-shaped hierarchy.* Leiden and fan-out-capped Louvain
-     are killed in the first aggregation, after the local moves, while thrashing on the
-     mapped graph (1.8–2.7 TB read). With hierarchy output the prototype keeps every
-     level's quotient graph in memory, and capped coarsening shrinks slowly: capped Leiden
-     is killed even at 56 GiB, capped Louvain completes there at a 42.9 GiB anonymous peak
-     (28.3 GiB before writing the hierarchy). Plain Louvain fits (4.2 GiB, Q 0.6038; the
-     Q 0.465 above was not reproduced, #17) but has a parent with 18.7 M children, which the
-     layout cannot use even with 56 GiB. Owners: #16 and #60 (out-of-core aggregation),
-     #19 and #63 (shaping bounded in memory), #62 (quotient graphs streamed to disk).
+1. **Out-of-core community detection: solved in the lab for one case, not yet in the
+   product** (rewritten 2026-11-25 from #16, FINDINGS § M1-02; idle machine;
+   `bench/results/ooc-leiden/20261125T160906Z-e501e2cf5727.jsonl` and
+   `…20261125T174959Z-b61036e59740.jsonl`). Case measured: one iteration of Leiden, async
+   and deterministic, on Friendster, 16 threads, f64 weights, level 0 in the D4 compressed
+   store, against the same algorithm in RAM (74.8 s). The earlier 22.6 GiB need was that
+   of member-order aggregation, which holds the level-1 graph in memory. With sequential
+   aggregation into budgeted buckets and every quotient graph spilled as a compressed
+   store:
+   - under 16 GiB: 87.4 s, 1.17×, 0 disconnected communities, async Q median 0.6014 (one
+     of two repetitions 0.5981, inside the run-to-run spread of 0.598–0.607); the
+     deterministic mode gives the in-RAM partition (same hash, Q 0.6055);
+   - under 8 GiB: 175.3 s, 2.34× — the smallest budget within 2.5×; under 4 GiB it still
+     completes, at 3.49×. Below 16 GiB the cost is level-0 local moving re-reading the
+     store 6–13× per sweep in ADR 0015's block-permuted order;
+   - map-shaped Leiden, which the tracer (#15) could not run even at 56 GiB, completes under
+     16 GiB: 164.1 s, Q 0.5900, 27 top communities.
+   What remains: the production implementation (#60); more than one iteration; the
+   deterministic mode below 16 GiB; other graph families (only Friendster at this scale,
+   orkut scaled down at 3.10×); and whether a seeded relabelling at ingest, which kept
+   Friendster at 1.28–1.43× under 8 and 4 GiB, should replace block-permuted order
+   (#146, `plan/issues/m1-14-relabel-at-ingest.md`; ADR 0015 unchanged).
+   The headline "1.8 B edges → map on a 16 GB laptop" has not been demonstrated end to
+   end. *Measured end to end on 2026-11-25 (#15, FINDINGS § M1-01; Friendster, lab
+   binaries, 32 threads, idle, uncompressed CSR,
+   `bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl`): the chain does not
+   complete under 16 GiB.* Three blockers, each with its owner:
+   - *Community detection with a map-shaped hierarchy* — addressed in the lab by #16
+     (above). In the tracer, Leiden and fan-out-capped Louvain were killed in the first
+     aggregation while thrashing on the mapped graph (1.8–2.7 TB read), and the prototype
+     kept every level's quotient graph in memory. Plain Louvain fits (4.2 GiB, Q 0.6038;
+     the § B2 Q 0.465 was not reproduced, #17) but has a parent with 18.7 M children, which
+     the layout cannot use even with 56 GiB. Owners now: #60 (out-of-core Leiden in the
+     product), #19 and #63 (shaping bounded in memory), #62 (levels streamed to disk).
    - *The layout loads the graph into the heap.* Killed under 16 GiB that way; with the
      graph memory-mapped it fits (3.7 GiB anonymous) at 5.8× the time, re-reading 733 GB.
      Owner: #67.
@@ -190,11 +245,24 @@ These are the reasons the first milestone after foundations is a second lab roun
 | 1 M-edge CSV → first map, laptop | < 10 s |
 | Friendster ingest, 8 GB budget | < 60 s |
 | Friendster PageRank under a 2 GB limit | within 1.35× of in-RAM |
-| Friendster communities under a 16 GiB limit | modularity ≥ 0.60, no OOM |
+| Friendster communities under a 16 GiB limit | no OOM; quality mode (3 iterations) within 1% of the modularity of the better of NetworKit PLM and GVE-Leiden, both run on this machine on the same graph with the same preprocessing; the fast mode's gap to that reference stated (restated 2026-11-25, see below) |
 | Same graph at 4 and 32 threads | identical partition, layout and map file |
-| Leiden quality (3 iterations) | within 1% of the best reference on 6 graph families |
+| Leiden quality (3 iterations) | within 1% of the best reference on 6 graph families; the reference is named per graph and run on this machine (lj: igraph Leiden, 0.7695 in one run, FINDINGS "Idle-machine re-runs") |
 | Map of a 1 B-edge graph from a static URL | first view < 250 KB; 60 fps on a discrete GPU, usable on integrated |
 | Any budgeted run | never OOM-killed |
+
+*Two targets restated 2026-11-25 after the literature review (`docs/research/README.md`, A2 and
+A3; `docs/research/sota-communities.md` § 3).* The Friendster target was "modularity ≥ 0.60".
+That is not a quality claim. The DSLM paper (Hamann et al. 2018, mean of 10 seeds, their
+2 × 14-core hosts) reports sequential Louvain 0.622 and NetworKit PLM 0.627 on Friendster.
+The communities review gives Grappolo 0.626. Our one-iteration results are 0.6038–0.6055
+(FINDINGS § M1-01, § M1-02). Three iterations have never been run on Friendster; #57 must
+measure them, together with the same-machine references.
+
+The lj reference for the 1% gate is igraph's 0.7695 (one run of two iterations on this
+machine). Traag et al.'s 0.7739 is the best of 10 replications × 10 iterations on their
+machine, so it is not like for like. Against it, our three-iteration 0.7647 is 1.2% below.
+The paragraphs below were written against the earlier wording.
 
 Measured against two of these targets on the default compressed storage (#118, 2026-11-25,
 idle machine, FINDINGS § M1-13) and, for the ingest, with the benchmark harness (#4,
@@ -231,6 +299,12 @@ lab binaries, Friendster, 32 threads, uncompressed CSR, FINDINGS § M1-01,
   anonymous peak, Q 0.5757) and the capped Leiden is killed. Blockers and owners:
   out-of-core aggregation (#16, #60), hierarchy shaping bounded in memory (#19, #63), the
   hierarchy's quotient graphs kept in memory (#62).
+  *Communities part measured feasible, 2026-11-25 (#16, FINDINGS § M1-02, idle, lab code,
+  Friendster, 1 iteration, 16 threads, compressed level 0):* Leiden under 16 GiB completes
+  with 0 disconnected communities at 1.17× the same algorithm in RAM; Q 0.6055 in the
+  deterministic mode, async median 0.6014 with one repetition at 0.5981; map-shaped Leiden
+  completes under 16 GiB (Q 0.5900). Not yet in the product (#60); the layout (#67) and
+  the tile builder (#69) remain. The target is unchanged.
 - *The headline "1.8 B edges → map on a 16 GB laptop"* (§ 5, item 1) also needs the
   layout never to load the graph into the heap (#67: killed in the heap; memory-mapped it
   fits, at 5.8× the time, default readahead) and a tile builder that bounds what it holds

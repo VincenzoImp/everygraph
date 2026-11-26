@@ -45,11 +45,13 @@ pub enum Family {
     DirectedSocial,
     /// Generated locally by a deterministic generator; never downloaded.
     Synthetic,
+    /// Published by a benchmark together with its reference outputs (LDBC Graphalytics).
+    Conformance,
 }
 
 impl Family {
     /// Every family, in display order.
-    pub const ALL: [Family; 8] = [
+    pub const ALL: [Family; 9] = [
         Family::Social,
         Family::Web,
         Family::Road,
@@ -58,6 +60,7 @@ impl Family {
         Family::Temporal,
         Family::DirectedSocial,
         Family::Synthetic,
+        Family::Conformance,
     ];
 
     /// The name used in the registry file.
@@ -72,6 +75,7 @@ impl Family {
             Family::Temporal => "temporal",
             Family::DirectedSocial => "directed-social",
             Family::Synthetic => "synthetic",
+            Family::Conformance => "conformance",
         }
     }
 }

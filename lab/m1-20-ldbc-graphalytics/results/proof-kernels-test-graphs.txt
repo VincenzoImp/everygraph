@@ -1,0 +1,41 @@
+  example-directed       bfs   proof/raw/1  match         0.00s  0 of 10 differ
+  example-directed       bfs   proof/raw/8  match         0.00s  0 of 10 differ
+  example-directed       bfs   proof/stream/1 match         0.00s  0 of 10 differ
+  example-directed       bfs   proof/stream/8 match         0.00s  0 of 10 differ
+  example-directed       wcc   proof/raw/1  match         0.00s  0 of 10 differ
+  example-directed       wcc   proof/raw/8  match         0.00s  0 of 10 differ
+  example-directed       wcc   proof/stream/1 match         0.00s  0 of 10 differ
+  example-directed       wcc   proof/stream/8 match         0.00s  0 of 10 differ
+  example-undirected     bfs   proof/raw/1  match         0.00s  0 of 9 differ
+  example-undirected     bfs   proof/raw/8  match         0.00s  0 of 9 differ
+  example-undirected     bfs   proof/stream/1 match         0.00s  0 of 9 differ
+  example-undirected     bfs   proof/stream/8 match         0.00s  0 of 9 differ
+  example-undirected     pr    proof/raw/1  match         0.00s  0 of 9 differ, max relative error 1.95e-16
+  example-undirected     pr    proof/raw/8  match         0.00s  0 of 9 differ, max relative error 1.95e-16
+  example-undirected     pr    proof/stream/1 match         0.00s  0 of 9 differ, max relative error 1.95e-16
+  example-undirected     pr    proof/stream/8 match         0.00s  0 of 9 differ, max relative error 1.95e-16
+  example-undirected     wcc   proof/raw/1  match         0.00s  0 of 9 differ
+  example-undirected     wcc   proof/raw/8  match         0.00s  0 of 9 differ
+  example-undirected     wcc   proof/stream/1 match         0.00s  0 of 9 differ
+  example-undirected     wcc   proof/stream/8 match         0.00s  0 of 9 differ
+  test-bfs-directed      bfs   proof/raw/1  match         0.00s  0 of 10 differ
+  test-bfs-directed      bfs   proof/raw/8  match         0.00s  0 of 10 differ
+  test-bfs-directed      bfs   proof/stream/1 match         0.00s  0 of 10 differ
+  test-bfs-directed      bfs   proof/stream/8 match         0.00s  0 of 10 differ
+  test-bfs-undirected    bfs   proof/raw/1  match         0.00s  0 of 10 differ
+  test-bfs-undirected    bfs   proof/raw/8  match         0.00s  0 of 10 differ
+  test-bfs-undirected    bfs   proof/stream/1 match         0.00s  0 of 10 differ
+  test-bfs-undirected    bfs   proof/stream/8 match         0.00s  0 of 10 differ
+  test-pr-undirected     pr    proof/raw/1  match         0.00s  0 of 50 differ, max relative error 5.90e-8
+  test-pr-undirected     pr    proof/raw/8  match         0.00s  0 of 50 differ, max relative error 5.90e-8
+  test-pr-undirected     pr    proof/stream/1 match         0.00s  0 of 50 differ, max relative error 5.90e-8
+  test-pr-undirected     pr    proof/stream/8 match         0.00s  0 of 50 differ, max relative error 5.90e-8
+  test-wcc-directed      wcc   proof/raw/1  match         0.00s  0 of 8 differ
+  test-wcc-directed      wcc   proof/raw/8  match         0.00s  0 of 8 differ
+  test-wcc-directed      wcc   proof/stream/1 match         0.00s  0 of 8 differ
+  test-wcc-directed      wcc   proof/stream/8 match         0.00s  0 of 8 differ
+  test-wcc-undirected    wcc   proof/raw/1  match         0.00s  0 of 8 differ
+  test-wcc-undirected    wcc   proof/raw/8  match         0.00s  0 of 8 differ
+  test-wcc-undirected    wcc   proof/stream/1 match         0.00s  0 of 8 differ
+  test-wcc-undirected    wcc   proof/stream/8 match         0.00s  0 of 8 differ
+40 (graph, algorithm, configuration) rows match LDBC

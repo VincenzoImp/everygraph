@@ -1,0 +1,230 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The portability rule (DESIGN D2, FINDINGS § G) applied to everygraph-format, as a lint:
+# the codec runs in the browser too. A copy of crates/everygraph-core/clippy.toml with
+# the crate name changed; keep the two lists equal.
+#
+# Clippy reads the `clippy.toml` closest to the crate it is checking, so these lists
+# apply to this crate only. The crate root forbids the three lints, so that no inner
+# `#[allow]` can switch them off.
+#
+# Everything listed here compiles for wasm32-unknown-unknown and then fails or panics
+# when called, so the wasm32 build alone would not catch it. What does not exist on
+# that target (`std::os::*`) is caught by that build instead.
+#
+# Clippy can disallow items, not modules, so this is a list that someone maintains: when
+# `std` grows a new way to reach the file system, the clock or the network, add it here.
+# What the lint cannot see at all (code behind `cfg`, dependencies) is checked for the
+# core by `tools/check_core_portability.py`; for this crate only by the wasm32 builds
+# and by review (its dependencies are everygraph-core and blake3, the latter built
+# with its `pure` feature: Rust code only).
+
+disallowed-types = [
+    # BEGIN numerics list, written by tools/numerics_lint.py: edit it there.
+    # Numerics (DESIGN D14; rules R2 and R9 of docs/research/sota-numerics.md).
+    # `allow-invalid`: the path is in a crate that may not be a dependency.
+    { path = "rand::rngs::StdRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rngs::SmallRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rngs::ThreadRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rngs::OsRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand_core::OsRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::Rng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    # END numerics list
+
+    # std::fs — files belong behind `ByteSource`, in everygraph-io.
+    { path = "std::fs::File", reason = "no file system in everygraph-format: read through `ByteSource`; file backends live in everygraph-io" },
+    { path = "std::fs::OpenOptions", reason = "no file system in everygraph-format: read through `ByteSource`; file backends live in everygraph-io" },
+    { path = "std::fs::DirBuilder", reason = "no file system in everygraph-format" },
+    { path = "std::fs::ReadDir", reason = "no file system in everygraph-format" },
+    { path = "std::fs::DirEntry", reason = "no file system in everygraph-format" },
+    { path = "std::fs::Metadata", reason = "no file system in everygraph-format" },
+    { path = "std::fs::Permissions", reason = "no file system in everygraph-format" },
+    { path = "std::fs::FileType", reason = "no file system in everygraph-format" },
+    { path = "std::fs::FileTimes", reason = "no file system in everygraph-format" },
+    { path = "std::fs::TryLockError", reason = "no file system in everygraph-format" },
+
+    # std::thread — threads belong behind `everygraph_core::par`.
+    { path = "std::thread::Builder", reason = "no OS threads in everygraph-format: split work with `everygraph_core::par`" },
+    { path = "std::thread::JoinHandle", reason = "no OS threads in everygraph-format: split work with `everygraph_core::par`" },
+    { path = "std::thread::Scope", reason = "no OS threads in everygraph-format: split work with `everygraph_core::par`" },
+    { path = "std::thread::ScopedJoinHandle", reason = "no OS threads in everygraph-format: split work with `everygraph_core::par`" },
+    { path = "std::thread::Thread", reason = "no OS threads in everygraph-format: split work with `everygraph_core::par`" },
+    { path = "std::thread::ThreadId", reason = "no OS threads in everygraph-format: results must not depend on which thread ran" },
+
+    # Other OS services.
+    { path = "std::process::Command", reason = "no processes in everygraph-format" },
+    { path = "std::process::Child", reason = "no processes in everygraph-format" },
+    { path = "std::net::TcpStream", reason = "no sockets in everygraph-format: remote data arrives through `ByteSource`" },
+    { path = "std::net::TcpListener", reason = "no sockets in everygraph-format" },
+    { path = "std::net::UdpSocket", reason = "no sockets in everygraph-format" },
+    { path = "std::io::Stdin", reason = "no standard streams in everygraph-format" },
+    { path = "std::io::Stdout", reason = "no standard streams in everygraph-format" },
+    { path = "std::io::Stderr", reason = "no standard streams in everygraph-format" },
+]
+
+disallowed-methods = [
+    # BEGIN numerics list, written by tools/numerics_lint.py: edit it there.
+    # Numerics (DESIGN D14; rules R2 and R9 of docs/research/sota-numerics.md).
+    # `allow-invalid`: the path is in a crate that may not be a dependency.
+    { path = "f64::sin", reason = "platform maths, bits differ by platform: use `everygraph_core::math::sin` (rule R2)" },
+    { path = "f64::cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math::cos` (rule R2)" },
+    { path = "f64::tan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::asin", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::acos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::atan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::atan2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::sin_cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::exp", reason = "platform maths, bits differ by platform: use `everygraph_core::math::exp` (rule R2)" },
+    { path = "f64::exp2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::exp_m1", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::ln", reason = "platform maths, bits differ by platform: use `everygraph_core::math::ln` (rule R2)" },
+    { path = "f64::log", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::log2", reason = "platform maths, bits differ by platform: use `everygraph_core::math::log2` (rule R2)" },
+    { path = "f64::log10", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::ln_1p", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::powf", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::powi", reason = "platform maths, bits differ by platform: write `x * x`, or precompute the constant (rule R2)" },
+    { path = "f64::cbrt", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::hypot", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::sinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::cosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::tanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::asinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::acosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::atanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::sin", reason = "platform maths, bits differ by platform: use `everygraph_core::math::sin` (rule R2)" },
+    { path = "f32::cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math::cos` (rule R2)" },
+    { path = "f32::tan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::asin", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::acos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::atan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::atan2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::sin_cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::exp", reason = "platform maths, bits differ by platform: use `everygraph_core::math::exp` (rule R2)" },
+    { path = "f32::exp2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::exp_m1", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::ln", reason = "platform maths, bits differ by platform: use `everygraph_core::math::ln` (rule R2)" },
+    { path = "f32::log", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::log2", reason = "platform maths, bits differ by platform: use `everygraph_core::math::log2` (rule R2)" },
+    { path = "f32::log10", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::ln_1p", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::powf", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::powi", reason = "platform maths, bits differ by platform: write `x * x`, or precompute the constant (rule R2)" },
+    { path = "f32::cbrt", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::hypot", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::sinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::cosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::tanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::asinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::acosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::atanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "libm::pow", reason = "FreeBSD's `e_pow.c`, 636 ulp in its library (Gladman et al. 2026): use `everygraph_core::math::exp` and `ln`, or `x * x` (rule R2)", allow-invalid = true },
+    { path = "libm::powf", reason = "FreeBSD's `e_pow.c`, 636 ulp in its library (Gladman et al. 2026): use `everygraph_core::math::exp` and `ln`, or `x * x` (rule R2)", allow-invalid = true },
+    { path = "rand::thread_rng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::random", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::getrandom", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::fill", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::u32", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::u64", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::u32", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::u64", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::usize", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::f64", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::shuffle", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    # END numerics list
+
+    # std::fs
+    { path = "std::fs::canonicalize", reason = "no file system in everygraph-format" },
+    { path = "std::fs::copy", reason = "no file system in everygraph-format" },
+    { path = "std::fs::create_dir", reason = "no file system in everygraph-format" },
+    { path = "std::fs::create_dir_all", reason = "no file system in everygraph-format" },
+    { path = "std::fs::exists", reason = "no file system in everygraph-format" },
+    { path = "std::fs::hard_link", reason = "no file system in everygraph-format" },
+    { path = "std::fs::metadata", reason = "no file system in everygraph-format" },
+    { path = "std::fs::read", reason = "no file system in everygraph-format: read through `ByteSource`; file backends live in everygraph-io" },
+    { path = "std::fs::read_dir", reason = "no file system in everygraph-format" },
+    { path = "std::fs::read_link", reason = "no file system in everygraph-format" },
+    { path = "std::fs::read_to_string", reason = "no file system in everygraph-format: read through `ByteSource`; file backends live in everygraph-io" },
+    { path = "std::fs::remove_dir", reason = "no file system in everygraph-format" },
+    { path = "std::fs::remove_dir_all", reason = "no file system in everygraph-format" },
+    { path = "std::fs::remove_file", reason = "no file system in everygraph-format" },
+    { path = "std::fs::rename", reason = "no file system in everygraph-format" },
+    { path = "std::fs::set_permissions", reason = "no file system in everygraph-format" },
+    { path = "std::fs::soft_link", reason = "no file system in everygraph-format" },
+    { path = "std::fs::symlink_metadata", reason = "no file system in everygraph-format" },
+    { path = "std::fs::write", reason = "no file system in everygraph-format" },
+
+    # std::path — the methods of `Path` (and of `PathBuf`, through deref) that ask the
+    # file system. Building and taking apart paths is fine.
+    { path = "std::path::Path::canonicalize", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::exists", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::is_dir", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::is_file", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::is_symlink", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::metadata", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::read_dir", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::read_link", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::symlink_metadata", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::Path::try_exists", reason = "no file system in everygraph-format: a path may be handled, not looked up" },
+    { path = "std::path::absolute", reason = "no file system in everygraph-format: resolving a relative path reads the current directory" },
+
+    # std::thread
+    { path = "std::thread::spawn", reason = "no OS threads in everygraph-format: split work with `everygraph_core::par`" },
+    { path = "std::thread::scope", reason = "no OS threads in everygraph-format: split work with `everygraph_core::par`" },
+    { path = "std::thread::sleep", reason = "no OS threads in everygraph-format: blocking the thread is not possible on a browser's main thread" },
+    { path = "std::thread::park", reason = "no OS threads in everygraph-format" },
+    { path = "std::thread::park_timeout", reason = "no OS threads in everygraph-format" },
+    { path = "std::thread::yield_now", reason = "no OS threads in everygraph-format" },
+    { path = "std::thread::current", reason = "no OS threads in everygraph-format: results must not depend on which thread ran" },
+    { path = "std::thread::available_parallelism", reason = "the thread count is the caller's decision, and nothing in everygraph-format may depend on it" },
+
+    # Clock: all four panic on wasm32-unknown-unknown. `elapsed` reads the clock too
+    # (`UNIX_EPOCH.elapsed()` is `SystemTime::now()` by another name).
+    { path = "std::time::Instant::now", reason = "no clock in everygraph-format (panics on wasm32-unknown-unknown): timing is the caller's job" },
+    { path = "std::time::SystemTime::now", reason = "no clock in everygraph-format (panics on wasm32-unknown-unknown): timing is the caller's job" },
+    { path = "std::time::Instant::elapsed", reason = "no clock in everygraph-format (panics on wasm32-unknown-unknown): timing is the caller's job" },
+    { path = "std::time::SystemTime::elapsed", reason = "no clock in everygraph-format (panics on wasm32-unknown-unknown): timing is the caller's job" },
+
+    # Environment and process.
+    { path = "std::env::args", reason = "no process environment in everygraph-format: configuration is passed in" },
+    { path = "std::env::args_os", reason = "no process environment in everygraph-format: configuration is passed in" },
+    { path = "std::env::var", reason = "no process environment in everygraph-format: configuration is passed in" },
+    { path = "std::env::var_os", reason = "no process environment in everygraph-format: configuration is passed in" },
+    { path = "std::env::vars", reason = "no process environment in everygraph-format: configuration is passed in" },
+    { path = "std::env::vars_os", reason = "no process environment in everygraph-format: configuration is passed in" },
+    { path = "std::env::set_var", reason = "no process environment in everygraph-format" },
+    { path = "std::env::remove_var", reason = "no process environment in everygraph-format" },
+    { path = "std::env::current_dir", reason = "no process environment in everygraph-format" },
+    { path = "std::env::set_current_dir", reason = "no process environment in everygraph-format" },
+    { path = "std::env::current_exe", reason = "no process environment in everygraph-format" },
+    { path = "std::env::temp_dir", reason = "no file system in everygraph-format: scratch space is the caller's decision" },
+    { path = "std::env::home_dir", reason = "no process environment in everygraph-format" },
+    { path = "std::process::exit", reason = "a library does not end the process: return an error" },
+    { path = "std::process::abort", reason = "a library does not end the process: return an error" },
+    { path = "std::process::id", reason = "no processes in everygraph-format" },
+    { path = "std::backtrace::Backtrace::capture", reason = "no process environment in everygraph-format: capturing a backtrace reads it" },
+    { path = "std::backtrace::Backtrace::force_capture", reason = "no stack walking in everygraph-format: return an error" },
+
+    # Network: name resolution needs no socket type.
+    { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "no network in everygraph-format: resolving a host name is a DNS query" },
+
+    # Standard streams: a library returns data and errors, it does not print.
+    { path = "std::io::stdin", reason = "no standard streams in everygraph-format" },
+    { path = "std::io::stdout", reason = "no standard streams in everygraph-format" },
+    { path = "std::io::stderr", reason = "no standard streams in everygraph-format" },
+]
+
+# A library returns data and errors; it does not print. The workspace already warns on
+# these through `print_stdout`, `print_stderr` and `dbg_macro`; here they cannot be
+# allowed.
+disallowed-macros = [
+    { path = "std::print", reason = "no standard streams in everygraph-format" },
+    { path = "std::println", reason = "no standard streams in everygraph-format" },
+    { path = "std::eprint", reason = "no standard streams in everygraph-format" },
+    { path = "std::eprintln", reason = "no standard streams in everygraph-format" },
+    { path = "std::dbg", reason = "no standard streams in everygraph-format" },
+]
+
+# Words of the format documentation that are names, not code.
+doc-valid-idents = ["VByte", "AArch64", "FlatBuffers", "FlatBuffer", ".."]

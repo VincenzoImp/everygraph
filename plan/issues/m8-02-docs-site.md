@@ -9,9 +9,12 @@ labels: type:docs, area:docs, P0, risk:low, size:M
 - [ ] Limits page: what is not supported, known weak cases (dense-graph edges on the map, out-of-core path queries, browser tier ceiling)
 - [ ] Versioned docs; search; examples executed in CI
 - [ ] Tone: direct and concrete; every performance statement links to its benchmark
+- [ ] An LLM-in-the-loop check of the docs as a regression test (added 2026-11-25, `docs/research/README.md` H4): an agent given only the docs writes code for each of the ten user stories, the code is run, and wrong calls are counted per release. Never published as evidence of usability: LLM scores agreed with human reviewers only at Spearman 0.75 / 0.71 over 7 platforms, with the code never executed (Meng et al., SIGMOD'25)
 
 **Acceptance**
 - A reader can find how to do each of the ten user stories within two clicks
 - Format specs are sufficient to write an independent reader (validated by the Python readers from {{#m2-01-container-spec}} and {{#m5-02-tile-format}})
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The landing page, documentation page, API reference entry, search, 404, changelog and README header are designed in `design/preview/style/``web.html`: headline "Every graph, every size, every machine." in ink, no performance numbers until the released software is measured, and a "When to use something else" section that names the other tools.
+**Depends on** {{#m8-01-cli}}, {{#m5-14-design-system}}
+
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The landing page, documentation page, API reference entry, search, 404, changelog and README header are designed in `design/preview/style/web.html`: headline "Every graph, every size, every machine." in ink, no performance numbers until the released software is measured, and a "When to use something else" section that names the other tools.

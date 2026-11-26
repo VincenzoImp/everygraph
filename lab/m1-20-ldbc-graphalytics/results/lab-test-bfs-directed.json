@@ -1,0 +1,40 @@
+{
+  "chunk_entries": 65536,
+  "graph": "test-bfs-directed",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11616256,
+  "rows": [
+    {
+      "algorithm": "bfs",
+      "checked": 10,
+      "examples": [],
+      "graph": "test-bfs-directed",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 2.906e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "bfs",
+      "checked": 10,
+      "examples": [
+        "2: 2 vs 1",
+        "5: 1 vs 2",
+        "6: 2 vs 3",
+        "7: 9223372036854775807 vs 3",
+        "8: 1 vs 3"
+      ],
+      "graph": "test-bfs-directed",
+      "implementation": "lab-bfs-do/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 5,
+      "rule": "exact",
+      "seconds": 0.000062016,
+      "status": "mismatch"
+    }
+  ],
+  "threads": 8
+}

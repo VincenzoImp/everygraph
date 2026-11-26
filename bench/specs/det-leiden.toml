@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Issue #18 (plan/issues/m1-04-det-leiden-scaling.md): the price of deterministic Leiden at 1-16
+# threads, for today's sub-round rule and the two rules the interleaved A/B
+# (lab/m1-04-det-leiden-scaling, results/ab-lj-orkut.jsonl) left standing. Lab prototype
+# lab/b2-leiden (`b2`, f64 weights, raw CSR glab-csr-v0 mapped and pre-faulted, warm), built by
+# this spec. Every rule's sub-round count is clamp(next_pow2(n_level / div), min, max), a function
+# of the current level's vertex count only:
+#
+#   auto   div 16384, min 256, max 1024   today's lab default (256 at every level of lj and orkut)
+#   s64    a constant 64 at every level   (div 1, min 64, max 64 = --sub-rounds 64)
+#   L64k   div 65536, min 4, max 1024     ~64k vertices per sub-round, never fewer than 4
+#   async  the asynchronous mode (the denominator of every det/async ratio)
+#
+# Metrics: b2's in-process kernel time (excludes loading the graph and the final modularity
+# evaluation) and its per-phase split; modularity, communities, disconnected communities (must be
+# 0); the partition hash (low 53 bits of hash_levels) - for each deterministic rule it must be the
+# same at every thread count; and the sub-round counts (parallel: 3 barriers each; one-thread).
+#
+# Wall time (estimate from exploratory runs, which were on a loaded machine): scaling 2 graphs x
+# 4 rules x 5 thread counts x (1 warm-up + 3) runs of 1-45 s, about 35 minutes; quality (3
+# iterations, 16 threads) about 5 minutes; Friendster 5 cases x (1 warm-up + 2) runs of 2-4 minutes,
+# about 45 minutes. Sum: about 85 minutes (estimate). Disk: up to ~40 GB of spill in {case_work}.
+#
+# Run, on an idle machine (`--only` matches a substring of the case id: `--only scaling --only
+# quality` for lj and orkut alone, about 40 minutes; `--only friendster` for Friendster alone):
+#   everygraph-bench run det-leiden --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "det-leiden"
+description = "Issue #18: deterministic Leiden vs async at 1-16 threads, three sub-round rules, lj and orkut"
+reference = "plan/issues/m1-04-det-leiden-scaling.md; lab/m1-04-det-leiden-scaling/README.md; docs/FINDINGS.md § B2"
+binaries = ["{b2}", "{m102}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+threads = [1, 2, 4, 8, 16]
+timeout = "15m"
+
+[gate]
+max_load = 1.0
+disturbed_above_cores = 0.5
+disturbed_above_io_mb_s = 50
+
+[vars]
+b2 = "{repo}/lab/b2-leiden/target/release/b2"
+m102 = "{repo}/lab/m1-02-ooc-leiden/target/release/m102"
+run = "{b2} run --algo leiden --threads {threads}"
+
+[[prepare]]
+name = "build-b2"
+cwd = "{repo}/lab/b2-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+needed_by = ["scaling", "quality"]
+
+[[prepare]]
+name = "build-m102"
+# target-cpu=native and fat LTO come from lab/m1-02-ooc-leiden/.cargo/config.toml and its manifest.
+cwd = "{repo}/lab/m1-02-ooc-leiden"
+command = ["cargo", "build", "--release", "--offline", "--locked"]
+needed_by = ["friendster"]
+
+[[benchmark]]
+name = "scaling"
+group = "det-vs-async"
+description = "1 iteration (fast mode): det rules and async at 1-16 threads"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], rule = ["auto", "s64", "L64k", "async"] }
+shell = "case {rule} in auto) a='--det';; s64) a='--det --sub-rounds 64';; L64k) a='--det --sub-div 65536 --sub-min 4 --sub-max 1024';; async) a='';; esac; exec {run} --graph {dataset} --iterations 1 $a"
+conditions = { graph = "{graph}", algorithm = "Leiden, 1 iteration, rule {rule}", storage = "raw CSR (glab-csr-v0), mmap pre-faulted, warm", precision = "f64 weights", timing = "kernel only: excludes loading and evaluation" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "local_moving", json = "/lm_s", unit = "s" },
+  { name = "refinement", json = "/refine_s", unit = "s" },
+  { name = "aggregation", json = "/agg_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+  { name = "subrounds_parallel", json = "/subrounds_par" },
+  { name = "subrounds_one_thread", json = "/subrounds_seq" },
+]
+
+# Friendster does not fit b2 in RAM under 24 GiB; it runs through lab/m1-02-ooc-leiden's m102 (same
+# local moving and sub-round code; --sub-div/--sub-min/--sub-max added in the same branch, defaults
+# unchanged): compressed level 0 mapped lazily, sequential aggregation, coarse levels spilled. The
+# timing includes the spill I/O, the same for every rule. auto's hash is m1-02's 2a12e5882874c38d.
+[[benchmark]]
+name = "friendster"
+group = "det-vs-async-friendster"
+description = "Friendster out of core under 24 GiB, 1 iteration, 16 threads (8 threads for the hash check)"
+dataset_path = "store-m113/friendster"
+memory_limit = "24G"
+repetitions = 2
+threads = [8, 16]
+matrix = { rule = ["auto", "L64k", "async"] }
+exclude = [{ rule = "async", threads = 8 }]
+shell = "case {rule} in auto) a='--det';; L64k) a='--det --sub-div 65536 --sub-min 4 --sub-max 1024';; async) a='';; esac; exec {m102} leiden run --store {dataset} --config comp --algo leiden --threads {threads} --iterations 1 --mem mmap-lazy --ooc --spill {case_work}/spill $a"
+conditions = { graph = "friendster", algorithm = "Leiden, 1 iteration, rule {rule}", mode = "out of core, limit 24 GiB", storage = "compressed level 0 (store-m113, mmap without pre-fault, warm after the warm-up); quotient graphs spilled", precision = "f64 weights (integer)", timing = "kernel only: excludes open and evaluation; includes spill I/O" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "level0_local_moving", json = "/level0_lm_s", unit = "s" },
+  { name = "level0_refinement", json = "/level0_refine_s", unit = "s" },
+  { name = "level0_aggregation", json = "/level0_agg_s", unit = "s" },
+  { name = "upper_levels", json = "/upper_levels_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]
+
+[[benchmark]]
+name = "quality"
+group = "det-vs-async-quality"
+description = "3 iterations (quality mode), 16 threads"
+dataset_path = "csr/{graph}"
+threads = [16]
+matrix = { graph = ["lj", "orkut"], rule = ["auto", "s64", "L64k", "async"] }
+shell = "case {rule} in auto) a='--det';; s64) a='--det --sub-rounds 64';; L64k) a='--det --sub-div 65536 --sub-min 4 --sub-max 1024';; async) a='';; esac; exec {run} --graph {dataset} --iterations 3 $a"
+conditions = { graph = "{graph}", algorithm = "Leiden, 3 iterations, rule {rule}", storage = "raw CSR (glab-csr-v0), mmap pre-faulted, warm", precision = "f64 weights", timing = "kernel only: excludes loading and evaluation" }
+metric = [
+  { name = "seconds", json = "/time_s", unit = "s" },
+  { name = "local_moving", json = "/lm_s", unit = "s" },
+  { name = "refinement", json = "/refine_s", unit = "s" },
+  { name = "aggregation", json = "/agg_s", unit = "s" },
+  { name = "modularity", json = "/modularity" },
+  { name = "communities", json = "/communities" },
+  { name = "disconnected", json = "/disconnected" },
+  { name = "hash_levels_low53", json = "/hash_levels_low53" },
+]

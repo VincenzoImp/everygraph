@@ -12,9 +12,12 @@ labels: type:feature, area:ingest, P0, risk:medium, size:M
 - [ ] Use dictionary pages to map each distinct key once ({{#m2-07-id-mapping}})
 - [ ] Multi-file datasets (globs, hive-style directories)
 - [ ] Keep `arrow`/`parquet` out of `everygraph-core`; check their wasm32 story for the browser tier and record it
+- [ ] Hostile input and declared sizes (added 2026-11-25, `docs/research/README.md` T6; `docs/research/sota-testing.md` challenge 10): a Parquet page header declares its uncompressed size, and a reader that allocates from it before the bytes are read is MemLock's "allocation without checking" class. No allocation from a size the file declares before the bytes that justify it are read and counted against the budget; stream past a cap. A fuzz target for the wrapper ({{#m2-30-fuzz-ci}}) before relying on `arrow-rs`
+- [ ] Edge-type column: reading a column beyond source, target, weight and time needs a public option, which has no name yet and needs a preview before it is built (`docs/spec/graph-semantics.md` § 2.6, § 9 item 8)
 
 **Acceptance**
 - Friendster as Parquet (integer ids) → `.eg` no slower than from plain text
-- Round-trip of all supported column types into property columns
+- Round-trip of all supported column types into property columns: columns round-trip from Parquet input to Arrow output with identical values, identical up to `docs/spec/eg-container.md` § 1 (canonical NaN, no −0.0) (moved from {{#m2-10-property-columns}})
+- A file whose page headers declare sizes far above its length is refused with `InvalidInput`, with the counting allocator showing no allocation of the declared size
 
-**Depends on** {{#m1-11-real-inputs}}
+**Depends on** {{#m1-11-real-inputs}}, {{#m2-08-csr-build}}, {{#m2-10-property-columns}}

@@ -4,6 +4,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::ops::Range;
 
 use crate::widen;
 
@@ -27,7 +28,14 @@ use crate::widen;
 /// The trait does not require `Send` or `Sync`, because a browser `File` handle is
 /// neither. Code that reads from several threads asks for `ByteSource + Sync`.
 ///
-/// Issue #29 adds the native backends and the optional zero-copy and read-ahead hooks.
+/// Two optional hooks have defaults that every backend may keep: [`as_slice`] for
+/// backends whose bytes are already addressable (memory, a memory map), and [`advise`]
+/// for backends that can act on a read-ahead or access-pattern hint. The native
+/// backends live in `everygraph-io`; a later backend (HTTP ranges, `io_uring`, a browser
+/// `File`) implements the same three methods and needs nothing else from this trait.
+///
+/// [`as_slice`]: Self::as_slice
+/// [`advise`]: Self::advise
 pub trait ByteSource {
     /// Total length in bytes.
     fn len(&self) -> u64;
@@ -49,6 +57,25 @@ pub trait ByteSource {
     /// [`ReadError::Backend`] if the backend failed. In both cases the contents of
     /// `buf` are unspecified.
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError>;
+
+    /// The whole source as one slice, when the backend already holds it in addressable
+    /// memory (an in-memory buffer, a memory map); `None` otherwise, which is the
+    /// default. When it is `Some`, its length is [`len`](Self::len) and its bytes are
+    /// the ones [`read_at`](Self::read_at) returns, so a reader may use either.
+    fn as_slice(&self) -> Option<&[u8]> {
+        None
+    }
+
+    /// Tells the backend how `range` is about to be read. Advice only: it never fails,
+    /// never changes what is read, and a backend may ignore it, which is the default.
+    /// The part of `range` outside the source is ignored.
+    ///
+    /// The lab's case for it: on a cold memory-mapped graph, asking for a whole BFS
+    /// frontier with [`AccessHint::WillNeed`] before touching it took a 2-hop query
+    /// from 8.7 to 0.47 ms (FINDINGS § F1, orkut, lab prototype).
+    fn advise(&self, range: Range<u64>, hint: AccessHint) {
+        let _ = (range, hint);
+    }
 }
 
 impl<S: ByteSource + ?Sized> ByteSource for &S {
@@ -59,6 +86,29 @@ impl<S: ByteSource + ?Sized> ByteSource for &S {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
         (**self).read_at(offset, buf)
     }
+
+    fn as_slice(&self) -> Option<&[u8]> {
+        (**self).as_slice()
+    }
+
+    fn advise(&self, range: Range<u64>, hint: AccessHint) {
+        (**self).advise(range, hint);
+    }
+}
+
+/// How a range of a [`ByteSource`] is about to be read; see [`ByteSource::advise`].
+/// The native backends pass it on to `madvise` or `posix_fadvise`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum AccessHint {
+    /// No particular pattern: undo an earlier hint.
+    Normal,
+    /// Front to back, once: read ahead aggressively.
+    Sequential,
+    /// Scattered small reads: do not read ahead.
+    Random,
+    /// The range will be read soon: start fetching it now.
+    WillNeed,
 }
 
 /// Why a [`ByteSource::read_at`] failed.
@@ -107,7 +157,7 @@ impl Error for ReadError {
 /// `Arc<[u8]>`, or anything else that derefs to a byte slice.
 #[derive(Clone, Debug, Default)]
 pub struct MemorySource<B = Vec<u8>> {
-    bytes: B,
+    pub(crate) bytes: B,
 }
 
 impl<B: AsRef<[u8]>> MemorySource<B> {
@@ -120,6 +170,10 @@ impl<B: AsRef<[u8]>> MemorySource<B> {
 impl<B: AsRef<[u8]>> ByteSource for MemorySource<B> {
     fn len(&self) -> u64 {
         widen(self.bytes.as_ref().len())
+    }
+
+    fn as_slice(&self) -> Option<&[u8]> {
+        Some(self.bytes.as_ref())
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
@@ -264,6 +318,38 @@ mod tests {
         assert_eq!(first_byte(dynamic), 9);
         assert_eq!(dynamic.len(), 3);
         assert!(!dynamic.is_empty());
+        assert_eq!(dynamic.as_slice(), Some(&[9_u8, 8, 7][..]));
+        dynamic.advise(0..u64::MAX, AccessHint::WillNeed);
+        assert_eq!(first_byte(dynamic), 9);
+    }
+
+    /// A backend that implements only the two required methods gets the defaults: no
+    /// slice, and advice that changes nothing.
+    #[test]
+    fn the_optional_hooks_default_to_nothing() {
+        struct Minimal;
+        impl ByteSource for Minimal {
+            fn len(&self) -> u64 {
+                1
+            }
+            fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+                MemorySource::new([42_u8]).read_at(offset, buf)
+            }
+        }
+        assert_eq!(Minimal.as_slice(), None);
+        let by_reference: &dyn ByteSource = &Minimal;
+        assert_eq!(by_reference.as_slice(), None);
+        for hint in [
+            AccessHint::Normal,
+            AccessHint::Sequential,
+            AccessHint::Random,
+            AccessHint::WillNeed,
+        ] {
+            Minimal.advise(0..1, hint);
+        }
+        let mut buf = [0_u8];
+        Minimal.read_at(0, &mut buf).unwrap();
+        assert_eq!(buf, [42]);
     }
 
     #[test]

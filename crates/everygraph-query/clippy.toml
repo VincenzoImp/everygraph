@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The allocation rule of the kernel crates (issue #31, DESIGN D11): every large buffer
+# is reserved against the memory budget before it is allocated, so it is allocated
+# through `everygraph_core::SegVec`, `ScratchPool` or next to a `Reservation`, never
+# sized directly. The same list is in the `clippy.toml` of everygraph-kernels,
+# everygraph-community, everygraph-map and everygraph-query; keep the four identical
+# (`tools/check_portability_canary.py` probes each of them with `kernel_allocation`).
+# The crate roots forbid the lint, so no inner `#[allow]` can switch it off.
+#
+# What it does not catch: growth through `push`, `extend`, `collect` and `clone`, which
+# a lint cannot tell apart from small vectors. What catches those is a counting global
+# allocator in the kernel tests, asserting heap bytes <= `Budget::used()` + a fixed
+# slack (issue #53).
+#
+# When one of these crates starts to use the core it also takes the core's portability
+# lists (CONTRIBUTING.md, "Crates"): merge them into this file.
+
+disallowed-methods = [
+    # BEGIN numerics list, written by tools/numerics_lint.py: edit it there.
+    # Numerics (DESIGN D14; rules R2 and R9 of docs/research/sota-numerics.md).
+    # `allow-invalid`: the path is in a crate that may not be a dependency.
+    { path = "f64::sin", reason = "platform maths, bits differ by platform: use `everygraph_core::math::sin` (rule R2)" },
+    { path = "f64::cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math::cos` (rule R2)" },
+    { path = "f64::tan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::asin", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::acos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::atan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::atan2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::sin_cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::exp", reason = "platform maths, bits differ by platform: use `everygraph_core::math::exp` (rule R2)" },
+    { path = "f64::exp2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::exp_m1", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::ln", reason = "platform maths, bits differ by platform: use `everygraph_core::math::ln` (rule R2)" },
+    { path = "f64::log", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::log2", reason = "platform maths, bits differ by platform: use `everygraph_core::math::log2` (rule R2)" },
+    { path = "f64::log10", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::ln_1p", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::powf", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::powi", reason = "platform maths, bits differ by platform: write `x * x`, or precompute the constant (rule R2)" },
+    { path = "f64::cbrt", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::hypot", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::sinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::cosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::tanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::asinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::acosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f64::atanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::sin", reason = "platform maths, bits differ by platform: use `everygraph_core::math::sin` (rule R2)" },
+    { path = "f32::cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math::cos` (rule R2)" },
+    { path = "f32::tan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::asin", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::acos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::atan", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::atan2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::sin_cos", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::exp", reason = "platform maths, bits differ by platform: use `everygraph_core::math::exp` (rule R2)" },
+    { path = "f32::exp2", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::exp_m1", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::ln", reason = "platform maths, bits differ by platform: use `everygraph_core::math::ln` (rule R2)" },
+    { path = "f32::log", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::log2", reason = "platform maths, bits differ by platform: use `everygraph_core::math::log2` (rule R2)" },
+    { path = "f32::log10", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::ln_1p", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::powf", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::powi", reason = "platform maths, bits differ by platform: write `x * x`, or precompute the constant (rule R2)" },
+    { path = "f32::cbrt", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::hypot", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::sinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::cosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::tanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::asinh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::acosh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "f32::atanh", reason = "platform maths, bits differ by platform: use `everygraph_core::math`; add the function there (rule R2)" },
+    { path = "libm::pow", reason = "FreeBSD's `e_pow.c`, 636 ulp in its library (Gladman et al. 2026): use `everygraph_core::math::exp` and `ln`, or `x * x` (rule R2)", allow-invalid = true },
+    { path = "libm::powf", reason = "FreeBSD's `e_pow.c`, 636 ulp in its library (Gladman et al. 2026): use `everygraph_core::math::exp` and `ln`, or `x * x` (rule R2)", allow-invalid = true },
+    { path = "rand::thread_rng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::random", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::getrandom", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::fill", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::u32", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "getrandom::u64", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::u32", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::u64", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::usize", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::f64", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::shuffle", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    # END numerics list
+
+    { path = "std::vec::Vec::with_capacity", reason = "size large buffers through the memory budget: `SegVec::try_with_len` or `SegVec::try_reserve` (issue #31)" },
+    { path = "std::vec::Vec::reserve", reason = "growth must be reserved against the memory budget: `SegVec::try_reserve`" },
+    { path = "std::vec::Vec::reserve_exact", reason = "growth must be reserved against the memory budget: `SegVec::try_reserve`" },
+    { path = "std::vec::Vec::try_reserve", reason = "fallible, but not counted: `SegVec::try_reserve` reserves against the memory budget" },
+    { path = "std::vec::Vec::try_reserve_exact", reason = "fallible, but not counted: `SegVec::try_reserve` reserves against the memory budget" },
+    { path = "std::vec::Vec::resize", reason = "growth must be reserved against the memory budget: `SegVec::try_resize`" },
+    { path = "std::vec::Vec::resize_with", reason = "growth must be reserved against the memory budget: `SegVec::try_resize`" },
+    { path = "std::vec::from_elem", reason = "`vec![value; n]` sizes a buffer outside the memory budget: `SegVec::try_with_len`" },
+    { path = "std::boxed::Box::new_uninit_slice", reason = "size large buffers through the memory budget: `SegVec`" },
+    { path = "std::collections::HashMap::with_capacity", reason = "size hash tables through the memory budget: a `Reservation` of their size next to them, or a `ScratchPool`" },
+    { path = "std::collections::HashMap::with_capacity_and_hasher", reason = "size hash tables through the memory budget: a `Reservation` of their size next to them, or a `ScratchPool`" },
+    { path = "std::collections::HashMap::reserve", reason = "size hash tables through the memory budget: a `Reservation` of their size next to them" },
+    { path = "std::collections::HashSet::with_capacity", reason = "size hash sets through the memory budget: a `Reservation` of their size next to them" },
+    { path = "std::collections::HashSet::reserve", reason = "size hash sets through the memory budget: a `Reservation` of their size next to them" },
+    { path = "std::collections::VecDeque::with_capacity", reason = "size queues through the memory budget: a `SegVec` used as a ring, or a `Reservation`" },
+    { path = "std::collections::VecDeque::reserve", reason = "size queues through the memory budget: a `SegVec` used as a ring, or a `Reservation`" },
+    { path = "std::collections::VecDeque::reserve_exact", reason = "size queues through the memory budget: a `SegVec` used as a ring, or a `Reservation`" },
+    { path = "std::collections::VecDeque::try_reserve", reason = "fallible, but not counted: size queues through the memory budget" },
+    { path = "std::collections::VecDeque::try_reserve_exact", reason = "fallible, but not counted: size queues through the memory budget" },
+    { path = "std::collections::VecDeque::resize", reason = "size queues through the memory budget: a `SegVec` used as a ring, or a `Reservation`" },
+    { path = "std::collections::VecDeque::resize_with", reason = "size queues through the memory budget: a `SegVec` used as a ring, or a `Reservation`" },
+    { path = "std::collections::HashMap::try_reserve", reason = "fallible, but not counted: size hash tables through the memory budget" },
+    { path = "std::collections::HashSet::try_reserve", reason = "fallible, but not counted: size hash sets through the memory budget" },
+    { path = "std::collections::HashSet::with_capacity_and_hasher", reason = "size hash sets through the memory budget: a `Reservation` of their size next to them" },
+    { path = "std::collections::BinaryHeap::with_capacity", reason = "size heaps through the memory budget: a `SegVec` used as a heap, or a `Reservation`" },
+    { path = "std::collections::BinaryHeap::reserve", reason = "size heaps through the memory budget: a `SegVec` used as a heap, or a `Reservation`" },
+    { path = "std::collections::BinaryHeap::reserve_exact", reason = "size heaps through the memory budget: a `SegVec` used as a heap, or a `Reservation`" },
+    { path = "std::string::String::with_capacity", reason = "size buffers through the memory budget: a `SegVec<u8>`" },
+    { path = "std::boxed::Box::new_zeroed_slice", reason = "size large buffers through the memory budget: `SegVec`" },
+    { path = "slice::to_vec", reason = "copies a slice outside the memory budget: `SegVec::try_extend_from_slice`" },
+    { path = "slice::repeat", reason = "sizes a buffer outside the memory budget: `SegVec::try_resize`" },
+]
+
+disallowed-types = [
+    # BEGIN numerics list, written by tools/numerics_lint.py: edit it there.
+    # Numerics (DESIGN D14; rules R2 and R9 of docs/research/sota-numerics.md).
+    # `allow-invalid`: the path is in a crate that may not be a dependency.
+    { path = "rand::rngs::StdRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rngs::SmallRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rngs::ThreadRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand::rngs::OsRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "rand_core::OsRng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    { path = "fastrand::Rng", reason = "not reproducible across threads, versions or platforms: use `everygraph_core::rng` (rule R9)", allow-invalid = true },
+    # END numerics list
+]

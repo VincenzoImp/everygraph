@@ -11,7 +11,7 @@ Tracking issue for milestone M0.
 - [ ] Cargo workspace builds on Linux, macOS and Windows, and `everygraph-core` builds for `wasm32-unknown-unknown` ({{#m0-01-workspace}}, {{#m0-02-ci}})
 - [ ] Benchmark harness reproduces the lab headline numbers on an idle machine ({{#m0-03-bench-harness}}, {{#m0-07-lab-repro}})
 - [ ] Differential-test oracle runs in CI ({{#m0-05-oracle}})
-- [ ] Decisions D1–D23 ratified as ADRs ({{#m0-06-adrs}})
+- [ ] Decisions D1–D25 ratified as ADRs ({{#m0-06-adrs}})
 - [ ] Name, licence and patent checks closed ({{#m0-08-licence-governance}}, {{#m0-09-name-trademark}}, {{#m0-10-patent-check}})
 - [ ] API sketch reviewed ({{#m0-11-api-sketch}})
 

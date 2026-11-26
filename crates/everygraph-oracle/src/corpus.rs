@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::generators;
-use crate::graph::{Graph, SelfLoops, Semantics};
+use crate::graph::{Duplicates, Graph, SelfLoops, Semantics};
 use crate::kernel::Kernel;
 use crate::projection::Projection;
 use crate::rng::SplitMix64;
@@ -211,7 +211,7 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
     let mut push = |family: Family,
                     directed: bool,
                     decorations: Decorations,
-                    self_loops: SelfLoops,
+                    semantics: Semantics,
                     seed: u64| {
         let tag = serde_json::to_value(&family)
             .ok()
@@ -224,19 +224,19 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
         );
         let mut s = plain(name, family, directed, seed);
         s.decorations = decorations;
-        s.semantics.self_loops = self_loops;
+        s.semantics = semantics;
         out.push(s);
     };
     for directed in [false, true] {
         for (i, (f, d, l)) in edge_cases().into_iter().enumerate() {
-            push(f, directed, d, l, i as u64);
+            push(f, directed, d, loops(l), i as u64);
         }
         for (i, f) in structured().into_iter().enumerate() {
             push(
                 f,
                 directed,
                 Decorations::default(),
-                SelfLoops::Drop,
+                Semantics::default(),
                 100 + i as u64,
             );
         }
@@ -245,7 +245,7 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
                 f,
                 directed,
                 Decorations::default(),
-                SelfLoops::Drop,
+                Semantics::default(),
                 200 + i as u64,
             );
         }
@@ -256,7 +256,7 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
     };
     if tier == Tier::Nightly {
         for f in adversarial(1 << 16).into_iter().take(3) {
-            push(f, false, Decorations::default(), SelfLoops::Drop, 300);
+            push(f, false, Decorations::default(), Semantics::default(), 300);
         }
         push(
             Family::PowerLaw {
@@ -266,7 +266,7 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
             },
             false,
             Decorations::default(),
-            SelfLoops::Drop,
+            Semantics::default(),
             301,
         );
     }
@@ -277,12 +277,18 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
         let directed = r.chance(450);
         let family = random_family(&mut r, scale);
         let decorations = random_decorations(&mut r, directed);
-        let loops = if r.chance(100) {
+        let mut semantics = loops(if r.chance(100) {
             SelfLoops::Keep
         } else {
             SelfLoops::Drop
+        });
+        // Drawn last, so that adding it changed no graph above.
+        semantics.duplicates = match r.below(4) {
+            0 => Duplicates::Collapse,
+            1 => Duplicates::Sum,
+            _ => Duplicates::Events,
         };
-        push(family, directed, decorations, loops, seed);
+        push(family, directed, decorations, semantics, seed);
     }
     // Sparse ids last, so that adding them did not rename the graphs above. Gaps cross
     // 2^7, 2^14 and 2^21 (4-byte LEB128 codes); 2^28 would need n > 2^28, whose O(n)
@@ -302,18 +308,61 @@ pub fn specs(tier: Tier) -> Vec<GraphSpec> {
             Family::SparseIds { n, extra: 32 },
             directed,
             Decorations::default(),
-            SelfLoops::Drop,
+            Semantics::default(),
             400 + i as u64,
         );
+    }
+    // Kept loops and every `duplicates` mode on weighted graphs with repeated rows; last,
+    // so that adding them renamed no graph above.
+    for directed in [false, true] {
+        for (i, (f, d, sem)) in semantic_cases().into_iter().enumerate() {
+            push(f, directed, d, sem, 500 + i as u64);
+        }
     }
     out
 }
 
-/// The kernels the oracle checks on `g` (see `oracle/SEMANTICS.md` for why some kernels are
-/// left out when self-loops are kept).
+fn loops(self_loops: SelfLoops) -> Semantics {
+    Semantics {
+        self_loops,
+        ..Semantics::default()
+    }
+}
+
+fn semantic_cases() -> Vec<(Family, Decorations, Semantics)> {
+    let mut out = Vec::new();
+    for duplicates in [Duplicates::Events, Duplicates::Collapse, Duplicates::Sum] {
+        for self_loops in [SelfLoops::Drop, SelfLoops::Keep] {
+            let decorations = Decorations {
+                self_loops: 4,
+                parallel: 8,
+                weights: Weights::Dyadic,
+                ..Decorations::default()
+            };
+            let family = Family::Planted {
+                blocks: 3,
+                size: 6,
+                p_in_permille: 700,
+                p_out_permille: 100,
+            };
+            out.push((
+                family,
+                decorations,
+                Semantics {
+                    self_loops,
+                    duplicates,
+                },
+            ));
+        }
+    }
+    out
+}
+
+/// The kernels the oracle checks on `g`: every kernel, whatever the semantics
+/// (`docs/spec/graph-semantics.md` § 8).
 #[must_use]
 pub fn kernels_for(g: &Graph, p: &Projection) -> Vec<Kernel> {
-    let mut k = vec![Kernel::Adjacency, Kernel::Degree];
+    let mut k = vec![Kernel::IngestReport, Kernel::Adjacency, Kernel::Degree];
     if g.directed {
         k.extend([Kernel::DegreeOut, Kernel::DegreeIn]);
     }
@@ -335,38 +384,41 @@ pub fn kernels_for(g: &Graph, p: &Projection) -> Vec<Kernel> {
         return k;
     }
     k.extend([Kernel::Triangles, Kernel::TriangleTotal]);
-    // With kept self-loops, design/DECISIONS.md leaves PageRank and core numbers to #36
-    // (Q2), and clustering, transitivity and modularity are undecided (also #36):
-    // oracle/SEMANTICS.md, "Kept self-loops". Everything else is checked.
-    let keep = g.semantics.self_loops == SelfLoops::Keep;
-    if !keep {
+    k.push(Kernel::PageRank {
+        damping: 0.85,
+        weighted: false,
+    });
+    // Weighted kernels where a weight differs from 1: a weight column, repeated rows or a
+    // loop of several rows.
+    let weighted = g.weight.is_some()
+        || p.counts.duplicate_rows > 0
+        || (p.keep_loops && p.loops.iter().any(|&r| r > 1));
+    if weighted {
         k.push(Kernel::PageRank {
             damping: 0.85,
+            weighted: true,
+        });
+    }
+    if g.n % 5 == 1 {
+        k.push(Kernel::PageRank {
+            damping: 0.5,
             weighted: false,
         });
-        let multi = p.counts.duplicate_rows > 0;
-        if g.weight.is_some() || multi {
-            k.push(Kernel::PageRank {
-                damping: 0.85,
-                weighted: true,
-            });
-        }
-        if g.n % 5 == 1 {
-            k.push(Kernel::PageRank {
-                damping: 0.5,
-                weighted: false,
-            });
-        }
     }
     if g.weight.is_some() && g.n > 0 {
         k.push(Kernel::Sssp { source: 0 });
     }
-    if !keep {
-        k.extend([Kernel::CoreNumber, Kernel::Clustering, Kernel::Transitivity]);
-    }
+    k.extend([Kernel::CoreNumber, Kernel::Clustering, Kernel::Transitivity]);
     if g.partition.is_some() {
-        if !keep {
-            k.push(Kernel::Modularity { resolution: 1.0 });
+        k.push(Kernel::Modularity {
+            resolution: 1.0,
+            weighted: false,
+        });
+        if weighted {
+            k.push(Kernel::Modularity {
+                resolution: 1.0,
+                weighted: true,
+            });
         }
         k.push(Kernel::Quotient);
     }

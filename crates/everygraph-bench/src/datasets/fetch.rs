@@ -3,7 +3,7 @@
 //! `fetch` and `verify`: bring a dataset's files into the data root, check them, and
 //! place them atomically.
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -153,6 +153,13 @@ fn fetch_file(
     };
 
     let _ignored = writeln!(log, "  checking {}", file.name);
+    // Flushed while still writable: Windows flushes only through a handle with write
+    // access, which a read-only file no longer grants ("Access is denied").
+    OpenOptions::new()
+        .write(true)
+        .open(&part)
+        .and_then(|f| f.sync_all())
+        .context(|| format!("syncing {}", part.display()))?;
     // Read-only before the snapshot: a verified file is not meant to be edited in place.
     set_read_only(&part)?;
     let checked = store::hash_unchanged(&part, file.md5_published.is_some()).and_then(
@@ -250,11 +257,9 @@ fn present(
     }
 }
 
-/// Moves the verified `.part` into place: flush, rename, flush the directory.
+/// Moves the verified `.part`, flushed before it was made read-only, into place: rename,
+/// flush the directory.
 fn place(part: &Path, final_path: &Path) -> Result<()> {
-    File::open(part)
-        .and_then(|f| f.sync_all())
-        .context(|| format!("syncing {}", part.display()))?;
     fs::rename(part, final_path)
         .context(|| format!("moving {} to {}", part.display(), final_path.display()))?;
     if let Some(dir) = final_path.parent() {
@@ -383,6 +388,9 @@ mod tests {
         assert!(Lock::take(&path).is_err());
     }
 
+    // Linux only: elsewhere there is no `/proc` to tell a dead owner from a live one, so
+    // a lock is never taken over (`lock_is_stale`), by design.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_lock_of_a_dead_process_is_taken_over() {
         let dir = TempDir::new("stale-lock");

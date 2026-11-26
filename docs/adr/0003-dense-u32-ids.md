@@ -20,7 +20,7 @@ with u64 ids for graphs of 2^32 nodes or more comes later (#114).
 - **Cost of u64 targets** (FINDINGS "Idle-machine re-runs", B1 table; idle; orkut;
   PageRank 20 iterations, 32 threads, heap-loaded, uncompressed;
   `lab/b1-core/results/bench/kernels.jsonl`, label `probe`): f32 state 0.70 s with u64
-  targets vs 0.375 s with u32 (+87%; FINDINGS rounds to 0.70 vs 0.38, +85%); f64 state
+  targets vs 0.375 s with u32 (+87%); f64 state
   0.80 vs 0.47 s (+71%). One kernel, one graph.
 - **The compressed form does not care** (FINDINGS § C; shared): gap codes give identical
   bits/edge with ids shifted by 2^33 (`lab/c-compression/results/idwidth.json`); offsets
@@ -31,8 +31,8 @@ with u64 ids for graphs of 2^32 nodes or more comes later (#114).
 
 - The id type is a type parameter of the core from the start, so the u64 build of #114 is
   a second instantiation, not a rewrite.
-- Until #114, graphs with 2^32 nodes or more are unsupported. How the ingest refuses such
-  an input (rather than overflowing) is not yet written into an ingest issue.
+- Until #114, graphs with 2^32 nodes or more are unsupported. The ingest refuses such an
+  input with a clear error instead of overflowing (#34, `plan/issues/m2-07-id-mapping.md`).
 
 ## What would change our mind
 

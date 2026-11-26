@@ -107,6 +107,13 @@ forms are complete on their own.
   error or warning) and anything meant to be copied and run: the suggested next command,
   an option in "Ways forward", a URL. Dim marks labels, table headers, the prompt, the
   finished bar and secondary remarks.
+- **S-10** Progress also takes the piped form — ASCII, nothing redrawn, no bars, one line
+  per finished phase (§ 4.5) — on a terminal under `TERM=dumb`, and whenever
+  `--progress=plain` is given. Redrawn bars are noise for a screen reader, and
+  `TERM=dumb` alone only removed colour (added 2026-11-25, `docs/research/README.md`
+  H6; `docs/research/sota-human-factors.md` § 3, challenge 6). The rest of the stream
+  keeps the rendering the table above gives it: tables on standard output stay aligned
+  on a terminal.
 
 ### 2.3 Symbols and fallbacks
 
@@ -203,7 +210,7 @@ In a terminal the space between a number and its unit is an ordinary space.
   | Source | Gives | Owner |
   |---|---|---|
   | The file's size and metadata, and a sample of its rows | format, columns, identifier type, estimated rows and distinct identifiers | #40 |
-  | The graph file's header | nodes, edges, direction, columns, what is already computed | #28, #39 |
+  | The graph file's table of contents and the headers of its sections (`docs/spec/eg-container.md` § 4, `docs/spec/eg-adjacency.md` § 3) | nodes, edges, direction, columns, what is already computed | #28, #39 |
   | The operation's cost model | per-node state, passes, scratch, output size | #45 |
   | A probe of the machine | cores, memory installed, free and limited by a container, storage type, free disk in the scratch and output directories, and whether the scratch root is on a memory-backed file system (`tmpfs`, `ramfs`) | #45 |
 
@@ -1016,7 +1023,27 @@ When the last phase finishes, the result block follows after one empty line:
   that returns a table or an object has no result block: its last phase line is the
   record, and the result follows on its own channel (§ 2.1).
 - **G-12** `dropped:` follows when rows of the input did not become edges, with the
-  exact count of each kind. It is left out when nothing was dropped.
+  exact count of each kind. It is left out when nothing was dropped. The kinds, in
+  this order, joined by ` · `: `N self-loops` (`self_loops="drop"`, key
+  `dropped.self_loops`) and `N duplicates` (`duplicates="collapse"`, the repeated
+  rows dropped, key `dropped.duplicates`). Under `duplicates="sum"` the repeated rows
+  are not dropped but merged into their pair's edge: a line `merged:` follows
+  `dropped:` (or takes its place) with `N duplicates, summed into their pairs` (key
+  `counts.merged`), left out when it is 0. With the edges of the `✓` line the two
+  lines add up to the rows read (`docs/spec/graph-semantics.md` § 2.8).
+
+```console
+✓ transfers.eg · 8.1 GB · 212,418,907 nodes · 1,604,551,209 edges · 3 min 22 s
+  dropped: 4,201 self-loops · 225,846,708 duplicates
+  next: everygraph map transfers.eg
+```
+
+```console
+✓ transfers.eg · 8.4 GB · 212,418,907 nodes · 1,604,551,209 edges · 3 min 25 s
+  dropped: 4,201 self-loops
+  merged: 225,846,708 duplicates, summed into their pairs
+  next: everygraph map transfers.eg
+```
 - **G-13** At most two hints follow, each a label and something that can be run, the
   runnable part in bold: `next:` on the command line; in Python the hint is a call
   (`reopen later: eg.open("transfers.eg")`). A hint is never a sentence of advice.
@@ -1161,8 +1188,8 @@ and, by kind:
 | | `ways_forward` | array | ways, as in § 6.1 |
 | | `continuing` | string or null | what happens now |
 | `result` | `output` | object | `path`, `kind`, `bytes` |
-| | `counts` | object | exact counts: `nodes`, `edges`, `rows`, … |
-| | `dropped` | object | exact counts by kind: `self_loops`, … |
+| | `counts` | object | exact counts: `nodes`, `edges`, `rows`, `merged` (G-12), … |
+| | `dropped` | object | exact counts by kind: `self_loops`, `duplicates` (G-12) |
 | | `elapsed_seconds`, `peak_memory_bytes`, `scratch_bytes` | number | the actual figures |
 | | `estimate_error` | object | for each of the four estimates, `relative` (number or null) and `absolute` (P-9) |
 | | `next` | array | hints: `label`, `python`, `command` |
@@ -1518,8 +1545,8 @@ anyway.
   - A new graph is written as `NAME.eg.partial` in the destination directory, made
     durable, then renamed to `NAME.eg` in one step.
   - A result added to an existing graph is appended; the file's table of contents is
-    switched to include it only once the result is durable (the protocol of #28). Until
-    that switch the file reads exactly as before.
+    switched to include it only once the result is durable (the protocol of #28,
+    `docs/spec/eg-container.md` § 8). Until that switch the file reads exactly as before.
   - The same holds for `NAME.egmap`.
 - **C-2** **A stop never changes what an existing graph file already held.** After a
   clean or a hard stop, every section the file had before the operation is unchanged
@@ -2235,7 +2262,8 @@ From `SPEC.md`, "Words", as rules that can be checked:
 - **T-7** The user's own nouns where the data reveals them (`addresses`), "nodes" and
   "edges" everywhere else and in every name that is typed.
 - **T-8** One word, one meaning: "budget" is memory; "limit" is a count of nodes or
-  rows a query returns, never memory or time; "timeout" is seconds; "scratch" is temporary disk; "kept" is finished work that will
+  rows a query returns (for `path`, the nodes its search visits), never memory or time;
+  "timeout" is seconds; "scratch" is temporary disk; "kept" is finished work that will
   not be repeated; "cut short" is a partial answer.
 
 ---
@@ -2295,9 +2323,10 @@ on an idle machine (`CLAUDE.md` § 3).
 | R-4 – R-7, R-10 | Unit tests of the fingerprint: changing `--memory`, `--threads`, `progress`, the input's bytes or a phase's algorithm version does not change it; changing any other parameter, the input's path or the output path does. Table-driven tests of R-7, one per row, each asserting the line printed and, for a changed input, that the old directory is gone. A scratch root holding a directory of another fingerprint with no live owner — another command's stopped job included — gives the `old-scratch` warning and leaves the directory in place. | #40 |
 | M-1 – M-4, M-6 – M-10, § 6.3 | Golden transcripts of every worked example in § 6, on each surface. The corpus of malformed inputs (#32) produces `file:line` locations that are checked against the corpus's own index. | #32, #98, #81 |
 | § 6.4, M-11 | A table-driven test: each exception class raised inside the command, and each usage error, yields its exit status. A query stopped at its limit exits with 0 and has a non-null `"truncated"` in its `--json` document. | #98 |
-| G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`; a graph kept in memory; an operation that returns a table (no result block). Every `✓` line ends with a duration. In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
+| G-3, G-4, G-11 – G-13 | Golden transcripts of: a run that continues (a `kept` phase); `map` when communities exist already; a result block with and without `dropped:`, with `duplicates` under `"collapse"` and with `merged:` under `"sum"`, whose counts add up to the rows read; a graph kept in memory; an operation that returns a table (no result block). Every `✓` line ends with a duration. In the `colour` files a bar contains no instruction other than faint. A check on the registry of hints: no operation has more than two. | #98, #81 |
 | C-8, C-9, R-9 | **Clean-up tests.** After a successful run the scratch root holds no `.everygraph-*` directory. With a failure injected in each phase in turn (invalid row, disk full), the scratch is gone, or holds exactly the finished phases when the error's last line says they were kept. A scratch directory with an old modification time is still there after an unrelated run. | #40 |
 | S-5 | The same command under two locales (`LANG=C.UTF-8`, `LANG=it_IT.UTF-8`) prints identical bytes. | #98 |
+| S-10 | A long command run in a pseudo-terminal with `TERM=dumb`, and again with `--progress=plain`, writes progress on standard error with no carriage return, no cursor movement and no bar: one line per finished phase, as in the piped rendering. | #98 |
 | T-7, T-8 | A vocabulary lint over the catalogue and over the public names: "budget" never appears in an entry about nodes or seconds, "limit" never in one about memory, "groups" never appears; a user's noun reaches a message only through the one function that derives it; no public name contains one. | #98, #81 |
 | T-1, T-6 | Not mechanical. Every new or changed catalogue entry appears in a golden file, so it is visible in the diff and is read against these two rules in review. | reviewer |
 | T-2 – T-5 | A lint over the message catalogue: forbidden words, exclamation marks, a full stop at the end of each sentence, every error entry has at least one way forward. | #98 |
@@ -2450,12 +2479,19 @@ and items 14 – 17 follow rows that settle a question this document had raised.
     graph held in memory, in the system temporary directory, where P-18 applies.
     *There is no file of the user's to put it beside, and the memory-backed case is
     already counted against the budget.*
+28. **The result block's words for repeated rows** (G-12): `dropped: … · N
+    duplicates` under `duplicates="collapse"` and a `merged: N duplicates, summed
+    into their pairs` line under `"sum"`, keys `dropped.duplicates` and
+    `counts.merged` of `docs/spec/graph-semantics.md` § 2.8 (its § 9, item 9). The
+    previews show only `dropped: N self-loops`. *Merged rows are not lost — their
+    weights and times are in the summed edge — so they are not called dropped; and
+    every row read is accounted for on the screen, as the report's identity says.*
 
 ## 10. Open points and obligations for other issues
 
-**Obligations.** § 8 gives test hooks and duties to issues whose files do not yet
-contain them. This pull request does not edit `plan/issues/`; the coordinator amends
-each file with the sentence given here, then republishes.
+**Obligations.** § 8 gives test hooks and duties to other issues. The pull request of
+this contract did not edit `plan/issues/`; the coordinator has since copied each
+obligation below into the issue file it names and republished it.
 
 | Issue | Obligation |
 |---|---|
@@ -2478,6 +2514,6 @@ each file with the sentence given here, then republishes.
 |---|---|---|
 | `terminal.html` still describes seven colour instructions and keeps blue "until that is decided"; `SPEC.md` has decided. It also still shows "a fifth of free RAM", "groups", `--precision low`, `/tmp/everygraph-7c1e`, `rm -r`, and a `map` result line without its time (§ 9, items 2, 14 – 18). | `design/preview/style/terminal.html` | #121 |
 | `notebook.html` uses `budget=10_000` for `khop` (now `limit=`), "start over" on interruption, bullets in the exception text, "cut short" for display, "groups" in the step table and `precision="low"` in the error card. | `design/preview/style/notebook.html` | #121, #76 |
-| The option to skip invalid rows and count them (#32) has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | #32, then a preview |
+| The text reader of #32 can skip invalid rows and count them (`OnInvalid::Skip`), but no public option exposes it, and the option has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | a preview, then #81 and #98 |
 | A phase that lasts hours prints nothing in a job log until it ends (the approved piped form has no heartbeat). | § 4.5 | #98 |
 | No command lists or removes scratch left by stopped runs; the stop block's `discard:` line and the `old-scratch` warning (R-10) are the only pointers. `everygraph doctor` could list them. | § 5.3 | #98 |

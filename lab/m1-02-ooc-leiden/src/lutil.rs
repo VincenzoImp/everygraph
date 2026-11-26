@@ -358,6 +358,16 @@ impl Graph {
     pub fn comp(&self) -> Option<&crate::store::Comp> {
         self.comp.as_ref()
     }
+    pub fn comp_mut(&mut self) -> Option<&mut crate::store::Comp> {
+        self.comp.as_mut()
+    }
+    /// m1-15: see `Comp::prefetch_nodes`.
+    #[inline(always)]
+    pub fn prefetch_nodes(&self, r: &std::ops::Range<usize>) {
+        if let Some(c) = &self.comp {
+            c.prefetch_nodes(r.start, r.end);
+        }
+    }
     #[inline(always)]
     pub fn off(&self) -> &[u64] {
         assert!(self.comp.is_none(), "no raw offsets on a compressed graph");

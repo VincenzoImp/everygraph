@@ -43,7 +43,7 @@
   },
   {
    "id": "loop-core",
-   "question": "core numbers with a self-loop",
+   "question": "core numbers with a kept self-loop",
    "graph": "triangle + loop at 0, undirected",
    "networkx": "refuses: NetworkXNotImplemented: Input graph has self loops which is not permitted; Consider using G.re",
    "igraph": [
@@ -59,8 +59,38 @@
    "agree": false
   },
   {
+   "id": "loop-core-lone",
+   "question": "core numbers of a lone node with a kept self-loop",
+   "graph": "loop at 0, node 1 isolated",
+   "networkx": "refuses: NetworkXNotImplemented: Input graph has self loops which is not permitted; Consider using G.re",
+   "igraph": [
+    2,
+    0
+   ],
+   "everygraph": [
+    0,
+    0
+   ],
+   "agree": false
+  },
+  {
+   "id": "loop-core-pair",
+   "question": "core numbers of two linked nodes with a kept self-loop each",
+   "graph": "edge 0-1, loops at 0 and 1",
+   "networkx": "refuses: NetworkXNotImplemented: Input graph has self loops which is not permitted; Consider using G.re",
+   "igraph": [
+    3,
+    3
+   ],
+   "everygraph": [
+    1,
+    1
+   ],
+   "agree": false
+  },
+  {
    "id": "loop-pagerank",
-   "question": "PageRank with a self-loop",
+   "question": "PageRank with a kept self-loop",
    "graph": "triangle + loop at 0, undirected",
    "networkx": [
     0.416058,
@@ -73,15 +103,36 @@
     0.2625
    ],
    "everygraph": [
-    0.333333,
-    0.333333,
-    0.333333
+    0.475,
+    0.2625,
+    0.2625
+   ],
+   "agree": false
+  },
+  {
+   "id": "loop-pagerank-weighted",
+   "question": "weighted PageRank with a kept self-loop of weight 3",
+   "graph": "triangle + loop at 0 of weight 3, undirected",
+   "networkx": [
+    0.519126,
+    0.240437,
+    0.240437
+   ],
+   "igraph": [
+    0.603175,
+    0.198413,
+    0.198413
+   ],
+   "everygraph": [
+    0.603175,
+    0.198413,
+    0.198413
    ],
    "agree": false
   },
   {
    "id": "loop-pagerank-directed",
-   "question": "PageRank with a self-loop, directed",
+   "question": "PageRank with a kept self-loop, directed",
    "graph": "3-cycle + loop at 0, directed",
    "networkx": [
     0.480056,
@@ -94,15 +145,15 @@
     0.26592
    ],
    "everygraph": [
-    0.333333,
-    0.333333,
-    0.333333
+    0.480056,
+    0.254024,
+    0.26592
    ],
    "agree": true
   },
   {
    "id": "loop-triangles",
-   "question": "triangles with a self-loop",
+   "question": "triangles with a kept self-loop",
    "graph": "triangle + loop at 0, undirected",
    "networkx": [
     1,
@@ -123,7 +174,7 @@
   },
   {
    "id": "loop-clustering",
-   "question": "clustering with a self-loop",
+   "question": "clustering with a kept self-loop",
    "graph": "triangle + loop at 0, undirected",
    "networkx": [
     1.0,
@@ -143,12 +194,72 @@
    "agree": true
   },
   {
+   "id": "loop-transitivity",
+   "question": "transitivity with a kept self-loop",
+   "graph": "triangle + loop at 0, undirected",
+   "networkx": 1.0,
+   "igraph": 1.0,
+   "everygraph": 1.0,
+   "agree": true
+  },
+  {
+   "id": "loop-clustering-pendant",
+   "question": "clustering with a kept self-loop and a pendant",
+   "graph": "triangle + loop at 0 + pendant 2-3, undirected",
+   "networkx": [
+    1.0,
+    1.0,
+    0.333333,
+    0
+   ],
+   "igraph": [
+    1.0,
+    1.0,
+    0.333333,
+    0.0
+   ],
+   "everygraph": [
+    1.0,
+    1.0,
+    0.333333,
+    0.0
+   ],
+   "agree": true
+  },
+  {
+   "id": "loop-transitivity-pendant",
+   "question": "transitivity with a kept self-loop and a pendant",
+   "graph": "same",
+   "networkx": 0.6,
+   "igraph": 0.6,
+   "everygraph": 0.6,
+   "agree": true
+  },
+  {
    "id": "loop-modularity",
-   "question": "modularity with a self-loop, partition {0,1} {2}",
+   "question": "modularity with a kept self-loop, partition {0,1} {2}",
    "graph": "triangle + loop at 0, undirected",
    "networkx": -0.125,
    "igraph": -0.125,
-   "everygraph": -0.222222,
+   "everygraph": -0.125,
+   "agree": true
+  },
+  {
+   "id": "loop-modularity-weighted",
+   "question": "weighted modularity with a kept self-loop of weight 3, partition {0,1} {2}",
+   "graph": "triangle + loop at 0 of weight 3, undirected",
+   "networkx": -0.055556,
+   "igraph": -0.055556,
+   "everygraph": -0.055556,
+   "agree": true
+  },
+  {
+   "id": "loop-modularity-directed",
+   "question": "modularity of a directed graph with a kept self-loop, partition {0,1} {2}",
+   "graph": "3-cycle + loop at 0, directed",
+   "networkx": -0.125,
+   "igraph": -0.125,
+   "everygraph": -0.125,
    "agree": true
   },
   {

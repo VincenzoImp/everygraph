@@ -63,6 +63,11 @@ silently.
 ## Consequences
 
 - f64 state is the default wherever the result is a float; f32 is offered, never chosen.
+- Reductions that carry a result run over reduction blocks of node ranges that are a
+  function of the graph, never of the file's blocks, the chunk size, the thread count,
+  the budget or the storage format (ADR 0028, A2; `docs/spec/eg-adjacency.md` § 4). For a
+  file built by appends, results depend on its batches, not on how its runs are merged
+  (ADR 0028, S4; `design/DECISIONS.md`).
 - The case that could narrow the promise is **out-of-core Leiden** (#60, acceptance:
   "deterministic mode works out of core with the same hash as in RAM"). Streaming
   aggregation combines (community, community, weight) triples in bucket order; with

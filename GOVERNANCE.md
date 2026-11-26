@@ -26,8 +26,9 @@ in [CLAUDE.md](CLAUDE.md). In practice:
   Tooling settings in `.claude/settings.json` deny publishing, visibility changes,
   force-pushes and repository deletion until the owner lifts them.
 
-The repository is private until the first release (0.1). Until then, contributions come
-only from the owner and the people the owner invites.
+The repository is public since 2026-11-26, during development and before the first
+release (`design/DECISIONS.md`, "When the repository becomes public"). Contributions
+follow [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## How decisions are made and recorded
 
@@ -73,7 +74,8 @@ Rights in the name "Everygraph" — and any trademark registration the project a
 — are held by the owner, to be transferred to a neutral home if the project gets one
 (below). No trademark is registered today, and a third party has a pending US
 application for the same name ([docs/legal/name-check.md](docs/legal/name-check.md));
-professional advice is planned before anything public (issue #122).
+the owner accepted that risk when the repository became public, and professional advice
+is planned before the first release (issue #122).
 
 ## When there are more maintainers
 

@@ -2,14 +2,14 @@
 
 This file holds the coding rules of the Rust workspace. How work is planned, reviewed and
 merged is in [CLAUDE.md](CLAUDE.md); why the engine is shaped this way is in
-[docs/DESIGN.md](docs/DESIGN.md). Licence sign-off, the code of conduct and the security
-policy arrive with issue #9.
+[docs/DESIGN.md](docs/DESIGN.md). Licensing, sign-off, review, the code of conduct and the
+security policy are in the last section, "Licensing, sign-off and review".
 
 ## Checks
 
 Every pull request passes these on current stable Rust. Continuous integration runs
 all of them (see "CI" below); run them yourself before pushing, because a red run costs
-Actions minutes and a round trip.
+a place in the shared queue and a round trip.
 
 ```sh
 cargo fmt --all --check
@@ -18,22 +18,37 @@ cargo clippy -p everygraph-core --no-default-features --all-targets -- -D warnin
 cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --all-targets -- -D warnings
 cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets -- -D warnings
 python3 tools/check_core_portability.py
+python3 tools/numerics_lint.py --check
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
+cargo build -p everygraph-ingest --target wasm32-unknown-unknown
 cargo build -p everygraph-wasm --target wasm32-unknown-unknown
+cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets -- -D warnings
+cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
+cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown -- -D warnings
+RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
+  cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo deny check                            # offline: cargo deny check bans licenses sources
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo build --workspace --release
 ```
 
-And the three checks of the checks, each one command (what they do: "CI" below):
+And the checks of the checks, each one command (what they do: "CI" below):
 
 ```sh
 python3 tools/check_portability_canary.py   # the portability checks still catch each probe
-python3 tools/check_wasm_toy.py             # toy kernel: native and wasm32 in Node agree
+python3 tools/check_wasm_toy.py             # toy kernel and the edge-map proof kernels: native and wasm32 in Node agree
+python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
+python3 tools/check_container_python.py     # .eg container: the Python reader reads what Rust wrote
+uv run --script tools/check_columns_python.py  # columns: pyarrow and Polars read what Rust wrote
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
+
+`tools/ci_local.sh` runs both lists (not the release build) and prints which steps failed (`--miri`
+adds the Miri and ThreadSanitizer runs, `--oracle` the oracle). Run it under a hard memory
+limit: `systemd-run --user --scope -p MemoryMax=16G -p MemorySwapMax=0 tools/ci_local.sh`.
+It covers Linux x86_64 only.
 
 The four clippy runs are not redundant: the core is linted once for each configuration
 its code can be compiled under (with and without `parallel`, 64-bit and 32-bit). The
@@ -55,7 +70,7 @@ reason, and every crate inherits them with `[lints] workspace = true`.
 On the minimum supported toolchain (see "Rust version"):
 
 ```sh
-cargo +1.85 test --workspace --locked
+cargo +1.100 test --workspace --locked
 ```
 
 And these on nightly, because Miri is the way to *run* tests with a 32-bit `usize` on a
@@ -63,10 +78,23 @@ machine without the 32-bit C runtime, and the required check for any module that
 contains `unsafe`:
 
 ```sh
-cargo +nightly miri test -p everygraph-core --no-default-features
-cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu
-MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core
+cargo +nightly miri test -p everygraph-core --no-default-features -- --skip full_size
+cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu -- --skip full_size
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core -- --skip full_size
+cargo +nightly miri test -p everygraph-format
+RUSTFLAGS="-C target-feature=+ssse3" cargo +nightly miri test -p everygraph-format --test adjacency
+cargo +nightly miri test -p everygraph-io --test allocation_failure
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-kernels --lib --test heap
+cargo +nightly test -p everygraph-kernels --doc   # checks the error codes of compile_fail tests
 ```
+
+The last two run the adjacency codec's tests on the scalar decoder, then on the SSSE3 one
+(compiled in, so that run-time detection finds it under Miri). Its tests run a sample under
+Miri (`cfg!(miri)`): the full corpus takes about 15 minutes there.
+
+The core's runs skip the tests named `*full_size` (the numerics golden vectors and the
+exact sum over chunks of 65,536), which take minutes under Miri; the native test runs on
+every target cover them.
 
 The third command runs the tests on rayon's thread pool. It needs the two flags because
 of rayon's dependencies, not because of this code: `crossbeam-epoch` keeps an intrusive
@@ -80,23 +108,79 @@ upstream does not turn every pull request red. To run exactly what CI runs, repl
 `+nightly` by `+$(cat tools/nightly-toolchain)`. Moving the pin is a pull request of its
 own.
 
+### Fuzzing
+
+Code that parses bytes has a fuzz target (CLAUDE.md § 6, issue #191), in a `fuzz/`
+package of its crate that is not part of the workspace: `everygraph-format` has
+`adjacency`, `container` and `columns`, `everygraph-ingest` has `text`. Each target's corpus is
+committed under `fuzz/corpus/TARGET`. With `cargo-fuzz` and the pinned nightly:
+
+```sh
+tools/fuzz.sh replay                 # every corpus, once: what every pull request runs
+tools/fuzz.sh run container 300      # fuzz one target for 300 seconds
+tools/fuzz.sh cmin container         # then shrink its corpus before committing it
+```
+
+Every run refuses one allocation above 64 MiB, so that a size an input declares (a zstd
+window) cannot become memory. A crash leaves its input under `fuzz/artifacts/TARGET`;
+the fix commits it to the corpus, so that the replay keeps it fixed. Code that writes
+has a fault-injection sweep: `everygraph_io::faults` (feature `faults`) fails the k-th
+operation of any source or sink, and a test runs the work for every k
+(`crates/everygraph-format/tests/faults.rs`).
+
 ## CI
 
-GitHub Actions, two workflows under `.github/workflows/`. The repository is private and
-its Actions minutes are counted (macOS ten-fold, Windows two-fold), which is why the
-expensive platforms do not run on every push.
+GitHub Actions, five workflows under `.github/workflows/`, on GitHub-hosted runners. The
+repository is public, so standard runners cost nothing. The queue is still shared by every
+agent's pull request, so on a pull request the expensive jobs run only when it changed
+what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`); by hand | **lint**: fmt, the four clippy runs, `check_core_portability.py`, `cargo deny check`, docs. **test**: nextest, doc tests, the core without default features, release build, the core's tests natively on i686. **portability**: the two wasm32 builds, the wasm toy, the portability canary. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.85 test`. **miri**: the three Miri commands. **tsan**: `check_tsan.py`. All on Linux x86_64 |
-| `other-platforms.yml` | Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `numerics_lint.py --check`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map proof kernels), the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map proof kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two and the kernels' included), the kernels' doc tests on nightly, then `check_tsan.py`. All on Linux x86_64 |
+| `fuzz.yml` | as `ci.yml`; nightly at 02:17 UTC; by hand | **replay** (always, merge only when green): `tools/fuzz.sh replay`. **campaign** (advisory), when a pull request changes `everygraph-format`, `-ingest`, the core or `tools/fuzz.sh` (`ci_changes.py`'s `fuzz_*` flags): 5 minutes per target of that crate. **nightly**: 1 hour per target, then `cmin`; the corpus is uploaded as an artifact, and its new entries come back by pull request ("Fuzzing" above) |
+| `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
+| `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, and `plan/publish.py VincenzoImp/everygraph --dry-run`. Standard library only |
+| `dco.yml` | every pull request | the `Signed-off-by` check ("Sign-off" below) |
 
-A new push to a pull request cancels the run it replaces. Caches (`Swatinem/rust-cache`)
-(and `astral-sh/setup-uv`'s cache of the oracle's Python packages) are written by runs on `main` and read by every branch. Third-party actions are pinned
+Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
+in the lint job, from `git diff` of GitHub's merge commit against its base (run it
+locally with `--base main` to see what your branch would run):
+
+| Job | Runs on a pull request when it changes |
+|---|---|
+| lint, test | always |
+| sanitizers (Miri, ThreadSanitizer), and the i686 tests in test | `crates/everygraph-core/`, a module of the `unsafe` table below, `tools/nightly-toolchain`, `tools/check_tsan.py`, `tools/canary/tsan/` |
+| oracle, and the oracle crate's tests in test | `crates/everygraph-oracle/`, `oracle/`, the kernel crates (`everygraph-kernels`, `-community`, `-map`), `datasets/`, `crates/everygraph-bench/src/datasets/` |
+| msrv, and the release build in test | any `Cargo.toml` (`rust-version`, dependencies, profiles), `Cargo.lock`, a `rust-toolchain` file |
+| everything | anything under `.github/`, or the pull request has the label **`full-ci`** |
+
+Everything also runs on every push to `main`, and nightly unless `main`'s last commit
+already passed a full run (then only lint, which hears of new advisories and of a new
+stable toolchain). So nothing merged goes unchecked by any job for more than a day. What
+a pull request may therefore leave to `main`: a newer *language* feature below the MSRV
+in a change that touched no manifest (newer *std* APIs are caught on every run by
+clippy's `incompatible_msrv`), a dependency bump in `Cargo.lock` that changes the core's
+behaviour under Miri, and anything a kernel change breaks in the oracle's Python suite
+through a crate not listed above. The coordinator adds `full-ci` to every Tier 2 pull
+request (CLAUDE.md § 4) before merging it. The test job runs even when lint fails, so
+that a red pull request still gets its test results; the conditional jobs wait for lint
+to pass.
+
+A new push to a pull request cancels the run it replaces. The caches (`Swatinem/rust-cache`,
+and `astral-sh/setup-uv`'s cache of the oracle's Python packages) are written by runs on
+`main` and read by every branch. Third-party actions are pinned
 to a commit, with the version in a comment; workflows get `contents: read` and nothing
-else.
+else (the lint job also reads Actions runs, for the nightly check).
 
-What the three scripts at the end of "Checks" are for:
+**Push when the branch is ready for CI, not after every commit.** Every push to an open
+pull request starts a run, which takes a place in the queue every agent shares, even when
+the next push cancels it. Run
+the checks of the crates you touched locally ("Checks"), commit as often as you like,
+and push once the branch is ready to be checked — or push to a branch without a pull
+request, which starts nothing.
+
+What the scripts at the end of "Checks" are for:
 
 - **`tools/check_portability_canary.py`** breaks the portability rule on purpose. Each
   file under `tools/canary/portability/` is a probe (direct `std::fs`, file access
@@ -106,11 +190,30 @@ What the three scripts at the end of "Checks" are for:
   runs the check the probe names, and fails unless that check fails with the message
   the probe expects. A check that has quietly stopped checking — `clippy.toml` moved,
   a list entry deleted, an allow-list widened — is caught this way. A new way around the
-  rule gets a probe in the pull request that closes it.
+  rule gets a probe in the pull request that closes it. The probes under
+  `tools/canary/allocation/` do the same for the allocation rule (below) in each kernel
+  crate.
 - **`tools/check_wasm_toy.py`** runs a toy kernel (degrees of a generated graph,
-  through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) natively with rayon and
-  as wasm32 in Node, and compares the hashes. Real kernels replace it with the
-  determinism CI (m3-11).
+  through `ByteSource`, `NodeId` and `par`; `tools/wasm-toy/`) and the edge-map
+  framework's proof kernels (PageRank, WCC, BFS over the raw and the compressed source)
+  natively with rayon and as wasm32 in Node, and compares the hashes. The determinism
+  CI (m3-11) replaces it.
+- **`tools/check_wasm_codec.py`** applies the wasm toy's pattern to the adjacency codec:
+  the `simd128` decoder in Node must agree with the scalar one.
+- **`tools/check_container_python.py`** has `everygraph-io`'s example `container_sample`
+  write a container. `tools/eg_container.py`, a reader in Python written from
+  `docs/spec/eg-container.md` alone, must then agree with the Rust reader, on the sample
+  and on files patched to exercise the reading rules (fallback past a damaged or
+  rule-breaking table, the tie between header blocks, required features of the older
+  block). It must also verify the hashes and report a damaged section.
+- **`tools/check_columns_python.py`** has the example `columns_sample` write property
+  columns of every type (`docs/spec/eg-columns.md`). pyarrow, on a slice of a memory map
+  of the file, must read the values given to the writer, with every buffer in the map at
+  a multiple of 4096 where the layout section says; the statistics must equal those it
+  recomputes exactly (`fractions.Fraction`); Polars must read the same values; and the
+  sections pinned by the golden test of `crates/everygraph-format/tests/columns.rs` must
+  be among those read. `--big` runs the 2^27-row check of the research decision B17
+  (about 3 GB of memory, two minutes).
 - **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
   ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
   `tools/canary/tsan/`, a toy kernel on `par` with a deliberate data race, which must be
@@ -124,17 +227,17 @@ describing it).
 
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
-| `everygraph-core` | id types, `ByteSource`, the parallel facade, the memory accountant interface; later segmentable arrays | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks | #29 | no — the one crate for OS I/O |
-| `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes |
-| `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes (browser ingest, D22) |
-| `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes |
+| `everygraph-core` | id types, `ByteSource` and its writable counterpart `ByteSink`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits); with the feature `faults`, the fault-injecting wrapper of tests | #29, #31, #28, #190 | no — the one crate for OS I/O |
+| `everygraph-format` | the `.eg` container, the adjacency codec, property columns, and `verify` | #28, #30, #37, #41 | yes, enforced (with and without `simd128`) |
+| `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
+| `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes, built and linted in CI |
 | `everygraph-community` | Leiden and the map hierarchy | #57 | yes |
 | `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
-| `everygraph-cli` | the `everygraph` command | #98 | no |
+| `everygraph-cli` | the `everygraph` command | #41 (`verify`), #98 | no |
 | `everygraph-py` | Python bindings | #81, #82 | no |
-| `everygraph-wasm` | browser bindings | #108 | yes |
+| `everygraph-wasm` | browser bindings | #108 | yes, built in CI |
 | `everygraph-bench` | the `everygraph-bench` harness; the dataset registry and fetcher (`datasets/`) | #4, #5 | no |
 | `everygraph-oracle` | the correctness oracle: generators, references, comparators, invariants, the `KernelUnderTest` trait (a development crate, `publish = false`, used by other crates' tests only; see `oracle/README.md`) | #6 | no |
 
@@ -150,9 +253,10 @@ command, the Python extension, the threaded browser build) enable
 they link. `parallel` is a default feature of the core, so that someone who depends on
 `everygraph-core` alone gets threads without asking.
 
-"Must build for wasm32" is enforced for `everygraph-core` today. The other rows state the
-intent; each crate joins the wasm32 build, and gets a `clippy.toml` like the core's, in
-the pull request that gives it content.
+"Must build for wasm32" is enforced today for the crates CI builds for wasm32: the core,
+`everygraph-format` and `everygraph-ingest` (and the empty `everygraph-wasm`). The other
+rows state the intent; each crate joins the wasm32 build, and gets a `clippy.toml` like the
+core's, in the pull request that gives it content.
 
 ## The portability rule
 
@@ -181,8 +285,7 @@ one: read what it does on a target without an OS, add it and its own dependencie
 `ALLOWED_DEPENDENCIES` in the same pull request, and say why in the description. The
 same list is what keeps C and C++ out of the core (DESIGN D1): everything on it is pure
 Rust. `deny.toml` adds two workspace-wide rules: rayon may be a direct dependency of
-`everygraph-core` only, and memory-mapping crates are banned until #29 allows one for
-`everygraph-io`.
+`everygraph-core` only, and memory maps come from memmap2 and only into `everygraph-io`.
 
 **Adding a `cfg` condition to `everygraph-core` needs a lint run that compiles it.**
 `#[cfg(not(clippy))]` hides code from every lint, and `#[cfg(windows)]` hides it from a
@@ -193,9 +296,54 @@ Not checked at all: **blocking**. `Mutex::lock`, `Condvar::wait`, `Barrier::wait
 channel's `recv` compile everywhere and can block a browser's main thread, which is not
 allowed to wait. Code in the core must not block; today nothing verifies it.
 
-The rule is enforced for `everygraph-core` only. Clippy reads the `clippy.toml` nearest
-to the crate it checks, so the lists do not apply to `everygraph-io` or to any other
-crate (see "Crates").
+The rule is enforced in full for `everygraph-core` only. Clippy reads the `clippy.toml`
+nearest to the crate it checks, so the core's lists apply to no other crate.
+`everygraph-format` keeps a copy of them in its own `clippy.toml` and forbids the lints
+at its root; the script and the canary do not check that copy, and its dependencies are
+checked only by the wasm32 builds and by review. The lists do not apply to `everygraph-io`
+(see "Crates").
+
+## The allocation rule
+
+Every large buffer is reserved against the user's memory budget before it is allocated
+(DESIGN D11; issue #31). Code that allocates takes a `Memory` handle and holds memory
+through the types of `everygraph-core` that own both the buffer and its reservation:
+`SegVec` for arrays (growth reserves first; segments of at most 1 GiB, for wasm32),
+`ScratchPool` for per-thread scratch (one buffer per chunk that can run at once, the
+plan's thread count), and a `Reservation` kept next to anything else (a hash table) —
+sized by the caller, so it is the last resort. A refusal is a typed error
+(`MemoryError::Budget` carrying `InsufficientBudget { needed, available }`), never an
+abort. A plan adds up the sizes first (`SegVec::<T>::bytes_for`, in `u64`) so that a
+kernel is refused before it allocates anything.
+
+In the kernel crates (`everygraph-kernels`, `everygraph-community`, `everygraph-map`,
+`everygraph-query`) a `clippy.toml` disallows the ways of sizing a buffer directly —
+`Vec::with_capacity`, `reserve`, `resize`, `vec![x; n]`, `HashMap::with_capacity` and
+the like — and each crate root forbids the lint, so it cannot be allowed locally. The
+four lists are identical; `tools/check_portability_canary.py` checks that each still
+catches every entry. What no lint sees: growth through `push`, `extend`, `collect` and
+`clone`. Small vectors use those; a large one is a review finding, and what catches it
+is a counting global allocator in the kernel tests that asserts heap bytes ≤
+`Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` have
+code but not yet this `clippy.toml`; the M2 cleanup (#200) adds it.
+
+## The numerics rule
+
+A result has the same bits on every supported platform (DESIGN D14). The rules are
+R1–R15 of `docs/research/sota-numerics.md` § 4; the module docs of
+`everygraph_core::math` and `everygraph_core::rng` say how to follow them. What is
+checked:
+
+| What is checked | By |
+|---|---|
+| No std transcendental (`sin`, `exp`, `ln`, `powf`, `powi`, … on `f64` and `f32`), no `libm::pow`, and no `rand`, `getrandom` or `fastrand` generator in a crate that produces results; use `everygraph_core::math` and `everygraph_core::rng` | The same list in the `clippy.toml` of the core, the format and the four kernel crates, and in the root `clippy.toml`, which every other crate without a `clippy.toml` of its own reads. `tools/numerics_lint.py` writes the seven copies, and its `--check` (in the lint job) fails if one differs. The canary probes every product crate. The harness has its own empty `clippy.toml`: its statistics are not results |
+| No `rand` except through proptest, no `getrandom` except through `rand_core` and TLS, no `fastrand` | `deny.toml` |
+| The pinned functions, `sqrt`, `mul_add`, `ExactSum` and the generator give the same bits on x86-64, i686, aarch64, macOS, Windows and wasm32 | `crates/everygraph-core/tests/numerics_golden.rs` in every test run of the core, and in Node through `tools/check_wasm_toy.py` |
+
+To change the numerics list, edit `tools/numerics_lint.py` and run it. Not checked by
+any lint: `Iterator::sum` on floats (use `math::sum`), `f64::max` where signed zeros or
+NaN can tie (use `total_cmp`), and float sums whose order depends on the schedule (use
+`ExactSum`, or integers).
 
 ## Integers
 
@@ -208,13 +356,18 @@ than memory (file lengths, byte offsets, memory budgets) are `u64` on every targ
 
 ## `unsafe`
 
-`unsafe` is allowed only in modules named in the table below. Today there are none, and
-every crate root forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file
-under `tests/`, which Cargo compiles as a crate of its own.
+`unsafe` is allowed only in modules named in the table below. Every other crate root
+forbids `unsafe_code`: each `lib.rs`, each `main.rs`, and each file under `tests/` and
+`examples/`, which Cargo compiles as crates of their own.
 
 | Module | Why safe code is not enough | Miri test |
 |---|---|---|
-| *(none yet)* | | |
+| `everygraph-io`, `src/sys.rs` | std has no memory maps, no file preallocation, no `posix_fadvise` and no `F_NOCACHE`. Four blocks: memmap2's `Mmap::map`, sound under the invariant that no writer modifies or truncates a mapped file (`design/DECISIONS.md`, "Memory-mapped files are read through a safe constructor"; the sinks refuse mapped files in-process, `src/claim.rs`), and `fallocate`, `posix_fadvise` and `fcntl(F_NOCACHE)`, each taking only a borrowed file descriptor and integers | none possible: Miri cannot execute foreign calls or map files, nor model the map's real hazard, outside writers. Native tests instead (accepted in the review of PR #151): `tests/conformance.rs` reaches every block and checks that `fallocate` allocated the blocks on Linux; `sinks_refuse_a_mapped_file_and_maps_refuse_a_file_being_written` checks the guard; the macOS block runs on the macOS runner of `other-platforms.yml` |
+| `crates/everygraph-io/tests/allocation_failure.rs`, module `refusing` | A test that makes the allocator refuse, to reach every `MemoryError::AllocationFailed` path of `SegVec` and `ScratchPool`: replacing the global allocator is an `unsafe impl GlobalAlloc`. It is not in `everygraph-core` because the core forbids `unsafe` in every crate root, its tests included | `cargo +nightly miri test -p everygraph-io --test allocation_failure` |
+| `crates/everygraph-ingest/tests/heap_peak.rs`, module `counting` | A test that counts the bytes the program holds from the allocator, to check that the identifier dictionary's heap stays within the budget its accountant was given (review of PR #158): replacing the global allocator is an `unsafe impl GlobalAlloc` | `MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-disable-isolation -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-ingest --test heap_peak` (Tree Borrows because rayon's dependencies need it; isolation off because the test's scratch is files) |
+| `everygraph-kernels`, `src/edge_map/` (the brand and the unchecked indexing are in `node.rs`; the drivers turn checked lists into nodes; `Csr` reads its checked arrays without bounds checks; the sources state their guarantee in `unsafe impl Source`) | Kernels index per-node state with the targets of lists many times per entry, and the compiler cannot see that they are in range. Each source checks its lists once, in the memory it hands them out from, and a `Node<'g>` carries the proof (a generative lifetime brand, as in `GhostCell`). The bounds checks cost up to a third of the time of WCC on orkut at one thread (interleaved A/B against `lab/b1-core`, PR #202). `Csr` over a memory map relies also on the invariant of `everygraph-io`, `src/sys.rs` (no writer changes a mapped file) | `MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-kernels --lib --test heap`: the unit tests drive `scan`, `frontier`, `vertices` and random access over `Csr`, `Compressed` and `Stream` built in memory, with a corrupt list; the brand's `compile_fail` doc tests run on nightly (`cargo +nightly test -p everygraph-kernels --doc`), which checks their error code |
+| `crates/everygraph-kernels/tests/heap.rs`, module `counting` | A test that counts the heap in use, to check that the readers hold no more than they reserve: replacing the global allocator is an `unsafe impl GlobalAlloc` | the command of the row above (`--test heap`) |
+| `everygraph-format`, `src/adjacency/` (the `unsafe` code is in `simd.rs`) | Stream VByte decodes four words with one SIMD byte shuffle and a fused prefix sum (SSSE3, NEON, wasm `simd128`); loads, stores and calls of feature-enabled functions are `unsafe`. The lab's scalar prefix-sum pass was 1.17–1.25× slower on single-thread `PageRank` (FINDINGS § M1-13) | `crates/everygraph-format/tests/adjacency.rs` under both Miri commands above (scalar, then SSSE3 compiled in); NEON is run by the weekly arm64 jobs (`cargo test (format)`); `simd128` by `tools/check_wasm_codec.py` in Node |
 
 To add one, in a single pull request:
 
@@ -227,19 +380,37 @@ To add one, in a single pull request:
    on, and one unsafe operation per block (`undocumented_unsafe_blocks` and
    `multiple_unsafe_ops_per_block` are `deny`).
 4. Add tests that reach every `unsafe` block and pass under `cargo +nightly miri test`.
-5. Add the module to the table above. The pull request gets the independent review
-   that CLAUDE.md § 4 requires for `unsafe` code.
+5. Add the module to the table above, written in backticks as its path
+   (`` `crates/everygraph-io/src/sys.rs` ``, a directory ending in `/`) or as the crate
+   followed by the path inside it (`` `everygraph-io`, `src/sys.rs` ``): CI reads that
+   column to run the sanitizers job when the module changes. If the module is outside
+   the core, add its Miri run to that job in `ci.yml`. The pull request gets the independent review that CLAUDE.md § 4
+   requires for `unsafe` code.
 
-Where we expect to need it, from the lab prototypes: SIMD in the adjacency codec (#30),
-disjoint parallel writes into shared arrays in the build pipeline and in Leiden (#35,
-#57), memory maps in `everygraph-io` (#29), and the generated glue of the Python and
-browser bindings (#81, #108). `everygraph-core` is expected to stay free of it.
+Where we expect to need it next, from the lab prototypes: the generated glue of the Python
+and browser bindings (#81, #108). The lab's disjoint parallel writes into shared arrays
+(the build pipeline and Leiden, #35, #57) are to go through the safe helpers of `par`
+instead (#189). `everygraph-core` is expected to stay free of `unsafe`.
+
+## Comments and documents
+
+Everything written in the repository and on GitHub is in English, in Simple Technical
+English: short sentences, one idea each, common words, active voice. Go beyond it only
+where a precise term needs it. A code comment says only what the code cannot: why, an
+invariant, a reference to the specification or to a measurement. It does not narrate the
+next line or tell the history of the change ([CLAUDE.md](CLAUDE.md)).
 
 ## Rust version
 
-The minimum supported Rust version is **1.85**, recorded as `rust-version` in the
-workspace manifest: it is the first release with edition 2024 and the MSRV-aware
-dependency resolver, and the toolchain Debian 13 ships. Everything builds on stable. The
+The minimum supported Rust version is **1.100**, recorded as `rust-version` in the
+workspace manifest. It was 1.85 (the first release with edition 2024 and the MSRV-aware
+resolver, and Debian 13's toolchain), then 1.87 from 2026-11-25 (the fix for
+RUSTSEC-2026-0344 in `ruzstd` 0.9.1, needed by the text reader, #32). It was raised to
+1.100 on 2026-11-26 because 1.100 stabilizes `std::alloc::Allocator` and `Vec::new_in`
+(release notes of 1.100.0, "Stabilize custom allocators"): the memory accountant's page
+backend (#167) gives `SegVec` segments an allocator, and the core cannot implement a
+container of its own over foreign memory without `unsafe`. `Vec::try_with_capacity_in` is
+not stable in 1.100; code uses `Vec::new_in` and `try_reserve_exact`. Everything builds on stable. The
 one planned exception is the threaded browser build (#108), which needs a nightly
 toolchain pinned by that build's own script, not by a `rust-toolchain.toml` at the root,
 which would move the whole workspace to nightly.
@@ -306,10 +477,11 @@ git commit --amend -s               # adds it to the last commit
 git rebase --signoff origin/main    # adds it to every commit of the branch
 ```
 
-`.github/workflows/dco.yml` checks every commit of a pull request. While the repository
-is private it runs only on pull requests from forks; it runs on all pull requests once
-the repository variable `DCO_ALL_PULL_REQUESTS` is `true`. Commits made before this rule
-are unsigned and stay as they are.
+`.github/workflows/dco.yml` checks every commit of a pull request. It always runs on
+pull requests from forks, and on every pull request while the repository variable
+`DCO_ALL_PULL_REQUESTS` is `true` (it is, since 2026-11-26). When you merge `origin/main`
+into a branch, sign the merge commit too: `git merge --signoff origin/main`. Commits made
+before this rule are unsigned and stay as they are.
 
 ### AI-assisted contributions
 
@@ -323,12 +495,15 @@ is responsible for that work.)
 
 ### Review
 
-Every change reaches `main` through a pull request that follows
-`.github/pull_request_template.md`: it names the issue it closes and copies the issue's
-acceptance criteria, each ticked only with its evidence (a test, a result file, or a
-command and its output). It passes the checks under "Checks", and changes to kernels,
-on-disk formats, `unsafe` code, the planner or memory accounting get an independent
-review whose findings are fixed or answered before merge ([CLAUDE.md § 4](CLAUDE.md)).
+Every change of code or of a specification reaches `main` through a pull request that
+follows `.github/pull_request_template.md`. (Only coordination goes to `main` directly:
+`docs/STATE.md`, the plan and records of decisions, [CLAUDE.md § 2](CLAUDE.md).) The pull
+request names the issue it closes and copies the issue's acceptance criteria, each ticked
+only with its evidence (a test, a result file, or a command and its output). It passes the
+checks under "Checks". Changes to kernels, on-disk formats, `unsafe` code, the planner or
+memory accounting, and experiments whose result changes a decision or a public number, get
+an independent review whose findings are fixed or answered before merge
+([CLAUDE.md § 4](CLAUDE.md)).
 Pull requests are merged by squash. Who decides, and how that changes as more people
 join, is in [GOVERNANCE.md](GOVERNANCE.md). Behaviour in the project follows the
 [code of conduct](CODE_OF_CONDUCT.md); security problems are reported privately as

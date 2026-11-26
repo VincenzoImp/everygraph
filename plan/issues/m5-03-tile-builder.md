@@ -9,12 +9,12 @@ labels: type:feature, area:map, P0, risk:medium, size:L, lab-evidence
 - [ ] Streaming build: generate tiles per quadtree subtree and append to the file; directory written at the end (PMTiles supports clustered, Hilbert-ordered tiles)
 - [ ] Stream tiles to disk per zoom level (or per subtree), so resident memory does not grow with the number of tiles
 - [ ] Bound the per-zoom working state as well (candidate sets, per-tile maps): on Friendster under 16 GiB it, not the held tiles, took most of the 13.9 GiB
-- [ ] Compute all zoom levels from one adjacency pass rather than one pass per level (the lab re-reads the graph for each of the 12 levels)
+- [ ] Compute all zoom levels from one adjacency pass rather than one pass per level (the lab re-reads the graph for each of the 12 levels). With ids in hierarchy order ({{#m1-09-hierarchy-order}}) that pass is sequential by subtree. Otherwise one sequential pass buckets edges by finest community into spilled, budgeted buckets, as the sequential aggregation of {{#m1-02-ooc-aggregation}} does (`docs/research/memory-bounded-algorithms.md` addendum § E; `docs/research/sota-maps.md` challenge 4). Per-zoom random access, if any is left, goes through the block cache ({{#m2-23-block-cache}}) when {{#m1-15-mmap-hints-block-cache}} adopts it
 - [ ] Never load the graph into the heap (killed at 13.2 s under 16 GiB that way)
 - [ ] Importance ranking per tile (region size, degree, PageRank) with stable tie-breaking
 - [ ] Exact omission accounting per tile
 - [ ] File size follows node count and budgets, not edge count (lab observation) — expose the size/detail trade-off as one "detail" parameter with a preflight size estimate
-- [ ] Deterministic output: identical file hash at any thread count (lab: same SHA-256 at 4 and 32 threads)
+- [ ] Deterministic output: identical file hash at any thread count (lab: same SHA-256 at 4 and 32 threads). The zoom level is an integer decision (`ilog2` or `leading_zeros`, not `f64::log2`, `lab/e-map/gmap/src/tiles.rs` l. 134), and `powi(2)` is `x * x` (l. 322) ({{#m2-26-core-math}})
 - [ ] Incremental rebuild of subtrees when only part of the layout changed (stretch)
 - [ ] The pyramid is written as `NAME.egmap.partial` and renamed when complete; a stop removes the partial file (`docs/ux-contract.md` § 5.1, C-1, C-3)
 

@@ -2,22 +2,19 @@
 
 ## Supported versions
 
-None yet. Everygraph has had no release; the Rust workspace is a skeleton, and there is
-nothing to install. This section will list the supported versions from the first release
-(0.1) on.
+None yet. Everygraph has had no release, and there is nothing to install: the Rust
+workspace holds the first components (container, adjacency codec, I/O layer, readers),
+not a usable product. This section will list the supported versions from the first
+release (0.1) on.
 
 ## Reporting a vulnerability
 
 Do not report a vulnerability in a public issue, pull request or discussion.
 
-- **Once the repository is public**, report it through GitHub's private vulnerability
-  reporting: the repository's **Security** tab, then **Report a vulnerability**. The
-  report and the conversation about it stay visible only to you and the maintainers until
-  an advisory is published.
-- **While the repository is private** (until 0.1), everyone who can read it is a
-  collaborator invited by the owner. GitHub offers private vulnerability reporting for
-  public repositories only, so write to the repository owner at vincenzo@imperati.dev,
-  rather than in an issue.
+Report it through GitHub's private vulnerability reporting: the repository's **Security**
+tab, then **Report a vulnerability**. The report and the conversation about it stay
+visible only to you and the maintainers until an advisory is published. If you cannot use
+GitHub, write to the repository owner at vincenzo@imperati.dev.
 
 Please include what is affected (crate, command or file, and the commit), how to
 reproduce it, and what an attacker gains.

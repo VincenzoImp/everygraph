@@ -146,7 +146,7 @@ fn thousands(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -160,7 +160,9 @@ mod tests {
 
     #[test]
     fn the_readme_holds_the_generated_tables() {
-        let readme = include_str!("../../../../datasets/README.md");
+        // A Windows checkout may have CRLF line endings (git's autocrlf); the generated
+        // tables have LF.
+        let readme = include_str!("../../../../datasets/README.md").replace("\r\n", "\n");
         let registry = Registry::embedded().expect("valid");
         let generated = render(&registry);
         let start = readme.find(BEGIN).expect("README has the BEGIN marker");

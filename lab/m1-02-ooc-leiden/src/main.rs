@@ -15,6 +15,7 @@
 //!   m102 evict --store STORE_DIR
 mod acct;
 mod adj;
+mod bcache;
 mod ef;
 mod leiden;
 mod lutil;

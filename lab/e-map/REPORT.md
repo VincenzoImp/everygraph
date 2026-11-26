@@ -3,7 +3,8 @@
 All numbers below are from `bench.sh` run under `bench.lock` on the shared lab machine
 (Ryzen 9 7950X, other experiments compiling/running: **noisy**), final binary, hierarchies
 published by B2 in `/home/tux/graphlab/data/hier/{lj,orkut}` (7 levels each).
-Raw files: `results/*.json`. Images: `img/` (see `img/README.md`).
+Raw files: `results/*.json`. The images named below (`img/`) were not committed; three of
+them are in `docs/img/`.
 
 ## Verdict in five lines
 
@@ -41,7 +42,7 @@ Complexity: `O(m·D)` for the scans (D = tree depth, 8–9 here) + `O(Σ_parents
 - **Determinism:** the first bench run *failed* this (f32 sums merged in a thread-dependent order). Fixed by merging chunk accumulators in a fixed order. Now `pos.f32` and `tnodes.bin` are byte-identical between 3 and 32 threads, and the `.pmtiles` file has the same SHA-256 at 4 and 32 threads, on both graphs (`results/determinism*.json`).
 - Area retention after packing: 0.946 (lj), 0.955 (orkut) of nominal circle area.
 
-**Extrapolation to ~1B edges (not measured).** From orkut's scan cost (~11 ns per adjacency entry per level) and the solve cost per node (3.7–8 µs): friendster (65.6M nodes, 1.8B edges) ≈ 350 core-s scan + 250–520 core-s solve, i.e. **roughly 2–4 minutes at 32 threads** given the scaling above, ~19–20 GB RAM (15 GB of that is the in-RAM CSR). The serial fraction would dominate unless fixed; the scans could instead use B2's published quotient graphs for the upper levels.
+**Extrapolation to ~1B edges (not measured).** From orkut's scan cost (~11 ns per adjacency entry per level) and the solve cost per node (3.7–8 µs): friendster (65.6M nodes, 1.8B edges) ≈ 350 core-s scan + 250–520 core-s solve, i.e. **roughly 2–4 minutes at 32 threads** given the scaling above, ~19–20 GB RAM (15 GB of that is the in-RAM CSR). *Measured since (#15, `docs/FINDINGS.md` § M1-01): 69.6 s (`total_s`), 17.7 GiB peak RSS, `lab/m1-01-tracer/results/layout_unl_56G.json`.* The serial fraction would dominate unless fixed; the scans could instead use B2's published quotient graphs for the upper levels.
 
 ### Quality: comparison
 
@@ -88,7 +89,7 @@ World = unit square, 256-px tiles, zoom 0..zmax (zmax chosen so the 10th-percent
 
 - File size follows **node count and budgets, not edge count**: orkut has 3.4× the edges and a smaller file. About 197 B/node (lj) and 134 B/node (orkut) of tile data; the deepest zoom is about half the file.
 - **The edge budget is the real loss**: at orkut's node level only 10% of the edge weight touching a tile is in the tile. The rest is counted, not drawn.
-- **Extrapolation to friendster scale (65.6M nodes, 1.8B edges; not measured):** ~9–13 GB of tiles + 1.05 GB search index, 1–3.5M tiles, max tile unchanged (~22 KB, set by budgets). Build is `O(m × zoom levels)`: ~4–6 min at 32 threads by linear scaling from orkut. The current builder holds all tiles in RAM before writing; that must become a streaming write.
+- **Extrapolation to friendster scale (65.6M nodes, 1.8B edges; not measured):** ~9–13 GB of tiles + 1.05 GB search index, 1–3.5M tiles, max tile unchanged (~22 KB, set by budgets). Build is `O(m × zoom levels)`: ~4–6 min at 32 threads by linear scaling from orkut. *Measured since (#15, `docs/FINDINGS.md` § M1-01): 243.9 s (`total_s`) for a 6.84 GB file, `lab/m1-01-tracer/results/tiles_unl_56G.json`.* The current builder holds all tiles in RAM before writing; that must become a streaming write. (#69)
 
 ### Container
 

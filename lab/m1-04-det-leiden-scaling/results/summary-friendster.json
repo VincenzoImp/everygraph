@@ -1,0 +1,324 @@
+{
+ "determinism": [
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "auto",
+   "identical": true,
+   "hashes": {
+    "2a12e5882874c38d": [
+     8,
+     16
+    ]
+   }
+  },
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "L16k",
+   "identical": true,
+   "hashes": {
+    "4b062e29d507e109": [
+     16
+    ]
+   }
+  },
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "L64k",
+   "identical": true,
+   "hashes": {
+    "fe95529b65bab316": [
+     8,
+     16
+    ]
+   }
+  }
+ ],
+ "table": [
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 8,
+   "n_runs": 1,
+   "time_s": 245.899,
+   "lm_s": 141.8625,
+   "refine_s": 35.1363,
+   "agg_s": 66.4559,
+   "times_s": [
+    245.899
+   ],
+   "ratio_async": NaN,
+   "ratio_auto": 1.0,
+   "self_speedup": NaN,
+   "modularity": 0.605513,
+   "modularity_values": [
+    0.605513
+   ],
+   "communities": 44641,
+   "disconnected": 0,
+   "work_edge_passes": 5.082943157719328,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    18.7
+   ],
+   "n_passes": 6,
+   "total_iters": 31,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "hash_levels": [
+    "2a12e5882874c38d"
+   ],
+   "loadavg_before": [
+    38.44
+   ],
+   "memory_peak": 25769803776
+  },
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "auto",
+   "threads": 16,
+   "n_runs": 1,
+   "time_s": 171.9554,
+   "lm_s": 101.2673,
+   "refine_s": 23.208,
+   "agg_s": 45.3595,
+   "times_s": [
+    171.9554
+   ],
+   "ratio_async": 1.4372002096181988,
+   "ratio_auto": 1.0,
+   "self_speedup": NaN,
+   "modularity": 0.605513,
+   "modularity_values": [
+    0.605513
+   ],
+   "communities": 44641,
+   "disconnected": 0,
+   "work_edge_passes": 5.082943157719328,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    14.54
+   ],
+   "n_passes": 6,
+   "total_iters": 31,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "hash_levels": [
+    "2a12e5882874c38d"
+   ],
+   "loadavg_before": [
+    24.08
+   ],
+   "memory_peak": 25769803776
+  },
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "L16k",
+   "threads": 16,
+   "n_runs": 1,
+   "time_s": 178.1383,
+   "lm_s": 100.9693,
+   "refine_s": 26.1468,
+   "agg_s": 48.8024,
+   "times_s": [
+    178.1383
+   ],
+   "ratio_async": 1.488876779101032,
+   "ratio_auto": 1.0359564166057011,
+   "self_speedup": NaN,
+   "modularity": 0.605742,
+   "modularity_values": [
+    0.605742
+   ],
+   "communities": 44965,
+   "disconnected": 0,
+   "work_edge_passes": 5.081963459226558,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    15.25
+   ],
+   "n_passes": 6,
+   "total_iters": 44,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "hash_levels": [
+    "4b062e29d507e109"
+   ],
+   "loadavg_before": [
+    37.02
+   ],
+   "memory_peak": 25769803776
+  },
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 8,
+   "n_runs": 1,
+   "time_s": 243.4949,
+   "lm_s": 146.2849,
+   "refine_s": 36.3358,
+   "agg_s": 58.9803,
+   "times_s": [
+    243.4949
+   ],
+   "ratio_async": NaN,
+   "ratio_auto": 0.9902232217292466,
+   "self_speedup": NaN,
+   "modularity": 0.605655,
+   "modularity_values": [
+    0.605655
+   ],
+   "communities": 44803,
+   "disconnected": 0,
+   "work_edge_passes": 5.132643033178277,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    15.87
+   ],
+   "n_passes": 6,
+   "total_iters": 50,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "hash_levels": [
+    "fe95529b65bab316"
+   ],
+   "loadavg_before": [
+    33.68
+   ],
+   "memory_peak": 25769803776
+  },
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "L64k",
+   "threads": 16,
+   "n_runs": 1,
+   "time_s": 157.1966,
+   "lm_s": 89.1986,
+   "refine_s": 22.3409,
+   "agg_s": 43.7541,
+   "times_s": [
+    157.1966
+   ],
+   "ratio_async": 1.3138464187299042,
+   "ratio_auto": 0.9141707675362332,
+   "self_speedup": NaN,
+   "modularity": 0.605655,
+   "modularity_values": [
+    0.605655
+   ],
+   "communities": 44803,
+   "disconnected": 0,
+   "work_edge_passes": 5.132643033178277,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    13.35
+   ],
+   "n_passes": 6,
+   "total_iters": 50,
+   "passes_at_iter_cap": 1,
+   "sub_rounds_per_level": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "hash_levels": [
+    "fe95529b65bab316"
+   ],
+   "loadavg_before": [
+    26.81
+   ],
+   "memory_peak": 25769803776
+  },
+  {
+   "graph": "friendster",
+   "iterations": 1,
+   "variant": "async",
+   "threads": 16,
+   "n_runs": 1,
+   "time_s": 119.6461,
+   "lm_s": 64.3473,
+   "refine_s": 14.7635,
+   "agg_s": 38.8319,
+   "times_s": [
+    119.6461
+   ],
+   "ratio_async": 1.0,
+   "ratio_auto": 0.6957972823185548,
+   "self_speedup": NaN,
+   "modularity": 0.605744,
+   "modularity_values": [
+    0.605744
+   ],
+   "communities": 30386,
+   "disconnected": 0,
+   "work_edge_passes": 6.007591163301358,
+   "subrounds_par": null,
+   "subrounds_seq": null,
+   "others_busy_cores": [
+    11.02
+   ],
+   "n_passes": 6,
+   "total_iters": 34,
+   "passes_at_iter_cap": 0,
+   "sub_rounds_per_level": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "hash_levels": [
+    "6191c36929388e4e"
+   ],
+   "loadavg_before": [
+    29.43
+   ],
+   "memory_peak": 25769803776
+  }
+ ],
+ "failed": []
+}

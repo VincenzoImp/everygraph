@@ -17,6 +17,10 @@ dependency the probe names, if any), runs the check the probe names, and require
 that check to FAIL with every message the probe lists. A probe that is accepted, or
 that fails for another reason, fails the canary.
 
+The allocation rule of the kernel crates (issue #31: no buffer sized outside the
+memory budget, through the `clippy.toml` of each kernel crate) is checked the same
+way, by the probes under tools/canary/allocation/, which name the crates they go in.
+
 Before any probe, the same checks run on the unmodified copy and must pass: otherwise
 a broken toolchain would make every probe "fail" and the canary would prove nothing.
 
@@ -24,18 +28,20 @@ A probe file declares, in `//` comments at its top:
 
     // check: clippy | script | wasm32
     // expect: <text that must appear in the check's output>      (one or more)
-    // dependency: <a line for [dependencies] of everygraph-core>  (optional)
+    // dependency: <a line for [dependencies] of each crate probed>  (optional)
+    // crates: <package> ...      (optional; default everygraph-core; clippy only)
 
 The checks are the commands of CONTRIBUTING.md, "Checks":
 
     clippy  cargo clippy -p everygraph-core --all-targets -- -D warnings
+            (-p each crate the probe names)
     script  python3 tools/check_core_portability.py
     wasm32  cargo build -p everygraph-core --target wasm32-unknown-unknown
                 --no-default-features
 
 Usage: python3 tools/check_portability_canary.py [PROBE ...]
-       (from anywhere; PROBE is a file name under tools/canary/portability without
-       `.rs`; all probes by default). Needs cargo with clippy and the
+       (from anywhere; PROBE is a file name under tools/canary/portability or
+       tools/canary/allocation without `.rs`; all probes by default). Needs cargo with clippy and the
        wasm32-unknown-unknown target, and network access for the probe that adds a
        dependency (or a cargo registry cache that has it).
 Exit status 0 if every probe is caught, 1 otherwise.
@@ -52,16 +58,22 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PROBES = ROOT / "tools" / "canary" / "portability"
+PROBE_DIRS = [ROOT / "tools" / "canary" / "portability", ROOT / "tools" / "canary" / "allocation"]
+CORE = "everygraph-core"
 SCRATCH = ROOT / "target" / "portability-canary"
 COPY = SCRATCH / "workspace"
-# What the scratch workspace needs: the manifest, the lock file, the crates and the
-# portability script. Build output under any `target` directory is not copied.
-COPIED = ["Cargo.toml", "Cargo.lock", "crates", "tools/check_core_portability.py"]
+# What the scratch workspace needs: the manifest, the lock file, the lint lists of the
+# crates without their own, the crates, the portability script, and the oracle's
+# tolerances (compiled into everygraph-oracle, a dev-dependency of several crates).
+# Build output under any `target` directory is not copied.
+COPIED = [
+    "Cargo.toml", "Cargo.lock", "clippy.toml", "crates", "tools/check_core_portability.py",
+    "oracle/tolerances.json",
+]
 
 CHECKS = {
     "clippy": [
-        "cargo", "clippy", "--package", "everygraph-core", "--all-targets",
+        "cargo", "clippy", "--package", "{crate}", "--all-targets",
         "--", "-D", "warnings",
     ],
     "script": [sys.executable, "tools/check_core_portability.py"],
@@ -75,8 +87,8 @@ PROBE_MODULE = "canary_probe"
 
 
 def read_probe(path):
-    """Returns (check, expected messages, dependency or None) declared by a probe."""
-    check, expected, dependency = None, [], None
+    """Returns (check, expected messages, dependency or None, crates) declared by a probe."""
+    check, expected, dependency, crates = None, [], None, [CORE]
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.startswith("//"):
             break
@@ -88,11 +100,15 @@ def read_probe(path):
             expected.append(value)
         elif key == "dependency":
             dependency = value
+        elif key == "crates":
+            crates = value.split()
     if check not in CHECKS:
         raise SystemExit(f"{path.relative_to(ROOT)}: `// check:` must be one of {sorted(CHECKS)}")
     if not expected:
         raise SystemExit(f"{path.relative_to(ROOT)}: needs at least one `// expect:` line")
-    return check, expected, dependency
+    if crates != [CORE] and check != "clippy":
+        raise SystemExit(f"{path.relative_to(ROOT)}: `// crates:` goes with `check: clippy` only")
+    return check, expected, dependency, crates
 
 
 def fresh_copy():
@@ -115,25 +131,33 @@ def fresh_copy():
             shutil.copy2(source, destination)
 
 
-def apply_probe(path, dependency):
-    """Adds the probe to everygraph-core in COPY."""
-    core = COPY / "crates" / "everygraph-core"
+def apply_probe(path, dependency, crate):
+    """Adds the probe to `crate` in COPY."""
+    core = COPY / "crates" / crate
     shutil.copy2(path, core / "src" / f"{PROBE_MODULE}.rs")
-    with open(core / "src" / "lib.rs", "a", encoding="utf-8") as lib:
+    # A crate with only a binary (everygraph-cli) takes the probe in its main.rs.
+    root = core / "src" / "lib.rs"
+    if not root.exists():
+        root = core / "src" / "main.rs"
+    with open(root, "a", encoding="utf-8") as lib:
         lib.write(f"\npub mod {PROBE_MODULE};\n")
     if dependency:
         manifest = core / "Cargo.toml"
         text = manifest.read_text(encoding="utf-8")
         if "\n[dependencies]\n" not in text:
-            raise SystemExit("crates/everygraph-core/Cargo.toml has no [dependencies] table")
-        text = text.replace("\n[dependencies]\n", f"\n[dependencies]\n{dependency}\n", 1)
+            text += "\n[dependencies]\n"
+        name = dependency.split("=")[0].strip()
+        # A crate that already depends on it (the core on libm) keeps its own line.
+        if f"\n{name} = " not in text:
+            text = text.replace("\n[dependencies]\n", f"\n[dependencies]\n{dependency}\n", 1)
         manifest.write_text(text, encoding="utf-8")
 
 
-def run(check):
-    """Runs a check in COPY; returns (exit status, combined output)."""
+def run(check, crate=CORE):
+    """Runs a check (on `crate`, for clippy) in COPY; returns (exit status, output)."""
+    command = [part.replace("{crate}", crate) for part in CHECKS[check]]
     result = subprocess.run(
-        CHECKS[check], cwd=COPY, capture_output=True, text=True,
+        command, cwd=COPY, capture_output=True, text=True,
         # No colour: escape codes would split the messages the probes expect.
         env={**os.environ, "CARGO_TARGET_DIR": str(COPY / "target"), "CARGO_TERM_COLOR": "never"},
     )
@@ -141,7 +165,7 @@ def run(check):
 
 
 def main(names):
-    probes = sorted(PROBES.glob("*.rs"))
+    probes = sorted(p for directory in PROBE_DIRS for p in directory.glob("*.rs"))
     if names:
         probes = [p for p in probes if p.stem in names]
         missing = set(names) - {p.stem for p in probes}
@@ -151,31 +175,38 @@ def main(names):
 
     failed = False
     fresh_copy()
-    for check in sorted({check for _, check, _, _ in declared}):
-        status, output = run(check)
+    baselines = sorted({(check, crate) for _, check, _, _, crates in declared for crate in crates})
+    for check, crate in baselines:
+        status, output = run(check, crate)
         if status == 0:
-            print(f"ok: baseline `{check}` passes on the unmodified core")
+            print(f"ok: baseline `{check}` passes on the unmodified {crate}")
         else:
             failed = True
-            print(f"FAILED: baseline `{check}` fails on the unmodified core (exit status {status})")
+            print(f"FAILED: baseline `{check}` fails on the unmodified {crate} (exit status {status})")
             print("  " + output.strip().replace("\n", "\n  "))
     if failed:
         print("The probes were not run: fix the baseline first.")
         return 1
 
-    for path, check, expected, dependency in declared:
+    runs = [
+        (path, check, expected, dependency, crate)
+        for path, check, expected, dependency, crates in declared
+        for crate in crates
+    ]
+    for path, check, expected, dependency, crate in runs:
         fresh_copy()
-        apply_probe(path, dependency)
-        status, output = run(check)
+        apply_probe(path, dependency, crate)
+        status, output = run(check, crate)
         missing = [text for text in expected if text not in output]
+        where = "" if crate == CORE else f" in {crate}"
         if status != 0 and not missing:
-            print(f"ok: probe `{path.stem}` is rejected by `{check}`")
+            print(f"ok: probe `{path.stem}`{where} is rejected by `{check}`")
             continue
         failed = True
         if status == 0:
-            print(f"FAILED: probe `{path.stem}` is ACCEPTED by `{check}` (exit status 0)")
+            print(f"FAILED: probe `{path.stem}`{where} is ACCEPTED by `{check}` (exit status 0)")
         else:
-            print(f"FAILED: probe `{path.stem}` fails `{check}`, but not for the expected reason")
+            print(f"FAILED: probe `{path.stem}`{where} fails `{check}`, but not for the expected reason")
         for text in missing:
             print(f"  missing from the output: {text}")
         print("  " + output.strip().replace("\n", "\n  "))

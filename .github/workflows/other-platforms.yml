@@ -1,25 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# The platforms that cost more Actions minutes than Linux x86_64 (the repository is
-# private: macOS minutes count ten-fold, Windows two-fold), run once a week and on
-# demand instead of on every push. Also the weekly security-advisory check of main, so
-# that a new advisory is noticed without waiting for a push.
+# macOS arm64, Windows x86_64 and Linux aarch64: on pull requests that touch the crates
+# whose code depends on the platform (the core, I/O, the on-disk format, ingest), weekly
+# on main, and by hand. Also the weekly security-advisory check of main (ci.yml's
+# nightly lint job checks advisories too; this one runs whatever happens to ci.yml).
+#
+# The repository is public, so standard runners are free.
 #
 # Run it on a branch: gh workflow run other-platforms.yml --ref <branch>
+# One platform and one crate, while fixing one failure:
+#   gh workflow run other-platforms.yml --ref <branch> -f platform=macos -f packages="-p everygraph-bench"
 
-name: Other platforms (weekly)
+name: Other platforms
 
 on:
+  pull_request:
+    paths:
+      - "crates/everygraph-core/**"
+      - "crates/everygraph-io/**"
+      - "crates/everygraph-format/**"
+      - "crates/everygraph-ingest/**"
+      - ".github/workflows/other-platforms.yml"
   schedule:
     # Mondays 04:17 UTC (off the hour, when scheduled runs are less often delayed).
     - cron: "17 4 * * 1"
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platforms
+        type: choice
+        options: [all, macos, windows, linux-arm]
+        default: all
+      packages:
+        description: "What to lint and test, as cargo arguments"
+        type: string
+        default: --workspace
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Per platform, so that a run by hand for macOS does not cancel one for Windows; a new
+  # push to a pull request cancels the run it supersedes.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: true
 
 env:
@@ -29,17 +52,18 @@ env:
 
 jobs:
   platforms:
-    name: Build and test on ${{ matrix.name }}
+    name: Build and test on ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: macOS arm64
-            os: macos-15
-          - name: Windows x86_64
-            os: windows-2025
-          - name: Linux aarch64
-            os: ubuntu-24.04-arm
+        # macOS arm64, Windows x86_64, Linux aarch64; only one when run by hand with
+        # `platform`.
+        os: >-
+          ${{ fromJSON(
+            inputs.platform == 'macos' && '["macos-15"]'
+            || inputs.platform == 'windows' && '["windows-2025"]'
+            || inputs.platform == 'linux-arm' && '["ubuntu-24.04-arm"]'
+            || '["macos-15", "windows-2025", "ubuntu-24.04-arm"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
@@ -57,12 +81,27 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The adjacency codec first, on its own: its SIMD decoder for the platform (NEON
+      # on arm64) is tested even when another crate's lints or tests fail.
+      - name: cargo test (format)
+        run: cargo test -p everygraph-format --release --locked
       # Clippy on each platform: it compiles code under that platform's `cfg`, which
       # the Linux lint runs never see.
-      - name: cargo clippy (workspace)
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: cargo test (workspace)
-        run: cargo test --workspace --locked
+      - name: cargo clippy (${{ inputs.packages || '--workspace' }})
+        env:
+          PACKAGES: ${{ inputs.packages || '--workspace' }}
+        run: cargo clippy $PACKAGES --all-targets --locked -- -D warnings
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      # nextest, so that the retries of .config/nextest.toml apply here too; it does not
+      # run doc tests, hence the second command.
+      - name: cargo test (${{ inputs.packages || '--workspace' }})
+        env:
+          PACKAGES: ${{ inputs.packages || '--workspace' }}
+        run: |
+          cargo nextest run $PACKAGES --no-tests=warn --locked
+          cargo test $PACKAGES --doc --locked
       - name: cargo test (core, no default features)
         run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
@@ -70,6 +109,7 @@ jobs:
 
   advisories:
     name: Security advisories (cargo deny)
+    if: github.event_name == 'schedule' || inputs.platform == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

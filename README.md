@@ -4,10 +4,10 @@
 query and map graphs from a thousand to a hundred billion edges on a single computer —
 using all the hardware it is given, and staying inside the memory budget it is given.
 
-> **Status: design and planning.** There is no installable software here yet. This
+> **Status: early development.** There is no installable software here yet. This
 > repository holds the product and architecture baseline, the evidence from a feasibility
-> lab, the prototypes that produced it, and the full work plan as GitHub milestones and
-> issues.
+> lab, the prototypes that produced it, the full work plan as GitHub milestones and
+> issues, and the first production crates (file format, I/O, readers).
 
 ![A map of com-Orkut (3.1 M nodes, 117 M edges) from the lab prototype](docs/img/map-overview-orkut.png)
 
@@ -27,6 +27,30 @@ machine.
 2. **Never run out of memory** — you set a budget; the engine plans first and stays inside it.
 3. **See it and trust it** — a zoomable map of the whole graph, exact numbers at every
    level, identical results at any thread count, shareable as one static file.
+
+## What is new, and what is not
+
+Most of the parts have been published before. Prior art includes:
+
+- hierarchical graph maps served as data tiles (Uncharted's Aperture Tiles, 2015);
+- a fan-out cap of 64 (ASK-GraphView, 2006);
+- compressed adjacency that is faster than raw arrays in parallel (Ligra+, 2015);
+- recursive re-clustering of oversized communities, Elias–Fano offsets, and seeded node
+  relabelling;
+- estimating memory and refusing a run before it starts (Neo4j GDS).
+
+What we claim is the combination, and what holds it together:
+
+- identical results at any thread count, memory budget and execution regime — new for
+  a graph engine as far as we read, though the idea exists elsewhere: sums independent of
+  how the work is decomposed in high-performance computing (Hallberg and Adcroft, 2014)
+  and "data independence" for floating-point aggregates in databases (Müller et al.,
+  2018);
+- a deterministic, budgeted build from text to graph;
+- a map of a 1.8 B-edge graph on one machine under a memory budget, with stated omissions
+  (the aim: not yet run end to end, see below).
+
+The literature reviews behind this are in [docs/research/](docs/research/README.md).
 
 ## What the feasibility lab measured
 
@@ -52,15 +76,22 @@ prototypes, reading plain text, without `fsync`. Details, methods and caveats ar
 
 ## What is not solved yet
 
-Community detection beyond RAM (Leiden needs 22.6 GiB of anonymous memory on the 1.8 B-edge graph), the quality
-of the map's hierarchy and edges on dense graphs, and the cost of determinism. The headline
-"a billion edges to a map on a 16 GB laptop" has not been run end to end. These are the
-subject of the first work milestone. See [docs/DESIGN.md § 5](docs/DESIGN.md).
+Community detection beyond RAM works in the lab but not yet in the product: one Leiden
+iteration on the 1.8 B-edge graph runs under a 16 GiB limit at 1.17× and under 8 GiB at
+2.34× the time of the same algorithm in RAM (idle machine, 16 threads, default storage,
+0 disconnected communities, the deterministic partition identical to the in-RAM one), but
+only that graph and one iteration were measured. Also open: the quality of the map's
+hierarchy and edges on dense graphs, and the cost of determinism. The headline
+"1.8 B edges to a map on a 16 GB laptop" has not been run end to end: the tile builder
+does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. The second lab
+round (milestone M1) took these on first; see [docs/DESIGN.md § 5](docs/DESIGN.md#5-what-is-not-solved-yet).
 
 ## Building
 
-The Rust workspace is a skeleton: the crate layout, the coding rules, and the first
-pieces of the portable core (`crates/everygraph-core`). It needs Rust 1.85 or newer and
+The Rust workspace holds the crate layout, the coding rules, the portable core
+(`crates/everygraph-core`), and the first product pieces: the `.eg` container and the
+compressed adjacency (`everygraph-format`), the I/O layer (`everygraph-io`), and the text
+reader and identifier dictionary (`everygraph-ingest`). It needs Rust 1.100 or newer and
 nothing else.
 
 ```sh

@@ -1,7 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The `.eg` container (sections, hashes, derived artifacts) and the compressed
-//! adjacency codec. It reads through `ByteSource`, so it must build for wasm32. Empty
-//! until issues #28 (container) and #30 (codec).
+//! The on-disk formats of Everygraph.
+//!
+//! What lives here:
+//!
+//! - [`adjacency`]: the compressed adjacency codec (DESIGN D4,
+//!   `docs/spec/eg-adjacency.md`), issue #30. An adjacency stores pairs, each neighbour
+//!   once; the `.events` section of the specification's revision 2 (ADR 0028) comes with
+//!   issue #35.
+//! - [`container`]: the `.eg` container (DESIGN D7, `docs/spec/eg-container.md`):
+//!   named, BLAKE3-hashed sections behind a table of contents, appended and committed
+//!   by a crash-safe protocol over `everygraph_core::ByteSink`, issue #28.
+//! - [`columns`]: property columns (DESIGN D9, `docs/spec/eg-columns.md`), issue #37:
+//!   each a complete Arrow IPC file in a section, beside a layout and statistics.
+//! - [`verify`]: what `everygraph verify` checks: the container's rules, every section's
+//!   hash and every adjacency's structure, issue #41.
+//!
+//! The crate reads bytes it is given and never opens files, starts threads or reads the
+//! clock, so it builds for wasm32; parallel work goes through `everygraph_core::par`.
+//! `unsafe` is confined to the SIMD decoders (`adjacency::simd`, registered in
+//! CONTRIBUTING.md); everything else is safe code.
 
-#![forbid(unsafe_code)]
+// The portability lints cannot be allowed away (see clippy.toml). `unsafe_code` is
+// denied by the workspace and allowed in the one registered module.
+#![forbid(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    clippy::disallowed_macros
+)]
+
+pub mod adjacency;
+pub mod columns;
+pub mod container;
+pub mod verify;

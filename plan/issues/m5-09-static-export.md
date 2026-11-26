@@ -7,6 +7,7 @@ labels: type:feature, area:map, P1, risk:low, size:S
 
 **Scope**
 - [ ] `everygraph map GRAPH --out FILE --reveal full|summary` and `m.export(path, reveal=…)` → `.egmap` file + `viewer.html` beside it; `reveal` is required, and leaving it out is an error that gives the two ways forward
+- [ ] `reveal="summary"` writes what {{#m5-15-summary-export}} specifies (k-threshold merging into `aggregate` and "other", provenance reduced to a label, no node-level sections); the share dialog and the caption state k (decided 2026-11-25, `docs/research/README.md` H1)
 - [ ] Recipes tested end to end: GitHub Pages (file-size limits and LFS caveats), S3/R2/GCS with range requests and CORS, a plain nginx config
 - [ ] Offline bundle: a folder that opens from `file://` or a tiny local server
 - [ ] Detail presets with estimated output size shown before export
@@ -16,6 +17,6 @@ labels: type:feature, area:map, P1, risk:low, size:S
 - A 4 M-node map published on a free static host opens on a phone with first view < 250 KB
 - Documentation page with the three recipes verified
 
-**Depends on** {{#m5-03-tile-builder}}, {{#m5-05-viewer-core}}
+**Depends on** {{#m5-03-tile-builder}}, {{#m5-05-viewer-core}}, {{#m5-15-summary-export}}
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The page a recipient sees, the embed and the share image are in `design/preview/style/``export.html`. At export the user chooses what the map reveals (`choices.md` C3): full (ids and the links shown) or summary only (regions and counts).
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** The page a recipient sees, the embed and the share image are in `design/preview/style/export.html`. At export the user chooses what the map reveals (`choices.md` C3): full (ids and the links shown) or summary only (regions and counts).
