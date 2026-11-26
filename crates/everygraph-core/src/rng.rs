@@ -115,8 +115,12 @@ impl Purpose {
     /// `[node, level, iteration, stage]`.
     pub const LEIDEN_REFINE: Self = Self(*b"LREF");
 
+    /// Strong components: a node's place in the random order of sources. Counter:
+    /// `[node, 0, 0, 0]`.
+    pub const SCC_ORDER: Self = Self(*b"sccr");
+
     /// Every purpose, so that the test below can check that they are distinct.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::TEST,
         Self::COMPONENTS_NEIGHBOUR,
         Self::COMPONENTS_GIANT,
@@ -126,6 +130,7 @@ impl Purpose {
         Self::LEIDEN_REFINE_ROUND,
         Self::LEIDEN_TIE,
         Self::LEIDEN_REFINE,
+        Self::SCC_ORDER,
     ];
 }
 

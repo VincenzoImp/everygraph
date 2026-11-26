@@ -378,19 +378,21 @@ class Graph:
         threads: int | None = None,
         progress: ProgressArg = True,
     ) -> Table:
-        """Weakly connected components: `node`, `component`, numbered from 0 by
-        decreasing size; of two of equal size, the one with the earlier node first::
+        """Weakly connected components, or with `strong=True` the strongly connected ones
+        of a directed graph: `node`, `component`, numbered from 0 by decreasing size; of
+        two of equal size, the one with the earlier node first::
 
             >>> g.components().sizes()
         """
-        if strong:
+        if strong and not self.directed:
             raise _errors.Unsupported(
-                "components(strong=True) is not built yet.",
-                ways_forward=[_errors.Way("leave out --strong", "g.components()", "weakly connected components")],
-                operation="components", reason="strongly connected components come with #m3-20",
+                "components(strong=True) needs a directed graph.",
+                why="An undirected graph has no direction to use: its strong components are its components.",
+                ways_forward=[_errors.Way("leave out --strong", "g.components()", "the components")],
+                operation="components", reason="there is no direction to use",
             )
         return self._call("components", {"strong": strong}, memory, threads, progress,
-                          lambda m, t, e: self._native.components(m, t, e))
+                          lambda m, t, e: self._native.components(strong, m, t, e))
 
     def kcore(
         self,

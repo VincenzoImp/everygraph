@@ -384,22 +384,18 @@ impl Graph {
         })
     }
 
-    /// Weakly connected components (`everygraph.Graph.components`).
+    /// Weakly or strongly connected components (`everygraph.Graph.components`).
     fn components<'py>(
         &self,
         py: Python<'py>,
+        strong: bool,
         memory: u64,
         threads: NonZeroUsize,
         on_event: Bound<'py, PyAny>,
     ) -> PyResult<(Table, Bound<'py, PyDict>)> {
-        self.call(
-            py,
-            "components",
-            memory,
-            threads,
-            &on_event,
-            kernels::components,
-        )
+        self.call(py, "components", memory, threads, &on_event, |call, g| {
+            kernels::components(call, g, strong)
+        })
     }
 
     /// Core numbers (`everygraph.Graph.kcore`).
