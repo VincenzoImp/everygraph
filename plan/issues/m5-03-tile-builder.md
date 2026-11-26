@@ -14,7 +14,7 @@ labels: type:feature, area:map, P0, risk:medium, size:L, lab-evidence
 - [ ] Importance ranking per tile (region size, degree, PageRank) with stable tie-breaking
 - [ ] Exact omission accounting per tile
 - [ ] File size follows node count and budgets, not edge count (lab observation) — expose the size/detail trade-off as one "detail" parameter with a preflight size estimate
-- [ ] Deterministic output: identical file hash at any thread count (lab: same SHA-256 at 4 and 32 threads)
+- [ ] Deterministic output: identical file hash at any thread count (lab: same SHA-256 at 4 and 32 threads). The zoom level is an integer decision (`ilog2` or `leading_zeros`, not `f64::log2`, `lab/e-map/gmap/src/tiles.rs` l. 134), and `powi(2)` is `x * x` (l. 322) ({{#m2-26-core-math}})
 - [ ] Incremental rebuild of subtrees when only part of the layout changed (stretch)
 - [ ] The pyramid is written as `NAME.egmap.partial` and renamed when complete; a stop removes the partial file (`docs/ux-contract.md` § 5.1, C-1, C-3)
 

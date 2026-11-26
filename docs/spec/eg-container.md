@@ -257,7 +257,8 @@ dropped by the build). The content hash of the source file is an input's fingerp
 (`algorithm` = `blake3`, `digest`), not a parameter. From the numerics review
 (`docs/research/sota-numerics.md`, challenge 8): `seed` (the seed of a randomized
 operation), `numerics` (the version of the engine's rules for bit-identical floating
-point), `weight_scale` (the exponent of a fixed-point weight). Counts and seeds are
+point), `libm` (the version of the pinned maths library, rule R14), `weight_scale` (the
+exponent of a fixed-point weight). Counts and seeds are
 written in decimal; floating-point values as the shortest decimal that reads back to
 the same bits (Rust's `{}`), never with a fixed number of digits.
 

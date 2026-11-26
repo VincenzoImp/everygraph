@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Present so that the root `clippy.toml` does not apply: the harness computes
+# statistics about runs, not results, so the numerics lists are not for it.
