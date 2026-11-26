@@ -81,9 +81,10 @@ jobs:
         uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-mutants@27.1.0,cargo-nextest@0.9.152
-      # Six mutants per shard is an estimate: in the box go the build, one baseline run
-      # of the crate's tests, then an incremental build and the tests per mutant (a
-      # format mutant took 2 s + 46 s on the lab machine under load, 2026-11-26).
+      # Three mutants per shard: in the box go the build, one baseline run of the crate's
+      # tests, then an incremental build and the tests per mutant. On #193's PR the
+      # format crate's tests took 100 s on the runner, and the box ended during the fifth
+      # of six mutants.
       - name: tools/mutants.sh diff HEAD^1 (pull request), or the shards asked for
         id: plan
         env:
@@ -92,7 +93,7 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
             count="$(tools/mutants.sh diff HEAD^1)"
-            n=$(( (count + 5) / 6 )); [ "$n" -gt 4 ] && n=4
+            n=$(( (count + 2) / 3 )); [ "$n" -gt 4 ] && n=4
           else
             count=all; n="$SHARDS"
           fi
