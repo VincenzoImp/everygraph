@@ -33,18 +33,9 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 
 **Decided by the coordinator tonight (records in DECISIONS, ADRs or issue files):** S1 lost-generation warning in `verify` (exit 0, `--strict` 5); dictionary dense form chosen from the data only, never the budget; `find_result` reads key and provenance only; MSRV 1.100 for a safe page backend; arrow-rs in the py crate with three deny exceptions; clap for the CLI; window splitting; merge order #220 before #218.
 
-## Measurement queue (official runs, batched into one window)
+## Measurement queue
 
-- #34 id dictionary: closed 2026-11-26; build-500m official 76.4 s under MemoryMax 5G (bench/results/id-dictionary/20261126T042659Z-c0d7f248bb47.jsonl). (~20 min, ~45 GB disk).
-- #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
-- #44 edge-map: official 05:30 run — lab and raw/stream rows ok (raw ÷ lab at 16 threads: PageRank f32 1.02, f64 1.02, BFS 1.03, WCC 1.13 with the proof WCC; at 1 thread 0.97–1.00), compressed/mmap cases failed on a store path shared with codec.toml (fixed in PR #224); re-run only those: `everygraph-bench run edge-map --official --data /home/tux/graphlab/data --only source=compressed --only source=mmap`. Was: `everygraph-bench run edge-map --official --data /home/tux/graphlab/data` (~15 min, estimate); closes #44 when the ≤ 5% overhead and compressed ≤ 1.0× raw criteria hold.
-- #35 build (PR #215, after merge): `everygraph-bench run build --official --data /home/tux/graphlab/data` (~30 min, estimate; Friendster needs a 40 GB limit).
-- #172 mmap hints / block cache (PR #221, merged): six `everygraph-bench run mmap-hints --official --only …` cases, ~3.5 h total, 44 GiB available needed — too long for one night window; run as its own window. Exploratory: MADV_RANDOM cuts bytes read 0.16× (layout 16G) and 0.08–0.15× (Leiden local moving 4–8G); harmful when the graph fits (32G: 8.7× more bytes). ADR 0029 (proposed, PR #222 merged): accepted after this official run.
-- #47/#49 PageRank family and traversals (PR #220, after review): `everygraph-bench run kernels --official --data /home/tux/graphlab/data` (~25 min + the Friendster store once; GAP rows need the network once).
-- #48/#50 components and k-core (PR #218, after review): `everygraph-bench run components-kcore --official --data /home/tux/graphlab/data` (~50 min, estimate; Friendster/twitter-sym rows at 40G).
-- #167 page backend (PR #219, merged): `everygraph-bench run id-dictionary --official --only build-500m` and `--only hex-65m` (without the GLIBC_TUNABLES stopgap; compare with 20261126T042659Z-c0d7f248bb47.jsonl).
-- #18 deterministic Leiden (PR #208, merged): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
-- Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
+Rule since 2026-11-26 (owner): official runs only when a number is published — once per milestone and before README/DESIGN/paper/release numbers (CLAUDE.md § 6). Issues close on tests plus labelled exploratory evidence; missed speed targets go to the milestone performance pass (M3: #240). The per-issue official commands are kept in each PR body and in the issue files; the M3 window will run the smallest set that answers the M3 exit criteria.
 
 ## Needs the owner's hands (nothing here blocks development)
 
