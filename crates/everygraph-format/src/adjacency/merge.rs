@@ -7,7 +7,7 @@
 use std::num::NonZeroUsize;
 use std::ops::Range;
 
-use everygraph_core::{InsufficientBudget, Memory, MemoryKind, NodeId, Reservation, par};
+use everygraph_core::{InsufficientBudget, Memory, MemoryKind, NodeId, Reservation, par, widen};
 
 use super::decode::Adjacency;
 use super::ef::EliasFano;
@@ -239,8 +239,4 @@ fn unions(
         f(i, id.get(), &union)?;
     }
     Ok(())
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).expect("usize has at most 64 bits")
 }
