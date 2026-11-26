@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! leiden_bench encode --graph DIR --out STORE
-//! leiden_bench run --graph DIR [--store STORE] [--source raw|compressed|mmap|stream]
+//! leiden_bench run --graph DIR [--store STORE] [--source raw|compressed|mmap|stream|eg]
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
 //!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
 //!     [--split last|every]
@@ -21,6 +21,8 @@
 //! which is loaded first). `--hier FILE` then stores the hierarchy (#62) in a new
 //! container `FILE` and reports its time, its bytes, the budget's peak while Leiden ran
 //! and while the hierarchy was written, and the time to read the table of each level.
+//! With `--source eg`, Leiden reads the `adjacency.out` of the graph file `--hier FILE`
+//! (built by `everygraph ingest`, undirected), and the hierarchy is stored in it.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -44,7 +46,7 @@ use everygraph_community::hierarchy::Hierarchy;
 use everygraph_community::{
     Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity,
 };
-use everygraph_core::{Budget, Memory, par};
+use everygraph_core::{Budget, ByteSource, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_format::container::{Container, Provenance, Writer};
 use everygraph_io::{FileSink, FileSource, MmapSource};
@@ -157,8 +159,12 @@ fn hierarchy<S: Source>(
     let budget = Arc::new(Budget::unlimited());
     let memory = Memory::new(budget.clone());
     let t = Instant::now();
-    let mut w =
-        Writer::create(FileSink::create(path).expect("the hierarchy file")).expect("a container");
+    // Into the graph file itself when Leiden read it (`--source eg`), else a new file.
+    let mut w = if path.extension().is_some_and(|e| e == "eg") && path.exists() {
+        Writer::update(FileSink::open(path).expect("the graph file")).expect("a container")
+    } else {
+        Writer::create(FileSink::create(path).expect("the hierarchy file")).expect("a container")
+    };
     let key = everygraph_community::hierarchy::key(w.graph_identity(), o).expect("a key");
     let about = Provenance {
         engine: "leiden_bench".into(),
@@ -319,6 +325,24 @@ fn run(a: &Args) {
             } else {
                 Compressed::new(Adjacency::new(&index, &heap).expect("data part"))
             };
+            (t.elapsed().as_secs_f64(), time(&adj, a, settings))
+        }
+        "eg" => {
+            // The undirected `adjacency.out` of a graph file, read into memory: the file
+            // cannot be mapped while the hierarchy is committed to it.
+            let bytes = std::fs::read(&a["hier"]).expect("the graph file");
+            let held = MemorySource::new(&bytes[..]);
+            let file = Container::open(&held).expect("a container");
+            let part = |name: &str| {
+                let e = file.get(name).expect("an undirected adjacency");
+                file.source()
+                    .slice(e.offset..e.offset + e.len)
+                    .expect("mapped")
+            };
+            let index = AdjacencyIndex::parse(part("adjacency.out.index")).expect("an index");
+            let adj = Compressed::new(
+                Adjacency::new(&index, part("adjacency.out.data")).expect("data part"),
+            );
             (t.elapsed().as_secs_f64(), time(&adj, a, settings))
         }
         "stream" => {

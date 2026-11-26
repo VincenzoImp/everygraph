@@ -19,7 +19,7 @@
 
 mod check;
 mod read;
-mod write;
+pub(crate) mod write;
 
 use std::error::Error as StdError;
 use std::fmt;

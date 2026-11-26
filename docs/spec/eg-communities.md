@@ -33,7 +33,9 @@ result's record:
 | `<result>/<ℓ>/parent` | 10, `u32` | for `ℓ ≥ 2`: the level-`ℓ − 1` community holding it |
 | `<result>/<ℓ>/quotient.index`, `.data`, `.events` | 11, 12, 13 | the quotient graph of level `ℓ` |
 
-`ℓ` is written in decimal, from 1. The number of communities of level `ℓ` is the length of
+A run with prolongation (`prolong`) stores one level, its partition: its finer levels
+are the coarsening the run went through before it moved nodes again, so they do not nest
+in the partition it returns. `ℓ` is written in decimal, from 1. The number of communities of level `ℓ` is the length of
 its `nodes`. The weight of the pairs between a community and the rest of the graph is
 `S(c) − 2·L(c)` and is not stored. On an unweighted graph every weight is a count of pairs
 (`internal_edges` and `external_edges` of `c.table()`).
@@ -69,6 +71,15 @@ stored hierarchy of the file's graph again:
    when undirected). So at every level the volumes add up to `2W`, internal and cut
    weights to `W`, and the modularity of the level equals that of the level below under
    the partition it represents, bit for bit (every sum is an integer).
+4. The entries of each quotient graph are those its partition makes of the level below
+   (`verify` only): with a random 64-bit weight `h(c)` for each community of the level,
+   the sums `Σ_b A[a][b]·h(b)` over the stored row of `a` equal the sums over the rows of
+   `a`'s children in the level below (or its nodes in the graph), each neighbour mapped
+   to its community, modulo the prime `2^64 − 59` (`h(c)` is the draw modulo it). A wrong
+   entry passes with probability about 2^-64 for one draw, whatever the size of the
+   error: modulo 2^64 an error by a multiple of 2^k would pass with probability 2^(k−64). The weights come from `everygraph_core::rng` with the purpose
+   `HCHK`, counter `[community, level, 0, 0]` and seed 0, so the check is the same on
+   every run. A quotient graph of `2^62` events or more is refused.
 
 ## 4. Versions
 

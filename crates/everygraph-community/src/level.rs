@@ -101,7 +101,16 @@ impl Weights<'_> {
                 for (&v, e) in row.list.iter().zip(row.first_entry..) {
                     let r = events.event_range(e).expect("the events were checked");
                     let x = r.end - r.start;
-                    f(v, if v == row.node { 2 * x } else { x });
+                    // A reader refuses a stored quotient of 2^62 events or more
+                    // (`hierarchy::check`): its sums never reach 2^64.
+                    f(
+                        v,
+                        if v == row.node {
+                            x.saturating_mul(2)
+                        } else {
+                            x
+                        },
+                    );
                 }
             }
         }

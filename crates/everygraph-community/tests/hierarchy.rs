@@ -29,10 +29,10 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
-use everygraph_community::hierarchy::{self, Hierarchy, store, store_levels};
+use everygraph_community::hierarchy::{self, Hierarchy, HierarchyError, store, store_levels};
 use everygraph_community::{Communities, Options, leiden};
-use everygraph_core::{ByteSink, ByteSource, Memory, MemorySource, par};
-use everygraph_format::adjacency::encode;
+use everygraph_core::{Budget, ByteSink, ByteSource, Memory, MemorySource, par};
+use everygraph_format::adjacency::{IndexBuilder, append_record, encode, encode_events};
 use everygraph_format::container::{
     Container, ContainerError, Kind, Provenance, ResultKey, Writer,
 };
@@ -43,6 +43,7 @@ use everygraph_oracle::corpus::{Tier, entries};
 use everygraph_oracle::kernel::Output;
 use everygraph_oracle::projection::Projection;
 use everygraph_oracle::reference;
+use std::sync::Arc;
 
 type Mem = MemorySource<Vec<u8>>;
 /// The entries of a quotient graph, `(a, b, weight)` with `a <= b`.
@@ -486,45 +487,218 @@ fn communities_that_are_not_nested_partitions_are_refused() {
     }
 }
 
-/// A copy of the result of `key` in `bytes` with part `name` holding `values` instead.
-fn forged(bytes: &[u8], key: &ResultKey, name: &str, values: &[u64]) -> Vec<u8> {
+/// A copy of the result of `key` in `bytes` with the parts of `replace` (name, kind,
+/// bytes) written instead of the stored ones; a part with no bytes is left out.
+fn replaced(bytes: &[u8], key: &ResultKey, replace: &[(String, Kind, Option<Vec<u8>>)]) -> Vec<u8> {
     let source = MemorySource::new(bytes.to_vec());
     let file = Container::open(&source).unwrap();
-    let root = file.find_result(key).unwrap().unwrap().name().to_owned();
-    let mut w = Writer::update(MemorySource::new(bytes.to_vec())).unwrap();
+    let root = file.find_result(key).unwrap().unwrap();
     let mut top = [0_u64; 2];
-    file.find_result(key)
-        .unwrap()
-        .unwrap()
-        .read(0, &mut top)
-        .unwrap();
-    let names: Vec<(String, Kind)> = file
+    root.read(0, &mut top).unwrap();
+    let prefix = format!("{}/", root.name());
+    let mut parts: BTreeMap<String, (Kind, Option<Vec<u8>>)> = file
         .entries()
         .iter()
         .filter_map(|e| {
-            e.name
-                .strip_prefix(&format!("{root}/"))
-                .map(|p| (p.to_owned(), e.kind))
+            let part = e.name.strip_prefix(&prefix)?;
+            let mut buf = vec![0; e.len as usize];
+            file.section(&e.name).unwrap().read_at(0, &mut buf).unwrap();
+            Some((part.to_owned(), (e.kind, Some(buf))))
         })
         .collect();
+    for (name, kind, bytes) in replace {
+        parts.insert(name.clone(), (*kind, bytes.clone()));
+    }
+    let mut w = Writer::update(MemorySource::new(bytes.to_vec())).unwrap();
     w.add_result(key, &about(), &top).unwrap();
-    for (part, kind) in names {
-        let mut buf = vec![0; file.get(&format!("{root}/{part}")).unwrap().len as usize];
-        file.section(&format!("{root}/{part}"))
-            .unwrap()
-            .read_at(0, &mut buf)
-            .unwrap();
-        if part == name {
-            w.add_result_part(key, &part, values.iter().copied())
-                .unwrap();
-        } else {
+    for (part, (kind, bytes)) in parts {
+        if let Some(bytes) = bytes {
             let mut s = w.begin_result_part(key, &part, kind).unwrap();
-            s.write(&buf).unwrap();
+            s.write(&bytes).unwrap();
             s.finish().unwrap();
         }
     }
     w.commit().unwrap();
     w.into_sink().into_inner()
+}
+
+/// The bytes of a result section of `u64` values (`docs/spec/eg-container.md` § 6).
+fn typed(values: &[u64]) -> Vec<u8> {
+    let mut out = b"EGRES\0\0\0".to_vec();
+    out.extend_from_slice(&2_u32.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend(values.iter().flat_map(|v| v.to_le_bytes()));
+    out
+}
+
+/// A copy of the result of `key` in `bytes` with part `name` holding `values` instead.
+fn forged(bytes: &[u8], key: &ResultKey, name: &str, values: &[u64]) -> Vec<u8> {
+    replaced(
+        bytes,
+        key,
+        &[(name.to_owned(), Kind::RESULT, Some(typed(values)))],
+    )
+}
+
+/// The quotient parts of `level` holding the graph of `edges` (`a <= b`) on `nodes`.
+fn quotient_parts(
+    level: u32,
+    nodes: u32,
+    edges: &BTreeMap<(u32, u32), u64>,
+) -> Vec<(String, Kind, Option<Vec<u8>>)> {
+    let mut lists = vec![Vec::new(); nodes as usize];
+    for (&(a, b), &w) in edges {
+        lists[a as usize].push((b, w));
+        if a != b {
+            lists[b as usize].push((a, w));
+        }
+    }
+    let (mut offsets, mut targets, mut weights) = (vec![0_u64], Vec::new(), Vec::new());
+    for mut l in lists {
+        l.sort_unstable();
+        targets.extend(l.iter().map(|p| p.0));
+        weights.extend(l.iter().map(|p| p.1));
+        offsets.push(targets.len() as u64);
+    }
+    let (entries, events) = (weights.len() as u64, weights.iter().sum::<u64>());
+    let mut index = IndexBuilder::new(&Memory::unlimited(), nodes).unwrap();
+    let mut data = Vec::new();
+    for v in 0..nodes as usize {
+        let list = &targets[offsets[v] as usize..offsets[v + 1] as usize];
+        let before = data.len();
+        let d = append_record(v as u32, list.iter().copied(), &mut data).unwrap();
+        index.push(d, (data.len() - before) as u64).unwrap();
+    }
+    let has_events = events > entries;
+    let index = index.finish(has_events).unwrap().0;
+    let name = |s: &str| format!("{level}/quotient.{s}");
+    vec![
+        (name("index"), Kind::RESULT_ADJACENCY_INDEX, Some(index)),
+        (name("data"), Kind::RESULT_ADJACENCY_DATA, Some(data)),
+        (
+            name("events"),
+            Kind::RESULT_ADJACENCY_EVENTS,
+            has_events.then(|| encode_events(entries, events, weights).unwrap()),
+        ),
+    ]
+}
+
+#[test]
+fn check_finds_a_quotient_graph_with_its_entries_swapped_at_every_level() {
+    let (n, pairs) = planted(300, 6);
+    let lists = Lists::from_pairs(n, &pairs);
+    let memory = Memory::unlimited();
+    let o = Options::default();
+    let c = leiden(&lists.csr(), &memory, Settings::default(), &o).unwrap();
+    let (bytes, key) = stored(&lists, &c, &o);
+    let file = Container::open(MemorySource::new(&bytes[..])).unwrap();
+    let h = Hierarchy::find(&file, &key).unwrap().unwrap();
+    assert!(h.levels() >= 3, "{} levels", h.levels());
+    for level in 1..=h.levels() {
+        let mut edges: BTreeMap<(u32, u32), u64> = edges(&h, level)
+            .into_iter()
+            .map(|(a, b, w)| ((a, b), w))
+            .collect();
+        let off: Vec<(u32, u32)> = edges.keys().copied().filter(|&(a, b)| a != b).collect();
+        // (a, b) and (c, d) lose one each, (a, d) and (c, b) gain one: every row sum and
+        // every loop stays.
+        let (a, b, c, d) = off
+            .iter()
+            .flat_map(|&(a, b)| off.iter().map(move |&(c, d)| (a, b, c, d)))
+            .find(|&(a, b, c, d)| a != c && a != d && b != c && b != d)
+            .expect("two disjoint entries");
+        let key_of = |x: u32, y: u32| (x.min(y), x.max(y));
+        for (x, y, gain) in [(a, b, false), (c, d, false), (a, d, true), (c, b, true)] {
+            let w = edges.entry(key_of(x, y)).or_insert(0);
+            *w = if gain { *w + 1 } else { *w - 1 };
+        }
+        edges.retain(|_, w| *w > 0);
+        let bad = replaced(
+            &bytes,
+            &key,
+            &quotient_parts(level, h.count(level).unwrap(), &edges),
+        );
+        let report = checked(&bad);
+        assert!(
+            report.problems.iter().any(|p| p
+                .what
+                .starts_with(&format!("level {level}: its quotient graph is not"))),
+            "level {level}: {:?}",
+            report.problems
+        );
+    }
+}
+
+#[test]
+fn a_quotient_too_heavy_to_sum_is_refused() {
+    // One community of the path's four nodes, whose loop says 2^63 + 1 events.
+    let lists = Lists::from_pairs(4, &[(0, 1), (1, 2), (2, 3)]);
+    let bytes = graph_file(&lists).into_sink().into_inner();
+    let heavy = BTreeMap::from([((0, 0), (1_u64 << 63) + 1)]);
+    let mut w = Writer::update(MemorySource::new(bytes.clone())).unwrap();
+    let k = ResultKey::new(w.graph_identity(), "communities", 1, true)
+        .unwrap()
+        .with("heavy", "1")
+        .unwrap();
+    w.add_result(&k, &about(), &[1_u64, 4]).unwrap();
+    w.add_result_part(&k, "membership", [0_u32; 4]).unwrap();
+    w.add_result_part(&k, "1/nodes", [4_u32]).unwrap();
+    w.add_result_part(&k, "1/internal", [3_u64]).unwrap();
+    w.add_result_part(&k, "1/volume", [6_u64]).unwrap();
+    for (part, kind, bytes) in quotient_parts(1, 1, &heavy) {
+        let mut s = w.begin_result_part(&k, &part, kind).unwrap();
+        s.write(&bytes.unwrap()).unwrap();
+        s.finish().unwrap();
+    }
+    w.commit().unwrap();
+    let report = checked(&w.into_sink().into_inner());
+    assert!(
+        report.problems.iter().any(|p| p.what.contains("2^62")),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn a_store_that_fails_half_way_cannot_be_committed() {
+    let (n, pairs) = planted(60, 5);
+    let lists = Lists::from_pairs(n, &pairs);
+    let o = Options::default();
+    let c = leiden(&lists.csr(), &Memory::unlimited(), Settings::default(), &o).unwrap();
+    let (bytes, key) = stored(&lists, &c, &o);
+    let mut poisoned = 0;
+    for limit in (0..).map(|k| 4096 * k) {
+        let mut w = Writer::update(MemorySource::new(bytes.clone())).unwrap();
+        let memory = Memory::new(Arc::new(Budget::new(limit)));
+        let outcome = store(
+            &mut w,
+            &key,
+            &about(),
+            &lists.csr(),
+            &memory,
+            Settings::default(),
+            &c,
+        );
+        let Err(e) = outcome else {
+            break;
+        };
+        assert!(matches!(e, HierarchyError::Graph(_)), "{e}");
+        match w.commit() {
+            Err(ContainerError::Poisoned) => poisoned += 1,
+            Ok(_) => {}
+            Err(e) => panic!("{e}"),
+        }
+        // The file reads as before: the hierarchy stored first, whole.
+        let after = w.into_sink().into_inner();
+        let source = MemorySource::new(&after[..]);
+        let file = Container::open(&source).unwrap();
+        assert!(
+            Hierarchy::find(&file, &key).unwrap().is_some(),
+            "limit {limit}"
+        );
+        assert!(checked(&after).is_intact(), "limit {limit}");
+    }
+    assert!(poisoned > 0);
 }
 
 #[test]
@@ -549,7 +723,10 @@ fn check_finds_a_table_that_does_not_add_up() {
             let bad = forged(&bytes, &key, &format!("{level}/{name}"), &values);
             let report = checked(&bad);
             assert!(
-                report.problems.iter().any(|p| p.what.starts_with("level ")),
+                report.problems.iter().any(|p| p
+                    .section
+                    .as_deref()
+                    .is_some_and(|s| s.starts_with("results/communities/"))),
                 "{level}/{name}: {:?}",
                 report.problems
             );

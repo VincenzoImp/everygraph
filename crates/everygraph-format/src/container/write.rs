@@ -445,6 +445,14 @@ impl<S: ByteSink> Writer<S> {
         Ok(self.generation)
     }
 
+    /// Makes the writer refuse every further change and commit, as a failed write
+    /// does ([`ContainerError::Poisoned`]), so the file keeps reading as its last commit.
+    /// For a caller whose work of many sections failed half-way, such as a result whose
+    /// parts are not all written.
+    pub fn poison(&mut self) {
+        self.poisoned = true;
+    }
+
     /// The sink.
     #[must_use]
     pub fn sink(&self) -> &S {

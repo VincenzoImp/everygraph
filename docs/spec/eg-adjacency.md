@@ -129,7 +129,8 @@ pair, in increasing internal id of the neighbour (§ 1) — which is graph order
 renumbering (`plan/issues/m2-07-id-mapping.md`, `m2-24-bp-ordering.md`). When the graph
 has more than one event for some pair, the index sets flag bit 1 and the section
 `<name>.events`
-(container kind 5; `<name>` is the adjacency's name, so `adjacency.out.events` beside
+(container kind 5, or 13 for the adjacency of a result part, `eg-container.md` § 6;
+`<name>` is the adjacency's name, so `adjacency.out.events` beside
 `adjacency.out.index` and `adjacency.out.data`) holds, for each entry in entry order, the
 number of events of the entries before it, then `events`:
 
@@ -226,7 +227,9 @@ that takes multiplicities from a per-pair column never pays them.
 
 Across sections (the graph layer, when it opens a graph): a section named `<adj>.events`
 has container kind 5, and a section of kind 5 is named `<adj>.events` for an adjacency
-`<adj>` of the file; on a directed graph, the out- and in-adjacency both have a `.events`
+`<adj>` of the file. The adjacency of a result part (a quotient graph of a community
+hierarchy) has the same three sections with kinds 11, 12 and 13 instead of 2, 3 and 5,
+and the same rules between them (`eg-container.md` § 6, "Parts of a result"); on a directed graph, the out- and in-adjacency both have a `.events`
 section or neither has, and their `events` are equal (each event lies once in each);
 every per-event column has `events` rows, or `entries` rows when there is no `.events`
 section.

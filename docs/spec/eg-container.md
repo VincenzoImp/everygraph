@@ -253,7 +253,8 @@ the manifest's `(kind, name length, name, hash)` alone, since the manifest lists
 hashes of every run's sections. A reader serves a stored result only for a graph with
 that identity: after an append the graph has a new identity, and results stored before
 it remain what they are, results as of the earlier graph, never served as results of
-the new one.
+the new one. The adjacencies that results hold (kinds 11 to 13, "Parts of a result"
+below) are left out by their kind: a result never changes the identity it is keyed by.
 
 **Results.** A result on the whole graph (`docs/api-sketch.md` § 2.8) is a section of
 kind 10 named `results/<operation>/<key>`, with a provenance record of its own named

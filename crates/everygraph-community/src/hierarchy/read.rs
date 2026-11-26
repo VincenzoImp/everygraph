@@ -177,15 +177,24 @@ impl<'f, S: ByteSource> Hierarchy<'f, S> {
     ///
     /// # Errors
     ///
-    /// [`HierarchyError::Argument`] for a level that does not exist; the file's errors
-    /// and the budget's.
+    /// [`HierarchyError::Argument`] for a level that does not exist;
+    /// [`HierarchyError::Invalid`] for a row whose internal weight is above half its
+    /// volume; the file's errors and the budget's.
     pub fn table(&self, level: u32, memory: &Memory) -> Result<Table, HierarchyError> {
         self.count(level)?;
-        Ok(Table {
+        let table = Table {
             nodes: self.column(memory, &part(level, NODES))?,
             internal: self.column(memory, &part(level, INTERNAL))?,
             volume: self.column(memory, &part(level, VOLUME))?,
-        })
+        };
+        let cut = table.internal.iter().zip(&table.volume[..]);
+        if cut
+            .into_iter()
+            .any(|(&l, &s)| l.checked_mul(2).is_none_or(|l| l > s))
+        {
+            return Err(invalid("an internal weight above half its volume"));
+        }
+        Ok(table)
     }
 
     /// The community at `level − 1` of each community at `level`; `None` at level 1.

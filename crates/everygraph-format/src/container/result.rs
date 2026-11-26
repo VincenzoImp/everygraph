@@ -482,11 +482,14 @@ impl<S: ByteSource> Container<S> {
             .iter()
             .filter(|e| e.kind == Kind::RESULT && !is_part(&e.name))
             .map(|e| {
+                // Entries are in name order, so the parts follow the first name above
+                // the prefix.
                 let parts = format!("{}/", e.name);
-                let bytes = self
-                    .entries()
+                let all = self.entries();
+                let from = all.partition_point(|p| *p.name < *parts);
+                let bytes = all[from..]
                     .iter()
-                    .filter(|p| p.name.starts_with(&parts))
+                    .take_while(|p| p.name.starts_with(&parts))
                     .map(|p| p.len)
                     .sum::<u64>();
                 let provenance = self
