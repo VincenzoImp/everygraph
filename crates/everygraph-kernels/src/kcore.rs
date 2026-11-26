@@ -9,8 +9,8 @@
 //! - **Local queues** (vertical granularity control, § 4.2). A task peels its node, then,
 //!   in the same subround, the neighbours whose degree that drops to `k`, through a
 //!   queue that takes up to 128 nodes. What does not fit waits for the next subround, as
-//!   does a node of more than [`RUN_ENTRIES`] entries: there its list is cut into parts
-//!   that run in parallel ([`Plan::push_with`]).
+//!   does a node of more than [`LONG`] entries: there its list is cut into parts that
+//!   run in parallel ([`Plan::push_with`]).
 //! - **Sampled hubs** (§ 4.1). A node of high degree does not count its peeled
 //!   neighbours one by one, which would make every worker update one counter. Each
 //!   peeled neighbour adds to a sample counter with a small probability, drawn by a
@@ -44,6 +44,12 @@ const UNSET: u32 = u32::MAX;
 /// Nodes a task takes into its local queue before it leaves the rest to the next
 /// subround (Liu et al. § 4.2: 128; time "relatively stable" from hundreds to thousands).
 const QUEUE: usize = 128;
+
+/// Entries of a list that a local queue does not take: 16 parts of [`RUN_ENTRIES`].
+/// Lower, the subrounds add up to more than the parts save: on twitter-sym, 1,024
+/// gave 5.4 times the subrounds of no limit, and a slower peel than 16,384
+/// (exploratory, interleaved; the pull request that added it).
+const LONG: usize = 16 * RUN_ENTRIES;
 
 /// Nodes per task of the passes outside the drivers.
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");
@@ -261,7 +267,7 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
                 }
                 let old = d.fetch_sub(1, Relaxed);
                 if old == k + 1 {
-                    if queue.len() < QUEUE && ix(self.plan.degree(u).into()) <= RUN_ENTRIES {
+                    if queue.len() < QUEUE && ix(self.plan.degree(u).into()) <= LONG {
                         queue.push(u);
                     } else {
                         self.next.insert(u);
