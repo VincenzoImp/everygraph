@@ -93,6 +93,7 @@
  "m3-20-scc": 223,
  "m3-21-flaky-heap-test": 230,
  "m3-22-performance-pass": 240,
+ "m3-23-milestone-close": 255,
  "m4-00-epic": 56,
  "m4-01-leiden-production": 57,
  "m4-02-weights-resolution": 58,
