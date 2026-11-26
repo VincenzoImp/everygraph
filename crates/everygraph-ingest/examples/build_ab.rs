@@ -29,7 +29,7 @@ mod bench {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
 
-    use everygraph_core::{Budget, Memory};
+    use everygraph_core::{Budget, ByteSource, Memory};
     use everygraph_format::container::Provenance;
     use everygraph_ingest::build::{self, BuildOptions, GraphOptions, Silent};
     use everygraph_ingest::ids::Scratch;
@@ -122,7 +122,7 @@ mod bench {
         })?;
         let committed = t1.elapsed().as_secs_f64();
         let written = write_bytes() - io0;
-        let output = sink.into_file().metadata()?.len();
+        let output = sink.len();
         std::fs::remove_dir_all(&scratch_dir)?;
         Ok(format!(
             "{{\"budget\":{budget},\"regime\":\"{:?}\",\"build_seconds\":{built:.3},\

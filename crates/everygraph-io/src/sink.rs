@@ -262,9 +262,9 @@ impl BlockWriter {
 /// **One writer at a time, across processes** (`design/DECISIONS.md`, "A second writer
 /// on a graph file is refused"). The sink holds an exclusive lock on its file for as
 /// long as it lives, and a second `FileSink` on the file, in this process or another,
-/// is refused at once with [`io::ErrorKind::ResourceBusy`]; nothing waits. The
-/// operating system releases the lock when the file is closed or the process dies, so
-/// a crash never leaves a stale lock. On Unix it is `File::try_lock` (`flock`), which
+/// is refused at once with [`io::ErrorKind::ResourceBusy`]; nothing waits. The sink
+/// releases the lock when it is dropped, and the operating system when the process
+/// dies, so a crash never leaves a stale lock. On Unix it is `File::try_lock` (`flock`), which
 /// is **advisory**: a program that does not take it (an editor, `cp`, `dd`) is not
 /// stopped; where the platform has no such lock (`File::try_lock` is `Unsupported`), only
 /// the guard within the process remains. On Windows it is the share mode of the open
@@ -294,8 +294,8 @@ impl BlockWriter {
 /// shorter length, and [`create`](Self::create), fail with the system's error.
 #[derive(Debug)]
 pub struct FileSink {
-    // Declared before the claim: the file is closed, and its lock released, first.
-    file: File,
+    // Declared before the claim: the lock is released, and the file closed, first.
+    file: Locked,
     len: u64,
     claim: Claim,
 }
@@ -320,7 +320,7 @@ impl FileSink {
                 .truncate(false),
             path.as_ref(),
         )?;
-        let len = file.metadata()?.len();
+        let len = file.0.metadata()?.len();
         let mut sink = Self { file, len, claim };
         sink.resize(0, false)?;
         Ok(sink)
@@ -335,18 +335,8 @@ impl FileSink {
     /// ([`io::ErrorKind::ResourceBusy`]).
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let (file, claim) = open_alone(OpenOptions::new().read(true).write(true), path.as_ref())?;
-        let len = file.metadata()?.len();
+        let len = file.0.metadata()?.len();
         Ok(Self { file, len, claim })
-    }
-
-    /// Gives the file back, with its lock: the lock ends when the file is closed. From
-    /// here on the file may be mapped whole; the caller must not write through the
-    /// returned handle while it is.
-    #[must_use]
-    pub fn into_file(self) -> File {
-        let Self { file, claim, .. } = self;
-        drop(claim);
-        file
     }
 
     /// Sets the length, unless that would cut off or extend into a mapped range.
@@ -357,7 +347,7 @@ impl FileSink {
     /// through the sink, until a later cut succeeds. A container allows a file longer
     /// than its committed end (§ 7). Any other refused shortening is an error.
     fn resize(&mut self, len: u64, tail_cut: bool) -> io::Result<()> {
-        let file = &self.file;
+        let file = &self.file.0;
         match self
             .claim
             .guard(self.len.min(len)..u64::MAX, || file.set_len(len))
@@ -377,7 +367,7 @@ impl FileSink {
 /// [`persist`]) is not the file at `path` any more, and a commit to it would be lost: so
 /// on Unix the locked file must still be the one at `path`, by device and inode, or it
 /// is opened again.
-fn open_alone(options: &mut OpenOptions, path: &Path) -> io::Result<(File, Claim)> {
+fn open_alone(options: &mut OpenOptions, path: &Path) -> io::Result<(Locked, Claim)> {
     let refused = |who: String| {
         io::Error::new(
             io::ErrorKind::ResourceBusy,
@@ -401,13 +391,27 @@ fn open_alone(options: &mut OpenOptions, path: &Path) -> io::Result<(File, Claim
             );
             return Err(refused(who));
         }
-        if sys::same_file(&file, path)? {
+        let file = Locked(file);
+        if sys::same_file(&file.0, path)? {
             return Ok((file, claim));
         }
     }
     Err(refused(
         "the file was replaced while it was being opened".to_owned(),
     ))
+}
+
+/// A file under the lock of [`sys::try_lock`], which is released when this is dropped.
+/// Closing the file is not enough: the lock lasts while any copy of the open file does,
+/// and a child process that another thread is starting holds a copy of every open file
+/// until its `exec`.
+#[derive(Debug)]
+struct Locked(File);
+
+impl Drop for Locked {
+    fn drop(&mut self) {
+        sys::unlock(&self.0);
+    }
 }
 
 impl ByteSource for FileSink {
@@ -417,7 +421,7 @@ impl ByteSource for FileSink {
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ReadError> {
         check_bounds(offset, buf.len(), self.len)?;
-        sys::read_exact_at(&self.file, buf, offset).map_err(backend_error)
+        sys::read_exact_at(&self.file.0, buf, offset).map_err(backend_error)
     }
 }
 
@@ -430,7 +434,7 @@ impl ByteSink for FileSink {
             // A write of nothing past the end still extends the sink (the contract).
             return self.resize(end, false).map_err(write_error);
         }
-        let file = &self.file;
+        let file = &self.file.0;
         self.claim
             .guard(offset..end, || sys::write_all_at(file, data, offset))
             .map_err(write_error)?;
@@ -447,7 +451,7 @@ impl ByteSink for FileSink {
     }
 
     fn sync(&mut self) -> Result<(), WriteError> {
-        self.file.sync_all().map_err(write_error)
+        self.file.0.sync_all().map_err(write_error)
     }
 }
 
@@ -575,5 +579,24 @@ impl SpillLogs {
                 FileSource::from_file(sink.finish()?)
             })
             .collect()
+    }
+}
+
+// Windows children inherit no handle that std opens.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// A copy of the open file, the one a child process holds between its `fork` and its
+    /// `exec`, does not keep the lock once the sink is dropped.
+    #[test]
+    fn a_dropped_sink_leaves_no_lock_on_a_copy_of_its_file() {
+        let path = std::env::temp_dir().join(format!("everygraph-lock-{}", std::process::id()));
+        let sink = FileSink::create(&path).unwrap();
+        let copy = sink.file.0.try_clone().unwrap();
+        drop(sink);
+        FileSink::open(&path).unwrap();
+        drop(copy);
+        std::fs::remove_file(path).unwrap();
     }
 }
