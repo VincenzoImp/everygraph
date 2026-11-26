@@ -25,5 +25,6 @@ labels: type:feature, area:map, P0, risk:medium, size:L, lab-evidence
 - lj pyramid ≤ 10 s at 16 threads with peak memory ≤ 1 GB
 - A Friendster-size pyramid builds under an 8 GiB budget; time and bytes read reported against the tracer's 244.5 s with 56 GiB (`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` row 29)
 - Same hash at 1, 4 and 16 threads
+- The whole Friendster map, end to end (ingest → hierarchy → layout → tiles), under a 16 GiB limit, cold: total time, peak and bytes read per phase reported. This first product measurement sets the end-to-end target that DESIGN § 6 then states (owner's strategy discussion, 2026-11-26)
 
 **Depends on** {{#m5-01-layout}}, {{#m5-02-tile-format}}
