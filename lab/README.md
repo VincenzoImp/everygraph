@@ -44,6 +44,7 @@ Second-round experiments and measurements of production code:
 | `m2-28-par-scatter` | #189, safe scattered writes, A/B | `plan/issues/m2-28-par-scatter.md` | — |
 | `m2-35-random-read-probe` | #263, random-read rate by size and queue depth, `pread` pool against io_uring | its own `README.md` (exploratory) | — |
 | `m3-27-frontier-counters` | #266, frontier driver and decode counters | `plan/issues/m3-27-frontier-counters.md` | — |
+| `m5-02-tile-format` | #68, the tile payload against MapLibre Tile and Arrow IPC on the lab tiles (bytes only) | `docs/spec/egmap.md` § 10, its own `README.md` (exploratory) | — |
 
 Raw result files are under each `results/` directory; datasets and build outputs are not
 included. The first lab's prototypes read graphs in a format of their own, `glab-csr-v0`,
@@ -52,7 +53,7 @@ one directory per graph under `$EVERYGRAPH_DATA/csr/`: `meta.json` (n, edges, fl
 duplicates, no self-loops) and `ids.u64` (the input id of each dense id).
 
 Only `e-map` has its own `REPORT.md`; `m1-03-louvain-collapse` and
-`m1-04-det-leiden-scaling` have a `README.md`, and `m1-15-mmap-hints-block-cache` and
+`m1-04-det-leiden-scaling` and `m5-02-tile-format` have a `README.md`, and `m1-15-mmap-hints-block-cache` and
 `m1-09-hierarchy-order` and `m1-18-layout-baseline` a results `README.md`. The other experiments are reported in
 `docs/FINDINGS.md`. Some source headers still say "see REPORT.md": that report is the
 FINDINGS section of the table above.

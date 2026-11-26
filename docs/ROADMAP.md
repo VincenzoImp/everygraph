@@ -66,7 +66,7 @@ Beside it, and needed before the release:
 - the engine under a budget: the allocator policy (#167);
   the planner (#45) and the semi-external source (#46); the no-OOM and determinism checks
   in CI (#53, #54); weights (#58), then Leiden beyond RAM (#60);
-- the tile format (#68);
+- the tile builder (#69) on the specified map file (`docs/spec/egmap.md`, #68);
 - queries: point queries (#90), shortest paths (#91), views (#93);
 - the packages: Python API (#81), Arrow interop (#83), wheels (#82), the rest of the
   command line (#247);
