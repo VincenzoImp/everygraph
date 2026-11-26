@@ -23,3 +23,8 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 [[profile.default.overrides]]
 filter = 'package(everygraph-bench) & binary(harness) & (test(=an_exploratory_run_records_every_field) | test(=a_failed_warm_up_writes_its_measurement))'
 retries = 2
+
+# Under Miri (`cargo miri nextest run` picks this profile) a test runs 50 to 100 times
+# slower: the slowest took about 60 s on a loaded lab machine (2026-11-26).
+[profile.default-miri]
+slow-timeout = { period = "120s", terminate-after = 10 }

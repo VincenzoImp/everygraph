@@ -1,19 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Elias–Fano coding of a non-decreasing sequence of `u64` (`docs/spec/eg-adjacency.md`,
-//! "Elias–Fano sequences"). Own implementation, safe code only, so that it builds for
-//! wasm32 and runs under Miri.
-//!
-//! `len` values `x_0 ≤ … ≤ x_{len-1} ≤ universe`, with `l` low bits each:
-//!
-//! - **low part:** `x_i mod 2^l` at bits `i·l … i·l + l − 1` of a little-endian bit
-//!   string, stored as ⌈len·l / 64⌉ little-endian `u64` words;
-//! - **high part:** bit `(x_i >> l) + i` set, in a bit string of `len + (universe >> l)`
-//!   bits, stored as ⌈that / 64⌉ words.
-//!
-//! `l` is not stored: it is `⌊log2(universe / len)⌋` (0 when the quotient is below 2),
-//! computed by [`low_bits`]. Every bit past the end of either string is zero. Select
-//! samples (the position of every 64th one) are rebuilt in memory, never stored.
+//! Elias–Fano coding of a non-decreasing sequence of `u64`, as `docs/spec/eg-adjacency.md`
+//! § 2 defines it. Own implementation, safe code only, so that it builds for wasm32 and
+//! runs under Miri. Select samples (the position of every 64th one) are rebuilt in
+//! memory, never stored.
+
+use everygraph_core::{usize_of, widen};
 
 /// Ones between two select samples.
 const SAMPLE: usize = 64;
@@ -387,14 +379,6 @@ fn tail_is_zero(words: &[u64], used: u64) -> bool {
 
 fn low_mask(l: u32) -> u64 {
     if l == 0 { 0 } else { u64::MAX >> (64 - l) }
-}
-
-fn usize_of(x: u32) -> usize {
-    usize::try_from(x).expect("usize has at least 32 bits")
-}
-
-fn widen(x: usize) -> u64 {
-    u64::try_from(x).expect("usize has at most 64 bits")
 }
 
 #[cfg(test)]

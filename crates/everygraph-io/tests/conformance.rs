@@ -8,16 +8,24 @@
 
 #![forbid(unsafe_code)]
 
+#[path = "support/scratch.rs"]
+mod scratch_dir;
+#[path = "support/bytes.rs"]
+mod support;
+
 use std::fs::{self, File};
 use std::io::Write;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use everygraph_core::{
     AccessHint, AlignedBuf, ByteSource, MemorySource, ReadError, SEGMENT_ALIGN, SegmentReader,
     Segments,
 };
 use everygraph_io::{AppendSink, BlockWriter, FileSource, MmapSource, SpillLogs};
+use everygraph_oracle::rng::SplitMix64;
+use scratch_dir::scratch;
+use support::bytes;
 // Only the guard test uses it, and the guard is Unix only.
 #[cfg(unix)]
 use everygraph_io::FileSink;
@@ -28,35 +36,9 @@ const A: usize = SEGMENT_ALIGN;
 /// either side, and more than the 1 MiB bounce buffer of the direct backend.
 const LENGTHS: [usize; 7] = [0, 1, A - 1, A, A + 1, 3 * A + 17, (2 << 20) + 333];
 
-/// A fresh, empty directory for one test.
-fn scratch(name: &str) -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("everygraph-io")
-        .join(name);
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Deterministic pseudo-random numbers (xorshift64*).
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
-    }
-
-    fn below(&mut self, n: usize) -> usize {
-        usize::try_from(self.next() % (n as u64 + 1)).unwrap()
-    }
-}
-
-fn sample(len: usize, seed: u64) -> Vec<u8> {
-    let mut rng = Rng(seed | 1);
-    (0..len).map(|_| rng.next().to_le_bytes()[3]).collect()
+/// A number in `0..=n`.
+fn up_to(rng: &mut SplitMix64, n: usize) -> usize {
+    usize::try_from(rng.below(n as u64 + 1)).unwrap()
 }
 
 fn write_file(path: &Path, bytes: &[u8]) {
@@ -181,12 +163,11 @@ fn check(name: &str, source: &(dyn ByteSource + Sync), expected: &[u8]) {
     std::thread::scope(|s| {
         for t in 0..4_u64 {
             s.spawn(move || {
-                let mut rng = Rng(0x9E37_79B9 + t);
+                let mut rng = SplitMix64::new(0x9E37_79B9 + t);
                 for _ in 0..200 {
-                    let offset = rng.below(n);
-                    let want = rng.below(n - offset).min(3 * A + 1);
-                    let got =
-                        read(source, offset as u64, want, rng.next().is_multiple_of(2)).unwrap();
+                    let offset = up_to(&mut rng, n);
+                    let want = up_to(&mut rng, n - offset).min(3 * A + 1);
+                    let got = read(source, offset as u64, want, rng.chance(500)).unwrap();
                     assert!(
                         got == expected[offset..offset + want],
                         "{name}: thread {t}, {want} at {offset}"
@@ -245,7 +226,7 @@ fn to_usize(n: u64) -> usize {
 fn every_backend_conforms() {
     let dir = scratch("conformance");
     for (seed, &len) in LENGTHS.iter().enumerate() {
-        every_backend(&dir, &sample(len, seed as u64));
+        every_backend(&dir, &bytes(seed as u64, len));
     }
     fs::remove_dir_all(dir).unwrap();
 }
@@ -256,7 +237,7 @@ fn every_backend_conforms() {
 fn a_file_that_shrinks_gives_a_backend_error() {
     let dir = scratch("shrink");
     let path = dir.join("shrinking");
-    let bytes = sample(4 * A, 5);
+    let bytes = bytes(5, 4 * A);
     write_file(&path, &bytes);
     let sources = [
         FileSource::open(&path).unwrap(),
@@ -285,12 +266,12 @@ fn a_file_that_shrinks_gives_a_backend_error() {
 fn an_append_sink_writes_what_it_is_given_and_counts_it() {
     let dir = scratch("append");
     let path = dir.join("appended");
-    let bytes = sample((3 << 20) + 11, 9);
+    let bytes = bytes(9, (3 << 20) + 11);
     let mut sink = AppendSink::create(&path).unwrap();
-    let mut rng = Rng(3);
+    let mut rng = SplitMix64::new(3);
     let mut written = 0;
     while written < bytes.len() {
-        let piece = rng.below(bytes.len() - written).clamp(1, 300_000);
+        let piece = up_to(&mut rng, bytes.len() - written).clamp(1, 300_000);
         sink.write_all(&bytes[written..written + piece]).unwrap();
         written += piece;
         assert_eq!(sink.position(), written as u64);
@@ -312,7 +293,7 @@ fn a_block_writer_assembles_the_file_from_parallel_writes() {
     for direct in [false, true] {
         for len in [0, 1, A, 5 * A + 123, (2 << 20) + A + 1] {
             let path = dir.join(format!("blocks-{direct}-{len}"));
-            let bytes = sample(len, len as u64 + 1);
+            let bytes = bytes(len as u64 + 1, len);
             let writer = BlockWriter::create(&path, len as u64, direct).unwrap();
             assert_eq!(writer.len(), len as u64);
             assert_eq!(writer.is_empty(), len == 0);

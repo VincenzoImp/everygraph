@@ -8,8 +8,9 @@ using all the hardware it is given, and staying inside the memory budget it is g
 > repository holds the product and architecture baseline, the evidence from a feasibility
 > lab, the prototypes that produced it, the full work plan as GitHub milestones and
 > issues, and the first production crates: the file format, I/O, the readers and the
-> graph build, the first kernels, a command line with `ingest` and `verify`, and a first
-> slice of the Python package (built from source; nothing is published).
+> graph build, the first kernels, a command line (`ingest`, `verify`, `run`, `info`,
+> `export`, `compact`), and a first slice of the Python package (built from source;
+> nothing is published).
 
 ![A map of com-Orkut (3.1 M nodes, 117 M edges) from the lab prototype](docs/img/map-overview-orkut.png)
 
@@ -86,8 +87,9 @@ only that graph and one iteration were measured. Also open: the quality of the m
 edges on dense graphs, and the cost of determinism. A map hierarchy with bounded fan-out
 works in the lab (`docs/FINDINGS.md` § M1-05), not yet in the product. The headline
 "1.8 B edges to a map on a 16 GB laptop" has not been run end to end: the tile builder
-does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. The second lab
-round (milestone M1) took these on first; see [docs/DESIGN.md § 5](docs/DESIGN.md#5-what-is-not-solved-yet).
+does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. Each open
+problem and the issue that owns it are in
+[docs/DESIGN.md § 5](docs/DESIGN.md#5-what-is-not-solved-yet).
 
 ## Building
 
@@ -96,8 +98,9 @@ The Rust workspace holds the crate layout, the coding rules, the portable core
 compressed adjacency and the property columns (`everygraph-format`), the I/O layer
 (`everygraph-io`), the text reader, the identifier dictionary and the graph build
 (`everygraph-ingest`), the edge-map framework with PageRank, BFS, SSSP, components, core
-numbers and degrees (`everygraph-kernels`), the `everygraph` command with `ingest` and
-`verify` (`everygraph-cli`), and the Python package `everygraph` (`everygraph-py`). The
+numbers and degrees (`everygraph-kernels`), the `everygraph` command with `ingest`,
+`verify`, `run`, `info`, `export` and `compact` (`everygraph-cli`), and the Python package
+`everygraph` (`everygraph-py`). The
 Rust crates need Rust 1.100 or newer and nothing else; the Python package also needs
 Python 3.10 or newer (`tools/check_python_package.sh` builds and tests it with uv and
 maturin).
@@ -115,7 +118,8 @@ the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBU
 
 - [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 25 decisions with their evidence (one ADR each under `docs/adr/`; ADR 0026 words promise 1)
 - [docs/FINDINGS.md](docs/FINDINGS.md) — what the lab measured, including negative results
-- [docs/ROADMAP.md](docs/ROADMAP.md) — milestones and their exit criteria
+- [docs/ROADMAP.md](docs/ROADMAP.md) — the two goals, the milestones and the critical path
+- [docs/STATE.md](docs/STATE.md) — where the project is now
 - [plan/](plan/) — every issue as a file, and the script that publishes them
 - [crates/](crates/) — the Rust workspace; rules in [CONTRIBUTING.md](CONTRIBUTING.md)
 - [lab/](lab/) — the prototypes behind the numbers (research code, not the product)

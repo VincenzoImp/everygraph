@@ -1,0 +1,81 @@
+{
+ "graph": "/home/tux/graphlab/data/csr/lj",
+ "level": 6,
+ "regions": 71,
+ "crossing_edges": 7283774,
+ "share_of_edges": 0.21002088480876477,
+ "layouts": {
+  "hcl": {
+   "L_median": 0.9812755284081273,
+   "C_median": 0.9541350954535732,
+   "G_median": 0.6079284246677346,
+   "L_mean": 1.0040073923121906,
+   "C_mean": 0.9998166870128491,
+   "G_mean": 0.6311243070431594,
+   "share_to_3_nearest_regions": 0.0094291777861312,
+   "median_rank_of_other_region": 35.0,
+   "region_R_median_per_node": 0.1736559607646148,
+   "facing_mean": 0.01616110621999655
+  },
+  "hcls": {
+   "L_median": 1.0369842412587191,
+   "C_median": 1.0127234622131354,
+   "G_median": 0.6817598877846349,
+   "L_mean": 1.0667314418256033,
+   "C_mean": 1.0589080692038242,
+   "G_mean": 0.6921135486206955,
+   "share_to_3_nearest_regions": 0.025530308875591143,
+   "median_rank_of_other_region": 46.0,
+   "region_R_median_per_node": 0.1627219146518708,
+   "facing_mean": 0.00584373899359586
+  },
+  "hclsb": {
+   "L_median": 0.9993257907218568,
+   "C_median": 0.9751263603457442,
+   "G_median": 0.6764149859509558,
+   "L_mean": 1.0357432932309103,
+   "C_mean": 1.0303334871397178,
+   "G_mean": 0.6676099362582512,
+   "share_to_3_nearest_regions": 0.012000921500310142,
+   "median_rank_of_other_region": 40.0,
+   "region_R_median_per_node": 0.17127682052812898,
+   "facing_mean": 0.020144976798467797
+  },
+  "cells": {
+   "L_median": 1.0238079828386333,
+   "C_median": 1.009814747792552,
+   "G_median": 0.5459440070538973,
+   "L_mean": 1.0618185832769926,
+   "C_mean": 1.046058759573888,
+   "G_mean": 0.5683926366932125,
+   "share_to_3_nearest_regions": 0.0152345473651434,
+   "median_rank_of_other_region": 43.0,
+   "region_R_median_per_node": 0.22560868973534365,
+   "facing_mean": 0.006563122111856246
+  },
+  "cellsb": {
+   "L_median": 0.9926008477839775,
+   "C_median": 1.0004675677663375,
+   "G_median": 0.5034213904743681,
+   "L_mean": 1.0372646065037163,
+   "C_mean": 1.02643573361515,
+   "G_mean": 0.5545404994855698,
+   "share_to_3_nearest_regions": 0.013653361567780659,
+   "median_rank_of_other_region": 40.0,
+   "region_R_median_per_node": 0.22845725712202475,
+   "facing_mean": 0.023333323563480196
+  },
+  "cellsd": {
+   "L_median": 1.030456350036699,
+   "C_median": 1.0140123640397574,
+   "G_median": 0.6348206383735463,
+   "L_mean": 1.063950118043011,
+   "C_mean": 1.0519828566075724,
+   "G_mean": 0.6357367101306827,
+   "share_to_3_nearest_regions": 0.02007887669222027,
+   "median_rank_of_other_region": 44.0,
+   "region_R_median_per_node": 0.1976928151893702,
+   "facing_mean": 0.004067218341769973
+  }
+ }
+}

@@ -27,6 +27,7 @@ cargo build -p everygraph-wasm --target wasm32-unknown-unknown
 cargo clippy -p everygraph-format --target i686-unknown-linux-gnu --all-targets -- -D warnings
 cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown -- -D warnings
+cargo clippy -p everygraph-community --target wasm32-unknown-unknown -- -D warnings
 RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo deny check                            # offline: cargo deny check bans licenses sources
@@ -131,19 +132,69 @@ has a fault-injection sweep: `everygraph_io::faults` (feature `faults`) fails th
 operation of any source or sink, and a test runs the work for every k
 (`crates/everygraph-format/tests/faults.rs`).
 
+### Mutation testing
+
+cargo-mutants changes the code one small step at a time (a `+` becomes a `-`, a function
+returns a default) and runs the tests: a mutant that no test fails on is a test gap. It is
+pinned to version 27.1.0 (`cargo install cargo-mutants --version 27.1.0 --locked`), with
+cargo-nextest as the test runner. `.cargo/mutants.toml` holds the options every run
+shares; `tools/mutants.sh` runs what CI runs:
+
+```sh
+tools/mutants.sh diff origin/main      # the product-code diff of your branch, and its mutant count
+tools/mutants.sh pr 0/1                # test those mutants (k/n: one shard of n)
+tools/mutants.sh crate everygraph-format  # every mutant of a crate: the milestone audit
+tools/mutants.sh report                # the last run as Markdown
+```
+
+Run them under a hard memory limit, like the tests. The results are in
+`target/mutants/mutants.out/` (`missed.txt`, `caught.txt`, a log per mutant).
+
+**A mutation score is never presented as a correctness argument.** It measures how
+strongly the tests react to small changes. Most real faults are coupled to some mutant,
+but about one in six is coupled to none, mostly changed algorithms and numerical overflow
+or NaN (Just et al., FSE'14; `docs/research/sota-testing.md`, challenge 8). Those are the
+kernel bugs that the oracle and its metamorphic relations exist to catch.
+
+What is mutated:
+
+- **On a pull request** (`mutants.yml`), the lines it changed in the product code of
+  `tools/mutants.sh` (`everygraph-kernels`, `-format`, `-ingest`, `-community`, and the
+  core's `memory` module). Diff-only mutants keep a change to a handful of mutants and
+  most of them useful (Petrović et al., TSE'21).
+- **At each milestone cleanup**, every mutant of each product crate (CLAUDE.md § 6), on
+  the lab machine or with `gh workflow run mutants.yml -f package=CRATE -f shards=16`.
+  The cleanup report lists the missed mutants per crate, each killed by a new test or
+  explained. A whole run is thousands of mutants, too many for a nightly job in the
+  shared queue.
+- **Capacity arithmetic is kept.** cargo-mutants skips the arguments of `with_capacity`
+  by default, as Google treats capacity arithmetic as arid. Here a wrong capacity breaks
+  the memory promise, so `skip_calls_defaults = false`. Only a test that compares the
+  budget's ledger with what a counting allocator saw can kill them
+  (`everygraph-ingest/tests/heap_peak.rs`, and the no-OOM suite in `everygraph-memtest`,
+  which a mutant of another crate does not run); most of them are still missed, and each
+  milestone audit lists them.
+- **Arid code is not mutated**: `Display` and `Debug` implementations (message text) and
+  the build's progress output (`exclude_re` in `.cargo/mutants.toml`). Add a pattern
+  there, with its reason, rather than `#[mutants::skip]` in product code.
+- Each mutant runs only the tests of its own crate, so the oracle's seeded-bug suite
+  (about 90 s) never runs per mutant. nextest does not run doc tests: a mutant that only a
+  doc test would catch is reported as missed.
+
 ## CI
 
-GitHub Actions, five workflows under `.github/workflows/`, on GitHub-hosted runners. The
+GitHub Actions, six workflows under `.github/workflows/`, on GitHub-hosted runners. The
 repository is public, so standard runners cost nothing. The queue is still shared by every
 agent's pull request, so on a pull request the expensive jobs run only when it changed
 what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `numerics_lint.py --check`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map kernels), the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two and the kernels' included), the kernels' doc tests on nightly, then `check_tsan.py`. **no-oom** (nightly and by hand only): `cargo test --release -p everygraph-memtest -- --ignored`, the no-OOM suite at the nightly sizes, the long search and the cgroup matrix, its records kept as an artifact. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `numerics_lint.py --check`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map kernels), the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs or a manifest changed. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: the tests on 1.100, skipped while 1.100 is the current stable (the test job ran them on the same compiler, the oracle crate's included). **sanitizers**, three parallel parts: the Miri commands (the codec's two and the kernels' included) through `cargo miri nextest run`, the kernels' doc tests on nightly, then `check_tsan.py`. **no-oom** (nightly and by hand only): `cargo test --release -p everygraph-memtest -- --ignored`, the no-OOM suite at the nightly sizes, the long search and the cgroup matrix, its records kept as an artifact. All on Linux x86_64 |
 | `fuzz.yml` | as `ci.yml`; nightly at 02:17 UTC; by hand | **replay** (always, merge only when green): `tools/fuzz.sh replay`. **campaign** (advisory), when a pull request changes `everygraph-format`, `-ingest`, the core or `tools/fuzz.sh` (`ci_changes.py`'s `fuzz_*` flags): 5 minutes per target of that crate. **nightly**: 1 hour per target, then `cmin`; the corpus is uploaded as an artifact, and its new entries come back by pull request ("Fuzzing" above) |
+| `mutants.yml` | pull requests that change the product code of `tools/mutants.sh` (or the mutation tooling); by hand for one crate | **plan**: `tools/mutants.sh diff HEAD^1`, and one shard per three mutants, at most four. **shard** (advisory): `tools/mutants.sh pr k/n` in a 10-minute box; missed mutants become annotations on the changed lines and a list in the run's summary; `mutants.out` is uploaded. Red only when cargo-mutants itself fails (bad diff, bad option, internal error). By hand: `tools/mutants.sh crate CRATE k/n` over the shards asked for ("Mutation testing" above) |
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
-| `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, `check_schemas.py docs/ux-contract.md docs/api-sketch.md` (with `jsonschema`, through `uv`), and `plan/publish.py VincenzoImp/everygraph --dry-run`. Standard library only, except the schema check |
+| `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, `check_schemas.py docs/ux-contract.md docs/api-sketch.md` (with `jsonschema`, through `uv`), `plan/publish.py VincenzoImp/everygraph --dry-run`, and the design system: `design/system/tools/build.py --check`, `measure.mjs` (Node), `lint_colours.py`. Standard library only, except the schema check |
 | `dco.yml` | every pull request | the `Signed-off-by` check ("Sign-off" below) |
 
 Which jobs of `ci.yml` a pull request runs is decided by `.github/scripts/ci_changes.py`
@@ -235,7 +286,7 @@ describing it).
 | `everygraph-format` | the `.eg` container, the adjacency codec, property columns, and `verify` | #28, #30, #37, #41 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes, built and linted in CI |
-| `everygraph-community` | Leiden and the map hierarchy | #57 | yes |
+| `everygraph-community` | Leiden, the community table and modularity; the map hierarchy | #57, #62, #63 | yes, built and linted in CI |
 | `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
 | `everygraph-cli` | the `everygraph` command | #41 (`verify`), #98 | no |
@@ -429,6 +480,13 @@ The release profile uses fat LTO and one codegen unit. Nothing in the repository
 `target-cpu=native`: a shipped binary must run on the user's CPU, so code that wants
 AVX2 or NEON detects it at run time. The lab prototypes under `lab/` are excluded from
 the workspace and keep their own flags.
+
+The `dev` profile, which tests use, has `opt-level = 1` and line tables only (no debug
+information for dependencies). So run tests without `--release`: the whole workspace
+suite takes about a quarter of the CPU time it took at opt-level 0, and a rebuild after a
+change does not repeat the link-time optimization. Use `--release` for measurements only.
+Benchmark numbers come from the release profile: without LTO, PageRank took 1.6× the
+CPU time (exploratory, interleaved, 2026-11-26), so a lighter profile would mislead.
 
 ## Dependencies and licences
 

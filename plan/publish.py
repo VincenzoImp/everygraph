@@ -13,8 +13,19 @@ a front matter block:
     ---
     <markdown body>
 Files are published in filename order, so issue numbers follow the plan order. A '{{#slug}}'
-placeholder in a body is replaced with the issue number of the file whose name starts with slug
+placeholder in a body is replaced with the issue number of the file whose name is slug
 (two passes: create everything, then patch bodies that contain references).
+
+What this script does not do:
+- It never closes or deletes an issue. A file that is removed leaves its GitHub issue open and
+  unowned, drops its number from published.json, and breaks every '{{#slug}}' that cites it.
+  So an issue that is merged into another keeps its file, which says where its scope went, and
+  the GitHub issue is closed by hand.
+- A renamed file keeps its issue only while its title is unchanged (the fallback match). Rename
+  and retitle in two separate runs, or edit published.json in the same commit.
+- The title is the text after 'title:', taken literally: do not quote it.
+The file name is a stable identifier. The milestone and labels of the front matter are the truth,
+also for a file whose prefix names an earlier milestone (for example m3-09, now in M9).
 """
 import json, pathlib, subprocess, sys, re, time
 

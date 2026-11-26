@@ -1,7 +1,7 @@
 ---
 title: Showcase map 1: the Wikipedia link graph
 milestone: M8 · CLI, docs and v0.1 launch
-labels: type:feature, area:launch, P1, risk:medium, size:M
+labels: type:feature, area:launch, P0, risk:medium, size:M
 ---
 **Why.** A public map everyone understands at a glance, with real labels (article titles), is the clearest demonstration of semantic zoom. English Wikipedia's link graph is on the order of 10^7 nodes and several 10^8 links — comfortably in range.
 
