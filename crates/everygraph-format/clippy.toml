@@ -145,4 +145,4 @@ disallowed-macros = [
 ]
 
 # Words of the format documentation that are names, not code.
-doc-valid-idents = ["VByte", "AArch64", ".."]
+doc-valid-idents = ["VByte", "AArch64", "FlatBuffers", "FlatBuffer", ".."]

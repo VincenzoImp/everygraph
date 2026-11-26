@@ -39,6 +39,7 @@ python3 tools/check_portability_canary.py   # the portability checks still catch
 python3 tools/check_wasm_toy.py             # toy kernel: native and wasm32 in Node agree
 python3 tools/check_wasm_codec.py            # adjacency codec: simd128 in Node agrees with scalar
 python3 tools/check_container_python.py     # .eg container: the Python reader reads what Rust wrote
+uv run --script tools/check_columns_python.py  # columns: pyarrow and Polars read what Rust wrote
 python3 tools/check_tsan.py                 # ThreadSanitizer; needs the pinned nightly
 ```
 
@@ -168,6 +169,14 @@ What the scripts at the end of "Checks" are for:
   and on files patched to exercise the reading rules (fallback past a damaged or
   rule-breaking table, the tie between header blocks, required features of the older
   block). It must also verify the hashes and report a damaged section.
+- **`tools/check_columns_python.py`** has the example `columns_sample` write property
+  columns of every type (`docs/spec/eg-columns.md`). pyarrow, on a slice of a memory map
+  of the file, must read the values given to the writer, with every buffer in the map at
+  a multiple of 4096 where the layout section says; the statistics must equal those it
+  recomputes exactly (`fractions.Fraction`); Polars must read the same values; and the
+  sections pinned by the golden test of `crates/everygraph-format/tests/columns.rs` must
+  be among those read. `--big` runs the 2^27-row check of the research decision B17
+  (about 3 GB of memory, two minutes).
 - **`tools/check_tsan.py`** runs the core's tests with default features (rayon) under
   ThreadSanitizer on the pinned nightly (`-Zsanitizer=thread -Zbuild-std`), and then
   `tools/canary/tsan/`, a toy kernel on `par` with a deliberate data race, which must be
