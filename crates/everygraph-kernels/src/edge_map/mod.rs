@@ -385,6 +385,9 @@ pub struct Worker<'w, 'g, S: Source, W> {
 /// Random access to lists from inside a body: [`Worker::lists`].
 pub struct Lists<'w, 'g, S: Source> {
     reader: &'w mut Option<S::Reader>,
+    /// What this task read, added to the plan's counters when the task ends: one shared
+    /// counter per read would be taken by every worker at once.
+    work: &'w mut Work,
     plan: &'w Plan<'w, 'g, S>,
 }
 
@@ -409,7 +412,8 @@ impl<'g, S: Source> Lists<'_, 'g, S> {
             None => self.reader.insert(plan.new_reader()?),
         };
         let (first_entry, list) = plan.source.list(reader, v.get())?;
-        plan.count(1, list.len() as u64);
+        self.work.lists += 1;
+        self.work.entries += list.len() as u64;
         // SAFETY: the source returns lists of its nodes only (`Source`'s contract).
         let list = unsafe { as_nodes(list) };
         Ok(Row {
@@ -843,7 +847,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         self.run(out, |task, mut out, sums| {
             let mut w = take(&scratch, &init);
             let result = self.with_slot(|Slot { reader, side }| {
-                let (mut lists, mut entries) = (0, 0);
+                let (mut lists, mut entries, mut work) = (0, 0, Work::default());
                 for (b, sum) in self.blocks(task.clone()).zip(sums) {
                     let mut acc = A::ZERO;
                     let filter = |v| {
@@ -868,6 +872,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                                 scratch: &mut w,
                                 lists: Lists {
                                     reader: &mut *side,
+                                    work: &mut work,
                                     plan: self,
                                 },
                             };
@@ -876,7 +881,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         })?;
                     *sum = acc;
                 }
-                self.count(lists, entries);
+                self.count(lists + work.lists, entries + work.entries);
                 Ok(())
             });
             give(&scratch, w);
@@ -961,7 +966,7 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                 if self.prefetch {
                     self.source.prefetch(nodes);
                 }
-                let (mut acc, mut entries) = (A::ZERO, 0);
+                let (mut acc, mut entries, mut work) = (A::ZERO, 0, Work::default());
                 self.source.lists(reader, nodes, |v, first_entry, list| {
                     // SAFETY: `v` is a node of the frontier (`Source`'s contract).
                     let node = unsafe { Node::new_unchecked(v) };
@@ -977,12 +982,13 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
                         scratch: &mut w,
                         lists: Lists {
                             reader: &mut *side,
+                            work: &mut work,
                             plan: self,
                         },
                     };
                     body(&mut acc, row, &mut worker);
                 })?;
-                self.count(nodes.len() as u64, entries);
+                self.count(nodes.len() as u64 + work.lists, entries + work.entries);
                 Ok(acc)
             });
             give(&scratch, w);

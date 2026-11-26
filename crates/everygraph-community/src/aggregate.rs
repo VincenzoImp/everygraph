@@ -20,7 +20,7 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicU32, AtomicU64};
 
-use everygraph_core::{Memory, par};
+use everygraph_core::{Memory, MemoryKind, par};
 use everygraph_kernels::edge_map::{Csr, Error, Node, Plan, Row, Settings, Source, Split, Worker};
 
 use crate::column::{Column, GRAIN, offsets};
@@ -107,6 +107,7 @@ impl Members {
                     let id = u32::try_from(v).expect("a node id");
                     sink.push(d.map[v] as usize / per, id);
                 }
+                Ok::<(), Error>(())
             },
             [&mut ids[..]],
         )?;
@@ -228,46 +229,23 @@ fn combine<'t, 'g, S: Source>(
     Some(table)
 }
 
-/// The quotient graph of the partition `d` of the plan's graph, and its strengths: each
-/// community's row is written once, at its smallest node, into room for its members'
-/// degrees (at most the community count), then the rows are packed. The room is at most
-/// one entry per entry of the level.
-pub(crate) fn quotient<S: Source>(
+/// Writes the row of each community at its smallest node `v`, into `rows` at
+/// `offsets[v]`, with its length into `degree` and its sum into `strength`. Returns the
+/// number of communities whose row names no other community.
+#[expect(clippy::too_many_arguments, reason = "the parts of one aggregation")]
+fn write<S: Source>(
     plan: &Plan<'_, '_, S>,
-    memory: &Memory,
     w: Weights<'_>,
     d: &Dense,
     members: &Members,
     tables: &Tables,
-) -> Result<(Quotient, Strengths), Error> {
-    let n = plan.nodes() as usize;
-    let count = d.count as usize;
-    let strength = Column::new(memory, "strengths", count, |_| AtomicU64::new(0))?;
-    let first_member = |c: usize| members.ids[ix(members.starts[c])];
-    let first = |v: Node<'_>| first_member(d.map[v.index()] as usize) == v.get();
-    let room = offsets(memory, "quotient room", n, |v| {
-        let v = node(plan, u32::try_from(v).expect("a node id"));
-        if !first(v) {
-            return 0;
-        }
-        let mine = members.of(d.map[v.index()]);
-        let degrees: u64 = mine
-            .iter()
-            .map(|&x| u64::from(plan.degree(node(plan, x))))
-            .sum();
-        degrees.min(count as u64)
-    })?;
-    let room_entries = ix(room[n]);
-    let mut loose_targets = Column::new(memory, "quotient room", room_entries, |_| 0_u32)?;
-    let mut loose_weights = Column::new(memory, "quotient room", room_entries, |_| 0_u64)?;
-    let mut degree = Column::new(memory, "quotient degrees", n, |_| 0_u32)?;
-    let rows = Rows {
-        offsets: &room,
-        targets: &mut loose_targets[..],
-        weights: &mut loose_weights[..],
-    };
+    rows: Rows<'_>,
+    degree: &mut [u32],
+    strength: &[AtomicU64],
+) -> Result<u32, Error> {
+    let first = |v: Node<'_>| members.of(d.map[v.index()])[0] == v.get();
     let alone = plan.scan_with(
-        (rows, &mut degree[..]),
+        (rows, degree),
         first,
         || tables.lend(),
         |alone: &mut u32, (rows, degree), i, row, worker| {
@@ -286,23 +264,105 @@ pub(crate) fn quotient<S: Source>(
         },
     )?;
     tables.check()?;
-    let offsets = offsets(memory, "quotient offsets", count, |c| {
-        u64::from(degree[first_member(c) as usize])
+    Ok(alone)
+}
+
+/// The quotient graph of the partition `d` of the plan's graph, and its strengths.
+///
+/// If the budget allows, each community's row is written once into room for its
+/// members' degrees (at most the community count), then the rows are packed: the room
+/// is at most one entry per entry of the level. Otherwise the rows are combined twice,
+/// once to count them and once to write them in place. Both give the same arrays.
+pub(crate) fn quotient<S: Source>(
+    plan: &Plan<'_, '_, S>,
+    memory: &Memory,
+    w: Weights<'_>,
+    d: &Dense,
+    members: &Members,
+    tables: &Tables,
+) -> Result<(Quotient, Strengths), Error> {
+    let n = plan.nodes() as usize;
+    let count = d.count as usize;
+    let strength = Column::new(memory, "strengths", count, |_| AtomicU64::new(0))?;
+    let first_member = |c: usize| members.ids[ix(members.starts[c])] as usize;
+    let mut degree = Column::new(memory, "quotient degrees", n, |_| 0_u32)?;
+    let room = offsets(memory, "quotient room", n, |v| {
+        let mine = members.of(d.map[v]);
+        if mine[0] as usize != v {
+            return 0;
+        }
+        let degrees: u64 = mine
+            .iter()
+            .map(|&x| u64::from(plan.degree(node(plan, x))))
+            .sum();
+        degrees.min(count as u64)
     })?;
-    drop(degree);
-    let entries = ix(offsets[count]);
-    let mut targets = Column::new(memory, "quotient targets", entries, |_| 0_u32)?;
-    let mut weights = Column::new(memory, "quotient weights", entries, |_| 0_u64)?;
-    par::for_each_range_mut(
-        (&mut targets[..], &mut weights[..]),
-        &offsets,
-        GRAIN,
-        |c, (t, x)| {
-            let from = ix(room[first_member(c) as usize]);
-            t.copy_from_slice(&loose_targets[from..from + t.len()]);
-            x.copy_from_slice(&loose_weights[from..from + x.len()]);
-        },
-    );
+    // The packed rows take at most as much as the room: the room is used only if both fit.
+    let loose = memory
+        .reserve(
+            "quotient",
+            MemoryKind::Anonymous,
+            room[n].saturating_mul(12),
+        )
+        .and_then(|packed| {
+            let t = Column::new(memory, "quotient room", ix(room[n]), |_| 0_u32)?;
+            let x = Column::new(memory, "quotient room", ix(room[n]), |_| 0_u64)?;
+            drop(packed);
+            Ok((t, x))
+        });
+    let (offsets, targets, weights, alone) = if let Ok((mut lt, mut lw)) = loose {
+        let rows = Rows {
+            offsets: &room,
+            targets: &mut lt[..],
+            weights: &mut lw[..],
+        };
+        let alone = write(plan, w, d, members, tables, rows, &mut degree, &strength)?;
+        let at = offsets(memory, "quotient offsets", count, |c| {
+            u64::from(degree[first_member(c)])
+        })?;
+        let entries = ix(at[count]);
+        let mut targets = Column::new(memory, "quotient targets", entries, |_| 0_u32)?;
+        let mut weights = Column::new(memory, "quotient weights", entries, |_| 0_u64)?;
+        par::for_each_range_mut(
+            (&mut targets[..], &mut weights[..]),
+            &at,
+            GRAIN,
+            |c, (t, x)| {
+                let from = ix(room[first_member(c)]);
+                t.copy_from_slice(&lt[from..from + t.len()]);
+                x.copy_from_slice(&lw[from..from + x.len()]);
+            },
+        );
+        (at, targets, weights, alone)
+    } else {
+        drop(room);
+        let first = |v: Node<'_>| first_member(d.map[v.index()] as usize) == v.index();
+        plan.scan_with(
+            &mut degree[..],
+            first,
+            || tables.lend(),
+            |(): &mut (), out, i, row, worker| {
+                if let Some(table) = combine(plan, &row, worker, w, d, members, tables) {
+                    out[i] = u32::try_from(table.len()).expect("below the node count");
+                }
+            },
+        )?;
+        tables.check()?;
+        let rows_at = offsets(memory, "quotient rows", n, |v| u64::from(degree[v]))?;
+        let entries = ix(rows_at[n]);
+        let mut targets = Column::new(memory, "quotient targets", entries, |_| 0_u32)?;
+        let mut weights = Column::new(memory, "quotient weights", entries, |_| 0_u64)?;
+        let rows = Rows {
+            offsets: &rows_at,
+            targets: &mut targets[..],
+            weights: &mut weights[..],
+        };
+        let alone = write(plan, w, d, members, tables, rows, &mut degree, &strength)?;
+        let at = Column::new(memory, "quotient offsets", count + 1, |c| {
+            rows_at[if c < count { first_member(c) } else { n }]
+        })?;
+        (at, targets, weights, alone)
+    };
     let strength = strength.map(AtomicU64::into_inner);
     let total = strength.iter().sum();
     Ok((

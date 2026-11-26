@@ -8,9 +8,10 @@ synchronization inside std is invisible to ThreadSanitizer and it reports false
 races):
 
 1. The tests of everygraph-core with default features, so that `everygraph_core::par`
-   runs on rayon's thread pool, and those of the edge-map framework (everygraph-kernels:
+   runs on rayon's thread pool, those of the edge-map framework (everygraph-kernels:
    its unit tests and `tests/framework.rs`, which run every driver at 1, 3 and 8
-   threads; the oracle test is left to the oracle job). They must pass with no report.
+   threads; the oracle test is left to the oracle job), and two tests of Leiden
+   (everygraph-community: both modes at 1-16 threads). They must pass with no report.
 2. The canary under tools/canary/tsan: a toy kernel on the same facade with a
    deliberate data race. It must FAIL, with "ThreadSanitizer: data race" in its
    output. If it passes, ThreadSanitizer is not actually watching (wrong flags, a
@@ -52,6 +53,9 @@ TESTS = [
     ["cargo", f"+{TOOLCHAIN}", "test", "--package", "everygraph-core", "--tests", *COMMON],
     ["cargo", f"+{TOOLCHAIN}", "test", "--package", "everygraph-kernels", "--lib",
      "--test", "framework", *COMMON],
+    # Leiden's shared state (#57): deterministic and fast mode at 1-16 threads.
+    ["cargo", f"+{TOOLCHAIN}", "test", "--package", "everygraph-community", "--test",
+     "leiden", *COMMON, "--", "seeds_change", "modularity_is_within"],
 ]
 CANARY = [
     "cargo", f"+{TOOLCHAIN}", "run", "--manifest-path",

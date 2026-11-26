@@ -234,7 +234,8 @@ fn level<S: Source>(
     (stats.parallel_rounds, stats.serial_rounds) = (moved.parallel_rounds, moved.serial_rounds);
     if ctx.options.split == crate::leiden::SplitAt::EveryLevel {
         let before = count(plan, memory, &st.comm)?;
-        st.comm = split(plan, memory, &st.comm)?;
+        let parts = split(plan, memory, &st.comm)?;
+        st.relabel(plan, &k.of, parts)?;
         stats.split_added = count(plan, memory, &st.comm)? - before;
     }
     let schedule = match schedule {

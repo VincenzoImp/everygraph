@@ -9,14 +9,15 @@
 //! leiden_bench run --graph DIR [--store STORE] [--source raw|compressed|mmap|stream]
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
 //!     [--seed S] [--refine greedy|random] [--theta X] [--prolong 1] [--split last|every]
-//!     [--chunk ENTRIES] [--check 1]
+//!     [--chunk ENTRIES] [--budget-gib G] [--check 1]
 //! ```
 //!
 //! `run` prints one JSON line: the times of every repetition, the modularity, the
 //! number of communities, the hash of the levels (the same for every source, thread
 //! count and chunking in the deterministic mode), the statistics of each level, and with
 //! `--check 1` the modularity evaluated again on the result and the number of
-//! disconnected communities.
+//! disconnected communities. `--budget-gib` bounds what Leiden reserves (not the graph,
+//! which is loaded first).
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -33,12 +34,13 @@ use std::collections::HashMap;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Instant;
 
 use everygraph_community::{
     Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity,
 };
-use everygraph_core::{Memory, par};
+use everygraph_core::{Budget, Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{Compressed, Csr, Settings, Source, Stream};
@@ -136,7 +138,13 @@ fn disconnected<S: Source>(source: &S, membership: &[u32]) -> usize {
 }
 
 fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
-    let memory = Memory::unlimited();
+    let memory = match a.get("budget-gib") {
+        Some(g) => {
+            let gib: u64 = g.parse().expect("--budget-gib");
+            Memory::new(Arc::new(Budget::new(gib << 30)))
+        }
+        None => Memory::unlimited(),
+    };
     let reps: usize = a.get("reps").map_or(1, |s| s.parse().expect("--reps"));
     let o = options(a);
     let mut secs = Vec::new();

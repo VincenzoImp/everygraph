@@ -221,21 +221,47 @@ impl<'g> Moving<'g> {
         let target = Column::new(memory, "decisions", per, |_| AtomicU32::new(NONE))?;
         let active = Column::new(memory, "active nodes", n, |_| AtomicBool::new(true))?;
         plan.vertices((), |(): &mut (), (), _, v, _| {
-            let c = bound.map_or(v, |b| node(plan, b[v.index()]));
-            comm.store(v, c, Relaxed);
-            sigma[c.index()].fetch_add(k[v.index()], Relaxed);
-            if det {
-                size[c.index()].fetch_add(1, Relaxed);
-            }
+            comm.store(v, bound.map_or(v, |b| node(plan, b[v.index()])), Relaxed);
         })?;
-        Ok(Self {
+        let st = Self {
             comm,
             salt,
             sigma,
             size,
             active,
             target,
+        };
+        st.count(plan, k)?;
+        Ok(st)
+    }
+
+    /// Adds each node's strength and size to its community's.
+    fn count<S: Source>(&self, plan: &Plan<'_, 'g, S>, k: &[u64]) -> Result<(), Error> {
+        let det = !self.size.is_empty();
+        plan.vertices((), |(): &mut (), (), _, v, _| {
+            let c = self.comm.load(v, Relaxed).index();
+            self.sigma[c].fetch_add(k[v.index()], Relaxed);
+            if det {
+                self.size[c].fetch_add(1, Relaxed);
+            }
         })
+    }
+
+    /// Replaces the communities by `comm`, and their volumes and sizes with them.
+    pub(crate) fn relabel<S: Source>(
+        &mut self,
+        plan: &Plan<'_, 'g, S>,
+        k: &[u64],
+        comm: NodeCells<'g>,
+    ) -> Result<(), Error> {
+        self.comm = comm;
+        par::for_each_chunk_mut(&mut self.sigma, GRAIN, |_, s| {
+            s.iter_mut().for_each(|x| *x.get_mut() = 0);
+        });
+        par::for_each_chunk_mut(&mut self.size, GRAIN, |_, s| {
+            s.iter_mut().for_each(|x| *x.get_mut() = 0);
+        });
+        self.count(plan, k)
     }
 }
 
@@ -287,6 +313,7 @@ impl Schedule {
                     for v in first..first.saturating_add(BLOCK).min(n) {
                         sink.push(round(v), v);
                     }
+                    Ok::<(), Error>(())
                 },
                 [&mut ids[..]],
             )?;
