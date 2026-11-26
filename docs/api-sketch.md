@@ -743,9 +743,11 @@ to it.
   integers of the same type, a text column gives text (`utf8`), a binary column gives
   binary, and arrays given to `eg.from_edges` give their own type.
 - **Hexadecimal identifiers.** Text recognized as hexadecimal is stored as fixed-width
-  bytes (#34) and comes back as text: **lowercase**, with the prefix the input used
-  (`0x` or none). Look-ups accept any case. A table of the user's that holds the same
-  addresses in mixed case (EIP-55 checksums) must be lowercased before a join (story 6).
+  bytes (#34) and comes back as text: **lowercase**, with `0x` when the input used a
+  prefix (`0x` or `0X`) and with none otherwise. UUIDs come back lowercase, with hyphens.
+  Look-ups accept any case (`design/DECISIONS.md`, "Identifier columns: hex prefixes,
+  UUIDs, stray keys"). A table of the user's that holds the same addresses in mixed case
+  (EIP-55 checksums) must be lowercased before a join (story 6).
 - **Node sets.** Wherever a set of nodes is expected (`avoid=`, `subgraph()`,
   `highlight()`, `neighbors()`, `personalize=`), any of these is accepted — called
   `Nodes` in the signatures:
@@ -892,7 +894,7 @@ in — and the same content as attributes.
 | `InvalidInput` | — | The input cannot be read as described: a row with the wrong number of fields, a value that is not of the column's type, a missing column, an unknown format, a file with no bytes. Or the data cannot be used as asked: a weight that is negative, NaN or infinite where an operation needs weights (§ 2.13). | `problems` (each with `file`, `line`, `problem`, `column`, `excerpt`), `invalid_rows`, `rows_checked`; for a weight, `column` | 3 |
 | `InvalidExpression` | `ValueError` | The text of a filter does not parse or names a column the graph lacks. Raised by `g.filter()` itself, not later. | `expression`, `position` | 2 |
 | `UnknownNode` | `LookupError` | A call about one node names an identifier that is not in the graph or the view. | `node` | 6 |
-| `Unsupported` | — | The operation is not defined for this graph: `window` without a time column, `strong=True` or `use_direction=True` on an undirected graph; or it is above a size guard (`to_networkx`). | `operation`, `reason` | 2 |
+| `Unsupported` | — | The operation is not defined for this graph: `window` without a time column or on a graph read with `duplicates="sum"`, `strong=True` or `use_direction=True` on an undirected graph; or it is above a size guard (`to_networkx`). | `operation`, `reason` | 2 |
 | `OutputExists` | `FileExistsError` | The output path holds a file that Everygraph may not replace (below). Before any work. | `path`, `holds` (`"other graph"` or `"not ours"`) | 1 |
 | `CorruptFile` | — | A graph or map file fails its integrity checks, or was written by a format this version cannot read. | `path`, `section` | 5 |
 
@@ -962,7 +964,7 @@ The exact text of a refusal, as an example of the pattern, is in story 8.
 | What | Where | For how long |
 |---|---|---|
 | The graph | `NAME.eg` beside the input (`NAME` as in § 2.7), when `eg.read` is given a file of at least 100 MB † or `out=` is given; otherwise in memory, spilled to a hidden `.eg` in scratch above 100 MB † (#84) | until deleted |
-| Results on the whole graph of a file: PageRank, components, core numbers, triangles, degrees (made with the graph), communities with their levels, the map's hierarchy and layout | inside the graph file, with a record of the parameters that produced it (#39 decides between the file itself and a companion beside it) | until the file is compacted or deleted |
+| Results on the whole graph of a file: PageRank, components, core numbers, triangles, degrees (made with the graph), communities with their levels, the map's hierarchy and layout | inside the graph file, as sections appended and committed with a record of the parameters that produced them (#39; `docs/adr/0027-single-file-builds.md`, `docs/spec/eg-container.md` § 8) | until the result is replaced (`compact` then reclaims its bytes) or the file is deleted |
 | Results on a view, and `bfs()` from a node | for the session only: held by the process, in memory or in its scratch when large, and found again by any call that asks for them | until the process ends; kept only when written out (`t.write`, `--out`) |
 | Results on a graph in memory | in memory | while the graph object lives |
 | The counts and degrees of a view | with the view object | while it lives |
@@ -1021,7 +1023,11 @@ these are the names § 2.5 left open:
 - Several processes may read one graph file at once. Adding a result to it is done by
   one writer at a time, under a lock on the file; a second writer waits, and its
   progress line says what it is waiting for. A reader never sees a half-written result
-  (`docs/ux-contract.md` § 5.2, C-1).
+  (`docs/ux-contract.md` § 5.2, C-1). The container itself does not lock
+  (`docs/spec/eg-container.md` § 11): the lock across processes is issue
+  `m2-22-single-writer-lock`, and a reader in another process that maps the file stays
+  safe during a commit only once maps cover the committed range alone (issue
+  `m2-21-range-maps`).
 - Two threads of one process that add results to the same file are serialized the same
   way, by a lock the process holds for the file; both succeed, one after the other. If
   both computed the same result, it is stored once and both get it.
@@ -1057,7 +1063,7 @@ Not promised:
 
 ### 2.11 What "deterministic" promises
 
-From `design/DECISIONS.md`, "What 'repeatable' promises":
+`design/DECISIONS.md`, "What 'repeatable' promises", in the words of this document:
 
 > A deterministic run — the default — returns the same result for any number of
 > threads, on any platform the release supports, for any memory budget, and whichever
@@ -1074,6 +1080,10 @@ From `design/DECISIONS.md`, "What 'repeatable' promises":
 - Not covered: a result cut short by `timeout`, since where it stops depends on the
   machine's speed (a cut by `limit` is covered); results with `deterministic=False`;
   results of different versions of Everygraph (§ 2.10).
+- "Any platform the release supports" is the list of `docs/DESIGN.md` D14.
+- For a file built by appends (segments, after 0.1), results depend on its batches, not
+  on how its runs are merged or compacted (`design/DECISIONS.md`, "What 'repeatable'
+  promises, for files built by appends"; ADR 0028).
 - If a kernel cannot meet this, the promise is narrowed by an ADR, not silently. The
   identity tests that hold the kernels to it are listed in § 7, "Amendments".
 
@@ -1107,12 +1117,12 @@ not only the same set of rows. Ties are broken by graph order (§ 2.2).
 | A graph or view with no nodes | Every whole-graph result is a table with its usual columns and no rows. `communities()` finds 0 communities, with modularity 0 (`design/DECISIONS.md`, "Graph semantics": never NaN). |
 | Nodes but no edges (a node filter that keeps none of the edges) | `pagerank()`: every node `1/n` — every node is dangling and its rank is spread evenly, so scores still sum to 1. `components()` and `communities()`: one per node, numbered in graph order; modularity 0. Core number 0; triangles 0. |
 | `clustering` of a node with fewer than two neighbors | 0.0, as in NetworkX. |
-| A weight that is negative, NaN or infinite, in the column used by `pagerank`, `communities` or as a path cost | `InvalidInput` (exit status 3), naming the column: it is a property of the data. The column statistics that #36 stores when the graph is built — each numeric edge column's minimum, maximum and count of NaN — give the fast answer: a column with no bad value anywhere is accepted without reading anything. On the whole graph a column with bad values is refused before any work. When the operation runs on a view of such a graph, the check is made on the edges the view actually uses, during the pass, and the operation fails at the first bad one it meets, naming it; a view that leaves out every bad edge runs. Zero is allowed: a pair of weight 0 counts nothing for PageRank and communities, and costs nothing on a path. |
+| A weight that is negative, NaN or infinite, in the column used by `pagerank`, `communities` or as a path cost | `InvalidInput` (exit status 3), naming the column: it is a property of the data. The column statistics that the build records (`docs/spec/graph-semantics.md` § 2.7) — among them each numeric edge column's minimum, maximum, sum and count of NaN — give the fast answer: a column with no bad value anywhere is accepted without reading anything. On the whole graph a column with bad values is refused before any work. When the operation runs on a view of such a graph, the check is made on the edges the view actually uses, during the pass, and the operation fails at the first bad one it meets, naming it; a view that leaves out every bad edge runs. Zero is allowed: a pair of weight 0 counts nothing for PageRank and communities, and costs nothing on a path. |
 | A null weight | Skipped in sums (a pair whose weights are all null weighs 0); a path does not use an edge whose cost is null. |
 | `direction=` on an undirected graph | Every value means the same: all neighbors. Not an error. |
 | `kcore()` or `triangles()` on a directed graph | Direction is ignored: each connected pair counts once; `meta["direction"]` is `"ignored"`. |
 | `communities(use_direction=True)` or `components(strong=True)` on an undirected graph | `Unsupported`: there is no direction to use. |
-| `g.window()` on a graph without a time column | `Unsupported`. |
+| `g.window()` on a graph without a time column, or on a graph read with `duplicates="sum"` (the time of each event is gone) | `Unsupported` (`docs/spec/graph-semantics.md` § 7). |
 | A window whose start is after its end | `ValueError`. |
 | `path(a, a)` | Found, 0 hops, one node. |
 | `khop(a, k=0)` | The node itself, at distance 0. |
@@ -1323,7 +1333,7 @@ returns what was found, marked `truncated` (§ 2.5).
 
 | Method | Returns (columns) | Notes | Implemented by |
 |---|---|---|---|
-| `neighbors(nodes)` | `neighbor`, `edges`, then the weight column under its own name, `first`, `last` | One row per distinct neighbor: how many edges join the pair, the sum of their weight, the first and last time. The last three are present when the graph has a weight and a time column. With several nodes, a leading `node` column says whose neighbor each row is. Order, and `limit` per node: § 2.12. | #90 |
+| `neighbors(nodes)` | `neighbor`, `edges`, then the weight column under its own name, `first`, `last` | One row per distinct neighbor: how many edges join the pair, the sum of their weight, the first and last time. The weight is present when the graph has a weight column, and `first` and `last` when it has a time column. With several nodes, a leading `node` column says whose neighbor each row is. Order, and `limit` per node: § 2.12. | #90 |
 | `khop(node, k=…)` | `node`, `distance` | Every node within `k` hops, nearest first. `limit` counts nodes returned; which are kept: § 2.12. | #90 |
 | `path(source, target)` | a `Path` (§ 3.7) | A shortest path by number of hops; with `weight="column"`, by the smallest sum of that column (a cost — this is not the `weight` of § 2.4). `max_hops`: give up beyond this length. `avoid`: nodes the path may not pass through. `limit` counts nodes the search may visit. On a view, the path stays inside the view. | #91, #38 |
 | `has_edge(source, target)` ‡ | `bool` | | #90 |
@@ -1387,7 +1397,7 @@ class View(Graph):
 |---|---|---|---|
 | `g.filter(edges="value > 10")` | The edges for which the expression is true, and the nodes that still have an edge. | The expression language is below. | #93, #37 |
 | `g.filter(nodes="in_degree > 100")` | The nodes for which it is true, and the edges with both ends among them. | Names available in 0.1: the graph's node columns, and `in_degree`, `out_degree`, `degree` — the degrees of the graph or view the filter is applied to. | #93 |
-| `g.window(start, end)` | The edges whose time is from `start` to `end`, both included, and the nodes that still have an edge. | Times as in § 2.3: a date means its whole day. Either bound may be `None`. Needs a time column, else `Unsupported`. | #94 |
+| `g.window(start, end)` | The edges whose time is from `start` to `end`, both included, and the nodes that still have an edge. | Times as in § 2.3: a date means its whole day. Either bound may be `None`. Needs a time column and a graph not read with `duplicates="sum"`, else `Unsupported` (§ 2.13). | #94 |
 | `g.subgraph(nodes)` | The given nodes and the edges with both ends among them. | Accepts any node set (§ 2.2): `g.subgraph(c[0])`, `g.subgraph(m.selection)`, `g.subgraph(g.khop(a, k=2))`. | #87, #93 |
 | `a & b` | What is in both. | Both must be views of the same graph, and each part keeps its meaning on that graph. A chain (`g.window(…).filter(…)`) applies each part to the view before it: the same thing as `&`, except that a node filter on degrees reads the degrees of the view it is applied to. | #93 |
 
@@ -2546,17 +2556,17 @@ or dropped silently: each line says what this document does about it.
 | Automatic names for regions ("around 0x28c6…1d60 and 2 others", or from a `label` column). #62 computes per-community summaries "for map labels"; no issue owns the naming rule. | `choices.md` B3 | `Hierarchy.table()` has a `name` column; who fills it is open. Suggested: #63. |
 | The user's own nouns in summaries ("addresses", "transfers"). No rule says how they are derived. | `design/preview/README.md` N3, `SPEC.md` "Words" | The noun for nodes comes from the kind of identifier (`hex addresses` → "addresses"); no noun is derived for edges in text. A fuller rule belongs to #121. |
 | Node columns. `g.filter(nodes=…)`, colouring a map by a label and B3 all assume nodes can have columns, but every preview reads edges only. | `api.md` § 5 | `nodes=` works on `in_degree`, `out_degree`, `degree` and on node columns if a format supplies them (GraphML, GEXF). A way to attach a node table (`eg.read(…, nodes=table)`) needs a preview. |
-| `viewer.html` beside a shared map; #75 writes "a single `index.html` embedding the viewer". | `cli.md` § 1 | `viewer.html`, as approved. #75's text should follow (amendments, below). |
+| `viewer.html` beside a shared map; #75 wrote "a single `index.html` embedding the viewer". | `cli.md` § 1 | `viewer.html`, as approved. #75's text now says the same (amendments, below). |
 
 **Promised by an issue, not exposed here (or exposed differently)**
 
 | What | Issue | Here |
 |---|---|---|
-| `Graph.view(filter)`; `khop(…, budget=…)`; an option `memory_budget`; "requests carry budgets" | #81, #90, #74, #87 | The approved names are `g.filter()`, `limit=`, `memory=`. The issue texts predate the decision that "budget" means memory only. |
-| `--yes`; "quiet structured logs" when not on a terminal | #98 | Nothing asks, so no `--yes`. The approved piped form is a plain log; `--json` gives one document (`docs/ux-contract.md` § 9). |
+| `Graph.view(filter)`; `khop(…, budget=…)`; "requests carry budgets"; "budget 10k nodes" | #81, #90, #74, #87 | The approved names are `g.filter()`, `limit=`, `memory=`. The issue texts predated the decision that "budget" means memory only; #81, #74 and #87 now use the approved names, and #90 still says "stops at the budget" for `limit`. |
+| "quiet structured logs" when not on a terminal | #98 | The approved piped form is a plain log; `--json` gives one document (`docs/ux-contract.md` § 9). #98 now says "no `--yes`", since nothing asks. |
 | `--json` "validated against a schema" for every command | #98 | The result document has its schema here (§ 5.3, `urn:everygraph:schema:result:1`); the plan, event, error, stop and file documents are in `docs/ux-contract.md`. The schemas of `info`, `doctor` and `verify` are #98's to write, with a `schema` key like the others. |
 | "User overrides for every choice" of the planner | #45 | Exposed: `memory`, `threads`, `temp_dir`, `precision` (PageRank), `deterministic`. Forcing a regime or a decode tier has no public name in 0.1; if #45 needs one for testing it stays out of the documented API. |
-| "Pick a lower-memory variant (e.g. f32 state …)" when state does not fit | #45 | Not done by the planner (§ 2.11): it refuses and offers the variant. Amendment below. |
+| "Pick a lower-memory variant (e.g. f32 state …)" when state does not fit | #45 | Not done by the planner (§ 2.11): it refuses and offers the variant. #45 now says the same (amendment below). |
 | Parallel edges merged into one with "count, sum/min/max of a weight, first/last timestamp" | #36 | `duplicates="sum"`, printed `duplicates summed`: the summed weight, the count and the first and last time. Minimum and maximum have no name in 0.1. |
 | Weighted single-source distances; multi-source traversal | #49 | `bfs` (hops) only. They remain internal building blocks until a name is previewed. |
 | Betweenness, closeness, harmonic and eigenvector centrality | #52 (P2) | Not in § 3. By the naming rule they would be `g.betweenness()`, `g.closeness()`, `g.harmonic()`, `g.eigenvector()`; the first returns approximate results, whose marking is specified when #52 starts (§ 2.5). |
@@ -2564,14 +2574,14 @@ or dropped silently: each line says what this document does about it.
 | The giant component and the k-core "as a reusable view" | #48, #50 | Reachable today as `g.subgraph(t)` with a table filtered in Polars. Filters over computed columns (`nodes="component == 0"`) would be the short form; not specified. |
 | Degree histogram and quantiles | #50 | The `degrees()` table; statistics are left to the table library. |
 | Comparing partitions (NMI, ARI), per-community metrics, stability reports | #64 (P2) | Not in § 3; no previewed names. |
-| `g.as_of(t)`; activity series and counts per time bucket | #94 | Not in 0.1's API: `g.window(None, t)` is the same as `as_of`; the series have no previewed names. |
+| Activity series and counts per time bucket | #94 | Not in 0.1's API: the series have no previewed names. (`g.as_of(t)` was dropped: `g.window(None, t)` is the same, and #94 now says so.) |
 | "Results … back as a node property" | #83 | No call attaches a table to a graph (it is immutable). The join happens in the table library (story 6); node sets come back through `subgraph`, `highlight`, `avoid`. |
-| `eg.from_dataframe` | #84 | Folded into `eg.read(table)`. |
-| Batch forms "returning Arrow list columns" | #90 | A flat table with a leading `node` column: the same shape as every other result, and it joins directly. |
+| `eg.from_dataframe` | #84 | Folded into `eg.read(table)`; #84 now says the same. |
+| Batch forms "returning Arrow list columns" | #90 | A flat table with a leading `node` column: the same shape as every other result, and it joins directly. #90 now says the same. |
 | All shortest paths, k shortest paths, a batch of pairs | #91 | `p.alternatives()` covers the first. The other two have no name here. |
-| `g.subgraph(…)` returning "a small `Graph` (in memory)" | #87 | It returns a `View`, as #62 and the preview have it; the planner materializes it when small. |
+| `g.subgraph(…)` returning "a small `Graph` (in memory)" | #87 | It returns a `View`, as #62 and the preview have it; the planner materializes it when small. #87 now says the same. |
 | A `MultiGraph` with one edge per event from `to_networkx` | #85 | Not in 0.1: each connected pair becomes one edge carrying the count and the summed weight. |
-| `everygraph map export`; `everygraph compact` | #75; #39, #28 | `everygraph map GRAPH --out FILE --reveal …` for the first. `compact` is not in #98's list of commands nor in the approved help; it needs adding there or dropping. |
+| `everygraph map export`; `everygraph compact` | #75; #39, #28 | `everygraph map GRAPH --out FILE --reveal …` for the first (#75 now says so). `compact` is decided as a command of #98 by ADR 0027, and `info` reports the bytes it would reclaim; it is not yet in § 5.1, in #98's list of commands or in the approved help. |
 | NumPy views of numeric columns | #83 | Through Arrow (`pl.from_arrow(t)["pagerank"].to_numpy()` does not copy); no direct `t["pagerank"]` in 0.1. |
 | A DuckDB extension with table functions | #95 | Outside the Python API; #95 scopes it as a prototype. |
 
@@ -2580,16 +2590,16 @@ or dropped silently: each line says what this document does about it.
 | What | Here |
 |---|---|
 | Threads by default: `choices.md` A5 says "all physical cores"; `DESIGN.md` D13 lets compute-bound kernels use every hardware thread. | § 2.4: physical cores is the default and the bound the user sees; the planner may add the sibling threads only when `threads` is not given. |
-| Results "stored in transfers.eg" (`cli.md`) against #39, which has not decided between the file and a companion directory. | § 2.8 says "inside the graph file" as approved and notes #39 decides the mechanism; what the user sees is the same. Results on views are kept for the session only, as #39 asks ("large temporary results should not bloat the graph file"). |
+| Results "stored in transfers.eg" (`cli.md`) against #39, whose text left open the file or a companion directory. | Settled by ADR 0027: results are sections appended to the graph file and committed (`docs/spec/eg-container.md` § 8), as § 2.8 says, and #39 now says the same. Results on views are kept for the session only, as #39 asks ("large temporary results should not bloat the graph file"). |
 | `duckdb.sql("select … from pr")` on an Everygraph table (`api.md` Choice 4) relies on DuckDB accepting any Arrow-stream object by variable name. | Kept as approved; #95 must test it, and fall back to documenting `duckdb.from_arrow(pr)` if it does not hold. |
 | `docs/DESIGN.md` § 3 names no crate that a Rust user would depend on to get everything. | § 4 writes the functions under the crates that own them. A facade crate `everygraph` would be a small addition to #2. |
-| `docs/spec/graph-semantics.md` (#36) defines what each algorithm does on directed, weighted and repeated edges. | § 2.4 (`weight`), § 3.3 (which nodes a view keeps) and § 2.13 state the user-visible behaviour, settled by `design/DECISIONS.md`; #36 must follow them or change them here. |
+| `docs/spec/graph-semantics.md` (#36) defines what each algorithm does on directed, weighted and repeated edges. | § 2.4 (`weight`), § 3.3 (which nodes a view keeps) and § 2.13 state the user-visible behaviour, settled by `design/DECISIONS.md`. The specification follows them; the disagreements it found are in its § 9 and are corrected here. |
 | Scratch "in /tmp" in the previews' plans and stop blocks; `design/DECISIONS.md` puts it beside the output. | `61 GB scratch` and `.everygraph-7c1e` beside the output, as `docs/ux-contract.md` § 3.4 and § 5.4 have it. |
 | The previews' shared-map hint, `share it: upload transfers.egmap and viewer.html to any static host`, points at the working map, which is full. | The hint is the export command with `--reveal summary` (story 5, § 9 item 21). |
 
 **Amendments other issues need.** This document cannot change issue files; these
 sentences are for the coordinator to apply in `plan/issues/` and republish. The first
-five hold the kernels to § 2.11.
+five hold the kernels to § 2.11. All of them are now in the issue files.
 
 | Issue | Amendment |
 |---|---|
@@ -2617,7 +2627,7 @@ Decided, and deliberately absent from everything above.
 
 | Not in 0.1 | Why, and where it went |
 |---|---|
-| **Changing a graph**: adding or removing nodes or edges, editing a column, appending new data to a file. | A graph is immutable and file-backed (#81, `docs/DESIGN.md` § 2: not a transactional database). A changed input is read again. Appends are designed in #94 and built after 0.1 (#111). |
+| **Changing a graph**: adding or removing nodes or edges, editing a column, appending new data to a file. | A graph is immutable and file-backed (#81, `docs/DESIGN.md` § 2: not a transactional database). A changed input is read again. Appends are designed in #94 and built after 0.1 (#111); the 0.1 format already reserves room for them (ADR 0028, `docs/spec/eg-container.md` § 13). |
 | **A query language** (GQL, Cypher, SQL over paths). | `docs/DESIGN.md` D21: traversal calls with limits in 0.1; a GQL subset later (#110). Filters are short comparisons, not a language (§ 3.3). |
 | **A NetworkX backend** (`eg.nx`, `nx-everygraph`, `nx.pagerank(G)` running in Everygraph). | Deferred by decision (`choices.md` D5, `DECISIONS.md`; #86 is in M9). The hand-over goes the other way in 0.1 (story 7). |
 | Expression objects for filters (`eg.col("value") > 10`). | `api.md` Choice 9: text only. |

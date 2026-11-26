@@ -210,7 +210,7 @@ In a terminal the space between a number and its unit is an ordinary space.
   | Source | Gives | Owner |
   |---|---|---|
   | The file's size and metadata, and a sample of its rows | format, columns, identifier type, estimated rows and distinct identifiers | #40 |
-  | The graph file's header | nodes, edges, direction, columns, what is already computed | #28, #39 |
+  | The graph file's table of contents and the headers of its sections (`docs/spec/eg-container.md` § 4, `docs/spec/eg-adjacency.md` § 3) | nodes, edges, direction, columns, what is already computed | #28, #39 |
   | The operation's cost model | per-node state, passes, scratch, output size | #45 |
   | A probe of the machine | cores, memory installed, free and limited by a container, storage type, free disk in the scratch and output directories, and whether the scratch root is on a memory-backed file system (`tmpfs`, `ramfs`) | #45 |
 
@@ -1545,8 +1545,8 @@ anyway.
   - A new graph is written as `NAME.eg.partial` in the destination directory, made
     durable, then renamed to `NAME.eg` in one step.
   - A result added to an existing graph is appended; the file's table of contents is
-    switched to include it only once the result is durable (the protocol of #28). Until
-    that switch the file reads exactly as before.
+    switched to include it only once the result is durable (the protocol of #28,
+    `docs/spec/eg-container.md` § 8). Until that switch the file reads exactly as before.
   - The same holds for `NAME.egmap`.
 - **C-2** **A stop never changes what an existing graph file already held.** After a
   clean or a hard stop, every section the file had before the operation is unchanged
@@ -2262,7 +2262,8 @@ From `SPEC.md`, "Words", as rules that can be checked:
 - **T-7** The user's own nouns where the data reveals them (`addresses`), "nodes" and
   "edges" everywhere else and in every name that is typed.
 - **T-8** One word, one meaning: "budget" is memory; "limit" is a count of nodes or
-  rows a query returns, never memory or time; "timeout" is seconds; "scratch" is temporary disk; "kept" is finished work that will
+  rows a query returns (for `path`, the nodes its search visits), never memory or time;
+  "timeout" is seconds; "scratch" is temporary disk; "kept" is finished work that will
   not be repeated; "cut short" is a partial answer.
 
 ---
@@ -2488,9 +2489,9 @@ and items 14 – 17 follow rows that settle a question this document had raised.
 
 ## 10. Open points and obligations for other issues
 
-**Obligations.** § 8 gives test hooks and duties to issues whose files do not yet
-contain them. This pull request does not edit `plan/issues/`; the coordinator amends
-each file with the sentence given here, then republishes.
+**Obligations.** § 8 gives test hooks and duties to other issues. The pull request of
+this contract did not edit `plan/issues/`; the coordinator has since copied each
+obligation below into the issue file it names and republished it.
 
 | Issue | Obligation |
 |---|---|
@@ -2513,6 +2514,6 @@ each file with the sentence given here, then republishes.
 |---|---|---|
 | `terminal.html` still describes seven colour instructions and keeps blue "until that is decided"; `SPEC.md` has decided. It also still shows "a fifth of free RAM", "groups", `--precision low`, `/tmp/everygraph-7c1e`, `rm -r`, and a `map` result line without its time (§ 9, items 2, 14 – 18). | `design/preview/style/terminal.html` | #121 |
 | `notebook.html` uses `budget=10_000` for `khop` (now `limit=`), "start over" on interruption, bullets in the exception text, "cut short" for display, "groups" in the step table and `precision="low"` in the error card. | `design/preview/style/notebook.html` | #121, #76 |
-| The option to skip invalid rows and count them (#32) has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | #32, then a preview |
+| The text reader of #32 can skip invalid rows and count them (`OnInvalid::Skip`), but no public option exposes it, and the option has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | a preview, then #81 and #98 |
 | A phase that lasts hours prints nothing in a job log until it ends (the approved piped form has no heartbeat). | § 4.5 | #98 |
 | No command lists or removes scratch left by stopped runs; the stop block's `discard:` line and the `old-scratch` warning (R-10) are the only pointers. `everygraph doctor` could list them. | § 5.3 | #98 |

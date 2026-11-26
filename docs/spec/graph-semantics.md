@@ -5,7 +5,7 @@ Status: specification for 0.1, written by #36 (`plan/issues/m2-09-graph-semantic
 adjacency, events beside it; rules for files built by appends).
 Every reader (#32, #33), the build (#35), the property columns (#37), the kernels (#44–#51),
 community detection (#57, #58, #62), the point queries (#90, #91) and the views (#93, #94)
-implement what is written here, and the correctness oracle (#25, `oracle/`) checks it.
+implement what is written here, and the correctness oracle (#6, `oracle/`) checks it.
 
 **Authority.** The rows of `design/DECISIONS.md` (2026-11-25: "Graph semantics, as the
 correctness oracle checks them", "Default weight for PageRank and communities", "Time
@@ -53,7 +53,7 @@ enumerations of `docs/ux-contract.md` § 3.6 (`detected.edges`).
 
 `weight=` and `time=` name the weight and time columns (§ 2.6). The options are part of
 the graph's identity: the same input read with other options is another graph (the cache
-key of `docs/api-sketch.md` § 2.7).
+key of `docs/api-sketch.md` § 2.8).
 
 ### 2.2 Direction (A4)
 
@@ -127,25 +127,26 @@ Minimum and maximum of a weight per pair are not offered in 0.1 (`docs/api-sketc
 
 ### 2.5 The event model and storage order
 
-The adjacency stores one entry per pair, in increasing internal id of the neighbour —
-which is graph order until a renumbering (`plan/issues/m2-07-id-mapping.md`,
-`m2-24-bp-ordering.md`); the events of a pair are stored, in **(time, input order)** order
-with nulls of time last, in the event columns, at the event offsets the adjacency's
-`.events` section gives (`docs/spec/eg-adjacency.md` § 3.1). For an undirected graph each
-pair appears in the lists of both ends, with the same events in the same order at both; a
-loop appears once, in its node's list. The events of a pair are therefore contiguous, and
-the analytic graph is the adjacency itself — the pair's neighbour and its multiplicity:
-the stored events `ev[e + 1] − ev[e]`, 1 when there is no `.events` section, except under
-`"sum"`, where the multiplicity is the `edges` column (§ 2.4), so that `"sum"` and
-`"events"` give the same pair results — with aggregates over each pair's events (§ 4)
-computed by the build from the event range and stored as per-pair columns. Kernels read
-pairs, multiplicities and per-pair columns, never per-event columns; time windows,
-`edges()` and event counts read the events through the event offsets. Which aggregates
-are stored per pair and which are computed from the events when asked is #37's; the pair
-sum of a weight column (§ 4.3), which every weighted kernel reads, is stored. On a
-directed graph the in-adjacency (#38) is ordered the same way and has its own `.events`
-section. Storage order is fixed by the input and the options, never by threads, budget or
-regime (`docs/api-sketch.md` § 2.11).
+The adjacency stores one entry per pair, in increasing internal id of the neighbour.
+That is graph order until a renumbering (`plan/issues/m2-07-id-mapping.md`,
+`m2-24-bp-ordering.md`). The events of a pair are stored in the event columns, in
+**(time, input order)** order with nulls of time last, at the event offsets that the
+adjacency's `.events` section gives (`docs/spec/eg-adjacency.md` § 3.1). On an undirected
+graph each pair appears in the lists of both ends, with the same events in the same order
+at both; a loop appears once, in its node's list. So the events of a pair are contiguous.
+
+The analytic graph is the adjacency itself. Each entry gives the neighbour and the pair's
+multiplicity: the number of stored events `ev[e + 1] − ev[e]`, or 1 when there is no
+`.events` section. Under `"sum"` the multiplicity is the `edges` column instead (§ 2.4),
+so that `"sum"` and `"events"` give the same pair results. The build computes the
+aggregates over each pair's events (§ 4) from its event range and stores them as
+per-pair columns. Kernels read pairs, multiplicities and per-pair columns, never
+per-event columns. Time windows, `edges()` and event counts read the events through the
+event offsets. Which aggregates are stored per pair, and which are computed from the
+events when asked, is #37's choice. The pair sum of a weight column (§ 4.3) is stored,
+because every weighted kernel reads it. On a directed graph the in-adjacency (#38) is
+ordered the same way and has its own `.events` section. Storage order is fixed by the
+input and the options, never by threads, budget or regime (`docs/api-sketch.md` § 2.11).
 
 Results that list nodes or neighbours "in graph order" (`docs/api-sketch.md` § 2.12:
 `neighbors()`, the position in a parent's list that orders `khop()`, the `bfs()` parent)
@@ -156,7 +157,7 @@ renumbering.
 
 | Role | Accepted Arrow types | Stored as | Notes |
 |---|---|---|---|
-| weight | `float32`, `float64`; `int8`–`int64`, `uint8`–`uint64`; `decimal128(p, s)`, `decimal256(p, s)` | the input type, exactly | Integers and decimals are kept exact — token amounts do not fit in `float32`, nor 18-decimal amounts in `float64` (`docs/api-sketch.md` § 3.4: "a weight that was a decimal or an integer in the input stays exact"). Text in a weight column is `InvalidInput` (3). `decimal256` needs adding to #37's list of column types (§ 9). |
+| weight | `float32`, `float64`; `int8`–`int64`, `uint8`–`uint64`; `decimal128(p, s)`, `decimal256(p, s)` | the input type, exactly | Integers and decimals are kept exact — token amounts do not fit in `float32`, nor 18-decimal amounts in `float64` (`docs/api-sketch.md` § 3.4: "a weight that was a decimal or an integer in the input stays exact"). Text in a weight column is `InvalidInput` (3). #37's list of column types includes `decimal256` (§ 9, item 7). |
 | time | Arrow `timestamp` (any unit; a zone is converted to UTC, a naive time is UTC), `date32`/`date64` (stored as the day's first instant), any integer type (compared in its own unit: block number, epoch count) | timestamp in UTC, or the integer type | Text is parsed by the readers (#32, #33) as ISO 8601 or refused with `InvalidInput`. Windows and filters on it: `docs/api-sketch.md` § 2.3 ("Time windows"). |
 | edge type | a dictionary-encoded or text column with few distinct values | dictionary-encoded, `uint8` codes up to 256 values, `uint16` up to 65,536, otherwise a plain text column | A small categorical column, filterable (`g.filter(edges="kind == 'swap'")`). No kernel treats it specially in 0.1. **Gap:** `eg.read` reads only `source`, `target`, `weight` and `time` and lists the other columns as ignored; reading a further column needs a public option, which needs a preview (§ 9). |
 
@@ -561,8 +562,9 @@ forward, reading the input again with `duplicates="events"`.
 
 With the decisions of § 5, the oracle defines an answer for every kernel on every graph of
 its corpus. The amendments it needs (to `oracle/SEMANTICS.md`, the Rust reference in
-`crates/everygraph-oracle` and the Python references in `oracle/src`) are listed in the
-pull request that adds this document, and are for the coordinator to apply; in short:
+`crates/everygraph-oracle` and the Python references in `oracle/src`) were listed in the
+pull request that added this document (#145) and applied by #147
+(`plan/issues/m2-16-oracle-semantics.md`); in short:
 
 - PageRank, core numbers, clustering, transitivity and modularity stop being skipped on
   graphs with kept loops. The Rust reference adds the loop to `A` as in § 3 for PageRank,
@@ -588,8 +590,8 @@ pull request that adds this document, and are for the coordinator to apply; in s
 ## 9. Disagreements found
 
 Between the decision records and the specifications, and between this issue and its
-neighbours. The ones in `docs/api-sketch.md` are corrected by the pull request that adds
-this document; the others are for the coordinator.
+neighbours. The pull request that added this document corrected the ones in
+`docs/api-sketch.md`. The others have since been resolved where each item says.
 
 1. **A kept loop in `degree`.** `docs/api-sketch.md` § 2.13 said a kept loop "counts 1 in
    `in_degree`, `out_degree` and `degree`". DECISIONS ("Graph semantics", Q1) says it adds
@@ -599,8 +601,8 @@ this document; the others are for the coordinator.
    (Q7) says 0, never NaN. The decision wins; both places are corrected.
 3. **The file name.** The issue's acceptance and `docs/api-sketch.md` (§ 2.13, § 3.2,
    § 7) name `docs/spec/graph-model.md`; this document is `docs/spec/graph-semantics.md`,
-   as the coordinator asked. The sketch's references are updated; the issue's acceptance
-   line needs the new name.
+   as the coordinator asked. The sketch's references and the issue's acceptance line now
+   use the new name.
 4. **Weights that must be clean.** `docs/api-sketch.md` § 2.4 lists `degrees` among the
    takers of `weight=` and says weights "must be finite and not negative"; § 2.13 lists
    only PageRank, communities and path costs as refusing. Decided here (§ 4.4): reported
@@ -608,13 +610,13 @@ this document; the others are for the coordinator.
 5. **The oracle's quotient and adjacency with kept loops.** `oracle/SEMANTICS.md` checks
    the quotient graph "(a loop is not a pair)" and the adjacency without loops
    (`no_self_loops`). § 5.5 makes a kept loop a pair on the quotient's diagonal, and
-   `docs/api-sketch.md` § 2.13 makes a node with a kept loop its own neighbour. Both
-   oracle checks change (§ 8).
+   `docs/api-sketch.md` § 2.13 makes a node with a kept loop its own neighbour. #147
+   changed both oracle checks (§ 8).
 6. **Aggregates of `duplicates="sum"`.** The issue's scope lists "count, sum/min/max of a
    weight, first/last timestamp"; `docs/api-sketch.md` § 7 offers sum, count and
    first/last only. The sketch (with its amendment to this issue) wins: no min or max.
-7. **Column types.** #37 (`m2-10-property-columns.md`) lists `decimal128` only; exact
-   token amounts of 256-bit integers need `decimal256` (§ 2.6).
+7. **Column types.** #37 (`m2-10-property-columns.md`) listed `decimal128` only; exact
+   token amounts of 256-bit integers need `decimal256` (§ 2.6). #37 now lists both.
 8. **Edge types.** The issue asks for "edge types as a small categorical column";
    `docs/api-sketch.md` § 3.1 reads only the source, target, weight and time columns and
    lists the rest as ignored. The storage is specified here (§ 2.6); the option to read
@@ -622,12 +624,13 @@ this document; the others are for the coordinator.
 9. **Repeated rows in the result block.** `docs/ux-contract.md` G-12 shows only
    `dropped: N self-loops`; with `"collapse"` the line also carries the dropped
    duplicates (key `duplicates`, open in the schema), and with `"sum"` the merged rows are
-   in `counts.merged`. The printed words for both are not in the contract yet.
+   in `counts.merged`. The contract now gives the printed words for both
+   (`docs/ux-contract.md` G-12; its § 9, item 28).
 
 ## 10. Decided here
 
-Each with its reason; for `design/DECISIONS.md` (a row "Graph semantics, the cases left
-to #36"), which this pull request may not edit.
+Each with its reason. `design/DECISIONS.md` records them in the row "Graph semantics, the
+cases left to #36".
 
 1. **S1–S6, self-loops in the kernels** (§ 5): one adjacency convention (2w on the
    undirected diagonal); PageRank and modularity count loops through it, as igraph and
