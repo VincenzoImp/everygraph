@@ -119,8 +119,7 @@ Official run (2026-11-25, idle, 16 threads,
 in 9.3–9.6 s (split layout) and 10.0 s (slot layout), target < 15 s; 2.61 bits per key for
 the hash function; 3.6 B mappings in 34–38 s, target < 60 s; cold forward lookup p50
 93.8 µs (split) and 53.8 µs (slot). The 500 M-key build with a 4 GiB budget under a
-5 GiB `MemoryMax` was OOM-killed, so the no-OOM target fails for now; #34 stays open
-until it is fixed and re-run.
+5 GiB `MemoryMax` was OOM-killed.
 
 Re-run (2026-11-26, idle, 16 threads, after the memory bounds of pull request 203,
 `bench/results/id-dictionary/20261126T042659Z-c0d7f248bb47.jsonl`): the same 500 M-key

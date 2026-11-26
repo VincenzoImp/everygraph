@@ -47,7 +47,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64};
 
 use everygraph_core::rng::{Purpose, draw, unit_f64};
-use everygraph_core::{Memory, math, par};
+use everygraph_core::{Memory, MemoryKind, Reservation, math, par};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
     Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all,
@@ -477,9 +477,17 @@ pub(crate) struct Moved {
 /// The nodes of `ids` that pass `keep`, in order, filtered in parallel.
 fn take<'g, S: Source>(
     plan: &Plan<'_, 'g, S>,
+    tables: &Tables,
     ids: &[u32],
     keep: impl Fn(Node<'g>) -> bool + Send + Sync,
-) -> Vec<Node<'g>> {
+) -> Result<(Vec<Node<'g>>, Reservation), Error> {
+    // The parts grow by doubling, each with its old block beside the new one while it
+    // moves (3×), then are joined into one copy (1×), which alone stays held.
+    let mut held = tables.memory().reserve(
+        "frontier",
+        MemoryKind::Anonymous,
+        (ids.len() as u64).saturating_mul(4 * size_of::<Node<'g>>() as u64),
+    )?;
     let parts = par::map_ranges(ids.len(), ROUND_GRAIN, |r| {
         ids[r]
             .iter()
@@ -487,7 +495,10 @@ fn take<'g, S: Source>(
             .filter(|&v| keep(v))
             .collect::<Vec<_>>()
     });
-    parts.concat()
+    let frontier = parts.concat();
+    drop(parts);
+    held.shrink(held.bytes() - (frontier.len() * size_of::<Node<'g>>()) as u64);
+    Ok((frontier, held))
 }
 
 /// Runs `body` on the rows of `frontier` and adds up its values. Fewer than [`SERIAL`]
@@ -627,9 +638,12 @@ pub(crate) fn local_move<'g, S: Source>(
         Schedule::Order { .. } => heavy(g, ctx.total),
     };
     let light = |v: Node<'g>| heavy.binary_search(&v).is_err();
-    let heavy_in_order = match schedule {
-        Schedule::Order { ids } if !heavy.is_empty() => take(plan, ids, |v| !light(v)),
-        _ => Vec::new(),
+    let (heavy_in_order, _heavy_held) = match schedule {
+        Schedule::Order { ids } if !heavy.is_empty() => take(plan, tables, ids, |v| !light(v))?,
+        _ => (
+            Vec::new(),
+            Reservation::empty(tables.memory(), "frontier", MemoryKind::Anonymous),
+        ),
     };
     // A sequential visit: each move is applied before the next node decides.
     let visit =
@@ -655,9 +669,9 @@ pub(crate) fn local_move<'g, S: Source>(
         match schedule {
             Schedule::Rounds { ids, starts } => {
                 for r in starts.windows(2) {
-                    let frontier = take(plan, &ids[r[0]..r[1]], |v| {
+                    let (frontier, _held) = take(plan, tables, &ids[r[0]..r[1]], |v| {
                         st.active[v.index()].swap(false, Relaxed)
-                    });
+                    })?;
                     if frontier.is_empty() {
                         continue;
                     }
@@ -696,9 +710,9 @@ pub(crate) fn local_move<'g, S: Source>(
                 }
             }
             Schedule::Order { ids } => {
-                let frontier = take(plan, ids, |v| {
+                let (frontier, _held) = take(plan, tables, ids, |v| {
                     light(v) && st.active[v.index()].load(Relaxed)
-                });
+                })?;
                 processed = frontier.len();
                 let (sum, m) = drive(plan, &frontier, tables, visit)?;
                 gain += sum;
@@ -806,7 +820,7 @@ pub(crate) fn refine<'g, S: Source>(
     match schedule {
         Schedule::Rounds { ids, starts } => {
             for (stamp, b) in (0_u64..).zip(starts.windows(2)) {
-                let frontier = take(plan, &ids[b[0]..b[1]], alive);
+                let (frontier, _held) = take(plan, tables, &ids[b[0]..b[1]], alive)?;
                 if frontier.is_empty() {
                     continue;
                 }
@@ -840,7 +854,7 @@ pub(crate) fn refine<'g, S: Source>(
             }
         }
         Schedule::Order { ids } => {
-            let frontier = take(plan, ids, alive);
+            let (frontier, _held) = take(plan, tables, ids, alive)?;
             let (): () = drive(plan, &frontier, tables, |(), row, worker| {
                 let u = row.node;
                 let Some(table) = worker.scratch.begin(row.list.len()) else {

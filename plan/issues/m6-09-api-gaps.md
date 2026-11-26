@@ -6,7 +6,7 @@ labels: type:docs, area:python, P1, risk:low, size:S
 **Why.** The review of the engines users compare us with (`docs/research/sota-ingest-query.md` § 2.5, § 4 C9) found five things in the approved API that have no name yet. Each is a gap that `docs/api-sketch.md` § 7 already lists, or that its issues name without a public form:
 - **Node tables.** Every engine compared has node properties: Kùzu, Neo4j GDS, igraph, graph-tool. #33 already reads node tables; api-sketch § 7 says that "node columns" need a preview.
 - **A public name for the edge-type column.** Raphtory calls them layers, GDS relationship types, Kùzu rel tables. #32 and #33 have the reader option without a name.
-- **A batch of path pairs** on the planned multi-source BFS kernel ({{#m3-06-traversal}}). DuckPGQ runs bulk many-to-many paths this way. api-sketch § 7: "a batch of pairs … no name here" (#91).
+- **A batch of path pairs** on the multi-source BFS kernel (`multi_bfs`, {{#m3-06-traversal}}). DuckPGQ runs bulk many-to-many paths this way. api-sketch § 7: "a batch of pairs … no name here" (#91).
 - **A graph profile in one call**, like NetworKit's network profiles: degree, component, core and community size distributions. It mostly assembles kernels v0.1 already has.
 - **Bound parameters in filters** (`g.filter(edges="value > $x", params={"x": 10})`, as in GDS), so users do not format numbers into strings.
 
