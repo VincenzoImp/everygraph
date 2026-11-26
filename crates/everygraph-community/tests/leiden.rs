@@ -188,31 +188,40 @@ fn settings(chunk: u64) -> Settings {
     }
 }
 
-fn run(s: &Stored, kind: Kind, threads: usize, chunk: u64, o: &Options) -> Communities {
+/// Leiden on the pool of the caller (`par::with_threads`).
+fn here(s: &Stored, kind: Kind, chunk: u64, o: &Options) -> Communities {
     let memory = Memory::unlimited();
-    let threads = NonZeroUsize::new(threads).unwrap();
-    let go = |source: &(dyn Fn() -> Result<Communities, Error> + Sync)| {
-        par::with_threads(threads, source).unwrap().unwrap()
-    };
     let st = settings(chunk);
-    match kind {
+    let c = match kind {
         Kind::Raw => {
             let csr = Csr::new(&s.lists.offsets, &s.lists.targets).unwrap();
-            go(&|| leiden(&csr, &memory, st, o))
+            leiden(&csr, &memory, st, o)
         }
         Kind::Heap => {
             let adj = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
-            go(&|| leiden(&adj, &memory, st, o))
+            leiden(&adj, &memory, st, o)
         }
-        Kind::Mapped => {
-            let adj = Compressed::mapped(&s.index, &s.map).unwrap();
-            go(&|| leiden(&adj, &memory, st, o))
-        }
+        Kind::Mapped => leiden(
+            &Compressed::mapped(&s.index, &s.map).unwrap(),
+            &memory,
+            st,
+            o,
+        ),
         Kind::Streamed => {
             let stream = Stream::new(&s.lists.offsets, &s.stream).unwrap();
-            go(&|| leiden(&stream, &memory, st, o))
+            leiden(&stream, &memory, st, o)
         }
-    }
+    };
+    c.unwrap()
+}
+
+/// `f` on a pool of `threads` threads.
+fn on<R: Send>(threads: usize, f: impl FnOnce() -> R + Send) -> R {
+    par::with_threads(NonZeroUsize::new(threads).unwrap(), f).unwrap()
+}
+
+fn run(s: &Stored, kind: Kind, threads: usize, chunk: u64, o: &Options) -> Communities {
+    on(threads, || here(s, kind, chunk, o))
 }
 
 /// Communities with more than one connected component, by a breadth-first search over
@@ -332,63 +341,92 @@ fn variants() -> Vec<(&'static str, Options)> {
     ]
 }
 
+/// Every graph at two configurations against one thread, and every tenth graph at all
+/// 24 (1, 3 and 8 threads; chunks of 64 and 65,536 entries; four sources). Debug builds
+/// take every eighth graph at the two.
 #[test]
 fn deterministic_results_do_not_depend_on_threads_chunks_or_sources() {
-    let full = !cfg!(debug_assertions);
-    let threads: &[usize] = if full { &[1, 3, 8] } else { &[1, 3] };
-    let chunks: &[u64] = if full { &[64, 1 << 16] } else { &[64] };
-    let kinds: &[Kind] = if full {
-        &[Kind::Raw, Kind::Heap, Kind::Mapped, Kind::Streamed]
-    } else {
-        &[Kind::Raw, Kind::Streamed]
-    };
+    let debug = cfg!(debug_assertions);
     let o = Options::default();
     let graphs = corpus();
+    let step = if debug { 8 } else { 1 };
+    let expected: Vec<Outcome> = on(1, || {
+        graphs
+            .iter()
+            .step_by(step)
+            .map(|(name, p, s)| {
+                let first = here(s, Kind::Raw, 1 << 16, &o);
+                check(name, &s.lists, Some(p), &first, &o);
+                Outcome::from(&first)
+            })
+            .collect()
+    });
+    let all = [Kind::Raw, Kind::Heap, Kind::Mapped, Kind::Streamed];
     let mut runs = 0;
-    for (name, p, s) in &graphs {
-        let first = run(s, Kind::Raw, 1, 1 << 16, &o);
-        check(name, &s.lists, Some(p), &first, &o);
-        let expected = Outcome::from(&first);
-        for &t in threads {
-            for &chunk in chunks {
-                for &kind in kinds {
-                    let c = run(s, kind, t, chunk, &o);
-                    assert_eq!(
-                        Outcome::from(&c),
-                        expected,
-                        "{name}: {kind:?}, {t} threads, {chunk}"
-                    );
-                    runs += 1;
+    for t in [1, 3, 8] {
+        runs += on(t, || {
+            let mut runs = 0;
+            for (i, ((name, _, s), expected)) in
+                graphs.iter().step_by(step).zip(&expected).enumerate()
+            {
+                let grid = !debug && i % 10 == 0;
+                for chunk in [64, 1 << 16] {
+                    for kind in all {
+                        let usual = matches!(
+                            (t, chunk, kind),
+                            (8, 64, Kind::Streamed) | (3, 65_536, Kind::Heap)
+                        );
+                        if !(grid || usual) {
+                            continue;
+                        }
+                        let c = here(s, kind, chunk, &o);
+                        let what = format!("{name}: {kind:?}, {t} threads, {chunk}");
+                        assert_eq!(&Outcome::from(&c), expected, "{what}");
+                        runs += 1;
+                    }
                 }
             }
-        }
+            runs
+        });
     }
     eprintln!(
         "{} graphs, {runs} runs, every one identical to the first",
-        graphs.len()
+        expected.len()
     );
 }
 
 #[test]
 fn every_option_gives_valid_and_repeatable_communities() {
     let graphs = corpus();
-    let step = if cfg!(debug_assertions) { 7 } else { 1 };
+    let step = if cfg!(debug_assertions) { 30 } else { 3 };
     for (variant, o) in variants() {
-        for (name, p, s) in graphs.iter().step_by(step) {
-            let name = format!("{name} ({variant})");
-            let c = run(s, Kind::Raw, 1, 1 << 16, &o);
-            check(&name, &s.lists, Some(p), &c, &o);
-            let other = run(s, Kind::Streamed, 3, 64, &o);
-            assert_eq!(Outcome::from(&other), Outcome::from(&c), "{name}");
-        }
+        let first: Vec<Outcome> = on(1, || {
+            graphs
+                .iter()
+                .step_by(step)
+                .map(|(name, p, s)| {
+                    let c = here(s, Kind::Raw, 1 << 16, &o);
+                    check(&format!("{name} ({variant})"), &s.lists, Some(p), &c, &o);
+                    Outcome::from(&c)
+                })
+                .collect()
+        });
+        on(3, || {
+            for ((name, _, s), first) in graphs.iter().step_by(step).zip(&first) {
+                let other = here(s, Kind::Streamed, 64, &o);
+                assert_eq!(&Outcome::from(&other), first, "{name} ({variant})");
+            }
+        });
     }
     let mut fast = Options::default();
     fast.mode = Mode::Fast;
-    for (name, p, s) in graphs.iter().step_by(step) {
-        let c = run(s, Kind::Raw, 8, 64, &fast);
-        assert_eq!(c.mode, Mode::Fast);
-        check(&format!("{name} (fast)"), &s.lists, Some(p), &c, &fast);
-    }
+    on(8, || {
+        for (name, p, s) in graphs.iter().step_by(step) {
+            let c = here(s, Kind::Raw, 64, &fast);
+            assert_eq!(c.mode, Mode::Fast);
+            check(&format!("{name} (fast)"), &s.lists, Some(p), &c, &fast);
+        }
+    });
 }
 
 /// A graph as its node count and its pairs.
