@@ -342,6 +342,13 @@ impl<'g> NodeSet<'g> {
         old & bit == 0
     }
 
+    /// Removes `v`; true if it was in the set.
+    #[inline]
+    pub fn remove(&self, v: Node<'g>) -> bool {
+        let bit = 1 << (v.get() & 63);
+        self.word(v).fetch_and(!bit, Ordering::Relaxed) & bit != 0
+    }
+
     /// Whether `v` is in the set.
     #[inline]
     #[must_use]
@@ -559,6 +566,8 @@ mod tests {
         let mut set = NodeSet::empty(&memory, 5).unwrap();
         assert!(set.insert(list[0]) && !set.insert(list[0]) && set.insert(list[2]));
         assert!(set.contains(list[2]) && !set.contains(nodes[1]));
+        assert!(set.insert(nodes[1]) && set.remove(nodes[1]) && !set.remove(nodes[1]));
+        assert!(!set.contains(nodes[1]));
         let mut out = NodeList::new(&memory);
         out.push(nodes[3]).unwrap();
         set.list_into(&mut out).unwrap();

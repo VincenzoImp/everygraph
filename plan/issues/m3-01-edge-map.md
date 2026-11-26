@@ -28,3 +28,6 @@ labels: type:feature, area:engine, P0, risk:high, size:XL, lab-evidence
 **Decision input.** Whether a cache-blocked variant is needed from the start: {{#m1-08-memory-bandwidth}}.
 
 **Depends on** {{#m2-02-io-layer}}, {{#m2-03-adjacency-codec}}
+
+**Left after PR #202 (official run 2026-11-26).** WCC at 16 threads is 1.13× the lab (`bench/results/edge-map/20261126T043042Z-c0d7f248bb47.jsonl`), above the ≤ 5% criterion. Likely a fixed cost per task (about 3,600 tasks per pass on orkut, four lock operations and two shared `fetch_add` each, serial block partials before each pass; read from the code, not profiled, PR #224). Method: hand each worker its reader slot and scratch once per pass (or skip the pool when the reader is `()`), then an interleaved A/B against the lab.
+

@@ -290,6 +290,12 @@ impl Memory {
     pub fn pages(&self) -> Pages {
         self.0.pages()
     }
+
+    /// The accountant itself, for code that takes one by reference.
+    #[must_use]
+    pub fn accountant(&self) -> &dyn MemoryAccountant {
+        &*self.0
+    }
 }
 
 impl<A: MemoryAccountant + 'static> From<Arc<A>> for Memory {

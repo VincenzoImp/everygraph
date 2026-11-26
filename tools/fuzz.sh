@@ -8,7 +8,7 @@
 #   tools/fuzz.sh run TARGET SECONDS      fuzz TARGET, adding what it finds to its corpus
 #   tools/fuzz.sh cmin TARGET             shrink TARGET's corpus to the inputs that matter
 #
-# TARGET is a name from `list` (adjacency, container, text). The toolchain is the
+# TARGET is a name from `list` (adjacency, container, columns, text). The toolchain is the
 # pinned nightly of tools/nightly-toolchain unless FUZZ_TOOLCHAIN says otherwise.
 # Every run refuses a single allocation above 64 MiB, so that a size an input declares
 # (a zstd window) never turns into memory (docs/research/sota-testing.md, challenge 10).
@@ -17,7 +17,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 toolchain="${FUZZ_TOOLCHAIN:-$(cat "$root/tools/nightly-toolchain")}"
-targets=(everygraph-format/adjacency everygraph-format/container everygraph-ingest/text)
+targets=(everygraph-format/adjacency everygraph-format/container everygraph-format/columns everygraph-ingest/text)
 
 # The libFuzzer options of a target. A container needs its two header blocks and a
 # table of contents at 8192 or beyond, so a whole file has at least 12,288 bytes.

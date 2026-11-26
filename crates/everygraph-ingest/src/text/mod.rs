@@ -594,6 +594,32 @@ impl<S: ByteSource + Sync> TextReader<S> {
         &self.source
     }
 
+    /// What is done with rows that cannot be read.
+    #[must_use]
+    pub const fn on_invalid(&self) -> OnInvalid {
+        self.on_invalid
+    }
+
+    /// Bytes of text in a block, the last excepted.
+    #[must_use]
+    pub const fn block_bytes(&self) -> usize {
+        self.tuning.chunk
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_with_chunk(
+        source: S,
+        options: &TextOptions,
+        chunk: usize,
+    ) -> Result<Self, TextError> {
+        let tuning = Tuning {
+            chunk,
+            step: chunk.min(TUNING.step),
+            ..TUNING
+        };
+        Self::open_tuned(source, options, tuning)
+    }
+
     /// Parses every row and calls `f` on each batch, possibly in parallel; returns what
     /// `f` returned, in input order, and the counts.
     ///
@@ -629,28 +655,128 @@ impl<S: ByteSource + Sync> TextReader<S> {
         T: Send,
         F: Fn(Batch) -> T + Send + Sync,
     {
-        let len = self.source.len();
-        let chunk = widen(self.tuning.chunk);
-        let first = self.data_start / chunk;
-        let count = len.div_ceil(chunk).saturating_sub(first);
-        // More chunks than fit in memory cannot be indexed anyway.
-        let count = usize::try_from(count).map_err(|_| oversized(len))?;
+        let count = self.plain_blocks()?;
         let parts = par::map_ranges(count, ONE, |range| {
-            let k = first + widen(range.start);
-            let start = (k * chunk).max(self.data_start);
-            let end = ((k + 1) * chunk).min(len);
-            // Taken, not borrowed: `f` may read another source on this thread.
-            let mut buf = CHUNK.take();
-            let part = self
-                .chunk_lines(start, end, &mut buf)
-                .map(|(segment, tail)| self.plan.parse(&buf[segment], tail.map(|t| &buf[t])));
-            CHUNK.set(buf);
-            Ok::<_, TextError>(part?.into_output(f))
+            Ok::<_, TextError>(self.parse_block(range.start)?.into_output(f))
         });
         for part in parts {
             out.push(part?);
         }
         Ok(())
+    }
+
+    /// Number of chunks of a plain-text source.
+    fn plain_blocks(&self) -> Result<usize, TextError> {
+        let len = self.source.len();
+        let chunk = widen(self.tuning.chunk);
+        let count = len.div_ceil(chunk).saturating_sub(self.data_start / chunk);
+        // More chunks than fit in memory cannot be indexed anyway.
+        Ok(usize::try_from(count).map_err(|_| oversized(len))?)
+    }
+
+    /// Parses chunk `block` of a plain-text source.
+    fn parse_block(&self, block: usize) -> Result<parse::Partial, TextError> {
+        let (len, chunk) = (self.source.len(), widen(self.tuning.chunk));
+        let k = self.data_start / chunk + widen(block);
+        let start = (k * chunk).max(self.data_start);
+        let end = ((k + 1) * chunk).min(len);
+        // Taken, not borrowed: the caller may read another source on this thread.
+        let mut buf = CHUNK.take();
+        let part = self
+            .chunk_lines(start, end, &mut buf)
+            .map(|(segment, tail)| self.plan.parse(&buf[segment], tail.map(|t| &buf[t])));
+        CHUNK.set(buf);
+        Ok(part?)
+    }
+
+    /// The number of blocks of a plain-text source, which [`read_block`](Self::read_block)
+    /// reads one at a time; `None` for a compressed one, which can only be read whole
+    /// ([`decompress_into`](Self::decompress_into) makes a plain copy). Blocks are the
+    /// chunks [`read`](Self::read) hands out, cut by offsets only, so they are the same
+    /// at any thread count.
+    ///
+    /// # Errors
+    ///
+    /// [`TextError::Read`] for a source with more chunks than this platform can count.
+    pub fn blocks(&self) -> Result<Option<usize>, TextError> {
+        match self.layout.compression {
+            Compression::None => self.plain_blocks().map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    /// Parses block `block` of a plain-text source: its valid rows, and a [`Tally`] of
+    /// its lines and problems for [`summarize`](Self::summarize).
+    ///
+    /// # Errors
+    ///
+    /// [`TextError::Read`] if the bytes cannot be read.
+    ///
+    /// # Panics
+    ///
+    /// If the source is compressed, or `block` is not below [`blocks`](Self::blocks).
+    pub fn read_block(&self, block: usize) -> Result<(Batch, Tally), TextError> {
+        let blocks = self.blocks()?;
+        assert!(
+            blocks.is_some_and(|b| block < b),
+            "block {block} of a source with {blocks:?} blocks"
+        );
+        let part = self.parse_block(block)?;
+        let rows = widen(part.batch.len());
+        let tally = Tally(PartOutput {
+            value: None,
+            lines: part.lines,
+            rows,
+            invalid: part.invalid,
+            problems: part.problems,
+        });
+        Ok((part.batch, tally))
+    }
+
+    /// The counts of a whole read from the tallies of every block, in block order, as
+    /// [`read`](Self::read) returns them.
+    ///
+    /// # Errors
+    ///
+    /// [`TextError::InvalidRows`] under [`OnInvalid::Refuse`] if any row is invalid.
+    pub fn summarize(
+        &self,
+        tallies: impl IntoIterator<Item = Tally>,
+    ) -> Result<Summary, TextError> {
+        let mut out = Collector::<()>::new(self.lines_before, self.max_problems);
+        for tally in tallies {
+            out.push(tally.0);
+        }
+        let (_, summary) = out.finish();
+        if summary.invalid_rows > 0 && self.on_invalid == OnInvalid::Refuse {
+            return Err(TextError::InvalidRows(Box::new(summary)));
+        }
+        Ok(summary)
+    }
+
+    /// Writes the whole decompressed text, header and comments included, to `out`, and
+    /// returns its length: a plain copy that [`TextReader::open`] reads with the same
+    /// layout and the same line numbers, in blocks.
+    ///
+    /// # Errors
+    ///
+    /// [`TextError::Read`] or [`TextError::Damaged`] if the source cannot be read, and
+    /// [`TextError::Read`] if `out` fails.
+    pub fn decompress_into(&self, out: &mut dyn std::io::Write) -> Result<u64, TextError> {
+        let compression = self.layout.compression;
+        let mut reader =
+            decompress::reader(&self.source, compression, true, self.tuning.zstd_group)?;
+        let mut buf = vec![0_u8; self.tuning.window];
+        let mut total = 0;
+        loop {
+            let n = decompress::read_some(&mut reader, &mut buf, compression)?;
+            if n == 0 {
+                return Ok(total);
+            }
+            out.write_all(&buf[..n])
+                .map_err(|e| TextError::Read(ReadError::Backend(Box::new(e))))?;
+            total += widen(n);
+        }
     }
 
     /// Reads the lines that start in `start..end` into `buf`. Returns the range of
@@ -783,7 +909,21 @@ fn split_lines(text: &[u8], size: usize) -> Vec<usize> {
     bounds
 }
 
+/// The lines, rows and problems of one block ([`TextReader::read_block`]), for
+/// [`TextReader::summarize`].
+#[derive(Debug)]
+pub struct Tally(PartOutput<()>);
+
+impl Tally {
+    /// Valid rows of the block.
+    #[must_use]
+    pub fn rows(&self) -> u64 {
+        self.0.rows
+    }
+}
+
 /// The output of one part: what `f` made of its batch, and its counts.
+#[derive(Debug)]
 struct PartOutput<T> {
     /// `None` for a part without valid rows: `f` is not called on empty batches.
     value: Option<T>,

@@ -41,8 +41,9 @@
 //!
 //! The `unsafe` blocks of the crate are in two private modules. `sys`: the memory map
 //! of a file and three calls into the C library; the map is safe to offer under the
-//! invariant stated on [`MmapSource`], which the sinks enforce within the process.
-//! `pages`: the allocator behind [`PAGES`], anonymous maps and their unmaps.
+//! invariant stated on [`MmapSource`], which the sinks enforce within the process, and
+//! a graph file is mapped by range, which commits by any process leave alone. `pages`:
+//! the allocator behind [`PAGES`], anonymous maps and their unmaps.
 
 #[cfg(feature = "faults")]
 pub mod faults;

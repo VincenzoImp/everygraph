@@ -143,8 +143,8 @@ aggregates over each pair's events (§ 4) from its event range and stores them a
 per-pair columns. Kernels read pairs, multiplicities and per-pair columns, never
 per-event columns. Time windows, `edges()` and event counts read the events through the
 event offsets. Which aggregates are stored per pair, and which are computed from the
-events when asked, is #37's choice. The pair sum of a weight column (§ 4.3) is stored,
-because every weighted kernel reads it. On a directed graph the in-adjacency (#38) is
+events when asked, is decided in `docs/spec/eg-columns.md` § 6. The pair sum of a weight
+column (§ 4.3) is stored, because every weighted kernel reads it. On a directed graph the in-adjacency (#38) is
 ordered the same way and has its own `.events` section. Storage order is fixed by the
 input and the options, never by threads, budget or regime (`docs/api-sketch.md` § 2.11).
 
@@ -159,7 +159,7 @@ renumbering.
 |---|---|---|---|
 | weight | `float32`, `float64`; `int8`–`int64`, `uint8`–`uint64`; `decimal128(p, s)`, `decimal256(p, s)` | the input type, exactly | Integers and decimals are kept exact — token amounts do not fit in `float32`, nor 18-decimal amounts in `float64` (`docs/api-sketch.md` § 3.4: "a weight that was a decimal or an integer in the input stays exact"). Text in a weight column is `InvalidInput` (3). #37's list of column types includes `decimal256` (§ 9, item 7). |
 | time | Arrow `timestamp` (any unit; a zone is converted to UTC, a naive time is UTC), `date32`/`date64` (stored as the day's first instant), any integer type (compared in its own unit: block number, epoch count) | timestamp in UTC, or the integer type | Text is parsed by the readers (#32, #33) as ISO 8601 or refused with `InvalidInput`. Windows and filters on it: `docs/api-sketch.md` § 2.3 ("Time windows"). |
-| edge type | a dictionary-encoded or text column with few distinct values | dictionary-encoded, `uint8` codes up to 256 values, `uint16` up to 65,536, otherwise a plain text column | A small categorical column, filterable (`g.filter(edges="kind == 'swap'")`). No kernel treats it specially in 0.1. **Gap:** `eg.read` reads only `source`, `target`, `weight` and `time` and lists the other columns as ignored; reading a further column needs a public option, which needs a preview (§ 9). |
+| edge type | a dictionary-encoded or text column with few distinct values | dictionary-encoded, `uint8` codes up to 256 values, `uint16` up to 65,536, otherwise `uint32` (`docs/spec/eg-columns.md` § 9) | A small categorical column, filterable (`g.filter(edges="kind == 'swap'")`). No kernel treats it specially in 0.1. **Gap:** `eg.read` reads only `source`, `target`, `weight` and `time` and lists the other columns as ignored; reading a further column needs a public option, which needs a preview (§ 9). |
 
 **Nulls.** A null weight is skipped in sums (a pair whose weights are all null weighs 0)
 and never used as a path cost; a null time is never inside a window (a comparison with a
@@ -170,8 +170,8 @@ that cannot be read (`InvalidInput`).
 
 For every numeric edge column (weight, time and any other) the build records, over the
 stored values (after `sum` where it applies). The statistics of each column are a section
-of their own: a small fixed binary record, of a container kind that #37 assigns. They are
-not in the container's table of contents, which has no field for them
+of their own: a small fixed binary record, container kind 9 (`docs/spec/eg-columns.md`
+§ 5). They are not in the container's table of contents, which has no field for them
 (`docs/spec/eg-container.md` § 4).
 
 | Statistic | Type | Use |
@@ -392,6 +392,14 @@ Probe values: undirected `[19/40, 21/80, 21/80] = [0.475, 0.2625, 0.2625]` (igra
 gives `[0.416, 0.292, 0.292]`); with the loop's weight 3, `[38/63, 25/126, 25/126]`
 (igraph, and NetworkX given the loop weight 6); directed, 3-cycle with a loop at 0,
 `[0.480056, 0.254024, 0.265920]` (both).
+
+**Eigenvector centrality** (`g.eigenvector()`, #47; `docs/api-sketch.md` § 7) uses the same
+matrix: the eigenvector of the largest eigenvalue of `Aᵀ`, with a kept loop as `A[v][v]` =
+`2w` undirected and `w` directed, unit L2 norm and no negative value. igraph counts an
+undirected loop twice as well; NetworkX matches when given the loop weight `2w`, as for
+PageRank. Probe: the triangle 0-1-2 with a loop at 0, undirected, gives
+`[0.8165, 0.4082, 0.4082]` (both libraries; the eigenvector of `[[2, 1, 1], [1, 0, 1],
+[1, 1, 0]]`).
 
 ### 5.2 Core numbers (S2)
 

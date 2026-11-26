@@ -50,8 +50,11 @@
 //! kept as a rank bitmap when the largest key `m` satisfies `m + 1 ≤ 64 · n` — the
 //! bitmap then takes at most 8 bytes per key, less than the 12.3 bytes per key of the
 //! hashed form of 8-byte keys — and otherwise go through the hash function like any
-//! other kind (same ids). A key outside `0..2^32`, or a bitmap the budget cannot hold,
-//! sends the build to the hashed form directly.
+//! other kind (same ids). A key outside `0..2^32` sends the build to the hashed form
+//! directly, and so does a key at or above 64 times an upper bound on the distinct keys
+//! when the caller gives one ([`BuildOptions::max_keys`]): such a key cannot end in a
+//! rank bitmap. A bitmap the budget cannot hold is refused ([`DictionaryError::Budget`]):
+//! which form a dictionary takes depends on its keys, never on the budget.
 //!
 //! # How a dictionary is built
 //!

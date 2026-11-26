@@ -232,6 +232,7 @@ fn run_oracle(ds: &Dataset, g: &LdbcGraph, p: &Projection, a: Algorithm) -> Resu
             p,
             ds.damping().map_err(|e| e.to_string())?,
             false,
+            &[],
         )),
         Algorithm::Wcc => labels_to_ids(g, &reference::wcc(&p.undirected)),
         Algorithm::Cdlp => return Err("skipped: the oracle has no label propagation".into()),

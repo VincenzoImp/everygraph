@@ -29,21 +29,20 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
 - **Started 2026-11-26 00:15:** #34 OOM investigation (build-500m), #18 deterministic Leiden sub-rounds A/B, #172 mmap hints / block cache (step 1 first), #189 safe parallel scatter (prerequisite of #35). #19's Friendster official run: 7/10 rows ok; the 3 shape rows failed only on a boolean metric (`super_level_built`) — spec fix in PR #162, re-run of the shape cases (~27 min) queued.
 
-- **Night of 2026-11-26 (owner away until ~08:00, full autonomy):** streams running — #202 edge-map fixes, #201 scatter fixes, #18 Leiden sub-rounds, #172 mmap hints, #37 property columns, #187+#188 core math and counter RNG, #41+#190+#191 verify / fault injection / fuzz CI, #177 LDBC Graphalytics. Next on merge: #35 CSR build (after #201), kernels batch #47–#49 (after #202), CLI+Python slice (after #35). Shared implementer brief: builds with `CARGO_BUILD_JOBS=6`, tests ≤ 8 threads, so nine agents share the machine.
+- **Night of 2026-11-26 (owner away until ~08:00, full autonomy):** streams running — #202 edge-map fixes, #201 scatter fixes, #18 Leiden sub-rounds, #172 mmap hints, #37 property columns, #187+#188 core math and counter RNG, #41+#190+#191 verify / fault injection / fuzz CI, #177 LDBC Graphalytics. Merged during the night: #170 container, #201 scatter, #202 edge-map, #203 dictionary memory, #206 docs pass, #208 det-Leiden lab, #210 numerics, #211 sweep, #212 verify/faults/fuzz, #213 columns, #214 MSRV 1.100, #215 build (#35 open for speed), #216 results in the file, #217 LDBC, #221 mmap lab, #222 ADR 0029, #224, #225 (#19 closed). Started 06:05: Python slice (#81) and CLI (#98). Shared implementer brief: builds with `CARGO_BUILD_JOBS=6`, tests ≤ 8 threads, so nine agents share the machine.
 
 - **MSRV raised to 1.100 (PR #214, 2026-11-26):** the first release with a stable `std::alloc::Allocator`, so the page backend (#167) keeps `unsafe` out of the core. Accepted: the project is pre-0.1 and the cost (users need a recent toolchain) is small against no `unsafe` in the core.
 
 ## Measurement queue (official runs, batched into one window)
 
-- #34 id dictionary: done 2026-11-25 (build-500m OOM, re-run after the fix) (~20 min, ~45 GB disk).
+- #34 id dictionary: closed 2026-11-26; build-500m official 76.4 s under MemoryMax 5G (bench/results/id-dictionary/20261126T042659Z-c0d7f248bb47.jsonl). (~20 min, ~45 GB disk).
 - #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
-- #44 edge-map (merged as PR #202): `everygraph-bench run edge-map --official --data /home/tux/graphlab/data` (~15 min, estimate); closes #44 when the ≤ 5% overhead and compressed ≤ 1.0× raw criteria hold.
+- #44 edge-map: official 05:30 run — lab and raw/stream rows ok (raw ÷ lab at 16 threads: PageRank f32 1.02, f64 1.02, BFS 1.03, WCC 1.13 with the proof WCC; at 1 thread 0.97–1.00), compressed/mmap cases failed on a store path shared with codec.toml (fixed in PR #224); re-run only those: `everygraph-bench run edge-map --official --data /home/tux/graphlab/data --only source=compressed --only source=mmap`. Was: `everygraph-bench run edge-map --official --data /home/tux/graphlab/data` (~15 min, estimate); closes #44 when the ≤ 5% overhead and compressed ≤ 1.0× raw criteria hold.
 - #35 build (PR #215, after merge): `everygraph-bench run build --official --data /home/tux/graphlab/data` (~30 min, estimate; Friendster needs a 40 GB limit).
 - #172 mmap hints / block cache (PR #221, merged): six `everygraph-bench run mmap-hints --official --only …` cases, ~3.5 h total, 44 GiB available needed — too long for one night window; run as its own window. Exploratory: MADV_RANDOM cuts bytes read 0.16× (layout 16G) and 0.08–0.15× (Leiden local moving 4–8G); harmful when the graph fits (32G: 8.7× more bytes). ADR 0029 (proposed, PR #222 merged): accepted after this official run.
 - #47/#49 PageRank family and traversals (PR #220, after review): `everygraph-bench run kernels --official --data /home/tux/graphlab/data` (~25 min + the Friendster store once; GAP rows need the network once).
 - #48/#50 components and k-core (PR #218, after review): `everygraph-bench run components-kcore --official --data /home/tux/graphlab/data` (~50 min, estimate; Friendster/twitter-sym rows at 40G).
 - #18 deterministic Leiden (PR #208, merged): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
-- #34 build-500m after PR #203: `everygraph-bench run id-dictionary --official --only build-500m`.
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
 
 ## Needs the owner's hands (nothing here blocks development)
@@ -98,6 +97,8 @@ Tell the owner when each becomes due, with everything prepared.
 
 - 2026-11-26 02:54 self-check: the main slowdown tonight is serial review rounds on product PRs (author waits for review, reviewer waits for CI, author waits for review again; #170 took three rounds). Mitigation: send both reviews' findings to the author in one message, and skip a further round when no must-fix touches correctness. Second cause: a commit without Signed-off-by after the DCO check was turned on; agents now get the sign-off rule in their brief.
 - 2026-11-26 03:54 self-check: load average 45 on 32 hardware threads with about nine code agents (kernels ×2, allocator, results cache, columns fixes, verify fixes, mmap experiment, LDBC, one review). CPU, not the network, is now the limit: more compiling agents would slow all of them. Rule of thumb for this machine: at most about 8 agents that compile at once (with `CARGO_BUILD_JOBS=6`), research and reviews on top.
+- 2026-11-26 05:15: a 2.5-hour window idles every code agent (seven had their fixes written and waited to compile). Split long windows: run the short official cases first, let agents build and push, then run the long ones (det-leiden, mmap-hints) in a second window when few agents compile.
+- 2026-11-26 05:54 self-check: after the window the machine fell to load 1.6 with four authors waiting on CI and two new agents starting — idle capacity again. Cause: every stream had reached a CI or review wait at once. Mitigation: keep a queue of ready experiments (M1 issues that need no merge) to start whenever load drops; started #23 and #175.
 ## Journal
 
 - **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner
