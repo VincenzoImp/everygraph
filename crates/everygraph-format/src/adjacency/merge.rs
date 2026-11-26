@@ -22,7 +22,7 @@ const GRAIN: usize = 1 << 12;
 const PURPOSE: &str = "merged adjacency";
 
 fn refused(e: InsufficientBudget) -> EncodeError {
-    EncodeError::OutOfMemory { bytes: e.needed }
+    EncodeError::Budget(e)
 }
 
 fn to_usize(x: u64) -> usize {
@@ -40,8 +40,8 @@ fn to_usize(x: u64) -> usize {
 ///
 /// [`EncodeError::Offsets`] if the two do not have the same nodes;
 /// [`EncodeError::Decode`] for records that do not decode; [`EncodeError::NotIncreasing`]
-/// for a list that does not increase; [`EncodeError::OutOfMemory`] if something does
-/// not fit `memory`.
+/// for a list that does not increase; [`EncodeError::Budget`] if something does not fit
+/// the budget of `memory`, [`EncodeError::OutOfMemory`] if it cannot be allocated.
 ///
 /// # Panics
 ///

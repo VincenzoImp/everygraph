@@ -23,11 +23,11 @@ use std::num::NonZeroUsize;
 use everygraph_core::{
     AccessHint, ExactSum, MAX_ALLOCATION_BYTES, Storage, StorageKind, SystemMemory, math,
 };
-use everygraph_format::adjacency::Batch;
+use everygraph_format::adjacency::{Batch, index_bytes_bound};
 
-use super::{Estimate, Graph, Regime, Tier};
+use super::{Estimate, Graph, InLists, Regime, Tier};
 use crate::edge_map::{CompressedStream, Error, FRONTIER_GRAIN, RawCopy, Settings};
-use crate::run::{Operation, Precision};
+use crate::run::{self, Operation, Precision, Weight};
 
 // ---- The constants of the model, with their sources ------------------------------
 //
@@ -75,6 +75,11 @@ const BFS_SPEEDUP: f64 = 10.4;
 /// Speedup of the decode from 1 to 16 threads: 0.167 s against 0.046 s, into arrays
 /// already allocated (exploratory).
 const DECODE_SPEEDUP: f64 = 3.6;
+/// Passes over the entries that strong components take, and that the merge of an
+/// undirected projection takes (two, each decoding both lists): placeholders of the
+/// model, not measurements.
+const SCC_PASSES: f64 = 4.0;
+const MERGE_PASSES: f64 = 2.0;
 /// Sequential read rate of the lab's `NVMe` drive, bytes per second (FINDINGS § B1:
 /// Friendster streamed at 3.9 GB/s). For other storage, placeholders of the model, not
 /// measurements.
@@ -96,6 +101,8 @@ const SMALLEST_LIST: u64 = 2 * 4 * 4;
 /// A degree at which k-core samples its hubs and holds two more arrays (`kcore.rs`,
 /// `Sampler::min_degree`).
 const KCORE_SAMPLED_DEGREE: u32 = 20_000;
+/// Nodes per task of a merge and of the union degrees (`adjacency/merge.rs`, `GRAIN`).
+const MERGE_GRAIN: u64 = 1 << 12;
 
 // ---- Memory -------------------------------------------------------------------------
 
@@ -131,46 +138,88 @@ pub(super) struct Cost {
     pub raw: u64,
     /// Bytes of the result kept in the graph file.
     pub output: u64,
+    /// The undirected projection merged in memory, held beside the kernel's state.
+    pub projection: u64,
+    /// The most the merge of the projection holds, before the kernel starts.
+    pub merging: u64,
+    /// Bytes of the compressed data parts the run reads from the file.
+    pub data: u64,
+    /// Entries the kernel reads in a pass.
+    pub entries: u64,
+    /// Whether [`peak`](Self::peak) bounds what the run reserves.
+    pub bounded: bool,
 }
 
 impl Cost {
     /// The cost of `op` on `graph` on `threads` threads, reading `tier`.
-    pub fn of(op: &Operation, graph: &Graph, threads: NonZeroUsize, tier: Tier) -> Self {
+    pub fn of(op: &Operation<'_>, graph: &Graph, threads: NonZeroUsize, tier: Tier) -> Self {
+        if let Some(inn) = graph.inn.filter(|_| graph.directed && run::projects(op)) {
+            return Self::projected(op, graph, inn, threads);
+        }
         let n = u64::from(graph.nodes);
+        // On the compressed lists, everything but weak components reads the in-lists
+        // of a directed graph that has them: a search steps bottom-up along them.
+        let inn = graph.inn.filter(|_| {
+            graph.directed
+                && tier == Tier::Compressed
+                && !matches!(op, Operation::Components { strong: false })
+        });
         let set = node_set_bytes(graph.nodes);
         // A reader per task running at once: the tasks of a scan hold `chunk_entries`
         // entries each but the last, and a frontier runs in pieces of
         // `FRONTIER_GRAIN` nodes.
         let tasks = graph.entries / Settings::default().chunk_entries.max(1) + 1;
         let pieces = match op {
-            Operation::Bfs { .. } | Operation::KCore => n.div_ceil(FRONTIER_GRAIN as u64),
+            Operation::Bfs { .. } | Operation::KCore | Operation::Components { strong: true } => {
+                n.div_ceil(FRONTIER_GRAIN as u64)
+            }
             _ => 0,
         };
         let workers = (threads.get() as u64).min(tasks.max(pieces).max(1));
+        // A plan of the out-lists and one of the in-lists each keep their readers.
         let reader = match tier {
-            Tier::Compressed => reader_bytes(graph),
+            Tier::Compressed => {
+                reader_bytes(graph, graph.max_degree)
+                    + inn.map_or(0, |i| reader_bytes(graph, i.max_degree))
+            }
             Tier::Raw => 0,
         };
+        let mut bounded = true;
+        let mut buffers = 0;
         let raw = match tier {
             Tier::Compressed => 0,
             Tier::Raw => 8 * (n + 1) + 4 * graph.entries,
         };
         let (phase, access, per_node, sets, readers, output) = match *op {
             // Strengths (f64), the set of nodes with a kept loop, and three rank arrays
-            // (`pagerank::pagerank`); the result is one of them.
-            Operation::PageRank { precision, .. } => {
+            // (`pagerank::pagerank`); the result is one of them. Counted edges are one
+            // f64 per entry of each list it reads.
+            Operation::PageRank {
+                precision, weight, ..
+            } => {
                 let f = match precision {
                     Precision::Full => 8,
                     Precision::Low => 4,
                 };
-                ("pagerank", Access::Scan, 8 + 3 * f, set, 1, f * n)
+                let weights = match weight {
+                    Weight::Edges => 8 * graph.entries * (1 + u64::from(inn.is_some())),
+                    Weight::Pairs => 0,
+                };
+                ("pagerank", Access::Scan, 8 + 3 * f, set + weights, 1, f * n)
             }
             // At numbering, the labels, the sizes by node and the numbers (4 bytes each),
             // and per component a root (8), a size (4) and a count by size (4, up to the
             // largest): `12 c + 4 (largest + 2)`, at most `12 n + 12` since a graph of
             // `c` components has one of at most `n + 1 - c` nodes; and the roots' offsets,
             // two words per range of 2^14 nodes and one more (`components::number`).
-            Operation::Components => {
+            // The parts (8), the parent cells (4) and the batch of each node (1), the two
+            // searches of the first round at once (as BFS below, 2 × 32), and four node
+            // sets, beside the set of pairs found, which this model does not bound.
+            Operation::Components { strong: true } => {
+                bounded = false;
+                ("components", Access::Mixed, 77, 4 * set, 1, 4 * n)
+            }
+            Operation::Components { strong: false } => {
                 let ranges = n.div_ceil(1 << 14);
                 (
                     "components",
@@ -203,22 +252,26 @@ impl Cost {
                     4 * n,
                 )
             }
-            // One column; a directed graph's out-degrees come from the index alone.
-            Operation::Degrees => (
-                "degrees",
-                Access::Scan,
-                4,
-                0,
-                u64::from(!graph.directed),
-                4 * n,
-            ),
+            // One column; a directed graph's out- and in-degrees come from the indexes
+            // alone, and its degrees from the union of each node's two lists, which a
+            // task at a time holds on each thread (`union_degrees`).
+            Operation::Degrees if graph.directed => match inn {
+                Some(i) => {
+                    let tasks = n.div_ceil(MERGE_GRAIN).max(1);
+                    buffers = (threads.get() as u64).min(tasks) * union_lists(graph, i);
+                    ("degrees", Access::Scan, 12, 0, 0, 12 * n)
+                }
+                None => ("degrees", Access::Scan, 4, 0, 0, 4 * n),
+            },
+            Operation::Degrees => ("degrees", Access::Scan, 4, 0, 1, 4 * n),
             // Distances and parents (8), the next and the bottom-up set; the frontier of
             // the largest level `m` with its move (8 m) and the counts of `l` levels with
             // their move (24 l, a vector that doubles): `m + l <= n + 1`, so 24 (n + 1)
             // at most, with the least of a list on a small graph. The two result columns
             // (8) come beside the state when the frontiers are gone.
             Operation::Bfs { .. } => {
-                let sets = if graph.directed { set } else { 2 * set } + 24 + SMALLEST_LIST;
+                let bottom_up = !graph.directed || inn.is_some();
+                let sets = if bottom_up { 2 * set } else { set } + 24 + SMALLEST_LIST;
                 ("bfs", Access::Mixed, 32, sets, 1, 0)
             }
         };
@@ -242,22 +295,75 @@ impl Cost {
             threads,
             per_node,
             sets: sets + partials,
-            buffers: readers * workers * reader,
-            readers: readers * workers,
+            buffers: buffers + readers * workers * reader,
+            readers: readers * workers * (1 + u64::from(inn.is_some())),
             raw,
             output,
+            projection: 0,
+            merging: 0,
+            data: graph.data_bytes + inn.map_or(0, |i| i.data_bytes),
+            entries: graph.entries,
+            bounded,
         }
     }
 
-    /// The state: the per-node arrays, the sets and the raw copy.
+    /// The cost of `op` on the undirected projection of the directed `graph`, whose
+    /// in-adjacency is `inn`: the merge (`adjacency::merge`), then the kernel on what it
+    /// made. A list of the projection holds at most the entries of the node's two
+    /// lists, so at most their entries and their longest lists together. A record codes
+    /// its first entry from the node and each other entry as a gap from the one before
+    /// it (`docs/spec/eg-adjacency.md` § 1). In the union every entry keeps a gap no
+    /// longer than in its own list, but one: the first entry of the list that starts
+    /// later becomes a gap from an entry of the other list, at most 4 bytes where it
+    /// took at least 1. So the projection's data is at most both data parts and 3 bytes
+    /// a node.
+    fn projected(op: &Operation<'_>, graph: &Graph, inn: InLists, threads: NonZeroUsize) -> Self {
+        let n = u64::from(graph.nodes);
+        let both = Graph {
+            entries: 2 * graph.entries,
+            data_bytes: graph.data_bytes + inn.data_bytes + 3 * n,
+            max_degree: graph.max_degree.saturating_add(inn.max_degree),
+            directed: false,
+            kept: false,
+            held: 0,
+            opened: 0,
+            inn: None,
+            ..graph.clone()
+        };
+        let undirected = op.undirected();
+        let kernel = Self::of(&undirected, &both, threads, Tier::Compressed);
+        let index = index_bytes_bound(n, both.entries, both.data_bytes).unwrap_or(u64::MAX);
+        let tasks = n.div_ceil(MERGE_GRAIN).max(1);
+        // The entry and byte offsets (16 per node), the data, the index while it is
+        // built, and a task's three lists on each thread; then the data, the index, and
+        // its parse beside it (`run::project`).
+        let merging = 16 * (n + 1)
+            + both.data_bytes
+            + index
+            + (threads.get() as u64).min(tasks) * union_lists(graph, inn);
+        Self {
+            projection: both.data_bytes.saturating_add(index.saturating_mul(3)),
+            merging,
+            data: graph.data_bytes + inn.data_bytes,
+            ..kernel
+        }
+    }
+
+    /// The state: the per-node arrays, the sets, the raw copy and the projection.
     pub fn state(&self) -> u64 {
-        self.nodes * self.per_node + self.sets + self.raw
+        self.nodes * self.per_node + self.sets + self.raw + self.projection
     }
 
     /// The most the run reserves: the smallest budget that fits (P-14).
     pub fn peak(&self) -> u64 {
-        self.state() + self.buffers
+        (self.state() + self.buffers).max(self.merging)
     }
+}
+
+/// The most one task of a merge holds for a node: both its lists and their union, with
+/// the decoders' slack (`adjacency/merge.rs`, `unions`).
+fn union_lists(graph: &Graph, inn: InLists) -> u64 {
+    (u64::from(graph.max_degree) + u64::from(inn.max_degree)) * 8 + 32
 }
 
 /// `cost` with the readers of a stream (`CompressedStream`, the streamed regime) in place
@@ -293,16 +399,17 @@ fn node_set_bytes(n: u32) -> u64 {
     (words + words.div_ceil(64)) * 8
 }
 
-/// The most one decode reader of the framework holds (`source.rs`, `DecodeReader`): its
-/// usual batch and, while it grows for a long list, the new buffer beside the old, each
-/// with the ends of up to a block's lists.
-fn reader_bytes(graph: &Graph) -> u64 {
+/// The most one decode reader of the framework holds (`source.rs`, `DecodeReader`) on
+/// lists of `graph` whose longest has `max_degree` entries: its usual batch and, while
+/// it grows for a long list, the new buffer beside the old, each with the ends of up to
+/// a block's lists.
+fn reader_bytes(graph: &Graph, max_degree: u32) -> u64 {
     // The decoders' slack (`decode.rs`, `SLACK`).
     const SLACK: usize = 3;
     // A batch holds no more entries than the graph has.
     let entries = usize::try_from(graph.entries).unwrap_or(usize::MAX);
     let usual = Settings::default().batch_entries.min(entries) + SLACK;
-    let longest = usual.max((graph.max_degree as usize).min(entries) + SLACK);
+    let longest = usual.max((max_degree as usize).min(entries) + SLACK);
     let lists = (block_nodes(graph.nodes) as usize).max(FRONTIER_GRAIN);
     (Batch::bytes_for(usual, lists) + Batch::bytes_for(longest, lists)) as u64
 }
@@ -385,17 +492,16 @@ fn model(value: f64, high: f64) -> Estimate {
     }
 }
 
-/// The time of `op` with `cost` on `graph`, in `regime` under `budget`: the kernel's
-/// work, and in the mapped regime the reads of what the page cache cannot keep.
+/// The time of `op` with `cost`, in `regime` under `budget`: the kernel's work, and in
+/// the mapped regime the reads of what the page cache cannot keep.
 pub(super) fn seconds(
-    op: &Operation,
+    op: &Operation<'_>,
     cost: &Cost,
-    graph: &Graph,
     regime: Regime,
     budget: u64,
     storage: Option<Storage>,
 ) -> Estimate {
-    let entries = to_f64(graph.entries);
+    let entries = to_f64(cost.entries);
     let raw = cost.raw > 0;
     let (per_entry, speedup, passes, most) = match *op {
         Operation::PageRank { params, .. } => {
@@ -413,16 +519,19 @@ pub(super) fn seconds(
                 passes(params.max_iter),
             )
         }
-        Operation::Components => (COMPONENTS_PER_ENTRY, COMPONENTS_SPEEDUP, 2.0, 2.0),
+        Operation::Components { strong: false } => {
+            (COMPONENTS_PER_ENTRY, COMPONENTS_SPEEDUP, 2.0, 2.0)
+        }
+        Operation::Components { strong: true } => {
+            (BFS_PER_ENTRY, BFS_SPEEDUP, SCC_PASSES, SCC_PASSES)
+        }
         Operation::KCore => (KCORE_PER_ENTRY, KCORE_SPEEDUP, 1.0, 1.0),
         Operation::Degrees => (PAGERANK_PER_ENTRY, PAGERANK_SPEEDUP, 1.0, 1.0),
         Operation::Bfs { .. } if raw => (BFS_RAW_PER_ENTRY, BFS_SPEEDUP, 1.0, 1.0),
         Operation::Bfs { .. } => (BFS_PER_ENTRY, BFS_SPEEDUP, 1.0, 1.0),
     };
     let work = |passes: f64| on_threads(entries * per_entry * passes, cost.threads, speedup);
-    let uncached = graph
-        .data_bytes
-        .saturating_sub(budget.saturating_sub(cost.peak()));
+    let uncached = cost.data.saturating_sub(budget.saturating_sub(cost.peak()));
     let reads = |passes: f64| match regime {
         Regime::Mapped | Regime::Streamed if !raw => to_f64(uncached) * passes / read_rate(storage),
         _ => 0.0,
@@ -443,6 +552,17 @@ fn read_rate(storage: Option<Storage>) -> f64 {
 pub(super) fn decode_seconds(graph: &Graph, threads: NonZeroUsize) -> Estimate {
     let s = on_threads(
         to_f64(graph.entries) * DECODE_PER_ENTRY,
+        threads,
+        DECODE_SPEEDUP,
+    );
+    model(s, s)
+}
+
+/// The time to merge the undirected projection of the directed `graph` on `threads`
+/// threads: passes that decode both lists.
+pub(super) fn merge_seconds(graph: &Graph, threads: NonZeroUsize) -> Estimate {
+    let s = on_threads(
+        to_f64(2 * graph.entries) * DECODE_PER_ENTRY * MERGE_PASSES,
         threads,
         DECODE_SPEEDUP,
     );

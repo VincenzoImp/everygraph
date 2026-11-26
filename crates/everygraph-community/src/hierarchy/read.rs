@@ -121,16 +121,7 @@ impl<'f, S: ByteSource> Hierarchy<'f, S> {
 
     /// Part `name`, holding values of type `T`.
     fn typed<T: Value>(&self, name: &str) -> Result<StoredResult<'f, S>, HierarchyError> {
-        let p = self
-            .file
-            .result_part(&self.root, name)?
-            .ok_or_else(|| HierarchyError::Invalid(format!("the part {name} is missing")))?;
-        if p.value_type() != T::TYPE {
-            return Err(HierarchyError::Invalid(format!(
-                "the part {name} holds values of another type"
-            )));
-        }
-        Ok(p)
+        typed::<T, S>(self.file, &self.root, name)
     }
 
     /// Part `name`, read whole into a column.
@@ -139,11 +130,7 @@ impl<'f, S: ByteSource> Hierarchy<'f, S> {
         memory: &Memory,
         name: &str,
     ) -> Result<Column<T>, HierarchyError> {
-        let p = self.typed::<T>(name)?;
-        let len = usize::try_from(p.len()).map_err(|_| invalid("a part too large"))?;
-        let mut out = Column::new(memory, "hierarchy part", len, |_| T::default())?;
-        p.read(0, &mut out)?;
-        Ok(out)
+        column(self.file, &self.root, memory, name)
     }
 
     /// The number of levels; level 1 is the coarsest, the partition.
@@ -345,46 +332,86 @@ impl<'f, S: ByteSource> Hierarchy<'f, S> {
     /// the adjacency format or the level; as [`count`](Self::count).
     pub fn quotient(&self, level: u32) -> Result<StoredQuotient<'f>, HierarchyError> {
         let count = self.count(level)?;
-        let bytes = |suffix: &str, kind: Kind| -> Result<Option<&'f [u8]>, HierarchyError> {
-            let name = part(level, &format!("{QUOTIENT}.{suffix}"));
-            let Some(e) = self.file.result_part_entry(&self.root, &name) else {
-                return Ok(None);
-            };
-            if e.kind != kind {
-                return Err(HierarchyError::Invalid(format!(
-                    "{name} is of kind {}",
-                    e.kind.code()
-                )));
-            }
-            self.file
-                .source()
-                .slice(e.offset..e.offset + e.len)
-                .map(Some)
-                .ok_or_else(|| invalid("the file is not in memory"))
-        };
-        let missing = || invalid("a quotient graph is missing");
-        let index = AdjacencyIndex::parse(
-            bytes("index", Kind::RESULT_ADJACENCY_INDEX)?.ok_or_else(missing)?,
-        )?;
-        let data = bytes("data", Kind::RESULT_ADJACENCY_DATA)?.ok_or_else(missing)?;
-        let events = match (
-            bytes("events", Kind::RESULT_ADJACENCY_EVENTS)?,
-            index.has_events(),
-        ) {
-            (Some(b), _) => Some(AdjacencyEvents::parse(b, &index)?),
-            (None, false) => None,
-            (None, true) => return Err(missing()),
-        };
-        if index.nodes() != count {
-            return Err(invalid("a quotient graph of another size than its level"));
-        }
-        Adjacency::new(&index, data)?;
-        Ok(StoredQuotient {
-            index,
-            data,
-            events,
-        })
+        adjacency(self.file, &self.root, &part(level, QUOTIENT), count)
     }
+}
+
+/// Part `name` of the result `root`, holding values of type `T`.
+pub(crate) fn typed<'f, T: Value, S: ByteSource>(
+    file: &'f Container<S>,
+    root: &StoredResult<'f, S>,
+    name: &str,
+) -> Result<StoredResult<'f, S>, HierarchyError> {
+    let p = file
+        .result_part(root, name)?
+        .ok_or_else(|| HierarchyError::Invalid(format!("the part {name} is missing")))?;
+    if p.value_type() != T::TYPE {
+        return Err(HierarchyError::Invalid(format!(
+            "the part {name} holds values of another type"
+        )));
+    }
+    Ok(p)
+}
+
+/// Part `name` of the result `root`, read whole into a column.
+pub(crate) fn column<T: Value + Default + Send, S: ByteSource>(
+    file: &Container<S>,
+    root: &StoredResult<'_, S>,
+    memory: &Memory,
+    name: &str,
+) -> Result<Column<T>, HierarchyError> {
+    let p = typed::<T, S>(file, root, name)?;
+    let len = usize::try_from(p.len()).map_err(|_| invalid("a part too large"))?;
+    let mut out = Column::new(memory, "hierarchy part", len, |_| T::default())?;
+    p.read(0, &mut out)?;
+    Ok(out)
+}
+
+/// The adjacency stored as the parts `<name>.index`, `.data` and `.events` of the result
+/// `root` over `count` nodes, read from a file held in memory.
+pub(crate) fn adjacency<'f, S: ByteSource>(
+    file: &'f Container<S>,
+    root: &StoredResult<'f, S>,
+    name: &str,
+    count: u32,
+) -> Result<StoredQuotient<'f>, HierarchyError> {
+    let bytes = |suffix: &str, kind: Kind| -> Result<Option<&'f [u8]>, HierarchyError> {
+        let name = format!("{name}.{suffix}");
+        let Some(e) = file.result_part_entry(root, &name) else {
+            return Ok(None);
+        };
+        if e.kind != kind {
+            return Err(HierarchyError::Invalid(format!(
+                "{name} is of kind {}",
+                e.kind.code()
+            )));
+        }
+        file.source()
+            .slice(e.offset..e.offset + e.len)
+            .map(Some)
+            .ok_or_else(|| invalid("the file is not in memory"))
+    };
+    let missing = || invalid("an adjacency part is missing");
+    let index =
+        AdjacencyIndex::parse(bytes("index", Kind::RESULT_ADJACENCY_INDEX)?.ok_or_else(missing)?)?;
+    let data = bytes("data", Kind::RESULT_ADJACENCY_DATA)?.ok_or_else(missing)?;
+    let events = match (
+        bytes("events", Kind::RESULT_ADJACENCY_EVENTS)?,
+        index.has_events(),
+    ) {
+        (Some(b), _) => Some(AdjacencyEvents::parse(b, &index)?),
+        (None, false) => None,
+        (None, true) => return Err(missing()),
+    };
+    if index.nodes() != count {
+        return Err(invalid("an adjacency of another size than its part"));
+    }
+    Adjacency::new(&index, data)?;
+    Ok(StoredQuotient {
+        index,
+        data,
+        events,
+    })
 }
 
 fn invalid(what: &str) -> HierarchyError {

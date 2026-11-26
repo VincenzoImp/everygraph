@@ -612,7 +612,7 @@ fn a_view_holds_what_it_reserves() {
 /// Every whole-graph kernel runs on an empty view and on a view of one node.
 #[test]
 fn kernels_run_on_empty_and_tiny_views() {
-    use everygraph_kernels::run::{self, Operation};
+    use everygraph_kernels::run::{self, Lanes, Operation};
     let g = square();
     let csr = Csr::new(&g.offsets, &g.targets).unwrap();
     let memory = Memory::unlimited();
@@ -622,8 +622,9 @@ fn kernels_run_on_empty_and_tiny_views() {
             .build(&csr, &memory, Settings::default())
             .unwrap();
         Plan::with(f.view(), &memory, Settings::default(), |plan| {
-            for op in [Operation::Components, Operation::KCore, Operation::Degrees] {
-                let out = run::run(&op, &plan, false, &memory).unwrap();
+            let components = Operation::Components { strong: false };
+            for op in [components, Operation::KCore, Operation::Degrees] {
+                let out = run::run(&op, &Lanes::out(&plan, false), &memory).unwrap();
                 assert_eq!(out.columns.len(), 1);
             }
         });

@@ -2,8 +2,10 @@
 
 //! The native module of the Python package, `everygraph._native` (`PyO3`, abi3; DESIGN
 //! D19). What lives here: graphs opened or built for Python (modules `graph`, `read`),
-//! the kernels called on them with the interpreter released, and results handed over
-//! as Arrow C streams without copying their numeric columns (module `table`).
+//! the whole-graph algorithms planned and run on them with the interpreter released
+//! (`kernels`, through `everygraph_kernels::planner` and `run::execute`), and results
+//! handed over as Arrow C streams without copying their numeric columns (module
+//! `table`).
 //!
 //! The Python package (`python/everygraph`) owns the public API: names, arguments and
 //! their defaults, text forms, progress lines and exceptions (`docs/api-sketch.md` § 3).
@@ -35,6 +37,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(machine_memory, m)?)?;
     m.add_function(wrap_pyfunction!(default_threads, m)?)?;
     m.add_function(wrap_pyfunction!(job_id, m)?)?;
+    m.add_function(wrap_pyfunction!(about, m)?)?;
     Ok(())
 }
 
@@ -55,8 +58,16 @@ fn job_id(parts: Vec<String>) -> String {
     everygraph_ingest::native::job_id(&parts)
 }
 
-/// The threads a call uses by default: the hardware threads this process may use.
+/// A time whose interval is wide, as the step table writes it: "about" and two
+/// significant digits (`docs/ux-contract.md` P-8).
+#[pyfunction]
+fn about(seconds: f64) -> String {
+    everygraph_kernels::planner::about(seconds)
+}
+
+/// The threads a call uses at most by default: the physical cores this process may use
+/// (`docs/api-sketch.md` § 2.4, DESIGN D13); the planner may take fewer.
 #[pyfunction]
 fn default_threads() -> usize {
-    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+    everygraph_io::physical_cores().get()
 }

@@ -23,6 +23,7 @@ from ._errors import (
     Way,
 )
 from ._graph import Graph, open, read
+from ._plan import Plan
 from ._native import __version__
 from ._table import Table
 
@@ -35,6 +36,7 @@ __all__ = [
     "InvalidExpression",
     "InvalidInput",
     "OutputExists",
+    "Plan",
     "Table",
     "TruncatedWarning",
     "UnknownNode",

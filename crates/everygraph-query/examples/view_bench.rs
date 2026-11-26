@@ -40,7 +40,7 @@ use std::time::Instant;
 use everygraph_core::{Memory, par};
 use everygraph_kernels::edge_map::{Csr, Plan, Settings, Source};
 use everygraph_kernels::pagerank::PageRank;
-use everygraph_kernels::run::{self, Column, Operation, Precision};
+use everygraph_kernels::run::{self, Column, Direction, Lanes, Operation, Precision, Weight};
 use everygraph_query::{Predicate, Test, Values, ViewSpec};
 
 /// A little-endian array file of `W`-byte words.
@@ -79,18 +79,20 @@ fn kernel<S: Source>(source: &S, name: &str) -> (f64, u64) {
                 ..PageRank::default()
             },
             precision: Precision::Full,
+            weight: Weight::Pairs,
         },
         "bfs" => Operation::Bfs {
             source: 0,
             max_hops: None,
+            direction: Direction::Out,
         },
-        "cc" => Operation::Components,
+        "cc" => Operation::Components { strong: false },
         other => panic!("unknown kernel {other}"),
     };
     let memory = Memory::unlimited();
     let start = Instant::now();
     let out = Plan::with(source, &memory, Settings::default(), |p| {
-        run::run(&op, &p, false, &memory)
+        run::run(&op, &Lanes::out(&p, false), &memory)
     })
     .expect("the kernel");
     let seconds = start.elapsed().as_secs_f64();

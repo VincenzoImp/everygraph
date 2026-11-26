@@ -17,8 +17,8 @@
 //! numbering is a function of the partition, so a deterministic run (DESIGN D14) gives
 //! every community the same id on every run.
 
-mod check;
-mod read;
+pub(crate) mod check;
+pub(crate) mod read;
 pub(crate) mod write;
 
 use std::error::Error as StdError;
@@ -57,6 +57,16 @@ const QUOTIENT: &str = "quotient";
 ///
 /// None in practice: the names are valid.
 pub fn key(graph: GraphIdentity, options: &Options) -> Result<ResultKey, ContainerError> {
+    leiden_key(graph, OPERATION, VERSION, options)
+}
+
+/// The key of a result of `operation` made from a Leiden run with `options`.
+pub(crate) fn leiden_key(
+    graph: GraphIdentity,
+    operation: &str,
+    version: u32,
+    options: &Options,
+) -> Result<ResultKey, ContainerError> {
     let iterations = match options.iterations {
         Iterations::Fixed(k) => k.to_string(),
         Iterations::Converge { max } => format!("converge {max}"),
@@ -76,8 +86,8 @@ pub fn key(graph: GraphIdentity, options: &Options) -> Result<ResultKey, Contain
     };
     ResultKey::new(
         graph,
-        OPERATION,
-        VERSION,
+        operation,
+        version,
         options.mode == Mode::Deterministic,
     )?
     .with("method", "leiden")?

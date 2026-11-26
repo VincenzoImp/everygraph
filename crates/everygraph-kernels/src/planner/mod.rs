@@ -19,14 +19,21 @@
 //!   graph whose edges do not fit on the threads first chosen is held or streamed on
 //!   fewer; `mapped` when the stream's readers do not fit beside the state on
 //!   any thread count: the edges are read from the map, whose pages the budget never
-//!   counts (`docs/api-sketch.md` § 2.4).
+//!   counts (`docs/api-sketch.md` § 2.4). A stream reads the out-lists only: an
+//!   operation that reads a directed graph's in-lists too is held or mapped.
 //! - **The decode tier** (ADR 0004, condition 5): a BFS of the whole graph reads a raw
 //!   copy of the adjacency, decoded into the budget, once the session has run as many
 //!   traversals on compressed lists as the decode costs ([`break_even`]), and only when
 //!   the copy and the state fit together with a margin. `PageRank`, components, k-core,
 //!   degrees and a BFS cut at a depth always read the compressed lists, as ADR 0004
-//!   rules: there the copy does not repay its decode (#118). A copy the session holds
-//!   counts in every later plan; a plan it does not fit beside drops it first.
+//!   rules: there the copy does not repay its decode (#118). The copy holds the
+//!   out-lists only: a directed graph with in-lists searches on the compressed lists,
+//!   bottom-up steps included, and an operation that reads the in-lists cannot be forced
+//!   onto it. A copy the session holds counts in every later plan; a plan it does not
+//!   fit beside drops it first.
+//! - **The undirected projection** of a directed graph, for core numbers and a search
+//!   in both directions: merged in memory from the out- and in-lists before the kernel
+//!   runs, as a phase of its own (`merging`), and counted in the plan's peak.
 //! - **Threads** (DESIGN D13): the physical cores for the memory-bound kernels of this
 //!   crate, fewer for a small graph, at most what was asked, and fewer again when the
 //!   readers of more threads would not fit.
@@ -38,6 +45,10 @@
 //! - **Access advice per phase** (ADR 0029): `MADV_RANDOM` only for a random-access
 //!   phase whose working set exceeds the budget; a scan resets `MADV_NORMAL`; a graph
 //!   that fits is advised `WillNeed`, so that the map is warm.
+//!
+//! Strong components hold a set of the pairs their searches find, which grows with the
+//! graph's structure: their plan counts the per-node state only, says it is not a bound
+//! ([`Plan::bounded`]), and its refusal names no smallest budget.
 //!
 //! Every choice can be forced ([`Force`]). None changes a result: every source gives
 //! the same bits, for any thread count (DESIGN D14, the edge-map framework's rules),
@@ -56,7 +67,7 @@ use everygraph_core::{AccessHint, Storage, SystemMemory};
 use everygraph_format::adjacency::AdjacencyIndex;
 
 pub use cost::{advice, break_even};
-pub use document::typed;
+pub use document::{about, typed};
 
 use crate::edge_map::{CompressedStream, Settings};
 use crate::run::{self, Operation};
@@ -138,6 +149,18 @@ pub struct Graph {
     /// section whole and parses it, three times its length. A smallest budget below it
     /// cannot open the graph. 0 when the caller does not count the opening.
     pub opened: u64,
+    /// The in-adjacency of a directed graph, when the file holds one.
+    pub inn: Option<InLists>,
+}
+
+/// What the index of a directed graph's in-adjacency says; it has the out-adjacency's
+/// nodes and entries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InLists {
+    /// Bytes of its compressed data part.
+    pub data_bytes: u64,
+    /// The longest list.
+    pub max_degree: u32,
 }
 
 impl Graph {
@@ -158,7 +181,29 @@ impl Graph {
             kept: false,
             held: u64::try_from(index.heap_bytes()).unwrap_or(u64::MAX),
             opened: 0,
+            inn: None,
         }
+    }
+
+    /// The same graph, with `index` as its in-adjacency, whose parsed index the open
+    /// file holds too. Reads the index's degrees once.
+    #[must_use]
+    pub fn with_in(self, index: &AdjacencyIndex) -> Self {
+        Self {
+            inn: Some(InLists {
+                data_bytes: index.data_bytes(),
+                max_degree: index.degrees(0..index.nodes()).max().unwrap_or(0),
+            }),
+            held: self
+                .held
+                .saturating_add(u64::try_from(index.heap_bytes()).unwrap_or(u64::MAX)),
+            ..self
+        }
+    }
+
+    /// Whether the kernels can read the in-lists of this graph.
+    fn has_in(&self) -> bool {
+        self.directed && self.inn.is_some()
     }
 }
 
@@ -237,8 +282,15 @@ pub struct Refusal {
 /// What a plan needs that the budget does not have (P-13).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shortfall {
-    /// The state: per-node arrays, sets and the raw copy.
+    /// All the plan needs: the state, the readers' buffers, and what the open graph and
+    /// the session hold.
     pub needs_bytes: u64,
+    /// The state: per-node arrays, sets, the raw copy and the projection.
+    pub state_bytes: u64,
+    /// What the state is, in words: `per-node state`, and the copy it holds.
+    pub what: &'static str,
+    /// Whether the edges stay on disk, whatever the budget.
+    pub on_disk: bool,
     /// The budget.
     pub budget_bytes: u64,
     /// The exact smallest budget that fits, the state and the readers' buffers (P-14);
@@ -247,7 +299,7 @@ pub struct Shortfall {
     /// The nodes of the arithmetic.
     pub nodes: u64,
     /// The bytes each node needs, rounded down: `nodes × bytes_each` is most of
-    /// `needs_bytes`.
+    /// `state_bytes`.
     pub bytes_each: u64,
 }
 
@@ -291,8 +343,8 @@ pub struct Phase {
 
 /// A plan (ux-contract § 3.2): what an operation will do and cost, or why it cannot.
 #[derive(Clone, Debug)]
-pub struct Plan {
-    op: Operation,
+pub struct Plan<'a> {
+    op: Operation<'a>,
     graph: Graph,
     machine: Machine,
     budget: u64,
@@ -320,6 +372,14 @@ const RAW_STREAMED: &str = "the raw copy is decoded into memory, so it cannot be
 const NO_RAW_COPY: &str = "a raw copy needs its offsets in one segment and every list \
      within one part of at most 1 GiB, and this graph has more nodes or a longer list";
 
+/// Why a forced streamed regime cannot run an operation that reads the in-lists.
+const NO_STREAM_IN: &str = "the streamed regime reads the out-lists only, and on a \
+     directed graph this operation reads the in-lists too";
+
+/// Why a forced raw tier cannot run an operation that reads the in-lists.
+const NO_RAW_IN: &str = "a raw copy holds the out-lists only, and on a directed graph \
+     this operation reads the in-lists too";
+
 /// Decides how `op` runs on `graph` (module documentation). When the plan does not fit
 /// on the threads it would choose, it takes fewer: each holds a reader, and the thread
 /// count never changes a result (DESIGN D14). A refusal names the smallest budget over
@@ -329,12 +389,12 @@ const NO_RAW_COPY: &str = "a raw copy needs its offsets in one segment and every
 ///
 /// A usage error (P-16) when the budget asked for is more than the machine's memory in
 /// all: it is never lowered.
-pub fn plan(
-    op: &Operation,
+pub fn plan<'a>(
+    op: &Operation<'a>,
     graph: &Graph,
     machine: &Machine,
     request: &Request,
-) -> Result<Plan, Box<Refusal>> {
+) -> Result<Plan<'a>, Box<Refusal>> {
     let memory = machine.memory;
     let (budget, budget_from) = match request.memory {
         Some((bytes, from)) => {
@@ -374,12 +434,16 @@ pub fn plan(
             plan = fewer.unwrap_or(plan);
         }
     }
-    if let Some(reason) = run::unsupported(op, graph.directed, graph.nodes) {
+    if let Some(reason) = run::unsupported(op, graph.directed, graph.has_in(), graph.nodes) {
         plan.refusal = Some(document::unsupported(op, reason));
     } else if plan.tier == Tier::Raw && !cost::raw_fits(graph) {
         plan.refusal = Some(document::unsupported(op, NO_RAW_COPY));
+    } else if plan.tier == Tier::Raw && graph.has_in() && run::reads_in(op) {
+        plan.refusal = Some(document::unsupported(op, NO_RAW_IN));
     } else if plan.tier == Tier::Raw && plan.regime == Regime::Streamed {
         plan.refusal = Some(document::unsupported(op, RAW_STREAMED));
+    } else if plan.regime == Regime::Streamed && !streams(op, graph) {
+        plan.refusal = Some(document::unsupported(op, NO_STREAM_IN));
     } else if plan.peak > budget {
         plan.refusal = Some(document::refusal(&plan, first));
     }
@@ -387,14 +451,14 @@ pub fn plan(
 }
 
 /// The plan of `op` on `threads` threads within `budget`, before the refusal.
-fn choose(
-    op: &Operation,
+fn choose<'a>(
+    op: &Operation<'a>,
     graph: &Graph,
     machine: &Machine,
     request: &Request,
     budget: u64,
     threads: NonZeroUsize,
-) -> Plan {
+) -> Plan<'a> {
     let usable = request.held.filter(|h| h.usable);
     let compressed = cost::Cost::of(op, graph, threads, Tier::Compressed);
     let raw = cost::Cost::of(op, graph, threads, Tier::Raw);
@@ -402,6 +466,7 @@ fn choose(
         Some(t) => t,
         None => {
             let wanted = traverses(op)
+                && !graph.has_in()
                 && (usable.is_some() || request.traversals_before >= break_even(threads));
             if wanted
                 && cost::raw_fits(graph)
@@ -435,12 +500,12 @@ fn choose(
     let room = budget.saturating_sub(peak);
     // The edges that do not fit are streamed, when the stream's readers fit; else read
     // from the map, whose pages the budget does not count. The raw copy is in memory.
-    let stream = (tier == Tier::Compressed).then(|| {
+    let stream = (tier == Tier::Compressed && streams(op, graph)).then(|| {
         let (cost, window) = cost::streamed(cost, graph, budget);
         (cost, window, peak_of(&cost))
     });
     let regime = request.force.regime.unwrap_or_else(|| {
-        if tier == Tier::Raw || graph.data_bytes <= room {
+        if tier == Tier::Raw || cost.data <= room {
             Regime::InMemory
         } else if stream.is_some_and(|(_, _, (peak, _))| peak <= budget) {
             Regime::Streamed
@@ -464,7 +529,7 @@ fn choose(
     };
     let advice = request.force.advice.unwrap_or(match tier {
         Tier::Raw => AccessHint::Normal,
-        Tier::Compressed => advice(false, regime, graph.data_bytes, room),
+        Tier::Compressed => advice(false, regime, cost.data, room),
     });
 
     let mut phases = Vec::new();
@@ -476,13 +541,21 @@ fn choose(
             advice: AccessHint::Sequential,
         });
     }
+    if cost.projection > 0 && !graph.kept {
+        phases.push(Phase {
+            name: "merging",
+            kept: false,
+            seconds: cost::merge_seconds(graph, threads),
+            advice,
+        });
+    }
     phases.push(Phase {
         name: cost.phase,
         kept: graph.kept,
         seconds: if graph.kept {
             Estimate::exact(0.0)
         } else {
-            cost::seconds(op, &cost, graph, regime, budget, machine.storage)
+            cost::seconds(op, &cost, regime, budget, machine.storage)
         },
         advice,
     });
@@ -532,10 +605,10 @@ pub enum ViewForm {
 /// How many times `op` reads every list, about: what a materialized view is paid back
 /// by.
 #[must_use]
-pub fn passes(op: &Operation) -> u32 {
+pub fn passes(op: &Operation<'_>) -> u32 {
     match op {
         Operation::PageRank { params, .. } => params.max_iter,
-        Operation::Components | Operation::KCore | Operation::Bfs { .. } => 1,
+        Operation::Components { .. } | Operation::KCore | Operation::Bfs { .. } => 1,
         Operation::Degrees => 0,
     }
 }
@@ -566,14 +639,20 @@ pub fn view_form(passes: u32, nodes: u32, entries: u64, room: u64) -> ViewForm {
     }
 }
 
+/// Whether `op` on `graph` can be streamed: it reads the out-lists alone. On a directed
+/// graph whose file holds its in-lists, everything but weak components reads them too.
+fn streams(op: &Operation<'_>, graph: &Graph) -> bool {
+    !graph.has_in() || matches!(op, Operation::Components { strong: false })
+}
+
 /// Whether `op` is a traversal of the whole graph, which the raw copy speeds up
 /// (ADR 0004). A BFS cut at a depth reads a few lists: it never repays the decode.
 #[must_use]
-pub fn traverses(op: &Operation) -> bool {
+pub fn traverses(op: &Operation<'_>) -> bool {
     matches!(op, Operation::Bfs { max_hops: None, .. })
 }
 
-impl Plan {
+impl<'a> Plan<'a> {
     /// Whether it can run inside the limits.
     #[must_use]
     pub fn fits(&self) -> bool {
@@ -588,7 +667,7 @@ impl Plan {
 
     /// The operation.
     #[must_use]
-    pub fn operation(&self) -> &Operation {
+    pub fn operation(&self) -> &Operation<'a> {
         &self.op
     }
 
@@ -655,10 +734,17 @@ impl Plan {
     }
 
     /// The most memory the run holds: the estimate's peak, an upper bound of what the
-    /// kernel reserves.
+    /// kernel reserves when the plan is [`bounded`](Self::bounded).
     #[must_use]
     pub fn peak_bytes(&self) -> u64 {
         self.peak
+    }
+
+    /// Whether the peak bounds what the run reserves: not for strong components, whose
+    /// set of pairs grows with the graph's structure.
+    #[must_use]
+    pub fn bounded(&self) -> bool {
+        self.cost.bounded
     }
 
     /// Wall time.

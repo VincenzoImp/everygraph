@@ -10,7 +10,6 @@ labels: type:feature, area:viewer, P0, risk:high, size:L, lab-evidence
 - [ ] Per-entity "external weight" indicators instead of thousands of faint lines
 - [ ] On-demand ego edges for the selected node or region from the per-node adjacency section (static) or the engine (live)
 - [ ] Hub handling: degree-capped drawing with an explicit "+k more"
-- [ ] Hierarchical bundling for the selected entity's edges
 - [ ] Shown vs omitted weight displayed for every view
 - [ ] The overview without selection, if {{#m1-06-edge-rendering}} adopts it after its preview under `design/preview/` (added 2026-11-25, `docs/research/sota-maps.md` challenge 5): a reordered matrix of the current parent's children with exact weights; a per-region external-weight glyph; "showing X% of inter-region weight" on the strongest-links layer. Built only to the approved preview and its row in `design/DECISIONS.md`
 
