@@ -821,6 +821,25 @@
   "wcc_raw_cpu_ratio": 0.8941
  },
  {
+  "graph": "twitter-sym",
+  "order": "bp",
+  "bits_per_entry": 14.7641,
+  "data_bits_per_entry": 14.4788,
+  "loggap": 7.5832,
+  "locality_ratio": 0.688,
+  "permute_s": 3.267,
+  "encode_s": 2.427,
+  "svb0124_data_bits_est": 14.224,
+  "order_s": 9713.66,
+  "bv_bits_per_arc": null,
+  "pr_raw_ratio": 0.6161,
+  "pr_raw_cpu_ratio": 0.6054,
+  "bfs_raw_ratio": 0.8039,
+  "bfs_raw_cpu_ratio": 0.7849,
+  "wcc_raw_ratio": 1.4689,
+  "wcc_raw_cpu_ratio": 1.4724
+ },
+ {
   "graph": "friendster",
   "order": "identity",
   "bits_per_entry": 23.1668,

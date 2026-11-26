@@ -89,8 +89,9 @@ hier | 7.0 | 3.27 | 4.74 | 17.32 | +7.6% | 10.53 | 0.807 | — | 18.41
 hier-deg | 10.9 | 2.84 | 2.55 | 17.50 | +8.7% | 10.81 | 0.815 | — | 18.72
 hier-bfs | 47.2 | 2.80 | 2.53 | 17.58 | +9.2% | 10.87 | 0.819 | — | 18.75
 hier-cap64 | 8.2 | 2.75 | 2.84 | 17.94 | +11.5% | 11.23 | 0.836 | — | 19.29
+bp | 9713.7 | 3.27 | 2.43 | 14.76 | -8.3% | 7.58 | 0.688 | — | 14.22
 
-Kernels, B/A: wall ratio / CPU ratio (median of the repetitions). A's median wall seconds across these runs (they vary with the load): pr raw 23.898-33.316, bfs raw 0.193-0.274, wcc raw 0.243-0.428
+Kernels, B/A: wall ratio / CPU ratio (median of the repetitions). A's median wall seconds across these runs (they vary with the load): pr raw 21.907-33.316, bfs raw 0.192-0.274, wcc raw 0.232-0.428
 
 order | PR raw | BFS raw | WCC raw | WCC entries B/A
 --- | --- | --- | --- | ---
@@ -100,6 +101,7 @@ dbg | 1.33 / 0.63 | 0.78 / 0.76 | 0.66 / 0.66 | 1.00
 bfs | 0.78 / 1.07 | 0.49 / 0.53 | 0.59 / 0.59 | 1.00
 hier | 0.74 / 1.18 | 0.92 / 0.94 | 0.88 / 0.90 | 1.00
 hier-cap64 | 0.86 / 1.43 | 1.07 / 0.98 | 0.84 / 0.89 | 1.00
+bp | 0.62 / 0.61 | 0.80 / 0.78 | 1.47 / 1.47 | 1.00
 
 Leiden natural (lab b2, 16 threads): 127.3 s, Q = 0.4755, levels [6766476, 863395, 77476, 14746, 2172]
 
@@ -133,7 +135,7 @@ graph | ratio (input ids) | loggap (input) | best order | bits/e best | gain vs 
 --- | --- | --- | --- | --- | --- | ---
 lj | 0.908 | 10.08 | hier-cap64 | 14.98 | -16.7% | +25.8%
 orkut | 0.962 | 10.35 | bp | 13.92 | -16.4% | +16.0%
-twitter-sym | 0.750 | 9.14 | dbg | 15.59 | -3.1% | +31.3%
+twitter-sym | 0.750 | 9.14 | bp | 14.76 | -8.3% | +31.3%
 friendster | 1.044 | 16.60 | hier | 19.65 | -15.2% | +5.3%
 
 ## Leiden on the graph stored in each order (#146's fifth arm, in RAM, lab b2, 16 threads)

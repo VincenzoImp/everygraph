@@ -1,7 +1,7 @@
 # m1-09: an ordering bake-off (#23, widened by research decision B2)
 
 **Status: exploratory.** Every run here was on a shared machine: other agents were
-compiling, and the 1-minute load was 25 to 57 on 32 hardware threads. No time in this
+compiling, and the 1-minute load was 25 to 75 on 32 hardware threads. No time in this
 directory may be quoted as an absolute number. Sizes (bits, BV bits, log-gap cost) and
 modularity do not depend on load. Kernel times are interleaved A/B ratios in one process
 (A = the graph in its input ids, B = the same graph renumbered), and even those are noisy
@@ -72,14 +72,14 @@ Full tables, with the permute and encode times, are in `summary.txt`.
 |---|---|---|---|---|
 | input ids | 17.99 | 16.64 | 16.09 | 23.17 |
 | random | 22.62 (+25.8%) | 19.30 (+16.0%) | 21.13 (+31.3%) | 24.39 (+5.3%) |
-| dbg | 18.44 (+2.5%) | 16.70 (+0.4%) | **15.59 (−3.1%)** | 21.17 (−8.6%) |
+| dbg | 18.44 (+2.5%) | 16.70 (+0.4%) | 15.59 (−3.1%) | 21.17 (−8.6%) |
 | bfs | 18.34 (+1.9%) | 16.52 (−0.8%) | 17.13 (+6.4%) | 20.81 (−10.2%) |
 | flat (level-0 community) | 17.59 (−2.2%) | 15.63 (−6.1%) | 17.24 (+7.1%) | not run |
 | hier (Leiden DFS) | 15.43 (−14.2%) | 14.61 (−12.2%) | 17.32 (+7.6%) | 19.65 (−15.2%) |
 | hier-deg / hier-bfs | 15.43 / 15.44 | 14.55 / 14.60 | 17.50 / 17.58 | not run |
 | hier-cap64 | **14.98 (−16.7%)** | 14.37 (−13.6%) | 17.94 (+11.5%) | not run |
 | llp | 15.32 (−14.8%) | 14.28 (−14.2%) | not run | not run |
-| bp | 15.73 (−12.5%) | **13.92 (−16.4%)** | not finished (see below) | not run |
+| bp | 15.73 (−12.5%) | **13.92 (−16.4%)** | **14.76 (−8.3%)** | not run |
 
 BV bits per arc (webgraph-cli defaults), lj and orkut only:
 
@@ -108,16 +108,16 @@ two control bits, so a gap of 1 costs 10 bits however good the order. After the 
 orders, 19–24% of the codec words are zero (gap 1) on lj (15.7% on the input ids) and
 12–15% on orkut (3.5%).
 
-**twitter-sym is the exception: its input ids are already a good order.** Every order
-measured except DBG makes it larger: BFS +6.4%, the Leiden DFS +7.6% (natural) and +11.5%
-(cap 64), DBG −3.1%. Its Leiden modularity is low (0.476 natural, 0.356 cap 64, against
-0.61–0.75 on the other graphs), so a community order has little to group. BP on
-twitter-sym did not finish in this session (more than 2.5 hours at 16 threads on the
-loaded machine; it is in the official command).
+**twitter-sym is the exception: its input ids are already a good order.** Only BP
+(−8.3%) and DBG (−3.1%) make it smaller. BFS makes it 6.4% larger, the Leiden DFS 7.6%
+(natural) and 11.5% (cap 64). Its Leiden modularity is low (0.476 natural, 0.356 cap 64,
+against 0.61–0.75 on the other graphs), so a community order has little to group. BP,
+which needs no communities, is the one order that helps, but it took 9,714 s (2.7 h) at
+16 threads on the loaded machine.
 
 **The log-gap cost predicts our bits.** Within each graph, across its orders, the Pearson
 correlation of log-gap cost and codec 0 bits per entry is 0.998 (lj, 15 orders), 0.999
-(orkut, 11), 1.000 (twitter-sym, 9) and 0.998 (Friendster, 5); with BV bits 0.992 (lj)
+(orkut, 11), 1.000 (twitter-sym, 10) and 0.998 (Friendster, 5); with BV bits 0.992 (lj)
 and 0.999 (orkut). So the encoder can rank candidate orders from one pass over the
 permuted lists, without encoding them.
 
@@ -139,13 +139,13 @@ to compute the order; permuting and re-encoding add 0.2–1.3 s (lj, orkut), 5�
 | Leiden natural, then hier | 1.0 + 0.6 | 2.2 + 0.9 | 127 + 7 | 150 + 12 |
 | Leiden cap 64, then hier | 1.3 + 0.8 | 3.2 + 0.4 | 173 + 8 | not run |
 | llp (webgraph-cli) | 64 | 361 | not run | not run |
-| bp (lab) | 74 | 282 | > 9,000, unfinished | not run |
+| bp (lab) | 74 | 282 | 9,714 | not run |
 
 ## Results: the locality score (challenge 7)
 
 | graph | ratio on the input ids | log-gap cost | best order measured | its change | random ids |
 |---|---|---|---|---|---|
-| twitter-sym | 0.750 | 9.14 | dbg | −3.1% | +31.3% |
+| twitter-sym | 0.750 | 9.14 | bp | −8.3% | +31.3% |
 | lj | 0.908 | 10.08 | hier-cap64 | −16.7% | +25.8% |
 | orkut | 0.962 | 10.35 | bp | −16.4% | +16.0% |
 | Friendster | 1.044 | 16.60 | hier (BP not run) | −15.2% | +5.3% |
@@ -160,9 +160,9 @@ What the ratio ranks:
   (twitter-sym < lj < orkut < Friendster) is exactly the order of random's cost (+31%,
   +26%, +16%, +5%).
 - **Whether an order is worth trying, only at the low end.** twitter-sym, the lowest
-  ratio, gains nothing (−3% at best). The other three gain 15–17% with their best order,
-  although their ratios span 0.91–1.04. So the ratio does not predict the size of the gain
-  among them.
+  ratio, gains least (−8.3%, and only from a 2.7-hour BP; −3% from anything cheap). The
+  other three gain 15–17% with their best order, although their ratios span 0.91–1.04.
+  So the ratio does not predict the size of the gain among them.
 
 For the encoder's stats and the planner's `explain()`, the useful pair is the ratio
 (how much locality the ids have) plus the log-gap cost of one cheap candidate (the
@@ -198,6 +198,7 @@ Friendster compressed.
 | twitter-sym | dbg | 1.33 / 0.63 | 0.78 / 0.76 | 0.66 / 0.66 |
 | twitter-sym | bfs | 0.78 / 1.07 | 0.49 / 0.53 | 0.59 / 0.59 |
 | twitter-sym | hier | 0.74 / 1.18 | 0.92 / 0.94 | 0.88 / 0.90 |
+| twitter-sym | bp | 0.62 / 0.61 | 0.80 / 0.78 | 1.47 / 1.47 |
 | Friendster | input (A/A) | 0.97 / 1.01 | 1.04 / 1.01 | 0.95 / 1.00 |
 | Friendster | random | 1.05 / 1.07 | 1.07 / 1.06 | 1.36 / 1.36 |
 | Friendster | dbg | 0.54 / 0.55 | 0.75 / 0.70 | 0.82 / 0.81 |
@@ -212,13 +213,13 @@ effects well above ±10% on both wall and CPU time are read as results:
 
 - **Random ids are slower for every kernel on every graph**: PageRank 1.05–2.08, BFS
   1.07–1.61, WCC 1.09–2.08 (wall and CPU both above 1 in every row).
-- **A locality order speeds PageRank where the input ids are poor**: Friendster 0.54–0.69
-  (dbg, bfs, hier); orkut 0.66–0.81 (hier, llp, bp). On lj it is within noise except LLP
-  (0.81 / 0.87).
+- **A locality order speeds PageRank where it lowers the bits**: Friendster 0.54–0.69
+  (dbg, bfs, hier); orkut 0.66–0.81 (hier, llp, bp); twitter-sym 0.61–0.62 with BP, the
+  one order that shrinks it. On lj it is within noise except LLP (0.81 / 0.87).
 - **BFS order speeds BFS from the hub** (0.31–0.64 on all four graphs).
 - **Afforest WCC is slower on the community-style orders of lj and orkut** (hier, llp,
-  bp: 1.2–2.0), and faster on bfs and dbg, and on the non-random orders of Friendster and
-  twitter-sym. It hands the same number of list entries to its bodies in A and B (within
+  bp: 1.2–2.0) and on BP for twitter-sym (1.47), and faster on bfs and dbg, and on the
+  hierarchy orders of Friendster and twitter-sym. It hands the same number of list entries to its bodies in A and B (within
   1%, `wcc_work.jsonl`), so the extra time is in its union-find links, not in more lists.
   A likely cause, not measured: its two sampling rounds link each node to its first two
   neighbours, which in a community order are in the same community, so the giant
@@ -268,18 +269,22 @@ out-of-core arm (16, 8, 4 GiB) is #146's to run. Leiden times in that file are n
 - **cap 64 or natural hierarchy?** cap 64 is better on lj (−16.7% against −14.2%) and orkut
   (−13.6% / −12.2%), worse on twitter-sym (+11.5% / +7.6%). Ties inside a community (by id,
   degree or BFS position) change at most 0.4% on lj and orkut, and make twitter-sym up to
-  1.5% worse: order by id. The map's hierarchy (cap 64, m1-05) is
-  the one Everygraph computes anyway, so the layout order and the storage order can be the
-  same permutation; the layout I/O half of this issue was not measured here.
-- **BP (#179):** best on orkut (−16.4% codec 0, −29% BV), third on lj (−12.5%, behind the
-  hierarchy DFS and LLP), not finished on twitter-sym in 2.5 hours; 74 s (lj) and 282 s
-  (orkut) at 16 threads on a loaded machine. Deterministic at any thread count, as the
-  issue required. Against the cap-64 hierarchy DFS it is 3 points better on orkut and 5
-  points worse on lj, for 35–80× the time (Leiden included).
-  Recommendation for m2-24: keep it opt-in and lower its priority below a hierarchy-DFS
-  compaction step; build it only if the official run shows BP clearly ahead of the
-  hierarchy DFS on a graph family where Leiden finds little (twitter-sym is that case),
-  and measure its acceptance against the hierarchy DFS, not against the input order.
+  1.5% worse: order by id. The map's hierarchy (cap 64, m1-05) is the one Everygraph
+  computes anyway, so where the gate accepts it the layout order and the storage order can
+  be the same permutation. The layout I/O half of this issue was not measured here.
+- **BP (#179):** best on orkut (−16.4% codec 0, −29% BV) and on twitter-sym (−8.3%, the
+  only order that helps it much), third on lj (−12.5%, behind the hierarchy DFS and LLP).
+  It took 74 s (lj), 282 s (orkut) and 9,714 s (twitter-sym) at 16 threads on a loaded
+  machine. Deterministic at any thread count, as the issue required. Against the cap-64
+  hierarchy DFS it is 3% smaller on orkut, 5% larger on lj and 18% smaller on
+  twitter-sym, for 35–80× the time on lj and orkut (Leiden included) and 54× on
+  twitter-sym. Recommendation for m2-24: keep it, opt-in, as the second compaction order
+  after the hierarchy DFS, for graphs where Leiden finds little (low modularity, or the
+  hierarchy DFS fails the log-gap gate, as on twitter-sym). Its acceptance should compare
+  against the hierarchy DFS, not the input order. Its time is the risk: our lab BP spends
+  most of it in the top levels on hub-heavy graphs (twitter-sym levels 0–7: 6,700 of
+  9,714 s), so m2-24 should budget it and report progress, and measure Mackenzie et al.'s
+  speed-ups before promising minutes.
 - **Default storage order:** the input order, as now (first appearance, m2-07), with the
   hierarchy-DFS compaction as the offered rewrite. Never a random relabelling.
 - **m1-16 (codec 2, 0124):** worth it only after an order: estimated −3 to −4% of data
@@ -297,8 +302,8 @@ out-of-core arm (16, 8, 4 GiB) is #146's to run. Leiden times in that file are n
 - uk-2005: not in the data directory or the registry.
 - LLP on twitter-sym and Friendster (an estimate of 40 minutes or more each from the orkut
   time; the BV graphs would need a 2.4–3.6 billion-line text pipe); BV sizes on those two.
-- BP on twitter-sym (unfinished after 2.5 hours) and Friendster; flat, hier-deg, hier-bfs
-  and the cap-64 hierarchy on Friendster.
+- BP on Friendster (an estimate of 3 hours or more); flat, hier-deg, hier-bfs and the
+  cap-64 hierarchy on Friendster.
 - The layout criterion (Friendster under 16G, the lab layout on hierarchy-ordered ids):
   not run.
 - The production kernels (#218, #220): not merged; the proof kernels were used.
