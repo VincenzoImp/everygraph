@@ -1,0 +1,22 @@
+{
+  "chunk_entries": 65536,
+  "graph": "test-sssp-undirected",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11444224,
+  "rows": [
+    {
+      "algorithm": "sssp",
+      "checked": 12,
+      "examples": [],
+      "graph": "test-sssp-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 3.045e-6,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}

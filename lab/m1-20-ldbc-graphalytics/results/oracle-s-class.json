@@ -1,0 +1,167 @@
+{
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory.",
+  "rows": [
+    {
+      "algorithm": "bfs",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "spec",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 0.087923666,
+      "status": "match"
+    },
+    {
+      "algorithm": "cdlp",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "spec",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 1.504805541,
+      "status": "match"
+    },
+    {
+      "algorithm": "cdlp",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "first-seen",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 2.132941086,
+      "status": "match"
+    },
+    {
+      "algorithm": "lcc",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "spec",
+      "max_rel_error": 3.626938292505113e-16,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 159.066610846,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "spec",
+      "max_rel_error": 1.2051708337068397e-14,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.771075555,
+      "status": "match"
+    },
+    {
+      "algorithm": "sssp",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "spec",
+      "max_rel_error": 3.911998920311946e-16,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.196940595,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 61170,
+      "examples": [],
+      "graph": "dota-league",
+      "implementation": "spec",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.084616642,
+      "status": "match"
+    },
+    {
+      "algorithm": "bfs",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "spec",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 1.1741862730000001,
+      "status": "match"
+    },
+    {
+      "algorithm": "cdlp",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "spec",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 3.8872018109999997,
+      "status": "match"
+    },
+    {
+      "algorithm": "cdlp",
+      "checked": 2396657,
+      "examples": [
+        "0: 530430 vs 17",
+        "1: 530430 vs 17",
+        "2: 530430 vs 17",
+        "5: 530430 vs 17",
+        "6: 530430 vs 17"
+      ],
+      "graph": "graph500-22",
+      "implementation": "first-seen",
+      "max_rel_error": 0.0,
+      "mismatched": 2395176,
+      "rule": "exact",
+      "seconds": 5.121434829,
+      "status": "mismatch"
+    },
+    {
+      "algorithm": "lcc",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "spec",
+      "max_rel_error": 5.544752813529079e-16,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 67.912379204,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "spec",
+      "max_rel_error": 1.9259628590746247e-14,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 3.85343723,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 2396657,
+      "examples": [],
+      "graph": "graph500-22",
+      "implementation": "spec",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.461599159,
+      "status": "match"
+    }
+  ]
+}

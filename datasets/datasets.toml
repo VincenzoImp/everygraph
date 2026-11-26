@@ -11,6 +11,7 @@
 #   name          command-line name: lowercase, digits, '-' and '.'
 #   title         one line, with the source's own name for the graph
 #   family        social | web | road | bipartite | weighted | temporal | directed-social | synthetic
+#                 | conformance
 #   tier          1 = CI (whole tier under ~1 GB), 2 = workstation, 3 = server, optional
 #   directed, weighted, temporal
 #   nodes, edges  as published by the source; `counts_note` says what they count and
@@ -623,6 +624,194 @@ name = "sx-stackoverflow.txt.gz"
 url = "https://snap.stanford.edu/data/sx-stackoverflow.txt.gz"
 size = 529869668
 sha256 = "fc04264de1652bbf91c10eb8ec2465df082fc0aec2012e5f4a8edc6400f0d7a3"
+
+# ---------------------------------------------------------------- LDBC Graphalytics (issue #177)
+# Each archive holds <graph>.properties, <graph>.v, <graph>.e and the reference output of
+# each algorithm, <graph>-<ALGO> (BFS, CDLP, LCC, PR, SSSP, WCC). The oracle's `ldbc`
+# command reads the extracted directory.
+
+[[dataset]]
+name = "ldbc-test"
+title = "LDBC Graphalytics test graphs: example-directed, example-undirected and test-<algorithm>-<directed|undirected>"
+family = "conformance"
+tier = 1
+directed = true
+weighted = true
+temporal = false
+nodes = 212
+edges = 523
+counts_note = "Summed over the fourteen graphs (at most 50 vertices each), from their .properties files and equal to what the reader counted. directed and weighted are true for some of them: each graph's .properties file says which."
+format = "tar.zst per graph: <g>.properties, <g>.v (one vertex id per line), <g>.e ('u v' or 'u v w', space-separated), <g>-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)"
+to_edge_list = "unzstd, untar. <g>.e is the edge list; vertex ids are listed in <g>.v and are not contiguous. Undirected graphs list each edge once."
+page = "https://ldbcouncil.org/benchmarks/graphalytics/datasets/"
+licence = "No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results."
+licence_url = "https://ldbcouncil.org/benchmarks/fair-use-policies/"
+citation = "A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023."
+notes = "The test-* archives were updated on 2023-03-05 (Last-Modified), after the reference-output corrections of March 2023."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "example-directed.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/example-directed.tar.zst"
+size = 1104
+sha256 = "30e0dc9984fcd4334f88eef0f419c8f9d2ff3333403c0d49e2ea062f5c4891b4"
+
+[[dataset.file]]
+name = "example-undirected.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/example-undirected.tar.zst"
+size = 1066
+sha256 = "69eb344d0d8438b6ee971378da3a2b3c623e0930393e2d5777e194091c3999ec"
+
+[[dataset.file]]
+name = "test-bfs-directed.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-bfs-directed.tar.zst"
+size = 504
+sha256 = "70353ffe8aa953edf85d81e238089cfec808d1a2822a69293c7a7493f4c46916"
+
+[[dataset.file]]
+name = "test-bfs-undirected.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-bfs-undirected.tar.zst"
+size = 504
+sha256 = "27c9748ab5c624c64aed3bf48fd937aaf67d480f676c6a4ff41b3822b0ed84f8"
+
+[[dataset.file]]
+name = "test-cdlp-directed.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-cdlp-directed.tar.zst"
+size = 482
+sha256 = "d4d068edefa596dfd13074a8c15baa06d82009240ed42d9af5b260d88c1652d6"
+
+[[dataset.file]]
+name = "test-cdlp-undirected.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-cdlp-undirected.tar.zst"
+size = 475
+sha256 = "0b8bdaed6bda7ecfa5c0d1018192e44dc7e1306f1c9bb20ffcd4a55ba57bc663"
+
+[[dataset.file]]
+name = "test-pr-directed.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-pr-directed.tar.zst"
+size = 1635
+sha256 = "25dbd25c1bf0d9dc55ebdeb4d45299ccacc27c91feccc3e1d448ea8b82342374"
+
+[[dataset.file]]
+name = "test-pr-undirected.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-pr-undirected.tar.zst"
+size = 1380
+sha256 = "49a67b0c1978f47f552f593d7ccc0b2e1bac383e29736efeb43d7e9aba74a9a0"
+
+[[dataset.file]]
+name = "test-lcc-directed.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-lcc-directed.tar.zst"
+size = 490
+sha256 = "523ddca56a5d859c543e8f967c265b3b28637e8c86a0abb44a6a12bf8795a2c1"
+
+[[dataset.file]]
+name = "test-lcc-undirected.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-lcc-undirected.tar.zst"
+size = 468
+sha256 = "c3b8ec5ea1a3f55382a10b23040d1dbf4e626cf8b96439f46d3d1d3f10a43710"
+
+[[dataset.file]]
+name = "test-wcc-directed.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-wcc-directed.tar.zst"
+size = 433
+sha256 = "14d5f462fa9e77823756fc87f4fc85c3d906a4ebaa0ebecac0758ac07819541b"
+
+[[dataset.file]]
+name = "test-wcc-undirected.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-wcc-undirected.tar.zst"
+size = 428
+sha256 = "c3d5f73b02a4a71db55ef0bedea9618dbb01f2429cf7068b1b7e741b00890d26"
+
+[[dataset.file]]
+name = "test-sssp-directed.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-sssp-directed.tar.zst"
+size = 603
+sha256 = "97b6b72184e6137af271dd2f3088aa68452510e08b3cea98da860a378bfa9bb6"
+
+[[dataset.file]]
+name = "test-sssp-undirected.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/test-sssp-undirected.tar.zst"
+size = 625
+sha256 = "908f7b9c12c4a7b3fb0836547b3cd49543448999ed450c575ede88f1149d7306"
+
+[[dataset]]
+name = "ldbc-graph500-22"
+title = "LDBC Graphalytics graph500-22: Graph500 Kronecker generator, scale 22"
+family = "conformance"
+tier = 2
+directed = false
+weighted = false
+temporal = false
+nodes = 2396657
+edges = 64155735
+counts_note = "From the .properties file (meta.vertices, meta.edges), and equal to what the oracle's LDBC reader counted on the .v and .e files."
+format = "tar.zst: graph500-22.properties, graph500-22.v (one vertex id per line), graph500-22.e ('u v' or 'u v w', space-separated), graph500-22-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)"
+to_edge_list = "unzstd, untar. graph500-22.e is the edge list, each undirected edge listed once; vertex ids are listed in graph500-22.v."
+page = "https://ldbcouncil.org/benchmarks/graphalytics/datasets/"
+licence = "No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results."
+licence_url = "https://ldbcouncil.org/benchmarks/fair-use-policies/"
+citation = "A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023."
+notes = "Synthetic (Kronecker, Graph500 scale 22), generated by LDBC and published with reference outputs. Undirected. The .v file lists 2,396,657 of the 2^22 = 4,194,304 vertex ids of scale 22: vertices without edges are not in the data set."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "graph500-22.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/graph500-22.tar.zst"
+size = 212233822
+sha256 = "d88e1cb7ca83a2348a9a90d6796991c0a780ed1e3882bd85e36c50f3346ce074"
+
+[[dataset]]
+name = "ldbc-dota-league"
+title = "LDBC Graphalytics dota-league: Dota 2 league players, edge weight = games played together"
+family = "conformance"
+tier = 2
+directed = false
+weighted = true
+temporal = false
+nodes = 61170
+edges = 50870313
+counts_note = "From the .properties file (meta.vertices, meta.edges), and equal to what the oracle's LDBC reader counted on the .v and .e files."
+format = "tar.zst: dota-league.properties, dota-league.v (one vertex id per line), dota-league.e ('u v' or 'u v w', space-separated), dota-league-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)"
+to_edge_list = "unzstd, untar. dota-league.e is the edge list, each undirected edge listed once; vertex ids are listed in dota-league.v."
+page = "https://ldbcouncil.org/benchmarks/graphalytics/datasets/"
+licence = "No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results."
+licence_url = "https://ldbcouncil.org/benchmarks/fair-use-policies/"
+citation = "A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023."
+notes = "A real weighted graph from the Game Trace Archive, as packaged by LDBC with reference outputs."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "dota-league.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/dota-league.tar.zst"
+size = 119883349
+sha256 = "d83a92574e177b47fbcab951c8c0e1be3bb5674a18f3e7179f772bc60e72cb2d"
+
+[[dataset]]
+name = "ldbc-com-friendster"
+title = "LDBC Graphalytics com-friendster: SNAP com-Friendster, as packaged by LDBC with reference outputs"
+family = "conformance"
+tier = 2
+directed = false
+weighted = false
+temporal = false
+nodes = 65608366
+edges = 1806067135
+counts_note = "From the .properties file (meta.vertices, meta.edges), and equal to what the oracle's LDBC reader counted on the .v and .e files."
+format = "tar.zst: com-friendster.properties, com-friendster.v (one vertex id per line), com-friendster.e ('u v' or 'u v w', space-separated), com-friendster-BFS, -CDLP, -LCC, -PR, -SSSP, -WCC ('id value' per line)"
+to_edge_list = "unzstd, untar. com-friendster.e is the edge list, each undirected edge listed once; vertex ids are listed in com-friendster.v."
+page = "https://ldbcouncil.org/benchmarks/graphalytics/datasets/"
+licence = "No licence stated by LDBC for the data sets (checked on the data-sets page, 2026-11-26). The LDBC fair-use policy applies to results: unaudited numbers must not be called LDBC Benchmark Results."
+licence_url = "https://ldbcouncil.org/benchmarks/fair-use-policies/"
+citation = "A. Iosup et al. The LDBC Graphalytics Benchmark. arXiv 2011.15028, v6, 2023."
+notes = "The same graph as the `com-friendster` entry (SNAP), with LDBC's vertex file and reference outputs. SNAP terms also apply: SNAP asks that the dataset be cited."
+unverified = ["licence"]
+
+[[dataset.file]]
+name = "com-friendster.tar.zst"
+url = "https://datasets.ldbcouncil.org/graphalytics/com-friendster.tar.zst"
+size = 7237160329
+sha256 = "f18cc17419453c68bac5174426ce5ab45c5d6973646c92651553c53b08638e03"
+
 
 # ---------------------------------------------------------------- tier 3: server, optional
 

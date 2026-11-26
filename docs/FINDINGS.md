@@ -1089,3 +1089,95 @@ deterministic mode below 16 GiB; a same-algorithm in-RAM reference for L1 or det
 mode; thread counts other than 16 on Friendster; more than 2 async repetitions per budget;
 weighted inputs (exactness across budgets relies on integer weights); a disk budget (a full
 disk is refused with exit 5, not planned for).
+
+## M1-20 — LDBC Graphalytics as oracle and workload (#177; 2026-11-26, shared machine)
+
+Correctness only: **these are not LDBC Benchmark Results**, and no time below is a
+measurement (shared machine, load average about 20). Code: the oracle module
+`crates/everygraph-oracle/src/ldbc/` (`everygraph-oracle ldbc`), the lab tool
+`lab/m1-20-ldbc-graphalytics` (lab/b1-core kernels); every row is in
+`lab/m1-20-ldbc-graphalytics/results/*.json`, reproduced by its `run.sh`. Data:
+registry datasets `ldbc-test` (14 graphs), `ldbc-graph500-22`, `ldbc-dota-league`,
+`ldbc-com-friendster`, SHA-256 pinned. Match rules of specification v1.0.5 § 2.4: exact
+(BFS, CDLP), equivalence (WCC), `|r − s| ≤ 1e-4 |r|` (PR, LCC, SSSP). 8 threads, 8 GB
+limit unless stated.
+
+| Algorithm | Implementation | Test graphs (14) | graph500-22 | dota-league | com-friendster |
+|---|---|---|---|---|---|
+| all six | `spec` (the specification, written in the oracle) | match (every algorithm each graph lists) | match (five; unweighted, no SSSP) | match (all six) | match: BFS, WCC, PR, CDLP in RAM (20 GB limit); LCC not run |
+| PR | lab PageRank f64 | match (undirected); skipped (directed: cause 1) | match, 2.9e-14 | match, 1.1e-14 | match, 2.9e-14, in RAM and streamed under 8 GB |
+| PR | lab PageRank f32 | match by value, 3.6e-7 (undirected) | match by value, 4.8e-6 | match by value, 1.3e-6 | match by value, 6.5e-6, in RAM and streamed |
+| PR | oracle reference (S1 fixed point) | mismatch on the two example graphs (cause 2); match on test-pr-* | not run (> 2^20 edges) | not run | — |
+| WCC | lab Afforest and stream union-find | match (directed via merged lists) | match | match | match: Afforest and stream in RAM, semi-external under 8 GB |
+| WCC, BFS, SSSP | oracle references | match | not run | not run | — |
+| BFS | lab direction-optimizing BFS | match (undirected); **mismatch** on example-directed (6 of 10) and test-bfs-directed (5 of 10): cause 3 | match | match | match in RAM, and on the mapped CSR under 8 GB |
+| LCC | oracle reference (clustering, S3) | match (undirected); **mismatch** on example-directed and test-lcc-directed (6 of 10 each): cause 4 | not run | not run | — |
+| BFS, WCC, PR | edge-map proof kernels (`everygraph-kernels::proof`, #202): raw arrays and streamed targets, 1 and 8 threads | match; BFS on directed graphs too (all steps top-down there); PR on undirected graphs only (cause 1, ported) | match, the same bits in all four configurations | match, the same bits | not run (the test reads the LDBC text: 26 min) |
+| CDLP | `spec` with labels in first-appearance order | **mismatch** on 3 of 4 graphs (cause 5) | **mismatch**, 2,395,176 of 2,396,657 | match | — |
+
+Causes of every mismatch:
+1. **The lab PageRank needs symmetric lists.** It pulls over the CSR it divides by, so the
+   out-degree and the in-lists are the same array. It cannot run a directed graph.
+2. **Stopping rule, not formula.** LDBC runs a fixed number of iterations (2 on the example
+   graphs); the oracle's reference and S1 (`docs/spec/graph-semantics.md` § 5.1) define the
+   fixed point. The formulas agree: S1 with uniform teleport and sinks spread uniformly
+   equals LDBC's equation 2.3 (the `spec` PageRank run for 300 iterations equals the S1
+   reference within 1e-9 on every generated graph, property test in
+   `crates/everygraph-oracle/tests/ldbc.rs`). A conforming PageRank needs a fixed
+   iteration count with no convergence stop. Oddity: on test-pr-directed (14 iterations)
+   the reference equals the fixed point (relative error 5.9e-16) better than 14 iterations
+   (1.3e-6); on test-pr-undirected (26 iterations) it equals 26 iterations (5.9e-8 against
+   1.2e-5). Both pass the rule.
+3. **The lab BFS assumes symmetric lists.** Its bottom-up step reads a vertex's out-list as
+   if it were its in-list, so on a directed graph it follows edges backwards. A directed
+   bottom-up step needs the in-lists.
+4. **Directed LCC is a different definition.** LDBC counts arcs between neighbours over
+   `|N|(|N| − 1)` (§ 2.3.5); our clustering (S3) uses the undirected projection. On a
+   directed graph LDBC's value lies between half of ours and ours. An LDBC mode needs the
+   arc count per neighbour pair (the `spec` LCC keeps two bits per merged entry).
+5. **CDLP depends on the initial-label order.** With initial labels in order of first
+   appearance in the edge file, ties go elsewhere. The CDLP decision in
+   `design/DECISIONS.md` ("position in the original key order") matches LDBC only if, for
+   integer keys, that order is increasing id order. dota-league matches only because its
+   edge file lists sources in increasing id order.
+
+**PageRank precision.** f32 passes the 1e-4 rule by value on the graphs measured (largest
+relative error 6.5e-6 on com-friendster), but the specification forbids
+single precision outright (§ 2.2.1: "We explicitly do not allow the single precision
+format"). So the f32 default of m3-04 does not qualify, whatever its error.
+
+**Data-set defects found.** test-sssp-undirected and test-wcc-directed (archives of
+2023-03-05) name the vertex file as the edge file in their `.properties`; the reader
+always reads `<g>.v` and `<g>.e` and reports the property.
+
+**com-friendster, the first large-graph references for "the same result for any
+budget".** LDBC's com-friendster is SNAP's graph with the same ids: the CSR built from
+LDBC's files is byte-identical to the lab's CSR of the SNAP file (ids, offsets and the
+3,612,134,270 targets compared with `cmp`). Each lab kernel gave the same bits in RAM
+(CSR read into the heap, 20 GB limit) and under an 8 GB limit with the CSR evicted from
+the page cache first (semi-external PageRank and WCC, BFS on the mapped CSR; peak resident
+8.37 GB including mapped pages, below the 14.4 GB of lists): equal FNV-1a hashes of the
+result bits per kernel, in `lab-com-friendster-heap.json` and
+`lab-com-friendster-stream-8g.json`, and every result matches LDBC. The `spec` and lab
+PageRank f64 differ in their last bits (summation order) and both pass the rule (3.5e-14
+and 2.9e-14). Not run: the `spec` sequential BFS on the mapped CSR under 8 GB, which
+visits lists in queue order; it read 175 GB in 10 minutes without finishing, and was
+killed.
+
+**Proposed `ldbc` profile for m3-11.** CI (every pull request, in the oracle job): the 14
+test graphs, all six algorithms, the `spec` and oracle references, expected outcomes
+pinned in `oracle/ldbc-expected.json`; about 1 s of compute after a 10 kB download.
+Nightly: graph500-22 and dota-league, all six algorithms (about 5 min on the shared
+machine, exploratory: reading 44 s, LCC 225 s, the rest under 15 s; 330 MB download).
+Weekly, or before a release: com-friendster, BFS, WCC, PageRank and CDLP, in RAM and under
+8 GB. On the shared machine, exploratory: reading the 32 GB edge text took 26 min (the
+reader is sequential, so the CSR is built once and kept); the `spec` CDLP took 8–11 min and
+the `spec` PageRank 4–5 min; the lab kernels took seconds to minutes. Each product kernel
+joins the profile by calling `everygraph_oracle::ldbc::run::row` on its result, as the proof
+kernels do in `crates/everygraph-kernels/tests/ldbc.rs` (CI and nightly run it).
+
+**Not done.** LCC on com-friendster (the `spec` LCC would need about 25 GB there, an
+estimate: 14.4 GB of lists and 9 GB of forward lists), and CDLP and PageRank `spec` under
+a budget; SSSP on a large graph other than dota-league; directed graphs
+above the test size (twitter_mpi, cit-Patents, wiki-Talk); the edge-map proof kernels on
+com-friendster; any timing for the record.

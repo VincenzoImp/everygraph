@@ -1,0 +1,142 @@
+{
+  "chunk_entries": 65536,
+  "graph": "example-undirected",
+  "load": "ldbc",
+  "note": "These are not LDBC Benchmark Results. Correctness checks against the LDBC Graphalytics reference outputs; times are exploratory, taken on a shared machine.",
+  "peak_rss_bytes": 11587584,
+  "rows": [
+    {
+      "algorithm": "bfs",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 1.763e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "bfs",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "lab-bfs-do/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 0.000072957,
+      "status": "match"
+    },
+    {
+      "algorithm": "cdlp",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "exact",
+      "seconds": 2.325e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "lcc",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 1.412e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 1.9490049954950144e-16,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 1.392e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "lab-pr-f64/ldbc",
+      "max_rel_error": 1.9490049954950144e-16,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.000051997,
+      "status": "match"
+    },
+    {
+      "algorithm": "pr",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "lab-pr-f32/ldbc",
+      "max_rel_error": 1.151672242038307e-7,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 0.000034585,
+      "status": "match"
+    },
+    {
+      "algorithm": "sssp",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 1.922464111905033e-16,
+      "mismatched": 0,
+      "rule": "epsilon",
+      "seconds": 1.322e-6,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "spec/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 6.82e-7,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "lab-wcc-afforest/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.000033683,
+      "status": "match"
+    },
+    {
+      "algorithm": "wcc",
+      "checked": 9,
+      "examples": [],
+      "graph": "example-undirected",
+      "implementation": "lab-wcc-stream/ldbc",
+      "max_rel_error": 0.0,
+      "mismatched": 0,
+      "rule": "equivalence",
+      "seconds": 0.00001636,
+      "status": "match"
+    }
+  ],
+  "threads": 8
+}
