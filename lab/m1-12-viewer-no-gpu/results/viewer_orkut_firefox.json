@@ -1,0 +1,16 @@
+{
+ "graph": "orkut",
+ "config": "firefox",
+ "target": {
+  "x": 0.6034472584724426,
+  "y": 0.8714883327484131,
+  "nodes": 64,
+  "internal": 1296
+ },
+ "rounds": 3,
+ "frames_per_sample": 20,
+ "note": "exploratory: shared host; compare rows within one table",
+ "browser": "159.0",
+ "no_webgl2": true,
+ "message": "This map needs WebGL 2, and this browser cannot create it here. Graphics acceleration may be turned off, or the browser runs without a display. Turn acceleration on in the browser settings, or open the map in another browser."
+}

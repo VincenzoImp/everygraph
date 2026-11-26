@@ -118,4 +118,5 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - 12:42 sweep skipped on purpose: the Fable coherence pass (PRs #252, #253) went over the plan, rules and documents two hours earlier, and the usage window is the scarce resource. A sweep repeats only after a stretch of merges large enough to drift.
 - Closing #57 and #21 made `check_adrs.py` fail on every open pull request, because ADRs and DESIGN still named them as holding open work. Rule: after each merge that closes an issue, the coordinator runs `board.py sync` and `docs/tools/check_adrs.py` and re-points the citations in the same push.
 - Parallel authors picked the same next issue number (m3-25 to m3-28 three times, m8-12 twice). Rule: a subagent names a proposed issue file `mN-xx-<slug>.md`, and the coordinator gives it its number before the merge.
+- Two pull requests green alone broke `main` together: #270 removed `FileSink::into_file` and #239 added an example that called it (fixed in #276). CI on each push to `main` (#262) caught it within the hour. Before merging a PR that removes or renames a public item, grep the other open PRs for it.
 
