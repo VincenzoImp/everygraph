@@ -22,7 +22,8 @@
     clippy::disallowed_types,
     clippy::disallowed_macros,
     clippy::cast_possible_truncation,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    clippy::print_stderr
 )]
 
 use std::collections::BTreeMap;
@@ -657,5 +658,8 @@ fn damaged_bytes_give_problems_never_a_panic() {
         }
     }
     eprintln!("{found} of {flipped} flips found by the conservation checks alone");
-    assert!(flipped > 1000 && found * 10 > flipped * 9, "{found} of {flipped}");
+    assert!(
+        flipped > 1000 && found * 10 > flipped * 9,
+        "{found} of {flipped}"
+    );
 }
