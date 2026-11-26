@@ -142,11 +142,13 @@ impl Cost {
         let n = u64::from(graph.nodes);
         let set = node_set_bytes(graph.nodes);
         // A reader per task running at once: the tasks of a scan hold `chunk_entries`
-        // entries each but the last, and a frontier runs in pieces of
-        // `FRONTIER_GRAIN` nodes.
+        // entries each but the last, and a frontier runs in runs of `RUN_ENTRIES`
+        // entries or fewer (`runs` below).
         let tasks = graph.entries / Settings::default().chunk_entries.max(1) + 1;
+        let groups = n.div_ceil(FRONTIER_GRAIN as u64) + 1;
+        let runs = 2 * (graph.entries + n) / RUN_ENTRIES as u64 + groups;
         let pieces = match op {
-            Operation::Bfs { .. } | Operation::KCore => n.div_ceil(FRONTIER_GRAIN as u64),
+            Operation::Bfs { .. } | Operation::KCore => runs,
             _ => 0,
         };
         let workers = (threads.get() as u64).min(tasks.max(pieces).max(1));
@@ -238,8 +240,6 @@ impl Cost {
         // entries and nodes, so a frontier of `m` entries is cut into at most
         // `2 (m + n) / RUN_ENTRIES` runs and one more per group (`Plan::cut`).
         if access == Access::Mixed {
-            let groups = n.div_ceil(FRONTIER_GRAIN as u64) + 1;
-            let runs = 2 * (graph.entries + n) / RUN_ENTRIES as u64 + groups;
             let run = size_of::<Option<(u64, Work)>>() + size_of::<Range<usize>>() + 8;
             let group = size_of::<Vec<Range<usize>>>() + size_of::<usize>();
             partials += runs * run as u64 + groups * group as u64;
