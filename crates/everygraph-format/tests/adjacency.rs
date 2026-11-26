@@ -87,6 +87,17 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                     &want[..k.min(want.len())],
                     "{name} node {v} prefix {k}"
                 );
+                // Sized by `prefix_entries`, the decode does not allocate.
+                let mut one = Batch::default();
+                one.reserve(adj.prefix_entries(node, k), 1);
+                let room = one.capacity();
+                adj.decode_prefix(node, k, &mut one).unwrap();
+                assert_eq!(
+                    (one.first(), one.len(), one.capacity()),
+                    (node.get(), 1, room)
+                );
+                assert_eq!(one.list(0), &want[..k.min(want.len())]);
+                assert_eq!(one.targets(), one.list(0));
             }
         }
         // Batches: every block, the whole range, and ranges cut anywhere.
@@ -321,6 +332,11 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Result<Vec<u32>, DecodeError>> {
         out.push(adj.neighbors(id, &mut buf).map(<[u32]>::to_vec));
         for k in [1, 3, 4, 6] {
             out.push(adj.neighbors_prefix(id, k, &mut buf).map(<[u32]>::to_vec));
+            let mut one = Batch::default();
+            out.push(
+                adj.decode_prefix(id, k, &mut one)
+                    .map(|()| one.targets().to_vec()),
+            );
         }
     }
     let mut batch = Batch::default();

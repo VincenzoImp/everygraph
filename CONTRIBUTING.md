@@ -29,6 +29,7 @@ cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-community --target wasm32-unknown-unknown -- -D warnings
 cargo clippy -p everygraph-map --target wasm32-unknown-unknown -- -D warnings
+cargo clippy -p everygraph-query --target wasm32-unknown-unknown -- -D warnings
 RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 cargo deny check                            # offline: cargo deny check bans licenses sources
@@ -295,7 +296,7 @@ describing it).
 | `everygraph-kernels` | the edge-map framework, the kernels, their operations by name (`run`) and the planner that chooses how each runs within its budget | #44, #47–#52, #45 | yes, built and linted in CI |
 | `everygraph-community` | Leiden, the community table and modularity; the map hierarchy | #57, #62, #63 | yes, built and linted in CI |
 | `everygraph-map` | layout, the `.egmap` file format, tile builder | #67–#69 | yes, built and linted in CI |
-| `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
+| `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes, built and linted in CI |
 | `everygraph-cli` | the `everygraph` command | #41 (`verify`), #98 | no |
 | `everygraph-py` | Python bindings | #81, #82 | no |
 | `everygraph-wasm` | browser bindings | #108 | yes, built in CI |

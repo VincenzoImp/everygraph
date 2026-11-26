@@ -515,6 +515,21 @@ fn choose(
     }
 }
 
+/// The tier that point queries (`everygraph-query`) read when the caller keeps a hot
+/// copy: [`Tier::Raw`] when the graph has a raw copy and it fits `budget` beside what the
+/// open file holds, with the margin a whole-graph run keeps; [`Tier::Compressed`]
+/// otherwise. A query reads a few lists, so the copy repays its decode only over many
+/// queries: the caller decides whether to keep one, this decides whether it can.
+#[must_use]
+pub fn hot_tier(graph: &Graph, budget: u64) -> Tier {
+    let raw = 8 * (u64::from(graph.nodes) + 1) + 4 * graph.entries;
+    if cost::raw_fits(graph) && cost::fits_with_margin(graph.held.saturating_add(raw), budget) {
+        Tier::Raw
+    } else {
+        Tier::Compressed
+    }
+}
+
 /// Whether `op` is a traversal of the whole graph, which the raw copy speeds up
 /// (ADR 0004). A BFS cut at a depth reads a few lists: it never repays the decode.
 #[must_use]

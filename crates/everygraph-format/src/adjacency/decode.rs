@@ -413,6 +413,41 @@ impl<'a> Adjacency<'a> {
         Ok(&buf[..k])
     }
 
+    /// Decodes the first `k` neighbours of `v` (all of them if it has fewer) into
+    /// `batch` as its only list, replacing what it held, without decoding the rest of the
+    /// list. The untrusted-input rule of [`neighbors`](Self::neighbors) holds.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeError`] if the record of `v` is corrupt where it was read; the batch is
+    /// then empty.
+    ///
+    /// # Panics
+    ///
+    /// If `v` is not a node of [`nodes`](Self::nodes).
+    pub fn decode_prefix(&self, v: NodeId, k: usize, batch: &mut Batch) -> Result<(), DecodeError> {
+        batch.first = v.get();
+        batch.clear();
+        let d = usize::try_from(self.index.degree(v)).expect("usize has at least 32 bits");
+        let k = k.min(d);
+        grow(&mut batch.targets, k + SLACK);
+        batch.entries = self.prefix(v, d, k, &mut batch.targets)?;
+        batch.ends.entries.push(batch.entries);
+        Ok(())
+    }
+
+    /// The length [`decode_prefix`](Self::decode_prefix) of `v` and `k` grows a batch's
+    /// buffer to: the entries it decodes and the decoders' slack. For [`Batch::reserve`].
+    ///
+    /// # Panics
+    ///
+    /// If `v` is not a node of the index.
+    #[must_use]
+    pub fn prefix_entries(&self, v: NodeId, k: usize) -> usize {
+        let d = usize::try_from(self.index.degree(v)).expect("usize has at least 32 bits");
+        k.min(d) + SLACK
+    }
+
     fn prefix(
         &self,
         v: NodeId,

@@ -32,7 +32,8 @@ use super::{Error, ix};
 
 /// Lists of a graph, read in node order (scans) or by node (frontiers).
 ///
-/// Only the drivers of [`Plan`](super::Plan) call these methods. Each worker holds a
+/// The drivers of [`Plan`](super::Plan) call these methods, and so do the point queries
+/// of `everygraph-query`, which read a few lists by random access. Each worker holds a
 /// [`Reader`](Self::Reader): the buffers that lists are decoded or read into, reserved
 /// against the memory budget. A list comes with its first entry: the entries before it in
 /// node order, which index the graph's per-entry columns (weights, for example).
@@ -44,13 +45,15 @@ use super::{Error, ix};
 ///
 /// - [`nodes`](Self::nodes) returns the same value.
 /// - Every list that [`scan`](Self::scan) and [`lists`](Self::lists) pass to `f`, and
-///   every list that [`list`](Self::list) returns, names only nodes below `nodes()`.
+///   every list that [`list`](Self::list) and [`list_prefix`](Self::list_prefix)
+///   return, names only nodes below `nodes()`.
 /// - That check is made on the memory the list is handed out from, after the last write
 ///   to that memory. A check of other bytes (the file, the map, an earlier read) does
 ///   not count.
 /// - [`scan`](Self::scan) and [`degrees`](Self::degrees) call `filter` and `f` only with
 ///   a `v` in the range `nodes`. [`lists`](Self::lists) calls `f` only with a `v` that
-///   is an element of `nodes`. [`list`](Self::list) returns only for `v < nodes()`.
+///   is an element of `nodes`. [`list`](Self::list) and [`list_prefix`](Self::list_prefix)
+///   return only for `v < nodes()`.
 pub unsafe trait Source: Sync {
     /// Per-worker state: the buffers lists are decoded or read into.
     type Reader: Send;
@@ -130,6 +133,23 @@ pub unsafe trait Source: Sync {
     ///
     /// As [`scan`](Self::scan).
     fn list<'r>(&'r self, reader: &'r mut Self::Reader, v: u32) -> Result<(u64, &'r [u32]), Error>;
+
+    /// The first entry and the first `k` entries of the list of `v`, all of them if it
+    /// has fewer. A source that decodes may stop at `k`; the default reads the whole
+    /// list.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan`](Self::scan).
+    fn list_prefix<'r>(
+        &'r self,
+        reader: &'r mut Self::Reader,
+        v: u32,
+        k: usize,
+    ) -> Result<(u64, &'r [u32]), Error> {
+        let (first, list) = self.list(reader, v)?;
+        Ok((first, &list[..k.min(list.len())]))
+    }
 
     /// Tells the backend that the lists of `nodes` (increasing) will be read soon. Advice
     /// only; the default ignores it.
@@ -563,6 +583,29 @@ impl DecodeReader {
         }
     }
 
+    /// Decodes the first `k` entries of the list of `v` of `adjacency` as the batch's
+    /// only list, and checks it. A batch that fails a check is emptied.
+    pub(super) fn decode_prefix(
+        &mut self,
+        adjacency: &Adjacency<'_>,
+        v: u32,
+        k: usize,
+    ) -> Result<(), Error> {
+        let node = NodeId::new(v);
+        self.make_room(adjacency.prefix_entries(node, k), 1)?;
+        let n = adjacency.index().nodes();
+        let checked = adjacency
+            .decode_prefix(node, k, &mut self.batch)
+            .map_err(Error::from)
+            .and_then(|()| check(&self.batch, v, v + 1, n));
+        if checked.is_err() {
+            self.batch.clear();
+        }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(self.batch.targets().len());
+        checked
+    }
+
     /// Entries per batch, about.
     pub(super) fn max_entries(&self) -> usize {
         self.max_entries
@@ -766,6 +809,17 @@ unsafe impl Source for Compressed<'_> {
 
     fn list<'r>(&'r self, r: &'r mut DecodeReader, v: u32) -> Result<(u64, &'r [u32]), Error> {
         r.decode(&self.adjacency, v..v + 1)?;
+        Ok((self.entry_offset(v), r.only()))
+    }
+
+    fn list_prefix<'r>(
+        &'r self,
+        r: &'r mut DecodeReader,
+        v: u32,
+        k: usize,
+    ) -> Result<(u64, &'r [u32]), Error> {
+        assert!(v < self.n, "node {v} outside the graph");
+        r.decode_prefix(&self.adjacency, v, k)?;
         Ok((self.entry_offset(v), r.only()))
     }
 

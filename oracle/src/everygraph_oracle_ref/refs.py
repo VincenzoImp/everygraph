@@ -120,6 +120,17 @@ def compute(p: Projection, partition, kernel: dict) -> dict[str, dict]:
     n = p.n
     out: dict[str, dict] = {}
 
+    if k == "adjacency":
+        # Sorted neighbours, out-neighbours on a directed graph; a kept loop once.
+        G = to_networkx(p, loops=True)
+        near = G.successors if p.directed else G.neighbors
+        offsets, targets = [0], []
+        for v in range(n):
+            targets.extend(sorted(near(v)))
+            offsets.append(len(targets))
+        out["networkx"] = {"csr": {"offsets": offsets, "targets": targets}}
+        return out
+
     if k in ("degree", "degree_out", "degree_in"):
         loops = p.keep_loops
         G = to_networkx(p, loops=loops)

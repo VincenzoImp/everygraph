@@ -342,18 +342,28 @@ impl<'a> CompressedStream<'a> {
     /// returns the first node not decoded. The window must hold their records
     /// ([`fill`](Self::fill)).
     fn decode(&self, io: &mut Window, nodes: Range<u32>) -> Result<u32, Error> {
+        let window = self.window_of(io.buf.as_slice(), &io.bytes, nodes.clone())?;
+        io.decode.decode(&window, nodes)
+    }
+
+    /// The adjacency of `nodes` alone, over their records in `buf`, which holds the
+    /// bytes `held` of the data part.
+    fn window_of<'w>(
+        &'w self,
+        buf: &'w [u8],
+        held: &Range<u64>,
+        nodes: Range<u32>,
+    ) -> Result<Adjacency<'w>, Error> {
         let bytes = self.index.data_range(nodes.clone());
         let records = if bytes.is_empty() {
             Some(&[][..])
         } else {
-            let at = |x: u64| usize::try_from(x.checked_sub(io.bytes.start)?).ok();
+            let at = |x: u64| usize::try_from(x.checked_sub(held.start)?).ok();
             let (a, b) = (at(bytes.start), at(bytes.end));
-            a.zip(b).and_then(|(a, b)| io.buf.as_slice().get(a..b))
+            a.zip(b).and_then(|(a, b)| buf.get(a..b))
         };
         let records = records.ok_or(Error::Invalid("records outside the read window"))?;
-        let window =
-            Adjacency::window(self.index, nodes.clone(), records).map_err(Error::Format)?;
-        io.decode.decode(&window, nodes)
+        Adjacency::window(self.index, nodes, records).map_err(Error::Format)
     }
 
     /// Calls `f` for each node of `nodes` with its list, in order. Runs of consecutive
@@ -416,7 +426,7 @@ fn usual(window: u64, data_bytes: u64, batch: usize) -> usize {
 }
 
 // SAFETY: every list handed out comes from the reader's batch after `check` accepted it
-// in the same call (`DecodeReader::decode`): the batch holds the lists asked for, they lie
+// in the same call (`DecodeReader::decode` or `decode_prefix`): the batch holds the lists asked for, they lie
 // inside `batch.targets()`, and every target there is below `n`. The index is borrowed,
 // so `n` does not change. `scan` calls `filter` for the nodes of `nodes` and `f` for
 // those that passed; `lists` hands out runs of consecutive elements of `nodes`.
@@ -505,6 +515,21 @@ unsafe impl Source for CompressedStream<'_> {
         let need = self.index.record_range(NodeId::new(v));
         self.fill(&mut r.io, need, |_| 0)?;
         self.decode(&mut r.io, v..v + 1)?;
+        Ok((self.entry_offset(v), r.io.decode.only()))
+    }
+
+    fn list_prefix<'r>(
+        &'r self,
+        r: &'r mut WindowReader,
+        v: u32,
+        k: usize,
+    ) -> Result<(u64, &'r [u32]), Error> {
+        assert!(v < self.n, "node {v} outside the graph");
+        let need = self.index.record_range(NodeId::new(v));
+        self.fill(&mut r.io, need, |_| 0)?;
+        let io = &mut r.io;
+        let window = self.window_of(io.buf.as_slice(), &io.bytes, v..v + 1)?;
+        io.decode.decode_prefix(&window, v, k)?;
         Ok((self.entry_offset(v), r.io.decode.only()))
     }
 
