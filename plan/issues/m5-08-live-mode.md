@@ -7,8 +7,8 @@ labels: type:feature, area:viewer, P1, risk:medium, size:M
 
 **Scope**
 - [ ] `everygraph open graph.eg` starts a server bound to **127.0.0.1 only** by default (binding elsewhere requires an explicit flag and prints a warning) and opens the viewer
-- [ ] Endpoints: tiles, search, neighbours with paging, k-hop with a budget, shortest path, node/edge properties, view definition (filter) → recomputed overlays
-- [ ] Requests carry budgets and timeouts; responses carry "truncated" flags
+- [ ] Endpoints: tiles, search, neighbours with paging, k-hop with a `limit`, shortest path, node/edge properties, view definition (filter) → recomputed overlays
+- [ ] Requests carry `limit` and `timeout`, and the session a `memory` budget ("budget" means memory only, `docs/api-sketch.md` § 2.4, § 7); responses carry "truncated" flags
 - [ ] Same viewer code as static mode, different data source
 - [ ] Authentication token in the URL for multi-user machines
 
@@ -18,4 +18,4 @@ labels: type:feature, area:viewer, P1, risk:medium, size:M
 
 **Depends on** {{#m5-05-viewer-core}}, {{#m7-01-point-queries}}, {{#m7-02-shortest-paths}}
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Same screens as the static viewer (`design/preview/style/``viewer.html`); live mode adds answers the file cannot hold (full neighbourhoods, arbitrary paths, filters). The server prints the line shown in `cli.md` ("Serving on http://127.0.0.1:… (this computer only)").
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Same screens as the static viewer (`design/preview/style/viewer.html`); live mode adds answers the file cannot hold (full neighbourhoods, arbitrary paths, filters). The server prints the line shown in `cli.md` ("Serving on http://127.0.0.1:… (this computer only)").

@@ -19,7 +19,7 @@ labels: type:experiment, area:format, P1, risk:low, size:M, lab-evidence
 - [ ] For the layout ({{#m1-07-layout-area}}, `docs/research/sota-maps.md` challenge 4): Friendster under `MemoryMax=16G`, the lab layout on ids in hierarchy (DFS) order against the original ids. Bytes read and time. In DFS order each parent's members are a contiguous id range and every depth is one sequential pass. The review's arithmetic, an extrapolation: about 8 × 15.5 GB ≈ 124 GB sequential, against 733 GB of random re-reads in the tracer
 
 **Decision it feeds.**
-- Whether `eg` renumbers after community detection by default, and whether the layout order and the storage order should be the same permutation ({{#m2-03-adjacency-codec}}).
+- Whether Everygraph renumbers after community detection by default, and whether the layout order and the storage order should be the same permutation ({{#m2-03-adjacency-codec}}).
 - Whether a deterministic BP ordering is offered as a compaction step ({{#m2-24-bp-ordering}}), never inside promise 1's ingest.
 - The baseline order for block codec 2 ({{#m1-16-codec-0124}}) and for judging the archival tier ({{#m2-20-archival-codec}}).
 - The default against random relabelling in {{#m1-14-relabel-at-ingest}}.

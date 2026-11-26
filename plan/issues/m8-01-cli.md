@@ -8,9 +8,9 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 **Scope**
 - [ ] Verbs: `everygraph ingest`, `everygraph info`, `everygraph run <algorithm>`, `everygraph query`, `everygraph map`, `everygraph open`, `everygraph export`, `everygraph verify`, `everygraph doctor`
 - [ ] Single static binary per platform, no runtime dependencies; also installed by the Python wheel
-- [ ] Global options: `--threads`, `--memory`, `--temp-dir`, `--deterministic/--fast`, `--seed`, `--json`
+- [ ] Shared options as `docs/api-sketch.md` § 5.2 lists them, each on the commands named there: `--threads`, `--memory`, `--temp-dir`, `--dry-run`, `--json`, `--out`, `--overwrite`; `--deterministic/--fast` and `--seed` on `run communities` and `map` only
 - [ ] Preflight printed before long operations, and with `--dry-run`; no `--yes`, since nothing asks ({{#m0-12-ux-contract}} S-4)
-- [ ] Progress with ETA on TTYs; quiet structured logs otherwise; meaningful exit codes. Progress takes the piped form (nothing redrawn, no bars, one line per finished phase) also under `TERM=dumb` and with `--progress=plain`, so a screen reader is not fed redrawn bars (`docs/ux-contract.md` S-10, added 2026-11-25, `docs/research/README.md` H6)
+- [ ] Progress with ETA on TTYs; the plain piped log otherwise, and one document with `--json` (`docs/ux-contract.md` § 9); meaningful exit codes. Progress takes the piped form (nothing redrawn, no bars, one line per finished phase) also under `TERM=dumb` and with `--progress=plain`, so a screen reader is not fed redrawn bars (`docs/ux-contract.md` S-10, added 2026-11-25, `docs/research/README.md` H6)
 - [ ] Error messages that say what to do next (smallest sufficient budget, how to convert gzip, …)
 - [ ] `everygraph doctor`: hardware probe, storage bandwidth probe, cgroup limits, recommended settings
 - [ ] Shell completions; man page
@@ -24,4 +24,4 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 
 **Depends on** M2–M5 features
 
-**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved in `design/preview/cli.md` and typeset in `design/preview/style/``terminal.html`: the command is `everygraph` with no short alias installed; verb-then-thing shape (`everygraph run pagerank FILE`, `everygraph query path FILE A B`); starts without asking; readable tables on a terminal and plain output when piped or with `--json`; restrained colour with automatic no-colour and ASCII fallbacks; the suggested next command in bold; English only for 0.1; `GB` means 10⁹ bytes.
+**Design reference (decided 2026-11-25, `design/DECISIONS.md`).** Approved in `design/preview/cli.md` and typeset in `design/preview/style/terminal.html`: the command is `everygraph` with no short alias installed; verb-then-thing shape (`everygraph run pagerank FILE`, `everygraph query path FILE A B`); starts without asking; readable tables on a terminal and plain output when piped or with `--json`; restrained colour with automatic no-colour and ASCII fallbacks; the suggested next command in bold; English only for 0.1; `GB` means 10⁹ bytes.

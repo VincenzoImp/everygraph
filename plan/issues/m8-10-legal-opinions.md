@@ -3,7 +3,7 @@ title: Professional trademark and freedom-to-operate opinions before going publi
 milestone: M8 · CLI, docs and v0.1 launch
 labels: type:decision, area:launch, P0, risk:high, size:S
 ---
-**Why.** The project's own look-ups (`docs/legal/`) are fact-gathering, not advice, and they found two things only a professional can settle: a pending US trademark application for the identical name and goods (see `docs/legal/name-check.md`), and two granted patents with elements near the tile pyramid (`docs/legal/patent-check.md`). Nothing may be published until both are answered.
+**Why.** The project's own look-ups (`docs/legal/`) are fact-gathering, not advice, and they found two things only a professional can settle: a pending US trademark application for the identical name and goods (see `docs/legal/name-check.md`), and two granted patents with elements near the tile pyramid (`docs/legal/patent-check.md`). The repository is already public: the owner accepted both risks for that (`design/DECISIONS.md`, "When the repository becomes public", 2026-11-25). The answers are still wanted before the first announced release ({{#m8-08-release}}).
 
 **Scope**
 - [ ] Trademark: once the final name is chosen, a clearance search in the US, EU and UK (classes 9 and 42) by a professional, and a filing if advised

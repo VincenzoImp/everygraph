@@ -22,4 +22,4 @@ labels: type:feature, area:community, P0, risk:low, size:M, lab-evidence
 - Reading a community table of 1 M communities takes < 50 ms
 - Friendster map hierarchy: written with memory that does not grow with the number of levels, and its size on disk reported against the tracer's 42.5 GB (`bench/results/tracer/20261125T122609Z-3e764d115d86.jsonl` row 14)
 
-**Pointers.** `--out-hier` in `lab/b2-leiden`; `/data/hier` format in LAB.md.
+**Pointers.** `--out-hier` in `lab/b2-leiden`; its output files are listed in the `files` field the lab writes (`lab/b2-leiden/src/main.rs`).

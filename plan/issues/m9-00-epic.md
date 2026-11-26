@@ -11,6 +11,6 @@ Unscheduled work, ordered by expected value. Each item has lab evidence or a cle
 4. {{#m9-03-gql-subset}} — a query language, by reuse
 5. {{#m9-08-sustainability}} — funding and governance (start early, in parallel)
 6. {{#m6-06-networkx-backend}} — NetworkX compatibility as an adoption channel (deferred from M6)
-6. {{#m9-09-domain-integrations}}, {{#m9-10-statistical-rigor}}
-7. {{#m9-05-gpu-layout}}, {{#m9-06-desktop-app}}, {{#m9-07-u64-ids-server-scale}}
-8. {{#m9-12-dp-map-export}} — research, not before a summary export exists
+7. {{#m9-09-domain-integrations}}, {{#m9-10-statistical-rigor}}
+8. {{#m9-05-gpu-layout}}, {{#m9-06-desktop-app}}, {{#m9-07-u64-ids-server-scale}}
+9. {{#m9-12-dp-map-export}} — research, not before a summary export exists

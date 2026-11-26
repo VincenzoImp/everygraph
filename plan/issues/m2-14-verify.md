@@ -7,7 +7,7 @@ labels: type:feature, area:format, P1, risk:low, size:S, lab-evidence
 
 **Scope**
 - [ ] Fast check: header, TOC, section lengths, hashes of small sections
-- [ ] Deep check: all content hashes; adjacency invariants (strictly increasing lists, ids in range, no self-loops when declared, symmetry by pair hash for undirected graphs, out/in consistency for directed ones); column lengths; dictionary bijection
+- [ ] Deep check: all content hashes; adjacency invariants (strictly increasing lists, ids in range, no self-loops when declared, symmetry by pair hash for undirected graphs, out/in consistency for directed ones); the `.events` section of each adjacency that has one (`docs/spec/eg-adjacency.md` § 5: flag bit 1 and the section agree, a strictly increasing sequence, out and in with equal `events`); column lengths; dictionary bijection
 - [ ] Parallel and streaming, usable on files larger than RAM
 - [ ] Machine-readable report
 
