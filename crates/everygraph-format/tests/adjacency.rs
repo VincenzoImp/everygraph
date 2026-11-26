@@ -52,6 +52,25 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
     for (v, &o) in offsets.iter().enumerate() {
         assert_eq!(index.entry_offset(id(v)).get(), o);
     }
+    // Degrees in one pass: all of them, and short runs from starts spread over the nodes.
+    let n32 = id(n).get();
+    let degree = |v: u32| offsets[ix(v) + 1] - offsets[ix(v)];
+    let step = (n32 / if MIRI { 4 } else { 64 }).max(1);
+    for start in (0..=n32).step_by(ix(step)) {
+        let ends = if start == 0 {
+            vec![n32, 5.min(n32)]
+        } else {
+            vec![(start + 5).min(n32)]
+        };
+        for end in ends {
+            let got: Vec<u64> = index.degrees(start..end).map(u64::from).collect();
+            assert_eq!(
+                got,
+                (start..end).map(degree).collect::<Vec<_>>(),
+                "degrees {start}..{end}"
+            );
+        }
+    }
     for decoder in Decoder::available() {
         let adj = Adjacency::new(&index, &encoded.data)
             .unwrap()
@@ -102,7 +121,12 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                 let mut at = r.start;
                 let mut seen = Vec::new();
                 while at < r.end {
+                    // Sized first, the decode does not allocate.
+                    let lists = ix(r.end - at);
+                    batch.reserve(adj.batch_entries(at..r.end, budget), lists);
+                    let held = batch.heap_bytes();
                     let next = adj.decode_nodes(at..r.end, budget, &mut batch).unwrap();
+                    assert_eq!(batch.heap_bytes(), held, "{name} batch {r:?} grew");
                     assert_eq!(batch.first(), at);
                     assert_eq!(ix(next - at), batch.len(), "{name} batch {r:?}");
                     assert!(batch.len() == 1 || batch.targets().len() <= budget);

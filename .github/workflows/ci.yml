@@ -186,7 +186,10 @@ jobs:
           RUSTFLAGS: -C target-feature=+simd128
           CARGO_TARGET_DIR: target/wasm-simd128
         run: cargo clippy -p everygraph-format --target wasm32-unknown-unknown --locked -- -D warnings
-      - name: Toy kernel, native and wasm32 in Node, same hash
+      # The edge-map framework and its kernels (#44), linted as wasm32 compiles them.
+      - name: wasm32 build and clippy (kernels)
+        run: cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: Toy kernel and the edge-map proof kernels, native and wasm32 in Node, same hash
         run: python3 tools/check_wasm_toy.py
       # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
       - name: Adjacency codec, simd128 in Node against scalar, same as native
@@ -346,6 +349,15 @@ jobs:
         env:
           RUSTFLAGS: -C target-feature=+ssse3
         run: cargo "+$NIGHTLY" miri test -p everygraph-format --locked --test adjacency
+      # The edge-map framework's node brand and unchecked indexing (#44), on rayon.
+      - name: Miri, edge-map framework (kernels unit tests and counting allocator), Tree Borrows
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri test -p everygraph-kernels --lib --test heap --locked
+      # On nightly, rustdoc checks the error code of `compile_fail,E0521`: the tests
+      # that a node of one plan cannot index the state of another.
+      - name: Node brand compile-fail tests (kernels doc tests, nightly)
+        run: cargo "+$NIGHTLY" test -p everygraph-kernels --doc --locked
       - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
         if: ${{ !cancelled() }}
         run: python3 tools/check_tsan.py

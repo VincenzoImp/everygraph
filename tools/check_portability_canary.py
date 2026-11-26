@@ -62,9 +62,14 @@ PROBE_DIRS = [ROOT / "tools" / "canary" / "portability", ROOT / "tools" / "canar
 CORE = "everygraph-core"
 SCRATCH = ROOT / "target" / "portability-canary"
 COPY = SCRATCH / "workspace"
-# What the scratch workspace needs: the manifest, the lock file, the crates and the
-# portability script. Build output under any `target` directory is not copied.
-COPIED = ["Cargo.toml", "Cargo.lock", "crates", "tools/check_core_portability.py"]
+# What the scratch workspace needs: the manifest, the lock file, the crates, the
+# portability script, and the oracle's tolerances (compiled into everygraph-oracle, a
+# dev-dependency of the kernel crates). Build output under any `target` directory is
+# not copied.
+COPIED = [
+    "Cargo.toml", "Cargo.lock", "crates", "tools/check_core_portability.py",
+    "oracle/tolerances.json",
+]
 
 CHECKS = {
     "clippy": [

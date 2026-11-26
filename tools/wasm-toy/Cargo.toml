@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # The wasm toy check: a degree count over a generated graph, written against the public
-# pieces of everygraph-core, run natively and as wasm32 in Node; the two hashes must be
-# equal. `tools/check_wasm_toy.py` runs it. Not a member of the workspace (it has its
-# own `[workspace]` table); real kernels replace it in issue #m3-11 (determinism CI).
+# pieces of everygraph-core, and the edge-map framework's proof kernels (PageRank, WCC,
+# BFS; everygraph-kernels, #44) on the raw and the compressed source, run natively and as
+# wasm32 in Node; the hashes must be equal. `tools/check_wasm_toy.py` runs it. Not a
+# member of the workspace (it has its own `[workspace]` table); the determinism CI
+# (#m3-11) replaces it.
 
 [package]
 name = "everygraph-wasm-toy"
@@ -23,5 +25,7 @@ parallel = ["everygraph-core/parallel"]
 
 [dependencies]
 everygraph-core = { path = "../../crates/everygraph-core", default-features = false }
+everygraph-format = { path = "../../crates/everygraph-format" }
+everygraph-kernels = { path = "../../crates/everygraph-kernels" }
 
 [workspace]

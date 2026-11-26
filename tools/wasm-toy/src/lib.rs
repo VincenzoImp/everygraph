@@ -8,10 +8,19 @@
 //! is split by [`par::map_ranges`] with a grain that depends on the data only, the
 //! per-chunk counts folded in chunk order. Natively (feature `parallel`) the chunks run
 //! on rayon; in wasm32 on the calling thread. The hash must be the same.
+//!
+//! [`kernels_hash`] runs the proof kernels of the edge-map framework (#44) — `PageRank`
+//! with f64 state, WCC, BFS — on the same graph made symmetric, over the raw and the
+//! compressed source, and hashes their results: the same kernels must compile to wasm32
+//! and give the native bytes.
 
 use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
-use everygraph_core::{ByteSource, MemorySource, NodeId, par};
+use everygraph_core::{ByteSource, Memory, MemorySource, NodeId, par};
+use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
+use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source};
+use everygraph_kernels::proof;
 
 /// Bytes per edge in the generated edge list: two little-endian `u32` node ids.
 const EDGE_BYTES: usize = 8;
@@ -88,6 +97,88 @@ pub fn degrees(nodes: u32, edges: u32, seed: u64) -> Vec<u32> {
 #[must_use]
 pub fn degree_hash(nodes: u32, edges: u32, seed: u64) -> u64 {
     fnv1a(&degrees(nodes, edges, seed))
+}
+
+/// FNV-1a over 64-bit words.
+fn fnv1a64(words: impl Iterator<Item = u64>) -> u64 {
+    let mut hash = 0xCBF2_9CE4_8422_2325_u64;
+    for byte in words.flat_map(u64::to_le_bytes) {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    hash
+}
+
+/// The proof kernels on one source: the hash of the `PageRank` bits, the component
+/// labels and the BFS depths from node 0. Small tasks and batches, so that the graph
+/// is cut into many of each.
+fn kernels_on<S: Source>(source: &S) -> u64 {
+    let memory = Memory::unlimited();
+    let settings = Settings {
+        chunk_entries: 1 << 12,
+        batch_entries: 1 << 10,
+        ..Settings::default()
+    };
+    Plan::with(source, &memory, settings, |plan| {
+        let rank = proof::pagerank::<_, f64>(&plan, &memory, 0.85, 20).expect("pagerank");
+        let (labels, _) = proof::wcc(&plan, &memory).expect("wcc");
+        let (depth, _) = proof::bfs(&plan, &memory, 0, true).expect("bfs");
+        let load = |a: &AtomicU32| u64::from(a.load(Relaxed));
+        let words = rank.iter().map(|r| r.to_bits());
+        fnv1a64(
+            words
+                .chain(labels.iter().map(load))
+                .chain(depth.iter().map(load)),
+        )
+    })
+}
+
+/// The hash of the proof kernels' results on the generated graph, made symmetric and
+/// without loops, over the raw and the compressed source; 0 if the two sources disagree.
+///
+/// # Panics
+///
+/// If `nodes` is zero.
+#[must_use]
+pub fn kernels_hash(nodes: u32, edges: u32, seed: u64) -> u64 {
+    assert!(nodes > 0, "a graph with edges needs nodes");
+    let edges = usize::try_from(edges).expect("u32 fits in usize");
+    let bytes = generate(nodes, edges, seed);
+    let mut pairs: Vec<(u32, u32)> = bytes
+        .as_chunks::<EDGE_BYTES>()
+        .0
+        .iter()
+        .flat_map(|e| {
+            let (u, v) = e.split_at(4);
+            let u = u32::from_le_bytes(u.try_into().expect("four bytes"));
+            let v = u32::from_le_bytes(v.try_into().expect("four bytes"));
+            [(u, v), (v, u)]
+        })
+        .filter(|(u, v)| u != v)
+        .collect();
+    pairs.sort_unstable();
+    pairs.dedup();
+    let n = NodeId::new(nodes - 1).index() + 1;
+    let mut offsets = vec![0_u64; n + 1];
+    for &(u, _) in &pairs {
+        offsets[NodeId::new(u).index() + 1] += 1;
+    }
+    for v in 0..n {
+        offsets[v + 1] += offsets[v];
+    }
+    let targets: Vec<u32> = pairs.iter().map(|p| p.1).collect();
+    let raw = kernels_on(&Csr::new(&offsets, &targets).expect("a CSR"));
+    let encoded = encode(&offsets, &targets).expect("encode");
+    let index = AdjacencyIndex::parse(&encoded.index).expect("an index");
+    let adjacency = Adjacency::new(&index, &encoded.data).expect("the data part");
+    let compressed = kernels_on(&Compressed::new(adjacency));
+    if raw == compressed { raw } else { 0 }
+}
+
+/// The entry point Node calls for [`kernels_hash`].
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub extern "C" fn everygraph_toy_kernels_hash(nodes: u32, edges: u32, seed: u64) -> u64 {
+    kernels_hash(nodes, edges, seed)
 }
 
 /// The entry point Node calls. A plain C ABI export, so that no bindings generator is
