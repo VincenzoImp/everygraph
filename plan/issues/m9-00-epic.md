@@ -14,3 +14,4 @@ Unscheduled work, ordered by expected value. Each item has lab evidence or a cle
 7. {{#m9-09-domain-integrations}}, {{#m9-10-statistical-rigor}}
 8. {{#m9-05-gpu-layout}}, {{#m9-06-desktop-app}}, {{#m9-07-u64-ids-server-scale}}
 9. {{#m9-12-dp-map-export}} — research, not before a summary export exists
+10. {{#m3-09-centrality}} — sampled betweenness, closeness and harmonic centrality, with marked approximate results (moved from M3, 2026-11-26)

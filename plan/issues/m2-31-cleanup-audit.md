@@ -9,6 +9,7 @@ labels: type:infra, area:engine, P1, risk:low, size:M
 - [ ] For each crate: what it owns (crate docs), lines per module, and for every module above ~800 lines a one-line answer to "what would break if this were half the size"
 - [ ] Product crates first (core, format, io, ingest). The harness (`everygraph-bench`) is a tool: only remove what no spec or CI job uses, if cheap; no size target (owner, 2026-11-26: tools may be rough, product code must be clean)
 - [ ] `everygraph-ingest`: duplicated helpers between the text reader and the dictionary (buffers, scratch, partitioning), merged into one place
+- [ ] The allocation lints for `everygraph-format` and `everygraph-ingest`: a `clippy.toml` that disallows sizing a buffer directly, as in the kernel crates (CONTRIBUTING.md, "The allocation rule"), the lint forbidden in each crate root, and `tools/check_portability_canary.py` extended to catch every entry. Each existing call that sizes a buffer is either routed through the accountant or allowed in one place with the reason.
 - [ ] Duplicated test helpers across crates (byte generators, temporary files, child-process runners) moved to one test-support module
 - [ ] `cargo mutants` over `everygraph-core`, `-format`, `-io`, `-ingest` ({{#m3-17-cargo-mutants}} for the tooling): every surviving mutant killed by a test or explained in the report; every test that no mutant can fail rewritten or removed
 - [ ] `lab/` prototypes whose production counterpart has landed (b1-core text reader, codec, dictionary) marked frozen in their README

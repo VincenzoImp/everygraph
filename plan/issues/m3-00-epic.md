@@ -13,7 +13,7 @@ Tracking issue for milestone M3.
 
 **Exit criteria**
 - [ ] Framework and planner ({{#m3-01-edge-map}}, {{#m3-02-planner}}, {{#m3-03-semi-external}})
-- [ ] Kernels: {{#m3-04-pagerank}}, {{#m3-05-components}}, {{#m3-06-traversal}}, {{#m3-07-kcore-degrees}}, {{#m3-08-triangles}}; optional {{#m3-09-centrality}}
+- [ ] Kernels: {{#m3-04-pagerank}}, {{#m3-05-components}}, {{#m3-06-traversal}}, {{#m3-07-kcore-degrees}}, {{#m3-08-triangles}}; eigenvector centrality in {{#m3-04-pagerank}} (the sampled centralities of {{#m3-09-centrality}} come after 0.1, M9)
 - [ ] Guarantees enforced in CI: {{#m3-10-no-oom-ci}}, {{#m3-11-determinism-ci}}
 - [ ] Performance tracked against references ({{#m3-12-perf-tracking}}), with intervals and interleaved rounds ({{#m3-18-harness-statistics}}, {{#m3-19-harness-interleave}})
 - [ ] Testing from the second literature review (2026-11-25, `docs/research/README.md` D): {{#m3-16-metamorphic-oracle}}, {{#m3-17-cargo-mutants}}
