@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The in-adjacency of issue #38 (plan/issues/m2-11-in-adjacency.md): `add_in_adjacency`
+# on a graph file that holds only the out-adjacency of twitter-2010 (41.7 M nodes,
+# 1.47 B arcs), through the example `crates/everygraph-ingest/examples/transpose.rs`.
+# Timed inside the process: the out-adjacency's sections checked against their hashes,
+# read compressed, transposed, the in-adjacency encoded and written, the commit with
+# fsync. Each repetition copies the base file first (not timed) and is a separate
+# process, which then compares every in-list with the raw transpose in
+# `csr/twitter-dir-in` (after the timer).
+#
+# Acceptance (#38): <= 15 s at 16 threads in RAM. The 24 GB budget holds every bucket in
+# memory (the harness's write_bytes is then about the output alone); 4 GB spills, for the record.
+#
+# Run (an estimate, not measured: about 12 minutes with the checks, plus a release build and about
+# 1 minute to encode the base file the first time):
+#   everygraph-bench run transpose --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "transpose"
+description = "add_in_adjacency (#38): the in-adjacency of twitter-2010, in memory and with spills"
+reference = "plan/issues/m2-11-in-adjacency.md, Acceptance"
+binaries = ["{transpose}"]
+
+[defaults]
+memory_limit = "28G"
+repetitions = 3
+threads = [16, 32]
+timeout = "10m"
+
+[vars]
+transpose = "{repo}/target/release/examples/transpose"
+base = "{work}/twitter-out.eg"
+
+[[prepare]]
+name = "build-transpose"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--locked", "-p", "everygraph-ingest", "--example", "transpose"]
+
+[[prepare]]
+name = "base-twitter"
+memory_limit = "24G"
+shell = "{transpose} prepare --csr {data}/csr/twitter-dir --out {base}.part && mv {base}.part {base}"
+creates = "{base}"
+needed_by = ["twitter"]
+
+[[benchmark]]
+name = "twitter"
+group = "transpose"
+description = "twitter-2010: the in-adjacency added to a file with its out-adjacency"
+dataset_path = "csr/twitter-dir"
+matrix = { budget = ["24G", "4G"] }
+env = { RAYON_NUM_THREADS = "{threads}" }
+shell = "{transpose} run --base {base} --work {case_work}/in.eg --budget {budget} --check {data}/csr/twitter-dir-in && rm -f {case_work}/in.eg"
+conditions = { graph = "twitter-2010", input = "compressed out-adjacency in a .eg, page cache warm", budget = "{budget}", fsync = "yes, commit", output = "compressed in-adjacency appended to the file" }
+metric = [
+  { name = "seconds", json = "/elapsed_seconds", unit = "s" },
+  { name = "in_bits_per_entry", json = "/in_bits_per_entry", unit = "bits" },
+]
+primary = "seconds"

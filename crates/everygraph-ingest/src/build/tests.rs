@@ -12,7 +12,8 @@ use everygraph_core::{
     Budget, ByteSink, ByteSource, Memory, MemorySource, NodeId, ReadError, WriteError,
 };
 use everygraph_format::adjacency::{Adjacency, AdjacencyEvents, AdjacencyIndex};
-use everygraph_format::container::{Container, Provenance};
+use everygraph_format::container::{Container, Provenance, ResultKey, Writer};
+use everygraph_format::verify::{Depth, verify};
 use everygraph_oracle::corpus::{Tier, specs};
 use everygraph_oracle::generators::generate;
 use everygraph_oracle::graph::{self as oracle_graph, Graph};
@@ -28,6 +29,7 @@ const SMALL: Tuning = Tuning {
     spill_batch: 7,
     resident_items: u64::MAX,
     cache_rows: false,
+    transpose_block: 16,
 };
 
 /// [`SMALL`], holding at most 40 items in memory: every graph with more spills.
@@ -53,6 +55,7 @@ struct Run<'t> {
     chunk: usize,
     tuning: &'t Tuning,
     threads: usize,
+    in_adjacency: bool,
 }
 
 impl Run<'static> {
@@ -64,6 +67,7 @@ impl Run<'static> {
             chunk: 64,
             tuning: &TUNING,
             threads: 8,
+            in_adjacency: true,
         }
     }
 }
@@ -79,7 +83,7 @@ impl Run<'_> {
     }
 
     /// Builds from `source` into `sink`, and commits.
-    fn build_into<S: ByteSource + Sync, K: ByteSink>(
+    fn build_into<S: ByteSource + Sync, K: ByteSink + Sync>(
         &self,
         source: S,
         sink: K,
@@ -88,6 +92,7 @@ impl Run<'_> {
         let reader = TextReader::open_with_chunk(source, &self.text_options(), self.chunk).unwrap();
         let memory = Memory::from(Arc::new(Budget::new(self.budget)));
         let mut options = BuildOptions::new(self.graph, NonZeroUsize::new(self.threads).unwrap());
+        options.in_adjacency = self.in_adjacency;
         if self.ids == IdType::String {
             // Text that looks like integers is kept as text, as `--ids string` does.
             options.ids = options.ids.with_kind(KeyKind::Bytes);
@@ -119,22 +124,25 @@ impl Run<'_> {
 }
 
 /// A graph read back: each node's key as text, and its list of (neighbour, stored
-/// events).
+/// events) in the out-adjacency and, when the file holds one, in the in-adjacency.
 struct Stored {
     keys: Vec<String>,
     lists: Vec<Vec<(u32, u64)>>,
+    in_lists: Option<Vec<Vec<(u32, u64)>>>,
     events_section: bool,
     parameters: BTreeMap<String, String>,
 }
 
-fn read_back(bytes: &[u8]) -> Stored {
-    let checked = check(MemorySource::new(bytes), &Memory::unlimited()).unwrap();
-    let file = Container::open(MemorySource::new(bytes)).unwrap();
+/// The lists of adjacency `names`, with each entry's stored events; `None` when the
+/// file does not hold it.
+fn lists_of(file: &Container<MemorySource<&[u8]>>, names: Names) -> Option<Vec<Vec<(u32, u64)>>> {
     let section = |name: &str| file.section(name).unwrap().as_slice().unwrap().to_vec();
-    let index = AdjacencyIndex::parse(&section(OUT_INDEX)).unwrap();
-    let data = section(OUT_DATA);
+    file.get(names.index)?;
+    let index = AdjacencyIndex::parse(&section(names.index)).unwrap();
+    let data = section(names.data);
     let adjacency = Adjacency::new(&index, &data).unwrap();
-    let events = index.has_events().then(|| section(OUT_EVENTS));
+    let events = index.has_events().then(|| section(names.events));
+    assert_eq!(events.is_some(), file.get(names.events).is_some());
     let multiplicities: Vec<u64> = match &events {
         Some(bytes) => AdjacencyEvents::parse(bytes, &index)
             .unwrap()
@@ -143,36 +151,54 @@ fn read_back(bytes: &[u8]) -> Stored {
             .collect(),
         None => vec![1; usize::try_from(index.entries()).unwrap()],
     };
-    assert_eq!(checked.events.is_some(), events.is_some());
+    let mut buf = Vec::new();
+    let mut entries = multiplicities.into_iter();
+    let lists = (0..index.nodes())
+        .map(|v| {
+            let list = adjacency.neighbors(NodeId::new(v), &mut buf).unwrap();
+            list.iter().map(|&t| (t, entries.next().unwrap())).collect()
+        })
+        .collect();
+    Some(lists)
+}
+
+fn read_back(bytes: &[u8]) -> Stored {
+    let checked = check(MemorySource::new(bytes), &Memory::unlimited()).unwrap();
+    let file = Container::open(MemorySource::new(bytes)).unwrap();
+    let lists = lists_of(&file, OUT).unwrap();
+    let in_lists = lists_of(&file, transpose::IN);
+    let events_section = file.get(OUT_EVENTS).is_some();
+    assert_eq!(checked.events.is_some(), events_section);
+    assert_eq!(checked.in_adjacency, in_lists.is_some());
     let budget = Budget::unlimited();
     let dictionary = Dictionary::open(&budget, |name| file.section(name).ok()).unwrap();
-    let mut keys = Vec::new();
-    let mut lists = Vec::new();
-    let mut buf = Vec::new();
-    let mut entry = 0;
-    for v in 0..index.nodes() {
-        keys.push(match dictionary.key(NodeId::new(v)).unwrap() {
+    let keys = (0..checked.nodes)
+        .map(|v| match dictionary.key(NodeId::new(v)).unwrap() {
             OwnedKey::UInt(k) => k.to_string(),
             OwnedKey::Text(k) => k,
             other => panic!("keys come back as {other:?}"),
-        });
-        let list = adjacency.neighbors(NodeId::new(v), &mut buf).unwrap();
-        lists.push(
-            list.iter()
-                .map(|&t| {
-                    entry += 1;
-                    (t, multiplicities[entry - 1])
-                })
-                .collect(),
-        );
-    }
+        })
+        .collect();
     let parameters = file.provenance(OUT_DATA).unwrap().unwrap().parameters;
     Stored {
         keys,
         lists,
-        events_section: events.is_some(),
+        in_lists,
+        events_section,
         parameters,
     }
+}
+
+/// The transpose of `lists`: entry `(v, m)` of the list of `u` becomes `(u, m)` in the
+/// list of `v`.
+fn transposed(lists: &[Vec<(u32, u64)>]) -> Vec<Vec<(u32, u64)>> {
+    let mut out = vec![Vec::new(); lists.len()];
+    for (u, list) in lists.iter().enumerate() {
+        for &(v, m) in list {
+            out[usize::try_from(v).unwrap()].push((u32::try_from(u).unwrap(), m));
+        }
+    }
+    out
 }
 
 fn oracle_semantics(graph: GraphOptions) -> oracle_graph::Semantics {
@@ -284,6 +310,28 @@ fn compare_with_oracle(g: &Graph, run: &Run<'_>) {
     for (key, value) in report.counts() {
         assert_eq!(stored.parameters[key], value.to_string());
     }
+
+    // A directed graph holds its in-adjacency: the transpose of the out-adjacency,
+    // multiplicities included.
+    assert_eq!(report.in_adjacency, g.directed, "{}", g.name);
+    if g.directed {
+        let inn = stored.in_lists.as_ref().expect("an in-adjacency");
+        assert!(
+            *inn == transposed(&stored.lists),
+            "{}: not the transpose",
+            g.name
+        );
+    } else {
+        assert!(stored.in_lists.is_none(), "{}", g.name);
+    }
+    let deep = verify(
+        &MemorySource::new(&bytes[..]),
+        Depth::Deep,
+        &Memory::unlimited(),
+    )
+    .unwrap();
+    assert!(deep.is_intact(), "{}: {:?}", g.name, deep.problems);
+    assert_eq!(deep.adjacencies.len(), 1 + usize::from(g.directed));
 
     // A .events section exactly when a stored pair has more than one event, and then
     // its multiplicities add up to the events of the adjacency.
@@ -500,12 +548,20 @@ fn output_does_not_depend_on_threads_or_budget() {
 #[test]
 fn every_budget_gives_the_same_bytes_or_a_refusal() {
     let text = mixed_text(3_000, 0);
-    for ids in [IdType::Integer, IdType::String] {
+    for (ids, directed) in [
+        (IdType::Integer, false),
+        (IdType::String, false),
+        (IdType::Integer, true),
+    ] {
+        let graph = GraphOptions {
+            directed,
+            ..GraphOptions::default()
+        };
         let large = Run {
             ids,
             chunk: 1024,
             threads: 4,
-            ..Run::new(GraphOptions::default())
+            ..Run::new(graph)
         };
         let (reference, _) = large.bytes(&text).unwrap();
         let (mut refused, mut spilled) = (0, 0);
@@ -812,44 +868,84 @@ fn direction_is_inferred_from_the_column_names() {
 }
 
 /// The plan's estimate follows the build's rules: more threads need a larger smallest
-/// budget, and a budget at which the estimate spills half the items does spill.
+/// budget, and a budget at which the estimate spills half the items does spill, no less
+/// than it says, undirected and directed, with events and with pairs collapsed. The
+/// in-adjacency doubles the output, and only when it is written.
 #[test]
 fn the_estimate_spills_no_sooner_than_the_build() {
-    let text = mixed_text(400_000, 0);
-    let rows = 400_000 + 400_000_u64.div_ceil(13);
     let block = 1 << 16;
-    let blocks = u64::try_from(text.len().div_ceil(block)).unwrap();
-    let sample = Sample::new(rows, rows / blocks + 512, 1 << 16, blocks);
-    let threads = |n| NonZeroUsize::new(n).unwrap();
-    let one = estimate(&sample, false, threads(1), 1 << 30);
-    let eight = estimate(&sample, false, threads(8), 1 << 30);
+    // A directed graph has one item per row: it takes twice the rows to spill as much.
+    let input = |n: u64| {
+        let text = mixed_text(n, 0);
+        let rows = n + n.div_ceil(13);
+        let blocks = u64::try_from(text.len().div_ceil(block)).unwrap();
+        (
+            text,
+            Sample::new(rows, rows / blocks + 512, 1 << 16, blocks),
+        )
+    };
+    let (text, sample) = input(400_000);
+    let options = |graph, n| BuildOptions::new(graph, NonZeroUsize::new(n).unwrap());
+    let undirected = GraphOptions::default();
+    let one = estimate(&sample, &options(undirected, 1), 1 << 30);
+    let eight = estimate(&sample, &options(undirected, 8), 1 << 30);
     assert!(eight.smallest_budget > one.smallest_budget);
     assert_eq!(one.regime, Regime::InMemory);
     assert_eq!(one.scratch_bytes, 0);
-    let mut checked = 0;
-    for budget in (12..64).map(|k| k << 18) {
-        let planned = estimate(&sample, false, threads(1), budget);
-        let clear = planned.scratch_bytes * 2 >= planned.working_bytes;
-        if !clear || budget < planned.smallest_budget {
-            continue;
-        }
-        let run = Run {
-            budget,
-            chunk: block,
-            threads: 1,
-            tuning: &TUNING,
-            ..Run::new(GraphOptions::default())
+    let directed = |duplicates| GraphOptions {
+        directed: true,
+        duplicates,
+        ..GraphOptions::default()
+    };
+    let mut without = options(directed(Duplicates::Events), 1);
+    without.in_adjacency = false;
+    let with = estimate(&sample, &options(directed(Duplicates::Events), 1), 1 << 30);
+    assert_eq!(
+        with.output_bytes,
+        2 * estimate(&sample, &without, 1 << 30).output_bytes
+    );
+    let twice = input(800_000);
+    for graph in [
+        undirected,
+        directed(Duplicates::Events),
+        directed(Duplicates::Collapse),
+    ] {
+        let (text, sample) = if graph.directed {
+            (&twice.0, &twice.1)
+        } else {
+            (&text, &sample)
         };
-        match run.bytes(&text) {
-            Ok((_, report)) => {
-                assert_eq!(report.regime, Regime::OnDisk, "budget {budget}");
-                checked += 1;
+        let mut checked = 0;
+        for budget in (12..64).map(|k| k << 18) {
+            let planned = estimate(sample, &options(graph, 1), budget);
+            let clear = planned.scratch_bytes * 2 >= planned.working_bytes;
+            if !clear || budget < planned.smallest_budget {
+                continue;
             }
-            Err(BuildError::Budget(_)) => {}
-            Err(e) => panic!("budget {budget}: {e}"),
+            let run = Run {
+                budget,
+                chunk: block,
+                threads: 1,
+                tuning: &TUNING,
+                ..Run::new(graph)
+            };
+            match run.bytes(text) {
+                Ok((_, report)) => {
+                    assert_eq!(report.regime, Regime::OnDisk, "{graph:?}, budget {budget}");
+                    assert!(
+                        report.spilled_bytes >= planned.scratch_bytes,
+                        "{graph:?}, budget {budget}: {} < {}",
+                        report.spilled_bytes,
+                        planned.scratch_bytes
+                    );
+                    checked += 1;
+                }
+                Err(BuildError::Budget(_)) => {}
+                Err(e) => panic!("{graph:?}, budget {budget}: {e}"),
+            }
         }
+        assert!(checked > 0, "{graph:?}");
     }
-    assert!(checked > 0);
 }
 
 /// Integer keys spread over `0..2^32` take the hashed form at a small budget, with the
@@ -881,4 +977,193 @@ fn sparse_integer_keys_take_the_hashed_form_at_any_budget() {
     let file = Container::open(MemorySource::new(&got[..])).unwrap();
     assert!(file.get("ids.parts").is_some(), "not the hashed form");
     assert!(file.get("ids.dense").is_none());
+}
+
+/// The bytes of section `name` of the graph file `bytes`, if it holds one.
+fn section_of(bytes: &[u8], name: &str) -> Option<Vec<u8>> {
+    let file = Container::open(MemorySource::new(bytes)).unwrap();
+    let section = file.section(name).ok()?;
+    Some(section.as_slice().unwrap().to_vec())
+}
+
+/// A directed graph with repeated pairs and loops, with and without the in-adjacency.
+fn with_and_without(duplicates: Duplicates) -> (Vec<u8>, Vec<u8>) {
+    let graph = GraphOptions {
+        directed: true,
+        self_loops: SelfLoops::Keep,
+        duplicates,
+    };
+    let text = mixed_text(5_000, 0);
+    let with = Run::new(graph);
+    let (reference, report) = with.bytes(&text).unwrap();
+    assert!(report.in_adjacency);
+    let without = Run {
+        in_adjacency: false,
+        ..with
+    };
+    let (bytes, report) = without.bytes(&text).unwrap();
+    assert!(!report.in_adjacency && section_of(&bytes, IN_INDEX).is_none());
+    (reference, bytes)
+}
+
+/// The in-adjacency added to a file built without it has the bytes the build writes,
+/// in memory and with spills, so the graph keeps its identity; a second call adds
+/// nothing; an undirected graph is refused.
+#[test]
+fn the_in_adjacency_added_later_is_the_one_the_build_writes() {
+    for duplicates in [Duplicates::Events, Duplicates::Collapse] {
+        let (reference, without) = with_and_without(duplicates);
+        let events = duplicates == Duplicates::Events;
+        assert_eq!(section_of(&reference, IN_EVENTS).is_some(), events);
+        let identity = |bytes: &[u8]| {
+            Container::open(MemorySource::new(bytes))
+                .unwrap()
+                .graph_identity()
+        };
+        // One identity with or without the in-adjacency, and a result stored before it
+        // is added is served after.
+        assert_eq!(identity(&without), identity(&reference));
+        let key = ResultKey::new(identity(&without), "pagerank", 1, true).unwrap();
+        let mut writer = Writer::update(MemorySource::new(without.clone())).unwrap();
+        writer
+            .add_result(&key, &Provenance::default(), &[0.25_f64, 0.75])
+            .unwrap();
+        writer.commit().unwrap();
+        let with_result = writer.into_sink().into_inner();
+        for (budget, tuning) in [(1 << 30, &TUNING), (3 << 20, &SPILLING)] {
+            let memory = Memory::from(Arc::new(Budget::new(budget)));
+            let threads = NonZeroUsize::new(4).unwrap();
+            let sink = MemorySource::new(with_result.clone());
+            let (sink, added) =
+                transpose::add_tuned(sink, &memory, &MemoryScratch, threads, &Silent, tuning)
+                    .unwrap();
+            assert!(added);
+            let bytes = sink.into_inner();
+            for name in [IN_DATA, IN_INDEX, IN_EVENTS] {
+                assert!(
+                    section_of(&bytes, name) == section_of(&reference, name),
+                    "{name}"
+                );
+            }
+            assert_eq!(identity(&bytes), identity(&reference));
+            let kept = Container::open(MemorySource::new(&bytes[..])).unwrap();
+            let served = kept
+                .find_result(&key)
+                .unwrap()
+                .expect("the result stored before");
+            let mut values = [0.0_f64; 2];
+            served.read(0, &mut values).unwrap();
+            assert_eq!(values, [0.25, 0.75]);
+            let checked = check(MemorySource::new(&bytes[..]), &Memory::unlimited()).unwrap();
+            assert!(checked.in_adjacency);
+            let file = Container::open(MemorySource::new(&bytes[..])).unwrap();
+            let provenance = file.get(IN_INDEX).unwrap().provenance.as_deref();
+            assert_eq!(provenance, Some(PROVENANCE));
+            let again = add_in_adjacency(
+                MemorySource::new(bytes.clone()),
+                &memory,
+                &MemoryScratch,
+                threads,
+                &Silent,
+            )
+            .unwrap();
+            assert!(!again.1 && again.0.into_inner() == bytes);
+        }
+    }
+    let (undirected, _) = Run::new(GraphOptions::default())
+        .bytes(&mixed_text(500, 0))
+        .unwrap();
+    let refused = add_in_adjacency(
+        MemorySource::new(undirected),
+        &Memory::unlimited(),
+        &MemoryScratch,
+        ONE,
+        &Silent,
+    );
+    assert!(
+        matches!(refused, Err(BuildError::Undirected)),
+        "{refused:?}"
+    );
+}
+
+/// A transposition that reads many blocks of out-lists, with events, every bucket
+/// spilled: the in-lists are the transpose, multiplicities included, the file is sound,
+/// and the bytes are those of a build with the default sizes.
+#[test]
+fn a_transposition_over_many_blocks_is_the_transpose() {
+    let graph = GraphOptions {
+        directed: true,
+        self_loops: SelfLoops::Keep,
+        duplicates: Duplicates::Events,
+    };
+    let text = mixed_text(300_000, 0);
+    let tuning = Tuning {
+        transpose_block: 16,
+        resident_items: 40,
+        ..TUNING
+    };
+    let small = Run {
+        tuning: &tuning,
+        ..Run::new(graph)
+    };
+    let (bytes, report) = small.bytes(&text).unwrap();
+    assert_eq!(report.regime, Regime::OnDisk);
+    let out = AdjacencyIndex::parse(&section_of(&bytes, OUT_INDEX).unwrap()).unwrap();
+    assert!(out.blocks() >= 5, "{} blocks", out.blocks());
+    let blocks = transpose::block_starts(&out, tuning.transpose_block).len() - 1;
+    assert_eq!(blocks, out.blocks());
+    let stored = read_back(&bytes);
+    assert!(stored.events_section);
+    let inn = stored.in_lists.as_ref().expect("an in-adjacency");
+    assert!(*inn == transposed(&stored.lists), "not the transpose");
+    let deep = verify(
+        &MemorySource::new(&bytes[..]),
+        Depth::Deep,
+        &Memory::unlimited(),
+    )
+    .unwrap();
+    assert!(deep.is_intact(), "{:?}", deep.problems);
+    assert_eq!(deep.adjacencies.len(), 2);
+    let (default, _) = Run::new(graph).bytes(&text).unwrap();
+    assert!(bytes == default, "the block size changed the bytes");
+}
+
+/// Adding the in-adjacency is an update by the container's commit protocol: a refusal
+/// for the budget, or a write that fails at any point, leaves the file as it was.
+#[test]
+fn a_failed_addition_leaves_the_graph_as_it_was() {
+    let (_, without) = with_and_without(Duplicates::Events);
+    let add = |sink: &mut FailingSink, budget: u64| {
+        let memory = Memory::from(Arc::new(Budget::new(budget)));
+        add_in_adjacency(sink, &memory, &MemoryScratch, ONE, &Silent).map(|(_, added)| added)
+    };
+    let unchanged = |sink: &FailingSink| {
+        let bytes: &[u8] = sink.inner.as_slice().unwrap();
+        let file = Container::open(MemorySource::new(bytes)).unwrap();
+        assert_eq!(file.generation(), 1);
+        assert!(file.get(IN_INDEX).is_none());
+        let checked = check(MemorySource::new(bytes), &Memory::unlimited()).unwrap();
+        assert!(!checked.in_adjacency);
+    };
+    let fresh = |ok| FailingSink {
+        inner: MemorySource::new(without.clone()),
+        ok,
+        written: 0,
+    };
+    let mut counting = fresh(u64::MAX);
+    assert!(add(&mut counting, 1 << 30).unwrap());
+    let total = counting.written;
+    for ok in (0..total).step_by(usize::try_from(total / 23).unwrap()) {
+        let mut sink = fresh(ok);
+        let result = add(&mut sink, 1 << 30);
+        assert!(
+            matches!(result, Err(BuildError::Container(_))),
+            "failing after {ok} bytes: {result:?}"
+        );
+        unchanged(&sink);
+    }
+    let mut sink = fresh(u64::MAX);
+    let refused = add(&mut sink, 64 << 10);
+    assert!(matches!(refused, Err(BuildError::Budget(_))), "{refused:?}");
+    unchanged(&sink);
 }
