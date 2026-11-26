@@ -38,6 +38,7 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 - #34 id dictionary: done 2026-11-25 (build-500m OOM, re-run after the fix) (~20 min, ~45 GB disk).
 - #19 hierarchy shaping (PR #162, after its fixes): prepare, then `everygraph-bench run hierarchy-shaping --official --skip-prepare …` (~50 min).
 - #44 edge-map (merged as PR #202): `everygraph-bench run edge-map --official --data /home/tux/graphlab/data` (~15 min, estimate); closes #44 when the ≤ 5% overhead and compressed ≤ 1.0× raw criteria hold.
+- #35 build (PR #215, after merge): `everygraph-bench run build --official --data /home/tux/graphlab/data` (~30 min, estimate; Friendster needs a 40 GB limit).
 - #18 deterministic Leiden (PR #208, merged): `everygraph-bench run det-leiden --official` (lj+orkut ~40 min `--only scaling --only quality`; Friendster ~45 min `--only friendster`, estimates). Exploratory result: per-level rule clamp(next_pow2(n_level/65536), 4, 1024) cuts det/async at 16 threads to 2.04 (lj) / 1.53 (orkut) at 1 iteration from 3.39 / 2.55; small constants (4–16) oscillate and do more work.
 - #34 build-500m after PR #203: `everygraph-bench run id-dictionary --official --only build-500m`.
 - Follow-ups from #118: WCC with batched prefix decode (~10 min), Friendster encode at 1 thread (~3 min).
