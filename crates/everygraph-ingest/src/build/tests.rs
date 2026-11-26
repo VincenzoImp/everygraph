@@ -23,6 +23,7 @@ const SMALL: Tuning = Tuning {
     bucket_nodes: 5,
     spill_batch: 7,
     resident_items: u64::MAX,
+    cache_rows: false,
 };
 
 /// [`SMALL`], holding at most 40 items in memory: every graph with more spills.

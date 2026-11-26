@@ -185,6 +185,8 @@ pub(crate) struct Tuning {
     pub(crate) spill_batch: usize,
     /// The most items held in memory, whatever the budget allows.
     pub(crate) resident_items: u64,
+    /// Whether the mapped rows may be kept between passes.
+    pub(crate) cache_rows: bool,
 }
 
 const TUNING: Tuning = Tuning {
@@ -192,6 +194,7 @@ const TUNING: Tuning = Tuning {
     bucket_nodes: 1 << 16,
     spill_batch: 1 << 16,
     resident_items: u64::MAX,
+    cache_rows: true,
 };
 
 /// The phases of a build (`docs/ux-contract.md` § 4.1).
@@ -559,7 +562,12 @@ where
     let nodes = dictionary.len();
 
     progress.begin(Phase::Building, None);
-    let rows = Rows::new(
+    // The mapped rows are kept for the next passes when they take at most an eighth of
+    // what is left: they are freed before the lists are finished, but the buckets
+    // filled in memory live beside them.
+    let cache_bytes = summary.rows.saturating_mul(rows::CACHE_BYTES_PER_ROW);
+    let cached_rows = (cache_bytes <= memory.available() / 8).then_some(summary.rows);
+    let mut rows = Rows::new(
         reader,
         &dictionary,
         graph,
@@ -568,6 +576,7 @@ where
         threads,
         widen(reader.block_bytes()),
         most_rows,
+        cached_rows.filter(|_| tuning.cache_rows),
     )?;
     let counts = ItemCounts::new(memory, nodes, graph.directed)?;
     let pass = each_block(blocks, |block| {
@@ -593,6 +602,7 @@ where
 
     let (mut resident, spills, spilled_bytes) =
         fill::fill(&rows, &layout, memory, scratch, tuning, threads)?;
+    rows.release_cache();
 
     let mut writer = Writer::create(out)?;
     let mut output = Output {

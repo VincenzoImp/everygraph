@@ -4,7 +4,7 @@
 //! pairs of node ids, then the items each row sends to the lists of its ends.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use everygraph_core::{ByteSource, Memory, MemoryError, MemoryKind, Reservation, par};
 
@@ -120,7 +120,14 @@ pub(super) struct Rows<'a, 'd, S, D> {
     /// Parse and mapping buffers of the blocks in flight, which live outside every
     /// other reservation.
     _buffers: Reservation,
+    /// The mapped pairs of each block, kept by the first pass when the budget holds
+    /// them, so that the next passes neither parse nor look up again; with what they
+    /// hold reserved.
+    cache: Option<(Vec<OnceLock<Vec<u64>>>, Reservation)>,
 }
+
+/// Bytes the cache of [`Rows`] holds per row.
+pub(super) const CACHE_BYTES_PER_ROW: u64 = 8;
 
 /// Memory one block in flight holds per row: two ids (or two string ends) in its batch
 /// and a mapped pair. Besides, it holds its text twice: the reader's chunk and the
@@ -137,17 +144,32 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         threads: usize,
         block_bytes: u64,
         most_rows: u64,
+        cached_rows: Option<u64>,
     ) -> Result<Self, MemoryError> {
         let per_block = 2 * block_bytes + most_rows.saturating_mul(BLOCK_BYTES_PER_ROW);
         let bytes = per_block.saturating_mul(u64::try_from(threads).unwrap_or(u64::MAX));
         let buffers = memory.reserve("text blocks in flight", MemoryKind::Anonymous, bytes)?;
+        let cache = match cached_rows {
+            Some(rows) => {
+                let bytes = rows.saturating_mul(CACHE_BYTES_PER_ROW);
+                let reservation = memory.reserve("mapped rows", MemoryKind::Anonymous, bytes)?;
+                Some(((0..blocks).map(|_| OnceLock::new()).collect(), reservation))
+            }
+            None => None,
+        };
         Ok(Self {
             reader,
             dictionary,
             graph,
             fingerprints: (0..blocks).map(|_| AtomicU64::new(0)).collect(),
             _buffers: buffers,
+            cache,
         })
+    }
+
+    /// Frees the mapped pairs kept by the first pass.
+    pub(super) fn release_cache(&mut self) {
+        self.cache = None;
     }
 
     /// Number of blocks.
@@ -161,8 +183,14 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
     pub(super) fn items(
         &self,
         block: usize,
-        mut f: impl FnMut(u32, u32),
+        f: impl FnMut(u32, u32),
     ) -> Result<BlockCounts, BuildError> {
+        let cached = self.cache.as_ref().map(|(blocks, _)| &blocks[block]);
+        if let Some(pairs) = cached.and_then(OnceLock::get) {
+            let mut counts = BlockCounts::default();
+            self.send(pairs, &mut counts, f);
+            return Ok(counts);
+        }
         let (batch, _) = self.reader.read_block(block)?;
         let pairs = self.map(&batch)?;
         let mut digest = (u64::try_from(pairs.len()).unwrap_or(u64::MAX) + 1)
@@ -182,7 +210,15 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
             ..BlockCounts::default()
         };
         counts.rejected = counts.rows - u64::try_from(pairs.len()).unwrap_or(u64::MAX);
-        for &pair in &pairs {
+        self.send(&pairs, &mut counts, f);
+        if let Some(slot) = cached {
+            let _ = slot.set(pairs);
+        }
+        Ok(counts)
+    }
+
+    fn send(&self, pairs: &[u64], counts: &mut BlockCounts, mut f: impl FnMut(u32, u32)) {
+        for &pair in pairs {
             let (u, v) = (high(pair), low(pair));
             if u == v {
                 match self.graph.self_loops {
@@ -196,7 +232,6 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
                 }
             }
         }
-        Ok(counts)
     }
 
     /// The rows of `batch` whose two keys are in the dictionary, as `source << 32 | target`.
