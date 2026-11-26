@@ -68,7 +68,7 @@ pub const fn wcc_state_bytes(nodes: u32) -> u64 {
 /// (Patwary, Blair and Manne, SEA 2010; `ConnectIt`'s UF-Rem-CAS). Each parent only goes
 /// down, so a root is the smallest node of its tree.
 #[inline]
-fn unite<'g>(parent: &NodeCells<'g>, mut x: Node<'g>, mut y: Node<'g>) {
+pub(crate) fn unite<'g>(parent: &NodeCells<'g>, mut x: Node<'g>, mut y: Node<'g>) {
     loop {
         let (mut px, mut py) = (parent.load(x, Relaxed), parent.load(y, Relaxed));
         if px == py {

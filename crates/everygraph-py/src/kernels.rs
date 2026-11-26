@@ -25,6 +25,7 @@ use everygraph_kernels::edge_map::{Compressed, Error, Plan, Settings, Source, on
 use everygraph_kernels::kcore;
 use everygraph_kernels::pagerank::{self, PageRank};
 use everygraph_kernels::traversal::{self, Bfs, UNREACHED};
+use everygraph_kernels::{Atomics, scc};
 
 use crate::error::{self, Failure};
 use crate::graph::Shared;
@@ -335,16 +336,12 @@ fn bfs_on<'g, S: Source>(
     })
 }
 
-/// Weakly connected components (#48): `component`, numbered from 0 by decreasing size,
-/// ties by the earliest node (`docs/api-sketch.md` § 2.12).
-pub(crate) fn components(call: &Call<'_>, g: &Shared) -> Result<Output, Failure> {
-    let options = WccOptions {
-        symmetric: !g.file().directed(),
-        sample: true,
-    };
+/// Weakly connected components (#48), or with `strong` the strongly connected ones of a
+/// directed graph (#223): `component`, numbered from 0 by decreasing size, ties by the
+/// earliest node (`docs/api-sketch.md` § 2.12).
+pub(crate) fn components(call: &Call<'_>, g: &Shared, strong: bool) -> Result<Output, Failure> {
     let memory = call.memory;
-    call.on_lists(g, |plan| {
-        let (labels, held) = components::wcc(plan, memory, options)?;
+    let numbered = |(labels, held): Atomics| {
         let numbered = components::number(&labels, memory)?;
         drop((labels, held));
         let count = numbered.sizes.len() as u64;
@@ -353,7 +350,15 @@ pub(crate) fn components(call: &Call<'_>, g: &Shared) -> Result<Output, Failure>
             ids: Vec::new(),
             extra: vec![("components", Extra::Count(count))],
         })
-    })
+    };
+    if strong {
+        return call.on_pair(g, |out, inn| numbered(scc::scc(out, inn, memory)?));
+    }
+    let options = WccOptions {
+        symmetric: !g.file().directed(),
+        sample: true,
+    };
+    call.on_lists(g, |plan| numbered(components::wcc(plan, memory, options)?))
 }
 
 /// Core numbers (#50): `core`, direction ignored: on a directed graph, those of its

@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Strong components (#223, plan/issues/m3-20-scc.md): BGSS on the edge-map framework
+# against a sequential Tarjan, kernel time inside the process (`scc` on twitter-2010 one
+# run per process; the other rows, `tarjan` on twitter-2010 too, the best of 3 in one
+# process; loading is reported apart), both through the example `edge_map_bench` on raw
+# CSR in the heap:
+#
+# - `engine-scc`: `scc`, on the out-lists and the in-lists (`csr/twitter-dir-in`; the
+#   road network is symmetric, so its lists are both).
+# - `tarjan`: Tarjan's algorithm, iterative, on the out-lists, one thread.
+#
+# The two give the same labels (the smallest node of each component), so every row of
+# one graph records the same hash. twitter-2010 is low-diameter and skewed;
+# roadNet-CA is the large-diameter case where forward-backward methods lose to Tarjan
+# (`docs/research/sota-kernels.md` § 3).
+#
+# Run (an estimate, not measured: about 15 minutes; each twitter process reads its lists
+# into the heap, 12.5 GB for scc and 6.2 GB for tarjan):
+#   everygraph-bench run scc --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "scc"
+description = "Issue #223: strong components by BGSS against a sequential Tarjan"
+reference = "plan/issues/m3-20-scc.md; docs/research/sota-kernels.md § 3"
+binaries = ["{bench}"]
+
+[defaults]
+memory_limit = "20G"
+repetitions = 3
+warmup = 1
+threads = [1, 16]
+timeout = "20m"
+
+[vars]
+bench = "{repo}/target/release/examples/edge_map_bench"
+
+[[prepare]]
+name = "build-bench"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-kernels", "--example", "edge_map_bench"]
+
+[[benchmark]]
+name = "engine-scc-twitter"
+group = "scc"
+description = "scc on twitter-2010, out- and in-lists"
+dataset_path = "csr/twitter-dir"
+command = ["{bench}", "run", "--graph", "{dataset}", "--in", "{data}/csr/twitter-dir-in", "--source", "raw", "--kernel", "scc", "--threads", "{threads}", "--reps", "1"]
+conditions = { graph = "twitter-2010", code = "everygraph-kernels", kernel = "scc (BGSS)", storage = "raw CSR in the heap, out and in", level = "in-process kernel time, one per process" }
+record_json = { hash = "/hash", components = "/result/components" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "engine-scc-road"
+group = "scc"
+description = "scc on roadNet-CA, its symmetric lists as out- and in-lists"
+dataset_path = "csr/roadnet-ca"
+command = ["{bench}", "run", "--graph", "{dataset}", "--in", "same", "--source", "raw", "--kernel", "scc", "--threads", "{threads}", "--reps", "3"]
+conditions = { graph = "roadnet-ca", code = "everygraph-kernels", kernel = "scc (BGSS)", storage = "raw CSR in the heap", level = "in-process kernel time, best of 3" }
+record_json = { hash = "/hash", components = "/result/components" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "tarjan"
+group = "scc"
+description = "Tarjan's algorithm, sequential, on the out-lists"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["twitter-dir", "roadnet-ca"] }
+threads = [1]
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "tarjan", "--threads", "1", "--reps", "3"]
+conditions = { graph = "{graph}", code = "edge_map_bench, hand-written", kernel = "scc (Tarjan, iterative)", storage = "raw CSR in the heap, out only", level = "in-process kernel time, best of 3" }
+record_json = { hash = "/hash", components = "/result/components" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
