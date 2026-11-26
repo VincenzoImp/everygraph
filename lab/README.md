@@ -30,6 +30,8 @@ Second-round experiments and measurements of production code:
 | `m1-02-ooc-leiden` | #16, out-of-core Leiden | § M1-02 | `ooc-leiden.toml` |
 | `m1-04-det-leiden-scaling` | #18, the sub-round rule of deterministic Leiden, A/B | its own `README.md` (exploratory) | `det-leiden.toml` |
 | `m1-05-hierarchy-shaping` | #19, a hierarchy the map can use | § M1-05 | `hierarchy-shaping.toml` |
+| `m1-06-edge-rendering` | #20, connections without a selection; the preview `design/preview/style/overview.html` | `design/DECISIONS.md` (2026-11-26), `results/` (exploratory) | — |
+| `m1-12-viewer-no-gpu` | #26, the lab viewer without a discrete GPU; adaptive caps in `e-map/viewer` | `results/` (exploratory) | — |
 | `m1-13-compressed` | #118, the default storage end to end | § M1-13 | — |
 | `m1-15-mmap-hints-block-cache` | #172, mmap hints and a budgeted block cache | ADR 0029, `results/README.md` | `mmap-hints.toml` |
 | `m1-20-ldbc-graphalytics` | #177, LDBC Graphalytics as oracle and workload | § M1-20 | — |

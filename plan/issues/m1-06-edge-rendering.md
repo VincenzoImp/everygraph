@@ -24,9 +24,10 @@ labels: type:experiment, area:viewer, P0, risk:high, size:L, lab-evidence
 
 **Evaluation**
 - Task-based: can a viewer answer "which regions does X bridge", "what are the strongest ties of this community", "is this node a hub" in < 30 s? Try with 3–5 people
+  - *Moved (2026-11-26):* the sessions with people need participants, which M1 does not have. They run as the formative check of {{#m5-07-edge-strategy}} on the built viewer, with the fourth task added there. M1 answers the same tasks with deterministic checks instead: whether the information a task needs is on screen, and what share of the weight each view shows (`lab/m1-06-edge-rendering/results/overview_{lj,orkut}.json`).
 - Cost: bytes per tile, frame time on integrated GPU
 - Honesty: every view states the edge weight shown vs omitted
 
-**Done when.** One approach is chosen with screenshots on lj and orkut, task-success numbers from the evaluation, and measured bytes per tile and frame time; rejected candidates are recorded with the reason.
+**Done when.** One approach is chosen with screenshots on lj and orkut, task-success numbers from the evaluation, and measured bytes per tile and frame time; rejected candidates are recorded with the reason. *Amended 2026-11-26:* task-success numbers from people move to {{#m5-07-edge-strategy}} (see above); frame times are exploratory, from headless Chromium on the RTX 4090 and on SwiftShader ({{#m1-12-viewer-no-gpu}}), and the official numbers come with the performance pass of M5.
 
 **Decision it feeds.** Tile content model ({{#m5-02-tile-format}}) and viewer scope ({{#m5-07-edge-strategy}}).
