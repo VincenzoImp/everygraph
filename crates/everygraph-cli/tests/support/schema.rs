@@ -17,7 +17,9 @@ fn schemas() -> &'static BTreeMap<String, Value> {
         let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs");
         let mut found = BTreeMap::new();
         for name in ["ux-contract.md", "api-sketch.md"] {
-            let text = std::fs::read_to_string(docs.join(name)).unwrap();
+            let text = std::fs::read_to_string(docs.join(name))
+                .unwrap()
+                .replace("\r\n", "\n");
             for block in text.split("```json\n").skip(1) {
                 let body = block.split("\n```").next().unwrap();
                 let value: Value = serde_json::from_str(body).unwrap();
