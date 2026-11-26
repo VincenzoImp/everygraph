@@ -1,0 +1,94 @@
+{
+ "dark": {
+  "band fill (ink at A3) vs canvas": 3.03,
+  "A3": 0.37,
+  "selection link (ink 55%) vs canvas": 5.28,
+  "glyph meter fill (ink) vs its track (ink at A3)": 5.05,
+  "glyph meter track vs canvas": 3.03,
+  "glyph tick (ink) vs canvas": 15.29,
+  "region outlines d1-d5 vs canvas": [
+   5.81,
+   10.54,
+   4.75,
+   12.85,
+   4.72
+  ],
+  "region outlines d1-d5 vs their 5% tint": [
+   5.49,
+   9.75,
+   4.52,
+   11.67,
+   4.5
+  ],
+  "region outlines d1-d5 vs their 12% tint": [
+   5,
+   8.4,
+   4.19,
+   9.89,
+   4.18
+  ],
+  "matrix steps s2-s7 vs the card (surface)": [
+   1.5,
+   2.18,
+   3.17,
+   4.58,
+   6.48,
+   8.99
+  ],
+  "matrix: adjacent steps s2-s7": [
+   1.45,
+   1.46,
+   1.44,
+   1.41,
+   1.39
+  ],
+  "matrix empty cell outline (line) vs surface": 1.36,
+  "least ink opacity reaching 3:1 on the canvas": 0.37
+ },
+ "light": {
+  "band fill (ink at A3) vs canvas": 3.07,
+  "A3": 0.5,
+  "selection link (ink 55%) vs canvas": 3.56,
+  "glyph meter fill (ink) vs its track (ink at A3)": 4.54,
+  "glyph meter track vs canvas": 3.07,
+  "glyph tick (ink) vs canvas": 13.92,
+  "region outlines d1-d5 vs canvas": [
+   4.11,
+   7.98,
+   3.01,
+   8.23,
+   3.01
+  ],
+  "region outlines d1-d5 vs their 5% tint": [
+   3.88,
+   7.37,
+   2.88,
+   7.57,
+   2.88
+  ],
+  "region outlines d1-d5 vs their 12% tint": [
+   3.56,
+   6.58,
+   2.67,
+   6.75,
+   2.68
+  ],
+  "matrix steps s2-s7 vs the card (surface)": [
+   1.64,
+   2.25,
+   3.18,
+   4.65,
+   6.95,
+   10.11
+  ],
+  "matrix: adjacent steps s2-s7": [
+   1.37,
+   1.41,
+   1.46,
+   1.49,
+   1.45
+  ],
+  "matrix empty cell outline (line) vs surface": 1.4,
+  "least ink opacity reaching 3:1 on the canvas": 0.5
+ }
+}

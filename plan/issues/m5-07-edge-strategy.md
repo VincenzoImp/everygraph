@@ -15,7 +15,7 @@ labels: type:feature, area:viewer, P0, risk:high, size:L, lab-evidence
 - [ ] The overview without selection, if {{#m1-06-edge-rendering}} adopts it after its preview under `design/preview/` (added 2026-11-25, `docs/research/sota-maps.md` challenge 5): a reordered matrix of the current parent's children with exact weights; a per-region external-weight glyph; "showing X% of inter-region weight" on the strongest-links layer. Built only to the approved preview and its row in `design/DECISIONS.md`
 
 **Acceptance**
-- The three evaluation tasks from {{#m1-06-edge-rendering}} are answerable in < 30 s on lj and orkut
+- The evaluation tasks from {{#m1-06-edge-rendering}} — "which regions does X bridge", "what are the strongest ties of this community", "is this node a hub", and "which regions are most tightly coupled" (with and without the matrix) — are answerable in < 30 s on lj and orkut, in a formative session with 3–5 people from the target personas (moved here from {{#m1-06-edge-rendering}} on 2026-11-26; failures and profiles reported, no success rate claimed, as in {{#m5-06-viewer-ux}})
 - No view draws more edges than the per-frame budget; selection edges appear within 200 ms from a static file
 
 **Depends on** {{#m1-06-edge-rendering}}, {{#m5-05-viewer-core}}
