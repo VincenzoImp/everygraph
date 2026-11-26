@@ -1,0 +1,220 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# Components (#48, plan/issues/m3-05-components.md) and core numbers (#50,
+# plan/issues/m3-07-kcore-degrees.md) against the lab's kernels, kernel time inside the
+# process (best of 5 repetitions in one process; loading is reported apart):
+#
+# - `lab-*`: lab/b1-core (`glab run`): WCC by Afforest with first-neighbour sampling,
+#   and the PKC-style k-core peel. Built without `target-cpu=native`, like the
+#   workspace. Graph read into anonymous memory (`--load heap`).
+# - `engine-*`: crates/everygraph-kernels through the example `edge_map_bench`, raw
+#   CSR in the heap: `cc` (ConnectIt sampling, first neighbour plus a hashed random
+#   one, UF-Rem-CAS finish), `cc-one-pass` (one pass over each list, the semi-external
+#   regime's kernel), `wcc` (the framework's proof kernel: the lab's Afforest on the
+#   framework, first neighbours only), and `kcore` (Liu et al. SIGMOD 2025).
+# - `engine-cc-compressed`: `cc` on the compressed format in the heap, against `raw`
+#   (#118's follow-up: batched prefix decode).
+#
+# Every engine row records the hash of the result: the same for every thread count and
+# source of one kernel and graph, and the same for `cc`, `cc-one-pass` and `wcc`.
+#
+# Acceptance read from the rows: orkut `cc` ≤ 20 ms and Friendster `cc` ≤ 0.5 s at 16
+# threads (#48); orkut `kcore` ≤ 0.3 s and Friendster `kcore` ≤ 10 s, scaling from 8 to
+# 16 and 32 threads (#50); max core 253 (orkut), 304 (Friendster), 360 (lj), from the
+# `max_core` field.
+#
+# Missing: uk-2005 (a web graph in clustered order, the case where first-neighbour
+# sampling fails) is not in the dataset registry.
+#
+# Run (about 50 minutes, an estimate: 4 graphs, about 140 processes, Friendster and
+# twitter-sym loading 15 GB each time):
+#   everygraph-bench run components-kcore --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "components-kcore"
+description = "Issues #48 and #50: components and core numbers on the edge-map framework against the lab's kernels"
+reference = "plan/issues/m3-05-components.md; plan/issues/m3-07-kcore-degrees.md; docs/research/sota-kernels.md challenges 3 and 6"
+binaries = ["{bench}", "{glab}"]
+
+[defaults]
+memory_limit = "8G"
+repetitions = 3
+warmup = 1
+threads = [1, 16]
+timeout = "20m"
+
+[vars]
+bench = "{repo}/target/release/examples/edge_map_bench"
+glab = "{work}/lab-b1/release/glab"
+stores = "{work}/stores"
+
+[[prepare]]
+name = "build-bench"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-kernels", "--example", "edge_map_bench"]
+
+[[prepare]]
+name = "build-lab"
+cwd = "{repo}/lab/b1-core"
+# An empty RUSTFLAGS replaces the lab's `.cargo/config.toml` (`target-cpu=native`).
+shell = "RUSTFLAGS= CARGO_TARGET_DIR={work}/lab-b1 cargo build --release --offline --locked"
+needed_by = ["lab-wcc", "lab-wcc-large", "lab-kcore", "lab-kcore-large"]
+
+[[prepare]]
+name = "stores"
+# Friendster's CSR is read into the heap twice by the encoder (bytes, then words).
+memory_limit = "40G"
+shell = "for g in lj orkut twitter-sym friendster; do [ -e {stores}/$g ] || {{ {bench} encode --graph {data}/csr/$g --out {stores}/$g.part > /dev/null && mv {stores}/$g.part {stores}/$g; }}; done"
+creates = "{stores}/friendster"
+needed_by = ["engine-cc-compressed", "engine-cc-compressed-large"]
+
+[[benchmark]]
+name = "lab-wcc"
+group = "wcc"
+description = "lab/b1-core Afforest (glab run --algo wcc), graph in anonymous memory"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["{glab}", "run", "--graph", "{dataset}", "--algo", "wcc", "--threads", "{threads}", "--reps", "5", "--load", "heap"]
+conditions = { graph = "{graph}", code = "lab/b1-core, hand-written", kernel = "wcc (Afforest)", storage = "raw CSR in anonymous memory", level = "in-process kernel time, best of 5" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "lab-wcc-large"
+group = "wcc"
+description = "as lab-wcc, on the graphs of 15 GB"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["twitter-sym", "friendster"] }
+memory_limit = "40G"
+command = ["{glab}", "run", "--graph", "{dataset}", "--algo", "wcc", "--threads", "{threads}", "--reps", "5", "--load", "heap"]
+conditions = { graph = "{graph}", code = "lab/b1-core, hand-written", kernel = "wcc (Afforest)", storage = "raw CSR in anonymous memory", level = "in-process kernel time, best of 5" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "engine-wcc"
+group = "wcc"
+description = "components on the edge-map framework: hybrid sampling, one pass, and first-neighbour sampling"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"], kernel = ["cc", "cc-one-pass", "wcc"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels", kernel = "{kernel}", storage = "raw CSR in the heap", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "engine-wcc-large"
+group = "wcc"
+description = "as engine-wcc, on the graphs of 15 GB"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["twitter-sym", "friendster"], kernel = ["cc", "cc-one-pass", "wcc"] }
+memory_limit = "40G"
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels", kernel = "{kernel}", storage = "raw CSR in the heap", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+  { name = "load_seconds", json = "/load_seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "engine-cc-compressed"
+group = "wcc-compressed"
+description = "cc on the compressed format in the heap (raw is engine-wcc)"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{stores}/{graph}", "--source", "compressed", "--kernel", "cc", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels", kernel = "cc", storage = "compressed, data part in the heap", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "engine-cc-compressed-large"
+group = "wcc-compressed"
+description = "as engine-cc-compressed, on the graphs of 15 GB"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["twitter-sym", "friendster"] }
+memory_limit = "40G"
+command = ["{bench}", "run", "--graph", "{dataset}", "--store", "{stores}/{graph}", "--source", "compressed", "--kernel", "cc", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels", kernel = "cc", storage = "compressed, data part in the heap", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "lab-kcore"
+group = "kcore"
+description = "lab/b1-core PKC-style peel (glab run --algo kcore), graph in anonymous memory"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+threads = [8, 16, 32]
+command = ["{glab}", "run", "--graph", "{dataset}", "--algo", "kcore", "--threads", "{threads}", "--reps", "5", "--load", "heap"]
+conditions = { graph = "{graph}", code = "lab/b1-core, hand-written", kernel = "kcore (PKC-style)", storage = "raw CSR in anonymous memory", level = "in-process kernel time, best of 5" }
+record_json = { max_core = "/result/max_core" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "lab-kcore-large"
+group = "kcore"
+description = "as lab-kcore, on the graphs of 15 GB"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["twitter-sym", "friendster"] }
+threads = [8, 16, 32]
+memory_limit = "40G"
+command = ["{glab}", "run", "--graph", "{dataset}", "--algo", "kcore", "--threads", "{threads}", "--reps", "5", "--load", "heap"]
+conditions = { graph = "{graph}", code = "lab/b1-core, hand-written", kernel = "kcore (PKC-style)", storage = "raw CSR in anonymous memory", level = "in-process kernel time, best of 5" }
+record_json = { max_core = "/result/max_core" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "engine-kcore"
+group = "kcore"
+description = "core numbers on the edge-map framework (Liu et al.: buckets, local queues, sampled hubs)"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["lj", "orkut"] }
+threads = [1, 8, 16, 32]
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "kcore", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels", kernel = "kcore", storage = "raw CSR in the heap", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash", max_core = "/result/max_core" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "engine-kcore-large"
+group = "kcore"
+description = "as engine-kcore, on the graphs of 15 GB"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["twitter-sym", "friendster"] }
+threads = [8, 16, 32]
+memory_limit = "40G"
+command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "kcore", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "{graph}", code = "everygraph-kernels", kernel = "kcore", storage = "raw CSR in the heap", level = "in-process kernel time, best of 5" }
+record_json = { hash = "/hash", max_core = "/result/max_core" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"

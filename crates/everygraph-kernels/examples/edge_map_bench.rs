@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The benchmark of the edge-map framework (#44, `bench/specs/edge-map.toml`): the proof
-//! kernels on a CSR directory of the dataset registry (`offsets.u64`, `targets.u32`),
-//! over one source, timed inside the process like the lab's `glab-cli run`.
+//! The benchmark of the edge-map framework (#44, `bench/specs/edge-map.toml`) and of the
+//! kernels written on it (#48, #50, `bench/specs/components-kcore.toml`): a kernel on a
+//! CSR directory of the dataset registry (`offsets.u64`, `targets.u32`), over one source,
+//! timed inside the process like the lab's `glab-cli run`.
 //!
 //! ```text
 //! edge_map_bench encode --graph DIR --out STORE
 //! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|stream
-//!     --kernel pr32|pr64|wcc|bfs --threads T [--reps R] [--iters I]
+//!     --kernel pr32|pr64|wcc|bfs|cc|cc-one-pass|kcore --threads T [--reps R] [--iters I]
 //!     [--chunk ENTRIES] [--batch ENTRIES]
 //! ```
 //!
 //! `run` prints one JSON line: the times of every repetition, the best, and a hash of
-//! the result, which is the same for every source and thread count. Sources: `raw`,
+//! the result, which is the same for every source and thread count. `wcc` is the proof
+//! kernel (the lab's Afforest, first neighbours), `cc` the production components with
+//! hybrid sampling, `cc-one-pass` the same without sampling, `kcore` the core numbers.
+//! Sources: `raw`,
 //! arrays read into the heap; `compressed`, the store's data part read into the heap;
 //! `mmap`, the data part memory-mapped (warm after the first repetition); `stream`,
 //! the raw targets read through the page cache with positional reads.
@@ -38,7 +42,9 @@ use std::time::Instant;
 use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
+use everygraph_kernels::components::{WccOptions, wcc};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
+use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::proof::{self, UNREACHED};
 
 type Args = HashMap<String, String>;
@@ -108,8 +114,19 @@ fn time_plan<S: Source>(
                 };
                 (hash, format!("{{\"iters\": {iters}, \"sum\": {sum}}}"))
             }
-            "wcc" => {
-                let (labels, _held) = proof::wcc(plan, memory).expect("wcc");
+            "wcc" | "cc" | "cc-one-pass" => {
+                let (labels, _held) = match kernel {
+                    "wcc" => proof::wcc(plan, memory),
+                    _ => {
+                        let sample = kernel == "cc";
+                        let options = WccOptions {
+                            sample,
+                            ..WccOptions::default()
+                        };
+                        wcc(plan, memory, options)
+                    }
+                }
+                .expect("wcc");
                 secs.push(t.elapsed().as_secs_f64());
                 let labels: Vec<u32> = labels.into_iter().map(AtomicU32::into_inner).collect();
                 let components = labels.iter().zip(0..).filter(|&(&l, v)| l == v).count();
@@ -131,6 +148,17 @@ fn time_plan<S: Source>(
                 let summary =
                     format!("{{\"source\": {hub}, \"reached\": {reached}, \"depth_sum\": {sum}}}");
                 (fnv(depth.iter().map(|&d| u64::from(d))), summary)
+            }
+            "kcore" => {
+                let (core, _held) = kcore(plan, memory).expect("kcore");
+                secs.push(t.elapsed().as_secs_f64());
+                let core: Vec<u32> = core.into_iter().map(AtomicU32::into_inner).collect();
+                let max = core.iter().copied().max().unwrap_or(0);
+                let sum: u64 = core.iter().map(|&c| u64::from(c)).sum();
+                (
+                    fnv(core.iter().map(|&c| u64::from(c))),
+                    format!("{{\"max_core\": {max}, \"coreness_sum\": {sum}}}"),
+                )
             }
             other => panic!("unknown --kernel {other}"),
         };

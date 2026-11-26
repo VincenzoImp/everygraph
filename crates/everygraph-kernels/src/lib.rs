@@ -9,6 +9,9 @@
 //!   arrays, the compressed format in the heap or memory-mapped, streams), the
 //!   [`Plan`](edge_map::Plan) whose drivers run a kernel body over them, and the rules
 //!   that keep every result independent of threads, chunking and source.
+//! - [`components`]: weakly connected components and their numbering (#48).
+//! - [`kcore`]: core numbers and shells (#50).
+//! - [`degrees`]: degree and strength columns (#50).
 //! - [`proof`]: `PageRank`, components and BFS, written once on the framework. The
 //!   production kernels (#47–#52) replace them.
 //!
@@ -52,5 +55,17 @@
     clippy::disallowed_macros
 )]
 
+use std::sync::atomic::AtomicU32;
+
+use everygraph_core::Reservation;
+
+pub mod components;
+pub mod degrees;
 pub mod edge_map;
+pub mod kcore;
 pub mod proof;
+mod rng;
+
+/// Per-node values in atomics, as a kernel computed them, and the reservation that
+/// holds them.
+pub type Atomics = (Vec<AtomicU32>, Reservation);

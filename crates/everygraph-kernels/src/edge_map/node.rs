@@ -493,6 +493,20 @@ impl<'g> NodeList<'g> {
         Ok(self.ids.try_push(v.get())?)
     }
 
+    /// Appends `nodes`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Memory`] if they do not fit in the budget.
+    pub fn extend_from_slice(&mut self, nodes: &[Node<'g>]) -> Result<(), Error> {
+        Ok(self.ids.try_extend_from_slice(ids(nodes))?)
+    }
+
+    /// Removes every node; the memory stays.
+    pub fn clear(&mut self) {
+        self.ids.clear();
+    }
+
     /// Number of nodes.
     #[must_use]
     pub fn len(&self) -> usize {

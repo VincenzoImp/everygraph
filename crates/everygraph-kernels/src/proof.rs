@@ -12,7 +12,7 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
-use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par};
+use everygraph_core::{Memory, MemoryKind, SegVec, par};
 
 use crate::edge_map::{Error, Node, NodeCells, NodeList, PerNode, Plan, Source, all, ix};
 
@@ -233,8 +233,7 @@ pub fn wcc<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory) -> Result<Atomics
     Ok(comp.into_ids())
 }
 
-/// Per-node values in atomics, and the reservation that holds them.
-pub type Atomics = (Vec<AtomicU32>, Reservation);
+pub use crate::Atomics;
 
 /// Not reached.
 pub const UNREACHED: u32 = u32::MAX;
