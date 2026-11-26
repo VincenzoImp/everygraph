@@ -325,6 +325,8 @@ pub(crate) fn quotient<S: Source>(
             of: strength,
             total,
             alone,
+            mass: None,
+            skew: None,
         },
     ))
 }

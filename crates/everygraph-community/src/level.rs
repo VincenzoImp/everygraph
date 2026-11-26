@@ -8,12 +8,23 @@
 //! Every weight is an integer in the units of the adjacency matrix `A` of
 //! `docs/spec/graph-semantics.md` § 3: an entry to another node holds `A[u][v]`, an
 //! entry of a node to itself holds `A[v][v]` = twice the loop's weight. At level 0 the
-//! graph is unweighted (1 per entry, 2 per kept loop). At coarser levels each entry
-//! holds the sum of `A` between two communities, and the diagonal entry the sum inside
-//! one. So every sum here (strengths, community volumes, quotient weights) is exact in
-//! any order (`docs/research/README.md` N1), and the deterministic result does not
-//! depend on threads, chunking or the source. Gains are `f64` expressions of these
-//! exact integers.
+//! graph is unweighted (1 per entry, 2 per kept loop) or its real weights are scaled to
+//! integers (`crate::weights`). At coarser levels each entry holds the sum of `A`
+//! between two communities, and the diagonal entry the sum inside one. So every sum
+//! here (strengths, community volumes, quotient weights) is exact in any order
+//! (`docs/research/README.md` N1), and the deterministic result does not depend on
+//! threads, chunking or the source. Gains are `f64` expressions of these exact
+//! integers.
+//!
+//! # Objectives
+//!
+//! The gain of moving `u` into community `D` is `A[u][D] − γ·c·m_u·M_D`, in the units
+//! of `A`: `m` is a node's mass and `M` its community's, `c` the coefficient of
+//! [`Ctx`]. For modularity the mass is the strength and `c = 1/2W`; for the Constant
+//! Potts Model the mass is the node count and `c = 2^s`, the scale of the weights.
+//! Directed modularity (Leicht and Newman 2008) adds `γ·c·d_u·D_D`, where `d = s⁺ − s⁻`
+//! is a node's skew and `D` its community's: with `k = s⁺ + s⁻`,
+//! `s⁺_u·S⁻_D + s⁻_u·S⁺_D = (k_u·K_D − d_u·D_D) / 2`.
 //!
 //! # Deterministic mode
 //!
@@ -48,8 +59,9 @@ use everygraph_kernels::edge_map::{
 };
 
 use crate::column::{Column, GRAIN};
-use crate::leiden::{Mode, Options, Refinement};
+use crate::leiden::{Mode, Objective, Options, Refinement};
 use crate::table::{Lent, Table, Tables};
+use crate::weights::{power_of_two, quantize};
 
 /// No community: a decision not to move.
 const NONE: u32 = u32::MAX;
@@ -77,6 +89,16 @@ pub(crate) enum Weights<'a> {
     Unit,
     /// One value per entry: a quotient graph in memory.
     Entries(&'a [u64]),
+    /// Real weights, one per entry (`crate::weights`): `A` = `round(w·unit)`, twice that
+    /// for a loop.
+    Scaled { w: &'a [f64], unit: f64 },
+    /// The undirected projection of a directed graph (`crate::weights`): `A[u][v]` =
+    /// `round(out·unit) + round(inn·unit)`.
+    Directed {
+        out: &'a [f64],
+        inn: &'a [f64],
+        unit: f64,
+    },
     /// A stored quotient graph, whose entries hold their weight as events: `w(p)`
     /// events, so `A` is that and twice that for a loop. Checked whole before use.
     Events(&'a AdjacencyEvents<'a>),
@@ -95,6 +117,18 @@ impl Weights<'_> {
             Self::Entries(w) => {
                 for (&v, &x) in row.list.iter().zip(&w[row.entries()]) {
                     f(v, x);
+                }
+            }
+            Self::Scaled { w, unit } => {
+                for (&v, &x) in row.list.iter().zip(&w[row.entries()]) {
+                    let a = quantize(x, unit);
+                    f(v, if v == row.node { 2 * a } else { a });
+                }
+            }
+            Self::Directed { out, inn, unit } => {
+                let r = row.entries();
+                for ((&v, &o), &i) in row.list.iter().zip(&out[r.clone()]).zip(&inn[r]) {
+                    f(v, quantize(o, unit) + quantize(i, unit));
                 }
             }
             Self::Events(events) => {
@@ -117,11 +151,14 @@ impl Weights<'_> {
     }
 }
 
-/// A level's graph: its plan, its weights and its strengths.
+/// A level's graph: its plan, its weights, its strengths, and its nodes' masses and
+/// skews (see "Objectives").
 pub(crate) struct Graph<'a, 's, 'g, S: Source> {
     pub(crate) plan: &'a Plan<'s, 'g, S>,
     pub(crate) w: Weights<'a>,
     pub(crate) k: &'a [u64],
+    mass: &'a [u64],
+    skew: Option<&'a [i64]>,
 }
 
 impl<S: Source> Clone for Graph<'_, '_, '_, S> {
@@ -132,20 +169,35 @@ impl<S: Source> Clone for Graph<'_, '_, '_, S> {
 
 impl<S: Source> Copy for Graph<'_, '_, '_, S> {}
 
-impl<'g, S: Source> Graph<'_, '_, 'g, S> {
+impl<'a, 's, 'g, S: Source> Graph<'a, 's, 'g, S> {
+    pub(crate) fn new(plan: &'a Plan<'s, 'g, S>, w: Weights<'a>, k: &'a Strengths) -> Self {
+        Self {
+            plan,
+            w,
+            k: &k.of,
+            mass: k.mass(),
+            skew: k.skew.as_deref(),
+        }
+    }
+
     /// The node of id `v`: a community label is always one.
     fn node(&self, v: u32) -> Node<'g> {
         node(self.plan, v)
     }
 }
 
-/// Where a step runs: the options, the graph's total weight and the position of the
-/// level in the run. The last three name every random draw (`everygraph_core::rng`).
+/// Where a step runs: the options, the graph's total weight, the objective's
+/// coefficient and the position of the level in the run. The last three name every
+/// random draw (`everygraph_core::rng`).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Ctx<'o> {
     pub(crate) options: &'o Options,
     /// The sum of all strengths, `2W`.
     pub(crate) total: u64,
+    /// `c` of "Objectives": `1 / 2W` for modularity, `2^s` for the Constant Potts Model.
+    pub(crate) coefficient: f64,
+    /// The scale `s` of the weights (`crate::weights`).
+    pub(crate) weight_scale: Option<i32>,
     pub(crate) level: u32,
     pub(crate) iteration: u32,
     /// 0 for the passes of an iteration, 1 for its prolongation.
@@ -161,6 +213,11 @@ impl Ctx<'_> {
         1.0 / self.total as f64
     }
 
+    /// `2^-s`: one unit of `A` in the units of the input's weights.
+    fn weight_unit(&self) -> f64 {
+        self.weight_scale.map_or(1.0, |s| power_of_two(-s))
+    }
+
     fn counter(&self, entity: u32) -> [u32; 4] {
         [entity, self.level, self.iteration, self.stage]
     }
@@ -173,17 +230,30 @@ fn before(salt: u32, a: u32, b: u32) -> bool {
     (key(a), a) < (key(b), b)
 }
 
-/// A gain as a fixed-point integer. A move's claimed gain is positive and at most
+/// The gains of a sweep as a fixed-point integer, added with saturation: exact in any
+/// order. For modularity a move's claimed gain is positive and at most
 /// `2(1 + γ)·k_u / 2W`, so a sweep's gains add to at most `2(1 + γ)`, below 2^64 in
-/// these units for the resolutions `leiden` accepts.
-fn fixed(gain: f64) -> u64 {
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "positive, and below 2^64 once scaled (above)"
-    )]
-    let units = (gain * GAIN_SCALE) as u64;
-    units
+/// these units for the resolutions `leiden` accepts; a CPM gain has no such bound.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct Gain(u64);
+
+impl Gain {
+    fn of(gain: f64) -> Self {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "positive; saturates at 2^64 - 1"
+        )]
+        let units = (gain * GAIN_SCALE) as u64;
+        Self(units)
+    }
+}
+
+impl Reduce for Gain {
+    const ZERO: Self = Self(0);
+    fn add(self, other: Self) -> Self {
+        Self(self.0.saturating_add(other.0))
+    }
 }
 
 /// `x` as a float. Every weight sum is below 2^62 (`strengths`), so the signed
@@ -193,6 +263,12 @@ fn fixed(gain: f64) -> u64 {
 fn real(x: u64) -> f64 {
     #[expect(clippy::cast_possible_wrap, reason = "below 2^62")]
     let x = x as i64;
+    signed(x)
+}
+
+/// `x` as a float, rounded to nearest: a skew or a cut, below 2^62 in magnitude.
+#[inline]
+fn signed(x: i64) -> f64 {
     x as f64
 }
 
@@ -203,16 +279,61 @@ fn node<'g, S: Source>(plan: &Plan<'_, 'g, S>, v: u32) -> Node<'g> {
 
 /// Strengths `s(v)` of a level, their sum `2W`, and the nodes without a neighbour other
 /// than themselves: they stay alone at every level, so the stopping test leaves them out.
+/// Also the masses when they are not the strengths, and the skews of directed modularity
+/// (see "Objectives").
 pub(crate) struct Strengths {
     pub(crate) of: Column<u64>,
     pub(crate) total: u64,
     pub(crate) alone: u32,
+    /// The node counts, for the Constant Potts Model.
+    pub(crate) mass: Option<Column<u64>>,
+    pub(crate) skew: Option<Column<i64>>,
 }
 
+impl Strengths {
+    pub(crate) fn mass(&self) -> &[u64] {
+        self.mass.as_deref().unwrap_or(&self.of)
+    }
+
+    /// `next`, the strengths of the quotient of the partition `map` (values below
+    /// `count`), with the summed masses and skews of its communities.
+    pub(crate) fn above<S: Source>(
+        &self,
+        plan: &Plan<'_, '_, S>,
+        memory: &Memory,
+        map: &[u32],
+        count: u32,
+        mut next: Strengths,
+    ) -> Result<Strengths, Error> {
+        let sum = |value: &(dyn Fn(usize) -> u64 + Sync)| {
+            let sums = Column::new(memory, "community masses", count as usize, |_| {
+                AtomicU64::new(0)
+            })?;
+            plan.vertices((), |(): &mut (), (), _, v, _| {
+                sums[map[v.index()] as usize].fetch_add(value(v.index()), Relaxed);
+            })?;
+            Ok::<_, Error>(sums.map(AtomicU64::into_inner))
+        };
+        if let Some(m) = &self.mass {
+            next.mass = Some(sum(&|v| m[v])?);
+        }
+        if let Some(d) = &self.skew {
+            // Atomic additions wrap, so the sums of the bits are the signed sums.
+            #[expect(clippy::cast_sign_loss, clippy::cast_possible_wrap, reason = "bits")]
+            let skews = sum(&|v| d[v] as u64)?.map(|x| x as i64);
+            next.skew = Some(skews);
+        }
+        Ok(next)
+    }
+}
+
+/// The strengths of a level; for the Constant Potts Model also the node counts, and
+/// with `use_direction` the skews of the directed weights `w`.
 pub(crate) fn strengths<S: Source>(
     plan: &Plan<'_, '_, S>,
     memory: &Memory,
     w: Weights<'_>,
+    options: &Options,
 ) -> Result<Strengths, Error> {
     let n = plan.nodes() as usize;
     let mut of = Column::new(memory, "strengths", n, |_| 0_u64)?;
@@ -229,16 +350,41 @@ pub(crate) fn strengths<S: Source>(
     if total >= 1 << 62 {
         return Err(Error::Invalid("total weight of 2^62 or more"));
     }
-    Ok(Strengths { of, total, alone })
+    let mass = match options.objective {
+        Objective::Modularity => None,
+        Objective::Cpm => Some(Column::new(memory, "node counts", n, |_| 1_u64)?),
+    };
+    let skew = match w {
+        Weights::Directed { out, inn, unit } if options.use_direction => {
+            let mut skew = Column::new(memory, "skews", n, |_| 0_i64)?;
+            plan.scan(&mut skew[..], all, |(): &mut (), d, i, row, _| {
+                let sum = |c: &[f64]| -> i64 {
+                    let s: u64 = c[row.entries()].iter().map(|&x| quantize(x, unit)).sum();
+                    i64::try_from(s).expect("below 2^62")
+                };
+                d[i] = sum(out) - sum(inn);
+            })?;
+            Some(skew)
+        }
+        _ => None,
+    };
+    Ok(Strengths {
+        of,
+        total,
+        alone,
+        mass,
+        skew,
+    })
 }
 
 /// The local-moving state of a level: each node's community, and per community its
-/// volume and (deterministic mode) its size.
+/// mass, its skew (directed modularity) and (deterministic mode) its size.
 pub(crate) struct Moving<'g> {
     pub(crate) comm: NodeCells<'g>,
     /// Each node's draw for its ties, made once per level.
     salt: Column<u32>,
     pub(crate) sigma: Column<AtomicU64>,
+    delta: Column<AtomicI64>,
     size: Column<AtomicU32>,
     active: Column<AtomicBool>,
     /// The decision of each node in the current sub-round (deterministic mode).
@@ -250,11 +396,13 @@ impl<'g> Moving<'g> {
     pub(crate) fn new<S: Source>(
         plan: &Plan<'_, 'g, S>,
         memory: &Memory,
-        k: &[u64],
+        k: &Strengths,
         bound: Option<&[u32]>,
         ctx: &Ctx<'_>,
     ) -> Result<Self, Error> {
         let (n, det) = (plan.nodes() as usize, ctx.det());
+        let skews = if k.skew.is_some() { n } else { 0 };
+        let delta = Column::new(memory, "community skews", skews, |_| AtomicI64::new(0))?;
         let comm = plan.node_cells(memory)?;
         let salt = Column::new(memory, "tie draws", n, |v| {
             let v = u32::try_from(v).expect("a node id");
@@ -273,6 +421,7 @@ impl<'g> Moving<'g> {
             comm,
             salt,
             sigma,
+            delta,
             size,
             active,
             target,
@@ -281,27 +430,34 @@ impl<'g> Moving<'g> {
         Ok(st)
     }
 
-    /// Adds each node's strength and size to its community's.
-    fn count<S: Source>(&self, plan: &Plan<'_, 'g, S>, k: &[u64]) -> Result<(), Error> {
+    /// Adds each node's mass, skew and size to its community's.
+    fn count<S: Source>(&self, plan: &Plan<'_, 'g, S>, k: &Strengths) -> Result<(), Error> {
         let det = !self.size.is_empty();
+        let mass = k.mass();
         plan.vertices((), |(): &mut (), (), _, v, _| {
             let c = self.comm.load(v, Relaxed).index();
-            self.sigma[c].fetch_add(k[v.index()], Relaxed);
+            self.sigma[c].fetch_add(mass[v.index()], Relaxed);
+            if let Some(d) = &k.skew {
+                self.delta[c].fetch_add(d[v.index()], Relaxed);
+            }
             if det {
                 self.size[c].fetch_add(1, Relaxed);
             }
         })
     }
 
-    /// Replaces the communities by `comm`, and their volumes and sizes with them.
+    /// Replaces the communities by `comm`, and their masses, skews and sizes with them.
     pub(crate) fn relabel<S: Source>(
         &mut self,
         plan: &Plan<'_, 'g, S>,
-        k: &[u64],
+        k: &Strengths,
         comm: NodeCells<'g>,
     ) -> Result<(), Error> {
         self.comm = comm;
         par::for_each_chunk_mut(&mut self.sigma, GRAIN, |_, s| {
+            s.iter_mut().for_each(|x| *x.get_mut() = 0);
+        });
+        par::for_each_chunk_mut(&mut self.delta, GRAIN, |_, s| {
             s.iter_mut().for_each(|x| *x.get_mut() = 0);
         });
         par::for_each_chunk_mut(&mut self.size, GRAIN, |_, s| {
@@ -462,15 +618,32 @@ fn decide<'g, S: Source>(
     ctx: &Ctx<'_>,
 ) -> Option<(Node<'g>, f64)> {
     let u = row.node;
-    let (w, k) = (g.w, g.k[u.index()]);
+    let (w, m) = (g.w, g.mass[u.index()]);
     let c = st.comm.load(u, Relaxed).get();
     w.each(row, |v, x| {
         if v != u {
             table.add(st.comm.load(v, Relaxed).get(), x);
         }
     });
-    let f = ctx.options.resolution * real(k) * ctx.inv_total();
-    let sigma = |d: u32| st.sigma[d as usize].load(Relaxed);
+    let gamma = ctx.options.resolution;
+    let f = gamma * real(m) * ctx.coefficient;
+    let skew = g.skew.map(|s| {
+        let su = s[u.index()];
+        (su, gamma * signed(su) * ctx.coefficient)
+    });
+    // The value of `u` in `d` without itself: "Objectives".
+    let value_in = |kud: u64, d: u32| {
+        let own = d == c;
+        let sigma = st.sigma[d as usize].load(Relaxed);
+        let v = real(kud) - f * real(if own { sigma.saturating_sub(m) } else { sigma });
+        match skew {
+            None => v,
+            Some((su, h)) => {
+                let delta = st.delta[d as usize].load(Relaxed);
+                v + h * signed(if own { delta - su } else { delta })
+            }
+        }
+    };
     let salt = st.salt[u.index()];
     let (mut stay, mut best) = (0, None::<(f64, u32)>);
     for (d, kud) in table.entries() {
@@ -478,14 +651,14 @@ fn decide<'g, S: Source>(
             stay = kud;
             continue;
         }
-        let value = real(kud) - f * real(sigma(d));
+        let value = value_in(kud, d);
         let better = best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
         if better {
             best = Some((value, d));
         }
     }
     let (value, d) = best?;
-    let stay = real(stay) - f * real(sigma(c).saturating_sub(k));
+    let stay = value_in(stay, c);
     if value <= stay {
         return None;
     }
@@ -498,11 +671,22 @@ fn decide<'g, S: Source>(
     Some((g.node(d), 2.0 * (value - stay) * ctx.inv_total()))
 }
 
-/// Moves `u` from community `c` to `d`.
-fn relocate<'g>(st: &Moving<'g>, u: Node<'g>, d: Node<'g>, k: u64, det: bool) {
+/// Moves `u` from its community to `d`.
+fn relocate<'g, S: Source>(
+    g: Graph<'_, '_, 'g, S>,
+    st: &Moving<'g>,
+    u: Node<'g>,
+    d: Node<'g>,
+    det: bool,
+) {
     let c = st.comm.load(u, Relaxed);
-    st.sigma[c.index()].fetch_sub(k, Relaxed);
-    st.sigma[d.index()].fetch_add(k, Relaxed);
+    let m = g.mass[u.index()];
+    st.sigma[c.index()].fetch_sub(m, Relaxed);
+    st.sigma[d.index()].fetch_add(m, Relaxed);
+    if let Some(s) = g.skew {
+        st.delta[c.index()].fetch_sub(s[u.index()], Relaxed);
+        st.delta[d.index()].fetch_add(s[u.index()], Relaxed);
+    }
     if det {
         st.size[c.index()].fetch_sub(1, Relaxed);
         st.size[d.index()].fetch_add(1, Relaxed);
@@ -539,7 +723,7 @@ pub(crate) fn local_move<'g, S: Source>(
     ctx: &Ctx<'_>,
     tol: f64,
 ) -> Result<Moved, Error> {
-    let (plan, k, det) = (g.plan, g.k, ctx.det());
+    let (plan, det) = (g.plan, ctx.det());
     let heavy = match schedule {
         Schedule::Rounds { .. } => Vec::new(),
         Schedule::Order { .. } => heavy(g, ctx.total),
@@ -551,16 +735,16 @@ pub(crate) fn local_move<'g, S: Source>(
     };
     // A sequential visit: each move is applied before the next node decides.
     let visit =
-        |acc: &mut (u64, u64), row: Row<'_, 'g>, worker: &mut Worker<'_, 'g, S, Lent<'_>>| {
+        |acc: &mut (Gain, u64), row: Row<'_, 'g>, worker: &mut Worker<'_, 'g, S, Lent<'_>>| {
             let u = row.node;
             st.active[u.index()].store(false, Relaxed);
             let Some(table) = worker.scratch.begin(row.list.len()) else {
                 return;
             };
             if let Some((d, gain)) = decide(g, &row, st, table, ctx) {
-                relocate(st, u, d, k[u.index()], false);
+                relocate(g, st, u, d, false);
                 wake(&st.active, row.list);
-                *acc = acc.add((fixed(gain), 1));
+                *acc = acc.add((Gain::of(gain), 1));
             }
         };
     let mut done = Moved {
@@ -569,7 +753,7 @@ pub(crate) fn local_move<'g, S: Source>(
     };
     for _ in 0..MAX_SWEEPS {
         done.sweeps += 1;
-        let (mut gain, mut processed) = (0_u64, 0_usize);
+        let (mut gain, mut processed) = (Gain::ZERO, 0_usize);
         match schedule {
             Schedule::Rounds { ids, starts } => {
                 for r in starts.windows(2) {
@@ -589,7 +773,7 @@ pub(crate) fn local_move<'g, S: Source>(
                         plan,
                         &frontier,
                         tables,
-                        |acc: &mut (u64, u64), row, worker| {
+                        |acc: &mut (Gain, u64), row, worker| {
                             let u = row.node;
                             let target = &st.target[u.index()];
                             target.store(NONE, Relaxed);
@@ -599,16 +783,16 @@ pub(crate) fn local_move<'g, S: Source>(
                             if let Some((d, gain)) = decide(g, &row, st, table, ctx) {
                                 target.store(d.get(), Relaxed);
                                 wake(&st.active, row.list);
-                                *acc = acc.add((fixed(gain), 1));
+                                *acc = acc.add((Gain::of(gain), 1));
                             }
                         },
                     )?;
-                    gain += sum;
+                    gain = gain.add(sum);
                     done.moves += m;
                     each(&frontier, |u| {
                         let d = st.target[u.index()].load(Relaxed);
                         if d != NONE {
-                            relocate(st, u, node(plan, d), k[u.index()], det);
+                            relocate(g, st, u, node(plan, d), det);
                         }
                     });
                 }
@@ -619,7 +803,7 @@ pub(crate) fn local_move<'g, S: Source>(
                 });
                 processed = frontier.len();
                 let (sum, m) = drive(plan, &frontier, tables, visit)?;
-                gain += sum;
+                gain = gain.add(sum);
                 done.moves += m;
             }
         }
@@ -630,11 +814,11 @@ pub(crate) fn local_move<'g, S: Source>(
             .collect();
         for &u in &alone {
             let (sum, m) = drive(plan, &[u], tables, visit)?;
-            gain += sum;
+            gain = gain.add(sum);
             done.moves += m;
         }
         processed += alone.len();
-        if processed == 0 || gain as f64 <= tol * GAIN_SCALE {
+        if processed == 0 || gain.0 as f64 <= tol * GAIN_SCALE {
             break;
         }
     }
@@ -644,7 +828,9 @@ pub(crate) fn local_move<'g, S: Source>(
 /// The refinement state: the refined partition inside the communities of local moving.
 pub(crate) struct Refining<'g> {
     pub(crate) rcomm: NodeCells<'g>,
+    /// The mass and the skew of each refined community.
     rsigma: Column<AtomicU64>,
+    rdelta: Column<AtomicI64>,
     /// Deterministic mode: `sub-round << 32 | target` of the nodes deciding to merge.
     proposal: Column<AtomicU64>,
     /// Randomized refinement: the weight between each refined community and the rest
@@ -670,7 +856,7 @@ pub(crate) fn refine<'g, S: Source>(
     tables: &Tables,
     ctx: &Ctx<'_>,
 ) -> Result<Refining<'g>, Error> {
-    let (plan, w, k) = (g.plan, g.w, g.k);
+    let (plan, w, k, mass) = (g.plan, g.w, g.k, g.mass);
     let n = plan.nodes() as usize;
     let det = ctx.det();
     let theta = match ctx.options.refinement {
@@ -678,9 +864,13 @@ pub(crate) fn refine<'g, S: Source>(
         Refinement::Randomized { theta } => Some(theta),
     };
     let per = |on: bool| if on { n } else { 0 };
+    let skew = |v: usize| g.skew.map_or(0, |s| s[v]);
     let r = Refining {
         rcomm: plan.node_cells(memory)?,
-        rsigma: Column::new(memory, "refined volumes", n, |v| AtomicU64::new(k[v]))?,
+        rsigma: Column::new(memory, "refined masses", n, |v| AtomicU64::new(mass[v]))?,
+        rdelta: Column::new(memory, "refined skews", per(g.skew.is_some()), |v| {
+            AtomicI64::new(skew(v))
+        })?,
         proposal: Column::new(memory, "proposals", per(det), |_| AtomicU64::new(u64::MAX))?,
         cut: Column::new(memory, "refined cuts", per(theta.is_some()), |_| {
             AtomicI64::new(0)
@@ -701,11 +891,19 @@ pub(crate) fn refine<'g, S: Source>(
             r.cut[u.index()].store(i64::try_from(e).expect("below 2^62"), Relaxed);
         })?;
     }
+    let move_skew = |u: Node<'g>, d: Node<'g>| {
+        if g.skew.is_some() {
+            let su = skew(u.index());
+            r.rdelta[d.index()].fetch_add(su, Relaxed);
+            r.rdelta[u.index()].fetch_sub(su, Relaxed);
+        }
+    };
     let join = |u: Node<'g>, d: Node<'g>, change: i64| {
-        let ku = k[u.index()];
+        let mu = mass[u.index()];
         r.rcomm.store(u, d, Relaxed);
-        r.rsigma[d.index()].fetch_add(ku, Relaxed);
-        r.rsigma[u.index()].fetch_sub(ku, Relaxed);
+        r.rsigma[d.index()].fetch_add(mu, Relaxed);
+        r.rsigma[u.index()].fetch_sub(mu, Relaxed);
+        move_skew(u, d);
         if theta.is_some() {
             r.cut[d.index()].fetch_add(change, Relaxed);
         }
@@ -757,24 +955,25 @@ pub(crate) fn refine<'g, S: Source>(
                 let Some((d, change)) = pick(g, &row, st, &r, table, ctx, theta) else {
                     return;
                 };
-                // `rsigma[x] == 0` exactly while `x` is claimed (strength-0 nodes never
-                // refine): a claimed node takes no member, and a node with a member
-                // cannot be claimed, so every join follows an edge into a community
-                // that holds its seed.
-                let ku = k[u.index()];
-                let claimed = r.rsigma[u.index()].compare_exchange(ku, 0, Relaxed, Relaxed);
+                // `rsigma[x] == 0` exactly while `x` is claimed (nodes of strength 0
+                // never refine, and the others have a mass above 0): a claimed node
+                // takes no member, and a node with a member cannot be claimed, so every
+                // join follows an edge into a community that holds its seed.
+                let mu = mass[u.index()];
+                let claimed = r.rsigma[u.index()].compare_exchange(mu, 0, Relaxed, Relaxed);
                 if claimed.is_err() {
                     return;
                 }
                 let joined =
-                    r.rsigma[d.index()].try_update(Relaxed, Relaxed, |s| (s != 0).then(|| s + ku));
+                    r.rsigma[d.index()].try_update(Relaxed, Relaxed, |s| (s != 0).then(|| s + mu));
                 if joined.is_ok() {
                     r.rcomm.store(u, d, Relaxed);
+                    move_skew(u, d);
                     if theta.is_some() {
                         r.cut[d.index()].fetch_add(change, Relaxed);
                     }
                 } else {
-                    r.rsigma[u.index()].store(ku, Relaxed);
+                    r.rsigma[u.index()].store(mu, Relaxed);
                 }
             })?;
         }
@@ -795,8 +994,8 @@ fn pick<'g, S: Source>(
     theta: Option<f64>,
 ) -> Option<(Node<'g>, i64)> {
     let (u, w) = (row.node, g.w);
-    let ku = g.k[u.index()];
-    if r.rcomm.load(u, Relaxed) != u || r.rsigma[u.index()].load(Relaxed) != ku {
+    let mu = g.mass[u.index()];
+    if r.rcomm.load(u, Relaxed) != u || r.rsigma[u.index()].load(Relaxed) != mu {
         return None;
     }
     let b = st.comm.load(u, Relaxed);
@@ -807,14 +1006,26 @@ fn pick<'g, S: Source>(
             inside += x;
         }
     });
-    let gamma = ctx.options.resolution * ctx.inv_total();
-    let f = gamma * real(ku);
+    let gamma = ctx.options.resolution * ctx.coefficient;
+    let f = gamma * real(mu);
+    let su = g.skew.map_or(0, |s| s[u.index()]);
+    let h = gamma * signed(su);
     let rsigma = |d: u32| real(r.rsigma[d as usize].load(Relaxed));
+    let rdelta = |d: u32| signed(r.rdelta[d as usize].load(Relaxed));
+    // The value of `u` in the refined community `d`: "Objectives".
+    let value = |kud: u64, d: u32| {
+        let v = real(kud) - f * rsigma(d);
+        if g.skew.is_some() {
+            v + h * rdelta(d)
+        } else {
+            v
+        }
+    };
     let Some(theta) = theta else {
         let salt = st.salt[u.index()];
         let mut best = None::<(f64, u32)>;
         for (d, kud) in table.entries() {
-            let value = real(kud) - f * rsigma(d);
+            let value = value(kud, d);
             let better =
                 best.is_none_or(|(b, bd)| value > b || (value == b && before(salt, d, bd)));
             if value > 0.0 && d != u.get() && better {
@@ -824,22 +1035,36 @@ fn pick<'g, S: Source>(
         return best.map(|(_, d)| (g.node(d), 0));
     };
     // Traag et al.: only a node well connected to its community moves, and only into a
-    // refined community that is.
+    // refined community that is. The weight between a set and the rest of its community
+    // must reach the penalty between them.
     let total = real(st.sigma[b.index()].load(Relaxed));
-    if real(inside) < f * (total - real(ku)) {
+    let delta = g
+        .skew
+        .map_or(0.0, |_| signed(st.delta[b.index()].load(Relaxed)));
+    let penalty = |m: f64, d: f64| {
+        let p = gamma * m * (total - m);
+        if g.skew.is_some() {
+            p - gamma * d * (delta - d)
+        } else {
+            p
+        }
+    };
+    if real(inside) < penalty(real(mu), signed(su)) {
         return None;
     }
     table.sort();
     let candidates = || {
         table.sorted.iter().filter_map(|&(d, kud)| {
-            let (rs, cut) = (rsigma(d), r.cut[d as usize].load(Relaxed) as f64);
-            let value = real(kud) - f * rs;
-            (d != u.get() && value >= 0.0 && cut >= gamma * rs * (total - rs))
+            let cut = signed(r.cut[d as usize].load(Relaxed));
+            let rd = if g.skew.is_some() { rdelta(d) } else { 0.0 };
+            let value = value(kud, d);
+            (d != u.get() && value >= 0.0 && cut >= penalty(rsigma(d), rd))
                 .then_some((d, kud, value))
         })
     };
     let top = candidates().fold(0.0_f64, |m, c| if c.2 > m { c.2 } else { m });
-    let weight = |value: f64| math::exp((value - top) / theta);
+    let unit = ctx.weight_unit();
+    let weight = |value: f64| math::exp((value - top) * unit / theta);
     let sum = candidates().fold(weight(0.0), |s, c| s + weight(c.2));
     let bits = draw(
         ctx.options.seed,
@@ -915,13 +1140,11 @@ mod tests {
         let csr = Csr::new(offsets, targets).unwrap();
         let memory = Memory::unlimited();
         Plan::with(&csr, &memory, Settings::default(), |plan| {
-            let k = strengths(&plan, &memory, Weights::Unit).unwrap();
-            let g = Graph {
-                plan: &plan,
-                w: Weights::Unit,
-                k: &k.of,
-            };
-            heavy(g, k.total).iter().map(|v| v.get()).collect()
+            let k = strengths(&plan, &memory, Weights::Unit, &Options::default()).unwrap();
+            heavy(Graph::new(&plan, Weights::Unit, &k), k.total)
+                .iter()
+                .map(|v| v.get())
+                .collect()
         })
     }
 

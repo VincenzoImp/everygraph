@@ -7,8 +7,12 @@
 //!   [`Source`](everygraph_kernels::edge_map::Source): raw arrays, the compressed
 //!   format in the heap or memory-mapped, a stream. Deterministic by default: the same
 //!   input and seed give the same result at any thread count, chunking and source.
-//! - [`table`] and [`modularity`]: the community table of any partition and its
-//!   modularity, with kept loops as `docs/spec/graph-semantics.md` § 5.5 counts them.
+//!   [`leiden_weighted`] reads real edge weights ([`EdgeWeights`]), scaled once to
+//!   integers so that the promise holds for them too; it maximizes modularity, directed
+//!   modularity or the Constant Potts Model ([`Objective`]) at any resolution.
+//! - [`table`], [`weighted_table`] and [`modularity`]: the community table of any
+//!   partition and its objectives, with kept loops as `docs/spec/graph-semantics.md`
+//!   § 5.5 counts them.
 //! - [`hierarchy`]: every level of a result with exact counts and its quotient graph,
 //!   kept in the graph file (`docs/spec/eg-communities.md`), read back, and checked.
 //!
@@ -46,7 +50,12 @@ mod quality;
 mod table;
 #[cfg(test)]
 mod tests;
+mod weights;
 
 pub use column::Column;
-pub use leiden::{Communities, Iterations, LevelStats, Mode, Options, Refinement, SplitAt, leiden};
-pub use quality::{Table, modularity, table};
+pub use leiden::{
+    Communities, Iterations, LevelStats, Mode, Objective, Options, Refinement, SplitAt, leiden,
+    leiden_weighted,
+};
+pub use quality::{Table, modularity, table, weighted_table};
+pub use weights::EdgeWeights;
