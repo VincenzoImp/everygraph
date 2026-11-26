@@ -31,6 +31,8 @@ As of 2026-11-25, 22:10 (rules for speed: CLAUDE.md §4, §6):
 
 - **Night of 2026-11-26 (owner away until ~08:00, full autonomy):** streams running — #202 edge-map fixes, #201 scatter fixes, #18 Leiden sub-rounds, #172 mmap hints, #37 property columns, #187+#188 core math and counter RNG, #41+#190+#191 verify / fault injection / fuzz CI, #177 LDBC Graphalytics. Next on merge: #35 CSR build (after #201), kernels batch #47–#49 (after #202), CLI+Python slice (after #35). Shared implementer brief: builds with `CARGO_BUILD_JOBS=6`, tests ≤ 8 threads, so nine agents share the machine.
 
+- **MSRV raised to 1.100 (PR #214, 2026-11-26):** the first release with a stable `std::alloc::Allocator`, so the page backend (#167) keeps `unsafe` out of the core. Accepted: the project is pre-0.1 and the cost (users need a recent toolchain) is small against no `unsafe` in the core.
+
 ## Measurement queue (official runs, batched into one window)
 
 - #34 id dictionary: done 2026-11-25 (build-500m OOM, re-run after the fix) (~20 min, ~45 GB disk).
