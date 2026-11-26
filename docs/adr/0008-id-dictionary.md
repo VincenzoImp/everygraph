@@ -103,16 +103,23 @@ Consequences:
   in the module documentation (enough for an independent reader) and versioned in
   `ids.header`.
 - **Performance must be re-validated.** The lab's figures were measured with the crate,
-  not with this implementation: until `bench/specs/id-dictionary.toml` has run officially,
-  only the exploratory ones below exist.
+  not with this implementation. The official run of `bench/specs/id-dictionary.toml`
+  (below) covers the first two targets of #34; the third failed.
 
 Evidence (exploratory, shared machine, not to be quoted as performance): 2.61 bits per
 key for the hash function at 2 M, 65 M and 500 M keys, as the lab's `ptr_hash` (2.61,
 `lab/f1-query/results/dict_mphf_eth_65000000_t32.json`); 24.33 bytes per key for 20-byte
 keys in the split layout, the figure #34 expected; a single-thread solver speed of
 5.69 M keys/s on parts of 2^15 keys in the review (the lab's crate: about 1.45 M keys/s
-per thread at 32 threads, whole build). The official measurements are the spec
-`bench/specs/id-dictionary.toml`.
+per thread at 32 threads, whole build).
+
+Official run (2026-11-25, idle, 16 threads,
+`bench/results/id-dictionary/20261125T220117Z-c855fdd77cf9.jsonl`): 65 M hex keys built
+in 9.3–9.6 s (split layout) and 10.0 s (slot layout), target < 15 s; 2.61 bits per key for
+the hash function; 3.6 B mappings in 34–38 s, target < 60 s; cold forward lookup p50
+93.8 µs (split) and 53.8 µs (slot). The 500 M-key build with a 4 GiB budget under a
+5 GiB `MemoryMax` was OOM-killed, so the no-OOM target fails for now; #34 stays open
+until it is fixed and re-run.
 
 ## Rules for files built by appends (2026-11-25, ADR 0028; for #111, not built in 0.1)
 

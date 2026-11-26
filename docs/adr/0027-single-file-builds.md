@@ -1,7 +1,7 @@
 # ADR 0027 — A graph is one file in every state; builds in progress use the job's scratch
 
 - **Status:** accepted
-- **Decision:** the open question of #28 under D7 in [DESIGN.md](../DESIGN.md#4-decisions)
+- **Decision:** D7 in [DESIGN.md](../DESIGN.md#4-decisions): the open question of #28
   (single file or directory bundle for builds in progress); amends
   [ADR 0007](0007-eg-container.md)
 - **Date:** 2026-11-25

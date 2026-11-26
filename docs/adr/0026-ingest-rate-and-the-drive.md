@@ -93,6 +93,10 @@ A build pipeline that, under the warm-up protocol, ingests Friendster at ≥ 90 
 (≤ 20 s) on this drive would let the promise drop its second sentence for graphs of that
 size. A measurement on another NVMe drive whose sustained rate differs from 1.4–1.6 GB/s
 would replace "about 60 M edges/s for Friendster" with a rule in bytes written per second.
+The same holds if the burst is this host's drive state and not the drive's: the
+measurement review found that the host trims only weekly, so the ~10 GB burst may be
+what is left free between trims. #186 probes the drive right after a trim and two days
+later.
 Repeated idle measurements of lj or orkut below about 80 M edges/s, on the product's pipeline
 including its encoding, would mean the first sentence no longer holds either.
 

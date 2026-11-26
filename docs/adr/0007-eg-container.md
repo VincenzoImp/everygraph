@@ -54,8 +54,8 @@ PMTiles v3 file.
   refuse, `design/DECISIONS.md`); the protocol never writes bytes a reader of an earlier
   commit can see between offset 8192 and its committed end, so mapping that range only
   would lift the restriction (issue `m2-21-range-maps`).
-- Nothing else depends on container details until #28 merges; formats inside sections
-  (codec #30, columns #37) are specified separately.
+- Formats inside sections are specified separately (codec #30, `docs/spec/eg-adjacency.md`;
+  columns #37); they do not refer to the container.
 
 ## What would change our mind
 
