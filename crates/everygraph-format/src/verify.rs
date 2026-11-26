@@ -308,7 +308,8 @@ fn check_section<S: ByteSource>(
 
 /// The names the adjacency format gives its sections, against their kinds (adjacency
 /// spec § 3.1, § 5): `<adj>.index` (kind 2) and `<adj>.data` (kind 3) in pairs, and
-/// `<adj>.events` (kind 5, and only that kind) beside an index.
+/// `<adj>.events` (kind 5, and only that kind) beside an index; the same for the
+/// adjacencies of results, kinds 11 to 13.
 fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
     let has = |name: &str, kind: Kind| file.get(name).is_some_and(|e| e.kind == kind);
     for e in file.entries() {
@@ -317,6 +318,9 @@ fn check_names<S: ByteSource>(file: &Container<S>, report: &mut Report) {
             Kind::ADJACENCY_INDEX => (".index", (".data", Kind::ADJACENCY_DATA)),
             Kind::ADJACENCY_DATA => (".data", (".index", Kind::ADJACENCY_INDEX)),
             Kind::ADJACENCY_EVENTS => (".events", (".index", Kind::ADJACENCY_INDEX)),
+            Kind::RESULT_ADJACENCY_INDEX => (".index", (".data", Kind::RESULT_ADJACENCY_DATA)),
+            Kind::RESULT_ADJACENCY_DATA => (".data", (".index", Kind::RESULT_ADJACENCY_INDEX)),
+            Kind::RESULT_ADJACENCY_EVENTS => (".events", (".index", Kind::RESULT_ADJACENCY_INDEX)),
             _ if name.ends_with(".events") => {
                 report.problem(
                     Some(name),
@@ -519,6 +523,8 @@ struct Checked {
 type Declared = BTreeMap<Arc<str>, Option<BTreeMap<String, String>>>;
 
 /// The structure of every adjacency, and the in-adjacencies against their out-adjacency.
+/// The adjacencies of results are checked for structure and symmetry, and left out of
+/// the report's list of the graph's adjacencies.
 fn check_adjacencies<S: ByteSource + Sync>(
     file: &Container<S>,
     memory: &Memory,
@@ -531,9 +537,11 @@ fn check_adjacencies<S: ByteSource + Sync>(
             continue;
         };
         if e.kind == Kind::ADJACENCY_INDEX {
-            if let Some(c) = check_adjacency(file, base, memory, &mut declared, report)? {
+            if let Some(c) = check_adjacency(file, base, memory, Some(&mut declared), report)? {
                 checked.insert(base.to_owned(), c);
             }
+        } else if e.kind == Kind::RESULT_ADJACENCY_INDEX {
+            check_adjacency(file, base, memory, None, report)?;
         }
     }
     for (name, out) in &checked {
@@ -584,7 +592,7 @@ fn check_adjacency<S: ByteSource + Sync>(
     file: &Container<S>,
     base: &str,
     memory: &Memory,
-    declared: &mut Declared,
+    declared: Option<&mut Declared>,
     report: &mut Report,
 ) -> Result<Option<Checked>, ReadError> {
     let (index_name, data_name) = (format!("{base}.index"), format!("{base}.data"));
@@ -678,6 +686,13 @@ fn check_adjacency<S: ByteSource + Sync>(
             return Ok(None);
         }
         Err(Stop::Read(e)) => return Err(e),
+    };
+    let Some(declared) = declared else {
+        // A result's adjacency is an undirected graph whose loops are kept.
+        if scan.forward != scan.backward {
+            report.problem(Some(&data_name), "the lists are not symmetric");
+        }
+        return Ok(None);
     };
     let params = index_entry.provenance.as_ref().and_then(|record| {
         declared

@@ -46,7 +46,13 @@ ORACLE = [
     "crates/everygraph-bench/src/datasets/",
 ]
 # The crates of the fuzz targets (fuzz.yml's 5-minute campaigns), with what they build on.
-FUZZ_FORMAT = ["crates/everygraph-format/", "crates/everygraph-core/", "tools/fuzz.sh"]
+FUZZ_FORMAT = [
+    "crates/everygraph-format/",
+    "crates/everygraph-community/",
+    "crates/everygraph-kernels/",
+    "crates/everygraph-core/",
+    "tools/fuzz.sh",
+]
 FUZZ_INGEST = ["crates/everygraph-ingest/", "crates/everygraph-core/", "tools/fuzz.sh"]
 FLAGS = ("core", "oracle", "msrv", "fuzz_format", "fuzz_ingest", "full")
 # Any change here re-runs everything: a change to CI is checked by a full run.

@@ -314,3 +314,48 @@ fn usage_errors_exit_with_status_2_and_help_is_a_result() {
         format!("everygraph {}\n", env!("CARGO_PKG_VERSION"))
     );
 }
+
+/// The path graph with a hierarchy of one level written by hand: {0, 1} and {2, 3},
+/// each with one internal edge and one edge between them; `volume` as given.
+fn with_communities(dir: &Path, volume: [u64; 2]) -> PathBuf {
+    let path = graph_file(dir, 4);
+    let mut w = Writer::update(MemorySource::new(std::fs::read(&path).unwrap())).unwrap();
+    let key =
+        everygraph_community::hierarchy::key(w.graph_identity(), &Default::default()).unwrap();
+    w.add_result(&key, &Provenance::default(), &[1_u64, 4])
+        .unwrap();
+    w.add_result_part(&key, "membership", [0_u32, 0, 1, 1])
+        .unwrap();
+    w.add_result_part(&key, "1/nodes", [2_u32, 2]).unwrap();
+    w.add_result_part(&key, "1/internal", [1_u64, 1]).unwrap();
+    w.add_result_part(&key, "1/volume", volume).unwrap();
+    let q = encode(&[0, 2, 4], &[0, 1, 0, 1]).unwrap();
+    for (part, kind, bytes) in [
+        ("1/quotient.data", Kind::RESULT_ADJACENCY_DATA, &q.data),
+        ("1/quotient.index", Kind::RESULT_ADJACENCY_INDEX, &q.index),
+    ] {
+        let mut s = w.begin_result_part(&key, part, kind).unwrap();
+        s.write(bytes).unwrap();
+        s.finish().unwrap();
+    }
+    w.commit().unwrap();
+    std::fs::write(&path, w.into_sink().into_inner()).unwrap();
+    path
+}
+
+#[test]
+fn the_deep_check_checks_a_stored_hierarchy() {
+    let dir = scratch("communities");
+    let path = with_communities(&dir, [3, 3]);
+    let o = everygraph(&["verify", path.to_str().unwrap(), "--deep"]);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    let path = with_communities(&dir, [3, 4]);
+    let o = everygraph(&["verify", path.to_str().unwrap(), "--deep", "--json"]);
+    assert_eq!(o.status.code(), Some(5));
+    assert!(
+        stdout(&o).contains(r#""problem":"level 1: its quotient graph does not hold its table""#),
+        "{}",
+        stdout(&o)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

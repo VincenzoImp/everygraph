@@ -194,8 +194,9 @@ its sections of all three kinds, and one that uses no column may leave them unre
 | 7 | a property column: a complete Arrow IPC file (`<scope>/arrow/<column>`) | `eg-columns.md` § 3 |
 | 8 | the layout of a property column (`<scope>/layout/<column>`) | `eg-columns.md` § 4 |
 | 9 | the statistics of a numeric property column (`<scope>/stats/<column>`) | `eg-columns.md` § 5 |
-| 10 | a result: typed values, one per node or per item, with its own provenance record (#39) | § 6 |
-| 11 … 0x7FFFFFFF | assigned by later specifications (hierarchy, layout, indexes) | — |
+| 10 | a result: typed values, one per node or per item, with its own provenance record (#39); also a part of a result that holds typed values | § 6 |
+| 11, 12, 13 | an adjacency that is part of a result: its index, data and events, laid out as kinds 2, 3 and 5; it does not define the graph | § 6, `eg-adjacency.md` |
+| 14 … 0x7FFFFFFF | assigned by later specifications (layout, indexes) | — |
 | 0x80000000 … 0xFFFFFFFF | private and experimental use; never assigned | — |
 
 The **codec** says how the stored bytes encode the content. Version 1.0 defines only 0:
@@ -244,11 +245,13 @@ length in bytes (`u32`), the name, and the section's 32-byte hash. So two files 
 graph sections differ in kind, name or content never share an identity. The kinds that
 define the graph are those 1.0 defines as such — 2 to 5 (adjacency index and data,
 `.events`, dictionary) and 7 (property columns, `eg-columns.md` § 8; their layouts
-and statistics, kinds 8 and 9, follow from kind 7 and are left out). Sections whose
-names begin with `adjacency.in.` are left out too: they hold the in-adjacency of a
-directed graph, a function of `adjacency.out` (`eg-adjacency.md` § 3.2), so a file has
-the same identity with or without it, and results stored before it was added are still
-served after. A kind added
+and statistics, kinds 8 and 9, follow from kind 7 and are left out). Two more
+exclusions: sections whose names begin with `adjacency.in.` are left out by their name,
+since they hold the in-adjacency of a directed graph, a function of `adjacency.out`
+(`eg-adjacency.md` § 3.2), so a file has the same identity with or without it and
+results stored before it was added are still served after; and the adjacencies that
+results hold (kinds 11 to 13, "Parts of a result" below) are left out by their kind, so
+a result never changes the identity it is keyed by. A kind added
 later that defines the graph is announced with a required feature bit (§ 10), so that a
 reader that does not know it refuses the file instead of computing an identity without
 it. For a segmented file (§ 13) the identity is BLAKE3 of
@@ -287,6 +290,19 @@ offset  size  field
 The values start 16 bytes into a section that starts at a multiple of 4096, so a memory
 map serves them aligned for their type. Floating-point values follow § 1: canonical NaN,
 no −0.0.
+
+**Parts of a result.** A result that needs more than one array (the levels of a
+community hierarchy, `eg-communities.md`) keeps the others as **parts**: sections named
+`<result>/<part>`, where `<result>` is the result's section name and `<part>` is not
+empty, each referring to the result's own record. A part holds typed values (kind 10,
+with the layout above) or an adjacency (kinds 11, 12 and 13, named `<part>.index`,
+`<part>.data` and `<part>.events`, with the layouts of kinds 2, 3 and 5; the events give
+each entry's weight). A reader finds a part only through its result, and serves it only
+when it refers to the result's record. Storing a result under a key already stored
+removes the old parts too, in the same commit. A part is not itself a result: a listing
+of results counts its bytes with its result's. The adjacency of a part does not define
+the graph, so it does not enter the graph identity; `verify --deep` checks its structure
+as for kinds 2, 3 and 5, and that its lists are symmetric, loops allowed.
 
 **Other parameters.** No field beyond the key/value parameters is needed for what the
 measurement review asks a build to record (`docs/research/sota-measurement.md`, § 4,
@@ -589,6 +605,10 @@ so a crash leaves no stale lock.
   hash of the key, so a look-up is one binary search in the TOC and one record read,
   however many results the file holds; comparing the record with the key means a name
   written by another program is never trusted alone.
+- **A result of many arrays is one result with parts**, not many results: one key, one
+  record and one look-up find all of it, and replacing it cannot leave a stale array.
+  The adjacencies of parts have kinds of their own (11–13) rather than kinds 2, 3 and
+  5, so that a result never changes the graph identity it is keyed by.
 - **The cache key holds the algorithm's version, not the engine's.** An upgrade that
   does not change an algorithm keeps its stored results; one that does changes the
   version and so the key (`docs/api-sketch.md` § 2.10).

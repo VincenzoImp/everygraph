@@ -286,8 +286,8 @@ fn level<S: Source>(
         });
     }
     drop(refined);
-    let members = Members::new(memory, &d)?;
-    let (q, kq) = quotient(plan, memory, w, &d, &members, &tables)?;
+    let members = Members::new(memory, d.parts())?;
+    let (q, kq) = quotient(plan, memory, w, d.parts(), &members, &tables)?;
     let bound = if louvain {
         None
     } else {
@@ -412,7 +412,7 @@ pub fn leiden<S: Source>(
     check(options)?;
     let n = source.nodes();
     let k0 = Plan::with(source, memory, settings, |plan| {
-        strengths(&plan, memory, Weights(None))
+        strengths(&plan, memory, Weights::Unit)
     })?;
     let total = k0.total;
     if total == 0 {
@@ -450,7 +450,7 @@ pub fn leiden<S: Source>(
         };
         let bound = previous.as_ref().map(|p| &p.0[..]);
         let mut out = Plan::with(source, memory, settings, |plan| {
-            level(&plan, memory, Weights(None), &k0, bound, &ctx)
+            level(&plan, memory, Weights::Unit, &k0, bound, &ctx)
         })?;
         loop {
             stats.push(out.stats);
@@ -460,7 +460,7 @@ pub fn leiden<S: Source>(
             };
             ctx.level += 1;
             let csr = q.csr()?;
-            let w = Weights(Some(&q.weights));
+            let w = Weights::Entries(&q.weights);
             out = Plan::with(&csr, memory, settings, |plan| {
                 level(&plan, memory, w, &kq, bound.as_deref(), &ctx)
             })?;
@@ -487,7 +487,7 @@ pub fn leiden<S: Source>(
                 ctx.level = u32::try_from(at).expect("a level");
                 let (q, kq) = &graphs[at - 1];
                 let csr = q.csr()?;
-                let w = Weights(Some(&q.weights));
+                let w = Weights::Entries(&q.weights);
                 let (labels, s) = Plan::with(&csr, memory, settings, |plan| {
                     polish(&plan, memory, w, kq, &above, &ctx)
                 })?;
@@ -496,12 +496,12 @@ pub fn leiden<S: Source>(
             }
             ctx.level = 0;
             let (labels, s) = Plan::with(source, memory, settings, |plan| {
-                polish(&plan, memory, Weights(None), &k0, &above, &ctx)
+                polish(&plan, memory, Weights::Unit, &k0, &above, &ctx)
             })?;
             stats.push(s);
             let (m, c, q) = Plan::with(source, memory, settings, |plan| {
                 let d = dense(&plan, memory, |v| labels[v.index()])?;
-                let q = tally(&plan, memory, Weights(None), &d.map, d.count)?
+                let q = tally(&plan, memory, Weights::Unit, &d.map, d.count)?
                     .modularity(options.resolution);
                 Ok::<_, Error>((d.map, d.count, q))
             })?;
