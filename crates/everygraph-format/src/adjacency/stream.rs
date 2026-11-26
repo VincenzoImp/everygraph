@@ -8,7 +8,7 @@
 
 use std::cell::Cell;
 
-use everygraph_core::{Memory, MemoryError, MemoryKind, SegVec};
+use everygraph_core::{Memory, MemoryError, MemoryKind, Reservation, SegVec};
 
 use super::ef::EliasFano;
 use super::encode::block_starts;
@@ -138,26 +138,23 @@ impl IndexBuilder {
     }
 
     /// The index bytes, with flag bit 1 set when `events` (the adjacency has a
-    /// `.events` section, [`encode_events`]). The index is built in memory, reserved
-    /// against the budget first.
+    /// `.events` section, [`encode_events`]), and the reservation that holds them. The
+    /// index is built in memory: [`index_bytes_bound`] is reserved first, and what the
+    /// bytes do not hold is given back at the end.
     ///
     /// # Errors
     ///
     /// [`EncodeError::Offsets`] if fewer lists than nodes were pushed, and
     /// [`EncodeError::OutOfMemory`] if the index does not fit the budget.
-    pub fn finish(self, events: bool) -> Result<Vec<u8>, EncodeError> {
+    pub fn finish(self, events: bool) -> Result<(Vec<u8>, Reservation), EncodeError> {
         let n = self.degrees.len();
         if n != usize_of(self.nodes) {
             return Err(EncodeError::Offsets("fewer lists than nodes"));
         }
         let (entries, data_bytes) = (self.entries, self.data_bytes());
-        let len = widen(n) + 1;
-        // The two sequences in memory and in the output, and the block directory.
-        let bytes = EliasFano::stored_bytes(len, data_bytes)
-            .zip(EliasFano::stored_bytes(len, entries))
-            .and_then(|(a, b)| a.checked_add(b)?.checked_mul(2)?.checked_add(9 * len + 64))
+        let bytes = index_bytes_bound(u64::from(self.nodes), entries, data_bytes)
             .ok_or(EncodeError::OutOfMemory { bytes: u64::MAX })?;
-        let _reservation = self
+        let mut reservation = self
             .memory
             .reserve(PURPOSE, MemoryKind::Anonymous, bytes)
             .map_err(|e| out_of_memory(e.into()))?;
@@ -180,8 +177,32 @@ impl IndexBuilder {
             byte_offsets,
             entry_offsets,
         );
-        Ok(index.write())
+        let out = index.write();
+        drop(index);
+        let _ = reservation.try_resize(widen(out.capacity()));
+        Ok((out, reservation))
     }
+}
+
+/// The most memory [`IndexBuilder::finish`] holds for `nodes` lists with `entries`
+/// entries and `data_bytes` of records: both Elias–Fano sequences twice (built, then
+/// written), their select samples and the block directory; `None` past `u64`.
+///
+/// The greedy block rule closes a block before a list that would take it past 2^16
+/// entries, or at 2^16 nodes, so a block and the list after it hold more than 2^16
+/// entries: there are at most `2 · entries / 2^16 + nodes / 2^16 + 1` blocks.
+#[must_use]
+pub fn index_bytes_bound(nodes: u64, entries: u64, data_bytes: u64) -> Option<u64> {
+    let len = nodes.checked_add(1)?;
+    let sequences = EliasFano::stored_bytes(len, data_bytes)?
+        .checked_add(EliasFano::stored_bytes(len, entries)?)?;
+    let samples = 2 * (len / 64 + 1) * 8;
+    let blocks = (2 * (entries >> 16) + (nodes >> 16) + 2).min(len);
+    sequences
+        .checked_mul(2)?
+        .checked_add(samples + 32)?
+        .checked_add(blocks.checked_mul(4 + 4 + 1)?)?
+        .checked_add(widen(super::index::HEADER_BYTES) + 16)
 }
 
 /// Bytes of the `.events` section of an adjacency with `entries` entries and `events`

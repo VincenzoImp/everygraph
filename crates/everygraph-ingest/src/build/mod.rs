@@ -22,18 +22,23 @@
 //!
 //! When everything fits, nothing is written but the output: no spill.
 //!
-//! Property columns (weights, times; issue #37) are not carried yet: the hook is the
-//! second column of the buckets, which holds the local source and would hold a row
-//! number to fetch them, and the per-entry multiplicities of module `finish`, which give
-//! each pair's range of events for per-pair aggregates.
+//! Property columns are not carried: each entry's multiplicity, kept in module
+//! `finish`, gives its pair's range of events.
 //!
 //! # Determinism
 //!
 //! Every boundary that depends on the budget (buckets, rounds, what spills) or on the
 //! schedule (the order of spill chunks) is followed by a sort of each list, whose key is
-//! total; the scatter is stable. So the sections are a function of the input and the
-//! options alone. The one exception is the dictionary's: a budget too small for its
-//! rank bitmap gives its hashed form, with the same ids (`crate::ids`).
+//! total; the scatter is stable; the dictionary's form depends on its keys alone. So
+//! the sections are a function of the input and the options: a budget gives these
+//! bytes or a refusal, never other bytes (DESIGN D14).
+//!
+//! # The input
+//!
+//! Each block's identifiers are digested the first time it is read, by the
+//! dictionary, and compared every later time: an input that changes or is cut short
+//! between passes is refused ([`BuildError::InputChanged`]), never built from two
+//! files.
 
 mod fill;
 mod finish;
@@ -399,6 +404,7 @@ impl From<DictionaryError> for BuildError {
     fn from(e: DictionaryError) -> Self {
         match e {
             DictionaryError::Budget(b) => Self::Budget(b),
+            DictionaryError::Input(inner) if inner.is::<rows::Changed>() => Self::InputChanged,
             DictionaryError::Input(inner) => match inner.downcast::<TextError>() {
                 Ok(text) => Self::Text(*text),
                 Err(other) => Self::Dictionary(DictionaryError::Input(other)),
@@ -553,7 +559,8 @@ where
     let graph = options.graph;
 
     progress.begin(Phase::Reading, Some(widen(blocks)));
-    let keys = TextKeys::new(reader, blocks, progress);
+    let fingerprints = rows::Fingerprints::new(blocks);
+    let keys = TextKeys::new(reader, &fingerprints, progress);
     let built = build_dictionary(&keys, &options.ids, memory.accountant(), scratch)?;
     if blocks == 0 {
         progress.end(Phase::Reading, 0);
@@ -582,7 +589,15 @@ where
         most_rows,
     };
     let cached_rows = cached_rows.filter(|_| tuning.cache_rows);
-    let mut rows = Rows::new(reader, &dictionary, graph, &flight, memory, cached_rows)?;
+    let mut rows = Rows::new(
+        reader,
+        &dictionary,
+        graph,
+        &fingerprints,
+        &flight,
+        memory,
+        cached_rows,
+    )?;
     let counts = ItemCounts::new(memory, nodes, graph.directed)?;
     let pass = each_block(blocks, |block| {
         rows.items(block, |u, v| {
@@ -597,7 +612,9 @@ where
 
     let events = graph.duplicates == Duplicates::Events;
     let available = memory.available() + counts.bytes();
-    let fixed = widen(threads) * widen(tuning.spill_batch) * 8 + 8 * fill::SPILL_BUFFER;
+    let fixed = widen(threads) * widen(tuning.spill_batch) * 8
+        + 8 * fill::SPILL_BUFFER
+        + widen(finish::MULTIPLICITY_BUFFER);
     let work = (available - (available >> SLACK_SHIFT)).saturating_sub(fixed);
     let values = counts
         .values()
@@ -613,7 +630,7 @@ where
     let mut output = Output {
         data: writer.begin_section(OUT_DATA, Kind::ADJACENCY_DATA, None)?,
         index,
-        multiplicities: Multiplicities::new(),
+        multiplicities: Multiplicities::new(memory),
         counts: PairCounts::default(),
     };
     for round in 0..layout.resident_rounds {
@@ -643,14 +660,15 @@ where
     } = output;
     data.finish()?;
     let stored = stored.finish(scratch)?;
-    let index = index.finish(stored.is_some())?;
+    let (index, held) = index.finish(stored.is_some())?;
     writer.add_section(OUT_INDEX, Kind::ADJACENCY_INDEX, &index, None)?;
-    drop(index);
+    drop((index, held));
     let mut events_bytes = 0;
     if let Some((ones, file)) = &stored {
         let section_bytes = events_section_bytes(pairs.entries, pairs.events)
             .ok_or(BuildError::TooLarge("the .events section"))?;
-        let _reservation = memory.reserve(
+        // The sequence, then its bytes beside it.
+        let mut held = memory.reserve(
             "events section",
             MemoryKind::Anonymous,
             section_bytes.saturating_mul(2),
@@ -662,6 +680,7 @@ where
             return Err(e);
         }
         let section = section?;
+        held.shrink(section_bytes);
         events_bytes = widen(section.len());
         writer.add_section(OUT_EVENTS, Kind::ADJACENCY_EVENTS, &section, None)?;
     }

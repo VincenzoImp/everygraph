@@ -49,7 +49,7 @@ fn stream(lists: &[Vec<u32>], events: bool) -> (Vec<u8>, Vec<u8>) {
         assert!(record <= record_bound(list.len() as u64));
         index.push(degree.unwrap(), record).unwrap();
     }
-    (data, index.finish(events).unwrap())
+    (data, index.finish(events).unwrap().0)
 }
 
 fn csr(lists: &[Vec<u32>]) -> (Vec<u64>, Vec<u32>) {

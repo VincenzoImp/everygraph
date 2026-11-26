@@ -7,7 +7,9 @@
 use std::io::{self, BufWriter, Write};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{ByteSink, ByteSource, Memory, MemoryError, MemoryKind, SegColumns};
+use everygraph_core::{
+    ByteSink, ByteSource, Memory, MemoryError, MemoryKind, Reservation, SegColumns,
+};
 use everygraph_format::adjacency::{IndexBuilder, append_record};
 use everygraph_format::container::SectionWriter;
 
@@ -53,6 +55,8 @@ pub(super) struct BucketOut {
     /// Stored events of each entry, under `"events"` when some entry has more than one.
     multiplicities: Option<Vec<u32>>,
     counts: PairCounts,
+    /// What the buffers above hold, given back when they are written out.
+    _held: Reservation,
 }
 
 fn buffer<T>(len: usize) -> Result<Vec<T>, BuildError> {
@@ -73,6 +77,7 @@ fn finish_bucket(
     targets: &mut [u32],
     locals: &[u16],
     graph: GraphOptions,
+    mut held: Reservation,
 ) -> Result<BucketOut, BuildError> {
     let items = targets.len();
     let events = graph.duplicates == Duplicates::Events;
@@ -104,6 +109,7 @@ fn finish_bucket(
         record_lens: buffer(nodes)?,
         multiplicities: if events { Some(buffer(items)?) } else { None },
         counts: PairCounts::default(),
+        _held: Reservation::empty(held.memory(), held.purpose(), held.kind()),
     };
     let mut repeated = false;
     for local in 0..nodes {
@@ -148,6 +154,12 @@ fn finish_bucket(
     if !repeated {
         out.multiplicities = None;
     }
+    let kept = out.records.capacity()
+        + out.degrees.capacity() * 4
+        + out.record_lens.capacity() * 8
+        + out.multiplicities.as_ref().map_or(0, |m| m.capacity() * 4);
+    let _ = held.try_resize(u64::try_from(kept).unwrap_or(u64::MAX));
+    out._held = held;
     Ok(out)
 }
 
@@ -168,17 +180,20 @@ pub(super) fn finish_round(
 ) -> Result<Vec<BucketOut>, BuildError> {
     let (first, end) = (layout.rounds[round], layout.rounds[round + 1]);
     let events = graph.duplicates == Duplicates::Events;
-    let bytes: u64 = (first..end)
-        .map(|b| {
-            let items = layout.offsets[b + 1] - layout.offsets[b];
-            finish_bytes(
-                items,
-                u64::from(layout.starts[b + 1] - layout.starts[b]),
-                events,
-            )
-        })
-        .sum();
-    let _working = memory.reserve("buckets being finished", MemoryKind::Anonymous, bytes)?;
+    // Every bucket's memory is reserved before any is finished, so that a refusal does
+    // not depend on the schedule; each keeps what its result holds.
+    let mut held = Vec::with_capacity(end - first);
+    for b in first..end {
+        let items = layout.offsets[b + 1] - layout.offsets[b];
+        let nodes = u64::from(layout.starts[b + 1] - layout.starts[b]);
+        let bytes = finish_bytes(items, nodes, events);
+        held.push(Some(memory.reserve(
+            "buckets being finished",
+            MemoryKind::Anonymous,
+            bytes,
+        )?));
+    }
+    let held = Mutex::new(held);
     let offsets: Vec<u64> = layout.offsets[first..=end]
         .iter()
         .map(|o| o - held_from)
@@ -189,7 +204,10 @@ pub(super) fn finish_round(
     pair.for_each_range_mut(&offsets, ONE, |i, (targets, locals)| {
         let b = first + i;
         let nodes = to_index(layout.starts[b + 1] - layout.starts[b]);
-        let out = finish_bucket(layout.starts[b], nodes, targets, locals, graph);
+        let reservation = held.lock().unwrap_or_else(PoisonError::into_inner)[i]
+            .take()
+            .expect("one reservation per bucket");
+        let out = finish_bucket(layout.starts[b], nodes, targets, locals, graph, reservation);
         outs.lock().unwrap_or_else(PoisonError::into_inner)[i] = Some(out);
     })?;
     outs.into_inner()
@@ -204,23 +222,37 @@ pub(super) fn finish_round(
 /// nothing. Coded as LEB128 in a scratch file.
 pub(super) struct Multiplicities<W: Write> {
     ones: u64,
-    out: Option<BufWriter<W>>,
+    out: Option<(BufWriter<W>, Reservation)>,
+    memory: Memory,
 }
 
 /// Write buffer in front of the multiplicities file.
 pub(super) const MULTIPLICITY_BUFFER: usize = 64 << 10;
 
 impl<W: Write> Multiplicities<W> {
-    pub(super) fn new() -> Self {
-        Self { ones: 0, out: None }
+    pub(super) fn new(memory: &Memory) -> Self {
+        Self {
+            ones: 0,
+            out: None,
+            memory: memory.clone(),
+        }
     }
 
-    fn push<Sc: Scratch<Writer = W>>(&mut self, out: &BucketOut, scratch: &Sc) -> io::Result<()> {
+    fn push<Sc: Scratch<Writer = W>>(
+        &mut self,
+        out: &BucketOut,
+        scratch: &Sc,
+    ) -> Result<(), BuildError> {
         if self.out.is_none() && out.multiplicities.is_some() {
+            let buffer = u64::try_from(MULTIPLICITY_BUFFER).expect("64 KiB");
+            let reservation =
+                self.memory
+                    .reserve("multiplicities buffer", MemoryKind::Anonymous, buffer)?;
             let file = scratch.create("multiplicities")?;
-            self.out = Some(BufWriter::with_capacity(MULTIPLICITY_BUFFER, file));
+            let writer = BufWriter::with_capacity(MULTIPLICITY_BUFFER, file);
+            self.out = Some((writer, reservation));
         }
-        let Some(file) = &mut self.out else {
+        let Some((file, _)) = &mut self.out else {
             self.ones += out.counts.entries;
             return Ok(());
         };
@@ -247,7 +279,7 @@ impl<W: Write> Multiplicities<W> {
         self,
         scratch: &Sc,
     ) -> io::Result<Option<(u64, Sc::Source)>> {
-        let Some(file) = self.out else {
+        let Some((file, _)) = self.out else {
             return Ok(None);
         };
         let file = file.into_inner().map_err(io::IntoInnerError::into_error)?;

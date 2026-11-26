@@ -4,9 +4,10 @@
 //! from the item counts of the first pass, grouped into rounds that are finished one at
 //! a time; the first rounds are filled in memory, the others spilled.
 
-use super::{BuildError, Regime};
-use crate::build::Tuning;
-use everygraph_core::InsufficientBudget;
+use everygraph_core::{InsufficientBudget, MemoryError};
+use everygraph_format::adjacency::{events_section_bytes, index_bytes_bound, record_bound};
+
+use super::{BuildError, Regime, Tuning};
 
 /// Bytes of memory per item while its bucket waits: the target (`u32`) and the source
 /// local to the bucket (`u16`), in memory or in a spill record.
@@ -48,12 +49,15 @@ const WINDOW_BITS: u32 = 16;
 
 impl Layout {
     /// Cuts `nodes` nodes with these item counts for `blocks` text blocks, within
-    /// `work` bytes of memory.
+    /// `work` bytes of memory. Every later step that could be refused for memory is
+    /// checked here, so that a refusal comes before any work.
     ///
     /// # Errors
     ///
-    /// [`BuildError::Budget`] when a bucket of the largest list cannot be finished
-    /// within `work`.
+    /// [`BuildError::Budget`] when the bucket of the largest list, the index or the
+    /// `.events` section cannot be made within `work`; [`BuildError::Memory`] when a
+    /// node has more items than a segment of the bucket columns holds (its list could
+    /// not be lent as one slice).
     pub(super) fn new(
         counts: impl Iterator<Item = u32>,
         nodes: u32,
@@ -96,6 +100,37 @@ impl Layout {
                 u64::from(starts[b + 1] - starts[b]),
             )
         };
+
+        if let Some(b) = (0..buckets).find(|&b| size(b).0 > 1 << tuning.segment_bits) {
+            return Err(BuildError::Memory(MemoryError::AllocationFailed {
+                purpose: "the items of one node",
+                bytes: ITEM_BYTES * size(b).0,
+            }));
+        }
+        // After the lists: the index, then the `.events` section built in memory and
+        // copied once. Entries and events are at most the items; records at most
+        // `⌈d/4⌉ + 4d` bytes per list.
+        let index = index_bytes_bound(
+            u64::from(nodes),
+            items,
+            record_bound(items) + u64::from(nodes),
+        )
+        .unwrap_or(u64::MAX);
+        let events_section = if events {
+            events_section_bytes(items, items).map_or(u64::MAX, |b| b.saturating_mul(2))
+        } else {
+            0
+        };
+        for (purpose, needed) in [
+            ("the adjacency index", index),
+            ("the .events section", events_section),
+        ] {
+            if needed > work {
+                return Err(BuildError::Budget(InsufficientBudget::new(
+                    purpose, needed, work,
+                )));
+            }
+        }
 
         // The largest bucket must be finished on its own, loaded from a spill.
         let largest = (0..buckets)

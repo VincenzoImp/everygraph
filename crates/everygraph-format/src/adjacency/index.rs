@@ -97,7 +97,14 @@ impl AdjacencyIndex {
     /// The index bytes, as [`parse`](Self::parse) reads them.
     pub(crate) fn write(&self) -> Vec<u8> {
         let blocks = self.blocks();
-        let mut out = Vec::new();
+        let parts = part_lengths(
+            u64::from(self.nodes),
+            self.entries,
+            self.data_bytes,
+            blocks as u64,
+        )
+        .map_or(0, |(_, lengths)| lengths.iter().sum::<usize>());
+        let mut out = Vec::with_capacity(HEADER_BYTES + parts);
         out.extend_from_slice(&MAGIC);
         out.extend_from_slice(&VERSION.to_le_bytes());
         let flags = if self.events { FLAG_EVENTS } else { 0 };

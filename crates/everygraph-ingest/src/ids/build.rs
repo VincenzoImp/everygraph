@@ -73,8 +73,7 @@ pub struct BuildOptions {
     pub kind: Option<KeyKind>,
     /// Whether integer keys in sorted order may be collected in a bitmap (then kept as
     /// a rank bitmap when they are dense enough). [`build_dictionary`] turns it off
-    /// and starts again when a key is outside `0..2^32` or the bitmap does not fit
-    /// the budget.
+    /// and starts again when a key is outside `0..2^32`.
     pub dense: bool,
     /// Seed of the key hash. A build that meets two keys with the same 128-bit hash, or
     /// a part no pilot can solve (never seen; possible only with crafted input), is
@@ -220,9 +219,9 @@ pub struct Built<'a, S> {
 /// chunk in parallel through a [`Collector`], and builds. A key that does not fit the
 /// kind is an invalid row, reported in [`Built::invalid`]. When two keys collide on
 /// their 128-bit hash or a part cannot be solved, the build is repeated with the next
-/// hash seed. The ids are the same at any thread count and any budget, and so are the
-/// sections, except that a budget too small for the bitmap of dense integer keys gives
-/// the hashed form (with the same ids).
+/// hash seed. The ids and the sections are the same at any thread count and any budget:
+/// the bitmap of dense integer keys is chosen from the keys alone, and a budget that
+/// cannot hold it is refused, never answered with the hashed form (DESIGN D14).
 ///
 /// # Errors
 ///
@@ -250,18 +249,11 @@ pub fn build_dictionary<'a, Sc: Scratch>(
     options.kind = Some(kind);
     options.dense = options.dense && sample_dense;
     for _ in 0..=MAX_SEEDS {
-        let collector = match Collector::new(column, kind, &options, accountant, scratch) {
-            Err(DictionaryError::Budget(_)) if options.dense => {
-                options.dense = false;
-                continue;
-            }
-            other => other?,
-        };
+        let collector = Collector::new(column, kind, &options, accountant, scratch)?;
         match collect(source, &collector) {
             Ok(()) => {}
-            // A key outside 0..2^32, or a bitmap the budget cannot hold: the hashed
-            // form, which gives the same ids.
-            Err(DictionaryError::NotDense | DictionaryError::Budget(_)) if options.dense => {
+            // A key outside 0..2^32: the hashed form, which gives the same ids.
+            Err(DictionaryError::NotDense) if options.dense => {
                 options.dense = false;
                 continue;
             }

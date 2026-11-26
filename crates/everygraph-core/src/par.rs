@@ -560,38 +560,19 @@ where
     jobs.try_reserve_exact(blocks)
         .map_err(|_| failed(widen(blocks)))?;
 
-    let failed_blocks = std::sync::Mutex::new(Vec::new());
-    let fail = |block: usize, error: X| {
-        failed_blocks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push((block, error));
-    };
-    let first_failure = |failed: std::sync::Mutex<Vec<(usize, X)>>| {
-        let failed = failed
-            .into_inner()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        failed.into_iter().min_by_key(|(block, _)| *block)
-    };
+    let failure = FirstFailure(std::sync::Mutex::new(None));
     for_each_chunk_mut(&mut counts, buckets, |start, row| {
         let block = start / width;
         let mut sink = Sink {
             row: Row::Count(row),
         };
         if let Err(error) = emit(block, &mut sink) {
-            fail(block, error);
+            failure.record(block, error);
         }
     });
-    if let Some((_, error)) = first_failure(failed_blocks) {
+    if let Some(error) = failure.take() {
         return Err(error);
     }
-    let failed_blocks = std::sync::Mutex::new(Vec::new());
-    let fail = |block: usize, error: X| {
-        failed_blocks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push((block, error));
-    };
 
     // Each cell gets its rows of the output: bucket by bucket, then block by block.
     let mut pieces = out.into_iter();
@@ -635,7 +616,7 @@ where
             row: Row::Place(row, more),
         };
         if let Err(error) = emit(block, &mut sink) {
-            fail(block, error);
+            failure.record(block, error);
             return;
         }
         assert!(
@@ -643,9 +624,32 @@ where
             "block {block} sent fewer items than in the first pass"
         );
     });
-    match first_failure(failed_blocks) {
-        Some((_, error)) => Err(error),
+    match failure.take() {
+        Some(error) => Err(error),
         None => Ok(offsets),
+    }
+}
+
+/// The error of the first block, by block order, that failed in a parallel pass.
+struct FirstFailure<X>(std::sync::Mutex<Option<(usize, X)>>);
+
+impl<X> FirstFailure<X> {
+    fn record(&self, block: usize, error: X) {
+        let mut first = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if first.as_ref().is_none_or(|(b, _)| block < *b) {
+            *first = Some((block, error));
+        }
+    }
+
+    fn take(&self) -> Option<X> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .map(|(_, error)| error)
     }
 }
 

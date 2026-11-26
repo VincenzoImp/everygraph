@@ -6,19 +6,22 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use everygraph_core::{ByteSource, Memory, MemoryError, MemoryKind, Reservation, par};
+use everygraph_core::{ByteSource, Memory, MemoryError, MemoryKind, ReadError, Reservation, par};
+use xxhash_rust::xxh3::xxh3_64;
 
 use super::{BuildError, GraphOptions, ONE, Phase, Progress, SelfLoops};
 use crate::ids::{ColumnType, Dictionary, DictionaryError, Key, KeySource};
-use crate::text::{Batch, IdType, Ids, Tally, TextReader};
+use crate::text::{Batch, IdType, Ids, OnInvalid, Tally, TextError, TextReader};
 
 /// The input as the dictionary reads it: the source and target keys of every row, in
 /// input order. The position of a key is `(block << 32) | (2 * row + column)`, which
 /// increases along the input because a block of 4 MiB holds fewer than 2^31 rows. It
-/// keeps each block's tally, and reports the first full read as the `reading` phase.
+/// keeps each block's tally and fingerprint, and reports the first full read as the
+/// `reading` phase.
 pub(super) struct TextKeys<'r, S> {
     reader: &'r TextReader<S>,
     blocks: usize,
+    fingerprints: &'r Fingerprints,
     tallies: Mutex<Vec<Option<Tally>>>,
     first_reads: AtomicUsize,
     rows: AtomicU64,
@@ -28,12 +31,14 @@ pub(super) struct TextKeys<'r, S> {
 impl<'r, S: ByteSource + Sync> TextKeys<'r, S> {
     pub(super) fn new(
         reader: &'r TextReader<S>,
-        blocks: usize,
+        fingerprints: &'r Fingerprints,
         progress: &'r dyn Progress,
     ) -> Self {
+        let blocks = fingerprints.blocks();
         Self {
             reader,
             blocks,
+            fingerprints,
             tallies: Mutex::new((0..blocks).map(|_| None).collect()),
             first_reads: AtomicUsize::new(0),
             rows: AtomicU64::new(0),
@@ -68,10 +73,17 @@ impl<S: ByteSource + Sync> KeySource for TextKeys<'_, S> {
         chunk: usize,
         f: &mut dyn FnMut(u64, Key<'_>) -> Result<(), DictionaryError>,
     ) -> Result<(), DictionaryError> {
-        let (batch, tally) = self
-            .reader
-            .read_block(chunk)
-            .map_err(|e| DictionaryError::Input(Box::new(e)))?;
+        let changed = || DictionaryError::Input(Box::new(Changed));
+        let (batch, tally) = self.reader.read_block(chunk).map_err(|e| {
+            if truncated(&e) {
+                changed()
+            } else {
+                DictionaryError::Input(Box::new(e))
+            }
+        })?;
+        if !self.fingerprints.check(chunk, &batch) {
+            return Err(changed());
+        }
         let base = u64::try_from(chunk).unwrap_or(u64::MAX) << 32;
         for row in 0..batch.len() {
             let at = base | (u64::try_from(row).unwrap_or(u64::MAX) << 1);
@@ -97,6 +109,62 @@ impl<S: ByteSource + Sync> KeySource for TextKeys<'_, S> {
     }
 }
 
+/// What a read reports when the input changed under it; `BuildError::InputChanged`.
+#[derive(Debug)]
+pub(super) struct Changed;
+
+impl std::fmt::Display for Changed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the input changed while it was read")
+    }
+}
+
+impl std::error::Error for Changed {}
+
+/// Whether a read failed because the source is now shorter than when it was opened.
+fn truncated(e: &TextError) -> bool {
+    let TextError::Read(ReadError::Backend(cause)) = e else {
+        return matches!(e, TextError::Read(ReadError::OutOfBounds { .. }));
+    };
+    cause
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|io| io.kind() == std::io::ErrorKind::UnexpectedEof)
+}
+
+/// A digest of each block's identifiers, taken the first time the block is read and
+/// compared every later time: a block that changed between passes would send other
+/// items, and a key that is not in the dictionary maps to some other node's id.
+pub(super) struct Fingerprints(Vec<AtomicU64>);
+
+impl Fingerprints {
+    pub(super) fn new(blocks: usize) -> Self {
+        Self((0..blocks).map(|_| AtomicU64::new(0)).collect())
+    }
+
+    fn blocks(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Records the digest of `batch`, the rows of block `block`, or compares it with
+    /// the one recorded; `false` if they differ.
+    fn check(&self, block: usize, batch: &Batch) -> bool {
+        const K: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut digest = (u64::try_from(batch.len()).unwrap_or(u64::MAX) + 1).wrapping_mul(K);
+        let mut mix = |x: u64| digest = (digest.rotate_left(23) ^ x).wrapping_mul(K);
+        for ids in [&batch.source, &batch.target] {
+            match ids {
+                Ids::Integer(values) => values.iter().for_each(|&v| mix(v)),
+                Ids::String(values) => values.iter().for_each(|s| mix(xxh3_64(s))),
+            }
+        }
+        let digest = digest | 1;
+        match self.0[block].compare_exchange(0, digest, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => true,
+            Err(earlier) => earlier == digest,
+        }
+    }
+}
+
 fn key(ids: &Ids, row: usize) -> Key<'_> {
     match ids {
         Ids::Integer(values) => Key::UInt(values[row]),
@@ -119,9 +187,7 @@ pub(super) struct Rows<'a, 'd, S, D> {
     reader: &'a TextReader<S>,
     dictionary: &'a Dictionary<'d, D>,
     graph: GraphOptions,
-    /// A digest of each block's ids, taken in the first pass and compared in the
-    /// others: a block that changes between passes would send other items.
-    fingerprints: Vec<AtomicU64>,
+    fingerprints: &'a Fingerprints,
     /// Parse and mapping buffers of the blocks in flight, which live outside every
     /// other reservation.
     _buffers: Reservation,
@@ -156,6 +222,7 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
         reader: &'a TextReader<S>,
         dictionary: &'a Dictionary<'d, D>,
         graph: GraphOptions,
+        fingerprints: &'a Fingerprints,
         flight: &Flight,
         memory: &Memory,
         cached_rows: Option<u64>,
@@ -178,7 +245,7 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
             reader,
             dictionary,
             graph,
-            fingerprints: (0..blocks).map(|_| AtomicU64::new(0)).collect(),
+            fingerprints,
             _buffers: buffers,
             cache,
         })
@@ -191,7 +258,7 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
 
     /// Number of blocks.
     pub(super) fn blocks(&self) -> usize {
-        self.fingerprints.len()
+        self.fingerprints.blocks()
     }
 
     /// Calls `f(source, target)` for every item of block `block`: one per loop row kept,
@@ -208,25 +275,27 @@ impl<'a, 'd, S: ByteSource + Sync, D: ByteSource + Sync> Rows<'a, 'd, S, D> {
             self.send(pairs, &mut counts, f);
             return Ok(counts);
         }
-        let (batch, _) = self.reader.read_block(block)?;
+        let (batch, _) = self.reader.read_block(block).map_err(|e| {
+            if truncated(&e) {
+                BuildError::InputChanged
+            } else {
+                e.into()
+            }
+        })?;
+        if !self.fingerprints.check(block, &batch) {
+            return Err(BuildError::InputChanged);
+        }
         let pairs = self.map(&batch)?;
-        let mut digest = (u64::try_from(pairs.len()).unwrap_or(u64::MAX) + 1)
-            .wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        for &pair in &pairs {
-            digest = (digest.rotate_left(23) ^ pair).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        }
-        let digest = digest | 1;
-        let seen = &self.fingerprints[block];
-        match seen.compare_exchange(0, digest, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => {}
-            Err(earlier) if earlier == digest => {}
-            Err(_) => return Err(BuildError::InputChanged),
-        }
         let mut counts = BlockCounts {
             rows: u64::try_from(batch.len()).unwrap_or(u64::MAX),
             ..BlockCounts::default()
         };
         counts.rejected = counts.rows - u64::try_from(pairs.len()).unwrap_or(u64::MAX);
+        // Identifiers that do not fit their kind were refused after the first pass, so
+        // under `Refuse` a row left out here was not there then.
+        if counts.rejected > 0 && self.reader.on_invalid() == OnInvalid::Refuse {
+            return Err(BuildError::InputChanged);
+        }
         self.send(&pairs, &mut counts, f);
         if let Some(slot) = cached {
             let _ = slot.set(pairs);

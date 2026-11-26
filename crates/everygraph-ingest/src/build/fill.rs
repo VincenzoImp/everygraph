@@ -261,6 +261,7 @@ pub(super) fn load_round<R: ByteSource>(
     let nodes: Vec<u32> = (first..end)
         .map(|b| layout.starts[b + 1] - layout.starts[b])
         .collect();
+    let graph_nodes = layout.starts.last().copied().unwrap_or(0);
     let corrupt = || {
         BuildError::Scratch(io::Error::other(
             "a spill file does not hold what was written",
@@ -282,11 +283,15 @@ pub(super) fn load_round<R: ByteSource>(
             for record in records.chunks_exact(RECORD) {
                 let at = usize::try_from(next[slot]).map_err(|_| corrupt())?;
                 let local = u16::from_le_bytes(record[..2].try_into().expect("2 bytes"));
-                if widen(at) >= layout.offsets[b + 1] - base || nodes[slot] <= u32::from(local) {
+                let target = u32::from_le_bytes(record[2..].try_into().expect("4 bytes"));
+                if widen(at) >= layout.offsets[b + 1] - base
+                    || nodes[slot] <= u32::from(local)
+                    || target >= graph_nodes
+                {
                     return Err(corrupt());
                 }
                 locals[at] = local;
-                targets[at] = u32::from_le_bytes(record[2..].try_into().expect("4 bytes"));
+                targets[at] = target;
                 next[slot] += 1;
             }
             left -= take;

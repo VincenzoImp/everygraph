@@ -57,7 +57,10 @@ pub use encode::{Encoded, encode};
 pub use events::AdjacencyEvents;
 pub use index::AdjacencyIndex;
 pub use simd::Decoder;
-pub use stream::{IndexBuilder, append_record, encode_events, events_section_bytes, record_bound};
+pub use stream::{
+    IndexBuilder, append_record, encode_events, events_section_bytes, index_bytes_bound,
+    record_bound,
+};
 
 /// Why index bytes were refused by [`AdjacencyIndex::parse`] or data bytes by
 /// [`Adjacency::new`].
