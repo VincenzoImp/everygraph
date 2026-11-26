@@ -281,6 +281,19 @@ pub(crate) fn date(ns: i64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// The instant `ns` nanoseconds after 1970-01-01 UTC, to the second:
+/// `2026-11-24T10:41:07Z`.
+pub(crate) fn timestamp(ns: i64) -> String {
+    let second = ns.div_euclid(1_000_000_000).rem_euclid(86_400);
+    format!(
+        "{}T{:02}:{:02}:{:02}Z",
+        date(ns),
+        second / 3600,
+        second / 60 % 60,
+        second % 60
+    )
+}
+
 fn whole_seconds(seconds: f64) -> u64 {
     // A duration is finite and far below 2^53 seconds.
     #[expect(
@@ -432,6 +445,8 @@ mod tests {
         // 2026-11-24T23:59:59Z.
         assert_eq!(date(1_795_564_799_000_000_000), "2026-11-24");
         assert_eq!(date(951_782_400_000_000_000), "2000-02-29");
+        assert_eq!(timestamp(1_795_564_799_000_000_000), "2026-11-24T23:59:59Z");
+        assert_eq!(timestamp(-1), "1969-12-31T23:59:59Z");
     }
 
     #[test]
