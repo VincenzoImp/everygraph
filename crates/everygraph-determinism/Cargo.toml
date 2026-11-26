@@ -24,6 +24,7 @@ everygraph-oracle = { path = "../everygraph-oracle" }
 [dev-dependencies]
 # The build reads gzip and zstd inputs; the tests write them.
 everygraph-ingest = { path = "../everygraph-ingest", features = ["native"] }
+everygraph-query = { path = "../everygraph-query" }
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 ruzstd = { version = "0.9.1", default-features = false, features = ["std", "hash"] }
 

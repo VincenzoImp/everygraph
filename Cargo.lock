@@ -524,6 +524,7 @@ dependencies = [
  "everygraph-io",
  "everygraph-kernels",
  "everygraph-oracle",
+ "everygraph-query",
  "flate2",
  "ruzstd",
 ]
