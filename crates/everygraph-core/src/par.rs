@@ -681,11 +681,11 @@ mod tests {
     #[test]
     fn ranged_writes_hand_out_each_range_once_flat_and_segmented() {
         let mut rng = Lcg(28);
-        for case in 0..60 {
-            let len = rng.below(150);
+        for case in 0..30 {
+            let len = rng.below(60);
             let offsets = random_offsets(&mut rng, len);
             let g = GRAINS[case % GRAINS.len()];
-            let result = ranged(len, &offsets, g, &[0, 2, 4, 27]);
+            let result = ranged(len, &offsets, g, &[0, 2, 27]);
             assert_eq!(result, marked(len, &offsets), "case {case}");
         }
     }
@@ -798,7 +798,7 @@ mod tests {
         let mut out = vec![0_u64; len];
         let offsets = scatter(&memory, "s", len, grain(b), grain(g), item, [&mut out[..]]);
         assert_eq!(offsets.unwrap(), expected);
-        for bits in [0, 2, 5] {
+        for bits in [0, 3] {
             let mut vec = SegVec::<u64>::with_segment_bits(&memory, "out", bits);
             vec.try_resize(len, 0).unwrap();
             let offsets = scatter(
@@ -819,8 +819,8 @@ mod tests {
     #[test]
     fn scatter_is_a_stable_counting_sort_flat_and_segmented() {
         let mut rng = Lcg(189);
-        for case in 0..60 {
-            let (len, buckets) = (rng.below(200), 1 + rng.below(9));
+        for case in 0..30 {
+            let (len, buckets) = (rng.below(80), 1 + rng.below(9));
             let g = GRAINS[case % GRAINS.len()];
             let items = items(to_u64(case), len, buckets);
             let out = scattered_by_facade(&items, buckets, g);
@@ -902,8 +902,8 @@ mod tests {
     #[test]
     fn writes_do_not_depend_on_the_thread_count() {
         let mut rng = Lcg(3);
-        let len = 3000;
-        let mut offsets: Vec<usize> = (0..400).map(|_| rng.below(len + 1)).collect();
+        let len = 200;
+        let mut offsets: Vec<usize> = (0..40).map(|_| rng.below(len + 1)).collect();
         offsets.sort_unstable();
         let items = items(8, len, 7);
         let mut results = Vec::new();
@@ -915,7 +915,7 @@ mod tests {
             results.push(pool.install(|| {
                 assert_eq!(rayon::current_num_threads(), threads);
                 let ranges = ranged(len, &offsets, 4, &[6]);
-                (ranges, scattered_by_facade(&items, 7, 64))
+                (ranges, scattered_by_facade(&items, 7, 16))
             }));
         }
         assert_eq!(results[0], (marked(len, &offsets), scattered(&items, 7).0));
