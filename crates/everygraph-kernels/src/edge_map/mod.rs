@@ -11,8 +11,9 @@
 //!
 //! - [`Plan::scan`] calls it for every node that passes a filter, with the node's list
 //!   (pull, scan-shaped). Lists are decoded or read in batches of about
-//!   [`Settings::batch_entries`] entries before the body runs on them. A block in which
-//!   no node passes is not decoded.
+//!   [`Settings::batch_entries`] entries before the body runs on them. A compressed
+//!   source decodes only the records of the nodes that pass, and of short gaps between
+//!   them.
 //! - [`Plan::vertices`] calls it for every node, with its degree, without its list.
 //! - [`Plan::scan_until`] is a scan whose body reads each list from its start, in
 //!   pieces, and may stop early (bottom-up BFS stops at the first parent). A compressed
@@ -21,7 +22,8 @@
 //!   access (push, traversal-shaped). Consecutive nodes are decoded together. If
 //!   [`Settings::prefetch`] is set, the frontier's byte ranges are advised first.
 //!   [`Plan::push_with`] may also cut a long list into parts that run in parallel, for
-//!   bodies whose updates commute.
+//!   bodies whose updates commute; [`Plan::frontier_serial_with`] runs on the calling
+//!   thread.
 //!
 //! The body of a scan receives a [`Row`]: the node, its list, and the list's first entry,
 //! which indexes per-entry columns (weights) with [`Row::entries`]. It receives a
@@ -1381,7 +1383,22 @@ mod tests {
 
     /// Every driver, over every source built in memory: each target indexes a
     /// `PerNode`, so Miri sees every unchecked read the drivers allow.
-    fn drive<S: Source>(source: &S, offsets: &[u64]) -> Result<(u64, u64, u64), Error> {
+    /// [`lists`] with node 7 listing every node: longer than a run and than a prefix.
+    fn with_hub(n: u32) -> (Vec<u64>, Vec<u32>) {
+        let (offsets, targets) = lists(n, None);
+        let (mut o, mut t) = (vec![0], Vec::new());
+        for v in 0..ix(n.into()) {
+            if v == 7 {
+                t.extend(0..n);
+            } else {
+                t.extend_from_slice(&targets[ix(offsets[v])..ix(offsets[v + 1])]);
+            }
+            o.push(t.len() as u64);
+        }
+        (o, t)
+    }
+
+    fn drive<S: Source>(source: &S, offsets: &[u64]) -> Result<[u64; 5], Error> {
         let memory = Memory::unlimited();
         let settings = Settings {
             chunk_entries: 16,
@@ -1408,14 +1425,32 @@ mod tests {
             let degrees: u64 = plan.vertices((), |acc: &mut u64, (), _, v, d| {
                 *acc += per[v] * u64::from(d);
             })?;
-            Ok((scanned, pushed, degrees))
+            let parts: u64 = plan.push_with(
+                &frontier,
+                || (),
+                |acc: &mut u64, row, w| {
+                    *acc += row.list.iter().map(|&u| per[u]).sum::<u64>() + row.first_entry;
+                    if let Some(&u) = row.list.last() {
+                        *acc += w.lists.get(u).expect("a good list").list.len() as u64;
+                    }
+                },
+            )?;
+            let until: u64 = plan.scan_until((), all, |acc: &mut u64, (), _, row| {
+                *acc += row.list.iter().map(|&u| per[u]).sum::<u64>() + row.first_entry;
+                if row.node.get() % 2 == 1 {
+                    ControlFlow::Continue(())
+                } else {
+                    ControlFlow::Break(())
+                }
+            })?;
+            Ok([scanned, pushed, degrees, parts, until])
         })
     }
 
     #[test]
     fn drivers_over_every_source_in_memory() {
-        let n = 70;
-        let (offsets, targets) = lists(n, None);
+        let n = 1100;
+        let (offsets, targets) = with_hub(n);
         let encoded = encode(&offsets, &targets).unwrap();
         let index = AdjacencyIndex::parse(&encoded.index).unwrap();
         let bytes: Vec<u8> = targets.iter().flat_map(|t| t.to_le_bytes()).collect();

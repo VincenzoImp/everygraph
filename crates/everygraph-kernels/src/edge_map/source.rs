@@ -12,8 +12,11 @@
 //! [`nodes`](Source::nodes). The codec checks the framing of its records, not the graph,
 //! so a corrupt file can decode to any `u32`. [`Csr`] checks its arrays when it is
 //! made. [`Compressed`] and [`Stream`] check their offsets when made, and each batch
-//! after they decode or read it. Lists are not checked to be sorted, so a kernel must
-//! not rely on order for anything but its answer.
+//! after they decode or read it. A prefix or a part of a list that [`Compressed`]
+//! decodes alone ([`Source::scan_prefixes`], [`Source::list_part`]) is checked the same
+//! way, but the rest of its record is not read, so damage there goes unseen. Lists are
+//! not checked to be sorted, so a kernel must not rely on order for anything but its
+//! answer.
 
 use std::fmt;
 use std::num::NonZeroUsize;
