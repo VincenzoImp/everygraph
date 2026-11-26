@@ -152,5 +152,5 @@ asynchronous prototype, not against production `fast` mode. The price of the def
 
 ## Closed by
 
-#267 (the exact contract: views, stored order, hysteresis, quality cost), #54 (the tests across threads, platforms, budgets and regimes), #60 (the case
+#54 (the tests across threads, platforms, budgets and regimes), #60 (the case
 that would narrow it).

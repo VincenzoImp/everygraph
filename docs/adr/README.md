@@ -86,7 +86,7 @@ A measurable condition.
 | [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state (result of #16 added; regime 2 for random access amended by 0029) | accepted, partly validated | #60, #46, #178 |
 | [0012](0012-edge-map-framework.md) | One edge-map framework | accepted, partly validated | #240 |
 | [0013](0013-threads-per-kernel.md) | Thread count chosen per kernel | accepted, partly validated | #22 |
-| [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #267, #54, #60 |
+| [0014](0014-deterministic-by-default.md) | Deterministic by default, across threads, platforms, budgets and regimes | accepted, partly validated | #54, #60 |
 | [0015](0015-leiden-visiting-order.md) | Leiden with block-permuted order and a connectivity guarantee | accepted, partly validated | #24, #259 |
 | [0016](0016-two-community-outputs.md) | Two community outputs, one artifact: the partition T inside the map tree | accepted | #63 |
 | [0017](0017-layout-disc-packing.md) | Layout by hierarchy-constrained disc packing | accepted, partly validated | #67 |
