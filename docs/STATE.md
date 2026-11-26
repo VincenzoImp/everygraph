@@ -27,6 +27,8 @@ As of 2026-11-26, 07:45 (rules for speed: CLAUDE.md §4, §6; quality gates §6)
 
 **ADR 0017 amended (PR #234, #175 closed):** disc packing kept; stress solve per parent adopted for m5-01; claim narrowed (distance between large regions means little); re-decision trigger is now NP@10 per level, ground-truth 10-NN, Spearman and top-region edge length against DRGraph.
 
+**#17 answered (PR #235):** the async Louvain collapse is concurrent moves of heavy coarse vertices; the fast mode ships in #57 only with the heavy-vertex rule (k_u > 0.001·2m visited by one thread after the parallel sweep). FINDINGS § M1-03.
+
 **Merged after 07:45:** #219 page backend (part of #167), #218 components + k-core + degrees (#48/#50 open for official speed). **Next:** in-adjacency (#38) then SCC (m3-20); #229 out of draft after #218; m2-31 (#200) code-size half with per-crate targets (sweep 2: format 2,706 → 9,453, ingest 10,584 → 14,171, core 3,640 → 6,079 src lines); the second measurement window.
 
 **Decided by the coordinator tonight (records in DECISIONS, ADRs or issue files):** S1 lost-generation warning in `verify` (exit 0, `--strict` 5); dictionary dense form chosen from the data only, never the budget; `find_result` reads key and provenance only; MSRV 1.100 for a safe page backend; arrow-rs in the py crate with three deny exceptions; clap for the CLI; window splitting; merge order #220 before #218.
@@ -98,6 +100,7 @@ Tell the owner when each becomes due, with everything prepared.
 - 2026-11-26 03:54 self-check: load average 45 on 32 hardware threads with about nine code agents (kernels ×2, allocator, results cache, columns fixes, verify fixes, mmap experiment, LDBC, one review). CPU, not the network, is now the limit: more compiling agents would slow all of them. Rule of thumb for this machine: at most about 8 agents that compile at once (with `CARGO_BUILD_JOBS=6`), research and reviews on top.
 - 2026-11-26 05:15: a 2.5-hour window idles every code agent (seven had their fixes written and waited to compile). Split long windows: run the short official cases first, let agents build and push, then run the long ones (det-leiden, mmap-hints) in a second window when few agents compile.
 - 2026-11-26 05:54 self-check: after the window the machine fell to load 1.6 with four authors waiting on CI and two new agents starting — idle capacity again. Cause: every stream had reached a CI or review wait at once. Mitigation: keep a queue of ready experiments (M1 issues that need no merge) to start whenever load drops; started #23 and #175.
+- 2026-11-26 08:40: a spec rule added in a late review round (index flag bit 1 `events`, second review of PR #184) never reached `verify` (PR #212, written in parallel): it ignored the flag and called every graph with repeated pairs damaged (the build was right; fixed in PR #237). Neither review caught it because no test ran the build's output through `verify`. Rule: every writer's tests open their own output with the strictest reader (`verify --deep`); when a spec changes, the coordinator lists the open PRs that implement it and sends them the change.
 ## Journal
 
 - **2026-11-25 (evening)** — First code on `main` (#2). Trademark finding on the name; owner

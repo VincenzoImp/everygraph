@@ -669,3 +669,66 @@ proptest! {
         prop_assert_eq!(problems(&graph(&lists, UNDIRECTED)).is_empty(), symmetric);
     }
 }
+
+/// The index of `lists` and its data, written list by list, with flag bit 1 when
+/// `events`.
+fn streamed(lists: &[Vec<u32>], events: bool) -> (Vec<u8>, Vec<u8>) {
+    let memory = Memory::unlimited();
+    let mut index = IndexBuilder::new(&memory, u32::try_from(lists.len()).unwrap()).unwrap();
+    let mut data = Vec::new();
+    for (v, list) in lists.iter().enumerate() {
+        let before = data.len();
+        let degree = append_record(u32::try_from(v).unwrap(), list.iter().copied(), &mut data);
+        index
+            .push(degree.unwrap(), (data.len() - before) as u64)
+            .unwrap();
+    }
+    (index.finish(events).unwrap().0, data)
+}
+
+/// An adjacency with repeated pairs: index flag bit 1 and a `.events` section, both or
+/// neither (`docs/spec/eg-adjacency.md` § 3, § 5), and the section checked whole.
+#[test]
+fn an_events_section_is_found_exactly_where_the_index_announces_one() {
+    let lists = triangle();
+    let entries: u64 = lists.iter().map(|l| l.len() as u64).sum();
+    let mut multiplicities = vec![1_u64; usize::try_from(entries).unwrap()];
+    multiplicities[0] = 3;
+    let events = encode_events(entries, entries + 2, multiplicities).unwrap();
+    let with = |events_flag: bool, section: Option<&[u8]>| {
+        let (index, data) = streamed(&lists, events_flag);
+        let mut w = Writer::create(Mem::default()).unwrap();
+        w.add_section("adjacency.out.index", Kind::ADJACENCY_INDEX, &index, None)
+            .unwrap();
+        w.add_section("adjacency.out.data", Kind::ADJACENCY_DATA, &data, None)
+            .unwrap();
+        if let Some(section) = section {
+            w.add_section(
+                "adjacency.out.events",
+                Kind::ADJACENCY_EVENTS,
+                section,
+                None,
+            )
+            .unwrap();
+        }
+        w.commit().unwrap();
+        w.into_sink().into_inner()
+    };
+    let first = |file: &[u8]| problems(file).remove(0).what;
+    let sound = with(true, Some(&events));
+    assert_eq!(problems(&sound), Vec::new());
+    let report = check(&sound, Depth::Deep);
+    assert_eq!(report.adjacencies[0].events, Some(entries + 2));
+    assert_eq!(
+        first(&with(false, Some(&events))),
+        "an events section, but adjacency.out.index does not announce one"
+    );
+    assert_eq!(
+        first(&with(true, None)),
+        "it announces an events section, and adjacency.out.events is missing"
+    );
+    // A sequence with no set bit, behind a valid hash.
+    let mut flat = events.clone();
+    flat[32..].fill(0);
+    assert!(!problems(&with(true, Some(&flat))).is_empty());
+}

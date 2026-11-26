@@ -5,10 +5,13 @@
 
 use std::num::NonZeroUsize;
 
+use everygraph_core::ByteSource;
+
 use super::layout::ITEM_BYTES;
 use super::lists::fixed_bytes;
 use super::rows::Flight;
 use super::{Regime, SLACK_SHIFT, TUNING};
+use crate::text::{TextError, TextReader};
 
 /// The identifier dictionary's smallest working set: the table of its dense bitmap
 /// (65,536 segment slots) and one worker's base, rounded up.
@@ -42,6 +45,32 @@ impl Sample {
             block_bytes,
             blocks,
         }
+    }
+
+    /// The sample of a plain-text input: its first block, as the build reads it, and
+    /// as many rows in each block. `None` for a compressed input, which has no blocks
+    /// until it is decompressed.
+    ///
+    /// # Errors
+    ///
+    /// The first block could not be read.
+    pub fn of<S: ByteSource + Sync>(reader: &TextReader<S>) -> Result<Option<Self>, TextError> {
+        let Some(blocks) = reader.blocks()? else {
+            return Ok(None);
+        };
+        let wide = |x: usize| u64::try_from(x).unwrap_or(u64::MAX);
+        let block_bytes = wide(reader.block_bytes());
+        if blocks == 0 {
+            return Ok(Some(Self::new(0, 0, block_bytes, 0)));
+        }
+        let rows = wide(reader.read_block(0)?.0.len());
+        let blocks = wide(blocks);
+        Ok(Some(Self::new(
+            rows.saturating_mul(blocks),
+            rows,
+            block_bytes,
+            blocks,
+        )))
     }
 }
 

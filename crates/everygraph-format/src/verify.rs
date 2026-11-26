@@ -629,7 +629,7 @@ fn check_adjacency<S: ByteSource + Sync>(
         (true, None) => {
             report.problem(
                 Some(&index_name),
-                format!("it announces an events section, but there is no {events_name}"),
+                format!("it announces an events section, and {events_name} is missing"),
             );
             return Ok(None);
         }
