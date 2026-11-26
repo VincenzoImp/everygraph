@@ -570,7 +570,11 @@ where
     progress.begin(Phase::Reading, Some(widen(blocks)));
     let fingerprints = rows::Fingerprints::new(blocks);
     let keys = TextKeys::new(reader, &fingerprints, progress);
-    let built = build_dictionary(&keys, &options.ids, memory.accountant(), scratch)?;
+    // A row is at least `0 0` and a line end, so the text holds at most `bytes / 2 + 1`
+    // keys: integer keys far above that can only take the hashed form, at any budget.
+    let mut ids_options = options.ids;
+    ids_options.max_keys = ids_options.max_keys.or(Some(reader.source().len() / 2 + 1));
+    let built = build_dictionary(&keys, &ids_options, memory.accountant(), scratch)?;
     if blocks == 0 {
         progress.end(Phase::Reading, 0);
         progress.begin(Phase::Identifiers, None);

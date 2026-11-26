@@ -509,9 +509,14 @@ fn every_budget_gives_the_same_bytes_or_a_refusal() {
                     spilled += u64::from(report.regime == Regime::OnDisk);
                     assert!(sink.into_inner() == reference, "{ids:?}, budget {budget}");
                 }
-                Err(BuildError::Budget(_)) => {
+                Err(BuildError::Budget(refusal)) => {
                     refused += 1;
                     assert!(Container::open(sink).is_err(), "budget {budget}");
+                    // A refused bitmap names its whole bound, so that the budget it
+                    // suggests is enough: at least its table, never one segment.
+                    if refusal.purpose == "id dictionary dense bitmap" {
+                        assert!(refusal.needed > 1 << 20, "{refusal:?}");
+                    }
                 }
                 Err(e) => panic!("{ids:?}, budget {budget}: {e}"),
             }
@@ -832,4 +837,35 @@ fn the_estimate_spills_no_sooner_than_the_build() {
         }
     }
     assert!(checked > 0);
+}
+
+/// Integer keys spread over `0..2^32` take the hashed form at a small budget, with the
+/// bytes of a large one: the bitmap stops at the first key that no dense dictionary of
+/// this input could hold, instead of growing to 512 MiB and being refused.
+#[test]
+fn sparse_integer_keys_take_the_hashed_form_at_any_budget() {
+    let mut text = Vec::new();
+    let mut x = 0x2545_F491_4F6C_DD1D_u64;
+    for _ in 0..20_000 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let (u, v) = (x >> 32, x & u64::from(u32::MAX));
+        text.extend_from_slice(format!("{u}\t{v}\n").as_bytes());
+    }
+    let large = Run {
+        budget: 8 << 30,
+        chunk: 4096,
+        ..Run::new(GraphOptions::default())
+    };
+    let small = Run {
+        budget: 8 << 20,
+        ..large
+    };
+    let (expected, _) = large.bytes(&text).unwrap();
+    let (got, _) = small.bytes(&text).unwrap();
+    assert!(got == expected, "the budget changed the bytes");
+    let file = Container::open(MemorySource::new(&got[..])).unwrap();
+    assert!(file.get("ids.parts").is_some(), "not the hashed form");
+    assert!(file.get("ids.dense").is_none());
 }

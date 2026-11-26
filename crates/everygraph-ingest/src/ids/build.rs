@@ -79,6 +79,14 @@ pub struct BuildOptions {
     /// a part no pilot can solve (never seen; possible only with crafted input), is
     /// retried by [`build_dictionary`] with the next seed.
     pub hash_seed: u64,
+    /// An upper bound on the distinct keys of the input, when the caller knows one
+    /// from the input alone (a text of `b` bytes holds at most `b / 2 + 1` keys: two per
+    /// row, a row being at least `0 0` and a line end). A bitmap is kept only when the
+    /// largest key is below 64 times the keys, so a key at or above 64 times this
+    /// bound can only end in the hashed form: the bitmap stops there, and the hashed
+    /// form is built at any budget. Until then the bitmap holds at most 64 bits, 8
+    /// bytes, per key of the bound.
+    pub max_keys: Option<u64>,
 }
 
 impl Default for BuildOptions {
@@ -89,6 +97,7 @@ impl Default for BuildOptions {
             kind: None,
             dense: true,
             hash_seed: 0,
+            max_keys: None,
         }
     }
 }
@@ -386,6 +395,8 @@ pub struct Collector<'a, Sc: Scratch> {
     returned: Condvar,
     cap: u64,
     dense: Option<DenseBits<'a>>,
+    /// Keys at or above this end the bitmap ([`BuildOptions::max_keys`]).
+    dense_limit: u64,
 }
 
 impl<Sc: Scratch> std::fmt::Debug for Collector<'_, Sc> {
@@ -503,8 +514,11 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
         scratch: &'a Sc,
     ) -> Result<Self, DictionaryError> {
         let order = options.order.resolve(kind);
+        let dense_limit = options
+            .max_keys
+            .map_or(u64::MAX, |keys| keys.saturating_mul(DENSE_BITS_PER_KEY));
         let dense = if options.dense && kind == KeyKind::Integers && order == IdOrder::SortedKey {
-            Some(DenseBits::new(accountant)?)
+            Some(DenseBits::new(accountant, dense_limit)?)
         } else {
             None
         };
@@ -528,6 +542,7 @@ impl<'a, Sc: Scratch> Collector<'a, Sc> {
             returned: Condvar::new(),
             cap,
             dense,
+            dense_limit,
         })
     }
 
@@ -764,7 +779,8 @@ impl<'a, Sc: Scratch> Worker<'_, 'a, Sc> {
             _ => &copy[..len],
         };
         if let Some(dense) = &c.dense {
-            let Some(bit) = dense_index(c.column, norm) else {
+            let Some(bit) = dense_index(c.column, norm).filter(|&b| u64::from(b) < c.dense_limit)
+            else {
                 return Err(DictionaryError::NotDense);
             };
             dense.set(bit)?;
@@ -1348,6 +1364,7 @@ impl<'a, Sc: Scratch> Distinct<'a, Sc> {
             kind: Some(kind),
             dense: false,
             hash_seed: seed,
+            max_keys: None,
         };
         let collector = Collector::new(column, kind, &options, accountant, scratch)?;
         let base = dense_base(column);

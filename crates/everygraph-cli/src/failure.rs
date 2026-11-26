@@ -32,7 +32,17 @@ pub(crate) struct Failure {
     ways: Vec<(String, String)>,
     left: Left,
     status: u8,
-    bytes: Option<Box<(u64, u64, Option<u64>)>>,
+    bytes: Option<Box<Refused>>,
+}
+
+/// The keys an `InsufficientBudget` document must hold (§ 6.1).
+#[derive(Debug)]
+struct Refused {
+    step: &'static str,
+    needs: u64,
+    budget: u64,
+    /// `None` when no budget on this machine would work.
+    smallest: Option<u64>,
 }
 
 impl Failure {
@@ -127,12 +137,19 @@ impl Failure {
             json_string(&self.why.join("\n")),
             ways.join(",")
         );
-        if let Some(&(needs, budget, smallest)) = self.bytes.as_deref() {
+        if let Some(refused) = self.bytes.as_deref() {
+            let Refused {
+                step,
+                needs,
+                budget,
+                smallest,
+            } = refused;
             let smallest = smallest.map_or_else(|| "null".to_owned(), |s| s.to_string());
             let _ = write!(
                 out,
-                ",\"needs_bytes\":{needs},\"budget_bytes\":{budget},\
-                 \"smallest_budget_bytes\":{smallest}"
+                ",\"step\":{},\"needs_bytes\":{needs},\"budget_bytes\":{budget},\
+                 \"smallest_budget_bytes\":{smallest}",
+                json_string(step)
             );
         }
         out.push('}');
@@ -286,11 +303,12 @@ pub(crate) fn memory(budget: u64, machine: Option<u64>, refused: &InsufficientBu
         ),
     ])
     .ways(vec![way]);
-    failure.bytes = Some(Box::new((
-        refused.needed,
+    failure.bytes = Some(Box::new(Refused {
+        step: refused.purpose,
+        needs: refused.needed,
         budget,
-        fits_machine.then_some(smallest),
-    )));
+        smallest: fits_machine.then_some(smallest),
+    }));
     failure
 }
 
