@@ -98,7 +98,9 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use everygraph_core::{ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, par};
+use everygraph_core::{
+    ExactSum, InsufficientBudget, Memory, MemoryError, ReadError, SegVec, par,
+};
 use everygraph_format::adjacency::{DecodeError, FormatError};
 
 pub use node::{Node, NodeCells, NodeList, NodeSet, PerNode, ids};
@@ -123,6 +125,26 @@ pub(crate) fn ix(x: u64) -> usize {
     usize::try_from(x).expect("an index into memory")
 }
 
+const SEGMENTS: Error = Error::Invalid("node state longer than one segment (#m3-15)");
+
+/// The values of `v` as one slice, as the drivers take per-node state.
+///
+/// # Errors
+///
+/// [`Error::Invalid`] if `v` has more than one segment (#m3-15).
+pub fn one_segment<T: Copy>(v: &SegVec<T>) -> Result<&[T], Error> {
+    v.as_slice().ok_or(SEGMENTS)
+}
+
+/// As [`one_segment`], mutable.
+///
+/// # Errors
+///
+/// [`Error::Invalid`] if `v` has more than one segment (#m3-15).
+pub fn one_segment_mut<T: Copy>(v: &mut SegVec<T>) -> Result<&mut [T], Error> {
+    v.as_mut_slice().ok_or(SEGMENTS)
+}
+
 /// Why a driver failed.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -141,7 +163,7 @@ pub enum Error {
         /// The entry that is out of range.
         target: u32,
     },
-    /// Arrays that are not a graph.
+    /// Arrays that are not a graph, or a column a kernel cannot use.
     Invalid(&'static str),
     /// A buffer does not fit in the memory budget.
     Memory(MemoryError),

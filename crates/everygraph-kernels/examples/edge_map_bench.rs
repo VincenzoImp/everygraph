@@ -3,14 +3,15 @@
 //! The benchmark of the edge-map framework and its kernels (#44, #47, #49,
 //! `bench/specs/edge-map.toml`): the kernels on a CSR directory of the dataset registry
 //! (`offsets.u64`, `targets.u32`), over one source, timed inside the process like the
-//! lab's `glab-cli run`. SSSP runs on synthetic costs of the entries (`cost`), with the
-//! bucket width of `sssp::delta` times `--delta-scale`.
+//! lab's `glab-cli run`. SSSP runs on synthetic costs of the entries (`cost`), or with
+//! `--costs file` on the graph's own (`costs.f64`, one per entry), with the bucket width
+//! of `sssp::delta` times `--delta-scale`.
 //!
 //! ```text
 //! edge_map_bench encode --graph DIR --out STORE
 //! edge_map_bench run --graph DIR [--store STORE] --source raw|compressed|mmap|stream
 //!     --kernel pr32|pr64|eig|wcc|bfs|bfs-parents|msbfs|sssp --threads T [--reps R]
-//!     [--iters I] [--chunk ENTRIES] [--batch ENTRIES] [--costs uniform|skewed]
+//!     [--iters I] [--chunk ENTRIES] [--batch ENTRIES] [--costs uniform|skewed|file]
 //!     [--delta-scale X]
 //! ```
 //!
@@ -97,10 +98,16 @@ fn time_plan<S: Source>(
         .max_by_key(|&v| (source.degree(v), std::cmp::Reverse(v)))
         .unwrap_or(0);
     let costs: Vec<f64> = match kernel {
-        "sssp" => {
-            let skewed = a.get("costs").is_some_and(|c| c == "skewed");
-            (0..source.entries()).map(|e| cost(e, skewed)).collect()
-        }
+        "sssp" => match a.get("costs").map(String::as_str) {
+            Some("file") => {
+                let path = Path::new(&a["graph"]).join("costs.f64");
+                read_words(&path, f64::from_le_bytes)
+            }
+            costs => {
+                let skewed = costs == Some("skewed");
+                (0..source.entries()).map(|e| cost(e, skewed)).collect()
+            }
+        },
         _ => Vec::new(),
     };
     let mut secs = Vec::new();

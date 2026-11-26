@@ -20,7 +20,8 @@ measures the whole process around it and stores `tool`, `version`, `algorithm` a
 
 Also `python run.py convert mtx --graph DIR --out FILE`: MatrixMarket for GVE; `sg` and
 `wsg`: GAP's serialized graphs, the second with the costs of `edge_map_bench --kernel
-sssp` (integers 1 to 255, a function of the entry). And `python run.py gap bfs|sssp
+sssp` (integers 1 to 255, a function of the entry); `ldbc-csr --input DATASET --out DIR`:
+a weighted LDBC data set as a CSR directory with its costs. And `python run.py gap bfs|sssp
 --graph DIR --work DIR`: the GAP Benchmark Suite binaries built in `--work`, on the
 serialized graph made there, from the highest-degree node; `seconds` is GAP's best trial
 time of 5, which times its kernel alone.
@@ -406,6 +407,31 @@ def gap_serialized(csr, weighted, out):
     os.replace(tmp, out)
 
 
+def ldbc_csr(dataset, out):
+    """An undirected, weighted LDBC Graphalytics data set (`<g>.v`, `<g>.e` with "u v w"
+    lines) as a CSR directory: `offsets.u64`, `targets.u32` and `costs.f64`, one cost per
+    entry. Vertex ids become dense indices in increasing id order, as the oracle's
+    `ldbc::read` does; each edge is listed both ways."""
+    import pyarrow.csv as pc
+
+    name = os.path.basename(os.path.normpath(dataset))
+    opts = pc.ReadOptions(autogenerate_column_names=True)
+    parse = pc.ParseOptions(delimiter=" ")
+    ids = np.sort(pc.read_csv(os.path.join(dataset, f"{name}.v"), opts, parse).column(0).to_numpy())
+    e = pc.read_csv(os.path.join(dataset, f"{name}.e"), opts, parse)
+    u = np.searchsorted(ids, e.column(0).to_numpy()).astype(np.uint32)
+    v = np.searchsorted(ids, e.column(1).to_numpy()).astype(np.uint32)
+    w = e.column(2).to_numpy().astype(np.float64)
+    src, dst, cost = np.concatenate([u, v]), np.concatenate([v, u]), np.concatenate([w, w])
+    order = np.lexsort((dst, src))
+    offsets = np.zeros(len(ids) + 1, dtype=np.uint64)
+    np.cumsum(np.bincount(src, minlength=len(ids)), out=offsets[1:])
+    os.makedirs(out, exist_ok=True)
+    offsets.tofile(os.path.join(out, "offsets.u64"))
+    dst[order].tofile(os.path.join(out, "targets.u32"))
+    cost[order].tofile(os.path.join(out, "costs.f64"))
+
+
 def convert(csr, kind, out):
     """`mtx`: MatrixMarket 'pattern symmetric', each edge once, 1-based (as
     lab/a-baselines/csr2mtx.py, for GVE). `edges`: "u v" lines, each edge once, 0-based
@@ -469,6 +495,11 @@ def main():
     p.add_argument("--edges", help="text edge list (each edge once) for igraph and rustworkx")
     p.add_argument("--out", help="output file for convert")
     args = p.parse_args()
+    if args.tool == "convert" and args.task == "ldbc-csr":
+        if not (args.input and args.out):
+            p.error("convert ldbc-csr --input DATASET_DIR --out DIR")
+        ldbc_csr(args.input, args.out)
+        return
     if not args.graph and args.tool != "duckdb":
         p.error("--graph is required")
     csr = Csr(args.graph) if args.graph else None

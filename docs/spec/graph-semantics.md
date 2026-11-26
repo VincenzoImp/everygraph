@@ -393,6 +393,14 @@ gives `[0.416, 0.292, 0.292]`); with the loop's weight 3, `[38/63, 25/126, 25/12
 (igraph, and NetworkX given the loop weight 6); directed, 3-cycle with a loop at 0,
 `[0.480056, 0.254024, 0.265920]` (both).
 
+**Eigenvector centrality** (`g.eigenvector()`, #47; `docs/api-sketch.md` § 7) uses the same
+matrix: the eigenvector of the largest eigenvalue of `Aᵀ`, with a kept loop as `A[v][v]` =
+`2w` undirected and `w` directed, unit L2 norm and no negative value. igraph counts an
+undirected loop twice as well; NetworkX matches when given the loop weight `2w`, as for
+PageRank. Probe: the triangle 0-1-2 with a loop at 0, undirected, gives
+`[0.8165, 0.4082, 0.4082]` (both libraries; the eigenvector of `[[2, 1, 1], [1, 0, 1],
+[1, 1, 0]]`).
+
 ### 5.2 Core numbers (S2)
 
 **Rule.** Core numbers ignore kept loops. The k-core is the largest induced subgraph `H`

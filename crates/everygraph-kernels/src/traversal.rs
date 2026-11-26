@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 
 use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par};
 
-use crate::edge_map::{Error, NodeList, Plan, Reduce, Source};
+use crate::edge_map::{Error, NodeList, Plan, Reduce, Source, one_segment, one_segment_mut};
 
 /// The distance and parent of a node that is not reached.
 pub const UNREACHED: u32 = u32::MAX;
@@ -63,7 +63,8 @@ pub struct Hops {
 /// # Errors
 ///
 /// From the plans' sources, or the state does not fit in the budget;
-/// [`Error::Argument`] if `source` is not a node.
+/// [`Error::Argument`] if `source` is not a node; [`Error::Invalid`] if `inn` has
+/// another number of entries than `out`, so is not the in-lists of the same graph.
 pub fn bfs<'g, S: Source>(
     out: &Plan<'_, 'g, S>,
     inn: Option<&Plan<'_, 'g, S>>,
@@ -75,6 +76,9 @@ pub fn bfs<'g, S: Source>(
     let source = out
         .node(source)
         .ok_or(Error::Argument("bfs source: not a node"))?;
+    if inn.is_some_and(|inn| inn.source().entries() != out.source().entries()) {
+        return Err(Error::Invalid("bfs: in-lists with another number of entries"));
+    }
     let words = if p.parents { 8 } else { 4 };
     let held = memory.reserve("bfs state", MemoryKind::Anonymous, u64::from(n) * words)?;
     let depth = unreached(n);
@@ -124,6 +128,8 @@ pub fn bfs<'g, S: Source>(
                     }
                 }
                 front.list_into(&mut frontier)?;
+                // As GAP's reference BFS: the next step is top-down, and the edges that
+                // bottom-up steps examined are not counted.
                 scout = 1;
             }
             _ => {
@@ -264,10 +270,10 @@ pub fn multi_bfs<S: Source>(
         let mut level = 0;
         while level < max_hops {
             level += 1;
-            let f = inn.per_node(frontier.as_slice().ok_or(SEGMENTS)?)?;
-            let out = (one_segment(&mut next)?, one_segment(&mut distance_sum)?);
+            let f = inn.per_node(one_segment(&frontier)?)?;
+            let out = (one_segment_mut(&mut next)?, one_segment_mut(&mut distance_sum)?);
             // A node left out keeps an older word in `next`; its bits reached all its
-            // out-neighbours two steps ago, so they find nothing new there.
+            // out-neighbours two or more steps ago, so they find nothing new there.
             let counts = inn.scan(
                 out,
                 |v| at[v].load(Relaxed) != full,
@@ -292,7 +298,7 @@ pub fn multi_bfs<S: Source>(
             add_level(&mut levels, ix(level), first, &counts.0[..batch.len()]);
             std::mem::swap(&mut frontier, &mut next);
         }
-        inn.vertices(one_segment(&mut reached)?, |(): &mut (), r, i, v, _| {
+        inn.vertices(one_segment_mut(&mut reached)?, |(): &mut (), r, i, v, _| {
             r[i] += at[v].load(Relaxed).count_ones();
         })?;
     }
@@ -318,8 +324,3 @@ fn add_level(levels: &mut Vec<Vec<u64>>, d: usize, first: usize, counts: &[u64])
     l[first..first + counts.len()].copy_from_slice(counts);
 }
 
-const SEGMENTS: Error = Error::Invalid("node state longer than one segment (#m3-15)");
-
-fn one_segment<T: Copy>(v: &mut SegVec<T>) -> Result<&mut [T], Error> {
-    v.as_mut_slice().ok_or(SEGMENTS)
-}

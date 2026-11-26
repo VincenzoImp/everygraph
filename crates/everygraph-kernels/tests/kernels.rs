@@ -676,6 +676,17 @@ fn refusals() {
             let e = pagerank::pagerank::<_, f64>(&graph, &s, &p, &memory).unwrap_err();
             assert!(matches!(e, Error::Argument(_)), "{e}");
         }
+        for tol in [f64::NAN, -1e-9] {
+            let p = PageRank {
+                tol,
+                ..PageRank::default()
+            };
+            let e = pagerank::pagerank::<_, f64>(&graph, &s, &p, &memory).unwrap_err();
+            assert!(matches!(e, Error::Argument(_)), "{e}");
+            let e = Eigenvector { tol, max_iter: 10 };
+            let e = eigenvector(&graph, &e, &memory).unwrap_err();
+            assert!(matches!(e, Error::Argument(_)), "{e}");
+        }
         assert!(matches!(
             pagerank::pagerank::<_, f64>(&graph, &s[..49], &PageRank::default(), &memory),
             Err(Error::Invalid(_))
@@ -694,6 +705,97 @@ fn refusals() {
             Err(Error::Invalid(_))
         ));
     });
+}
+
+/// In-lists with another number of entries than the out-lists are not the same graph's.
+#[test]
+fn bfs_refuses_in_lists_of_another_graph() {
+    let (a, b) = (G::random(50, 200, 3, true), G::random(50, 300, 4, true));
+    let memory = Memory::unlimited();
+    let (out, inn) = (a.out.csr(), b.inn.csr());
+    Plan::with_pair(&out, &inn, &memory, Settings::default(), |po, pi| {
+        let e = bfs(&po, Some(&pi), 0, &Bfs::default(), &memory).unwrap_err();
+        assert!(matches!(e, Error::Invalid(_)), "{e}");
+    })
+    .unwrap();
+}
+
+/// `PageRank` with state `F` of the directed graph `0→1 (w), 0→2 (w), 1→2 (u), 2→0 (1)`.
+fn cycle<F: Real>(w: f64, u: f64) -> Result<Vec<f64>, Error> {
+    let g = G::new(3, true, vec![(0, 1, w), (0, 2, w), (1, 2, u), (2, 0, 1.0)]);
+    let memory = Memory::unlimited();
+    let (out, inn) = (g.out.csr(), g.inn.csr());
+    Plan::with_pair(&out, &inn, &memory, Settings::default(), |po, pi| {
+        let s = strength(&po, Some(&g.out.weight), true, &memory)?;
+        let graph = Graph {
+            lists: &pi,
+            weights: Some(&g.inn.weight),
+            directed: true,
+        };
+        let p = PageRank {
+            tol: 1e-13,
+            max_iter: 1000,
+            ..PageRank::default()
+        };
+        let r = pagerank::pagerank::<_, F>(&graph, s.as_slice().unwrap(), &p, &memory)?;
+        Ok(r.values.iter().map(|x| x.to_f64()).collect())
+    })
+    .unwrap()
+}
+
+/// Weights that are finite and positive but whose strengths or contributions leave the
+/// state's range are scaled by one power of two: the ranks are those of `w = 1`, since
+/// node 0 splits its rank evenly whatever `w`. A column no power of two can fit is
+/// refused.
+#[test]
+fn extreme_weights_are_rescaled_or_refused() {
+    let want = cycle::<f64>(1.0, 1.0).unwrap();
+    for w in [1e39, 1e-40] {
+        let got = cycle::<f32>(w, 1.0).unwrap();
+        assert!(close(&got, &want, 1e-6), "f32, w = {w}: {got:?}");
+    }
+    for w in [1e-310, 1e308] {
+        let got = cycle::<f64>(w, 1.0).unwrap();
+        assert!(close(&got, &want, 1e-12), "f64, w = {w}: {got:?}");
+    }
+    for (w, u) in [(1e-300, 1.0), (5e-324, 1e308)] {
+        let refused = cycle::<f32>(w, u);
+        assert!(matches!(refused, Err(Error::Invalid(_))), "{refused:?}");
+    }
+    let refused = cycle::<f64>(5e-324, 1e308);
+    assert!(matches!(refused, Err(Error::Invalid(_))), "{refused:?}");
+}
+
+/// `tol = 0` (no change computed, the ranks kept after the last iteration only) gives
+/// the bits of a `tol` that never stops early, after the same iterations, and not those
+/// of one iteration fewer.
+#[test]
+fn fixed_iterations_keep_the_last_iterate() {
+    let g = G::random(400, 2000, 12, true);
+    let memory = Memory::unlimited();
+    let run = |tol: f64, max_iter: u32| -> Vec<u64> {
+        Plan::with_pair(&g.out.csr(), &g.inn.csr(), &memory, Settings::default(), |po, pi| {
+            let s = strength(&po, Some(&g.out.weight), true, &memory).unwrap();
+            let graph = Graph {
+                lists: &pi,
+                weights: Some(&g.inn.weight),
+                directed: true,
+            };
+            let p = PageRank {
+                tol,
+                max_iter,
+                ..PageRank::default()
+            };
+            let r = pagerank::pagerank::<_, f64>(&graph, s.as_slice().unwrap(), &p, &memory)
+                .unwrap();
+            assert_eq!(r.iterations, max_iter);
+            r.values.iter().map(|x| x.to_bits()).collect()
+        })
+        .unwrap()
+    };
+    let fixed = run(0.0, 12);
+    assert_eq!(fixed, run(1e-300, 12));
+    assert_ne!(fixed, run(0.0, 11));
 }
 
 /// A graph without edges: every node `1/n`, after one iteration as after many.

@@ -17,6 +17,12 @@
 //! of `v`, and counts `2w` on an undirected graph and `w` on a directed one. A pair of
 //! weight 0 counts nothing, and a node whose out-weights are all 0 is dangling.
 //!
+//! The result does not change when every weight is multiplied by the same factor. So
+//! when a column's smallest positive weight or its strengths would leave the state's
+//! range (an f32 weight of 1e39 or 1e-40, an f64 one of 1e-310 or 1e308), the iteration
+//! multiplies every weight by one power of two, which is exact; a column that fits keeps
+//! its bits. A column that no power of two brings into range is refused.
+//!
 //! Each iteration pulls along the [`Graph::lists`]: the in-lists of a directed graph,
 //! the lists of an undirected one. It starts from `1/n` everywhere.
 //!
@@ -39,16 +45,17 @@
 //! The ranks are the same bits for any thread count, chunk size, batch size and source
 //! (DESIGN D14). Each node's sum over its list runs in one call, with four lanes fixed in
 //! the code. The dangling mass, the change and the eigenvector's norm are exact sums
-//! ([`ExactSum`]), so they do not depend on how nodes are grouped at all (PR #131 found
-//! the lab's dangling mass following the chunk size). f32 state (`F = f32`,
-//! `precision="low"`) keeps the contributions in f32 and the global sums exact.
+//! ([`ExactSum`]), so they do not depend on how nodes are grouped at all. f32 state
+//! (`F = f32`, `precision="low"`) keeps the contributions in f32 and the global sums
+//! exact.
 //!
 //! # Eigenvector centrality
 //!
 //! [`eigenvector`] runs the same pull, reductions and stopping rule on `y = x + A^T x`,
 //! normalized to unit L2 norm after each iteration. The shift by `x` (as `NetworkX`'s
 //! `eigenvector_centrality`) keeps a bipartite graph from oscillating and does not change
-//! the eigenvector of the largest eigenvalue. On a graph where that eigenvalue is not
+//! the eigenvector of the largest eigenvalue. `A` is the matrix of `PageRank`, a kept loop
+//! included (`docs/spec/graph-semantics.md` § 5.1). On a graph where that eigenvalue is not
 //! simple (two components with the same largest eigenvalue), the result is the limit
 //! from the uniform start.
 
@@ -57,13 +64,18 @@ use std::collections::BinaryHeap;
 
 use everygraph_core::{ExactSum, Memory, MemoryKind, SegVec};
 
-use crate::edge_map::{Error, NodeSet, PerNode, Plan, Row, Source, all};
+use crate::edge_map::{
+    Error, NodeSet, PerNode, Plan, Row, Source, all, one_segment, one_segment_mut,
+};
 use crate::weights;
 
 /// The state precision of [`pagerank`]: `f64`, or `f32` for `precision="low"`.
 pub trait Real: Copy + Send + Sync + PartialEq + 'static {
     /// Zero.
     const ZERO: Self;
+    /// The binary exponents a strength or a contribution may reach, either way: well
+    /// inside the normal range of the type.
+    const EXPONENTS: i32;
     /// The nearest value to `x`.
     fn from_f64(x: f64) -> Self;
     /// The value as an `f64`, exactly.
@@ -80,9 +92,10 @@ pub trait Real: Copy + Send + Sync + PartialEq + 'static {
 }
 
 macro_rules! real {
-    ($t:ty, $from:expr) => {
+    ($t:ty, $exponents:expr, $from:expr) => {
         impl Real for $t {
             const ZERO: Self = 0.0;
+            const EXPONENTS: i32 = $exponents;
             #[inline(always)]
             fn from_f64(x: f64) -> Self {
                 $from(x)
@@ -107,7 +120,7 @@ macro_rules! real {
     };
 }
 
-real!(f64, |x| x);
+real!(f64, 1000, |x| x);
 #[expect(
     clippy::cast_possible_truncation,
     reason = "rounding to f32 is the point"
@@ -115,7 +128,7 @@ real!(f64, |x| x);
 fn round_f32(x: f64) -> f32 {
     x as f32
 }
-real!(f32, round_f32);
+real!(f32, 120, round_f32);
 
 /// A count as an `f64` (exact below 2^53).
 #[expect(clippy::cast_precision_loss, reason = "counts below 2^53 are exact")]
@@ -193,11 +206,13 @@ pub struct Ranks<F: Copy> {
 
 /// The out-strength `s(u) = Σ_v A[u][v]` of every node, from its out-lists (the lists
 /// of an undirected graph) and their weights: § 5.1's `s`, and the dangling test of
-/// [`pagerank`].
+/// [`pagerank`]. The weights are scaled for f64 state (module documentation);
+/// [`pagerank`] rescales the strengths for its own state.
 ///
 /// # Errors
 ///
 /// From the plan's source; [`Error::Weight`] for a negative, NaN or infinite weight;
+/// [`Error::Invalid`] for weights that no power of two brings into range;
 /// [`Error::Memory`] if the strengths do not fit in the budget.
 pub fn strength<S: Source>(
     out: &Plan<'_, '_, S>,
@@ -205,11 +220,12 @@ pub fn strength<S: Source>(
     directed: bool,
     memory: &Memory,
 ) -> Result<SegVec<f64>, Error> {
-    if let Some(w) = weights {
-        weights::check(w, out.source().entries())?;
-    }
+    let scale = match weights {
+        Some(w) => column_scale(w, out.source().entries(), f64::EXPONENTS)?,
+        None => 1.0,
+    };
     let mut s = SegVec::try_with_len(memory, "out-strength", ix(out.nodes()), 0.0)?;
-    out.scan(one_segment(&mut s)?, all, |(): &mut (), s, i, row, _| {
+    out.scan(one_segment_mut(&mut s)?, all, |(): &mut (), s, i, row, _| {
         let v = row.node;
         s[i] = match weights {
             Some(w) => row
@@ -217,6 +233,7 @@ pub fn strength<S: Source>(
                 .iter()
                 .zip(&w[row.entries()])
                 .fold(0.0, |sum, (&u, &w)| {
+                    let w = w * scale;
                     sum + if !directed && u == v { 2.0 * w } else { w }
                 }),
             None => row.list.iter().fold(0.0, |sum, &u| {
@@ -233,9 +250,10 @@ pub fn strength<S: Source>(
 /// # Errors
 ///
 /// From the plan's source; [`Error::Weight`] for a bad weight; [`Error::Argument`] for
-/// a damping outside `[0, 1]`, an empty seed set or a seed that is not a node;
-/// [`Error::Invalid`] if `strength` has fewer values than the nodes; [`Error::Memory`]
-/// if the state does not fit in the budget.
+/// a damping outside `[0, 1]`, a `tol` that is negative or NaN, an empty seed set or a
+/// seed that is not a node; [`Error::Invalid`] if `strength` has fewer values than the
+/// nodes, or for weights that no power of two brings into range; [`Error::Memory`] if
+/// the state does not fit in the budget.
 pub fn pagerank<S: Source, F: Real>(
     g: &Graph<'_, '_, '_, S>,
     strength: &[f64],
@@ -247,9 +265,18 @@ pub fn pagerank<S: Source, F: Real>(
     if !(0.0..=1.0).contains(&p.damping) {
         return Err(Error::Argument("damping: not between 0 and 1"));
     }
-    if let Some(w) = g.weights {
-        weights::check(w, plan.source().entries())?;
-    }
+    check_tol(p.tol)?;
+    // `strength` holds the weights scaled for f64; this state may need another power.
+    let (scale, adjust) = match g.weights {
+        Some(w) => {
+            let range = weights::check(w, plan.source().entries())?;
+            let entries = plan.source().entries();
+            let scale = weights::scale(range, entries, F::EXPONENTS)?;
+            (scale, scale / weights::scale(range, entries, f64::EXPONENTS)?)
+        }
+        None => (1.0, 1.0),
+    };
+    let column = g.weights.map(|w| (w, scale));
     let s = plan.per_node(strength)?;
     let seeds = match p.personalize {
         Some(ids) => Some(seed_set(plan, ids, memory)?),
@@ -260,11 +287,11 @@ pub fn pagerank<S: Source, F: Real>(
     let mut contrib = SegVec::try_with_len(memory, "pagerank contributions", n, F::ZERO)?;
     let mut next = SegVec::try_with_len(memory, "pagerank next", n, F::ZERO)?;
     let mut rank = SegVec::try_with_len(memory, "pagerank", n, F::from_f64(inv_n))?;
-    let sinks: u64 = plan.vertices(one_segment(&mut contrib)?, |sinks, c, i, v, _| {
+    let sinks: u64 = plan.vertices(one_segment_mut(&mut contrib)?, |sinks, c, i, v, _| {
         if s[v] == 0.0 {
             *sinks += 1;
         } else {
-            c[i] = F::from_f64(inv_n / s[v]);
+            c[i] = F::from_f64(inv_n / (s[v] * adjust));
         }
     })?;
     let mut dangling = float(sinks) * inv_n;
@@ -280,8 +307,8 @@ pub fn pagerank<S: Source, F: Real>(
             Some((_, count)) => coef / float(*count),
             None => coef * inv_n,
         });
-        let c = plan.per_node(contrib.as_slice().ok_or(SEGMENTS)?)?;
-        let out = (one_segment(&mut next)?, one_segment(&mut rank)?);
+        let c = plan.per_node(one_segment(&contrib)?)?;
+        let out = (one_segment_mut(&mut next)?, one_segment_mut(&mut rank)?);
         let sums: (ExactSum, ExactSum) = plan.scan(
             out,
             all,
@@ -291,7 +318,7 @@ pub fn pagerank<S: Source, F: Real>(
                     Some((set, _)) if !set.contains(v) => F::ZERO,
                     _ => base,
                 };
-                let r = teleport.plus(damping.times(pull(c, &row, g.weights, looped.as_ref())));
+                let r = teleport.plus(damping.times(pull(c, &row, column, looped.as_ref())));
                 if track {
                     ExactSum::add(&mut acc.1, (r.to_f64() - rank[i].to_f64()).abs());
                 }
@@ -302,7 +329,7 @@ pub fn pagerank<S: Source, F: Real>(
                     ExactSum::add(&mut acc.0, r.to_f64());
                     next[i] = F::ZERO;
                 } else {
-                    next[i] = r.over(F::from_f64(s[v]));
+                    next[i] = r.over(F::from_f64(s[v] * adjust));
                 }
             },
         )?;
@@ -326,8 +353,9 @@ pub fn pagerank<S: Source, F: Real>(
 ///
 /// # Errors
 ///
-/// From the plan's source; [`Error::Weight`] for a bad weight; [`Error::Memory`] if the
-/// state does not fit in the budget.
+/// From the plan's source; [`Error::Weight`] for a bad weight; [`Error::Argument`] for a
+/// `tol` that is negative or NaN; [`Error::Invalid`] for weights that no power of two
+/// brings into range; [`Error::Memory`] if the state does not fit in the budget.
 pub fn eigenvector<S: Source>(
     g: &Graph<'_, '_, '_, S>,
     p: &Eigenvector,
@@ -335,29 +363,31 @@ pub fn eigenvector<S: Source>(
 ) -> Result<Ranks<f64>, Error> {
     let plan = g.lists;
     let n = ix(plan.nodes());
-    if let Some(w) = g.weights {
-        weights::check(w, plan.source().entries())?;
-    }
+    check_tol(p.tol)?;
+    let column = match g.weights {
+        Some(w) => Some((w, column_scale(w, plan.source().entries(), f64::EXPONENTS)?)),
+        None => None,
+    };
     let looped = loops(g, memory)?;
     let start = 1.0 / float(n as u64);
     let mut x = SegVec::try_with_len(memory, "eigenvector", n, start)?;
     let mut y = SegVec::try_with_len(memory, "eigenvector next", n, 0.0)?;
     let (mut iterations, mut change) = (0, f64::INFINITY);
     while iterations < p.max_iter && change >= p.tol {
-        let xs = plan.per_node(x.as_slice().ok_or(SEGMENTS)?)?;
+        let xs = plan.per_node(one_segment(&x)?)?;
         let squares: ExactSum = plan.scan(
-            one_segment(&mut y)?,
+            one_segment_mut(&mut y)?,
             all,
             |sq: &mut ExactSum, y, i, row, _| {
                 let v = row.node;
-                y[i] = xs[v] + pull(xs, &row, g.weights, looped.as_ref());
+                y[i] = xs[v] + pull(xs, &row, column, looped.as_ref());
                 sq.add(y[i] * y[i]);
             },
         )?;
         let norm = squares.value().sqrt();
-        let ys = plan.per_node(y.as_slice().ok_or(SEGMENTS)?)?;
+        let ys = plan.per_node(one_segment(&y)?)?;
         let moved: ExactSum =
-            plan.vertices(one_segment(&mut x)?, |d: &mut ExactSum, x, i, v, _| {
+            plan.vertices(one_segment_mut(&mut x)?, |d: &mut ExactSum, x, i, v, _| {
                 let new = ys[v] / norm;
                 ExactSum::add(d, (new - x[i]).abs());
                 x[i] = new;
@@ -422,10 +452,18 @@ impl Ord for Key {
     }
 }
 
-const SEGMENTS: Error = Error::Invalid("node state longer than one segment (#m3-15)");
 
-fn one_segment<T: Copy>(v: &mut SegVec<T>) -> Result<&mut [T], Error> {
-    v.as_mut_slice().ok_or(SEGMENTS)
+/// The power of two a column's weights are scaled by in a state reaching `exponents`.
+fn column_scale(column: &[f64], entries: u64, exponents: i32) -> Result<f64, Error> {
+    weights::scale(weights::check(column, entries)?, entries, exponents)
+}
+
+fn check_tol(tol: f64) -> Result<(), Error> {
+    if tol >= 0.0 {
+        Ok(())
+    } else {
+        Err(Error::Argument("tol: negative or NaN"))
+    }
 }
 
 fn ix(n: u32) -> usize {
@@ -471,13 +509,13 @@ fn loops<'g, S: Source>(
     Ok((found > 0).then_some(set))
 }
 
-/// `Σ_u x(u)·A[u][v]` over the list of `v` in `row`: four lanes, then the second count
-/// of a kept loop on an undirected graph.
+/// `Σ_u x(u)·A[u][v]` over the list of `v` in `row`, the weights multiplied by their
+/// scale: four lanes, then the second count of a kept loop on an undirected graph.
 #[inline(always)]
 fn pull<'g, F: Real>(
     x: PerNode<'_, 'g, F>,
     row: &Row<'_, 'g>,
-    weights: Option<&[f64]>,
+    weights: Option<(&[f64], f64)>,
     looped: Option<&NodeSet<'g>>,
 ) -> F {
     let list = row.list;
@@ -495,9 +533,9 @@ fn pull<'g, F: Real>(
                 s0 = s0.plus(x[u]);
             }
         }
-        Some(w) => {
+        Some((w, scale)) => {
             let w = &w[row.entries()];
-            let term = |e: usize| x[list[e]].times(F::from_f64(w[e]));
+            let term = |e: usize| x[list[e]].times(F::from_f64(w[e] * scale));
             let quads = list.len() / 4 * 4;
             for e in (0..quads).step_by(4) {
                 s0 = s0.plus(term(e));
@@ -519,15 +557,19 @@ fn pull<'g, F: Real>(
 
 /// `x(v)·w` for the loop entries of `v`, the second half of its `2w`.
 #[cold]
-fn loop_pull<'g, F: Real>(x: PerNode<'_, 'g, F>, row: &Row<'_, 'g>, weights: Option<&[f64]>) -> F {
+fn loop_pull<'g, F: Real>(
+    x: PerNode<'_, 'g, F>,
+    row: &Row<'_, 'g>,
+    weights: Option<(&[f64], f64)>,
+) -> F {
     let v = row.node;
     let w = match weights {
-        Some(w) => row
+        Some((w, scale)) => row
             .list
             .iter()
             .zip(&w[row.entries()])
             .filter(|&(&u, _)| u == v)
-            .fold(0.0, |s, (_, &w)| s + w),
+            .fold(0.0, |s, (_, &w)| s + w * scale),
         None => float(row.list.iter().filter(|&&u| u == v).count() as u64),
     };
     x[v].times(F::from_f64(w))

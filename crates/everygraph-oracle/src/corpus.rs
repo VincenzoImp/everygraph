@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::generators;
 use crate::graph::{Duplicates, Graph, SelfLoops, Semantics};
 use crate::kernel::Kernel;
-use crate::projection::Projection;
+use crate::projection::{Adjacency, Projection};
 use crate::rng::SplitMix64;
 use generators::{Decorations, Family, GraphSpec, Weights};
 
@@ -361,14 +361,39 @@ fn semantic_cases() -> Vec<(Family, Decorations, Semantics)> {
 /// Whether the eigenvector of the largest eigenvalue is unique and has a Python witness:
 /// at least 3 nodes (NetworkX's sparse solver needs them), an edge, and one component
 /// (one strong component, if directed). Then the matrix is irreducible, and Perron and
-/// Frobenius give a simple largest eigenvalue.
-fn has_unique_eigenvector(p: &Projection) -> bool {
-    let labels = if p.directed {
-        crate::reference::scc(&p.out)
+/// Frobenius give a simple largest eigenvalue. With `weighted`, a pair of weight 0 does
+/// not connect: it is not in the matrix.
+fn has_unique_eigenvector(p: &Projection, weighted: bool) -> bool {
+    let adj = if p.directed { &p.out } else { &p.undirected };
+    let kept = if weighted {
+        positive(adj)
     } else {
-        crate::reference::wcc(&p.undirected)
+        adj.clone()
     };
-    p.n >= 3 && p.out.entries() > 0 && labels.iter().all(|&l| l == 0)
+    let labels = if p.directed {
+        crate::reference::scc(&kept)
+    } else {
+        crate::reference::wcc(&kept)
+    };
+    p.n >= 3 && kept.entries() > 0 && labels.iter().all(|&l| l == 0)
+}
+
+/// `adj` without its entries of summed weight 0.
+fn positive(adj: &Adjacency) -> Adjacency {
+    let mut out = Adjacency {
+        offsets: vec![0],
+        ..Adjacency::default()
+    };
+    for v in 0..adj.n() {
+        for e in adj.range(v).filter(|&e| adj.weight_sum[e] > 0.0) {
+            out.targets.push(adj.targets[e]);
+            out.multiplicity.push(adj.multiplicity[e]);
+            out.weight_sum.push(adj.weight_sum[e]);
+            out.weight_min.push(adj.weight_min[e]);
+        }
+        out.offsets.push(out.targets.len() as u64);
+    }
+    out
 }
 
 /// The kernels the oracle checks on `g`: every kernel, whatever the semantics
@@ -435,11 +460,11 @@ pub fn kernels_for(g: &Graph, p: &Projection) -> Vec<Kernel> {
             personalize: Vec::new(),
         });
     }
-    if has_unique_eigenvector(p) {
+    if has_unique_eigenvector(p, false) {
         k.push(Kernel::Eigenvector { weighted: false });
-        if weighted {
-            k.push(Kernel::Eigenvector { weighted: true });
-        }
+    }
+    if weighted && has_unique_eigenvector(p, true) {
+        k.push(Kernel::Eigenvector { weighted: true });
     }
     if g.weight.is_some() && g.n > 0 {
         k.push(Kernel::Sssp { source: 0 });

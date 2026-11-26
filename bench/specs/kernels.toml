@@ -22,6 +22,10 @@
 #   1 to 255; `skewed`: powers of two 2^0 to 2^19), with the bucket width of the data
 #   rule (`sssp::delta`) times 1/16, 1/4, 1, 4 and 16: the Δ sweep. Distances are unique,
 #   so the hash of one graph and cost set is the same in every row.
+# - `sssp-natural`: the same sweep on natural weights: LDBC Graphalytics dota-league
+#   (61,170 players, 50.9 M weighted edges; `bench/runners/run.py convert ldbc-csr`).
+#   No road graph with travel times is in the registry yet, so the issue's road case is
+#   covered by roadnet-ca with synthetic costs only.
 # - `eigenvector`: 20 iterations, orkut, for the record.
 # - `friendster-ooc` and `friendster-read`: BFS on Friendster with the compressed data
 #   part memory-mapped under a 2 GiB limit, below its size, against one direct
@@ -67,7 +71,7 @@ py = "{runners}/.venv/bin/python"
 name = "build-bench"
 cwd = "{repo}"
 command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-kernels", "--example", "edge_map_bench"]
-needed_by = ["pagerank", "traversal", "sssp", "eigenvector", "friendster-ooc"]
+needed_by = ["pagerank", "traversal", "sssp", "sssp-natural", "eigenvector", "friendster-ooc"]
 
 [[prepare]]
 name = "build-lab"
@@ -88,6 +92,15 @@ for g in orkut roadnet-ca; do
 done
 """
 needed_by = ["pagerank", "traversal", "sssp", "eigenvector"]
+
+[[prepare]]
+name = "dota-league"
+shell = """
+set -e
+uv sync --frozen --quiet --project {runners}
+[ -s {work}/csr/dota-league/costs.f64 ] || {py} {runners}/run.py convert ldbc-csr --input {data}/ldbc-graphalytics/graphs/dota-league --out {work}/csr/dota-league
+"""
+needed_by = ["sssp-natural"]
 
 [[prepare]]
 name = "store-friendster"
@@ -188,6 +201,20 @@ dataset_path = "csr/{graph}"
 matrix = { graph = ["orkut", "roadnet-ca"], costs = ["uniform", "skewed"], scale = ["0.0625", "0.25", "1", "4", "16"] }
 command = ["{bench}", "run", "--graph", "{dataset}", "--source", "raw", "--kernel", "sssp", "--costs", "{costs}", "--delta-scale", "{scale}", "--threads", "{threads}", "--reps", "5"]
 conditions = { graph = "{graph}", code = "everygraph-kernels sssp (#49)", costs = "{costs}", delta = "data rule × {scale}", storage = "raw, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
+record_json = { hash = "/hash", delta = "/result/delta" }
+metric = [
+  { name = "seconds", json = "/seconds_best", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "sssp-natural"
+group = "sssp"
+description = "SSSP on the natural weights of LDBC dota-league: the Δ sweep"
+threads = [1, 16]
+matrix = { scale = ["0.0625", "0.25", "1", "4", "16"] }
+command = ["{bench}", "run", "--graph", "{work}/csr/dota-league", "--source", "raw", "--kernel", "sssp", "--costs", "file", "--delta-scale", "{scale}", "--threads", "{threads}", "--reps", "5"]
+conditions = { graph = "dota-league", code = "everygraph-kernels sssp (#49)", costs = "the data set's weights", delta = "data rule × {scale}", storage = "raw, in the heap", level = "in-process kernel time, best of 5", build = "release, fat LTO, no target-cpu=native" }
 record_json = { hash = "/hash", delta = "/result/delta" }
 metric = [
   { name = "seconds", json = "/seconds_best", unit = "s" },

@@ -277,7 +277,10 @@ impl<'g> Step<'_, 'g> {
                 if f64::from_bits(new) < self.theta && queue.len() < self.room {
                     queue.push_back(v);
                 } else if f64::from_bits(new) < self.split {
+                    // A racing worker may put `v` back in `far` with a larger distance:
+                    // a stale entry, relaxed once more later, never a lost one.
                     self.near.insert(v);
+                    self.far.remove(v);
                 } else {
                     self.far.insert(v);
                 }
