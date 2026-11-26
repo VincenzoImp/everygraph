@@ -103,6 +103,10 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 - The documentation says plainly that out of core costs about one read of the graph per
   pass: small for PageRank, 10× for components on Friendster.
 
+- Regime 2 for random access whose working set exceeds the budget: amendment proposed in
+  [ADR 0029](0029-random-access-under-a-budget.md) (an explicit budgeted cache over
+  `ByteSource`; per-phase `MADV_RANDOM` until it exists), from #172.
+
 ## What would change our mind
 
 - #16 cannot run Leiden on Friendster under 16 GiB with Q ≥ 0.60, no disconnected
