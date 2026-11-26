@@ -235,8 +235,6 @@ fn level<S: Source>(
     let moved = local_move(g, &st, &schedule, &tables, ctx, tol)?;
     (stats.sweeps, stats.moves) = (moved.sweeps, moved.moves);
 
-
-
     (stats.parallel_rounds, stats.serial_rounds) = (moved.parallel_rounds, moved.serial_rounds);
     if ctx.options.split == SplitAt::EveryLevel {
         let before = count(plan, memory, &st.comm)?;
