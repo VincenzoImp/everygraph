@@ -2,8 +2,9 @@
 
 //! The kernels of the crate through the correctness oracle: `PageRank` (weighted,
 //! directed, personalized, with kept loops) and eigenvector centrality (#47), BFS with
-//! its parents and SSSP (#49), and the framework's proof WCC (#44). Each runs on the CI
-//! corpus under every configuration that must not change a result — 1, 3 and 8 threads,
+//! its parents and SSSP (#49), weak components (#48), core numbers and degrees (#50).
+//! Each runs on the CI corpus under every configuration that must not change a result —
+//! 1, 3 and 8 threads,
 //! chunks of 64 and 65,536 entries, and four sources: raw arrays, the compressed format
 //! in the heap, the compressed format memory-mapped from a file, and raw targets
 //! streamed from a file. Results must be identical bit for bit across all 24, and match
@@ -37,9 +38,11 @@ use std::sync::{Arc, Mutex};
 use everygraph_core::{Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
+use everygraph_kernels::components::{WccOptions, wcc};
+use everygraph_kernels::degrees::{Loop, degrees};
 use everygraph_kernels::edge_map::{Compressed, Csr, Plan, Settings, Source, Stream};
+use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{self, Eigenvector, Graph, PageRank};
-use everygraph_kernels::proof::wcc;
 use everygraph_kernels::sssp::{Sssp, sssp};
 use everygraph_kernels::traversal::{Bfs, UNREACHED, bfs};
 use everygraph_oracle::corpus::{Tier, entries};
@@ -248,9 +251,29 @@ fn run_kernel<S: Source>(
                 let r = pagerank::eigenvector(&g, &EIGENVECTOR, &memory).map_err(e)?;
                 Ok(reals(r.values.as_slice().unwrap()))
             }
-            Kernel::Wcc => wcc(&po, &memory)
+            Kernel::Wcc => {
+                // A directed graph's out-lists: not symmetric, so the finish reads them all.
+                let options = WccOptions {
+                    symmetric: !directed,
+                    ..WccOptions::default()
+                };
+                wcc(&po, &memory, options)
+                    .map_err(e)
+                    .map(|(l, _)| Output::Labels(load(l)))
+            }
+            Kernel::CoreNumber => kcore(&po, &memory)
                 .map_err(e)
-                .map(|(l, _)| Output::Labels(load(l))),
+                .map(|(c, _)| Output::Ints(load(c).into_iter().map(|c| Some(c.into())).collect())),
+            Kernel::Degree | Kernel::DegreeOut | Kernel::DegreeIn => {
+                let own = if *kernel == Kernel::Degree {
+                    Loop::Twice
+                } else {
+                    Loop::Once
+                };
+                degrees(&po, &memory, own)
+                    .map_err(e)
+                    .map(|d| Output::Ints(d.iter().map(|&d| Some(d.into())).collect()))
+            }
             Kernel::Bfs { source } => {
                 let params = Bfs {
                     parents: true,
@@ -285,6 +308,10 @@ impl KernelUnderTest for Kernels {
             Kernel::PageRank { .. }
                 | Kernel::Eigenvector { .. }
                 | Kernel::Wcc
+                | Kernel::CoreNumber
+                | Kernel::Degree
+                | Kernel::DegreeOut
+                | Kernel::DegreeIn
                 | Kernel::Bfs { .. }
                 | Kernel::Sssp { .. }
         )
@@ -312,7 +339,9 @@ impl KernelUnderTest for Kernels {
         let p = case.projection;
         let name = &case.graph.name;
         let (a, b) = match k {
-            Kernel::Wcc => (Which::Undirected, Which::Undirected),
+            Kernel::CoreNumber | Kernel::Degree => (Which::Undirected, Which::Undirected),
+            Kernel::Wcc if !p.directed => (Which::Undirected, Which::Undirected),
+            Kernel::DegreeIn => (Which::In, Which::In),
             _ if !p.directed => (Which::Out, Which::Out),
             _ => (Which::Out, Which::In),
         };

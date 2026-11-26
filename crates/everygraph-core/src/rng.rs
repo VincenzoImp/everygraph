@@ -84,8 +84,24 @@ impl Purpose {
     /// Tests and golden vectors of the core. Counter: `[index, stream, 0, 0]`.
     pub const TEST: Self = Self(*b"TEST");
 
+    /// Components: the sampled neighbour of a node. Counter: `[node, 0, 0, 0]`.
+    pub const COMPONENTS_NEIGHBOUR: Self = Self(*b"wcck");
+
+    /// Components: the nodes whose labels find the giant component. Counter:
+    /// `[sample index, 0, 0, 0]`.
+    pub const COMPONENTS_GIANT: Self = Self(*b"wccg");
+
+    /// Core numbers: whether peeling a node takes a sample of its neighbour in sample
+    /// mode. Counter: `[neighbour, peeled node, 0, 0]`.
+    pub const CORE_SAMPLE: Self = Self(*b"kcor");
+
     /// Every purpose, so that the test below can check that they are distinct.
-    pub const ALL: [Self; 1] = [Self::TEST];
+    pub const ALL: [Self; 4] = [
+        Self::TEST,
+        Self::COMPONENTS_NEIGHBOUR,
+        Self::COMPONENTS_GIANT,
+        Self::CORE_SAMPLE,
+    ];
 }
 
 /// 64 random bits for (`seed`, `purpose`, `counter`). See the key schema above.
