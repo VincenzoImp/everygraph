@@ -176,7 +176,8 @@ pub(crate) fn bfs(
         let held = memory.reserve(
             "bfs result",
             MemoryKind::Anonymous,
-            distance.len() as u64 * 8,
+            // Distances and parents, and the bitmap of the unreached.
+            distance.len() as u64 * 8 + distance.len() as u64 / 8 + 1,
         )?;
         let distance: Vec<u32> = distance.into_iter().map(AtomicU32::into_inner).collect();
         let parent: Vec<u32> = parent
@@ -188,7 +189,7 @@ pub(crate) fn bfs(
             })
             .collect();
         Ok(Output {
-            columns: vec![("distance", table::own_u32(distance, UNREACHED, held))],
+            columns: vec![("distance", table::own_u32(distance, Some(UNREACHED), held))],
             ids: vec![("parent", parent)],
             extra: vec![("hops", Extra::Count(deepest))],
         })
@@ -228,7 +229,7 @@ pub(crate) fn kcore(call: &Call<'_>, g: &Shared) -> Result<Output, Failure> {
         let core: Vec<u32> = core.into_iter().map(AtomicU32::into_inner).collect();
         let largest = core.iter().copied().max().unwrap_or(0);
         Ok(Output {
-            columns: vec![("core", table::own_u32(core, u32::MAX, held))],
+            columns: vec![("core", table::own_u32(core, None, held))],
             ids: Vec::new(),
             extra: vec![("largest_core", Extra::Count(u64::from(largest)))],
         })

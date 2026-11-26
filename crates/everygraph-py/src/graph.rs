@@ -10,9 +10,11 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use arrow_array::builder::{BinaryBuilder, FixedSizeBinaryBuilder, StringBuilder};
-use arrow_array::{ArrayRef, Int8Array, Int16Array, Int32Array, Int64Array};
-use arrow_array::{UInt8Array, UInt16Array, UInt32Array, UInt64Array};
+use arrow_array::ArrayRef;
+use arrow_array::builder::{
+    BinaryBuilder, FixedSizeBinaryBuilder, Int8Builder, Int16Builder, Int32Builder, Int64Builder,
+    StringBuilder, UInt8Builder, UInt16Builder, UInt32Builder, UInt64Builder,
+};
 use arrow_schema::DataType;
 use everygraph_core::ByteSource;
 use everygraph_core::{Budget, Memory, MemorySource, NodeId};
@@ -75,6 +77,11 @@ impl Shared {
         &self.file
     }
 
+    /// The budget the graph was opened with, for what its tables derive (`sizes`).
+    pub(crate) fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
     /// Nodes, as a row count.
     pub(crate) fn nodes(&self) -> usize {
         self.file.nodes() as usize
@@ -98,83 +105,67 @@ impl Shared {
     }
 
     /// The identifiers of `ids` (dense ids; [`NULL`] is null), as an array of
-    /// [`id_type`](Self::id_type).
+    /// [`id_type`](Self::id_type), each appended as it is read back.
     pub(crate) fn keys(&self, ids: impl ExactSizeIterator<Item = u32>) -> Result<ArrayRef, String> {
         let dictionary = self
             .file
             .dictionary(&self.memory)
             .map_err(|e| e.to_string())?;
-        let keys = ids.map(|id| match id {
+        let mut keys = ids.map(|id| match id {
             NULL => Ok(None),
             id => dictionary
                 .key(NodeId::new(id))
                 .map(Some)
                 .map_err(|e| e.to_string()),
         });
-        let keys: Vec<Option<OwnedKey>> = keys.collect::<Result<_, _>>()?;
-        let int = |k: &OwnedKey| match *k {
-            OwnedKey::Int(v) => Some(v),
-            _ => None,
-        };
-        let uint = |k: &OwnedKey| match *k {
-            OwnedKey::UInt(v) => Some(v),
-            _ => None,
-        };
-        let narrow = "an identifier wider than its column";
+        let narrow = || "an identifier wider than its column".to_owned();
         macro_rules! ints {
-            ($array:ty, $get:expr) => {
-                Arc::new(
-                    keys.iter()
-                        .map(|k| k.as_ref().and_then($get).map(TryInto::try_into).transpose())
-                        .collect::<Result<$array, _>>()
-                        .map_err(|_| narrow.to_owned())?,
-                ) as ArrayRef
-            };
-        }
-        Ok(match self.id_type() {
-            DataType::Int8 => ints!(Int8Array, int),
-            DataType::Int16 => ints!(Int16Array, int),
-            DataType::Int32 => ints!(Int32Array, int),
-            DataType::Int64 => Arc::new(
-                keys.iter()
-                    .map(|k| k.as_ref().and_then(int))
-                    .collect::<Int64Array>(),
-            ),
-            DataType::UInt8 => ints!(UInt8Array, uint),
-            DataType::UInt16 => ints!(UInt16Array, uint),
-            DataType::UInt32 => ints!(UInt32Array, uint),
-            DataType::UInt64 => Arc::new(
-                keys.iter()
-                    .map(|k| k.as_ref().and_then(uint))
-                    .collect::<UInt64Array>(),
-            ),
-            DataType::Binary | DataType::FixedSizeBinary(_) => {
-                let bytes = keys.iter().map(|k| match k {
-                    Some(OwnedKey::Bytes(b)) => Some(b.as_slice()),
-                    _ => None,
-                });
-                match self.ids {
-                    ColumnType::FixedBinary { width } => {
-                        let mut b = FixedSizeBinaryBuilder::new(i32::from(width));
-                        for v in bytes {
-                            match v {
-                                Some(v) => b.append_value(v).map_err(|e| e.to_string())?,
-                                None => b.append_null(),
-                            }
+            ($builder:ty, $variant:ident) => {{
+                let mut b = <$builder>::new();
+                for key in &mut keys {
+                    match key? {
+                        Some(OwnedKey::$variant(v)) => {
+                            b.append_value(v.try_into().map_err(|_| narrow())?);
                         }
-                        Arc::new(b.finish())
-                    }
-                    _ => {
-                        let mut b = BinaryBuilder::new();
-                        bytes.for_each(|v| b.append_option(v));
-                        Arc::new(b.finish())
+                        _ => b.append_null(),
                     }
                 }
+                Arc::new(b.finish()) as ArrayRef
+            }};
+        }
+        Ok(match self.id_type() {
+            DataType::Int8 => ints!(Int8Builder, Int),
+            DataType::Int16 => ints!(Int16Builder, Int),
+            DataType::Int32 => ints!(Int32Builder, Int),
+            DataType::Int64 => ints!(Int64Builder, Int),
+            DataType::UInt8 => ints!(UInt8Builder, UInt),
+            DataType::UInt16 => ints!(UInt16Builder, UInt),
+            DataType::UInt32 => ints!(UInt32Builder, UInt),
+            DataType::UInt64 => ints!(UInt64Builder, UInt),
+            DataType::FixedSizeBinary(width) => {
+                let mut b = FixedSizeBinaryBuilder::new(width);
+                for key in &mut keys {
+                    match key? {
+                        Some(OwnedKey::Bytes(v)) => b.append_value(v).map_err(|e| e.to_string())?,
+                        _ => b.append_null(),
+                    }
+                }
+                Arc::new(b.finish())
+            }
+            DataType::Binary => {
+                let mut b = BinaryBuilder::new();
+                for key in &mut keys {
+                    match key? {
+                        Some(OwnedKey::Bytes(v)) => b.append_value(v),
+                        _ => b.append_null(),
+                    }
+                }
+                Arc::new(b.finish())
             }
             _ => {
                 let mut b = StringBuilder::new();
-                for k in &keys {
-                    match k {
+                for key in &mut keys {
+                    match key? {
                         Some(OwnedKey::Text(t)) => b.append_value(t),
                         Some(other) => b.append_value(other.to_string()),
                         None => b.append_null(),
@@ -193,10 +184,19 @@ impl Shared {
             .map_err(|e| error::dictionary(e, self.budget.limit()).into_err(keys[0].py()))?;
         keys.iter()
             .map(|key| {
-                let found = if let Ok(v) = key.extract::<u64>() {
-                    dictionary.lookup(Key::UInt(v))
+                let int = if let Ok(v) = key.extract::<u64>() {
+                    Some(dictionary.lookup(Key::UInt(v)))
                 } else if let Ok(v) = key.extract::<i64>() {
-                    dictionary.lookup(Key::Int(v))
+                    Some(dictionary.lookup(Key::Int(v)))
+                } else {
+                    None
+                };
+                // An integer that a text column holds as its decimal text (`-1`).
+                let found = if let Some(found) = int {
+                    match found {
+                        Ok(None) => dictionary.lookup(Key::Bytes(key.str()?.to_str()?.as_bytes())),
+                        other => other,
+                    }
                 } else if let Ok(v) = key.extract::<&str>() {
                     dictionary.lookup(Key::Bytes(v.as_bytes()))
                 } else {
@@ -255,7 +255,7 @@ impl Graph {
         f: impl FnOnce(&Call<'_>, &Shared) -> Result<Output, Failure> + Send,
     ) -> PyResult<(Table, Bound<'py, PyDict>)> {
         let budget = budget(memory);
-        let out = run(py, threads, on_event, |events| {
+        let out = run(py, threads, &budget, on_event, |events| {
             let memory = Memory::from(Arc::clone(&budget));
             let call = Call {
                 operation,
@@ -414,11 +414,11 @@ impl Graph {
     }
 
     /// Degrees (`everygraph.Graph.degrees`), of every node or of the dense ids `nodes`,
-    /// in that order.
+    /// in that order; `None` among them gives a row of nulls.
     fn degrees<'py>(
         &self,
         py: Python<'py>,
-        nodes: Option<Vec<u32>>,
+        nodes: Option<Vec<Option<u32>>>,
         memory: u64,
         threads: NonZeroUsize,
         on_event: Bound<'py, PyAny>,
@@ -426,7 +426,10 @@ impl Graph {
         let (table, info) =
             self.call(py, "degrees", memory, threads, &on_event, kernels::degrees)?;
         match nodes {
-            Some(ids) => Ok((table.rows_of(&ids)?, info)),
+            Some(ids) => {
+                let rows: Vec<u32> = ids.into_iter().map(|id| id.unwrap_or(NULL)).collect();
+                Ok((table.take(&rows)?, info))
+            }
             None => Ok((table, info)),
         }
     }

@@ -69,13 +69,13 @@ def test_story_8_an_operation_that_does_not_fit(friends):
     assert "Ways forward:" in text and text.endswith("Nothing was changed.")
     # Each refusal names the budget that holds its step; following the ways forward
     # reaches one that holds the whole call (the planner, #45, will name it at once).
-    budgets = [refused.value.smallest_budget_bytes]
+    budgets = [refused.value.ways_forward[0].needs_bytes]
     while True:
         try:
             pr = g.pagerank(memory=budgets[-1], progress=False)
             break
         except eg.InsufficientBudget as again:
-            budgets.append(again.smallest_budget_bytes)
+            budgets.append(again.ways_forward[0].needs_bytes)
             assert budgets[-1] > budgets[-2] and len(budgets) < 20
     assert pr.num_rows == g.num_nodes
 

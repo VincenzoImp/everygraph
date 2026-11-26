@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import pathlib
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Literal
 
 from . import _errors, _native, _text
@@ -79,13 +80,6 @@ def _choice(name: str, value: str, options: tuple[str, ...]) -> str:
     return value
 
 
-def _job(*parts: object) -> str:
-    """16 hexadecimal digits that name a job (`docs/ux-contract.md` G-19)."""
-    import hashlib
-
-    return hashlib.blake2b("\0".join(map(str, parts)).encode(), digest_size=8).hexdigest()
-
-
 def read(
     data: str | os.PathLike[str],
     *,
@@ -148,23 +142,24 @@ def read(
         "ids": ids,
     }
     machine = _machine()
+    call = _caller("read", repr(str(data)))
     try:
         seen = _native.inspect(str(path), **asked)
         events = Progress("ingest", _READ_PHASES, seen["job"], progress)
         if progress is True:
             print(_understood(path, seen, asked, budget, origin), file=sys.stderr)
         began = _clock()
-        native, info = _native.read(
-            str(path),
-            **asked,
-            memory=budget,
-            threads=pool,
-            temp_dir=None if temp is None else str(temp),
-            overwrite=overwrite,
-            on_event=events,
-        )
+        with _stopping(events, "run the same call again"):
+            native, info = _native.read(
+                str(path),
+                **asked,
+                memory=budget,
+                threads=pool,
+                temp_dir=None if temp is None else str(temp),
+                overwrite=overwrite,
+                on_event=events,
+            )
     except _native.NativeError as e:
-        call = _caller("read", repr(str(data)))
         _errors.raise_native(e, "read", call, written=True, machine_memory=machine[0] if machine else None)
         raise
     graph = Graph(native, memory=memory, threads=threads, temp_dir=temp_dir, info=info)
@@ -174,6 +169,25 @@ def read(
             events.flush()
         print(graph._read_summary(path, took), file=sys.stderr)
     return graph
+
+
+@contextlib.contextmanager
+def _stopping(events: Progress, resume: str) -> Iterator[None]:
+    """Sends the stop event before a `KeyboardInterrupt`, or an exception of the progress
+    function, leaves the call (G-16, G-18); engine errors pass through."""
+    try:
+        yield
+    except _native.NativeError:
+        raise
+    except KeyboardInterrupt:
+        events.stopped("interrupt", resume)
+        raise
+    except Exception:
+        events.stopped("exception", resume)
+        raise
+
+
+_ID_KINDS = {"integer": "integers", "hex": "hexadecimal integers", "string": "text"}
 
 
 def _understood(path: pathlib.Path, seen: dict[str, Any], asked: dict[str, Any], budget: int, origin: str) -> str:
@@ -196,7 +210,7 @@ def _understood(path: pathlib.Path, seen: dict[str, Any], asked: dict[str, Any],
     return "\n".join([
         f"{path.name} · {_text.size(seen['bytes'])}{compression}",
         "",
-        f"  ids       {seen['ids']}",
+        f"  ids       {_ID_KINDS.get(seen['ids'], seen['ids'])}",
         f"  edges     {direction}",
         f"            {repeated} · {loops}",
         f"  columns   {columns}",
@@ -228,6 +242,15 @@ def open(  # noqa: A001 - the approved name (docs/api-sketch.md § 3.1)
         _errors.raise_native(e, "open", _caller("open", repr(str(path))))
         raise
     return Graph(native, memory=memory, threads=threads, temp_dir=temp_dir)
+
+
+def _keys(nodes: Node | Iterable[Node], operation: str) -> list[Any]:
+    """The identifiers of a node set (`docs/api-sketch.md` § 2.2) given as identifiers."""
+    if isinstance(nodes, (str, int, bytes)):
+        return [nodes]
+    if hasattr(nodes, "__arrow_c_stream__") or hasattr(nodes, "columns"):
+        raise TypeError(f"{operation}: give the nodes as identifiers; tables come with #93")
+    return list(nodes)
 
 
 def _caller(function: str, first: str) -> Callable[[str], str]:
@@ -297,16 +320,17 @@ class Graph:
         threads: int | None = None,
         progress: ProgressArg = True,
     ) -> Table:
-        """For every node (or the nodes given), its number of distinct neighbors:
-        `node`, `degree` on an undirected graph; `node`, `in_degree`, `out_degree`,
-        `degree` on a directed one::
+        """For every node (or the nodes given, in that order), its number of distinct
+        neighbors: `node`, `degree`. An identifier that is not in the graph gives a row
+        of nulls, counted in `meta["unknown"]` (`docs/api-sketch.md` § 2.2)::
 
             >>> g.degrees().top(3, by="degree")
         """
         self._no_weight(weight)
-        ids = None if nodes is None else self._ids(nodes, "degrees")
+        ids = None if nodes is None else self._native.lookup(_keys(nodes, "degrees"))
+        unknown = {} if ids is None else {"unknown": sum(i is None for i in ids)}
         return self._call("degrees", {"weight": weight}, memory, threads, progress,
-                          lambda m, t, e: self._native.degrees(ids, m, t, e))
+                          lambda m, t, e: self._native.degrees(ids, m, t, e), **unknown)
 
     def pagerank(
         self,
@@ -436,11 +460,7 @@ class Graph:
             )
 
     def _ids(self, nodes: Node | Iterable[Node], operation: str) -> list[int]:
-        if isinstance(nodes, (str, int, bytes)):
-            nodes = [nodes]
-        elif hasattr(nodes, "__arrow_c_stream__") or hasattr(nodes, "columns"):
-            raise TypeError(f"{operation}: give the nodes as identifiers; tables come with #93")
-        keys = list(nodes)
+        keys = _keys(nodes, operation)
         found = self._native.lookup(keys)
         unknown = [k for k, f in zip(keys, found, strict=True) if f is None]
         if unknown:
@@ -486,14 +506,17 @@ class Graph:
         threads: int | None,
         progress: ProgressArg,
         native: Callable[[int, int, Progress], tuple[_native.Table, dict[str, Any]]],
+        **more: Any,
     ) -> Table:
         budget, pool = self._run(memory, threads)
         progress = _progress_arg(progress)
-        job = _job(self.file or id(self), operation, sorted(parameters.items(), key=lambda kv: kv[0]))
+        graph = str(self.file) if self.file else f"memory:{self.num_nodes}:{self.num_edges}"
+        job = _native.job_id([graph, operation, *(f"{k}={v!r}" for k, v in sorted(parameters.items()))])
         events = Progress(operation, [operation], job, False if progress is True else progress)
         began = _clock()
         try:
-            table, info = native(budget, pool, events)
+            with _stopping(events, f"g.{operation}(…), the same call again"):
+                table, info = native(budget, pool, events)
         except _native.NativeError as e:
             machine = _machine()
             _errors.raise_native(e, operation, lambda kw: f"g.{operation}({kw})",
@@ -501,7 +524,7 @@ class Graph:
             raise
         took = _clock() - began
         peak = info.pop("peak_memory_bytes", 0)
-        meta = self._meta(operation, parameters, took, peak, **info)
+        meta = self._meta(operation, parameters, took, peak, **info, **more)
         if progress is True and took >= T_PLAN:
             detail = _DETAIL.get(operation, lambda _m: "")(meta)
             print(f"  {operation:<13}{'█' * 16}  {detail:<32}  {_text.duration(took):>11}", file=sys.stderr)

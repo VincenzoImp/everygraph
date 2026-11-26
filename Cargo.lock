@@ -447,6 +447,7 @@ dependencies = [
  "everygraph-oracle",
  "libc",
  "memmap2",
+ "rustix",
 ]
 
 [[package]]

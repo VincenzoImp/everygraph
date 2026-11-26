@@ -7,7 +7,7 @@
 //! `everygraph` of the schema.
 
 use std::cmp::{Ordering, Reverse};
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::BinaryHeap;
 use std::sync::Arc;
 
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
@@ -16,10 +16,10 @@ use arrow_array::{
     Array, ArrayRef, ArrowPrimitiveType, PrimitiveArray, RecordBatch, RecordBatchReader,
     UInt32Array,
 };
-use arrow_buffer::{Buffer, NullBuffer, ScalarBuffer, ToByteSlice};
+use arrow_buffer::{BooleanBuffer, Buffer, NullBuffer, ScalarBuffer, ToByteSlice};
 use arrow_schema::ffi::FFI_ArrowSchema;
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
-use everygraph_core::{Reservation, SegVec};
+use everygraph_core::{MemoryKind, Reservation, SegVec};
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyCapsule, PyList, PyTuple};
@@ -69,26 +69,33 @@ where
     A: ArrowPrimitiveType,
     A::Native: Send + Sync,
 {
+    if values.is_empty() {
+        return vec![Arc::new(PrimitiveArray::<A>::from_iter_values([]))];
+    }
     let values = Arc::new(values);
     (0..values.segments().len())
         .map(|i| primitive::<A>(Segment(Arc::clone(&values), i)))
         .collect()
 }
 
-/// The column of `values`, owned with `held`, without a copy of the values; `null`
-/// marks a null.
-pub(crate) fn own_u32(values: Vec<u32>, null: u32, held: Reservation) -> Vec<ArrayRef> {
-    let valid: Vec<bool> = values.iter().map(|&v| v != null).collect();
-    let nulls = NullBuffer::from(valid);
+/// The column of `values`, owned with `held`, without a copy of the values; `null`,
+/// when given, marks a null. `held` covers the values and their bitmap of nulls.
+pub(crate) fn own_u32(values: Vec<u32>, null: Option<u32>, held: Reservation) -> Vec<ArrayRef> {
+    let nulls = null
+        .map(|null| {
+            NullBuffer::new(BooleanBuffer::collect_bool(values.len(), |i| {
+                values[i] != null
+            }))
+        })
+        .filter(|n| n.null_count() > 0);
     let buffer = Buffer::from(bytes::Bytes::from_owner(Held {
         values,
         _held: held,
     }));
     let len = buffer.len() / 4;
-    let values = ScalarBuffer::new(buffer, 0, len);
     vec![Arc::new(UInt32Array::new(
-        values,
-        Some(nulls).filter(|n| n.null_count() > 0),
+        ScalarBuffer::new(buffer, 0, len),
+        nulls,
     ))]
 }
 
@@ -97,8 +104,8 @@ pub(crate) fn own_u32(values: Vec<u32>, null: u32, held: Reservation) -> Vec<Arr
 pub(crate) enum Ids {
     /// Every node, in graph order.
     All,
-    /// These nodes; `u32::MAX` is null.
-    Some(Arc<[u32]>),
+    /// These nodes; [`NULL`] is null.
+    Some(Arc<Vec<u32>>),
 }
 
 #[derive(Clone)]
@@ -140,7 +147,7 @@ impl Table {
     /// Adds an identifier column of `ids`.
     pub(crate) fn with_ids(mut self, name: &str, ids: Vec<u32>) -> Self {
         self.names.push(name.into());
-        self.columns.push(Column::Ids(Ids::Some(ids.into())));
+        self.columns.push(Column::Ids(Ids::Some(Arc::new(ids))));
         self
     }
 
@@ -214,43 +221,37 @@ impl Table {
         RecordBatch::try_new(Arc::clone(schema), columns)
     }
 
-    /// The rows `rows` of every column, in that order.
-    /// The rows `rows`, in that order.
-    pub(crate) fn rows_of(&self, rows: &[u32]) -> PyResult<Self> {
-        self.take(rows).map_err(arrow_err)
-    }
-
-    fn take(&self, rows: &[u32]) -> Result<Self, ArrowError> {
+    /// The rows `rows` of every column, in that order; a row [`NULL`] is a row of nulls.
+    pub(crate) fn take(&self, rows: &[u32]) -> PyResult<Self> {
         let columns = self
             .columns
             .iter()
             .map(|column| match column {
                 Column::Values(chunks) => {
-                    let mut starts = Vec::with_capacity(chunks.len());
-                    let mut at = 0;
-                    for c in chunks {
-                        starts.push(at);
-                        at += c.len();
-                    }
-                    let picks: Vec<(usize, usize)> = rows
-                        .iter()
-                        .map(|&r| {
-                            let r = r as usize;
-                            let chunk = starts.partition_point(|&s| s <= r) - 1;
-                            (chunk, r - starts[chunk])
-                        })
-                        .collect();
-                    let refs: Vec<&dyn Array> = chunks.iter().map(AsRef::as_ref).collect();
-                    Ok(Column::Values(vec![arrow_select::interleave::interleave(
-                        &refs, &picks,
+                    let indices: UInt32Array =
+                        rows.iter().map(|&r| (r != NULL).then_some(r)).collect();
+                    let whole = match chunks.as_slice() {
+                        [one] => Arc::clone(one),
+                        _ => {
+                            let refs: Vec<&dyn Array> = chunks.iter().map(AsRef::as_ref).collect();
+                            arrow_select::concat::concat(&refs)?
+                        }
+                    };
+                    Ok(Column::Values(vec![arrow_select::take::take(
+                        whole.as_ref(),
+                        &indices,
+                        None,
                     )?]))
                 }
-                Column::Ids(Ids::All) => Ok(Column::Ids(Ids::Some(rows.into()))),
-                Column::Ids(Ids::Some(ids)) => Ok(Column::Ids(Ids::Some(
-                    rows.iter().map(|&r| ids[r as usize]).collect(),
-                ))),
+                Column::Ids(Ids::All) => Ok(Column::Ids(Ids::Some(Arc::new(rows.to_vec())))),
+                Column::Ids(Ids::Some(ids)) => Ok(Column::Ids(Ids::Some(Arc::new(
+                    rows.iter()
+                        .map(|&r| if r == NULL { NULL } else { ids[r as usize] })
+                        .collect(),
+                )))),
             })
-            .collect::<Result<_, ArrowError>>()?;
+            .collect::<Result<_, ArrowError>>()
+            .map_err(arrow_err)?;
         Ok(Self {
             graph: Arc::clone(&self.graph),
             names: self.names.clone(),
@@ -366,7 +367,7 @@ impl Table {
     /// The first `n` rows.
     fn head(&self, n: usize) -> PyResult<Self> {
         let rows: Vec<u32> = (0..self.rows.min(n)).map(row).collect();
-        self.take(&rows).map_err(arrow_err)
+        self.take(&rows)
     }
 
     /// The `n` rows with the largest value of `by`, largest first, ties in table order,
@@ -390,7 +391,7 @@ impl Table {
                     .collect::<Vec<u32>>(),
             )
         })?;
-        let mut table = self.take(&picked).map_err(arrow_err)?;
+        let mut table = self.take(&picked)?;
         let ranks: Vec<u32> = (1..=picked.len()).map(row).collect();
         table.names.push("rank".into());
         table
@@ -403,28 +404,37 @@ impl Table {
     /// `nodes`: largest first, equal sizes by value.
     fn sizes(&self, py: Python<'_>, column: &str) -> PyResult<Self> {
         let chunks = self.values(column)?;
-        let mut counts: HashMap<u32, u32> = HashMap::new();
+        let values: Vec<&UInt32Array> = chunks
+            .iter()
+            .map(|c| c.as_any().downcast_ref::<UInt32Array>())
+            .collect::<Option<_>>()
+            .ok_or_else(|| PyValueError::new_err(format!("{column} is not uint32")))?;
+        // Components and cores are numbered densely from 0: one count per number.
+        let largest = values.iter().filter_map(|v| v.iter().flatten().max()).max();
+        let len = largest.map_or(0, |m| m as usize + 1);
+        let _held = self
+            .graph
+            .memory()
+            .reserve("sizes", MemoryKind::Anonymous, len as u64 * 12)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let mut counts = vec![0_u32; len];
         py.detach(|| {
-            for chunk in chunks {
-                let values = chunk
-                    .as_any()
-                    .downcast_ref::<UInt32Array>()
-                    .ok_or_else(|| PyValueError::new_err(format!("{column} is not uint32")))?;
-                for v in values.iter().flatten() {
-                    *counts.entry(v).or_default() += 1;
-                }
+            for v in values.iter().flat_map(|a| a.iter().flatten()) {
+                counts[v as usize] += 1;
             }
-            Ok::<_, PyErr>(())
-        })?;
-        let mut pairs: Vec<(u32, u32)> = counts.into_iter().collect();
-        pairs.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        let (values, sizes): (Vec<u32>, Vec<u32>) = pairs.into_iter().unzip();
+        });
+        let mut numbers: Vec<u32> = (0..len)
+            .map(row)
+            .filter(|&v| counts[v as usize] > 0)
+            .collect();
+        numbers.sort_by_key(|&v| (Reverse(counts[v as usize]), v));
+        let sizes: Vec<u32> = numbers.iter().map(|&v| counts[v as usize]).collect();
         Ok(Self {
             graph: Arc::clone(&self.graph),
             names: vec![column.into(), "nodes".into()],
-            rows: values.len(),
+            rows: numbers.len(),
             columns: vec![
-                Column::Values(vec![Arc::new(UInt32Array::from(values))]),
+                Column::Values(vec![Arc::new(UInt32Array::from(numbers))]),
                 Column::Values(vec![Arc::new(UInt32Array::from(sizes))]),
             ],
         })

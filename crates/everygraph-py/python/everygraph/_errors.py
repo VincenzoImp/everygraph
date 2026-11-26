@@ -152,14 +152,17 @@ def raise_native(
         raise ValueError(f["message"]) from None
     if cls == "InsufficientBudget":
         budget = f["budget_bytes"]
-        smallest = budget - f["available_bytes"] + f["needs_bytes"]
-        fits = machine_memory is None or smallest <= machine_memory
+        # The budget that holds the refused step; the smallest budget for the whole call
+        # (`smallest_budget_bytes`, M-5) needs the planner (#45), so it stays unknown.
+        step = budget - f["available_bytes"] + f["needs_bytes"]
         ways = []
-        if fits:
-            kw = f'memory="{_text.typed(smallest)}"'
-            ways.append(Way(f"--memory {_text.typed(smallest)}", call(kw), "a budget that holds this step", smallest))
+        if "temp_dir" in f:
+            ways.append(Way("--temp-dir DIR", call('temp_dir="DIR"'), "scratch on a disk, not in memory"))
+        if machine_memory is None or step <= machine_memory:
+            kw = f'memory="{_text.typed(step)}"'
+            ways.append(Way(f"--memory {_text.typed(step)}", call(kw), "a budget that holds this step", step))
         else:
-            phrase = f"a machine with at least {_text.size(smallest)} of memory"
+            phrase = f"a machine with at least {_text.size(step)} of memory"
             ways.append(Way(phrase, phrase))
         if f.get("threads", 1) > 1:
             ways.append(Way("--threads 1", call("threads=1"), "fewer blocks in flight need less memory"))
@@ -171,7 +174,7 @@ def raise_native(
             step=f["step"],
             needs_bytes=f["needs_bytes"],
             budget_bytes=budget,
-            smallest_budget_bytes=smallest if fits else None,
+            smallest_budget_bytes=None,
             **common,
         ) from None
     if cls == "InvalidInput":
@@ -210,7 +213,7 @@ def raise_native(
             ],
             path=f["path"],
             holds=f["holds"],
-            **common,
+            **{**common, "written": False},
         ) from None
     if cls == "Unsupported":
         raise Unsupported(

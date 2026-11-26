@@ -34,6 +34,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read::inspect, m)?)?;
     m.add_function(wrap_pyfunction!(machine_memory, m)?)?;
     m.add_function(wrap_pyfunction!(default_threads, m)?)?;
+    m.add_function(wrap_pyfunction!(job_id, m)?)?;
     Ok(())
 }
 
@@ -44,6 +45,14 @@ fn machine_memory() -> Option<(u64, u64)> {
     use everygraph_core::MemoryProbe;
     let memory = everygraph_io::ProcMemoryProbe::new().probe().ok()?;
     Some((memory.total(), memory.available()))
+}
+
+/// The 16 hexadecimal digits that name a job (`docs/ux-contract.md` G-19): the one
+/// fingerprint of `everygraph_ingest::native::job_id`.
+#[pyfunction]
+fn job_id(parts: Vec<String>) -> String {
+    let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+    everygraph_ingest::native::job_id(&parts)
 }
 
 /// The threads a call uses by default: the hardware threads this process may use.

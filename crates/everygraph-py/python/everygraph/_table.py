@@ -76,7 +76,10 @@ class Table:
 
             >>> g.pagerank().top(5)
         """
-        column = by if by is not None else self.columns[-1]
+        values = [c for c in self.columns if c not in _IDENTIFIERS]
+        if by is None and not values:
+            raise ValueError("top(): this table has no numeric column")
+        column = by if by is not None else values[-1]
         native = self._native.top(_count(n, "n"), column)
         return self._derived(native, f"top {n:,} of {self.num_rows:,} rows by {column}")
 

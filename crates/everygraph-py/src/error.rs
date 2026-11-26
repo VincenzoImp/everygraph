@@ -184,6 +184,9 @@ pub(crate) fn write(input: &Path, budget_bytes: u64, e: WriteError) -> Fail {
     match e {
         WriteError::Io { path, error } => Fail::Os(error, path.display().to_string()),
         WriteError::Build(e) => build(input, budget_bytes, e),
+        WriteError::Withdrawn => Failure::new("EverygraphError")
+            .text("message", "Stopped.")
+            .into(),
     }
 }
 

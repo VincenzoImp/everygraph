@@ -139,8 +139,9 @@ def test_a_kernel_that_does_not_fit_is_refused_with_the_smallest_budget(small, v
         g.pagerank(memory=64, progress=False)
     doc = e.value.to_dict()
     validate(doc, "urn:everygraph:schema:error:1")
-    assert doc["budget_bytes"] == 64 and doc["smallest_budget_bytes"] > 64
+    assert doc["budget_bytes"] == 64 and doc["smallest_budget_bytes"] is None
     assert e.value.ways_forward[0].python.startswith("g.pagerank(memory=")
+    assert e.value.ways_forward[0].needs_bytes > 64
     assert str(e.value).splitlines()[-1] == "Nothing was changed."
 
 
@@ -153,6 +154,49 @@ def test_a_directed_graph_answers_what_its_out_edges_can(tmp_path):
         g.pagerank(progress=False)
     with pytest.raises(eg.Unsupported):
         g.bfs(0, direction="in", progress=False)
+
+
+def test_an_empty_graph_gives_typed_empty_tables(tmp_path):
+    path = tmp_path / "empty.csv"
+    path.write_text("from,to\n")
+    g = eg.read(path, directed=False, progress=False)
+    assert (g.num_nodes, g.num_edges) == (0, 0)
+    for table, column, kind in [
+        (g.pagerank(progress=False), "pagerank", pa.float64()),
+        (g.components(progress=False), "component", pa.uint32()),
+        (g.kcore(progress=False), "core", pa.uint32()),
+        (g.degrees(progress=False), "degree", pa.uint32()),
+        (g.nodes(), "node", pa.uint64()),
+    ]:
+        t = pa.table(table)
+        assert t.num_rows == 0 and t.schema.field(column).type == kind
+        assert len(table.head(3)) == 0
+        assert column == "node" or len(table.top(3, by=column)) == 0
+    assert len(g.components(progress=False).sizes()) == 0
+
+
+def test_degrees_of_unknown_identifiers_are_null_rows(small):
+    g_nx, path = small
+    g = eg.read(path, progress=False)
+    known = min(g_nx.nodes())
+    t = g.degrees([known, 10**9, known], progress=False)
+    rows = pa.table(t).to_pylist()
+    assert rows[0] == rows[2] == {"node": known, "degree": g_nx.degree(known)}
+    assert rows[1] == {"node": None, "degree": None}
+    assert t.meta["unknown"] == 1
+
+
+def test_negative_integers_are_found_as_integers(tmp_path):
+    path = write_edges(tmp_path / "n.csv", [(-1, 5), (5, 6)], header=None)
+    g = eg.read(path, progress=False)
+    assert pa.table(g.bfs(-1, progress=False))["distance"].to_pylist().count(None) == 0
+    assert len(g.bfs(5, progress=False)) == 3
+
+
+def test_top_of_a_bfs_ranks_by_distance(small):
+    g_nx, path = small
+    t = eg.read(path, progress=False).bfs(min(g_nx.nodes()), progress=False).top(1)
+    assert t.columns == ["node", "distance", "parent", "rank"]
 
 
 def test_kernel_events_follow_the_event_schema(small, validate):
