@@ -16,6 +16,11 @@ labels: type:infra, area:engine, P1, risk:low, size:S
 - The sweep runs in seconds to a minute in CI, for every k, on the text reader's spill and the container writer first
 - No sweep ends in a panic, a leaked scratch file or a damaged previous file
 
+**Left after PR #212 (2026-11-26).** PR #212 built `everygraph_io::faults` (feature `faults`), swept the container writer, `compact` and the reader over every k (`crates/everygraph-format/tests/faults.rs`), and added a real ENOSPC test on a small tmpfs (`crates/everygraph-io/tests/enospc.rs`). Still open, each with `everygraph_io::faults`:
+- [ ] The spills of ingest and of the CSR build ({{#m2-05-text-reader}}, {{#m2-08-csr-build}}) and the dictionary build ({{#m2-07-id-mapping}}), with the check that no scratch file is left behind (the sweeps so far run in memory)
+- [ ] The resume manifests ({{#m2-13-preflight-resume}}) and `everygraph_io::persist` (the `.partial` and rename step)
+- [ ] The `sudo mount -t tmpfs` variant of the ENOSPC test on GitHub-hosted runners, where user namespaces are refused
+
 **Feeds.** {{#m2-13-preflight-resume}}, {{#m2-04-arrays-accountant}} (the k-th reservation failure of {{#m3-10-no-oom-ci}} is the same pattern for memory), #28, {{#m8-01-cli}} (C-8).
 
 **Pointers.** `docs/research/sota-testing.md` § 2 ("Devices and errors", "Deterministic simulation"), § 3 (D2 row), § 4 challenge 4; `crates/everygraph-core` (`ByteSource`, `ByteSink`), `crates/everygraph-io`.

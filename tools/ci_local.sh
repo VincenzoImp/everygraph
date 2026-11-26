@@ -23,6 +23,7 @@ step clippy-core-nodefault cargo clippy -p everygraph-core --no-default-features
 step clippy-core-i686 cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --all-targets -- -D warnings
 step clippy-core-i686-nodefault cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets -- -D warnings
 step portability python3 tools/check_core_portability.py
+step numerics-lint python3 tools/numerics_lint.py --check
 step nextest cargo nextest run --workspace
 step doctest cargo test --workspace --doc
 step test-core-nodefault cargo test -p everygraph-core --no-default-features
@@ -36,12 +37,13 @@ step clippy-format-simd128 env RUSTFLAGS="-C target-feature=+simd128" CARGO_TARG
 step deny cargo deny check
 step doc env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 step canary python3 tools/check_portability_canary.py
+step fuzz-replay tools/fuzz.sh replay
 step wasm-toy python3 tools/check_wasm_toy.py
 step wasm-codec python3 tools/check_wasm_codec.py
 step container python3 tools/check_container_python.py
 step msrv cargo +1.100 test --workspace --locked
 if [ $miri = 1 ]; then
-  step miri-core cargo +nightly miri test -p everygraph-core --no-default-features
+  step miri-core cargo +nightly miri test -p everygraph-core --no-default-features -- --skip full_size
   step miri-format cargo +nightly miri test -p everygraph-format
   step tsan python3 tools/check_tsan.py
 fi

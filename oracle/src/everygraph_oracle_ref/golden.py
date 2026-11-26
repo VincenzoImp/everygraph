@@ -139,7 +139,8 @@ def registry_entries() -> list[dict]:
     reg = tomllib.loads(REGISTRY.read_text())
     out = []
     for ds in reg["dataset"]:
-        if ds.get("tier") != 1:
+        # Conformance sets carry their own reference outputs (`everygraph-oracle ldbc`).
+        if ds.get("tier") != 1 or ds.get("family") == "conformance":
             continue
         (f,) = ds["file"]
         page = ds.get("page", "")

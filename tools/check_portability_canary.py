@@ -28,7 +28,7 @@ A probe file declares, in `//` comments at its top:
 
     // check: clippy | script | wasm32
     // expect: <text that must appear in the check's output>      (one or more)
-    // dependency: <a line for [dependencies] of everygraph-core>  (optional)
+    // dependency: <a line for [dependencies] of each crate probed>  (optional)
     // crates: <package> ...      (optional; default everygraph-core; clippy only)
 
 The checks are the commands of CONTRIBUTING.md, "Checks":
@@ -62,12 +62,12 @@ PROBE_DIRS = [ROOT / "tools" / "canary" / "portability", ROOT / "tools" / "canar
 CORE = "everygraph-core"
 SCRATCH = ROOT / "target" / "portability-canary"
 COPY = SCRATCH / "workspace"
-# What the scratch workspace needs: the manifest, the lock file, the crates, the
-# portability script, and the oracle's tolerances (compiled into everygraph-oracle, a
-# dev-dependency of the kernel crates). Build output under any `target` directory is
-# not copied.
+# What the scratch workspace needs: the manifest, the lock file, the lint lists of the
+# crates without their own, the crates, the portability script, and the oracle's
+# tolerances (compiled into everygraph-oracle, a dev-dependency of several crates).
+# Build output under any `target` directory is not copied.
 COPIED = [
-    "Cargo.toml", "Cargo.lock", "crates", "tools/check_core_portability.py",
+    "Cargo.toml", "Cargo.lock", "clippy.toml", "crates", "tools/check_core_portability.py",
     "oracle/tolerances.json",
 ]
 
@@ -106,7 +106,7 @@ def read_probe(path):
         raise SystemExit(f"{path.relative_to(ROOT)}: `// check:` must be one of {sorted(CHECKS)}")
     if not expected:
         raise SystemExit(f"{path.relative_to(ROOT)}: needs at least one `// expect:` line")
-    if crates != [CORE] and (check != "clippy" or dependency):
+    if crates != [CORE] and check != "clippy":
         raise SystemExit(f"{path.relative_to(ROOT)}: `// crates:` goes with `check: clippy` only")
     return check, expected, dependency, crates
 
@@ -135,14 +135,21 @@ def apply_probe(path, dependency, crate):
     """Adds the probe to `crate` in COPY."""
     core = COPY / "crates" / crate
     shutil.copy2(path, core / "src" / f"{PROBE_MODULE}.rs")
-    with open(core / "src" / "lib.rs", "a", encoding="utf-8") as lib:
+    # A crate with only a binary (everygraph-cli) takes the probe in its main.rs.
+    root = core / "src" / "lib.rs"
+    if not root.exists():
+        root = core / "src" / "main.rs"
+    with open(root, "a", encoding="utf-8") as lib:
         lib.write(f"\npub mod {PROBE_MODULE};\n")
     if dependency:
         manifest = core / "Cargo.toml"
         text = manifest.read_text(encoding="utf-8")
         if "\n[dependencies]\n" not in text:
-            raise SystemExit("crates/everygraph-core/Cargo.toml has no [dependencies] table")
-        text = text.replace("\n[dependencies]\n", f"\n[dependencies]\n{dependency}\n", 1)
+            text += "\n[dependencies]\n"
+        name = dependency.split("=")[0].strip()
+        # A crate that already depends on it (the core on libm) keeps its own line.
+        if f"\n{name} = " not in text:
+            text = text.replace("\n[dependencies]\n", f"\n[dependencies]\n{dependency}\n", 1)
         manifest.write_text(text, encoding="utf-8")
 
 

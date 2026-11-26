@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # The oracle suite that runs on every pull request (issue #6; job `oracle` in
-# .github/workflows/ci.yml). Needs cargo and uv; no network after `uv sync`.
+# .github/workflows/ci.yml). Needs cargo, uv, zstd and tar. The only download after
+# `uv sync` is the LDBC test graphs (registry dataset ldbc-test, 10 kB, checksums pinned).
 #
 #   oracle/run-ci.sh                      # work directory under $TMPDIR, removed at the end
 #   ORACLE_WORK=dir oracle/run-ci.sh      # keep the corpus and references in `dir`
@@ -29,6 +30,7 @@ JOBS="${ORACLE_JOBS:-2}"
 MEM="${ORACLE_MEMORY_GIB:-3}"
 step() { printf '\n== %s (%s, %d s)\n' "$1" "$(date +%T)" "$((SECONDS - START))"; }
 START=$SECONDS
+. "$ROOT/oracle/ldbc-unpack.sh"
 
 if [[ -z "${ORACLE_SKIP_RUST_TESTS:-}" ]]; then
     step "Rust: unit, property-based, seeded-bug and golden tests"
@@ -74,5 +76,11 @@ step "Seeded bugs, with the Python references"
 
 step "Golden files (karate and the generated tier-1 datasets)"
 "$ORACLE" golden --dir "$ROOT/oracle/golden" --data-root "$WORK/data"
+
+step "LDBC Graphalytics test graphs against their reference outputs (downloads 10 kB)"
+ldbc_unpack "$ROOT/target/release/everygraph-bench" "$WORK/data" "$WORK/ldbc" ldbc-test
+"$ORACLE" ldbc --graphs "$WORK/ldbc" --expect "$ROOT/oracle/ldbc-expected.json"
+EVERYGRAPH_LDBC_GRAPHS="$WORK/ldbc" cargo test -p everygraph-kernels --release --locked \
+    --test ldbc -- --nocapture
 
 printf '\noracle CI suite passed in %d s\n' "$((SECONDS - START))"

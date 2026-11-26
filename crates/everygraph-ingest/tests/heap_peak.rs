@@ -3,7 +3,8 @@
 //! The heap a dictionary build uses, against the budget its accountant was given: the
 //! peak of the bytes the program holds from the allocator, above what it held before
 //! the build, must not exceed the budget. Spilled bytes go
-//! to files, so they are not on the heap.
+//! to files, so they are not on the heap. And the heap of the text reader on zstd
+//! frames that declare a large window (issue #191).
 //!
 //! This measures the heap as the program asks for it; the allocator's own retention on
 //! top of it is issue `m2-19-allocator-policy`.
@@ -19,6 +20,7 @@ use std::fs::File;
 use std::io;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use everygraph_core::{ByteSource, MemoryAccountant, ReadError};
@@ -109,6 +111,9 @@ mod counting {
     #[global_allocator]
     static GLOBAL: Counting = Counting;
 }
+
+/// Held while a test measures the peak: the tests of a binary share one allocator.
+static MEASURING: Mutex<()> = Mutex::new(());
 
 /// A fixed budget (anonymous memory only), with its peak.
 struct Ledger {
@@ -320,6 +325,7 @@ struct Case {
 
 /// Builds `case` and returns (heap peak above the start, ledger peak).
 fn measure(case: &Case) -> (u64, u64) {
+    let _measuring = MEASURING.lock().unwrap();
     let dir = std::env::temp_dir().join(format!(
         "everygraph-heap-{}-{}",
         std::process::id(),
@@ -467,4 +473,71 @@ fn the_heap_stays_within_the_budget() {
 #[ignore = "minutes in a release build: cargo test --release -p everygraph-ingest --test heap_peak -- --ignored"]
 fn the_heap_stays_within_the_budget_at_large_sizes() {
     check(&cases(16));
+}
+
+/// A zstd frame (RFC 8878 § 3.1.1) holding `text` in one raw block, with a window
+/// descriptor of 128 MiB (`0x88`: exponent 17, mantissa 0), the most `ruzstd` accepts.
+fn frame_with_a_large_window(text: &[u8]) -> Vec<u8> {
+    let mut frame = vec![0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x88];
+    let header = 1 | (u32::try_from(text.len()).unwrap() << 3);
+    frame.extend_from_slice(&header.to_le_bytes()[..3]);
+    frame.extend_from_slice(text);
+    frame
+}
+
+/// Bytes the heap gained at its peak while `f` ran.
+fn peak_of(f: impl FnOnce()) -> usize {
+    let start = counting::reset_peak();
+    f();
+    counting::peak() - start
+}
+
+/// `ruzstd` 0.9.1 reserves a frame's declared window when a decoder is reused for
+/// another frame (`DecodeBuffer::reset`), not when a decoder is new: a reader that
+/// reused decoders would request up to 128 MiB per frame decoded at once, outside the
+/// ledger (issue #191). The reader makes a decoder per frame; this fails if it reuses
+/// one.
+#[test]
+fn zstd_frames_that_declare_a_large_window_do_not_get_it() {
+    use std::io::Read;
+
+    use everygraph_core::MemorySource;
+    use everygraph_ingest::text::{TextOptions, TextReader};
+    use ruzstd::decoding::{FrameDecoder, StreamingDecoder};
+
+    if cfg!(miri) {
+        return;
+    }
+    let _measuring = MEASURING.lock().unwrap();
+    let one = frame_with_a_large_window(b"1 2\n");
+    // What ruzstd does, pinned: if this changes, the reasoning above is to be redone.
+    let fresh = peak_of(|| {
+        let mut text = Vec::new();
+        StreamingDecoder::new(one.as_slice())
+            .unwrap()
+            .read_to_end(&mut text)
+            .unwrap();
+        assert_eq!(text, b"1 2\n");
+    });
+    let reused = peak_of(|| {
+        let mut decoder = FrameDecoder::new();
+        decoder.reset(one.as_slice()).unwrap();
+        decoder.reset(one.as_slice()).unwrap();
+    });
+    assert!(fresh < 1 << 20, "a new decoder took {fresh} bytes");
+    assert!(
+        reused >= 128 << 20,
+        "a reused decoder took only {reused} bytes"
+    );
+    // The reader, on many such frames, which it decodes in parallel groups.
+    let frames: Vec<u8> = (0..64)
+        .flat_map(|i| frame_with_a_large_window(format!("{i} {}\n", i + 1).as_bytes()))
+        .collect();
+    let mut rows = 0;
+    let reader = peak_of(|| {
+        let text = TextReader::open(MemorySource::new(frames), &TextOptions::default()).unwrap();
+        rows = text.read(|batch| batch.len()).unwrap().summary.rows;
+    });
+    assert_eq!(rows, 64);
+    assert!(reader < 16 << 20, "the reader took {reader} bytes");
 }

@@ -50,9 +50,9 @@
 //! The crate never opens files: a native file is an `everygraph_io::FileSink` (writing)
 //! or any `ByteSource` of `everygraph-io` (reading).
 
-mod layout;
+pub(crate) mod layout;
 mod provenance;
-mod read;
+pub(crate) mod read;
 mod result;
 mod write;
 
@@ -385,6 +385,51 @@ impl From<ReadError> for ContainerError {
 impl From<WriteError> for ContainerError {
     fn from(e: WriteError) -> Self {
         Self::Write(e)
+    }
+}
+
+/// Entry points for the fuzz targets (`crates/everygraph-format/fuzz`), built only by
+/// `cargo fuzz`, which sets `cfg(fuzzing)`: the decoders of the table of contents and of
+/// provenance records, without the hashes that keep a fuzzer's bytes from reaching them.
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzzing {
+    use super::{ContainerError, Entry, Provenance};
+
+    /// Decodes a table of contents that starts at `toc_offset`.
+    ///
+    /// # Errors
+    ///
+    /// As `Container::open` for a table that breaks the specification.
+    pub fn decode_toc(bytes: &[u8], toc_offset: u64) -> Result<Vec<Entry>, ContainerError> {
+        super::layout::decode_toc(bytes, toc_offset)
+    }
+
+    /// Encodes entries that [`decode_toc`] returned.
+    ///
+    /// # Errors
+    ///
+    /// A table that would exceed 16 MiB.
+    pub fn encode_toc(entries: &[Entry]) -> Result<Vec<u8>, ContainerError> {
+        super::layout::encode_toc(entries.iter())
+    }
+
+    /// Decodes a provenance record.
+    ///
+    /// # Errors
+    ///
+    /// As `Container::read_provenance` for a record that cannot be decoded.
+    pub fn decode_provenance(bytes: &[u8]) -> Result<Provenance, ContainerError> {
+        Provenance::decode(bytes)
+    }
+
+    /// Encodes a provenance record.
+    ///
+    /// # Errors
+    ///
+    /// As `Writer::add_provenance` for a record that cannot be encoded.
+    pub fn encode_provenance(record: &Provenance) -> Result<Vec<u8>, ContainerError> {
+        record.encode()
     }
 }
 

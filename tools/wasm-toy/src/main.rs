@@ -24,5 +24,13 @@ fn main() -> ExitCode {
     println!("degree-hash nodes={nodes} edges={edges} seed={seed} hash={hash:016x}");
     let hash = everygraph_wasm_toy::kernels_hash(nodes, edges, seed);
     println!("kernels-hash nodes={nodes} edges={edges} seed={seed} hash={hash:016x}");
+    let digests = everygraph_wasm_toy::golden::digests();
+    for (name, digest) in digests {
+        println!("golden {name}={digest:016x}");
+    }
+    if digests != everygraph_wasm_toy::golden::EXPECTED {
+        eprintln!("the golden digests differ from the frozen ones in numerics_golden.rs");
+        return ExitCode::FAILURE;
+    }
     ExitCode::SUCCESS
 }

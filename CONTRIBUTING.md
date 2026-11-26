@@ -18,6 +18,7 @@ cargo clippy -p everygraph-core --no-default-features --all-targets -- -D warnin
 cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --all-targets -- -D warnings
 cargo clippy -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --all-targets -- -D warnings
 python3 tools/check_core_portability.py
+python3 tools/numerics_lint.py --check
 cargo test --workspace                      # or: cargo nextest run --workspace
 cargo test -p everygraph-core --no-default-features
 cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features
@@ -76,9 +77,9 @@ machine without the 32-bit C runtime, and the required check for any module that
 contains `unsafe`:
 
 ```sh
-cargo +nightly miri test -p everygraph-core --no-default-features
-cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu
-MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core
+cargo +nightly miri test -p everygraph-core --no-default-features -- --skip full_size
+cargo +nightly miri test -p everygraph-core --no-default-features --target i686-unknown-linux-gnu -- --skip full_size
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test -p everygraph-core -- --skip full_size
 cargo +nightly miri test -p everygraph-format
 RUSTFLAGS="-C target-feature=+ssse3" cargo +nightly miri test -p everygraph-format --test adjacency
 cargo +nightly miri test -p everygraph-io --test allocation_failure
@@ -89,6 +90,10 @@ cargo +nightly test -p everygraph-kernels --doc   # checks the error codes of co
 The last two run the adjacency codec's tests on the scalar decoder, then on the SSSE3 one
 (compiled in, so that run-time detection finds it under Miri). Its tests run a sample under
 Miri (`cfg!(miri)`): the full corpus takes about 15 minutes there.
+
+The core's runs skip the tests named `*full_size` (the numerics golden vectors and the
+exact sum over chunks of 65,536), which take minutes under Miri; the native test runs on
+every target cover them.
 
 The third command runs the tests on rayon's thread pool. It needs the two flags because
 of rayon's dependencies, not because of this code: `crossbeam-epoch` keeps an intrusive
@@ -102,16 +107,37 @@ upstream does not turn every pull request red. To run exactly what CI runs, repl
 `+nightly` by `+$(cat tools/nightly-toolchain)`. Moving the pin is a pull request of its
 own.
 
+### Fuzzing
+
+Code that parses bytes has a fuzz target (CLAUDE.md § 6, issue #191), in a `fuzz/`
+package of its crate that is not part of the workspace: `everygraph-format` has
+`adjacency` and `container`, `everygraph-ingest` has `text`. Each target's corpus is
+committed under `fuzz/corpus/TARGET`. With `cargo-fuzz` and the pinned nightly:
+
+```sh
+tools/fuzz.sh replay                 # every corpus, once: what every pull request runs
+tools/fuzz.sh run container 300      # fuzz one target for 300 seconds
+tools/fuzz.sh cmin container         # then shrink its corpus before committing it
+```
+
+Every run refuses one allocation above 64 MiB, so that a size an input declares (a zstd
+window) cannot become memory. A crash leaves its input under `fuzz/artifacts/TARGET`;
+the fix commits it to the corpus, so that the replay keeps it fixed. Code that writes
+has a fault-injection sweep: `everygraph_io::faults` (feature `faults`) fails the k-th
+operation of any source or sink, and a test runs the work for every k
+(`crates/everygraph-format/tests/faults.rs`).
+
 ## CI
 
-GitHub Actions, four workflows under `.github/workflows/`, on GitHub-hosted runners. The
+GitHub Actions, five workflows under `.github/workflows/`, on GitHub-hosted runners. The
 repository is public, so standard runners cost nothing. The queue is still shared by every
 agent's pull request, so on a pull request the expensive jobs run only when it changed
 what they check.
 
 | Workflow | When | Jobs (each step is a command from "Checks") |
 |---|---|---|
-| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map proof kernels), the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map proof kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two and the kernels' included), the kernels' doc tests on nightly, then `check_tsan.py`. All on Linux x86_64 |
+| `ci.yml` | every pull request and every push to `main`, unless only documentation or results changed (`*.md`, `docs/`, `plan/`, `design/`, `lab/`, `bench/results/`); nightly at 03:41 UTC; by hand | **lint** (always): which jobs the run needs (below), fmt, the clippy runs (the codec's on i686 included), `check_core_portability.py`, `numerics_lint.py --check`, `cargo deny check`, docs. **test** (always): nextest, doc tests, the core without default features, the three wasm32 builds (core, ingest, everygraph-wasm), the codec's wasm32 clippy runs (with and without `simd128`) and the kernels', the wasm toy (with the edge-map proof kernels), the wasm codec check (`simd128` in Node against scalar), the container check (the independent Python reader against the Rust writer), the portability canary; plus the release build when a manifest changed, the core's and the codec's tests natively on i686 when the core or the codec did, the oracle crate's own tests when the oracle job runs. **oracle**: `oracle/run-ci.sh` (the correctness oracle: Python references through `uv`, toy kernel, the edge-map proof kernels against the Python references, seeded bugs, golden files; `oracle/README.md`). **msrv**: `cargo +1.87 test`. **sanitizers**: the Miri commands (the codec's two and the kernels' included), the kernels' doc tests on nightly, then `check_tsan.py`. All on Linux x86_64 |
+| `fuzz.yml` | as `ci.yml`; nightly at 02:17 UTC; by hand | **replay** (always, merge only when green): `tools/fuzz.sh replay`. **campaign** (advisory), when a pull request changes `everygraph-format`, `-ingest`, the core or `tools/fuzz.sh` (`ci_changes.py`'s `fuzz_*` flags): 5 minutes per target of that crate. **nightly**: 1 hour per target, then `cmin`; the corpus is uploaded as an artifact, and its new entries come back by pull request ("Fuzzing" above) |
 | `other-platforms.yml` | pull requests that touch `everygraph-core`, `-io`, `-format` or `-ingest`; Mondays 04:17 UTC; by hand (`gh workflow run other-platforms.yml --ref <branch>`, optionally `-f platform=macos\|windows\|linux-arm -f packages="-p <crate>"`) | clippy, tests and the wasm32 build of the core on macOS arm64, Windows x86_64 and Linux aarch64; `cargo deny check advisories` on `main` (weekly) |
 | `docs.yml` | every pull request and every push to `main` | the document checks: `docs/tools/check_adrs.py`, `check_api_sketch.py`, `check_graph_semantics.py`, `check_transcripts.py docs/ux-contract.md`, and `plan/publish.py VincenzoImp/everygraph --dry-run`. Standard library only |
 | `dco.yml` | every pull request | the `Signed-off-by` check ("Sign-off" below) |
@@ -193,14 +219,14 @@ describing it).
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
 | `everygraph-core` | id types, `ByteSource` and its writable counterpart `ByteSink`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits) | #29, #31, #28 | no — the one crate for OS I/O |
-| `everygraph-format` | the `.eg` container and the adjacency codec | #28, #30 | yes, enforced (with and without `simd128`) |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits); with the feature `faults`, the fault-injecting wrapper of tests | #29, #31, #28, #190 | no — the one crate for OS I/O |
+| `everygraph-format` | the `.eg` container, the adjacency codec, and `verify` | #28, #30, #41 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework and the kernels | #44, #47–#52 | yes, built and linted in CI |
 | `everygraph-community` | Leiden and the map hierarchy | #57 | yes |
 | `everygraph-map` | layout, tile format, tile builder | #67–#69 | yes |
 | `everygraph-query` | point queries, shortest paths, views | #90, #91, #93 | yes |
-| `everygraph-cli` | the `everygraph` command | #98 | no |
+| `everygraph-cli` | the `everygraph` command | #41 (`verify`), #98 | no |
 | `everygraph-py` | Python bindings | #81, #82 | no |
 | `everygraph-wasm` | browser bindings | #108 | yes, built in CI |
 | `everygraph-bench` | the `everygraph-bench` harness; the dataset registry and fetcher (`datasets/`) | #4, #5 | no |
@@ -291,6 +317,24 @@ catches every entry. What no lint sees: growth through `push`, `extend`, `collec
 is a counting global allocator in the kernel tests that asserts heap bytes ≤
 `Budget::used()` plus a fixed slack (#53). `everygraph-ingest` and `everygraph-format` have
 code but not yet this `clippy.toml`; the M2 cleanup (#200) adds it.
+
+## The numerics rule
+
+A result has the same bits on every supported platform (DESIGN D14). The rules are
+R1–R15 of `docs/research/sota-numerics.md` § 4; the module docs of
+`everygraph_core::math` and `everygraph_core::rng` say how to follow them. What is
+checked:
+
+| What is checked | By |
+|---|---|
+| No std transcendental (`sin`, `exp`, `ln`, `powf`, `powi`, … on `f64` and `f32`), no `libm::pow`, and no `rand`, `getrandom` or `fastrand` generator in a crate that produces results; use `everygraph_core::math` and `everygraph_core::rng` | The same list in the `clippy.toml` of the core, the format and the four kernel crates, and in the root `clippy.toml`, which every other crate without a `clippy.toml` of its own reads. `tools/numerics_lint.py` writes the seven copies, and its `--check` (in the lint job) fails if one differs. The canary probes every product crate. The harness has its own empty `clippy.toml`: its statistics are not results |
+| No `rand` except through proptest, no `getrandom` except through `rand_core` and TLS, no `fastrand` | `deny.toml` |
+| The pinned functions, `sqrt`, `mul_add`, `ExactSum` and the generator give the same bits on x86-64, i686, aarch64, macOS, Windows and wasm32 | `crates/everygraph-core/tests/numerics_golden.rs` in every test run of the core, and in Node through `tools/check_wasm_toy.py` |
+
+To change the numerics list, edit `tools/numerics_lint.py` and run it. Not checked by
+any lint: `Iterator::sum` on floats (use `math::sum`), `f64::max` where signed zeros or
+NaN can tie (use `total_cmp`), and float sums whose order depends on the schedule (use
+`ExactSum`, or integers).
 
 ## Integers
 
