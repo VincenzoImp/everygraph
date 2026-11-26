@@ -10,7 +10,7 @@
 //!     [--threads T] [--reps R] [--mode det|fast] [--iterations K|converge]
 //!     [--seed S] [--refine greedy|random|louvain] [--theta X] [--prolong 1]
 //!     [--split last|every]
-//!     [--chunk ENTRIES] [--budget-gib G] [--check 1]
+//!     [--chunk ENTRIES] [--budget-gib G] [--check 1] [--hier FILE]
 //! ```
 //!
 //! `run` prints one JSON line: the times of every repetition, the modularity, the
@@ -18,7 +18,9 @@
 //! count and chunking in the deterministic mode), the statistics of each level, and with
 //! `--check 1` the modularity evaluated again on the result and the number of
 //! disconnected communities. `--budget-gib` bounds what Leiden reserves (not the graph,
-//! which is loaded first).
+//! which is loaded first). `--hier FILE` then stores the hierarchy (#62) in a new
+//! container `FILE` and reports its time, its bytes, the budget's peak while Leiden ran
+//! and while the hierarchy was written, and the time to read the table of each level.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -38,12 +40,14 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Instant;
 
+use everygraph_community::hierarchy::Hierarchy;
 use everygraph_community::{
     Communities, Iterations, Mode, Options, Refinement, SplitAt, leiden, modularity,
 };
 use everygraph_core::{Budget, Memory, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
-use everygraph_io::{FileSource, MmapSource};
+use everygraph_format::container::{Container, Provenance, Writer};
+use everygraph_io::{FileSink, FileSource, MmapSource};
 use everygraph_kernels::edge_map::{Compressed, Csr, Settings, Source, Stream};
 
 type Args = HashMap<String, String>;
@@ -142,14 +146,57 @@ fn disconnected<S: Source>(source: &S, membership: &[u32]) -> usize {
     roots.values().filter(|&&r| r > 1).count()
 }
 
+/// Stores the hierarchy of `c` in a new container at `path` and reads it back.
+fn hierarchy<S: Source>(
+    source: &S,
+    path: &Path,
+    o: &Options,
+    c: &Communities,
+    settings: Settings,
+) -> String {
+    let budget = Arc::new(Budget::unlimited());
+    let memory = Memory::new(budget.clone());
+    let t = Instant::now();
+    let mut w =
+        Writer::create(FileSink::create(path).expect("the hierarchy file")).expect("a container");
+    let key = everygraph_community::hierarchy::key(w.graph_identity(), o).expect("a key");
+    let about = Provenance {
+        engine: "leiden_bench".into(),
+        ..Provenance::default()
+    };
+    everygraph_community::hierarchy::store(&mut w, &key, &about, source, &memory, settings, c)
+        .expect("the hierarchy is stored");
+    w.commit().expect("commit");
+    drop(w);
+    let write = t.elapsed().as_secs_f64();
+    let map = MmapSource::open(path).expect("map");
+    let file = Container::open(&map).expect("a container");
+    let bytes = file.results().expect("results")[0].bytes;
+    let h = Hierarchy::find(&file, &key).expect("read").expect("found");
+    let reads: Vec<String> = (1..=h.levels())
+        .map(|level| {
+            let t = Instant::now();
+            let table = h.table(level, &memory).expect("a table");
+            format!("[{}, {}]", table.nodes.len(), t.elapsed().as_secs_f64())
+        })
+        .collect();
+    format!(
+        ", \"hier_write_seconds\": {write}, \"hier_bytes\": {bytes}, \"hier_peak_reserved\": {}, \
+         \"hier_table_read_seconds\": [{}]",
+        budget.peak(),
+        reads.join(", ")
+    )
+}
+
 fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
-    let memory = match a.get("budget-gib") {
+    let budget = Arc::new(match a.get("budget-gib") {
         Some(g) => {
             let gib: u64 = g.parse().expect("--budget-gib");
-            Memory::new(Arc::new(Budget::new(gib << 30)))
+            Budget::new(gib << 30)
         }
-        None => Memory::unlimited(),
-    };
+        None => Budget::unlimited(),
+    });
+    let memory = Memory::new(budget.clone());
     let reps: usize = a.get("reps").map_or(1, |s| s.parse().expect("--reps"));
     let o = options(a);
     let mut secs = Vec::new();
@@ -198,6 +245,13 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
     } else {
         String::new()
     };
+    let hier = a.get("hier").map_or_else(String::new, |path| {
+        format!(
+            ", \"leiden_peak_reserved\": {}{}",
+            budget.peak(),
+            hierarchy(source, Path::new(path), &o, &c, settings)
+        )
+    });
     let all: Vec<String> = secs.iter().map(f64::to_string).collect();
     let best = secs.iter().copied().fold(f64::INFINITY, f64::min);
     format!(
@@ -206,7 +260,7 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
          \"seconds_all\": [{}], \
          \"seconds_best\": {best}, \"modularity\": {}, \"communities\": {}, \"level_sizes\": [{}], \
          \"hash_levels\": \"{levels:016x}\", \"hash_levels_low53\": {}, \"hash_membership\": \
-         \"{flat:016x}\", \"stats\": [{}]{check}",
+         \"{flat:016x}\", \"stats\": [{}]{check}{hier}",
         c.mode,
         o.iterations,
         c.iterations,

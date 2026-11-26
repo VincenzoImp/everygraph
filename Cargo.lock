@@ -477,6 +477,7 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "clap",
+ "everygraph-community",
  "everygraph-core",
  "everygraph-format",
  "everygraph-ingest",

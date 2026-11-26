@@ -486,3 +486,78 @@ fn a_result_section_that_breaks_its_layout_is_refused() {
     let file = planted(&key, Kind::RESULT, Some(&record_of(&key)), &reserved);
     assert_eq!(find::<u32>(&file, &key), Some(vec![7]));
 }
+
+#[test]
+fn a_result_keeps_its_parts_and_is_replaced_with_them() {
+    let mut w = graph();
+    let key = ResultKey::new(w.graph_identity(), "communities", 1, true).unwrap();
+    assert!(matches!(
+        w.add_result_part(&key, "1/nodes", [1_u32]),
+        Err(ContainerError::InvalidResult(_))
+    ));
+    w.add_result(&key, &about(), &[2_u64, 3]).unwrap();
+    w.add_result_part(&key, "1/nodes", (0..5000_u32).map(|x| x * 3))
+        .unwrap();
+    let mut s = w
+        .begin_result_part(&key, "1/quotient.data", Kind::RESULT_ADJACENCY_DATA)
+        .unwrap();
+    s.write(&bytes(9, 70)).unwrap();
+    s.finish().unwrap();
+    assert!(matches!(
+        w.add_result_part(&key, "", [1_u32]),
+        Err(ContainerError::InvalidResult(_))
+    ));
+    w.commit().unwrap();
+    let file = reopen(w);
+    let root = file.find_result(&key).unwrap().unwrap();
+    let nodes = file.result_part(&root, "1/nodes").unwrap().unwrap();
+    let mut values = vec![0_u32; 5000];
+    nodes.read(0, &mut values).unwrap();
+    assert!(values.iter().enumerate().all(|(i, &x)| x == 3 * i as u32));
+    assert_eq!(nodes.provenance(), root.provenance());
+    assert!(file.result_part(&root, "2/nodes").unwrap().is_none());
+    assert!(matches!(
+        file.result_part(&root, "1/quotient.data"),
+        Err(ContainerError::InvalidResult(_))
+    ));
+    let data = file.result_part_entry(&root, "1/quotient.data").unwrap();
+    assert_eq!(data.kind, Kind::RESULT_ADJACENCY_DATA);
+    // Listed once, with the bytes of its parts; the parts are not results of their own.
+    let listed = file.results().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].bytes, 16 + 16 + 16 + 4 * 5000 + 70);
+    assert_eq!(file.listed_result(&listed[0]).unwrap().len(), 2);
+    // Parts are not part of the graph.
+    assert_eq!(file.graph_identity(), key.graph());
+    // Storing again replaces the parts too.
+    let mut w = Writer::update(file.into_source()).unwrap();
+    w.add_result(&key, &about(), &[1_u64, 3]).unwrap();
+    w.commit().unwrap();
+    let file = reopen(w);
+    let root = file.find_result(&key).unwrap().unwrap();
+    assert!(file.result_part_entry(&root, "1/nodes").is_none());
+    assert_eq!(file.entries().len(), 4 + 2);
+}
+
+#[test]
+fn a_part_of_another_record_is_not_served() {
+    let mut w = graph();
+    let key = ResultKey::new(w.graph_identity(), "communities", 1, true).unwrap();
+    w.add_result(&key, &about(), &[1_u64]).unwrap();
+    let root = key.section_name().unwrap();
+    w.add_provenance("other", &about()).unwrap();
+    w.add_section(
+        &format!("{root}/x"),
+        Kind::RESULT,
+        &bytes(1, 16),
+        Some("other"),
+    )
+    .unwrap();
+    w.add_section(&format!("{root}/y"), Kind::RESULT, &bytes(1, 16), None)
+        .unwrap();
+    w.commit().unwrap();
+    let file = reopen(w);
+    let root = file.find_result(&key).unwrap().unwrap();
+    assert!(file.result_part(&root, "x").unwrap().is_none());
+    assert!(file.result_part(&root, "y").unwrap().is_none());
+}

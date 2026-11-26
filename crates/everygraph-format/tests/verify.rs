@@ -631,3 +631,50 @@ fn an_events_section_is_found_exactly_where_the_index_announces_one() {
     flat[32..].fill(0);
     assert!(!problems(&with(true, Some(&flat))).is_empty());
 }
+
+/// A graph file with a result whose part is the adjacency `lists` (kinds 11 and 12).
+fn with_result_adjacency(lists: &[Vec<u32>]) -> Vec<u8> {
+    let mut w = Writer::create(Mem::default()).unwrap();
+    w.add_provenance("provenance/ingest", &built_with(UNDIRECTED))
+        .unwrap();
+    add_adjacency(&mut w, "adjacency.out", &triangle(), "provenance/ingest");
+    let key =
+        everygraph_format::container::ResultKey::new(w.graph_identity(), "communities", 1, true)
+            .unwrap();
+    w.add_result(&key, &Provenance::default(), &[0_u64])
+        .unwrap();
+    let mut offsets = vec![0u64];
+    let mut targets = Vec::new();
+    for list in lists {
+        targets.extend_from_slice(list);
+        offsets.push(targets.len() as u64);
+    }
+    let e = encode(&offsets, &targets).unwrap();
+    for (part, kind, bytes) in [
+        ("q.index", Kind::RESULT_ADJACENCY_INDEX, &e.index),
+        ("q.data", Kind::RESULT_ADJACENCY_DATA, &e.data),
+    ] {
+        let mut s = w.begin_result_part(&key, part, kind).unwrap();
+        s.write(bytes).unwrap();
+        s.finish().unwrap();
+    }
+    w.commit().unwrap();
+    w.into_sink().into_inner()
+}
+
+#[test]
+fn the_adjacency_of_a_result_is_checked_but_is_not_the_graph() {
+    // Loops are allowed; the graph's adjacency is the only one listed.
+    let report = check(&with_result_adjacency(&[vec![0, 1], vec![0]]), Depth::Deep);
+    assert!(report.is_intact(), "{:?}", report.problems);
+    assert_eq!(report.adjacencies.len(), 1);
+    let report = check(&with_result_adjacency(&[vec![1], vec![]]), Depth::Deep);
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].what.contains("not symmetric"));
+    let report = check(&with_result_adjacency(&[vec![1], vec![2]]), Depth::Deep);
+    assert!(
+        report.problems[0]
+            .what
+            .contains("below the number of nodes")
+    );
+}
