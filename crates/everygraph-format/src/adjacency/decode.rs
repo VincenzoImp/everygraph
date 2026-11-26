@@ -44,12 +44,21 @@ pub(super) struct Done {
 }
 
 /// Where each list of a run ends: in the output (`entries`, relative to the run's first
-/// entry) and in the data (`bytes`, from the start of the job's data). Reused from run to
-/// run.
+/// entry) and in the data (`bytes`, from the start of the job's data); and, when not every
+/// list is decoded whole, the degree of each (`degrees`). Reused from run to run.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Ends {
     pub(super) entries: Vec<usize>,
     pub(super) bytes: Vec<usize>,
+    pub(super) degrees: Vec<usize>,
+}
+
+impl Ends {
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.bytes.clear();
+        self.degrees.clear();
+    }
 }
 
 /// Decodes the lists of `job.nodes` one after the other into `out`, until the next one
@@ -83,8 +92,8 @@ pub(super) fn run(
         prefix,
         mut select,
     } = job;
-    ends.entries.clear();
-    ends.bytes.clear();
+    ends.clear();
+    let whole = prefix == usize::MAX && select.is_none();
     let first = to_usize(u64::from(nodes.start));
     let count = nodes.len();
     // Each sequence in a loop of its own, which keeps each loop in registers: the entry
@@ -101,18 +110,17 @@ pub(super) fn run(
             return false;
         }
         let v = nodes.start + u32::try_from(lists).expect("at most one list per node");
+        let degree = to_usize(x - prev);
         let wanted = select.as_mut().is_none_or(|f| f(v));
-        let next = end
-            + if wanted {
-                to_usize(x - prev).min(prefix)
-            } else {
-                0
-            };
+        let next = end + if wanted { degree.min(prefix) } else { 0 };
         if lists > 0 && next > limit {
             return false;
         }
         (prev, end) = (x, next);
         ends.entries.push(end);
+        if !whole {
+            ends.degrees.push(degree);
+        }
         true
     });
     let lists = ends.entries.len();
@@ -144,7 +152,7 @@ pub(super) fn run(
         }
         Ok(())
     };
-    if prefix == usize::MAX && select.is_none() {
+    if whole {
         for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
             if end > s {
                 record(v, at, s, end, end - s, record_end)?;
@@ -153,16 +161,13 @@ pub(super) fn run(
             at = record_end;
         }
     } else {
-        // The degrees are needed only here: whole lists keep the loop above free of a
-        // third Elias–Fano iteration. A list left out has `end == s`.
-        let mut offsets = entries.iter_from(first);
-        let mut from = offsets.next().unwrap_or(0);
-        for ((v, (&end, &record_end)), to) in (nodes.start..).zip(lists).zip(offsets) {
+        // A list left out has `end == s`.
+        for ((v, (&end, &record_end)), &total) in (nodes.start..).zip(lists).zip(&ends.degrees) {
             if end > s {
-                record(v, at, s, end, to_usize(to - from), record_end)?;
+                record(v, at, s, end, total, record_end)?;
                 s = end;
             }
-            (at, from) = (record_end, to);
+            at = record_end;
         }
     }
     Ok(Done {
@@ -207,21 +212,23 @@ impl Batch {
     /// `lists` from empty.
     #[must_use]
     pub const fn bytes_for(entries: usize, lists: usize) -> usize {
-        entries * size_of::<u32>() + lists * 2 * size_of::<usize>()
+        entries * size_of::<u32>() + lists * 3 * size_of::<usize>()
     }
 
     /// Entries and lists the batch has room for without allocating.
     #[must_use]
     pub fn capacity(&self) -> (usize, usize) {
-        let lists = self.ends.entries.capacity().min(self.ends.bytes.capacity());
-        (self.targets.capacity(), lists)
+        let ends = &self.ends;
+        let lists = ends.entries.capacity().min(ends.bytes.capacity());
+        (self.targets.capacity(), lists.min(ends.degrees.capacity()))
     }
 
     /// Heap bytes the batch holds.
     #[must_use]
     pub fn heap_bytes(&self) -> usize {
-        self.targets.capacity() * size_of::<u32>()
-            + (self.ends.entries.capacity() + self.ends.bytes.capacity()) * size_of::<usize>()
+        let ends = &self.ends;
+        let lists = ends.entries.capacity() + ends.bytes.capacity() + ends.degrees.capacity();
+        self.targets.capacity() * size_of::<u32>() + lists * size_of::<usize>()
     }
 
     /// Makes room, without spare capacity, for a decode of `entries` entries (the value
@@ -230,7 +237,8 @@ impl Batch {
     pub fn reserve(&mut self, entries: usize, lists: usize) {
         self.targets
             .reserve_exact(entries.saturating_sub(self.targets.len()));
-        for ends in [&mut self.ends.entries, &mut self.ends.bytes] {
+        let ends = &mut self.ends;
+        for ends in [&mut ends.entries, &mut ends.bytes, &mut ends.degrees] {
             ends.reserve_exact(lists.saturating_sub(ends.len()));
         }
     }
@@ -242,13 +250,13 @@ impl Batch {
         self.targets.shrink_to(entries);
         self.ends.entries.shrink_to(lists);
         self.ends.bytes.shrink_to(lists);
+        self.ends.degrees.shrink_to(lists);
     }
 
     /// Empties the batch: no lists. The memory is kept.
     pub fn clear(&mut self) {
         self.entries = 0;
-        self.ends.entries.clear();
-        self.ends.bytes.clear();
+        self.ends.clear();
     }
 
     /// The first node decoded.
@@ -279,6 +287,20 @@ impl Batch {
         let ends = &self.ends.entries;
         let start = if i == 0 { 0 } else { ends[i - 1] };
         &self.targets[start..ends[i]]
+    }
+
+    /// The degree of the node of list `i`: the length of the list, or more if the batch
+    /// holds a prefix of it or left it out ([`Adjacency::decode_prefixes`]).
+    ///
+    /// # Panics
+    ///
+    /// If `i` is not below [`len`](Self::len).
+    #[must_use]
+    pub fn degree(&self, i: usize) -> usize {
+        match self.ends.degrees.get(i) {
+            Some(&d) => d,
+            None => self.list(i).len(),
+        }
     }
 
     /// All entries, list after list.
@@ -602,7 +624,7 @@ impl<'a> Adjacency<'a> {
                 Ok(done.node)
             }
             Err(e) => {
-                batch.ends.entries.clear();
+                batch.ends.clear();
                 Err(e)
             }
         }

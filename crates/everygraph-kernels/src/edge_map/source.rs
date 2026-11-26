@@ -514,24 +514,29 @@ impl<'a> Compressed<'a> {
         if !nodes.clone().any(&filter) {
             return Ok(());
         }
-        let index = self.adjacency.index();
         let mut at = nodes.start;
         while at < nodes.end {
-            let next = self.decode(r, at..nodes.end, Some((len.max(1), &mut |v| filter(v))))?;
-            let mut entry = self.entry_offset(at);
-            for ((v, list), d) in r.batch.iter().zip(index.degrees(at..next)) {
+            at = self.decode(r, at..nodes.end, Some((len.max(1), &mut |v| filter(v))))?;
+            let mut entry = self.entry_offset(r.batch.first());
+            for (i, (v, list)) in r.batch.iter().enumerate() {
+                let d = r.batch.degree(i);
                 // A list left out is empty in the batch. An empty list is the list of a
                 // node of degree 0, whatever `filter` says now.
-                if if d == 0 {
+                let taken = if d == 0 {
                     filter(v.get())
                 } else {
                     !list.is_empty()
-                } {
-                    f(v.get(), entry, list, d);
+                };
+                if taken {
+                    f(
+                        v.get(),
+                        entry,
+                        list,
+                        u32::try_from(d).expect("a degree below 2^32"),
+                    );
                 }
-                entry += u64::from(d);
+                entry += d as u64;
             }
-            at = next;
         }
         Ok(())
     }
@@ -587,7 +592,7 @@ unsafe impl Source for Compressed<'_> {
         mut f: impl FnMut(u32, u64, &[u32]),
     ) -> Result<(), Error> {
         self.some(r, nodes, filter, usize::MAX, |v, entry, list, _| {
-            f(v, entry, list)
+            f(v, entry, list);
         })
     }
 

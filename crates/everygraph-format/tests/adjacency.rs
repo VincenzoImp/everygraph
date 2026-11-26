@@ -176,7 +176,7 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                     assert_eq!(batch.heap_bytes(), held, "{name} prefix batch {r:?} grew");
                     assert_eq!((batch.first(), ix(next - at)), (at, batch.len()));
                     assert!(batch.len() == 1 || batch.targets().len() <= budget);
-                    for (v, l) in batch.iter() {
+                    for (i, (v, l)) in batch.iter().enumerate() {
                         let want = list(offsets, targets, v.index());
                         let len = if chosen(v.get()) {
                             prefix.min(want.len())
@@ -184,6 +184,7 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                             0
                         };
                         assert_eq!(l, &want[..len], "{name} prefix {prefix}");
+                        assert_eq!(batch.degree(i), want.len());
                     }
                     at = next;
                 }
