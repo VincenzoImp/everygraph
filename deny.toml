@@ -46,6 +46,10 @@ exceptions = [
     # wasm32 only; the Python package is never built for wasm32, and the macro's code
     # runs at build time and ships in nothing. Used unmodified.
     { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+    # MIT-0 (MIT without its attribution clause): borrow-or-share, in `jsonschema`, a
+    # dev-dependency of the CLI's tests that checks their documents against the schemas
+    # of the docs. Permissive; it ships in nothing. Used unmodified.
+    { crate = "borrow-or-share", allow = ["MIT-0"] },
 ]
 confidence-threshold = 0.9
 # The list is a policy, not an inventory: entries no dependency uses yet are expected.
@@ -77,8 +81,11 @@ deny = [
     # through ahash (at run time, or at build time through const-random on wasm32),
     # which no result of ours reads. ahash and const-random are allowed there only.
     { crate = "rand", wrappers = ["proptest"], reason = "use everygraph_core::rng" },
-    { crate = "getrandom", wrappers = ["rand_core", "ring", "ahash", "const-random-macro"], reason = "use everygraph_core::rng" },
-    { crate = "ahash", wrappers = ["arrow-array", "arrow-select"], reason = "use everygraph_core::rng; std's HashMap for our own maps" },
+    # `jsonschema` (the CLI tests' schema check) seeds its hash tables the same way.
+    { crate = "getrandom", wrappers = ["rand_core", "ring", "ahash", "const-random-macro", "referencing", "jsonschema-value", "jsonschema"], reason = "use everygraph_core::rng" },
+    # parquet (the `--out` tables) and `jsonschema` (the CLI tests' schema check) hash the
+    # same way.
+    { crate = "ahash", wrappers = ["arrow-array", "arrow-select", "parquet", "jsonschema", "jsonschema-value", "referencing"], reason = "use everygraph_core::rng; std's HashMap for our own maps" },
     { crate = "const-random", wrappers = ["ahash"], reason = "use everygraph_core::rng" },
     { crate = "fastrand", reason = "use everygraph_core::rng" },
 ]
@@ -89,6 +96,10 @@ ignore = [
     # Python package does not make yet; revisit when its time columns come (#94) or when
     # arrow-rs moves off chrono.
     { id = "RUSTSEC-2026-0543", reason = "arrow-array's dependency, not called by us" },
+    # "paste is no longer maintained": a procedural macro of parquet, which writes the
+    # result tables of `--out` (everygraph-io, feature `tables`); it runs at build time
+    # and ships in nothing.
+    { id = "RUSTSEC-2024-0436", reason = "parquet's build-time macro" },
 ]
 
 [sources]
