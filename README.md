@@ -91,7 +91,7 @@ round (milestone M1) took these on first; see [docs/DESIGN.md § 5](docs/DESIGN.
 The Rust workspace holds the crate layout, the coding rules, the portable core
 (`crates/everygraph-core`), and the first product pieces: the `.eg` container and the
 compressed adjacency (`everygraph-format`), the I/O layer (`everygraph-io`), and the text
-reader and identifier dictionary (`everygraph-ingest`). It needs Rust 1.87 or newer and
+reader and identifier dictionary (`everygraph-ingest`). It needs Rust 1.100 or newer and
 nothing else.
 
 ```sh
