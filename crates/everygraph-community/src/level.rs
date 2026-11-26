@@ -39,10 +39,11 @@
 //!
 //! Here `m` is the number of nodes with an entry of positive weight, and every draw is
 //! counted by a node's place among them ([`Ranks`]): a node without one never moves and
-//! no node joins it. A zero weight is no edge to local moving, refinement and the
-//! stopping rule (a candidate with no weight to it is skipped); only the split into
-//! connected components reads it. Ties go by the draws of the labels, then by the labels' order, and a community
-//! starts named by its smallest node. So the result does not depend on the nodes
+//! no node joins it. A zero weight is no edge: local moving and refinement skip a
+//! candidate with no weight to it, the stopping rule counts a node with no positive
+//! weight to another as alone, and the split into connected components follows only
+//! entries of positive weight. Ties go by the draws of the labels, then by the labels'
+//! order, and a community starts named by its smallest node. So the result does not depend on the nodes
 //! without an entry, nor on the ids beyond their order: a view as a mask over its graph
 //! and the same view materialized give the same communities (DESIGN D14).
 //!
@@ -383,23 +384,20 @@ impl Strengths {
         count: u32,
         mut next: Strengths,
     ) -> Result<Strengths, Error> {
-        let sum = |value: &(dyn Fn(usize) -> u64 + Sync)| {
-            let sums = Column::new(memory, "community masses", count as usize, |_| {
-                AtomicU64::new(0)
-            })?;
-            plan.vertices((), |(): &mut (), (), _, v, _| {
-                sums[map[v.index()] as usize].fetch_add(value(v.index()), Relaxed);
-            })?;
-            Ok::<_, Error>(sums.map(AtomicU64::into_inner))
-        };
+        let count = count as usize;
         if let Some(m) = &self.mass {
-            next.mass = Some(sum(&|v| m[v])?);
+            let sums = Column::new(memory, "community masses", count, |_| AtomicU64::new(0))?;
+            plan.vertices((), |(): &mut (), (), _, v, _| {
+                sums[map[v.index()] as usize].fetch_add(m[v.index()], Relaxed);
+            })?;
+            next.mass = Some(sums.map(AtomicU64::into_inner));
         }
         if let Some(d) = &self.skew {
-            // Atomic additions wrap, so the sums of the bits are the signed sums.
-            #[expect(clippy::cast_sign_loss, clippy::cast_possible_wrap, reason = "bits")]
-            let skews = sum(&|v| d[v] as u64)?.map(|x| x as i64);
-            next.skew = Some(skews);
+            let sums = Column::new(memory, "community skews", count, |_| AtomicI64::new(0))?;
+            plan.vertices((), |(): &mut (), (), _, v, _| {
+                sums[map[v.index()] as usize].fetch_add(d[v.index()], Relaxed);
+            })?;
+            next.skew = Some(sums.map(AtomicI64::into_inner));
         }
         Ok(next)
     }
@@ -1216,21 +1214,23 @@ fn unite<'g>(parent: &NodeCells<'g>, mut x: Node<'g>, mut y: Node<'g>) {
     }
 }
 
-/// The connected components inside the communities of `label`: each node's label
-/// becomes the smallest node of its component, whatever order the joins land in.
+/// The connected components inside the communities of `label`, through the entries of
+/// positive weight: each node's label becomes the smallest node of its component,
+/// whatever order the joins land in.
 pub(crate) fn split<'g, S: Source>(
     plan: &Plan<'_, 'g, S>,
     memory: &Memory,
+    w: Weights<'_>,
     label: &NodeCells<'g>,
 ) -> Result<NodeCells<'g>, Error> {
     let parent = plan.node_cells(memory)?;
     plan.scan((), all, |(): &mut (), (), _, row, _| {
         let (u, c) = (row.node, label.load(row.node, Relaxed));
-        for &v in row.list {
-            if v < u && label.load(v, Relaxed) == c {
+        w.each(&row, |v, x| {
+            if x > 0 && v < u && label.load(v, Relaxed) == c {
                 unite(&parent, u, v);
             }
-        }
+        });
     })?;
     parent.flatten();
     Ok(parent)

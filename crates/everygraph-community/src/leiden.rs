@@ -9,7 +9,8 @@
 //! nothing moved, when it is the tenth, or when refinement left more than 80% of its
 //! nodes alone (nodes without a neighbour other than themselves are left out of that
 //! count). The last level's communities are split into their connected components, so
-//! no community of the result is disconnected. A further iteration starts again from
+//! no community of the result is disconnected; with weights, connected through entries
+//! of positive weight. A further iteration starts again from
 //! level 0, in the communities of the previous result.
 
 use std::num::NonZeroU32;
@@ -26,7 +27,7 @@ use crate::level::{
 };
 use crate::quality::{Table, tally};
 use crate::table::Tables;
-use crate::weights::{EdgeWeights, power_of_two, scaled};
+use crate::weights::{EdgeWeights, Scaled, power_of_two, scaled};
 
 /// Iterations of the quality mode.
 const QUALITY_ITERATIONS: NonZeroU32 = NonZeroU32::new(3).expect("non-zero");
@@ -91,8 +92,9 @@ pub enum Objective {
     #[default]
     Modularity,
     /// The Constant Potts Model `Σ_c [L(c) − γ·n_c·(n_c − 1)/2]` (Traag, Van Dooren and
-    /// Nesterov 2011), as `leidenalg`'s `CPMVertexPartition`: free of the resolution
-    /// limit, with `γ` in the units of the weights.
+    /// Nesterov 2011): free of the resolution limit, with `γ` in the units of the
+    /// weights. `leidenalg`'s `CPMVertexPartition` reports twice this, less `2γn` on a
+    /// graph with a loop: the same best partition (`tests/references.py`).
     Cpm,
 }
 
@@ -201,6 +203,8 @@ pub struct Communities {
     /// The scale `s` of the weights: each was rounded to a multiple of `2^-s`
     /// ([`EdgeWeights`]). `None` on an unweighted graph.
     pub weight_scale: Option<i32>,
+    /// The entries whose weight is above 0 and was rounded to 0, so counted as no edge.
+    pub rounded_to_zero: u64,
     /// The levels of the last iteration: `levels[0]` maps the nodes to the nodes of
     /// level 1 (refined communities), and so on; the last maps to the communities.
     /// Without prolongation, `membership` is their composition.
@@ -277,7 +281,7 @@ fn level<S: Source>(
     (stats.parallel_rounds, stats.serial_rounds) = (moved.parallel_rounds, moved.serial_rounds);
     stats.heavy = moved.heavy;
     if ctx.options.split == SplitAt::EveryLevel {
-        let parts = split(plan, memory, &st.comm)?;
+        let parts = split(plan, memory, w, &st.comm)?;
         st.relabel(plan, k, parts)?;
     }
     let louvain = ctx.options.refinement == Refinement::Louvain;
@@ -308,13 +312,12 @@ fn level<S: Source>(
             d
         } else {
             drop((d, refined));
-            let parts = split(plan, memory, &st.comm)?;
+            let parts = split(plan, memory, w, &st.comm)?;
             drop(st);
             dense(plan, memory, |v| parts.load(v, Relaxed).get())?
         };
         stats.communities = d.count;
-        let mut table = tally(plan, memory, w, Some(k), &d.map, d.count)?;
-        table.weight_scale = ctx.weight_scale;
+        let table = tally(plan, memory, w, Some(k), ctx.weight_scale, &d.map, d.count)?;
         let map = (d.count < n || ctx.level == 0).then_some(d.map);
         return Ok(Level {
             map,
@@ -380,7 +383,7 @@ fn polish<S: Source>(
     let tol = TOLERANCE[(ctx.iteration + ctx.level).min(11) as usize];
     let moved = local_move(Graph::new(plan, w, k), &st, &schedule, &tables, ctx, tol)?;
     let parts = if ctx.level == 0 {
-        split(plan, memory, &st.comm)?
+        split(plan, memory, w, &st.comm)?
     } else {
         st.comm
     };
@@ -459,6 +462,10 @@ pub fn leiden<S: Source>(
 /// directed one, with the weights of its entries, scaled once to integers
 /// ([`EdgeWeights`]). Lists as [`leiden`] takes them.
 ///
+/// The weights must agree across the two entries of each pair, as [`EdgeWeights`]
+/// says; a per-pair column of the format does. This is not checked: other weights make
+/// an asymmetric `A`, and the values are then wrong, without an error.
+///
 /// # Errors
 ///
 /// [`Error::Invalid`] for options out of range, `use_direction` without directed
@@ -479,7 +486,11 @@ pub fn leiden_weighted<S: Source>(
     settings: Settings,
     options: &Options,
 ) -> Result<Communities, Error> {
-    let (w0, weight_scale) = scaled(source, weights)?;
+    let Scaled {
+        w: w0,
+        scale: weight_scale,
+        rounded_to_zero,
+    } = scaled(source, weights)?;
     check(options, w0)?;
     let n = source.nodes();
     let k0 = Plan::with(source, memory, settings, |plan| {
@@ -496,6 +507,7 @@ pub fn leiden_weighted<S: Source>(
             modularity: 0.0,
             quality: 0.0,
             weight_scale,
+            rounded_to_zero,
             levels: Vec::new(),
             mode: options.mode,
             iterations: 0,
@@ -581,8 +593,7 @@ pub fn leiden_weighted<S: Source>(
             stats.push(s);
             let (m, c, r) = Plan::with(source, memory, settings, |plan| {
                 let d = dense(&plan, memory, |v| labels[v.index()])?;
-                let mut table = tally(&plan, memory, w0, Some(&k0), &d.map, d.count)?;
-                table.weight_scale = weight_scale;
+                let table = tally(&plan, memory, w0, Some(&k0), weight_scale, &d.map, d.count)?;
                 Ok::<_, Error>((d.map, d.count, score(&table, options)))
             })?;
             (membership, communities, result) = (m, c, r);
@@ -600,6 +611,7 @@ pub fn leiden_weighted<S: Source>(
         modularity,
         quality,
         weight_scale,
+        rounded_to_zero,
         levels,
         mode: options.mode,
         iterations,

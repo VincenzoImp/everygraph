@@ -226,3 +226,93 @@ fn greedy_refinement_follows_its_sequential_reference() {
         );
     }
 }
+
+/// Lists and per-entry weights in the units of `A` from weighted pairs `u < v`.
+fn weighted_lists(n: u32, pairs: &[(u32, u32, u64)]) -> (Vec<u64>, Vec<u32>, Vec<u64>) {
+    let mut lists: Vec<Vec<(u32, u64)>> = (0..n).map(|_| Vec::new()).collect();
+    for &(u, v, w) in pairs {
+        lists[u as usize].push((v, w));
+        lists[v as usize].push((u, w));
+    }
+    let (mut offsets, mut targets, mut weights) = (vec![0], Vec::new(), Vec::new());
+    for mut l in lists {
+        l.sort_unstable();
+        targets.extend(l.iter().map(|e| e.0));
+        weights.extend(l.iter().map(|e| e.1));
+        offsets.push(targets.len() as u64);
+    }
+    (offsets, targets, weights)
+}
+
+/// Two triangles joined by a pair of weight 0, in one community: the split follows
+/// only entries of positive weight, so it gives the two triangles.
+#[test]
+fn the_split_does_not_follow_zero_weights() {
+    let pairs = [
+        (0, 1, 1),
+        (0, 2, 1),
+        (1, 2, 1),
+        (2, 3, 0),
+        (3, 4, 1),
+        (3, 5, 1),
+        (4, 5, 1),
+    ];
+    let (offsets, targets, weights) = weighted_lists(6, &pairs);
+    let csr = Csr::new(&offsets, &targets).unwrap();
+    let memory = Memory::unlimited();
+    Plan::with(&csr, &memory, Settings::default(), |plan| {
+        let one = plan.node_cells(&memory).unwrap();
+        plan.vertices((), |(): &mut (), (), _, v, _| {
+            one.store(v, plan.node(0).unwrap(), Relaxed);
+        })
+        .unwrap();
+        let parts = split(&plan, &memory, Weights::Entries(&weights), &one).unwrap();
+        let got: Vec<u32> = plan
+            .all_nodes()
+            .map(|v| parts.load(v, Relaxed).get())
+            .collect();
+        assert_eq!(got, [0, 0, 0, 3, 3, 3]);
+    });
+}
+
+/// Node 0 is in a community it gains nothing from (at resolution 2 its value there is
+/// negative), and its only other neighbour, node 6, is joined by weight 0: a community
+/// of mass 0 and value 0 to it. Local moving skips that candidate, so node 0 stays.
+#[test]
+fn local_moving_skips_a_candidate_with_no_weight() {
+    let mut pairs = vec![(0, 1, 1), (0, 6, 0)];
+    for a in 1..6 {
+        for b in a + 1..6 {
+            pairs.push((a, b, 1));
+        }
+    }
+    let (offsets, targets, weights) = weighted_lists(7, &pairs);
+    let csr = Csr::new(&offsets, &targets).unwrap();
+    let memory = Memory::unlimited();
+    let options = Options {
+        resolution: 2.0,
+        ..Options::default()
+    };
+    Plan::with(&csr, &memory, Settings::default(), |plan| {
+        let w = Weights::Entries(&weights);
+        let k = strengths(&plan, &memory, w, &options).unwrap();
+        assert_eq!(k.of[6], 0);
+        let ctx = Ctx {
+            options: &options,
+            total: k.total,
+            coefficient: 1.0 / k.total as f64,
+            weight_scale: None,
+            level: 0,
+            iteration: 0,
+            stage: 0,
+        };
+        let ranks = Ranks::new(&k.of);
+        let bound = [0, 0, 0, 0, 0, 0, 6];
+        let st = Moving::new(&plan, &memory, &k, &ranks, Some(&bound), &ctx).unwrap();
+        let schedule = Schedule::new(&ranks, &memory, &ctx, false).unwrap();
+        let tables = Tables::new(&memory);
+        local_move(Graph::new(&plan, w, &k), &st, &schedule, &tables, &ctx, 0.0).unwrap();
+        let zero = plan.node(0).unwrap();
+        assert_ne!(st.comm.load(zero, Relaxed).get(), 6);
+    });
+}

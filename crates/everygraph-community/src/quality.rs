@@ -27,7 +27,7 @@ use crate::aggregate::Quotient;
 use crate::column::{Column, GRAIN};
 use crate::leiden::{Objective, Options};
 use crate::level::{Strengths, Weights, strengths};
-use crate::weights::{EdgeWeights, power_of_two, scaled};
+use crate::weights::{EdgeWeights, Scaled, power_of_two, scaled};
 
 /// One row per community of a partition: what `c.table()` shows.
 #[derive(Debug)]
@@ -123,14 +123,16 @@ fn squares<T: Sync>(values: &[T], magnitude: impl Fn(&T) -> u64 + Sync) -> u128 
     .sum()
 }
 
-/// The table of the partition `map` (values below `count`) of a level. With `k`, the
-/// nodes of a community are the sum of its nodes' node counts when `k` has them (a
-/// coarse level of the Constant Potts Model), and its skew the sum of theirs.
+/// The table of the partition `map` (values below `count`) of a level, whose weights
+/// have the scale `weight_scale`. With `k`, the nodes of a community are the sum of its
+/// nodes' node counts when `k` has them (a coarse level of the Constant Potts Model),
+/// and its skew the sum of theirs.
 pub(crate) fn tally<S: Source>(
     plan: &Plan<'_, '_, S>,
     memory: &Memory,
     w: Weights<'_>,
     k: Option<&Strengths>,
+    weight_scale: Option<i32>,
     map: &[u32],
     count: u32,
 ) -> Result<Table, Error> {
@@ -170,7 +172,7 @@ pub(crate) fn tally<S: Source>(
         internal: internal.map(|x| x.into_inner() / 2),
         volume: volume.map(AtomicU64::into_inner),
         skew: skew.map(|_| skews.map(AtomicI64::into_inner)),
-        weight_scale: None,
+        weight_scale,
     })
 }
 
@@ -214,7 +216,8 @@ pub fn table<S: Source>(
 
 /// The community table of a partition, as [`table`], of a graph with `weights`: its
 /// weights in units of `2^-s` for the scale `s` that [`leiden_weighted`] would choose
-/// (`weight_scale`), and with directed weights the skews.
+/// (`weight_scale`), and with directed weights the skews. The weights must agree across
+/// the two entries of each pair, as for [`leiden_weighted`].
 ///
 /// # Errors
 ///
@@ -230,7 +233,11 @@ pub fn weighted_table<S: Source>(
     membership: &[u32],
 ) -> Result<Table, Error> {
     let count = communities(source.nodes(), membership)?;
-    let (w, weight_scale) = scaled(source, weights)?;
+    let Scaled {
+        w,
+        scale: weight_scale,
+        ..
+    } = scaled(source, weights)?;
     let directed = Options {
         use_direction: true,
         ..Options::default()
@@ -240,9 +247,15 @@ pub fn weighted_table<S: Source>(
             Weights::Directed { .. } => Some(strengths(&plan, memory, w, &directed)?),
             _ => None,
         };
-        let mut t = tally(&plan, memory, w, k.as_ref(), membership, count)?;
-        t.weight_scale = weight_scale;
-        Ok(t)
+        tally(
+            &plan,
+            memory,
+            w,
+            k.as_ref(),
+            weight_scale,
+            membership,
+            count,
+        )
     })
 }
 
@@ -277,6 +290,7 @@ impl Quotient {
                 &plan,
                 memory,
                 Weights::Entries(&self.weights),
+                None,
                 None,
                 &single,
                 n,

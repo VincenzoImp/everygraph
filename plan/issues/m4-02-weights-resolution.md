@@ -21,8 +21,10 @@ labels: type:feature, area:community, P0, risk:medium, size:M, lab-evidence
 
 **As built** (the pull request that closes this issue; `crates/everygraph-community/src/weights.rs`)
 - The scale is the largest `s` with `T·2^s < 2^60`, not `≤ 2^62`: the rounding of each entry (at most one unit) and a loop's `2w` then keep the total of `A` below 2^62 without a second pass.
-- Inputs with a range above the scale are not refused: a weight below `2^-(s+1)` counts as 0, like a zero weight. Refusing them would refuse this issue's own test input: log-uniform weights over 2^-20…2^20 on orkut have `T ≈ 2^43` and so a range of about 2^63. Their error is at most `2^-(s+1)` each, as for every other weight. No two-limb or `i128` fallback is built.
-- `weight_scale` is recorded in the result (`Communities::weight_scale`, `Table::weight_scale`). A weighted result is not stored as a hierarchy, so it has no provenance yet: {{#m4-xx-weighted-hierarchy}}.
+- Inputs with a range above the scale are not refused: a weight below `2^-(s+1)` counts as 0, like a zero weight. Refusing them would refuse this issue's own test input: log-uniform weights over 2^-20…2^20 on orkut have `T ≈ 2^43` and so a range of about 2^63. Their error is at most `2^-(s+1)` each, as for every other weight. No two-limb or `i128` fallback is built. The result counts them (`Communities::rounded_to_zero`).
+- A zero weight is no edge anywhere in Leiden: not to local moving, refinement, the stopping rule or the split into connected components.
+- The oracle: modularity against igraph's Leiden, CPM and directed modularity against `leidenalg`'s (0.12.0, pinned in `oracle/`), each as the mean over ten seeds. `leidenalg`'s `CPMVertexPartition` reports twice the binomial CPM of the scope, less `2γn` on a graph with a loop; the values are compared after that conversion.
+- `weight_scale` is recorded in the result (`Communities::weight_scale`, `Table::weight_scale`). A weighted result is not stored as a hierarchy, so it has no provenance yet: {{#m4-18-weighted-hierarchy}}.
 - The error kinds of the API (`Unsupported`, `InvalidInput`) are the Python layer's ({{#m6-10-communities-python}}); the crate returns `Error::Invalid` and `Error::Weight`.
 
 **Depends on** {{#m4-01-leiden-production}}, {{#m2-10-property-columns}}, {{#m2-34-build-columns}} (no weighted graph can be read before it)

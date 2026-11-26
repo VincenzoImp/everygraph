@@ -133,7 +133,7 @@ fn sums<S: Source>(
     let count =
         u32::try_from(h.len()).map_err(|_| HierarchyError::Argument("too many communities"))?;
     Ok(Plan::with(source, memory, Settings::default(), |plan| {
-        let table = tally(&plan, memory, w, None, map, count)?;
+        let table = tally(&plan, memory, w, None, None, map, count)?;
         let weighted = Column::new(memory, "check sums", h.len(), |_| AtomicU64::new(0))?;
         plan.scan((), all, |(): &mut (), (), _, row, _| {
             let mut sum = 0_u64;

@@ -37,8 +37,9 @@ pub enum EdgeWeights<'a> {
     Pairs(&'a [f64]),
     /// The undirected projection of a directed graph: for the entry of `v` in the list
     /// of `u`, `out` holds the weight of `(u, v)` and `inn` that of `(v, u)`, 0 for an
-    /// arc that does not exist. A kept loop's entry holds its weight in both. Its pair
-    /// weighs `out + inn` (`docs/spec/graph-semantics.md`, Q9), and `use_direction`
+    /// arc that does not exist; so `out` at the entry of `v` in `u`'s list equals `inn`
+    /// at the entry of `u` in `v`'s. A kept loop's entry holds its weight in both. Its
+    /// pair weighs `out + inn` (`docs/spec/graph-semantics.md`, Q9), and `use_direction`
     /// reads the two apart.
     Directed {
         /// The weight of each entry's arc from the list's node.
@@ -74,8 +75,17 @@ pub(crate) fn quantize(w: f64, unit: f64) -> u64 {
     t + u64::from(x - t as f64 >= 0.5)
 }
 
-/// The integer weights of `weights` on `source`, and their scale `s` (`None` for
-/// [`EdgeWeights::Unit`]).
+/// The integer weights of a graph.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Scaled<'a> {
+    pub(crate) w: Weights<'a>,
+    /// `s`; `None` for [`EdgeWeights::Unit`].
+    pub(crate) scale: Option<i32>,
+    /// The entries whose weight is above 0 and rounds to 0.
+    pub(crate) rounded_to_zero: u64,
+}
+
+/// The integer weights of `weights` on `source`.
 ///
 /// # Errors
 ///
@@ -85,14 +95,20 @@ pub(crate) fn quantize(w: f64, unit: f64) -> u64 {
 pub(crate) fn scaled<'a, S: Source>(
     source: &S,
     weights: EdgeWeights<'a>,
-) -> Result<(Weights<'a>, Option<i32>), Error> {
-    let (first, second) = match weights {
-        EdgeWeights::Unit => return Ok((Weights::Unit, None)),
-        EdgeWeights::Pairs(w) => (w, None),
-        EdgeWeights::Directed { out, inn } => (out, Some(inn)),
+) -> Result<Scaled<'a>, Error> {
+    let columns: &[(&'static str, &[f64])] = match weights {
+        EdgeWeights::Unit => {
+            return Ok(Scaled {
+                w: Weights::Unit,
+                scale: None,
+                rounded_to_zero: 0,
+            });
+        }
+        EdgeWeights::Pairs(w) => &[("weight", w)],
+        EdgeWeights::Directed { out, inn } => &[("out", out), ("inn", inn)],
     };
     let mut total = ExactSum::new();
-    for column in std::iter::once(first).chain(second) {
+    for &(name, column) in columns {
         if column.len() as u64 != source.entries() {
             return Err(Error::Invalid("weights: not one per entry"));
         }
@@ -109,6 +125,7 @@ pub(crate) fn scaled<'a, S: Source>(
         });
         for part in parts {
             let sum = part.map_err(|e| Error::Weight {
+                column: name,
                 entry: e as u64,
                 value: column[e],
             })?;
@@ -130,15 +147,25 @@ pub(crate) fn scaled<'a, S: Source>(
         return Err(Error::Invalid("weights: a total below 2^-963"));
     }
     let unit = power_of_two(s);
-    let w = match second {
-        None => Weights::Scaled { w: first, unit },
-        Some(inn) => Weights::Directed {
-            out: first,
-            inn,
-            unit,
-        },
+    let rounded_to_zero = columns
+        .iter()
+        .flat_map(|&(_, column)| {
+            par::map_ranges(column.len(), GRAIN, |r| {
+                let zero = |w: f64| w > 0.0 && quantize(w, unit) == 0;
+                column[r].iter().filter(|&&w| zero(w)).count() as u64
+            })
+        })
+        .sum();
+    let w = match *columns {
+        [(_, w)] => Weights::Scaled { w, unit },
+        [(_, out), (_, inn)] => Weights::Directed { out, inn, unit },
+        _ => unreachable!("one or two columns"),
     };
-    Ok((w, Some(s)))
+    Ok(Scaled {
+        w,
+        scale: Some(s),
+        rounded_to_zero,
+    })
 }
 
 #[cfg(test)]

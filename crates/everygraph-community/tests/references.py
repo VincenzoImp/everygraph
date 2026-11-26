@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
-"""Reference modularities for tests/leiden.rs, from python-igraph and NetworkX (the oracle's
-pinned versions). Writes tests/references.json; the Rust test reads it and builds the same
-graphs with the same generator.
+"""Reference values for tests/leiden.rs and tests/weights.rs, from python-igraph, leidenalg
+and NetworkX (the oracle's pinned versions). Writes tests/references.json; the Rust tests
+read it and build the same graphs with the same generators.
 
     cd oracle && uv run --locked python ../crates/everygraph-community/tests/references.py
 
 For each graph and each method: the best and the mean modularity over seeds 0-9, at
 resolution 1. igraph's Leiden runs until an iteration changes nothing (n_iterations=-1);
 igraph's multilevel and NetworkX's Louvain run to their own end. Then weighted graphs
-with loops (#58): igraph's Leiden for modularity at several resolutions and for CPM, the
-values of fixed partitions, and directed (Leicht-Newman) values on a directed graph.
+with loops (#58): igraph's Leiden for modularity at several resolutions, leidenalg's for
+CPM, the values of fixed partitions; and directed graphs, with leidenalg's Leiden for
+Leicht-Newman modularity and igraph's directed and projected values.
 """
 
 import json
@@ -19,6 +20,7 @@ import random
 import statistics
 
 import igraph
+import leidenalg
 import networkx as nx
 
 MASK = (1 << 64) - 1
@@ -113,13 +115,22 @@ def weighted(n, edges, seed):
 
 
 def cpm(g, membership, weights, gamma):
-    """leidenalg's CPMVertexPartition: the weight inside each community, loops once,
-    less gamma times its pairs of nodes."""
+    """The Constant Potts Model in the binomial form of Traag, Van Dooren and Nesterov
+    (2011), Everygraph's: sum over communities of the weight inside, loops once, less
+    gamma times its pairs of nodes. Read from leidenalg's CPMVertexPartition, whose
+    quality() is twice that, less 2·gamma·n when the graph has a loop (its possible
+    edges are then n_c·(n_c + 1)/2); checked here on every partition it scores."""
+    p = leidenalg.CPMVertexPartition(g, initial_membership=membership, weights=weights,
+                                     resolution_parameter=gamma)
+    loops = any(e.is_loop() for e in g.es)
+    value = p.quality() / 2 + (gamma * g.vcount() if loops else 0.0)
     inside = sum(w for e, w in zip(g.es, weights) if membership[e.source] == membership[e.target])
     sizes = {}
     for c in membership:
         sizes[c] = sizes.get(c, 0) + 1
-    return inside - gamma * sum(s * (s - 1) / 2 for s in sizes.values())
+    binomial = inside - gamma * sum(s * (s - 1) / 2 for s in sizes.values())
+    assert abs(value - binomial) <= 1e-9 * max(1.0, abs(binomial)), (value, binomial)
+    return value
 
 
 # Name: (graph, resolutions of modularity, resolution of CPM, block size).
@@ -155,10 +166,10 @@ def weighted_references():
             r["modularity"][str(gamma)] = summary(values)
         values = []
         for seed in range(10):
-            random.seed(seed)
-            m = g.community_leiden(objective_function="CPM", weights=w, resolution=gamma_cpm,
-                                   n_iterations=-1).membership
-            values.append(cpm(g, m, w, gamma_cpm))
+            p = leidenalg.find_partition(g, leidenalg.CPMVertexPartition, weights=w,
+                                         resolution_parameter=gamma_cpm, n_iterations=-1,
+                                         seed=seed)
+            values.append(cpm(g, p.membership, w, gamma_cpm))
         r["cpm"] = {"resolution": gamma_cpm, **summary(values)}
         r["values"] = {
             key: {
@@ -171,25 +182,49 @@ def weighted_references():
     return out
 
 
+def flow(blocks, size, p_in, p_out, forward, back, seed):
+    """Arcs inside a block with probability p_in / 1000 and between blocks p_out / 1000,
+    every ordered pair drawn in order; an arc from a lower to a higher id weighs
+    `forward`, the other way `back`, each times a draw in [1, 2)."""
+    rng = SplitMix64(seed)
+    n = blocks * size
+    arcs, weights = [], []
+    for u in range(n):
+        for v in range(n):
+            if u == v:
+                continue
+            if rng.next() % 1000 < (p_in if u // size == v // size else p_out):
+                arcs.append((u, v))
+                weights.append((forward if u < v else back) * (1.0 + unit(rng)))
+    return n, arcs, weights
+
+
+def leidenalg_directed(g, w):
+    """The Leicht-Newman modularity of leidenalg's ModularityVertexPartition, which
+    reads direction, over seeds 0-9."""
+    values = []
+    for seed in range(10):
+        p = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition, weights=w,
+                                     n_iterations=-1, seed=seed)
+        values.append(g.modularity(p.membership, weights=w, directed=True))
+    return summary(values)
+
+
 def directed_references():
-    """A directed planted graph with loops: Leicht-Newman and projected modularity of
-    the partitions of `fixed`, and the Leicht-Newman value over seeds 0-9 of igraph's
-    Leiden on the undirected projection (its Leiden for modularity does not read
-    direction)."""
+    """Directed graphs: a planted one with loops, with the Leicht-Newman and projected
+    modularity of the partitions of `fixed`; and one whose arcs run mostly from lower to
+    higher ids, where direction changes the best partition. For both, leidenalg's best
+    Leicht-Newman value."""
     n, edges, w = weighted_planted(8, 60, 150, 6, 5, directed=True)
     g = igraph.Graph(n=n, edges=edges, directed=True)
-    projected = []
-    for seed in range(10):
-        random.seed(seed)
-        m = g.as_undirected(mode="each").community_leiden(
-            objective_function="modularity", weights=w, n_iterations=-1).membership
-        projected.append(g.modularity(m, weights=w, directed=True))
+    fn, farcs, fw = flow(4, 50, 200, 100, 8.0, 0.1, 100)
+    f = igraph.Graph(n=fn, edges=farcs, directed=True)
     return {
         "nodes": n,
         "edges": len(edges),
         "weight_sum": math.fsum(w),
         "block": 60,
-        "projection_leiden_directed": summary(projected),
+        "leidenalg": leidenalg_directed(g, w),
         "values": {
             key: {
                 "directed": g.modularity(m, weights=w, directed=True),
@@ -197,6 +232,12 @@ def directed_references():
                 "directed_half": g.modularity(m, weights=w, resolution=0.5, directed=True),
             }
             for key, m in fixed(n, 60).items()
+        },
+        "flow": {
+            "nodes": fn,
+            "edges": len(farcs),
+            "weight_sum": math.fsum(fw),
+            "leidenalg": leidenalg_directed(f, fw),
         },
     }
 
@@ -223,7 +264,8 @@ def main():
             "igraph_multilevel": summary(multilevel),
             "networkx_louvain": summary(louvain),
         }
-    versions = {"igraph": igraph.__version__, "networkx": nx.__version__}
+    versions = {"igraph": igraph.__version__, "leidenalg": leidenalg.__version__,
+                "networkx": nx.__version__}
     everything = {
         "versions": versions,
         "graphs": out,

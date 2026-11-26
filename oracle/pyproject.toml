@@ -2,8 +2,9 @@
 #
 # Reference runners of the correctness oracle (issue #6). Python lives here and nowhere
 # else in the engine: these libraries are test oracles, never dependencies of a shipped
-# artifact. python-igraph is GPL-2.0-or-later; that is fine for a test tool that is not
-# distributed with Everygraph, and it must never move into a shipped package.
+# artifact. python-igraph is GPL-2.0-or-later and leidenalg GPL-3.0-or-later; that is
+# fine for a test tool that is not distributed with Everygraph, and they must never move
+# into a shipped package.
 [project]
 name = "everygraph-oracle-ref"
 version = "0.0.0"
@@ -19,6 +20,7 @@ dependencies = [
     "igraph==1.0.0",
     "scipy==1.18.1",
     "numpy==2.5.5",
+    "leidenalg==0.12.0",
 ]
 
 [project.scripts]

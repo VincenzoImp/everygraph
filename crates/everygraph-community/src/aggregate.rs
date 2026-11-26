@@ -343,7 +343,7 @@ pub(crate) fn quotient_of<S: Source>(
     membership: &[u32],
 ) -> Result<Quotient, Error> {
     crate::quality::communities(source.nodes(), membership)?;
-    let (w, _) = crate::weights::scaled(source, weights)?;
+    let w = crate::weights::scaled(source, weights)?.w;
     Plan::with(source, memory, settings, |plan| {
         let d = dense(&plan, memory, |v| membership[v.index()])?;
         let members = Members::new(memory, d.parts())?;

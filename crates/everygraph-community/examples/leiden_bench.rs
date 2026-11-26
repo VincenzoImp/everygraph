@@ -20,7 +20,7 @@
 //! `run` prints one JSON line: the times of every repetition, the modularity, the
 //! number of communities, the hash of the levels (the same for every source, thread
 //! count and chunking in the deterministic mode), the statistics of each level, and with
-//! `--check 1` the modularity evaluated again on the result and the number of
+//! `--check 1` the modularity and the quality evaluated again on the result and the number of
 //! disconnected communities. `--budget-gib` bounds what Leiden reserves (not the graph,
 //! which is loaded first). `--hier FILE` then stores the hierarchy (#62) in a new
 //! container `FILE` and reports its time, its bytes, the budget's peak while Leiden ran
@@ -281,11 +281,14 @@ fn time<S: Source>(source: &S, a: &Args, settings: Settings) -> String {
         })
         .collect();
     let check = if a.get("check").is_some_and(|c| c == "1") {
-        let q = weighted_table(source, w, &memory, settings, &c.membership)
-            .expect("q")
-            .modularity(o.resolution);
+        let t = weighted_table(source, w, &memory, settings, &c.membership).expect("q");
+        // As `Communities::modularity` and `quality`.
+        let (m, q) = match o.objective {
+            Objective::Modularity => (t.modularity(o.resolution), t.modularity(o.resolution)),
+            Objective::Cpm => (t.modularity(1.0), t.cpm(o.resolution)),
+        };
         format!(
-            ", \"check_modularity\": {q}, \"disconnected\": {}",
+            ", \"check_modularity\": {m}, \"check_quality\": {q}, \"disconnected\": {}",
             disconnected(source, &c.membership)
         )
     } else {

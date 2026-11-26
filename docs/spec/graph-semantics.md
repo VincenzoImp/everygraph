@@ -463,8 +463,10 @@ Leicht–Newman form:
 
     Q_d = (1/W)·Σ_ij [ A_ij − γ·s⁺_i·s⁻_j / W ]·δ(c_i, c_j),   A[v][v] = w
 
-and CPM (#58) as `leidenalg`'s `CPMVertexPartition`, `Σ_c [ L(c) − γ·n_c·(n_c − 1)/2 ]`,
-with the loops in `L(c)`. Weights as in § 4.1; `weight=False` gives every pair 1.
+and CPM (#58) in the binomial form of Traag, Van Dooren and Nesterov (2011),
+`Σ_c [ L(c) − γ·n_c·(n_c − 1)/2 ]`, with the loops in `L(c)`. `leidenalg`'s
+`CPMVertexPartition` reports twice this, less `2γn` on a graph with a loop; the best
+partition is the same. Weights as in § 4.1; `weight=False` gives every pair 1.
 
 Community detection reads real weights as fixed-point integers: each weight becomes
 `round(w·2^s)`, with the scale `s` chosen once from the exact total `T` of the weights,
