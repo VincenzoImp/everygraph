@@ -30,10 +30,6 @@ use everygraph_core::Pages;
 /// 128 KiB (exploratory A/B, PR of issue #167).
 pub const LARGE_BLOCK: usize = 128 << 10;
 
-/// Maps of this size or more start at a multiple of it, so that the kernel can back
-/// them with transparent huge pages where it is allowed to.
-const HUGE_PAGE: usize = 2 << 20;
-
 /// The page backend of a native build: give it to
 /// [`Budget::with_pages`](everygraph_core::Budget::with_pages).
 ///
@@ -159,7 +155,9 @@ mod sys {
     use std::ptr::{self, NonNull};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::HUGE_PAGE;
+    /// Maps of this size or more start at a multiple of it, so that the kernel can back
+    /// them with transparent huge pages where it is allowed to.
+    pub(super) const HUGE_PAGE: usize = 2 << 20;
 
     /// The size of a page, read once.
     fn page() -> usize {
@@ -300,10 +298,6 @@ mod sys {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use everygraph_core::{Budget, Memory, ScratchPool, SegVec};
-
     use super::*;
 
     fn pages() -> &'static (dyn Allocator + Sync) {
@@ -370,8 +364,10 @@ mod tests {
     /// Maps of 2 MiB or more start on a 2 MiB boundary, where huge pages can back them;
     /// a block aligned to more than a page is not mapped and still aligned.
     #[test]
+    #[cfg(unix)]
     #[cfg_attr(miri, ignore = "Miri's maps are page-aligned only")]
     fn large_maps_are_aligned_for_huge_pages() {
+        use sys::HUGE_PAGE;
         for size in [HUGE_PAGE, 5 << 20] {
             let mut v: Vec<u8, _> = Vec::new_in(pages());
             v.try_reserve_exact(size).unwrap();
@@ -389,8 +385,13 @@ mod tests {
     /// start on a 2 MiB boundary, which glibc's `malloc` never gives (its blocks start
     /// 16 bytes into a page).
     #[test]
+    #[cfg(unix)]
     #[cfg_attr(miri, ignore = "Miri's maps are page-aligned only")]
     fn the_core_containers_allocate_from_the_budget_s_pages() {
+        use everygraph_core::{Budget, Memory, ScratchPool, SegVec};
+        use std::sync::Arc;
+        use sys::HUGE_PAGE;
+
         let memory = Memory::from(Arc::new(Budget::unlimited().with_pages(PAGES)));
         assert_eq!(memory.pages().name(), PAGES.name());
         let ranks = SegVec::try_with_len(&memory, "ranks", 1 << 20, 0_u32).unwrap();
