@@ -278,11 +278,13 @@ fn a_refused_reservation_ends_in_a_typed_error_for_every_k() {
     });
 }
 
+/// The families themselves are measured by the slope test; the pull-request search only
+/// measures what it makes of them.
 #[test]
 fn a_search_finds_no_graph_where_untracked_heap_grows() {
     alone(|| {
         let dir = Dir::new("search");
-        search(&SIZES, 4, &dir.0);
+        search(&SIZES, false, 4, &dir.0);
     });
 }
 
@@ -290,9 +292,9 @@ fn a_search_finds_no_graph_where_untracked_heap_grows() {
 /// reservation has its bytes put in the phase of the last reservation on any thread, so
 /// the bytes of ingest's first pass can land in a phase reserved just after it, on one
 /// run and not the next (seen once on macOS, PR #251); the slope test still covers them.
-fn search(sizes: &[u32], steps: usize, dir: &Path) {
+fn search(sizes: &[u32], measure_start: bool, steps: usize, dir: &Path) {
     let ops: Vec<Op> = OPS.into_iter().filter(|&op| known(op).is_none()).collect();
-    let worst = climb(&ops, &FAMILIES, sizes, steps, 0x5eed, dir);
+    let worst = climb(&ops, &FAMILIES, measure_start, sizes, steps, 0x5eed, dir);
     let mut failures = Vec::new();
     for (op, w) in &worst {
         let top = w.phases.iter().max_by(|a, b| a.1.0.total_cmp(&b.1.0));
@@ -323,6 +325,6 @@ fn untracked_heap_does_not_grow_at_nightly_sizes() {
 fn a_long_search_finds_no_graph_where_untracked_heap_grows() {
     alone(|| {
         let dir = Dir::new("search-nightly");
-        search(&[1 << 12, 1 << 14, 1 << 16], 200, &dir.0);
+        search(&[1 << 12, 1 << 14, 1 << 16], true, 200, &dir.0);
     });
 }

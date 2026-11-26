@@ -113,10 +113,12 @@ pub struct Worst {
 }
 
 /// Climbs from `start` for `steps` steps, at `sizes`, for each of `ops`, with `dir` for
-/// the inputs; returns the worst found per operation.
+/// the inputs; returns the worst found per operation. With `measure_start` false the
+/// start recipes are only mutated, not measured: the slope test measures them already.
 pub fn climb(
     ops: &[Op],
     start: &[Recipe],
+    measure_start: bool,
     sizes: &[u32],
     steps: usize,
     seed: u64,
@@ -148,7 +150,7 @@ pub fn climb(
         raised
     };
     let mut kept: Vec<Recipe> = start.to_vec();
-    for &recipe in start {
+    for &recipe in start.iter().filter(|_| measure_start) {
         raises(recipe, &mut worst);
     }
     let mut rng = seed;
