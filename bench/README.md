@@ -8,7 +8,7 @@ and result formats.
 | Path | What | In git |
 |---|---|---|
 | `specs/*.toml` | Benchmark specs: what to run, on what, under which limits | yes |
-| `results/<spec>/<timestamp>-<revision>.jsonl` | Rows of **official** runs | yes: every number quoted in a document cites one of these files |
+| `results/<spec>/<timestamp>-<revision>.jsonl` | Rows of **official** runs; [`results/README.md`](results/README.md) summarizes the newest product results | yes: every number quoted in a document cites one of these files |
 | `results/<spec>/<timestamp>-<revision>.program.jsonl` | What the program under test logged during an official run, collected next to its rows (`lab/m1-02-ooc-leiden/collect_program.py`) | yes |
 | `results/<spec>/exploratory/…` | Exploratory rows that a pull request, an issue or an ADR cites as evidence | yes, only the cited ones |
 | `exploratory/<spec>/…` | Rows of exploratory runs | no (ignored) |

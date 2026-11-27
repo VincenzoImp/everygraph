@@ -13,6 +13,7 @@ and marks from here. The rules that values cannot say are in
 | `fonts.css`, `fonts/` | Inter and JetBrains Mono, SIL Open Font License 1.1. The licence texts sit next to the fonts and travel with them. |
 | `icons.svg` | The icon set as an SVG sprite: 16-unit grid, 1.5 stroke, `currentColor`. `<svg width="16" height="16"><use href="icons.svg#search"/></svg>`. |
 | `mark/` | Generated from `tokens.css`: the Nest (light, dark, one colour), the Seal and the small Seal for 16 px and below (light and dark page), and `favicon.svg`, which follows the system theme. |
+| `social/` | The repository's social preview: `card.html`, `render.mjs` (headless Chromium through Playwright) and the PNG it writes, 1280 × 640. Not in the npm package. |
 | `package.json` | The npm manifest: what the package ships (the files above) and its exports. |
 | `tools/` | `build.py` (generates `tokens.json` and `mark/`), `measure.mjs` (contrast and palette floors), `lint_colours.py` (no colour literals in product stylesheets), `search-palette.mjs` (searches a categorical palette) and `color.mjs` (the colour maths the two Node tools share). No dependencies beyond Python's standard library and Node. |
 

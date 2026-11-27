@@ -2,9 +2,8 @@
 
 ## Supported versions
 
-None yet. Everygraph has had no release, and there is nothing to install: the Rust
-workspace holds the first components (container, adjacency codec, I/O layer, readers),
-not a usable product. This section will list the supported versions from the first
+None yet. Everygraph has had no release, and no package is published. The command line
+and the Python package build from source, and reports about them are welcome. This section will list the supported versions from the first
 release (0.1) on.
 
 ## Reporting a vulnerability
