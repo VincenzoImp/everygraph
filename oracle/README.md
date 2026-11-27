@@ -82,9 +82,11 @@ target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT   #
   - the 14 LDBC Graphalytics test graphs against their reference outputs (§ LDBC
     Graphalytics below).
 
-  After `uv sync` it downloads only the LDBC test graphs (10 kB). The oracle's Rust tests (unit tests, 6 properties
-  at 96 cases each, the seeded-bug tests, the karate golden file) run in the `test` job
-  with the rest of the workspace; run locally, `run-ci.sh` runs them too.
+  After `uv sync` it downloads only the LDBC test graphs (10 kB). The seeded-bug tests
+  (`tests/seeded_bugs.rs`) run here, in release, on the CI corpus with the Python
+  references. The oracle's other Rust tests (unit tests, 6 properties at 96 cases each,
+  the karate golden file) run in the `test` job with the rest of the workspace; run
+  locally, `run-ci.sh` runs them too.
 - **Nightly**, `run-nightly.sh` (not scheduled yet; run by hand or by the benchmark
   machine):
   - the nightly corpus: 1,576 graphs, up to 100,000 rows, hubs with 2^16 neighbours, and
