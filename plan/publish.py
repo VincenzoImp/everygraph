@@ -16,6 +16,9 @@ Files are published in filename order, so issue numbers follow the plan order. A
 placeholder in a body is replaced with the issue number of the file whose name is slug
 (two passes: create everything, then patch bodies that contain references).
 
+A run that writes published.json ends with docs/tools/check_adrs.py, and exits 1, listing the
+failing citations, when it fails.
+
 What this script does not do:
 - It never closes or deletes an issue. A file that is removed leaves its GitHub issue open and
   unowned, drops its number from published.json, and breaks every '{{#slug}}' that cites it.
@@ -110,4 +113,13 @@ for i in issues:
     gh(f"repos/{repo}/issues/{numbers[i['slug']]}", "-X", "PATCH", "--input", "-", inp=json.dumps(payload))
     time.sleep(0.5)
 (here / "published.json").write_text(json.dumps(numbers, indent=1))
-print("done:", len(numbers), "issues")
+print("published:", len(numbers), "issues")
+# published.json is what the ADR citations are checked against: a push of a version that
+# breaks them turns the docs checks red on main and on every open pull request.
+sys.path.insert(0, str(here.parent / "docs" / "tools"))
+import check_adrs
+errors, _ = check_adrs.check(here.parent.resolve())
+if errors:
+    raise SystemExit("docs/tools/check_adrs.py fails with this published.json; fix these "
+                     "citations before you push:\n" + "\n".join(f"  {e}" for e in errors))
+print("done: docs/tools/check_adrs.py passes")
