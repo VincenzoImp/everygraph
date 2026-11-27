@@ -174,11 +174,11 @@ jobs:
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152
-      # The oracle's own tests (its seeded-bug tests take ~90 s of the two cores) run
-      # when the oracle job does: the oracle crate has no workspace dependency, so only
-      # its own files can break them, and those switch the oracle flag on. A manifest
-      # change (a dependency) runs them too: the msrv job skips its own run while the
-      # minimum is the current stable.
+      # The oracle's own tests run when the oracle job does: the oracle crate has no
+      # workspace dependency, so only its own files can break them, and those switch the
+      # oracle flag on. A manifest change (a dependency) runs them too: the msrv job skips
+      # its own run while the minimum is the current stable. Its seeded-bug tests run in
+      # the oracle job only (.config/nextest.toml).
       - name: cargo nextest (workspace)
         env:
           EXCLUDE: ${{ needs.lint.outputs.oracle != 'true' && needs.lint.outputs.msrv != 'true' && '--exclude everygraph-oracle' || '' }}
@@ -268,8 +268,8 @@ jobs:
 
   # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
   # scipy, the in-process references, the toy kernel, the seeded bugs and the golden files
-  # that need no network. The oracle's Rust tests run in the `test` job (nextest), so the
-  # script skips them here. uv is pinned like every other tool; the Python interpreter
+  # that need no network. The oracle crate's other Rust tests run in the `test` job
+  # (nextest), so the script skips them here. uv is pinned like every other tool; the Python interpreter
   # and the packages are cached, written by main only.
   oracle:
     name: Correctness oracle (references, seeded bugs, golden files)
