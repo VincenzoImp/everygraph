@@ -103,8 +103,8 @@ section are reported in their own README (`lab/README.md` lists them).
   optimizing tier forced.
 - **V8 tiering trap:** a kernel executed as one long call stays in the baseline compiler
   (4.6× slower: 25.3 s vs 5.5 s with the optimizing tier forced; lj, PageRank, 1 thread,
-  `lab/g-wasm/results/chromium.jsonl`. An earlier "up to 9×" compared 25.3 s with native
-  2.81 s, which mixes tiering with wasm-vs-native). Kernels must be many short calls;
+  `lab/g-wasm/results/chromium.jsonl`; 25.3 s against native 2.81 s is 9.0×, which mixes
+  tiering with wasm-vs-native). Kernels must be many short calls;
   ship only the threaded build.
 - **Ceilings:** 4 GiB linear memory *and* no single allocation above 2 GiB. Two-pass build
   fits ~265M undirected edges; honest promise 10–50M "in seconds", ~100M defensible.
@@ -227,8 +227,7 @@ Query bar on lj, 3 threads, warm (answers cross-checked against igraph):
   gives PageRank at 0.09× for 1% selectivity and 0.09–0.17× for 10% (4 / 32 threads), and
   was faster per iteration than the mask at every selectivity measured (1–90%). The
   mask/materialize crossover depends on the number of passes and on memory; it was not
-  measured (an earlier "mask above ~20–30%" was an estimate, not measured; #93 derives the
-  rule). Roaring only below ~5% density.
+  measured (#93 derives the rule). Roaring only below ~5% density.
 - **Temporal:** time-sorted lists make window scans 2–4× faster but lose sorted-merge
   intersection; prefer neighbor-sorted canonical CSR plus time-partitioned segments.
 
@@ -394,7 +393,7 @@ limit ≈ edge array): 5.6× slower; below it, 51× slower or OOM. **Semi-extern
 detection is not yet a product feature:** aggregation needs a sequential sort/bucket
 implementation and the level-1 graph must be budgeted or spilled.
 *Corrected 2026-11-25 by § M1-02 (#16, idle, Friendster, async, 1 iteration, 16 threads,
-f64 weights, compressed level 0):* the 22.6 GiB need (written "23.6 GB" earlier) is that
+f64 weights, compressed level 0):* the 22.6 GiB need is that
 of this lab's member-order aggregation, which holds the level-1 graph in memory. With
 sequential aggregation into budgeted buckets and spilled quotient graphs, the same Leiden
 runs under 16 GiB in 87.4 s, 1.17× the same algorithm in RAM (74.8 s), and under 8 GiB at

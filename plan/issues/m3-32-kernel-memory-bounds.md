@@ -13,7 +13,7 @@ labels: type:feature, area:engine, P1, risk:medium, size:M
 - [ ] `components::number` in memory that does not grow with the component count (4 bytes a root, or a pass that reuses the sizes array)
 - [ ] k-core's buckets and frontiers bounded by what they can hold together, not each by every node
 - [ ] A bound for strong components: the pairs a round can hold, or a round cut to what the budget leaves, so that their plan is `bounded`
-- [ ] A counting-allocator check, as `tests/heap.rs` does, that the heap a run holds stays within its plan's peak plus a fixed slack, on the corpus; the resident check under a cgroup is {{#m3-10-no-oom-ci}}'s
+- [ ] A counting-allocator check, as `crates/everygraph-memtest/tests/readers.rs` does, that the heap a run holds stays within its plan's peak plus a fixed slack, on the corpus; the resident check under a cgroup is {{#m3-10-no-oom-ci}}'s
 
 **Acceptance**
 - Every run of the corpus holds at most its plan's peak plus the fixed slack, counted by the allocator

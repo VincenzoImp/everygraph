@@ -97,7 +97,7 @@ pub const SEGMENT_PREFIX: &str = "seg/";
 pub const IN_ADJACENCY: &str = "adjacency.in.";
 
 /// What a section holds (spec § 5). A reader skips sections whose kind it does not
-/// know; that is how later issues add artifacts without a new version.
+/// know, so a new kind of artifact needs no new format version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Kind(u32);
 

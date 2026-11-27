@@ -13,6 +13,8 @@ and marks from here. The rules that values cannot say are in
 | `fonts.css`, `fonts/` | Inter and JetBrains Mono, SIL Open Font License 1.1. The licence texts sit next to the fonts and travel with them. |
 | `icons.svg` | The icon set as an SVG sprite: 16-unit grid, 1.5 stroke, `currentColor`. `<svg width="16" height="16"><use href="icons.svg#search"/></svg>`. |
 | `mark/` | Generated from `tokens.css`: the Nest (light, dark, one colour), the Seal and the small Seal for 16 px and below (light and dark page), and `favicon.svg`, which follows the system theme. |
+| `package.json` | The npm manifest: what the package ships (the files above) and its exports. |
+| `tools/` | `build.py` (generates `tokens.json` and `mark/`), `measure.mjs` (contrast and palette floors), `lint_colours.py` (no colour literals in product stylesheets), `search-palette.mjs` (searches a categorical palette) and `color.mjs` (the colour maths the two Node tools share). No dependencies beyond Python's standard library and Node. |
 
 In npm the package is `@everygraph/style`; it is kept private until the first release.
 
@@ -31,4 +33,5 @@ In npm the package is `@everygraph/style`; it is kept private until the first re
    and fails if a value falls below its floor.
 4. For a new categorical palette, `tools/search-palette.mjs` searches one; measure it again.
 
-CI runs `build.py --check`, `measure.mjs` and `lint_colours.py` on every pull request.
+CI runs `build.py --check`, `measure.mjs` and `lint_colours.py` on every pull request
+and push (`.github/workflows/docs.yml`).

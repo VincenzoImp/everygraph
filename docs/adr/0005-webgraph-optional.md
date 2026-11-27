@@ -23,9 +23,8 @@ From the codec bake-off (FINDINGS § C; shared machine; 32 threads unless noted;
   VByte; on social graphs the gap is small (orkut 15.41 vs 16.66; twitter-sym 13.92 vs
   16.11).
 - **Decode speed**, sequential scan, Stream VByte ÷ BV: at 1 thread 18.7× (orkut), 14.6×
-  (twitter-sym), 5.0× (uk-2005); at 32 threads 9.1×, 21.9×, 5.2×. DESIGN and FINDINGS
-  summarized this as "7–20×", a range not traced to the files, until they were corrected
-  to 5.0–21.9× (9.1–21.9× on the social graphs) on 2026-11-25.
+  (twitter-sym), 5.0× (uk-2005); at 32 threads 9.1×, 21.9×, 5.2×: 5.0–21.9× in all,
+  9.1–21.9× on the social graphs.
 - **PageRank iteration**: BV 0.18 s vs 0.051 s (orkut), 2.9 vs 0.85 s (twitter-sym).
 - **Cold reads**, twitter-sym, 6 threads: BV is decode-bound at 0.19–0.50 G edges/s against
   2.67 for Stream VByte (`lab/c-compression/results/dev6_cold8g.jsonl`).

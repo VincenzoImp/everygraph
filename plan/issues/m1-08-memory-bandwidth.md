@@ -23,4 +23,4 @@ labels: type:experiment, area:engine, P1, risk:medium, size:M, lab-evidence
 
 **Success.** ≥ 1.5× on Friendster PageRank at 16 threads, or a documented explanation of why not.
 
-**Decision it feeds.** D13 defaults and whether the edge-map framework ({{#m3-01-edge-map}}) needs a blocked variant from the start.
+**Decision it feeds.** D13 defaults and whether the edge-map framework ({{#m3-01-edge-map}}) (built without one, PR #202) gains a blocked variant.

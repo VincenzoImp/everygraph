@@ -191,8 +191,8 @@ Each item names the issue that owns it.
      - Map-shaped Leiden completes under 16 GiB: 164.1 s, Q 0.5900, 27 top communities.
      - Not measured: more than one iteration; the deterministic mode below 16 GiB; other
        graph families at this scale (orkut scaled down: 3.10×). A seeded relabelling at
-       ingest kept Friendster at 1.28–1.43× under 8 and 4 GiB (#146); ADR 0015 is
-       unchanged.
+       ingest kept Friendster at 1.28–1.43× under 8 and 4 GiB, but costs storage and
+       kernel speed (#146): ADR 0015 is unchanged.
      - Owner of the product: #60.
    - *The headline "1.8 B edges → map on a 16 GB laptop"* (tracer, #15, FINDINGS § M1-01;
      Friendster, lab binaries, 32 threads, idle, uncompressed CSR;

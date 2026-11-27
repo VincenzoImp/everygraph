@@ -582,10 +582,8 @@ forward, reading the input again with `duplicates="events"`.
 ## 8. What the oracle checks
 
 With the decisions of § 5, the oracle defines an answer for every kernel on every graph of
-its corpus. The amendments it needs (to `oracle/SEMANTICS.md`, the Rust reference in
-`crates/everygraph-oracle` and the Python references in `oracle/src`) were listed in the
-pull request that added this document (#145) and applied by #147
-(`plan/issues/m2-16-oracle-semantics.md`); in short:
+its corpus. `oracle/SEMANTICS.md`, the Rust reference in `crates/everygraph-oracle` and
+the Python references in `oracle/src` follow them (#147):
 
 - PageRank, core numbers, clustering, transitivity and modularity stop being skipped on
   graphs with kept loops. The Rust reference adds the loop to `A` as in § 3 for PageRank,
@@ -610,43 +608,19 @@ pull request that added this document (#145) and applied by #147
 
 ## 9. Disagreements found
 
-Between the decision records and the specifications, and between this issue and its
-neighbours. The pull request that added this document corrected the ones in
-`docs/api-sketch.md`. The others have since been resolved where each item says.
+Points where this specification and its neighbours met. Items 1–6 were settled in the
+documents they concerned and are not kept here; the numbers of the others are cited.
 
-1. **A kept loop in `degree`.** `docs/api-sketch.md` § 2.13 said a kept loop "counts 1 in
-   `in_degree`, `out_degree` and `degree`". DECISIONS ("Graph semantics", Q1) says it adds
-   2 to the undirected degree. The decision wins; § 2.13 is corrected.
-2. **Modularity without edges.** `docs/api-sketch.md` § 2.13 (two rows) and § 3.5
-   (`modularity: float  # NaN when there are no edges`) said NaN, printed `—`. DECISIONS
-   (Q7) says 0, never NaN. The decision wins; both places are corrected.
-3. **The file name.** The issue's acceptance and `docs/api-sketch.md` (§ 2.13, § 3.2,
-   § 7) name `docs/spec/graph-model.md`; this document is `docs/spec/graph-semantics.md`,
-   as the coordinator asked. The sketch's references and the issue's acceptance line now
-   use the new name.
-4. **Weights that must be clean.** `docs/api-sketch.md` § 2.4 lists `degrees` among the
-   takers of `weight=` and says weights "must be finite and not negative"; § 2.13 lists
-   only PageRank, communities and path costs as refusing. Decided here (§ 4.4): reported
-   sums (`degrees()`, `neighbors()`, `to_scipy()`) never refuse. § 2.4 is corrected.
-5. **The oracle's quotient and adjacency with kept loops.** `oracle/SEMANTICS.md` checks
-   the quotient graph "(a loop is not a pair)" and the adjacency without loops
-   (`no_self_loops`). § 5.5 makes a kept loop a pair on the quotient's diagonal, and
-   `docs/api-sketch.md` § 2.13 makes a node with a kept loop its own neighbour. #147
-   changed both oracle checks (§ 8).
-6. **Aggregates of `duplicates="sum"`.** The issue's scope lists "count, sum/min/max of a
-   weight, first/last timestamp"; `docs/api-sketch.md` § 7 offers sum, count and
-   first/last only. The sketch (with its amendment to this issue) wins: no min or max.
-7. **Column types.** #37 (`m2-10-property-columns.md`) listed `decimal128` only; exact
-   token amounts of 256-bit integers need `decimal256` (§ 2.6). #37 now lists both.
-8. **Edge types.** The issue asks for "edge types as a small categorical column";
+7. **Column types.** Exact token amounts of 256-bit integers need `decimal256` beside
+   `decimal128` (§ 2.6); #37 (`m2-10-property-columns.md`) lists both.
+8. **Edge types.** Edge types are stored as a small categorical column (§ 2.6), but
    `docs/api-sketch.md` § 3.1 reads only the source, target, weight and time columns and
-   lists the rest as ignored. The storage is specified here (§ 2.6); the option to read
-   such a column has no name and needs a preview.
-9. **Repeated rows in the result block.** `docs/ux-contract.md` G-12 shows only
-   `dropped: N self-loops`; with `"collapse"` the line also carries the dropped
-   duplicates (key `duplicates`, open in the schema), and with `"sum"` the merged rows are
-   in `counts.merged`. The contract now gives the printed words for both
-   (`docs/ux-contract.md` G-12; its § 9, item 28).
+   lists the rest as ignored. The option to read such a column has no name and needs a
+   preview. Open.
+9. **Repeated rows in the result block.** With `"collapse"` the `dropped` line also
+   carries the dropped duplicates (key `duplicates`), and with `"sum"` the merged rows are
+   in `counts.merged`. `docs/ux-contract.md` G-12 and its § 9, item 28, give the printed
+   words for both.
 
 ## 10. Decided here
 

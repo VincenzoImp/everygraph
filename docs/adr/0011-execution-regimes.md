@@ -37,8 +37,7 @@ O(n) state, not by the size of the graph. A memory accountant backs the no-OOM g
   `lab/b2-leiden/results/big/friendster_louvain_semiext16g.json`,
   `lab/b2-leiden/results/semiext/`): Leiden's O(n) state is small (21–53 B/node) but its
   dominant term is the level-1 quotient graph (22–44% of input entries). Leiden on
-  Friendster at 32 threads peaked at 23,648,132 KiB of anonymous memory (22.6 GiB; DESIGN,
-  FINDINGS and README wrote "23.6 GB" until on 2026-11-25) and does not fit 16 GiB. Louvain under 16 GiB finished
+  Friendster at 32 threads peaked at 23,648,132 KiB of anonymous memory (22.6 GiB) and does not fit 16 GiB. Louvain under 16 GiB finished
   with 3.8 GiB anonymous but Q 0.4647 against Leiden's 0.6033. On orkut with a limit near
   the edge-array size, Leiden ran 5.7× slower (23.8 vs 4.2 s, 6 threads); below it,
   Louvain ran 51× slower (163.9 vs 3.2 s) or was killed.
@@ -104,8 +103,9 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
   pass: small for PageRank, 10× for components on Friendster.
 
 - Regime 2 for random access whose working set exceeds the budget: amended by
-  [ADR 0029](0029-random-access-under-a-budget.md), accepted 2026-11-26 (an explicit
-  budgeted cache over `ByteSource`, built in #178), from #172.
+  [ADR 0029](0029-random-access-under-a-budget.md), accepted 2026-11-26, from #172: an
+  explicit budgeted cache over `ByteSource` (built in #178) where it reads fewer bytes at
+  equal memory, per-phase `MADV_RANDOM` elsewhere.
 
 ## What would change our mind
 
@@ -117,5 +117,4 @@ in the D4 compressed store; lab code `lab/m1-02-ooc-leiden`;
 ## Closed by
 
 #60 (production out-of-core Leiden) for community detection; #46 for iterative scans; the
-speed target of the block cache (#240, ADR 0029; open in #240) for random access under a
-budget.
+speed target of the block cache (#240, ADR 0029) for random access under a budget.

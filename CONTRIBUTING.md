@@ -308,8 +308,8 @@ describing it).
 
 | Crate | What lives there | Filled by | Must build for wasm32 |
 |---|---|---|---|
-| `everygraph-core` | id types, `ByteSource` and its writable counterpart `ByteSink`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface, the `Storage` a file is on | this skeleton, #31 | yes, enforced |
-| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits), physical cores and the storage of a directory; with the feature `faults`, the fault-injecting wrapper of tests | #29, #31, #28, #190 | no — the one crate for OS I/O |
+| `everygraph-core` | id types, `ByteSource` and its writable counterpart `ByteSink`, the parallel facade, the memory accountant (`Budget`, `Memory`, `Reservation`), segmented arrays (`SegVec`), per-thread scratch (`ScratchPool`), the `MemoryProbe` interface, the `Storage` a file is on, the block cache (`BlockCache`) | this skeleton, #31, #178 | yes, enforced |
+| `everygraph-io` | native `ByteSource` backends (file, mmap, direct I/O) and sinks (`FileSink` is the native `ByteSink`); the Linux `MemoryProbe` (`/proc/meminfo` and cgroup limits), physical cores and the storage of a directory; the read-ahead pool of the block cache (`ReadPool`); with the feature `faults`, the fault-injecting wrapper of tests | #29, #31, #28, #190, #178 | no — the one crate for OS I/O |
 | `everygraph-format` | the `.eg` container, the adjacency codec, property columns, and `verify` | #28, #30, #37, #41 | yes, enforced (with and without `simd128`) |
 | `everygraph-ingest` | text and Parquet readers, id dictionary, build pipeline | #32–#35 | yes, built in CI (browser ingest, D22) |
 | `everygraph-kernels` | the edge-map framework, the kernels, their operations by name (`run`) and the planner that chooses how each runs within its budget | #44, #47–#52, #45 | yes, built and linted in CI |
@@ -336,10 +336,10 @@ command, the Python extension, the threaded browser build) enable
 they link. `parallel` is a default feature of the core, so that someone who depends on
 `everygraph-core` alone gets threads without asking.
 
-"Must build for wasm32" is enforced today for the crates CI builds for wasm32: the core,
-`everygraph-format` and `everygraph-ingest` (and the empty `everygraph-wasm`). The other
-rows state the intent; each crate joins the wasm32 build, and gets a `clippy.toml` like the
-core's, in the pull request that gives it content.
+"Must build for wasm32": CI builds the core, `everygraph-ingest` and the empty
+`everygraph-wasm` for wasm32, and builds and lints `everygraph-format`, `everygraph-kernels`,
+`everygraph-community` and `everygraph-map` for it. For `everygraph-query` the row states
+the intent: it joins the wasm32 build in the pull request that gives it content.
 
 ## The portability rule
 
@@ -473,10 +473,10 @@ To add one, in a single pull request:
    the core, add its Miri run to that job in `ci.yml`. The pull request gets the independent review that CLAUDE.md § 4
    requires for `unsafe` code.
 
-Where we expect to need it next, from the lab prototypes: the generated glue of the Python
-and browser bindings (#81, #108). The lab's disjoint parallel writes into shared arrays
-(the build pipeline and Leiden, #35, #57) are to go through the safe helpers of `par`
-instead (#189). `everygraph-core` is expected to stay free of `unsafe`.
+Where we expect to need it next: the browser bindings (#108). The Python bindings forbid
+`unsafe` in their own code; PyO3 generates the glue. The build pipeline and Leiden make
+their disjoint parallel writes through the safe `par::scatter` (#189), not through the
+lab's shared-memory writes. `everygraph-core` is expected to stay free of `unsafe`.
 
 ## Comments and documents
 

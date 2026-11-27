@@ -1012,7 +1012,7 @@ impl<'a, S: ByteSource> Dictionary<'a, S> {
 
     /// A dictionary with new ids: the key of old id `i` gets id `permutation[i]`. The
     /// hash function and the keys are kept; graph order is not changed
-    /// ([`Dictionary::graph_position`]). Used after a locality renumbering (#20).
+    /// ([`Dictionary::graph_position`]). For a locality renumbering (#179).
     ///
     /// # Errors
     ///

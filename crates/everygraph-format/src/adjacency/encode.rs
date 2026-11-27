@@ -66,8 +66,9 @@ fn to_index(offset: u64) -> usize {
 /// lengths (`8 (n + 1)` bytes) or the data part cannot be allocated.
 ///
 /// The data part is one allocation, which DESIGN D2 (chunks of at most 2 GiB, budgeted
-/// allocations) does not allow for large graphs: the budgeted, streaming encoder that
-/// writes it block by block is #35's.
+/// allocations) does not allow for large graphs: they use the streaming encoder
+/// ([`append_record`](super::append_record), [`IndexBuilder`](super::IndexBuilder)),
+/// which writes the same bytes list by list.
 pub fn encode(offsets: &[u64], targets: &[u32]) -> Result<Encoded, EncodeError> {
     let Some((&last, _)) = offsets.split_last() else {
         return Err(EncodeError::Offsets(

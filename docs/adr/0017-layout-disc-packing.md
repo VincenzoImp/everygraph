@@ -31,8 +31,7 @@ From the map experiment (FINDINGS § E; shared machine; `lab/e-map/results/`):
 - **Determinism**: positions byte-identical across thread counts on lj and orkut after one
   fix (`lab/e-map/results/determinism_orkut.json`).
 - **Wasted area**: node discs cover "about 1–3%" of the map (`lab/e-map/REPORT.md`, an
-  estimate). DESIGN's earlier "wastes 97% of the area" was not traced to a result file and
-  was replaced on 2026-11-25 by the estimate, labelled as such.
+  estimate).
 - "Readable" is the experiment's visual judgment, not a metric.
 - **At 10^9 edges**: 2–4 minutes and about 20 GB of RAM — an extrapolation, not measured
   (FINDINGS § E). *Replaced 2026-11-25 by a measurement* (#15, FINDINGS § M1-01; idle;
@@ -56,12 +55,12 @@ From the map experiment (FINDINGS § E; shared machine; `lab/e-map/results/`):
 
 ## What would change our mind
 
-- #21 finds a layout with the same cost and determinism that occupies at least 10× more of
-  the map; disc packing is then replaced in #67.
+- A layout with the same cost and determinism occupies at least 10× more of the map and
+  keeps NP₁, NP@10 and 10-NN agreement. Power-diagram cells give 39–40× the area but lose
+  all three ("Area and the global gap", below).
 - A layout with the same cost and determinism beats ours on the four measures of the
   amendment below (NP@10 per quotient level, ground-truth 10-NN agreement, Spearman, length
-  of edges between top regions), each measured against DRGraph. The earlier trigger
-  "edge-length ratio on orkut below 0.05" is withdrawn: no layout tested reaches it.
+  of edges between top regions), each measured against DRGraph.
 
 ## Amendment (2026-11-26, #175): compared with published layouts
 
@@ -102,7 +101,7 @@ and 8 threads on lj. It costs about 1.8× the solve CPU (interleaved A/B on lj,
 `lab/m1-18-layout-baseline/results/ab_lj.jsonl`). It raises NP₁ and NP@10 on both graphs.
 On orkut it brings Spearman from 0.03 to 0.33 and the top crossing edges from 1.27 to 0.88
 of a random pair. On lj, where each top region links to 44 of the other 70, it gives no
-global gain. #67 adopts it, once #21 has settled the area question.
+global gain. #67 adopts it.
 
 **4. The re-decision trigger changes** (see "What would change our mind"). It is now four
 measures, each against DRGraph: NP@10 per quotient level, ground-truth 10-NN agreement,

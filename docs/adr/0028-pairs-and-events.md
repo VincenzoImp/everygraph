@@ -175,13 +175,12 @@ format, and the earlier measurement that still carries D9.
   events in every run (S1, S2); graph order and the dictionary grow by layers (S3, S5);
   merges are checkable byte for byte (A3); results do not depend on how runs are merged
   (S4). The sparse index flag (A1) keeps a small run small.
-- `crates/everygraph-format/src/adjacency/index.rs` says, of `entry_offset`, "Edge-indexed
-  columns are indexed by it": true of per-pair columns only. Corrected by #35, which
-  touches that crate (code is not changed here).
+- Per-pair columns are indexed by `entry_offset`, per-event columns by the event offset
+  (`crates/everygraph-format/src/adjacency/index.rs`).
 
 ## What would change our mind
 
-- #35, on a temporal graph with repeated pairs, measures the `.events` section above
+- #240, on a temporal graph with repeated pairs, measures the `.events` section above
   `3 + log2 r` bits per pair, or a window over it slower than scanning a per-entry event
   list by more than the kernels gain.
 - A kernel that must see events one by one (beyond `num_edges`, `edges()`, event counts
@@ -190,5 +189,4 @@ format, and the earlier measurement that still carries D9.
 
 ## Closed by
 
-#240 measures the cost of the `.events` section in the build. The build that fills the
-per-event and per-pair columns is `plan/issues/m2-34-build-columns.md`.
+#240 measures the cost of the `.events` section in the build.
