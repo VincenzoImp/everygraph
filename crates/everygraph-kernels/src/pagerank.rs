@@ -301,7 +301,7 @@ pub fn pagerank<S: Source, F: Real>(
         let c = plan.per_node(one_segment(&contrib)?)?;
         let out = (one_segment_mut(&mut next)?, one_segment_mut(&mut rank)?);
         // Exact sums, so one per worker: one per reduction block cost 4% of the time on
-        // orkut (exploratory A/B, PR #NNN).
+        // orkut (exploratory A/B, PR #339).
         let (_, kept) = plan.scan_keep(
             out,
             all,
