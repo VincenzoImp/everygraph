@@ -8,7 +8,7 @@ labels: type:feature, area:python, P1, risk:low, size:M
 **Scope**
 - [ ] `c.table(level)` and `c.nodes(level)` as Arrow tables with the columns of `docs/api-sketch.md` § 3.4 (`community`, `nodes`, `internal_edges`, `external_edges`, `share`, `parent`), built zero-copy from the stored columns ({{#m6-03-arrow-interop}}).
 - [ ] `c.of(nodes)` (level, community, nodes, from level 1 down) and `c.levels`, from the stored hierarchy.
-- [ ] `c[i]` usable wherever a node set is expected: `g.subgraph(c[i])` as a `View` ({{#m6-07-subgraph-bridge}}), with its edge count known from the table for the size guard.
+- [ ] `c[i]` usable wherever a node set is expected: `g.subgraph(c[i])` as a `View` ({{#m7-09-subgraph-bridge}}), with its edge count known from the table for the size guard.
 
 **Done when.** The tables equal the stored hierarchy column for column on the oracle graphs; reading a table of 1 M communities stays under 50 ms (the target of {{#m4-06-hierarchy-artifact}}), measured cold and warm; `g.subgraph(c[i])` has the community's nodes and internal edges.
 

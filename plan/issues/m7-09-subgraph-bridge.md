@@ -1,6 +1,6 @@
 ---
 title: Subgraph extraction to small-graph tools
-milestone: M6 · Python and interop
+milestone: M7 · Queries and views
 labels: type:feature, area:python, P1, risk:low, size:S
 ---
 **Why.** The common workflow at scale is "find the interesting 5,000 nodes, then study them with familiar tools". Everygraph should make the hand-off trivial instead of reimplementing every small-graph algorithm.
