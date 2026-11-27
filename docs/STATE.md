@@ -58,10 +58,6 @@ milestone's performance pass (M2 and M3: #240). The official commands of each is
 its pull request and its issue file. The M3 window runs the smallest set that answers the
 M3 exit criteria.
 
-- `everygraph-bench run components-kcore --official --only engine-cc-compressed` at the next
-  idle window: the lj and orkut compressed stores were never made in the window of
-  2026-11-27 (fixed by #321).
-- `everygraph-bench run edge-map --official`: PageRank on the raw CSR after #339 (0.92× of main at 16 threads, interleaved). The 1.18× between the official runs of 2026-11-26 and 2026-11-27 came from #220 (the bench times the production kernel, not the proof kernel), not from #291. Read the `pr32|pr64/source=raw` rows against the `lab` rows of the same run.
 - **Accounts with 2FA** on PyPI, crates.io and npm, at the first release. The names are
   reserved as 0.0.0 placeholders (crates `everygraph` and `everygraph-cli`, PyPI
   `everygraph`, npm `everygraph`).
@@ -80,6 +76,8 @@ M3 exit criteria.
 **Pace from 2026-11-26 evening (owner):** finish the pull requests in flight, then no new implementation until an official measurement window has run (harness A/A, reference runs on orkut, the official specs of the merged kernels). Opus medium by default, high only for kernels, formats and concurrent code.
 
 **Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
+
+**Official window, 2026-11-27 07:21 (3b3befb5).** edge-map after #339: PageRank raw 0.92× of the previous run at 16 threads, 1.09–1.10× the lab (target ≤ 1.05, m3-22); engine-cc-compressed lj and orkut measured (`bench/results/edge-map/20261127T062155Z-3b3befb5cf63.jsonl`, `bench/results/components-kcore/20261127T064455Z-3b3befb5cf63.jsonl`). Watch: cc on the raw copy at 1 thread 1.09× (3 repetitions).
 
 **Official window, 2026-11-26/27.** Done. The headline is in `bench/results/headline/20261126T223356Z-fd29f95d486e.jsonl`; the other suites (edge-map, semi-external, scc, transpose, components-kcore, references on orkut) are the result files of commit 588b76ab, all on revision 2510b9c1.
 
