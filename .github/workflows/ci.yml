@@ -356,13 +356,10 @@ jobs:
           cargo +1.100 nextest run --workspace --locked
           cargo +1.100 test --workspace --doc --locked
 
-  # Miri and ThreadSanitizer, on the pinned nightly. On a pull request only when the core,
-  # a module of CONTRIBUTING.md's `unsafe` table or the nightly tooling changed. Miri
-  # interprets every test, and libtest under Miri runs them one at a time: as one job the
-  # runs took up to 39 of the job's 45 minutes (PR #232, 2026-11-26), 18 of them for the
-  # core on rayon. So the work is in three parts of about the same length, and each part
-  # runs its tests through nextest, one Miri process per test, as many as the runner has
-  # cores. The tests and the flags are the same as before the split.
+  # Miri and ThreadSanitizer, on the pinned nightly, over the tests that reach `unsafe`
+  # code (CONTRIBUTING.md, the `unsafe` table). On a pull request only when the core, a
+  # module of that table or the nightly tooling changed. Each part runs its tests through
+  # nextest: one Miri process per test, as many at once as the runner has cores.
   sanitizers:
     name: Miri and ThreadSanitizer (${{ matrix.title }})
     needs: lint
@@ -373,12 +370,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - part: core
-            title: "core: no default features, x86_64 and i686"
-          - part: rayon
-            title: "core: rayon under Tree Borrows"
-          - part: other
-            title: "I/O, adjacency codec, edge-map framework; ThreadSanitizer"
+          - part: io
+            title: "I/O, adjacency codec, ingest heap"
+          - part: kernels
+            title: "edge-map framework, counting allocator; ThreadSanitizer"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -401,9 +396,94 @@ jobs:
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152
-      # nextest does not run doc tests, hence the `--doc` runs. Tests named `*full_size`
-      # are skipped: the numerics golden vectors and the exact sum over chunks of 65,536
-      # take minutes under Miri. They run natively on every target instead.
+      - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
+        if: matrix.part == 'io'
+        run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
+      - name: Miri, the page backend (everygraph-io/src/pages.rs)
+        if: matrix.part == 'io'
+        run: 'cargo "+$NIGHTLY" miri test -p everygraph-io --lib --locked pages::'
+      # The adjacency codec: the scalar decoder, then the SSSE3 one (the only SIMD path
+      # Miri interprets on this runner; compiled in so that run-time detection finds it).
+      # The crate's other tests reach no `unsafe` code.
+      - name: Miri, adjacency codec (scalar)
+        if: matrix.part == 'io'
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked --lib --test adjacency -E 'binary(adjacency) | test(/^adjacency::/)'
+      - name: Miri, adjacency codec (SSSE3)
+        if: matrix.part == 'io'
+        env:
+          RUSTFLAGS: -C target-feature=+ssse3
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked --test adjacency
+      # Tree Borrows because rayon's dependencies need it; isolation off because the
+      # test's scratch is files.
+      - name: Miri, the ingest heap counter (everygraph-ingest/tests/heap_peak.rs), Tree Borrows
+        if: matrix.part == 'io'
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-disable-isolation -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-ingest --test heap_peak --locked
+      # The edge-map framework's node brand and unchecked indexing (#44), on rayon. The
+      # kernels built on it reach no `unsafe` code of their own.
+      - name: Miri, edge-map framework, Tree Borrows
+        if: matrix.part == 'kernels'
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-kernels --lib --locked -E 'test(/^edge_map::/)'
+      # The readers on threads, under the no-OOM suite's counting allocator.
+      - name: Miri, the counting allocator and the readers' heap (everygraph-memtest), Tree Borrows
+        if: matrix.part == 'kernels'
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-memtest --test counting --test readers --locked
+      # On nightly, rustdoc checks the error code of `compile_fail,E0521`: the tests
+      # that a node of one plan cannot index the state of another.
+      - name: Node brand compile-fail tests (kernels doc tests, nightly)
+        if: matrix.part == 'kernels'
+        run: cargo "+$NIGHTLY" test -p everygraph-kernels --doc --locked
+      - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
+        if: ${{ !cancelled() && matrix.part == 'kernels' }}
+        run: python3 tools/check_tsan.py
+
+  # The core under Miri. The core forbids `unsafe`, so a change to it alone adds none:
+  # these runs check the standard library and rayon under the core's tests, and the
+  # 32-bit `usize`. On a push to main, nightly and in a full run; the native i686 tests
+  # in `test` run on pull requests. Tests named `*full_size` are skipped: the numerics
+  # golden vectors and the exact sum over chunks of 65,536 take minutes under Miri, and
+  # run natively on every target. nextest does not run doc tests, hence the `--doc` runs.
+  miri-core:
+    name: Miri, core (${{ matrix.title }})
+    needs: lint
+    if: needs.lint.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: core
+            title: "no default features, x86_64 and i686"
+          - part: rayon
+            title: "rayon under Tree Borrows"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned nightly with Miri and rust-src
+        run: |
+          NIGHTLY="$(cat tools/nightly-toolchain)"
+          echo "NIGHTLY=$NIGHTLY" >> "$GITHUB_ENV"
+          rustup toolchain install "$NIGHTLY" --profile minimal --component miri,rust-src
+          cargo "+$NIGHTLY" miri --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: sanitizers-${{ matrix.part }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Cache the Miri sysroots
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/miri
+          key: miri-sysroot-${{ env.NIGHTLY }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
       - name: Miri, no default features
         if: matrix.part == 'core'
         run: |
@@ -421,44 +501,6 @@ jobs:
         run: |
           cargo "+$NIGHTLY" miri nextest run -p everygraph-core --locked -E 'not test(full_size)'
           cargo "+$NIGHTLY" miri test -p everygraph-core --locked --doc
-      - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
-        if: matrix.part == 'other'
-        run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
-      - name: Miri, the page backend (everygraph-io/src/pages.rs)
-        if: matrix.part == 'other'
-        run: 'cargo "+$NIGHTLY" miri test -p everygraph-io --lib --locked pages::'
-      # The adjacency codec: the scalar decoder, then the SSSE3 one (the only SIMD path
-      # Miri interprets on this runner; compiled in so that run-time detection finds it).
-      - name: Miri, adjacency codec (scalar)
-        if: matrix.part == 'other'
-        run: |
-          cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked
-          cargo "+$NIGHTLY" miri test -p everygraph-format --locked --doc
-      - name: Miri, adjacency codec (SSSE3)
-        if: matrix.part == 'other'
-        env:
-          RUSTFLAGS: -C target-feature=+ssse3
-        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked --test adjacency
-      # The edge-map framework's node brand and unchecked indexing (#44), on rayon.
-      - name: Miri, edge-map framework (kernels unit tests), Tree Borrows
-        if: matrix.part == 'other'
-        env:
-          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-kernels --lib --locked
-      # The readers on threads, under the no-OOM suite's counting allocator.
-      - name: Miri, the counting allocator and the readers' heap (everygraph-memtest), Tree Borrows
-        if: matrix.part == 'rayon'
-        env:
-          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-memtest --test counting --test readers --locked
-      # On nightly, rustdoc checks the error code of `compile_fail,E0521`: the tests
-      # that a node of one plan cannot index the state of another.
-      - name: Node brand compile-fail tests (kernels doc tests, nightly)
-        if: matrix.part == 'other'
-        run: cargo "+$NIGHTLY" test -p everygraph-kernels --doc --locked
-      - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
-        if: ${{ !cancelled() && matrix.part == 'other' }}
-        run: python3 tools/check_tsan.py
 
   # The no-OOM suite at the nightly sizes (issue #53): the slope test up to 2^18 nodes,
   # the long search, and the cgroup matrix (graphs up to 2^22 nodes, budgets from a

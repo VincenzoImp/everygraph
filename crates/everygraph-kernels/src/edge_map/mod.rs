@@ -150,9 +150,10 @@ pub const RUN_ENTRIES: usize = 1 << 15;
 
 /// Entries of a part of a long list: `Plan::push_with` cuts a list of more entries into
 /// parts at multiples of it. `PASGAL` cuts lists at 1,024 entries, Parallel-KCore at 128
-/// (`docs/research/sota-review-2026-11.md`, S3).
+/// (`docs/research/sota-review-2026-11.md`, S3). Under Miri 64, so that a test graph
+/// small enough to interpret still has lists of several parts.
 pub const PART_ENTRIES: usize = PART.get();
-const PART: NonZeroUsize = NonZeroUsize::new(1024).expect("non-zero");
+const PART: NonZeroUsize = NonZeroUsize::new(if cfg!(miri) { 64 } else { 1024 }).expect("non-zero");
 
 /// Groups of a frontier with long lists up to which their runs are cut on the calling
 /// thread.
