@@ -25,7 +25,7 @@ Work is ordered by risk: what could invalidate the product comes first.
 | **M4 · Communities and hierarchy** | Production Leiden, out-of-core, quality gates, map hierarchy | Friendster communities under 16 GiB, quality mode within 1% of the better of NetworKit PLM and GVE-Leiden run on the same machine (DESIGN § 6) |
 | **M5 · The map** | Layout, tiles, `.egmap`, viewer, static export | A 1 B-edge graph opens from a static URL, first view < 250 KB |
 | **M6 · Python and interop** | Python package, Arrow interop, import/export, notebook widget | `pip install` on three OSes; zero-copy into Polars/pandas/DuckDB |
-| **M7 · Queries and views** | Point queries, shortest paths, filtered and temporal views, live mode of the map | Neighbours < 1.5 µs p99 in RAM; path p50 < 2 ms on 10^9 arcs |
+| **M7 · Queries and views** | Point queries, shortest paths, filtered and temporal views, live mode of the map, subgraph bridge, tutorials | Neighbours < 1.5 µs p99 in RAM; path p50 < 2 ms on 10^9 arcs |
 | **M8 · CLI, docs and v0.1 launch** | CLI, docs, public benchmarks, showcase maps, Graphalytics eligibility, release | v0.1.0 published with reproducible benchmarks |
 | **M9 · After v0.1** | Browser tier, MCP server, query language, temporal segments, NetworkX backend, sustainability | Unscheduled |
 
@@ -35,7 +35,7 @@ measurement window and a report in `docs/reports/` (CLAUDE.md § 6, § 10).
 ## Dependencies between milestones
 
 ```
-M0 ─► M2 ─► M3 ─► M4 ─► M5 ─► M7 ─► M6 ─► M8
+M0 ─► M2 ─► M3 ─► M4 ─► M5 ─► M6 ─► M7 ─► M8
  └─► M1 ───────────┴─────┘
 ```
 
@@ -46,8 +46,9 @@ The line is the order in which milestones can end, not the order in which they s
   budgets).
 - M5 is the static map: layout, tiles, file format, viewer, export. It needs M4.
 - M6 and M7 start once M3 exists and run beside M4 and M5. They end after M5: the Jupyter
-  widget (M6) and the live mode and overlays of the map (M7) need the viewer. M6 ends
-  after M7: its tutorials and its subgraph bridge use queries and views.
+  widget (M6) and the live mode and overlays of the map (M7) need the viewer. M7 ends
+  after M6: its tutorials, its subgraph bridge and its DuckDB integration use the Python
+  package and its Arrow interop.
 - A first slice of the Python package and of the command line exists from M2, so that
   tests and users can drive the engine; M6 and M8 finish them.
 

@@ -20,7 +20,7 @@ labels: type:feature, area:python, P0, risk:medium, size:L, lab-evidence
 - [ ] No signal handler is installed: long calls poll Python's signal check so `Ctrl-C` arrives as a plain `KeyboardInterrupt` after a clean stop (`docs/ux-contract.md` C-6); a result cut short is reported with `warnings.warn(…, eg.TruncatedWarning)` (M-12); every event validates against the event schema of § 4.6
 
 **Acceptance**
-- The steps of the ten user stories from {{#m0-11-api-sketch}} that use only this issue's API run as written; the whole stories are the acceptance of {{#m6-08-tutorials}}
+- The steps of the ten user stories from {{#m0-11-api-sketch}} that use only this issue's API run as written; the whole stories are the acceptance of {{#m7-10-tutorials}}
 - PageRank from Python within 3% of the native binary (lab: indistinguishable within noise)
 - No API returns a Python list or dict proportional to n or m
 
