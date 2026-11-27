@@ -450,7 +450,9 @@ mod tests {
         std::fs::create_dir(&left).expect("the stopped run's directory");
         std::fs::write(left.join("00000000-ids"), b"stale").expect("its file");
         let scratch = JobScratch::create(&dir.0, &job).expect("taken over");
-        scratch.create("ids").expect("a new file beside the stale one");
+        scratch
+            .create("ids")
+            .expect("a new file beside the stale one");
         drop(scratch);
         assert!(dir.names().is_empty(), "{:?}", dir.names());
     }
