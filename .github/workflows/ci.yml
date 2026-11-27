@@ -694,8 +694,8 @@ jobs:
             || inputs.platform == 'linux-arm' && '["ubuntu-24.04-arm"]'
             || '["macos-15", "windows-2025", "ubuntu-24.04-arm"]') }}
     runs-on: ${{ matrix.os }}
-    # Windows, the slowest: 3 min on the four crates with a warm cache, 36 to 41 min on
-    # the workspace.
+    # Windows, the slowest: 3 min on the four crates with a warm cache; 21 to 40 min on
+    # the workspace (five pushes to main, 2026-11-27).
     timeout-minutes: ${{ github.event_name == 'pull_request' && 20 || 65 }}
     defaults:
       run:
