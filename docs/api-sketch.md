@@ -486,8 +486,7 @@ G = nx.read_graphml('big-transfers.graphml')"
 ```
 
 On the command line the hand-over is a file, and the piece is chosen by a filter or a
-time window; picking a community or a neighborhood as the piece is Python-only in 0.1
-(§ 7).
+time window; picking a community or a neighborhood as the piece is Python-only in 0.1.
 
 Issues: #87 (subgraph and the bridge to small-graph tools, with size guards), #85
 (converters and file formats), #93 (the view), #90 (`khop`).
@@ -550,7 +549,7 @@ $ echo $?
 A refusal lists only ways forward that exist. Community detection has no lower-memory
 variant in 0.1 (`design/DECISIONS.md`, "A low-memory variant of community detection"),
 so a larger budget is the one offered; the refusal of `pagerank()` also offers
-`precision="low"`, which #47 builds. The planner never switches to such a variant by
+`precision="low"`, 32-bit state. The planner never switches to such a variant by
 itself (§ 2.11).
 
 `--dry-run` prints the plan instead of running, and `--json` gives either as a document
@@ -896,7 +895,7 @@ in — and the same content as attributes.
 | `InvalidInput` | — | The input cannot be read as described: a row with the wrong number of fields, a value that is not of the column's type, a missing column, an unknown format, a file with no bytes. Or the data cannot be used as asked: a weight that is negative, NaN or infinite where an operation needs weights (§ 2.13). | `problems` (each with `file`, `line`, `problem`, `column`, `excerpt`), `invalid_rows`, `rows_checked`; for a weight, `column` | 3 |
 | `InvalidExpression` | `ValueError` | The text of a filter does not parse or names a column the graph lacks. Raised by `g.filter()` itself, not later. | `expression`, `position` | 2 |
 | `UnknownNode` | `LookupError` | A call about one node names an identifier that is not in the graph or the view. | `node` | 6 |
-| `Unsupported` | — | The operation is not defined for this graph: `window` without a time column or on a graph read with `duplicates="sum"`, `strong=True` or `use_direction=True` on an undirected graph; an operation that reads the in-edges of a directed graph whose file was built without them; a weight column that the operation cannot read yet (`weight="value"`, #246); or it is above a size guard (`to_networkx`). | `operation`, `reason` | 2 |
+| `Unsupported` | — | The operation is not defined for this graph: `window` without a time column or on a graph read with `duplicates="sum"`, `strong=True` or `use_direction=True` on an undirected graph; an operation that reads the in-edges of a directed graph whose file was built without them; or it is above a size guard (`to_networkx`). | `operation`, `reason` | 2 |
 | `OutputExists` | `FileExistsError` | The output path holds a file that Everygraph may not replace (below). Before any work. | `path`, `holds` (`"other graph"` or `"not ours"`) | 1 |
 | `CorruptFile` | — | A graph or map file fails its integrity checks, or was written by a format this version cannot read. | `path`, `section` | 5 |
 
@@ -1091,7 +1090,7 @@ Not promised:
   on how its runs are merged or compacted (`design/DECISIONS.md`, "What 'repeatable'
   promises, for files built by appends"; ADR 0028).
 - If a kernel cannot meet this, the promise is narrowed by an ADR, not silently. The
-  identity tests that hold the kernels to it are listed in § 7, "Amendments".
+  identity tests that hold the kernels to it are listed in ADR 0014, "Tests that hold it".
 
 ### 2.12 Order of rows, and ties
 
@@ -2365,7 +2364,7 @@ are `summary` and `meta`, whose keys depend on the operation, and the rows.
 | `meta` | The table's `meta` (§ 3.4), every key of it; the example above shows a few. |
 
 `info`, `doctor` and `verify` follow the same rule: with `--json`, one document on
-standard output with a `schema` key. The schema of `doctor` is #98's to write (§ 7);
+standard output with a `schema` key. The schema of `doctor` is #98's to write;
 that of `info` is below, after the one of `verify`. That of `verify` (#41) holds the report whether the file is intact or not
 (exit status 0 or 5); a file that cannot be read gives the error document instead:
 
@@ -2828,80 +2827,49 @@ Every story maps to issues in M2–M7, as the acceptance of #12 requires:
 
 ## 7. Gaps
 
-Where the previews, the issues and the design do not line up. Nothing below was invented
-or dropped silently: each line says what this document does about it.
+Where the previews, the issues and the design do not line up, and what this document
+does meanwhile. Each gap names the issue that owns it; the work itself is in that issue.
+Gaps that an issue file now settles are not repeated here.
 
 **Shown in a preview, with no issue that clearly builds it**
 
 | What | Where | Here |
 |---|---|---|
-| A low-memory variant of community detection (`precision="low"`: "needs 3.4 GB; slightly lower quality"). No issue builds one; #57 needs 64-bit weights. | `api.md` § 6, `cli.md` § 2, `notebook.html` cell 7, `terminal.html` | Not offered (`design/DECISIONS.md`, "A low-memory variant of community detection"): `communities()` has no `precision`, and its refusal offers only a larger budget (story 8). `precision="low"` stays on `pagerank`, which #47 builds. |
+| A low-memory variant of community detection (`precision="low"`: "needs 3.4 GB; slightly lower quality"). Leiden needs 64-bit weights (#58). | `api.md` § 6, `cli.md` § 2, `notebook.html` cell 7, `terminal.html` | Not offered (`design/DECISIONS.md`, "A low-memory variant of community detection"): `communities()` has no `precision`, and its refusal offers only a larger budget (story 8). `precision="low"` exists on `pagerank` only. |
 | A unit on path weights (`12.400 ETH`). Nothing in the API declares a unit. | `api.md` § 4 | The weight is labelled with its column's name (§ 9, item 4). |
-| Automatic names for regions ("around 0x28c6…1d60 and 2 others", or from a `label` column). #62 computes per-community summaries "for map labels"; no issue owns the naming rule. | `choices.md` B3 | `Hierarchy.table()` has a `name` column; who fills it is open. Suggested: #63. |
-| The user's own nouns in summaries ("addresses", "transfers"). No rule says how they are derived. | `design/preview/README.md` N3, `SPEC.md` "Words" | The noun for nodes comes from the kind of identifier (`hex addresses` → "addresses"); no noun is derived for edges in text. A fuller rule belongs to #121. |
-| Node columns. `g.filter(nodes=…)`, colouring a map by a label and B3 all assume nodes can have columns, but every preview reads edges only. | `api.md` § 5 | `nodes=` works on `in_degree`, `out_degree`, `degree` and on node columns if a format supplies them (GraphML, GEXF). A way to attach a node table (`eg.read(…, nodes=table)`) needs a preview. |
-| `viewer.html` beside a shared map; #75 wrote "a single `index.html` embedding the viewer". | `cli.md` § 1 | `viewer.html`, as approved. #75's text now says the same (amendments, below). |
+| Automatic names for regions ("around 0x28c6…1d60 and 2 others", or from a `label` column). | `choices.md` B3 | `Hierarchy.table()` has a `name` column; who fills it is open (#63; the summaries it would use are #279). |
+| The user's own nouns in summaries ("addresses", "transfers"). | `design/preview/README.md` N3, `SPEC.md` "Words" | The noun for nodes comes from the kind of identifier (`hex addresses` → "addresses"); no noun is derived for edges in text. |
+| Node columns. `g.filter(nodes=…)`, colouring a map by a label and B3 assume nodes can have columns; every preview reads edges only. | `api.md` § 5 | `nodes=` works on `in_degree`, `out_degree`, `degree` and on node columns if a format supplies them (GraphML, GEXF). Attaching a node table is #183's. |
 
 **Promised by an issue, not exposed here (or exposed differently)**
 
 | What | Issue | Here |
 |---|---|---|
-| `Graph.view(filter)`; `khop(…, budget=…)`; "requests carry budgets"; "budget 10k nodes" | #81, #90, #74, #87 | The approved names are `g.filter()`, `limit=`, `memory=`. The issue texts predated the decision that "budget" means memory only; #81, #74 and #87 now use the approved names, and #90 still says "stops at the budget" for `limit`. |
-| "quiet structured logs" when not on a terminal | #98 | The approved piped form is a plain log; `--json` gives one document (`docs/ux-contract.md` § 9). #98 now says "no `--yes`", since nothing asks. |
-| `--json` "validated against a schema" for every command | #98 | The result document has its schema here (§ 5.3, `urn:everygraph:schema:result:1`); the plan, event, error, stop and file documents are in `docs/ux-contract.md`. The schemas of `info` and `doctor` are #98's to write, with a `schema` key like the others; that of `verify` is in § 5.3 (#41). |
-| "User overrides for every choice" of the planner | #45 | Exposed: `memory`, `threads`, `temp_dir`, `precision` (PageRank), `deterministic`. Forcing a regime or a decode tier has no public name in 0.1; if #45 needs one for testing it stays out of the documented API. |
-| "Pick a lower-memory variant (e.g. f32 state …)" when state does not fit | #45 | Not done by the planner (§ 2.11): it refuses and offers the variant. #45 now says the same (amendment below). |
-| Parallel edges merged into one with "count, sum/min/max of a weight, first/last timestamp" | #36 | `duplicates="sum"`, printed `duplicates summed`: the summed weight, the count and the first and last time. Minimum and maximum have no name in 0.1. |
-| Weighted single-source distances; multi-source traversal | #49 | `bfs` (hops) only. They remain internal building blocks until a name is previewed. |
-| Betweenness, closeness, harmonic and eigenvector centrality | #52 (P2, after 0.1); eigenvector #47 | Not in § 3. By the naming rule they would be `g.betweenness()`, `g.closeness()`, `g.harmonic()`, `g.eigenvector()`. Eigenvector centrality is exact and comes in 0.1 with PageRank (#47). The other three are sampled, come after 0.1 (#52, M9), and mark their results as § 2.8 and the DECISIONS row "Approximate results" say. |
-| A quick preview by label propagation | #65 (P2) | Not exposed: `method=` takes `"leiden"` only in 0.1. A second method is added under the same parameter when #65 is built. |
-| The giant component and the k-core "as a reusable view" | #48, #50 | Reachable today as `g.subgraph(t)` with a table filtered in Polars. Filters over computed columns (`nodes="component == 0"`) would be the short form; not specified. |
-| Degree histogram and quantiles | #50 | The `degrees()` table; statistics are left to the table library. |
-| Comparing partitions (NMI, ARI), per-community metrics, stability reports | #64 (P2) | Not in § 3; no previewed names. |
-| Activity series and counts per time bucket | #94 | Not in 0.1's API: the series have no previewed names. (`g.as_of(t)` was dropped: `g.window(None, t)` is the same, and #94 now says so.) |
+| Overrides of the planner's choices | #45 | Exposed: `memory`, `threads`, `temp_dir`, `precision` (PageRank), `deterministic`. Forcing a regime or a decode tier has no public name in 0.1. |
+| Parallel edges merged with "count, sum/min/max of a weight, first/last timestamp" | #36 | `duplicates="sum"`: the summed weight, the count and the first and last time. Minimum and maximum have no name in 0.1. |
+| Weighted single-source distances; multi-source traversal | #49 | `bfs` (hops) only, until a name is previewed. |
+| Betweenness, closeness, harmonic and eigenvector centrality | #52 (after 0.1); eigenvector #47 | Not in § 3. By the naming rule they are `g.betweenness()`, `g.closeness()`, `g.harmonic()`, `g.eigenvector()`. Eigenvector centrality is exact and in 0.1; the other three are sampled and mark their results as § 2.8 says. |
+| A quick preview by label propagation | #65 | `method=` takes `"leiden"` only in 0.1; a second method comes under the same parameter. |
+| The giant component and the k-core "as a reusable view" | #48, #50 | `g.subgraph(t)` with a table filtered in Polars. Filters over computed columns (`nodes="component == 0"`) are not specified. |
+| Degree histogram and quantiles | #183 | The `degrees()` table; statistics are left to the table library. |
+| Comparing partitions (NMI, ARI), per-community metrics, stability reports | #64 | Not in § 3; no previewed names. |
+| Activity series and counts per time bucket | #94 | Not in 0.1: no previewed names. |
 | "Results … back as a node property" | #83 | No call attaches a table to a graph (it is immutable). The join happens in the table library (story 6); node sets come back through `subgraph`, `highlight`, `avoid`. |
-| `eg.from_dataframe` | #84 | Folded into `eg.read(table)`; #84 now says the same. |
-| Batch forms "returning Arrow list columns" | #90 | A flat table with a leading `node` column: the same shape as every other result, and it joins directly. #90 now says the same. |
-| All shortest paths, k shortest paths, a batch of pairs | #91 | `p.alternatives()` covers the first. The other two have no name here. |
-| `g.subgraph(…)` returning "a small `Graph` (in memory)" | #87 | It returns a `View`, as #62 and the preview have it; the planner materializes it when small. #87 now says the same. |
+| All shortest paths, k shortest paths, a batch of pairs | #91, #183 | `p.alternatives()` covers the first. The other two have no name here. |
 | A `MultiGraph` with one edge per event from `to_networkx` | #85 | Not in 0.1: each connected pair becomes one edge carrying the count and the summed weight. |
-| `everygraph map export`; `everygraph compact` | #75; #39, #28 | `everygraph map GRAPH --out FILE --reveal …` for the first (#75 now says so). `compact FILE [--out NEW]` is a command of #98 (ADR 0027; § 5.1 and #98 now say so; `design/DECISIONS.md`, "The compact command"), and `info` reports the bytes it would reclaim. It is not yet in the approved help (`design/preview/cli.md`), which #98 updates. |
+| `everygraph compact` in the approved help | #98 | A command (§ 5.1; `design/DECISIONS.md`, "The compact command"), not yet in `design/preview/cli.md`. |
 | NumPy views of numeric columns | #83 | Through Arrow (`pl.from_arrow(t)["pagerank"].to_numpy()` does not copy); no direct `t["pagerank"]` in 0.1. |
-| A DuckDB extension with table functions | #95 | Outside the Python API; #95 scopes it as a prototype. |
+| A DuckDB extension with table functions | #95 | Outside the Python API. |
 
 **Between the design documents**
 
 | What | Here |
 |---|---|
 | Threads by default: `choices.md` A5 says "all physical cores"; `DESIGN.md` D13 lets compute-bound kernels use every hardware thread. | § 2.4: physical cores is the default and the bound the user sees; the planner may add the sibling threads only when `threads` is not given. |
-| Results "stored in transfers.eg" (`cli.md`) against #39, whose text left open the file or a companion directory. | Settled by ADR 0027: results are sections appended to the graph file and committed (`docs/spec/eg-container.md` § 8), as § 2.8 says, and #39 now says the same. Results on views are kept for the session only, as #39 asks ("large temporary results should not bloat the graph file"). |
-| `duckdb.sql("select … from pr")` on an Everygraph table (`api.md` Choice 4) relies on DuckDB accepting any Arrow-stream object by variable name. | Kept as approved; #95 must test it, and fall back to documenting `duckdb.from_arrow(pr)` if it does not hold. |
-| `docs/DESIGN.md` § 3 names no crate that a Rust user would depend on to get everything. | § 4 writes the functions under the crates that own them. A facade crate `everygraph` would be a small addition to #2. |
-| `docs/spec/graph-semantics.md` (#36) defines what each algorithm does on directed, weighted and repeated edges. | § 2.4 (`weight`), § 3.3 (which nodes a view keeps) and § 2.13 state the user-visible behaviour, settled by `design/DECISIONS.md`. The specification follows them; the disagreements it found are in its § 9 and are corrected here. |
-| Scratch "in /tmp" in the previews' plans and stop blocks; `design/DECISIONS.md` puts it beside the output. | `61 GB scratch` and `.everygraph-7c1e` beside the output, as `docs/ux-contract.md` § 3.4 and § 5.4 have it. |
+| `duckdb.sql("select … from pr")` on an Everygraph table (`api.md` Choice 4) relies on DuckDB accepting any Arrow-stream object by variable name. | Kept as approved; #95 tests it, and documents `duckdb.from_arrow(pr)` if it does not hold. |
+| `docs/DESIGN.md` § 3 names no crate that a Rust user would depend on to get everything. | § 4 writes the functions under the crates that own them. |
+| Scratch "in /tmp" in the previews' plans and stop blocks. | Beside the output (`61 GB scratch`, `.everygraph-7c1e`), as `docs/ux-contract.md` § 3.4 and § 5.4 have it. |
 | The previews' shared-map hint, `share it: upload transfers.egmap and viewer.html to any static host`, points at the working map, which is full. | The hint is the export command with `--reveal summary` (story 5, § 9 item 21). |
-
-**Amendments other issues need.** This document cannot change issue files; these
-sentences are for the coordinator to apply in `plan/issues/` and republish. The first
-five hold the kernels to § 2.11. All of them are now in the issue files.
-
-| Issue | Amendment |
-|---|---|
-| #47 `m3-04-pagerank.md`, Acceptance | Add: "With f64 state the result has identical bytes (the hash of #54) at 1, 4 and 16 threads, in each of the three regimes, at memory budgets of 2, 8 and 16 GiB and unlimited, and on a view whether it is held as a mask or materialized; f32 state is used only when `precision="low"` is asked for, never chosen by the planner." |
-| #48 `m3-05-components.md`, Acceptance | Add: "Component labels, numbered from 0 by decreasing size with ties broken by the earliest node in graph order (`docs/api-sketch.md` § 2.12), have identical bytes at 1, 4 and 16 threads, with Afforest in memory and with streaming union-find in the semi-external regime, at memory budgets of 2, 8 and 16 GiB and unlimited, and on a view held as a mask or materialized." |
-| #54 `m3-11-determinism-ci.md`, Scope and Acceptance | Replace "document where results are bit-identical vs tolerance-bounded across CPU architectures (x86 vs ARM FMA differences)" with "make results bit-identical across the supported CPU architectures (x86 vs ARM FMA differences); an exception needs an ADR that narrows `docs/api-sketch.md` § 2.11". Add to Acceptance: "The CI job also runs each kernel under two memory budgets that force different regimes (in memory and out of core) and on one view held both as a mask and materialized; every hash equals that of the in-memory run." |
-| #93 `m7-04-views.md`, Acceptance | Add: "For every kernel, the result on a view has the same hash (#54) whether the planner holds the view as a mask or materializes it, and the same as on that view saved with `save()` and opened again. A view's `num_nodes` and `num_edges` are computed by one planned pass on first use and never by printing the view." |
-| #45 `m3-02-planner.md`, Rules and Acceptance | Replace the first rule with: "State does not fit the budget → use a regime or an algorithm that returns the identical result in less memory (streaming union-find instead of Afforest), or refuse with the minimum budget. A lower-precision variant (f32 state) is never picked by the planner: the refusal offers it as a way forward (`docs/api-sketch.md` § 2.11)." Add to Acceptance: "A plan that changes regime, or holds a view as a mask instead of materializing it, returns a result with the same hash (#54) as the in-memory plan." |
-| #34 `m2-07-id-mapping.md`, Scope | Add to the id-assignment bullet: "Graph order — the order of `g.nodes()`, by which results are ordered and ties broken (`docs/api-sketch.md` § 2.2, § 2.12) — is fixed when the file is built and is the same for the same input and parameters at any thread count or budget; a later renumbering may change internal ids, never graph order." Add: "Keys recognized as hexadecimal come back as lowercase text with the prefix the input used; look-ups accept any case." |
-| #36 `m2-09-graph-semantics.md`, Scope | Add: "The options are public as `self_loops="drop" \| "keep"` and `duplicates="events" \| "collapse" \| "sum"` (`--self-loops`, `--duplicates`; `docs/api-sketch.md` § 3.1); `sum` keeps one edge per pair with the summed weight, the count and the first and last time. The plan and the summary print them `duplicates kept as events`, `duplicates collapsed`, `duplicates summed`. The build records each numeric edge column's minimum, maximum and count of NaN, so that an operation on the whole graph can refuse a negative, NaN or infinite weight before any work and accept a clean column without reading it (`InvalidInput`, `docs/api-sketch.md` § 2.13)." |
-| #50 `m3-07-kcore-degrees.md`, Scope | Replace "Degree columns (in, out, total, weighted)" with "Degree columns `in_degree`, `out_degree`, `degree` (distinct neighbors; `degree` counts each neighbor once whatever the direction) and `weighted`". Add: "On a view they are computed by a planned pass." |
-| #90 `m7-01-point-queries.md`, Scope and Acceptance | Replace "`khop(v, k, budget)`" with "`khop(v, k, limit=, timeout=)`; rows are ordered by distance, then by discovery order — the position of the node's parent in the previous distance's order, then the node's position in that parent's neighbor list (graph order) — and the traversal stops as soon as `limit` rows exist, so its cost is bounded by what it returns (`docs/api-sketch.md` § 2.12)". Replace "returning Arrow list columns" with "returning one flat table with a leading `node` column, in input order, `limit` per node". Add to Acceptance: "A `khop` cut at `limit` returns the same rows at 1, 4 and 16 threads, and on hub nodes of twitter-2010 and Friendster its time grows with `limit`, not with the size of the hop it stops in." |
-| #91 `m7-02-shortest-paths.md`, Acceptance | Add: "Among several shortest paths the one returned, and the order of the alternatives, follow a documented rule and are the same at any thread count, regime and budget (tested). A step reports the earliest edge of its pair inside the view — for a weighted path the cheapest, earliest among equal costs — and the pair's number of edges." |
-| #94 `m7-05-temporal.md`, Scope | Replace "`g.window(t0, t1)` and `g.as_of(t)` as views" with "`g.window(t0, t1)` as a view, closed at both ends, a date meaning its whole day (`docs/api-sketch.md` § 2.3); `as_of` is not public in 0.1 (`g.window(None, t)`)". |
-| #39 `m2-12-artifact-cache.md`, Scope | Add: "Results on the whole graph are stored; results on a view are kept for the session only and written nowhere unless the user writes them out (`docs/api-sketch.md` § 2.8)." |
-| #98 `m8-01-cli.md`, Scope and Acceptance | Add to Scope: "Exit status 6 for `UnknownNode`; `--overwrite`; `ingest --self-loops`, `--duplicates`; `run communities --use-direction`; `map --out FILE` requires `--reveal`." Add to Acceptance: "The result document is validated against `urn:everygraph:schema:result:1` (`docs/api-sketch.md` § 5.3) and the document of `ingest`, `map` and `export` against `urn:everygraph:schema:file:1` (`docs/ux-contract.md` § 4.7); errors of the operating system are reported as `IoError` with exit status 1; `info`, `doctor` and `verify` have schemas of their own, written by this issue." |
-| #75 `m5-09-static-export.md`, Scope | Replace "`everygraph map export` → `.egmap` file + a single `index.html` embedding the viewer" with "`everygraph map GRAPH --out FILE --reveal full\|summary` and `m.export(path, reveal=…)` → `.egmap` file + `viewer.html` beside it; `reveal` is required, and leaving it out is an error that gives the two ways forward." |
-| #84 `m6-04-in-memory-constructors.md`, Scope | Add to the spill bullet: "the temporary `.eg` goes to the scratch directory (`temp_dir`, `docs/api-sketch.md` § 2.4) and is removed when the graph object is released, unless `g.save()` keeps it." |
 
 ---
 

@@ -136,14 +136,15 @@ threads the default is at most 1.04× slower than raw arrays, and PageRank is fa
 with the decode tier they equal raw (lj, orkut); without it neighbour lookups are 2.5–4.2×
 slower on batch means — above the 1.5× threshold, but by 0.02–0.11 µs per call — while
 bidirectional BFS stays within 1.13–1.41× (heap) and budgeted 3-hop reaches 2.1× on
-twitter-sym until prefix decode exists. The criterion therefore holds only with conditions
-3 and 5 of the decision.
+twitter-sym, in the lab, which decoded whole lists. The product decodes list prefixes
+(`Source::list_part`, `Adjacency::decode_prefixes`): bottom-up BFS and point queries stop
+reading a list early. The criterion therefore holds only with conditions 3 and 5 of the decision.
 
 **Not measured** (FINDINGS § M1-13, "Not measured, not trusted"): point-query throughput at
 16 threads; a streaming or semi-external reader on the format; ingest writing the format,
 with or without `fsync`, and an encoder under a memory budget; weighted or directed
-kernels; web graphs; prefix decode for budgeted queries; batched prefix decode for WCC
-(the Friendster WCC slowdown of 1.36–1.57× is not explained).
+kernels; web graphs; budgeted queries with prefix decode against raw arrays; the
+Friendster WCC slowdown of 1.36–1.57× (not explained).
 
 ## Consequences
 
@@ -153,8 +154,9 @@ kernels; web graphs; prefix decode for budgeted queries; batched prefix decode f
   lj (18.1) or Friendster (23.2) and is restated there.
 - The edge-map framework (#44) decodes batches of lists for sequential access.
 - The planner (#45) gets the decode tier with the rule above.
-- Point queries (#90) use prefix decode for budgeted traversals and measure throughput at
-  16 threads on the default storage.
+- Point queries (#90) read lists in parts (`Source::list_part`,
+  `crates/everygraph-query/src/graph.rs`). Their throughput at 16 threads on the default
+  storage is #337's.
 - The streaming regime (#46) needs a reader for the compressed format; without one the
   "within 1.35× under 2 GB" target of DESIGN § 6 has no margin (1.35× measured through plain
   mmap).
