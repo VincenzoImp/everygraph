@@ -177,7 +177,8 @@ pub fn sssp<S: Source>(
         // Fusion pays where steps are small (high diameter); in a large step it only
         // repeats relaxations that the step itself is about to do.
         let room = if frontier.len() <= FUSE { FUSE } else { 0 };
-        out.frontier_with(
+        // `fetch_min` commutes, so a hub's list may be cut into parts.
+        out.push_with(
             frontier.as_slice()?,
             VecDeque::new,
             |(): &mut (), row, w| {

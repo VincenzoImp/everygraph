@@ -23,8 +23,8 @@ From the properties experiment (FINDINGS § F1; shared machine; orkut; one weigh
 PageRank iteration with an f32 weight; `lab/f1-query/results/props_orkut_t32.json`,
 `lab/f1-query/results/props_orkut_t4.json`):
 - Through a u32 edge id: 0.247 s vs 0.117 s with the weight duplicated per entry at 32
-  threads (2.10×); 0.668 vs 0.391 s at 4 threads (1.71×). This is the "1.7–2.1×" that DESIGN
-  quoted for "kernels" until on 2026-11-25: **one kernel, one graph, two thread counts**.
+  threads (2.10×); 0.668 vs 0.391 s at 4 threads (1.71×). This "1.7–2.1×" is **one kernel,
+  one graph, two thread counts**.
 - Space: duplication costs 2·m·P bytes, indirection 2·m·4 + m·P; indirection is smaller
   when a property set exceeds 4 bytes per edge (note in the same file). Orkut with three
   columns (f32 weight, u32 timestamp, u8 type): 2.11 GB duplicated vs 1.99 GB indirect.
@@ -34,14 +34,14 @@ PageRank iteration with an f32 weight; `lab/f1-query/results/props_orkut_t32.jso
 
 ## Consequences
 
-- #37 builds the columns; its acceptance (weighted PageRank on a per-entry weight column
-  within 15% of the unweighted kernel on orkut) is the measurement this ADR lacks for the
-  duplicated path.
+- #37 specifies the column sections and #246 writes them in the build. The measurement
+  this ADR lacks for the duplicated path, weighted PageRank on a per-pair weight column
+  within 15% of the unweighted kernel on orkut, is #240's.
 - Which columns are "hot" is decided at ingest (`weight=` and time columns), not guessed.
 
 ## What would change our mind
 
-- #37 shows weighted PageRank with a duplicated weight column more than 15% slower than
+- #240 shows weighted PageRank with a duplicated weight column more than 15% slower than
   unweighted on orkut, which would remove most of the advantage over indirection.
 - Typical inputs carry several hot columns per edge, so duplication costs more memory than
   the measured slowdown of indirection is worth.
@@ -60,6 +60,4 @@ event offset, one value per event), and since a graph can have 2^32 events or mo
 
 ## Closed by
 
-The build carrying columns
-(`plan/issues/m2-34-build-columns.md`) and weighted PageRank on a per-pair column against
-the unweighted kernel (#240).
+Weighted PageRank on a per-pair column against the unweighted kernel (#240).

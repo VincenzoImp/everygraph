@@ -158,13 +158,14 @@ fn read_word(bytes: &[u8], at: usize, code: u8) -> Result<u32, Corrupt> {
     Ok(src.iter().rev().fold(0, |w, &b| (w << 8) | u32::from(b)))
 }
 
-/// Decodes words `from..k` one at a time, the data of word `from` starting at byte
-/// `at`, after the running value `acc`. Returns the byte just past the last word read.
-/// The SIMD decoders call this for what their loop leaves over.
+/// Decodes words `from..k` one at a time into `out[from - skip..k - skip]`, the data
+/// of word `from` starting at byte `at`, after the running value `acc`. Returns the byte
+/// just past the last word read. The SIMD decoders call this for what their loop leaves
+/// over.
 #[inline]
 pub(crate) fn tail(
     bytes: &[u8],
-    from: usize,
+    (from, skip): (usize, usize),
     mut at: usize,
     mut acc: u32,
     k: usize,
@@ -174,8 +175,26 @@ pub(crate) fn tail(
         let code = (bytes[j / 4] >> (2 * (j % 4))) & 3;
         let w = read_word(bytes, at, code)?;
         acc = acc.wrapping_add(w).wrapping_add(1);
-        out[j] = acc;
+        out[j - skip] = acc;
         at += usize::from(code) + 1;
+    }
+    Ok(at)
+}
+
+/// Where the data of word `from`, a multiple of four, starts in a record of `total`
+/// words: after the control bytes and the data of the groups before it.
+#[inline]
+pub(crate) fn data_start(bytes: &[u8], total: usize, from: usize) -> Result<usize, Corrupt> {
+    debug_assert!(from.is_multiple_of(4) && from <= total);
+    let groups = total.div_ceil(4);
+    let control = bytes.get(..groups).ok_or(Corrupt)?;
+    let before = control[..from / 4].iter();
+    let at = groups
+        + before
+            .map(|&c| usize::from(GROUP_LEN[usize::from(c)]))
+            .sum::<usize>();
+    if at > bytes.len() {
+        return Err(Corrupt);
     }
     Ok(at)
 }
@@ -192,7 +211,28 @@ pub(crate) fn decode(
 ) -> Result<usize, Corrupt> {
     assert!(k <= out.len(), "output of {} words for {k}", out.len());
     let (groups, base) = prologue(bytes, v, total, k)?;
-    tail(bytes, 0, groups, base, k, out)
+    tail(bytes, (0, 0), groups, base, k, out)
+}
+
+/// The scalar decoder from word `from` on: words `from..k` of a record of `total` words
+/// into `out[..k - from]`, where `prev` is word `from − 1` as decoded and `from` is a
+/// multiple of four with `4 ≤ from < k ≤ total`. Returns as [`decode`].
+pub(crate) fn resume(
+    bytes: &[u8],
+    total: usize,
+    from: usize,
+    prev: u32,
+    k: usize,
+    out: &mut [u32],
+) -> Result<usize, Corrupt> {
+    assert!(
+        k - from <= out.len(),
+        "output of {} words for {}",
+        out.len(),
+        k - from
+    );
+    let at = data_start(bytes, total, from)?;
+    tail(bytes, (from, from), at, prev, k, out)
 }
 
 #[cfg(test)]

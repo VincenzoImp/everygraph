@@ -5,7 +5,7 @@ instrument — warm paper, soft black, one ink-blue accent, every number in mono
 hairlines instead of boxes, almost no shadow.
 
 Everything below is a preview with invented data. The rules are in [`SPEC.md`](SPEC.md),
-the values in [`design/system/tokens.css`](../../system/tokens.css). Nine HTML pages show them live
+the values in [`design/system/tokens.css`](../../system/tokens.css). Ten HTML pages show them live
 (`index.html` is the entry); this page shows the same content as images so it can be read
 on GitHub. To browse the pages themselves, clone the repository and open
 `design/preview/style/index.html`.
@@ -106,6 +106,10 @@ Also: [inputs](https://github.com/VincenzoImp/everygraph/blob/design-previews-ar
 **Anatomy of the map**
 
 ![](https://github.com/VincenzoImp/everygraph/blob/design-previews-archive/design/preview/screens/g-data-04-s4.webp?raw=true)
+
+**Connections** — how the regions connect with nothing selected, on real lj and orkut
+counts ([`overview.html`](overview.html); `design/DECISIONS.md`, "Connections with nothing
+selected"). It has no screenshot; open the page.
 
 Also (light · dark): scales [l](https://github.com/VincenzoImp/everygraph/blob/design-previews-archive/design/preview/screens/g-data-03-s3.webp?raw=true) · [d](https://github.com/VincenzoImp/everygraph/blob/design-previews-archive/design/preview/screens/g-data-03-s3-dark.webp?raw=true) ·
 zoom levels [l](https://github.com/VincenzoImp/everygraph/blob/design-previews-archive/design/preview/screens/g-data-05-s5.webp?raw=true) · [d](https://github.com/VincenzoImp/everygraph/blob/design-previews-archive/design/preview/screens/g-data-05-s5-dark.webp?raw=true) ·

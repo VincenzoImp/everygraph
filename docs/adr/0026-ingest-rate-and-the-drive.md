@@ -5,7 +5,8 @@
 - **Date:** 2026-11-25
 - **Validated:** one machine and one drive (Samsung 990 PRO 2 TB, ext4), the lab prototype
   `glab` writing uncompressed arrays without `fsync`, three social graphs. Not validated:
-  the product's build pipeline writing the default compressed format (#35), other drives,
+  the speed of the product's build pipeline writing the default compressed format (#240),
+  other drives,
   ingest with `fsync`.
 
 ## Context

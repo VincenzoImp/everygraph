@@ -29,8 +29,8 @@ const BOUNCE: usize = 1 << 20;
 ///
 /// Without the bound, more threads made the device slower. Exploratory, the lab's
 /// drive, orkut `targets.u32` read with `O_DIRECT`, one read per 8 MiB segment per thread:
-/// 4 threads 7.2–7.4 GB/s, 8 threads 5.5–5.8, 32 threads 5.0–5.5; 32 threads reading
-/// 1 MiB segments, 7.4 (not recorded). The official numbers, on Friendster, are in
+/// 4 threads 7.2–7.4 GB/s, 8 threads 5.5–5.8, 32 threads 5.0–5.5 (PR #151). The
+/// official numbers, on Friendster, are in
 /// `bench/results/io/20261125T205022Z-21498df39590.jsonl`.
 const MAX_IN_FLIGHT: u64 = 32 << 20;
 

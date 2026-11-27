@@ -65,7 +65,8 @@ name = "stores"
 # Friendster's CSR is read into the heap twice by the encoder (bytes, then words).
 memory_limit = "40G"
 shell = "for g in lj orkut twitter-sym friendster; do [ -e {stores}/$g ] || {{ {bench} encode --graph {data}/csr/$g --out {stores}/$g.part > /dev/null && mv {stores}/$g.part {stores}/$g; }}; done"
-creates = "{stores}/friendster"
+# No `creates`: other specs make some of these stores (friendster, twitter-sym), so one
+# marker would skip the rest; the loop itself skips each store that exists.
 needed_by = ["engine-cc-compressed", "engine-cc-compressed-large"]
 
 [[benchmark]]

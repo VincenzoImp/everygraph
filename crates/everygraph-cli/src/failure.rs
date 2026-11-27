@@ -377,8 +377,8 @@ pub(crate) fn internal(what: &str) -> Failure {
 /// A step that the budget cannot hold (P-13 to P-15). `what` is the subject of the
 /// first line of why: `The build needs …`, `pagerank needs …`.
 ///
-/// Without the planner (#45) the smallest budget that would work is not known: only
-/// that it is more than what was spent before this step and this step's need, so the
+/// A refused reservation does not give the smallest budget that would work: only that
+/// it is more than what was spent before this step and this step's need, so the
 /// document's `smallest_budget_bytes` is `null` and the way forward says "at least".
 pub(crate) fn memory(
     what: &str,

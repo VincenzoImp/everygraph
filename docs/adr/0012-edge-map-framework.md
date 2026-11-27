@@ -25,9 +25,8 @@ called as many short calls so WebAssembly engines optimize it.
   RAM, streaming union-find out of core), so for them "one body" was not shown.
 - **WebAssembly tiering** (FINDINGS § G; shared; lj, PageRank 20 iterations, 1 thread,
   one long call; `lab/g-wasm/results/chromium.jsonl`): 25.3 s with Chromium's defaults
-  against 5.5 s with the optimizing tier forced (`--no-liftoff`) — 4.6×. DESIGN and
-  FINDINGS said "up to 9×" until they were corrected on 2026-11-25; that did not follow from these
-  two numbers. 25.3 s against native single-threaded 2.81 s
+  against 5.5 s with the optimizing tier forced (`--no-liftoff`) — 4.6×. 25.3 s against
+  native single-threaded 2.81 s
   (`lab/g-wasm/results/native.jsonl`) is 9.0×, but that mixes tiering with wasm-vs-native.
 - Not measured: the overhead of a generic framework over hand-written kernels; compressed
   blocks as a source.

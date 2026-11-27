@@ -29,18 +29,27 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Outcome> {
         out.push(adj.neighbors_prefix(id, 5, &mut buf).map(<[u32]>::to_vec));
     }
     let mut batch = Batch::default();
+    for v in 0..index.nodes().min(4096) {
+        let d = index.degree(NodeId::new(v)) as usize;
+        if d > 4 {
+            let got = adj.decode_part(NodeId::new(v), (4, v), d, &mut batch);
+            out.push(got.map(|()| batch.list(0).to_vec()));
+        }
+    }
     for b in 0..index.blocks().min(64) {
         let nodes = index.block_nodes(b);
-        let mut at = nodes.start;
-        while at < nodes.end {
-            match adj.decode_nodes(at..nodes.end, 7, &mut batch) {
-                Ok(next) => {
-                    out.push(Ok(batch.targets().to_vec()));
-                    at = next;
-                }
-                Err(e) => {
-                    out.push(Err(e));
-                    break;
+        for prefix in [usize::MAX, 6] {
+            let mut at = nodes.start;
+            while at < nodes.end {
+                match adj.decode_prefixes(at..nodes.end, prefix, |v| v % 3 != 1, 7, &mut batch) {
+                    Ok(next) => {
+                        out.push(Ok(batch.targets().to_vec()));
+                        at = next;
+                    }
+                    Err(e) => {
+                        out.push(Err(e));
+                        break;
+                    }
                 }
             }
         }

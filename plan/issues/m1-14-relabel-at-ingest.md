@@ -17,4 +17,6 @@ labels: type:experiment, area:community, P1, risk:medium, size:M, lab-evidence
 
 **Decision it feeds.** A new ADR: relabel always at ingest, relabel only a working copy for community detection, or keep ADR 0015's order. Whatever is chosen, the visiting order stays a fixed function of the graph and the seed, never of the budget (`design/DECISIONS.md`, "What 'repeatable' promises").
 
+**Answered by PR #241** ({{#m1-09-hierarchy-order}}, exploratory; sizes and quality do not depend on load): a random relabelling costs 5–31% of storage and slows every kernel, and Leiden's quality does not need it (lj: Q 0.755 with the BP order visited in storage order, 0.750 with block order on the input ids). No relabelling at ingest; ADR 0015's order stays. The reorderings that help are offered by `compact --order` ({{#m2-24-bp-ordering}}).
+
 **Depends on** {{#m1-02-ooc-aggregation}}

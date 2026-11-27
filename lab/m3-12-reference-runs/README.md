@@ -17,7 +17,7 @@ What this directory holds, all independent of the machine's load:
 ## Official commands
 
 The orkut window (the review's experiment F4: every reference tool, validated, 6
-repetitions; the intervals come from the same rows once #194 lands). The preparation
+repetitions; the report gives the intervals from the same rows, #194). The preparation
 (builds, conversions, downloads) runs before the window; the timed commands skip it:
 
 ```sh

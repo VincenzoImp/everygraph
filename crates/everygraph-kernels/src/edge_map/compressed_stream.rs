@@ -341,7 +341,12 @@ impl<'a> CompressedStream<'a> {
     /// Decodes the lists of `nodes` from the window into the batch, and checks them;
     /// returns the first node not decoded. The window must hold their records
     /// ([`fill`](Self::fill)).
-    fn decode(&self, io: &mut Window, nodes: Range<u32>) -> Result<u32, Error> {
+    fn decode(
+        &self,
+        io: &mut Window,
+        nodes: Range<u32>,
+        prefix: Option<usize>,
+    ) -> Result<u32, Error> {
         let bytes = self.index.data_range(nodes.clone());
         let records = if bytes.is_empty() {
             Some(&[][..])
@@ -353,7 +358,10 @@ impl<'a> CompressedStream<'a> {
         let records = records.ok_or(Error::Invalid("records outside the read window"))?;
         let window =
             Adjacency::window(self.index, nodes.clone(), records).map_err(Error::Format)?;
-        io.decode.decode(&window, nodes)
+        match prefix {
+            None => io.decode.decode(&window, nodes),
+            Some(len) => io.decode.decode_some(&window, nodes, len, &mut |_| true),
+        }
     }
 
     /// Calls `f` for each node of `nodes` with its list, in order. Runs of consecutive
@@ -365,6 +373,21 @@ impl<'a> CompressedStream<'a> {
         nodes: &[u32],
         ahead: bool,
         mut f: impl FnMut(u32, u64, &[u32]),
+    ) -> Result<(), Error> {
+        self.read(io, nodes, ahead, None, |v, entry, list, _| {
+            f(v, entry, list);
+        })
+    }
+
+    /// As [`read_lists`](Self::read_lists), with `prefix`: only the first `prefix`
+    /// entries of each list are decoded, and `f` receives the degree too.
+    fn read(
+        &self,
+        io: &mut Window,
+        nodes: &[u32],
+        ahead: bool,
+        prefix: Option<usize>,
+        mut f: impl FnMut(u32, u64, &[u32], u32),
     ) -> Result<(), Error> {
         let mut i = 0;
         while i < nodes.len() {
@@ -385,8 +408,8 @@ impl<'a> CompressedStream<'a> {
                         self.run_end(nodes, e, self.byte_at(end), cap)
                     }
                 })?;
-                at = self.decode(io, at..stop)?;
-                io.decode.hand_out(self.index, &mut f);
+                at = self.decode(io, at..stop, prefix)?;
+                io.decode.hand_out_some(self.index, |_| true, &mut f);
             }
             i = e;
         }
@@ -490,6 +513,30 @@ unsafe impl Source for CompressedStream<'_> {
         Ok(())
     }
 
+    fn scan_prefixes(
+        &self,
+        r: &mut WindowReader,
+        nodes: Range<u32>,
+        filter: impl Fn(u32) -> bool,
+        len: usize,
+        mut f: impl FnMut(u32, u64, &[u32], u32),
+    ) -> Result<(), Error> {
+        let piece = u32::try_from(r.io.decode.lists().max(1)).unwrap_or(u32::MAX);
+        let mut at = nodes.start;
+        while at < nodes.end {
+            let stop = at.saturating_add(piece).min(nodes.end);
+            r.active.clear();
+            for v in (at..stop).filter(|&v| filter(v)) {
+                r.active.try_push(v)?;
+            }
+            let active = one_segment(&r.active)?;
+            let dense = 2 * active.len() >= ix((stop - at).into());
+            self.read(&mut r.io, active, dense, Some(len.max(1)), &mut f)?;
+            at = stop;
+        }
+        Ok(())
+    }
+
     fn lists(
         &self,
         r: &mut WindowReader,
@@ -504,8 +551,26 @@ unsafe impl Source for CompressedStream<'_> {
         assert!(v < self.n, "node {v} outside the graph");
         let need = self.index.record_range(NodeId::new(v));
         self.fill(&mut r.io, need, |_| 0)?;
-        self.decode(&mut r.io, v..v + 1)?;
+        self.decode(&mut r.io, v..v + 1, None)?;
         Ok((self.entry_offset(v), r.io.decode.only()))
+    }
+
+    fn list_part<'r>(
+        &'r self,
+        r: &'r mut WindowReader,
+        v: u32,
+        from: (usize, u32),
+        to: usize,
+    ) -> Result<&'r [u32], Error> {
+        assert!(v < self.n, "node {v} outside the graph");
+        let need = self.index.record_range(NodeId::new(v));
+        self.fill(&mut r.io, need.clone(), |_| 0)?;
+        let at = |x: u64| usize::try_from(x.checked_sub(r.io.bytes.start)?).ok();
+        let (a, b) = (at(need.start), at(need.end));
+        let record = a.zip(b).and_then(|(a, b)| r.io.buf.as_slice().get(a..b));
+        let record = record.ok_or(Error::Invalid("records outside the read window"))?;
+        let window = Adjacency::window(self.index, v..v + 1, record).map_err(Error::Format)?;
+        r.io.decode.part(&window, v, from, to)
     }
 
     fn prefetch(&self, nodes: &[u32]) {

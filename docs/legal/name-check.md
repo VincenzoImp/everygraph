@@ -90,11 +90,12 @@ proceeds with the name, knowing the risk, and does the following:
    intent-to-use application is registered only after the applicant shows real use in
    commerce. Check its status at each milestone; if it is published for opposition, tell
    the owner at once (the opposition window is short).
-2. **Professional opinion before anything public** (#122): whether to use the name in the
-   US, whether an EU filing is worthwhile, and its timing — a US applicant can claim
-   priority for an EU filing until about 2027-05-17.
-3. **Reserve what can be reserved honestly** (see issue #10): package names when there is
-   a first real release to publish under them (registries remove empty placeholder
-   packages); domains and handles by the owner.
+2. **Professional opinion, advisable before the first release and not a blocker** (#122;
+   `design/DECISIONS.md`, "When the repository becomes public"): whether to use the name
+   in the US, whether an EU filing is worthwhile, and its timing — a US applicant can
+   claim priority for an EU filing until about 2027-05-17.
+3. **Reserve what can be reserved** (issue #10): the package names are held as 0.0.0
+   placeholders on crates.io (`everygraph`, `everygraph-cli`), PyPI and npm
+   (`everygraph`); domains and handles by the owner (#122).
 4. **Keep the rename cheap**: the name appears in the repository name, crate and package
    names, the wordmark and the documentation; nothing else may depend on it.

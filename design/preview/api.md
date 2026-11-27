@@ -2,9 +2,9 @@
 
 **Approved by the owner on 2026-11-25. Not working software.** Outputs are invented; they
 show shape and tone, not measurements. In each numbered **Choice** the option marked ★ is
-the decision. Later rows of `design/DECISIONS.md` change some details of this page (the
-degree columns; no low-precision communities). `docs/api-sketch.md` is the current
-reference for every name.
+the decision. Later rows of `design/DECISIONS.md` and `docs/ux-contract.md` change some
+details of this page, and win where the two differ; `docs/api-sketch.md` is the current
+reference for every name and `docs/ux-contract.md` § 3 for the layout of the plan.
 
 ---
 
@@ -21,15 +21,15 @@ Before anything long runs, it says what it is about to do:
 
 ```text
 transfers.parquet · 38.2 GB · 1,830,402,118 rows
-  ids        hex addresses (20 bytes)          212,418,907 distinct (estimated)
-  edges      directed · duplicates kept as events · 4,201 self-loops will be dropped
+  ids        hex addresses (20 bytes) · ~212.4 M distinct
+  edges      directed · duplicates kept as events · self-loops dropped
   columns    value → weight (decimal) · block_time → time · 3 more ignored: gas, nonce, input
 
 plan       build on disk (graph is 4.6× the memory budget)
 estimate   3 min 40 s · peak memory 5.9 GB of 8.0 GB budget · 61 GB scratch · result 9.3 GB
            → transfers.eg
 
-reading       ████████░░░░░░░░  48% of this phase · 1.9 GB/s · 1 min 52 s left
+reading       ████████░░░░░░░░  48% of this phase · 1.9 GB/s · about 1 min 52 s left
 ```
 
 Reopening later is instant: `g = eg.open("transfers.eg")`.
@@ -71,7 +71,7 @@ shape: (5, 3)
 g.components()          # node → component, plus .sizes()
 g.kcore()               # node → core number
 g.triangles()           # node → triangles, clustering coefficient
-g.degrees()             # node → in, out, total, weighted
+g.degrees()             # node → in_degree, out_degree, degree, weighted
 g.bfs("0x28c6…1d60")    # node → distance from a start node
 ```
 
@@ -194,12 +194,15 @@ g.communities(memory="4GB")
 ```
 
 ```text
-InsufficientBudget: communities() needs 5.1 GB for per-node state; the budget is 4.0 GB.
-  212,418,907 nodes × 24 bytes = 5.1 GB. The edges stay on disk either way.
+InsufficientBudget: communities() needs 5.6 GB: 5.1 GB for per-node state
+(212,418,907 nodes × 24 bytes), and 0.5 GB for buffers and the graph's indexes;
+the budget is 4.0 GB.
+The edges stay on disk either way.
 
   Ways forward:
-    g.communities(memory="6GB")       5.1 GB of state + buffers: the smallest that works
-    g.communities(precision="low")    needs 3.4 GB; slightly lower quality
+    g.communities(memory="6GB")       the smallest budget that works
+
+Nothing was changed.
 ```
 
 > **Choice 10 — tone of messages**
@@ -213,7 +216,7 @@ InsufficientBudget: communities() needs 5.1 GB for per-node state; the budget is
 ```python
 m = g.map()            # uses the communities; lays them out; builds the tiles
 m                      # shows the interactive map in the notebook
-m.export("transfers.egmap")              # one file, hostable anywhere static
+m.export("shared.egmap", reveal="summary")  # to share: no node ids
 m.selection.nodes()                      # what you clicked, back in Python
 m.highlight(pr.top(100))                 # push a result onto the map
 ```

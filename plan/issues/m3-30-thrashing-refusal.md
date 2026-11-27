@@ -7,7 +7,7 @@ labels: type:feature, area:engine, P1, risk:medium, size:M, lab-evidence
 
 **Scope**
 - [ ] A monitor of the run's file refaults per pass (`memory.stat` `workingset_refault_file` of the process's control group, or `/proc/self/io` read bytes against the bytes a pass needs), sampled between the phases and passes of a kernel
-- [ ] When the refaults of one pass exceed about one file's size, the stage stops with a refusal that names the regime that would work: a larger budget, or a stream source ({{#m3-03-semi-external}}) when it exists
+- [ ] When the refaults of one pass exceed about one file's size, the stage stops with a refusal that names the regime that would work: a larger budget, or the streamed regime ({{#m3-03-semi-external}}, PR #254) for a kernel that has one
 - [ ] The rule's threshold from {{#m2-19-allocator-policy}}'s monitor experiment
 
 **Acceptance**

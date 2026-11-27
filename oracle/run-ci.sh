@@ -31,14 +31,18 @@ MEM="${ORACLE_MEMORY_GIB:-3}"
 step() { printf '\n== %s (%s, %d s)\n' "$1" "$(date +%T)" "$((SECONDS - START))"; }
 START=$SECONDS
 . "$ROOT/oracle/ldbc-unpack.sh"
+# The oracle checks answers, not speed: fat LTO would cost most of the build time.
+export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 
 if [[ -z "${ORACLE_SKIP_RUST_TESTS:-}" ]]; then
     step "Rust: unit, property-based, seeded-bug and golden tests"
     cargo test -p everygraph-oracle --locked
 fi
 
-step "Rust: build the oracle and the dataset fetcher"
+step "Rust: build the oracle, the dataset fetcher and the tests that read the corpus"
 cargo build -p everygraph-oracle -p everygraph-bench --release --locked
+cargo test --release --locked --no-run -p everygraph-oracle --test seeded_bugs
+cargo test --release --locked --no-run -p everygraph-kernels --test oracle --test planner --test ldbc
 ORACLE="$ROOT/target/release/everygraph-oracle"
 
 step "Corpus: CI tier"
@@ -75,7 +79,8 @@ step "The planner's every choice against the in-memory run, and its smallest bud
 cargo test -p everygraph-kernels --release --locked --test planner -- --nocapture
 
 step "Seeded bugs, with the Python references"
-"$ORACLE" seeded-bugs --corpus "$WORK/ci"
+EVERYGRAPH_ORACLE_CORPUS="$WORK/ci" cargo test -p everygraph-oracle --release --locked \
+    --test seeded_bugs -- --nocapture
 
 step "Golden files (karate and the generated tier-1 datasets)"
 "$ORACLE" golden --dir "$ROOT/oracle/golden" --data-root "$WORK/data"

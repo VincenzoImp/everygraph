@@ -21,7 +21,7 @@ of the file cached it never stops. Under `memory.max` the extra pages push out p
 are still needed.
 
 The research proposed two fixes: a budgeted block cache over `ByteSource` (C1) and better
-mmap hints now (C5). Experiment m1-15 (#172, its lab pull request merged on 2026-11-26) tested both on Friendster.
+mmap hints now (C5). Experiment m1-15 (#172) tested both on Friendster.
 This ADR records what it found and what we do now. Every run of m1-15 was on a shared
 machine. The decision rests on the bytes read, which do not depend on the load; the times
 are exploratory. The official `mmap-hints` run (the commands at the end of
@@ -37,8 +37,9 @@ anonymous memory reserved from `Budget`, evicts with CLOCK, and reads misses wit
 reclaim cannot take it. mmap stays for warm data (regime 1) and for scans, including
 scans under pressure.
 
-**Until the cache exists (m2-23, #178), a random-access phase whose working set exceeds
-its budget uses `MADV_RANDOM`.** The advice is set per phase, not per run, and is reset to
+**Where the cache is not shown to read fewer bytes at equal memory, a random-access phase
+whose working set exceeds its budget uses `MADV_RANDOM`** (on local files, on the evidence
+of "The cache as built", below). The advice is set per phase, not per run, and is reset to
 `MADV_NORMAL` before a scan phase. It is **never** set when the working set fits the
 budget. `MADV_SEQUENTIAL` was not tested and is not part of this decision.
 
@@ -150,7 +151,7 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 ## Consequences
 
 - **m2-23 (#178), the block cache,** is built, with asynchronous read-ahead of the next
-  blocks (a reader pool over `pread`, or io_uring) from the start, not as a later step.
+  blocks (a pool of `pread` threads) from the start, not as a later step.
   Its acceptance includes: **level-0 local moving on Friendster at 8 GiB within 1.5× of
   the same algorithm in RAM**, measured as in m1-15 (16 threads, same session).
 - **Advice is chosen per phase.** The callers of `advise()` that m2-02 (#29) provided —
@@ -158,16 +159,17 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
   — take the advice from the plan for each phase. The planner (m3-02, #45) sets
   `MADV_RANDOM` only for a random-access phase whose working set exceeds its budget,
   resets `MADV_NORMAL` for scans, and never advises random when the working set fits.
-  Once the cache exists, such a phase gets the cache instead.
+  Where the cache reads fewer bytes at equal memory, such a phase gets the cache instead.
 - **Access order is the bigger lever.** Every variant still reads the whole store once per
   sweep: about 62 GB, six reads of the 10.4 GB store for five sweeps and refinement. Only
   an order that reuses data across sweeps reads less: storage-order visits on relabelled
   ids (m1-14, #146) for Leiden, and a store renumbered by the hierarchy for the layout
   (`docs/research/memory-bounded-algorithms.md`, addendum § E). The cache does not replace
   that work.
-- The documentation must not say "mmap under pressure" for random access. Until m2-23
-  lands it says: random access under a budget smaller than its working set uses
-  `MADV_RANDOM`, and costs a few reads of the data per pass.
+- The documentation must not say "mmap under pressure" for random access. It says:
+  random access under a budget smaller than its working set uses per-phase
+  `MADV_RANDOM`, or the block cache where a measured comparison at equal memory shows
+  that it reads fewer bytes, and costs a few reads of the data per pass.
 - **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))): SPDK (it takes the drive from the kernel's
   driver and file system), and an io_uring runtime (Glommio, tokio-uring and the like).
   The read-ahead of #178 is a pool of `pread` threads; io_uring is at most an optional
@@ -177,12 +179,88 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
   faults on a mapped file. The m1-15 rows show it does. The lab is frozen; the product's
   measurement code must not repeat the claim.
 
+## The cache as built (#178)
+
+- **`everygraph_core::BlockCache`**: a `ByteSource` over another. 4 KiB frames in
+  memory reserved from the budget, at most the source's frames, CLOCK per shard, and
+  misses next to each other read together in reads of at most 64 KiB. No OS calls, no
+  `unsafe`; it builds for wasm32, where reads are synchronous. A frame earns its
+  reference bit only on its second read: the read that brought it in, or the first read
+  of a frame read ahead, does not set it.
+- **`everygraph_io::ReadPool`**: 64 `pread` threads by default (m2-35), each with one
+  64 KiB buffer, reserved with the queue before they start. `AccessHint::WillNeed`
+  on the cache claims the missing frames of the range and queues them, merged across
+  held frames while the extra bytes stay within 25% of the bytes asked for. A read that
+  needs a claimed frame waits for it. Read-ahead claims at most half of a shard's slots
+  at once; a read that finds every slot of its shard claimed reads the frame around the
+  cache. A pool thread that panics gives its fetches back, and the panic comes out of
+  `ReadPool::run`.
+- **Read-ahead in the visiting order**: `Options::read_ahead` (Leiden) tells the source,
+  before each window of 16,384 visits, the lists of the next window and of `K - 1`
+  blocks of 256 nodes past it. The windows change no deterministic result (test
+  `read_ahead_changes_no_deterministic_result`).
+- **Kernels** read the cache through `CompressedStream` with a 4 KiB window, so a
+  frontier reads the records it needs and no more.
+
+**Measured** (exploratory). Friendster, production Leiden with one level (`max_levels`
+1: level-0 local moving and refinement, no quotient graph), one iteration, 16 threads;
+the 10.3 GB data part read with `O_DIRECT`, so cold; bytes from `/proc/self/io` and the
+cache's counts. The machine was shared (load 16–58), so times are weak ratios. Rows and
+commands: `bench/results/block-cache/exploratory/20261126-friendster-review.jsonl` (the
+code as merged; the cache, its pool and Leiden in one budget of 7,424 MiB) and
+`…/20261126-friendster.jsonl` (before the review: no fresh-frame rule, the cache outside
+the budget).
+
+At equal memory, deterministic mode: the cache run peaked at 7.08–7.10 GiB resident
+(`VmHWM`), and the map was run under `MemoryMax=7250M`, which it filled (7.05 GiB):
+
+| source | limit | K | hash = in RAM | bytes read (in scans) | resident peak | time / in RAM |
+|---|---|---|---|---|---|---|
+| cache, 2.5 GiB of frames | 8G | 0 | yes | 304.7 GB (30.4) | 7.08 GiB | 2.5× (load 35) |
+| cache, 2.5 GiB of frames | 8G | 64 | yes | 330.7 GB (30.7) | 7.10 GiB | 1.44× (load 22) |
+| map, `MADV_RANDOM` whole run | 7250M | — | yes | 262.6 GB | 7.05 GiB | 2.9× (load 29) |
+| map, `MADV_RANDOM` whole run | 8G | — | yes | 218.4 GB | 7.97 GiB | 2.1× (load 22) |
+
+The in-RAM run took 115.2 s at load 16 (hash `753f4fff229657f6`, Q 0.57281).
+
+- **At equal memory, `MADV_RANDOM` read fewer bytes than the cache**: 262.6 GB against
+  304.7 GB (K = 0) and 330.7 GB (K = 64). So the cache does not replace per-phase
+  `MADV_RANDOM` on local files on this evidence (D11). Hypotheses, not tested: the
+  kernel's reclaim keeps better pages than CLOCK; the stream's reads end at whole 4 KiB
+  frames past the record while a fault reads only its page; read-ahead claims evict
+  frames before their bytes are needed, and its merges read over held frames.
+- **The cache was faster**: 166 s at K = 64 against 336 s for the map at equal memory
+  (loads 22 and 29). Not like-for-like loads, and the time decides nothing until #240.
+- **The ledger holds on Friendster**: with the cache, its pool and Leiden in one budget,
+  the budget's peak was 6.75 GiB and the resident peak 7.08–7.10 GiB, under
+  `MemoryMax=8G`; 0.33–0.35 GiB was outside the ledger (the index, read into the heap,
+  is 139 MB of it).
+- **Read-ahead and the fresh-frame rule**: before the review, K = 64 read 332.6 GB and
+  K = 0 304.9 GB (+9%); with frames read ahead earning their reference bit only on
+  their second read, K = 64 read 330.7 GB (+8.5%). The rule did not remove the extra.
+- **Deterministic mode at 4 GiB cannot run**: Leiden itself reserves 4.22 GiB at its
+  peak on level 0 of Friendster, more than the limit before any cache.
+- **The deterministic mode reads 3–5 times the fast mode's bytes, and refinement most of
+  them** (rows before the review, 8G, 2.5 GiB of frames, K = 64): without refinement,
+  local moving read 85.7 GB in 4 sweeps (2.1× the data part a sweep); with it, 302 GB.
+  Local moving's sub-rounds visit groups of 16 nodes, and refinement's single nodes, so
+  a 4 KiB frame (the records of about 26 nodes) is read again in many sub-rounds of one
+  pass. A cache does not fix that; an order that keeps a frame's nodes in one sub-round
+  would.
+- **The fast mode** (rows before the review): 63.7 GB in local moving and refinement at
+  K = 1 over 5 passes, against the prototype's 62.5 GB over 6 passes: 12.7 against
+  10.4 GB a pass, 22% more, with a 2.5 GiB cache of production Leiden against the lab
+  Leiden's 3.0 GiB cache. Its sweeps vary from 4 to 6 between runs and the two in-RAM
+  runs took 68.6 and 93.9 s, so its time ratio, 1.2–1.8×, is not a measurement. K from 1
+  to 512 changed neither the bytes nor the reads, but then K below 64 announced each
+  window only when it started; K now always announces the next window.
+
 ## What would change our mind
 
 - The official `mmap-hints` run of the milestone window shows per-phase `MADV_RANDOM` does not cut the bytes read
   under 16G (layout) or 8G (Leiden local moving) by more than half, or makes local moving
-  slower than the default: the interim rule is dropped, and regime 2 for random access
-  waits for m2-23.
+  slower than the default: the advice is dropped, and regime 2 for random access uses the
+  cache.
 - m2-23 with asynchronous read-ahead cannot bring level-0 local moving at 8 GiB within
   1.5× of in RAM, and is not faster than per-phase `MADV_RANDOM` on the same run: the
   cache is kept only for sources that cannot be mapped, and regime 2 on local files is
@@ -193,6 +271,7 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 
 ## Closed by
 
-Accepted on 2026-11-26 on the bytes read of m1-15. #178 builds the block cache; its acceptance is
-level-0 local moving at 8 GiB within 1.5× of in RAM. When it lands, D11's text changes
-from per-phase `MADV_RANDOM` to the cache.
+Accepted on 2026-11-26 on the bytes read of m1-15. The block cache is built ("The cache
+as built", above), and D11's text names it. Its time target, level-0 local moving at
+8 GiB within 1.5× of in RAM, is not shown: the official run of the milestone window
+decides it (#240).

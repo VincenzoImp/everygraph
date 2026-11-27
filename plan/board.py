@@ -6,7 +6,8 @@ usage: plan/board.py todo|doing|done ISSUE [ISSUE ...]
                                  # open issues with an open PR -> In Progress;
                                  # the closed plan issues -> plan/closed.json (read by docs/tools/check_adrs.py)
 
-The board is user project 7 of VincenzoImp. Status options: Todo, In Progress, Done.
+Every command ends with docs/tools/check_adrs.py and exits 1, listing the failing citations,
+when it fails. The board is user project 7 of VincenzoImp. Status options: Todo, In Progress, Done.
 """
 import json, pathlib, subprocess, sys
 
@@ -69,3 +70,13 @@ elif cmd == "sync":
             print(f"#{n} -> {want}")
 else:
     raise SystemExit(__doc__)
+
+# closed.json is what the ADR citations are checked against: a push of a version that
+# breaks them turns the docs checks red on main and on every open pull request.
+root = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(root / "docs" / "tools"))
+import check_adrs
+errors, _ = check_adrs.check(root)
+if errors:
+    raise SystemExit("docs/tools/check_adrs.py fails; fix these citations before you push:\n"
+                     + "\n".join(f"  {e}" for e in errors))

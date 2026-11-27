@@ -89,8 +89,29 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                 );
             }
         }
-        // Batches: every block, the whole range, and ranges cut anywhere.
+        // Parts of a list, from a multiple of four, to anywhere after it.
         let mut batch = Batch::default();
+        for v in 0..n {
+            let want = list(offsets, targets, v);
+            let d = want.len();
+            for from in (4..d).step_by(4).take(if MIRI { 1 } else { 4 }) {
+                for to in [from + 1, from + 4, from + 5, (from + 13).min(d), d] {
+                    let to = to.min(d);
+                    batch.reserve(adj.part_entries(from, to), 1);
+                    let held = batch.heap_bytes();
+                    adj.decode_part(id(v), (from, want[from - 1]), to, &mut batch)
+                        .unwrap();
+                    assert_eq!(batch.heap_bytes(), held, "{name} part grew");
+                    assert_eq!((batch.first(), batch.len()), (id(v).get(), 1));
+                    assert_eq!(
+                        batch.list(0),
+                        &want[from..to],
+                        "{name} node {v} {from}..{to}"
+                    );
+                }
+            }
+        }
+        // Batches: every block, the whole range, and ranges cut anywhere.
         let mut ranges: Vec<_> = (0..index.blocks()).map(|b| index.block_nodes(b)).collect();
         let n32 = id(n).get();
         ranges.push(0..n32);
@@ -130,6 +151,44 @@ fn round_trip(offsets: &[u64], targets: &[u32]) -> Encoded {
                     r.clone().collect::<Vec<_>>(),
                     "{name} {r:?} budget {budget}"
                 );
+            }
+            // Prefixes of some lists, in batches whose budget counts the entries decoded.
+            let prefixes: &[usize] = if MIRI {
+                &[3]
+            } else {
+                &[1, 3, 4, 8, 64, usize::MAX]
+            };
+            for (k, (&prefix, &budget)) in prefixes
+                .iter()
+                .zip([usize::MAX, 5, 0, 9, 64].iter().cycle())
+                .enumerate()
+            {
+                let chosen = |v: u32| k == 0 || (v % 3 != 1);
+                let mut at = r.start;
+                while at < r.end {
+                    batch.reserve(
+                        adj.prefix_entries(at..r.end, prefix, budget),
+                        ix(r.end - at),
+                    );
+                    let held = batch.heap_bytes();
+                    let next = adj
+                        .decode_prefixes(at..r.end, prefix, chosen, budget, &mut batch)
+                        .unwrap();
+                    assert_eq!(batch.heap_bytes(), held, "{name} prefix batch {r:?} grew");
+                    assert_eq!((batch.first(), ix(next - at)), (at, batch.len()));
+                    assert!(batch.len() == 1 || batch.targets().len() <= budget);
+                    for (i, (v, l)) in batch.iter().enumerate() {
+                        let want = list(offsets, targets, v.index());
+                        let len = if chosen(v.get()) {
+                            prefix.min(want.len())
+                        } else {
+                            0
+                        };
+                        assert_eq!(l, &want[..len], "{name} prefix {prefix}");
+                        assert_eq!(batch.degree(i), want.len());
+                    }
+                    at = next;
+                }
             }
             adj.decode_nodes(r.clone(), usize::MAX, &mut batch).unwrap();
             let all = &targets[to_usize(offsets[ix(r.start)])..to_usize(offsets[ix(r.end)])];
@@ -324,11 +383,29 @@ fn outcomes(adj: Adjacency<'_>) -> Vec<Result<Vec<u32>, DecodeError>> {
         }
     }
     let mut batch = Batch::default();
+    // Parts from entry 4 or 8, after any running value: the decoders agree on it too.
+    for v in 0..index.nodes() {
+        let d = ix(index.degree(NodeId::new(v)));
+        for (from, to) in [(4, 5), (4, 9), (4, d), (8, d)] {
+            if from < to && to <= d {
+                let got = adj.decode_part(NodeId::new(v), (from, v ^ 0x5bd1), to, &mut batch);
+                out.push(got.map(|()| batch.list(0).to_vec()));
+            }
+        }
+    }
     for b in 0..index.blocks() {
-        out.push(
-            adj.decode_nodes(index.block_nodes(b), usize::MAX, &mut batch)
+        for prefix in [usize::MAX, 1, 4, 6] {
+            out.push(
+                adj.decode_prefixes(
+                    index.block_nodes(b),
+                    prefix,
+                    |v| v % 3 != 1,
+                    usize::MAX,
+                    &mut batch,
+                )
                 .map(|_| batch.targets().to_vec()),
-        );
+            );
+        }
     }
     let mut offsets = vec![0; ix(index.nodes()) + 1];
     let mut targets = vec![0; to_usize(index.entries())];
@@ -364,6 +441,19 @@ fn apis_agree(adj: Adjacency<'_>) {
         .map(|v| adj.neighbors(NodeId::new(v), &mut buf).map(<[u32]>::to_vec))
         .collect();
     let mut batch = Batch::default();
+    // A part that ends the list decodes where the whole list does, to the same entries.
+    for (v, list) in lists.iter().enumerate() {
+        let id = NodeId::new(u32::try_from(v).unwrap());
+        let d = ix(index.degree(id));
+        if d > 4 {
+            let prev = list.as_ref().map_or(0, |l| l[3]);
+            let got = adj.decode_part(id, (4, prev), d, &mut batch);
+            assert_eq!(got.is_ok(), list.is_ok(), "node {v}");
+            if let Ok(l) = list {
+                assert_eq!(batch.list(0), &l[4..], "node {v}");
+            }
+        }
+    }
     for b in 0..index.blocks() {
         let nodes = index.block_nodes(b);
         let all_ok = lists[ix(nodes.start)..ix(nodes.end)]
@@ -379,6 +469,29 @@ fn apis_agree(adj: Adjacency<'_>) {
         }
         for (v, l) in batch.iter() {
             assert_eq!(Ok(l.to_vec()), lists[v.index()], "block {b}");
+        }
+        // A prefix batch decodes where each prefix decodes on its own, to the same.
+        for k in [1, 4, 6] {
+            let alone: Vec<_> = nodes
+                .clone()
+                .map(|v| {
+                    adj.neighbors_prefix(NodeId::new(v), k, &mut buf)
+                        .map(<[u32]>::to_vec)
+                })
+                .collect();
+            let got = adj.decode_prefixes(nodes.clone(), k, |_| true, usize::MAX, &mut batch);
+            assert_eq!(
+                got.is_ok(),
+                alone.iter().all(Result::is_ok),
+                "block {b} prefix {k}"
+            );
+            for (v, l) in batch.iter() {
+                assert_eq!(
+                    Ok(l.to_vec()),
+                    alone[ix(v.get() - nodes.start)],
+                    "block {b}"
+                );
+            }
         }
     }
     let mut offsets = vec![0; ix(index.nodes()) + 1];

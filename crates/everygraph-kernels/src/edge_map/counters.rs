@@ -5,7 +5,9 @@
 //! The counters are global: run one kernel at a time, then [`take`] them.
 //!
 //! A worker adds to thread-local counts; a driver task adds them to the global ones when
-//! it ends. That is correct because no body that counts runs a nested parallel loop.
+//! it ends. The tasks of a frontier call nest (runs, and the parts of a list), so a task
+//! may take with its own the counts of the task it runs inside: the counts of a call are
+//! exact, those of one task are not.
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
@@ -20,11 +22,12 @@ pub struct Call {
     pub key: u64,
     /// Nodes of the frontier.
     pub nodes: u64,
-    /// Runs of `FRONTIER_GRAIN` nodes. One run is done on the calling thread.
+    /// Tasks: runs of the frontier and parts of its lists. A call of one task is done on
+    /// the calling thread.
     pub runs: u64,
     /// Entries handed to the body, the side lists of `Lists::get` included.
     pub entries: u64,
-    /// Entries of the largest run.
+    /// Entries of the largest task.
     pub max_run: u64,
     /// The longest list of the frontier itself.
     pub max_list: u64,
@@ -142,7 +145,7 @@ pub(crate) fn flush() -> u64 {
     draws
 }
 
-/// One run of a frontier call.
+/// One task of a frontier call: a run, or a part of a list.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Run {
     pub entries: u64,

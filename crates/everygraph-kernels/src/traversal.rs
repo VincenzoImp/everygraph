@@ -10,6 +10,7 @@
 //! parents are chosen by a rule on the distances alone (§ 2.12 of `docs/api-sketch.md`).
 
 use std::num::NonZeroUsize;
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 
 use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par, usize_of};
@@ -109,20 +110,22 @@ pub fn bfs<'g, S: Source>(
                 let mut awake = frontier.len() as u64;
                 loop {
                     let old = awake;
-                    awake = inn.scan(
+                    awake = inn.scan_until(
                         (),
                         |v| at[v].load(Relaxed) == UNREACHED,
-                        |found: &mut u64, (), _, row, _| {
+                        |found: &mut u64, (), _, row| {
                             let hit = row.list.iter().position(|&u| front.contains(u));
                             #[cfg(feature = "frontier-counters")]
                             crate::edge_map::counters::examined(
                                 hit.map_or(row.list.len(), |i| i + 1),
                             );
-                            if hit.is_some() {
-                                at[row.node].store(level + 1, Relaxed);
-                                next.insert(row.node);
-                                *found += 1;
+                            if hit.is_none() {
+                                return ControlFlow::Continue(());
                             }
+                            at[row.node].store(level + 1, Relaxed);
+                            next.insert(row.node);
+                            *found += 1;
+                            ControlFlow::Break(())
                         },
                     )?;
                     #[cfg(feature = "frontier-counters")]

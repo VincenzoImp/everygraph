@@ -46,8 +46,7 @@ compressed when it does not fit' plan"; shared machine):
   edges/s — 5.2× (`lab/c-compression/results/dev6_cold8g.jsonl`).
 - Not settled by this: raw PageRank was 2× faster on orkut (0.026 vs 0.051 s per
   iteration, 32 threads, `bakeoff.jsonl`), and no other kernel was run on the compressed
-  form. #118 measures that; if it reverses the result, the change goes through ADR 0004.
-  *Settled 2026-11-25 by #118 (ADR 0004, "Result of #118"):* not reproduced — with batched
+  form. *Settled 2026-11-25 by #118 (ADR 0004, "Result of #118"):* not reproduced — with batched
   decode orkut PageRank on the compressed form is 0.73× of raw at 16 threads and 1.00× at
   1 thread, idle; raw by default stays overturned.
 

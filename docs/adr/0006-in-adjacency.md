@@ -33,12 +33,13 @@ and cached in the `.eg` file, its in-adjacency.
 
 ## Consequences
 
-- #38 builds it as a derived artifact; its acceptance (twitter-2010 transpose ≤ 15 s at
-  16 threads) is in line with the lab's 12.3 s at 32 threads.
+- #38 builds it as a derived artifact. Its speed target (twitter-2010 transpose ≤ 15 s at
+  16 threads, in line with the lab's 12.3 s at 32 threads) is measured by #240.
 - Undirected graphs store one symmetric adjacency and no transpose.
 
 ## What would change our mind
 
-- #38 cannot build it within 15 s on twitter-2010 at 16 threads in RAM, or its compressed
+- The build of #38 cannot make it within 15 s on twitter-2010 at 16 threads in RAM (#240),
+  or its compressed
   size exceeds the out-adjacency's, making an on-demand transpose per session cheaper than
   storing it.

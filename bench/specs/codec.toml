@@ -44,15 +44,15 @@ command = ["cargo", "build", "--release", "--offline", "--locked"]
 
 [[prepare]]
 name = "store-orkut"
-shell = "{m203} encode --graph {data}/csr/orkut --out {stores}/orkut.part --verify > /dev/null && mv {stores}/orkut.part {stores}/orkut"
-creates = "{stores}/orkut"
+shell = "{m203} encode --graph {data}/csr/orkut --out {stores}/m203-orkut.part --verify > /dev/null && mv {stores}/m203-orkut.part {stores}/m203-orkut"
+creates = "{stores}/m203-orkut"
 needed_by = ["scan-orkut", "random"]
 
 [[prepare]]
 name = "store-twitter-sym"
 memory_limit = "24G"
-shell = "{m203} encode --graph {data}/csr/twitter-sym --out {stores}/twitter-sym.part --verify > /dev/null && mv {stores}/twitter-sym.part {stores}/twitter-sym"
-creates = "{stores}/twitter-sym"
+shell = "{m203} encode --graph {data}/csr/twitter-sym --out {stores}/m203-twitter-sym.part --verify > /dev/null && mv {stores}/m203-twitter-sym.part {stores}/m203-twitter-sym"
+creates = "{stores}/m203-twitter-sym"
 needed_by = ["scan-twitter-sym"]
 
 [[benchmark]]
@@ -92,7 +92,7 @@ description = "warm sequential decode of every list of twitter-sym, batches of 8
 dataset_path = "csr/twitter-sym"
 warm_ok = "reads the compressed store into the heap, not the CSR"
 threads = [1, 16]
-command = ["{m203}", "scan", "--store", "{stores}/twitter-sym", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
+command = ["{m203}", "scan", "--store", "{stores}/m203-twitter-sym", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
 conditions = { graph = "twitter-sym", storage = "compressed (default), store in the heap", level = "in-process decode loop, best of 7" }
 record_json = { decoder = "/decoder" }
 metric = [
@@ -107,7 +107,7 @@ group = "scan"
 description = "warm sequential decode of every list of orkut, batches of 8,192 entries"
 dataset_path = "csr/orkut"
 threads = [1, 16]
-command = ["{m203}", "scan", "--store", "{stores}/orkut", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
+command = ["{m203}", "scan", "--store", "{stores}/m203-orkut", "--threads", "{threads}", "--batch", "8192", "--reps", "7"]
 conditions = { graph = "orkut", storage = "compressed (default), store in the heap", level = "in-process decode loop, best of 7" }
 record_json = { decoder = "/decoder" }
 metric = [
@@ -121,7 +121,7 @@ name = "random"
 group = "random"
 description = "warm decode of 10^6 uniformly random lists"
 dataset_path = "csr/orkut"
-command = ["{m203}", "random", "--store", "{stores}/orkut", "--queries", "1000000", "--reps", "5"]
+command = ["{m203}", "random", "--store", "{stores}/m203-orkut", "--queries", "1000000", "--reps", "5"]
 conditions = { graph = "orkut", storage = "compressed (default), store in the heap", level = "in-process, mean over the batch, best of 5" }
 record_json = { decoder = "/decoder" }
 metric = [

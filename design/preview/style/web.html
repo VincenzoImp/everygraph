@@ -364,7 +364,7 @@ body.only main { display: none; }
         <ul>
           <li><b><code>Graph.communities</code></b><span class="where">Python API › parameter <code>memory</code></span><p>Memory <mark>budget</mark> for this call, for example <code>"6GB"</code>.</p></li>
           <li><b><code>InsufficientBudget</code></b><span class="where">Python API › errors</span><p>Raised when a step does not fit in the memory <mark>budget</mark>.</p></li>
-          <li><b><code>Graph.khop</code></b><span class="where">Python API › parameter <code>budget</code></span><p>Stops at this many nodes and says so: <code><mark>budget</mark>=10_000</code>.</p></li>
+          <li><b><code>Graph.khop</code></b><span class="where">Python API › parameter <code>limit</code></span><p>Stops at this many nodes and says so: <code>limit=10_000</code>. A node count, not a memory <mark>budget</mark>.</p></li>
           <li><b><code>everygraph run</code></b><span class="where">Command line › <code>--memory</code></span><p>The memory <mark>budget</mark> for the step, for example <code>--memory 6GB</code>.</p></li>
         </ul>
         <div class="foot"><span class="cnt"><span class="num">6</span> results</span><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
@@ -498,7 +498,7 @@ pr.top(5)
 c = g.communities()            # same answer every run, on any machine
 
 m = g.map()                    # lays the communities out; builds the tiles
-m.export("transfers.egmap")    # one file, hostable anywhere static</pre></div>
+m.export("shared.egmap", reveal="summary")  # to share: no node ids</pre></div>
         <div>
           <div class="overline">What happens</div>
           <ol class="steps" style="margin-top: var(--space-3)">
@@ -581,7 +581,7 @@ m.export("transfers.egmap")    # one file, hostable anywhere static</pre></div>
 g = eg.open("transfers.eg")
 c = g.communities(memory="6GB")     # this call may use up to 6 GB</pre></div>
       <div class="code"><div class="code-h"><span>Shell</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="sh">$ everygraph run communities transfers.eg --memory 6GB</pre></div>
-      <p>When you do not set one, the default is a fifth of the memory that is free when the job starts, and at least <span class="num">2</span>&#8239;GB. <code>everygraph doctor</code> suggests a budget for the machine it runs on. Sizes are decimal: <span class="num">1</span>&#8239;GB is <span class="num">10⁹</span> bytes, as disks show it.</p>
+      <p>When you do not set one, the default is half of the memory that is free when the job starts. <code>everygraph doctor</code> suggests a budget for the machine it runs on. Sizes are decimal: <span class="num">1</span>&#8239;GB is <span class="num">10⁹</span> bytes, as disks show it.</p>
 
       <h2 id="planner">What the planner decides</h2>
       <p>Given the graph and the budget, the planner settles three things before the first byte is read:</p>
@@ -607,13 +607,13 @@ c = g.communities(memory="6GB")     # this call may use up to 6 GB</pre></div>
       <div class="code"><div class="code-h"><span>Terminal output</span></div><div class="term"><b>transfers.parquet</b> · 38.2 GB · 1,830,402,118 rows
 
   <span class="dim">ids</span>       hex addresses (20 bytes) · ~212.4 M distinct
-  <span class="dim">edges</span>     directed · duplicates kept as events · 4,201 self-loops dropped
+  <span class="dim">edges</span>     directed · duplicates kept as events · self-loops dropped
   <span class="dim">columns</span>   value → weight · block_time → time · ignored: gas, nonce, input
 
-  <span class="dim">machine</span>   16 cores · 61 GB RAM (44 GB free) · NVMe, 1.4 TB free
-  <span class="dim">budget</span>    8.0 GB memory (default: a fifth of free RAM, at least 2 GB)
+  <span class="dim">machine</span>   16 cores · 61 GB RAM (16 GB free) · NVMe, 1.4 TB free
+  <span class="dim">budget</span>    8.0 GB memory (default: half of free RAM)
   <span class="dim">plan</span>      build on disk — the graph is 4.6× the memory budget
-  <span class="dim">estimate</span>  3 min 40 s · peak 5.9 GB · 61 GB scratch in /tmp · result 9.3 GB
+  <span class="dim">estimate</span>  3 min 40 s · peak 5.9 GB · 61 GB scratch · result 9.3 GB
 
   <span class="dim">phases</span>    reading → identifiers → building → checking
   <span class="dim">result</span>    transfers.eg, beside the input
@@ -632,26 +632,30 @@ Dry run: nothing was written.
             <text x="0" y="34"><tspan font-weight="600">Ingest</tspan> · peak 5.9 GB, budget 8.0 GB · fits</text>
             <rect class="track" x="0" y="46" width="640" height="24"/><rect class="need" x="0" y="46" width="377.6" height="24"/>
             <line class="lim" x1="512" y1="38" x2="512" y2="78"/><text class="mi" x="518" y="42">budget 8.0 GB</text>
-            <text x="0" y="118"><tspan font-weight="600">Communities</tspan> · needs 5.1 GB, budget 4.0 GB · <tspan class="overt">does not fit: 1.1 GB over</tspan></text>
+            <text x="0" y="118"><tspan font-weight="600">Communities</tspan> · needs 5.6 GB, budget 4.0 GB · <tspan class="overt">does not fit: 1.6 GB over</tspan></text>
             <rect class="track" x="0" y="130" width="640" height="24"/><rect class="need" x="0" y="130" width="256" height="24"/>
-            <rect x="256" y="130" width="70.4" height="24" fill="url(#UIDover)"/><rect x="256.5" y="130.5" width="69.4" height="23" fill="none" class="over"/>
+            <rect x="256" y="130" width="102.4" height="24" fill="url(#UIDover)"/><rect x="256.5" y="130.5" width="101.4" height="23" fill="none" class="over"/>
             <line class="lim" x1="256" y1="122" x2="256" y2="162"/><text class="mi" x="262" y="176">budget 4.0 GB</text>
             <g><line class="tick" x1="0" y1="196" x2="640" y2="196"/>
               <line class="tick" x1="0.5" y1="196" x2="0.5" y2="201"/><line class="tick" x1="128" y1="196" x2="128" y2="201"/><line class="tick" x1="256" y1="196" x2="256" y2="201"/><line class="tick" x1="384" y1="196" x2="384" y2="201"/><line class="tick" x1="512" y1="196" x2="512" y2="201"/><line class="tick" x1="639.5" y1="196" x2="639.5" y2="201"/>
               <text class="m" x="0" y="216">0</text><text class="m" x="128" y="216" text-anchor="middle">2 GB</text><text class="m" x="256" y="216" text-anchor="middle">4 GB</text><text class="m" x="384" y="216" text-anchor="middle">6 GB</text><text class="m" x="512" y="216" text-anchor="middle">8 GB</text><text class="m" x="640" y="216" text-anchor="end">10 GB</text></g>
           </g>
         </svg>
-        <figcaption><b>Figure 1.</b> The same graph under two budgets. Ingest peaks at <span class="num">5.9</span>&#8239;GB and fits in <span class="num">8.0</span>&#8239;GB. Communities need <span class="num">5.1</span>&#8239;GB of per-node state and do not fit in <span class="num">4.0</span>&#8239;GB; the hatched part is what is over.</figcaption>
+        <figcaption><b>Figure 1.</b> The same graph under two budgets. Ingest peaks at <span class="num">5.9</span>&#8239;GB and fits in <span class="num">8.0</span>&#8239;GB. Communities need <span class="num">5.6</span>&#8239;GB, <span class="num">5.1</span>&#8239;GB of it per-node state, and do not fit in <span class="num">4.0</span>&#8239;GB; the hatched part is what is over.</figcaption>
       </figure>
 
       <h2 id="refusal">When a step does not fit</h2>
       <p>The step is refused before it starts. The message gives the arithmetic and the ways out, written as calls you can copy. See <a href="#"><code>Graph.communities</code></a> for the parameters it mentions.</p>
       <div class="code"><div class="code-h"><span>Python</span><button class="btn sm" data-copy>Copy</button></div><pre data-lang="py">g.communities(memory="4GB")</pre></div>
-      <div class="code out"><div class="code-h"><span>Output</span></div><pre>InsufficientBudget: communities() needs 5.1 GB for per-node state on this graph
-(212,418,907 nodes × 24 bytes); the budget is 4.0 GB.
+      <div class="code out"><div class="code-h"><span>Output</span></div><pre>InsufficientBudget: communities() needs 5.6 GB: 5.1 GB for per-node state
+(212,418,907 nodes × 24 bytes), and 0.5 GB for buffers and the graph's indexes;
+the budget is 4.0 GB.
+The edges stay on disk either way.
 
-  • raise the budget:        g.communities(memory="6GB")     ← smallest that works
-  The edges themselves stay on disk either way.</pre></div>
+  Ways forward:
+    g.communities(memory="6GB")       the smallest budget that works
+
+Nothing was changed.</pre></div>
       <div class="callout warn"><svg class="ico" width="16" height="16"><use href="#i-warn"/></svg><div><p><b>Warning: a faster mode can change the result.</b></p><p><code>deterministic=False</code> is faster and may give different communities from run to run. Say which one you used when you report a result.</p></div></div>
       <div class="callout"><svg class="ico" width="16" height="16"><use href="#i-info"/></svg><div><p><b>Note: a refusal changes nothing.</b></p><p>The graph file and every earlier result stay exactly as they were.</p></div></div>
 

@@ -8,6 +8,9 @@
 
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
+# The seeded bugs run once, in the oracle job (oracle/run-ci.sh), on the whole CI corpus
+# with the Python references. `--ignore-default-filter` runs them here.
+default-filter = 'not binary(seeded_bugs)'
 
 # Two harness tests drive the kernel's OOM killer inside a 32 MiB systemd scope. On
 # GitHub's runners each failed once in about forty runs (2026-11-25) with the measuring
