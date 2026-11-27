@@ -1019,6 +1019,29 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
         A: Reduce,
         W: Send,
     {
+        self.scan_keep(out, filter, init, body).map(|(sum, _)| sum)
+    }
+
+    /// As [`scan_with`](Self::scan_with), and also returns the workers' scratch values,
+    /// in no fixed order: about one per worker that ran a task, none if `W` has no size.
+    /// A total that does not depend on the order of its parts ([`ExactSum`]) can be kept
+    /// there, once per worker, instead of once per reduction block.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan_with`](Self::scan_with).
+    pub fn scan_keep<O, A, W>(
+        &self,
+        out: O,
+        filter: impl Fn(Node<'g>) -> bool + Sync,
+        init: impl Fn() -> W + Sync,
+        body: impl Fn(&mut A, &mut O, usize, Row<'_, 'g>, &mut Worker<'_, 'g, S, W>) + Sync,
+    ) -> Result<(A, Vec<W>), Error>
+    where
+        O: Split,
+        A: Reduce,
+        W: Send,
+    {
         let scratch = Mutex::new(Vec::new());
         let backward = self.alternate && self.scans.fetch_add(1, Ordering::Relaxed) % 2 == 1;
         self.run(out, backward, |task, mut out, sums| {
@@ -1066,6 +1089,10 @@ impl<'s, 'g, S: Source> Plan<'s, 'g, S> {
             });
             give(&scratch, w);
             result
+        })
+        .map(|sum| {
+            let kept = scratch.into_inner().unwrap_or_else(PoisonError::into_inner);
+            (sum, kept)
         })
     }
 

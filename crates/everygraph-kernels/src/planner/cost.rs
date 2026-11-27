@@ -21,9 +21,7 @@
 use std::num::NonZeroUsize;
 use std::ops::Range;
 
-use everygraph_core::{
-    AccessHint, ExactSum, MAX_ALLOCATION_BYTES, Storage, StorageKind, SystemMemory, math,
-};
+use everygraph_core::{AccessHint, MAX_ALLOCATION_BYTES, Storage, StorageKind, SystemMemory, math};
 use everygraph_format::adjacency::{Batch, index_bytes_bound};
 
 use super::{Estimate, Graph, InLists, Regime, Tier};
@@ -293,13 +291,9 @@ impl Cost {
                 )
             }
         };
-        // Each driver call holds one partial value per reduction block: two `ExactSum`s
-        // for `PageRank`'s iterations, a count at most for the others.
-        let partial = match op {
-            Operation::PageRank { .. } => 2 * size_of::<ExactSum>() as u64,
-            _ => 8,
-        };
-        let mut partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * partial;
+        // Each driver call holds one partial value per reduction block, a count at most.
+        // `PageRank` keeps its exact sums per worker (`Plan::scan_keep`).
+        let mut partials = n.div_ceil(u64::from(block_nodes(graph.nodes))) * 8;
         // A frontier driver holds, per group, its result, and for a group that waits for
         // the waves its index, its count of runs and where its runs start; per run, its
         // range, its end while it is cut and the index of a long list (`Plan::drive`,

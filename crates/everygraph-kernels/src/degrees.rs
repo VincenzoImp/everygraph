@@ -48,15 +48,36 @@ pub fn degrees<S: Source>(
 ) -> Result<SegVec<u32>, Error> {
     let n = usize::try_from(plan.nodes()).expect("a node count in memory");
     let mut out = SegVec::try_with_len(memory, "degrees", n, 0_u32)?;
-    let column = one_segment_mut(&mut out)?;
+    count(plan, one_segment_mut(&mut out)?, own, |d| {
+        u32::try_from(d).expect("a degree below 2^32")
+    })?;
+    Ok(out)
+}
+
+/// A degree as an `f64`: a sum of ones and twos below 2^53 is exact, so the strength
+/// without weights.
+#[expect(clippy::cast_precision_loss, reason = "a degree is below 2^53")]
+fn exact(degree: u64) -> f64 {
+    degree as f64
+}
+
+/// Writes `to(degree)` for every node, the degree counted as `own` says. With
+/// [`Loop::Once`] it reads no list.
+fn count<S: Source, T: Send>(
+    plan: &Plan<'_, '_, S>,
+    column: &mut [T],
+    own: Loop,
+    to: impl Fn(u64) -> T + Sync,
+) -> Result<(), Error> {
     match own {
-        Loop::Once => plan.vertices(column, |(): &mut (), out, i, _, d| out[i] = d)?,
+        Loop::Once => plan.vertices(column, |(): &mut (), out, i, _, d| {
+            out[i] = to(u64::from(d));
+        }),
         Loop::Twice => plan.scan(column, all, |(): &mut (), out, i, row, _| {
             let loops = row.list.iter().filter(|&&u| u == row.node).count();
-            out[i] = u32::try_from(row.list.len() + loops).expect("a degree below 2^32");
-        })?,
+            out[i] = to((row.list.len() + loops) as u64);
+        }),
     }
-    Ok(out)
 }
 
 /// The sum of `weights` over each list, a node's own entry counted as `own` says;
@@ -92,22 +113,22 @@ pub(crate) fn scaled_strengths<S: Source>(
     let n =
         usize::try_from(plan.nodes()).map_err(|_| Error::Invalid("a node count above memory"))?;
     let mut out = SegVec::try_with_len(memory, "strengths", n, 0.0_f64)?;
-    plan.scan(
-        one_segment_mut(&mut out)?,
-        all,
-        |(): &mut (), out, i, row, _| {
-            let weight = |e: usize| weights.map_or(1.0, |w| w[e] * scale);
-            let mut sum = 0.0;
-            for (&u, e) in row.list.iter().zip(row.entries()) {
-                let x = weight(e);
-                sum += if u == row.node && own == Loop::Twice {
-                    2.0 * x
-                } else {
-                    x
-                };
-            }
-            out[i] = sum;
-        },
-    )?;
+    let column = one_segment_mut(&mut out)?;
+    let Some(weights) = weights else {
+        count(plan, column, own, exact)?;
+        return Ok(out);
+    };
+    plan.scan(column, all, |(): &mut (), out, i, row, _| {
+        let mut sum = 0.0;
+        for (&u, e) in row.list.iter().zip(row.entries()) {
+            let x = weights[e] * scale;
+            sum += if u == row.node && own == Loop::Twice {
+                2.0 * x
+            } else {
+                x
+            };
+        }
+        out[i] = sum;
+    })?;
     Ok(out)
 }
