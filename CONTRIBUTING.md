@@ -1,5 +1,12 @@
 # Contributing to Everygraph
 
+Issues and pull requests are welcome. In short:
+
+1. Before larger work, find the issue for it or open one. The planned work is a set of
+   issue files under `plan/issues/`, published as GitHub issues.
+2. One pull request per issue. Run the checks below before you push.
+3. Sign off every commit (`git commit -s`); see "Sign-off".
+
 This file holds the coding rules of the Rust workspace. How work is planned, reviewed and
 merged is in [CLAUDE.md](CLAUDE.md); why the engine is shaped this way is in
 [docs/DESIGN.md](docs/DESIGN.md). Licensing, sign-off, review, the code of conduct and the

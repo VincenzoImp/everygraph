@@ -67,7 +67,7 @@ Beside it, and needed before the release:
 - the engine under a budget: the allocator policy (#167);
   the semi-external source (#46); the determinism checks in CI (#54); Leiden beyond RAM
   (#60);
-- queries: point queries (#90), shortest paths (#91), views (#93);
+- queries: shortest paths (#91), views (#93);
 - the packages: Python API (#81), Arrow interop (#83), wheels (#82), the rest of the
   command line (#247);
 - the documentation site (#99) and the public benchmark report (#100).

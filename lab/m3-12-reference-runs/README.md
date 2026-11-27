@@ -7,6 +7,8 @@ python-igraph, GVE-Leiden — on the same graphs, inputs and thread counts?
 **There are no speed ratios between tools here.** Such a ratio is a result only from an
 official run on an idle machine, with intervals (CLAUDE.md § 3; #265): exploratory
 rounds on this shared machine changed the sign of one between rounds (#265 quotes it).
+The official orkut run is `bench/results/references/20261127T023349Z-2510b9c16c0a.jsonl`;
+[`bench/results/README.md`](../../bench/results/README.md) gives its times and ratios.
 
 What this directory holds, all independent of the machine's load:
 
@@ -255,8 +257,8 @@ passed its validation are shown.
 
 ## Not done
 
-- The official runs, so no ratio between tools and no "where we are slower" section
-  yet. Both come from the official orkut window, with intervals (#194, #195).
+- The official runs of the other graphs (lj, roadnet-ca, web-google, twitter-sym,
+  Friendster). Only orkut has one.
 - A `-march=native` variant (`build.sh native` builds it, no case runs it) and an
   unbound variant.
 - Vertex orders other than the input order (protocol rule 1: degree, reverse degree).

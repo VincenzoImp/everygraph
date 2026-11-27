@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIT -->
+<!-- The repository's social preview, 1280 × 640 (GitHub's size). The social card of
+     design/preview/style/web.html, with the repository in place of the install command
+     and a map without labels; render.mjs draws the map and writes the PNG. -->
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Everygraph social preview</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../fonts.css">
+<style>
+* { margin: 0; box-sizing: border-box; }
+body { width: 1280px; height: 640px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-variant-ligatures: none; }
+.card { width: 1280px; height: 640px; display: grid; grid-template-columns: 600px 1fr; }
+.txt { padding: var(--space-8) 0 var(--space-8) var(--space-8); display: flex; flex-direction: column; }
+.wordmark { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-3xl); line-height: var(--lh-3xl); letter-spacing: var(--tracking-tight); }
+.wordmark b { font-weight: var(--weight-semibold); }
+h1 { font-size: var(--text-5xl); line-height: var(--lh-5xl); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-tight); margin-top: auto; }
+p { font-size: var(--text-2xl); line-height: var(--lh-2xl); color: var(--ink-2); margin-top: var(--space-4); }
+.repo { margin-top: auto; font-family: var(--font-mono); font-size: var(--text-xl); line-height: var(--lh-xl); color: var(--ink-2); }
+.map { margin: var(--space-7) 0 var(--space-7) var(--space-7); border: var(--border) solid var(--line); border-right: 0; border-radius: var(--radius-md) 0 0 var(--radius-md); overflow: hidden; background: var(--map-bg); }
+.map svg { display: block; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="txt">
+    <span class="wordmark"><svg width="40" height="40" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="18.5" cy="18" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="20" cy="19.2" r="2.6" fill="var(--accent)"/></svg><span>every<b>graph</b></span></span>
+    <h1>Every graph, every size, every machine.</h1>
+    <p>Ingest, analyze, query and map a graph on one computer, inside the memory budget you set.</p>
+    <div class="repo">github.com/VincenzoImp/everygraph</div>
+  </div>
+  <div class="map" data-theme="dark"><svg data-map='{"w":631,"h":542,"aspect":2,"zoom":2.1,"focus":0,"dx":0.55,"dy":0.1,"fs":14,"labels":"none"}' width="631" height="542"></svg></div>
+</div>
+</body>
+</html>
