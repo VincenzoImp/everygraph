@@ -36,7 +36,8 @@ labels: type:feature, area:query, P0, risk:medium, size:L, lab-evidence
 - branchless list filtering in the mask (the predicates' bitsets are built without branches);
 - column types: `Values` reads `f64`, `f32`, `i64`, `i32`, `u64` and `u32`; not `u8` or `u16` (the codes of an edge-type dictionary, `graph-semantics.md` § 2.6), `i8`, `i16`, booleans or decimals; and `pair_values` and `event_sums` sum `f64` only, so integer and decimal weights are not summed exactly in their own type;
 - views of more than about 2^28 kept nodes, or of parents of more than about 2^29 nodes: their node arrays are one segment each ({{#m3-15-segment-size-large-state}});
-- the views of the command line and Python (`g.filter`, `g.window`, `g.subgraph`, `&`, the expression language and `InvalidExpression`, `--edges`, `--nodes`), their counts on first access, and the event offsets and columns read from a graph file; point queries on a view, with #90.
+- the views of the command line and Python (`g.filter`, `g.window`, `g.subgraph`, `&`, the expression language and `InvalidExpression`, `--edges`, `--nodes`), their counts on first access, and the event offsets and columns read from a graph file;
+- point queries on a view: they take any `Source`, a `View` among them, but no test runs them on one ({{#m7-01-point-queries}} built them without views).
 
 **Pointers.** `lab/f1-query/src/bin/props.rs`.
 

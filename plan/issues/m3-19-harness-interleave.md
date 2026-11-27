@@ -15,7 +15,7 @@ labels: type:infra, area:bench, P1, risk:low, size:S
 - An A/B of two binaries runs as one harness command and reports a ratio interval
 - The comparison of interleaved against consecutive runs above is recorded with its result file
 
-**Status (2026-11-26).** Built: `run --interleave --seed S` (seeded random rounds, each even round the reverse of the one before), `round`, `position` and `seed` in every row, the spec key `interleave`, `report --compare --by VAR=VALUE` and `run --compare-by VAR=VALUE` (test `an_interleaved_ab_of_two_binaries_reports_a_ratio_interval`). The first use, interleaved against consecutive on an idle machine, waits for the M3 official window.
+**Status (2026-11-26).** Built: `run --interleave --seed S` (seeded random rounds, each even round the reverse of the one before), `round`, `position` and `seed` in every row, the spec key `interleave`, `report --compare --by VAR=VALUE` and `run --compare-by VAR=VALUE` (test `an_interleaved_ab_of_two_binaries_reports_a_ratio_interval`). Closed on 2026-11-26; the first use, interleaved against consecutive on an idle machine, and its record moved to {{#m3-26-benchmark-validity}}.
 
 **Feeds.** Every A/B the plan asks for (e.g. {{#m1-08-memory-bandwidth}}, {{#m4-03-parallel-aggregation}}, {{#m2-28-par-scatter}}), {{#m8-03-public-benchmarks}}.
 

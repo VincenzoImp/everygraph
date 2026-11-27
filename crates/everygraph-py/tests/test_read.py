@@ -236,7 +236,8 @@ def test_the_budget_refuses_before_any_work(tmp_path):
     with pytest.raises(eg.InsufficientBudget) as e:
         eg.read(path, out=tmp_path / "e.eg", memory="1MB", progress=False)
     assert e.value.budget_bytes == 10**6
-    assert e.value.smallest_budget_bytes is None, "known once the planner exists (#45)"
+    # The build's estimate is not the exact smallest budget.
+    assert e.value.smallest_budget_bytes is None
     assert not (tmp_path / "e.eg").exists()
     way = e.value.ways_forward[0]
     assert way.python.startswith("eg.read(") and "memory=" in way.python

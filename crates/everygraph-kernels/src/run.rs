@@ -1011,7 +1011,10 @@ pub fn store<K: ByteSink>(
     let Some((_, column)) = output.columns.first() else {
         return Ok(());
     };
-    let long = ContainerError::InvalidResult("a result longer than one segment (#m3-15)");
+    let long = ContainerError::InvalidResult(
+        "a result longer than one segment, which this version does not store; \
+         https://github.com/VincenzoImp/everygraph/issues/169 lifts this limit",
+    );
     match column {
         Column::U32 { values, .. } => {
             writer.add_result(&key, about, values.as_slice().ok_or(long)?)

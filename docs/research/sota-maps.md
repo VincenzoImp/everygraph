@@ -205,7 +205,7 @@ structure on noise (Wallinger 2021); bundling evidence is informal (Holten) or m
 4. **Make the layout's I/O sequential by laying out in hierarchy (DFS) order; place nodes
    of giant communities along a space-filling curve of that order.**
    - *Change:* the layout scans each parent's members' adjacency per depth. If node ids are
-     the hierarchy DFS order (#m1-09 / #146 relabel), every parent's members are a
+     the hierarchy DFS order (#23 / #146 relabel), every parent's members are a
      contiguous id range and every depth is one sequential pass. For finest communities
      above a size threshold, place nodes along a Hilbert/Gosper curve of their sub-order
      (Muelder–Ma: Θ(n), deterministic) instead of a force solve that gives near-uniform

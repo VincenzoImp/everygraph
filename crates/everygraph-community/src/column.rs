@@ -21,7 +21,7 @@ pub struct Column<T> {
 impl<T: Send> Column<T> {
     /// `[f(0), …, f(len - 1)]`, made in parallel after its size is reserved.
     ///
-    /// A column is one allocation, not segments (DESIGN D2 asks for segments: #m4-14).
+    /// A column is one allocation, not segments (DESIGN D2 asks for segments: #261).
     /// On a 32-bit target, where one allocation above about 2 GiB fails, a column above
     /// [`MAX_ALLOCATION_BYTES`] is refused instead.
     pub(crate) fn new(

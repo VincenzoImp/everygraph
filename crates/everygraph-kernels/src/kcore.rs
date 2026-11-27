@@ -106,7 +106,7 @@ impl Sampler {
 ///
 /// From the plan's source, or the state does not fit in the budget (about 16 bytes per
 /// node, 8 without hubs, plus the buckets). Each per-node array is one allocation, so a
-/// graph of more than 2^29 nodes needs #m3-15, as the framework's `NodeCells` do.
+/// graph of more than 2^29 nodes needs #169, as the framework's `NodeCells` do.
 pub fn kcore<S: Source>(plan: &Plan<'_, '_, S>, memory: &Memory) -> Result<Atomics, Error> {
     decompose(plan, memory, Some(Sampler::for_nodes(plan.nodes())))
 }

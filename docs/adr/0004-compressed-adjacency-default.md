@@ -157,11 +157,11 @@ Friendster WCC slowdown of 1.36–1.57× (not explained).
 - Point queries (#90) read lists in parts (`Source::list_part`,
   `crates/everygraph-query/src/graph.rs`). Their throughput at 16 threads on the default
   storage is #337's.
-- The streaming regime (#46) needs a reader for the compressed format; without one the
-  "within 1.35× under 2 GB" target of DESIGN § 6 has no margin (1.35× measured through plain
-  mmap).
-- Ingest (#35) needs an encoder that runs under the memory budget; the one measured holds
-  input and output in RAM.
+- The streaming regime (#46) reads the compressed format through `ByteSource`.
+  The "within 1.35× under 2 GB" target of DESIGN § 6 is #46's; through plain mmap #118
+  measured 1.35×, with no margin.
+- Ingest (#35) writes the format with a streaming encoder under the memory budget (tests);
+  its speed is #240's.
 - Public performance claims (#100) may quote the default-storage numbers of FINDINGS
   § M1-13 with their conditions; raw-array numbers are quoted as such.
 - **Not to implement** (the review of 2026-11-26, [sota-review-2026-11.md](../research/sota-review-2026-11.md) (index in [docs/research/README.md](../research/README.md))):

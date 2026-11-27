@@ -35,7 +35,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use everygraph_core::{Memory, MemoryKind, Reservation, SegVec, par};
 
-use super::{Error, Split, ix};
+use super::{Error, SEGMENTS, Split, ix};
 
 /// The brand: an invariant lifetime.
 pub(crate) type Brand<'g> = PhantomData<fn(&'g ()) -> &'g ()>;
@@ -401,7 +401,7 @@ impl<'g> NodeSet<'g> {
     /// # Errors
     ///
     /// [`Error::Memory`] if they do not fit in `out`'s budget, or in one segment (more
-    /// than 2^28 nodes: #m3-15).
+    /// than 2^28 nodes: #169).
     ///
     /// # Panics
     ///
@@ -424,9 +424,7 @@ impl<'g> NodeSet<'g> {
                 .map(|&w| words[w].load(Ordering::Relaxed).count_ones() as usize)
                 .sum();
             ids.try_resize(count, 0)?;
-            let all = ids.as_mut_slice().ok_or(Error::Invalid(
-                "a node list longer than one segment (#m3-15)",
-            ))?;
+            let all = ids.as_mut_slice().ok_or(SEGMENTS)?;
             let mut at = 0;
             for w in touched {
                 bits(w, words[w].load(Ordering::Relaxed), &mut |id| {
@@ -443,9 +441,7 @@ impl<'g> NodeSet<'g> {
                 .sum::<usize>()
         });
         ids.try_resize(counts.iter().sum(), 0)?;
-        let all = ids.as_mut_slice().ok_or(Error::Invalid(
-            "a node list longer than one segment (#m3-15)",
-        ))?;
+        let all = ids.as_mut_slice().ok_or(SEGMENTS)?;
         let mut pieces = Vec::new();
         let mut rest = all;
         for (k, &c) in counts.iter().enumerate() {
@@ -530,11 +526,9 @@ impl<'g> NodeList<'g> {
     ///
     /// # Errors
     ///
-    /// [`Error::Invalid`] if they are in more than one segment (#m3-15).
+    /// [`Error::Invalid`] if they are in more than one segment (#169).
     pub fn as_slice(&self) -> Result<&[Node<'g>], Error> {
-        let ids = self.ids.as_slice().ok_or(Error::Invalid(
-            "a node list longer than one segment (#m3-15)",
-        ))?;
+        let ids = self.ids.as_slice().ok_or(SEGMENTS)?;
         // SAFETY: every id was a `Node<'g>` when written (field invariant).
         Ok(unsafe { as_nodes(ids) })
     }

@@ -267,7 +267,7 @@ passed its validation are shown.
 - GBBS SSSP; scipy, DuckDB and the F2 query engines in this spec (they are in the
   `baselines` and `engines` specs); COST's Hilbert order; PageRank and SSSP on
   Friendster; NetworKit and igraph on twitter-sym and Friendster.
-- The regression gate of #55 (waits for #194).
+- The regression gate of #55.
 
 ## Files
 

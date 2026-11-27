@@ -33,9 +33,9 @@ called as many short calls so WebAssembly engines optimize it.
 
 ## Consequences
 
-- #44 builds the framework; its acceptance is the missing measurement: PageRank, WCC and
-  BFS written once, byte-identical over all four sources, ≤ 5% overhead against the
-  `lab/b1-core` kernels on orkut, compiled to wasm32 with native-identical output.
+- The framework (#44) is held to PageRank, WCC and BFS written once, byte-identical over
+  all four sources, ≤ 5% overhead against the `lab/b1-core` kernels on orkut, compiled to
+  wasm32 with native-identical output. "Closed by" gives the overhead measured.
 - Kernels that need a different algorithm per regime (components) declare their variants
   to the planner, which may switch only between variants that give the identical result
   (ADR 0014).
@@ -47,7 +47,7 @@ called as many short calls so WebAssembly engines optimize it.
 
 ## Closed by
 
-The framework's overhead against the lab on orkut is above 5%:
-WCC, raw source, 16 threads, 1.13× (official,
-`bench/results/edge-map/20261126T043042Z-c0d7f248bb47.jsonl`). #240 finds whether the
-per-task cost behind it can be removed.
+The framework's overhead against the lab on orkut, raw source, 16 threads, is above 5% for
+PageRank: `pr32` 1.10× and `pr64` 1.09×; WCC 1.05×, BFS 0.93× (official, medians of 3,
+`bench/results/edge-map/20261127T062155Z-3b3befb5cf63.jsonl`). #240 finds whether the cost behind
+PageRank's gap can be removed.

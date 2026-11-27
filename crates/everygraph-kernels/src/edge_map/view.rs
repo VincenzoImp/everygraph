@@ -35,7 +35,10 @@ const BATCH: usize = 8192;
 const LISTS: usize = 1024;
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 12).expect("non-zero");
 
-const SEGMENT: Error = Error::Invalid("view state longer than one segment (#m3-15)");
+const SEGMENT: Error = Error::Invalid(
+    "view state longer than one segment, which this version does not run; \
+     https://github.com/VincenzoImp/everygraph/issues/169 lifts this limit",
+);
 
 /// Whether bit `i` of `bits` is set.
 #[inline]
@@ -143,7 +146,7 @@ impl<'s, S: Source> View<'s, S> {
     /// [`Error::Memory`] if the view's state does not fit (the arrays that grow with the
     /// nodes are refused before the parent is read);
     /// [`Error::Invalid`] for a parent of more than about 2^29 nodes or a view of more
-    /// than about 2^28, whose node arrays would take more than one segment (#m3-15);
+    /// than about 2^28, whose node arrays would take more than one segment (#169);
     /// the parent's errors.
     pub fn new(
         parent: &'s S,

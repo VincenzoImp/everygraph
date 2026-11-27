@@ -233,13 +233,16 @@ pub(crate) fn ix(x: u64) -> usize {
     usize::try_from(x).expect("an index into memory")
 }
 
-const SEGMENTS: Error = Error::Invalid("node state longer than one segment (#m3-15)");
+pub(super) const SEGMENTS: Error = Error::Invalid(
+    "node state longer than one segment, which this version does not run; \
+     https://github.com/VincenzoImp/everygraph/issues/169 lifts this limit",
+);
 
 /// The values of `v` as one slice, as the drivers take per-node state.
 ///
 /// # Errors
 ///
-/// [`Error::Invalid`] if `v` has more than one segment (#m3-15).
+/// [`Error::Invalid`] if `v` has more than one segment (#169).
 pub fn one_segment<T: Copy>(v: &SegVec<T>) -> Result<&[T], Error> {
     v.as_slice().ok_or(SEGMENTS)
 }
@@ -248,7 +251,7 @@ pub fn one_segment<T: Copy>(v: &SegVec<T>) -> Result<&[T], Error> {
 ///
 /// # Errors
 ///
-/// [`Error::Invalid`] if `v` has more than one segment (#m3-15).
+/// [`Error::Invalid`] if `v` has more than one segment (#169).
 pub fn one_segment_mut<T: Copy>(v: &mut SegVec<T>) -> Result<&mut [T], Error> {
     v.as_mut_slice().ok_or(SEGMENTS)
 }

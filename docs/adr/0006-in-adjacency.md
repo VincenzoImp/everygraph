@@ -33,8 +33,8 @@ and cached in the `.eg` file, its in-adjacency.
 
 ## Consequences
 
-- #38 builds it as a derived artifact. Its speed target (twitter-2010 transpose ≤ 15 s at
-  16 threads, in line with the lab's 12.3 s at 32 threads) is measured by #240.
+- It is a derived artifact (#38). Its speed target (twitter-2010 transpose ≤ 15 s at 16
+  threads, in line with the lab's 12.3 s at 32 threads) is #240's.
 - Undirected graphs store one symmetric adjacency and no transpose.
 
 ## What would change our mind
