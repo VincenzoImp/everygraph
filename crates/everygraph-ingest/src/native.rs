@@ -67,20 +67,29 @@ impl Scratch for JobScratch {
     type Source = MmapSource;
     type Writer = File;
 
+    /// A run stopped between making a file and unlinking it leaves the file behind under
+    /// a name this run would use again; such a name is skipped, and the directory's
+    /// removal takes the file.
     fn create(&self, purpose: &'static str) -> io::Result<File> {
-        let i = self.next.fetch_add(1, Ordering::Relaxed);
-        let path = self
-            .dir
-            .join(format!("{i:08}-{}", purpose.replace(' ', "-")));
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        // Elsewhere an open file cannot be unlinked; the directory's removal takes it.
-        #[cfg(unix)]
-        std::fs::remove_file(&path)?;
-        Ok(file)
+        loop {
+            let i = self.next.fetch_add(1, Ordering::Relaxed);
+            let path = self
+                .dir
+                .join(format!("{i:08}-{}", purpose.replace(' ', "-")));
+            let file = match File::options()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                other => other?,
+            };
+            // Elsewhere an open file cannot be unlinked; the directory's removal takes it.
+            #[cfg(unix)]
+            std::fs::remove_file(&path)?;
+            return Ok(file);
+        }
     }
 
     /// Maps the file: it is never written again (the map's invariant, `MmapSource`).
@@ -429,6 +438,21 @@ mod tests {
             &Silent,
             &|| true,
         )
+    }
+
+    /// A killed run can leave a scratch file under the first name the next run makes
+    /// (`a_killed_ingest_leaves_no_damaged_graph` once failed so).
+    #[test]
+    fn a_scratch_file_left_by_a_stopped_run_is_skipped() {
+        let dir = Dir::new("stale-scratch");
+        let job = job_id(&["stale"]);
+        let left = dir.0.join(format!(".everygraph-{job}"));
+        std::fs::create_dir(&left).expect("the stopped run's directory");
+        std::fs::write(left.join("00000000-ids"), b"stale").expect("its file");
+        let scratch = JobScratch::create(&dir.0, &job).expect("taken over");
+        scratch.create("ids").expect("a new file beside the stale one");
+        drop(scratch);
+        assert!(dir.names().is_empty(), "{:?}", dir.names());
     }
 
     #[test]
