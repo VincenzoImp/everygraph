@@ -233,7 +233,7 @@ jobs:
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -280,7 +280,7 @@ jobs:
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -331,7 +331,7 @@ jobs:
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -354,7 +354,7 @@ jobs:
     needs: lint
     if: needs.lint.outputs.test == 'true' && needs.lint.outputs.core == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -808,7 +808,7 @@ jobs:
     needs: [lint, build, test, wasm, readers, canary, i686, release, oracle, msrv, sanitizers, miri-core, no-oom, platforms, fuzz-replay]
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 10
     steps:
       - name: A job failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

@@ -199,8 +199,9 @@ rules:
 2. One job per concern. Its name says the concern in a few words. A rerun repeats only
    that job.
 3. Build once (`cargo nextest archive`), test in partitions (`--partition hash:k/4`).
-4. Time limits come from measurement: the 99th percentile × 1.5, rounded up. A job that
-   reaches its limit is a defect to fix.
+4. Time limits come from measurement: the 99th percentile × 1.5, rounded up, and at
+   least 10 minutes until the job has 20 measured runs. A job that reaches its limit is
+   a defect to fix.
 5. Tiers. A pull request runs what its diff can break. A push to `main` runs everything:
    all platforms, the release build, the MSRV. Nightly runs the exhaustive checks.
 6. A test runs where its property can differ. Platform-neutral computation runs on Linux
