@@ -2797,7 +2797,7 @@ Every story maps to issues in M2–M7, as the acceptance of #12 requires:
 | 4 Between two dates | #37 | #45 | #57 | | #81 | #93, #94 |
 | 5 Map and share | | | #57, #60, #63 | #67, #68, #69, #75, #78 | #76 | #74 |
 | 6 Joined with my table | #39 | #47 | #57 | | #83 | #95 |
-| 7 A piece to NetworkX | | | #62 | | #85, #87 | #90, #93 |
+| 7 A piece to NetworkX | | | #62 | | #85 | #87, #90, #93 |
 | 8 Does not fit | #31 | #45, #53 | #60 | | #81 | |
 | 9 Interrupted, resumed | #28, #40 | | | | #81 | |
 | 10 From arrays | | #51 | | | #83, #84 | |
