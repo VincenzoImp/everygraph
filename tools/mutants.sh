@@ -30,6 +30,7 @@ scope=(
     crates/everygraph-kernels/src/
     crates/everygraph-ingest/src/
     crates/everygraph-community/src/
+    crates/everygraph-query/src/
 )
 
 mutants() {

@@ -2003,10 +2003,36 @@ impl Hierarchy {
 
 // ---- everygraph-query (#90–#94) --------------------------------------------
 
-pub fn neighbors(g: &impl GraphRef, nodes: &[NodeId], direction: Direction,
-                 limit: u64) -> Result<Table>;
-pub fn khop(g: &impl GraphRef, node: NodeId, k: u32, direction: Direction,
-            limit: u64, timeout: Duration) -> Result<Table>;
+/// Point queries (#90): the lists of a graph from any edge-map `Source` (the
+/// compressed lists, a raw copy or a stream), and one
+/// `Reader` per thread, which holds the decode buffers. Nodes are `u32`, as the
+/// edge-map framework takes them. Each query adds up what it may hold before it reads
+/// a list, and is refused with `InsufficientBudget` if the budget does not have it.
+pub struct Graph<'a, S: Source> { /* out-lists, in-lists, per-entry columns */ }
+impl<'a, S: Source> Graph<'a, S> {
+    pub fn undirected(lists: &'a S) -> Graph<'a, S>;
+    pub fn directed(out: &'a S, inn: Option<&'a S>) -> Result<Graph<'a, S>>;
+    pub fn with_columns(self, out: Columns<'a>, inn: Columns<'a>) -> Result<Graph<'a, S>>;
+    pub fn reader(&self, memory: &Memory) -> Result<Reader<'_, 'a, S>>;
+}
+/// A `timeout`: the caller reads the clock (the crate builds for wasm32).
+pub trait Deadline { fn passed(&self) -> bool; }
+impl<S: Source> Reader<'_, '_, S> {
+    pub fn neighbors(&mut self, nodes: &[u32], direction: Direction, limit: u64)
+        -> Result<EdgeRows>;            // `_into` forms reuse a result's memory
+    pub fn degrees(&mut self, nodes: &[u32]) -> Result<Degrees>;
+    pub fn khop(&mut self, node: u32, k: u32, direction: Direction, limit: u64,
+                timeout: &dyn Deadline) -> Result<Hops>;
+    pub fn has_edge(&mut self, source: u32, target: u32) -> Result<bool>;
+    pub fn has_edges(&mut self, sources: &[u32], targets: &[u32])
+        -> Result<SegVec<bool>>;
+    pub fn common_neighbors(&mut self, a: u32, b: u32, limit: u64) -> Result<Common>;
+    pub fn edges_between(&mut self, a: &[u32], b: &[u32], limit: u64)
+        -> Result<EdgeRows>;
+}
+/// External identifiers to node ids, in bulk, through the dictionary.
+pub fn resolve(dictionary: &Dictionary, keys: impl ExactSizeIterator<Item = Key>,
+               memory: &Memory) -> Result<SegVec<Option<NodeId>>>;
 pub struct PathParams<'a> {
     pub max_hops: Option<u32>,
     pub avoid: Option<&'a [NodeId]>,
@@ -2024,13 +2050,6 @@ impl FoundPath {
     pub fn edges(&self) -> Table;
     pub fn alternatives(&self, limit: usize) -> Vec<FoundPath>;
 }
-pub fn has_edge(g: &impl GraphRef, source: NodeId, target: NodeId)
-    -> Result<bool>;                     // reading can fail (I/O)
-pub fn common_neighbors(g: &impl GraphRef, a: NodeId, b: NodeId, limit: u64)
-    -> Result<Table>;
-pub fn edges_between(g: &impl GraphRef, a: &[NodeId], b: &[NodeId],
-                     limit: u64) -> Result<Table>;
-
 pub struct View<'g> { /* a definition over a graph; mask or materialized */ }
 impl GraphRef for View<'_> { /* … */ }
 pub fn filter<'g>(g: &'g impl GraphRef, edges: Option<&str>,
@@ -2073,6 +2092,7 @@ How the two APIs differ, on purpose:
 | `temp_dir=` | `Run::scratch` | The core asks for scratch through a trait, a handle to one job's directory; the scratch root, the job's directory in it and resuming are the business of `everygraph-io` (`scratch_root`, `DirScratch::for_job`). |
 | `progress=` | `Run::events` | The same events. The command and the Python package render them with the one renderer of `docs/ux-contract.md` § 8. |
 | `dry_run=True` | `explain`, `plan_read` | A function that returns a `Plan` is clearer in Rust than a flag that changes the return type. |
+| `g.neighbors(…)`, `g.khop(…)` and the other point queries | methods of a `Reader`, one per thread, with typed results (`EdgeRows`, `Hops`, `Common`, `Degrees`) and `_into` forms | A point query costs a microsecond: a reader keeps its decode buffers from query to query, and an `_into` form reuses a result's memory, so a query reserves memory only when a result grows: reservations are shared counters, which many threads would contend for. `timeout` is a `Deadline`, because the crate reads no clock. |
 | `g.top("degree", n)` | `top(g, Measure::Degree, n, run)` | A typed key for the measures; `Table::top` takes a column name, as the table's columns are named. |
 | `num_nodes` on a view | `num_nodes(run)` returning `Result` | Counting a view is a planned pass that can fail or be cancelled (§ 3.3). |
 | `Selection`, `highlight`, the widget | — | They belong to the viewer (#71, #76), not to the engine. |

@@ -75,6 +75,10 @@ step "Edge-map kernels (#44, #47–#50) against everything, on every source and 
 EVERYGRAPH_ORACLE_CORPUS="$WORK/ci" cargo test -p everygraph-kernels --release --locked \
     --test oracle -- --nocapture
 
+step "Point queries (#90) against everything, on every source"
+EVERYGRAPH_ORACLE_CORPUS="$WORK/ci" cargo test -p everygraph-query --release --locked \
+    --test oracle -- --nocapture
+
 step "The planner's every choice against the in-memory run, and its smallest budgets (#45)"
 cargo test -p everygraph-kernels --release --locked --test planner -- --nocapture
 
