@@ -6,7 +6,8 @@
 //! What lives here:
 //!
 //! - [`edge_map`]: the framework: the adjacency [`Source`](edge_map::Source)s (raw
-//!   arrays, the compressed format in the heap or memory-mapped, streams), the
+//!   arrays, the compressed format in the heap or memory-mapped, streams, filtered
+//!   views as a mask or materialized), the
 //!   [`Plan`](edge_map::Plan) whose drivers run a kernel body over them, and the rules
 //!   that keep every result independent of threads, chunking and source.
 //! - [`pagerank`]: `PageRank` (f32 and f64 state, weighted, personalized) and

@@ -439,10 +439,11 @@ fn usual(window: u64, data_bytes: u64, batch: usize) -> usize {
 }
 
 // SAFETY: every list handed out comes from the reader's batch after `check` accepted it
-// in the same call (`DecodeReader::decode`): the batch holds the lists asked for, they lie
-// inside `batch.targets()`, and every target there is below `n`. The index is borrowed,
-// so `n` does not change. `scan` calls `filter` for the nodes of `nodes` and `f` for
-// those that passed; `lists` hands out runs of consecutive elements of `nodes`.
+// in the same call (`DecodeReader::decode`, `decode_some` or `part`): the batch holds the
+// lists asked for, they lie inside `batch.targets()`, and every target there is below
+// `n`. The index is borrowed, so `n` does not change. `scan` calls `filter` for the
+// nodes of `nodes` and `f` for those that passed; `lists` hands out runs of consecutive
+// elements of `nodes`.
 unsafe impl Source for CompressedStream<'_> {
     type Reader = WindowReader;
 
@@ -467,6 +468,20 @@ unsafe impl Source for CompressedStream<'_> {
         for (v, d) in nodes.clone().zip(self.index.degrees(nodes)) {
             f(v, d);
         }
+    }
+
+    /// The window, taken at the first read, and beside it a buffer for the whole record
+    /// when it is longer than the window (`Window::shift`), and the decode batch of a
+    /// part.
+    fn list_bytes(&self, entries: u64, part: u64, batch: usize) -> u64 {
+        let usual = usual(self.window, self.index.data_bytes(), batch) as u64 + ALIGN;
+        let record = (record_bound(entries) + 1).min(self.index.data_bytes()) + 3 * ALIGN;
+        let buffer = if record > usual {
+            usual + record
+        } else {
+            usual
+        };
+        buffer.saturating_add(DecodeReader::batch_bytes(part))
     }
 
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<WindowReader, Error> {

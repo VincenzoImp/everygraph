@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Where the lists come from: the [`Source`] trait and its four implementations.
+//! Where the lists come from: the [`Source`] trait and its implementations.
 //!
 //! | Source | Lists | Per-worker reader |
 //! |---|---|---|
 //! | [`Csr`] | raw offsets and targets, slices in memory | nothing |
-//! | [`RawCopy`] | a raw copy of a compressed adjacency, owned, in parts | nothing |
+//! | [`RawCopy`] | a raw copy of a compressed adjacency or of any source, owned, in parts | nothing |
 //! | [`Compressed`] | the adjacency codec (DESIGN D4) over bytes in memory: a heap buffer or a memory map | a decode batch |
 //! | [`Stream`] | raw targets read through a [`ByteSource`]; offsets in memory | a read buffer |
 //! | [`CompressedStream`](super::CompressedStream) | the adjacency codec over a [`ByteSource`]; its index in memory | a read window and a decode batch |
+//! | [`View`](super::View) | a filtered view of another source: a mask over its lists, or a [`RawCopy`] of the view | the parent's reader and a list buffer |
 //!
 //! Every source checks what it hands out: a list names only nodes below
 //! [`nodes`](Source::nodes). The codec checks the framing of its records, not the graph,
@@ -34,7 +35,8 @@ use super::{Error, ix};
 
 /// Lists of a graph, read in node order (scans) or by node (frontiers).
 ///
-/// Only the drivers of [`Plan`](super::Plan) call these methods. Each worker holds a
+/// The drivers of [`Plan`](super::Plan) call these methods, and so do the point queries
+/// of `everygraph-query`, which read a few lists by random access. Each worker holds a
 /// [`Reader`](Self::Reader): the buffers that lists are decoded or read into, reserved
 /// against the memory budget. A list comes with its first entry: the entries before it in
 /// node order, which index the graph's per-entry columns (weights, for example).
@@ -54,7 +56,8 @@ use super::{Error, ix};
 /// - [`scan`](Self::scan), [`scan_prefixes`](Self::scan_prefixes) and
 ///   [`degrees`](Self::degrees) call `filter` and `f` only with a `v` in the range
 ///   `nodes`. [`lists`](Self::lists) calls `f` only with a `v` that
-///   is an element of `nodes`. [`list`](Self::list) returns only for `v < nodes()`.
+///   is an element of `nodes`. [`list`](Self::list) and [`list_part`](Self::list_part)
+///   return only for `v < nodes()`.
 pub unsafe trait Source: Sync {
     /// Per-worker state: the buffers lists are decoded or read into.
     type Reader: Send;
@@ -91,6 +94,12 @@ pub unsafe trait Source: Sync {
     ///
     /// [`Error::Memory`] if its buffers do not fit in the budget.
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<Self::Reader, Error>;
+
+    /// The most a reader made with `batch` reserves beyond what it holds when made, to
+    /// hand out one list of `entries` entries by [`list`](Self::list), or parts of at
+    /// most `part` entries of it by [`list_part`](Self::list_part) (`part` is `entries`
+    /// for `list`): a bound a caller adds up before it reads.
+    fn list_bytes(&self, entries: u64, part: u64, batch: usize) -> u64;
 
     /// Called with the nodes of a scan's task before [`scan`](Self::scan) is called for
     /// its blocks, in order. A reader that reads ahead stops at the task's end. The
@@ -165,9 +174,9 @@ pub unsafe trait Source: Sync {
     /// As [`scan`](Self::scan).
     fn list<'r>(&'r self, reader: &'r mut Self::Reader, v: u32) -> Result<(u64, &'r [u32]), Error>;
 
-    /// Entries `from..to` of the list of `v`, where `prev` is entry `from − 1` as this
-    /// source handed it out, `from` is a multiple of four with `4 ≤ from < to`, and `to`
-    /// is at most the degree. A source that decodes then decodes no more of the list;
+    /// Entries `from..to` of the list of `v`, where `from` is a multiple of four,
+    /// `from < to ≤ degree`, and, if `from > 0`, `prev` is entry `from − 1` as this
+    /// source handed it out. A source that decodes then decodes no more of the list;
     /// the default reads all of it.
     ///
     /// # Errors
@@ -202,7 +211,7 @@ pub unsafe trait Source: Sync {
 const CHECK_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
 
 /// Whether every target is below `n`.
-fn in_range(targets: &[u32], n: u32) -> bool {
+pub(super) fn in_range(targets: &[u32], n: u32) -> bool {
     targets.is_empty() || targets.iter().fold(0, |m, &t| m.max(t)) < n
 }
 
@@ -318,6 +327,10 @@ unsafe impl Source for Csr<'_> {
         self.offsets[ix(v.into())]
     }
 
+    fn list_bytes(&self, _: u64, _: u64, _: usize) -> u64 {
+        0
+    }
+
     fn reader(&self, _: &Memory, _: usize, _: usize) -> Result<(), Error> {
         Ok(())
     }
@@ -428,6 +441,77 @@ impl RawCopy {
         Ok(Self { offsets, parts, n })
     }
 
+    /// Copies the lists of any `source` into arrays reserved against `memory`, part by
+    /// part, each read in parallel by tasks of about 2^16 entries, and checks that every
+    /// target is a node. This materializes a [`View`](super::View).
+    ///
+    /// # Errors
+    ///
+    /// As [`decode`](Self::decode); [`Error::Invalid`] for a list of another length
+    /// than the source's offsets say; the source's errors.
+    ///
+    /// # Panics
+    ///
+    /// If `source` breaks the contract of [`Source`].
+    pub fn copy<S: Source>(source: &S, memory: &Memory) -> Result<Self, Error> {
+        let n = source.nodes();
+        let mut offsets = SegVec::try_with_len(memory, "raw copy offsets", ix(n.into()) + 1, 0)?;
+        {
+            let all = offsets
+                .as_mut_slice()
+                .ok_or(Error::Invalid("raw copy: offsets longer than one segment"))?;
+            par::for_each_chunk_mut(all, CHECK_GRAIN, |first, chunk| {
+                for (v, o) in (first..).zip(chunk) {
+                    *o = source.entry_offset(u32::try_from(v).expect("a node or the end"));
+                }
+            });
+            check_offsets(all, source.entries())?;
+        }
+        let at = offsets.as_slice().ok_or(Error::Invalid("one segment"))?;
+        let mut parts = Vec::new();
+        for nodes in cut(at, Self::PART_ENTRIES)? {
+            let base = at[ix(nodes.start.into())];
+            let len = ix(at[ix(nodes.end.into())] - base);
+            let mut targets = SegVec::try_with_len(memory, "raw copy of the edges", len, 0)?;
+            let out = targets
+                .as_mut_slice()
+                .ok_or(Error::Invalid("raw copy: a part longer than one segment"))?;
+            super::view::by_chunks(out, at, nodes.clone(), |task, rows| {
+                let mut reader = source.reader(memory, 8192, 1024)?;
+                source.begin_task(&mut reader, task.clone());
+                let task_base = at[ix(task.start.into())];
+                let mut wrong = false;
+                source.scan(
+                    &mut reader,
+                    task,
+                    |_| true,
+                    |v, _, list| {
+                        let v = ix(v.into());
+                        let (a, b) = (ix(at[v] - task_base), ix(at[v + 1] - task_base));
+                        match rows.get_mut(a..b) {
+                            Some(dst) if dst.len() == list.len() => dst.copy_from_slice(list),
+                            _ => wrong = true,
+                        }
+                    },
+                )?;
+                if wrong {
+                    Err(Error::Invalid(
+                        "a list of another length than its offsets say",
+                    ))
+                } else {
+                    Ok(())
+                }
+            })?;
+            if !in_range(out, n) {
+                return Err(Error::Invalid(
+                    "a copied list names a node outside the graph",
+                ));
+            }
+            parts.push((nodes.start, targets));
+        }
+        Ok(Self { offsets, parts, n })
+    }
+
     /// The node ranges of the parts of a copy whose entry offsets are `offsets`: each
     /// part ends at a list end and holds at most [`PART_ENTRIES`](Self::PART_ENTRIES)
     /// entries.
@@ -457,7 +541,7 @@ impl RawCopy {
 
     /// The first entry and the list of `v`, from the part `part` it is in.
     #[inline]
-    fn get_in(&self, part: usize, v: u32) -> (u64, &[u32]) {
+    pub(super) fn get_in(&self, part: usize, v: u32) -> (u64, &[u32]) {
         let at = self.at();
         let (first_node, targets) = &self.parts[part];
         let base = at[ix((*first_node).into())];
@@ -468,7 +552,7 @@ impl RawCopy {
 
     /// The part that holds the list of `v`.
     #[inline]
-    fn part_of(&self, v: u32) -> usize {
+    pub(super) fn part_of(&self, v: u32) -> usize {
         self.parts.partition_point(|(first, _)| *first <= v) - 1
     }
 }
@@ -490,6 +574,10 @@ unsafe impl Source for RawCopy {
 
     fn entry_offset(&self, v: u32) -> u64 {
         self.at()[ix(v.into())]
+    }
+
+    fn list_bytes(&self, _: u64, _: u64, _: usize) -> u64 {
+        0
     }
 
     fn reader(&self, _: &Memory, _: usize, _: usize) -> Result<(), Error> {
@@ -669,7 +757,8 @@ impl DecodeReader {
     }
 
     /// Entries `from.0..to` of the list of `v` of `adjacency`, given entry `from.0 − 1`
-    /// (`from.1`), checked ([`Adjacency::decode_part`]).
+    /// (`from.1`), checked: a prefix for `from.0 == 0`
+    /// ([`Adjacency::decode_prefixes`]), else [`Adjacency::decode_part`].
     pub(super) fn part(
         &mut self,
         adjacency: &Adjacency<'_>,
@@ -677,10 +766,17 @@ impl DecodeReader {
         from: (usize, u32),
         to: usize,
     ) -> Result<&[u32], Error> {
+        // Both decodes grow the batch to this.
         self.make_room(adjacency.part_entries(from.0, to), 1)?;
         let n = adjacency.index().nodes();
-        let checked = adjacency
-            .decode_part(NodeId::new(v), from, to, &mut self.batch)
+        let decoded = if from.0 == 0 {
+            adjacency
+                .decode_prefixes(v..v + 1, to, |_| true, to, &mut self.batch)
+                .map(|_| ())
+        } else {
+            adjacency.decode_part(NodeId::new(v), from, to, &mut self.batch)
+        };
+        let checked = decoded
             .map_err(Error::from)
             .and_then(|()| check(&self.batch, v, v + 1, n));
         if checked.is_err() {
@@ -698,6 +794,15 @@ impl DecodeReader {
             f(v.get(), entry, list);
             entry += list.len() as u64;
         }
+    }
+
+    /// The most a reader's batch holds for one list, or part of a list, of `entries`
+    /// entries: its targets with the decoders' slack, and the ends of one list. A batch
+    /// that grows gives its old buffers back first (`make_room`).
+    pub(super) fn batch_bytes(entries: u64) -> u64 {
+        const SLACK: u64 = 3;
+        let entries = usize::try_from(entries.saturating_add(SLACK)).unwrap_or(usize::MAX);
+        u64::try_from(Batch::bytes_for(entries, 1)).unwrap_or(u64::MAX)
     }
 
     /// Entries per batch, about.
@@ -737,14 +842,17 @@ impl DecodeReader {
         Ok(())
     }
 
-    /// Frees the batch beyond its usual size.
+    /// Frees a batch that grew beyond its usual size, and makes room as a new reader
+    /// does. It is freed, not shrunk: a shrinking reallocation may hold the old and the
+    /// new buffer at once, and only the old one is reserved.
     pub(super) fn release(&mut self) {
         let usual = self.max_entries.saturating_add(8);
         let (entries, lists) = self.batch.capacity();
         if entries > usual || lists > self.lists {
-            self.batch.shrink_to(usual, self.lists);
-            self.held
-                .shrink(self.held.bytes() - self.batch.heap_bytes() as u64);
+            self.batch.shrink_to(0, 0);
+            self.held.shrink(self.held.bytes());
+            // Refused, the batch stays empty, and the next decode reserves its room.
+            let _ = self.make_room(0, self.lists);
         }
     }
 }
@@ -850,6 +958,10 @@ unsafe impl Source for Compressed<'_> {
         for (v, d) in nodes.clone().zip(self.adjacency.index().degrees(nodes)) {
             f(v, d);
         }
+    }
+
+    fn list_bytes(&self, _: u64, part: u64, _: usize) -> u64 {
+        DecodeReader::batch_bytes(part)
     }
 
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<DecodeReader, Error> {
@@ -1089,6 +1201,12 @@ unsafe impl Source for Stream<'_> {
 
     fn entry_offset(&self, v: u32) -> u64 {
         self.offsets[ix(v.into())]
+    }
+
+    /// The bytes read and the lists they hold of the whole list: 8 bytes an entry. A
+    /// buffer that grows is moved, and the old one is given back as the new one is taken.
+    fn list_bytes(&self, entries: u64, _: u64, _: usize) -> u64 {
+        entries.saturating_mul(8)
     }
 
     fn reader(&self, memory: &Memory, batch: usize, _: usize) -> Result<StreamReader, Error> {

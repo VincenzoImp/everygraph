@@ -524,6 +524,7 @@ dependencies = [
  "everygraph-io",
  "everygraph-kernels",
  "everygraph-oracle",
+ "everygraph-query",
  "flate2",
  "ruzstd",
 ]
@@ -639,6 +640,15 @@ dependencies = [
 [[package]]
 name = "everygraph-query"
 version = "0.0.0"
+dependencies = [
+ "everygraph-core",
+ "everygraph-format",
+ "everygraph-ingest",
+ "everygraph-io",
+ "everygraph-kernels",
+ "everygraph-oracle",
+ "proptest",
+]
 
 [[package]]
 name = "everygraph-wasm"

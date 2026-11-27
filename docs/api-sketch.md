@@ -1402,11 +1402,11 @@ class View(Graph):
 
 | Made by | Keeps | Notes | Implemented by |
 |---|---|---|---|
-| `g.filter(edges="value > 10")` | The edges for which the expression is true, and the nodes that still have an edge. | The expression language is below. | #93, #37 |
+| `g.filter(edges="value > 10")` | The edges for which the expression is true, and the nodes that still have an edge. A node left without a kept edge is not in the view, so no result on the view has a row for it. | The expression language is below. | #93, #37 |
 | `g.filter(nodes="in_degree > 100")` | The nodes for which it is true, and the edges with both ends among them. | Names available in 0.1: the graph's node columns, and `in_degree`, `out_degree`, `degree` — the degrees of the graph or view the filter is applied to. | #93 |
 | `g.window(start, end)` | The edges whose time is from `start` to `end`, both included, and the nodes that still have an edge. | Times as in § 2.3: a date means its whole day. Either bound may be `None`. Needs a time column and a graph not read with `duplicates="sum"`, else `Unsupported` (§ 2.13). | #94 |
 | `g.subgraph(nodes)` | The given nodes and the edges with both ends among them. | Accepts any node set (§ 2.2): `g.subgraph(c[0])`, `g.subgraph(m.selection)`, `g.subgraph(g.khop(a, k=2))`. | #87, #93 |
-| `a & b` | What is in both. | Both must be views of the same graph, and each part keeps its meaning on that graph. A chain (`g.window(…).filter(…)`) applies each part to the view before it: the same thing as `&`, except that a node filter on degrees reads the degrees of the view it is applied to. | #93 |
+| `a & b` | The edges both keep, and the nodes both keep; when either filters edges, only those of these nodes that still have an edge. | Both must be views of the same graph, and each part keeps its meaning on that graph. A chain (`g.window(…).filter(…)`) applies each part to the view before it. `a & b` is the chain with its node filters first, `g.filter(nodes=…).filter(edges=…)`; in the other order the node filter keeps its nodes that the edge filter left with edges leading outside it only, without edges. A node filter on degrees reads the degrees of the view it is applied to. | #93 |
 
 **Counts.** A view's `num_nodes` and `num_edges` are not known when it is made. The
 first access to either computes both with one planned pass — the phase `counting`,
@@ -2003,10 +2003,36 @@ impl Hierarchy {
 
 // ---- everygraph-query (#90–#94) --------------------------------------------
 
-pub fn neighbors(g: &impl GraphRef, nodes: &[NodeId], direction: Direction,
-                 limit: u64) -> Result<Table>;
-pub fn khop(g: &impl GraphRef, node: NodeId, k: u32, direction: Direction,
-            limit: u64, timeout: Duration) -> Result<Table>;
+/// Point queries (#90): the lists of a graph from any edge-map `Source` (the
+/// compressed lists, a raw copy or a stream), and one
+/// `Reader` per thread, which holds the decode buffers. Nodes are `u32`, as the
+/// edge-map framework takes them. Each query adds up what it may hold before it reads
+/// a list, and is refused with `InsufficientBudget` if the budget does not have it.
+pub struct Graph<'a, S: Source> { /* out-lists, in-lists, per-entry columns */ }
+impl<'a, S: Source> Graph<'a, S> {
+    pub fn undirected(lists: &'a S) -> Graph<'a, S>;
+    pub fn directed(out: &'a S, inn: Option<&'a S>) -> Result<Graph<'a, S>>;
+    pub fn with_columns(self, out: Columns<'a>, inn: Columns<'a>) -> Result<Graph<'a, S>>;
+    pub fn reader(&self, memory: &Memory) -> Result<Reader<'_, 'a, S>>;
+}
+/// A `timeout`: the caller reads the clock (the crate builds for wasm32).
+pub trait Deadline { fn passed(&self) -> bool; }
+impl<S: Source> Reader<'_, '_, S> {
+    pub fn neighbors(&mut self, nodes: &[u32], direction: Direction, limit: u64)
+        -> Result<EdgeRows>;            // `_into` forms reuse a result's memory
+    pub fn degrees(&mut self, nodes: &[u32]) -> Result<Degrees>;
+    pub fn khop(&mut self, node: u32, k: u32, direction: Direction, limit: u64,
+                timeout: &dyn Deadline) -> Result<Hops>;
+    pub fn has_edge(&mut self, source: u32, target: u32) -> Result<bool>;
+    pub fn has_edges(&mut self, sources: &[u32], targets: &[u32])
+        -> Result<SegVec<bool>>;
+    pub fn common_neighbors(&mut self, a: u32, b: u32, limit: u64) -> Result<Common>;
+    pub fn edges_between(&mut self, a: &[u32], b: &[u32], limit: u64)
+        -> Result<EdgeRows>;
+}
+/// External identifiers to node ids, in bulk, through the dictionary.
+pub fn resolve(dictionary: &Dictionary, keys: impl ExactSizeIterator<Item = Key>,
+               memory: &Memory) -> Result<SegVec<Option<NodeId>>>;
 pub struct PathParams<'a> {
     pub max_hops: Option<u32>,
     pub avoid: Option<&'a [NodeId]>,
@@ -2024,13 +2050,6 @@ impl FoundPath {
     pub fn edges(&self) -> Table;
     pub fn alternatives(&self, limit: usize) -> Vec<FoundPath>;
 }
-pub fn has_edge(g: &impl GraphRef, source: NodeId, target: NodeId)
-    -> Result<bool>;                     // reading can fail (I/O)
-pub fn common_neighbors(g: &impl GraphRef, a: NodeId, b: NodeId, limit: u64)
-    -> Result<Table>;
-pub fn edges_between(g: &impl GraphRef, a: &[NodeId], b: &[NodeId],
-                     limit: u64) -> Result<Table>;
-
 pub struct View<'g> { /* a definition over a graph; mask or materialized */ }
 impl GraphRef for View<'_> { /* … */ }
 pub fn filter<'g>(g: &'g impl GraphRef, edges: Option<&str>,
@@ -2073,6 +2092,7 @@ How the two APIs differ, on purpose:
 | `temp_dir=` | `Run::scratch` | The core asks for scratch through a trait, a handle to one job's directory; the scratch root, the job's directory in it and resuming are the business of `everygraph-io` (`scratch_root`, `DirScratch::for_job`). |
 | `progress=` | `Run::events` | The same events. The command and the Python package render them with the one renderer of `docs/ux-contract.md` § 8. |
 | `dry_run=True` | `explain`, `plan_read` | A function that returns a `Plan` is clearer in Rust than a flag that changes the return type. |
+| `g.neighbors(…)`, `g.khop(…)` and the other point queries | methods of a `Reader`, one per thread, with typed results (`EdgeRows`, `Hops`, `Common`, `Degrees`) and `_into` forms | A point query costs a microsecond: a reader keeps its decode buffers from query to query, and an `_into` form reuses a result's memory, so a query reserves memory only when a result grows: reservations are shared counters, which many threads would contend for. `timeout` is a `Deadline`, because the crate reads no clock. |
 | `g.top("degree", n)` | `top(g, Measure::Degree, n, run)` | A typed key for the measures; `Table::top` takes a column name, as the table's columns are named. |
 | `num_nodes` on a view | `num_nodes(run)` returning `Result` | Counting a view is a planned pass that can fail or be cancelled (§ 3.3). |
 | `Selection`, `highlight`, the widget | — | They belong to the viewer (#71, #76), not to the engine. |
@@ -2797,7 +2817,7 @@ Every story maps to issues in M2–M7, as the acceptance of #12 requires:
 | 4 Between two dates | #37 | #45 | #57 | | #81 | #93, #94 |
 | 5 Map and share | | | #57, #60, #63 | #67, #68, #69, #75, #78 | #76 | #74 |
 | 6 Joined with my table | #39 | #47 | #57 | | #83 | #95 |
-| 7 A piece to NetworkX | | | #62 | | #85, #87 | #90, #93 |
+| 7 A piece to NetworkX | | | #62 | | #85 | #87, #90, #93 |
 | 8 Does not fit | #31 | #45, #53 | #60 | | #81 | |
 | 9 Interrupted, resumed | #28, #40 | | | | #81 | |
 | 10 From arrays | | #51 | | | #83, #84 | |
