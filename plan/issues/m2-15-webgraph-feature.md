@@ -7,7 +7,6 @@ labels: type:feature, area:interop, P2, risk:low, size:M, lab-evidence
 
 **Scope**
 - [ ] `--features webgraph`: read `.graph/.properties` (building offsets when missing: 8.3 s for twitter-2010), write BV
-- [ ] Optional LLP ordering through webgraph if {{#m1-09-hierarchy-order}} shows our own ordering falls short
 - [ ] Pin the dependency version; isolate its generics behind a small adapter (the lab needed a zero-copy `BitFieldVec` workaround to avoid a 19 GB copy)
 
 **Acceptance**

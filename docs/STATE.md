@@ -58,6 +58,12 @@ milestone's performance pass (M2 and M3: #240). The official commands of each is
 its pull request and its issue file. The M3 window runs the smallest set that answers the
 M3 exit criteria.
 
+- `everygraph-bench run components-kcore --official --only engine-cc-compressed` at the next
+  idle window: the lj and orkut compressed stores were never made in the window of
+  2026-11-27 (fixed by #321).
+- `everygraph-bench run edge-map --official` after the PageRank fix: PageRank on the raw CSR
+  became 1.15–1.18× slower at 16 threads after #291 (`m3-22-performance-pass`).
+
 ## Needs the owner's hands
 
 Nothing here blocks development today. Tell the owner when each becomes due, with
@@ -82,9 +88,12 @@ everything prepared.
 
 **Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
 
-**Official window, 2026-11-26/27.** headline done (`bench/results/headline/20261126T223356Z-fd29f95d486e.jsonl`, 65 references within, 2 off: Friendster ingest at 32 GiB 36.7 s against 29.1 s, kcore orkut t16 bimodal). The other suites run in `window2.sh` after #291 and #318 merge.
+**Official window, 2026-11-26/27.** Done. The headline is in `bench/results/headline/20261126T223356Z-fd29f95d486e.jsonl`; the other suites (edge-map, semi-external, scc, transpose, components-kcore, references on orkut) are the result files of commit 588b76ab, all on revision 2510b9c1.
 
 ## Lessons that still change behaviour
+- Read-only agents disturb an official window: the sweep's sub-agents ran greps during the window of 2026-11-27, and the harness marked 7 components-kcore rows disturbed. During a window, run only work bound by the network (2026-11-27).
+- Never commit in the main checkout during a window: the next official run records the new revision (2026-11-27).
+- A CI agent force-pushed its own branch once, before its pull request existed. The rule is no force-push at all, on any branch (2026-11-27).
 - A window script that runs official suites back to back is refused from the second suite on: the first suite's own load trips the idle gate. Wait for the 1-minute load to fall between suites, and take `rc=$?` before any `$(…)` in the log line (2026-11-27).
 - A nested `Cargo.lock` that builds workspace crates goes stale when a workspace crate gains a dependency (#288 → the reference driver); CI now checks every nested lock outside `lab/` (#318).
 
@@ -111,7 +120,8 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
   requests in one day, and each cost a CI rerun.
 - When every stream waits on CI or review at once, the machine is idle. Keep a queue of
   ready experiments (M1 issues that need no merge) to start when the load drops.
-- Runs on `main` shared one CI concurrency group, so GitHub cancelled every pending run when a newer merge queued: most merged commits were never tested on `main` (fixed in PR #262). After the dev profile changed (#256), caches were cold and an advisory mutants shard hit its job limit and showed red.- About twelve Opus and Fable agents at once (eight research agents, four implementers, reviewers and a synthesis) used up the account's 5-hour usage window at about 12:00, and every agent stopped for 20 minutes. Usage, not only CPU, limits parallelism. Resume in priority order and stagger: the critical path and reviews first, experiments and long research later.
+- Runs on `main` shared one CI concurrency group, so GitHub cancelled every pending run when a newer merge queued: most merged commits were never tested on `main` (fixed in PR #262). After the dev profile changed (#256), caches were cold and an advisory mutants shard hit its job limit and showed red.
+- About twelve Opus and Fable agents at once (eight research agents, four implementers, reviewers and a synthesis) used up the account's 5-hour usage window at about 12:00, and every agent stopped for 20 minutes. Usage, not only CPU, limits parallelism. Resume in priority order and stagger: the critical path and reviews first, experiments and long research later.
 - 12:42 sweep skipped on purpose: the Fable coherence pass (PRs #252, #253) went over the plan, rules and documents two hours earlier, and the usage window is the scarce resource. A sweep repeats only after a stretch of merges large enough to drift.
 - Closing #57 and #21 made `check_adrs.py` fail on every open pull request, because ADRs and DESIGN still named them as holding open work. Rule: after each merge that closes an issue, the coordinator runs `board.py sync` and `docs/tools/check_adrs.py` and re-points the citations in the same push.
 - Parallel authors picked the same next issue number (m3-25 to m3-28 three times, m8-12 twice). Rule: a subagent names a proposed issue file `mN-xx-<slug>.md`, and the coordinator gives it its number before the merge.
