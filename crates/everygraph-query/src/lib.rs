@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Point queries (#90): the neighbours of nodes, their degrees, whether two nodes are
-//! joined, their common neighbours, the edges between two node sets, and the nodes
-//! within `k` hops of one node, each with a `limit` on the rows it returns
-//! (`docs/api-sketch.md` § 3.2, ADR 0021).
+//! Point queries (#90) and filtered views (#93). The point queries: the neighbours of
+//! nodes, their degrees, whether two nodes are joined, their common neighbours, the
+//! edges between two node sets, and the nodes within `k` hops of one node, each with a
+//! `limit` on the rows it returns (`docs/api-sketch.md` § 3.2, ADR 0021).
 //!
 //! What lives here:
 //!
@@ -14,6 +14,10 @@
 //! - [`Reader`]: one per thread. It holds the decode buffers, and every query is a
 //!   method of it. Many readers query one graph at once: the graph is read only.
 //! - [`ids`]: external identifiers to node ids in bulk, through the dictionary.
+//! - [`views`]: filtered views (#93): predicates on node, pair and event columns, node
+//!   sets and community membership, combined into a [`ViewSpec`] that one pass over the
+//!   parent turns into an `edge_map::View`, held as a mask or materialized by the
+//!   planner's rule. Every kernel runs on a view as on a graph.
 //!
 //! **Order and semantics.** Rows follow `docs/api-sketch.md` § 2.12; kept loops and
 //! repeated pairs follow `docs/spec/graph-semantics.md` § 6. A batch takes a column of
@@ -57,11 +61,13 @@ mod khop;
 mod neighbors;
 mod pairs;
 mod seen;
+pub mod views;
 
 pub use graph::{Columns, Graph, Reader};
 pub use khop::Hops;
 pub use neighbors::{Degrees, EdgeRows};
 pub use pairs::Common;
+pub use views::{Column, Filtered, Predicate, Scalar, Test, Values, ViewSpec};
 
 /// Which lists a query follows (`docs/api-sketch.md` § 2.4). On an undirected graph
 /// every value means the same: all neighbours.

@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIT
+#
+# The crossover of filtered views (#93, plan/issues/m7-04-views.md; ADR 0010): PageRank
+# (f64, 20 iterations), BFS and weak components on the whole graph, on a view held as a
+# mask, and on the same view materialized, at 1, 5, 10, 25, 50 and 90 % selectivity,
+# for an edge view and a node view, on orkut and twitter-sym at 16 threads, through the
+# example `view_bench` (raw CSR in the heap, kernel time inside the process). Each row
+# records the time to make the view (`build_seconds`: the predicate's bitsets and the
+# pass that counts the view), the time to materialize it, the view's bytes, the peak
+# resident memory, and the hash of the result, which is the same for the mask and the
+# view materialized.
+#
+# The planner's rule (`planner::view_form`, provisional) is then written from the
+# crossover: the number of passes after which the materialized view, its build
+# included, is faster than the mask, by selectivity, and what each form holds.
+#
+# Acceptance (#93), from the medians of the rows:
+# - orkut, edge view, 5 %, `pr64`, 16 threads: whole / (materialized, build and
+#   materialization included) ≥ 5;
+# - `identity`: orkut, 10 % edge view and 10 % node view, `pr64`, at 1 and 16 threads:
+#   the mask's and the materialized view's hashes are equal.
+#
+# The memory limit is twitter-sym's: 9.6 GB of targets and, for an edge view, a
+# per-pair column of 9.6 GB that the predicate reads.
+#
+# Run (an estimate, not measured: 150 cases at 16 threads and 8 at 1 thread, four
+# processes each; on a shared machine an orkut case took 3 to 20 s, and twitter-sym
+# has ten times the entries, so about three hours, most of them twitter-sym's):
+#   everygraph-bench run views --official --data /home/tux/graphlab/data
+
+schema = 1
+name = "views"
+description = "Issue #93: kernels on filtered views as a mask and materialized, against the whole graph"
+reference = "plan/issues/m7-04-views.md; docs/adr/0010-views-mask-or-materialize.md; docs/FINDINGS.md § F1"
+binaries = ["{bench}"]
+
+[defaults]
+memory_limit = "24G"
+repetitions = 3
+warmup = 1
+threads = [16]
+timeout = "30m"
+
+[vars]
+bench = "{repo}/target/release/examples/view_bench"
+
+[[prepare]]
+name = "build-bench"
+cwd = "{repo}"
+command = ["cargo", "build", "--release", "--offline", "--locked", "-p", "everygraph-query", "--example", "view_bench"]
+needed_by = ["whole", "views", "identity"]
+
+[[benchmark]]
+name = "whole"
+group = "views"
+description = "the kernels on the whole graph"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["orkut", "twitter-sym"], kernel = ["pr64", "bfs", "cc"] }
+command = ["{bench}", "--graph", "{dataset}", "--select", "edges", "--keep", "100", "--form", "whole", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "3"]
+conditions = { graph = "{graph}", code = "everygraph-kernels through run::run", kernel = "{kernel}", storage = "raw CSR in the heap", level = "in-process kernel time, best of 3" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "views"
+group = "views"
+description = "the kernels on an edge or node view, as a mask and materialized"
+dataset_path = "csr/{graph}"
+matrix = { graph = ["orkut", "twitter-sym"], kernel = ["pr64", "bfs", "cc"], select = ["edges", "nodes"], keep = ["1", "5", "10", "25", "50", "90"], form = ["mask", "materialized"] }
+command = ["{bench}", "--graph", "{dataset}", "--select", "{select}", "--keep", "{keep}", "--form", "{form}", "--kernel", "{kernel}", "--threads", "{threads}", "--reps", "3"]
+conditions = { graph = "{graph}", code = "everygraph-query views over everygraph-kernels", kernel = "{kernel}", storage = "raw CSR in the heap; view {select} {keep} %, {form}", level = "in-process kernel time, best of 3; view build and materialization timed apart" }
+record_json = { hash = "/hash", nodes = "/nodes", entries = "/entries", view_bytes = "/view_bytes" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+  { name = "build_seconds", json = "/build_seconds", unit = "s" },
+  { name = "materialize_seconds", json = "/materialize_seconds", unit = "s" },
+  { name = "peak_rss_bytes", json = "/peak_rss_bytes", unit = "B" },
+]
+primary = "seconds"
+
+[[benchmark]]
+name = "identity"
+group = "identity"
+description = "PageRank f64 on a 10 % edge view and a 10 % node view of orkut, as a mask and materialized, at 1 and 16 threads: the same hash"
+dataset_path = "csr/orkut"
+threads = [1, 16]
+matrix = { select = ["edges", "nodes"], form = ["mask", "materialized"] }
+command = ["{bench}", "--graph", "{dataset}", "--select", "{select}", "--keep", "10", "--form", "{form}", "--kernel", "pr64", "--threads", "{threads}", "--reps", "1"]
+conditions = { graph = "orkut", code = "everygraph-query views over everygraph-kernels", kernel = "pr64", storage = "raw CSR in the heap; view {select} 10 %, {form}", level = "in-process kernel time" }
+record_json = { hash = "/hash" }
+metric = [
+  { name = "seconds", json = "/seconds", unit = "s" },
+]
+primary = "seconds"

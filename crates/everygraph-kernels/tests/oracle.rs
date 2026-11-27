@@ -39,13 +39,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use everygraph_core::{BlockCache, CacheSettings, Memory, par};
+use everygraph_core::{BlockCache, CacheSettings, Memory, SegVec, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode, merge};
 use everygraph_io::{FileSource, MmapSource, PoolSettings, ReadPool};
 use everygraph_kernels::components::{WccOptions, wcc};
 use everygraph_kernels::degrees::{Loop, degrees};
 use everygraph_kernels::edge_map::{
-    Compressed, CompressedStream, Csr, Plan, Settings, Source, Stream,
+    Compressed, CompressedStream, Csr, Plan, Settings, Source, Stream, View,
 };
 use everygraph_kernels::kcore::kcore;
 use everygraph_kernels::pagerank::{self, Eigenvector, Graph, PageRank};
@@ -161,6 +161,17 @@ enum Which {
     Out,
     In,
     Undirected,
+}
+
+/// The out- and in-adjacency that `k` reads on the graph of `p`.
+fn adjacencies(k: &Kernel, p: &Projection) -> (Which, Which) {
+    match k {
+        Kernel::CoreNumber | Kernel::Degree => (Which::Undirected, Which::Undirected),
+        Kernel::Wcc if !p.directed => (Which::Undirected, Which::Undirected),
+        Kernel::DegreeIn => (Which::In, Which::In),
+        _ if !p.directed => (Which::Out, Which::Out),
+        _ => (Which::Out, Which::In),
+    }
 }
 
 /// The kernels as an oracle plug-in.
@@ -367,13 +378,7 @@ impl KernelUnderTest for Kernels {
     fn run(&self, case: &Case<'_>, k: &Kernel, config: &Config) -> Result<Output, String> {
         let p = case.projection;
         let name = &case.graph.name;
-        let (a, b) = match k {
-            Kernel::CoreNumber | Kernel::Degree => (Which::Undirected, Which::Undirected),
-            Kernel::Wcc if !p.directed => (Which::Undirected, Which::Undirected),
-            Kernel::DegreeIn => (Which::In, Which::In),
-            _ if !p.directed => (Which::Out, Which::Out),
-            _ => (Which::Out, Which::In),
-        };
+        let (a, b) = adjacencies(k, p);
         let (so, si) = (self.stored(name, a, p), self.stored(name, b, p));
         let stored = (&*so, &*si);
         match (config.storage, config.regime) {
@@ -435,6 +440,246 @@ fn cached<R>(
 
 fn stream(s: &Stored) -> Result<Stream<'_>, String> {
     Stream::new(&s.lists.offsets, &s.stream).map_err(|e| e.to_string())
+}
+
+/// One adjacency of a graph padded with what a view then removes: a padding node
+/// before every three nodes and one at the end, with entries between padding nodes,
+/// from padding to real nodes and back, and loops; with `pairs`, also entries between
+/// real nodes that are not pairs of the graph. Padding entries weigh NaN, which a
+/// kernel refuses: one that leaked through the view would show.
+struct Padded {
+    stored: Stored,
+    /// Per padded node: whether it is a node of the graph.
+    real: Vec<bool>,
+    /// Per padded entry, with `pairs`: whether it is padding.
+    padding: Option<Vec<bool>>,
+}
+
+/// `lists`, the adjacency `which` of the graph of `p`, padded (see [`Padded`]).
+fn pad(lists: &Lists, which: Which, p: &Projection, pairs: bool) -> Padded {
+    let n = p.n;
+    let (mut real, mut id) = (Vec::new(), Vec::new());
+    while id.len() < n as usize || real.last() != Some(&false) {
+        let x = real.len() as u32;
+        let is_real = !x.is_multiple_of(4) && id.len() < n as usize;
+        if is_real {
+            id.push(x);
+        }
+        real.push(is_real);
+    }
+    let junk: Vec<u32> = (0..real.len() as u32)
+        .filter(|&x| !real[x as usize])
+        .collect();
+    // The padding, as directed pairs of padded ids.
+    let mut extra = Vec::new();
+    for (k, &j) in junk.iter().enumerate() {
+        extra.push((j, j));
+        if let Some(&next) = junk.get(k + 1) {
+            extra.push((j, next));
+        }
+        if n > 0 {
+            extra.push((j, id[k % n as usize]));
+        }
+    }
+    for r in 0..n {
+        extra.push((id[r as usize], junk[(r as usize * 7) % junk.len()]));
+        let s = (r * 5 + 1) % n;
+        if pairs && s != r && !p.undirected.has(r as usize, s) {
+            extra.push((id[r as usize], id[s as usize]));
+        }
+    }
+    let symmetric = !p.directed || which == Which::Undirected;
+    let mut entries: Vec<(u32, u32, f64, f64, bool)> = Vec::new();
+    for v in 0..n as usize {
+        for e in lists.offsets[v] as usize..lists.offsets[v + 1] as usize {
+            let t = id[lists.targets[e] as usize];
+            entries.push((id[v], t, lists.weight[e], lists.cost[e], false));
+        }
+    }
+    for &(a, b) in &extra {
+        if which != Which::In || symmetric {
+            entries.push((a, b, f64::NAN, f64::NAN, true));
+        }
+        if which == Which::In || symmetric {
+            entries.push((b, a, f64::NAN, f64::NAN, true));
+        }
+    }
+    entries.sort_by_key(|e| (e.0, e.1));
+    entries.dedup_by_key(|e| (e.0, e.1));
+    let mut offsets = vec![0_u64; real.len() + 1];
+    for e in &entries {
+        offsets[e.0 as usize + 1] += 1;
+    }
+    for v in 0..real.len() {
+        offsets[v + 1] += offsets[v];
+    }
+    let padded = Lists {
+        offsets,
+        targets: entries.iter().map(|e| e.1).collect(),
+        weight: entries.iter().map(|e| e.2).collect(),
+        cost: entries.iter().map(|e| e.3).collect(),
+    };
+    Padded {
+        stored: store(padded),
+        real,
+        padding: pairs.then(|| entries.iter().map(|e| e.4).collect()),
+    }
+}
+
+/// A bitset of the `true`s of `flags`.
+fn bits(flags: impl ExactSizeIterator<Item = bool>) -> SegVec<u64> {
+    let words = flags.len().div_ceil(64);
+    let mut b = SegVec::try_with_len(&Memory::unlimited(), "test", words, 0).unwrap();
+    let words = b.as_mut_slice().unwrap();
+    for (i, _) in flags.enumerate().filter(|(_, f)| *f) {
+        words[i / 64] |= 1 << (i % 64);
+    }
+    b
+}
+
+/// The kernels through views of padded graphs (#93): each kernel runs on the view of
+/// the padded out- and in-lists that removes the padding, as a mask and materialized,
+/// which must give the same output. The oracle then checks it against the graph's
+/// references, NetworkX's among them when the corpus is on disk.
+#[derive(Default)]
+struct Views {
+    kernels: Kernels,
+    padded: Mutex<Vec<((String, Which), Arc<Padded>)>>,
+}
+
+impl Views {
+    fn padded(&self, graph: &str, which: Which, p: &Projection) -> Arc<Padded> {
+        let mut cache = self.padded.lock().unwrap();
+        cache.retain(|((g, _), _)| g == graph);
+        if let Some((_, s)) = cache.iter().find(|((_, w), _)| *w == which) {
+            return s.clone();
+        }
+        // A view that filters entries also drops the nodes left without one, so only a
+        // graph in which every node has an entry gets padding between its own nodes.
+        let pairs = (0..p.len()).all(|v| p.undirected.degree(v) > 0 || p.kept_loops(v) > 0);
+        let lists = self.kernels.stored(graph, which, p);
+        let s = Arc::new(pad(&lists.lists, which, p, pairs));
+        cache.push(((graph.to_owned(), which), s.clone()));
+        s
+    }
+}
+
+/// `k` on the views of the padded `out` and `inn`, as a mask and materialized.
+fn on_views<S: Source>(
+    (out, inn): (&S, &S),
+    pads: (&Padded, &Padded),
+    stored: (&Stored, &Stored),
+    p: &Projection,
+    k: &Kernel,
+    config: &Config,
+) -> Result<Output, String> {
+    let memory = Memory::unlimited();
+    let e = |e: everygraph_kernels::edge_map::Error| e.to_string();
+    let view = |s, pad: &Padded| {
+        let kept = pad.padding.as_ref().map(|f| bits(f.iter().map(|x| !x)));
+        View::new(
+            s,
+            &memory,
+            Settings::default(),
+            Some(bits(pad.real.iter().copied())),
+            kept,
+        )
+    };
+    let (mut vo, mut vi) = (view(out, pads.0).map_err(e)?, view(inn, pads.1).map_err(e)?);
+    for (v, pad, real) in [(&vo, pads.0, stored.0), (&vi, pads.1, stored.1)] {
+        let weights = &pad.stored.lists.weight;
+        let w = v
+            .gather(&memory, "test", |e| weights[e as usize])
+            .map_err(e)?;
+        let same = w
+            .iter()
+            .map(|x| x.to_bits())
+            .eq(real.lists.weight.iter().map(|x| x.to_bits()));
+        if v.nodes() != p.n || !same {
+            return Err("the view of the padded graph is not the graph".into());
+        }
+    }
+    let mask = run_kernel(&vo, &vi, stored, p, k, config)?;
+    vo.materialize(&memory).map_err(e)?;
+    vi.materialize(&memory).map_err(e)?;
+    let materialized = run_kernel(&vo, &vi, stored, p, k, config)?;
+    if mask == materialized {
+        Ok(mask)
+    } else {
+        Err(format!(
+            "mask {mask:?} against materialized {materialized:?}"
+        ))
+    }
+}
+
+impl KernelUnderTest for Views {
+    fn name(&self) -> String {
+        "everygraph-kernels on views".into()
+    }
+
+    fn supports(&self, kernel: &Kernel, case: &Case<'_>) -> bool {
+        self.kernels.supports(kernel, case)
+    }
+
+    fn configurations(&self) -> Vec<Config> {
+        let storages = [Storage::Raw, Storage::Compressed];
+        Config::grid(&[1, 3], &[64, 1 << 16], &storages, &[Regime::InMemory])
+    }
+
+    fn run(&self, case: &Case<'_>, k: &Kernel, config: &Config) -> Result<Output, String> {
+        let (p, name) = (case.projection, &case.graph.name);
+        let (a, b) = adjacencies(k, p);
+        let (so, si) = (
+            self.kernels.stored(name, a, p),
+            self.kernels.stored(name, b, p),
+        );
+        let (po, pi) = (self.padded(name, a, p), self.padded(name, b, p));
+        let (pads, stored) = ((&*po, &*pi), (&*so, &*si));
+        match config.storage {
+            Storage::Raw => {
+                let sources = (&csr(&po.stored)?, &csr(&pi.stored)?);
+                on_views(sources, pads, stored, p, k, config)
+            }
+            Storage::Compressed => {
+                let sources = (&mapped(&po.stored)?, &mapped(&pi.stored)?);
+                on_views(sources, pads, stored, p, k, config)
+            }
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "minutes in a debug build; `oracle/run-ci.sh` (the oracle job) runs it in release"
+)]
+fn kernels_on_views_pass_the_oracle() {
+    let (graphs, python) = graphs();
+    let report = run(&Views::default(), &graphs, Options::default());
+    let shown: Vec<String> = report
+        .findings
+        .iter()
+        .take(20)
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        report.findings.is_empty(),
+        "{} findings:\n{}",
+        report.findings.len(),
+        shown.join("\n")
+    );
+    assert!(report.checked > 3 * graphs.len(), "{report:?}");
+    assert_eq!(report.runs, report.checked * 8);
+    if python {
+        assert!(
+            report.python_comparisons > 0 && report.python_missing == 0,
+            "{report:?}"
+        );
+    }
+    eprintln!(
+        "views: {} graphs, {} (graph, kernel) pairs, {} runs, {} Python comparisons, 0 findings",
+        report.graphs, report.checked, report.runs, report.python_comparisons
+    );
 }
 
 fn graphs() -> (Vec<Prepared>, bool) {
