@@ -259,18 +259,6 @@ impl Pairs {
     }
 }
 
-/// One value per run of [`FRONTIER_GRAIN`] nodes of a frontier, in order: what
-/// [`Plan::frontier`] returns when the body of each run adds to one element.
-struct Runs(Vec<u64>);
-
-impl Reduce for Runs {
-    const ZERO: Self = Self(Vec::new());
-    fn add(mut self, mut other: Self) -> Self {
-        self.0.append(&mut other.0);
-        self
-    }
-}
-
 /// What the rounds change, per node.
 struct State<'g> {
     /// The part of each node.
@@ -480,17 +468,16 @@ fn reach<'g, S: Source>(
             _held = memory.reserve(
                 "strong components: bounds",
                 MemoryKind::Anonymous,
-                runs.saturating_mul(24),
+                runs.saturating_mul(size_of::<Result<u64, Error>>() as u64),
             )?;
-            let Runs(bounds) = plan.frontier(nodes, |run: &mut Runs, row, _| {
-                let open = row.list.iter().filter(|&&u| open(row.node, u)).count() as u64;
-                let b = fresh(row.node).saturating_mul(open);
-                match run.0.first_mut() {
-                    Some(sum) => *sum = sum.saturating_add(b),
-                    None => run.0.push(b),
-                }
-            })?;
-            debug_assert_eq!(bounds.len() as u64, runs, "one bound per run");
+            // One call of the driver per run, so one bound per run.
+            let bounds = par::map_ranges(nodes.len(), RUN, |r| {
+                plan.frontier(&nodes[r], |sum: &mut u64, row, _| {
+                    let open = row.list.iter().filter(|&&u| open(row.node, u)).count() as u64;
+                    *sum = sum.saturating_add(fresh(row.node).saturating_mul(open));
+                })
+            });
+            let bounds = bounds.into_iter().collect::<Result<Vec<u64>, Error>>()?;
             (bounds, RUN.get())
         };
         let mut at = 0;

@@ -64,7 +64,7 @@ use everygraph_core::rng::{Purpose, draw, unit_f64};
 use everygraph_core::{Memory, MemoryKind, Reservation, math, par};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{
-    Error, FRONTIER_GRAIN, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all,
+    Error, Node, NodeCells, Plan, Reduce, Row, Source, Worker, all, ids,
 };
 
 use crate::column::{Column, GRAIN};
@@ -90,6 +90,10 @@ const ROUND_SHIFT: u32 = 4;
 /// Nodes per task when a sub-round's nodes are taken or its moves committed: a
 /// sub-round of 1,024 nodes or more is spread over every thread.
 const ROUND_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 10).expect("non-zero");
+/// Nodes per block of [`Options::read_ahead`].
+const AHEAD_BLOCK: usize = 256;
+/// Nodes per window of a frontier driven with read-ahead.
+const AHEAD_WINDOW: usize = 64 * AHEAD_BLOCK;
 
 /// The weights of a level's entries, in the units of `A`.
 #[derive(Clone, Copy, Debug)]
@@ -660,22 +664,51 @@ fn take<'g, S: Source>(
 }
 
 /// Runs `body` on the rows of `frontier` and adds up its values. Fewer than [`SERIAL`]
-/// nodes run on the calling thread, in runs the framework does not split.
+/// nodes run on the calling thread.
 fn drive<'g, 't, S: Source, A: Reduce>(
     plan: &Plan<'_, 'g, S>,
     frontier: &[Node<'g>],
     tables: &'t Tables,
     body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, Lent<'t>>) + Sync,
 ) -> Result<A, Error> {
-    let mut sum = A::ZERO;
-    if frontier.len() < SERIAL {
-        for run in frontier.chunks(FRONTIER_GRAIN) {
-            sum = sum.add(plan.frontier_with(run, || tables.lend(), &body)?);
-        }
+    let sum = if frontier.len() < SERIAL {
+        plan.frontier_serial_with(frontier, || tables.lend(), &body)?
     } else {
-        sum = plan.frontier_with(frontier, || tables.lend(), &body)?;
-    }
+        plan.frontier_with(frontier, || tables.lend(), &body)?
+    };
     tables.check()?;
+    Ok(sum)
+}
+
+/// [`drive`], with the source told ahead which lists will be read: before each window
+/// of [`AHEAD_WINDOW`] nodes, the nodes not yet announced up to the end of the next
+/// window and `ahead - 1` blocks of [`AHEAD_BLOCK`] nodes past it ([`Options::read_ahead`]).
+/// So the next window is always read while this one runs. The windows change no result:
+/// the bodies read only state that their sub-round does not change.
+fn drive_ahead<'g, 't, S: Source, A: Reduce>(
+    plan: &Plan<'_, 'g, S>,
+    frontier: &[Node<'g>],
+    tables: &'t Tables,
+    ctx: &Ctx<'_>,
+    body: impl Fn(&mut A, Row<'_, 'g>, &mut Worker<'_, 'g, S, Lent<'t>>) + Sync,
+) -> Result<A, Error> {
+    let ahead = ctx.options.read_ahead as usize;
+    if ahead == 0 {
+        return drive(plan, frontier, tables, body);
+    }
+    let list = ids(frontier);
+    let (mut sum, mut told) = (A::ZERO, 0);
+    for start in (0..frontier.len()).step_by(AHEAD_WINDOW) {
+        let end = (start + AHEAD_WINDOW).min(frontier.len());
+        let reach = end
+            .saturating_add(AHEAD_WINDOW + (ahead - 1) * AHEAD_BLOCK)
+            .min(frontier.len());
+        if reach > told {
+            plan.source().prefetch(&list[told..reach]);
+            told = reach;
+        }
+        sum = sum.add(drive(plan, &frontier[start..end], tables, &body)?);
+    }
     Ok(sum)
 }
 
@@ -870,10 +903,11 @@ pub(crate) fn local_move<'g, S: Source>(
                     } else {
                         done.parallel_rounds += 1;
                     }
-                    let (sum, m) = drive(
+                    let (sum, m) = drive_ahead(
                         plan,
                         &frontier,
                         tables,
+                        ctx,
                         |acc: &mut (Gain, u64), row, worker| {
                             let u = row.node;
                             let target = &st.target[u.index()];
@@ -903,7 +937,7 @@ pub(crate) fn local_move<'g, S: Source>(
                     light(v) && st.active[v.index()].load(Relaxed)
                 })?;
                 processed = frontier.len();
-                let (sum, m) = drive(plan, &frontier, tables, visit)?;
+                let (sum, m) = drive_ahead(plan, &frontier, tables, ctx, visit)?;
                 gain = gain.add(sum);
                 done.moves += m;
             }
@@ -1027,7 +1061,7 @@ pub(crate) fn refine<'g, S: Source>(
                 if frontier.is_empty() {
                     continue;
                 }
-                let (): () = drive(plan, &frontier, tables, |(), row, worker| {
+                let (): () = drive_ahead(plan, &frontier, tables, ctx, |(), row, worker| {
                     let u = row.node;
                     let Some(table) = worker.scratch.begin(row.list.len()) else {
                         return;
@@ -1058,7 +1092,7 @@ pub(crate) fn refine<'g, S: Source>(
         }
         Schedule::Order { ids } => {
             let (frontier, _held) = take(plan, tables, ids, alive)?;
-            let (): () = drive(plan, &frontier, tables, |(), row, worker| {
+            let (): () = drive_ahead(plan, &frontier, tables, ctx, |(), row, worker| {
                 let u = row.node;
                 let Some(table) = worker.scratch.begin(row.list.len()) else {
                     return;

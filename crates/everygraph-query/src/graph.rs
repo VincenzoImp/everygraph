@@ -3,8 +3,9 @@
 //! The lists a query reads, their per-entry columns, and the per-thread [`Reader`].
 
 use std::fmt;
+use std::ops::ControlFlow;
 
-use everygraph_core::{InsufficientBudget, Memory, SegVec, widen};
+use everygraph_core::{InsufficientBudget, Memory, SegVec, usize_of, widen};
 use everygraph_format::adjacency::AdjacencyEvents;
 use everygraph_kernels::edge_map::{Error as ListError, Source};
 
@@ -292,7 +293,6 @@ impl<'a, S: Source> Graph<'a, S> {
             memory: memory.clone(),
             out: make(&self.out)?,
             inn: self.inn.as_ref().map(make).transpose()?,
-            merged: SegVec::new(memory, "point query lists"),
             seen: Some(Seen::new(memory)),
         })
     }
@@ -376,8 +376,6 @@ pub struct Reader<'g, 'a, S: Source> {
     pub(crate) memory: Memory,
     out: S::Reader,
     inn: Option<S::Reader>,
-    /// The union of two list prefixes, for `Both` in `khop`.
-    merged: SegVec<u32>,
     /// The nodes a query met, kept for the next; taken while a query runs.
     seen: Option<Seen>,
 }
@@ -406,25 +404,24 @@ impl<S: Source> Reader<'_, '_, S> {
     }
 
     /// Refuses a query that may hold `state` bytes besides what its readers take to read
-    /// prefixes of up to `prefix` entries of lists of up to `entries` entries in
-    /// `direction`, before it reads anything. The readers' part is each source's own
-    /// bound (`Source::list_bytes`).
+    /// parts of up to `part` entries of lists of up to `entries` entries in `direction`,
+    /// before it reads anything. The readers' part is each source's own bound
+    /// (`Source::list_bytes`).
     pub(crate) fn admit(
         &self,
         state: u64,
         direction: Direction,
         entries: u64,
-        prefix: u64,
+        part: u64,
     ) -> Result<(), QueryError> {
         let g = self.graph;
-        let prefix = prefix.min(entries);
-        let side = |s: &Side<'_, S>| s.lists.list_bytes(entries, prefix, BATCH);
+        let part = part.min(entries);
+        let side = |s: &Side<'_, S>| s.lists.list_bytes(entries, part, BATCH);
         let inn = g.inn.as_ref().map_or(0, side);
         let lists = match direction {
             Direction::Out => side(&g.out),
             Direction::In => inn,
-            // The union of two prefixes, beside the buffer it grows from.
-            Direction::Both => side(&g.out) + inn + 8 * prefix,
+            Direction::Both => side(&g.out).saturating_add(inn),
         };
         let need = state.saturating_add(lists);
         let available = self.memory.available();
@@ -459,8 +456,9 @@ impl<S: Source> Reader<'_, '_, S> {
             Direction::Out => one(out, &mut self.out, v, k, want, f),
             Direction::In => one(inn, reader, v, k, want, f),
             Direction::Both => {
-                let (fo, lo) = out.lists.list_prefix(&mut self.out, v, k)?;
-                let (fi, li) = inn.lists.list_prefix(reader, v, k)?;
+                let (fo, fi) = (out.lists.entry_offset(v), inn.lists.entry_offset(v));
+                let (lo, more_out) = head(out.lists, &mut self.out, v, k)?;
+                let (li, more_in) = head(inn.lists, reader, v, k)?;
                 let mut union = Union::new(lo, li, v);
                 for (u, i, j) in union.by_ref().take(k) {
                     let at = |side: &Side<'_, S>, first: u64, i: usize| {
@@ -474,51 +472,50 @@ impl<S: Source> Reader<'_, '_, S> {
                     };
                     f(u, value)?;
                 }
-                let longer = more(out.lists, v, lo.len(), k) || more(inn.lists, v, li.len(), k);
-                Ok(longer || !union.done())
+                Ok(more_out || more_in || !union.done())
             }
         }
     }
 
-    /// The first `k` distinct neighbours of `v` in `direction`, and whether they are all
-    /// of them.
-    pub(crate) fn prefix(
+    /// Calls `f(u)` for each distinct neighbour `u` of `v` in `direction`, in graph
+    /// order, until `f` breaks, and returns what it broke with. Each list is read in
+    /// parts ([`Parts`]), only as far as `f` goes; the first part has `first` entries.
+    /// Under `Both`, a node of both lists is given once.
+    pub(crate) fn walk<B>(
         &mut self,
         v: u32,
         direction: Direction,
-        k: usize,
-    ) -> Result<(&[u32], bool), QueryError> {
+        first: usize,
+        mut f: impl FnMut(u32) -> Result<ControlFlow<B>, QueryError>,
+    ) -> Result<Option<B>, QueryError> {
         let g = self.graph;
         let Some((inn, reader)) = g.inn.as_ref().zip(self.inn.as_mut()) else {
-            let (_, list) = g.out.lists.list_prefix(&mut self.out, v, k)?;
-            return Ok((list, !more(g.out.lists, v, list.len(), k)));
+            return walk_one(g.out.lists, &mut self.out, v, first, f);
         };
-        let whole = |s: &Side<'_, S>, l: &[u32]| !more(s.lists, v, l.len(), k);
         match direction {
-            Direction::Out => {
-                let (_, list) = g.out.lists.list_prefix(&mut self.out, v, k)?;
-                Ok((list, whole(&g.out, list)))
-            }
-            Direction::In => {
-                let (_, list) = inn.lists.list_prefix(reader, v, k)?;
-                Ok((list, whole(inn, list)))
-            }
+            Direction::Out => walk_one(g.out.lists, &mut self.out, v, first, f),
+            Direction::In => walk_one(inn.lists, reader, v, first, f),
             Direction::Both => {
-                let (_, lo) = g.out.lists.list_prefix(&mut self.out, v, k)?;
-                let (_, li) = inn.lists.list_prefix(reader, v, k)?;
-                let all = whole(&g.out, lo) && whole(inn, li);
-                self.merged.clear();
-                self.merged.try_reserve(k.min(lo.len() + li.len()))?;
-                let mut union = Union::new(lo, li, v);
-                for (u, _, _) in union.by_ref().take(k) {
-                    self.merged.try_push(u)?;
+                let mut out_parts = Parts::new(g.out.lists, v, first);
+                let mut in_parts = Parts::new(inn.lists, v, first);
+                let (mut lo, mut li): (&[u32], &[u32]) = (&[], &[]);
+                loop {
+                    if lo.is_empty() {
+                        lo = out_parts.next(g.out.lists, &mut self.out)?;
+                    }
+                    if li.is_empty() {
+                        li = in_parts.next(inn.lists, reader)?;
+                    }
+                    let (a, b) = (lo.first().copied(), li.first().copied());
+                    let Some(u) = a.into_iter().chain(b).min() else {
+                        return Ok(None);
+                    };
+                    lo = &lo[usize::from(a == Some(u))..];
+                    li = &li[usize::from(b == Some(u))..];
+                    if let ControlFlow::Break(x) = f(u)? {
+                        return Ok(Some(x));
+                    }
                 }
-                let complete = all && union.done();
-                let merged = self
-                    .merged
-                    .as_slice()
-                    .ok_or(QueryError::Invalid("a list prefix longer than one segment"))?;
-                Ok((merged, complete))
             }
         }
     }
@@ -559,17 +556,99 @@ fn one<S: Source>(
     want: Shape,
     mut f: impl FnMut(u32, Value) -> Result<(), QueryError>,
 ) -> Result<bool, QueryError> {
-    let (first, list) = side.lists.list_prefix(reader, v, k)?;
+    let first = side.lists.entry_offset(v);
+    let (list, more) = head(side.lists, reader, v, k)?;
     for (e, &u) in (first..).zip(list) {
         f(u, side.columns.value(e, want)?)?;
     }
-    Ok(more(side.lists, v, list.len(), k))
+    Ok(more)
 }
 
-/// Whether the list of `v` is longer than the `got` entries a prefix of `k` gave: only
-/// a full prefix asks the index, as a degree costs a look-up.
-fn more<S: Source>(lists: &S, v: u32, got: usize, k: usize) -> bool {
-    got == k && lists.degree(v) as usize > k
+/// The first `k` entries of the list of `v`, all of them if it has fewer, and whether
+/// it has more.
+fn head<'r, S: Source>(
+    lists: &'r S,
+    reader: &'r mut S::Reader,
+    v: u32,
+    k: usize,
+) -> Result<(&'r [u32], bool), QueryError> {
+    let degree = usize_of(lists.degree(v));
+    let to = k.min(degree);
+    let list = if to == 0 {
+        &[]
+    } else {
+        lists.list_part(reader, v, (0, 0), to)?
+    };
+    Ok((list, degree > k))
+}
+
+/// [`Reader::walk`] on one adjacency.
+fn walk_one<S: Source, B>(
+    lists: &S,
+    reader: &mut S::Reader,
+    v: u32,
+    first: usize,
+    mut f: impl FnMut(u32) -> Result<ControlFlow<B>, QueryError>,
+) -> Result<Option<B>, QueryError> {
+    let mut parts = Parts::new(lists, v, first);
+    loop {
+        let part = parts.next(lists, reader)?;
+        if part.is_empty() {
+            return Ok(None);
+        }
+        for &u in part {
+            if let ControlFlow::Break(x) = f(u)? {
+                return Ok(Some(x));
+            }
+        }
+    }
+}
+
+/// The list of one node, read in parts by `Source::list_part`: the first `first`
+/// entries (rounded up to a multiple of four), then each part as long as all before
+/// it. A decoding source decodes each entry once.
+struct Parts {
+    v: u32,
+    first: usize,
+    degree: usize,
+    /// The first entry not read.
+    at: usize,
+    /// Entry `at − 1`.
+    prev: u32,
+}
+
+impl Parts {
+    fn new<S: Source>(lists: &S, v: u32, first: usize) -> Self {
+        let degree = usize_of(lists.degree(v));
+        let first = first.clamp(1, degree.max(1)).checked_next_multiple_of(4);
+        Self {
+            v,
+            first: first.unwrap_or(usize::MAX),
+            degree,
+            at: 0,
+            prev: 0,
+        }
+    }
+
+    /// The next part; empty after the last.
+    fn next<'r, S: Source>(
+        &mut self,
+        lists: &'r S,
+        reader: &'r mut S::Reader,
+    ) -> Result<&'r [u32], QueryError> {
+        if self.at == self.degree {
+            return Ok(&[]);
+        }
+        let to = match self.at {
+            0 => self.first,
+            at => at.saturating_mul(2),
+        };
+        let to = to.min(self.degree);
+        let part = lists.list_part(reader, self.v, (self.at, self.prev), to)?;
+        self.at = to;
+        self.prev = part.last().copied().unwrap_or(self.prev);
+        Ok(part)
+    }
 }
 
 /// The union of the out-list and the in-list of `v`, both sorted: each node once, with

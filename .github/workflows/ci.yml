@@ -1,22 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# Continuous integration on Linux x86_64: every pull request, every push to main, nightly.
-# Each step is a command of CONTRIBUTING.md ("Checks" and "CI"), so that anything that
-# fails here can be reproduced locally with the same command.
+# Continuous integration: every pull request, every push to main, nightly. The rules it
+# follows are in CONTRIBUTING.md, "CI". Each step is a command of CONTRIBUTING.md, so
+# that anything that fails here can be reproduced locally with the same command.
 #
-# Cost: the repository is public, so standard runners are free, but the queue is shared
-# by every agent's pull request. So:
-# - Linux x86_64 only here (macOS, Windows and Linux aarch64 are in other-platforms.yml);
-# - on a pull request, `lint` and `test` always run, and the expensive jobs only when
-#   the pull request changed what they check: the `lint` job's first step,
-#   .github/scripts/ci_changes.py, decides from `git diff` of the merge commit and
-#   exposes the flags. The label `full-ci` runs everything;
-# - every push to main runs everything, and so does a nightly run unless main's last
-#   commit already passed a full run (then only `lint`, for new advisories and a new
-#   stable toolchain);
-# - small checks share a job instead of paying a job's minimum each;
-# - superseded runs of a pull request are cancelled; documentation-only changes do not
-#   start the workflow; the caches are written by main only, read by every branch.
+# Every job needs `lint`. Its first step, .github/scripts/ci_changes.py, decides from
+# `git diff` of the merge commit which jobs a pull request needs. A push to main, the
+# label `full-ci` and a change under .github/ run everything; so does a nightly run,
+# unless main's last commit already passed a full run (then only `lint`, for new
+# advisories and a new stable toolchain). `ci-ok` is the one check a merge waits for.
 
 name: CI
 
@@ -38,7 +30,20 @@ on:
   schedule:
     # 03:41 UTC (off the hour, when scheduled runs are less often delayed).
     - cron: "41 3 * * *"
+  # By hand everything runs; the two inputs narrow the `platforms` job, while one
+  # platform's failure is being fixed:
+  #   gh workflow run ci.yml --ref <branch> -f platform=macos -f packages="-p everygraph-bench"
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Which platforms the platforms job runs on
+        type: choice
+        options: [all, macos, windows, linux-arm]
+        default: all
+      packages:
+        description: "What the platforms job lints and tests, as cargo arguments"
+        type: string
+        default: --workspace --exclude everygraph-memtest
 
 permissions:
   contents: read
@@ -73,6 +78,9 @@ jobs:
       core: ${{ steps.changes.outputs.core }}
       oracle: ${{ steps.changes.outputs.oracle }}
       msrv: ${{ steps.changes.outputs.msrv }}
+      fuzz_format: ${{ steps.changes.outputs.fuzz_format }}
+      fuzz_ingest: ${{ steps.changes.outputs.fuzz_ingest }}
+      platform: ${{ steps.changes.outputs.platform }}
       full: ${{ steps.changes.outputs.full }}
       test: ${{ steps.changes.outputs.test }}
     steps:
@@ -136,20 +144,96 @@ jobs:
       # is the point; the nightly run hears of one without a push.
       - name: cargo deny
         run: cargo deny --locked check
+      # Lab experiments keep the lock they were measured with; the rest builds today.
+      - name: Nested lock files outside lab/ are current
+        run: |
+          find . -name Cargo.lock -not -path ./Cargo.lock -not -path './lab/*' -not -path '*/target/*' |
+            while read -r lock; do
+              cargo metadata --locked --format-version 1 --manifest-path "$(dirname "$lock")/Cargo.toml" >/dev/null ||
+                { echo "::error::$lock is stale: run cargo update --workspace in $(dirname "$lock")"; exit 1; }
+            done
       - name: cargo doc
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --locked
 
-  # Runs even when lint failed (its flags are set by then), because test results are the
-  # feedback a red pull request needs most. The portability checks live here: their work
-  # is seconds, and a job of their own cost a whole billed minute every run.
-  test:
-    name: Tests, wasm32 builds, wasm toy, portability canary (release build, i686 when needed)
+  build:
+    name: Build the tests; doc tests; core without default features
     needs: lint
-    if: ${{ !cancelled() && needs.lint.outputs.test == 'true' }}
+    if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      # The oracle's own tests run when the oracle job does: the oracle crate has no
+      # workspace dependency, so only its own files can break them, and those switch the
+      # oracle flag on. A manifest change (a dependency) runs them too: the msrv job skips
+      # its own run while the minimum is the current stable. Its seeded-bug tests run in
+      # the oracle job only (.config/nextest.toml). The examples are left out: they were
+      # a sixth of this build's CPU time (cargo --timings, 2026-11-27), lint's clippy
+      # compiles them, and the readers job runs the ones it needs.
+      - name: nextest archive
+        env:
+          EXCLUDE: ${{ needs.lint.outputs.oracle != 'true' && needs.lint.outputs.msrv != 'true' && '--exclude everygraph-oracle' || '' }}
+        run: cargo nextest archive --workspace $EXCLUDE --lib --bins --tests --locked --archive-file "$RUNNER_TEMP/tests.tar.zst"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests
+          path: ${{ runner.temp }}/tests.tar.zst
+          retention-days: 1
+          compression-level: 0
+      - name: Doc tests (nextest does not run them)
+        run: cargo test --workspace --doc --locked
+      - name: cargo test (core, no default features)
+        run: cargo test -p everygraph-core --no-default-features --locked
+
+  # The archive is unpacked where the build job built it, so that the paths compiled into
+  # the tests (`CARGO_BIN_EXE_*`, `CARGO_TARGET_TMPDIR`) hold.
+  test:
+    name: test ${{ matrix.partition }}/4
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests
+          path: ${{ runner.temp }}
+      - name: nextest
+        run: >-
+          cargo nextest run --archive-file "$RUNNER_TEMP/tests.tar.zst"
+          --workspace-remap . --extract-to . --extract-overwrite
+          --partition hash:${{ matrix.partition }}/4
+
+  wasm:
+    name: wasm32 builds and clippy, the wasm toy and codec in Node
+    needs: lint
+    if: needs.lint.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -163,22 +247,6 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: cargo-nextest@0.9.152
-      # The oracle's own tests (its seeded-bug tests take ~90 s of the two cores) run
-      # when the oracle job does: the oracle crate has no workspace dependency, so only
-      # its own files can break them, and those switch the oracle flag on. A manifest
-      # change (a dependency) runs them too: the msrv job skips its own run while the
-      # minimum is the current stable.
-      - name: cargo nextest (workspace)
-        env:
-          EXCLUDE: ${{ needs.lint.outputs.oracle != 'true' && needs.lint.outputs.msrv != 'true' && '--exclude everygraph-oracle' || '' }}
-        run: cargo nextest run --workspace $EXCLUDE --locked
-      - name: Doc tests (nextest does not run them)
-        run: cargo test --workspace --doc --locked
-      - name: cargo test (core, no default features)
-        run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
         run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
       - name: wasm32 build (everygraph-ingest)
@@ -208,12 +276,30 @@ jobs:
       # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
       - name: Adjacency codec, simd128 in Node against scalar, same as native
         run: python3 tools/check_wasm_codec.py
+
+  readers:
+    name: Independent readers and the Python package
+    needs: lint
+    if: needs.lint.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          node --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The .eg container: an independent Python reader, written from the specification,
       # lists and verifies a file the Rust writer made (#28).
       - name: Container, Python reader against the Rust writer
         run: python3 tools/check_container_python.py
-      # Property columns: pyarrow and Polars read the columns the Rust writer made,
-      # without Everygraph, and the statistics match an exact recomputation (#37).
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.11.28"
@@ -222,6 +308,13 @@ jobs:
             tools/check_columns_python.py
             tools/check_egmap_readers.py
           save-cache: ${{ github.ref == 'refs/heads/main' }}
+      - name: The scripts' Python packages, from PyPI (retried once)
+        run: |
+          for script in tools/check_columns_python.py tools/check_egmap_readers.py; do
+            uv sync --script "$script" || { sleep 15; uv sync --script "$script"; }
+          done
+      # Property columns: pyarrow and Polars read the columns the Rust writer made,
+      # without Everygraph, and the statistics match an exact recomputation (#37).
       - name: Columns, pyarrow and Polars against the Rust writer
         run: uv run --script tools/check_columns_python.py
       # The map file (#68): the independent Python reader, written from the specification,
@@ -232,38 +325,92 @@ jobs:
       # The Python package (#81): its wheel built by maturin, its tests against NetworkX.
       - name: Python package, built and tested
         run: tools/check_python_package.sh
-      # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
-      # fails if any probe is accepted.
+
+  # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
+  # fails if any probe is accepted.
+  canary:
+    name: Portability canary
+    needs: lint
+    if: needs.lint.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Portability canary
         run: python3 tools/check_portability_canary.py
-      # The release profile (fat LTO) is a minute of compilation and checks what a
-      # manifest or a profile can break: on main, nightly, full-ci, and when a manifest
-      # changed.
-      - name: Release build
-        if: needs.lint.outputs.msrv == 'true'
-        run: cargo build --workspace --release --locked
-      # Native tests with a 32-bit usize, with and without rayon (Miri covers the same
-      # tests without rayon, slowly). Linking for i686 needs the 32-bit C runtime.
-      - name: Install the i686 target and gcc-multilib
-        if: needs.lint.outputs.core == 'true'
+
+  # Native tests with a 32-bit usize, with and without rayon. Linking for i686 needs the
+  # 32-bit C runtime.
+  i686:
+    name: i686 tests (core, format)
+    needs: lint
+    if: needs.lint.outputs.test == 'true' && needs.lint.outputs.core == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust and the i686 target
         run: |
-          rustup target add i686-unknown-linux-gnu
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends gcc-multilib
+          rustup toolchain install stable --profile minimal --target i686-unknown-linux-gnu
+          rustup default stable
+          rustc --version
+      # Only Ubuntu's own archive: a third-party repository of the runner image that
+      # refuses the update (packages.microsoft.com, 403) must not fail the job.
+      - name: Install gcc-multilib (retried once)
+        run: |
+          install() {
+            sudo apt-get update -qq -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- &&
+              sudo apt-get install -y -qq --no-install-recommends gcc-multilib
+          }
+          install || { sleep 15; install; }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo test (core, i686)
-        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --locked
       - name: cargo test (core, i686, no default features)
-        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
       - name: cargo test (format, i686)
-        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-format --target i686-unknown-linux-gnu --locked
+
+  # The release profile (fat LTO): what a manifest or a profile can break. Full runs only.
+  release:
+    name: Release build
+    needs: lint
+    if: needs.lint.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Release build
+        run: cargo build --workspace --release --locked
 
   # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
   # scipy, the in-process references, the toy kernel, the seeded bugs and the golden files
-  # that need no network. The oracle's Rust tests run in the `test` job (nextest), so the
-  # script skips them here. uv is pinned like every other tool; the Python interpreter
+  # that need no network. The oracle crate's other Rust tests run in the `test` job
+  # (nextest), so the script skips them here. uv is pinned like every other tool; the Python interpreter
   # and the packages are cached, written by main only.
   oracle:
     name: Correctness oracle (references, seeded bugs, golden files)
@@ -350,13 +497,10 @@ jobs:
           cargo +1.100 nextest run --workspace --locked
           cargo +1.100 test --workspace --doc --locked
 
-  # Miri and ThreadSanitizer, on the pinned nightly. On a pull request only when the core,
-  # a module of CONTRIBUTING.md's `unsafe` table or the nightly tooling changed. Miri
-  # interprets every test, and libtest under Miri runs them one at a time: as one job the
-  # runs took up to 39 of the job's 45 minutes (PR #232, 2026-11-26), 18 of them for the
-  # core on rayon. So the work is in three parts of about the same length, and each part
-  # runs its tests through nextest, one Miri process per test, as many as the runner has
-  # cores. The tests and the flags are the same as before the split.
+  # Miri and ThreadSanitizer, on the pinned nightly, over the tests that reach `unsafe`
+  # code (CONTRIBUTING.md, the `unsafe` table). On a pull request only when the core, a
+  # module of that table or the nightly tooling changed. Each part runs its tests through
+  # nextest: one Miri process per test, as many at once as the runner has cores.
   sanitizers:
     name: Miri and ThreadSanitizer (${{ matrix.title }})
     needs: lint
@@ -367,12 +511,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - part: core
-            title: "core: no default features, x86_64 and i686"
-          - part: rayon
-            title: "core: rayon under Tree Borrows"
-          - part: other
-            title: "I/O, adjacency codec, edge-map framework; ThreadSanitizer"
+          - part: io
+            title: "I/O, adjacency codec, ingest heap"
+          - part: kernels
+            title: "edge-map framework, counting allocator; ThreadSanitizer"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -395,9 +537,94 @@ jobs:
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152
-      # nextest does not run doc tests, hence the `--doc` runs. Tests named `*full_size`
-      # are skipped: the numerics golden vectors and the exact sum over chunks of 65,536
-      # take minutes under Miri. They run natively on every target instead.
+      - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
+        if: matrix.part == 'io'
+        run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
+      - name: Miri, the page backend (everygraph-io/src/pages.rs)
+        if: matrix.part == 'io'
+        run: 'cargo "+$NIGHTLY" miri test -p everygraph-io --lib --locked pages::'
+      # The adjacency codec: the scalar decoder, then the SSSE3 one (the only SIMD path
+      # Miri interprets on this runner; compiled in so that run-time detection finds it).
+      # The crate's other tests reach no `unsafe` code.
+      - name: Miri, adjacency codec (scalar)
+        if: matrix.part == 'io'
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked --lib --test adjacency -E 'binary(adjacency) | test(/^adjacency::/)'
+      - name: Miri, adjacency codec (SSSE3)
+        if: matrix.part == 'io'
+        env:
+          RUSTFLAGS: -C target-feature=+ssse3
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked --test adjacency
+      # Tree Borrows because rayon's dependencies need it; isolation off because the
+      # test's scratch is files.
+      - name: Miri, the ingest heap counter (everygraph-ingest/tests/heap_peak.rs), Tree Borrows
+        if: matrix.part == 'io'
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-disable-isolation -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-ingest --test heap_peak --locked
+      # The edge-map framework's node brand and unchecked indexing (#44), on rayon. The
+      # kernels built on it reach no `unsafe` code of their own.
+      - name: Miri, edge-map framework, Tree Borrows
+        if: matrix.part == 'kernels'
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-kernels --lib --locked -E 'test(/^edge_map::/)'
+      # The readers on threads, under the no-OOM suite's counting allocator.
+      - name: Miri, the counting allocator and the readers' heap (everygraph-memtest), Tree Borrows
+        if: matrix.part == 'kernels'
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-memtest --test counting --test readers --locked
+      # On nightly, rustdoc checks the error code of `compile_fail,E0521`: the tests
+      # that a node of one plan cannot index the state of another.
+      - name: Node brand compile-fail tests (kernels doc tests, nightly)
+        if: matrix.part == 'kernels'
+        run: cargo "+$NIGHTLY" test -p everygraph-kernels --doc --locked
+      - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
+        if: ${{ !cancelled() && matrix.part == 'kernels' }}
+        run: python3 tools/check_tsan.py
+
+  # The core under Miri. The core forbids `unsafe`, so a change to it alone adds none:
+  # these runs check the standard library and rayon under the core's tests, and the
+  # 32-bit `usize`. On a push to main, nightly and in a full run; the native i686 tests
+  # in `test` run on pull requests. Tests named `*full_size` are skipped: the numerics
+  # golden vectors and the exact sum over chunks of 65,536 take minutes under Miri, and
+  # run natively on every target. nextest does not run doc tests, hence the `--doc` runs.
+  miri-core:
+    name: Miri, core (${{ matrix.title }})
+    needs: lint
+    if: needs.lint.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: core
+            title: "no default features, x86_64 and i686"
+          - part: rayon
+            title: "rayon under Tree Borrows"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned nightly with Miri and rust-src
+        run: |
+          NIGHTLY="$(cat tools/nightly-toolchain)"
+          echo "NIGHTLY=$NIGHTLY" >> "$GITHUB_ENV"
+          rustup toolchain install "$NIGHTLY" --profile minimal --component miri,rust-src
+          cargo "+$NIGHTLY" miri --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: sanitizers-${{ matrix.part }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Cache the Miri sysroots
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/miri
+          key: miri-sysroot-${{ env.NIGHTLY }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
       - name: Miri, no default features
         if: matrix.part == 'core'
         run: |
@@ -415,44 +642,6 @@ jobs:
         run: |
           cargo "+$NIGHTLY" miri nextest run -p everygraph-core --locked -E 'not test(full_size)'
           cargo "+$NIGHTLY" miri test -p everygraph-core --locked --doc
-      - name: Miri, the refusing global allocator (everygraph-io/tests/allocation_failure.rs)
-        if: matrix.part == 'other'
-        run: cargo "+$NIGHTLY" miri test -p everygraph-io --test allocation_failure --locked
-      - name: Miri, the page backend (everygraph-io/src/pages.rs)
-        if: matrix.part == 'other'
-        run: 'cargo "+$NIGHTLY" miri test -p everygraph-io --lib --locked pages::'
-      # The adjacency codec: the scalar decoder, then the SSSE3 one (the only SIMD path
-      # Miri interprets on this runner; compiled in so that run-time detection finds it).
-      - name: Miri, adjacency codec (scalar)
-        if: matrix.part == 'other'
-        run: |
-          cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked
-          cargo "+$NIGHTLY" miri test -p everygraph-format --locked --doc
-      - name: Miri, adjacency codec (SSSE3)
-        if: matrix.part == 'other'
-        env:
-          RUSTFLAGS: -C target-feature=+ssse3
-        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-format --locked --test adjacency
-      # The edge-map framework's node brand and unchecked indexing (#44), on rayon.
-      - name: Miri, edge-map framework (kernels unit tests), Tree Borrows
-        if: matrix.part == 'other'
-        env:
-          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-kernels --lib --locked
-      # The readers on threads, under the no-OOM suite's counting allocator.
-      - name: Miri, the counting allocator and the readers' heap (everygraph-memtest), Tree Borrows
-        if: matrix.part == 'rayon'
-        env:
-          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-ignore-leaks
-        run: cargo "+$NIGHTLY" miri nextest run -p everygraph-memtest --test counting --test readers --locked
-      # On nightly, rustdoc checks the error code of `compile_fail,E0521`: the tests
-      # that a node of one plan cannot index the state of another.
-      - name: Node brand compile-fail tests (kernels doc tests, nightly)
-        if: matrix.part == 'other'
-        run: cargo "+$NIGHTLY" test -p everygraph-kernels --doc --locked
-      - name: ThreadSanitizer (core tests, and a racy canary that must be caught)
-        if: ${{ !cancelled() && matrix.part == 'other' }}
-        run: python3 tools/check_tsan.py
 
   # The no-OOM suite at the nightly sizes (issue #53): the slope test up to 2^18 nodes,
   # the long search, and the cgroup matrix (graphs up to 2^22 nodes, budgets from a
@@ -488,3 +677,141 @@ jobs:
           path: ${{ runner.temp }}/no-oom-records.txt
           if-no-files-found: warn
 
+
+  # macOS arm64, Windows x86_64 and Linux aarch64. A pull request that touches the crates
+  # whose code depends on the platform tests those crates (`platform` flag); a full run
+  # tests the workspace. The no-OOM suite (everygraph-memtest) measures Linux cgroups and
+  # the Linux allocator path, so it runs on Linux x86_64 only.
+  platforms:
+    name: platforms (${{ matrix.os }})
+    needs: lint
+    if: needs.lint.outputs.platform == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: >-
+          ${{ fromJSON(
+            inputs.platform == 'macos' && '["macos-15"]'
+            || inputs.platform == 'windows' && '["windows-2025"]'
+            || inputs.platform == 'linux-arm' && '["ubuntu-24.04-arm"]'
+            || '["macos-15", "windows-2025", "ubuntu-24.04-arm"]') }}
+    runs-on: ${{ matrix.os }}
+    # Windows, the slowest: 3 min on the four crates with a warm cache; 21 to 40 min on
+    # the workspace (five pushes to main, 2026-11-27).
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 20 || 65 }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PACKAGES: >-
+        ${{ inputs.packages || (github.event_name == 'pull_request'
+        && '-p everygraph-core -p everygraph-io -p everygraph-format -p everygraph-ingest'
+        || '--workspace --exclude everygraph-memtest') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup default stable
+          rustc --version --verbose
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Clippy on each platform: it compiles code under that platform's `cfg`, which
+      # the Linux lint runs never see.
+      - name: clippy
+        run: cargo clippy $PACKAGES --all-targets --locked -- -D warnings
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      # The adjacency codec's tests run its SIMD decoder for the platform (NEON on
+      # arm64). nextest does not run doc tests, hence the second command.
+      - name: nextest
+        run: |
+          cargo nextest run $PACKAGES --no-tests=warn --locked
+          cargo test $PACKAGES --doc --locked
+      - name: cargo test (core, no default features)
+        run: cargo test -p everygraph-core --no-default-features --locked
+      - name: wasm32 build (core, no default features)
+        run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
+
+  # Each fuzz target's committed corpus, once (CONTRIBUTING.md, "Fuzzing"). The longer
+  # runs are in fuzz.yml.
+  fuzz-replay:
+    name: Fuzz corpus replay
+    needs: lint
+    if: needs.lint.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Before the install step, so that the cargo-fuzz it builds is new to the cache and
+      # gets saved (binaries already in ~/.cargo/bin at restore are left out).
+      # `shared-key`: fuzz.yml's jobs read the same cache.
+      - &fuzz-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: fuzz
+          workspaces: |
+            crates/everygraph-format/fuzz -> target
+            crates/everygraph-ingest/fuzz -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - &fuzz-nightly
+        name: Install the pinned nightly and cargo-fuzz
+        run: |
+          rustup toolchain install "$(cat tools/nightly-toolchain)" --profile minimal
+          command -v cargo-fuzz || cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: tools/fuzz.sh replay
+        run: tools/fuzz.sh replay
+
+  # 5 minutes per target of a crate the pull request changed. Advisory, so not in ci-ok:
+  # a crash it finds is a bug to fix before merging; a broken nightly toolchain is not.
+  fuzz-campaign:
+    name: Fuzz ${{ matrix.target }} for 5 minutes (advisory)
+    needs: [lint, fuzz-replay]
+    if: >-
+      github.event_name == 'pull_request' && (needs.lint.outputs.fuzz_format == 'true'
+      || needs.lint.outputs.fuzz_ingest == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: >-
+          ${{ fromJSON(
+            needs.lint.outputs.fuzz_format == 'true' && needs.lint.outputs.fuzz_ingest == 'true'
+            && '["adjacency", "container", "columns", "hierarchy", "egmap", "text"]'
+            || needs.lint.outputs.fuzz_format == 'true'
+            && '["adjacency", "container", "columns", "hierarchy", "egmap"]'
+            || '["text"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - *fuzz-cache
+      - *fuzz-nightly
+      - name: tools/fuzz.sh run ${{ matrix.target }} 300
+        run: tools/fuzz.sh run "${{ matrix.target }}" 300
+      - name: Upload what crashed
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: crates/*/fuzz/artifacts/
+          if-no-files-found: ignore
+
+  # The one check a merge waits for: every job above passed or was not needed.
+  ci-ok:
+    name: ci-ok
+    needs: [lint, build, test, wasm, readers, canary, i686, release, oracle, msrv, sanitizers, miri-core, no-oom, platforms, fuzz-replay]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: A job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

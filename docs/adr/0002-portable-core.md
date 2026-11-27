@@ -49,7 +49,8 @@ there); with segments of 2^16 elements, a stand-in for state arrays above one se
 - `everygraph-core` has no `std::fs`, no mmap and no thread spawning; the I/O layer (#29)
   and the arrays and memory accountant (#31) implement the contract.
 - Every builder that could make one large allocation is written in two passes.
-- The edge-map framework (#44) measures the overhead against the lab's flat-slice kernels.
+- The edge-map framework (#44) runs WCC on orkut at 1.13× the lab's flat-slice kernel
+  (ADR 0012, "Closed by"); #240 finds whether the per-task cost behind it can be removed.
 
 ## What would change our mind
 

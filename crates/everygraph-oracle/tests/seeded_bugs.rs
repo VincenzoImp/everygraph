@@ -32,8 +32,8 @@ fn graphs() -> &'static (Vec<Prepared>, bool) {
             (g, with_python)
         }
         // Without a corpus directory: the CI tier minus its sparse-id graph, which this
-        // debug-built test would spend most of its time on. The oracle job checks that
-        // graph with release builds (`check --plugin toy` and `seeded-bugs`).
+        // debug-built test would spend most of its time on. The oracle job runs this test
+        // in release on the whole corpus.
         None => (
             entries(Tier::Ci)
                 .into_iter()

@@ -83,9 +83,11 @@ target/release/everygraph-oracle golden --dir oracle/golden --data-root ROOT   #
   - the 14 LDBC Graphalytics test graphs against their reference outputs (§ LDBC
     Graphalytics below).
 
-  After `uv sync` it downloads only the LDBC test graphs (10 kB). The oracle's Rust tests (unit tests, 6 properties
-  at 96 cases each, the seeded-bug tests, the karate golden file) run in the `test` job
-  with the rest of the workspace; run locally, `run-ci.sh` runs them too.
+  After `uv sync` it downloads only the LDBC test graphs (10 kB). The seeded-bug tests
+  (`tests/seeded_bugs.rs`) run here, in release, on the CI corpus with the Python
+  references. The oracle's other Rust tests (unit tests, 6 properties at 96 cases each,
+  the karate golden file) run in the `test` job with the rest of the workspace; run
+  locally, `run-ci.sh` runs them too.
 - **Nightly**, `run-nightly.sh` (not scheduled yet; run by hand or by the benchmark
   machine):
   - the nightly corpus: 1,576 graphs, up to 100,000 rows, hubs with 2^16 neighbours, and
@@ -354,14 +356,6 @@ Three tests then cover it:
 
 From M2 the minimal Python binding can be checked the same way through the external
 protocol.
-
-Two things the toy does not need and an engine kernel will:
-
-- **A way to set the thread count of `everygraph_core::par`'s pool from a test.** Only
-  `everygraph-core` may depend on rayon (deny.toml), so this needs a small API in the
-  core, or a test-only exception.
-- **The storage and regime axes**, which mean something only once the codec (#30) and
-  the I/O backends (#29) exist.
 
 ## Seeded bugs
 

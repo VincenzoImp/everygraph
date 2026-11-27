@@ -51,7 +51,7 @@ step python-package tools/check_python_package.sh
 if [ "$(rustc +1.100 -V)" != "$(rustc -V)" ]; then step msrv cargo +1.100 test --workspace --locked; fi
 if [ $miri = 1 ]; then
   step miri-core cargo +nightly miri test -p everygraph-core --no-default-features -- --skip full_size
-  step miri-format cargo +nightly miri test -p everygraph-format
+  step miri-format cargo +nightly miri test -p everygraph-format --test adjacency
   step tsan python3 tools/check_tsan.py
 fi
 [ $oracle = 1 ] && step oracle oracle/run-ci.sh

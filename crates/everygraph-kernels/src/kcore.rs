@@ -8,7 +8,9 @@
 //!   the nodes of the smallest degree and no round scans the nodes left (§ 3, § 5).
 //! - **Local queues** (vertical granularity control, § 4.2). A task peels its node, then,
 //!   in the same subround, the neighbours whose degree that drops to `k`, through a
-//!   queue that takes up to 128 nodes. What does not fit waits for the next subround.
+//!   queue that takes up to 128 nodes. What does not fit waits for the next subround, as
+//!   does a node of more than 16 × [`PART_ENTRIES`] entries: there its list is cut into
+//!   parts that run in parallel (`Plan::push_with`).
 //! - **Sampled hubs** (§ 4.1). A node of high degree does not count its peeled
 //!   neighbours one by one, which would make every worker update one counter. Each
 //!   peeled neighbour adds to a sample counter with a small probability, drawn by a
@@ -32,7 +34,9 @@ use everygraph_core::rng::{Purpose, draw};
 use everygraph_core::{Memory, MemoryKind, SegVec, par};
 
 use crate::Atomics;
-use crate::edge_map::{Buckets, Error, Node, NodeList, NodeSet, PerNode, Plan, Source, all, ix};
+use crate::edge_map::{
+    Buckets, Error, Node, NodeList, NodeSet, PART_ENTRIES, PerNode, Plan, Source, all, ix,
+};
 
 /// A node without a core number yet.
 const UNSET: u32 = u32::MAX;
@@ -40,6 +44,12 @@ const UNSET: u32 = u32::MAX;
 /// Nodes a task takes into its local queue before it leaves the rest to the next
 /// subround (Liu et al. § 4.2: 128; time "relatively stable" from hundreds to thousands).
 const QUEUE: usize = 128;
+
+/// Entries of a list that a local queue does not take: 16 parts of [`PART_ENTRIES`].
+/// Lower, the subrounds add up to more than the parts save: on twitter-sym a limit of
+/// 1,024 gave 11,741 subrounds against 2,185 without one, and a slower peel than this
+/// limit (counters, and an interleaved A/B, exploratory: PR #291).
+const LONG: usize = 16 * PART_ENTRIES;
 
 /// Nodes per task of the passes outside the drivers.
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");
@@ -257,7 +267,7 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
                 }
                 let old = d.fetch_sub(1, Relaxed);
                 if old == k + 1 {
-                    if queue.len() < QUEUE {
+                    if queue.len() < QUEUE && ix(self.plan.degree(u).into()) <= LONG {
                         queue.push(u);
                     } else {
                         self.next.insert(u);
@@ -269,8 +279,9 @@ impl<'g, S: Source> Peel<'_, '_, 'g, S> {
         };
         #[cfg(feature = "frontier-counters")]
         crate::edge_map::counters::tag("kcore.subround", k.into());
+        // `fetch_sub` commutes, so a hub's list may be cut into parts.
         self.plan
-            .frontier_with(frontier, Vec::new, |(): &mut (), row, w| {
+            .push_with(frontier, Vec::new, |(): &mut (), row, w| {
                 // A FIFO that takes at most `QUEUE` nodes in all, so that one task's
                 // work stays bounded (Liu et al.'s `rear < local_queue_size`).
                 w.scratch.clear();

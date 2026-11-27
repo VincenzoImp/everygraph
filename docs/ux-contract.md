@@ -2494,24 +2494,8 @@ and items 14 – 17 follow rows that settle a question this document had raised.
 
 ## 10. Open points and obligations for other issues
 
-**Obligations.** § 8 gives test hooks and duties to other issues. The pull request of
-this contract did not edit `plan/issues/`; the coordinator has since copied each
-obligation below into the issue file it names and republished it.
-
-| Issue | Obligation |
-|---|---|
-| #40 (`m2-13-preflight-resume.md`) | Ingest's preflight and resume as § 3 and § 5: scratch in `.everygraph-ID` beside the output (P-5, P-18); the fingerprint of R-4 with input identity, phase versions and budget-dependent layout checked against the manifest (R-3, R-7); the `old-scratch` warning (R-10); and the § 8 tests it owns (interruption at each phase with a resume under another `--threads` and a smaller `--memory`, `kill -9`, fingerprint and R-7 table tests, clean-up tests). |
-| #40 (`m2-13-preflight-resume.md`), acceptance | The ±30 % bound applies to wall time, peak memory, scratch and output size of an ingest on the tier-2 datasets, measured by the benchmark harness on an idle machine (P-7, P-9); no test in the suite asserts a wall time. |
-| #45 (`m3-02-planner.md`) | Plans and refusals as § 3: documents valid against the closed plan, error and event schemas; P-15 (only ways forward that exist), P-16 (a budget above the machine is a usage error), P-17 (above free memory is honoured, with a line), P-18 (memory-backed scratch counts against the budget); estimate and actual in each result's provenance (P-9). |
-| #98 (`m8-01-cli.md`) | No `--yes` (S-4); `--json` gives exactly one document on standard output in every outcome, a stop included (S-2, C-7), and the file document for `ingest`, `map` and `export` (G-20); exit statuses of § 6.4, with `IoError` and `OutputExists` at 1; a result's summary on standard output, a dry run's plan wholly on standard output (§ 2.1); the § 8 tests it owns: interruption and `kill -9` of `everygraph map`, the C-4 work-between-checks test, the golden transcripts. |
-| #81 (`m6-01-python-api.md`) | No signal handler installed; long calls poll Python's signal check so `Ctrl-C` arrives as a plain `KeyboardInterrupt` after a clean stop (C-6); a result cut short is reported with `warnings.warn(…, eg.TruncatedWarning)` (M-12); events valid against the event schema (§ 4.6). |
-| #39 (`m2-12-artifact-cache.md`) | The `communities`, `hierarchy` and `layout` phases of `map` are committed as cached results as each finishes, so a stopped `map` keeps them and a later run shows them as `kept` (§ 5.1, C-2). |
-| #28 (`m2-01-container-spec.md`) | Appending a result never changes a section the file already held; checked with #98 by the `kill -9` test of `map` (C-2, § 8). |
-| #69 (`m5-03-tile-builder.md`) | The pyramid is written as `NAME.egmap.partial` and renamed when complete; a stop removes the partial file (§ 5.1, C-1, C-3). |
-| #4 (`m0-03-bench-harness.md`) | Records the estimates and actuals of P-9 for every run, reports per quantity the share of runs whose actual lies in `[low, high]`, and measures the 2 s stop bound of C-4 on the tier-1 datasets. |
-| #36 (`m2-09-graph-semantics.md`) | The plan reports the treatment chosen with the values of § 3.6: `self_loops` `dropped` or `kept`; `duplicates` `kept as events`, `collapsed` or `summed` (options `"events"`, `"collapse"`, `"sum"`). |
-| #32 (`m2-05-text-reader.md`) | The malformed-input corpus carries an index of the `file:line` of every bad row, against which the messages of M-6 are checked. |
-| #76 (`m5-10-jupyter-widget.md`) | The cards of § 7, driven only by the events of § 4.6; interrupting the kernel ends the card in the stop block. |
+**Obligations.** This contract's duties for other issues (§ 8, and C-1, C-2 and C-3 for
+the tile builder, #69) are written in those issues' files under `plan/issues/`.
 
 **Open points.** Found while writing; none blocks this contract.
 
@@ -2519,6 +2503,6 @@ obligation below into the issue file it names and republished it.
 |---|---|---|
 | `terminal.html` still describes seven colour instructions and keeps blue "until that is decided"; `SPEC.md` has decided. It also still shows "a fifth of free RAM", "groups", `--precision low`, `/tmp/everygraph-7c1e`, `rm -r`, and a `map` result line without its time (§ 9, items 2, 14 – 18). | `design/preview/style/terminal.html` | `m8-16-previews-follow-contract` |
 | `notebook.html` uses `budget=10_000` for `khop` (now `limit=`), "start over" on interruption, bullets in the exception text, "cut short" for display, "groups" in the step table and `precision="low"` in the error card. | `design/preview/style/notebook.html` | `m8-16-previews-follow-contract`, #76 |
-| The text reader of #32 can skip invalid rows and count them (`OnInvalid::Skip`), but no public option exposes it, and the option has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | a preview, then #81 and #98 |
-| A phase that lasts hours prints nothing in a job log until it ends (the approved piped form has no heartbeat). | § 4.5 | #98 |
-| No command lists or removes scratch left by stopped runs; the stop block's `discard:` line and the `old-scratch` warning (R-10) are the only pointers. `everygraph doctor` could list them. | § 5.3 | #98 |
+| The text reader of #32 can skip invalid rows and count them (`OnInvalid::Skip`), but no public option exposes it, and the option has no approved name. If it is added (`--skip-invalid` is the obvious one), it becomes a third way forward in the invalid-input error and a `dropped:` kind in the result block. | § 6.1 | a preview, then #81 and #247 |
+| A phase that lasts hours prints nothing in a job log until it ends (the approved piped form has no heartbeat). | § 4.5 | #247 |
+| No command lists or removes scratch left by stopped runs; the stop block's `discard:` line and the `old-scratch` warning (R-10) are the only pointers. `everygraph doctor` could list them. | § 5.3 | #247 |

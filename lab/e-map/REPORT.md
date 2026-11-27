@@ -3,8 +3,8 @@
 All numbers below are from `bench.sh` run under `bench.lock` on the shared lab machine
 (Ryzen 9 7950X, other experiments compiling/running: **noisy**), final binary, hierarchies
 published by B2 in `/home/tux/graphlab/data/hier/{lj,orkut}` (7 levels each).
-Raw files: `results/*.json`. The images named below (`img/`) were not committed; three of
-them are in `docs/img/`.
+Raw files: `results/*.json`. The images named below (`img/`) were not committed; the orkut
+overview is `docs/img/map-overview-orkut.png`.
 
 ## Verdict in five lines
 

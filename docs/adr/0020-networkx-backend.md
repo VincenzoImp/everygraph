@@ -21,16 +21,13 @@ From the backend prototype (FINDINGS § F2; shared machine; lj; 3 Rayon threads;
 `lab/f2-python/results/goalC_lj_dev.json`):
 - **On an existing `nx.Graph`, conversion dominates**: converting took 23.4 s. PageRank
   (tol 1e-10) 61.5 s in NetworkX vs 30.4 s through the backend including conversion
-  (2.0×); components 14.5 s vs 15.8 s including conversion (0.92× — slower). DESIGN's
-  earlier "1–3×" was corrected to these 0.92–2.0× on 2026-11-25.
+  (2.0×); components 14.5 s vs 15.8 s including conversion (0.92× — slower).
 - **On a cached converted graph**: PageRank 29–38× (2.09 s and 1.60 s); components kernel
-  alone 121× (0.119 s). FINDINGS' earlier "121–177×" had an upper bound not in the file; corrected
-  to 121× on 2026-11-25.
+  alone 121× (0.119 s).
 - **With native loading** (graph read by Everygraph, not converted): PageRank 15.6×
   (3.93 s, tol 1e-10) and 70× (0.72 s, default tol); components 24× (0.60 s, labels as a
-  list) and 53× (0.27 s, count only). DESIGN's earlier "100×+ only with native loading" was
-  not supported by this file (above 100× appears only for the components kernel alone);
-  corrected on 2026-11-25.
+  list) and 53× (0.27 s, count only). Above 100× appears only for the components kernel
+  alone.
 - Semantic traps found: PageRank `tol` scaled by N, default `weight="weight"`, arbitrary
   hashable labels, insertion order. Credible coverage needs ~100–150 of 797 functions.
 

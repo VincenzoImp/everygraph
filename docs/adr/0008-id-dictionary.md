@@ -21,10 +21,9 @@ optional front-coded index gives prefix search. No FST by default (ADR 0000).
 From the identifier experiment (FINDINGS § F1; shared machine):
 - **MPHF at 500 M keys** (20-byte binary keys, 32 threads;
   `lab/f1-query/results/dict_mphf_ethbin_500000000_t32.json`): MPHF built in 10.8 s; the
-  whole dictionary with its key store in 19.4 s (DESIGN's earlier "built in 11 s" was the MPHF
-  alone; corrected on 2026-11-25); 2.61 bits/key (163 MB); warm forward lookup p50 0.56 µs; batch mapping in the
-  ingest test 132 M lookups/s. FINDINGS marks the 132 M/s as unverified; DESIGN dropped that
-  qualifier until on 2026-11-25.
+  whole dictionary with its key store in 19.4 s; 2.61 bits/key (163 MB); warm forward
+  lookup p50 0.56 µs; batch mapping in the ingest test 132 M lookups/s, unverified
+  (FINDINGS § F1).
 - **FST at 65 M keys** (single-threaded build): 1.91× the raw key bytes on random binary
   keys (113 s), 1.03× on hex text (201 s), 0.28× on URL-like keys (53 s)
   (`lab/f1-query/results/dict_fst_ethbin_65000000_t4.json`,

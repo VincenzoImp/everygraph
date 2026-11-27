@@ -23,7 +23,7 @@
 //! gives the same rows on every run; a cut by `timeout` does not.
 //!
 //! **Cost.** A query reads only the lists it needs. `neighbors` and `khop` decode a
-//! list only as far as they read it, in prefixes. A cut `neighbors` on a hub costs what
+//! list only as far as they read it, in parts. A cut `neighbors` on a hub costs what
 //! it returns. A cut `khop` also reads the entries of the nodes it met before, which
 //! can be most of a hop's lists when its nodes are well joined.
 //!

@@ -82,7 +82,11 @@ everything prepared.
 
 **Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
 
+**Official window, 2026-11-26/27.** headline done (`bench/results/headline/20261126T223356Z-fd29f95d486e.jsonl`, 65 references within, 2 off: Friendster ingest at 32 GiB 36.7 s against 29.1 s, kcore orkut t16 bimodal). The other suites run in `window2.sh` after #291 and #318 merge.
+
 ## Lessons that still change behaviour
+- A window script that runs official suites back to back is refused from the second suite on: the first suite's own load trips the idle gate. Wait for the 1-minute load to fall between suites, and take `rc=$?` before any `$(…)` in the log line (2026-11-27).
+- A nested `Cargo.lock` that builds workspace crates goes stale when a workspace crate gains a dependency (#288 → the reference driver); CI now checks every nested lock outside `lab/` (#318).
 
 Lessons that became rules are in CLAUDE.md and are not repeated here.
 
@@ -118,4 +122,5 @@ Lessons that became rules are in CLAUDE.md and are not repeated here.
 - #46 and #45 closed on merge although their PRs said `Part of`: an earlier commit message said `Closes #N`, and the squash merge kept it. After merging a `Part of` PR, the coordinator checks the issue is still open and reopens it if not.
 - Main's test job was red for about 90 minutes after #288: the map reader check found a partial `node_modules` in `target/`, which the Rust cache prunes (fixed in #306). The merges after #288 did not check main's run. Tools that install into `target/` check the installed version, not only that a directory exists.
 - Four pull requests changed the edge-map `Source` trait at once (#291 prefix decode, #303 cache, #307 `list_prefix`, #315 views), and two designed prefix decode twice. A shared core interface now has one owning stream at a time (CLAUDE.md § 6).
+- #46 closed a second time from PR #303's squash message: a squash lists every commit of the branch, including main's commits merged into it, so #254's `Closes #46` came along. The coordinator now merges with an explicit body (`gh pr merge --squash --body …`) that names only the PR's own closing keyword.
 

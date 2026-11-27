@@ -713,11 +713,13 @@ fn every_choice_gives_the_bits_of_the_in_memory_run_on_the_corpus() {
     assert!(checked > 1000, "{checked}");
 }
 
-/// A star (one hub of degree 20,000, so k-core samples it and readers grow) and a path:
-/// the extremes of the frontier and reader bounds, small enough for a debug build.
+/// A star (one hub of degree 20,000, so k-core samples it and readers grow), a star of
+/// 18,000 that k-core does not sample (its list is cut into parts and copied out), and a
+/// path: the extremes of the frontier and reader bounds, small enough for a debug build.
 #[test]
 fn every_choice_gives_the_bits_of_the_in_memory_run_on_a_star_and_a_path() {
-    for (name, s) in [("star", star(20_001)), ("path", path(20_001))] {
+    let stars = [("star", star(20_001)), ("star of parts", star(18_001))];
+    for (name, s) in stars.into_iter().chain([("path", path(20_001))]) {
         assert!(check(name, &s) > 0);
     }
 }

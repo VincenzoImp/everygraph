@@ -28,7 +28,7 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name != github.repository
       || vars.DCO_ALL_PULL_REQUESTS == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check Signed-off-by on every commit

@@ -17,7 +17,7 @@ use super::{DecodeError, FormatError};
 const OFFSET_GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 16).expect("non-zero");
 
 /// A run of consecutive lists to decode.
-pub(super) struct Job<'a> {
+pub(super) struct Job<'a, 'f> {
     data: &'a [u8],
     /// Offset in the data part of `data[0]`.
     base: u64,
@@ -29,6 +29,10 @@ pub(super) struct Job<'a> {
     /// Stop before a list that would take the output past this many entries, unless it
     /// is the first.
     limit: usize,
+    /// Entries decoded of each list, at most: its prefix.
+    prefix: usize,
+    /// Whether to decode the record of a node; `None`: every record.
+    select: Option<&'f mut dyn FnMut(u32) -> bool>,
 }
 
 /// Where a [`run`] stopped.
@@ -40,17 +44,28 @@ pub(super) struct Done {
 }
 
 /// Where each list of a run ends: in the output (`entries`, relative to the run's first
-/// entry) and in the data (`bytes`, from the start of the job's data). Reused from run to
-/// run.
+/// entry) and in the data (`bytes`, from the start of the job's data); and, when not every
+/// list is decoded whole, the degree of each (`degrees`). Reused from run to run.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Ends {
     pub(super) entries: Vec<usize>,
     pub(super) bytes: Vec<usize>,
+    pub(super) degrees: Vec<usize>,
+}
+
+impl Ends {
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.bytes.clear();
+        self.degrees.clear();
+    }
 }
 
 /// Decodes the lists of `job.nodes` one after the other into `out`, until the next one
 /// would not fit in `job.limit` entries (the first list always does; `out` has room for
-/// what can be written), and leaves where each list ends in `ends`.
+/// what can be written), and leaves where each list ends in `ends`. Of each list only the
+/// first `job.prefix` entries are decoded, and none of the lists that `job.select`
+/// leaves out; a record decoded in full is checked, a prefix is not.
 ///
 /// Two passes: where every list ends, in entries and in bytes, from the two Elias–Fano
 /// sequences; then the records, each checked to end exactly where the index says
@@ -63,7 +78,7 @@ pub(super) struct Ends {
 #[inline(always)]
 pub(super) fn run(
     kernel: impl Fn(&[u8], u32, usize, usize, &mut [u32]) -> Result<usize, Corrupt>,
-    job: Job<'_>,
+    job: Job<'_, '_>,
     out: &mut [u32],
     ends: &mut Ends,
 ) -> Result<Done, DecodeError> {
@@ -74,26 +89,38 @@ pub(super) fn run(
         bytes,
         nodes,
         limit,
+        prefix,
+        mut select,
     } = job;
-    ends.entries.clear();
-    ends.bytes.clear();
+    ends.clear();
+    let whole = prefix == usize::MAX && select.is_none();
     let first = to_usize(u64::from(nodes.start));
     let count = nodes.len();
     // Each sequence in a loop of its own, which keeps each loop in registers: the entry
     // ends up to the budget (the first list always), then as many byte ends. Value
     // `first` of each is where the run starts.
-    let (mut base, mut started) = (0, false);
+    let (mut prev, mut end, mut started) = (0, 0, false);
     entries.scan_from(first, |x| {
         if !started {
-            (base, started) = (x, true);
+            (prev, started) = (x, true);
             return true;
         }
-        let end = to_usize(x - base);
         let lists = ends.entries.len();
-        if lists == count || (lists > 0 && end > limit) {
+        if lists == count {
             return false;
         }
+        let v = nodes.start + u32::try_from(lists).expect("at most one list per node");
+        let degree = to_usize(x - prev);
+        let wanted = select.as_mut().is_none_or(|f| f(v));
+        let next = end + if wanted { degree.min(prefix) } else { 0 };
+        if lists > 0 && next > limit {
+            return false;
+        }
+        (prev, end) = (x, next);
         ends.entries.push(end);
+        if !whole {
+            ends.degrees.push(degree);
+        }
         true
     });
     let lists = ends.entries.len();
@@ -112,20 +139,36 @@ pub(super) fn run(
     let stop = nodes.start + u32::try_from(lists).expect("at most one list per node");
     let mut s = 0;
     let lists = ends.entries.iter().zip(&ends.bytes);
-    for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
-        if end > s {
-            let corrupt = |_| DecodeError {
-                first: v,
-                end: v + 1,
-            };
-            let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
-            let used = kernel(rec, v, end - s, end - s, &mut out[s..]).map_err(corrupt)?;
-            if at + used != record_end {
-                return Err(corrupt(Corrupt));
-            }
-            s = end;
+    // Decodes the first `end - s` of the `total` entries of the list of `v`.
+    let mut record = |v: u32, at: usize, s: usize, end: usize, total: usize, record_end| {
+        let corrupt = |_| DecodeError {
+            first: v,
+            end: v + 1,
+        };
+        let rec = data.get(at..).ok_or(Corrupt).map_err(corrupt)?;
+        let used = kernel(rec, v, total, end - s, &mut out[s..]).map_err(corrupt)?;
+        if end - s == total && at + used != record_end {
+            return Err(corrupt(Corrupt));
         }
-        at = record_end;
+        Ok(())
+    };
+    if whole {
+        for (v, (&end, &record_end)) in (nodes.start..).zip(lists) {
+            if end > s {
+                record(v, at, s, end, end - s, record_end)?;
+                s = end;
+            }
+            at = record_end;
+        }
+    } else {
+        // A list left out has `end == s`.
+        for ((v, (&end, &record_end)), &total) in (nodes.start..).zip(lists).zip(&ends.degrees) {
+            if end > s {
+                record(v, at, s, end, total, record_end)?;
+                s = end;
+            }
+            at = record_end;
+        }
     }
     Ok(Done {
         node: stop,
@@ -169,21 +212,23 @@ impl Batch {
     /// `lists` from empty.
     #[must_use]
     pub const fn bytes_for(entries: usize, lists: usize) -> usize {
-        entries * size_of::<u32>() + lists * 2 * size_of::<usize>()
+        entries * size_of::<u32>() + lists * 3 * size_of::<usize>()
     }
 
     /// Entries and lists the batch has room for without allocating.
     #[must_use]
     pub fn capacity(&self) -> (usize, usize) {
-        let lists = self.ends.entries.capacity().min(self.ends.bytes.capacity());
-        (self.targets.capacity(), lists)
+        let ends = &self.ends;
+        let lists = ends.entries.capacity().min(ends.bytes.capacity());
+        (self.targets.capacity(), lists.min(ends.degrees.capacity()))
     }
 
     /// Heap bytes the batch holds.
     #[must_use]
     pub fn heap_bytes(&self) -> usize {
-        self.targets.capacity() * size_of::<u32>()
-            + (self.ends.entries.capacity() + self.ends.bytes.capacity()) * size_of::<usize>()
+        let ends = &self.ends;
+        let lists = ends.entries.capacity() + ends.bytes.capacity() + ends.degrees.capacity();
+        self.targets.capacity() * size_of::<u32>() + lists * size_of::<usize>()
     }
 
     /// Makes room, without spare capacity, for a decode of `entries` entries (the value
@@ -192,7 +237,8 @@ impl Batch {
     pub fn reserve(&mut self, entries: usize, lists: usize) {
         self.targets
             .reserve_exact(entries.saturating_sub(self.targets.len()));
-        for ends in [&mut self.ends.entries, &mut self.ends.bytes] {
+        let ends = &mut self.ends;
+        for ends in [&mut ends.entries, &mut ends.bytes, &mut ends.degrees] {
             ends.reserve_exact(lists.saturating_sub(ends.len()));
         }
     }
@@ -204,13 +250,13 @@ impl Batch {
         self.targets.shrink_to(entries);
         self.ends.entries.shrink_to(lists);
         self.ends.bytes.shrink_to(lists);
+        self.ends.degrees.shrink_to(lists);
     }
 
     /// Empties the batch: no lists. The memory is kept.
     pub fn clear(&mut self) {
         self.entries = 0;
-        self.ends.entries.clear();
-        self.ends.bytes.clear();
+        self.ends.clear();
     }
 
     /// The first node decoded.
@@ -241,6 +287,20 @@ impl Batch {
         let ends = &self.ends.entries;
         let start = if i == 0 { 0 } else { ends[i - 1] };
         &self.targets[start..ends[i]]
+    }
+
+    /// The degree of the node of list `i`: the length of the list, or more if the batch
+    /// holds a prefix of it or left it out ([`Adjacency::decode_prefixes`]).
+    ///
+    /// # Panics
+    ///
+    /// If `i` is not below [`len`](Self::len).
+    #[must_use]
+    pub fn degree(&self, i: usize) -> usize {
+        match self.ends.degrees.get(i) {
+            Some(&d) => d,
+            None => self.list(i).len(),
+        }
     }
 
     /// All entries, list after list.
@@ -413,41 +473,6 @@ impl<'a> Adjacency<'a> {
         Ok(&buf[..k])
     }
 
-    /// Decodes the first `k` neighbours of `v` (all of them if it has fewer) into
-    /// `batch` as its only list, replacing what it held, without decoding the rest of the
-    /// list. The untrusted-input rule of [`neighbors`](Self::neighbors) holds.
-    ///
-    /// # Errors
-    ///
-    /// [`DecodeError`] if the record of `v` is corrupt where it was read; the batch is
-    /// then empty.
-    ///
-    /// # Panics
-    ///
-    /// If `v` is not a node of [`nodes`](Self::nodes).
-    pub fn decode_prefix(&self, v: NodeId, k: usize, batch: &mut Batch) -> Result<(), DecodeError> {
-        batch.first = v.get();
-        batch.clear();
-        let d = usize::try_from(self.index.degree(v)).expect("usize has at least 32 bits");
-        let k = k.min(d);
-        grow(&mut batch.targets, k + SLACK);
-        batch.entries = self.prefix(v, d, k, &mut batch.targets)?;
-        batch.ends.entries.push(batch.entries);
-        Ok(())
-    }
-
-    /// The length [`decode_prefix`](Self::decode_prefix) of `v` and `k` grows a batch's
-    /// buffer to: the entries it decodes and the decoders' slack. For [`Batch::reserve`].
-    ///
-    /// # Panics
-    ///
-    /// If `v` is not a node of the index.
-    #[must_use]
-    pub fn prefix_entries(&self, v: NodeId, k: usize) -> usize {
-        let d = usize::try_from(self.index.degree(v)).expect("usize has at least 32 bits");
-        k.min(d) + SLACK
-    }
-
     fn prefix(
         &self,
         v: NodeId,
@@ -490,6 +515,7 @@ impl<'a> Adjacency<'a> {
         &self,
         nodes: Range<u32>,
         limit: usize,
+        (prefix, select): (usize, Option<&mut dyn FnMut(u32) -> bool>),
         out: &mut [u32],
         ends: &mut Ends,
     ) -> Result<Done, DecodeError> {
@@ -500,6 +526,8 @@ impl<'a> Adjacency<'a> {
             bytes: self.index.byte_offsets(),
             nodes,
             limit,
+            prefix,
+            select,
         };
         self.decoder.run(job, out, ends)
     }
@@ -535,6 +563,48 @@ impl<'a> Adjacency<'a> {
         max_entries: usize,
         batch: &mut Batch,
     ) -> Result<u32, DecodeError> {
+        self.decode_into_batch(nodes, (usize::MAX, None), max_entries, batch)
+    }
+
+    /// As [`decode_nodes`](Self::decode_nodes), but only of the lists of the nodes that
+    /// `select` passes, and of each only its first `prefix` entries (all of them if it
+    /// has fewer): list `i` of the batch is then that prefix, empty for a node left out,
+    /// and `max_entries` counts the entries decoded. The record of a node left out is
+    /// not read. A reader that needs only some lists, or only the start of each, does
+    /// not decode the rest (bottom-up BFS skips the nodes it reached and stops at the
+    /// first parent).
+    ///
+    /// `select` is called once for each node of the batch, in order, and once more for
+    /// the node a batch stops before. A record decoded in full is checked to end where
+    /// the index says; a prefix is not, so a damaged byte after it goes unseen. On
+    /// damaged input, a prefix may also read past its own record, into the records
+    /// after it, but never past the bytes this adjacency holds.
+    ///
+    /// # Errors
+    ///
+    /// As [`decode_nodes`](Self::decode_nodes).
+    ///
+    /// # Panics
+    ///
+    /// As [`decode_nodes`](Self::decode_nodes).
+    pub fn decode_prefixes(
+        &self,
+        nodes: Range<u32>,
+        prefix: usize,
+        mut select: impl FnMut(u32) -> bool,
+        max_entries: usize,
+        batch: &mut Batch,
+    ) -> Result<u32, DecodeError> {
+        self.decode_into_batch(nodes, (prefix, Some(&mut select)), max_entries, batch)
+    }
+
+    fn decode_into_batch(
+        &self,
+        nodes: Range<u32>,
+        (prefix, select): (usize, Option<&mut dyn FnMut(u32) -> bool>),
+        max_entries: usize,
+        batch: &mut Batch,
+    ) -> Result<u32, DecodeError> {
         assert!(
             self.first <= nodes.start && nodes.start <= nodes.end && nodes.end <= self.end,
             "nodes {nodes:?} outside {:?}",
@@ -547,15 +617,16 @@ impl<'a> Adjacency<'a> {
         }
         grow(
             &mut batch.targets,
-            self.batch_entries(nodes.clone(), max_entries),
+            self.prefix_entries(nodes.clone(), prefix, max_entries),
         );
-        match self.decode_into(nodes, max_entries, &mut batch.targets, &mut batch.ends) {
+        let (targets, ends) = (&mut batch.targets, &mut batch.ends);
+        match self.decode_into(nodes, max_entries, (prefix, select), targets, ends) {
             Ok(done) => {
                 batch.entries = done.entries;
                 Ok(done.node)
             }
             Err(e) => {
-                batch.ends.entries.clear();
+                batch.ends.clear();
                 Err(e)
             }
         }
@@ -578,6 +649,87 @@ impl<'a> Adjacency<'a> {
         let (first, second) = ef.get_pair(start);
         let span = to_usize(ef.get(end) - first);
         max_entries.max(to_usize(second - first)).min(span) + SLACK
+    }
+
+    /// As [`batch_entries`](Self::batch_entries), for
+    /// [`decode_prefixes`](Self::decode_prefixes) with `prefix`: no more than the first
+    /// list's prefix or `max_entries`.
+    ///
+    /// # Panics
+    ///
+    /// If `nodes` is not a range within `0..nodes()`.
+    #[must_use]
+    pub fn prefix_entries(&self, nodes: Range<u32>, prefix: usize, max_entries: usize) -> usize {
+        let all = self.batch_entries(nodes, max_entries);
+        all.min(max_entries.max(prefix).saturating_add(SLACK))
+    }
+
+    /// Entries `from..to` of the list of `v`, decoded into `batch` as its one list,
+    /// without the entries before or after them: the later pieces of a list that a
+    /// reader decodes until it has what it needs. `prev` is entry `from − 1` as an
+    /// earlier decode returned it; `from` is a multiple of four with `4 ≤ from < to`, and
+    /// `to` is at most the degree. A part that ends the list is checked to end where the
+    /// index says.
+    ///
+    /// # Untrusted input
+    ///
+    /// As [`decode_nodes`](Self::decode_nodes). A wrong `prev` gives wrong targets. A
+    /// part that does not end the list is not checked against the record's end: on
+    /// damaged input it may read past the record, but never past the bytes this
+    /// adjacency holds.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodeError`] if the record of `v` is corrupt where it was read; the batch is
+    /// then empty.
+    ///
+    /// # Panics
+    ///
+    /// If `v` is not a node of [`nodes`](Self::nodes), or `from` and `to` are not as
+    /// above.
+    pub fn decode_part(
+        &self,
+        v: NodeId,
+        (from, prev): (usize, u32),
+        to: usize,
+        batch: &mut Batch,
+    ) -> Result<(), DecodeError> {
+        let d = to_usize(self.index.degree(v).into());
+        assert!(
+            from.is_multiple_of(4) && 4 <= from && from < to && to <= d,
+            "entries {from}..{to} of a list of {d}"
+        );
+        assert!(
+            (self.first..self.end).contains(&v.get()),
+            "node {v} outside the window"
+        );
+        batch.first = v.get();
+        batch.clear();
+        let corrupt = DecodeError {
+            first: v.get(),
+            end: v.get() + 1,
+        };
+        let range = self.index.record_range(v);
+        let rec = &self.data[to_usize(range.start - self.base)..];
+        grow(&mut batch.targets, self.part_entries(from, to));
+        let used = self
+            .decoder
+            .resume(rec, d, (from, prev), to, &mut batch.targets)
+            .map_err(|_| corrupt)?;
+        if to == d && used as u64 != range.end - range.start {
+            return Err(corrupt);
+        }
+        batch.entries = to - from;
+        batch.ends.entries.push(to - from);
+        batch.ends.bytes.push(to_usize(range.end - self.base));
+        Ok(())
+    }
+
+    /// The length [`decode_part`](Self::decode_part) of entries `from..to` grows a
+    /// batch's buffer to: for [`Batch::reserve`].
+    #[must_use]
+    pub fn part_entries(&self, from: usize, to: usize) -> usize {
+        to.saturating_sub(from) + SLACK
     }
 
     /// Decodes the whole adjacency into a raw CSR: `offsets` (`nodes + 1` entries) and
@@ -657,7 +809,13 @@ impl<'a> Adjacency<'a> {
         par::for_each_chunk_mut(&mut pieces, NonZeroUsize::MIN, |_, chunk| {
             for (nodes, out, result) in chunk.iter_mut() {
                 *result = self
-                    .decode_into(nodes.clone(), usize::MAX, out, &mut Ends::default())
+                    .decode_into(
+                        nodes.clone(),
+                        usize::MAX,
+                        (usize::MAX, None),
+                        out,
+                        &mut Ends::default(),
+                    )
                     .map(|_| ());
             }
         });

@@ -13,6 +13,7 @@
 #![allow(clippy::cast_possible_truncation, clippy::type_complexity)]
 
 use std::num::NonZeroUsize;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
@@ -21,8 +22,8 @@ use everygraph_core::{Budget, Memory, MemorySource, par};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_io::{FileSource, MmapSource};
 use everygraph_kernels::edge_map::{
-    Compressed, CompressedStream, Csr, Error, FRONTIER_GRAIN, Node, NodeList, Plan, Reduce,
-    Settings, Source, Stream, Work, all, ids,
+    Compressed, CompressedStream, Csr, Error, FRONTIER_GRAIN, Node, NodeList, PREFIX, Plan,
+    RUN_ENTRIES, Reduce, Settings, Source, Stream, Work, all, ids,
 };
 use everygraph_kernels::{pagerank, proof, traversal};
 
@@ -48,7 +49,8 @@ fn graph(n: u32, seed: u64, sparse: bool) -> (Vec<u64>, Vec<u32>) {
             3..=8 => r >> 8 & 31,
             _ => r >> 8 & 255,
         };
-        let d = if v == n / 2 {
+        // Four hubs in a row: their frontier group is more than one run.
+        let d = if (n / 2..n / 2 + 4).contains(&v) {
             u64::from(n.min(20_000)) * 3 / 4
         } else {
             d
@@ -143,9 +145,23 @@ impl Stored {
 }
 
 /// What one run of the probe returns, bit for bit: the scan's float sum, the per-node
-/// outputs, the filtered scan and vertex map, the frontier's float sum, and the common
-/// neighbours counted through random access.
-type Seen = (u64, Vec<u64>, u64, u64, u64);
+/// outputs, the filtered scans and vertex map, the frontier's float sum, the common
+/// neighbours counted through random access, and the pieces of a scan that stops early.
+type Seen = (u64, Vec<u64>, u64, u64, u64, u64);
+
+/// A small number that changes with each entry of `list` and with `first`, its first
+/// entry: sums of it do not overflow.
+fn mix(list: &[u32], first: u64) -> u64 {
+    let h = list
+        .iter()
+        .fold(list.len() as u64, |h, &t| h.rotate_left(5) ^ u64::from(t));
+    (h ^ first.rotate_left(17)) % 1_000_003
+}
+
+/// The filter of the scan that stops early.
+fn until_filter(v: u32) -> bool {
+    !v.is_multiple_of(3)
+}
 
 /// The frontier of the probe: every node but those `≡ 1 (mod 5)`.
 fn in_frontier(v: u32) -> bool {
@@ -176,7 +192,18 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                     |v| v.get() % 7 == 3,
                     |acc: &mut u64, (), _, row, _| {
                         assert_eq!(row.node.get() % 7, 3);
-                        *acc += row.list.len() as u64 + 1;
+                        *acc += mix(ids(row.list), row.first_entry);
+                    },
+                )
+                .unwrap();
+            // Passing nodes far apart: the records between them are skipped.
+            let far: u64 = plan
+                .scan(
+                    (),
+                    |v| v.get() % 97 == 5,
+                    |acc: &mut u64, (), _, row, _| {
+                        assert_eq!(row.first_entry, source.entry_offset(row.node.get()));
+                        *acc += mix(ids(row.list), row.first_entry);
                     },
                 )
                 .unwrap();
@@ -192,6 +219,16 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                     acc.0 += value(row.node.get(), ids(row.list));
                 })
                 .unwrap();
+            let serial: Tree = plan
+                .frontier_serial_with(
+                    &frontier,
+                    || (),
+                    |acc: &mut Tree, row, _| {
+                        acc.0 += value(row.node.get(), ids(row.list));
+                    },
+                )
+                .unwrap();
+            assert_eq!(serial.0.to_bits(), pushed.0.to_bits());
             let common: u64 = plan
                 .scan_with((), all, Vec::<u32>::new, |acc: &mut u64, (), _, row, w| {
                     let Some(&u) = row.list.first() else { return };
@@ -206,17 +243,55 @@ fn probe<S: Source>(source: &S, settings: Settings, threads: usize) -> Seen {
                     *acc += w.scratch.len() as u64;
                 })
                 .unwrap();
-            let rest = filtered ^ degrees << 20;
-            (sum.0.to_bits(), out, rest, pushed.0.to_bits(), common)
+            let until: u64 = plan
+                .scan_until(
+                    (),
+                    |v| until_filter(v.get()),
+                    |acc: &mut u64, (), _, row| {
+                        *acc += mix(ids(row.list), row.first_entry);
+                        if row.node.get().is_multiple_of(2) {
+                            ControlFlow::Continue(())
+                        } else {
+                            ControlFlow::Break(())
+                        }
+                    },
+                )
+                .unwrap();
+            let rest = filtered ^ far << 24 ^ degrees << 44;
+            (
+                sum.0.to_bits(),
+                out,
+                rest,
+                pushed.0.to_bits(),
+                common,
+                until,
+            )
         })
         .unwrap()
     })
 }
 
-/// The probe's two float sums computed as documented: per block of `block` nodes in node
-/// order, then the blocks in order; per run of `FRONTIER_GRAIN` frontier nodes in order,
-/// then the runs in order.
-fn reference(s: &Stored, block: u32) -> (u64, u64) {
+/// The runs of a frontier group, as documented: a run ends before the node that would
+/// take it past `RUN_ENTRIES`, a node counting its degree plus one.
+fn runs<'a>(s: &Stored, group: &'a [u32]) -> Vec<&'a [u32]> {
+    let (mut runs, mut start, mut entries) = (Vec::new(), 0, 0);
+    for (i, &v) in group.iter().enumerate() {
+        let cost = s.list(v).len() + 1;
+        if entries > 0 && entries + cost > RUN_ENTRIES {
+            runs.push(&group[start..i]);
+            (start, entries) = (i, 0);
+        }
+        entries += cost;
+    }
+    runs.push(&group[start..]);
+    runs
+}
+
+/// The probe's float sums and its early-stopping scan computed as documented: per block
+/// of `block` nodes in node order, then the blocks in order; per run of each group of
+/// `FRONTIER_GRAIN` frontier nodes in order, then the groups in order; the pieces of a
+/// list, ending at `PREFIX`, then at four times the end before.
+fn reference(s: &Stored, block: u32) -> (u64, u64, u64) {
     let n = (s.offsets.len() - 1) as u32;
     let mut scanned = 0.0;
     for b in (0..n).step_by(block as usize) {
@@ -228,14 +303,30 @@ fn reference(s: &Stored, block: u32) -> (u64, u64) {
     }
     let frontier: Vec<u32> = (0..n).filter(|&v| in_frontier(v)).collect();
     let mut pushed = 0.0;
-    for run in frontier.chunks(FRONTIER_GRAIN) {
-        let mut acc = 0.0;
-        for &v in run {
-            acc += value(v, s.list(v));
+    for group in frontier.chunks(FRONTIER_GRAIN) {
+        let mut g = 0.0;
+        for run in runs(s, group) {
+            let mut acc = 0.0;
+            for &v in run {
+                acc += value(v, s.list(v));
+            }
+            g += acc;
         }
-        pushed += acc;
+        pushed += g;
     }
-    (scanned.to_bits(), pushed.to_bits())
+    let mut until = 0;
+    for v in (0..n).filter(|&v| until_filter(v)) {
+        let (list, first) = (s.list(v), s.offsets[v as usize]);
+        let (mut at, mut to) = (0, list.len().min(PREFIX));
+        loop {
+            until += mix(&list[at..to], first + at as u64);
+            if !v.is_multiple_of(2) || to == list.len() {
+                break;
+            }
+            (at, to) = (to, list.len().min(4 * to));
+        }
+    }
+    (scanned.to_bits(), pushed.to_bits(), until)
 }
 
 fn settings(chunk: u64, batch: usize) -> Settings {
@@ -269,7 +360,8 @@ fn every_source_thread_count_chunk_and_batch_give_the_same_bits() {
             p.block_nodes()
         });
         let expected = probe(&csr, Settings::default(), 1);
-        assert_eq!((expected.0, expected.3), reference(&s, block), "n {n}");
+        let documented = (expected.0, expected.3, expected.5);
+        assert_eq!(documented, reference(&s, block), "n {n}");
         let configurations: &[(u64, usize)] = if sparse {
             &[(64, 7), (u64::MAX, usize::MAX)]
         } else {
@@ -434,10 +526,11 @@ fn under<S: Source>(source: &S, hub: u32, limit: u64) -> (Result<(), Error>, Res
 /// fit, and a reader gives the hub's buffer and its reservation back after the call.
 #[test]
 fn readers_are_reserved_against_the_budget() {
-    let (offsets, targets) = graph(2000, 3, false);
+    let (offsets, targets) = graph(4000, 3, false);
     let s = store("budget", offsets, targets);
-    let hub = 1000;
-    assert!(s.list(hub).len() > 1000);
+    // Longer than a reader's first buffer of list ends.
+    let hub = 2000;
+    assert!(s.list(hub).len() > 2000);
     let heap = Compressed::new(Adjacency::new(&s.index, &s.data).unwrap());
     let stream = Stream::new(&s.offsets, &s.stream).unwrap();
     let streamed = CompressedStream::new(&s.index, &s.file, 0).unwrap();

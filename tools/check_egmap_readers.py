@@ -31,16 +31,21 @@ import gzip
 import hashlib
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import struct
 import subprocess
 import sys
+import time
 
 from pmtiles.reader import MmapSource, Reader
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORK = ROOT / "target" / "egmap-check"
+# On CI `node_modules` goes under $RUNNER_TEMP: the Rust cache restores target/ only in
+# part, and a half-restored `node_modules` breaks the reader.
+JS_DIR = pathlib.Path(os.environ["RUNNER_TEMP"]) / "egmap-js" if os.environ.get("RUNNER_TEMP") else WORK / "js"
 READER = ROOT / "tools" / "egmap.py"
 SAMPLE = ["cargo", "run", "--quiet", "--locked", "-p", "everygraph-map", "--example", "egmap_sample", "--"]
 PMTILES_JS = "pmtiles@4.5.0"
@@ -91,6 +96,24 @@ def run(command, cwd=ROOT):
     return result.stdout
 
 
+def npm_install(js):
+    """Installs the official JavaScript reader into `js`, with one retry."""
+    command = ["npm", "install", "--prefix", js, "--no-audit", "--no-fund", "--silent", PMTILES_JS]
+    for attempt in (1, 2):
+        shutil.rmtree(js / "node_modules", ignore_errors=True)
+        print("$ " + " ".join(str(c) for c in command), flush=True)
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        if result.returncode == 0:
+            return
+        print(result.stdout + result.stderr)
+        if attempt == 1:
+            print("npm install failed; trying once more in 10 s", flush=True)
+            time.sleep(10)
+    registry = subprocess.run(["npm", "config", "get", "registry"], capture_output=True, text=True)
+    raise SystemExit(f"FAILED: could not install {PMTILES_JS} from the npm registry "
+                     f"{registry.stdout.strip() or 'https://registry.npmjs.org/'}")
+
+
 def dumps(path):
     rust = json.loads(run([*SAMPLE, "dump", path]))
     python = json.loads(run([sys.executable, "-I", READER, "dump", path]))
@@ -123,14 +146,12 @@ def official(path, tiles):
                 raise SystemExit(f"FAILED: tile {k} from the official Python reader decodes otherwise")
     if not (shutil.which("node") and shutil.which("npm")):
         return None
-    js = WORK / "js"
-    js.mkdir(exist_ok=True)
-    # The CI cache keeps parts of `target/` only, so a cached `node_modules` may be partial.
+    js = JS_DIR
+    js.mkdir(parents=True, exist_ok=True)
     installed = js / "node_modules" / "pmtiles" / "package.json"
     want = PMTILES_JS.split("@", 1)[1]
     if not installed.exists() or json.loads(installed.read_text()).get("version") != want:
-        shutil.rmtree(js / "node_modules", ignore_errors=True)
-        run(["npm", "install", "--prefix", js, "--no-audit", "--no-fund", "--silent", PMTILES_JS])
+        npm_install(js)
     (js / "check.mjs").write_text(JS)
     listed = json.dumps([[int(v) for v in k.split("/")] for k in tiles])
     out = json.loads(run(["node", js / "check.mjs", path.resolve(), listed], cwd=js))

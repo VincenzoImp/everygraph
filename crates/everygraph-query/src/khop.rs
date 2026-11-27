@@ -2,6 +2,8 @@
 
 //! `khop` (`docs/api-sketch.md` § 3.2, the order of § 2.12).
 
+use std::ops::ControlFlow;
+
 use everygraph_core::{Memory, SegVec, usize_of, widen};
 use everygraph_kernels::edge_map::Source;
 
@@ -19,7 +21,7 @@ pub struct Hops {
     pub truncated: Option<Truncated>,
 }
 
-/// The fewest entries of a list decoded at once: a smaller prefix costs about the same.
+/// The fewest entries of the first part of a list: a smaller part costs about the same.
 const MIN_PREFIX: usize = 32;
 /// Entries between two looks at the deadline inside one list.
 const DEADLINE_EVERY: usize = 4096;
@@ -41,9 +43,10 @@ impl<S: Source> Reader<'_, '_, S> {
     /// distance, then in discovery order — the position of the node's parent in the
     /// previous distance's order, then the node's position in that parent's list. The
     /// traversal stops when `limit` rows exist and one more node is found. A list is
-    /// decoded in prefixes, doubling, only as far as it is read; the entries read are
-    /// those of the rows, of the nodes met before, and of the search for the one more
-    /// node. `deadline` is asked between lists and every 4,096 entries.
+    /// read in parts, each as long as all before it, only as far as the traversal goes;
+    /// the entries read are those of the rows, of the nodes met before, and of the
+    /// search for the one more node. `deadline` is asked between lists and every 4,096
+    /// entries.
     ///
     /// # Errors
     ///
@@ -127,28 +130,25 @@ impl<S: Source> Reader<'_, '_, S> {
                 if deadline.passed() {
                     return Ok(cut(Cut::Timeout, d, out));
                 }
-                let parent = out.node[i];
-                let (mut at, mut want) = (0, (most - out.node.len() + 1).max(MIN_PREFIX));
-                loop {
-                    let (list, whole) = self.prefix(parent, direction, want)?;
-                    for (c, &u) in list.iter().enumerate().skip(at) {
-                        if c % DEADLINE_EVERY == DEADLINE_EVERY - 1 && deadline.passed() {
-                            return Ok(cut(Cut::Timeout, d, out));
-                        }
-                        if !seen.insert(u)? {
-                            continue;
-                        }
-                        if out.node.len() == most {
-                            return Ok(cut(Cut::Limit, d, out));
-                        }
-                        out.node.try_push(u)?;
-                        out.distance.try_push(d)?;
+                let first = (most - out.node.len() + 1).max(MIN_PREFIX);
+                let mut read = 0_usize;
+                let stop = self.walk(out.node[i], direction, first, |u| {
+                    read += 1;
+                    if read.is_multiple_of(DEADLINE_EVERY) && deadline.passed() {
+                        return Ok(ControlFlow::Break(Cut::Timeout));
                     }
-                    if whole {
-                        break;
+                    if !seen.insert(u)? {
+                        return Ok(ControlFlow::Continue(()));
                     }
-                    at = list.len();
-                    want = want.saturating_mul(2);
+                    if out.node.len() == most {
+                        return Ok(ControlFlow::Break(Cut::Limit));
+                    }
+                    out.node.try_push(u)?;
+                    out.distance.try_push(d)?;
+                    Ok(ControlFlow::Continue(()))
+                })?;
+                if let Some(by) = stop {
+                    return Ok(cut(by, d, out));
                 }
             }
             start = end;

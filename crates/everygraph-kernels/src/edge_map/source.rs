@@ -15,8 +15,10 @@
 //! so a corrupt file can decode to any `u32`. [`Csr`] checks its arrays when it is
 //! made. [`Compressed`] and [`Stream`] check their offsets when made, and each batch
 //! after they decode or read it; [`CompressedStream`](super::CompressedStream) as
-//! [`Compressed`]. Lists are not checked to be sorted, so a kernel must
-//! not rely on order for anything but its answer.
+//! [`Compressed`]. A prefix or a part of a list that they decode alone
+//! ([`Source::scan_prefixes`], [`Source::list_part`]) is checked the same way, but the
+//! rest of its record is not read, so damage there goes unseen. Lists are not checked to
+//! be sorted, so a kernel must not rely on order for anything but its answer.
 
 use std::fmt;
 use std::num::NonZeroUsize;
@@ -44,15 +46,16 @@ use super::{Error, ix};
 /// bounds checks. So, for the life of the value, an implementation guarantees:
 ///
 /// - [`nodes`](Self::nodes) returns the same value.
-/// - Every list that [`scan`](Self::scan) and [`lists`](Self::lists) pass to `f`, and
-///   every list that [`list`](Self::list) and [`list_prefix`](Self::list_prefix)
-///   return, names only nodes below `nodes()`.
+/// - Every list that [`scan`](Self::scan), [`scan_prefixes`](Self::scan_prefixes) and
+///   [`lists`](Self::lists) pass to `f`, and every list that [`list`](Self::list) and
+///   [`list_part`](Self::list_part) return, names only nodes below `nodes()`.
 /// - That check is made on the memory the list is handed out from, after the last write
 ///   to that memory. A check of other bytes (the file, the map, an earlier read) does
 ///   not count.
-/// - [`scan`](Self::scan) and [`degrees`](Self::degrees) call `filter` and `f` only with
-///   a `v` in the range `nodes`. [`lists`](Self::lists) calls `f` only with a `v` that
-///   is an element of `nodes`. [`list`](Self::list) and [`list_prefix`](Self::list_prefix)
+/// - [`scan`](Self::scan), [`scan_prefixes`](Self::scan_prefixes) and
+///   [`degrees`](Self::degrees) call `filter` and `f` only with a `v` in the range
+///   `nodes`. [`lists`](Self::lists) calls `f` only with a `v` that
+///   is an element of `nodes`. [`list`](Self::list) and [`list_part`](Self::list_part)
 ///   return only for `v < nodes()`.
 pub unsafe trait Source: Sync {
     /// Per-worker state: the buffers lists are decoded or read into.
@@ -92,10 +95,10 @@ pub unsafe trait Source: Sync {
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<Self::Reader, Error>;
 
     /// The most a reader made with `batch` reserves beyond what it holds when made, to
-    /// hand out the first `prefix` entries of one list of `entries` entries by
-    /// [`list`](Self::list) or [`list_prefix`](Self::list_prefix) (`prefix` is `entries`
+    /// hand out one list of `entries` entries by [`list`](Self::list), or parts of at
+    /// most `part` entries of it by [`list_part`](Self::list_part) (`part` is `entries`
     /// for `list`): a bound a caller adds up before it reads.
-    fn list_bytes(&self, entries: u64, prefix: u64, batch: usize) -> u64;
+    fn list_bytes(&self, entries: u64, part: u64, batch: usize) -> u64;
 
     /// Called with the nodes of a scan's task before [`scan`](Self::scan) is called for
     /// its blocks, in order. A reader that reads ahead stops at the task's end. The
@@ -107,6 +110,9 @@ pub unsafe trait Source: Sync {
     /// Calls `f(v, first_entry, list)` for each node `v` of `nodes` with `filter(v)`, in
     /// order. A batch of consecutive lists is decoded or read before the calls on it,
     /// never list by list. Nothing is decoded or read when `filter` passes no node.
+    /// `filter` may be called more than once for a node. It is decided when the node's
+    /// batch is decoded or read, so a filter must not depend on what the bodies of the
+    /// same batch do.
     ///
     /// # Errors
     ///
@@ -119,6 +125,33 @@ pub unsafe trait Source: Sync {
         filter: impl Fn(u32) -> bool,
         f: impl FnMut(u32, u64, &[u32]),
     ) -> Result<(), Error>;
+
+    /// As [`scan`](Self::scan), but `f(v, first_entry, prefix, degree)` receives at least
+    /// the first `min(degree, len)` entries of the list of `v`, and the degree. A source
+    /// that decodes may then decode no more of each list; the default hands out whole
+    /// lists.
+    ///
+    /// # Errors
+    ///
+    /// As [`scan`](Self::scan).
+    fn scan_prefixes(
+        &self,
+        reader: &mut Self::Reader,
+        nodes: Range<u32>,
+        filter: impl Fn(u32) -> bool,
+        len: usize,
+        mut f: impl FnMut(u32, u64, &[u32], u32),
+    ) -> Result<(), Error> {
+        let _ = len;
+        self.scan(reader, nodes, filter, |v, first, list| {
+            f(
+                v,
+                first,
+                list,
+                u32::try_from(list.len()).expect("a degree below 2^32"),
+            );
+        })
+    }
 
     /// Calls `f(v, first_entry, list)` for each node `v` of `nodes`, which is increasing.
     /// The lists of consecutive nodes are decoded or read together.
@@ -140,25 +173,28 @@ pub unsafe trait Source: Sync {
     /// As [`scan`](Self::scan).
     fn list<'r>(&'r self, reader: &'r mut Self::Reader, v: u32) -> Result<(u64, &'r [u32]), Error>;
 
-    /// The first entry and the first `k` entries of the list of `v`, all of them if it
-    /// has fewer. A source that decodes may stop at `k`; the default reads the whole
-    /// list.
+    /// Entries `from..to` of the list of `v`, where `from` is a multiple of four,
+    /// `from < to ≤ degree`, and, if `from > 0`, `prev` is entry `from − 1` as this
+    /// source handed it out. A source that decodes then decodes no more of the list;
+    /// the default reads all of it.
     ///
     /// # Errors
     ///
     /// As [`scan`](Self::scan).
-    fn list_prefix<'r>(
+    fn list_part<'r>(
         &'r self,
         reader: &'r mut Self::Reader,
         v: u32,
-        k: usize,
-    ) -> Result<(u64, &'r [u32]), Error> {
-        let (first, list) = self.list(reader, v)?;
-        Ok((first, &list[..k.min(list.len())]))
+        (from, prev): (usize, u32),
+        to: usize,
+    ) -> Result<&'r [u32], Error> {
+        let _ = prev;
+        let (_, list) = self.list(reader, v)?;
+        Ok(list.get(from..to.min(list.len())).unwrap_or_default())
     }
 
-    /// Tells the backend that the lists of `nodes` (increasing) will be read soon. Advice
-    /// only; the default ignores it.
+    /// Tells the backend that the lists of `nodes`, in any order, will be read soon.
+    /// Advice only; the default ignores it.
     fn prefetch(&self, nodes: &[u32]) {
         let _ = nodes;
     }
@@ -588,6 +624,97 @@ impl DecodeReader {
         checked
     }
 
+    /// As [`decode`](Self::decode), but only the first `prefix` entries of the lists that
+    /// `select` passes ([`Adjacency::decode_prefixes`]).
+    pub(super) fn decode_some(
+        &mut self,
+        adjacency: &Adjacency<'_>,
+        nodes: Range<u32>,
+        prefix: usize,
+        select: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<u32, Error> {
+        let entries = adjacency.prefix_entries(nodes.clone(), prefix, self.max_entries);
+        self.make_room(entries, nodes.len())?;
+        let n = adjacency.index().nodes();
+        let checked = adjacency
+            .decode_prefixes(
+                nodes.clone(),
+                prefix,
+                select,
+                self.max_entries,
+                &mut self.batch,
+            )
+            .map_err(Error::from)
+            .and_then(|end| check(&self.batch, nodes.start, end, n).map(|()| end));
+        if checked.is_err() {
+            self.batch.clear();
+        }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(self.batch.targets().len());
+        checked
+    }
+
+    /// Calls `f(v, first_entry, list, degree)` for each list of a batch of
+    /// [`decode_some`](Self::decode_some) that `select` passed, or that is empty and
+    /// `filter` passes: a list left out is empty in the batch, and an empty list is the
+    /// list of a node of degree 0, whatever `filter` says now.
+    pub(super) fn hand_out_some(
+        &self,
+        index: &AdjacencyIndex,
+        filter: impl Fn(u32) -> bool,
+        mut f: impl FnMut(u32, u64, &[u32], u32),
+    ) {
+        let mut entry = index.entry_offset(NodeId::new(self.batch.first())).get();
+        for (i, (v, list)) in self.batch.iter().enumerate() {
+            let d = self.batch.degree(i);
+            let taken = if d == 0 {
+                filter(v.get())
+            } else {
+                !list.is_empty()
+            };
+            if taken {
+                f(
+                    v.get(),
+                    entry,
+                    list,
+                    u32::try_from(d).expect("a degree below 2^32"),
+                );
+            }
+            entry += d as u64;
+        }
+    }
+
+    /// Entries `from.0..to` of the list of `v` of `adjacency`, given entry `from.0 − 1`
+    /// (`from.1`), checked: a prefix for `from.0 == 0`
+    /// ([`Adjacency::decode_prefixes`]), else [`Adjacency::decode_part`].
+    pub(super) fn part(
+        &mut self,
+        adjacency: &Adjacency<'_>,
+        v: u32,
+        from: (usize, u32),
+        to: usize,
+    ) -> Result<&[u32], Error> {
+        // Both decodes grow the batch to this.
+        self.make_room(adjacency.part_entries(from.0, to), 1)?;
+        let n = adjacency.index().nodes();
+        let decoded = if from.0 == 0 {
+            adjacency
+                .decode_prefixes(v..v + 1, to, |_| true, to, &mut self.batch)
+                .map(|_| ())
+        } else {
+            adjacency.decode_part(NodeId::new(v), from, to, &mut self.batch)
+        };
+        let checked = decoded
+            .map_err(Error::from)
+            .and_then(|()| check(&self.batch, v, v + 1, n));
+        if checked.is_err() {
+            self.batch.clear();
+        }
+        #[cfg(feature = "frontier-counters")]
+        super::counters::decoded(self.batch.targets().len());
+        checked.map(|()| self.batch.list(0))
+    }
+
     /// Calls `f` for each list of the batch, with its node and first entry.
     pub(super) fn hand_out(&self, index: &AdjacencyIndex, mut f: impl FnMut(u32, u64, &[u32])) {
         let mut entry = index.entry_offset(NodeId::new(self.batch.first())).get();
@@ -597,32 +724,9 @@ impl DecodeReader {
         }
     }
 
-    /// Decodes the first `k` entries of the list of `v` of `adjacency` as the batch's
-    /// only list, and checks it. A batch that fails a check is emptied.
-    pub(super) fn decode_prefix(
-        &mut self,
-        adjacency: &Adjacency<'_>,
-        v: u32,
-        k: usize,
-    ) -> Result<(), Error> {
-        let node = NodeId::new(v);
-        self.make_room(adjacency.prefix_entries(node, k), 1)?;
-        let n = adjacency.index().nodes();
-        let checked = adjacency
-            .decode_prefix(node, k, &mut self.batch)
-            .map_err(Error::from)
-            .and_then(|()| check(&self.batch, v, v + 1, n));
-        if checked.is_err() {
-            self.batch.clear();
-        }
-        #[cfg(feature = "frontier-counters")]
-        super::counters::decoded(self.batch.targets().len());
-        checked
-    }
-
-    /// The most a reader's batch holds for one list of `entries` entries: its targets
-    /// with the decoders' slack, and the ends of one list. A batch that grows gives its
-    /// old buffers back first (`make_room`).
+    /// The most a reader's batch holds for one list, or part of a list, of `entries`
+    /// entries: its targets with the decoders' slack, and the ends of one list. A batch
+    /// that grows gives its old buffers back first (`make_room`).
     pub(super) fn batch_bytes(entries: u64) -> u64 {
         const SLACK: u64 = 3;
         let entries = usize::try_from(entries.saturating_add(SLACK)).unwrap_or(usize::MAX);
@@ -781,8 +885,8 @@ unsafe impl Source for Compressed<'_> {
         }
     }
 
-    fn list_bytes(&self, _: u64, prefix: u64, _: usize) -> u64 {
-        DecodeReader::batch_bytes(prefix)
+    fn list_bytes(&self, _: u64, part: u64, _: usize) -> u64 {
+        DecodeReader::batch_bytes(part)
     }
 
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<DecodeReader, Error> {
@@ -797,18 +901,38 @@ unsafe impl Source for Compressed<'_> {
         filter: impl Fn(u32) -> bool,
         mut f: impl FnMut(u32, u64, &[u32]),
     ) -> Result<(), Error> {
+        // A block where every node passes (a full scan) decodes its lists whole, without
+        // a selection per node.
+        if nodes.clone().all(&filter) {
+            let mut at = nodes.start;
+            while at < nodes.end {
+                at = r.decode(&self.adjacency, at..nodes.end)?;
+                r.hand_out(self.adjacency.index(), &mut f);
+            }
+            return Ok(());
+        }
+        self.scan_prefixes(r, nodes, filter, usize::MAX, |v, entry, list, _| {
+            f(v, entry, list);
+        })
+    }
+
+    fn scan_prefixes(
+        &self,
+        r: &mut DecodeReader,
+        nodes: Range<u32>,
+        filter: impl Fn(u32) -> bool,
+        len: usize,
+        mut f: impl FnMut(u32, u64, &[u32], u32),
+    ) -> Result<(), Error> {
         if !nodes.clone().any(&filter) {
             return Ok(());
         }
         let mut at = nodes.start;
         while at < nodes.end {
-            let next = r.decode(&self.adjacency, at..nodes.end)?;
-            r.hand_out(self.adjacency.index(), |v, entry, list| {
-                if filter(v) {
-                    f(v, entry, list);
-                }
-            });
-            at = next;
+            at = r.decode_some(&self.adjacency, at..nodes.end, len.max(1), &mut |v| {
+                filter(v)
+            })?;
+            r.hand_out_some(self.adjacency.index(), &filter, &mut f);
         }
         Ok(())
     }
@@ -839,15 +963,14 @@ unsafe impl Source for Compressed<'_> {
         Ok((self.entry_offset(v), r.only()))
     }
 
-    fn list_prefix<'r>(
+    fn list_part<'r>(
         &'r self,
         r: &'r mut DecodeReader,
         v: u32,
-        k: usize,
-    ) -> Result<(u64, &'r [u32]), Error> {
-        assert!(v < self.n, "node {v} outside the graph");
-        r.decode_prefix(&self.adjacency, v, k)?;
-        Ok((self.entry_offset(v), r.only()))
+        from: (usize, u32),
+        to: usize,
+    ) -> Result<&'r [u32], Error> {
+        r.part(&self.adjacency, v, from, to)
     }
 
     fn prefetch(&self, nodes: &[u32]) {
@@ -866,7 +989,8 @@ unsafe impl Source for Compressed<'_> {
 pub(super) const COALESCE_GAP: u64 = 16 << 10;
 
 /// Passes [`AccessHint::WillNeed`] to `source` for the byte ranges of `nodes`, merged
-/// where they are less than [`COALESCE_GAP`] apart.
+/// where one starts less than [`COALESCE_GAP`] after the last; a range before the last
+/// starts a run of its own, so that no range of a frontier in any order is lost.
 pub(super) fn advise_runs(
     source: &dyn ByteSource,
     nodes: &[u32],
@@ -879,7 +1003,9 @@ pub(super) fn advise_runs(
             continue;
         }
         run = match run {
-            Some(cur) if r.start <= cur.end + COALESCE_GAP => Some(cur.start..r.end.max(cur.end)),
+            Some(cur) if (cur.start..=cur.end + COALESCE_GAP).contains(&r.start) => {
+                Some(cur.start..r.end.max(cur.end))
+            }
             Some(cur) => {
                 source.advise(cur, AccessHint::WillNeed);
                 Some(r)

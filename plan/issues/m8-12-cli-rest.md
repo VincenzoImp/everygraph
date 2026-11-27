@@ -14,7 +14,7 @@ labels: type:feature, area:cli, P0, risk:low, size:M
 - [ ] `everygraph doctor`: cores, memory, storage and its bandwidth, cgroup limits, a suggested budget; its JSON schema (`urn:everygraph:schema:doctor:1`, `docs/api-sketch.md` § 5.3)
 - [ ] Stopping: SIGINT and SIGTERM during a long command print the stop block (§ 5.4) and, with `--json`, the stop document, and exit with 130 or 143; the work between two cancellation checks stays within C-4 (the C-4 test of § 8)
 - [ ] The interruption and `kill -9` tests of `map` (§ 8, "Interruption tests", "Hard stops")
-- [ ] `run --dry-run` and the plan block of `run` once the planner gives estimates ({{#m3-02-planner}}); `--temp-dir` on `run`, `map` and `export`
+- [ ] `--temp-dir` on `run`, `map` and `export`, as `ingest` has it (`run --dry-run` and the plan block are in the first box)
 - [ ] Shell completions (bash, zsh, fish, PowerShell) and a man page, generated from the `clap` definitions
 - [ ] The single static binary per platform, also installed by the Python wheel
 - [ ] Every other box of {{#m8-01-cli}} that the description of PR #231 leaves unticked (progress forms, `--progress=plain`, the remaining `ingest` and `export` options)

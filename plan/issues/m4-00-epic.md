@@ -11,7 +11,7 @@ Tracking issue for milestone M4.
 
 **Exit criteria**
 - [ ] {{#m4-01-leiden-production}}, {{#m4-02-weights-resolution}}, {{#m4-19-leiden-thread-budget}}
-- [ ] Out-of-core: {{#m4-04-ooc-leiden}} — Friendster under 16 GiB with Q ≥ 0.60; the quality mode within 1% of the better of NetworKit PLM and GVE-Leiden run on this machine (DESIGN § 6, restated 2026-11-25; measured in {{#m4-01-leiden-production}})
+- [ ] Out-of-core: {{#m4-04-ooc-leiden}} — Friendster under 16 GiB with Q ≥ 0.60; the quality mode within 1% of the better of NetworKit PLM and GVE-Leiden run on this machine (DESIGN § 6, restated 2026-11-25; the same-machine references are run by {{#m4-05-quality-gates}})
 - [ ] {{#m4-05-quality-gates}} — within 1% of the best reference on six families
 - [ ] {{#m4-06-hierarchy-artifact}}, {{#m4-07-map-hierarchy}}, with {{#m4-10-per-region-jobs}} and {{#m4-11-labelled-binning}}; {{#m4-16-community-summary-stats}}; {{#m4-17-friendster-hierarchy}}
 - [ ] {{#m4-08-community-tools}}; {{#m4-09-label-propagation}} (CDLP, needed by {{#m8-11-graphalytics-eligibility}})
