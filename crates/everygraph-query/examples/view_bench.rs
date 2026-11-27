@@ -26,6 +26,7 @@
     clippy::print_stdout,
     clippy::disallowed_methods,
     clippy::disallowed_types,
+    clippy::disallowed_macros,
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss

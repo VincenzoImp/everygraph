@@ -13,11 +13,16 @@ publish.workspace = true
 [dependencies]
 # A library does not decide whether threads exist (CONTRIBUTING.md, "Crates").
 everygraph-core = { path = "../everygraph-core", default-features = false }
+everygraph-format = { path = "../everygraph-format" }
+# The identifier dictionary, for the resolution of external ids.
+everygraph-ingest = { path = "../everygraph-ingest" }
 everygraph-kernels = { path = "../everygraph-kernels" }
 
 [dev-dependencies]
+# Tests run queries on threads (`par::with_threads`).
 everygraph-core = { path = "../everygraph-core" }
-everygraph-format = { path = "../everygraph-format" }
+# Files for the mapped and streamed sources.
+everygraph-io = { path = "../everygraph-io" }
 everygraph-oracle = { path = "../everygraph-oracle" }
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 

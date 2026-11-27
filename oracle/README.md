@@ -39,8 +39,9 @@ The in-process references are textbook sequential code, so property-based tests 
 compare against something without leaving Rust. They are checked against the three
 libraries on every CI run (`check --plugin reference`).
 
-**Two kernels have no Python witness.** Adjacency (the CSR itself) and Quotient are
-checked by the in-process reference and the invariants only (`plugin::python_computes`).
+**One kernel has no Python witness.** Quotient is checked by the in-process reference
+and the invariants only (`plugin::python_computes`). Adjacency (the CSR itself, which
+the point queries list) has NetworkX's sorted neighbours as its witness.
 Graphs with more than 2^20 nodes, the sparse-id families, are not run through Python at
 all: their per-node answers would make `reference.json` hundreds of MB. They are checked
 by the in-process references, the invariants and cross-configuration identity.

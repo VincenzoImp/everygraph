@@ -3,7 +3,9 @@
 //! The drivers over every source built in memory, for Miri; and the parts of
 //! [`Plan::push_with`].
 
-use everygraph_core::MemorySource;
+use std::sync::Arc;
+
+use everygraph_core::{Budget, MemorySource};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 
 use super::*;
@@ -263,14 +265,42 @@ fn drive_view<S: Source>(mut view: View<'_, S>, o: &[u64], t: &[u32]) -> [u64; 5
     let n = u32::try_from(o.len() - 1).unwrap();
     assert_eq!((view.nodes(), Source::entries(&view)), (n, t.len() as u64));
     let mask = drive(&view, o).unwrap();
+    within_list_bytes(&view);
     view.materialize(&Memory::unlimited()).unwrap();
     assert!(view.is_materialized());
     assert_eq!(drive(&view, o).unwrap(), mask);
+    within_list_bytes(&view);
     view.release();
     assert_eq!(drive(&view, o).unwrap(), mask);
     let gathered = view.gather(&Memory::unlimited(), "test", |e| e).unwrap();
     assert_eq!(gathered.len(), t.len());
     mask
+}
+
+/// A fresh reader of `source` reserves no more than `list_bytes` beyond what it holds
+/// when made, to hand out each list whole by `list` and from entry 0 by `list_part`.
+fn within_list_bytes<S: Source>(source: &S) {
+    const BATCH: usize = 16;
+    for v in 0..source.nodes() {
+        let d = source.degree(v);
+        let budget = Arc::new(Budget::unlimited());
+        let memory = Memory::new(budget.clone());
+        let mut reader = source.reader(&memory, BATCH, 4).unwrap();
+        let held = budget.used();
+        assert_eq!(source.list(&mut reader, v).unwrap().1.len(), ix(d.into()));
+        if d > 0 {
+            let part = source
+                .list_part(&mut reader, v, (0, 0), ix(d.into()))
+                .unwrap();
+            assert_eq!(part.len(), ix(d.into()));
+        }
+        let bound = source.list_bytes(d.into(), d.into(), BATCH);
+        assert!(
+            budget.peak() - held <= bound,
+            "node {v}: {} > {bound}",
+            budget.peak() - held
+        );
+    }
 }
 
 /// One corrupt list: the scan and the frontier that reach it fail and hand out no

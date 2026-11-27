@@ -94,6 +94,8 @@ pub struct View<'s, S: Source> {
     /// `n + 1` entry offsets of the view.
     offsets: SegVec<u64>,
     n: u32,
+    /// The longest parent list of a kept node: what a mask reads to hand out one list.
+    longest: u64,
     /// The materialized form: the view's own lists, with the same `n` and offsets.
     raw: Option<RawCopy>,
 }
@@ -235,11 +237,12 @@ impl<'s, S: Source> View<'s, S> {
         let degrees = degrees.as_slice().ok_or(SEGMENT)?;
         let mut offsets = SegVec::try_with_len(memory, "view offsets", ix(view_n.into()) + 1, 0)?;
         let at = one_segment_mut(&mut offsets)?;
-        let mut sum = 0;
+        let (mut sum, mut longest) = (0, 0);
         for v in 0..view_n {
             let p = nodes.as_ref().map_or(v, |s| s.parents()[ix(v.into())]);
             sum += u64::from(degrees[ix(p.into())]);
             at[ix(v.into()) + 1] = sum;
+            longest = longest.max(parent.degree(p));
         }
         Ok(Self {
             parent,
@@ -247,6 +250,7 @@ impl<'s, S: Source> View<'s, S> {
             entries,
             offsets,
             n: view_n,
+            longest: longest.into(),
             raw: None,
         })
     }
@@ -586,6 +590,19 @@ unsafe impl<S: Source> Source for View<'_, S> {
 
     fn entry_offset(&self, v: u32) -> u64 {
         self.at()[ix(v.into())]
+    }
+
+    /// A mask reads the whole parent list of a node, of at most `longest` entries, and
+    /// filters it into the reader's list buffer, for `list` and for each `list_part`
+    /// (the default), whatever `part` is.
+    fn list_bytes(&self, entries: u64, part: u64, batch: usize) -> u64 {
+        if let Some(raw) = &self.raw {
+            return raw.list_bytes(entries, part, batch);
+        }
+        let d = self.longest.max(entries);
+        self.parent
+            .list_bytes(d, d, batch)
+            .saturating_add(d.saturating_mul(4))
     }
 
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<Self::Reader, Error> {

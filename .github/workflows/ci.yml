@@ -269,6 +269,8 @@ jobs:
         run: cargo clippy -p everygraph-community --target wasm32-unknown-unknown --locked -- -D warnings
       - name: wasm32 build and clippy (map)
         run: cargo clippy -p everygraph-map --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: wasm32 build and clippy (query)
+        run: cargo clippy -p everygraph-query --target wasm32-unknown-unknown --locked -- -D warnings
       - name: Toy kernel and the edge-map kernels, native and wasm32 in Node, same hash
         run: python3 tools/check_wasm_toy.py
       # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
