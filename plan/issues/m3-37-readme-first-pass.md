@@ -16,7 +16,7 @@ labels: type:docs, area:docs, P1, risk:low, size:S
 **Acceptance**
 - The quickstart's commands run as written on a clean checkout, under `systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0`
 - Every number on the README and on the results page traces to a file under `bench/results/`
-- The README renders correctly in GitHub's light and dark themes (`gh api markdown`, screenshots in the pull request)
+- The README renders correctly in GitHub's light and dark themes: rendered with `gh api markdown` and GitHub's stylesheets, light and dark, and looked at
 - `docs/tools/check_adrs.py`, `docs/tools/check_api_sketch.py`, `design/system/tools/lint_colours.py` and `plan/publish.py --dry-run` pass
 
 **Depends on** nothing.
