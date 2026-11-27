@@ -1151,7 +1151,12 @@ impl<'a> Stream<'a> {
             .ok_or(Error::Invalid("a read longer than the address space"))?;
         r.bytes.try_resize(bytes, 0)?;
         r.lists.try_resize(len, 0)?;
-        let too_long = || Error::Invalid("a read longer than one segment (#m3-15)");
+        let too_long = || {
+            Error::Invalid(
+                "a read longer than one segment, which this version does not run; \
+                 https://github.com/VincenzoImp/everygraph/issues/169 lifts this limit",
+            )
+        };
         let raw = r.bytes.as_mut_slice().ok_or_else(too_long)?;
         self.targets.read_at(a * 4, raw)?;
         let lists = r.lists.as_mut_slice().ok_or_else(too_long)?;

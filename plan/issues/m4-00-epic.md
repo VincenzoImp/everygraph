@@ -16,6 +16,7 @@ Tracking issue for milestone M4.
 - [ ] {{#m4-06-hierarchy-artifact}}, {{#m4-07-map-hierarchy}}, with {{#m4-10-per-region-jobs}} and {{#m4-11-labelled-binning}}; {{#m4-16-community-summary-stats}}; {{#m4-17-friendster-hierarchy}}
 - [ ] {{#m4-08-community-tools}}; {{#m4-09-label-propagation}} (CDLP, needed by {{#m8-11-graphalytics-eligibility}})
 - [ ] From the state-of-the-art review (2026-11-26): {{#m4-15-determinism-contract}}
+- [ ] Performance: the speed gaps of closed issues collected and closed in {{#m4-12-performance-pass}}, whose official numbers come from the milestone window (CLAUDE.md § 6)
 - [ ] Milestone close (CLAUDE.md § 6, § 10): the dogfood pass, the cleanup and test audit, the official measurement window, and the report `docs/reports/M4.md`. Its issues are filed when the last P0 of the milestone starts
 
 **M1 results it builds on (all closed):** {{#m1-02-ooc-aggregation}}, {{#m1-03-louvain-collapse}}, {{#m1-04-det-leiden-scaling}}, {{#m1-05-hierarchy-shaping}}.

@@ -12,6 +12,7 @@ Tracking issue for milestone M7.
 **Exit criteria**
 - [ ] {{#m7-01-point-queries}}, {{#m7-02-shortest-paths}}, {{#m7-03-ooc-queries}}
 - [ ] {{#m7-04-views}}, {{#m7-05-temporal}}
+- [ ] Performance: the speed gaps of closed issues collected and closed in {{#m7-08-query-performance}}, whose official numbers come from the milestone window (CLAUDE.md § 6); {{#m7-11-stream-list-part}}
 - [ ] {{#m7-06-duckdb-arrow}}; optional {{#m7-07-distance-index}}
 - [ ] {{#m7-09-subgraph-bridge}}, {{#m7-10-tutorials}}
 - [ ] On the map: live mode {{#m5-08-live-mode}}; optional overlays {{#m5-13-attribute-overlays}} (both need the viewer from M5)

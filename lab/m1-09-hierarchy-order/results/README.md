@@ -36,7 +36,7 @@ webgraph-cli 0.5.0 (Apache-2.0 OR MIT) for LLP and BV. Spec: `bench/specs/hierar
 - Log-gap cost: the mean of log2 g over all entries, where g = |x0 − v| for the first
   neighbour of v and x_j − x_{j−1} after it (the BP paper's LogGap per entry).
 - Locality ratio: bits per entry ÷ (2 + log2(n/d)), d = entries / n (challenge 7).
-- "0124 est": the data bits per entry that Stream VByte 0124 (block codec 2, #m1-16) would
+- "0124 est": the data bits per entry that Stream VByte 0124 (block codec 2, #173) would
   need, from the measured word-size classes (2 control bits per word; no index). An
   estimate from counts, not an encoder.
 - Kernels: the edge-map proof kernels (`everygraph_kernels::proof`), because the
@@ -121,7 +121,7 @@ correlation of log-gap cost and codec 0 bits per entry is 0.998 (lj, 15 orders),
 and 0.999 (orkut). So the encoder can rank candidate orders from one pass over the
 permuted lists, without encoding them.
 
-**Stream VByte 0124 (block codec 2, #m1-16), estimated from the word sizes** (data bits
+**Stream VByte 0124 (block codec 2, #173), estimated from the word sizes** (data bits
 per entry, no index; the 1234 estimate from the same counts is within 0.21 of the real
 codec 0 data part on every row). It saves 3–4% after the best orders (lj hier-cap64 14.02
 → 13.54, orkut bp 13.65 → 13.15). It costs 5–20% on the input ids (lj 17.02 → 17.93,

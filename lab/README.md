@@ -20,7 +20,7 @@ The first lab (a few hours per experiment):
 | `b2-leiden` | Parallel and deterministic Louvain/Leiden, hierarchy | § B2 | Leiden #57, weights #58, parallel aggregation #59 | yes, except the hierarchy (#62, #63) | `tracer.toml`, `leiden.toml`, `det-leiden.toml`, `hierarchy-order.toml`, `mmap-hints.toml`, `references.toml` |
 | `c-compression` | Adjacency codecs, ordering, cold scans | § C | codec #30 | yes, except node ordering (#179) | — |
 | `e-map` | Layout, tile pyramid, PMTiles container, WebGL2 viewer | § E | the `.egmap` format #68 | no: layout, tiles and viewer (#67, #69–#71) | `tracer.toml`, `mmap-hints.toml`, `hierarchy-shaping.toml` |
-| `f1-query` | Id dictionary, point queries, properties, views | § F1 | dictionary #34, property columns #37 | yes, except queries and views (#90, #93) | `id-dictionary.toml`, `mmap-hints.toml` |
+| `f1-query` | Id dictionary, point queries, properties, views | § F1 | dictionary #34, property columns #37, point queries #90, filtered views (#93) | yes | `id-dictionary.toml`, `mmap-hints.toml` |
 | `f2-python` | Query-engine comparison, PyO3 binding, NetworkX backend | § F2 | the first slice of the Python package (part of #81) | no: the Python API (#81) and the NetworkX backend (#86) | `engines.toml` |
 | `g-wasm` | The same core in the browser | § G | none yet | no: the browser tier (#108) | — |
 

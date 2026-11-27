@@ -8,7 +8,7 @@ session, replace what is no longer true.
 - **The repository** is public (`VincenzoImp/everygraph`). The board is
   `users/VincenzoImp/projects/7`. Every commit is signed off; the DCO check runs on every
   pull request.
-- **The plan** is `plan/issues/*.md`: 205 issue files in 10 milestones (`python3
+- **The plan** is `plan/issues/*.md`: 206 issue files in 10 milestones (`python3
   plan/next.py` lists what is ready). The order of work and the critical path are in
   `docs/ROADMAP.md`.
 - **The product** so far: the `.eg` container, the compressed adjacency and the property
@@ -34,8 +34,7 @@ session, replace what is no longer true.
 ## In flight
 
 **Pace from 2026-11-27 (owner):** product development is paused until the owner says
-otherwise. Only repository care: the README and the repository page (#342), stale
-documents, and a review of the plan with the owner. No official window is due before the
+otherwise. Only repository care: stale documents, and a review of the plan with the owner. No official window is due before the
 M3 close or a number to publish; between them, interleaved A/B runs.
 
 ## Measurement queue

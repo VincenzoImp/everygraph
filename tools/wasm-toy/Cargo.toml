@@ -5,7 +5,7 @@
 # WCC, BFS; everygraph-kernels) on the raw and the compressed source, run natively and as
 # wasm32 in Node; the hashes must be equal. `tools/check_wasm_toy.py` runs it. Not a
 # member of the workspace (it has its own `[workspace]` table); the determinism CI
-# (#m3-11) replaces it.
+# (#54) replaces it.
 
 [package]
 name = "everygraph-wasm-toy"

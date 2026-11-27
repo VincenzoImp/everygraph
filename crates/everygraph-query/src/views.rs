@@ -44,7 +44,10 @@ use everygraph_kernels::planner::{self, ViewForm};
 /// Words of a bitset per task: 65,536 rows.
 const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 10).expect("non-zero");
 
-const SEGMENT: Error = Error::Invalid("a view bitset longer than one segment (#m3-15)");
+const SEGMENT: Error = Error::Invalid(
+    "a view bitset longer than one segment, which this version does not build; \
+     https://github.com/VincenzoImp/everygraph/issues/169 lifts this limit",
+);
 
 /// The values of a column, one per row.
 #[derive(Clone, Copy, Debug)]
