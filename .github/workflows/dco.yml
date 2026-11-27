@@ -7,8 +7,7 @@
 # Which pull requests are checked:
 # - always, a pull request from a fork (that is, from anyone outside this repository);
 # - every pull request, once the repository variable DCO_ALL_PULL_REQUESTS is set to
-#   `true` (Settings > Secrets and variables > Actions > Variables). It is, since
-#   2026-11-26.
+#   `true` (Settings > Secrets and variables > Actions > Variables). It is set.
 #
 # No third-party action and no checkout: the commit list comes from the GitHub API
 # through the `gh` command preinstalled on the runner.
