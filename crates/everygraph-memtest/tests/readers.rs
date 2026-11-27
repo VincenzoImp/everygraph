@@ -6,6 +6,8 @@
 //! that grow one entry at a time, longer than the batch, and a frontier of more lists
 //! than a block are the cases where an amortized buffer would hold more than it reserved.
 //!
+//! A reader that a long list grew gives that batch back within its reservation.
+//!
 //! Under Miri (CONTRIBUTING.md, "`unsafe`") it runs the framework's `unsafe` code and the
 //! counting allocator's on threads.
 
@@ -14,12 +16,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-use everygraph_core::{Budget, Memory, MemorySource};
+use everygraph_core::{Budget, Memory, MemorySource, Pages};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_kernels::edge_map::{
     Compressed, CompressedStream, Node, Plan, Settings, Source, Stream, all,
 };
 use everygraph_memtest::counting::{self, Counting};
+use everygraph_memtest::ledger::Ledger;
 use everygraph_memtest::probe::alone;
 
 #[global_allocator]
@@ -79,6 +82,22 @@ fn excess<S: Source>(source: &S) -> usize {
     worst.into_inner()
 }
 
+/// The most heap beyond the ledger, at any allocation, of a frontier of the first long
+/// list with the usual batch: the reader grows its batch for the list, and gives it back
+/// as it goes back to the pool.
+fn grown<S: Source>(source: &S) -> u64 {
+    let ledger = Arc::new(Ledger::new(None, Pages::HEAP, None));
+    let memory = Memory::from(Arc::clone(&ledger));
+    counting::start();
+    Plan::with(source, &memory, Settings::default(), |plan| {
+        let long = plan.node(0).expect("node 0");
+        plan.frontier(&[long], |(): &mut (), _, _| ()).unwrap();
+    });
+    let most = counting::untracked_by_phase().iter().map(|p| p.1).max();
+    assert_eq!(ledger.budget().used(), 0);
+    most.unwrap_or(0)
+}
+
 /// On a pool whose threads have all started ([`alone`]): a thread that starts during a
 /// measurement counts its own state against the readers, up to 139 KB over the slack
 /// with 64 threads on 32 cores (exploratory, PR #251).
@@ -99,14 +118,18 @@ fn readers_hold_no_more_heap_than_they_reserve() {
         let stream = Stream::new(&offsets, &bytes).unwrap();
         let data = MemorySource::new(&encoded.data[..]);
         let streamed = CompressedStream::new(&index, &data, 0).unwrap();
-        for (name, over) in [
-            ("compressed", excess(&compressed)),
-            ("stream", excess(&stream)),
-            ("compressed stream", excess(&streamed)),
+        for (name, over, grown) in [
+            ("compressed", excess(&compressed), grown(&compressed)),
+            ("stream", excess(&stream), grown(&stream)),
+            ("compressed stream", excess(&streamed), grown(&streamed)),
         ] {
             assert!(
                 over <= SLACK,
                 "{name}: {over} B of heap above the budget's use"
+            );
+            assert!(
+                grown <= SLACK as u64,
+                "{name}: {grown} B of heap beyond the ledger, with a grown batch"
             );
         }
     });
