@@ -6,7 +6,8 @@
 //! that grow one entry at a time, longer than the batch, and a frontier of more lists
 //! than a block are the cases where an amortized buffer would hold more than it reserved.
 //!
-//! A reader that a long list grew gives that batch back within its reservation.
+//! A reader that a long list grew gives that batch back within its reservation. A
+//! [`View`] runs as a mask over a CSR and over a compressed parent, and materialized.
 //!
 //! Under Miri (CONTRIBUTING.md, "`unsafe`") it runs the framework's `unsafe` code and the
 //! counting allocator's on threads.
@@ -16,10 +17,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-use everygraph_core::{Budget, Memory, MemorySource, Pages};
+use everygraph_core::{Budget, Memory, MemorySource, Pages, SegVec};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 use everygraph_kernels::edge_map::{
-    Compressed, CompressedStream, Node, Plan, Settings, Source, Stream, all,
+    Compressed, CompressedStream, Csr, Node, Plan, Settings, Source, Stream, View, all,
 };
 use everygraph_memtest::counting::{self, Counting};
 use everygraph_memtest::ledger::Ledger;
@@ -46,6 +47,33 @@ fn graph(n: u32) -> (Vec<u64>, Vec<u32>) {
         offsets.push(targets.len() as u64);
     }
     (offsets, targets)
+}
+
+/// A bitset of `len` bits where bit `i` is `keep(i)`.
+fn bits(len: u64, keep: impl Fn(u64) -> bool) -> SegVec<u64> {
+    let words = usize::try_from(len.div_ceil(64)).unwrap();
+    let mut set = SegVec::try_with_len(&Memory::unlimited(), "test", words, 0).unwrap();
+    let w = set.as_mut_slice().unwrap();
+    for i in (0..len).filter(|&i| keep(i)) {
+        w[usize::try_from(i / 64).unwrap()] |= 1 << (i % 64);
+    }
+    set
+}
+
+/// The view of `parent` without nodes 4 mod 5 and entries 1 mod 3: a mask that ranks
+/// its nodes and filters each list, with the three long lists kept as nodes 0, 1 and 2.
+fn view<S: Source>(parent: &S) -> View<'_, S> {
+    let nodes = bits(parent.nodes().into(), |p| p % 5 != 4);
+    let entries = bits(parent.entries(), |e| e % 3 != 1);
+    let memory = Memory::unlimited();
+    View::new(
+        parent,
+        &memory,
+        Settings::default(),
+        Some(nodes),
+        Some(entries),
+    )
+    .unwrap()
 }
 
 /// The largest excess of the heap over the budget's use, seen from inside the bodies of
@@ -118,10 +146,25 @@ fn readers_hold_no_more_heap_than_they_reserve() {
         let stream = Stream::new(&offsets, &bytes).unwrap();
         let data = MemorySource::new(&encoded.data[..]);
         let streamed = CompressedStream::new(&index, &data, 0).unwrap();
+        let csr = Csr::new(&offsets, &targets).unwrap();
+        let (csr_view, compressed_view) = (view(&csr), view(&compressed));
+        let mut materialized = view(&csr);
+        materialized.materialize(&Memory::unlimited()).unwrap();
         for (name, over, grown) in [
             ("compressed", excess(&compressed), grown(&compressed)),
             ("stream", excess(&stream), grown(&stream)),
             ("compressed stream", excess(&streamed), grown(&streamed)),
+            ("view of a CSR", excess(&csr_view), grown(&csr_view)),
+            (
+                "view of compressed",
+                excess(&compressed_view),
+                grown(&compressed_view),
+            ),
+            (
+                "materialized view",
+                excess(&materialized),
+                grown(&materialized),
+            ),
         ] {
             assert!(
                 over <= SLACK,
