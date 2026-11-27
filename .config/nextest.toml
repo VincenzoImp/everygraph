@@ -1,25 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # A test that hangs (a deadlock, a wait that never ends) is reported as slow after a
-# minute and killed after five, before the CI job's own limit. The slowest test,
-# everygraph-oracle's `thread_dependent_float_sum_is_caught_by_cross_config_identity`,
-# took 67 s on a loaded lab machine (2026-11-25).
+# minute and killed after five, before the CI job's own limit.
 
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
 # The seeded bugs run once, in the oracle job (oracle/run-ci.sh), on the whole CI corpus
 # with the Python references. `--ignore-default-filter` runs them here.
 default-filter = 'not binary(seeded_bugs)'
-
-# Two harness tests drive the kernel's OOM killer inside a 32 MiB systemd scope. On
-# GitHub's runners each failed in about one run of forty (2026-11-25): the measuring
-# helper itself was SIGKILLed and wrote no report. On the lab machine 100 repetitions
-# never killed the helper. The likely cause is a second OOM kill in the same scope while
-# the first victim's memory is still being released. They get two retries: a regression
-# fails all three attempts, and nextest reports a pass on retry as FLAKY.
-[[profile.default.overrides]]
-filter = 'package(everygraph-bench) & binary(harness) & (test(=an_exploratory_run_records_every_field) | test(=a_failed_warm_up_writes_its_measurement))'
-retries = 2
 
 # Under Miri (`cargo miri nextest run` picks this profile) a test runs 50 to 100 times
 # slower: the slowest took about 60 s on a loaded lab machine (2026-11-26).

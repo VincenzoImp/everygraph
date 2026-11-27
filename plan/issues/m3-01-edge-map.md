@@ -9,7 +9,7 @@ labels: type:feature, area:engine, P0, risk:high, size:XL, lab-evidence
 - [ ] `AdjacencySource` abstraction yielding node-range chunks: (node range, offsets, decoded targets, optional property slices), backed by raw CSR, compressed blocks (decode into a per-thread buffer), mmap, or sequential streams. Scan-shaped drivers decode a batch of consecutive lists (8,192 entries measured) before the kernel body runs, never list by list: list-by-list costs orkut PageRank 1.35× at 1 thread and 1.38× at 16 (#118)
 - [ ] `edge_map` / `vertex_map` drivers: pull over all nodes (scan-shaped), push/pull over a frontier (traversal-shaped), with per-thread state and a deterministic reduction order
 - [ ] Deterministic chunking: chunk boundaries depend on the graph only, never on the thread count, so floating-point reductions are reproducible ({{#m3-11-determinism-ci}})
-- [ ] Views: masks and node filters applied in the driver ({{#m7-04-views}})
+- [ ] Views: masks and node filters applied in the driver ({{#m7-04-views}}; built by PR #315 as a source of the framework, `edge_map::View`, which filters each list as it hands it out)
 - [ ] Random-access path for frontier kernels (list decode by node id) with prefetch hints
 - [ ] Budget hooks: per-thread buffers reserved through the accountant ({{#m2-04-arrays-accountant}})
 - [ ] No fork-join per BFS level (a weakness noted in the lab kernels)

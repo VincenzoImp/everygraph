@@ -48,6 +48,21 @@ PageRank iteration and one BFS; time relative to the unfiltered graph;
 
 - #93 builds both representations; its planner rule is derived from a crossover
   measurement, not from the ~25% figure.
+- Both exist: `everygraph_kernels::edge_map::View` is a mask (a node and an entry
+  bitset, a rank directory, the map to parent ids and the view's offsets) until it
+  copies its lists into a `RawCopy`. Until the measurement, the planner's rule
+  (`planner::view_form`) is provisional and follows the evidence above: materialized
+  when the work reads every list twice or more and the copy takes at most 90% of the
+  free budget, a mask otherwise. The measurement is `bench/specs/views.toml`.
+- Exploratory, on the product code (#93's pull request; orkut, raw CSR in the heap, 16
+  threads, PageRank f64 for 20 iterations, two interleaved rounds on a shared machine):
+  on a 5% edge view (2.39 M of 3.07 M nodes, 11.7 M entries) the mask took 1.20–1.31×
+  the time of the whole graph, and the materialized view 0.20–0.22× for the kernel and
+  0.32–0.35× with its build and materialization. The view keeps 78% of the nodes, whose
+  per-node work each iteration does not shrink with the edges. The command, once per
+  form and round: `target/release/examples/view_bench --graph
+  /home/tux/graphlab/data/csr/orkut --select edges --keep 5 --form whole|mask|materialized
+  --kernel pr64 --threads 16 --reps 3`.
 - The determinism promise covers views either way (ADR 0014): a kernel returns the same
   result on a mask or a materialized view.
 

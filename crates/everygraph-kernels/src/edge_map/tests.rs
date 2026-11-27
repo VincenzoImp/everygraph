@@ -3,7 +3,9 @@
 //! The drivers over every source built in memory, for Miri; and the parts of
 //! [`Plan::push_with`].
 
-use everygraph_core::MemorySource;
+use std::sync::Arc;
+
+use everygraph_core::{Budget, MemorySource};
 use everygraph_format::adjacency::{Adjacency, AdjacencyIndex, encode};
 
 use super::*;
@@ -163,6 +165,142 @@ fn drivers_over_every_source_in_memory() {
     }
     let streamed = CompressedStream::new(&index, &data, 0).unwrap();
     assert_eq!(drive(&streamed, &offsets).unwrap(), csr);
+}
+
+/// The view of `offsets`/`targets` that keeps the nodes `node` allows and the
+/// entries `entry` allows, by its definition (module `view`): its lists, and the
+/// bitsets that select it.
+#[allow(clippy::type_complexity)]
+fn filtered(
+    offsets: &[u64],
+    targets: &[u32],
+    node: impl Fn(u32) -> bool,
+    entry: Option<&dyn Fn(u64) -> bool>,
+) -> ((Vec<u64>, Vec<u32>), SegVec<u64>, Option<SegVec<u64>>) {
+    let n = u32::try_from(offsets.len() - 1).unwrap();
+    let memory = Memory::unlimited();
+    let bits = |len: u64, f: &dyn Fn(u64) -> bool| {
+        let mut b = view::empty_bits(&memory, "test", len).unwrap();
+        for i in (0..len).filter(|&i| f(i)) {
+            b.as_mut_slice().unwrap()[ix(i / 64)] |= 1 << (i % 64);
+        }
+        b
+    };
+    let kept = |v: u32, e: u64| {
+        let t = targets[ix(e)];
+        node(v) && node(t) && entry.is_none_or(|f| f(e))
+    };
+    let mut touched: Vec<bool> = (0..n).map(|_| entry.is_none()).collect();
+    for v in 0..n {
+        for e in offsets[ix(v.into())]..offsets[ix(v.into()) + 1] {
+            if kept(v, e) {
+                touched[ix(v.into())] = true;
+                touched[ix(targets[ix(e)].into())] = true;
+            }
+        }
+    }
+    let keep = |v: u32| node(v) && touched[ix(v.into())];
+    let id: Vec<u32> = (0..n)
+        .scan(0, |next, v| {
+            let at = *next;
+            *next += u32::from(keep(v));
+            Some(at)
+        })
+        .collect();
+    let (mut o, mut t) = (vec![0], Vec::new());
+    for v in (0..n).filter(|&v| keep(v)) {
+        let range = offsets[ix(v.into())]..offsets[ix(v.into()) + 1];
+        t.extend(
+            range
+                .filter(|&e| kept(v, e))
+                .map(|e| id[ix(targets[ix(e)].into())]),
+        );
+        o.push(t.len() as u64);
+    }
+    let node_bits = bits(n.into(), &|v| node(u32::try_from(v).unwrap()));
+    let entry_bits = entry.map(|f| bits(targets.len() as u64, f));
+    ((o, t), node_bits, entry_bits)
+}
+
+/// Views over a raw and a compressed parent, as masks and materialized, against
+/// the raw arrays of the same view: the same lists, offsets and drivers' results.
+#[test]
+fn views_hand_out_the_lists_they_define() {
+    let n = 70;
+    let (offsets, targets) = lists(n, None);
+    let encoded = encode(&offsets, &targets).unwrap();
+    let index = AdjacencyIndex::parse(&encoded.index).unwrap();
+    let csr = Csr::new(&offsets, &targets).unwrap();
+    let heap = Compressed::new(Adjacency::new(&index, &encoded.data).unwrap());
+    let some = |v: u32| v % 7 != 3;
+    let odd = |e: u64| e % 3 != 1;
+    type Case<'a> = (&'a dyn Fn(u32) -> bool, Option<&'a dyn Fn(u64) -> bool>);
+    let cases: [Case<'_>; 4] = [
+        (&|_| true, None),
+        (&some, None),
+        (&|_| true, Some(&odd)),
+        (&some, Some(&odd)),
+    ];
+    let memory = Memory::unlimited();
+    for (k, (node, entry)) in cases.into_iter().enumerate() {
+        let ((o, t), nodes, entries) = filtered(&offsets, &targets, node, entry);
+        let expected = drive(&Csr::new(&o, &t).unwrap(), &o).unwrap();
+        let copy = |e: &Option<SegVec<u64>>| e.as_ref().map(|b| b.try_clone().unwrap());
+        let settings = Settings::default();
+        let first = Some(nodes.try_clone().unwrap());
+        let raw = View::new(&csr, &memory, settings, first, copy(&entries)).unwrap();
+        assert_eq!(drive_view(raw, &o, &t), expected, "case {k}, raw");
+        let compressed = View::new(&heap, &memory, settings, Some(nodes), entries).unwrap();
+        assert_eq!(
+            drive_view(compressed, &o, &t),
+            expected,
+            "case {k}, compressed"
+        );
+    }
+}
+
+/// The drivers' results on `view` as a mask, which must be those of the view
+/// materialized and of the mask again after a release.
+fn drive_view<S: Source>(mut view: View<'_, S>, o: &[u64], t: &[u32]) -> [u64; 5] {
+    let n = u32::try_from(o.len() - 1).unwrap();
+    assert_eq!((view.nodes(), Source::entries(&view)), (n, t.len() as u64));
+    let mask = drive(&view, o).unwrap();
+    within_list_bytes(&view);
+    view.materialize(&Memory::unlimited()).unwrap();
+    assert!(view.is_materialized());
+    assert_eq!(drive(&view, o).unwrap(), mask);
+    within_list_bytes(&view);
+    view.release();
+    assert_eq!(drive(&view, o).unwrap(), mask);
+    let gathered = view.gather(&Memory::unlimited(), "test", |e| e).unwrap();
+    assert_eq!(gathered.len(), t.len());
+    mask
+}
+
+/// A fresh reader of `source` reserves no more than `list_bytes` beyond what it holds
+/// when made, to hand out each list whole by `list` and from entry 0 by `list_part`.
+fn within_list_bytes<S: Source>(source: &S) {
+    const BATCH: usize = 16;
+    for v in 0..source.nodes() {
+        let d = source.degree(v);
+        let budget = Arc::new(Budget::unlimited());
+        let memory = Memory::new(budget.clone());
+        let mut reader = source.reader(&memory, BATCH, 4).unwrap();
+        let held = budget.used();
+        assert_eq!(source.list(&mut reader, v).unwrap().1.len(), ix(d.into()));
+        if d > 0 {
+            let part = source
+                .list_part(&mut reader, v, (0, 0), ix(d.into()))
+                .unwrap();
+            assert_eq!(part.len(), ix(d.into()));
+        }
+        let bound = source.list_bytes(d.into(), d.into(), BATCH);
+        assert!(
+            budget.peak() - held <= bound,
+            "node {v}: {} > {bound}",
+            budget.peak() - held
+        );
+    }
 }
 
 /// One corrupt list: the scan and the frontier that reach it fail and hand out no

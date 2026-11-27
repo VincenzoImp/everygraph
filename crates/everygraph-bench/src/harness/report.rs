@@ -361,13 +361,25 @@ pub fn reference_checks(case: &CaseRows<'_>) -> Vec<(String, Check)> {
                 );
             };
             if let Some(v) = r.value {
-                let diff = (s.median - v) / v;
+                let head = format!("{} ({})", format_value(v, unit), r.source);
+                let diff = if s.median == v {
+                    0.0
+                } else if v == 0.0 {
+                    // A relative difference to 0 is not finite: give the absolute one.
+                    return (
+                        format!(
+                            "{head}: differs by {}, OFF (a reference of 0 needs an exact match)",
+                            format_value(s.median, unit)
+                        ),
+                        Check::Off,
+                    );
+                } else {
+                    (s.median - v) / v
+                };
                 let ok = diff.abs() <= r.tolerance;
                 (
                     format!(
-                        "{} ({}): {:+.1}%, {}",
-                        format_value(v, unit),
-                        r.source,
+                        "{head}: {:+.1}%, {}",
                         diff * 100.0,
                         if ok {
                             format!("within {:.0}%", r.tolerance * 100.0)
@@ -826,6 +838,43 @@ mod tests {
             "{}",
             checks[0].0
         );
+    }
+
+    #[test]
+    fn a_value_reference_checks_the_median_also_at_zero() {
+        let check = |measured: f64, reference: f64| {
+            let mut rows = run_of(&[measured]);
+            rows[0].references.push(ReferenceRecord {
+                metric: "seconds".into(),
+                value: Some(reference),
+                max: None,
+                tolerance: 0.1,
+                source: "spec".into(),
+            });
+            let runs = group(&rows);
+            let mut checks = reference_checks(&runs[0].groups[0].1[0]);
+            assert_eq!(checks.len(), 1);
+            checks.remove(0)
+        };
+        for (measured, reference, outcome, text) in [
+            (0.0, 0.0, Check::Within, "0.00 ms (spec): +0.0%, within 10%"),
+            (
+                0.002,
+                0.0,
+                Check::Off,
+                "0.00 ms (spec): differs by 2.00 ms, OFF (a reference of 0 needs an exact match)",
+            ),
+            (1.05, 1.0, Check::Within, "1.00 s (spec): +5.0%, within 10%"),
+            (
+                1.2,
+                1.0,
+                Check::Off,
+                "1.00 s (spec): +20.0%, OFF by more than 10%",
+            ),
+        ] {
+            let (line, got) = check(measured, reference);
+            assert_eq!((line.as_str(), got), (text, outcome));
+        }
     }
 
     #[test]
