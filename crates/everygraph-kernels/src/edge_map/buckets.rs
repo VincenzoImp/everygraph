@@ -35,8 +35,9 @@ use super::{Error, Node, NodeList, NodeSet, Plan, Source};
 const BUCKETS: usize = 33;
 
 /// Nodes per task when buckets are filled in parallel; fewer are placed on the calling
-/// thread.
-const GRAIN: NonZeroUsize = NonZeroUsize::new(1 << 14).expect("non-zero");
+/// thread. Under Miri 64, so that a test graph small enough to interpret takes both paths.
+const GRAIN: NonZeroUsize =
+    NonZeroUsize::new(if cfg!(miri) { 1 << 6 } else { 1 << 14 }).expect("non-zero");
 
 const BELOW: Error = Error::Invalid("buckets: a key below the smallest key");
 
@@ -269,10 +270,12 @@ mod tests {
         assert_eq!(bucket(u32::MAX, 0), 32);
     }
 
-    /// A key below the smallest key is refused, small or large inputs alike.
+    /// A key below the smallest key is refused, on the calling thread and in parallel
+    /// tasks alike.
     #[test]
     fn a_key_below_the_base_is_refused() {
-        for n in [4_u32, 40_000] {
+        let large = u32::try_from(GRAIN.get() * 5 / 2).unwrap();
+        for n in [4_u32, large] {
             let offsets: Vec<u64> = (0..=n).map(|_| 0).collect();
             let csr = Csr::new(&offsets, &[]).unwrap();
             let memory = Memory::unlimited();

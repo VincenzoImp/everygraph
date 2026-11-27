@@ -141,7 +141,8 @@ fn drive<S: Source>(source: &S, offsets: &[u64]) -> Result<[u64; 5], Error> {
 
 #[test]
 fn drivers_over_every_source_in_memory() {
-    let n = 1100;
+    // The hub's list is a little longer than a part.
+    let n = u32::try_from(PART_ENTRIES + 76).unwrap();
     let (offsets, targets) = with_hub(n);
     let encoded = encode(&offsets, &targets).unwrap();
     let index = AdjacencyIndex::parse(&encoded.index).unwrap();
@@ -155,9 +156,8 @@ fn drivers_over_every_source_in_memory() {
     assert_eq!(drive(&mapped, &offsets).unwrap(), csr);
     let stream = Stream::new(&offsets, &stream_bytes).unwrap();
     assert_eq!(drive(&stream, &offsets).unwrap(), csr);
-    // In one part, and in parts of at most 1,200 entries, a little more than the hub's
-    // list: lists are never cut.
-    for part in [u64::MAX >> 8, 1200] {
+    // In one part, and in parts a little longer than the hub's list: lists are never cut.
+    for part in [u64::MAX >> 8, u64::from(n) + 100] {
         let raw = RawCopy::decode_in_parts(&heap, &Memory::unlimited(), part).unwrap();
         assert_eq!(drive(&raw, &offsets).unwrap(), csr, "parts of {part}");
     }
