@@ -3,52 +3,40 @@
 Read this first. It says where the project is now; it is not a journal. At the end of a
 session, replace what is no longer true.
 
-## Where we are (2026-11-26)
+## Where we are (2026-11-27)
 
 - **The repository** is public (`VincenzoImp/everygraph`). The board is
   `users/VincenzoImp/projects/7`. Every commit is signed off; the DCO check runs on every
   pull request.
-- **The plan** is `plan/issues/*.md`: 169 issue files in 10 milestones, 43 closed. The
-  order of work and the critical path are in `docs/ROADMAP.md`.
+- **The plan** is `plan/issues/*.md`: 205 issue files in 10 milestones (`python3
+  plan/next.py` lists what is ready). The order of work and the critical path are in
+  `docs/ROADMAP.md`.
 - **The product** so far: the `.eg` container, the compressed adjacency and the property
-  columns; the I/O layer and the memory accountant; the text reader, the identifier
-  dictionary and the graph build; the edge-map framework with PageRank, BFS, SSSP,
-  components, core numbers and degrees; `everygraph ingest`, `verify`, `run`, `info`,
-  `export` and `compact`; a first slice of the Python package. Nothing is released.
-- **Milestones.**
-  - M0: done, but for two issues to close by hand (#8 dropped, #10 merged into #122).
-  - M1: 11 experiments closed, 11 open.
-  - M2: 16 closed. Open and P0: the build carrying columns (#246), the allocator policy
-    (#167), the Parquet reader (#33).
-  - M3: the kernels are merged. Open and P0: the planner (#45), the semi-external source
-    (#46), the no-OOM and determinism checks in CI (#53, #54).
-  - M4: production Leiden is in review (#57).
-  - M5–M8: not started, except the design system (#121) and the first command-line slice.
+  columns; the I/O layer, the memory accountant and the block cache; the text reader, the
+  identifier dictionary and the graph build with columns; the edge-map framework with
+  PageRank, BFS, SSSP, weak and strong components, core numbers and degrees; the planner;
+  production Leiden and the map hierarchy; the `.egmap` file; point queries and filtered
+  views; `everygraph ingest`, `verify`, `run`, `info`, `export` and `compact` (the command
+  line does not use the planner yet, #247); a first slice of the Python package. Nothing is
+  released.
+- **Milestones.** M0 done. M1: lab round 2, experiments open. M2: open and P0 the allocator
+  policy (#167) and the Parquet reader (#33). M3: kernels, planner and the official window
+  done; open the semi-external source (#46), the no-OOM and determinism checks (#53, #54)
+  and the performance pass (#240). M4: Leiden merged; next the out-of-core Leiden (#60), the
+  hierarchy artifact and the map hierarchy (#62, #63). M5: layout (#67) and tile builder
+  (#69) not started. M7: point queries and views merged.
+- **CI** was redesigned on 2026-11-27 (#323–#330): one lint gate, a build with four test
+  partitions, one job per concern, platforms in ci.yml, `ci-ok` at the end; rules in
+  CONTRIBUTING.md.
 - **Decisions in force** are in `docs/DESIGN.md` and `docs/adr/`; user-facing choices in
   `design/DECISIONS.md`.
 
 ## In flight
 
-Open pull requests:
-
-| PR | Issue | What |
-|---|---|---|
-| #232 | #57 | Production Leiden on the edge-map framework |
-| #236 | #200 | M2 cleanup: product code size |
-| #239 | #38 | In-adjacency for directed graphs |
-| #244 | #121 | Design system as shared assets |
-| #245 | #193 | cargo-mutants on pull-request diffs |
-| #249 | #45 | Planner |
-
-Agents with a scratch directory and no pull request yet: edge rendering (#20), layout area
-(#21), the semi-external source (#46), the reference runs (#55).
-
-To close on GitHub by hand, because the plan merged or dropped them and no pull request
-closes them: #8 (dropped), #10 (into #122), #59 (into the M4 performance pass, after
-#232), #98 (into #247), then the M0 epic #1.
-
-Next, when these merge: strong components (#223) after #239; the build's columns (#246);
-out-of-core Leiden (#60) after #232 and #46; the M3 close (`m3-23-milestone-close`).
+**Pace from 2026-11-27 (owner):** product development is paused until the owner says
+otherwise. Only repository care: the README and the repository page (#342), stale
+documents, and a review of the plan with the owner. No official window is due before the
+M3 close or a number to publish; between them, interleaved A/B runs.
 
 ## Measurement queue
 
@@ -72,8 +60,6 @@ M3 exit criteria.
 - Graphalytics eligibility (#209) is a goal beside 0.1, not a gate.
 
 **Decision changes recorded:** ADR 0021 and DESIGN D21 amended on 2026-11-26 (PR #272): the query language comes by choosing an embedded engine (LadybugDB on Arrow CSR or Grafeo over a read-only `.eg` store) and bridging to it, not by our own parser; review in `docs/research/sota-review-2026-11.md`.
-
-**Pace from 2026-11-26 evening (owner):** finish the pull requests in flight, then no new implementation until an official measurement window has run (harness A/A, reference runs on orkut, the official specs of the merged kernels). Opus medium by default, high only for kernels, formats and concurrent code.
 
 **Open decision trigger:** ADR 0004 (compressed adjacency by default). Point queries read neighbours 2.1–2.5× slower compressed than raw on orkut at 16 threads (PR #307, exploratory, loaded machine), above the ADR's 1.5× threshold. The idle-machine run of m7-08 decides it; a result above 1.5× means a new ADR.
 
