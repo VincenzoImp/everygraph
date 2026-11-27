@@ -149,15 +149,84 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --locked
 
-  # Runs even when lint failed (its flags are set by then), because test results are the
-  # feedback a red pull request needs most. The portability checks live here: their work
-  # is seconds, and a job of their own cost a whole billed minute every run.
-  test:
-    name: Tests, wasm32 builds, wasm toy, portability canary (release build, i686 when needed)
+  # The test jobs run even when lint failed (its flags are set by then), because test
+  # results are the feedback a red pull request needs most.
+  build:
+    name: Build the tests; doc tests; core without default features
     needs: lint
     if: ${{ !cancelled() && needs.lint.outputs.test == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      # The oracle's own tests run when the oracle job does: the oracle crate has no
+      # workspace dependency, so only its own files can break them, and those switch the
+      # oracle flag on. A manifest change (a dependency) runs them too: the msrv job skips
+      # its own run while the minimum is the current stable. Its seeded-bug tests run in
+      # the oracle job only (.config/nextest.toml).
+      - name: nextest archive
+        env:
+          EXCLUDE: ${{ needs.lint.outputs.oracle != 'true' && needs.lint.outputs.msrv != 'true' && '--exclude everygraph-oracle' || '' }}
+        run: cargo nextest archive --workspace $EXCLUDE --locked --archive-file "$RUNNER_TEMP/tests.tar.zst"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests
+          path: ${{ runner.temp }}/tests.tar.zst
+          retention-days: 1
+          compression-level: 0
+      - name: Doc tests (nextest does not run them)
+        run: cargo test --workspace --doc --locked
+      - name: cargo test (core, no default features)
+        run: cargo test -p everygraph-core --no-default-features --locked
+
+  # The archive is unpacked where the build job built it, so that the paths compiled into
+  # the tests (`CARGO_BIN_EXE_*`, `CARGO_TARGET_TMPDIR`) hold.
+  test:
+    name: test ${{ matrix.partition }}/4
+    needs: [lint, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest@0.9.152
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests
+          path: ${{ runner.temp }}
+      - name: nextest
+        run: >-
+          cargo nextest run --archive-file "$RUNNER_TEMP/tests.tar.zst"
+          --workspace-remap . --extract-to . --extract-overwrite
+          --partition hash:${{ matrix.partition }}/4
+
+  wasm:
+    name: wasm32 builds and clippy, the wasm toy and codec in Node
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.test == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -171,22 +240,6 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: cargo-nextest@0.9.152
-      # The oracle's own tests run when the oracle job does: the oracle crate has no
-      # workspace dependency, so only its own files can break them, and those switch the
-      # oracle flag on. A manifest change (a dependency) runs them too: the msrv job skips
-      # its own run while the minimum is the current stable. Its seeded-bug tests run in
-      # the oracle job only (.config/nextest.toml).
-      - name: cargo nextest (workspace)
-        env:
-          EXCLUDE: ${{ needs.lint.outputs.oracle != 'true' && needs.lint.outputs.msrv != 'true' && '--exclude everygraph-oracle' || '' }}
-        run: cargo nextest run --workspace $EXCLUDE --locked
-      - name: Doc tests (nextest does not run them)
-        run: cargo test --workspace --doc --locked
-      - name: cargo test (core, no default features)
-        run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
         run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
       - name: wasm32 build (everygraph-ingest)
@@ -214,6 +267,26 @@ jobs:
       # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
       - name: Adjacency codec, simd128 in Node against scalar, same as native
         run: python3 tools/check_wasm_codec.py
+
+  readers:
+    name: Independent readers and the Python package
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.test == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          node --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The .eg container: an independent Python reader, written from the specification,
       # lists and verifies a file the Rust writer made (#28).
       - name: Container, Python reader against the Rust writer
@@ -238,33 +311,80 @@ jobs:
       # The Python package (#81): its wheel built by maturin, its tests against NetworkX.
       - name: Python package, built and tested
         run: tools/check_python_package.sh
-      # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
-      # fails if any probe is accepted.
+
+  # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
+  # fails if any probe is accepted.
+  canary:
+    name: Portability canary
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.test == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Portability canary
         run: python3 tools/check_portability_canary.py
-      # The release profile (fat LTO) is a minute of compilation and checks what a
-      # manifest or a profile can break: on main, nightly, full-ci, and when a manifest
-      # changed.
-      - name: Release build
-        if: needs.lint.outputs.msrv == 'true'
-        run: cargo build --workspace --release --locked
-      # Native tests with a 32-bit usize, with and without rayon (Miri covers the same
-      # tests without rayon, slowly). Linking for i686 needs the 32-bit C runtime.
-      - name: Install the i686 target and gcc-multilib
-        if: needs.lint.outputs.core == 'true'
+
+  # Native tests with a 32-bit usize, with and without rayon. Linking for i686 needs the
+  # 32-bit C runtime.
+  i686:
+    name: i686 tests (core, format)
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.test == 'true' && needs.lint.outputs.core == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust, the i686 target and gcc-multilib
         run: |
-          rustup target add i686-unknown-linux-gnu
+          rustup toolchain install stable --profile minimal --target i686-unknown-linux-gnu
+          rustup default stable
+          rustc --version
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends gcc-multilib
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo test (core, i686)
-        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --locked
       - name: cargo test (core, i686, no default features)
-        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-core --target i686-unknown-linux-gnu --no-default-features --locked
       - name: cargo test (format, i686)
-        if: needs.lint.outputs.core == 'true'
         run: cargo test -p everygraph-format --target i686-unknown-linux-gnu --locked
+
+  # The release profile (fat LTO): what a manifest or a profile can break. Full runs only.
+  release:
+    name: Release build
+    needs: lint
+    if: ${{ !cancelled() && needs.lint.outputs.full == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Release build
+        run: cargo build --workspace --release --locked
 
   # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
   # scipy, the in-process references, the toy kernel, the seeded bugs and the golden files
@@ -536,3 +656,15 @@ jobs:
           path: ${{ runner.temp }}/no-oom-records.txt
           if-no-files-found: warn
 
+
+  # The one check a merge waits for: every job above passed or was not needed.
+  ci-ok:
+    name: ci-ok
+    needs: [lint, build, test, wasm, readers, canary, i686, release, oracle, msrv, sanitizers, no-oom]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: A job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
