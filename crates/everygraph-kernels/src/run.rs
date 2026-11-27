@@ -353,8 +353,9 @@ impl From<MemoryError> for RunError {
     }
 }
 
-const ONE_SEGMENT: &str = "it needs per-node state of more than one segment, which this \
-     version does not run (#m3-15): more than 134,217,728 nodes";
+const ONE_SEGMENT: &str = "it needs per-node state of more than one segment (more than \
+     134,217,728 nodes), which this version does not run; \
+     https://github.com/VincenzoImp/everygraph/issues/169 lifts this limit";
 
 const NEEDS_IN_LISTS: &str =
     "on a directed graph it needs the in-adjacency, which this file does not hold";
