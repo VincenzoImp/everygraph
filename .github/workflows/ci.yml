@@ -136,6 +136,14 @@ jobs:
       # is the point; the nightly run hears of one without a push.
       - name: cargo deny
         run: cargo deny --locked check
+      # Lab experiments keep the lock they were measured with; the rest builds today.
+      - name: Nested lock files outside lab/ are current
+        run: |
+          find . -name Cargo.lock -not -path ./Cargo.lock -not -path './lab/*' -not -path '*/target/*' |
+            while read -r lock; do
+              cargo metadata --locked --format-version 1 --manifest-path "$(dirname "$lock")/Cargo.toml" >/dev/null ||
+                { echo "::error::$lock is stale: run cargo update --workspace in $(dirname "$lock")"; exit 1; }
+            done
       - name: cargo doc
         env:
           RUSTDOCFLAGS: -D warnings
