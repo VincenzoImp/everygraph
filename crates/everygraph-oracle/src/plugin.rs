@@ -312,7 +312,7 @@ impl Prepared {
 /// Kernels the Python side computes (`oracle/src/everygraph_oracle_ref/refs.py`).
 #[must_use]
 pub const fn python_computes(kernel: &Kernel) -> bool {
-    !matches!(kernel, Kernel::Adjacency | Kernel::Quotient)
+    !matches!(kernel, Kernel::Quotient)
 }
 
 /// Options of a harness run.

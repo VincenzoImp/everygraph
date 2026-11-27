@@ -13,9 +13,9 @@ Tracking issue for milestone M6.
 
 **Exit criteria**
 - [ ] {{#m6-01-python-api}}, {{#m6-02-wheels}}, {{#m6-03-arrow-interop}}, {{#m6-04-in-memory-constructors}}
-- [ ] {{#m6-05-import-export}}, {{#m6-07-subgraph-bridge}}, {{#m6-10-communities-python}}
+- [ ] {{#m6-05-import-export}}, {{#m6-10-communities-python}}
 - The NetworkX backend ({{#m6-06-networkx-backend}}) was moved to M9 by an approved design choice
-- [ ] {{#m6-08-tutorials}}
+- The subgraph bridge and the tutorials moved to M7 ({{#m7-09-subgraph-bridge}}, {{#m7-10-tutorials}}): they need the point queries, shortest paths, views and temporal views of M7
 - [ ] {{#m6-09-api-gaps}} — names for the API gaps the literature review found, before the 0.1 freeze
 - [ ] Map in the notebook: {{#m5-10-jupyter-widget}} (needs the viewer from M5)
 - [ ] Milestone close (CLAUDE.md § 6, § 10): the dogfood pass, the cleanup and test audit, the official measurement window, and the report `docs/reports/M6.md`. Its issues are filed when the last P0 of the milestone starts

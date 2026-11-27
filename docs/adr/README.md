@@ -76,7 +76,7 @@ A measurable condition.
 | [0001](0001-rust-core.md) | Rust core, no C/C++ dependencies in the core | accepted | — |
 | [0002](0002-portable-core.md) | A core portable by construction | accepted | — |
 | [0003](0003-dense-u32-ids.md) | Dense u32 node ids by default | accepted | — |
-| [0004](0004-compressed-adjacency-default.md) | Compressed adjacency is the default storage (amended by #118: five conditions) | accepted, partly validated | #46, #240, #24, #90 |
+| [0004](0004-compressed-adjacency-default.md) | Compressed adjacency is the default storage (amended by #118: five conditions) | accepted, partly validated | #46, #240, #24, #337 |
 | [0005](0005-webgraph-optional.md) | webgraph-rs is an optional feature | accepted | — |
 | [0006](0006-in-adjacency.md) | Directed graphs store out- and in-adjacency | accepted | — |
 | [0007](0007-eg-container.md) | One `.eg` file per graph; maps as PMTiles (amended by #28: specified and validated) | accepted | — |

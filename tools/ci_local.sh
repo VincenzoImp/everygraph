@@ -36,6 +36,7 @@ step clippy-format-wasm cargo clippy -p everygraph-format --target wasm32-unknow
 step clippy-format-simd128 env RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 step clippy-map-wasm cargo clippy -p everygraph-map --target wasm32-unknown-unknown -- -D warnings
+step clippy-query-wasm cargo clippy -p everygraph-query --target wasm32-unknown-unknown -- -D warnings
 step deny cargo deny check
 step doc env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 step canary python3 tools/check_portability_canary.py

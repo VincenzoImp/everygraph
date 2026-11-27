@@ -34,7 +34,8 @@ use super::{Error, ix};
 
 /// Lists of a graph, read in node order (scans) or by node (frontiers).
 ///
-/// Only the drivers of [`Plan`](super::Plan) call these methods. Each worker holds a
+/// The drivers of [`Plan`](super::Plan) call these methods, and so do the point queries
+/// of `everygraph-query`, which read a few lists by random access. Each worker holds a
 /// [`Reader`](Self::Reader): the buffers that lists are decoded or read into, reserved
 /// against the memory budget. A list comes with its first entry: the entries before it in
 /// node order, which index the graph's per-entry columns (weights, for example).
@@ -54,7 +55,8 @@ use super::{Error, ix};
 /// - [`scan`](Self::scan), [`scan_prefixes`](Self::scan_prefixes) and
 ///   [`degrees`](Self::degrees) call `filter` and `f` only with a `v` in the range
 ///   `nodes`. [`lists`](Self::lists) calls `f` only with a `v` that
-///   is an element of `nodes`. [`list`](Self::list) returns only for `v < nodes()`.
+///   is an element of `nodes`. [`list`](Self::list) and [`list_part`](Self::list_part)
+///   return only for `v < nodes()`.
 pub unsafe trait Source: Sync {
     /// Per-worker state: the buffers lists are decoded or read into.
     type Reader: Send;
@@ -91,6 +93,12 @@ pub unsafe trait Source: Sync {
     ///
     /// [`Error::Memory`] if its buffers do not fit in the budget.
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<Self::Reader, Error>;
+
+    /// The most a reader made with `batch` reserves beyond what it holds when made, to
+    /// hand out one list of `entries` entries by [`list`](Self::list), or parts of at
+    /// most `part` entries of it by [`list_part`](Self::list_part) (`part` is `entries`
+    /// for `list`): a bound a caller adds up before it reads.
+    fn list_bytes(&self, entries: u64, part: u64, batch: usize) -> u64;
 
     /// Called with the nodes of a scan's task before [`scan`](Self::scan) is called for
     /// its blocks, in order. A reader that reads ahead stops at the task's end. The
@@ -165,9 +173,9 @@ pub unsafe trait Source: Sync {
     /// As [`scan`](Self::scan).
     fn list<'r>(&'r self, reader: &'r mut Self::Reader, v: u32) -> Result<(u64, &'r [u32]), Error>;
 
-    /// Entries `from..to` of the list of `v`, where `prev` is entry `from − 1` as this
-    /// source handed it out, `from` is a multiple of four with `4 ≤ from < to`, and `to`
-    /// is at most the degree. A source that decodes then decodes no more of the list;
+    /// Entries `from..to` of the list of `v`, where `from` is a multiple of four,
+    /// `from < to ≤ degree`, and, if `from > 0`, `prev` is entry `from − 1` as this
+    /// source handed it out. A source that decodes then decodes no more of the list;
     /// the default reads all of it.
     ///
     /// # Errors
@@ -316,6 +324,10 @@ unsafe impl Source for Csr<'_> {
 
     fn entry_offset(&self, v: u32) -> u64 {
         self.offsets[ix(v.into())]
+    }
+
+    fn list_bytes(&self, _: u64, _: u64, _: usize) -> u64 {
+        0
     }
 
     fn reader(&self, _: &Memory, _: usize, _: usize) -> Result<(), Error> {
@@ -490,6 +502,10 @@ unsafe impl Source for RawCopy {
 
     fn entry_offset(&self, v: u32) -> u64 {
         self.at()[ix(v.into())]
+    }
+
+    fn list_bytes(&self, _: u64, _: u64, _: usize) -> u64 {
+        0
     }
 
     fn reader(&self, _: &Memory, _: usize, _: usize) -> Result<(), Error> {
@@ -669,7 +685,8 @@ impl DecodeReader {
     }
 
     /// Entries `from.0..to` of the list of `v` of `adjacency`, given entry `from.0 − 1`
-    /// (`from.1`), checked ([`Adjacency::decode_part`]).
+    /// (`from.1`), checked: a prefix for `from.0 == 0`
+    /// ([`Adjacency::decode_prefixes`]), else [`Adjacency::decode_part`].
     pub(super) fn part(
         &mut self,
         adjacency: &Adjacency<'_>,
@@ -677,10 +694,17 @@ impl DecodeReader {
         from: (usize, u32),
         to: usize,
     ) -> Result<&[u32], Error> {
+        // Both decodes grow the batch to this.
         self.make_room(adjacency.part_entries(from.0, to), 1)?;
         let n = adjacency.index().nodes();
-        let checked = adjacency
-            .decode_part(NodeId::new(v), from, to, &mut self.batch)
+        let decoded = if from.0 == 0 {
+            adjacency
+                .decode_prefixes(v..v + 1, to, |_| true, to, &mut self.batch)
+                .map(|_| ())
+        } else {
+            adjacency.decode_part(NodeId::new(v), from, to, &mut self.batch)
+        };
+        let checked = decoded
             .map_err(Error::from)
             .and_then(|()| check(&self.batch, v, v + 1, n));
         if checked.is_err() {
@@ -698,6 +722,15 @@ impl DecodeReader {
             f(v.get(), entry, list);
             entry += list.len() as u64;
         }
+    }
+
+    /// The most a reader's batch holds for one list, or part of a list, of `entries`
+    /// entries: its targets with the decoders' slack, and the ends of one list. A batch
+    /// that grows gives its old buffers back first (`make_room`).
+    pub(super) fn batch_bytes(entries: u64) -> u64 {
+        const SLACK: u64 = 3;
+        let entries = usize::try_from(entries.saturating_add(SLACK)).unwrap_or(usize::MAX);
+        u64::try_from(Batch::bytes_for(entries, 1)).unwrap_or(u64::MAX)
     }
 
     /// Entries per batch, about.
@@ -737,14 +770,17 @@ impl DecodeReader {
         Ok(())
     }
 
-    /// Frees the batch beyond its usual size.
+    /// Frees a batch that grew beyond its usual size, and makes room as a new reader
+    /// does. It is freed, not shrunk: a shrinking reallocation may hold the old and the
+    /// new buffer at once, and only the old one is reserved.
     pub(super) fn release(&mut self) {
         let usual = self.max_entries.saturating_add(8);
         let (entries, lists) = self.batch.capacity();
         if entries > usual || lists > self.lists {
-            self.batch.shrink_to(usual, self.lists);
-            self.held
-                .shrink(self.held.bytes() - self.batch.heap_bytes() as u64);
+            self.batch.shrink_to(0, 0);
+            self.held.shrink(self.held.bytes());
+            // Refused, the batch stays empty, and the next decode reserves its room.
+            let _ = self.make_room(0, self.lists);
         }
     }
 }
@@ -850,6 +886,10 @@ unsafe impl Source for Compressed<'_> {
         for (v, d) in nodes.clone().zip(self.adjacency.index().degrees(nodes)) {
             f(v, d);
         }
+    }
+
+    fn list_bytes(&self, _: u64, part: u64, _: usize) -> u64 {
+        DecodeReader::batch_bytes(part)
     }
 
     fn reader(&self, memory: &Memory, batch: usize, lists: usize) -> Result<DecodeReader, Error> {
@@ -1089,6 +1129,12 @@ unsafe impl Source for Stream<'_> {
 
     fn entry_offset(&self, v: u32) -> u64 {
         self.offsets[ix(v.into())]
+    }
+
+    /// The bytes read and the lists they hold of the whole list: 8 bytes an entry. A
+    /// buffer that grows is moved, and the old one is given back as the new one is taken.
+    fn list_bytes(&self, entries: u64, _: u64, _: usize) -> u64 {
+        entries.saturating_mul(8)
     }
 
     fn reader(&self, memory: &Memory, batch: usize, _: usize) -> Result<StreamReader, Error> {

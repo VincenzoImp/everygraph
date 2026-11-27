@@ -46,7 +46,9 @@ review, `docs/research/sota-review-2026-11.md` S13).
   and twitter-2010 the default costs 1.13–1.41× at p50 for bidirectional BFS and 2.5–4.2×
   (+0.02–0.11 µs per call, timer-free batch means) for neighbour lookups. The
   shared-machine figures above are 1.5–2.8× pessimistic. Point-query throughput at
-  16 threads on the default was not measured (#90).
+  16 threads on the default is measured only exploratory (the pull request of #90; lj and
+  orkut, loaded machine): neighbours 2.1–2.5× slower than raw on orkut without the decode
+  tier, 3-hop 1.0–1.2×; the idle-machine run is #337's.
 
 ## Consequences
 
