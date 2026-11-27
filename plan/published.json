@@ -164,6 +164,7 @@
  "m7-05-temporal": 94,
  "m7-06-duckdb-arrow": 95,
  "m7-07-distance-index": 96,
+ "m7-08-query-performance": 337,
  "m7-09-subgraph-bridge": 87,
  "m7-10-tutorials": 88,
  "m8-00-epic": 97,
