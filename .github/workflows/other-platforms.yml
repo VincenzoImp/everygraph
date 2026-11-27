@@ -1,11 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# macOS arm64, Windows x86_64 and Linux aarch64: on pull requests that touch the crates
-# whose code depends on the platform (the core, I/O, the on-disk format, ingest), weekly
-# on main, and by hand. Also the weekly security-advisory check of main (ci.yml's
-# nightly lint job checks advisories too; this one runs whatever happens to ci.yml).
-#
-# The repository is public, so standard runners are free.
+# macOS arm64, Windows x86_64 and Linux aarch64. A pull request that touches the crates
+# whose code depends on the platform (the core, I/O, the on-disk format, ingest) tests
+# those crates. A push to main, the weekly run and a run by hand test the workspace.
 #
 # Run it on a branch: gh workflow run other-platforms.yml --ref <branch>
 # One platform and one crate, while fixing one failure:
@@ -21,6 +18,16 @@ on:
       - "crates/everygraph-format/**"
       - "crates/everygraph-ingest/**"
       - ".github/workflows/other-platforms.yml"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "plan/**"
+      - "design/**"
+      - "lab/**"
+      - "bench/results/**"
+      - "LICENSE*"
   schedule:
     # Mondays 04:17 UTC (off the hour, when scheduled runs are less often delayed).
     - cron: "17 4 * * 1"
@@ -41,9 +48,12 @@ permissions:
 
 concurrency:
   # Per platform, so that a run by hand for macOS does not cancel one for Windows; a new
-  # push to a pull request cancels the run it supersedes.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.platform || 'all' }}
-  cancel-in-progress: true
+  # push to a pull request cancels the run it supersedes. Each push to main gets a group
+  # of its own.
+  group: >-
+    ${{ github.workflow }}-${{ github.ref }}-${{ inputs.platform || 'all' }}${{
+    github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -69,6 +79,13 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # The no-OOM suite (everygraph-memtest) measures Linux cgroups and the Linux
+      # allocator path, so it runs in ci.yml only.
+      PACKAGES: >-
+        ${{ inputs.packages || (github.event_name == 'pull_request'
+        && '-p everygraph-core -p everygraph-io -p everygraph-format -p everygraph-ingest'
+        || '--workspace --exclude everygraph-memtest') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,26 +98,16 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # The adjacency codec first, on its own: its SIMD decoder for the platform (NEON
-      # on arm64) is tested even when another crate's lints or tests fail.
-      - name: cargo test (format)
-        run: cargo test -p everygraph-format --release --locked
       # Clippy on each platform: it compiles code under that platform's `cfg`, which
       # the Linux lint runs never see.
-      - name: cargo clippy (${{ inputs.packages || '--workspace' }})
-        env:
-          PACKAGES: ${{ inputs.packages || '--workspace' }}
+      - name: clippy
         run: cargo clippy $PACKAGES --all-targets --locked -- -D warnings
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152
-      # nextest, so that the retries of .config/nextest.toml apply here too; it does not
-      # run doc tests, hence the second command.
-      # The no-OOM suite measures Linux cgroups and the Linux allocator path, so it runs in
-      # ci.yml only; on these runners it was the slowest test (over 180 s on Windows).
-      - name: cargo test (${{ inputs.packages || '--workspace' }})
-        env:
-          PACKAGES: ${{ inputs.packages || '--workspace --exclude everygraph-memtest' }}
+      # The adjacency codec's tests run its SIMD decoder for the platform (NEON on
+      # arm64). nextest does not run doc tests, hence the second command.
+      - name: nextest
         run: |
           cargo nextest run $PACKAGES --no-tests=warn --locked
           cargo test $PACKAGES --doc --locked
@@ -108,18 +115,3 @@ jobs:
         run: cargo test -p everygraph-core --no-default-features --locked
       - name: wasm32 build (core, no default features)
         run: cargo build -p everygraph-core --target wasm32-unknown-unknown --no-default-features --locked
-
-  advisories:
-    name: Security advisories (cargo deny)
-    if: github.event_name == 'schedule' || inputs.platform == 'all'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: cargo-deny@0.20.2
-      - name: cargo deny check advisories
-        run: cargo deny --locked check advisories
