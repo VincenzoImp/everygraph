@@ -13,7 +13,7 @@ Under the nesting constraint, the objective decomposes by region: modularity wit
 - [ ] Each oversized region is one job, with seed = hash(seed, region id), its own visiting order and its own stopping test
 - [ ] Small regions batched into one job by a size threshold that depends on the region, never on the budget or the thread count; one large region at a time bounds memory
 - [ ] Jobs scheduled in parallel, results committed in region order, so the output is identical at any thread count and budget
-- [ ] The objective inside a region stays the one of {{#m4-07-map-hierarchy}} (full-degree null model); CPM as an option once {{#m4-02-weights-resolution}} provides it
+- [ ] The objective inside a region stays the one of {{#m4-07-map-hierarchy}} (full-degree null model); CPM as an option, from {{#m4-02-weights-resolution}} (PR #294)
 
 **Acceptance**
 - Rerunning PR #162's independence check (`dev_independence.py`) on lj and web-google gives identical sub-partitions for a region alone and in the union

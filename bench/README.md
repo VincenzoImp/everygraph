@@ -9,6 +9,8 @@ and result formats.
 |---|---|---|
 | `specs/*.toml` | Benchmark specs: what to run, on what, under which limits | yes |
 | `results/<spec>/<timestamp>-<revision>.jsonl` | Rows of **official** runs | yes: every number quoted in a document cites one of these files |
+| `results/<spec>/<timestamp>-<revision>.program.jsonl` | What the program under test logged during an official run, collected next to its rows (`lab/m1-02-ooc-leiden/collect_program.py`) | yes |
+| `results/<spec>/exploratory/…` | Exploratory rows that a pull request, an issue or an ADR cites as evidence | yes, only the cited ones |
 | `exploratory/<spec>/…` | Rows of exploratory runs | no (ignored) |
 | `runners/` | Comparison runners for other tools: a `uv`-locked Python project | yes (not `.venv/`) |
 | `references/` | What the `references` spec builds and runs: `build.sh` (the C++ tools from pinned sources), drivers for GAP, GBBS and ConnectIt, Parallel-KCore and PASGAL, `eg-driver` (Everygraph's kernels), `cost-line` (the COST line) and `pin.sh` | yes |

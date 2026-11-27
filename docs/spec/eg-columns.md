@@ -246,7 +246,7 @@ empty and holds no `/`, says what its rows are:
 The role comes after a scope without `/` and before the column's name, so that no
 column name can make one section's name equal another's.
 
-**What the build (#35) stores.**
+**What the build stores** (#35, #246).
 
 - **Hot columns** — the weight, the time and the edge type declared at `eg.read` — are
   stored aligned with each adjacency: in the out-adjacency, and in the in-adjacency of a

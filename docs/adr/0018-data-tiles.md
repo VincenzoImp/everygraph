@@ -50,14 +50,16 @@ load; `lab/e-map/results/tiles_lj_t32.json`, `lab/e-map/results/tiles_orkut_t32.
 
 ## Consequences
 
-- #68 specifies the tile format, #69 builds tiles, #71 the viewer, #74 live mode.
+- The tile format is `docs/spec/egmap.md` (#68); #69 builds tiles, #71 the viewer, #74
+  live mode.
 - The edge strategy is a separate decision fed by #20.
 - The first-view target of DESIGN § 6 (< 250 KB for a 1 B-edge graph) is checked on the
   Friendster tracer (#15), not assumed from lj.
 
 ## What would change our mind
 
-- #26 shows integrated GPUs cannot hold 30 fps with data tiles under any per-frame cap,
+- #77 shows integrated GPUs cannot hold 30 fps with data tiles under any per-frame cap
+  (#26 set the software-renderer caps, `design/DECISIONS.md`),
   so an overview of pre-rendered pixels becomes necessary.
 - #15 measures a first view above 250 KB on Friendster. *(2026-11-25: it measured
   163,184 B; this did not fire.)*

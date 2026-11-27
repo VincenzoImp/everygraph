@@ -64,9 +64,8 @@ hierarchy artifact (#62) ─► map hierarchy (#63) ─► layout (#67)
 Beside it, and needed before the release:
 
 - the engine under a budget: the allocator policy (#167);
-  the semi-external source (#46); the determinism checks in CI (#54); weights (#58), then
-  Leiden beyond RAM (#60);
-- the tile builder (#69) on the specified map file (`docs/spec/egmap.md`, #68);
+  the semi-external source (#46); the determinism checks in CI (#54); Leiden beyond RAM
+  (#60);
 - queries: point queries (#90), shortest paths (#91), views (#93);
 - the packages: Python API (#81), Arrow interop (#83), wheels (#82), the rest of the
   command line (#247);
@@ -76,13 +75,13 @@ To Graphalytics eligibility (#209):
 
 ```
 semi-external source (#46)
-  ─► LCC (#51), CDLP (#65), BFS and SSSP past RAM (#240) ─► block cache (#178) ─► #209
+  ─► LCC (#51), CDLP (#65), BFS and SSSP past RAM (#240) ─► #209
 ```
 
-Three items on these paths need people or hardware this host does not have: the edge
-tasks with three to five users (#20), the usability check of the viewer (#72), and the
-frame budgets on an integrated GPU and on Safari (#26). They are listed in
-`docs/STATE.md`, "Needs the owner's hands".
+No item on these paths waits for people or hardware this host does not have. Usability
+and viewer checks are agent-driven sessions, and integrated GPUs are bounded by software
+rendering; studies with people and runs on other hardware are advisable after 0.1, never
+a gate (`design/DECISIONS.md`, "Usability, accessibility and hardware checks").
 
 ## Effort
 

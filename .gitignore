@@ -3,28 +3,42 @@
 # named `targets`.
 target/
 **/target-*/
+
+# Python and Node environments and caches
 .venv*/
-# Downloads of the correctness oracle (golden-file sources), see oracle/README.md.
-oracle/.cache/
 node_modules/
 __pycache__/
 *.pyc
-.claude/settings.local.json
-.claude/worktrees/
+.pytest_cache/
+# The native module that `maturin develop` puts beside the Python package.
+crates/everygraph-py/python/everygraph/*.so
+
+# Profiler output (perf, cargo-flamegraph) and LLVM coverage data
+perf.data
+perf.data.old
+flamegraph.svg
+*.profraw
+*.profdata
+
+# Downloads of the correctness oracle (golden-file sources), see oracle/README.md.
+oracle/.cache/
 
 # The default data root of `everygraph-bench fetch` when $EVERYGRAPH_DATA is not set
 # (datasets/README.md). Datasets are never committed.
 /data/
+
+# Benchmark harness: work directory (builds, inputs, cold-cache copies, logs) and
+# exploratory results. Official results, and the exploratory rows a document cites,
+# go under bench/results/ and are committed (bench/README.md).
+/bench/work/
+/bench/exploratory/
+
+# Claude Code: local settings and agents' worktrees
+.claude/settings.local.json
+.claude/worktrees/
 
 # Editors and operating systems
 .idea/
 .vscode/
 *.swp
 .DS_Store
-
-# Benchmark harness: work directory (builds, inputs, cold-cache copies, logs) and
-# exploratory results. Official results under bench/results/ are committed.
-/bench/work/
-/bench/exploratory/
-# The native module that `maturin develop` puts beside the Python package.
-crates/everygraph-py/python/everygraph/*.so

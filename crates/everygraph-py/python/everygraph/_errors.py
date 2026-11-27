@@ -210,7 +210,7 @@ def raise_native(
     if cls == "InsufficientBudget":
         budget = f["budget_bytes"]
         # The budget that holds the refused step; the smallest budget for the whole call
-        # (`smallest_budget_bytes`, M-5) needs the planner (#45), so it stays unknown.
+        # (`smallest_budget_bytes`, M-5) does not follow from one refused step: unknown.
         step = budget - f["available_bytes"] + f["needs_bytes"]
         ways = []
         if "temp_dir" in f:

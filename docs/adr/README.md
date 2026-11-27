@@ -81,7 +81,7 @@ A measurable condition.
 | [0006](0006-in-adjacency.md) | Directed graphs store out- and in-adjacency | accepted | — |
 | [0007](0007-eg-container.md) | One `.eg` file per graph; maps as PMTiles (amended by #28: specified and validated) | accepted | — |
 | [0008](0008-id-dictionary.md) | ID dictionary: typed keys and minimal perfect hash | accepted, partly validated | #25 |
-| [0009](0009-property-columns.md) | Properties as Arrow-compatible columns | accepted, partly validated | #240, `m2-34-build-columns` |
+| [0009](0009-property-columns.md) | Properties as Arrow-compatible columns | accepted, partly validated | #240 |
 | [0010](0010-views-mask-or-materialize.md) | Views: mask or materialize | open — needs experiment | #93 |
 | [0011](0011-execution-regimes.md) | Three execution regimes chosen by O(n) state (result of #16 added; regime 2 for random access amended by 0029) | accepted, partly validated | #60, #46, #240 |
 | [0012](0012-edge-map-framework.md) | One edge-map framework | accepted, partly validated | #240 |
@@ -100,7 +100,7 @@ A measurable condition.
 | [0025](0025-user-facing-choices.md) | User-facing choices live in `design/DECISIONS.md` | accepted | — |
 | [0026](0026-ingest-rate-and-the-drive.md) | Promise 1's ingest rate, and the drive's sustained write rate | accepted, partly validated | #240, #186 |
 | [0027](0027-single-file-builds.md) | A graph is one file in every state; builds in progress use the job's scratch | accepted | — |
-| [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #240, `m2-34-build-columns` |
+| [0028](0028-pairs-and-events.md) | Pairs in the adjacency, events beside it (amends 0009; rules for appends) | accepted, partly validated | #240 |
 | [0029](0029-random-access-under-a-budget.md) | Random access under a budget: an explicit cache, not plain mmap (amends 0011, regime 2) | accepted | #240 |
 
 `docs/tools/check_adrs.py` checks that this index, the ADR files and the decision table of

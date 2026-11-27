@@ -354,14 +354,6 @@ Three tests then cover it:
 From M2 the minimal Python binding can be checked the same way through the external
 protocol.
 
-Two things the toy does not need and an engine kernel will:
-
-- **A way to set the thread count of `everygraph_core::par`'s pool from a test.** Only
-  `everygraph-core` may depend on rayon (deny.toml), so this needs a small API in the
-  core, or a test-only exception.
-- **The storage and regime axes**, which mean something only once the codec (#30) and
-  the I/O backends (#29) exist.
-
 ## Seeded bugs
 
 `toy.rs` is a chunked, threaded kernel with five switchable bugs. `everygraph-oracle

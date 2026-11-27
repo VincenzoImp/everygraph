@@ -8,9 +8,9 @@ using all the hardware it is given, and staying inside the memory budget it is g
 > repository holds the product and architecture baseline, the evidence from a feasibility
 > lab, the prototypes that produced it, the full work plan as GitHub milestones and
 > issues, and the first production crates: the file format, I/O, the readers and the
-> graph build, the first kernels, a command line (`ingest`, `verify`, `run`, `info`,
-> `export`, `compact`), and a first slice of the Python package (built from source;
-> nothing is published).
+> graph build, the first kernels, Leiden and the map hierarchy as a library, a command
+> line (`ingest`, `verify`, `run`, `info`, `export`, `compact`), and a first slice of the
+> Python package (built from source; nothing is published).
 
 ![A map of com-Orkut (3.1 M nodes, 117 M edges) from the lab prototype](docs/img/map-overview-orkut.png)
 
@@ -85,7 +85,8 @@ iteration on the 1.8 B-edge graph runs under a 16 GiB limit at 1.17× and under 
 0 disconnected communities, the deterministic partition identical to the in-RAM one), but
 only that graph and one iteration were measured. Also open: the quality of the map's
 edges on dense graphs, and the cost of determinism. A map hierarchy with bounded fan-out
-works in the lab (`docs/FINDINGS.md` § M1-05), not yet in the product. The headline
+works in the lab (`docs/FINDINGS.md` § M1-05); the product builds and stores one, but its
+layout quality is not yet checked (#63). The headline
 "1.8 B edges to a map on a 16 GB laptop" has not been run end to end: the tile builder
 does not yet fit 16 GiB, and the layout fits only with the graph memory-mapped. Each open
 problem and the issue that owns it are in
@@ -94,13 +95,15 @@ problem and the issue that owns it are in
 ## Building
 
 The Rust workspace holds the crate layout, the coding rules, the portable core
-(`crates/everygraph-core`), and the first product pieces: the `.eg` container, the
-compressed adjacency and the property columns (`everygraph-format`), the I/O layer
-(`everygraph-io`), the text reader, the identifier dictionary and the graph build
-(`everygraph-ingest`), the edge-map framework with PageRank, BFS, SSSP, components, core
-numbers and degrees (`everygraph-kernels`), the `everygraph` command with `ingest`,
-`verify`, `run`, `info`, `export` and `compact` (`everygraph-cli`), and the Python package
-`everygraph` (`everygraph-py`). The
+(`crates/everygraph-core`, with the memory accountant and the block cache), and the first
+product pieces: the `.eg` container, the compressed adjacency and the property columns
+(`everygraph-format`), the I/O layer (`everygraph-io`), the text reader, the identifier
+dictionary and the graph build (`everygraph-ingest`), the edge-map framework with
+PageRank, BFS, SSSP, weak and strong components, core numbers and degrees, and the planner
+(`everygraph-kernels`), Leiden and the map hierarchy (`everygraph-community`), the
+`.egmap` file format (`everygraph-map`), the `everygraph` command with `ingest`, `verify`,
+`run`, `info`, `export` and `compact` (`everygraph-cli`), and the Python package
+`everygraph` (`everygraph-py`). CONTRIBUTING.md, "Crates", says what each crate owns. The
 Rust crates need Rust 1.100 or newer and nothing else; the Python package also needs
 Python 3.10 or newer (`tools/check_python_package.sh` builds and tests it with uv and
 maturin).
@@ -116,13 +119,37 @@ the core, integer widths, `unsafe`, licences), are in [CONTRIBUTING.md](CONTRIBU
 
 ## Where to look
 
-- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 25 decisions with their evidence (one ADR each under `docs/adr/`; ADR 0026 words promise 1)
-- [docs/FINDINGS.md](docs/FINDINGS.md) — what the lab measured, including negative results
+Documents, in the order that settles a disagreement between them (CLAUDE.md § 1):
+
+- [docs/DESIGN.md](docs/DESIGN.md) — product, architecture and 25 decisions (D1–D25)
+  with their evidence; each has an ADR under [docs/adr/](docs/adr/README.md), and ADRs
+  0026 on record decisions outside D1–D25
+- [design/DECISIONS.md](design/DECISIONS.md) and [design/preview/](design/preview/README.md)
+  — what a user sees and types, as approved; [docs/api-sketch.md](docs/api-sketch.md)
+  (the Python, Rust and command-line surface) and [docs/ux-contract.md](docs/ux-contract.md)
+  (preflight, progress, stopping and messages)
+- [docs/spec/](docs/spec/) — the file formats and the graph semantics
+- [docs/FINDINGS.md](docs/FINDINGS.md) — what the lab measured, including negative results;
+  the literature reviews are in [docs/research/](docs/research/README.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md) — the two goals, the milestones and the critical path
-- [docs/STATE.md](docs/STATE.md) — where the project is now
-- [plan/](plan/) — every issue as a file, and the script that publishes them
-- [crates/](crates/) — the Rust workspace; rules in [CONTRIBUTING.md](CONTRIBUTING.md)
-- [lab/](lab/) — the prototypes behind the numbers (research code, not the product)
+- [plan/](plan/) — every issue as a file, and the scripts that publish them and keep the
+  board in step
+- [CONTRIBUTING.md](CONTRIBUTING.md) — the checks, CI, the crates and the coding rules
+- [docs/STATE.md](docs/STATE.md) — where the project is now; milestone reports are in
+  [docs/reports/](docs/reports/)
+
+Code and data:
+
+- [crates/](crates/) — the Rust workspace: the product crates and the development crates
+  (harness, oracle, no-OOM and determinism suites)
+- [bench/](bench/README.md) — benchmark specs, official results and reference drivers
+- [oracle/](oracle/README.md) — the correctness oracle's Python references and golden files
+- [datasets/](datasets/README.md) — the dataset registry (the data is never committed)
+- [tools/](tools/) — the scripts behind the checks in CONTRIBUTING.md; `docs/tools/` holds
+  the checks of the documents
+- [lab/](lab/README.md) — the prototypes and experiments behind the numbers (research
+  code, not the product; its README says which are frozen)
+- [docs/legal/](docs/legal/README.md) — the name and patent checks
 
 ## Licence
 

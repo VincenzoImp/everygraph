@@ -233,7 +233,7 @@ the remaining global gap in #21.**
   orkut it closes about a third of the global gap: Spearman goes from 0.03 to 0.33, against
   DRGraph's 0.55. That is as much as a start from DRGraph's own layout gives, without the
   919 s. The lab version is `lab/e-map/gmap/src/stress.rs` (150 lines). #67 / m5-01 should
-  take it, once #21 has settled the area question.
+  take it; #21 answered the area question (`lab/m1-07-layout-area/results/README.md`).
 - **Narrow the claims in D17 and ADR 0017.** Distances between large regions carry little
   or no information: Spearman 0.03, with the top crossing edges as long as random pairs. Do
   not judge D17 on the mean or p90 edge ratio alone. Replace the orkut-median trigger,

@@ -21,7 +21,7 @@ of the file cached it never stops. Under `memory.max` the extra pages push out p
 are still needed.
 
 The research proposed two fixes: a budgeted block cache over `ByteSource` (C1) and better
-mmap hints now (C5). Experiment m1-15 (#172, its lab pull request merged on 2026-11-26) tested both on Friendster.
+mmap hints now (C5). Experiment m1-15 (#172) tested both on Friendster.
 This ADR records what it found and what we do now. Every run of m1-15 was on a shared
 machine. The decision rests on the bytes read, which do not depend on the load; the times
 are exploratory. The official `mmap-hints` run (the commands at the end of
@@ -37,8 +37,9 @@ anonymous memory reserved from `Budget`, evicts with CLOCK, and reads misses wit
 reclaim cannot take it. mmap stays for warm data (regime 1) and for scans, including
 scans under pressure.
 
-**Until the cache exists (m2-23, #178), a random-access phase whose working set exceeds
-its budget uses `MADV_RANDOM`.** The advice is set per phase, not per run, and is reset to
+**Where the cache is not shown to read fewer bytes at equal memory, a random-access phase
+whose working set exceeds its budget uses `MADV_RANDOM`** (on local files, on the evidence
+of "The cache as built", below). The advice is set per phase, not per run, and is reset to
 `MADV_NORMAL` before a scan phase. It is **never** set when the working set fits the
 budget. `MADV_SEQUENTIAL` was not tested and is not part of this decision.
 
@@ -150,7 +151,7 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
 ## Consequences
 
 - **m2-23 (#178), the block cache,** is built, with asynchronous read-ahead of the next
-  blocks (a reader pool over `pread`, or io_uring) from the start, not as a later step.
+  blocks (a pool of `pread` threads) from the start, not as a later step.
   Its acceptance includes: **level-0 local moving on Friendster at 8 GiB within 1.5× of
   the same algorithm in RAM**, measured as in m1-15 (16 threads, same session).
 - **Advice is chosen per phase.** The callers of `advise()` that m2-02 (#29) provided —
@@ -158,7 +159,7 @@ asynchronous read-ahead, no batching across blocks, no io_uring.
   — take the advice from the plan for each phase. The planner (m3-02, #45) sets
   `MADV_RANDOM` only for a random-access phase whose working set exceeds its budget,
   resets `MADV_NORMAL` for scans, and never advises random when the working set fits.
-  Once the cache exists, such a phase gets the cache instead.
+  Where the cache reads fewer bytes at equal memory, such a phase gets the cache instead.
 - **Access order is the bigger lever.** Every variant still reads the whole store once per
   sweep: about 62 GB, six reads of the 10.4 GB store for five sweeps and refinement. Only
   an order that reuses data across sweeps reads less: storage-order visits on relabelled
@@ -258,8 +259,8 @@ The in-RAM run took 115.2 s at load 16 (hash `753f4fff229657f6`, Q 0.57281).
 
 - The official `mmap-hints` run of the milestone window shows per-phase `MADV_RANDOM` does not cut the bytes read
   under 16G (layout) or 8G (Leiden local moving) by more than half, or makes local moving
-  slower than the default: the interim rule is dropped, and regime 2 for random access
-  waits for m2-23.
+  slower than the default: the advice is dropped, and regime 2 for random access uses the
+  cache.
 - m2-23 with asynchronous read-ahead cannot bring level-0 local moving at 8 GiB within
   1.5× of in RAM, and is not faster than per-phase `MADV_RANDOM` on the same run: the
   cache is kept only for sources that cannot be mapped, and regime 2 on local files is
@@ -270,6 +271,7 @@ The in-RAM run took 115.2 s at load 16 (hash `753f4fff229657f6`, Q 0.57281).
 
 ## Closed by
 
-Accepted on 2026-11-26 on the bytes read of m1-15. #240 built the block cache, and D11's
-text names it. Its time target, level-0 local moving at 8 GiB within 1.5× of in RAM, is
-not shown: the official run of the milestone window decides it (#240).
+Accepted on 2026-11-26 on the bytes read of m1-15. The block cache is built ("The cache
+as built", above), and D11's text names it. Its time target, level-0 local moving at
+8 GiB within 1.5× of in RAM, is not shown: the official run of the milestone window
+decides it (#240).
