@@ -61,14 +61,7 @@ M3 exit criteria.
 - `everygraph-bench run components-kcore --official --only engine-cc-compressed` at the next
   idle window: the lj and orkut compressed stores were never made in the window of
   2026-11-27 (fixed by #321).
-- `everygraph-bench run edge-map --official` after the PageRank fix: PageRank on the raw CSR
-  became 1.15–1.18× slower at 16 threads after #291 (`m3-22-performance-pass`).
-
-## Needs the owner's hands
-
-Nothing here blocks development today. Tell the owner when each becomes due, with
-everything prepared.
-
+- `everygraph-bench run edge-map --official`: PageRank on the raw CSR after #339 (0.92× of main at 16 threads, interleaved). The 1.18× between the official runs of 2026-11-26 and 2026-11-27 came from #220 (the bench times the production kernel, not the proof kernel), not from #291. Read the `pr32|pr64/source=raw` rows against the `lab` rows of the same run.
 - **Accounts with 2FA** on PyPI, crates.io and npm, at the first release. The names are
   reserved as 0.0.0 placeholders (crates `everygraph` and `everygraph-cli`, PyPI
   `everygraph`, npm `everygraph`).
