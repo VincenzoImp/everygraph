@@ -5,30 +5,13 @@
 # evidence that no bug is left: a claim about a fuzzer needs many long trials (Klees et
 # al., CCS'18), so these runs are never cited as one.
 #
-# - Every pull request and every push to main: each target's committed corpus runs once
-#   (`replay`, seconds of fuzzing after the build). Merge only when it is green.
-# - A pull request that changes a target's crate or the core: 5 minutes of fuzzing per
-#   target, one job each. Advisory: a crash it finds is a bug to fix before merging; a
-#   broken nightly toolchain is not.
-# - Nightly and by hand: 1 hour per target. The grown corpus, shrunk with `cmin`, is
-#   uploaded as an artifact; its new entries come back by pull request.
+# Nightly and by hand: 1 hour per target. The grown corpus, shrunk with `cmin`, is
+# uploaded as an artifact; its new entries come back by pull request. The replay of
+# every corpus and the 5-minute runs of a pull request are in ci.yml.
 
 name: Fuzz
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths-ignore: &docs-only
-      - "**.md"
-      - "docs/**"
-      - "plan/**"
-      - "design/**"
-      - "lab/**"
-      - "bench/results/**"
-      - "LICENSE*"
-  push:
-    branches: [main]
-    paths-ignore: *docs-only
   schedule:
     # 02:17 UTC, before ci.yml's nightly run.
     - cron: "17 2 * * *"
@@ -37,96 +20,13 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  replay:
-    name: Fuzz corpus replay
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    outputs:
-      format: ${{ steps.changes.outputs.fuzz_format }}
-      ingest: ${{ steps.changes.outputs.fuzz_ingest }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - name: Which crates changed
-        id: changes
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: python3 .github/scripts/ci_changes.py
-      # Before the install step, so that the cargo-fuzz it builds is new to the cache and
-      # gets saved (binaries already in ~/.cargo/bin at restore are left out). `shared-key`:
-      # with `key` the cache name also holds the job's name, and the campaign jobs, which
-      # run on pull requests only, never found a cache saved by main.
-      - &cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: fuzz
-          workspaces: |
-            crates/everygraph-format/fuzz -> target
-            crates/everygraph-ingest/fuzz -> target
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - &nightly
-        name: Install the pinned nightly and cargo-fuzz
-        run: |
-          rustup toolchain install "$(cat tools/nightly-toolchain)" --profile minimal
-          command -v cargo-fuzz || cargo install cargo-fuzz --version 0.13.2 --locked
-      - name: tools/fuzz.sh replay
-        run: tools/fuzz.sh replay
-
-  # One job per crate, so that each runs only when its crate changed.
-  campaign-format:
-    name: Fuzz ${{ matrix.target }} for 5 minutes (advisory)
-    needs: replay
-    if: github.event_name == 'pull_request' && needs.replay.outputs.format == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [adjacency, container, columns, hierarchy, egmap]
-    steps: &campaign
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - *cache
-      - *nightly
-      - name: tools/fuzz.sh run ${{ matrix.target }} 300
-        run: tools/fuzz.sh run "${{ matrix.target }}" 300
-      - &crashes
-        name: Upload what crashed
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: fuzz-artifacts-${{ matrix.target }}
-          path: crates/*/fuzz/artifacts/
-          if-no-files-found: ignore
-
-  campaign-ingest:
-    name: Fuzz ${{ matrix.target }} for 5 minutes (advisory)
-    needs: replay
-    if: github.event_name == 'pull_request' && needs.replay.outputs.ingest == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [text]
-    steps: *campaign
-
   nightly:
     name: Fuzz ${{ matrix.target }} for 1 hour
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -137,13 +37,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - *cache
-      - *nightly
+      # `shared-key`: ci.yml's fuzz jobs read the same cache.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: fuzz
+          workspaces: |
+            crates/everygraph-format/fuzz -> target
+            crates/everygraph-ingest/fuzz -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install the pinned nightly and cargo-fuzz
+        run: |
+          rustup toolchain install "$(cat tools/nightly-toolchain)" --profile minimal
+          command -v cargo-fuzz || cargo install cargo-fuzz --version 0.13.2 --locked
       - name: tools/fuzz.sh run ${{ matrix.target }} 3600, then cmin
         run: |
           tools/fuzz.sh run "${{ matrix.target }}" 3600
           tools/fuzz.sh cmin "${{ matrix.target }}"
-      - *crashes
+      - name: Upload what crashed
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: crates/*/fuzz/artifacts/
+          if-no-files-found: ignore
       - name: Upload the corpus
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
