@@ -1,10 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
 # A test that hangs (a deadlock, a wait that never ends) is reported as slow after a
-# minute and killed after five, instead of running into the CI job's own timeout.
-# The slowest test today, everygraph-oracle's
-# `thread_dependent_float_sum_is_caught_by_cross_config_identity`, took 67 s on a
-# loaded lab machine (2026-11-25).
+# minute and killed after five, before the CI job's own limit.
 
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }

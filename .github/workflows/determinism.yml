@@ -1,19 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 #
-# The determinism suite at full size (issue #54, DESIGN D14), nightly and by hand, on
-# GitHub-hosted runners only (free for a public repository). The pull-request part of
-# the suite is the sampled grid, run by ci.yml's `test` job with every other test.
+# The determinism suite at full size (issue #54, DESIGN D14), nightly and by hand. The
+# pull-request part of the suite is the sampled grid, run by ci.yml's `test` jobs with
+# every other test.
 #
 # - `grid`: crates/everygraph-determinism with EVERYGRAPH_DETERMINISM=full (every
 #   combination of 1, 2, 3, 8 and 32 threads, two chunkings and four sources, over a
-#   third of the CI corpus), and the determinism tests of the kernels, Leiden and the build at their release
-#   sizes. Optimized without LTO: the shipped profile's fat LTO adds minutes of linking
-#   per test binary and cannot change a float result (rustc never fuses `a*b + c`,
-#   docs/research/sota-numerics.md § 3.2).
+#   third of the CI corpus), and the determinism tests of the kernels, Leiden, the map
+#   and the build at their release sizes. Optimized without LTO: the shipped profile's
+#   fat LTO adds minutes of linking per test binary and cannot change a float result
+#   (rustc never fuses `a*b + c`, docs/research/sota-numerics.md § 3.2).
 # - `schedules`: Miri over 16 schedules of each test of the parallel facade
-#   (`-Zmiri-many-seeds`), on rayon, under Tree Borrows, in four jobs of four seeds. In
-#   one job, 16 seeds took up to 1,306 s for one test and two tests passed the 30-minute
-#   limit (PR #271).
+#   (`-Zmiri-many-seeds`), on rayon, under Tree Borrows, in four jobs of four seeds: 16
+#   seeds took up to 1,306 s for one test (PR #271).
 # - A failed scheduled run opens an issue, or comments on the one already open.
 #
 # Also runs on a pull request that changes this file, so a change is tested before it
@@ -70,7 +69,7 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: |
           cargo nextest run --release --locked --profile determinism -p everygraph-determinism
-          cargo nextest run --release --locked --profile determinism -p everygraph-kernels -p everygraph-community -p everygraph-ingest -E 'test(/depend|repeatable|identical/)'
+          cargo nextest run --release --locked --profile determinism -p everygraph-kernels -p everygraph-community -p everygraph-ingest -E 'test(/depend|repeatable|identical|same_bits|same_bytes|threads_do_not/)'
 
   schedules:
     name: Miri over schedules ${{ matrix.seeds }} (parallel facade)
