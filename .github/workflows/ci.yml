@@ -291,8 +291,6 @@ jobs:
       # lists and verifies a file the Rust writer made (#28).
       - name: Container, Python reader against the Rust writer
         run: python3 tools/check_container_python.py
-      # Property columns: pyarrow and Polars read the columns the Rust writer made,
-      # without Everygraph, and the statistics match an exact recomputation (#37).
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.11.28"
@@ -301,6 +299,13 @@ jobs:
             tools/check_columns_python.py
             tools/check_egmap_readers.py
           save-cache: ${{ github.ref == 'refs/heads/main' }}
+      - name: The scripts' Python packages, from PyPI (retried once)
+        run: |
+          for script in tools/check_columns_python.py tools/check_egmap_readers.py; do
+            uv sync --script "$script" || { sleep 15; uv sync --script "$script"; }
+          done
+      # Property columns: pyarrow and Polars read the columns the Rust writer made,
+      # without Everygraph, and the statistics match an exact recomputation (#37).
       - name: Columns, pyarrow and Polars against the Rust writer
         run: uv run --script tools/check_columns_python.py
       # The map file (#68): the independent Python reader, written from the specification,
@@ -660,7 +665,7 @@ jobs:
   # The one check a merge waits for: every job above passed or was not needed.
   ci-ok:
     name: ci-ok
-    needs: [lint, build, test, wasm, readers, canary, i686, release, oracle, msrv, sanitizers, no-oom]
+    needs: [lint, build, test, wasm, readers, canary, i686, release, oracle, msrv, sanitizers, miri-core, no-oom]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
