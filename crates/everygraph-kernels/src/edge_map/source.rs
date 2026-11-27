@@ -737,14 +737,17 @@ impl DecodeReader {
         Ok(())
     }
 
-    /// Frees the batch beyond its usual size.
+    /// Frees a batch that grew beyond its usual size, and makes room as a new reader
+    /// does. It is freed, not shrunk: a shrinking reallocation may hold the old and the
+    /// new buffer at once, and only the old one is reserved.
     pub(super) fn release(&mut self) {
         let usual = self.max_entries.saturating_add(8);
         let (entries, lists) = self.batch.capacity();
         if entries > usual || lists > self.lists {
-            self.batch.shrink_to(usual, self.lists);
-            self.held
-                .shrink(self.held.bytes() - self.batch.heap_bytes() as u64);
+            self.batch.shrink_to(0, 0);
+            self.held.shrink(self.held.bytes());
+            // Refused, the batch stays empty, and the next decode reserves its room.
+            let _ = self.make_room(0, self.lists);
         }
     }
 }
