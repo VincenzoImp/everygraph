@@ -834,14 +834,14 @@ fn the_break_even_follows_the_cost_model() {
     assert!(break_even(threads(1)) >= 1);
 }
 
-/// Traversals build the raw copy, then `PageRank` runs in the same budget: the copy
-/// counts in its plan, it does not fit beside `PageRank`, so the plan drops it first and
-/// the run fits. Beside an operation it fits with, the copy is kept and counted.
+/// Traversals build the raw copy, then k-core runs in the same budget: the copy counts
+/// in its plan, it does not fit beside k-core, so the plan drops it first and the run
+/// fits. Beside an operation it fits with, the copy is kept and counted.
 #[test]
 fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
     let s = path(20_001);
     let bfs = search(0, None, Direction::Out);
-    let pagerank = pagerank(Precision::Full);
+    let kcore = Operation::KCore;
     let one = Force {
         threads: Some(threads(1)),
         ..Force::default()
@@ -853,7 +853,7 @@ fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
     let with_raw = planned(&s, &bfs, PLENTY, raw, &mut Session::new())
         .0
         .peak_bytes();
-    let alone = planned(&s, &pagerank, PLENTY, one, &mut Session::new())
+    let alone = planned(&s, &kcore, PLENTY, one, &mut Session::new())
         .0
         .peak_bytes();
     let budget = (with_raw * 10 / 9 + 1).max(alone);
@@ -869,9 +869,9 @@ fn a_held_copy_counts_in_every_plan_and_is_dropped_when_it_does_not_fit() {
         alone + held > budget,
         "the test needs a copy that does not fit beside"
     );
-    let (plan, got) = planned_in(&s, &pagerank, budget, one, &mut session, &memory);
+    let (plan, got) = planned_in(&s, &kcore, budget, one, &mut session, &memory);
     assert!(plan.fits() && plan.drops_raw(), "{plan}");
-    assert_eq!(got.unwrap(), bits(&s.in_memory(&pagerank).unwrap()));
+    assert_eq!(got.unwrap(), bits(&s.in_memory(&kcore).unwrap()));
     assert!(session.raw_bytes().is_none());
     // Beside an operation that fits with it, the copy is kept and counted.
     let mut kept = Session::new();

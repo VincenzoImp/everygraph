@@ -270,7 +270,10 @@ pub fn pagerank<S: Source, F: Real>(
         Some(ids) => Some(seed_set(plan, ids, memory)?),
         None => None,
     };
-    let looped = loops(g, memory)?;
+    let looped = match g.weights {
+        None if !g.directed => loops_from_degrees(plan, s, memory)?,
+        _ => loops(g, memory)?,
+    };
     let inv_n = 1.0 / float(n as u64);
     let mut contrib = SegVec::try_with_len(memory, "pagerank contributions", n, F::ZERO)?;
     let mut next = SegVec::try_with_len(memory, "pagerank next", n, F::ZERO)?;
@@ -297,33 +300,42 @@ pub fn pagerank<S: Source, F: Real>(
         });
         let c = plan.per_node(one_segment(&contrib)?)?;
         let out = (one_segment_mut(&mut next)?, one_segment_mut(&mut rank)?);
-        let sums: (ExactSum, ExactSum) = plan.scan(
+        // Exact sums, so one per worker: one per reduction block cost 4% of the time on
+        // orkut (exploratory A/B, PR #339).
+        let (_, kept) = plan.scan_keep(
             out,
             all,
-            |acc: &mut (ExactSum, ExactSum), (next, rank), i, row, _| {
+            || (ExactSum::new(), ExactSum::new()),
+            |(): &mut (), (next, rank), i, row, w| {
                 let v = row.node;
                 let teleport = match &seeds {
                     Some((set, _)) if !set.contains(v) => F::ZERO,
                     _ => base,
                 };
                 let r = teleport.plus(damping.times(pull(c, &row, column, looped.as_ref())));
+                let sums = &mut *w.scratch;
                 if track {
-                    ExactSum::add(&mut acc.1, (r.to_f64() - rank[i].to_f64()).abs());
+                    sums.1.add((r.to_f64() - rank[i].to_f64()).abs());
                 }
                 if keep {
                     rank[i] = r;
                 }
                 if s[v] == 0.0 {
-                    ExactSum::add(&mut acc.0, r.to_f64());
+                    sums.0.add(r.to_f64());
                     next[i] = F::ZERO;
                 } else {
                     next[i] = r.over(F::from_f64(s[v] * adjust));
                 }
             },
         )?;
-        dangling = sums.0.value();
+        let (mut mass, mut moved) = (ExactSum::new(), ExactSum::new());
+        for (d, m) in &kept {
+            mass.merge(d);
+            moved.merge(m);
+        }
+        dangling = mass.value();
         if track {
-            change = sums.1.value();
+            change = moved.value();
         }
         std::mem::swap(&mut contrib, &mut next);
         iterations += 1;
@@ -486,6 +498,23 @@ fn loops<'g, S: Source>(
     let found: u64 = g.lists.scan((), all, |found: &mut u64, (), _, row, _| {
         if row.list.contains(&row.node) {
             set.insert(row.node);
+            *found += 1;
+        }
+    })?;
+    Ok((found > 0).then_some(set))
+}
+
+/// [`loops`] of an undirected graph without weights, from its strengths: the strength
+/// of `v` is its degree plus the number of its loops ([`strength`]), so no list is read.
+fn loops_from_degrees<'g, S: Source>(
+    plan: &Plan<'_, 'g, S>,
+    strength: PerNode<'_, 'g, f64>,
+    memory: &Memory,
+) -> Result<Option<NodeSet<'g>>, Error> {
+    let set = plan.node_set(memory)?;
+    let found: u64 = plan.vertices((), |found: &mut u64, (), _, v, degree| {
+        if strength[v] != f64::from(degree) {
+            set.insert(v);
             *found += 1;
         }
     })?;
