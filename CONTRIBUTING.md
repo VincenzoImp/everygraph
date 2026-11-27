@@ -302,8 +302,7 @@ What the scripts at the end of "Checks" are for:
   reported. Parallel kernels join it by having tests in their crate; the script then
   needs their package added next to the core's.
 
-Not in CI yet: the threaded wasm32 build (issue #108; `ci.yml` holds a placeholder
-describing it).
+Not in CI yet: the threaded wasm32 build (issue #108, which describes the job).
 
 ## Crates
 

@@ -66,7 +66,7 @@ env:
 
 jobs:
   lint:
-    name: Changes, format, lint, portability rule, dependency policy, docs
+    name: lint
     if: github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -158,7 +158,7 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
 
   build:
-    name: Build the tests; doc tests; core without default features
+    name: build
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
@@ -229,7 +229,7 @@ jobs:
           --partition hash:${{ matrix.partition }}/4
 
   wasm:
-    name: wasm32 builds and clippy, the wasm toy and codec in Node
+    name: wasm32
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
@@ -271,12 +271,12 @@ jobs:
         run: cargo clippy -p everygraph-map --target wasm32-unknown-unknown --locked -- -D warnings
       - name: Toy kernel and the edge-map kernels, native and wasm32 in Node, same hash
         run: python3 tools/check_wasm_toy.py
-      # The simd128 adjacency decoder against the scalar one, in Node (review of #30).
+      # The simd128 adjacency decoder against the scalar one, in Node.
       - name: Adjacency codec, simd128 in Node against scalar, same as native
         run: python3 tools/check_wasm_codec.py
 
   readers:
-    name: Independent readers and the Python package
+    name: readers
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
@@ -327,7 +327,7 @@ jobs:
   # Breaks the portability rule on purpose, one probe at a time, on a scratch copy;
   # fails if any probe is accepted.
   canary:
-    name: Portability canary
+    name: portability canary
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
@@ -350,7 +350,7 @@ jobs:
   # Native tests with a 32-bit usize, with and without rayon. Linking for i686 needs the
   # 32-bit C runtime.
   i686:
-    name: i686 tests (core, format)
+    name: i686
     needs: lint
     if: needs.lint.outputs.test == 'true' && needs.lint.outputs.core == 'true'
     runs-on: ubuntu-24.04
@@ -385,7 +385,7 @@ jobs:
 
   # The release profile (fat LTO): what a manifest or a profile can break. Full runs only.
   release:
-    name: Release build
+    name: release build
     needs: lint
     if: needs.lint.outputs.full == 'true'
     runs-on: ubuntu-24.04
@@ -407,11 +407,11 @@ jobs:
 
   # The correctness oracle (issue #6): the CI corpus through NetworkX, python-igraph and
   # scipy, the in-process references, the toy kernel, the seeded bugs and the golden files
-  # that need no network. The oracle crate's other Rust tests run in the `test` job
-  # (nextest), so the script skips them here. uv is pinned like every other tool; the Python interpreter
-  # and the packages are cached, written by main only.
+  # that need no network. The oracle crate's other Rust tests run in the `test` jobs, so
+  # the script skips them here. uv is pinned like every other tool; the Python
+  # interpreter and the packages are cached, written by main only.
   oracle:
-    name: Correctness oracle (references, seeded bugs, golden files)
+    name: oracle
     needs: lint
     if: needs.lint.outputs.oracle == 'true'
     runs-on: ubuntu-24.04
@@ -439,25 +439,18 @@ jobs:
       - name: oracle/run-ci.sh
         env:
           ORACLE_SKIP_RUST_TESTS: "1"
-          # 2 workers × 2 GiB of address space each stay below what a runner has (7 GB
-          # even on the smallest, a private repository's), so an oversized case becomes a
-          # recorded MemoryError, not an OOM kill.
+          # 2 workers × 2 GiB of address space each stay below the runner's memory, so an
+          # oversized case becomes a recorded MemoryError, not an OOM kill.
           ORACLE_JOBS: "2"
           ORACLE_MEMORY_GIB: "2"
         run: oracle/run-ci.sh
-
-  # Placeholder, not a job: the threaded browser build arrives with issue #108. It needs
-  # the nightly named in tools/nightly-toolchain with rust-src, `-Z build-std=panic_abort,std`,
-  # RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals" and the explicit
-  # linker flags `--shared-memory --import-memory --max-memory=…` (FINDINGS § G), and a
-  # browser or Node run with SharedArrayBuffer. Add it here as a job when #108 lands.
 
   # On a pull request only when a manifest changed (rust-version, a dependency, a new
   # crate). Newer *std* APIs are caught on every run anyway by clippy's
   # `incompatible_msrv` lint, which reads rust-version; newer *language* features are
   # caught on main and nightly.
   msrv:
-    name: Minimum supported Rust (1.100)
+    name: MSRV (1.100)
     needs: lint
     if: needs.lint.outputs.msrv == 'true'
     runs-on: ubuntu-24.04
@@ -466,7 +459,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # While the minimum is also the current stable release, the test job has already
+      # While the minimum is also the current stable release, the test jobs have already
       # run these tests on the same compiler: the job stops after this step.
       - name: Install Rust 1.100, and compare it with stable
         id: toolchain
@@ -500,7 +493,7 @@ jobs:
   # module of that table or the nightly tooling changed. Each part runs its tests through
   # nextest: one Miri process per test, as many at once as the runner has cores.
   sanitizers:
-    name: Miri and ThreadSanitizer (${{ matrix.title }})
+    name: Miri and TSan (${{ matrix.title }})
     needs: lint
     if: needs.lint.outputs.core == 'true'
     runs-on: ubuntu-24.04
@@ -510,9 +503,9 @@ jobs:
       matrix:
         include:
           - part: io
-            title: "I/O, adjacency codec, ingest heap"
+            title: "I/O, codec, ingest"
           - part: kernels
-            title: "edge-map framework, counting allocator; ThreadSanitizer"
+            title: "edge map, memtest, TSan"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -584,7 +577,7 @@ jobs:
   # The core under Miri. The core forbids `unsafe`, so a change to it alone adds none:
   # these runs check the standard library and rayon under the core's tests, and the
   # 32-bit `usize`. On a push to main, nightly and in a full run; the native i686 tests
-  # in `test` run on pull requests. Tests named `*full_size` are skipped: the numerics
+  # (job `i686`) run on pull requests. Tests named `*full_size` are skipped: the numerics
   # golden vectors and the exact sum over chunks of 65,536 take minutes under Miri, and
   # run natively on every target. nextest does not run doc tests, hence the `--doc` runs.
   miri-core:
@@ -600,7 +593,7 @@ jobs:
           - part: core
             title: "no default features, x86_64 and i686"
           - part: rayon
-            title: "rayon under Tree Borrows"
+            title: "rayon, Tree Borrows"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -645,9 +638,9 @@ jobs:
   # the long search, and the cgroup matrix (graphs up to 2^22 nodes, budgets from a
   # quarter of each operation's peak to 8 GiB, each run in a `systemd-run` scope). Every
   # night, whatever main's last run did: its records are the evidence of the promise.
-  # The pull-request part runs in `test` (nextest).
+  # The pull-request part runs in the `test` jobs.
   no-oom:
-    name: No-OOM suite, nightly sizes and cgroup matrix
+    name: no-OOM, nightly sizes
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 150
@@ -738,7 +731,7 @@ jobs:
   # Each fuzz target's committed corpus, once (CONTRIBUTING.md, "Fuzzing"). The longer
   # runs are in fuzz.yml.
   fuzz-replay:
-    name: Fuzz corpus replay
+    name: fuzz replay
     needs: lint
     if: needs.lint.outputs.test == 'true'
     runs-on: ubuntu-24.04
@@ -769,7 +762,7 @@ jobs:
   # 5 minutes per target of a crate the pull request changed. Advisory, so not in ci-ok:
   # a crash it finds is a bug to fix before merging; a broken nightly toolchain is not.
   fuzz-campaign:
-    name: Fuzz ${{ matrix.target }} for 5 minutes (advisory)
+    name: fuzz ${{ matrix.target }}, 5 min (advisory)
     needs: [lint, fuzz-replay]
     if: >-
       github.event_name == 'pull_request' && (needs.lint.outputs.fuzz_format == 'true'
