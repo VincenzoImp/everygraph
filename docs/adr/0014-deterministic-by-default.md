@@ -111,13 +111,12 @@ asynchronous prototype, not against production `fast` mode. The price of the def
   and oversubscribed, two chunkings, four sources and a repeated run; Leiden on a view
   as a mask and materialized. Left: native vs wasm32 and aarch64 by a full hash, the
   forced regimes and two budgets.
-- #47: f64 PageRank, identical bytes at 1, 4, 16 threads, in each regime, at budgets of 2,
-  8, 16 GiB and unlimited, and on a view either way; f32 only on request.
-- #48: component labels identical across threads, Afforest vs streaming union-find,
-  budgets and views.
-- #93: every kernel identical on a view as a mask or materialized (`views.rs`); left:
-  after `save()`, which no view has yet.
-- #45: the result hash is the same in every regime the planner can choose.
+- Every whole-graph kernel, PageRank and components among them, in the same grid of #54.
+  The planner's streamed plan gives the bits of the in-memory run
+  (`everygraph-kernels/tests/planner.rs`
+  `edges_that_do_not_fit_are_streamed_within_the_planned_peak`).
+- Every kernel identical on a view as a mask or materialized (`views.rs`). Left to #93:
+  a view after `save()`, which no view has yet.
 
 ## Consequences
 

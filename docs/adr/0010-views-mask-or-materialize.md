@@ -8,8 +8,8 @@
 
 Filtered views ("edges above 10 ETH", "only 2024", "only this community") must work with
 every kernel. A view can be a mask over the full graph or a materialized filtered
-adjacency. DESIGN stated a rule — bitset mask above ~25% selectivity, materialized below — until
-it was withdrawn on 2026-11-25 pending #93.
+adjacency. A rule of a bitset mask above ~25% selectivity and a materialized view below it
+has no measurement behind it (Evidence).
 
 ## Decision
 
@@ -32,8 +32,8 @@ PageRank iteration and one BFS; time relative to the unfiltered graph;
 
 - A plain bitset mask never clearly beats the unfiltered scan (0.91–2.09×), as FINDINGS
   says. A Roaring mask did at 1% (0.59× at 32 threads).
-- DESIGN's earlier "PageRank at 0.09× for 1–10% selectivity" holds at 4 threads; at 32
-  threads it is 0.09× at 1% and 0.17× at 10% (DESIGN and FINDINGS corrected on 2026-11-25).
+- The materialized view runs PageRank at 0.09× for 1–10% selectivity at 4 threads; at 32
+  threads it is 0.09× at 1% and 0.17× at 10%.
 - **Where the rule is not supported:** there is no measurement between 10% and 50%, and
   at every selectivity measured the materialized view was faster per PageRank iteration
   than the mask. Over 20 iterations it also wins with its build time included, at 50%
@@ -41,13 +41,11 @@ PageRank iteration and one BFS; time relative to the unfiltered graph;
   90%. The mask wins only for few-pass work (BFS at 50%, 32 threads: 0.23 s masked vs
   0.28 s build plus BFS) and on memory (the 50% materialized view takes 493 MB, the
   bitset 29 MB). The choice therefore depends on the number of passes and on the memory
-  budget, not on selectivity alone. FINDINGS' earlier "~20–30%" was not a measurement; it is labelled as an
-  estimate since on 2026-11-25.
+  budget, not on selectivity alone.
 
 ## Consequences
 
-- #93 builds both representations; its planner rule is derived from a crossover
-  measurement, not from the ~25% figure.
+- The planner rule comes from a crossover measurement (#93), not from the ~25% figure.
 - Both exist: `everygraph_kernels::edge_map::View` is a mask (a node and an entry
   bitset, a rank directory, the map to parent ids and the view's offsets) until it
   copies its lists into a `RawCopy`. Until the measurement, the planner's rule

@@ -35,6 +35,8 @@ step clippy-kernels-i686 cargo clippy -p everygraph-kernels --target i686-unknow
 step clippy-format-wasm cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
 step clippy-format-simd128 env RUSTFLAGS="-C target-feature=+simd128" CARGO_TARGET_DIR=target/wasm-simd128 \
   cargo clippy -p everygraph-format --target wasm32-unknown-unknown -- -D warnings
+step clippy-kernels-wasm cargo clippy -p everygraph-kernels --target wasm32-unknown-unknown -- -D warnings
+step clippy-community-wasm cargo clippy -p everygraph-community --target wasm32-unknown-unknown -- -D warnings
 step clippy-map-wasm cargo clippy -p everygraph-map --target wasm32-unknown-unknown -- -D warnings
 step clippy-query-wasm cargo clippy -p everygraph-query --target wasm32-unknown-unknown -- -D warnings
 step deny cargo deny check
